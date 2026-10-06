@@ -6,16 +6,21 @@ import type {
   SpawnHandle,
 } from "@tanstack/ai-sandbox"
 
-/** Apply `wrap` to each handle that the provider gives. */
-function wrapSandboxHandles(
+/**
+ * Apply `wrap` to each handle that the provider gives. `createOptions`
+ * changes the options of `create` and `restoreSnapshot`.
+ */
+export function wrapSandboxHandles(
   provider: SandboxProvider,
-  wrap: (handle: SandboxHandle) => SandboxHandle,
+  wrap: (handle: SandboxHandle) => SandboxHandle | Promise<SandboxHandle>,
+  createOptions: <T>(options: T) => T = (options) => options,
 ): SandboxProvider {
   const { restoreSnapshot } = provider
   return {
     name: provider.name,
     capabilities: () => provider.capabilities(),
-    create: async (options) => wrapHandle(await provider.create(options)),
+    create: async (options) =>
+      wrapHandle(await provider.create(createOptions(options))),
     resume: async (options) => {
       const handle = await provider.resume(options)
       return handle ? wrapHandle(handle) : handle
@@ -24,11 +29,13 @@ function wrapSandboxHandles(
     ...(restoreSnapshot
       ? {
           restoreSnapshot: async (options) =>
-            wrapHandle(await restoreSnapshot.call(provider, options)),
+            wrapHandle(
+              await restoreSnapshot.call(provider, createOptions(options)),
+            ),
         }
       : {}),
   }
-  function wrapHandle(handle: SandboxHandle): SandboxHandle {
+  async function wrapHandle(handle: SandboxHandle): Promise<SandboxHandle> {
     const { snapshot, fork } = handle
     return wrap({
       ...handle,

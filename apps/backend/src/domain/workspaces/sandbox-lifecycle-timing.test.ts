@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process"
+import { execFileSync, spawn } from "node:child_process"
 import { mkdtempSync, readFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -71,5 +71,63 @@ describe("sandbox lifecycle timing", () => {
       id: "snap-after-setup",
     })
     await expect(timed.destroy()).resolves.toBeUndefined()
+  })
+
+  describe("kill", () => {
+    // A real child that ignores SIGTERM. It prints "up" once the trap is set.
+    function handleWithRealProcess(signals: Array<string | undefined>) {
+      const process = {
+        spawn: async (command: string) => {
+          const child = spawn("sh", ["-c", command], { stdio: "pipe" })
+          const exited = new Promise<void>((resolve) =>
+            child.once("close", () => resolve()),
+          )
+          const up = new Promise<void>((resolve) =>
+            child.stdout.once("data", () => resolve()),
+          )
+          return {
+            pid: child.pid,
+            up,
+            wait: () => exited,
+            kill: async (signal?: NodeJS.Signals) => {
+              signals.push(signal)
+              child.kill(signal ?? "SIGTERM")
+            },
+          }
+        },
+      }
+      return timedSandboxHandle({ process } as unknown as SandboxHandle)
+    }
+
+    it("passes an explicit signal on and does not escalate", async () => {
+      const signals: Array<string | undefined> = []
+      const handle = handleWithRealProcess(signals)
+      const proc = (await handle.process.spawn(
+        "trap '' TERM; echo up; sleep 30",
+      )) as Awaited<ReturnType<typeof handle.process.spawn>> & {
+        up: Promise<void>
+      }
+      await proc.up
+      await proc.kill("SIGTERM")
+      await new Promise((resolve) => setTimeout(resolve, 700))
+      expect(signals).toEqual(["SIGTERM"])
+      await proc.kill("SIGKILL")
+      await proc.wait()
+    })
+
+    it("escalates to SIGKILL after 500 ms when no signal is given", async () => {
+      const signals: Array<string | undefined> = []
+      const handle = handleWithRealProcess(signals)
+      const proc = (await handle.process.spawn(
+        "trap '' TERM; echo up; while :; do sleep 1; done",
+      )) as Awaited<ReturnType<typeof handle.process.spawn>> & {
+        up: Promise<void>
+      }
+      await proc.up
+      const started = Date.now()
+      await proc.kill()
+      expect(Date.now() - started).toBeGreaterThanOrEqual(450)
+      expect(signals).toEqual([undefined, "SIGKILL"])
+    })
   })
 })

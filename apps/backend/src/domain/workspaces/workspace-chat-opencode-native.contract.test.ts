@@ -526,7 +526,6 @@ async function readPids(pidFile: string): Promise<number[]> {
  * put a provider of its own between the product provider and the engine.
  */
 async function runFixtureTurn(input: {
-  directory: string
   wrap?: (provider: SandboxProvider) => SandboxProvider
 }): Promise<{
   types: string[]
@@ -605,7 +604,7 @@ it(
     await writeStubbornOpencode(join(directory, "bin"), pidFile)
     vi.stubEnv("PATH", `${join(directory, "bin")}:${process.env.PATH ?? ""}`)
     try {
-      const turn = await runFixtureTurn({ directory })
+      const turn = await runFixtureTurn({})
       expect(turn.types).toContain("TEXT_MESSAGE_END")
       expect(turn.types).toContain("RUN_FINISHED")
       expect(turn.types).not.toContain("RUN_ERROR")
@@ -653,7 +652,7 @@ it(
       destroy: (options) => provider.destroy(options),
     })
     try {
-      const turn = await runFixtureTurn({ directory, wrap: neverKill })
+      const turn = await runFixtureTurn({ wrap: neverKill })
       expect(turn.types).toContain("TEXT_MESSAGE_END")
       expect(turn.types).toContain("RUN_FINISHED")
       expect(

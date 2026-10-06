@@ -6,6 +6,7 @@ import Docker from "dockerode"
 import { assertNotInOrgDbContext } from "../../db/client.js"
 import type { RunningSandboxProvider } from "../../models/workspace-sandboxes.js"
 import { log } from "../../observability/logger.js"
+import { wrapSandboxHandles } from "./sandbox-process-guards.js"
 
 /** Hosted runs Vercel, self-host runs Docker; unsandboxed is explicit only. */
 export const SANDBOX_PROVIDERS = ["docker", "vercel", "unsandboxed"] as const
@@ -78,20 +79,11 @@ export async function discoverSandboxProvider(
 export function withSessionOnlyEnv(
   provider: TanstackSandboxProvider,
 ): TanstackSandboxProvider {
-  const { restoreSnapshot } = provider
-  return {
-    name: provider.name,
-    capabilities: () => provider.capabilities(),
-    create: (input) => provider.create({ ...input, env: undefined }),
-    resume: (input) => provider.resume(input),
-    destroy: (input) => provider.destroy(input),
-    ...(restoreSnapshot
-      ? {
-          restoreSnapshot: (input) =>
-            restoreSnapshot.call(provider, { ...input, env: undefined }),
-        }
-      : {}),
-  }
+  return wrapSandboxHandles(
+    provider,
+    (handle) => handle,
+    (options) => ({ ...options, env: undefined }),
+  )
 }
 
 /**
@@ -118,19 +110,12 @@ export function withDockerAgentPort(
   input: { agentPassword: string; daemonHost?: string },
 ): TanstackSandboxProvider {
   const authorization = `Basic ${Buffer.from(`opencode:${input.agentPassword}`).toString("base64")}`
-  const wrap = async (handle: SandboxHandle): Promise<SandboxHandle> => {
+  return wrapSandboxHandles(provider, async (handle) => {
     // On the handle, not only in workspace secrets, so `opencode serve` never
     // starts without a password.
     await handle.env.set({ OPENCODE_SERVER_PASSWORD: input.agentPassword })
-    const { snapshot, fork } = handle
     return {
       ...handle,
-      // DockerHandle keeps these on its prototype; spread drops them.
-      ...(snapshot
-        ? { snapshot: (label?: string) => snapshot.call(handle, label) }
-        : {}),
-      ...(fork ? { fork: async () => wrap(await fork.call(handle)) } : {}),
-      destroy: () => handle.destroy(),
       ports: {
         connect: async (port) => {
           const channel = await handle.ports.connect(port)
@@ -147,24 +132,7 @@ export function withDockerAgentPort(
         },
       },
     }
-  }
-  const { restoreSnapshot } = provider
-  return {
-    name: provider.name,
-    capabilities: () => provider.capabilities(),
-    create: async (options) => wrap(await provider.create(options)),
-    resume: async (options) => {
-      const handle = await provider.resume(options)
-      return handle ? wrap(handle) : handle
-    },
-    destroy: (options) => provider.destroy(options),
-    ...(restoreSnapshot
-      ? {
-          restoreSnapshot: async (options) =>
-            wrap(await restoreSnapshot.call(provider, options)),
-        }
-      : {}),
-  }
+  })
 }
 
 /**
