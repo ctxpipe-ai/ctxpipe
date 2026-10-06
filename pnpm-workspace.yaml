@@ -11,5 +11,6 @@ patchedDependencies:
   '@cosmograph/cosmograph@2.2.1': patches/@cosmograph__cosmograph@2.2.1.patch
   '@hono/zod-openapi@1.2.2': patches/@hono__zod-openapi@1.2.2.patch
   '@langchain/langgraph@1.4.7': patches/@langchain__langgraph@1.4.7.patch
-  # Temporary, upstream PR pending (ticket 01): assistant-only parts, SSE readiness and completion, abort on dispose.
+  # Temporary (ADR-044). Ticket 01, upstream PR pending: assistant-only parts, SSE readiness and completion, abort on dispose.
+  # Ticket 15: a 1 s limit on each adapter teardown step; accepted 2026-10-06; upstream issue: https://github.com/TanStack/ai/issues/1638.
   '@tanstack/ai-opencode@0.4.14': patches/@tanstack__ai-opencode@0.4.14.patch

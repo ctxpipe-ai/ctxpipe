@@ -259,9 +259,24 @@ export function timedSandboxHandle(handle: SandboxHandle): SandboxHandle {
         const proc = await handle.process.spawn(command, options)
         return {
           ...proc,
-          kill: async () => {
+          kill: async (signal) => {
             markSandboxLifecycle(phase, { ms: Date.now() - started })
-            return proc.kill()
+            if (signal !== undefined) return proc.kill(signal)
+            // The default kill only asks the process to stop. Force it when
+            // it still runs after 500 ms.
+            await proc.kill()
+            let timer: ReturnType<typeof setTimeout> | undefined
+            const exited = await Promise.race([
+              proc.wait().then(
+                () => true,
+                () => true,
+              ),
+              new Promise<boolean>((resolve) => {
+                timer = setTimeout(resolve, 500, false)
+              }),
+            ])
+            clearTimeout(timer)
+            if (!exited) await proc.kill("SIGKILL")
           },
         }
       },

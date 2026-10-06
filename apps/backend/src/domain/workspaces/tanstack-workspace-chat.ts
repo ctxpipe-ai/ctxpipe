@@ -70,6 +70,10 @@ import {
 } from "./sandbox-lifecycle-timing.js"
 import { postgresSandboxLocks } from "./sandbox-lock-store.js"
 import {
+  withOwnerWatchdog,
+  withSingleOpencodeServer,
+} from "./sandbox-process-guards.js"
+import {
   discoverSandboxProvider,
   dockerImageId,
   remoteDockerHost,
@@ -224,34 +228,38 @@ function workspaceChatImageId(): Promise<string> {
   return dockerImageId(workspaceChatDockerImage())
 }
 
-function conversationSandboxProvider(
+export function conversationSandboxProvider(
   isolation: SandboxProviderName,
   conversationId: string,
   vercel?: Parameters<typeof vercelConversationProvider>[0],
 ): SandboxProvider {
   if (isolation === "vercel") {
     if (!vercel) throw new Error("Vercel sandbox options are missing")
-    return vercelConversationProvider(vercel)
+    return withSingleOpencodeServer(vercelConversationProvider(vercel))
   }
   if (isolation === "unsandboxed")
-    return localProcessSandbox({
-      scrubEnv: [...WORKSPACE_CHAT_LOCAL_PROCESS_SCRUB_ENV],
-    })
-  return withSessionOnlyEnv(
-    withDockerAgentPort(
-      dockerSandbox({
-        image: workspaceChatDockerImage(),
-        publishPorts: [WORKSPACE_CHAT_OPENCODE_PORT],
-        dockerodeOptions: { timeout: 120_000 },
+    return withOwnerWatchdog(
+      localProcessSandbox({
+        scrubEnv: [...WORKSPACE_CHAT_LOCAL_PROCESS_SCRUB_ENV],
       }),
-      {
-        // AUTH_SECRET is checked before the provider is built.
-        agentPassword: conversationAgentPassword(
-          process.env.AUTH_SECRET?.trim() ?? "",
-          conversationId,
-        ),
-        daemonHost: remoteDockerHost(),
-      },
+    )
+  return withSingleOpencodeServer(
+    withSessionOnlyEnv(
+      withDockerAgentPort(
+        dockerSandbox({
+          image: workspaceChatDockerImage(),
+          publishPorts: [WORKSPACE_CHAT_OPENCODE_PORT],
+          dockerodeOptions: { timeout: 120_000 },
+        }),
+        {
+          // AUTH_SECRET is checked before the provider is built.
+          agentPassword: conversationAgentPassword(
+            process.env.AUTH_SECRET?.trim() ?? "",
+            conversationId,
+          ),
+          daemonHost: remoteDockerHost(),
+        },
+      ),
     ),
   )
 }
