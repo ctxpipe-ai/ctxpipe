@@ -1,12 +1,12 @@
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
+import { planStoredExtraction } from "../../domain/workspaces/captured-extraction.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import { workspaceExtractionSchema } from "../../domain/workspaces/extraction.js"
 import {
   isConnectorMirrorPath,
   isLinkedRepositoryDeclaration,
 } from "../../domain/workspaces/layout.js"
-import { planCapturedExtraction } from "../../domain/workspaces/plan-extraction.js"
 import {
   sameWorkspaceRevision,
   workspaceRevisionSchema,
@@ -23,7 +23,6 @@ import {
   withWorkspaceWriteContext,
 } from "../../domain/workspaces/write-command.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
-import { loadCapturedExtraction } from "../../graphs/codeIngestionGraph/runExtractRoot.js"
 import { loadExtractionPathIdentity } from "../../models/workspace-export.js"
 import {
   persistBoundWriteJob,
@@ -133,12 +132,10 @@ export const workspaceExtractIngest = defineWorkflow(
                 acquired.pack,
                 (path) => path.endsWith(".md") && !isConnectorMirrorPath(path),
               )
-              const plan = await planCapturedExtraction({
+              const plan = await planStoredExtraction({
                 ...identity,
-                extraction: await loadCapturedExtraction(
-                  input.orgId,
-                  input.extraction,
-                ),
+                orgId: input.orgId,
+                extraction: input.extraction,
                 workspaceId: input.workspaceId,
                 workspaceRepositoryUrl: revision.remote.url,
                 existingKnowledge,

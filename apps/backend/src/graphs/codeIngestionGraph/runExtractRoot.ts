@@ -1,14 +1,7 @@
 import { isUnresolvedProviderIdentity } from "../../domain/codeIngestion/referenceResolver.js"
 import {
-  type CapturedExtraction,
-  capturedExtractionSchema,
-  captureExtractionClaimSourcePath,
-  type WorkspaceExtraction,
-} from "../../domain/workspaces/extraction.js"
-import {
   type ExtractionCaptureKey,
   type ExtractionCounts,
-  loadExtractionCapture,
   storedRootCapture,
   storeRootCapture,
 } from "../../models/repository-extraction-captures.js"
@@ -27,7 +20,6 @@ import { identifyServiceDependencies } from "./nodes/identifyServiceDependencies
 import { identifyStreams } from "./nodes/identifyStreams.js"
 import {
   linkLocatedPaths,
-  linkPackageHierarchy,
   resolveReferenceClaims,
 } from "./nodes/linkLocatedPaths.js"
 import { sanitizePostgresJson } from "./postgresJson.js"
@@ -174,47 +166,4 @@ export async function finalizeExtractedReferences(
     extractedObjects: [...extractedObjects, ...stubs],
     extractedClaims: claims,
   }
-}
-
-/**
- * Read the stored roots of a queued extraction and build the publishable
- * capture: reference resolution and package hierarchy need all roots.
- */
-export async function loadCapturedExtraction(
-  orgId: string,
-  extraction: WorkspaceExtraction,
-): Promise<CapturedExtraction> {
-  const { capture, ...header } = extraction
-  const stored = await loadExtractionCapture(
-    {
-      orgId,
-      repositoryId: header.repositoryId,
-      sourceSha: header.sourceSha,
-      scope: capture.scope,
-      extractorVersion: capture.extractorVersion,
-    },
-    capture.roots,
-  )
-  const finalized = await finalizeExtractedReferences({ orgId, ...stored })
-  const claims = [
-    ...finalized.extractedClaims,
-    ...linkPackageHierarchy({
-      repositoryId: header.repositoryId,
-      targetHash: header.sourceSha,
-      objects: finalized.extractedObjects,
-      claims: finalized.extractedClaims,
-    }),
-  ]
-  return capturedExtractionSchema.parse({
-    ...header,
-    objects: finalized.extractedObjects,
-    claims: claims.map((claim) => ({
-      subjectRef: claim.subjectRef,
-      objectRef: claim.objectRef,
-      predicate: claim.predicate,
-      confidence: claim.confidence,
-      sourceId: claim.sourceId,
-      sourcePath: captureExtractionClaimSourcePath(claim.provenance),
-    })),
-  })
 }
