@@ -53,8 +53,10 @@ typed change edges.
 
 ## Amendment (2026-10-05): issues
 
-7. Issues use the same binding, picker scope (`pullRequests.repositories`)
-   and lifecycle as pull requests. `github/config.yaml` gains
+7. Issues are captured implicitly, like pull requests: every issue of the
+   selected repositories, with no toggle. Per-repository or label filtering
+   waits for workspaces. Issues use the same binding, picker scope
+   (`pullRequests.repositories`) and lifecycle as pull requests. `github/config.yaml` gains
    `issues: { maxIssuesPerRepository }`. Its presence marks a yaml written
    after issue capture shipped; the startup sweep (key `v2`) rewrites a yaml
    without it. That rewrite also re-runs the pull-request backfill once per
