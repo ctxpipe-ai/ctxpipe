@@ -27,7 +27,6 @@ import { generateObjectId } from "../../lib/id.js"
 import {
   BASE_BUILD_LEASE_MS,
   countRunningSandboxes,
-  getDesiredWorkspaceRevision,
   getSandboxInstance,
   listSandboxInstances,
 } from "../../models/workspaces.js"
@@ -48,7 +47,6 @@ import {
   type WorkspaceBaseBuilder,
 } from "./workspace-base-providers.js"
 import {
-  releaseFailedBaseBuild,
   reserveWorkspaceBaseBuild,
   runWorkspaceBaseBuild,
 } from "./workspace-sandbox-base.js"
@@ -741,90 +739,6 @@ it(
               .where(eq(workspaceSandboxInstances.id, id))
         })
       }
-    })
-  },
-)
-
-it(
-  "a retried build cleans up a failed attempt's builder, then builds and publishes",
-  { timeout: 300_000 },
-  async () => {
-    await withDockerBases(async (f, _remote, chat) => {
-      const ourContainers = async () =>
-        (
-          await docker.listContainers({
-            all: true,
-            filters: JSON.stringify({
-              label: [`${DOCKER_LABELS.org}=${f.orgId}`],
-            }),
-          })
-        ).map((container) => container.Id)
-      const baseId = await chat.reserve()
-      if (!baseId) throw new Error("no lease")
-      // Attempt 1 fails after its builder is recorded.
-      let failedBuilder = ""
-      await expect(
-        chat.run(baseId, (builder) => ({
-          ...builder,
-          start: async (base) => {
-            const build = await builder.start(base)
-            failedBuilder = build.builderId
-            return {
-              ...build,
-              capture: () => Promise.reject(new Error("capture failed")),
-            }
-          },
-        })),
-      ).rejects.toThrow("capture failed")
-      expect(failedBuilder).not.toBe("")
-      expect(await exists("container", failedBuilder)).toBe(false)
-      expect(
-        (await getSandboxInstance(baseId, f.orgId))?.providerSandboxId,
-      ).toBe(failedBuilder)
-      // Attempt 2 (the OpenWorkflow retry) builds and publishes.
-      const image = await chat.run(baseId)
-      if (!image) throw new Error("retry lost its lease")
-      expect(await getSandboxInstance(baseId, f.orgId)).toMatchObject({
-        state: "live",
-        latestSnapshotId: image,
-        providerSandboxId: null,
-      })
-      expect(await ourContainers()).toEqual([])
-      // A retry after publishing returns the published base.
-      expect(await chat.run(baseId)).toBe(image)
-    })
-  },
-)
-
-it(
-  "a build whose last attempt failed releases its lease at once: no slot held, the next build may start",
-  { timeout: 300_000 },
-  async () => {
-    await withDockerBases(async (f, _remote, chat) => {
-      const baseId = await chat.reserve()
-      if (!baseId) throw new Error("no lease")
-      await expect(
-        chat.run(baseId, (builder) => ({
-          ...builder,
-          start: async (base) => ({
-            ...(await builder.start(base)),
-            capture: () => Promise.reject(new Error("capture failed")),
-          }),
-        })),
-      ).rejects.toThrow("capture failed")
-      // Still leased: it blocks a second build and holds a slot.
-      expect(await countRunningSandboxes(f.orgId, "")).toBe(1)
-      expect(await chat.reserve()).toBeNull()
-      await releaseFailedBaseBuild({ orgId: f.orgId, baseId })
-      expect((await getSandboxInstance(baseId, f.orgId))?.state).toBe(
-        "destroy_failed",
-      )
-      expect(await countRunningSandboxes(f.orgId, "")).toBe(0)
-      expect(await chat.run(baseId)).toBeNull()
-      // A new build may start; the sweep deletes the failed row.
-      expect(await chat.build()).not.toBeNull()
-      expect(await chat.collect()).toBe(1)
-      expect(await getSandboxInstance(baseId, f.orgId)).toBeNull()
     })
   },
 )

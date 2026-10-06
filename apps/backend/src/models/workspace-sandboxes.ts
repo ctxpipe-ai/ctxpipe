@@ -492,27 +492,3 @@ export async function updateBuildingBase(input: {
     return updated.length === 1
   })
 }
-
-/**
- * End a Workspace base build that will not be retried: its row becomes
- * `destroy_failed`, which holds no lease and no slot, and the sweep deletes
- * it with whatever it made. Only a row still `building` changes.
- */
-export async function failBuildingBase(
-  id: string,
-  orgId: string,
-): Promise<void> {
-  await withSandboxInstanceDb(orgId, async () => {
-    await getOrgDb()
-      .update(workspaceSandboxInstances)
-      .set({ state: "destroy_failed", updatedAt: new Date() })
-      .where(
-        and(
-          eq(workspaceSandboxInstances.id, id),
-          eq(workspaceSandboxInstances.orgId, orgId),
-          eq(workspaceSandboxInstances.kind, "base"),
-          eq(workspaceSandboxInstances.state, "building"),
-        ),
-      )
-  })
-}

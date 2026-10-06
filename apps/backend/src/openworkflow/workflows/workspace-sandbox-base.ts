@@ -1,23 +1,19 @@
 import { z } from "zod"
 import { currentSandboxAgent } from "../../domain/workspaces/workspace-base-providers.js"
 import {
-  releaseFailedBaseBuild,
   reserveWorkspaceBaseBuild,
   runWorkspaceBaseBuild,
 } from "../../domain/workspaces/workspace-sandbox-base.js"
 import { runWorkflowWithWorkerWake } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 
-/** The build step runs at most this many times (the first and two retries). */
-const BUILD_ATTEMPTS = 3
-
 /**
  * Build (or refresh) one Workspace's base in durable steps (ADR-047):
  * `reserve` (the `building` row, keyed by this run, is the lease) and `build`
- * (create the builder, clone and set up, capture and publish; safe to run
- * again at any point). OpenWorkflow runs `build` up to three times. When the
- * last attempt fails, `release` ends the lease at once, so the failed build
- * blocks no new build and holds no slot; the sweep deletes its row.
+ * (create the builder, clone and set up, capture and publish). `build` runs
+ * once: a failed build marks its row `destroy_failed` itself (no lease, no
+ * slot; the sweep deletes it), and the next 10-minute window's first start
+ * requests a new build.
  * Requested by new sandbox starts when the base is missing or stale; reserve
  * decides. Unused bases are deleted by the org's sandbox sweep.
  */
@@ -36,21 +32,11 @@ export const workspaceSandboxBase = defineWorkflow(
       return reserveWorkspaceBaseBuild({ ...input, runId: run.id, agent })
     })
     if (!baseId) return { built: false }
-    try {
-      const ref = await step.run(
-        { name: "build", retryPolicy: { maximumAttempts: BUILD_ATTEMPTS } },
-        () => runWorkspaceBaseBuild({ orgId: input.orgId, baseId }),
-      )
-      return { built: ref !== null }
-    } catch (error) {
-      const attempts = (error as { stepFailedAttempts?: number })
-        .stepFailedAttempts
-      if (attempts !== undefined && attempts >= BUILD_ATTEMPTS)
-        await step.run({ name: "release" }, () =>
-          releaseFailedBaseBuild({ orgId: input.orgId, baseId }),
-        )
-      throw error
-    }
+    const ref = await step.run(
+      { name: "build", retryPolicy: { maximumAttempts: 1 } },
+      () => runWorkspaceBaseBuild({ orgId: input.orgId, baseId }),
+    )
+    return { built: ref !== null }
   },
 )
 

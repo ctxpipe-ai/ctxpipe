@@ -8,7 +8,6 @@ import { withOrgDbContext } from "../../db/client.js"
 import {
   BASE_BUILD_LEASE_MS,
   countRunningSandboxes,
-  failBuildingBase,
   getDesiredWorkspaceRevision,
   getSandboxInstance,
   heartbeatSandboxInstance,
@@ -275,8 +274,8 @@ export async function reserveWorkspaceBaseBuild(input: {
  * leaves a Docker image labeled with this row's id that the row does not
  * name (the host prune removes it once the lease lapsed) or a snapshot
  * under the Vercel builder (deleted with it).
- * Retries (OpenWorkflow): a published row returns its image or snapshot; a
- * failed attempt's builder is deleted before the build starts again.
+ * It runs once: a failure deletes what it made and marks the row
+ * `destroy_failed`. A published row returns its image or snapshot.
  * Returns the image or snapshot id, or null when the lease is gone.
  */
 export async function runWorkspaceBaseBuild(input: {
@@ -290,26 +289,15 @@ export async function runWorkspaceBaseBuild(input: {
   const { orgId, baseId } = input
   const row = await getSandboxInstance(baseId, orgId)
   if (row?.state === "live" && row.latestSnapshotId) return row.latestSnapshotId
+  // A build runs once; a row that already names a builder is another run's.
   if (
     !row?.revision ||
     !isRunningSandboxProvider(row.provider) ||
-    !row.leaseHeld
+    !row.leaseHeld ||
+    row.providerSandboxId
   )
     return null
   const provider = row.provider
-  if (row.providerSandboxId) {
-    // A failed attempt's builder.
-    await deleteWorkspaceBaseArtifacts(row)
-    if (
-      !(await updateBuildingBase({
-        id: baseId,
-        orgId,
-        builderId: row.providerSandboxId,
-        set: { providerSandboxId: null },
-      }))
-    )
-      return null
-  }
   const revision = row.revision
   const builder =
     input.builder ?? (await workspaceBaseBuilder({ provider, orgId, revision }))
@@ -393,24 +381,21 @@ export async function runWorkspaceBaseBuild(input: {
     })
     return ref
   } catch (error) {
-    // Nothing of this attempt is kept: the retry starts over. A Vercel
-    // builder that failed mid-setup is deleted here, not left running.
+    // Nothing of this build is kept. A Vercel builder that failed mid-setup
+    // is deleted here, not left running. The row ends its lease at once
+    // (`destroy_failed`: no lease, no slot); the sweep deletes it, and the
+    // next window's first start requests a new build.
     await deleteWorkspaceBaseArtifacts(made)
+    await write(build.builderId, { state: "destroy_failed" }).catch(
+      (failError: unknown) =>
+        logger.warn(
+          `Ending a failed Workspace base build's lease failed: ${String(failError)}`,
+          { step: "workspace-base-build", orgId, workspaceId: row.workspaceId },
+        ),
+    )
     throw error
   } finally {
     clearInterval(heartbeat)
     await build.finish()
   }
-}
-
-/**
- * After the build's last attempt failed: release its lease at once (a
- * conditional UPDATE to `destroy_failed`), so it stops blocking new builds
- * and holding one of the org's slots. The sweep deletes the row.
- */
-export async function releaseFailedBaseBuild(input: {
-  orgId: string
-  baseId: string
-}): Promise<void> {
-  await failBuildingBase(input.baseId, input.orgId)
 }
