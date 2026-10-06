@@ -23,6 +23,23 @@ import { ow } from "../client.js"
 import { enqueueRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
 import { repositoryIngestionOrchestrator } from "./repository-ingestion-orchestrator.js"
 
+// A worker claims every open run in its namespace, also runs it does not
+// implement. Earlier contract files leave open runs in "default", and the
+// worker must work through them first, so a poll or a result wait can time
+// out. A private namespace keeps the worker on the runs of one test.
+// Activation reads the namespace from the environment on each call.
+async function withPrivateNamespace(
+  run: (namespaceId: string) => Promise<void>,
+): Promise<void> {
+  const namespaceId = `test-${crypto.randomUUID()}`
+  vi.stubEnv("OPENWORKFLOW_NAMESPACE_ID", namespaceId)
+  try {
+    await run(namespaceId)
+  } finally {
+    vi.unstubAllEnvs()
+  }
+}
+
 it(
   "projects a canceled native ingestion owner without a worker failure callback",
   { timeout: 20_000 },
@@ -123,9 +140,8 @@ it(
   "projects a native child cancellation after the orchestrator resumes",
   { timeout: 25_000 },
   async () => {
-    await withNativeHydrationFixture(
-      { namespaceId: "default", github: true },
-      async (f) => {
+    await withPrivateNamespace((namespaceId) =>
+      withNativeHydrationFixture({ namespaceId, github: true }, async (f) => {
         await f.handle.cancel()
         const repository = await withOrgIdContext(f.org, () =>
           ensureOrgRepositoryForGitUrl({
@@ -151,9 +167,13 @@ it(
             .poll(
               async () => {
                 childId = (
-                  await f.backend.listWorkflowRuns({ limit: 100 })
+                  await f.backend.listWorkflowRuns({
+                    workflowName: "repository-ingestion",
+                  })
                 ).data.find(
-                  (run) => run.workflowName === "repository-ingestion",
+                  (run) =>
+                    (run.input as { repositoryId?: string } | null)
+                      ?.repositoryId === repository.id,
                 )?.id
                 return childId
               },
@@ -172,7 +192,7 @@ it(
         } finally {
           await worker.stop()
         }
-      },
+      }),
     )
   },
 )
@@ -287,9 +307,8 @@ it(
   "preserves search-index warnings when the native ingestion owner completes successfully",
   { timeout: 20_000 },
   async () => {
-    await withNativeHydrationFixture(
-      { namespaceId: "default", github: true },
-      async (f) => {
+    await withPrivateNamespace((namespaceId) =>
+      withNativeHydrationFixture({ namespaceId, github: true }, async (f) => {
         await f.handle.cancel()
         const repository = await withOrgIdContext(f.org, () =>
           ensureOrgRepositoryForGitUrl({
@@ -347,7 +366,7 @@ it(
         } finally {
           await worker.stop()
         }
-      },
+      }),
     )
   },
 )
