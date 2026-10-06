@@ -28,6 +28,8 @@ export type GithubIssueSnapshot = {
   updatedAt: string
   closedAt: string | null
   comments: GithubIssueComment[]
+  /** URLs of the pull requests GitHub links as closing this issue. */
+  closedBy: string[]
 }
 
 const COMMENTS = `
@@ -41,6 +43,7 @@ const ISSUE_FIELDS = `
   labels(first: 50) { nodes { name } }
   assignees(first: 20) { nodes { login } }
   comments(first: 100) { ${COMMENTS} }
+  closedByPullRequestsReferences(first: 10, includeClosedPrs: true) { nodes { url } }
 `
 
 const ISSUE_PAGE_QUERY = `
@@ -94,6 +97,9 @@ type IssueNode = {
   labels: { nodes: Array<{ name: string }> } | null
   assignees: { nodes: Array<{ login: string }> }
   comments: Connection<CommentNode>
+  closedByPullRequestsReferences: {
+    nodes: Array<{ url: string } | null>
+  } | null
 }
 
 function splitRepository(repository: string): { owner: string; repo: string } {
@@ -101,6 +107,32 @@ function splitRepository(repository: string): { owner: string; repo: string } {
   if (!owner || !repo)
     throw new Error(`Invalid repository name "${repository}"`)
   return { owner, repo }
+}
+
+/**
+ * A closing pull request in a repository the App cannot read comes back as a
+ * null node with a FORBIDDEN error under that field; keep the rest.
+ */
+async function query<T>(
+  graphql: GithubGraphql,
+  text: string,
+  variables: Record<string, unknown>,
+): Promise<T> {
+  try {
+    return await graphql<T>(text, variables)
+  } catch (error) {
+    const { data, errors } = (error ?? {}) as {
+      data?: T
+      errors?: Array<{ type?: string; path?: unknown[] }>
+    }
+    const onlyClosingLinks = errors?.every(
+      (entry) =>
+        entry.type === "FORBIDDEN" &&
+        entry.path?.includes("closedByPullRequestsReferences"),
+    )
+    if (data && onlyClosingLinks) return data
+    throw error
+  }
 }
 
 function nextCursor(connection: Connection<unknown>): string | null {
@@ -134,9 +166,9 @@ async function withAllComments(input: {
   const comments = node.comments.nodes.map(comment)
   let after = nextCursor(node.comments)
   while (after) {
-    const data = await input.graphql<{
+    const data = await query<{
       repository: { issue: { comments: Connection<CommentNode> } }
-    }>(ISSUE_COMMENTS_QUERY, {
+    }>(input.graphql, ISSUE_COMMENTS_QUERY, {
       ...splitRepository(input.repository),
       number: node.number,
       after,
@@ -161,6 +193,10 @@ async function withAllComments(input: {
     updatedAt: node.updatedAt,
     closedAt: node.closedAt,
     comments,
+    closedBy:
+      node.closedByPullRequestsReferences?.nodes.flatMap((pull) =>
+        pull ? [pull.url] : [],
+      ) ?? [],
   }
 }
 
@@ -176,12 +212,15 @@ export async function fetchGithubIssues(input: {
   const issues: GithubIssueSnapshot[] = []
   let after: string | null = null
   while (issues.length < input.max) {
-    const data: { repository: { issues: Connection<IssueNode> } } =
-      await input.graphql(ISSUE_PAGE_QUERY, {
+    const data: { repository: { issues: Connection<IssueNode> } } = await query(
+      input.graphql,
+      ISSUE_PAGE_QUERY,
+      {
         ...splitRepository(input.repository),
         first: Math.min(50, input.max - issues.length),
         after,
-      })
+      },
+    )
     const page = data.repository.issues
     for (const node of page.nodes) {
       issues.push(
@@ -204,7 +243,8 @@ export async function fetchGithubIssue(input: {
   repository: string
   number: number
 }): Promise<GithubIssueSnapshot> {
-  const data = await input.graphql<{ repository: { issue: IssueNode } }>(
+  const data = await query<{ repository: { issue: IssueNode } }>(
+    input.graphql,
     ISSUE_QUERY,
     { ...splitRepository(input.repository), number: input.number },
   )

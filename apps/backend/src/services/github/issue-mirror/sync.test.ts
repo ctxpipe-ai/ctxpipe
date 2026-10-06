@@ -46,6 +46,9 @@ const issueNode = (
   labels: { nodes: [{ name: "bug" }] },
   assignees: { nodes: [] },
   comments: connection(comments(commentCount), 0, 100),
+  closedByPullRequestsReferences: {
+    nodes: [{ url: `https://github.com/${repository}/pull/${number + 100}` }],
+  },
 })
 
 type Call = { operation: string; variables: Record<string, unknown> }
@@ -163,6 +166,53 @@ describe("fetchGithubIssues", () => {
     expect(issues).toHaveLength(60)
     expect(github.calls.map((call) => call.variables.first)).toEqual([50, 10])
   })
+
+  it("keeps a page when only a closing pull request is unreadable", async () => {
+    const calls: unknown[] = []
+    server.use(
+      http.post("https://api.github.com/graphql", () => {
+        calls.push(1)
+        const node = {
+          ...issueNode("acme/api", 1, 0),
+          closedByPullRequestsReferences: { nodes: [null] },
+        }
+        return HttpResponse.json({
+          data: {
+            repository: { issues: connection([node], 0, 50) },
+          },
+          errors: [
+            {
+              type: "FORBIDDEN",
+              path: [
+                "repository",
+                "issues",
+                "nodes",
+                0,
+                "closedByPullRequestsReferences",
+                "nodes",
+                0,
+              ],
+              message: "Resource not accessible by integration",
+            },
+          ],
+        })
+      }),
+    )
+    const octokit = new Octokit({
+      auth: "test-token",
+      retry: { enabled: false },
+      throttle: { enabled: false },
+    })
+
+    const issues = await fetchGithubIssues({
+      graphql: octokit.graphql,
+      repository: "acme/api",
+      max: 200,
+    })
+
+    expect(issues.map((issue) => issue.closedBy)).toEqual([[]])
+    expect(calls).toHaveLength(1)
+  })
 })
 
 describe("fetchGithubIssue", () => {
@@ -177,6 +227,7 @@ describe("fetchGithubIssue", () => {
 
     expect(issue.comments).toHaveLength(150)
     expect(issue.author).toEqual({ login: "ghost", type: "human" })
+    expect(issue.closedBy).toEqual(["https://github.com/acme/api/pull/102"])
     expect(github.calls).toHaveLength(2)
   })
 })

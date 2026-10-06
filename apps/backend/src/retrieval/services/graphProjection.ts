@@ -38,7 +38,15 @@ const KIND_PAYLOAD_KEYS: Record<string, string[]> = {
     "author",
   ],
   File: ["path", "repository"],
-  Issue: ["identifier", "state", "priority", "team", "project", "url"],
+  Issue: [
+    "identifier",
+    "state",
+    "state_reason",
+    "priority",
+    "team",
+    "project",
+    "url",
+  ],
   Team: ["key", "source", "url"],
   Thread: ["channel_name", "permalink", "captured_at", "message_count"],
 }

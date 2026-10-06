@@ -29,6 +29,7 @@ const issue: GithubIssueSnapshot = {
       createdAt: "2026-03-02T00:00:00Z",
     },
   ],
+  closedBy: ["https://github.com/acme/web/pull/40"],
 }
 
 describe("GitHub issue mirror round trip", () => {
@@ -57,6 +58,7 @@ describe("GitHub issue mirror round trip", () => {
       createdAt: "2026-03-01T00:00:00Z",
       updatedAt: "2026-03-03T00:00:00Z",
       closedAt: "2026-03-03T00:00:00Z",
+      closedBy: ["https://github.com/acme/web/pull/40"],
       excerpt: "Steps:\n\n1. Sign in\n2. See a 502",
     })
     expect(parseGithubIssueMarkdown("---\nsource: linear\n---\n")).toBeNull()
@@ -72,6 +74,13 @@ describe("GitHub issue mirror round trip", () => {
       targetHash: "abc123",
       contextRepositoryId: "repo_ctx",
       sourceRepositoryId: "repo_api",
+      closedBy: [
+        {
+          key: "prq:repo_web:40",
+          url: "https://github.com/acme/web/pull/40",
+          ref: "acme/web#40",
+        },
+      ],
     })
 
     expect(graph.extractedObjects).toEqual([
@@ -88,6 +97,15 @@ describe("GitHub issue mirror round trip", () => {
         objectRef: "repo_api",
         objectKind: "Repository",
         extractionMethod: "deterministic",
+      }),
+      expect.objectContaining({
+        subjectRef: "iss:repo_api:12",
+        predicate: "REFERENCES",
+        objectRef: "prq:repo_web:40",
+        objectKind: "PullRequest",
+        provenance: expect.objectContaining({
+          url: "https://github.com/acme/web/pull/40",
+        }),
       }),
     ])
     const sourceId = graph.extractedClaims[0]?.sourceId ?? ""

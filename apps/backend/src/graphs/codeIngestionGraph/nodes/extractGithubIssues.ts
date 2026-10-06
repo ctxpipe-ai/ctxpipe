@@ -3,7 +3,11 @@ import {
   globFiles,
 } from "../../../domain/codeIngestion/codesearchClient.js"
 import { buildEvidenceSourceId } from "../../../domain/codeIngestion/evidenceSourceId.js"
-import { githubIssueDedupKey } from "../../../domain/codeIngestion/referenceResolver.js"
+import {
+  githubIssueDedupKey,
+  parseGithubPullRequestUrl,
+  pullRequestDedupKey,
+} from "../../../domain/codeIngestion/referenceResolver.js"
 import {
   GITHUB_ISSUES_PREFIX,
   type ParsedGithubIssue,
@@ -24,7 +28,10 @@ import {
   resolveSourceRepositoryId,
 } from "./repositoryResolution.js"
 
-/** `Issue` and `Issue PART_OF Repository` for one mirrored GitHub issue. */
+/**
+ * `Issue`, `Issue PART_OF Repository`, and `Issue REFERENCES PullRequest` for
+ * each pull request GitHub links as closing it.
+ */
 export function buildGithubIssueGraph(input: {
   parsed: ParsedGithubIssue
   markdownPath: string
@@ -32,6 +39,8 @@ export function buildGithubIssueGraph(input: {
   /** Repository that holds the mirrored Markdown (evidence owner). */
   contextRepositoryId: string
   sourceRepositoryId: string
+  /** Closing pull requests, keyed by `pullRequestDedupKey`. */
+  closedBy?: ReadonlyArray<{ key: string; url: string; ref: string }>
 }): { extractedObjects: ExtractedObject[]; extractedClaims: ExtractedClaim[] } {
   const { parsed } = input
   const identifier = `${parsed.repository}#${parsed.number}`
@@ -56,6 +65,13 @@ export function buildGithubIssueGraph(input: {
       excerpt: parsed.excerpt,
     },
   }
+  const sourceId = (segments: string[]) =>
+    buildEvidenceSourceId({
+      extractor: "githubIssue",
+      repositoryId: input.contextRepositoryId,
+      segments: [input.sourceRepositoryId, input.markdownPath, ...segments],
+      targetHash: input.targetHash,
+    })
   return {
     extractedObjects: [issue],
     extractedClaims: [
@@ -65,17 +81,26 @@ export function buildGithubIssueGraph(input: {
         objectRef: input.sourceRepositoryId,
         objectKind: "Repository",
         predicate: "PART_OF",
-        sourceId: buildEvidenceSourceId({
-          extractor: "githubIssue",
-          repositoryId: input.contextRepositoryId,
-          segments: [input.sourceRepositoryId, input.markdownPath, "PART_OF"],
-          targetHash: input.targetHash,
-        }),
+        sourceId: sourceId(["PART_OF"]),
         sourceType: "git",
         extractionMethod: "deterministic",
         confidence: 0.95,
         provenance: { path: input.markdownPath },
       },
+      ...(input.closedBy ?? []).map(
+        (pull): ExtractedClaim => ({
+          subjectRef: issueKey,
+          subjectKind: "Issue",
+          objectRef: pull.key,
+          objectKind: "PullRequest",
+          predicate: "REFERENCES",
+          sourceId: sourceId(["REFERENCES", pull.ref]),
+          sourceType: "git",
+          extractionMethod: "deterministic",
+          confidence: 0.95,
+          provenance: { path: input.markdownPath, url: pull.url },
+        }),
+      ),
     ],
   }
 }
@@ -123,12 +148,33 @@ export async function extractGithubIssues(
       cache: repositoryIds,
     })
     if (!sourceRepositoryId) continue
+    const closedBy = []
+    for (const url of parsed.closedBy) {
+      const pull = parseGithubPullRequestUrl(url)
+      if (!pull) continue
+      const pullRepositoryId = await resolveSourceRepositoryId({
+        orgId: state.orgId,
+        repository: pull.repository,
+        githubConnectionId: state.githubConnectionId,
+        cache: repositoryIds,
+      })
+      closedBy.push({
+        key: pullRequestDedupKey({
+          sourceRepositoryId: pullRepositoryId,
+          repository: pull.repository,
+          number: pull.number,
+        }),
+        url,
+        ref: `${pull.repository}#${pull.number}`,
+      })
+    }
     const graph = buildGithubIssueGraph({
       parsed,
       markdownPath: path,
       targetHash: state.targetHash,
       contextRepositoryId: state.repositoryId,
       sourceRepositoryId,
+      closedBy,
     })
     extractedObjects.push(...graph.extractedObjects)
     extractedClaims.push(...graph.extractedClaims)

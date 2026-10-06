@@ -33,6 +33,7 @@ export function renderGithubIssue(issue: GithubIssueSnapshot): CommitFile {
     createdAt: issue.createdAt,
     updatedAt: issue.updatedAt,
     closedAt: issue.closedAt,
+    closedBy: issue.closedBy,
   }
   const sections = [
     `---\n${stringify(metadata).trimEnd()}\n---`,
@@ -68,6 +69,8 @@ export type ParsedGithubIssue = {
   createdAt: string | null
   updatedAt: string | null
   closedAt: string | null
+  /** Pull request URLs GitHub links as closing the issue. */
+  closedBy: string[]
   /** Description text before the comments (≤ 2000 chars). */
   excerpt: string
 }
@@ -107,6 +110,7 @@ export function parseGithubIssueMarkdown(
     createdAt: asString(data.createdAt),
     updatedAt: asString(data.updatedAt),
     closedAt: asString(data.closedAt),
+    closedBy: asStringArray(data.closedBy),
     excerpt: excerptOf(body, /\n## Comments\b/),
   }
 }
