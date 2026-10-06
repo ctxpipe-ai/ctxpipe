@@ -9,6 +9,7 @@ import { defineSandbox, type SandboxHandle } from "@tanstack/ai-sandbox"
 import { dockerSandbox } from "@tanstack/ai-sandbox-docker"
 import Docker from "dockerode"
 import { eq } from "drizzle-orm"
+import { initLogger } from "evlog"
 import { expect, it, vi } from "vitest"
 import type { AppEnv } from "../../app/env.js"
 import { withUserIdContext } from "../../auth/context.js"
@@ -1150,14 +1151,18 @@ git -c user.name=Agent -c user.email=agent@example.test commit -q -m "Agent comm
         await sandbox.stop()
         const swept = await sweepAfter(f, sandbox, CHAT_SANDBOX_DELETE_AFTER_MS)
         const next = chatSessionBranchName(s.conversationId, 2)
-        // One assertion, so that a failure shows the push and the row too.
-        expect({
-          swept,
-          sessionTip: s.remote("rev-parse", s.branch),
-          rescued: s.remoteLog(next),
-          conversation: await s.conversation(),
-          row: await afterSweep(f, sandbox),
-        }).toMatchObject({
+        // One assertion, so that a failure shows the push, the row and the
+        // sweep's log lines too.
+        expect(
+          {
+            swept,
+            sessionTip: s.remote("rev-parse", s.branch),
+            rescued: s.remoteLog(next),
+            conversation: await s.conversation(),
+            row: await afterSweep(f, sandbox),
+          },
+          swept.logs,
+        ).toMatchObject({
           swept: { deleted: 1 },
           sessionTip: foreign,
           rescued: "Agent commit",
@@ -1199,18 +1204,38 @@ git -c user.name=Agent -c user.email=agent@example.test commit -q -m "Agent comm
   },
 )
 
-/** Sweep once at `after` past the sandbox's last use. */
-const sweepAfter = (
+/**
+ * Sweep once at `after` past the sandbox's last use. Tests turn evlog off;
+ * `logs` keeps the sweep's log lines, so that a failure shows why the sweep
+ * kept the sandbox (busy, unpushed commits) and the push outcome.
+ */
+const sweepAfter = async (
   f: NativeHydrationFixture,
   sandbox: { row: { lastHeartbeatAt: Date } },
   after: number,
-) =>
-  withTestLogger(() =>
-    sweepConversationSandboxes(
-      f.org.id,
-      new Date(sandbox.row.lastHeartbeatAt.getTime() + after),
-    ),
-  )
+) => {
+  const logs: string[] = []
+  initLogger({
+    pretty: false,
+    silent: true,
+    env: { service: "ctxpipe-backend-test" },
+    drain: (ctx) => {
+      const { level, step, message } = ctx.event
+      logs.push(`${level} ${step}: ${message}`)
+    },
+  })
+  try {
+    const swept = await withTestLogger(() =>
+      sweepConversationSandboxes(
+        f.org.id,
+        new Date(sandbox.row.lastHeartbeatAt.getTime() + after),
+      ),
+    )
+    return { ...swept, logs: logs.join("\n") }
+  } finally {
+    initLogger({ enabled: false, env: { service: "ctxpipe-backend-test" } })
+  }
+}
 
 /**
  * The sandbox row after a sweep (null when it was deleted), with the last use
@@ -1274,12 +1299,16 @@ git checkout -q main`,
       try {
         await sandbox.stop()
         const swept = await sweepAfter(f, sandbox, CHAT_SANDBOX_DELETE_AFTER_MS)
-        // One assertion, so that a failure shows the push and the row too.
-        expect({
-          swept,
-          pushed: s.remoteLog(),
-          row: await afterSweep(f, sandbox),
-        }).toMatchObject({
+        // One assertion, so that a failure shows the push, the row and the
+        // sweep's log lines too.
+        expect(
+          {
+            swept,
+            pushed: s.remoteLog(),
+            row: await afterSweep(f, sandbox),
+          },
+          swept.logs,
+        ).toMatchObject({
           swept: { deleted: 1 },
           pushed: "Agent commit",
           row: null,
