@@ -156,10 +156,13 @@ export async function deleteExtractionCapture(
  * source SHA and scope, also those of failed runs that nobody retried.
  * Ingestion runs one at a time per repository: `repository_ingestion_requests`
  * holds one current request, and `prepareRepositoryIngestionRequest` replaces
- * it only after its run ends or when the binding changes. A superseded run
- * that still runs fails at `assertRepositoryIngestionRequest` and never
- * publishes, so no run that can publish still needs these rows. A repository
- * delete removes its rows through the foreign key.
+ * it only after its run ends, or when the binding or the target branch
+ * changes. A superseded run fails at `assertRepositoryIngestionRequest`
+ * before it publishes, so no run that can publish still needs these rows.
+ * One small window remains: a run superseded during its own publish can delete
+ * the rows of the new run, and that run fails with a missing root. The next
+ * run extracts again. A repository delete removes the rows through the
+ * foreign key.
  */
 export async function deleteRepositoryExtractionCaptures(
   orgId: string,

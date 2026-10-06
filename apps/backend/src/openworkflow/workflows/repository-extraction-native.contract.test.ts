@@ -10,7 +10,11 @@ import { withOrgDbContext } from "../../db/client.js"
 import { captureRepositoryExtractionTarget } from "../../domain/workspaces/capture-repository-extraction.js"
 import { ensureOrgRepositoryForGitUrl } from "../../domain/workspaces/ensure-org-repository.js"
 import { EXTRACTOR_VERSION } from "../../graphs/codeIngestionGraph/runExtractRoot.js"
-import { storeRootCapture } from "../../models/repository-extraction-captures.js"
+import type { ExtractedCapture } from "../../graphs/codeIngestionGraph/schemas.js"
+import {
+  deleteRepositoryExtractionCaptures,
+  storeRootCapture,
+} from "../../models/repository-extraction-captures.js"
 import { persistOrgFirstWorkspace } from "../../models/workspaces.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { enqueueRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
@@ -23,7 +27,10 @@ const largeCaptureRoots = ["root-a", "root-b", "root-c"]
 const largeCaptureObjectsPerRoot = 300
 
 /** About 3.6 MB of JSON per root, so three roots hold more than 8 MiB. */
-function largeRootCapture(repositoryId: string, root: string) {
+function largeRootCapture(
+  repositoryId: string,
+  root: string,
+): ExtractedCapture {
   return {
     extractedObjects: Array.from(
       { length: largeCaptureObjectsPerRoot },
@@ -96,7 +103,7 @@ it.each([
               sourceRepositoryId: repository.id,
             }),
           )
-        const extracted = {
+        const extracted: ExtractedCapture = {
           extractedObjects: [
             {
               kind: "Service",
@@ -120,17 +127,25 @@ it.each([
           extractedClaims: [
             {
               subjectRef: repository.id,
+              subjectKind: "Repository",
               objectRef: `svc:${repository.id}:billing`,
+              objectKind: "Service",
               predicate: "HAS_SERVICE",
               confidence: 0.9,
               sourceId: `extractKind:${repository.id}:billing:${f.sha}`,
+              sourceType: "git",
+              extractionMethod: "llm",
             },
             {
               subjectRef: `svc:${repository.id}:billing`,
+              subjectKind: "Service",
               objectRef: repository.id,
+              objectKind: "Repository",
               predicate: "IMPLEMENTED_IN",
               confidence: 0.9,
               sourceId: `extractKind:${repository.id}:billing:${f.sha}`,
+              sourceType: "git",
+              extractionMethod: "llm",
             },
           ],
         }
@@ -211,9 +226,10 @@ it.each([
                 storeRootCapture(
                   captureKey,
                   root,
-                  (mode === "capture-over-8-mib"
+                  mode === "capture-over-8-mib"
                     ? largeRootCapture(repository.id, root)
-                    : extracted) as Parameters<typeof storeRootCapture>[2],
+                    : extracted,
+                  0,
                 ),
               )
             }
@@ -321,6 +337,8 @@ it.each([
             expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(
               f.sha,
             )
+            // The failed run keeps its 129 stored roots; a later publish deletes them.
+            await deleteRepositoryExtractionCaptures(f.org.id, repository.id)
             return
           }
           if (
