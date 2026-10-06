@@ -74,19 +74,6 @@ function githubInstallation(input: {
       },
     ),
     http.get(
-      "https://api.github.com/installation/repositories",
-      ({ request }) => {
-        if (!authorized(request)) return undefined
-        return HttpResponse.json({
-          total_count: granted.length,
-          repositories: granted.map((repository) => ({
-            id: repository.id,
-            full_name: repository.fullName,
-          })),
-        })
-      },
-    ),
-    http.get(
       "https://api.github.com/repos/:owner/:repo",
       ({ request, params }) => {
         if (!authorized(request)) return undefined
@@ -102,30 +89,21 @@ function githubInstallation(input: {
   ]
 }
 
-async function setAccountSlug(f: Fixture, accountSlug: string) {
+async function insertOtherConnection(f: Fixture) {
+  const id = `con_${f.id}_other`
   await withOrgDbContext(f.org.id, (db) =>
-    db
-      .update(connections)
-      .set({
-        config: {
-          installationId,
-          accountSlug,
-          ingestAllRepositories: false,
-          includeFutureRepos: false,
-        },
-      })
-      .where(eq(connections.id, f.connectionId)),
+    db.insert(connections).values({
+      id,
+      orgId: f.org.id,
+      type: "github",
+      config: {
+        installationId: otherInstallationId,
+        ingestAllRepositories: false,
+        includeFutureRepos: false,
+      },
+    }),
   )
-}
-
-async function storedConfig(f: Fixture) {
-  const [row] = await withOrgDbContext(f.org.id, (db) =>
-    db
-      .select({ config: connections.config })
-      .from(connections)
-      .where(eq(connections.id, f.connectionId)),
-  )
-  return row?.config
+  return id
 }
 
 async function insertRepository(
@@ -198,8 +176,6 @@ it(
   { timeout: 30_000 },
   async () => {
     await withNativeHydrationFixture({ github: true }, async (f) => {
-      // The stored account equals the owner, but GitHub does not grant the repository.
-      await setAccountSlug(f, "fixture")
       const staleId = `repo_${f.id}_stale`
       await insertRepository(
         f,
@@ -254,9 +230,6 @@ it(
   { timeout: 30_000 },
   async () => {
     await withNativeHydrationFixture({ github: true }, async (f) => {
-      // The stored account is stale, and the URL still uses the old owner name.
-      await setAccountSlug(f, "fixture")
-      const before = await storedConfig(f)
       const renamed = { id: 202, fullName: "new-org-name/private-service" }
       f.server.use(
         ...githubInstallation({
@@ -274,7 +247,6 @@ it(
       )
 
       expect(await bindingOf(f, linked?.id)).toBe(f.connectionId)
-      expect(await storedConfig(f)).toEqual(before)
     })
   },
 )
@@ -313,20 +285,7 @@ it(
   { timeout: 30_000 },
   async () => {
     await withNativeHydrationFixture({ github: true }, async (f) => {
-      const otherConnectionId = `con_${f.id}_other`
-      await withOrgDbContext(f.org.id, (db) =>
-        db.insert(connections).values({
-          id: otherConnectionId,
-          orgId: f.org.id,
-          type: "github",
-          config: {
-            installationId: otherInstallationId,
-            accountSlug: "other-account",
-            ingestAllRepositories: false,
-            includeFutureRepos: false,
-          },
-        }),
-      )
+      const otherConnectionId = await insertOtherConnection(f)
       const privateId = `repo_${f.id}_private`
       await insertRepository(
         f,
@@ -358,8 +317,6 @@ it(
   { timeout: 10_000 },
   async () => {
     await withNativeHydrationFixture({ github: true }, async (f) => {
-      await setAccountSlug(f, "fixture")
-      const before = await storedConfig(f)
       const boundId = `repo_${f.id}_bound`
       await insertRepository(
         f,
@@ -377,7 +334,6 @@ it(
 
       expect(bound?.id).toBe(boundId)
       expect(await bindingOf(f, boundId)).toBe(f.connectionId)
-      expect(await storedConfig(f)).toEqual(before)
     })
   },
 )
@@ -387,19 +343,7 @@ it(
   { timeout: 30_000 },
   async () => {
     await withNativeHydrationFixture({ github: true }, async (f) => {
-      const otherConnectionId = `con_${f.id}_other`
-      await withOrgDbContext(f.org.id, (db) =>
-        db.insert(connections).values({
-          id: otherConnectionId,
-          orgId: f.org.id,
-          type: "github",
-          config: {
-            installationId: otherInstallationId,
-            ingestAllRepositories: false,
-            includeFutureRepos: false,
-          },
-        }),
-      )
+      const otherConnectionId = await insertOtherConnection(f)
       const otherId = `repo_${f.id}_other`
       await insertRepository(
         f,
@@ -466,19 +410,7 @@ it(
   { timeout: 30_000 },
   async () => {
     await withNativeHydrationFixture({ github: true }, async (f) => {
-      const otherConnectionId = `con_${f.id}_other`
-      await withOrgDbContext(f.org.id, (db) =>
-        db.insert(connections).values({
-          id: otherConnectionId,
-          orgId: f.org.id,
-          type: "github",
-          config: {
-            installationId: otherInstallationId,
-            ingestAllRepositories: false,
-            includeFutureRepos: false,
-          },
-        }),
-      )
+      const otherConnectionId = await insertOtherConnection(f)
       const repositoryId = `repo_${f.id}_rebound`
       await insertRepository(
         f,
