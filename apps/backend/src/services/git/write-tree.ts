@@ -1,3 +1,6 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { type GitFileChange, gitFileBytes } from "./file-change.js"
 
 export type { GitFileChange } from "./file-change.js"
@@ -30,25 +33,47 @@ export async function stageGitFiles(
             return [entry.slice(tab + 1), entry.slice(0, 6)]
           }),
       )
-      for (const file of files) {
+      const entries = files.map((file) => {
         const mode = modes.get(file.path) ?? "100644"
         if (!["100644", "100755", "120000"].includes(mode))
           throw new Error("File edits cannot replace a Git submodule")
-        const blob = (
+        return { mode, file }
+      })
+      // Two Git processes in total, not two per file: a large capture writes thousands of files.
+      const scratch = await mkdtemp(join(tmpdir(), "ctxpipe-stage-"))
+      try {
+        const paths = await Promise.all(
+          files.map(async (file, index) => {
+            const path = join(scratch, String(index))
+            await writeFile(path, gitFileBytes(file))
+            return path
+          }),
+        )
+        const blobs = files.length
+          ? (
+              await nativeGit(
+                directory,
+                ["hash-object", "-w", "--no-filters", "--stdin-paths"],
+                `${paths.join("\n")}\n`,
+              )
+            )
+              .toString()
+              .trim()
+              .split("\n")
+          : []
+        if (entries.length)
           await nativeGit(
             directory,
-            ["hash-object", "-w", "--stdin"],
-            gitFileBytes(file),
+            ["update-index", "-z", "--index-info"],
+            entries
+              .map(
+                ({ mode, file }, index) =>
+                  `${mode} ${blobs[index]}\t${file.path}\0`,
+              )
+              .join(""),
           )
-        )
-          .toString()
-          .trim()
-        await nativeGit(directory, [
-          "update-index",
-          "--add",
-          "--cacheinfo",
-          `${mode},${blob},${file.path}`,
-        ])
+      } finally {
+        await rm(scratch, { recursive: true, force: true })
       }
       for (const path of deletePaths)
         await nativeGit(directory, [

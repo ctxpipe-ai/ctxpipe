@@ -1,6 +1,6 @@
 # ADR-047: Durable write workflows
 
-**Status:** Accepted (revised 2026-10-02) | **Date:** 2026-09-08 | **Tags:** git, openworkflow, workspaces, credentials
+**Status:** Accepted (revised 2026-10-06) | **Date:** 2026-09-08 | **Tags:** git, openworkflow, workspaces, credentials
 
 ## Context
 
@@ -15,6 +15,8 @@ ctxpipe writes to the Workspace repository on the user's behalf: connector mirro
 - **Concurrent tips:** when the default branch moved, the unpublished delta is replayed on the new tip. Overlapping text conflicts go to a `workspace-semantic-merge` child, which asks a model to resolve only the conflicting paths in a short-lived sandbox (created, used and destroyed as separate durable steps with an expiry cleanup). No push credential enters that sandbox.
 - **Bootstrap** of an empty repository makes a real root commit through the same broker; if a human initializes the branch first, the job adopts that commit.
 - **Ownership** of a run is scoped to the process OpenWorkflow namespace (`default` in production, `preview-pr-N` on previews) plus workflow name and version, so previews never adopt production work.
+- **Extraction captures are stored by reference.** Each `identify:<root>` step of `repository-ingestion` writes the paid extractor output of its root to `repository_extraction_captures` (one row for each root) and returns only counts. The extraction command in the workflow input and in the write-job payload carries the source header and the capture key, not objects and claims. The transform step of `workspace-write-extract-ingest` reads the rows and builds the publishable capture. There is no size cap on a capture. The workflow input, the write-job payload, and the `identify` step outputs stay small for any repository size. The `transform`, `stage`, and `commit` step outputs still grow with the capture, because one in-memory plan publishes it (ticket 14, option C is not built).
+- **Paid roots are reused across runs.** The capture key is repository, target commit, scope (`full`, or `since:<base>` for a partial ingest), extractor version, and root. A new run with the same key reads the stored root and makes no model calls, so a failure after extraction does not make the next run pay again. Increase `EXTRACTOR_VERSION` when an extractor changes its output. A root whose extractors skipped files after a model error is not reused, and its run publishes no retraction. A capture that does not parse is deleted; a plan error or a database error keeps it. A full re-index reuses no root. After a successful publication, the parent deletes the rows of its own key and the rows stored before its run started, so a run that waits for write access keeps the rows of a newer run. The foreign key deletes the rows with their repository.
 - **Writes are GitHub-only in v1.** Path assignments for imported objects are kept per Workspace binding so repeated extraction reuses paths instead of duplicating files.
 
 ## Consequences
@@ -22,3 +24,4 @@ ctxpipe writes to the Workspace repository on the user's behalf: connector mirro
 - Worker or filesystem loss resumes from the last step; reruns do not double-commit.
 - Every write is a normal commit on the default branch, visible in history and attributable.
 - The semantic-merge sandbox uses the same provider choice as chat ([ADR-048](ADR-048-native-postgres-sandbox-ownership.md)).
+- A very large capture is still published as one commit from one in-memory plan; the worker memory limits its size (ticket 14, option C).

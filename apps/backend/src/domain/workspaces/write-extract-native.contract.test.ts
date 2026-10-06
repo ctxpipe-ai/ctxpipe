@@ -1,9 +1,10 @@
 import { execFileSync } from "node:child_process"
-import { eq } from "drizzle-orm"
+import { eq, sql } from "drizzle-orm"
 import { expect, it } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { objects } from "../../db/schema/objects.js"
+import { repositoryExtractionCaptures } from "../../db/schema/repository_extraction_captures.js"
 import {
   persistBoundWriteJob,
   persistMigrationExportNoOp,
@@ -14,10 +15,11 @@ import {
   persistOrgFirstWorkspace,
 } from "../../models/workspaces.js"
 import { enqueueWriteJob } from "../../openworkflow/enqueue-workspace-write-commit.js"
+import { storeTestExtraction } from "../../test/extraction-capture-fixture.js"
 import { seedLegacyExtractionObject } from "../../test/legacy-extraction-fixture.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { ensureOrgRepositoryForGitUrl } from "./ensure-org-repository.js"
-import type { WorkspaceExtraction } from "./extraction.js"
+import type { CapturedExtraction } from "./extraction.js"
 
 it.each(["knowledge/services/billing.md", "knowledge/imported/billing.md"])(
   "preserves extraction identity at %s and a same-name collision after migration cutover",
@@ -45,7 +47,7 @@ it.each(["knowledge/services/billing.md", "knowledge/imported/billing.md"])(
         ],
       },
       async (f) => {
-        const extraction: WorkspaceExtraction = {
+        const captured: CapturedExtraction = {
           repositoryId: "repo_captured",
           repositoryUrl: f.workspaceUrl,
           sourceSha: f.sha,
@@ -74,6 +76,7 @@ it.each(["knowledge/services/billing.md", "knowledge/imported/billing.md"])(
           ],
           claims: [],
         }
+        const extraction = await storeTestExtraction(f.org.id, captured)
         await withOrgIdContext(f.org, async () => {
           const repo = await ensureOrgRepositoryForGitUrl({
             orgId: f.org.id,
@@ -217,8 +220,8 @@ it.each(["knowledge/services/billing.md", "knowledge/imported/billing.md"])(
             workspaceExtractIngest.spec,
             {
               ...workspaceExtractIngestInputSchema.parse(queued?.input),
-              extraction: {
-                ...extraction,
+              extraction: await storeTestExtraction(f.org.id, {
+                ...captured,
                 objects: [
                   {
                     kind: "Service",
@@ -229,7 +232,7 @@ it.each(["knowledge/services/billing.md", "knowledge/imported/billing.md"])(
                     },
                   },
                 ],
-              },
+              }),
             },
             { deadlineAt: new Date(Date.now() + 1_500) },
           )
@@ -264,10 +267,10 @@ it.each(["knowledge/services/billing.md", "knowledge/imported/billing.md"])(
               orgId: f.org.id,
               workspaceId: f.workspaceId,
               jobId: `${jobId}_omitted`,
-              extraction: {
-                ...extraction,
-                objects: extraction.objects.slice(0, 1),
-              },
+              extraction: await storeTestExtraction(f.org.id, {
+                ...captured,
+                objects: captured.objects.slice(0, 1),
+              }),
               revision: {
                 ...(await f.resolveRevision()),
                 access: "write-default",
@@ -332,7 +335,7 @@ it.each(["migration_export", "extract_ingest"] as const)(
       async (f) => {
         const jobId = `wjob_${f.id}_paused`
         expect(
-          await withOrgIdContext(f.org, () =>
+          await withOrgIdContext(f.org, async () =>
             enqueueWriteJob(
               {
                 orgId: f.org.id,
@@ -341,13 +344,13 @@ it.each(["migration_export", "extract_ingest"] as const)(
                 kind,
                 ...(kind === "extract_ingest"
                   ? {
-                      extraction: {
+                      extraction: await storeTestExtraction(f.org.id, {
                         repositoryId: "repo_fixture",
                         repositoryUrl: f.workspaceUrl,
                         sourceSha: f.sha,
                         objects: [],
                         claims: [],
-                      },
+                      }),
                     }
                   : {}),
               },
@@ -664,7 +667,7 @@ it.each([
               workspaceId: f.workspaceId,
               jobId: `wjob_${f.id}_existing_subject`,
               revision: { ...f.revision, access: "write-default" },
-              extraction: {
+              extraction: await storeTestExtraction(f.org.id, {
                 repositoryId: "repo_captured",
                 repositoryUrl: f.workspaceUrl,
                 sourceSha: f.sha,
@@ -688,7 +691,7 @@ it.each([
                     sourcePath: "src/billing.ts",
                   },
                 ],
-              },
+              }),
             },
           )
           expect(await handle.result({ timeoutMs: 15_000 })).toMatchObject({
@@ -717,6 +720,77 @@ it.each([
           expect(content).not.toContain("generated_by")
         } finally {
           await worker.stop()
+        }
+      },
+    )
+  },
+)
+
+it(
+  "deletes a stored capture that cannot be published, so the next run extracts it again",
+  { timeout: 60_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      { github: true, githubWriteView: "writable", writeStatus: "writable" },
+      async (f) => {
+        const extraction = await storeTestExtraction(f.org.id, {
+          repositoryId: "repo_invalid_capture",
+          repositoryUrl: f.workspaceUrl,
+          sourceSha: f.sha,
+          objects: [{ kind: "Service", deduplicationKey: "svc:billing" }],
+          claims: [],
+        })
+        const stored = () =>
+          withOrgDbContext(f.org.id, (db) =>
+            db
+              .select()
+              .from(repositoryExtractionCaptures)
+              .where(
+                eq(
+                  repositoryExtractionCaptures.scope,
+                  extraction.capture.scope,
+                ),
+              ),
+          )
+        // A row that an older extractor wrote without a deduplication key.
+        await withOrgDbContext(f.org.id, (db) =>
+          db
+            .update(repositoryExtractionCaptures)
+            .set({ objects: sql`'[{"kind":"Service"}]'::jsonb` })
+            .where(
+              eq(repositoryExtractionCaptures.scope, extraction.capture.scope),
+            ),
+        )
+        expect(await stored()).toHaveLength(1)
+        const { BackendPostgres } = await import("openworkflow/postgres")
+        const { OpenWorkflow } = await import("openworkflow")
+        const { workspaceExtractIngest } = await import(
+          "../../openworkflow/workflows/workspace-extract-ingest.js"
+        )
+        const backend = await BackendPostgres.connect(f.databaseUrl, {
+          runMigrations: false,
+        })
+        const runner = new OpenWorkflow({ backend })
+        runner.implementWorkflow(
+          workspaceExtractIngest.spec,
+          workspaceExtractIngest.fn,
+        )
+        const worker = runner.newWorker({ concurrency: 1 })
+        try {
+          await worker.start()
+          const handle = await runner.runWorkflow(workspaceExtractIngest.spec, {
+            orgId: f.org.id,
+            workspaceId: f.workspaceId,
+            jobId: `wjob_${f.id}_invalid_capture`,
+            revision: { ...f.revision, access: "write-default" },
+            extraction,
+          })
+          await expect.poll(stored, { timeout: 30_000 }).toEqual([])
+          await handle.cancel()
+          expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(f.sha)
+        } finally {
+          await worker.stop()
+          await backend.stop()
         }
       },
     )

@@ -1,5 +1,6 @@
 import { expect, it } from "vitest"
 import { workspaceExtractIngest } from "../../openworkflow/workflows/workspace-extract-ingest.js"
+import { storeTestExtraction } from "../../test/extraction-capture-fixture.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { parseSimpleFrontMatter } from "./layout.js"
 
@@ -51,7 +52,7 @@ Owner prose must survive unchanged.
           workspaceExtractIngest.fn,
         )
         const worker = f.runner.newWorker({ concurrency: 1 })
-        const extraction = {
+        const extraction = await storeTestExtraction(f.org.id, {
           repositoryId: "repo_fixture",
           repositoryUrl: f.workspaceUrl,
           sourceSha: f.sha,
@@ -65,7 +66,7 @@ Owner prose must survive unchanged.
                   paths: ["src/billing.ts"],
                   observedAt: "2026-09-01T00:00:00.000Z",
                 },
-        }
+        })
         try {
           await worker.start()
           const handle = await f.runner.runWorkflow(
@@ -233,7 +234,7 @@ Owner notes.
           workspaceExtractIngest.fn,
         )
         const worker = f.runner.newWorker({ concurrency: 1 })
-        const extraction = {
+        const extraction = await storeTestExtraction(f.org.id, {
           repositoryId: "repo_fixture",
           repositoryUrl: f.workspaceUrl,
           sourceSha: f.sha,
@@ -263,7 +264,7 @@ Owner notes.
             mode: "full" as const,
             observedAt: "2026-09-02T00:00:00.000Z",
           },
-        }
+        })
         try {
           await worker.start()
           const handle = await f.runner.runWorkflow(

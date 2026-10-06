@@ -1,4 +1,4 @@
-import type { WorkspaceExtraction } from "./extraction.js"
+import type { CapturedExtraction } from "./extraction.js"
 import { servingIdForKnowledgePath } from "./hydrate.js"
 import {
   isLinkedRepositoryDeclaration,
@@ -17,7 +17,7 @@ import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
 
 /** Convert captured extractor references to paths already owned by the Git tree. */
 export async function planCapturedExtraction(input: {
-  extraction: WorkspaceExtraction
+  extraction: CapturedExtraction
   workspaceId: string
   workspaceRepositoryUrl: string
   existingKnowledge: ExistingKnowledgeFile[]

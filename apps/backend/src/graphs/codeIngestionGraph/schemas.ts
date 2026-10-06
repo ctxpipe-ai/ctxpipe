@@ -61,6 +61,12 @@ export const ExtractedClaimSchema = z.object({
 export type ExtractedObject = z.infer<typeof ExtractedObjectSchema>
 export type ExtractedClaim = z.infer<typeof ExtractedClaimSchema>
 
+/** Extractor output of one or more package roots. */
+export type ExtractedCapture = {
+  extractedObjects: ExtractedObject[]
+  extractedClaims: ExtractedClaim[]
+}
+
 const CodeIngestionRenameSchema = z.object({
   from: z.string(),
   to: z.string(),
