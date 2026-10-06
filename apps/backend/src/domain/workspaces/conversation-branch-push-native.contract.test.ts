@@ -1220,8 +1220,8 @@ const sweepAfter = async (
     silent: true,
     env: { service: "ctxpipe-backend-test" },
     drain: (ctx) => {
-      const { level, step, message } = ctx.event
-      logs.push(`${level} ${step}: ${message}`)
+      const { level, step, message, stack } = ctx.event
+      logs.push(`${level} ${step}: ${message}${stack ? `\n${stack}` : ""}`)
     },
   })
   try {

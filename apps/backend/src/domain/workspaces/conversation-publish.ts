@@ -345,6 +345,7 @@ export async function pushConversationSession(input: {
     log.warn({
       step: "conversation-session-push",
       message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
       conversationId: input.conversationId,
     })
     return { status: "failed", reason: "push_failed", dirty }
