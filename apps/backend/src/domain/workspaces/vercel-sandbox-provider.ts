@@ -31,11 +31,13 @@ const GIT_TOKEN_REVOKE_GRACE_MS = 30_000
 /**
  * Tags on every hosted chat sandbox. `environment` is the Railway environment
  * name, so a closed PR preview's sandboxes can be found and deleted.
+ * `environment` is the first tag because `listTaggedSandboxes` filters on the
+ * first tag: one environment has fewer chats than all environments.
  */
 export function conversationSandboxTags(
   environment: string,
 ): Record<string, string> {
-  return { ctxpipe: "workspace-chat", environment }
+  return { environment, ctxpipe: "workspace-chat" }
 }
 
 /**
@@ -505,15 +507,21 @@ export async function deleteVercelBuilder(input: {
 }
 
 /**
- * Sandboxes carrying all of `tags`. The tag filter is the server's; it is
- * checked again before anyone acts on the result.
+ * Sandboxes carrying all of `tags`. The Vercel API filters a list on one tag
+ * only, and it rejects a request with more tags (400). Thus the server
+ * filters on the first tag, and this function checks all of the tags. Put
+ * the most selective tag first.
  */
 export async function listTaggedSandboxes(
   credentials: VercelCredentials,
   tags: Record<string, string>,
 ) {
+  const [first] = Object.entries(tags)
+  if (!first) throw new Error("listTaggedSandboxes needs at least one tag")
   return (
-    await (await Sandbox.list({ ...credentials, tags })).toArray()
+    await (
+      await Sandbox.list({ ...credentials, tags: { [first[0]]: first[1] } })
+    ).toArray()
   ).filter((sandbox) =>
     Object.entries(tags).every(([key, value]) => sandbox.tags?.[key] === value),
   )
