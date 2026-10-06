@@ -20,3 +20,4 @@ Updated: 2026-10-07. Tickets are implemented by sub-agents in separate worktrees
 | — | 14 | [Extraction capture over 8 MiB fails ingestion](issues/14-extraction-capture-size.md) | done | P0 | claude | — |
 | — | 15 | [A chat turn can send its final message but never finish](issues/15-turn-finish-hang.md) | done | P1 | claude | — |
 | — | 16 | [Backend CI is red after the ticket 04 merge](issues/16-ci-red-after-ticket-04.md) | done | P0 | claude | — |
+| — | 17 | [Follow-ups from ticket 16 and the Workspace base merge](issues/17-follow-ups-from-tickets-16-and-workspace-base.md) | needs-triage | P2 | unassigned | — |
