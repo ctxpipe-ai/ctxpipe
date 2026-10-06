@@ -1,7 +1,7 @@
 import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { config } from "dotenv"
-import { eq } from "drizzle-orm"
+import { eq, sql } from "drizzle-orm"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { closeDb, initDb, withOrgDbContext } from "../../db/client.js"
 import { repositories } from "../../db/schema/repositories.js"
@@ -82,7 +82,7 @@ describe("planStoredExtraction (Postgres)", () => {
     await withOrgDbContext(orgId, (db) =>
       db
         .update(captures)
-        .set({ objects: [{ kind: "Service" }] })
+        .set({ objects: sql`'[{"kind":"Service"}]'::jsonb` })
         .where(eq(captures.scope, extraction.capture.scope)),
     )
     await expect(plan(extraction, "# App\n")).rejects.toBeInstanceOf(
