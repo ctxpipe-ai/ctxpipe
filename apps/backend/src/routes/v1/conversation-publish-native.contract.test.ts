@@ -378,11 +378,10 @@ fi
           const body = await response.json()
           const branch = conversationSessionBranch(conversationId)
           if (scenario.startsWith("provider_unavailable")) {
+            // The publish routes answer a stable code; the Files routes above keep the provider message.
             expect({ status: response.status, body }).toEqual({
               status: 503,
-              body: {
-                error: "Hosted chat sandboxes are not configured",
-              },
+              body: { error: "sandbox_unavailable" },
             })
             expect(pullRequests).toEqual([])
             expect(

@@ -28,7 +28,8 @@ it(
   { timeout: 20_000 },
   async () => {
     await withNativeHydrationFixture(
-      { namespaceId: "default", github: true },
+      // GitHub answers the repository read, so coverage binds the connection.
+      { namespaceId: "default", github: true, githubWriteView: "writable" },
       async (f) => {
         const repository = await withOrgIdContext(f.org, () =>
           ensureOrgRepositoryForGitUrl({
@@ -580,7 +581,8 @@ it(
   { timeout: 20_000 },
   async () => {
     await withNativeHydrationFixture(
-      { namespaceId: "default", github: true },
+      // GitHub answers the repository read, so coverage binds the connection.
+      { namespaceId: "default", github: true, githubWriteView: "writable" },
       async (f) => {
         const created = await withOrgIdContext(f.org, () =>
           ensureOrgRepositoryForGitUrl({
