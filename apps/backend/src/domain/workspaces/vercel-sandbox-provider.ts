@@ -456,25 +456,29 @@ export async function deleteVercelSandbox(
   }
   // Saved snapshots can outlive the sandbox; delete what is left.
   const saved = await (await Snapshot.list({ ...credentials, name })).toArray()
-  for (const { id, status } of saved) {
-    if (status === "deleted") continue
-    try {
-      await (await Snapshot.get({ ...credentials, snapshotId: id })).delete()
-    } catch (error) {
-      if (!notFound(error)) throw error
-    }
-  }
+  for (const { id, status } of saved)
+    if (status !== "deleted") await deleteSnapshot(credentials, id)
   await revokeSandboxToken(target)
 }
 
+/**
+ * Delete a snapshot; gone or already deleted counts as deleted. The API keeps
+ * a deleted snapshot readable with status `deleted` and answers 400 to a
+ * second delete, thus a retried cleanup reads the status first.
+ */
 async function deleteSnapshot(
   credentials: VercelCredentials,
   snapshotId: string,
 ): Promise<void> {
   try {
-    await (await Snapshot.get({ ...credentials, snapshotId })).delete()
+    const snapshot = await Snapshot.get({ ...credentials, snapshotId })
+    if (snapshot.status !== "deleted") await snapshot.delete()
   } catch (error) {
-    if (!notFound(error)) throw error
+    if (notFound(error)) return
+    // The SDK message gives only the status code; add the API's reason.
+    if (error instanceof APIError)
+      error.message = `Deleting Vercel snapshot ${snapshotId}: ${error.message}: ${error.text ?? ""}`
+    throw error
   }
 }
 
