@@ -13,6 +13,10 @@ import {
   text,
   timestamp,
 } from "drizzle-orm/pg-core"
+import type {
+  ExtractedClaim,
+  ExtractedObject,
+} from "../../graphs/codeIngestionGraph/schemas.js"
 import { orgIsolationPolicy } from "./org-rls.js"
 import { repositories } from "./repositories.js"
 
@@ -29,10 +33,10 @@ export const repositoryExtractionCaptures = pgTable.withRLS(
     scope: text("scope").notNull(),
     extractorVersion: integer("extractor_version").notNull(),
     root: text("root").notNull(),
-    /** Parts keep each JSON value small; one root can have many parts. */
-    part: integer("part").notNull(),
-    objects: jsonb("objects").$type<unknown[]>().notNull(),
-    claims: jsonb("claims").$type<unknown[]>().notNull(),
+    objects: jsonb("objects").$type<ExtractedObject[]>().notNull(),
+    claims: jsonb("claims").$type<ExtractedClaim[]>().notNull(),
+    /** Files the extractors skipped after a model error. Only a root with zero is reused. */
+    skippedFiles: integer("skipped_files").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
       .notNull()
       .defaultNow(),
@@ -45,7 +49,6 @@ export const repositoryExtractionCaptures = pgTable.withRLS(
         t.scope,
         t.extractorVersion,
         t.root,
-        t.part,
       ],
     }),
     index("repository_extraction_captures_org_id_idx").on(t.orgId),

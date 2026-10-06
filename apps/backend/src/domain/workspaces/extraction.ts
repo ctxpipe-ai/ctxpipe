@@ -10,6 +10,31 @@ export const extractionRootsSchema = z
   .array(z.string().min(1).max(4096))
   .max(128, "Extraction root capture exceeds 128 roots")
 
+// The command carries each path of a partial retraction; this keeps the
+// workflow input and the write-job payload bounded.
+const MAX_PARTIAL_RETRACTION_PATHS = 100_000
+
+/**
+ * The paths a partial ingest retracts, or null when there are too many for
+ * the command. The workflow calls this before the model calls. On null it
+ * extracts and retracts the full repository: a change set this large is near
+ * a full rewrite, and a rejection would block the repository on each run.
+ */
+export function partialRetractionPaths(changes: {
+  changedPaths?: string[]
+  deletedPaths?: string[]
+  renames?: Array<{ from: string; to: string }>
+}): string[] | null {
+  const paths = [
+    ...new Set([
+      ...(changes.changedPaths ?? []),
+      ...(changes.deletedPaths ?? []),
+      ...(changes.renames ?? []).flatMap((rename) => [rename.from, rename.to]),
+    ]),
+  ]
+  return paths.length > MAX_PARTIAL_RETRACTION_PATHS ? null : paths
+}
+
 /** Source identity of a queued extraction. Write jobs check it before a push. */
 const extractionHeaderShape = {
   repositoryId: z.string().min(1),
@@ -31,7 +56,9 @@ const extractionHeaderShape = {
         .object({
           mode: z.literal("partial"),
           observedAt: z.iso.datetime(),
-          paths: z.array(repositoryFilePathSchema).max(100_000),
+          paths: z
+            .array(repositoryFilePathSchema)
+            .max(MAX_PARTIAL_RETRACTION_PATHS),
         })
         .strict(),
     ])

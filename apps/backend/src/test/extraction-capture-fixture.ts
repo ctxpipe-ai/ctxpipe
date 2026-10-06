@@ -6,6 +6,7 @@ import type {
   WorkspaceExtraction,
 } from "../domain/workspaces/extraction.js"
 import { EXTRACTOR_VERSION } from "../graphs/codeIngestionGraph/runExtractRoot.js"
+import { ExtractedObjectSchema } from "../graphs/codeIngestionGraph/schemas.js"
 import { storeRootCapture } from "../models/repository-extraction-captures.js"
 
 /**
@@ -29,6 +30,10 @@ export async function storeTestExtraction(
       .onConflictDoNothing(),
   )
   const scope = `test:${randomUUID()}`
+  // The stored form of the publishable fields: the loader parses it as extractor output.
+  const kindOf = (ref: string) =>
+    objects.find((object) => object.deduplicationKey === ref)?.kind ??
+    "Repository"
   await storeRootCapture(
     {
       orgId,
@@ -38,14 +43,21 @@ export async function storeTestExtraction(
       extractorVersion: EXTRACTOR_VERSION,
     },
     ".",
-    // Test captures hold the publishable fields only; the loader reads no others.
     {
-      extractedObjects: objects,
+      extractedObjects: objects.map((object) => ({
+        ...object,
+        kind: ExtractedObjectSchema.shape.kind.parse(object.kind),
+      })),
       extractedClaims: claims.map(({ sourcePath, ...claim }) => ({
         ...claim,
+        subjectKind: kindOf(claim.subjectRef),
+        objectKind: kindOf(claim.objectRef),
+        sourceType: "git",
+        extractionMethod: "llm",
         ...(sourcePath ? { provenance: { path: sourcePath } } : {}),
       })),
-    } as Parameters<typeof storeRootCapture>[2],
+    },
+    0,
   )
   return {
     ...header,

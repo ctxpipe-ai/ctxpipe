@@ -7,6 +7,7 @@ import { isRepositoryGoneError } from "../../domain/codeIngestion/repositoryGone
 import { captureRepositoryExtractionTarget } from "../../domain/workspaces/capture-repository-extraction.js"
 import {
   extractionRootsSchema,
+  partialRetractionPaths,
   workspaceExtractionSchema,
 } from "../../domain/workspaces/extraction.js"
 import { identifyRoots } from "../../graphs/codeIngestionGraph/nodes/identifyRoots.js"
@@ -28,6 +29,7 @@ import {
 } from "../../models/repositories.js"
 import {
   deleteExtractionCapture,
+  deleteRepositoryExtractionCaptures,
   type ExtractionCaptureKey,
 } from "../../models/repository-extraction-captures.js"
 import {
@@ -360,6 +362,10 @@ export const repositoryIngestion = defineWorkflow(
                 targetHash: reindexState.targetHash ?? resolved.hash,
               })
 
+              const partialPaths =
+                reindexState.ingestMode === "partial"
+                  ? partialRetractionPaths(reindexState)
+                  : null
               const baseIngestState: CodeIngestionState = {
                 requestId,
                 repositoryId: input.repositoryId,
@@ -368,10 +374,14 @@ export const repositoryIngestion = defineWorkflow(
                 fromHash,
                 targetHash: reindexState.targetHash ?? resolved.hash,
                 indexedAt: reindexState.indexedAt,
-                ingestMode: reindexState.ingestMode,
-                changedPaths: reindexState.changedPaths,
-                deletedPaths: reindexState.deletedPaths,
-                renames: reindexState.renames,
+                ...(partialPaths
+                  ? {
+                      ingestMode: "partial",
+                      changedPaths: reindexState.changedPaths,
+                      deletedPaths: reindexState.deletedPaths,
+                      renames: reindexState.renames,
+                    }
+                  : { ingestMode: "full" }),
                 roots: [],
                 extractedObjects: [],
                 extractedClaims: [],
@@ -388,6 +398,11 @@ export const repositoryIngestion = defineWorkflow(
                     : "full",
                 extractorVersion: EXTRACTOR_VERSION,
               }
+              if (input.fullReingest)
+                // A full re-index extracts each root again; it reuses no stored root.
+                await step.run({ name: "discard-extraction-capture" }, () =>
+                  deleteExtractionCapture(captureKey),
+                )
 
               const workflowRunId = run?.id ?? "unknown"
               const ingestionRunId = `repository-ingestion:${workflowRunId}`
@@ -605,23 +620,13 @@ export const repositoryIngestion = defineWorkflow(
                   repositoryUrl: repository.gitUrl,
                   sourceSha: captureKey.sourceSha,
                   sourceDeclaration: destination.sourceDeclaration,
-                  retraction:
-                    reindexState.ingestMode === "partial"
-                      ? {
-                          mode: "partial",
-                          observedAt:
-                            reindexState.indexedAt ??
-                            run.createdAt.toISOString(),
-                          paths: [
-                            ...new Set([
-                              ...(reindexState.changedPaths ?? []),
-                              ...(reindexState.deletedPaths ?? []),
-                              ...(reindexState.renames ?? []).flatMap(
-                                (rename) => [rename.from, rename.to],
-                              ),
-                            ]),
-                          ],
-                        }
+                  retraction: partialPaths
+                    ? {
+                        mode: "partial",
+                        observedAt:
+                          reindexState.indexedAt ?? run.createdAt.toISOString(),
+                        paths: partialPaths,
+                      }
                       : {
                           mode: "full",
                           observedAt:
@@ -646,7 +651,10 @@ export const repositoryIngestion = defineWorkflow(
                   { name: "publish-extracted-knowledge" },
                 )
                 await step.run({ name: "delete-extraction-capture" }, () =>
-                  deleteExtractionCapture(captureKey),
+                  deleteRepositoryExtractionCaptures(
+                    input.orgId,
+                    input.repositoryId,
+                  ),
                 )
               }
 

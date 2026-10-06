@@ -7,6 +7,7 @@ import {
 } from "../../domain/workspaces/extraction.js"
 import {
   type ExtractionCaptureKey,
+  type ExtractionCounts,
   loadExtractionCapture,
   storedRootCapture,
   storeRootCapture,
@@ -32,6 +33,7 @@ import {
 import { sanitizePostgresJson } from "./postgresJson.js"
 import type {
   CodeIngestionState,
+  ExtractedCapture,
   ExtractedClaim,
   ExtractedObject,
 } from "./schemas.js"
@@ -53,10 +55,9 @@ export function stableRootStepId(root: string): string {
     .slice(0, 120)
 }
 
-function concatExtracted(parts: Array<Partial<CodeIngestionState>>): {
-  extractedObjects: ExtractedObject[]
-  extractedClaims: ExtractedClaim[]
-} {
+function concatExtracted(
+  parts: Array<Partial<CodeIngestionState>>,
+): ExtractedCapture {
   const extractedObjects: ExtractedObject[] = []
   const extractedClaims: ExtractedClaim[] = []
   for (const part of parts) {
@@ -77,33 +78,31 @@ function concatExtracted(parts: Array<Partial<CodeIngestionState>>): {
  *
  * Used by OpenWorkflow `repository-ingestion` so each phase is a durable step
  * boundary when callers wrap these in `step.run`. A root that an earlier run
- * already stored under the same key returns null and makes no model calls.
+ * already stored under the same key returns its counts and makes no model calls.
  */
 export async function runExtractKindForRoot(
   state: CodeIngestionState,
   root: string,
   captureKey: ExtractionCaptureKey,
-): Promise<Partial<CodeIngestionState> | null> {
-  if (await storedRootCapture(captureKey, root)) return null
+): Promise<Partial<CodeIngestionState> | { reused: ExtractionCounts }> {
+  const reused = await storedRootCapture(captureKey, root)
+  if (reused) return { reused }
   return extractKind({ ...state, roots: [root] })
 }
 
 /**
  * Run the identify phase of one root and store the root capture (kind output,
  * identify output, located paths). The step output is only the counts. A
- * stored root is reused without model calls.
+ * root that the kind step reused makes no model calls. Ingestion runs one at a
+ * time per repository, so no other run deletes the reused row before publish.
  */
 export async function runIdentifyPhaseForRoot(
   state: CodeIngestionState,
   root: string,
-  kindOutput: Partial<CodeIngestionState> | null,
+  kindPartial: Awaited<ReturnType<typeof runExtractKindForRoot>>,
   captureKey: ExtractionCaptureKey,
-): Promise<{ objects: number; claims: number }> {
-  const stored = await storedRootCapture(captureKey, root)
-  if (stored) return stored
-  // The kind step found a stored root that is gone now (a concurrent publish deleted it).
-  const kindPartial =
-    kindOutput ?? (await extractKind({ ...state, roots: [root] }))
+): Promise<ExtractionCounts> {
+  if ("reused" in kindPartial) return kindPartial.reused
   const rootState: CodeIngestionState = {
     ...state,
     ...kindPartial,
@@ -136,7 +135,17 @@ export async function runIdentifyPhaseForRoot(
   })
   extracted.extractedObjects.push(...located.extractedObjects)
   extracted.extractedClaims.push(...located.extractedClaims)
-  return storeRootCapture(captureKey, root, sanitizePostgresJson(extracted))
+  // A root with skipped files is stored for this run, but a later run extracts it again.
+  const skippedFiles = parts.reduce(
+    (sum, part) => sum + (part.extractionSkippedFiles ?? 0),
+    0,
+  )
+  return storeRootCapture(
+    captureKey,
+    root,
+    sanitizePostgresJson(extracted),
+    skippedFiles,
+  )
 }
 
 /**
@@ -145,14 +154,9 @@ export async function runIdentifyPhaseForRoot(
  * Runs after the per-root phase because sibling roots' objects are not stored
  * yet on a first ingest.
  */
-export async function finalizeExtractedReferences(input: {
-  orgId: string
-  extractedObjects: ExtractedObject[]
-  extractedClaims: ExtractedClaim[]
-}): Promise<{
-  extractedObjects: ExtractedObject[]
-  extractedClaims: ExtractedClaim[]
-}> {
+export async function finalizeExtractedReferences(
+  input: ExtractedCapture & { orgId: string },
+): Promise<ExtractedCapture> {
   const extractedObjects = input.extractedObjects.filter(
     (object) => !isUnresolvedProviderIdentity(object.deduplicationKey),
   )

@@ -5,11 +5,11 @@ CREATE TABLE "repository_extraction_captures" (
 	"scope" text,
 	"extractor_version" integer,
 	"root" text,
-	"part" integer,
 	"objects" jsonb NOT NULL,
 	"claims" jsonb NOT NULL,
+	"skipped_files" integer NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	CONSTRAINT "repository_extraction_captures_pkey" PRIMARY KEY("repository_id","source_sha","scope","extractor_version","root","part")
+	CONSTRAINT "repository_extraction_captures_pkey" PRIMARY KEY("repository_id","source_sha","scope","extractor_version","root")
 );
 --> statement-breakpoint
 ALTER TABLE "repository_extraction_captures" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint

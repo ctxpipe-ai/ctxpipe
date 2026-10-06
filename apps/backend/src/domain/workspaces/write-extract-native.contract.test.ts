@@ -1,9 +1,10 @@
 import { execFileSync } from "node:child_process"
-import { eq } from "drizzle-orm"
+import { eq, sql } from "drizzle-orm"
 import { expect, it } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { objects } from "../../db/schema/objects.js"
+import { repositoryExtractionCaptures } from "../../db/schema/repository_extraction_captures.js"
 import {
   persistBoundWriteJob,
   persistMigrationExportNoOp,
@@ -719,6 +720,77 @@ it.each([
           expect(content).not.toContain("generated_by")
         } finally {
           await worker.stop()
+        }
+      },
+    )
+  },
+)
+
+it(
+  "deletes a stored capture that cannot be published, so the next run extracts it again",
+  { timeout: 60_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      { github: true, githubWriteView: "writable", writeStatus: "writable" },
+      async (f) => {
+        const extraction = await storeTestExtraction(f.org.id, {
+          repositoryId: "repo_invalid_capture",
+          repositoryUrl: f.workspaceUrl,
+          sourceSha: f.sha,
+          objects: [{ kind: "Service", deduplicationKey: "svc:billing" }],
+          claims: [],
+        })
+        const stored = () =>
+          withOrgDbContext(f.org.id, (db) =>
+            db
+              .select()
+              .from(repositoryExtractionCaptures)
+              .where(
+                eq(
+                  repositoryExtractionCaptures.scope,
+                  extraction.capture.scope,
+                ),
+              ),
+          )
+        // A row that an older extractor wrote without a deduplication key.
+        await withOrgDbContext(f.org.id, (db) =>
+          db
+            .update(repositoryExtractionCaptures)
+            .set({ objects: sql`'[{"kind":"Service"}]'::jsonb` })
+            .where(
+              eq(repositoryExtractionCaptures.scope, extraction.capture.scope),
+            ),
+        )
+        expect(await stored()).toHaveLength(1)
+        const { BackendPostgres } = await import("openworkflow/postgres")
+        const { OpenWorkflow } = await import("openworkflow")
+        const { workspaceExtractIngest } = await import(
+          "../../openworkflow/workflows/workspace-extract-ingest.js"
+        )
+        const backend = await BackendPostgres.connect(f.databaseUrl, {
+          runMigrations: false,
+        })
+        const runner = new OpenWorkflow({ backend })
+        runner.implementWorkflow(
+          workspaceExtractIngest.spec,
+          workspaceExtractIngest.fn,
+        )
+        const worker = runner.newWorker({ concurrency: 1 })
+        try {
+          await worker.start()
+          const handle = await runner.runWorkflow(workspaceExtractIngest.spec, {
+            orgId: f.org.id,
+            workspaceId: f.workspaceId,
+            jobId: `wjob_${f.id}_invalid_capture`,
+            revision: { ...f.revision, access: "write-default" },
+            extraction,
+          })
+          await expect.poll(stored, { timeout: 30_000 }).toEqual([])
+          await handle.cancel()
+          expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(f.sha)
+        } finally {
+          await worker.stop()
+          await backend.stop()
         }
       },
     )

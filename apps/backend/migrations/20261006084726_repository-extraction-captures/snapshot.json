@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "f563c8bc-c462-4641-977c-1cc807035616",
+  "id": "b2a70b16-528b-4279-8837-b052410d07d2",
   "prevIds": [
     "a2426cfc-a162-4502-aafa-d4983eba601e"
   ],
@@ -4878,19 +4878,6 @@
       "table": "repository_extraction_captures"
     },
     {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "part",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "repository_extraction_captures"
-    },
-    {
       "type": "jsonb",
       "typeSchema": null,
       "notNull": true,
@@ -4912,6 +4899,19 @@
       "generated": null,
       "identity": null,
       "name": "claims",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "repository_extraction_captures"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "skipped_files",
       "entityType": "columns",
       "schema": "public",
       "table": "repository_extraction_captures"
@@ -8777,8 +8777,7 @@
         "source_sha",
         "scope",
         "extractor_version",
-        "root",
-        "part"
+        "root"
       ],
       "nameExplicit": false,
       "name": "repository_extraction_captures_pkey",
