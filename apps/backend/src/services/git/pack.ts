@@ -32,7 +32,10 @@ export async function nativeGit(
     const stdin = result.child.stdin
     if (!stdin) throw new Error("Native Git did not expose standard input")
     const streamed = pipeline(createReadStream(input.file), stdin).catch(
-      (error) => {
+      (error: NodeJS.ErrnoException) => {
+        // Git can exit before it reads all of its input. Then its exit
+        // status and its stderr give the result, not the broken pipe.
+        if (error.code === "EPIPE") return
         result.child.kill()
         throw error
       },
