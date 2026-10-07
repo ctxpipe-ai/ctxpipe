@@ -36,7 +36,15 @@ export async function sandboxCallbackHost(
   const raw = env.SANDBOX_CALLBACK_HOST?.trim()
   if (!raw) {
     const daemonHost = remoteDockerHost(env)
-    return daemonHost ? localAddressTowards(daemonHost, network) : undefined
+    const address = daemonHost
+      ? await localAddressTowards(daemonHost, network)
+      : undefined
+    // Agent Vault rules take host names, not addresses. On AWS every VPC
+    // address has a private DNS name that resolves back to it.
+    const region = env.AWS_REGION?.trim()
+    if (address && region && isIP(address) === 4)
+      return `ip-${address.replaceAll(".", "-")}.${region === "us-east-1" ? "ec2.internal" : `${region}.compute.internal`}`
+    return address
   }
 
   const unwrapped =

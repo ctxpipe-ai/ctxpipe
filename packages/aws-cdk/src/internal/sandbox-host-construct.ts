@@ -14,6 +14,9 @@ import type {
 } from "./contracts";
 
 const DOCKER_TLS_PORT = 2376;
+/** Agent Vault's API (backend and worker) and proxy (sandboxes only). */
+const AGENT_VAULT_API_PORT = 14321;
+const AGENT_VAULT_PROXY_PORT = 14322;
 /**
  * Linux ephemeral range on both sides: Docker publishes sandbox ports from it
  * on the host, and the backend's per-run tool bridges listen on port 0.
@@ -63,6 +66,11 @@ export class SandboxHostConstruct extends Construct {
         ec2.Port.tcp(DOCKER_TLS_PORT),
         "Docker API (mutual TLS)",
       );
+      hostSecurityGroup.addIngressRule(
+        client,
+        ec2.Port.tcp(AGENT_VAULT_API_PORT),
+        "Agent Vault API (run vaults)",
+      );
     }
     hostSecurityGroup.addIngressRule(
       backendSecurityGroup,
@@ -91,6 +99,18 @@ export class SandboxHostConstruct extends Construct {
       description: "ctxpipe sandbox host: Docker client TLS for backend and worker (written by the host)",
     });
 
+    // Agent Vault adds sandbox credentials in flight. The stack generates
+    // both passwords. Only the host reads the master password; backend and
+    // worker log in as the owner (the first login registers it).
+    const agentVaultMasterSecret = new secretsmanager.Secret(this, "AgentVaultMasterSecret", {
+      description: "ctxpipe sandbox host: Agent Vault master password",
+      generateSecretString: { excludePunctuation: true, passwordLength: 40 },
+    });
+    const agentVaultOwnerSecret = new secretsmanager.Secret(this, "AgentVaultOwnerSecret", {
+      description: "ctxpipe sandbox host: Agent Vault owner password for backend and worker",
+      generateSecretString: { excludePunctuation: true, passwordLength: 40 },
+    });
+
     const discovery = new servicediscovery.Service(this, "Discovery", {
       namespace,
       name: "sandbox-host",
@@ -111,6 +131,7 @@ export class SandboxHostConstruct extends Construct {
     serverTlsSecret.grantWrite(role);
     clientTlsSecret.grantRead(role);
     clientTlsSecret.grantWrite(role);
+    agentVaultMasterSecret.grantRead(role);
     role.addToPrincipalPolicy(
       new iam.PolicyStatement({
         actions: ["servicediscovery:RegisterInstance"],
@@ -219,6 +240,8 @@ export class SandboxHostConstruct extends Construct {
         clientTlsSecretArn: clientTlsSecret.secretArn,
         discoveryServiceId: discovery.serviceId,
         dockerHostname,
+        agentVaultMasterSecretArn: agentVaultMasterSecret.secretArn,
+        vpcCidr: vpc.vpcCidrBlock,
       }),
     );
 
@@ -258,6 +281,8 @@ export class SandboxHostConstruct extends Construct {
       workerSecurityGroup,
       clientTlsSecret,
       dockerHost: `tcp://${dockerHostname}:${DOCKER_TLS_PORT}`,
+      agentVaultAddress: `http://${dockerHostname}:${AGENT_VAULT_API_PORT}`,
+      agentVaultOwnerSecret,
       alarms: [diskAlarm, memoryAlarm],
     };
   }
@@ -308,6 +333,12 @@ export function addSandboxHostClient(
   app.addEnvironment("DOCKER_HOST", host.dockerHost);
   app.addEnvironment("DOCKER_TLS_VERIFY", "1");
   app.addEnvironment("DOCKER_CERT_PATH", certPath);
+  // Docker sandboxes get credentials only through Agent Vault.
+  app.addEnvironment("AGENT_VAULT_ADDR", host.agentVaultAddress);
+  app.addSecret(
+    "AGENT_VAULT_OWNER_PASSWORD",
+    ecs.Secret.fromSecretsManager(host.agentVaultOwnerSecret),
+  );
 }
 
 /** Cloud Map writes the instance's DNS record with the caller's permissions. */
@@ -337,6 +368,9 @@ interface HostBootstrapInput {
   readonly clientTlsSecretArn: string;
   readonly discoveryServiceId: string;
   readonly dockerHostname: string;
+  readonly agentVaultMasterSecretArn: string;
+  /** Agent Vault may dial these private addresses: the backend tasks. */
+  readonly vpcCidr: string;
 }
 
 /**
@@ -440,9 +474,25 @@ function hostBootstrapScript(input: HostBootstrapInput): string[] {
     "# ports, the Docker API) or instance metadata (next to the IMDS hop limit). Fails closed.",
     "ExecStartPost=/bin/sh -c 'iptables -C INPUT -i docker0 -j REJECT 2>/dev/null || iptables -I INPUT -i docker0 -j REJECT'",
     "ExecStartPost=/bin/sh -c 'iptables -C DOCKER-USER -d 169.254.169.254/32 -j REJECT 2>/dev/null || iptables -I DOCKER-USER -d 169.254.169.254/32 -j REJECT'",
+    "# Sandboxes (docker0) reach only Agent Vault's proxy, published on the host",
+    "# and forwarded to its own bridge: no direct internet, backend, VPC, or DNS.",
+    "ExecStartPost=/bin/sh -c 'iptables -C DOCKER-USER -i docker0 -j REJECT 2>/dev/null || iptables -I DOCKER-USER 1 -i docker0 -j REJECT'",
+    `ExecStartPost=/bin/sh -c 'iptables -C DOCKER-USER -i docker0 -o ctxpipe-av -p tcp --dport ${AGENT_VAULT_PROXY_PORT} -j RETURN 2>/dev/null || iptables -I DOCKER-USER 1 -i docker0 -o ctxpipe-av -p tcp --dport ${AGENT_VAULT_PROXY_PORT} -j RETURN'`,
+    "ExecStartPost=/bin/sh -c 'iptables -C DOCKER-USER -i docker0 -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN 2>/dev/null || iptables -I DOCKER-USER 1 -i docker0 -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN'",
     "UNIT",
     "systemctl daemon-reload",
     "systemctl enable --now docker",
+
+    "# Agent Vault adds sandbox credentials in flight (ADR-049). It has its own",
+    "# bridge, so the DOCKER-USER rules above tell it from sandboxes. It may dial",
+    "# private addresses only in the VPC (the backend tasks); security groups",
+    "# keep the data stores closed to this host.",
+    "docker network inspect ctxpipe-av >/dev/null 2>&1 || docker network create -o com.docker.network.bridge.name=ctxpipe-av ctxpipe-av",
+    `AGENT_VAULT_MASTER_PASSWORD="$(aws secretsmanager get-secret-value --region "$REGION" --secret-id '${input.agentVaultMasterSecretArn}' --query SecretString --output text)"`,
+    "docker rm -f ctxpipe-agent-vault >/dev/null 2>&1 || true",
+    `docker run -d --name ctxpipe-agent-vault --restart unless-stopped --network ctxpipe-av -p ${AGENT_VAULT_API_PORT}:${AGENT_VAULT_API_PORT} -p ${AGENT_VAULT_PROXY_PORT}:${AGENT_VAULT_PROXY_PORT} -v ctxpipe-agent-vault:/data -e AGENT_VAULT_MASTER_PASSWORD="$AGENT_VAULT_MASTER_PASSWORD" -e AGENT_VAULT_RATELIMIT_PROFILE=off -e AGENT_VAULT_TELEMETRY=false -e AGENT_VAULT_NETWORK_ALLOWLIST='${input.vpcCidr}' infisical/agent-vault:latest`,
+    "unset AGENT_VAULT_MASTER_PASSWORD",
+    `curl -sf --retry 30 --retry-connrefused --retry-delay 2 http://127.0.0.1:${AGENT_VAULT_API_PORT}/health`,
 
     "# Disk and memory metrics for the CloudFormation alarms.",
     "cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<'JSON'",
