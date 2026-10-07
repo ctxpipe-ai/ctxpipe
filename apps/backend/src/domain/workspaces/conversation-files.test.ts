@@ -12,6 +12,7 @@ import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import {
   conversationPathIsSafe,
+  conversationSandboxStatus,
   conversationWorktreeVersion,
   fingerprintConversationWorktree,
   listConversationSandboxPaths,
@@ -195,6 +196,41 @@ describe("conversation sandbox files", { timeout: 15_000 }, () => {
           "knowledge/a.md",
           "new.md",
         ])
+      },
+    )
+  })
+
+  it("lists files the agent deleted, staged or not, as deleted", async () => {
+    await withWorktree(
+      (directory) => {
+        mkdirSync(join(directory, "knowledge/archive"), { recursive: true })
+        writeFileSync(join(directory, "AGENTS.md"), "# Agents\n")
+        writeFileSync(join(directory, "knowledge/old.md"), "one\ntwo\n")
+        writeFileSync(join(directory, "knowledge/archive/a.md"), "A\n")
+      },
+      async ({ directory, handle, git }) => {
+        rmSync(join(directory, "knowledge/old.md"))
+        git("rm", "-q", "-r", "knowledge/archive")
+        const status = await conversationSandboxStatus({
+          handle,
+          defaultBranch: "main",
+          sessionBranch: "main",
+        })
+        expect(status.items).toEqual([
+          {
+            path: "knowledge/archive/a.md",
+            status: "deleted",
+            additions: 0,
+            deletions: 1,
+          },
+          {
+            path: "knowledge/old.md",
+            status: "deleted",
+            additions: 0,
+            deletions: 2,
+          },
+        ])
+        expect(status.unpushed).toBe(true)
       },
     )
   })

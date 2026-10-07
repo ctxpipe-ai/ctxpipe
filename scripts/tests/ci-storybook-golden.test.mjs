@@ -48,6 +48,10 @@ const required = [
     "PierreKeyboardFocus",
   ],
   [
+    "apps/ui/src/features/workspaces/WorkspaceFileTree.stories.tsx",
+    "DeletedFileStaysUntilPublished",
+  ],
+  [
     "apps/ui/src/features/workspaces/WorkspaceSurface.stories.tsx",
     "SharedPublishPending",
   ],
