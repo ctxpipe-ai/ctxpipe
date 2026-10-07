@@ -178,4 +178,30 @@ describe("globFilesInCheckout", () => {
       await rm(outside, { recursive: true, force: true })
     }
   })
+
+  it("answers any cwd it cannot resolve as a missing path", async () => {
+    const root = await setupCheckout()
+    await symlink("loop-b", join(root, "loop-a"))
+    await symlink("loop-a", join(root, "loop-b"))
+    for (const path of ["loop-a", "src\0x", "README.md"]) {
+      const error = await globFilesInCheckout({
+        checkoutRoot: root,
+        pattern: "*",
+        path,
+      }).catch((caught: unknown) => caught)
+      expect(error).toBeInstanceOf(GlobPathNotFoundError)
+      expect((error as Error).message).toBe("Path not found")
+    }
+  })
+
+  it("skips a symlinked cwd that resolves to a dependency folder", async () => {
+    const root = await setupCheckout()
+    await symlink("node_modules", join(root, "deps"))
+    const result = await globFilesInCheckout({
+      checkoutRoot: root,
+      pattern: "**",
+      path: "deps",
+    })
+    expect(result.entries).toEqual([])
+  })
 })

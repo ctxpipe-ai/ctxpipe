@@ -1,5 +1,5 @@
-import { lstat, stat } from "node:fs/promises"
-import { basename, join } from "node:path"
+import { lstat, realpath, stat } from "node:fs/promises"
+import { basename, join, relative, sep } from "node:path"
 import { resolveContainedRealPath } from "./paths.js"
 
 export class GlobPathNotFoundError extends Error {
@@ -112,12 +112,6 @@ export function assertSafeGlobPattern(pattern: string): void {
   }
 }
 
-function errorCode(error: unknown): string {
-  return error && typeof error === "object" && "code" in error
-    ? String((error as { code: unknown }).code)
-    : ""
-}
-
 /**
  * Scan a checkout with Bun.Glob and return typed, repo-relative entries.
  */
@@ -133,12 +127,16 @@ export async function globFilesInCheckout(
   assertSafeGlobPattern(options.pattern)
 
   // Follow symlinks in the cwd only when they end inside the checkout.
+  // Answer any other failure as a missing path, with no detail.
   let absCwd: string
+  let realRoot: string
   try {
     absCwd = await resolveContainedRealPath(
       options.checkoutRoot,
       relativeCwd || ".",
     )
+    realRoot = await realpath(options.checkoutRoot)
+    if (!(await stat(absCwd)).isDirectory()) throw new GlobPathNotFoundError()
   } catch (error) {
     if (
       error instanceof Error &&
@@ -146,14 +144,10 @@ export async function globFilesInCheckout(
     ) {
       throw new GlobInvalidRequestError("Path traversal is not allowed")
     }
-    if (errorCode(error) === "ENOENT" || errorCode(error) === "ENOTDIR") {
-      throw new GlobPathNotFoundError()
-    }
-    throw error
+    throw new GlobPathNotFoundError()
   }
-  if (!(await stat(absCwd)).isDirectory()) {
-    throw new GlobPathNotFoundError("Path is not a directory")
-  }
+  // The real cwd can differ from the requested one, so skip on both.
+  const realCwd = relative(realRoot, absCwd).split(sep).join("/")
 
   // Codesearch runs on Bun. Use the Bun global (not `import from "bun"`) so Node
   // vitest can still load this module for route/error-path tests.
@@ -181,7 +175,11 @@ export async function globFilesInCheckout(
       ? `${relativeCwd}/${normalizedRel}`
       : normalizedRel
 
-    if (isSkippedGlobPath(repoPath)) continue
+    if (
+      isSkippedGlobPath(repoPath) ||
+      isSkippedGlobPath(realCwd ? `${realCwd}/${normalizedRel}` : normalizedRel)
+    )
+      continue
 
     // The scan does not follow symlinks, so each entry is under the real cwd.
     const absPath = join(absCwd, normalizedRel)
