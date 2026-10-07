@@ -74,7 +74,7 @@ export function useConversationPublish(input: {
     mutationKey: pushKey,
     mutationFn: () => pushConversationBranch(orgSlug, conversationId),
     onError: (error) => {
-      toast.error(conversationPublishErrorMessage("Commit+Push", error))
+      toast.error(conversationPublishErrorMessage("Sync", error))
     },
     onSuccess: (result) => {
       queryClient.setQueryData<ConversationDetail>(

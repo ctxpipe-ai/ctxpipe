@@ -552,9 +552,29 @@ export const ConversationSandboxFiles: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await expectWorkspaceFiles(canvas, /e2e-session-branch-note/)
-    expect(canvas.getByRole("button", { name: "Commit+Push" })).toBeVisible()
     expect(canvas.getByRole("button", { name: "Create PR" })).toBeVisible()
     expect(canvas.queryByText("repositories")).not.toBeInTheDocument()
+  },
+}
+
+/**
+ * The pane is maximized, so the conversation header is hidden: the pane shows
+ * Sync. When the conversation shows beside the pane, only it has Sync.
+ */
+export const ConversationMaximizedSync: Story = {
+  args: {
+    ...ConversationSandboxFiles.args,
+    maximized: true,
+  },
+  parameters: ConversationSandboxFiles.parameters,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const sync = await canvas.findByRole("button", {
+      name: "Sync: commit and push your changes",
+    })
+    expect(sync).toBeVisible()
+    expect(sync).toHaveTextContent("Sync")
+    expect(canvas.getByRole("button", { name: "Create PR" })).toBeVisible()
   },
 }
 
@@ -605,7 +625,7 @@ export const ConversationCleanNoPublish: Story = {
       expect(canvas.getByText("AGENTS.md")).toBeVisible()
     })
     expect(
-      canvas.queryByRole("button", { name: "Commit+Push" }),
+      canvas.queryByRole("button", { name: /^Sync/, hidden: true }),
     ).not.toBeInTheDocument()
     expect(
       canvas.queryByRole("button", { name: "Create PR" }),
@@ -659,8 +679,9 @@ export const ConversationCommittedCreatePr: Story = {
     await waitFor(() => {
       expect(canvas.getByRole("button", { name: "Create PR" })).toBeVisible()
     })
+    // At a wide viewport the conversation header has Sync, so the pane hides its copy.
     expect(
-      canvas.queryByRole("button", { name: "Commit+Push" }),
+      canvas.queryByRole("button", { name: /^Sync/ }),
     ).not.toBeInTheDocument()
   },
 }
@@ -698,7 +719,7 @@ export const ConversationReadOnly: Story = {
       expect(canvas.getByText("AGENTS.md")).toBeVisible()
     })
     expect(
-      canvas.queryByRole("button", { name: "Commit+Push" }),
+      canvas.queryByRole("button", { name: /^Sync/, hidden: true }),
     ).not.toBeInTheDocument()
     expect(
       canvas.queryByRole("button", { name: "Create PR" }),
@@ -858,7 +879,7 @@ export const StableFilesRequestBudget: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     expect(
-      await canvas.findByRole("button", { name: "Commit+Push" }),
+      await canvas.findByRole("button", { name: "Create PR" }),
     ).toBeVisible()
     await waitFor(() => {
       expect(filesTreeGets.count).toBeGreaterThan(0)

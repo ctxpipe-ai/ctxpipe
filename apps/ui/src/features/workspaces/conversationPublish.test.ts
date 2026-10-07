@@ -138,9 +138,9 @@ describe("conversation publish helpers", () => {
 describe("conversationPublishErrorMessage", () => {
   it("names the cause of a known error code", () => {
     expect(
-      conversationPublishErrorMessage("Commit+Push", new Error("turn_running")),
+      conversationPublishErrorMessage("Sync", new Error("turn_running")),
     ).toBe(
-      "Commit+Push failed. The agent is still working. Try again when the turn ends.",
+      "Sync failed. The agent is still working. Try again when the turn ends.",
     )
     expect(
       conversationPublishErrorMessage("Create PR", new Error("no_pr_access")),

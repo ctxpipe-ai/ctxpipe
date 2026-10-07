@@ -274,7 +274,7 @@ export const ConversationMissing: Story = {
   },
 }
 
-/** A failed Commit+Push or Create PR shows why in a toast. */
+/** A failed Sync or Create PR shows why in a toast. */
 export const PublishErrorsToast: Story = {
   tags: ["workspace-golden"],
   args: { conversationId: "conv_1", paneParam: "files" },
@@ -312,7 +312,6 @@ export const PublishErrorsToast: Story = {
   },
   play: async ({ canvasElement }) => {
     const page = within(canvasElement.ownerDocument.body)
-    // Another change renames Commit+Push; find it by either name.
     const enabledButton = async (name: RegExp) => {
       let found: HTMLElement | undefined
       await waitFor(
@@ -332,13 +331,13 @@ export const PublishErrorsToast: Story = {
       if (!found) throw new Error(`No enabled button ${name}`)
       return found
     }
-    await userEvent.click(await enabledButton(/commit\+push|sync/i))
+    await userEvent.click(await enabledButton(/^sync/i))
     // The toast fades in.
     await waitFor(
       () =>
         expect(
           page.getByText(
-            "Commit+Push failed. The agent is still working. Try again when the turn ends.",
+            "Sync failed. The agent is still working. Try again when the turn ends.",
           ),
         ).toBeVisible(),
       { timeout: 10_000 },
@@ -357,6 +356,11 @@ export const PublishErrorsToast: Story = {
   },
 }
 
+/**
+ * Sync shows once: in the conversation header while the tools pane is open
+ * beside it, and in the pane header when the pane is maximized. Both share
+ * one pending push.
+ */
 export const SharedPublishPending: Story = {
   tags: ["workspace-golden"],
   args: { conversationId: "conv_1", paneParam: "files" },
@@ -386,48 +390,47 @@ export const SharedPublishPending: Story = {
   },
   play: async ({ canvasElement }) => {
     const page = within(canvasElement.ownerDocument.body)
-    const commitButtons = () =>
-      page
-        .getAllByRole("button")
-        .filter((button) => /commit\+push/i.test(button.textContent ?? ""))
-    await waitFor(
+    const syncName = "Sync: commit and push your changes"
+    // The tools pane is open beside the conversation: Sync shows once, in the
+    // conversation header. The pane header has none.
+    const sync = await waitFor(
       () => {
-        expect(commitButtons().length).toBeGreaterThan(1)
+        const buttons = page.getAllByRole("button", { name: syncName })
+        expect(buttons).toHaveLength(1)
+        expect(buttons[0]).toBeEnabled()
+        return buttons[0]
       },
       { timeout: 15_000 },
     )
+    const pane = canvasElement.ownerDocument.querySelector("aside")
+    if (!pane) throw new Error("The tools pane is missing")
+    expect(sync.closest("aside")).toBeNull()
+    expect(sync).toHaveTextContent("Sync")
+    expect(
+      within(pane).queryByRole("button", { name: /^Sync/ }),
+    ).not.toBeInTheDocument()
+    expect(
+      within(pane).getByRole("button", { name: "Create PR" }),
+    ).toBeVisible()
+    await userEvent.click(sync)
+    const pendingName = "Syncing: commit and push in progress"
     await waitFor(
       () => {
-        const enabled = commitButtons().filter(
-          (button) =>
-            button.getAttribute("aria-disabled") !== "true" &&
-            !button.hasAttribute("disabled"),
+        expect(page.getByRole("button", { name: pendingName })).toHaveAttribute(
+          "data-pending",
+          "true",
         )
-        expect(enabled.length).toBeGreaterThan(1)
       },
       { timeout: 15_000 },
     )
-    const enabled = commitButtons().filter(
-      (button) =>
-        button.getAttribute("aria-disabled") !== "true" &&
-        !button.hasAttribute("disabled"),
-    )
-    const target = enabled[enabled.length - 1]
-    if (!target) throw new Error("Commit+Push is missing")
-    await userEvent.click(target)
-    await waitFor(
-      () => {
-        const pending = page
-          .getAllByRole("button")
-          .filter(
-            (button) =>
-              button.getAttribute("aria-busy") === "true" ||
-              /pushing/i.test(button.textContent ?? ""),
-          )
-        expect(pending.length).toBeGreaterThan(1)
-      },
-      { timeout: 15_000 },
-    )
+    // Maximized, the pane hides the conversation and shows Sync, still pending.
+    await userEvent.click(page.getByRole("button", { name: "Maximise pane" }))
+    await waitFor(() => {
+      const pending = page.getAllByRole("button", { name: pendingName })
+      expect(pending).toHaveLength(1)
+      expect(pending[0]?.closest("aside")).toBe(pane)
+      expect(pending[0]).toHaveAttribute("data-pending", "true")
+    })
   },
 }
 
@@ -543,7 +546,9 @@ export const StableRequestBudget: Story = {
     await waitFor(
       () => {
         expect(
-          page.getAllByRole("button", { name: "Commit+Push" }).length,
+          page.getAllByRole("button", {
+            name: "Sync: commit and push your changes",
+          }).length,
         ).toBeGreaterThan(0)
       },
       { timeout: 10_000 },

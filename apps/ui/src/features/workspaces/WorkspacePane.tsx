@@ -308,6 +308,7 @@ export function WorkspacePane(props: {
                 props.workspace.conversationWritable,
               ) ? (
                 <ConversationPanePublish
+                  conversationHidden={props.maximized}
                   orgSlug={props.orgSlug}
                   workspaceId={props.workspace.id}
                   conversationId={props.conversationId}
@@ -474,6 +475,8 @@ function prefetchWorkspacePane(
 }
 
 function ConversationPanePublish(props: {
+  /** The pane is maximized, so the conversation column (and its Sync) is hidden. */
+  conversationHidden: boolean
   orgSlug: string
   workspaceId: string
   conversationId: string
@@ -487,7 +490,14 @@ function ConversationPanePublish(props: {
     statusEnabled: true,
     pullEnabled: true,
   })
-  return <ConversationPublishActions publish={publish.chrome} />
+  // The conversation header has Sync. Below `lg` an open pane hides the
+  // conversation column, so the pane shows Sync there (and when maximized).
+  return (
+    <ConversationPublishActions
+      publish={publish.chrome}
+      syncClassName={props.conversationHidden ? undefined : "lg:hidden"}
+    />
+  )
 }
 
 function ConversationDiffTab(props: {

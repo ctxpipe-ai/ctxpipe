@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { expect, fn, userEvent, within } from "storybook/test"
+import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
@@ -45,6 +45,8 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+const syncName = "Sync: commit and push your changes"
+
 export const Writable: Story = {}
 
 export const ReadOnly: Story = {
@@ -61,6 +63,7 @@ export const PendingProbe: Story = {
   },
 }
 
+/** Uncommitted changes: Sync (cloud-upload icon) and Create PR. */
 export const DirtyCommitPush: Story = {
   args: {
     title: "Repo layout",
@@ -85,10 +88,41 @@ export const DirtyCommitPush: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    expect(
-      await canvas.findByRole("button", { name: "Commit+Push" }),
-    ).toBeVisible()
+    const sync = await canvas.findByRole("button", { name: syncName })
+    expect(sync).toBeVisible()
+    expect(sync).toHaveTextContent("Sync")
+    await userEvent.hover(sync)
+    const tooltip = await within(canvasElement.ownerDocument.body).findByText(
+      "Commit and push your changes to the conversation branch",
+    )
+    // The tooltip fades in, so wait for it to become visible.
+    await waitFor(() => expect(tooltip).toBeVisible())
     expect(canvas.getByRole("button", { name: "Create PR" })).toBeVisible()
+  },
+}
+
+/** A stale branch or a running turn: Sync shows but is disabled. */
+export const SyncDisabled: Story = {
+  args: {
+    ...DirtyCommitPush.args,
+    publish: {
+      commitPush: {
+        visible: true,
+        enabled: false,
+        pending: false,
+        onPress: () => {},
+      },
+      pullRequest: {
+        visible: true,
+        action: "create",
+        pending: false,
+        onPress: () => {},
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    expect(await canvas.findByRole("button", { name: syncName })).toBeDisabled()
   },
 }
 
@@ -117,7 +151,7 @@ export const CommittedCreatePrOnly: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     expect(
-      canvas.queryByRole("button", { name: "Commit+Push" }),
+      canvas.queryByRole("button", { name: syncName }),
     ).not.toBeInTheDocument()
     expect(canvas.getByRole("button", { name: "Create PR" })).toBeVisible()
   },
@@ -148,7 +182,7 @@ export const CleanNoPublishActions: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     expect(
-      canvas.queryByRole("button", { name: "Commit+Push" }),
+      canvas.queryByRole("button", { name: syncName }),
     ).not.toBeInTheDocument()
     expect(
       canvas.queryByRole("button", { name: "Create PR" }),
@@ -156,6 +190,7 @@ export const CleanNoPublishActions: Story = {
   },
 }
 
+/** Sync runs: the button is busy and disabled. */
 export const Pushing: Story = {
   args: {
     ...DirtyCommitPush.args,
@@ -173,6 +208,14 @@ export const Pushing: Story = {
         onPress: () => {},
       },
     },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const sync = await canvas.findByRole("button", {
+      name: "Syncing: commit and push in progress",
+    })
+    expect(sync).toBeDisabled()
+    expect(sync).toHaveAttribute("data-pending", "true")
   },
 }
 
@@ -223,7 +266,7 @@ export const ShowPr: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     expect(
-      canvas.queryByRole("button", { name: "Commit+Push" }),
+      canvas.queryByRole("button", { name: syncName }),
     ).not.toBeInTheDocument()
     expect(
       canvas.queryByRole("button", { name: "Create PR" }),
@@ -232,7 +275,7 @@ export const ShowPr: Story = {
   },
 }
 
-/** A PR is open and the agent made commits it did not push: Commit+Push and Show PR. */
+/** A PR is open and the agent made commits it did not push: Sync and Show PR. */
 export const CommitPushWithOpenPr: Story = {
   args: {
     title: "Repo layout",
@@ -260,7 +303,7 @@ export const CommitPushWithOpenPr: Story = {
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
     const commitPush = await canvas.findByRole("button", {
-      name: "Commit+Push",
+      name: syncName,
     })
     expect(canvas.getByRole("link", { name: "Show PR" })).toHaveAttribute(
       "href",
