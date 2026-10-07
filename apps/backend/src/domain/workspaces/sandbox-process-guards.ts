@@ -152,3 +152,65 @@ for p in $(found); do kill -KILL "$p" 2>/dev/null; done
 i=0
 while [ -n "$(found)" ] && [ "$i" -lt 50 ]; do sleep 0.1; i=$((i + 1)); done
 true`
+
+/**
+ * Stop every process that the agent user started in an earlier turn: a
+ * process can leave its server's process group and session (`setsid`,
+ * `nohup`), and it would then send requests during the next turn, when the
+ * firewall adds that turn's credentials.
+ *
+ * A process is stopped when all of these are true:
+ * - The agent user (the user that runs this command) owns it. Root daemons
+ *   and kernel threads are kept.
+ * - It is not in the session of PID 1. The sandbox's own processes (PID 1
+ *   and the keep-alive it starts) are in that session. Another process
+ *   cannot join it: `setsid` only makes a new session.
+ * - It is not in this command's process group (this script and its pipes),
+ *   and it is not an ancestor of this command (the command runner).
+ *
+ * The conversation lock is held, so no command of this turn runs yet. The
+ * script repeats until no such process is left, so a process that forks
+ * while it is stopped is also stopped.
+ */
+export async function stopEarlierTurnProcesses(
+  handle: SandboxHandle,
+): Promise<void> {
+  const result = await handle.process.exec(STOP_EARLIER_TURN_PROCESSES)
+  if (result.exitCode !== 0)
+    throw new Error(
+      `Stopping the processes of an earlier turn failed: ${result.stderr.trim()}`,
+    )
+}
+
+// After the command name in parentheses, /proc/<pid>/stat has the state,
+// the parent, the process group and the session, in that order.
+const STOP_EARLIER_TURN_PROCESSES = `field() { sed 's/.*) //' "/proc/$1/stat" 2>/dev/null | cut -d' ' -f"$2"; }
+me=$(id -u)
+init_session=$(field 1 4)
+own_group=$(field $$ 3)
+keep=" "
+p=$$
+while [ -n "$p" ] && [ "$p" -gt 1 ]; do
+  keep="$keep$p "
+  p=$(field "$p" 2)
+done
+found() {
+  for d in /proc/[0-9]*; do
+    p=\${d#/proc/}
+    case "$keep" in *" $p "*) continue ;; esac
+    [ "$(stat -c %u "$d" 2>/dev/null)" = "$me" ] || continue
+    [ "$(field "$p" 4)" = "$init_session" ] && continue
+    [ "$(field "$p" 3)" = "$own_group" ] && continue
+    echo "$p"
+  done
+}
+i=0
+while [ "$i" -lt 50 ]; do
+  left=$(found)
+  [ -z "$left" ] && exit 0
+  for p in $left; do kill -KILL "$p" 2>/dev/null; done
+  sleep 0.1
+  i=$((i + 1))
+done
+echo "processes left: $(found)" >&2
+exit 1`

@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs"
 import { basename } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import {
+  WORKSPACE_CHAT_FIREWALL_PLACEHOLDER,
   WORKSPACE_CHAT_LOCAL_PROCESS_SCRUB_ENV,
   WORKSPACE_CHAT_OPENCODE_AGENT_PROMPT,
   WORKSPACE_CHAT_OPENCODE_CLI,
@@ -236,6 +237,40 @@ describe("workspaceChatOpenCodeContract", () => {
     expect(JSON.parse(written.configJson).provider.ctxpipe.options.apiKey).toBe(
       "{env:CTXPIPE_OPENCODE_RUN_TOKEN}",
     )
+  })
+
+  it("gives a hosted OpenCode config a placeholder key, not a credential reference", () => {
+    // The firewall sets the Authorization header on the model proxy path.
+    const written = writeWorkspaceChatOpenCodeConfig({
+      conversationId: "conv_vercel_key",
+      modelBase: "openai/gpt-5.6-terra",
+      isolation: "vercel",
+    })
+    const options = JSON.parse(written.configJson).provider.ctxpipe.options
+    expect(options.apiKey).toBe(WORKSPACE_CHAT_FIREWALL_PLACEHOLDER)
+    expect(written.configJson).not.toContain("CTXPIPE_OPENCODE_RUN_TOKEN")
+    // The hosted network is open: the agent may read web pages. Web search
+    // stays off: OpenCode's search service is not ours.
+    const permission = JSON.parse(written.configJson).permission
+    expect(permission.webfetch).toBe("allow")
+    expect(permission.websearch).toBe("deny")
+  })
+
+  it("lets a Docker agent read web pages through Agent Vault, but not an unsandboxed one", () => {
+    const permission = (isolation: "docker" | "unsandboxed") =>
+      JSON.parse(
+        writeWorkspaceChatOpenCodeConfig({
+          conversationId: `conv_${isolation}_web`,
+          modelBase: "openai/gpt-5.6-terra",
+          isolation,
+        }).configJson,
+      ).permission
+    // Docker egress goes only through the Agent Vault proxy, which holds the
+    // credentials and reaches no private address but the backend.
+    expect(permission("docker").webfetch).toBe("allow")
+    expect(permission("docker").websearch).toBe("deny")
+    // Unsandboxed runs share the backend's network.
+    expect(permission("unsandboxed").webfetch).toBe("deny")
   })
 
   it("keeps the Vercel runtime's Node on PATH next to the agent CLI", () => {
