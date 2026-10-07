@@ -202,7 +202,15 @@ export function createBetterAuth() {
       // a verification link, even while the account is unverified: that would
       // verify whatever password its first registrant set. Signing in sends
       // the owner a link; resetting the password verifies too.
-      onExistingUserSignUp: async ({ user }) => {
+      onExistingUserSignUp: async ({ user }, request) => {
+        const body = (await request?.json().catch(() => null)) as {
+          callbackURL?: unknown
+        } | null
+        // Sign in back to where the sign-up started, e.g. an invitation.
+        const signInUrl = new URL("/.auth/sign-in", env.AUTH_BASE_URL)
+        if (typeof body?.callbackURL === "string") {
+          signInUrl.searchParams.set("redirectTo", body.callbackURL)
+        }
         const [{ sendEmail }, { AccountExistsEmail }] = await Promise.all([
           import("../email/index.js"),
           import("../email/templates/account-exists.js"),
@@ -211,7 +219,7 @@ export function createBetterAuth() {
           user.email,
           "You already have a ctx| account",
           AccountExistsEmail({
-            signInUrl: new URL("/.auth/sign-in", env.AUTH_BASE_URL).toString(),
+            signInUrl: signInUrl.toString(),
             resetUrl: new URL(
               "/.auth/forgot-password",
               env.AUTH_BASE_URL,

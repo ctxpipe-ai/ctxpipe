@@ -142,4 +142,16 @@ describeWithDatabase("email verification (Postgres)", () => {
       "You already have a ctx| account",
     ])
   })
+
+  it("links the account-exists email's sign-in back to where the sign-up started", async () => {
+    const email = newEmail()
+    const invitation = `${base}/.auth/accept-invitation?invitationId=inv_test`
+
+    await signUp(email, "first-password", invitation)
+    await signUp(email, "second-password", invitation)
+
+    expect(mailsTo(email).at(-1)?.body).toContain(
+      `${base}/.auth/sign-in?redirectTo=${encodeURIComponent(invitation)}`,
+    )
+  })
 })
