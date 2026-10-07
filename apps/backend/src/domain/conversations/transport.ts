@@ -47,7 +47,6 @@ export type StreamInput = {
   desiredSha?: string | null
   desiredGeneration?: number
   defaultBranch?: string
-  cloneToken?: string | null
   resolveRuntime?: TanstackWorkspaceChatInput["resolveRuntime"]
   onFinish?: () => Promise<void> | void
   onError?: () => Promise<void> | void
@@ -106,7 +105,6 @@ function toChatInput(input: StreamInput): TanstackWorkspaceChatInput | null {
     defaultBranch: input.defaultBranch,
     ref: input.lastBranch || input.desiredSha || "HEAD",
     writeStatus: input.writeStatus ?? "read_only",
-    cloneToken: input.cloneToken,
     abortSignal: input.abortSignal,
     resolveRuntime: input.resolveRuntime,
     onFinish: input.onFinish,

@@ -1235,11 +1235,9 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     if (!workspace?.workspaceRepositoryUrl) {
       return c.json({ error: "workspace_required" }, 400)
     }
-    const env = parseEnv(process.env as Record<string, string | undefined>)
     const runtime = await resolveWorkspaceChatTurnRuntime({
       conversation,
       workspace,
-      env,
     })
     if (!runtime.desiredUrl) {
       return c.json({ error: "workspace_required" }, 400)
@@ -1256,7 +1254,6 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       lastBranch: runtime.lastBranch,
       ref: runtime.cloneRef || runtime.desiredSha || "HEAD",
       writeStatus: runtime.writeStatus,
-      cloneToken: runtime.cloneToken,
       githubConnectionId: runtime.githubConnectionId,
     })
     if (!warmed.ok)

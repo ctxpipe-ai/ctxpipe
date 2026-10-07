@@ -1,7 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import { createMiddleware } from "hono/factory"
 import type { AppEnv } from "../../app/env.js"
-import { parseEnv } from "../../config/env.js"
 import { conversationSessionBranch as sessionBranchName } from "../../domain/workspaces/chat-lifecycle.js"
 import { workspaceAllowsConversationEdits } from "../../domain/workspaces/chat-sandbox-policy.js"
 import {
@@ -373,11 +372,9 @@ type ConversationSandboxAttachInput = {
 export async function readySandboxHandle(
   input: ConversationSandboxAttachInput,
 ) {
-  const env = parseEnv(process.env as Record<string, string | undefined>)
   const runtime = await resolveWorkspaceChatTurnRuntime({
     conversation: input.conversation,
     workspace: input.workspace,
-    env,
   })
   if (!runtime.desiredUrl)
     return {
@@ -399,7 +396,6 @@ export async function readySandboxHandle(
       lastBranch: runtime.lastBranch,
       ref: runtime.cloneRef || runtime.desiredSha || "HEAD",
       writeStatus: runtime.writeStatus,
-      cloneToken: runtime.cloneToken,
       githubConnectionId: runtime.githubConnectionId,
     },
     {

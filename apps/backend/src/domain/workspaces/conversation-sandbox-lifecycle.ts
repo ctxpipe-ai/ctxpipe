@@ -26,6 +26,7 @@ import {
 } from "./chat-lifecycle.js"
 import { pushBeforeSandboxDelete } from "./conversation-branch-push.js"
 import type { WorkspaceRevision } from "./revision.js"
+import { revokeIdleRunGitTokens } from "./run-git-tokens.js"
 import {
   postgresSandboxLocks,
   withSandboxLockIfFree,
@@ -319,6 +320,8 @@ export async function sweepConversationSandboxes(
   }
   const retryAt =
     Math.floor(now.getTime() / RETRY_GRID_MS) * RETRY_GRID_MS + RETRY_GRID_MS
+  // Run tokens a turn end could not revoke (or a prepare left) go now.
+  if (await revokeIdleRunGitTokens({ orgId }).catch(() => true)) dueAt(retryAt)
   const idleSince = new Date(now.getTime() - CHAT_SANDBOX_IDLE_STOP_MS)
   for (const row of rows) {
     const conversationId = row.conversationId

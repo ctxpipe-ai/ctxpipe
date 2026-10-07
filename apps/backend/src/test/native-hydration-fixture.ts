@@ -258,6 +258,10 @@ async function createNativeHydrationFixture(
         )
       },
     ),
+    http.delete(
+      "https://api.github.com/installation/token",
+      () => new HttpResponse(null, { status: 204 }),
+    ),
     http.post(
       "https://api.github.com/app/installations/123456789/access_tokens",
       async ({ request }) => {

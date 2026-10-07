@@ -5,16 +5,21 @@ import { eq } from "drizzle-orm"
 import { HttpResponse, http, passthrough } from "msw"
 import { setupServer } from "msw/node"
 import { expect, it } from "vitest"
+import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { connections } from "../../db/schema/connections.js"
 import { repositories } from "../../db/schema/repositories.js"
 import {
   workspaceLinkedRepositories,
+  workspaceSandboxInstances,
   workspaces,
 } from "../../db/schema/workspaces.js"
 import { invalidateGithubAppCacheForConnection } from "../../models/github-installation.js"
+import { sandboxGitTokenStore } from "../../models/sandbox-git-tokens.js"
 import { withNativeChatFixture } from "../../test/native-chat-fixture.js"
+import { revokeRunGitTokens } from "./run-git-tokens.js"
 import { postgresSandboxLocks } from "./sandbox-lock-store.js"
+import { warmTanstackWorkspaceChat } from "./tanstack-workspace-chat.js"
 import { mintWorkspaceChatRunCapability } from "./workspace-chat-run-capability.js"
 
 const helper = fileURLToPath(
@@ -49,7 +54,7 @@ async function readCredential(
 }
 
 it(
-  "renews brokered read credentials through the fixed Git helper under one native run lease",
+  "brokers recorded read credentials through the fixed Git helper under one native run lease, and the run end revokes them",
   { timeout: 60_000 },
   async () => {
     const previous = {
@@ -57,6 +62,7 @@ it(
       GITHUB_PRIVATE_KEY: process.env.GITHUB_PRIVATE_KEY,
     }
     const requests: Array<Record<string, unknown>> = []
+    const revoked: string[] = []
     let duringMint: (() => Promise<void>) | undefined
     const github = setupServer(
       http.post(
@@ -67,11 +73,7 @@ it(
           return HttpResponse.json(
             {
               token: `fixture-read-${requests.length}`,
-              // Accelerated external token lifetime: the auth client's normal cache
-              // expiry must cause renewal, without fake clocks or cache resets.
-              expires_at: new Date(
-                Date.now() + (requests.length === 1 ? 62_000 : 3_600_000),
-              ).toISOString(),
+              expires_at: new Date(Date.now() + 3_600_000).toISOString(),
               permissions: {
                 contents: "read",
                 issues: "read",
@@ -81,6 +83,13 @@ it(
             },
             { status: 201 },
           )
+        },
+      ),
+      http.delete(
+        "https://api.github.com/installation/token",
+        ({ request }) => {
+          revoked.push(request.headers.get("authorization") ?? "")
+          return new HttpResponse(null, { status: 204 })
         },
       ),
       http.all(/http:\/\/127\.0\.0\.1(?::\d+)?\//, () => passthrough()),
@@ -182,14 +191,10 @@ it(
               stdout: "username=x-access-token\npassword=fixture-read-1\n\n",
               stderr: "",
             })
-            await new Promise((resolve) => setTimeout(resolve, 2_100))
+            // The run's recorded token is reused, not minted again.
             const second = await readCredential(env)
-            expect(second).toEqual({
-              code: 0,
-              stdout: "username=x-access-token\npassword=fixture-read-2\n\n",
-              stderr: "",
-            })
-            expect(requests).toHaveLength(2)
+            expect(second).toEqual(first)
+            expect(requests).toHaveLength(1)
             for (const request of requests)
               expect(request).toMatchObject({
                 repositories: ["linked", "workspace"],
@@ -203,24 +208,37 @@ it(
             const denied = await readCredential(env, "fixture/other.git")
             expect(denied.code).toBe(1)
             expect(denied.stdout).toBe("")
-            expect(requests).toHaveLength(2)
+            expect(requests).toHaveLength(1)
+            // A new linked repository changes the scope, so a new token is
+            // minted; the link is removed while GitHub mints it.
+            await withOrgDbContext(f.orgId, async (db) => {
+              await db.insert(repositories).values({
+                id: `repo_third_${f.orgId}`,
+                orgId: f.orgId,
+                name: "third",
+                gitUrl: "https://github.com/fixture/third.git",
+                githubConnectionId: connectionId,
+              })
+              await db.insert(workspaceLinkedRepositories).values({
+                id: `link_third_${f.orgId}`,
+                orgId: f.orgId,
+                workspaceId: f.workspaceId,
+                gitUrl: "https://github.com/fixture/third.git",
+              })
+            })
             duringMint = async () => {
               await withOrgDbContext(f.orgId, (db) =>
                 db
                   .delete(workspaceLinkedRepositories)
                   .where(
-                    eq(
-                      workspaceLinkedRepositories.id,
-                      `link_linked_${f.orgId}`,
-                    ),
+                    eq(workspaceLinkedRepositories.id, `link_third_${f.orgId}`),
                   ),
               )
             }
-            invalidateGithubAppCacheForConnection(connectionId)
             const unlinked = await readCredential(env)
             expect(unlinked.code).toBe(1)
             expect(unlinked.stdout).toBe("")
-            expect(requests).toHaveLength(3)
+            expect(requests).toHaveLength(2)
             duringMint = undefined
             const extra = Array.from({ length: 500 }, (_, index) => ({
               id: `repo_cap_${index}_${f.orgId}`,
@@ -243,13 +261,75 @@ it(
             const oversized = await readCredential(env)
             expect(oversized.code).toBe(1)
             expect(oversized.stdout).toBe("")
-            expect(requests).toHaveLength(3)
+            expect(requests).toHaveLength(2)
+            // A hosted sandbox never gets a token, even with a capability.
+            await withOrgDbContext(f.orgId, (db) =>
+              db.insert(workspaceSandboxInstances).values({
+                id: `sandbox_vercel_${f.orgId}`,
+                kind: "chat",
+                orgId: f.orgId,
+                workspaceId: f.workspaceId,
+                conversationId: f.conversationId,
+                provider: "vercel",
+                lastHeartbeatAt: new Date(),
+              }),
+            )
+            const hosted = await readCredential(env)
+            expect(hosted.code).toBe(1)
+            expect(hosted.stdout).toBe("")
+            expect(requests).toHaveLength(2)
+            await withOrgDbContext(f.orgId, (db) =>
+              db
+                .delete(workspaceSandboxInstances)
+                .where(eq(workspaceSandboxInstances.orgId, f.orgId)),
+            )
+            // Every minted token is recorded under this run, also the one
+            // the scope change kept from the agent; the run end revokes them.
+            const tokens = sandboxGitTokenStore(f.orgId, parseEnv(process.env))
+            const prefix = `run:${f.conversationId}:git:${owner}:`
+            expect(
+              (await tokens.list(prefix)).map((row) => row.token).sort(),
+            ).toEqual(["fixture-read-1", "fixture-read-2"])
+            expect(
+              await revokeRunGitTokens({
+                orgId: f.orgId,
+                conversationId: f.conversationId,
+                prefixes: [`git:${owner}:`],
+              }),
+            ).toBe(0)
+            expect(revoked.sort()).toEqual([
+              "token fixture-read-1",
+              "token fixture-read-2",
+            ])
+            expect(await tokens.list(prefix)).toEqual([])
           })
           expect(expiredEnv).toBeDefined()
           const expired = await readCredential(expiredEnv ?? {})
           expect(expired.code).toBe(1)
           expect(expired.stdout).toBe("")
+          expect(requests).toHaveLength(2)
+          // A Files read (putFile, getDiff) prepares the sandbox with its own
+          // clone token; the prepare revokes it when it returns.
+          revoked.length = 0
+          await warmTanstackWorkspaceChat({
+            conversationId: f.conversationId,
+            orgId: f.orgId,
+            orgSlug: f.orgSlug,
+            workspaceId: f.workspaceId,
+            desiredUrl: revision.remote.url,
+            desiredSha: f.sha,
+            defaultBranch: "main",
+            githubConnectionId: connectionId,
+            writeStatus: "read_only",
+            prompt: "prepare",
+          })
           expect(requests).toHaveLength(3)
+          expect(revoked).toEqual(["token fixture-read-3"])
+          expect(
+            await sandboxGitTokenStore(f.orgId, parseEnv(process.env)).list(
+              `run:${f.conversationId}:`,
+            ),
+          ).toEqual([])
         } finally {
           invalidateGithubAppCacheForConnection(connectionId)
           await withOrgDbContext(f.orgId, async (db) => {

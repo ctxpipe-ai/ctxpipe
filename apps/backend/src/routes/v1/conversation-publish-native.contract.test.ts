@@ -133,7 +133,6 @@ it.each([
                   lastBranch: conversationSessionBranch(conversationId),
                   writeStatus: "writable",
                   prompt: "prepare",
-                  cloneToken: "fixture-native-clone",
                 }),
               ),
             )
@@ -211,7 +210,6 @@ it.each([
                   writeStatus: "writable",
                   lastBranch: conversationSessionBranch(conversationId),
                   prompt: "prepare",
-                  cloneToken: "fixture-native-clone",
                 }),
               ),
             )

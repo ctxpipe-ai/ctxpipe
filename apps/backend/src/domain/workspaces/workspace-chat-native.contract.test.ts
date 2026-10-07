@@ -12,24 +12,35 @@ import {
 } from "@tanstack/ai"
 import { reconstructChat } from "@tanstack/ai-persistence"
 import { eq } from "drizzle-orm"
-import { expect, it } from "vitest"
+import { HttpResponse, http } from "msw"
+import { setupServer } from "msw/node"
+import { expect, it, vi } from "vitest"
+import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { conversations } from "../../db/schema/conversations.js"
+import { sandboxLocks } from "../../db/schema/sandbox-locks.js"
 import { workspaces } from "../../db/schema/workspaces.js"
 import { conversationIdFromIdempotencyKey } from "../../lib/id.js"
 import { registerMcpTools } from "../../mcp/tools.js"
+import { sandboxGitTokenStore } from "../../models/sandbox-git-tokens.js"
 import {
   listSandboxInstances,
   persistOrgFirstWorkspace,
 } from "../../models/workspaces.js"
 import { withNativeChatFixture } from "../../test/native-chat-fixture.js"
+import {
+  recordedRunGitToken,
+  revokeIdleRunGitTokens,
+} from "./run-git-tokens.js"
 import { workspaceChatInstanceAccess } from "./sandbox-instance-store.js"
 import {
   streamTanstackWorkspaceChat,
   warmTanstackWorkspaceChat,
   workspaceChatDockerOwnership,
 } from "./tanstack-workspace-chat.js"
+import { resolveWorkspaceChatGitCredential } from "./workspace-chat-git-credentials.js"
 import { workspaceChatPersistence } from "./workspace-chat-persistence.js"
+import { mintWorkspaceChatRunCapability } from "./workspace-chat-run-capability.js"
 
 it(
   "uses the prepared native worktree for two stock chat turns and persists their transcript",
@@ -702,5 +713,166 @@ it(
       ).not.toBe(firstId)
       await Promise.all([first.text(), second.text()])
     })
+  },
+)
+
+it(
+  "revokes the run's GitHub tokens after the turn releases its lock, when it finishes or is aborted, and leaves a failed revoke to the sweep",
+  { timeout: 90_000 },
+  async () => {
+    const revoked: string[] = []
+    let revokeStatus = 500
+    const github = setupServer(
+      http.delete(
+        "https://api.github.com/installation/token",
+        async ({ request }) => {
+          revoked.push(request.headers.get("authorization") ?? "")
+          // A background process of the turn asks for a token while the
+          // turn's tokens are revoked: the lock is already released.
+          // While the lock is held, the capability verifies (the fixture
+          // Workspace has no GitHub connection, so 403); after, it does not.
+          if (capability) {
+            const late = await resolveWorkspaceChatGitCredential({
+              env: parseEnv(process.env),
+              capability,
+            })
+            lateMints.push(late.ok ? "minted" : `refused ${late.status}`)
+          }
+          return new HttpResponse(null, { status: revokeStatus })
+        },
+      ),
+    )
+    github.listen({ onUnhandledRequest: "bypass" })
+    let fixture:
+      | {
+          orgId: string
+          orgSlug: string
+          conversationId: string
+          workspaceId: string
+          directory: string
+          sha: string
+        }
+      | undefined
+    let capability: string | undefined
+    const lateMints: string[] = []
+    let seed = ""
+    let started: () => void = () => undefined
+    let modelResponse: Promise<void> = Promise.resolve()
+    try {
+      await withNativeChatFixture(
+        async (f) => {
+          fixture = f
+          const tokens = sandboxGitTokenStore(f.orgId, parseEnv(process.env))
+          const input = {
+            conversationId: f.conversationId,
+            orgId: f.orgId,
+            orgSlug: f.orgSlug,
+            workspaceId: f.workspaceId,
+            desiredUrl: f.directory,
+            desiredSha: f.sha,
+            defaultBranch: "main",
+            writeStatus: "read_only",
+          }
+          // Finished turn: GitHub refuses the revoke; the turn still succeeds.
+          seed = "ghs_finished_turn"
+          const chunks: StreamChunk[] = []
+          for await (const chunk of streamTanstackWorkspaceChat({
+            ...input,
+            runId: `finish-${f.conversationId}`,
+            prompt: "Finish this turn",
+          }))
+            chunks.push(chunk)
+          expect(chunks.filter((chunk) => chunk.type === "RUN_ERROR")).toEqual(
+            [],
+          )
+          expect(revoked).toEqual(["token ghs_finished_turn"])
+          expect(
+            (await tokens.list(`run:${f.conversationId}:`)).map(
+              (row) => row.token,
+            ),
+          ).toEqual(["ghs_finished_turn"])
+          expect(lateMints).toEqual(["refused 401"])
+          // The sweep retries it once it is 2 minutes old.
+          revokeStatus = 204
+          capability = undefined
+          vi.useFakeTimers({ toFake: ["Date"], now: Date.now() + 3 * 60_000 })
+          try {
+            expect(await revokeIdleRunGitTokens({ orgId: f.orgId })).toBe(false)
+          } finally {
+            vi.useRealTimers()
+          }
+          expect(await tokens.list(`run:${f.conversationId}:`)).toEqual([])
+
+          // Aborted turn.
+          revoked.length = 0
+          seed = "ghs_aborted_turn"
+          let release!: () => void
+          modelResponse = new Promise<void>((resolve) => {
+            release = resolve
+          })
+          const modelStarted = new Promise<void>((resolve) => {
+            started = resolve
+          })
+          const controller = new AbortController()
+          const stopped = (async () => {
+            for await (const _chunk of streamTanstackWorkspaceChat({
+              ...input,
+              runId: `abort-${f.conversationId}`,
+              prompt: "Abort this turn",
+              abortSignal: controller.signal,
+            })) {
+              /* Drain the cancelled run. */
+            }
+          })()
+          await modelStarted
+          controller.abort(RUN_CANCEL_REASON)
+          release()
+          await stopped
+          expect(revoked).toEqual(["token ghs_aborted_turn"])
+          expect(lateMints).toEqual(["refused 401", "refused 401"])
+          expect(await tokens.list(`run:${f.conversationId}:`)).toEqual([])
+        },
+        async () => {
+          // What the Git credential route records for the turn that holds
+          // the conversation lock.
+          if (!fixture) throw new Error("Fixture missing")
+          const { orgId, conversationId } = fixture
+          const [lock] = await withOrgDbContext(orgId, (db) =>
+            db
+              .select({ owner: sandboxLocks.owner })
+              .from(sandboxLocks)
+              .where(eq(sandboxLocks.key, `chat-thread:${conversationId}`)),
+          )
+          if (!lock) throw new Error("Turn lock missing")
+          capability = await mintWorkspaceChatRunCapability({
+            authSecret: process.env.AUTH_SECRET ?? "",
+            orgId,
+            orgSlug: fixture.orgSlug,
+            conversationId,
+            expectedOwner: lock.owner,
+            purpose: "workspace-chat-git",
+            revision: {
+              workspaceId: fixture.workspaceId,
+              generation: 1,
+              remote: { url: fixture.directory, connectionId: null },
+              sha: fixture.sha,
+              defaultBranch: "main",
+              access: "read",
+            },
+          })
+          const token = seed
+          await recordedRunGitToken({
+            orgId,
+            conversationId,
+            label: `git:${lock.owner}:scope`,
+            mint: async () => token,
+          })
+          started()
+          await modelResponse
+        },
+      )
+    } finally {
+      github.close()
+    }
   },
 )

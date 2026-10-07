@@ -1,4 +1,3 @@
-import { parseEnv } from "../../config/env.js"
 import {
   ensureConversation,
   touchConversationLastMessage,
@@ -20,7 +19,6 @@ export async function resolveWorkspaceChatSendRuntime(input: {
   const workspace = conversation.workspaceId
     ? await getWorkspaceById(conversation.workspaceId)
     : null
-  const env = parseEnv(process.env as Record<string, string | undefined>)
   const runtime = await resolveWorkspaceChatTurnRuntime({
     conversation,
     workspace: workspace
@@ -36,7 +34,6 @@ export async function resolveWorkspaceChatSendRuntime(input: {
           desiredGeneration: workspace.desiredGeneration,
         }
       : null,
-    env,
   })
   return {
     orgId: runtime.orgId,
@@ -48,7 +45,6 @@ export async function resolveWorkspaceChatSendRuntime(input: {
     defaultBranch: runtime.defaultBranch,
     lastBranch: runtime.lastBranch,
     ref: runtime.cloneRef || runtime.desiredSha || "HEAD",
-    cloneToken: runtime.cloneToken ?? null,
     githubConnectionId: runtime.githubConnectionId,
   }
 }
