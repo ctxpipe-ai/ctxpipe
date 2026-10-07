@@ -10,6 +10,7 @@ import {
   hostedNetworkPolicy,
   listTaggedSandboxes,
   turnAgentPassword,
+  vercelConversationProvider,
 } from "./vercel-sandbox-provider.js"
 
 const credentials = { token: "t", teamId: "team_test", projectId: "prj_test" }
@@ -330,6 +331,63 @@ describe("conversationFirewall", () => {
     failure = "none"
     await firewall.closeTurn("sbx-3")
     expect(backendRules(policies.at(-1))).toBeUndefined()
+  })
+
+  /** A provider whose GitHub tokens are in memory; `mintedAt` sets the age. */
+  const resumable = (mintedAt?: Date) => {
+    const rows = new Map<string, { token: string; mintedAt: Date }>()
+    let mints = 0
+    const firewall = conversationFirewall("app.example.test")
+    const provider = vercelConversationProvider({
+      credentials,
+      agentPassword: "password",
+      access: {
+        firewall,
+        mintGitToken: async () => `git-minted-${++mints}`,
+        revokeGitToken: async () => undefined,
+        tokens: {
+          get: async (id) =>
+            mintedAt
+              ? (rows.get(id) ?? { token: "git-old", mintedAt })
+              : (rows.get(id) ?? null),
+          put: async (id, token) => {
+            rows.set(id, { token, mintedAt: new Date() })
+          },
+          take: async () => null,
+        },
+      },
+      tags: {},
+      base: async () => ({ failed: async () => undefined }),
+      agentSnapshot: async () => "snap_agent",
+    })
+    return { provider, firewall, rotated: () => rows.size > 0 }
+  }
+
+  it("opens a turn on a resumed sandbox whose token was replaced before use", async () => {
+    server.use(...vercelApi)
+    policies.length = 0
+    failure = "none"
+    const { provider, firewall } = resumable()
+    const handle = await provider.resume({ id: "sbx-resume-1" })
+    if (!handle) throw new Error("not resumed")
+    await firewall.openTurn(handle.id, turn)
+    expect(backendRules(policies.at(-1))).toHaveLength(2)
+    expect(JSON.stringify(policies.at(-1))).toContain("Bearer git-minted-1")
+    await firewall.closeTurn(handle.id)
+  })
+
+  it("opens a turn on a resumed sandbox after a background rotation ended", async () => {
+    server.use(...vercelApi)
+    policies.length = 0
+    failure = "none"
+    const { provider, firewall, rotated } = resumable(new Date(0))
+    const handle = await provider.resume({ id: "sbx-resume-2" })
+    if (!handle) throw new Error("not resumed")
+    await expect.poll(rotated).toBe(true)
+    await firewall.openTurn(handle.id, turn)
+    expect(backendRules(policies.at(-1))).toHaveLength(2)
+    expect(JSON.stringify(policies.at(-1))).toContain("Bearer git-minted-1")
+    await firewall.closeTurn(handle.id)
   })
 
   it("refuses a turn on a sandbox that this process did not create or resume", async () => {

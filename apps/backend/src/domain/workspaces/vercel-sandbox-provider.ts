@@ -248,7 +248,10 @@ export function conversationFirewall(backendHost: string) {
     state.queue = run.catch(() => undefined)
     return run
   }
-  /** Forget a sandbox that has no turn, so the map does not grow. */
+  /**
+   * Forget a sandbox after its turn, so the map does not grow. Only a turn's
+   * end releases: a rotation can end between resume and turn start.
+   */
   const release = (name: string) => {
     const state = firewalls.get(name)
     if (state && !state.turn && !state.dirty) firewalls.delete(name)
@@ -283,8 +286,6 @@ export function conversationFirewall(backendHost: string) {
       } catch (error) {
         state.gitToken = previous
         throw error
-      } finally {
-        release(sandbox.name)
       }
     },
     /**
@@ -520,7 +521,6 @@ export function vercelConversationProvider(input: {
       return conversationHandle(sandbox, input.agentPassword)
     },
     async destroy({ id }) {
-      firewalls.delete(id)
       await deleteVercelSandbox({
         credentials,
         name: id,
@@ -575,6 +575,7 @@ async function revokeSandboxToken(target: SandboxTarget): Promise<void> {
  * gone counts as stopped.
  */
 export async function stopVercelSandbox(target: SandboxTarget): Promise<void> {
+  firewalls.delete(target.name)
   try {
     const sandbox = await Sandbox.get({
       ...target.credentials,
@@ -613,6 +614,7 @@ export async function deleteVercelSandbox(
   target: SandboxTarget,
 ): Promise<void> {
   const { credentials, name } = target
+  firewalls.delete(name)
   try {
     const sandbox = await Sandbox.get({ ...credentials, name, resume: false })
     await sandbox.delete()
