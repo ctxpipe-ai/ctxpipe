@@ -48,8 +48,8 @@ Proof (each failed before its change):
 - Proved on the pr-280 preview, not in CI: a full hosted turn with a tool call, and a 401 from the real backend after the turn ends. Manual check:
   1. On the preview, open a Workspace chat and send "Use the ctxpipe search tool to find the README, then reply with its first line".
   2. Make sure that the reply uses the tool and that the turn finishes.
-  3. While the turn runs, ask the agent in a second message to run `env` and `cat /proc/*/environ`. Make sure that no `CTXPIPE_OPENCODE_RUN_TOKEN` and no bridge token are in the output.
-  4. After the turn ends, ask the agent to run `curl -s -o /dev/null -w '%{http_code}' -X POST <preview origin>/<org>/api/v1/workspace-chat/openai/v1/chat/completions`. Make sure that the answer is 401. (That command runs in the next turn, so the result shows that the earlier turn's capability is gone. The current turn's rule adds the current capability, thus send it to the bridge path of the earlier turn instead if the model path answers 200.)
+  3. In the same conversation, ask the agent to run `env` and `cat /proc/*/environ`, and to show the bridge URL from `OPENCODE_CONFIG_CONTENT`. Make sure that the output has no `CTXPIPE_OPENCODE_RUN_TOKEN` and that the bridge `Authorization` value is the placeholder `ctxpipe-firewall`.
+  4. In the next message, ask the agent to run `curl -s -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{}' <bridge URL from step 3>`. That bridge belongs to the earlier turn. Make sure that the answer is 401.
   5. Ask the agent to fetch `https://example.com` with `webfetch`. Make sure that it works.
 - Known debt: the contract lane uses an in-memory `SandboxGitTokenStore` and depends on httpbin.org as the echo host.
 - Known limit: a GitHub token rotation that another backend process started can remove a running turn's rules.
