@@ -351,9 +351,18 @@ describe("sandbox host", () => {
     const t = template("small");
     const script = userData(t);
     expect(script).toContain("infisical/agent-vault:latest");
-    expect(script).toContain("AGENT_VAULT_RATELIMIT_PROFILE=off");
+    // The login rate limit stays on; only the proxy tier is raised.
+    expect(script).not.toContain("RATELIMIT_PROFILE");
+    expect(script).toContain("AGENT_VAULT_RATELIMIT_PROXY_RATE=200");
     expect(script).toContain("AGENT_VAULT_TELEMETRY=false");
-    expect(script).toContain("AGENT_VAULT_NETWORK_ALLOWLIST=");
+    // The proxy may dial the private subnets (backend tasks), not the whole
+    // VPC.
+    expect(script).toMatch(/AGENT_VAULT_NETWORK_ALLOWLIST='[^']*10\.0\.\d+\.0\/\d+/);
+    expect(script).not.toContain("AGENT_VAULT_NETWORK_ALLOWLIST='10.0.0.0/16'");
+    // Agent Vault never reaches its own management API or the host: not
+    // through the host (INPUT) and not back to its own bridge (hairpin).
+    expect(script).toContain("iptables -I INPUT -i ctxpipe-av -j REJECT");
+    expect(script).toContain("iptables -I DOCKER-USER 1 -i ctxpipe-av -o ctxpipe-av -j REJECT");
     // The master password comes from the stack's secret, never the template.
     expect(script).toContain("AGENT_VAULT_MASTER_PASSWORD=\"$(aws secretsmanager get-secret-value");
     // Sandboxes on docker0: replies, then only Agent Vault's proxy port. Each
@@ -383,6 +392,11 @@ describe("sandbox host", () => {
       const app = container(t, name);
       expect(app.Secrets?.map((secret) => secret.Name)).toContain("AGENT_VAULT_OWNER_PASSWORD");
       expect(app.Environment?.find((entry) => entry.Name === "AGENT_VAULT_ADDR")).toBeDefined();
+      // The deploy names the backend's callback host (Agent Vault rules take
+      // host names), not AWS_REGION.
+      expect(
+        app.Environment?.find((entry) => entry.Name === "SANDBOX_CALLBACK_DNS_SUFFIX"),
+      ).toBeDefined();
     }
   });
 });

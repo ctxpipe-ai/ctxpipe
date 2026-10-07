@@ -79,3 +79,8 @@ AUTH_ALLOWED_ORIGINS=http://localhost:3002,http://localhost:3000
 EOF
   echo "cloud-agent: wrote $ENV_LOCAL from Cursor secrets."
 fi
+if [ -f "$ENV_LOCAL" ]; then
+  # Agent Vault (Docker chat sandboxes): a generated owner password per checkout.
+  grep -q '^AGENT_VAULT_ADDR=' "$ENV_LOCAL" || echo "AGENT_VAULT_ADDR=http://localhost:14321" >>"$ENV_LOCAL"
+  grep -q '^AGENT_VAULT_OWNER_PASSWORD=' "$ENV_LOCAL" || echo "AGENT_VAULT_OWNER_PASSWORD=$(openssl rand -hex 24)" >>"$ENV_LOCAL"
+fi

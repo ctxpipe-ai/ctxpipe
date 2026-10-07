@@ -241,7 +241,11 @@ export class SandboxHostConstruct extends Construct {
         discoveryServiceId: discovery.serviceId,
         dockerHostname,
         agentVaultMasterSecretArn: agentVaultMasterSecret.secretArn,
-        vpcCidr: vpc.vpcCidrBlock,
+        // The backend tasks' subnets; other VPC hosts keep their security
+        // groups, and the host's own ports are rejected below.
+        backendSubnetCidrs: vpc
+          .selectSubnets({ subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS })
+          .subnets.map((subnet) => subnet.ipv4CidrBlock),
       }),
     );
 
@@ -335,6 +339,19 @@ export function addSandboxHostClient(
   app.addEnvironment("DOCKER_CERT_PATH", certPath);
   // Docker sandboxes get credentials only through Agent Vault.
   app.addEnvironment("AGENT_VAULT_ADDR", host.agentVaultAddress);
+  // Sandboxes call the backend task back by its VPC DNS name: Agent Vault
+  // rules take host names. us-east-1 names differ from other regions.
+  const usEast1 = new cdk.CfnCondition(app, "UsEast1Callback", {
+    expression: cdk.Fn.conditionEquals(cdk.Aws.REGION, "us-east-1"),
+  });
+  app.addEnvironment(
+    "SANDBOX_CALLBACK_DNS_SUFFIX",
+    cdk.Fn.conditionIf(
+      usEast1.logicalId,
+      "ec2.internal",
+      `${cdk.Aws.REGION}.compute.internal`,
+    ).toString(),
+  );
   app.addSecret(
     "AGENT_VAULT_OWNER_PASSWORD",
     ecs.Secret.fromSecretsManager(host.agentVaultOwnerSecret),
@@ -370,7 +387,7 @@ interface HostBootstrapInput {
   readonly dockerHostname: string;
   readonly agentVaultMasterSecretArn: string;
   /** Agent Vault may dial these private addresses: the backend tasks. */
-  readonly vpcCidr: string;
+  readonly backendSubnetCidrs: string[];
 }
 
 /**
@@ -479,18 +496,23 @@ function hostBootstrapScript(input: HostBootstrapInput): string[] {
     "ExecStartPost=/bin/sh -c 'iptables -C DOCKER-USER -i docker0 -j REJECT 2>/dev/null || iptables -I DOCKER-USER 1 -i docker0 -j REJECT'",
     `ExecStartPost=/bin/sh -c 'iptables -C DOCKER-USER -i docker0 -o ctxpipe-av -p tcp --dport ${AGENT_VAULT_PROXY_PORT} -j RETURN 2>/dev/null || iptables -I DOCKER-USER 1 -i docker0 -o ctxpipe-av -p tcp --dport ${AGENT_VAULT_PROXY_PORT} -j RETURN'`,
     "ExecStartPost=/bin/sh -c 'iptables -C DOCKER-USER -i docker0 -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN 2>/dev/null || iptables -I DOCKER-USER 1 -i docker0 -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN'",
+    "# Agent Vault never reaches the host (its own management API on the host's",
+    "# address, the Docker API) or itself back through a published port.",
+    "ExecStartPost=/bin/sh -c 'iptables -C INPUT -i ctxpipe-av -j REJECT 2>/dev/null || iptables -I INPUT -i ctxpipe-av -j REJECT'",
+    "ExecStartPost=/bin/sh -c 'iptables -C DOCKER-USER -i ctxpipe-av -o ctxpipe-av -j REJECT 2>/dev/null || iptables -I DOCKER-USER 1 -i ctxpipe-av -o ctxpipe-av -j REJECT'",
     "UNIT",
     "systemctl daemon-reload",
     "systemctl enable --now docker",
 
     "# Agent Vault adds sandbox credentials in flight (ADR-049). It has its own",
     "# bridge, so the DOCKER-USER rules above tell it from sandboxes. It may dial",
-    "# private addresses only in the VPC (the backend tasks); security groups",
-    "# keep the data stores closed to this host.",
+    "# private addresses only in the backend's subnets; security groups keep the",
+    "# data stores closed to this host. The login rate limit stays on; the proxy",
+    "# tier is raised, because all sandboxes of a turn share one vault.",
     "docker network inspect ctxpipe-av >/dev/null 2>&1 || docker network create -o com.docker.network.bridge.name=ctxpipe-av ctxpipe-av",
     `AGENT_VAULT_MASTER_PASSWORD="$(aws secretsmanager get-secret-value --region "$REGION" --secret-id '${input.agentVaultMasterSecretArn}' --query SecretString --output text)"`,
     "docker rm -f ctxpipe-agent-vault >/dev/null 2>&1 || true",
-    `docker run -d --name ctxpipe-agent-vault --restart unless-stopped --network ctxpipe-av -p ${AGENT_VAULT_API_PORT}:${AGENT_VAULT_API_PORT} -p ${AGENT_VAULT_PROXY_PORT}:${AGENT_VAULT_PROXY_PORT} -v ctxpipe-agent-vault:/data -e AGENT_VAULT_MASTER_PASSWORD="$AGENT_VAULT_MASTER_PASSWORD" -e AGENT_VAULT_RATELIMIT_PROFILE=off -e AGENT_VAULT_TELEMETRY=false -e AGENT_VAULT_NETWORK_ALLOWLIST='${input.vpcCidr}' infisical/agent-vault:latest`,
+    `docker run -d --name ctxpipe-agent-vault --restart unless-stopped --network ctxpipe-av -p ${AGENT_VAULT_API_PORT}:${AGENT_VAULT_API_PORT} -p ${AGENT_VAULT_PROXY_PORT}:${AGENT_VAULT_PROXY_PORT} -v ctxpipe-agent-vault:/data -e AGENT_VAULT_MASTER_PASSWORD="$AGENT_VAULT_MASTER_PASSWORD" -e AGENT_VAULT_RATELIMIT_PROXY_RATE=200 -e AGENT_VAULT_RATELIMIT_PROXY_BURST=2000 -e AGENT_VAULT_RATELIMIT_PROXY_CONCURRENCY=256 -e AGENT_VAULT_TELEMETRY=false -e AGENT_VAULT_NETWORK_ALLOWLIST='${input.backendSubnetCidrs.join(",")}' infisical/agent-vault:latest`,
     "unset AGENT_VAULT_MASTER_PASSWORD",
     `curl -sf --retry 30 --retry-connrefused --retry-delay 2 http://127.0.0.1:${AGENT_VAULT_API_PORT}/health`,
 

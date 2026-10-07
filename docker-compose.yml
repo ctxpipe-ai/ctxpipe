@@ -34,6 +34,14 @@ x-agent-vault-env: &agent-vault-env
 
 x-agent-vault-image: &agent-vault-image infisical/agent-vault:latest
 
+# Rate limits stay on (the login limit guards the owner account). The proxy
+# tier is raised: all sandboxes of one turn share one vault and fan out.
+x-agent-vault-limits: &agent-vault-limits
+  AGENT_VAULT_RATELIMIT_PROXY_RATE: "200"
+  AGENT_VAULT_RATELIMIT_PROXY_BURST: "2000"
+  AGENT_VAULT_RATELIMIT_PROXY_CONCURRENCY: "256"
+  AGENT_VAULT_TELEMETRY: "false"
+
 x-dind-image: &dind-image docker:29.8.2-dind@sha256:7dcdfc4a20246236f558175182ccace1eb15a41bd3eb119dd2284f393498b7c1
 
 services:
@@ -93,27 +101,36 @@ services:
     ports:
       - "${CTXPIPE_OTEL_COLLECTOR_HOST_PORT:-4318}:4318"
 
-  # Host dev only: Agent Vault for sandboxes on the host's Docker daemon. They
-  # reach its proxy at host.docker.internal:14322 and the backend at
-  # host.docker.internal, so it may dial private addresses. Host dev has no
-  # forced egress; the `deploy` profile does.
+  # Host dev only: Agent Vault for sandboxes on the host's Docker daemon. Its
+  # API is on 127.0.0.1 only. Sandboxes reach its proxy at
+  # host.docker.internal on the same port it listens on, and it may dial only
+  # the Docker host (the backend): Docker Desktop's and Linux's default
+  # host-gateway addresses. Host dev has no forced egress; `deploy` does.
   agent-vault-dev:
     profiles: [infra]
     image: *agent-vault-image
     restart: unless-stopped
+    command:
+      - server
+      - --host
+      - 0.0.0.0
+      - --port
+      - "14321"
+      - --mitm-port
+      - "${CTXPIPE_AGENT_VAULT_PROXY_HOST_PORT:-14322}"
     environment:
-      AGENT_VAULT_RATELIMIT_PROFILE: "off"
-      AGENT_VAULT_TELEMETRY: "false"
-      AGENT_VAULT_ALLOW_PRIVATE_RANGES: "true"
+      <<: *agent-vault-limits
+      AGENT_VAULT_NETWORK_ALLOWLIST: 192.168.65.254,172.17.0.1
     extra_hosts: ["host.docker.internal:host-gateway"]
     ports:
-      - "14321:14321"
-      - "14322:14322"
+      - "127.0.0.1:${CTXPIPE_AGENT_VAULT_API_HOST_PORT:-14321}:14321"
+      - "${CTXPIPE_AGENT_VAULT_PROXY_HOST_PORT:-14322}:${CTXPIPE_AGENT_VAULT_PROXY_HOST_PORT:-14322}"
     volumes:
       - agent_vault_dev:/data
 
-  # Generates the Agent Vault master password and the owner password once,
-  # on a volume only Agent Vault, the backend and the worker mount.
+  # Generates the Agent Vault passwords once: the master password on a volume
+  # only Agent Vault mounts, the owner password on one only the backend and
+  # the worker mount.
   agent-vault-secrets:
     profiles: [deploy]
     image: *agent-vault-image
@@ -122,14 +139,15 @@ services:
     entrypoint: ["sh", "-ec"]
     command:
       - |
-        for name in master-password owner-password; do
-          [ -s "/run/agent-vault/$$name" ] && continue
-          head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' > "/run/agent-vault/$$name.tmp"
-          mv "/run/agent-vault/$$name.tmp" "/run/agent-vault/$$name"
+        for file in /master/master-password /owner/owner-password; do
+          [ -s "$$file" ] && continue
+          head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' > "$$file.tmp"
+          mv "$$file.tmp" "$$file"
+          chmod 0444 "$$file"
         done
-        chmod 0444 /run/agent-vault/master-password /run/agent-vault/owner-password
     volumes:
-      - agent_vault_secrets:/run/agent-vault
+      - agent_vault_master:/master
+      - agent_vault_owner:/owner
 
   # Adds each credential to sandbox requests (ADR-049). Sandboxes reach only
   # its proxy port (scripts/sandbox-dind/entrypoint.sh), and the proxy may
@@ -142,16 +160,16 @@ services:
     entrypoint: ["sh", "-ec"]
     command:
       - |
-        AGENT_VAULT_MASTER_PASSWORD="$$(cat /run/agent-vault/master-password)"
+        AGENT_VAULT_MASTER_PASSWORD="$$(cat /run/agent-vault-master/master-password)"
         export AGENT_VAULT_MASTER_PASSWORD
         exec agent-vault server --host 0.0.0.0 --port 14321
     environment:
-      AGENT_VAULT_RATELIMIT_PROFILE: "off"
-      AGENT_VAULT_TELEMETRY: "false"
+      <<: *agent-vault-limits
+      # Only the backend: not Agent Vault's own address (its API), not `dind`.
       AGENT_VAULT_NETWORK_ALLOWLIST: 172.30.99.10
     volumes:
       - agent_vault_data:/data
-      - agent_vault_secrets:/run/agent-vault:ro
+      - agent_vault_master:/run/agent-vault-master:ro
     networks:
       sandbox:
         ipv4_address: 172.30.99.11
@@ -277,7 +295,7 @@ services:
       - "${CTXPIPE_BACKEND_HOST_PORT:-3000}:3000"
     volumes:
       - sandbox_client_certs:/certs/client:ro
-      - agent_vault_secrets:/run/agent-vault:ro
+      - agent_vault_owner:/run/agent-vault:ro
     networks:
       default:
       sandbox:
@@ -330,7 +348,7 @@ services:
       PAGERDUTY_REDIRECT_URI: ${PAGERDUTY_REDIRECT_URI:-}
     volumes:
       - sandbox_client_certs:/certs/client:ro
-      - agent_vault_secrets:/run/agent-vault:ro
+      - agent_vault_owner:/run/agent-vault:ro
     networks: [default, sandbox]
     depends_on:
       migrate:
@@ -416,7 +434,8 @@ volumes:
   zoekt_index_deploy:
   repo_cache:
   # Agent Vault's SQLite store (run vaults are deleted when runs end) and the
-  # generated passwords.
+  # generated passwords (master: Agent Vault only; owner: backend and worker).
   agent_vault_data:
-  agent_vault_secrets:
+  agent_vault_master:
+  agent_vault_owner:
   agent_vault_dev:
