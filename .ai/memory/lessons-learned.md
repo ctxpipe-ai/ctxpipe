@@ -215,7 +215,7 @@ These lessons moved to the instructions that agents always read. Do not add them
 - **Source:** migrated from patterns.md (two entries)
 
 ### Ingestion Postgres pool hygiene
-- **Rule:** do not wrap whole `deduplicateAndStore` in one `withOrgDbContext` / `withNodeOrgDbContext`. Use short per-chunk/per-phase txs. `setIngestionIndexingStep` must reuse `tryGetOrgDb()` when already in org context (parallel identify fan-out otherwise stamps out N pool checkouts). Treat Node `AggregateError` with nested `ETIMEDOUT` and pg `timeout exceeded when trying to connect` as transient in `isTransientDbConnectionError` (walk `AggregateError.errors`, not only `.cause`).
+- **Rule:** do not wrap a whole ingestion phase in one `withOrgDbContext`. Use short transactions per chunk or per phase. `setIngestionIndexingStep` must reuse `tryGetOrgDb()` when already in org context (parallel identify fan-out otherwise stamps out N pool checkouts). Treat Node `AggregateError` with nested `ETIMEDOUT` and pg `timeout exceeded when trying to connect` as transient in `isTransientDbConnectionError` (walk `AggregateError.errors`, not only `.cause`).
 - **Category:** convention
 - **Date:** 2026-08-11
 - **Source:** migrated from patterns.md
@@ -329,7 +329,7 @@ These lessons moved to the instructions that agents always read. Do not add them
 - **Source:** PR-343: Amplitude replaced by HyperDX RUM
 
 ### Unmatched-route fallback
-- **Rule:** mount explicit backend routes first; final `app.all("*")` in `apps/backend/src/app/app.ts` proxies unknown paths to UI origin from `UI_PROXY_URL` via Hono `proxy()`. Auth middleware in `withAuth.ts`, applied in `src/routes/v1/index.ts` via `v1.use("*", withAuth)` (no path-prefix checks in global middleware)
+- **Rule:** mount explicit backend routes first. `registerUiRoutes` (`apps/backend/src/routes/ui.ts`), called last in `app.ts`, adds the final `app.all("*")` that proxies unknown paths to `UI_PROXY_URL` with Hono `proxy()`; it aborts after `UI_PROXY_TIMEOUT_MS` (15 s) and returns 504. The auth middleware is in `withAuth.ts` (`withCookieAuth`, `withBearerAuth`, `requireAuth`, `withNetworkOrgContext`) and is applied with `.use("*", …)` in `src/routes/v1/index.ts`. Global middleware does no path-prefix checks.
 - **Category:** convention
 - **Date:** 2026-08-11
 - **Source:** migrated from patterns.md
@@ -350,7 +350,7 @@ These lessons moved to the instructions that agents always read. Do not add them
 - **Rule:** Linear, Notion, and Confluence share the same chrome: `ctx-node` mark in the header, semantic colour tokens, no nested zinc cards. Existing `rounded-none` on those wizards stays until a dedicated pass; **new or touched** chrome follows [apps/ui/DESIGN.md](../../apps/ui/DESIGN.md) (`rounded-md`). Do not add more square overrides. Do not leave Atlassian/Confluence on leftover `rounded-lg` callback boxes or filled `bg-zinc-900` panels.
 - **Category:** convention
 - **Date:** 2026-08-13
-- **Source:** repo-page-ux; updated 2026-08-24 for square product chrome
+- **Source:** repo-page-ux; radius follows [apps/ui/AGENTS.md](../../apps/ui/AGENTS.md) (`rounded-md`, 2026-10-01)
 
 ### Product UI skills vs marketing frontend-design
 - **Rule:** Do not install Anthropic `frontend-design` (or similar marketing taste skills) as always-on for `apps/ui`. Use first-party [product-ui](../../.agents/skills/product-ui/SKILL.md) + [DESIGN.md](../../apps/ui/DESIGN.md). Do not paste copyrighted book prose or figures (including Refactoring UI) into skills or the repo; encode tactics as house yes/no rules in our own words.
@@ -467,7 +467,7 @@ These lessons moved to the instructions that agents always read. Do not add them
 - **Source:** user correction (Workspaces nav label tracking)
 
 ### Workspace OpenCode chat uses the configured proxy, not native provider keys
-- **Rule:** OpenCode ignores `MODEL_PROVIDER_*`. Do not remap `MODEL_PROVIDER_API_KEY` to `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OPENROUTER_API_KEY`. Chat uses only `MODEL_FAST_NAME` / `MODEL_MEDIUM_NAME` / `MODEL_HIGH_NAME` (default **fast**) through the loopback ctxpipe OpenAI-compatible proxy. Pin `opencode-ai@1.18.18` with the locked SDK. When TanStack tools exist, the adapter overwrites `OPENCODE_CONFIG_CONTENT` — ship config as `opencode.json` plus `OPENCODE_CONFIG` via `createSecrets`. Model ids containing `gpt-5` still post `/v1/chat/completions` and require `chat.completion.chunk` SSE. Sandbox providers are in [ADR-048](decisions/ADR-048-native-postgres-sandbox-ownership.md); unsandboxed is never chosen automatically.
+- **Rule:** OpenCode ignores `MODEL_PROVIDER_*`. Do not remap `MODEL_PROVIDER_API_KEY` to `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OPENROUTER_API_KEY`. Chat uses only `MODEL_FAST_NAME` / `MODEL_MEDIUM_NAME` / `MODEL_HIGH_NAME` (default **fast**) through the app's OpenAI-compatible model proxy (`workspace-chat-model-proxy.ts`). Pin one `opencode-ai` version everywhere: today `1.18.34` in `WORKSPACE_CHAT_OPENCODE_CLI`, `apps/backend/Dockerfile`, `scripts/chat-sandbox/Dockerfile` and `ci.yaml`. When TanStack tools exist, the adapter overwrites `OPENCODE_CONFIG_CONTENT` — ship config as `opencode.json` plus `OPENCODE_CONFIG` via `createSecrets`. Model ids containing `gpt-5` still post `/v1/chat/completions` and require `chat.completion.chunk` SSE. Sandbox providers are in [ADR-048](decisions/ADR-048-native-postgres-sandbox-ownership.md); unsandboxed is never chosen automatically.
 - **Category:** convention
 - **Date:** 2026-08-22
 - **Source:** OpenCode chatStream 500 (H1: Claude fallback + empty Anthropic credentials)
