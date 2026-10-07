@@ -49,9 +49,9 @@ jq -se '
       SANDBOX_PROVIDER: "vercel",
       VERCEL_TOKEN: "vercel-secret-value",
       VERCEL_TEAM_ID: "ctxpipe",
-      VERCEL_PROJECT_ID: "ctxpipe"
+      VERCEL_PROJECT_ID: "ctxpipe-previews"
     })
-' "$tmp/ok/upserts" >/dev/null || fail "backend and worker should get the four sandbox variables"
+' "$tmp/ok/upserts" >/dev/null || fail "backend and worker should get the four sandbox variables, on the preview Vercel project"
 
 if VERCEL_ACCESS_TOKEN="" run_sync "$tmp/empty" >/dev/null 2>&1; then
   fail "sync should fail when VERCEL_ACCESS_TOKEN is empty"

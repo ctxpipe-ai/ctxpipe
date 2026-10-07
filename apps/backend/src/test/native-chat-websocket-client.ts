@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process"
+import { randomBytes } from "node:crypto"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 import type { StreamChunk } from "@tanstack/ai"
@@ -13,8 +14,14 @@ import { withNativeChatFixture } from "./native-chat-fixture.js"
 initLogger({ enabled: false })
 type Frame = { id: string; chunk: StreamChunk }
 const activeDisconnect = process.argv.includes("--active-disconnect")
+// The UI sends the first turn of a new conversation on this socket, before
+// the conversation row exists.
+const newConversation = process.argv.includes("--new-conversation")
 
 await withNativeChatFixture(async (f) => {
+  const conversationId = newConversation
+    ? `conv_${randomBytes(16).toString("hex")}`
+    : f.conversationId
   // Auth/session rows are fixture data. The production socket handlers,
   // native durability, runtime resolution, Git, PG and OpenCode run for real.
   const server = Bun.serve<ConversationWebSocketData>({
@@ -26,7 +33,7 @@ await withNativeChatFixture(async (f) => {
           kind: "workspace-chat",
           orgSlug: f.orgSlug,
           orgId: f.orgId,
-          conversationId: f.conversationId,
+          conversationId,
           userId: f.userId,
           request,
           socket: bunSocketToWebSocketLike({ send() {}, close() {} }),
@@ -38,8 +45,8 @@ await withNativeChatFixture(async (f) => {
     },
     websocket: conversationWebSocketHandlers,
   })
-  const url = `ws://127.0.0.1:${server.port}/${f.orgSlug}/api/v1/conversations/${f.conversationId}`
-  const runId = `run-${f.conversationId}`
+  const url = `ws://127.0.0.1:${server.port}/${f.orgSlug}/api/v1/conversations/${conversationId}`
+  const runId = `run-${conversationId}`
   const sockets: WebSocket[] = []
   async function collect(
     address: string,
@@ -90,7 +97,7 @@ await withNativeChatFixture(async (f) => {
     const prefix = await collect(
       url,
       {
-        threadId: f.conversationId,
+        threadId: conversationId,
         runId,
         messages: [
           { id: "user-socket", role: "user", content: "First socket question" },
@@ -98,7 +105,7 @@ await withNativeChatFixture(async (f) => {
         tools: [],
         context: [],
         state: {},
-        forwardedProps: { workspaceId: f.workspaceId },
+        forwardedProps: { workspaceId: f.workspaceId, source: "ui" },
       },
       activeDisconnect,
     )
@@ -117,7 +124,7 @@ await withNativeChatFixture(async (f) => {
     const noReplayModelCall = f.modelRequests.length === modelCalls
     if (activeDisconnect) {
       await collect(url, {
-        threadId: f.conversationId,
+        threadId: conversationId,
         runId: `${runId}-retry`,
         messages: [
           { id: "user-socket", role: "user", content: "First socket question" },
@@ -140,7 +147,7 @@ await withNativeChatFixture(async (f) => {
           new URL("./native-chat-reconstruct-client.ts", import.meta.url),
         ),
         f.orgId,
-        f.conversationId,
+        conversationId,
       ],
       { timeout: 15_000 },
     )
@@ -171,6 +178,26 @@ await withNativeChatFixture(async (f) => {
               frame.chunk.type === "RUN_ERROR",
           ).length === 1,
         noReplayModelCall,
+        ...(newConversation
+          ? {
+              turnOrder: first
+                .map((frame) =>
+                  frame.chunk.type === "CUSTOM" &&
+                  frame.chunk.name === "sandbox-setup"
+                    ? `setup:${(frame.chunk.value as { phase: string }).phase}`
+                    : frame.chunk.type,
+                )
+                .filter((step) =>
+                  [
+                    "RUN_STARTED",
+                    "setup:starting",
+                    "setup:ready",
+                    "TEXT_MESSAGE_START",
+                    "RUN_FINISHED",
+                  ].includes(step),
+                ),
+            }
+          : {}),
         freshTranscript: reloaded.messages.map((message) =>
           message.parts
             .filter((part) => part.type === "text")

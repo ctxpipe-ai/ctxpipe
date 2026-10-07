@@ -1,6 +1,7 @@
 export const requiredStories = [
-  "FirstMessageSendsOnceInStrictMode",
   "LateErrorDoesNotClobberSuccess",
+  "FirstTurnStreamsLive",
+  "FirstTurnFailureRestoresDraft",
   "SocketCleansUpOnLeave",
   "ReloadReconnects",
   "RapidRouteChanges",
@@ -8,8 +9,10 @@ export const requiredStories = [
   "OutOfOrderSaves",
   "PierreKeyboardFocus",
   "SharedPublishPending",
+  "PublishErrorsToast",
   "StableRequestBudget",
   "StableFilesRequestBudget",
+  "DeletedFileStaysUntilMerged",
 ]
 
 export function isGoldenPlaySuccess(phase) {

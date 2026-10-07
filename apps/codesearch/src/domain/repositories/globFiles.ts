@@ -1,7 +1,7 @@
 import type { Dirent } from "node:fs"
-import { lstat, readdir } from "node:fs/promises"
-import { basename, join } from "node:path"
-import { resolveSafePath } from "./paths.js"
+import { readdir, realpath, stat } from "node:fs/promises"
+import { basename, join, relative, sep } from "node:path"
+import { resolveContainedRealPath } from "./paths.js"
 
 export class GlobPathNotFoundError extends Error {
   constructor(message = "Path not found") {
@@ -120,26 +120,23 @@ function errnoCode(error: unknown): string {
   return ""
 }
 
-async function assertCheckoutDirectory(absCwd: string): Promise<void> {
-  let cwdStat: Awaited<ReturnType<typeof lstat>>
+/**
+ * Resolve the cwd to its real path. Follow symlinks only when they end inside
+ * the checkout. Answer any other failure as a missing path, with no detail.
+ * The real cwd can differ from the requested one, so callers skip on both.
+ */
+async function resolveCheckoutCwd(
+  checkoutRoot: string,
+  relativeCwd: string,
+): Promise<{ absCwd: string; realCwd: string }> {
   try {
-    cwdStat = await lstat(absCwd)
-  } catch (error) {
-    if (errnoCode(error) === "ENOENT") {
-      throw new GlobPathNotFoundError()
-    }
-    throw error
-  }
-  if (!cwdStat.isDirectory()) {
-    throw new GlobPathNotFoundError("Path is not a directory")
-  }
-}
-
-function resolveCheckoutCwd(checkoutRoot: string, relativeCwd: string): string {
-  try {
-    return relativeCwd
-      ? resolveSafePath(checkoutRoot, relativeCwd)
-      : resolveSafePath(checkoutRoot, ".")
+    const absCwd = await resolveContainedRealPath(
+      checkoutRoot,
+      relativeCwd || ".",
+    )
+    const realRoot = await realpath(checkoutRoot)
+    if (!(await stat(absCwd)).isDirectory()) throw new GlobPathNotFoundError()
+    return { absCwd, realCwd: relative(realRoot, absCwd).split(sep).join("/") }
   } catch (error) {
     if (
       error instanceof Error &&
@@ -147,7 +144,7 @@ function resolveCheckoutCwd(checkoutRoot: string, relativeCwd: string): string {
     ) {
       throw new GlobInvalidRequestError("Path traversal is not allowed")
     }
-    throw error
+    throw new GlobPathNotFoundError()
   }
 }
 
@@ -158,12 +155,21 @@ function resolveCheckoutCwd(checkoutRoot: string, relativeCwd: string): string {
 async function walkPrunedCheckout(input: {
   absCwd: string
   relativeCwd: string
+  realCwd: string
   onlyFiles: boolean
   dot: boolean
   visit: (entry: GlobFileEntry) => "continue" | "stop"
 }): Promise<void> {
-  const stack: Array<{ absDir: string; repoPrefix: string }> = [
-    { absDir: input.absCwd, repoPrefix: input.relativeCwd },
+  const stack: Array<{
+    absDir: string
+    repoPrefix: string
+    realPrefix: string
+  }> = [
+    {
+      absDir: input.absCwd,
+      repoPrefix: input.relativeCwd,
+      realPrefix: input.realCwd,
+    },
   ]
 
   while (stack.length > 0) {
@@ -188,7 +194,10 @@ async function walkPrunedCheckout(input: {
       const repoPath = current.repoPrefix
         ? `${current.repoPrefix}/${name}`
         : name
-      if (isSkippedGlobPath(repoPath)) continue
+      const realPath = current.realPrefix
+        ? `${current.realPrefix}/${name}`
+        : name
+      if (isSkippedGlobPath(repoPath) || isSkippedGlobPath(realPath)) continue
       if (dirent.isSymbolicLink()) continue
       if (dirent.isDirectory()) {
         if (!input.onlyFiles) {
@@ -199,6 +208,7 @@ async function walkPrunedCheckout(input: {
         stack.push({
           absDir: join(current.absDir, name),
           repoPrefix: repoPath,
+          realPrefix: realPath,
         })
         continue
       }
@@ -216,12 +226,12 @@ export async function listCheckoutFilePaths(
   options?: { limit?: number },
 ): Promise<string[]> {
   const limit = resolveGlobLimit(options?.limit)
-  const absCwd = resolveCheckoutCwd(checkoutRoot, "")
-  await assertCheckoutDirectory(absCwd)
+  const { absCwd, realCwd } = await resolveCheckoutCwd(checkoutRoot, "")
   const paths: string[] = []
   await walkPrunedCheckout({
     absCwd,
     relativeCwd: "",
+    realCwd,
     onlyFiles: true,
     dot: true,
     visit: (entry) => {
@@ -247,8 +257,10 @@ export async function globFilesInCheckout(
     .replace(/\\/g, "/")
     .replace(/^\//, "")
   assertSafeGlobPattern(options.pattern)
-  const absCwd = resolveCheckoutCwd(options.checkoutRoot, relativeCwd)
-  await assertCheckoutDirectory(absCwd)
+  const { absCwd, realCwd } = await resolveCheckoutCwd(
+    options.checkoutRoot,
+    relativeCwd,
+  )
 
   // Codesearch runs on Bun. Use the Bun global (not `import from "bun"`) so Node
   // vitest can still load this module for route/error-path tests.
@@ -263,6 +275,7 @@ export async function globFilesInCheckout(
   await walkPrunedCheckout({
     absCwd,
     relativeCwd,
+    realCwd,
     onlyFiles,
     dot,
     visit: (entry) => {

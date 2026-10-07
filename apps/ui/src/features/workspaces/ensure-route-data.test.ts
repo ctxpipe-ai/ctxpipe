@@ -4,6 +4,7 @@ import { setupServer } from "msw/node"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import { ensureWorkspaceRouteData } from "./ensure-route-data"
 import { workspaceConversationOptions } from "./queries"
+import { installRelativeFetch } from "./relative-fetch-test"
 import { docsWorkspaceDetail, hydratingWorkspace } from "./workspace-fixtures"
 
 const hydratingWorkspaceDetail = {
@@ -12,6 +13,7 @@ const hydratingWorkspaceDetail = {
 }
 
 const server = setupServer()
+let restoreFetch = () => {}
 let treeHits = 0
 let blobHits = 0
 
@@ -50,14 +52,7 @@ function listenForWorkspaceHttp() {
 describe("ensureWorkspaceRouteData", () => {
   beforeAll(() => {
     server.listen({ onUnhandledRequest: "error" })
-    const intercepted = globalThis.fetch
-    globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
-      const next =
-        typeof input === "string" && input.startsWith("/")
-          ? `http://localhost${input}`
-          : input
-      return intercepted(next as RequestInfo, init)
-    }) as typeof fetch
+    restoreFetch = installRelativeFetch()
   })
   afterEach(() => {
     server.resetHandlers()
@@ -66,6 +61,7 @@ describe("ensureWorkspaceRouteData", () => {
   })
   afterAll(() => {
     server.close()
+    restoreFetch()
   })
 
   it("does not fetch files/tree when the workspace is not projection-ready", async () => {

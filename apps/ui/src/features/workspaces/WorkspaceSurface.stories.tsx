@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
+import { Toaster } from "sonner"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 import {
   conversationDetailLoadingHandler,
@@ -270,6 +271,88 @@ export const ConversationMissing: Story = {
         page: workspaceShellHandlers({ conversation: null }),
       },
     },
+  },
+}
+
+/** A failed Sync or Create PR shows why in a toast. */
+export const PublishErrorsToast: Story = {
+  tags: ["workspace-golden"],
+  args: { conversationId: "conv_1", paneParam: "files" },
+  decorators: [
+    (Story) => (
+      <>
+        <Story />
+        <Toaster />
+      </>
+    ),
+  ],
+  parameters: {
+    storyRoute: workspaceRoute({ conversationId: "conv_1", pane: "files" }),
+    msw: {
+      handlers: {
+        page: [
+          http.post(
+            ({ request }) =>
+              /\/api\/v1\/conversations\/[^/]+\/push$/.test(
+                new URL(request.url).pathname,
+              ),
+            () => HttpResponse.json({ error: "turn_running" }, { status: 409 }),
+          ),
+          http.post(
+            ({ request }) =>
+              /\/api\/v1\/conversations\/[^/]+\/pull-request$/.test(
+                new URL(request.url).pathname,
+              ),
+            () => HttpResponse.json({ error: "no_pr_access" }, { status: 400 }),
+          ),
+          ...workspaceShellHandlers(),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const page = within(canvasElement.ownerDocument.body)
+    const enabledButton = async (name: RegExp) => {
+      let found: HTMLElement | undefined
+      await waitFor(
+        () => {
+          found = page
+            .getAllByRole("button", { name })
+            .filter(
+              (button) =>
+                button.getAttribute("aria-disabled") !== "true" &&
+                !button.hasAttribute("disabled"),
+            )
+            .at(-1)
+          expect(found).toBeDefined()
+        },
+        { timeout: 15_000 },
+      )
+      if (!found) throw new Error(`No enabled button ${name}`)
+      return found
+    }
+    await userEvent.click(await enabledButton(/^sync/i))
+    // The toast fades in.
+    await waitFor(
+      () =>
+        expect(
+          page.getByText(
+            "Sync failed. The agent is still working. Try again when the turn ends.",
+          ),
+        ).toBeVisible(),
+      { timeout: 10_000 },
+    )
+    await userEvent.click(await enabledButton(/create pr/i))
+    // The toast fades in.
+    await waitFor(
+      () =>
+        expect(
+          page.getByText(
+            "Create PR failed. The ctx| GitHub App can't open pull requests. Give it the Pull requests: Read and write permission.",
+          ),
+        ).toBeVisible(),
+      { timeout: 10_000 },
+    )
   },
 }
 

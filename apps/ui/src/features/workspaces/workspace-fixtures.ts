@@ -436,6 +436,85 @@ export const streamingReasoningMessages: ChatMessage[] = [
   },
 ]
 
+const ledgerThoughts = [
+  "**Reading the claim**\n\nThe payments API claims DEPENDS_ON ledger.md. I should check if invoices.md is a source or a derived view.",
+  "**Comparing the files**\n\nInvoice documents are generated from the ledger. So invoices.md is a derived view.",
+  "**Checking the answer**\n\nThe ledger is the source of truth. I can answer now.",
+]
+
+export const severalThoughtsMessages: ChatMessage[] = [
+  {
+    id: "msg_thoughts_u1",
+    role: "user",
+    parts: [{ type: "text", content: "Why ledger.md and not invoices.md?" }],
+    createdAt: new Date("2026-08-16T09:42:30.000Z"),
+  },
+  {
+    id: "msg_thoughts_a1",
+    role: "assistant",
+    parts: [
+      ...ledgerThoughts.map((content) => ({ type: "thinking", content })),
+      {
+        type: "text",
+        content:
+          "Use knowledge/billing/ledger.md. Invoice documents are generated from it.",
+      },
+    ],
+    createdAt: new Date("2026-08-16T09:42:44.000Z"),
+  },
+]
+
+export const streamingSeveralThoughtsMessages: ChatMessage[] = [
+  {
+    id: "msg_thoughts_live_u1",
+    role: "user",
+    parts: [{ type: "text", content: "Why ledger.md and not invoices.md?" }],
+    createdAt: new Date("2026-08-16T09:42:50.000Z"),
+  },
+  {
+    id: "msg_thoughts_live_a1",
+    role: "assistant",
+    parts: ledgerThoughts.map((content) => ({ type: "thinking", content })),
+    createdAt: new Date("2026-08-16T09:42:52.000Z"),
+  },
+]
+
+export const thoughtsBetweenToolsMessages: ChatMessage[] = [
+  {
+    id: "msg_thoughts_tools_u1",
+    role: "user",
+    parts: [{ type: "text", content: "Why ledger.md and not invoices.md?" }],
+    createdAt: new Date("2026-08-16T09:43:30.000Z"),
+  },
+  {
+    id: "msg_thoughts_tools_a1",
+    role: "assistant",
+    parts: [
+      { type: "thinking", content: ledgerThoughts[0] },
+      {
+        type: "tool-call",
+        id: "tc_thoughts_1",
+        name: "hybrid_search",
+        input: { query: "ledger vs invoices" },
+      },
+      { type: "thinking", content: ledgerThoughts[1] },
+      {
+        type: "tool-call",
+        id: "tc_thoughts_2",
+        name: "get_file",
+        input: { filePath: "knowledge/billing/ledger.md" },
+      },
+      { type: "thinking", content: ledgerThoughts[2] },
+      {
+        type: "text",
+        content:
+          "Use knowledge/billing/ledger.md. Invoice documents are generated from it.",
+      },
+    ],
+    createdAt: new Date("2026-08-16T09:43:44.000Z"),
+  },
+]
+
 export const oneToolMessages: ChatMessage[] = [
   {
     id: "msg_tool_u1",

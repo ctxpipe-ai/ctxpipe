@@ -42,8 +42,29 @@ describe("explorerGitStatusFromPorcelain", () => {
       { path: "knowledge/ledger.md", status: "modified" },
       { path: "knowledge/gone.md", status: "deleted" },
       { path: "knowledge/renamed.md", status: "renamed" },
+      { path: "knowledge/old.md", status: "deleted" },
       { path: "scratch.ts", status: "untracked" },
       { path: "build/out.js", status: "ignored" },
+    ])
+  })
+
+  it("lists the old path of a rename as deleted", () => {
+    expect(
+      explorerGitStatusFromPorcelain("R  knowledge/old.md -> knowledge/new.md"),
+    ).toEqual([
+      { path: "knowledge/new.md", status: "renamed" },
+      { path: "knowledge/old.md", status: "deleted" },
+    ])
+  })
+
+  it("treats a file deleted in the worktree after a staged change as deleted", () => {
+    expect(
+      explorerGitStatusFromPorcelain(
+        ["MD knowledge/edited.md", "AD knowledge/added.md"].join("\n"),
+      ),
+    ).toEqual([
+      { path: "knowledge/edited.md", status: "deleted" },
+      { path: "knowledge/added.md", status: "deleted" },
     ])
   })
 

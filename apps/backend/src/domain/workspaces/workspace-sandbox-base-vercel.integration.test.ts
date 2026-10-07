@@ -62,6 +62,11 @@ import { collectUnusedWorkspaceBases } from "./workspace-sandbox-cleanup.js"
  */
 
 const API = "https://vercel.com/api/v2/sandboxes"
+/** The agent snapshot builders' `opencode` tag: runtime and OpenCode version. */
+const agentTag = `node26-${WORKSPACE_CHAT_OPENCODE_CLI}`.replace(
+  /[^\w.-]/g,
+  "-",
+)
 const credentials = {
   token: "test-token",
   teamId: "team_test",
@@ -141,7 +146,7 @@ function sandboxBody(name: string) {
       memory: 2048,
       vcpus: 1,
       region: "iad1",
-      runtime: "node24",
+      runtime: "node26",
       timeout: 60_000,
       status: "running",
       requestedAt: 1,
@@ -279,6 +284,7 @@ describe("hosted base choice", () => {
     // start finds it gone.
     let reads = 0
     const sources: string[] = []
+    const sizes: (number | undefined)[] = []
     server.use(
       http.get(`${API}/snapshots/snap_bad`, () =>
         reads++ === 0
@@ -288,9 +294,11 @@ describe("hosted base choice", () => {
       http.post(API, async ({ request }) => {
         const body = (await request.json()) as {
           source?: { snapshotId?: string }
+          resources?: { vcpus?: number }
         }
         const source = body.source?.snapshotId ?? ""
         sources.push(source)
+        sizes.push(body.resources?.vcpus)
         if (source === "snap_bad")
           return HttpResponse.json(
             { error: { code: "bad_request", message: "snapshot unusable" } },
@@ -330,6 +338,8 @@ describe("hosted base choice", () => {
     } as Parameters<typeof provider.create>[0])
     expect(handle.id).toBe("conversation-1")
     expect(sources).toEqual(["snap_bad", "snap_agent"])
+    // Every conversation sandbox gets 1 vCPU (2 GB of memory).
+    expect(sizes).toEqual([1, 1])
     expect((await getSandboxInstance(baseId, orgId))?.state).toBe(
       "destroy_failed",
     )
@@ -851,7 +861,7 @@ describe("Vercel build step", () => {
               tags: {
                 ctxpipe: "workspace-agent",
                 environment,
-                opencode: WORKSPACE_CHAT_OPENCODE_CLI.replace(/[^\w.-]/g, "-"),
+                opencode: agentTag,
               },
             },
           ],
@@ -909,6 +919,7 @@ describe("Vercel build step", () => {
       ctxpipe: "workspace-base",
       environment,
     })
+    expect(create?.resources).toMatchObject({ vcpus: 1 })
     // GitHub only: the backend is not reachable from a builder.
     const egress = JSON.stringify(create?.networkPolicy)
     expect(egress).toContain("api.github.com")
@@ -1164,6 +1175,58 @@ describe("base sweep schedule", () => {
 describe("agent snapshot lookup", () => {
   const environment = `pr-${Date.now()}`
 
+  it("builds on node26 at 1 vCPU, and does not reuse an agent snapshot built on another runtime", async () => {
+    const created: Record<string, unknown>[] = []
+    server.use(
+      http.get(API, () =>
+        HttpResponse.json({
+          sandboxes: [
+            {
+              ...sandboxBody("node24-agent-builder").sandbox,
+              status: "stopped",
+              // The identity before the runtime was part of it.
+              tags: {
+                ctxpipe: "workspace-agent",
+                environment: `${environment}-runtime`,
+                opencode: WORKSPACE_CHAT_OPENCODE_CLI.replace(/[^\w.-]/g, "-"),
+              },
+            },
+          ],
+          pagination: { count: 1, next: null },
+        }),
+      ),
+      http.get(`${API}/snapshots`, () =>
+        HttpResponse.json({
+          snapshots: [snapshotBody("snap_node24_agent", "created").snapshot],
+          pagination: { count: 1, next: null },
+        }),
+      ),
+      http.post(API, async ({ request }) => {
+        created.push((await request.json()) as Record<string, unknown>)
+        return HttpResponse.json(
+          { error: { code: "bad_request", message: "stop here" } },
+          { status: 400 },
+        )
+      }),
+    )
+    await expect(
+      vercelAgentSnapshot({
+        credentials,
+        environment: `${environment}-runtime`,
+      }),
+    ).rejects.toThrow()
+    expect(created).toHaveLength(1)
+    expect(created[0]).toMatchObject({
+      runtime: "node26",
+      resources: { vcpus: 1 },
+      tags: { opencode: agentTag },
+    })
+    // Workspace bases are keyed by the same runtime, so they rebuild once.
+    expect(agent.image).toBe(
+      `vercel-agent/node26/${WORKSPACE_CHAT_OPENCODE_CLI}`,
+    )
+  })
+
   it("is cached in the process, and looked up again after a failed start", async () => {
     let lookups = 0
     let healthy = true
@@ -1183,7 +1246,7 @@ describe("agent snapshot lookup", () => {
               tags: {
                 ctxpipe: "workspace-agent",
                 environment,
-                opencode: WORKSPACE_CHAT_OPENCODE_CLI.replace(/[^\w.-]/g, "-"),
+                opencode: agentTag,
               },
             },
           ],

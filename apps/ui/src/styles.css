@@ -650,19 +650,6 @@
   .ctx-streamdown-reasoning > :first-child {
     margin-top: 0 !important;
   }
-
-  .ctx-streamdown-reasoning-collapsed {
-    height: auto;
-  }
-
-  .ctx-streamdown-reasoning-collapsed > * {
-    display: inline;
-    margin: 0 !important;
-  }
-
-  .ctx-streamdown-reasoning-collapsed > * + *::before {
-    content: " ";
-  }
 }
 
 .ctx-status-pulse {
