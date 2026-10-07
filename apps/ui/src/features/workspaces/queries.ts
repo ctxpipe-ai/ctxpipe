@@ -1,7 +1,7 @@
 import { type QueryClient, queryOptions } from "@tanstack/react-query"
 import type { ConversationDetail } from "@/features/chat/types"
 import { getApiClient } from "@/lib/api"
-import { apiFetch, pollWhileOk, readApiJson } from "@/lib/api-result"
+import { pollWhileOk, readApiJson } from "@/lib/api-result"
 import {
   readConversationGitTreeSnapshot,
   writeConversationGitTreeSnapshot,
@@ -140,79 +140,6 @@ export async function prepareWorkspaceChat(
         : "Failed to prepare workspace chat",
     )
   }
-}
-
-export class StartWorkspaceConversationError extends Error {
-  conversationId?: string
-  constructor(message: string, conversationId?: string) {
-    super(message)
-    this.name = "StartWorkspaceConversationError"
-    this.conversationId = conversationId
-  }
-}
-
-/** First-message command: stock conversation POST. Awaits the accepted turn. */
-export async function startWorkspaceConversation(
-  orgSlug: string,
-  input: {
-    conversationId?: string
-    idempotencyKey?: string
-    workspaceId: string
-    text: string
-  },
-): Promise<{ conversationId: string }> {
-  const json = {
-    message: {
-      role: "user",
-      content: input.text,
-    },
-    messages: [
-      {
-        id: "user-pending",
-        role: "user",
-        content: input.text,
-      },
-    ],
-    tools: [],
-    context: [],
-    ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
-    forwardedProps: {
-      workspaceId: input.workspaceId,
-      source: "ui",
-      ...(input.conversationId ? { conversationId: input.conversationId } : {}),
-    },
-  }
-  const res = await apiFetch(`/${orgSlug}/api/v1/conversations`, {
-    method: "POST",
-    credentials: "include",
-    headers: {
-      "content-type": "application/json",
-      ...(input.idempotencyKey
-        ? { "Idempotency-Key": input.idempotencyKey }
-        : {}),
-    },
-    body: JSON.stringify(json),
-    timeoutMs: null,
-  })
-  const conversationId = res.headers.get("x-conversation-id")?.trim()
-  if (!res.ok) {
-    throw new StartWorkspaceConversationError(
-      "Failed to start conversation",
-      conversationId,
-    )
-  }
-  if (!conversationId) {
-    throw new StartWorkspaceConversationError("Failed to start conversation")
-  }
-  try {
-    await res.text()
-  } catch (error) {
-    throw new StartWorkspaceConversationError(
-      error instanceof Error ? error.message : "Failed to start conversation",
-      conversationId,
-    )
-  }
-  return { conversationId }
 }
 
 export async function fetchWorkspaceFiles(

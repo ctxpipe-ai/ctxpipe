@@ -5,6 +5,7 @@ import {
   conversationCommitPushEnabled,
   conversationCreatePrEnabled,
   conversationGithubTreeHref,
+  conversationPublishErrorMessage,
   conversationPullRequestAction,
   conversationPullRequestVisible,
 } from "./conversationPublish"
@@ -131,5 +132,35 @@ describe("conversation publish helpers", () => {
         "ctxpipe/chat/conv_1/1",
       ),
     ).toBe("https://github.com/acme/docs/tree/ctxpipe/chat/conv_1/1")
+  })
+})
+
+describe("conversationPublishErrorMessage", () => {
+  it("names the cause of a known error code", () => {
+    expect(
+      conversationPublishErrorMessage("Commit+Push", new Error("turn_running")),
+    ).toBe(
+      "Commit+Push failed. The agent is still working. Try again when the turn ends.",
+    )
+    expect(
+      conversationPublishErrorMessage("Create PR", new Error("no_pr_access")),
+    ).toBe(
+      "Create PR failed. The ctx| GitHub App can't open pull requests. Give it the Pull requests: Read and write permission.",
+    )
+  })
+
+  it("gives every stale code the same message", () => {
+    for (const code of ["stale_sha", "stale_url", "stale_binding"])
+      expect(
+        conversationPublishErrorMessage("Create PR", new Error(code)),
+      ).toBe(
+        "Create PR failed. The Workspace moved. Reload the page and try again.",
+      )
+  })
+
+  it("shows an unknown code as it is", () => {
+    expect(
+      conversationPublishErrorMessage("Create PR", new Error("odd_code")),
+    ).toBe("Create PR failed (odd_code).")
   })
 })

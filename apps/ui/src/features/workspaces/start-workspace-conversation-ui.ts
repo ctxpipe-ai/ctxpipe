@@ -1,4 +1,3 @@
-import HyperDX from "@hyperdx/browser"
 import type { QueryClient } from "@tanstack/react-query"
 import type { NavigateFn } from "@tanstack/react-router"
 import type { SideNavLocation } from "@/components/SideNav/sideNavLocation"
@@ -8,22 +7,11 @@ import type {
   ConversationListInfiniteData,
 } from "@/features/chat/types"
 import {
-  fetchConversation,
-  StartWorkspaceConversationError,
-  startWorkspaceConversation,
   workspaceDetailOptions,
   workspaceKeys,
   workspaceListOptions,
 } from "./queries"
 import type { WorkspaceDetail, WorkspaceListResponse } from "./types"
-
-export type ConversationStartState = {
-  text: string
-  idempotencyKey: string
-  workspaceId: string
-  status: "starting" | "error"
-  error?: string
-}
 
 export function newUiConversationId(): string {
   const bytes = new Uint8Array(16)
@@ -66,7 +54,6 @@ export function seedWorkspaceConversation(input: {
   orgSlug: string
   workspaceId: string
   conversationId: string
-  text: string
 }): ConversationDetail {
   const now = new Date().toISOString()
   const detail: ConversationDetail = {
@@ -80,13 +67,7 @@ export function seedWorkspaceConversation(input: {
       createdAt: now,
       updatedAt: now,
     },
-    messages: [
-      {
-        id: `user-${input.conversationId}`,
-        role: "user",
-        parts: [{ type: "text", content: input.text }],
-      },
-    ],
+    messages: [],
   }
   input.queryClient.setQueryData(
     workspaceKeys.conversation(
@@ -111,49 +92,34 @@ export function seedWorkspaceConversation(input: {
   return detail
 }
 
-export function setConversationStartState(
-  queryClient: QueryClient,
-  orgSlug: string,
-  conversationId: string,
-  state: ConversationStartState | null,
-) {
-  queryClient.setQueryData(
-    workspaceKeys.conversationStart(orgSlug, conversationId),
-    state,
-  )
-}
-
-export async function openWorkspaceConversation(input: {
+export function openWorkspaceConversation(input: {
   queryClient: QueryClient
   navigate: NavigateFn
   selectNav: (next: SideNavLocation) => void
   orgSlug: string
   workspace: { id: string; slug: string }
   text: string
-  conversationId?: string
-  idempotencyKey?: string
-}): Promise<{ conversationId: string }> {
-  const conversationId = input.conversationId ?? newUiConversationId()
-  const idempotencyKey = input.idempotencyKey ?? conversationId
-  HyperDX.addAction("advisor_question_sent")
+}): void {
+  const conversationId = newUiConversationId()
   seedWorkspaceConversation({
     queryClient: input.queryClient,
     orgSlug: input.orgSlug,
     workspaceId: input.workspace.id,
     conversationId,
-    text: input.text,
   })
   seedWorkspaceDetailFromList({
     queryClient: input.queryClient,
     orgSlug: input.orgSlug,
     workspace: input.workspace,
   })
-  setConversationStartState(input.queryClient, input.orgSlug, conversationId, {
-    text: input.text,
-    idempotencyKey,
-    workspaceId: input.workspace.id,
-    status: "starting",
-  })
+  // The conversation session takes this message with takeFirstMessage and
+  // sends it on its own chat stream. The cache does not survive a reload, so
+  // a reload between this navigate and the session mount loses the message.
+  // The window is short and the risk is low.
+  input.queryClient.setQueryData<string>(
+    workspaceKeys.conversationStart(input.orgSlug, conversationId),
+    input.text,
+  )
   void input.queryClient.prefetchQuery(
     workspaceDetailOptions(input.orgSlug, input.workspace.slug),
   )
@@ -172,58 +138,19 @@ export async function openWorkspaceConversation(input: {
     },
     search: (prev) => prev,
   })
-  try {
-    const started = await startWorkspaceConversation(input.orgSlug, {
-      conversationId,
-      idempotencyKey,
-      workspaceId: input.workspace.id,
-      text: input.text,
-    })
-    const fetched = await fetchConversation(
-      input.orgSlug,
-      started.conversationId,
-      input.workspace.id,
-    )
-    if (fetched) {
-      input.queryClient.setQueryData(
-        workspaceKeys.conversation(
-          input.orgSlug,
-          started.conversationId,
-          input.workspace.id,
-        ),
-        fetched,
-      )
-    }
-    setConversationStartState(
-      input.queryClient,
-      input.orgSlug,
-      conversationId,
-      null,
-    )
-    return started
-  } catch (error) {
-    const assigned =
-      error instanceof StartWorkspaceConversationError
-        ? error.conversationId
-        : conversationId
-    setConversationStartState(
-      input.queryClient,
-      input.orgSlug,
-      conversationId,
-      {
-        text: input.text,
-        idempotencyKey,
-        workspaceId: input.workspace.id,
-        status: "error",
-        error:
-          error instanceof Error
-            ? error.message
-            : "Failed to start conversation",
-      },
-    )
-    throw new StartWorkspaceConversationError(
-      error instanceof Error ? error.message : "Failed to start conversation",
-      assigned,
-    )
-  }
+}
+
+/**
+ * Take the first message that openWorkspaceConversation left for this
+ * conversation. It returns the message once, then undefined.
+ */
+export function takeFirstMessage(
+  queryClient: QueryClient,
+  orgSlug: string,
+  conversationId: string,
+): string | undefined {
+  const key = workspaceKeys.conversationStart(orgSlug, conversationId)
+  const text = queryClient.getQueryData<string>(key)
+  queryClient.removeQueries({ queryKey: key, exact: true })
+  return text
 }

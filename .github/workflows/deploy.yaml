@@ -278,6 +278,24 @@ jobs:
       - name: Terraform Apply
         run: terraform apply -auto-approve terraform.plan
 
+      # PR previews ran in the production Vercel project before they got a
+      # project of their own, and the PR-close cleanup cannot reach it now.
+      # Delete what they left: only sandboxes tagged `pr-<number>`. The deploy
+      # is applied at this point and the next deploy tries again, so a failed
+      # cleanup does not fail the deploy (forge_deploy needs this job).
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      - name: Delete sandboxes that PR previews left in production
+        continue-on-error: true
+        working-directory: ${{ github.workspace }}/apps/backend
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_ACCESS_TOKEN }}
+          VERCEL_TEAM_ID: ctxpipe
+          VERCEL_PROJECT_ID: ctxpipe
+        run: bun src/scripts/deletePreviewSandboxes.ts 'pr-*'
+
   forge_deploy:
     name: Deploy Forge app (production)
     if: github.event_name != 'workflow_dispatch'

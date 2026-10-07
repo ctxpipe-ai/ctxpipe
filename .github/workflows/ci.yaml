@@ -399,6 +399,9 @@ jobs:
       ((github.event_name == 'pull_request') !=
       (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
     runs-on: ubuntu-latest
+    # The Preview environment's VERCEL_ACCESS_TOKEN reaches only the preview
+    # Vercel project, never production.
+    environment: Preview
     services:
       postgres:
         image: pgvector/pgvector:pg17
@@ -419,7 +422,7 @@ jobs:
       # Stands in for a minted Workspace read token in the firewall contract.
       GITHUB_TOKEN: ${{ github.token }}
       VERCEL_TEAM: ctxpipe
-      VERCEL_PROJECT: ctxpipe
+      VERCEL_PROJECT: ctxpipe-previews
     steps:
       - uses: actions/checkout@v6
         with:

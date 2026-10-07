@@ -51,7 +51,7 @@ describe("structural search path containment", () => {
         resolveStructuralSearchPaths(checkoutPath, [
           join(checkoutPath, "escape.ts"),
         ]),
-      ).rejects.toThrow("Structural search path escapes checkout")
+      ).rejects.toMatchObject({ code: "ENOENT" })
     } finally {
       await rm(root, { recursive: true, force: true })
     }

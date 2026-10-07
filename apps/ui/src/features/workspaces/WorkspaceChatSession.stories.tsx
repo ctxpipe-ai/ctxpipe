@@ -1,10 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { delay, HttpResponse, http } from "msw"
+import { HttpResponse, http } from "msw"
 import { userEvent, waitFor, within } from "storybook/test"
 import {
-  conversationAguiSseResponse,
   conversationAguiTextEvents,
-  conversationPostPath,
+  installAguiWebSocket,
 } from "@/mocks/conversation-agui"
 import { workspaceShellHandlers } from "@/mocks/workspace-handlers"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
@@ -183,17 +182,13 @@ export const ReadOnly: Story = {
 
 export const Waiting: Story = {
   args: threadArgs(docsConversationDetail.messages),
+  // The socket takes the run and answers nothing.
+  beforeEach: () => installAguiWebSocket(() => []).restore,
   parameters: {
     storyRoute: threadRoute,
     msw: {
       handlers: {
-        page: [
-          http.post(conversationPostPath, async () => {
-            await delay("infinite")
-            return new HttpResponse(null, { status: 200 })
-          }),
-          ...workspaceShellHandlers(),
-        ],
+        page: [...workspaceShellHandlers()],
       },
     },
   },
@@ -212,22 +207,20 @@ export const Waiting: Story = {
 
 export const Streaming: Story = {
   args: threadArgs(docsConversationDetail.messages),
+  beforeEach: () =>
+    installAguiWebSocket((threadId, runId) =>
+      conversationAguiTextEvents({
+        threadId,
+        runId,
+        messageId: "msg_socket",
+        text: "Socket token",
+      }),
+    ).restore,
   parameters: {
     storyRoute: threadRoute,
     msw: {
       handlers: {
-        page: [
-          http.post(conversationPostPath, () =>
-            conversationAguiSseResponse(
-              conversationAguiTextEvents({
-                threadId: "conv_1",
-                messageId: "msg_sse",
-                text: "SSE fallback token",
-              }),
-            ),
-          ),
-          ...workspaceShellHandlers(),
-        ],
+        page: [...workspaceShellHandlers()],
       },
     },
   },
@@ -238,7 +231,7 @@ export const Streaming: Story = {
       "Stream this",
     )
     await userEvent.click(canvas.getByRole("button", { name: /send/i }))
-    await waitFor(() => canvas.getByText(/SSE fallback token/), {
+    await waitFor(() => canvas.getByText(/Socket token/), {
       timeout: SEND_WAIT_MS,
     })
   },
@@ -279,19 +272,16 @@ export const PrepareAtCapacity: Story = {
 
 export const SendError: Story = {
   args: threadArgs(docsConversationDetail.messages),
+  beforeEach: () =>
+    installAguiWebSocket((threadId, runId) => [
+      { type: "RUN_STARTED", threadId, runId },
+      { type: "RUN_ERROR", runId, message: "The chat sandbox is gone." },
+    ]).restore,
   parameters: {
     storyRoute: threadRoute,
     msw: {
       handlers: {
-        page: [
-          http.post(conversationPostPath, () =>
-            HttpResponse.json(
-              { error: "The chat sandbox is gone." },
-              { status: 500 },
-            ),
-          ),
-          ...workspaceShellHandlers(),
-        ],
+        page: [...workspaceShellHandlers()],
       },
     },
   },

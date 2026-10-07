@@ -22,7 +22,10 @@ import {
   vercelCredentials,
   workspaceBaseTags,
 } from "./vercel-sandbox-provider.js"
-import { WORKSPACE_CHAT_OPENCODE_CLI } from "./workspace-chat-opencode-contract.js"
+import {
+  VERCEL_SANDBOX,
+  WORKSPACE_CHAT_OPENCODE_CLI,
+} from "./workspace-chat-opencode-contract.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "./write-status.js"
 
 /** Docker labels on what our code creates, so a host prune can find it. */
@@ -41,14 +44,17 @@ export type SandboxAgent = { provider: RunningSandboxProvider; image: string }
 
 /**
  * The agent image Workspace bases are built on, so a new one gets new bases:
- * the chat image's content id on Docker, the OpenCode version on Vercel.
+ * the chat image's content id on Docker, the runtime and OpenCode version on
+ * Vercel.
  */
 export function sandboxAgentImage(
   provider: RunningSandboxProvider,
 ): Promise<string> {
   return provider === "docker"
     ? dockerImageId(workspaceChatDockerImage())
-    : Promise.resolve(`vercel-agent/${WORKSPACE_CHAT_OPENCODE_CLI}`)
+    : Promise.resolve(
+        `vercel-agent/${VERCEL_SANDBOX.runtime}/${WORKSPACE_CHAT_OPENCODE_CLI}`,
+      )
 }
 
 /**

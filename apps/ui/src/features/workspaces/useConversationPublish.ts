@@ -4,9 +4,11 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query"
+import { toast } from "sonner"
 import type { ConversationDetail } from "@/features/chat/types"
 import {
   conversationCommitPushEnabled,
+  conversationPublishErrorMessage,
   conversationPullRequestAction,
   conversationPullRequestVisible,
 } from "./conversationPublish"
@@ -71,6 +73,9 @@ export function useConversationPublish(input: {
   const pushMutation = useMutation({
     mutationKey: pushKey,
     mutationFn: () => pushConversationBranch(orgSlug, conversationId),
+    onError: (error) => {
+      toast.error(conversationPublishErrorMessage("Commit+Push", error))
+    },
     onSuccess: (result) => {
       queryClient.setQueryData<ConversationDetail>(
         workspaceKeys.conversation(orgSlug, conversationId, workspaceId),
@@ -99,6 +104,9 @@ export function useConversationPublish(input: {
     mutationKey: createPrKey,
     mutationFn: () =>
       createConversationPullRequest(orgSlug, conversationId, { title }),
+    onError: (error) => {
+      toast.error(conversationPublishErrorMessage("Create PR", error))
+    },
     onSuccess: (result) => {
       queryClient.setQueryData<ConversationDetail>(
         workspaceKeys.conversation(orgSlug, conversationId, workspaceId),

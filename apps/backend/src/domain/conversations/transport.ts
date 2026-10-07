@@ -114,28 +114,31 @@ function toChatInput(input: StreamInput): TanstackWorkspaceChatInput | null {
   }
 }
 
-function streamWorkspaceChatWithLangfuseContext(
-  input: StreamInput,
-  chatInput: TanstackWorkspaceChatInput,
+/**
+ * Run each step of a chat turn's stream in the conversation's Langfuse
+ * context, so the turn's traces carry its session, user, and source tag.
+ */
+export function withLangfuseTurnContext(
+  attrs: { sessionId: string; userId?: string; source?: string | null },
+  open: () => AsyncIterable<StreamChunk>,
 ): AsyncIterable<StreamChunk> {
-  const attrs = {
-    sessionId: input.conversationId,
-    ...(input.userId ? { userId: input.userId } : {}),
-    tags: input.source ? [input.source] : undefined,
+  const context = {
+    sessionId: attrs.sessionId,
+    ...(attrs.userId ? { userId: attrs.userId } : {}),
+    tags: attrs.source ? [attrs.source] : undefined,
   }
   return {
     [Symbol.asyncIterator]() {
       let iterator: AsyncIterator<StreamChunk> | undefined
       return {
         next() {
-          return runWithLangfuseContext(attrs, () => {
-            iterator ??=
-              streamTanstackWorkspaceChat(chatInput)[Symbol.asyncIterator]()
+          return runWithLangfuseContext(context, () => {
+            iterator ??= open()[Symbol.asyncIterator]()
             return iterator.next()
           })
         },
         return(value) {
-          return runWithLangfuseContext(attrs, () =>
+          return runWithLangfuseContext(context, () =>
             iterator?.return
               ? iterator.return(value)
               : Promise.resolve({ done: true as const, value: undefined }),
@@ -156,7 +159,14 @@ export function workspaceChatStreamResponse(
   }
   const format =
     input.wireFormat ?? (request ? workspaceChatWireFormat(request) : "sse")
-  const stream = streamWorkspaceChatWithLangfuseContext(input, chatInput)
+  const stream = withLangfuseTurnContext(
+    {
+      sessionId: input.conversationId,
+      userId: input.userId,
+      source: input.source,
+    },
+    () => streamTanstackWorkspaceChat(chatInput),
+  )
   return workspaceChatHttpResponse(
     // Only the UI is a person watching; any other caller frees its slot.
     input.source === "ui"

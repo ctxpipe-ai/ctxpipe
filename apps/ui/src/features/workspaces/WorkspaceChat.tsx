@@ -4,22 +4,14 @@ import {
   useSuspenseQuery,
 } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { type ReactNode, Suspense, useRef, useState } from "react"
+import { type ReactNode, Suspense } from "react"
 import { useSelectNav } from "@/components/ShellLayoutContext"
 import { Button } from "@/components/ui/Button"
-import { InlineAlert } from "@/components/ui/InlineAlert"
 import { Skeleton } from "@/components/ui/Skeleton"
 import { ConversationThreadSkeleton } from "@/features/chat/components/ConversationThreadSkeleton"
 import { MessageInputBox } from "@/features/chat/MessageInputBox"
-import {
-  StartWorkspaceConversationError,
-  workspaceConversationOptions,
-  workspaceKeys,
-} from "./queries"
-import {
-  newUiConversationId,
-  openWorkspaceConversation,
-} from "./start-workspace-conversation-ui"
+import { workspaceConversationOptions, workspaceKeys } from "./queries"
+import { openWorkspaceConversation } from "./start-workspace-conversation-ui"
 import type { Workspace } from "./types"
 import { WorkspaceChatChrome } from "./WorkspaceChatChrome"
 import { WorkspaceChatSession } from "./WorkspaceChatSession"
@@ -72,51 +64,6 @@ function WorkspaceComposeChat(props: {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const selectNav = useSelectNav()
-  const [sendError, setSendError] = useState<string | null>(null)
-  const [sending, setSending] = useState(false)
-  const pendingConversationRef = useRef<{
-    conversationId: string
-    idempotencyKey: string
-  } | null>(null)
-
-  const startConversation = async (text: string) => {
-    setSendError(null)
-    setSending(true)
-    const pending = pendingConversationRef.current
-    const conversationId = pending?.conversationId ?? newUiConversationId()
-    const idempotencyKey = pending?.idempotencyKey ?? conversationId
-    pendingConversationRef.current = {
-      conversationId,
-      idempotencyKey,
-    }
-    try {
-      await openWorkspaceConversation({
-        queryClient,
-        navigate,
-        selectNav,
-        orgSlug: props.orgSlug,
-        workspace: props.workspace,
-        text,
-        conversationId,
-        idempotencyKey,
-      })
-      pendingConversationRef.current = null
-    } catch (error) {
-      const assigned =
-        error instanceof StartWorkspaceConversationError
-          ? (error.conversationId ?? conversationId)
-          : conversationId
-      pendingConversationRef.current = {
-        conversationId: assigned,
-        idempotencyKey,
-      }
-      setSending(false)
-      setSendError(
-        error instanceof Error ? error.message : "Failed to start conversation",
-      )
-    }
-  }
-
   return (
     <WorkspaceChatChrome
       workspace={props.workspace}
@@ -136,15 +83,18 @@ function WorkspaceComposeChat(props: {
           </div>
           <MessageInputBox
             layout="empty"
-            sendMessage={({ text }) => void startConversation(text)}
-            isDisabled={sending}
+            sendMessage={({ text }) => {
+              openWorkspaceConversation({
+                queryClient,
+                navigate,
+                selectNav,
+                orgSlug: props.orgSlug,
+                workspace: props.workspace,
+                text,
+              })
+            }}
             placeholder="Ask about this Workspace…"
           />
-          {sendError ? (
-            <InlineAlert variant="error" title="Could not send">
-              {sendError} Send again to retry.
-            </InlineAlert>
-          ) : null}
         </div>
       </div>
     </WorkspaceChatChrome>

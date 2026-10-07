@@ -19,6 +19,9 @@ jobs:
   roll:
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    # The Preview environment's VERCEL_ACCESS_TOKEN reaches only the preview
+    # Vercel project (scripts/preview-sandbox-vars.sh), never production.
+    environment: Preview
     env:
       RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
       RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}

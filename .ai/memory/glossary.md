@@ -20,7 +20,7 @@
 | Temporality | Optional `[valid_from, valid_to)` window. Missing `valid_to` = evergreen (source half-life). Missing `valid_from` is derived from the introducing git commit at hydrate, then persisted by a **job**. `e = 0` before `valid_from` and at/after `valid_to`. |
 | AGENTS.md (workspace map) | Workspace-repository root file: display name in front matter; **one** semantic folder-structure section the ops job maintains (any heading the user chose). Keep folders that exist; drop dead links. Not this monorepo’s agent-instructions `AGENTS.md`. |
 | Read-only Workspace | A Workspace whose desired workspace remote can be cloned and hydrated, but ctxpipe cannot commit/push to it. Chrome shows read-only with an error-specific fix. **Jobs** that maintain that URL are paused; hydrate, search, and workspace chat continue. Distinct from hydrate-failed (tree unreadable). |
-| Job sandbox | Retired. Write jobs are typed workflows over captured git data and need no sandbox; only semantic merge uses a short-lived sandbox ([ADR-047](decisions/ADR-047-native-durable-write-workflows.md)). |
+| Job sandbox | Retired. Write jobs are typed workflows over captured git data and need no sandbox. Semantic merge is one model call and needs no sandbox too ([ADR-047](decisions/ADR-047-native-durable-write-workflows.md)). |
 | Chat sandbox | One TanStack sandbox per conversation (`threadId` = conversation id), reused across turns and disposable: work is pushed to the conversation's **session branch**. Conversations run in parallel. See [ADR-048](decisions/ADR-048-native-postgres-sandbox-ownership.md). |
 | Session branch | `ctxpipe/chat/<conversation>/<n>`: the git branch holding a conversation's edits. The durable state of a chat sandbox; Create PR opens a pull request from it. |
 | Zoekt | Google's open-source code search engine, used for indexing and searching repositories |
@@ -29,9 +29,9 @@
 | Drizzle | TypeScript ORM (beta/v1 API) for PostgreSQL |
 | React Aria | Adobe's accessibility-focused React component primitives |
 | TanStack Start | Full-stack React framework with file-based routing (used in apps/ui) |
-| source connector | Integration that authorises an external system and makes its content available to ctxpipe. Durable connectors are **git-native** (mirror or capture into a context repository). MCP clients are not source connectors. See [source-connectors skill](../../.agents/skills/source-connectors/SKILL.md). |
-| git-native | Connector pattern: write provider content as files in a **context repository**, then ingest that repo. Config lives in git yaml (via PR); Postgres holds binding and secrets only. GitHub is the current rich adapter for PRs and commits. [ADR-022](decisions/ADR-022-linear-connector-git-native-mirror.md), [ADR-023](decisions/ADR-023-notion-connector-git-native-mirror.md). |
-| context repository | Git repo (often GitHub `ctxpipe-context`) that receives connector-generated files under per-connector roots (`linear/`, `notion/`, `slack/`, `github/`, …). |
+| source connector | Integration that authorises an external system and makes its content available to ctxpipe. Durable connectors are **git-native** (mirror or capture into the **Workspace repository**). MCP clients are not source connectors. See [source-connectors skill](../../.agents/skills/source-connectors/SKILL.md). |
+| git-native | Connector pattern: write provider content as files in the **Workspace repository**, then ingest that repository. Config lives in git yaml (via PR); Postgres holds binding and secrets only. GitHub is the current rich adapter for PRs and commits. [ADR-022](decisions/ADR-022-linear-connector-git-native-mirror.md), [ADR-023](decisions/ADR-023-notion-connector-git-native-mirror.md). |
+| context repository | Retired. Before Workspaces, the git repository (often GitHub `ctxpipe-context`) that received connector files under per-connector roots (`linear/`, `notion/`, `slack/`, `github/`, …). The **Workspace repository** receives them now ([ADR-031](decisions/ADR-031-github-pr-scoped-mirror.md) revision). |
 | Cutover | Retired. Dest Workspaces for enabled Linear/Notion/Confluence/Slack git URLs were created **once** by SQL migrate (`INSERT workspaces` + `workspace_linked_repositories`). The `workspace-cutover` job and `org_workspace_cutover` table are gone. **Not** a step in add-workspace; later dests do not auto-mint a Workspace. |
 | connections.config | JSONB on the unified `connections` row: identity, encrypted secrets, and sync/capture binding. Not a per-connector table. [ADR-018](decisions/ADR-018-unified-connections-table.md). |
 | deployment-owned | OAuth app + webhook URL belong to **this** ctxpipe deployment (hosted or self-host). Organisations install that app; they do not get a ctxpipe-SaaS proxy. |
@@ -47,6 +47,7 @@
 | --- | --- |
 | Project (`proj_`) | **Workspace** (`ws_`); longer copy **Context Workspace** |
 | Backing repository / backing repo | **Workspace repository** |
+| Context repository | **Workspace repository** |
 | Attached repository / attached repo | **Linked repository** |
 | Attach / detach (repos) | **Link / unlink** |
 | Project chat | **Workspace chat** |

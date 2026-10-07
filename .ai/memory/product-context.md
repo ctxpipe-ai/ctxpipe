@@ -92,9 +92,9 @@ Workspace chat is stock TanStack (`useChat` + persistence + sandbox) against git
 
 - Connections use the unified `connections` model with GitHub, Confluence
   (`forge`), Linear, Notion, and Slack connection types.
-- GitHub repositories are selected and ingested directly. An optional
+- GitHub repositories are linked to Workspaces and ingested. The
   pull-request mirror (ADR-031) copies merged PR conversation and change
-  lists into the context repository. Graph extraction locates every
+  lists into every Workspace repository that links the repository. Graph extraction locates every
   path-bearing object on a `File` node (ADR-032); pull-request change
   predicates hang off `PullRequest` onto those same files.
 - Connector Markdown is parsed into typed nodes by a registry of

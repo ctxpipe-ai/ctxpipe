@@ -1,13 +1,12 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import { HttpResponse, http } from "msw"
-import { useState } from "react"
+import { StrictMode, useState } from "react"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 import { Button } from "@/components/ui/Button"
 import {
-  conversationAguiSseResponse,
   conversationAguiTextEvents,
-  conversationPostPath,
+  installAguiWebSocket,
 } from "@/mocks/conversation-agui"
 import {
   conversationDetailHandler,
@@ -487,7 +486,7 @@ const lateErrorDetail = {
   ],
 }
 
-function LateErrorComposeHarness() {
+function ComposeHarness() {
   const params = useParams({ strict: false })
   const conversationId =
     typeof params.conversationId === "string"
@@ -504,7 +503,7 @@ function LateErrorComposeHarness() {
 
 export const LateErrorDoesNotClobberSuccess: Story = {
   tags: ["workspace-golden"],
-  render: () => <LateErrorComposeHarness />,
+  render: () => <ComposeHarness />,
   parameters: {
     storyRoute: {
       pattern: "orgWorkspace",
@@ -514,24 +513,6 @@ export const LateErrorDoesNotClobberSuccess: Story = {
     msw: {
       handlers: {
         page: [
-          http.post(conversationPostPath, async ({ request }) => {
-            const path = new URL(request.url).pathname
-            if (/\/api\/v1\/conversations\/?$/.test(path)) {
-              const body = (await request.json()) as {
-                forwardedProps?: { conversationId?: string }
-              }
-              const conversationId =
-                body.forwardedProps?.conversationId ?? lateErrorConversationId
-              return conversationAguiSseResponse(
-                conversationAguiTextEvents({
-                  threadId: conversationId,
-                  messageId: "msg_first",
-                  text: lateErrorFirstAnswer,
-                }),
-              )
-            }
-            return HttpResponse.json({ error: "late failure" }, { status: 500 })
-          }),
           http.get(
             ({ request }) =>
               /\/api\/v1\/conversations\/[^/]+\/chat$/.test(
@@ -567,57 +548,19 @@ export const LateErrorDoesNotClobberSuccess: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    const Original = window.WebSocket
-    function FailedWebSocket(url: string | URL) {
-      const listeners = new Map<string, Set<(event: Event) => void>>()
-      const emit = (type: string, event: Event) => {
-        const handler = socket[`on${type}` as keyof typeof socket]
-        if (typeof handler === "function") {
-          ;(handler as (event: Event) => void)(event)
-        }
-        for (const listener of listeners.get(type) ?? []) {
-          listener(event)
-        }
-      }
-      const socket = {
-        url: String(url),
-        readyState: Original.CLOSED,
-        bufferedAmount: 0,
-        extensions: "",
-        protocol: "",
-        binaryType: "blob" as BinaryType,
-        onopen: null as ((event: Event) => void) | null,
-        onerror: null as ((event: Event) => void) | null,
-        onclose: null as ((event: CloseEvent) => void) | null,
-        onmessage: null as ((event: MessageEvent<string>) => void) | null,
-        close() {},
-        send() {},
-        addEventListener(type: string, listener: (event: Event) => void) {
-          const set = listeners.get(type) ?? new Set()
-          set.add(listener)
-          listeners.set(type, set)
-        },
-        removeEventListener(type: string, listener: (event: Event) => void) {
-          listeners.get(type)?.delete(listener)
-        },
-        dispatchEvent() {
-          return true
-        },
-      }
-      queueMicrotask(() => {
-        emit("error", new Event("error"))
-        emit("close", new CloseEvent("close"))
-      })
-      return socket
-    }
-    FailedWebSocket.prototype = Original.prototype
-    Object.assign(FailedWebSocket, {
-      CONNECTING: Original.CONNECTING,
-      OPEN: Original.OPEN,
-      CLOSING: Original.CLOSING,
-      CLOSED: Original.CLOSED,
-    })
-    window.WebSocket = FailedWebSocket as unknown as typeof WebSocket
+    const socket = installAguiWebSocket((threadId, runId, index) =>
+      index === 0
+        ? conversationAguiTextEvents({
+            threadId,
+            runId,
+            messageId: "msg_first",
+            text: lateErrorFirstAnswer,
+          })
+        : [
+            { type: "RUN_STARTED", threadId, runId },
+            { type: "RUN_ERROR", runId, message: "late failure" },
+          ],
+    )
     try {
       await userEvent.type(
         await canvas.findByPlaceholderText(/ask about this workspace/i),
@@ -645,7 +588,193 @@ export const LateErrorDoesNotClobberSuccess: Story = {
       await waitFor(() => canvas.getByRole("alert"), { timeout: SEND_WAIT_MS })
       expect(canvas.getByText(lateErrorFirstAnswer)).toBeVisible()
     } finally {
-      window.WebSocket = Original
+      socket.restore()
+    }
+  },
+}
+
+const firstTurnAnswer = "The billing service lives in the ledger package."
+
+/** A first turn as the backend streams it: setup, reasoning, a tool, text. */
+function firstTurnEvents(threadId: string, runId: string): object[] {
+  return [
+    { type: "RUN_STARTED", threadId, runId },
+    { type: "CUSTOM", name: "sandbox-setup", value: { phase: "starting" } },
+    { type: "CUSTOM", name: "sandbox-setup", value: { phase: "ready" } },
+    { type: "REASONING_START", messageId: "reason_first" },
+    {
+      type: "REASONING_MESSAGE_START",
+      messageId: "reason_first",
+      role: "reasoning",
+    },
+    {
+      type: "REASONING_MESSAGE_CONTENT",
+      messageId: "reason_first",
+      delta: "**Finding billing**\n\nLooking for the billing service.",
+    },
+    { type: "REASONING_MESSAGE_END", messageId: "reason_first" },
+    { type: "REASONING_END", messageId: "reason_first" },
+    {
+      type: "TOOL_CALL_START",
+      toolCallId: "call_first",
+      toolCallName: "bash",
+      parentMessageId: "msg_first_turn",
+    },
+    {
+      type: "TOOL_CALL_ARGS",
+      toolCallId: "call_first",
+      delta: '{"command":"ls packages"}',
+    },
+    { type: "TOOL_CALL_END", toolCallId: "call_first" },
+    {
+      type: "TOOL_CALL_RESULT",
+      messageId: "tool_result_first",
+      toolCallId: "call_first",
+      content: "ledger",
+      role: "tool",
+    },
+    {
+      type: "TEXT_MESSAGE_START",
+      messageId: "msg_first_turn",
+      role: "assistant",
+    },
+    {
+      type: "TEXT_MESSAGE_CONTENT",
+      messageId: "msg_first_turn",
+      delta: firstTurnAnswer,
+    },
+    { type: "TEXT_MESSAGE_END", messageId: "msg_first_turn" },
+    { type: "RUN_FINISHED", threadId, runId },
+  ]
+}
+
+/**
+ * The first turn of a new conversation streams live: the sandbox setup, the
+ * reasoning, the tool call, and the answer show without a reload. The stored
+ * transcript stays empty while the turn runs, as on a real backend, so only
+ * the live stream can show the answer.
+ */
+export const FirstTurnStreamsLive: Story = {
+  tags: ["workspace-golden"],
+  decorators: [
+    (Story) => (
+      <StrictMode>
+        <Story />
+      </StrictMode>
+    ),
+  ],
+  render: () => <ComposeHarness />,
+  parameters: {
+    storyRoute: {
+      pattern: "orgWorkspace",
+      orgSlug: "acme",
+      workspaceSlug: "docs",
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: [
+          http.get(
+            ({ request }) =>
+              /\/api\/v1\/conversations\/[^/]+(?:\/chat)?$/.test(
+                new URL(request.url).pathname,
+              ),
+            () => HttpResponse.json({ error: "Not found" }, { status: 404 }),
+          ),
+          ...workspaceShellHandlers(),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const socket = installAguiWebSocket(firstTurnEvents)
+    try {
+      await userEvent.type(
+        await canvas.findByPlaceholderText(/ask about this workspace/i),
+        "Where is the billing service?",
+      )
+      // Record the order in which each step of the turn first shows.
+      const steps = [
+        "Setting up sandbox",
+        "Thinking…",
+        "Looking for the billing service.",
+        "Used 1 tool",
+        firstTurnAnswer,
+      ]
+      const seen: string[] = []
+      const observer = new MutationObserver(() => {
+        const text = canvasElement.textContent ?? ""
+        for (const step of steps)
+          if (!seen.includes(step) && text.includes(step)) seen.push(step)
+      })
+      observer.observe(canvasElement, {
+        childList: true,
+        subtree: true,
+        characterData: true,
+      })
+      await userEvent.click(canvas.getByRole("button", { name: /send/i }))
+      try {
+        expect(
+          await canvas.findByText(firstTurnAnswer, undefined, {
+            timeout: SEND_WAIT_MS,
+          }),
+        ).toBeVisible()
+      } finally {
+        observer.disconnect()
+      }
+      expect(seen).toEqual(steps)
+      expect(canvas.getByText("Used 1 tool")).toBeVisible()
+      expect(
+        canvas.getAllByText(/Where is the billing service\?/),
+      ).toHaveLength(1)
+      expect(socket.runFrames).toHaveLength(1)
+      await waitFor(() => {
+        expect(
+          canvas.queryByRole("status", { name: /setting up sandbox/i }),
+        ).toBeNull()
+      })
+    } finally {
+      socket.restore()
+    }
+  },
+}
+
+const capacityError =
+  "Workspace chat is at capacity: your organization already has 50 chats running."
+
+/**
+ * When the first turn fails, the message goes back into the composer, so the
+ * user can send it again without typing it.
+ */
+export const FirstTurnFailureRestoresDraft: Story = {
+  tags: ["workspace-golden"],
+  render: () => <ComposeHarness />,
+  parameters: FirstTurnStreamsLive.parameters,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const socket = installAguiWebSocket((threadId, runId) => [
+      { type: "RUN_STARTED", threadId, runId },
+      { type: "RUN_ERROR", runId, message: capacityError },
+    ])
+    try {
+      await userEvent.type(
+        await canvas.findByPlaceholderText(/ask about this workspace/i),
+        "Where is the billing service?",
+      )
+      await userEvent.click(canvas.getByRole("button", { name: /send/i }))
+      expect(
+        await canvas.findByText(/at capacity/, undefined, {
+          timeout: SEND_WAIT_MS,
+        }),
+      ).toBeVisible()
+      const composer = await canvas.findByPlaceholderText(
+        /continue the conversation/i,
+      )
+      await waitFor(() => {
+        expect(composer).toHaveValue("Where is the billing service?")
+      })
+    } finally {
+      socket.restore()
     }
   },
 }
