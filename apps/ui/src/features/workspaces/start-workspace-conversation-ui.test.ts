@@ -11,6 +11,7 @@ import {
   vi,
 } from "vitest"
 import { workspaceKeys } from "./queries"
+import { installRelativeFetch } from "./relative-fetch-test"
 import { installMemorySessionStorage } from "./session-storage-test"
 import {
   newUiConversationId,
@@ -25,6 +26,7 @@ const hyperdx = vi.hoisted(() => ({ addAction: vi.fn() }))
 vi.mock("@hyperdx/browser", () => ({ default: hyperdx }))
 
 const server = setupServer()
+let restoreFetch = () => {}
 const conversationId = "conv_0123456789abcdef0123456789abcdef"
 
 function listenForConversationHttp(
@@ -126,18 +128,12 @@ describe("openWorkspaceConversation", () => {
   beforeAll(() => {
     installMemorySessionStorage()
     server.listen({ onUnhandledRequest: "error" })
-    const intercepted = globalThis.fetch
-    globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
-      const next =
-        typeof input === "string" && input.startsWith("/")
-          ? `http://localhost${input}`
-          : input
-      return intercepted(next as RequestInfo, init)
-    }) as typeof fetch
+    restoreFetch = installRelativeFetch()
   })
   afterEach(() => server.resetHandlers())
   afterAll(() => {
     server.close()
+    restoreFetch()
   })
 
   it("selects nav and navigates before the POST settles", async () => {
