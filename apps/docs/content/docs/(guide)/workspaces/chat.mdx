@@ -106,12 +106,15 @@ with another conversation or organization:
   **Create PR** to open one from the fresh branch. If the push fails, ctx|
   keeps the sandbox and tries again later. Files nobody committed are deleted
   with the sandbox.
-- **Network access is limited.** The sandbox can reach GitHub and ctx| only;
-  every other host is blocked.
-- **The GitHub token stays outside.** Read access to the workspace repository
-  is added to the sandbox's GitHub requests on the way out, so the agent never
-  sees the token. The token is short-lived, replaced regularly, and revoked
-  when the sandbox stops.
+- **The agent can use the internet.** It can read documentation and install
+  packages, as on a developer machine.
+- **No credential is inside the sandbox.** The sandbox's firewall, outside the
+  sandbox, adds each credential to a request on the way out. Read access to
+  the workspace repository is added to GitHub requests. The GitHub token is
+  short-lived, replaced regularly, and revoked when the sandbox stops. Access
+  to the model and to the Workspace tools is added to ctx| requests only
+  while a message is in progress, and it is removed when the reply ends. The
+  agent never sees these credentials.
 
 The sandbox never holds a credential that can push to your default branch.
 Model calls, Workspace tools, and pushes to the conversation's branch go
