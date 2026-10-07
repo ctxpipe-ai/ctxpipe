@@ -38,9 +38,7 @@ import {
   warmTanstackWorkspaceChat,
   workspaceChatDockerOwnership,
 } from "./tanstack-workspace-chat.js"
-import { resolveWorkspaceChatGitCredential } from "./workspace-chat-git-credentials.js"
 import { workspaceChatPersistence } from "./workspace-chat-persistence.js"
-import { mintWorkspaceChatRunCapability } from "./workspace-chat-run-capability.js"
 
 it(
   "uses the prepared native worktree for two stock chat turns and persists their transcript",
@@ -727,17 +725,6 @@ it(
         "https://api.github.com/installation/token",
         async ({ request }) => {
           revoked.push(request.headers.get("authorization") ?? "")
-          // A background process of the turn asks for a token while the
-          // turn's tokens are revoked: the lock is already released.
-          // While the lock is held, the capability verifies (the fixture
-          // Workspace has no GitHub connection, so 403); after, it does not.
-          if (capability) {
-            const late = await resolveWorkspaceChatGitCredential({
-              env: parseEnv(process.env),
-              capability,
-            })
-            lateMints.push(late.ok ? "minted" : `refused ${late.status}`)
-          }
           return new HttpResponse(null, { status: revokeStatus })
         },
       ),
@@ -753,8 +740,6 @@ it(
           sha: string
         }
       | undefined
-    let capability: string | undefined
-    const lateMints: string[] = []
     let seed = ""
     let started: () => void = () => undefined
     let modelResponse: Promise<void> = Promise.resolve()
@@ -791,10 +776,8 @@ it(
               (row) => row.token,
             ),
           ).toEqual(["ghs_finished_turn"])
-          expect(lateMints).toEqual(["refused 401"])
           // The sweep retries it once it is 2 minutes old.
           revokeStatus = 204
-          capability = undefined
           vi.useFakeTimers({ toFake: ["Date"], now: Date.now() + 3 * 60_000 })
           try {
             expect(await revokeIdleRunGitTokens({ orgId: f.orgId })).toBe(false)
@@ -829,12 +812,10 @@ it(
           release()
           await stopped
           expect(revoked).toEqual(["token ghs_aborted_turn"])
-          expect(lateMints).toEqual(["refused 401", "refused 401"])
           expect(await tokens.list(`run:${f.conversationId}:`)).toEqual([])
         },
         async () => {
-          // What the Git credential route records for the turn that holds
-          // the conversation lock.
+          // A run token recorded for the turn that holds the conversation lock.
           if (!fixture) throw new Error("Fixture missing")
           const { orgId, conversationId } = fixture
           const [lock] = await withOrgDbContext(orgId, (db) =>
@@ -844,22 +825,6 @@ it(
               .where(eq(sandboxLocks.key, `chat-thread:${conversationId}`)),
           )
           if (!lock) throw new Error("Turn lock missing")
-          capability = await mintWorkspaceChatRunCapability({
-            authSecret: process.env.AUTH_SECRET ?? "",
-            orgId,
-            orgSlug: fixture.orgSlug,
-            conversationId,
-            expectedOwner: lock.owner,
-            purpose: "workspace-chat-git",
-            revision: {
-              workspaceId: fixture.workspaceId,
-              generation: 1,
-              remote: { url: fixture.directory, connectionId: null },
-              sha: fixture.sha,
-              defaultBranch: "main",
-              access: "read",
-            },
-          })
           const token = seed
           await recordedRunGitToken({
             orgId,

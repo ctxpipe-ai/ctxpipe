@@ -11,7 +11,7 @@ Updated: 2026-10-08
 
 A Docker chat sandbox (Compose and the AWS CDK sandbox host) gets credentials today. The clone token (`CTXPIPE_CLONE_TOKEN`), the Git run capability (`CTXPIPE_GIT_RUN_CAPABILITY`) for the `git-credentials` route, and the OpenCode run token (`CTXPIPE_OPENCODE_RUN_TOKEN`) are in its environment. The tool bridge token is in the OpenCode server environment. An agent can read each of them.
 
-The user approved this decision: no credential of ours is ever inside a chat sandbox. Something outside the sandbox adds each credential in flight. For self-host, that is Agent Vault (Infisical, open source). The network stays open for HTTP(S): agents keep internet access through the proxy. Non-HTTP traffic from Docker sandboxes is blocked. Ticket 21 (Part A) does the same for hosted (Vercel) sandboxes with the Vercel firewall.
+The user approved this decision: no credential of ours is ever inside a chat sandbox. Something outside the sandbox adds each credential in flight. For self-host, that is Agent Vault (Infisical, open source). The network stays open for HTTP(S): agents keep internet access through the proxy. Non-HTTP traffic from Docker sandboxes is blocked. A parallel ticket does the same for hosted (Vercel) sandboxes with the Vercel firewall.
 
 ## Plan
 

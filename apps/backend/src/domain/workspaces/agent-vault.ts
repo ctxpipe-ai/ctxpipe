@@ -182,10 +182,16 @@ function unavailable(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error))
 }
 
-/** The address a sandbox dials: an IP, because sandboxes resolve no names. */
+/**
+ * The address a sandbox dials: an IP, because sandboxes resolve no names.
+ * Agent Vault on this machine (host dev, CI) is the sandbox's Docker host,
+ * which every Docker sandbox has in its hosts file.
+ */
 async function proxyHost(access: AgentVaultAccess): Promise<string> {
   if (access.proxyHost) return access.proxyHost
   const host = new URL(access.address).hostname.replace(/^\[(.*)\]$/, "$1")
+  if (host === "localhost" || host.startsWith("127.") || host === "::1")
+    return "host.docker.internal"
   if (isIP(host)) return host.includes(":") ? `[${host}]` : host
   try {
     return (await lookup(host, { family: 4 })).address

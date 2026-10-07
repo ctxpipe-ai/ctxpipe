@@ -17,6 +17,7 @@ import {
   timingSafeBearerEqual,
 } from "@tanstack/ai-sandbox"
 import { Hono } from "hono"
+import { type RunVault, SANDBOX_CREDENTIAL_PLACEHOLDER } from "./agent-vault.js"
 import { remoteDockerHost } from "./sandbox-provider.js"
 
 /**
@@ -204,6 +205,31 @@ export function publicRouteBridgeProvisioner(
   }
 }
 
+/**
+ * The OpenCode MCP configuration in the sandbox gets a placeholder; the run's
+ * vault holds the bridge token, and Agent Vault adds it to bridge calls.
+ */
+export function withBridgeTokenInVault(
+  provisioner: ToolBridgeProvisioner,
+  vault: Pick<RunVault, "addRules"> | undefined,
+): ToolBridgeProvisioner {
+  if (!vault) return provisioner
+  return {
+    async provision(tools, options) {
+      const bridge = await provisioner.provision(tools, options)
+      const url = new URL(bridge.url)
+      await vault.addRules([
+        {
+          name: "tool-bridge",
+          host: `${url.host}${url.pathname}`,
+          bearer: bridge.token,
+        },
+      ])
+      return { ...bridge, token: SANDBOX_CREDENTIAL_PLACEHOLDER }
+    },
+  }
+}
+
 /** Stateless MCP over HTTP: JSON-RPC in, JSON out, per-run bearer token. */
 export const workspaceChatToolBridgeRoutes = new Hono()
   .post("/api/v1/workspace-chat/tool-bridge/:bridgeId", async (c) => {
@@ -230,12 +256,17 @@ export const workspaceChatToolBridgeRoutes = new Hono()
 export function workspaceChatCallbackMiddleware(
   callbackHost?: string,
   publicBaseUrl?: string,
+  /** Docker: the run's vault, which holds the bridge token. */
+  vault?: Pick<RunVault, "addRules">,
 ) {
-  const provisioner = publicBaseUrl
-    ? publicRouteBridgeProvisioner(publicBaseUrl)
-    : callbackHost
-      ? workspaceChatToolBridgeProvisioner(callbackHost)
-      : nodeHttpBridgeProvisioner
+  const provisioner = withBridgeTokenInVault(
+    publicBaseUrl
+      ? publicRouteBridgeProvisioner(publicBaseUrl)
+      : callbackHost
+        ? workspaceChatToolBridgeProvisioner(callbackHost)
+        : nodeHttpBridgeProvisioner,
+    vault,
+  )
   return defineChatMiddleware({
     name: "workspace-chat-callback",
     provides: [ToolBridgeProvisionerCapability],

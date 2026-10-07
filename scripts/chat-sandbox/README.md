@@ -12,5 +12,6 @@ Where it comes from:
 - AWS CDK: published as `ghcr.io/ctxpipe-ai/chat-sandbox` by `deploy.yaml`;
   the backend pulls it through the sandbox host's daemon on first use.
 
-Credentials are supplied to individual conversations at runtime, never baked
-into this image.
+The image holds no credential, and a sandbox never gets one at runtime. All
+sandbox traffic goes through the run's Agent Vault proxy, which adds the GitHub
+token and the backend credentials to each request outside the sandbox.

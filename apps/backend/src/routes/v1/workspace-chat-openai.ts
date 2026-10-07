@@ -1,6 +1,5 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
-import { resolveWorkspaceChatGitCredential } from "../../domain/workspaces/workspace-chat-git-credentials.js"
 import {
   observeWorkspaceChatCompletionStream,
   recordWorkspaceChatProxyCompletion,
@@ -81,41 +80,6 @@ const chatRoute = createRoute({
   },
 })
 
-const gitCredentialRoute = createRoute({
-  method: "get",
-  path: "/v1/git-credentials",
-  request: {
-    headers: z.object({
-      "x-ctxpipe-repository": z.string().max(2048).optional(),
-    }),
-  },
-  responses: {
-    200: {
-      description: "Short-lived workspace-scoped GitHub read credential",
-      content: {
-        "application/json": {
-          schema: z.object({
-            username: z.literal("x-access-token"),
-            password: z.string(),
-          }),
-        },
-      },
-    },
-    401: {
-      description: "Unauthorized",
-      content: { "application/json": { schema: ErrorResponseSchema } },
-    },
-    403: {
-      description: "Repository outside workspace read scope",
-      content: { "application/json": { schema: ErrorResponseSchema } },
-    },
-    503: {
-      description: "GitHub read credential unavailable",
-      content: { "application/json": { schema: ErrorResponseSchema } },
-    },
-  },
-})
-
 function contractFromEnv(env: AppEnv["Variables"]["env"]) {
   return workspaceChatOpenCodeContract({
     MODEL_PROVIDER: env.MODEL_PROVIDER,
@@ -146,36 +110,6 @@ async function chatTokenFromRequest(
 }
 
 export const workspaceChatOpenaiRoutes = new OpenAPIHono<AppEnv>()
-  .openapi(gitCredentialRoute, async (c) => {
-    c.header("cache-control", "no-store")
-    const capability = workspaceChatBearerToken(c.req.header("authorization"))
-    if (!capability) return c.json({ error: "Unauthorized" }, 401)
-    try {
-      const result = await resolveWorkspaceChatGitCredential({
-        env: c.var.env,
-        capability,
-        repositoryUrl: c.req.valid("header")["x-ctxpipe-repository"],
-      })
-      if (!result.ok) return c.json({ error: result.error }, result.status)
-      return c.json(
-        { username: result.username, password: result.password },
-        200,
-      )
-    } catch {
-      // Provider errors can contain authorization headers; keep them out of
-      // both the client response and the logger's serialized error metadata.
-      getLogger().error(
-        new Error("Workspace GitHub read credential unavailable"),
-        {
-          step: "workspace-chat-git-credential",
-        },
-      )
-      return c.json(
-        { error: "Workspace GitHub read credential unavailable" },
-        503,
-      )
-    }
-  })
   .openapi(modelsRoute, async (c) => {
     const token = await chatTokenFromRequest(c)
     if (!token) return c.json({ error: "Unauthorized" }, 401)
