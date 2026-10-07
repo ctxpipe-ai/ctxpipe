@@ -33,6 +33,8 @@ The user approved this decision: no credential of ours is ever inside a chat san
 - Docker turns now get the open network policy and `webfetch` (after the merge of ticket 21).
 - Proof: `agent-vault-native.contract.test.ts` (real Agent Vault: no credential in env, `/proc`, Git config; Git clone/fetch/push and HTTP get the credential; public HTTPS works; session ends with the vault; sweep; fail closed), `sandbox-dind-egress-native.contract.test.ts` (real DinD with our entrypoint: proxy only; failed without the rules), CDK synth tests, unit tests.
 
+- Review fixes (three axes): one rule list for the firewall and Agent Vault (exact paths), one placeholder, no test-only branches in the chat path, owner registration only without an owner, login rate limit kept, split password volumes, host-dev API on 127.0.0.1 with a generated owner password, CDK allowlist of the backend subnets and no self-reach, deploy-set callback DNS suffix, IPv6 block in DinD, vault sweep once per window. New proof: `gh` through Agent Vault, a `..` path keeps the placeholder, the proxy cannot reach the management API, a tool-bridge turn in the Docker prepare test.
+
 ## Open
 
 - Run `pnpm start` and a real AWS deploy end to end (not run).
