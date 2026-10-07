@@ -12,6 +12,7 @@ import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import {
   conversationPathIsSafe,
+  conversationSandboxStatus,
   conversationWorktreeVersion,
   fingerprintConversationWorktree,
   listConversationSandboxPaths,
@@ -195,6 +196,85 @@ describe("conversation sandbox files", { timeout: 15_000 }, () => {
           "knowledge/a.md",
           "new.md",
         ])
+      },
+    )
+  })
+
+  it("lists files the agent deleted, staged or not, as deleted", async () => {
+    await withWorktree(
+      (directory) => {
+        mkdirSync(join(directory, "knowledge/archive"), { recursive: true })
+        writeFileSync(join(directory, "AGENTS.md"), "# Agents\n")
+        writeFileSync(join(directory, "knowledge/old.md"), "one\ntwo\n")
+        writeFileSync(join(directory, "knowledge/archive/a.md"), "A\n")
+      },
+      async ({ directory, handle, git }) => {
+        rmSync(join(directory, "knowledge/old.md"))
+        git("rm", "-q", "-r", "knowledge/archive")
+        const status = await conversationSandboxStatus({
+          handle,
+          defaultBranch: "main",
+          sessionBranch: "main",
+        })
+        expect(status.items).toEqual([
+          {
+            path: "knowledge/archive/a.md",
+            status: "deleted",
+            additions: 0,
+            deletions: 1,
+          },
+          {
+            path: "knowledge/old.md",
+            status: "deleted",
+            additions: 0,
+            deletions: 2,
+          },
+        ])
+        expect(status.unpushed).toBe(true)
+      },
+    )
+  })
+
+  it("keeps a committed deletion listed until the base branch has it", async () => {
+    await withWorktree(
+      (directory) => {
+        writeFileSync(join(directory, "AGENTS.md"), "# Agents\n")
+        writeFileSync(join(directory, "knowledge.md"), "K\n")
+        writeFileSync(join(directory, "restored.md"), "R\n")
+      },
+      async ({ directory, handle, git }) => {
+        const remote = mkdtempSync(
+          join(tmpdir(), "ctxpipe-conversation-remote-"),
+        )
+        try {
+          execFileSync("git", ["init", "-q", "--bare", remote])
+          git("remote", "add", "origin", remote)
+          git("checkout", "-q", "-b", "ctxpipe/session")
+          git("rm", "-q", "knowledge.md", "restored.md")
+          git("commit", "-q", "-m", "Remove notes")
+          writeFileSync(join(directory, "restored.md"), "R again\n")
+          const status = () =>
+            conversationSandboxStatus({
+              handle,
+              defaultBranch: "main",
+              sessionBranch: "ctxpipe/session",
+            })
+          const deleted = async () =>
+            (await status()).items
+              .filter((item) => item.status === "deleted")
+              .map((item) => item.path)
+
+          expect(await deleted()).toEqual(["knowledge.md"])
+
+          git("push", "-q", "origin", "ctxpipe/session")
+          expect((await status()).published).toBe(true)
+          expect(await deleted()).toEqual(["knowledge.md"])
+
+          git("branch", "-f", "main", "ctxpipe/session")
+          expect(await deleted()).toEqual([])
+        } finally {
+          rmSync(remote, { recursive: true, force: true })
+        }
       },
     )
   })

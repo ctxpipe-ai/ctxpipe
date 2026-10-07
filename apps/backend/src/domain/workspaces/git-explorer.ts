@@ -66,9 +66,19 @@ function porcelainPath(raw: string): string | null {
   return explorerBlobPath(path.replace(/^"|"$/g, "").trim())
 }
 
+/** The source path of a porcelain rename line (`old -> new`). */
+function porcelainRenameSource(raw: string): string | null {
+  if (!raw.includes(" -> ")) return null
+  return explorerBlobPath(
+    (raw.split(" -> ")[0] ?? "").replace(/^"|"$/g, "").trim(),
+  )
+}
+
 function porcelainStatus(code: string): ExplorerGitStatus | null {
   if (code === "??") return "untracked"
   if (code === "!!") return "ignored"
+  // A worktree deletion wins over a staged change (`MD`, `AD`).
+  if (code[1] === "D") return "deleted"
   if (code.includes("R")) return "renamed"
   if (code.includes("D") && !code.includes("A") && !code.includes("M")) {
     return "deleted"
@@ -85,10 +95,16 @@ export function explorerGitStatusFromPorcelain(
   for (const raw of stdout.split("\n")) {
     const line = raw.trimEnd()
     if (line.length < 4) continue
-    const status = porcelainStatus(line.slice(0, 2))
+    const code = line.slice(0, 2)
+    const status = porcelainStatus(code)
     const path = porcelainPath(line.slice(3))
     if (!status || !path) continue
     items.push({ path, status })
+    const source = code.includes("R")
+      ? porcelainRenameSource(line.slice(3))
+      : null
+    if (source && source !== path)
+      items.push({ path: source, status: "deleted" })
   }
   return items
 }

@@ -279,29 +279,59 @@ export async function conversationSandboxStatus(input: {
   defaultBranch: string
   sessionBranch: string
 }): Promise<ConversationSandboxStatus> {
-  const [porcelain, numstat, revList, remoteSession, unpushed, currentBranch] =
-    await Promise.all([
-      execGitOk(input.handle.exec, "git status --porcelain"),
-      execGitOk(input.handle.exec, "git diff --numstat HEAD"),
-      execGit(
-        input.handle.exec,
-        'git rev-list --left-right --count "refs/heads/$CTXPIPE_DEFAULT_BRANCH"...HEAD',
-        { CTXPIPE_DEFAULT_BRANCH: input.defaultBranch },
-      ),
-      execGit(
-        input.handle.exec,
-        'git rev-parse -q --verify "refs/remotes/origin/$CTXPIPE_SESSION_BRANCH"',
-        { CTXPIPE_SESSION_BRANCH: input.sessionBranch },
-      ),
-      execGitOk(input.handle.exec, UNPUSHED_COMMITS_COMMAND),
-      execGitOk(input.handle.exec, "git branch --show-current"),
-    ])
+  const [
+    porcelain,
+    numstat,
+    revList,
+    remoteSession,
+    unpushed,
+    currentBranch,
+    committedDeletions,
+    listed,
+  ] = await Promise.all([
+    execGitOk(input.handle.exec, "git status --porcelain"),
+    execGitOk(input.handle.exec, "git diff --numstat HEAD"),
+    execGit(
+      input.handle.exec,
+      'git rev-list --left-right --count "refs/heads/$CTXPIPE_DEFAULT_BRANCH"...HEAD',
+      { CTXPIPE_DEFAULT_BRANCH: input.defaultBranch },
+    ),
+    execGit(
+      input.handle.exec,
+      'git rev-parse -q --verify "refs/remotes/origin/$CTXPIPE_SESSION_BRANCH"',
+      { CTXPIPE_SESSION_BRANCH: input.sessionBranch },
+    ),
+    execGitOk(input.handle.exec, UNPUSHED_COMMITS_COMMAND),
+    execGitOk(input.handle.exec, "git branch --show-current"),
+    // Files this conversation deleted in its own commits, against its base.
+    execGit(
+      input.handle.exec,
+      'git diff --no-renames --name-only --diff-filter=D -z "refs/heads/$CTXPIPE_DEFAULT_BRANCH"...HEAD',
+      { CTXPIPE_DEFAULT_BRANCH: input.defaultBranch },
+    ),
+    execGitOk(
+      input.handle.exec,
+      "git ls-files --cached --others --exclude-standard -z",
+    ),
+  ])
   const branch = currentBranch.trim()
   if (!branch) throw new Error("Conversation worktree has no current branch")
   const counts = explorerGitNumstatFromStdout(numstat)
   const items = explorerGitStatusFromPorcelain(porcelain)
     .filter((item) => isConversationSandboxListedPath(item.path))
     .map((item) => withExplorerGitLineCounts(item, counts))
+  // A committed deletion leaves `git status`; keep it until the base has it.
+  const known = new Set([
+    ...splitGitNulPaths(listed),
+    ...items.map((i) => i.path),
+  ])
+  for (const path of splitGitNulPaths(
+    committedDeletions.exitCode === 0 ? committedDeletions.stdout : "",
+  )) {
+    if (known.has(path) || !isConversationSandboxListedPath(path)) continue
+    known.add(path)
+    items.push({ path, status: "deleted", additions: 0 })
+  }
   const dirty = porcelain.trim().length > 0
   const [behindRaw, aheadRaw] = (revList.stdout.trim() || "0\t0").split(/\s+/)
   const ahead = Number.parseInt(aheadRaw || "0", 10) || 0

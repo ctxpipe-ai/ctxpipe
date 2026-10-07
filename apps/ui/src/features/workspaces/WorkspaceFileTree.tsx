@@ -5,7 +5,7 @@ import {
   IconSearch,
 } from "@tabler/icons-react"
 import { ClientOnly } from "@tanstack/react-router"
-import { type CSSProperties, useEffect, useMemo, useRef } from "react"
+import { type CSSProperties, useEffect, useId, useMemo, useRef } from "react"
 import { Button } from "@/components/ui/Button"
 import { Menu, MenuItem, MenuTrigger } from "@/components/ui/Menu"
 import { cn } from "@/lib/utils"
@@ -35,7 +35,7 @@ function TreeHeaderBusy(props: { label?: string }) {
 const TREE_HEADER_ICON_CLASS =
   "size-6 min-h-6 min-w-6 p-0 leading-none [&_svg]:block"
 const ADDITIONS_COLOR = "#34d399"
-const DELETIONS_COLOR = "#f87171"
+const DELETIONS_COLOR = "var(--color-red-400)"
 
 const TREE_UNSAFE_CSS = `
   :host {
@@ -44,6 +44,9 @@ const TREE_UNSAFE_CSS = `
   }
   [data-file-tree-search-container]:not([data-open="true"]) {
     display: none;
+  }
+  [data-item-git-status="deleted"][data-item-type="file"] [data-item-section="content"] {
+    text-decoration: line-through;
   }
 `
 
@@ -60,6 +63,7 @@ const TREE_HOST_STYLE = {
   "--trees-theme-focus-ring":
     "color-mix(in srgb, var(--color-teal-400) 60%, transparent)",
   "--trees-padding-inline-override": "8px",
+  "--trees-git-deleted-color-override": DELETIONS_COLOR,
 } as CSSProperties
 
 export type WorkspaceFileTreeItem = {
@@ -80,6 +84,37 @@ export function workspaceFilePathFromHoverNodes(
     if (typeof path === "string" && files.has(path)) return path
   }
   return null
+}
+
+/**
+ * Tree rows are the worktree paths plus each deletion in this conversation, so
+ * a deleted file stays in its folder until the base branch has the change.
+ * `files` holds the rows the user can open, pin, or hover. `isDeletedRow` is
+ * true for a deleted file and for a folder whose rows are all deleted; it
+ * turns off drag, rename, and the menu actions. Do not add a third check.
+ */
+export function workspaceTreeEntries(
+  paths: readonly string[],
+  deletedPaths: readonly string[],
+): {
+  paths: string[]
+  files: Set<string>
+  deleted: string[]
+  isDeletedRow: (path: string) => boolean
+} {
+  const deleted = new Set(deletedPaths)
+  const rows = [...new Set([...paths, ...deletedPaths])]
+  return {
+    paths: rows,
+    files: new Set(paths.filter((path) => !deleted.has(path))),
+    deleted: [...deletedPaths],
+    isDeletedRow: (path) => {
+      if (deleted.has(path)) return true
+      const prefix = `${path.replace(/\/+$/, "")}/`
+      const inside = rows.filter((row) => row.startsWith(prefix))
+      return inside.length > 0 && inside.every((row) => deleted.has(row))
+    },
+  }
 }
 
 function lineCountDecoration(item: WorkspaceGitStatusItem | undefined) {
@@ -127,10 +162,17 @@ export function WorkspaceFileTree(props: {
 function FileTreeSsrFallback(props: {
   paths: readonly string[]
   selectedPath: string | null
+  gitStatus?: readonly WorkspaceGitStatusItem[]
   busyLabel?: string
   onHideTree?: () => void
   onHoverFile?: (path: string) => void
 }) {
+  const entries = workspaceTreeEntries(
+    props.paths,
+    (props.gitStatus ?? [])
+      .filter((item) => item.status === "deleted")
+      .map((item) => item.path),
+  )
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col">
       <div className={TREE_HEADER_CLASS}>
@@ -155,7 +197,7 @@ function FileTreeSsrFallback(props: {
         aria-label="Workspace files"
         className="min-h-0 flex-1 overflow-auto px-1 pb-2 font-mono text-xs leading-6 text-zinc-300"
       >
-        {props.paths.map((path) => {
+        {entries.paths.map((path) => {
           const name = path.split("/").pop() ?? path
           const selected = props.selectedPath === path
           return (
@@ -163,6 +205,7 @@ function FileTreeSsrFallback(props: {
               key={path}
               className={cn(
                 "truncate rounded-sm px-1",
+                entries.isDeletedRow(path) && "text-red-400 line-through",
                 selected && "bg-zinc-800 text-zinc-100",
               )}
               onMouseEnter={() => props.onHoverFile?.(path)}
@@ -191,7 +234,25 @@ function WorkspaceFileTreeClient(props: {
   onHideTree?: () => void
   onHoverFile?: (path: string) => void
 }) {
-  const fileSet = useMemo(() => new Set(props.paths), [props.paths])
+  const deletedKey = (props.gitStatus ?? [])
+    .filter((item) => item.status === "deleted")
+    .map((item) => item.path)
+    .join("\n")
+  // Key on the deleted paths so a status poll with the same deletions does not reset the tree.
+  const entries = useMemo(
+    () =>
+      workspaceTreeEntries(
+        props.paths,
+        deletedKey ? deletedKey.split("\n") : [],
+      ),
+    [props.paths, deletedKey],
+  )
+  const fileSet = entries.files
+  const isDeletedRowRef = useRef(entries.isDeletedRow)
+  isDeletedRowRef.current = entries.isDeletedRow
+  const selectedPathRef = useRef(props.selectedPath)
+  selectedPathRef.current = props.selectedPath
+  const deletedSummaryId = useId()
   const onSelectRef = useRef(props.onSelect)
   onSelectRef.current = props.onSelect
   const onHoverFileRef = useRef(props.onHoverFile)
@@ -219,11 +280,14 @@ function WorkspaceFileTreeClient(props: {
     [props.gitStatus],
   )
   const modelRef = useRef<{
-    getItem: (path: string) => { focus: () => void } | null
+    getItem: (
+      path: string,
+    ) => { focus: () => void; select: () => void; deselect: () => void } | null
+    getSelectedPaths: () => readonly string[]
   } | null>(null)
 
   const { model } = useFileTree({
-    paths: props.paths,
+    paths: entries.paths,
     search: true,
     unsafeCSS: TREE_UNSAFE_CSS,
     flattenEmptyDirectories: true,
@@ -236,7 +300,9 @@ function WorkspaceFileTreeClient(props: {
       return lineCountDecoration(gitStatusByPathRef.current.get(item.path))
     },
     dragAndDrop: {
-      canDrag: () => writableRef.current,
+      canDrag: (paths) =>
+        writableRef.current &&
+        !paths.some((path) => isDeletedRowRef.current(path)),
       canDrop: (event) => {
         if (!writableRef.current) return false
         const directory = event.target.directoryPath
@@ -254,7 +320,8 @@ function WorkspaceFileTreeClient(props: {
       },
     },
     renaming: {
-      canRename: () => writableRef.current,
+      canRename: (item) =>
+        writableRef.current && !isDeletedRowRef.current(item.path),
       onRename: (event) => {
         if (event.sourcePath === event.destinationPath) return
         onRenameRef.current?.(event.sourcePath, event.destinationPath)
@@ -264,7 +331,21 @@ function WorkspaceFileTreeClient(props: {
       const file = [...selectedPaths]
         .reverse()
         .find((path) => fileSetRef.current.has(path))
-      if (!file) return
+      if (!file) {
+        // A deleted row has nothing to open; give the selection back to the open file.
+        if (selectedPaths.some((path) => isDeletedRowRef.current(path))) {
+          queueMicrotask(() => {
+            const model = modelRef.current
+            if (!model) return
+            for (const path of model.getSelectedPaths()) {
+              model.getItem(path)?.deselect()
+            }
+            const open = selectedPathRef.current
+            if (open) model.getItem(open)?.select()
+          })
+        }
+        return
+      }
       onSelectRef.current(file)
       modelRef.current?.getItem(file)?.focus()
     },
@@ -282,8 +363,8 @@ function WorkspaceFileTreeClient(props: {
   }, [model, props.selectedPath, search.isOpen])
 
   useEffect(() => {
-    model.resetPaths(props.paths)
-  }, [model, props.paths])
+    model.resetPaths(entries.paths)
+  }, [model, entries.paths])
 
   useEffect(() => {
     model.setGitStatus(pierreGitStatus)
@@ -352,11 +433,19 @@ function WorkspaceFileTreeClient(props: {
           </Button>
         ) : null}
       </div>
+      {entries.deleted.length > 0 ? (
+        <p id={deletedSummaryId} className="sr-only">
+          {`Deleted in this conversation: ${entries.deleted.join(", ")}`}
+        </p>
+      ) : null}
       <FileTree
         model={model}
         className="block h-full min-h-0 min-w-0 flex-1"
         style={TREE_HOST_STYLE}
         aria-label="Workspace files"
+        aria-describedby={
+          entries.deleted.length > 0 ? deletedSummaryId : undefined
+        }
         onMouseOver={(event) => {
           const path = workspaceFilePathFromHoverNodes(
             event.nativeEvent.composedPath(),
@@ -374,6 +463,7 @@ function WorkspaceFileTreeClient(props: {
           <WorkspaceFileTreeMenu
             item={item}
             writable={props.writable}
+            deleted={isDeletedRowRef.current(item.path)}
             onClose={context.close}
             onCreate={(kind) => {
               context.close()
@@ -401,6 +491,7 @@ function WorkspaceFileTreeClient(props: {
 function WorkspaceFileTreeMenu(props: {
   item: WorkspaceFileTreeItem
   writable: boolean
+  deleted: boolean
   onClose: () => void
   onCreate: (kind: "file" | "folder") => void
   onRename: () => void
@@ -433,9 +524,10 @@ function WorkspaceFileTreeMenu(props: {
         />
         <Menu
           aria-label={`${props.item.name} actions`}
-          disabledKeys={
-            props.writable ? [] : ["new-file", "new-folder", "rename", "delete"]
-          }
+          disabledKeys={[
+            ...(props.writable ? [] : ["new-file", "new-folder"]),
+            ...(props.writable && !props.deleted ? [] : ["rename", "delete"]),
+          ]}
         >
           <MenuItem
             id="new-file"
