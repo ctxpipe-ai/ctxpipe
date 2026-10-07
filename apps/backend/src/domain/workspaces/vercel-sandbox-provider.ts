@@ -127,8 +127,8 @@ export function turnAgentPassword(): string {
 
 /** One turn's credentials, which the firewall adds on the backend host. */
 export type HostedTurnCredentials = {
-  /** The model proxy's path prefix, for example `/<org>/api/v1/workspace-chat/openai/`. */
-  modelPath: string
+  /** The model proxy's base path, `/<org>/api/v1/workspace-chat/openai/v1`. */
+  modelProxyPath: string
   modelCapability: string
   /** The exact path of the turn's tool bridge. */
   bridgePath: string
@@ -139,132 +139,182 @@ export type HostedTurnCredentials = {
  * The firewall of a hosted sandbox. The internet stays open (`"*"`). The
  * firewall adds each credential to the requests that need it, so no
  * credential enters the sandbox: the GitHub read token on GitHub hosts, and
- * during a turn, the turn's credentials on the backend host by path. The
- * first matching rule of a host applies, thus the narrower rule comes first.
+ * during a turn, the turn's credentials on the backend host by path.
+ *
+ * Each rule matches exact paths only. The backend resolves `..` and `%2e`
+ * segments before it routes a request, so a prefix match could send a
+ * credential to another route. Each rule also sets the `Host` header, so a
+ * request with another `Host` cannot take the credential to another site
+ * behind the same address.
  */
 export function hostedNetworkPolicy(input: {
   gitToken: string
   backendHost?: string
   turn?: HostedTurnCredentials
 }): NetworkPolicy {
-  const { turn } = input
-  const backendRules = turn
-    ? [
-        {
-          match: { path: { exact: turn.bridgePath } },
-          transform: bearer(turn.bridgeToken),
-        },
-        {
-          match: { path: { startsWith: turn.modelPath } },
-          transform: bearer(turn.modelCapability),
-        },
-      ]
-    : []
+  const { turn, backendHost } = input
   return {
     allow: {
       ...githubAllowlist(input.gitToken),
-      ...(input.backendHost ? { [input.backendHost]: backendRules } : {}),
+      ...(backendHost && turn
+        ? {
+            [backendHost]: [
+              {
+                match: { path: { exact: turn.bridgePath } },
+                transform: pinned(backendHost, `Bearer ${turn.bridgeToken}`),
+              },
+              {
+                match: {
+                  path: {
+                    regex: `^${escapeRegex(turn.modelProxyPath)}/(?:chat/completions|models)$`,
+                  },
+                },
+                transform: pinned(
+                  backendHost,
+                  `Bearer ${turn.modelCapability}`,
+                ),
+              },
+            ],
+          }
+        : {}),
       "*": [],
     },
   }
 }
 
-function bearer(token: string) {
-  return [{ headers: { authorization: `Bearer ${token}` } }]
+/** Set the credential, and the host it is for. */
+function pinned(host: string, authorization: string) {
+  return [{ headers: { host, authorization } }]
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&")
 }
 
 /** GitHub hosts, each with the read token added by the firewall. */
 function githubAllowlist(gitToken: string) {
-  const basic = Buffer.from(`x-access-token:${gitToken}`).toString("base64")
+  const basic = `Basic ${Buffer.from(`x-access-token:${gitToken}`).toString("base64")}`
   return {
-    "github.com": [
-      { transform: [{ headers: { authorization: `Basic ${basic}` } }] },
-    ],
+    "github.com": [{ transform: pinned("github.com", basic) }],
     "codeload.github.com": [
-      { transform: [{ headers: { authorization: `Basic ${basic}` } }] },
+      { transform: pinned("codeload.github.com", basic) },
     ],
-    "api.github.com": [{ transform: bearer(gitToken) }],
+    "api.github.com": [
+      { transform: pinned("api.github.com", `Bearer ${gitToken}`) },
+    ],
   }
 }
 
+/**
+ * This process's firewall state per hosted sandbox. Vercel replaces the whole
+ * policy on each update and redacts header values, thus the state keeps the
+ * GitHub token and the turn's credentials, and it sends one update at a
+ * time. A GitHub token rotation (also one that a Files read started) keeps a
+ * turn's rules. `dirty` is set while the firewall can hold turn rules.
+ */
+const firewalls = new Map<
+  string,
+  {
+    sandbox: Sandbox
+    gitToken?: string
+    turn?: HostedTurnCredentials
+    dirty: boolean
+    queue: Promise<unknown>
+  }
+>()
+
 export type ConversationFirewall = ReturnType<typeof conversationFirewall>
 
-/**
- * The firewall of one conversation's sandbox for one chat call. Vercel
- * replaces the whole policy on each update and redacts header values, thus
- * this object keeps the GitHub token and the turn's credentials, and it sends
- * one update at a time, so a token rotation never drops a turn's rules.
- */
-export function conversationFirewall(input: {
-  credentials: VercelCredentials
-  backendHost: string
-  tokens: SandboxGitTokenStore
-}) {
-  let sandbox: Sandbox | undefined
-  let gitToken: string | undefined
-  let turn: HostedTurnCredentials | undefined
-  let queue: Promise<unknown> = Promise.resolve()
-  const policy = (token: string) =>
-    hostedNetworkPolicy({
-      gitToken: token,
-      backendHost: input.backendHost,
-      turn,
+/** The hosted firewall of a conversation's sandbox; see `hostedNetworkPolicy`. */
+export function conversationFirewall(backendHost: string) {
+  const stateOf = (name: string) => {
+    const state = firewalls.get(name)
+    if (!state) throw new Error("The sandbox is not attached")
+    return state
+  }
+  /** Sends the state's current policy after the updates before it. */
+  const apply = (name: string) => {
+    const state = stateOf(name)
+    const run = state.queue.then(async () => {
+      if (!state.gitToken) throw new Error("The sandbox has no GitHub token")
+      await state.sandbox.update({
+        networkPolicy: hostedNetworkPolicy({
+          gitToken: state.gitToken,
+          backendHost,
+          turn: state.turn,
+        }),
+      })
     })
-  /** Sends the current policy after the updates before it. */
-  const apply = () => {
-    const run = queue.then(async () => {
-      if (!sandbox || !gitToken) throw new Error("The sandbox is not attached")
-      await sandbox.update({ networkPolicy: policy(gitToken) })
-    })
-    queue = run.catch(() => undefined)
+    state.queue = run.catch(() => undefined)
     return run
   }
-  const attachById = async (sandboxId: string) => {
-    if (sandbox?.name === sandboxId && gitToken) return
-    sandbox = await Sandbox.get({ ...input.credentials, name: sandboxId })
-    gitToken = (await input.tokens.get(sandboxId))?.token
-    if (!gitToken) throw new Error("The sandbox has no GitHub token")
+  /** Forget a sandbox that has no turn, so the map does not grow. */
+  const release = (name: string) => {
+    const state = firewalls.get(name)
+    if (state && !state.turn && !state.dirty) firewalls.delete(name)
+  }
+  /** Record a sandbox that was created or resumed, with its token. */
+  const attach = (sandbox: Sandbox, gitToken: string | undefined) => {
+    const state = firewalls.get(sandbox.name)
+    if (state) {
+      state.sandbox = sandbox
+      state.gitToken = gitToken ?? state.gitToken
+    } else
+      firewalls.set(sandbox.name, {
+        sandbox,
+        gitToken,
+        dirty: false,
+        queue: Promise.resolve(),
+      })
   }
   return {
-    /** The policy for a new sandbox, with this GitHub token. */
-    policy,
-    /** Record a sandbox that was created or resumed with this token. */
-    attach(attached: Sandbox, token: string | undefined) {
-      sandbox = attached
-      gitToken = token
-    },
+    /** The policy for a new sandbox (no turn yet), with this GitHub token. */
+    policy: (gitToken: string) =>
+      hostedNetworkPolicy({ gitToken, backendHost }),
+    attach,
     /** Replace the GitHub token, keeping a running turn's rules. */
-    async rotateGitToken(token: string) {
-      const previous = gitToken
-      gitToken = token
+    async rotateGitToken(sandbox: Sandbox, gitToken: string) {
+      attach(sandbox, undefined)
+      const state = stateOf(sandbox.name)
+      const previous = state.gitToken
+      state.gitToken = gitToken
       try {
-        await apply()
+        await apply(sandbox.name)
       } catch (error) {
-        gitToken = previous
+        state.gitToken = previous
         throw error
+      } finally {
+        release(sandbox.name)
       }
     },
     /**
      * Add the turn's credentials. Call it while the conversation lock is
-     * held and before OpenCode starts. On failure the turn has no rules.
+     * held and before OpenCode starts. On failure the turn has no rules, and
+     * `closeTurn` still resets the policy (Vercel can apply an update and
+     * still answer with an error).
      */
-    async openTurn(sandboxId: string, credentials: HostedTurnCredentials) {
+    async openTurn(sandboxName: string, credentials: HostedTurnCredentials) {
       try {
-        await attachById(sandboxId)
-        turn = credentials
-        await apply()
+        const state = stateOf(sandboxName)
+        state.turn = credentials
+        state.dirty = true
+        await apply(sandboxName)
       } catch (error) {
-        turn = undefined
+        const state = firewalls.get(sandboxName)
+        if (state) state.turn = undefined
         throw new Error(
           `Setting the sandbox firewall for this turn failed: ${String(error)}`,
         )
       }
     },
     /** Remove the turn's credentials; later requests carry none. */
-    async closeTurn() {
-      if (!turn) return
-      turn = undefined
-      await apply()
+    async closeTurn(sandboxName: string) {
+      const state = firewalls.get(sandboxName)
+      if (!state?.dirty) return
+      state.turn = undefined
+      await apply(sandboxName)
+      state.dirty = false
+      release(sandboxName)
     },
   }
 }
@@ -317,7 +367,7 @@ async function rotateGitToken(
   previous: string | undefined,
 ) {
   const gitToken = await access.mintGitToken()
-  await access.firewall.rotateGitToken(gitToken)
+  await access.firewall.rotateGitToken(sandbox, gitToken)
   await access.tokens.put(sandbox.name, gitToken)
   revokeLater(
     previous,
@@ -470,6 +520,7 @@ export function vercelConversationProvider(input: {
       return conversationHandle(sandbox, input.agentPassword)
     },
     async destroy({ id }) {
+      firewalls.delete(id)
       await deleteVercelSandbox({
         credentials,
         name: id,

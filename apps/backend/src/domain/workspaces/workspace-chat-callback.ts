@@ -1,4 +1,3 @@
-import { randomBytes } from "node:crypto"
 import { createSocket } from "node:dgram"
 import { lookup } from "node:dns/promises"
 import { isIP } from "node:net"
@@ -177,23 +176,21 @@ export function workspaceChatToolBridgePath(bridgeId: string): string {
 }
 
 /**
- * Remote sandboxes reach the backend's public origin, so each run's tool
+ * Hosted sandboxes reach the backend's public origin, so each run's tool
  * bridge is served from a route there instead of its own port. The bridge
  * lives in the process running the turn (production runs one backend
  * replica; during a rolling deploy a call can land on the other one and fail).
- *
- * With `bridge` (hosted sandboxes), the id and token are set before the run,
- * so the firewall can add the token; the sandbox gets a placeholder only.
+ * The id and token are set before the run, so the firewall can add the
+ * token; the sandbox gets a placeholder only.
  */
 export function publicRouteBridgeProvisioner(
   publicBaseUrl: string,
-  bridge?: { id: string; token: string },
+  bridge: { id: string; token: string },
 ): ToolBridgeProvisioner {
   return {
     async provision(tools, options) {
       const { provider: _provider, ...core } = options
-      const id = bridge?.id ?? randomBytes(16).toString("hex")
-      const token = bridge?.token ?? randomBytes(24).toString("hex")
+      const { id, token } = bridge
       publicBridges.set(id, { core: createToolBridgeCore(tools, core), token })
       options.signal?.addEventListener(
         "abort",
@@ -205,7 +202,7 @@ export function publicRouteBridgeProvisioner(
       return {
         name: BRIDGED_MCP_SERVER_NAME,
         url: `${publicBaseUrl.replace(/\/$/, "")}${workspaceChatToolBridgePath(id)}`,
-        token: bridge ? WORKSPACE_CHAT_FIREWALL_PLACEHOLDER : token,
+        token: WORKSPACE_CHAT_FIREWALL_PLACEHOLDER,
         close: async () => {
           publicBridges.delete(id)
         },
@@ -239,11 +236,10 @@ export const workspaceChatToolBridgeRoutes = new Hono()
 /** Provide explicit remote routing, while retaining TanStack's local default. */
 export function workspaceChatCallbackMiddleware(
   callbackHost?: string,
-  publicBaseUrl?: string,
-  bridge?: { id: string; token: string },
+  hosted?: { publicBaseUrl: string; bridge: { id: string; token: string } },
 ) {
-  const provisioner = publicBaseUrl
-    ? publicRouteBridgeProvisioner(publicBaseUrl, bridge)
+  const provisioner = hosted
+    ? publicRouteBridgeProvisioner(hosted.publicBaseUrl, hosted.bridge)
     : callbackHost
       ? workspaceChatToolBridgeProvisioner(callbackHost)
       : nodeHttpBridgeProvisioner

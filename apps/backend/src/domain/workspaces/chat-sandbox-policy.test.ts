@@ -88,7 +88,6 @@ describe("createWorkspaceChatPermissionHandler", () => {
     ).resolves.toBe("reject")
   })
 
-
   it("denies hard cases before the judge runs", async () => {
     const judge = async () => "allow" as const
     const handler = createWorkspaceChatPermissionHandler({

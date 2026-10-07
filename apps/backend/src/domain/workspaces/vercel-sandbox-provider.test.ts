@@ -1,4 +1,4 @@
-import type { NetworkPolicy } from "@vercel/sandbox"
+import { type NetworkPolicy, Sandbox } from "@vercel/sandbox"
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
@@ -133,76 +133,110 @@ describe("deleteVercelBuilder", () => {
 })
 
 const turn = {
-  modelPath: "/acme/api/v1/workspace-chat/openai/",
+  modelProxyPath: "/acme/api/v1/workspace-chat/openai/v1",
   modelCapability: "model-capability",
   bridgePath: "/api/v1/workspace-chat/tool-bridge/bridge-1",
   bridgeToken: "bridge-token",
 }
 
-function bearer(token: string) {
-  return [{ headers: { authorization: `Bearer ${token}` } }]
+function pinned(host: string, authorization: string) {
+  return [{ headers: { host, authorization } }]
+}
+
+type Rule = {
+  match?: { path?: { exact?: string; regex?: string; startsWith?: string } }
+  transform: unknown
+}
+
+function allowOf(policy: NetworkPolicy | undefined) {
+  return (policy as { allow: Record<string, Rule[]> }).allow
+}
+
+/** The rule the firewall applies to a request path: the first match. */
+function ruleFor(rules: Rule[], path: string): Rule | undefined {
+  return rules.find((rule) => {
+    const matcher = rule.match?.path
+    if (!matcher) return true
+    if (matcher.exact !== undefined) return path === matcher.exact
+    if (matcher.startsWith !== undefined)
+      return path.startsWith(matcher.startsWith)
+    return new RegExp(matcher.regex ?? "").test(path)
+  })
 }
 
 describe("hostedNetworkPolicy", () => {
-  it("keeps the internet open and adds the GitHub token on GitHub hosts only", () => {
-    const policy = hostedNetworkPolicy({ gitToken: "git-1" }) as {
-      allow: Record<string, unknown[]>
-    }
-    const basic = Buffer.from("x-access-token:git-1").toString("base64")
-    expect(policy.allow).toEqual({
-      "github.com": [
-        { transform: [{ headers: { authorization: `Basic ${basic}` } }] },
-      ],
+  it("keeps the internet open and adds the GitHub token on GitHub hosts only, with the host pinned", () => {
+    const allow = allowOf(hostedNetworkPolicy({ gitToken: "git-1" }))
+    const basic = `Basic ${Buffer.from("x-access-token:git-1").toString("base64")}`
+    expect(allow).toEqual({
+      "github.com": [{ transform: pinned("github.com", basic) }],
       "codeload.github.com": [
-        { transform: [{ headers: { authorization: `Basic ${basic}` } }] },
+        { transform: pinned("codeload.github.com", basic) },
       ],
-      "api.github.com": [{ transform: bearer("git-1") }],
+      "api.github.com": [
+        { transform: pinned("api.github.com", "Bearer git-1") },
+      ],
       "*": [],
     })
     // The catch-all comes last, after every named host.
-    expect(Object.keys(policy.allow).at(-1)).toBe("*")
+    expect(Object.keys(allow).at(-1)).toBe("*")
   })
 
-  it("adds no credential on the backend host outside a turn", () => {
-    const policy = hostedNetworkPolicy({
-      gitToken: "git-1",
-      backendHost: "app.example.test",
-    }) as { allow: Record<string, unknown[]> }
-    expect(policy.allow["app.example.test"]).toEqual([])
-    expect(Object.keys(policy.allow).at(-1)).toBe("*")
+  it("has no backend rule outside a turn", () => {
+    const allow = allowOf(
+      hostedNetworkPolicy({
+        gitToken: "git-1",
+        backendHost: "app.example.test",
+      }),
+    )
+    expect(allow["app.example.test"]).toBeUndefined()
   })
 
-  it("adds the turn's credentials on the backend host by path, the narrower rule first", () => {
-    const policy = hostedNetworkPolicy({
-      gitToken: "git-1",
-      backendHost: "app.example.test",
-      turn,
-    }) as { allow: Record<string, unknown[]> }
-    expect(policy.allow["app.example.test"]).toEqual([
-      {
-        match: { path: { exact: turn.bridgePath } },
-        transform: bearer("bridge-token"),
-      },
-      {
-        match: { path: { startsWith: turn.modelPath } },
-        transform: bearer("model-capability"),
-      },
+  it("adds the turn's credentials on the backend host on exact paths only, with the host pinned", () => {
+    const allow = allowOf(
+      hostedNetworkPolicy({
+        gitToken: "git-1",
+        backendHost: "app.example.test",
+        turn,
+      }),
+    )
+    const rules = allow["app.example.test"] ?? []
+    const model = pinned("app.example.test", "Bearer model-capability")
+    const bridge = pinned("app.example.test", "Bearer bridge-token")
+    expect(ruleFor(rules, turn.bridgePath)?.transform).toEqual(bridge)
+    expect(
+      ruleFor(rules, `${turn.modelProxyPath}/chat/completions`)?.transform,
+    ).toEqual(model)
+    expect(ruleFor(rules, `${turn.modelProxyPath}/models`)?.transform).toEqual(
+      model,
+    )
+    // A dot segment or another route gets no credential: the backend
+    // resolves these paths to other routes.
+    for (const path of [
+      `${turn.modelProxyPath}/../../../../api/v1/x`,
+      `${turn.modelProxyPath}/%2e%2e/%2E%2e/x`,
+      `${turn.modelProxyPath}/chat/completions/../../x`,
+      `${turn.bridgePath}/../x`,
+      "/acme/api/v1/workspace-chat/openai/v2/chat/completions",
+      "/other/api/v1/workspace-chat/openai/v1/chat/completions",
     ])
-    expect(JSON.stringify(policy.allow["*"])).toBe("[]")
+      expect(ruleFor(rules, path), path).toBeUndefined()
+    expect(Object.keys(allow).at(-1)).toBe("*")
   })
 })
 
 describe("conversationFirewall", () => {
   const policies: NetworkPolicy[] = []
-  let failUpdates = false
-  const sandboxJson = {
-    name: "sbx-1",
+  /** `fail`: the API answers an error; `applied-then-fail`: it records first. */
+  let failure: "none" | "fail" | "applied-then-fail" = "none"
+  const sandboxJson = (name: string) => ({
+    name,
     persistent: true,
     createdAt: 1,
     updatedAt: 1,
     currentSessionId: "ses_1",
     status: "running",
-  }
+  })
   const sessionJson = {
     id: "ses_1",
     memory: 2048,
@@ -217,24 +251,25 @@ describe("conversationFirewall", () => {
     updatedAt: 1,
   }
   const vercelApi = [
-    http.get("https://vercel.com/api/v2/sandboxes/:name", () =>
+    http.get("https://vercel.com/api/v2/sandboxes/:name", ({ params }) =>
       HttpResponse.json({
-        sandbox: sandboxJson,
+        sandbox: sandboxJson(String(params.name)),
         session: sessionJson,
         routes: [],
       }),
     ),
     http.patch(
       "https://vercel.com/api/v2/sandboxes/:name",
-      async ({ request }) => {
-        if (failUpdates)
+      async ({ request, params }) => {
+        const body = (await request.json()) as { networkPolicy: NetworkPolicy }
+        if (failure === "applied-then-fail") policies.push(body.networkPolicy)
+        if (failure !== "none")
           return HttpResponse.json(
             { error: { code: "bad_request", message: "update failed" } },
             { status: 400 },
           )
-        const body = (await request.json()) as { networkPolicy: NetworkPolicy }
         policies.push(body.networkPolicy)
-        return HttpResponse.json({ sandbox: sandboxJson })
+        return HttpResponse.json({ sandbox: sandboxJson(String(params.name)) })
       },
     ),
     // A running session gets the same policy at once.
@@ -243,59 +278,65 @@ describe("conversationFirewall", () => {
       () => HttpResponse.json({ session: sessionJson }),
     ),
   ]
-  const tokenRows = new Map<string, { token: string; mintedAt: Date }>()
-  const tokens = {
-    get: async (id: string) => tokenRows.get(id) ?? null,
-    put: async (id: string, token: string) => {
-      tokenRows.set(id, { token, mintedAt: new Date() })
-    },
-    take: async (id: string) => {
-      const row = tokenRows.get(id)
-      tokenRows.delete(id)
-      return row?.token ?? null
-    },
-  }
   const backendRules = (policy: NetworkPolicy | undefined) =>
-    (policy as { allow: Record<string, unknown[]> }).allow["app.example.test"]
-
-  it("sets the turn's credentials at turn start and removes them at turn end", async () => {
+    allowOf(policy)["app.example.test"]
+  const attached = async (name: string, gitToken: string) => {
     server.use(...vercelApi)
     policies.length = 0
-    failUpdates = false
-    await tokens.put("sbx-1", "git-1")
-    const firewall = conversationFirewall({
-      credentials,
-      backendHost: "app.example.test",
-      tokens,
-    })
+    failure = "none"
+    const firewall = conversationFirewall("app.example.test")
+    firewall.attach(await Sandbox.get({ ...credentials, name }), gitToken)
+    return firewall
+  }
+
+  it("sets the turn's credentials at turn start and removes them at turn end", async () => {
+    const firewall = await attached("sbx-1", "git-1")
     await firewall.openTurn("sbx-1", turn)
     expect(backendRules(policies.at(-1))).toHaveLength(2)
     expect(JSON.stringify(policies.at(-1))).toContain("Bearer git-1")
-    // A token rotation during the turn keeps the turn's credentials.
-    await firewall.rotateGitToken("git-2")
+    // A token rotation during the turn keeps the turn's credentials, also
+    // when another chat call (a Files read) starts it.
+    await conversationFirewall("app.example.test").rotateGitToken(
+      await Sandbox.get({ ...credentials, name: "sbx-1" }),
+      "git-2",
+    )
     expect(backendRules(policies.at(-1))).toHaveLength(2)
     expect(JSON.stringify(policies.at(-1))).toContain("Bearer git-2")
-    await firewall.closeTurn()
-    expect(backendRules(policies.at(-1))).toEqual([])
+    await firewall.closeTurn("sbx-1")
+    expect(backendRules(policies.at(-1))).toBeUndefined()
     expect(JSON.stringify(policies.at(-1))).not.toContain("model-capability")
     expect(JSON.stringify(policies.at(-1))).not.toContain("bridge-token")
     expect(JSON.stringify(policies.at(-1))).toContain("Bearer git-2")
   })
 
   it("fails the turn start clearly when the firewall update fails, and keeps no turn", async () => {
-    server.use(...vercelApi)
-    policies.length = 0
-    failUpdates = true
-    await tokens.put("sbx-1", "git-1")
-    const firewall = conversationFirewall({
-      credentials,
-      backendHost: "app.example.test",
-      tokens,
-    })
-    await expect(firewall.openTurn("sbx-1", turn)).rejects.toThrow(/firewall/i)
-    failUpdates = false
-    await firewall.rotateGitToken("git-2")
-    expect(backendRules(policies.at(-1))).toEqual([])
+    const firewall = await attached("sbx-2", "git-1")
+    failure = "fail"
+    await expect(firewall.openTurn("sbx-2", turn)).rejects.toThrow(/firewall/i)
+    failure = "none"
+    await firewall.rotateGitToken(
+      await Sandbox.get({ ...credentials, name: "sbx-2" }),
+      "git-2",
+    )
+    expect(backendRules(policies.at(-1))).toBeUndefined()
+  })
+
+  it("resets the policy at turn end when a failed update was applied", async () => {
+    const firewall = await attached("sbx-3", "git-1")
+    failure = "applied-then-fail"
+    await expect(firewall.openTurn("sbx-3", turn)).rejects.toThrow(/firewall/i)
+    // Vercel applied the rules although it answered with an error.
+    expect(backendRules(policies.at(-1))).toHaveLength(2)
+    failure = "none"
+    await firewall.closeTurn("sbx-3")
+    expect(backendRules(policies.at(-1))).toBeUndefined()
+  })
+
+  it("refuses a turn on a sandbox that this process did not create or resume", async () => {
+    const firewall = conversationFirewall("app.example.test")
+    await expect(firewall.openTurn("sbx-unknown", turn)).rejects.toThrow(
+      /not attached/,
+    )
   })
 })
 

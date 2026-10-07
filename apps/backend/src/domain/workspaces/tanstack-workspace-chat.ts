@@ -87,8 +87,8 @@ import {
 import {
   conversationFirewall,
   conversationSandboxTags,
-  vercelAgentSnapshot,
   turnAgentPassword,
+  vercelAgentSnapshot,
   vercelConversationProvider,
 } from "./vercel-sandbox-provider.js"
 import { sandboxAgentImage } from "./workspace-base-providers.js"
@@ -608,14 +608,32 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
   const chatStarted = Date.now()
   const abortController = abortControllerFrom(input.abortSignal)
   let transcriptOwner: string | undefined
-  // A hosted turn's tool bridge, known before the run, so the firewall can
-  // add its token.
-  const hostedBridge = built.firewall
+  // Hosted: the firewall, and the turn's tool bridge, known before the run
+  // so the firewall can add its token.
+  const hosted = built.firewall
     ? {
-        id: randomBytes(16).toString("hex"),
-        token: randomBytes(24).toString("hex"),
+        firewall: built.firewall,
+        bridge: {
+          id: randomBytes(16).toString("hex"),
+          token: randomBytes(24).toString("hex"),
+        },
+        sandboxId: undefined as string | undefined,
       }
     : undefined
+  // The turn's credentials leave the firewall before the conversation lock
+  // is released, so this cannot replace the next turn's rules. A failure is
+  // logged: the model capability stops working when the lock is released,
+  // the bridge closes with the run, and the next update replaces the rules.
+  const closeHostedTurn = async () => {
+    if (!hosted?.sandboxId) return
+    await hosted.firewall.closeTurn(hosted.sandboxId).catch((error: unknown) =>
+      log.warn({
+        step: "workspace-chat-firewall-close",
+        message: `Removing the turn's credentials from the sandbox firewall failed: ${String(error)}`,
+        conversationId: input.conversationId,
+      }),
+    )
+  }
   // The idle clock starts when the turn ends. Runs before the conversation
   // lock is released, so the sweep never sees a free lock with a stale time.
   // The sweep it schedules is due exactly 5 minutes after this use.
@@ -644,19 +662,7 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
   // Revoke this turn's GitHub tokens as soon as it ends; a failure is left
   // for the sandbox sweep and never fails the turn.
   const revokeTurnGitTokens = async () => {
-    if (built.firewall) {
-      // The turn's credentials leave the firewall. A failure is logged: the
-      // capability stops working when the lock is released, and the next
-      // policy update replaces the rules.
-      await built.firewall.closeTurn().catch((error: unknown) =>
-        log.warn({
-          step: "workspace-chat-firewall-close",
-          message: `Removing the turn's credentials from the sandbox firewall failed: ${String(error)}`,
-          conversationId: input.conversationId,
-        }),
-      )
-      return
-    }
+    if (hosted) return
     await revokeRunGitTokens({
       orgId: input.orgId,
       conversationId: input.conversationId,
@@ -702,6 +708,13 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
         onFinish: markSandboxUsed,
         onError: markSandboxUsed,
         onAbort: markSandboxUsed,
+      }),
+      // Before the thread lock: TanStack runs onFinish in this order.
+      defineChatMiddleware({
+        name: "workspace-chat-firewall",
+        onFinish: closeHostedTurn,
+        onError: closeHostedTurn,
+        onAbort: closeHostedTurn,
       }),
       workspaceChatThreadLock({
         locks: postgresSandboxLocks(
@@ -780,8 +793,9 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
       }),
       workspaceChatCallbackMiddleware(
         callbackHost,
-        built.publicBaseUrl,
-        hostedBridge,
+        built.publicBaseUrl && hosted
+          ? { publicBaseUrl: built.publicBaseUrl, bridge: hosted.bridge }
+          : undefined,
       ),
       defineChatMiddleware({
         name: "workspace-chat-permissions",
@@ -806,27 +820,24 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
                 runId: input.runId,
                 purpose,
               })
-            if (built.firewall && hostedBridge) {
-              // Hosted: the firewall adds the turn's credentials; the
-              // sandbox sends placeholders.
-              await built.firewall.openTurn(activeSandbox.id, {
-                modelPath: `${new URL(session.proxyUrl).pathname}/`,
-                modelCapability: await mint("workspace-chat-model"),
-                bridgePath: workspaceChatToolBridgePath(hostedBridge.id),
-                bridgeToken: hostedBridge.token,
-              })
-              abortController.signal.throwIfAborted()
-              return
-            }
-            const capabilities = await workspaceChatRunCapabilities(
-              built.isolation,
-              mint,
+            // The conversation lock is held and OpenCode has not started.
+            // Its subprocesses inherit these values (none when hosted).
+            await activeSandbox.env.set(
+              await workspaceChatRunCapabilities(built.isolation, mint),
             )
             abortController.signal.throwIfAborted()
-            // The conversation lock is held and OpenCode has not started.
-            // Its subprocesses inherit these values.
-            await activeSandbox.env.set(capabilities)
-            abortController.signal.throwIfAborted()
+            if (hosted) {
+              // The firewall adds the turn's credentials; the sandbox sends
+              // placeholders.
+              hosted.sandboxId = activeSandbox.id
+              await hosted.firewall.openTurn(activeSandbox.id, {
+                modelProxyPath: new URL(session.proxyUrl).pathname,
+                modelCapability: await mint("workspace-chat-model"),
+                bridgePath: workspaceChatToolBridgePath(hosted.bridge.id),
+                bridgeToken: hosted.bridge.token,
+              })
+              abortController.signal.throwIfAborted()
+            }
           })
         },
       }),
@@ -1164,11 +1175,7 @@ async function hostedSandboxOptions(
       credentials: hosted.credentials,
       agentPassword,
       access: {
-        firewall: conversationFirewall({
-          credentials: hosted.credentials,
-          backendHost: hosted.backendHost,
-          tokens: hosted.tokens,
-        }),
+        firewall: conversationFirewall(hosted.backendHost),
         tokens: hosted.tokens,
         mintGitToken: hosted.mintGitToken,
       },

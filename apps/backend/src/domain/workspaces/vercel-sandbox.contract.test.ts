@@ -367,11 +367,7 @@ describe("hosted conversation provider", { timeout: 600_000 }, () => {
     let mints = 0
     const revoked: string[] = []
     const access = {
-      firewall: conversationFirewall({
-        credentials,
-        backendHost: "ctxpipe-contract.invalid",
-        tokens,
-      }),
+      firewall: conversationFirewall("ctxpipe-contract.invalid"),
       tokens,
       mintGitToken: async () => {
         mints += 1
@@ -457,10 +453,10 @@ describe("hosted conversation provider", { timeout: 600_000 }, () => {
 })
 
 describe("hosted turn credentials", { timeout: 600_000 }, () => {
-  it("adds a turn's credentials outside the sandbox and removes them at turn end; the internet stays open", async () => {
-    // An echo service stands in for the backend host: it shows the header
-    // that the firewall added. The paths stand in for the model proxy and
-    // the tool bridge.
+  it("adds a turn's credentials outside the sandbox on exact paths and the pinned host, and removes them at turn end; the internet stays open", async () => {
+    // An echo service that answers any path stands in for the backend: it
+    // shows the headers that the firewall set. Known debt: this lane depends
+    // on httpbin.org.
     const githubToken = process.env.GITHUB_TOKEN?.trim()
     if (!githubToken)
       throw new Error("GITHUB_TOKEN is required for the hosted sandbox lane")
@@ -476,11 +472,7 @@ describe("hosted turn credentials", { timeout: 600_000 }, () => {
         return token
       },
     }
-    const firewall = conversationFirewall({
-      credentials,
-      backendHost: "postman-echo.com",
-      tokens,
-    })
+    const firewall = conversationFirewall("httpbin.org")
     const provider = vercelConversationProvider({
       credentials,
       agentPassword: "contract-agent-password",
@@ -500,16 +492,18 @@ describe("hosted turn credentials", { timeout: 600_000 }, () => {
     created.push(handle.id)
     const suffix = Date.now().toString(36)
     const turn = {
-      modelPath: "/get",
+      modelProxyPath: `/anything/${suffix}/api/v1/workspace-chat/openai/v1`,
       modelCapability: `contract-model-${suffix}`,
-      bridgePath: "/headers",
+      bridgePath: `/anything/bridge-${suffix}`,
       bridgeToken: `contract-bridge-${suffix}`,
     }
-    // The sandbox sends the placeholder, as OpenCode does.
-    const echo = async (path: string) =>
+    const model = `${turn.modelProxyPath}/chat/completions`
+    // The sandbox sends the placeholder, as OpenCode does. `--path-as-is`
+    // sends dot segments unchanged.
+    const echo = async (path: string, extra = "") =>
       (
         await handle.process.exec(
-          `curl -sS -H 'Authorization: Bearer ${WORKSPACE_CHAT_FIREWALL_PLACEHOLDER}' https://postman-echo.com${path}`,
+          `curl -sS --path-as-is ${extra} -H 'Authorization: Bearer ${WORKSPACE_CHAT_FIREWALL_PLACEHOLDER}' 'https://httpbin.org${path}'`,
         )
       ).stdout
     const until = async (check: () => Promise<boolean>) => {
@@ -524,14 +518,33 @@ describe("hosted turn credentials", { timeout: 600_000 }, () => {
     await firewall.openTurn(handle.id, turn)
     report(`[vercel] turn credentials set ${Date.now() - started}ms`)
     report(
-      `[vercel] turn credentials visible after ${await until(async () => (await echo("/get")).includes(turn.modelCapability))}ms`,
+      `[vercel] turn credentials visible after ${await until(async () => (await echo(model)).includes(turn.modelCapability))}ms`,
     )
-    const bridge = await echo("/headers")
+    const bridge = await echo(turn.bridgePath)
     expect(bridge).toContain(turn.bridgeToken)
     expect(bridge).not.toContain(turn.modelCapability)
+    // Dot segments and other paths get no credential.
+    for (const path of [
+      `${turn.modelProxyPath}/../../../../x`,
+      `${turn.modelProxyPath}/%2e%2e/%2e%2e/x`,
+      `${turn.bridgePath}/../x`,
+    ]) {
+      const body = await echo(path)
+      expect(body, path).not.toContain(turn.modelCapability)
+      expect(body, path).not.toContain(turn.bridgeToken)
+    }
+    // Another Host header still reaches the pinned host.
+    const otherHost = await echo(model, "-H 'Host: example.com'")
+    expect(otherHost).toContain(turn.modelCapability)
+    expect(
+      (JSON.parse(otherHost) as { headers: Record<string, string> }).headers
+        .Host,
+    ).toBe("httpbin.org")
 
     // No credential is inside: not in the environment of any process, the
     // Git config, or the files a turn writes (the OpenCode config included).
+    // The OpenCode password is not in this list: the OpenCode server must
+    // hold it. Each turn gets a new one (docker-agent-port-native contract).
     const secrets = [githubToken, turn.modelCapability, turn.bridgeToken]
     const inside = await handle.process.exec(
       "env; cat /proc/[0-9]*/environ /proc/[0-9]*/cmdline 2>/dev/null | tr '\\0' '\\n'; git config --global --list 2>/dev/null; git config --system --list 2>/dev/null",
@@ -546,12 +559,12 @@ describe("hosted turn credentials", { timeout: 600_000 }, () => {
     for (const secret of secrets) expect(archive.includes(secret)).toBe(false)
 
     started = Date.now()
-    await firewall.closeTurn()
+    await firewall.closeTurn(handle.id)
     report(`[vercel] turn credentials removed ${Date.now() - started}ms`)
     report(
-      `[vercel] turn credentials gone after ${await until(async () => !(await echo("/get")).includes(turn.modelCapability))}ms`,
+      `[vercel] turn credentials gone after ${await until(async () => !(await echo(model)).includes(turn.modelCapability))}ms`,
     )
-    const after = `${await echo("/get")}${await echo("/headers")}`
+    const after = `${await echo(model)}${await echo(turn.bridgePath)}`
     expect(after).not.toContain(turn.modelCapability)
     expect(after).not.toContain(turn.bridgeToken)
     expect(after).toContain(WORKSPACE_CHAT_FIREWALL_PLACEHOLDER)
@@ -593,11 +606,7 @@ describe("agent snapshot and Workspace base", { timeout: 900_000 }, () => {
       credentials,
       agentPassword: "contract-agent-password",
       access: {
-        firewall: conversationFirewall({
-          credentials,
-          backendHost: "ctxpipe-contract.invalid",
-          tokens,
-        }),
+        firewall: conversationFirewall("ctxpipe-contract.invalid"),
         tokens,
         mintGitToken: async () => githubToken(),
         revokeGitToken: async () => undefined,

@@ -321,11 +321,7 @@ describe("hosted base choice", () => {
       credentials,
       agentPassword: "password",
       access: {
-        firewall: conversationFirewall({
-          credentials,
-          backendHost: "ctxpipe.test",
-          tokens: tokenStore,
-        }),
+        firewall: conversationFirewall("ctxpipe.test"),
         mintGitToken: async () => "read-token",
         revokeGitToken: async () => undefined,
         tokens: tokenStore,
@@ -412,11 +408,7 @@ describe("hosted base choice", () => {
       credentials,
       agentPassword: "password",
       access: {
-        firewall: conversationFirewall({
-          credentials,
-          backendHost: "ctxpipe.test",
-          tokens: noTokens,
-        }),
+        firewall: conversationFirewall("ctxpipe.test"),
         mintGitToken: async () => "read-token",
         revokeGitToken: async () => undefined,
         tokens: noTokens,
