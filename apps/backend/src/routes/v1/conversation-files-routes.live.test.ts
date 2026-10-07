@@ -428,7 +428,7 @@ it(
 )
 
 it(
-  "refuses Create PR while Files holds the conversation and stops a pending write when its native lease is lost",
+  "makes Create PR wait while Files holds the conversation and stops a pending write when its native lease is lost",
   { timeout: 30_000 },
   async () => {
     await withNativeChatFixture(async (f) => {
@@ -477,19 +477,47 @@ it(
           { timeout: 5_000 },
         )
         .toHaveLength(1)
-      // Create PR answers at once instead of queueing behind the write.
-      const busy = await f.request(
-        `/conversations/${f.conversationId}/pull-request`,
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({}),
-        },
-      )
-      expect({ status: busy.status, body: await busy.json() }).toEqual({
-        status: 409,
-        body: { error: "turn_running" },
+      // Create PR waits behind the Files write: no answer while it holds the
+      // conversation.
+      const lockOwner = async () =>
+        (
+          await withOrgDbContext(f.orgId, (db) =>
+            db.select().from(sandboxLocks).where(eq(sandboxLocks.key, key)),
+          )
+        )[0]?.owner
+      const filesOwner = await lockOwner()
+      const createPr = (signal?: AbortSignal) =>
+        Promise.resolve(
+          f.request(`/conversations/${f.conversationId}/pull-request`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({}),
+            signal,
+          }),
+        )
+      let answered = false
+      const waiting = createPr().finally(() => {
+        answered = true
       })
+      // A request aborted while it waits stops waiting and leaves the Files
+      // lock alone.
+      const abort = new AbortController()
+      let abortedSettled = false
+      const aborted = createPr(abort.signal)
+        .catch((error: unknown) => error)
+        .finally(() => {
+          abortedSettled = true
+        })
+      await new Promise((resolve) => setTimeout(resolve, 1_000))
+      expect({ answered, abortedSettled }).toEqual({
+        answered: false,
+        abortedSettled: false,
+      })
+      abort.abort()
+      await expect.poll(() => abortedSettled, { timeout: 2_000 }).toBe(true)
+      await aborted
+      expect(answered).toBe(false)
+      expect(await lockOwner()).toBe(filesOwner)
       try {
         // Remove this fixture's real lock ownership. The next native renewal
         // must abort the pending operation before its request body can write.
@@ -510,6 +538,13 @@ it(
         body.close()
       }
       expect((await pending).status).toBe(500)
+      // Once Files lost the lock, Create PR runs and answers for its own
+      // reason: this fixture's Workspace is not on GitHub.
+      const settled = await waiting
+      expect({ status: settled.status, body: await settled.json() }).toEqual({
+        status: 400,
+        body: { error: "not_github" },
+      })
       const blob = await f.request(
         `/conversations/${f.conversationId}/files/blob?path=after-lease-loss.md`,
       )
