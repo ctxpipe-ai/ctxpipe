@@ -125,18 +125,52 @@ export function conversationAgentPassword(
     .digest("hex")
 }
 
+/** One turn's credentials, which the firewall adds on the backend host. */
+export type HostedTurnCredentials = {
+  /** The model proxy's path prefix, for example `/<org>/api/v1/workspace-chat/openai/`. */
+  modelPath: string
+  modelCapability: string
+  /** The exact path of the turn's tool bridge. */
+  bridgePath: string
+  bridgeToken: string
+}
+
 /**
- * Egress is limited to GitHub and the backend; nothing else, ever (no npm:
- * OpenCode comes from the agent snapshot). The GitHub read token travels in
- * the firewall rule, so it never enters the sandbox.
+ * The firewall of a hosted sandbox. The internet stays open (`"*"`). The
+ * firewall adds each credential to the requests that need it, so no
+ * credential enters the sandbox: the GitHub read token on GitHub hosts, and
+ * during a turn, the turn's credentials on the backend host by path. The
+ * first matching rule of a host applies, thus the narrower rule comes first.
  */
-export function conversationNetworkPolicy(input: {
+export function hostedNetworkPolicy(input: {
   gitToken: string
-  backendHost: string
+  backendHost?: string
+  turn?: HostedTurnCredentials
 }): NetworkPolicy {
+  const { turn } = input
+  const backendRules = turn
+    ? [
+        {
+          match: { path: { exact: turn.bridgePath } },
+          transform: bearer(turn.bridgeToken),
+        },
+        {
+          match: { path: { startsWith: turn.modelPath } },
+          transform: bearer(turn.modelCapability),
+        },
+      ]
+    : []
   return {
-    allow: { ...githubAllowlist(input.gitToken), [input.backendHost]: [] },
+    allow: {
+      ...githubAllowlist(input.gitToken),
+      ...(input.backendHost ? { [input.backendHost]: backendRules } : {}),
+      "*": [],
+    },
   }
+}
+
+function bearer(token: string) {
+  return [{ headers: { authorization: `Bearer ${token}` } }]
 }
 
 /** GitHub hosts, each with the read token added by the firewall. */
@@ -149,9 +183,85 @@ function githubAllowlist(gitToken: string) {
     "codeload.github.com": [
       { transform: [{ headers: { authorization: `Basic ${basic}` } }] },
     ],
-    "api.github.com": [
-      { transform: [{ headers: { authorization: `Bearer ${gitToken}` } }] },
-    ],
+    "api.github.com": [{ transform: bearer(gitToken) }],
+  }
+}
+
+export type ConversationFirewall = ReturnType<typeof conversationFirewall>
+
+/**
+ * The firewall of one conversation's sandbox for one chat call. Vercel
+ * replaces the whole policy on each update and redacts header values, thus
+ * this object keeps the GitHub token and the turn's credentials, and it sends
+ * one update at a time, so a token rotation never drops a turn's rules.
+ */
+export function conversationFirewall(input: {
+  credentials: VercelCredentials
+  backendHost: string
+  tokens: SandboxGitTokenStore
+}) {
+  let sandbox: Sandbox | undefined
+  let gitToken: string | undefined
+  let turn: HostedTurnCredentials | undefined
+  let queue: Promise<unknown> = Promise.resolve()
+  const policy = (token: string) =>
+    hostedNetworkPolicy({ gitToken: token, backendHost: input.backendHost, turn })
+  /** Sends the current policy after the updates before it. */
+  const apply = () => {
+    const run = queue.then(async () => {
+      if (!sandbox || !gitToken) throw new Error("The sandbox is not attached")
+      await sandbox.update({ networkPolicy: policy(gitToken) })
+    })
+    queue = run.catch(() => undefined)
+    return run
+  }
+  const attachById = async (sandboxId: string) => {
+    if (sandbox?.name === sandboxId && gitToken) return
+    sandbox = await Sandbox.get({ ...input.credentials, name: sandboxId })
+    gitToken = (await input.tokens.get(sandboxId))?.token
+    if (!gitToken) throw new Error("The sandbox has no GitHub token")
+  }
+  return {
+    /** The policy for a new sandbox, with this GitHub token. */
+    policy,
+    /** Record a sandbox that was created or resumed with this token. */
+    attach(attached: Sandbox, token: string | undefined) {
+      sandbox = attached
+      gitToken = token
+    },
+    /** Replace the GitHub token, keeping a running turn's rules. */
+    async rotateGitToken(token: string) {
+      const previous = gitToken
+      gitToken = token
+      try {
+        await apply()
+      } catch (error) {
+        gitToken = previous
+        throw error
+      }
+    },
+    /**
+     * Add the turn's credentials. Call it while the conversation lock is
+     * held and before OpenCode starts. On failure the turn has no rules.
+     */
+    async openTurn(sandboxId: string, credentials: HostedTurnCredentials) {
+      try {
+        await attachById(sandboxId)
+        turn = credentials
+        await apply()
+      } catch (error) {
+        turn = undefined
+        throw new Error(
+          `Setting the sandbox firewall for this turn failed: ${String(error)}`,
+        )
+      }
+    },
+    /** Remove the turn's credentials; later requests carry none. */
+    async closeTurn() {
+      if (!turn) return
+      turn = undefined
+      await apply()
+    },
   }
 }
 
@@ -192,7 +302,8 @@ export type ConversationSandboxAccess = {
   tokens: SandboxGitTokenStore
   /** Defaults to GitHub's revoke endpoint. */
   revokeGitToken?: (token: string) => Promise<void>
-  backendHost: string
+  /** Adds the credentials outside the sandbox; one per chat call. */
+  firewall: ConversationFirewall
 }
 
 /** Replace the sandbox's GitHub token and revoke the old one after a grace. */
@@ -202,9 +313,7 @@ async function rotateGitToken(
   previous: string | undefined,
 ) {
   const gitToken = await access.mintGitToken()
-  await sandbox.update({
-    networkPolicy: conversationNetworkPolicy({ ...access, gitToken }),
-  })
+  await access.firewall.rotateGitToken(gitToken)
   await access.tokens.put(sandbox.name, gitToken)
   revokeLater(
     previous,
@@ -224,6 +333,7 @@ async function refreshGitAccess(
   access: ConversationSandboxAccess,
 ): Promise<void> {
   const current = await access.tokens.get(sandbox.name)
+  access.firewall.attach(sandbox, current?.token)
   if (!current) {
     await rotateGitToken(sandbox, access, undefined)
     return
@@ -309,7 +419,7 @@ export function vercelConversationProvider(input: {
           timeout: SESSION_TIMEOUT_MS,
           snapshotExpiration: STATE_RETENTION_MS,
           keepLastSnapshots: { count: 1, expiration: STATE_RETENTION_MS },
-          networkPolicy: conversationNetworkPolicy({ ...access, gitToken }),
+          networkPolicy: access.firewall.policy(gitToken),
           tags: input.tags,
         })
       const fromAgent = async () => {
@@ -340,6 +450,7 @@ export function vercelConversationProvider(input: {
           sandbox = await fromAgent()
         }
       } else sandbox = await fromAgent()
+      access.firewall.attach(sandbox, gitToken)
       await access.tokens.put(sandbox.name, gitToken)
       return conversationHandle(sandbox, input.agentPassword)
     },
@@ -569,7 +680,7 @@ export async function startVercelWorkspaceBase(input: {
       source: { type: "snapshot", snapshotId: input.agentSnapshotId },
       resources: VERCEL_SANDBOX.resources,
       timeout: 15 * 60_000,
-      networkPolicy: { allow: githubAllowlist(gitToken) },
+      networkPolicy: hostedNetworkPolicy({ gitToken }),
       tags: input.tags,
     })
   } catch (error) {

@@ -24,3 +24,4 @@ Updated: 2026-10-07. Tickets are implemented by sub-agents in separate worktrees
 | — | 18 | [PR 280 CI under 10 minutes from commit to green](issues/18-ci-under-ten-minutes.md) | done | P1 | claude | — |
 | — | 19 | [The first turn of a new conversation does not stream](issues/19-first-turn-stream-lost.md) | done | P0 | claude | — |
 | — | 20 | [Commit+Push is unreliable and Create PR does not work](issues/20-commit-push-create-pr-unreliable.md) | open: confirm the Create PR cause on the preview | P0 | claude | — |
+| — | 21 | [Hosted (Vercel) chat sandboxes hold no credential](issues/21-hosted-sandbox-no-credentials.md) | in-progress | P0 | claude | — |
