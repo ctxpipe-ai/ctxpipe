@@ -1,6 +1,6 @@
-import { lstat } from "node:fs/promises"
-import { basename, resolve, sep } from "node:path"
-import { resolveSafePath } from "./paths.js"
+import { lstat, stat } from "node:fs/promises"
+import { basename, join } from "node:path"
+import { resolveContainedRealPath } from "./paths.js"
 
 export class GlobPathNotFoundError extends Error {
   constructor(message = "Path not found") {
@@ -98,7 +98,11 @@ export function resolveGlobLimit(limit: number | undefined): number {
  */
 export function assertSafeGlobPattern(pattern: string): void {
   const normalized = pattern.replace(/\\/g, "/")
-  if (!normalized || normalized.startsWith("/") || /^[A-Za-z]:/.test(normalized)) {
+  if (
+    !normalized ||
+    normalized.startsWith("/") ||
+    /^[A-Za-z]:/.test(normalized)
+  ) {
     throw new GlobInvalidRequestError("Invalid glob pattern")
   }
   for (const segment of normalized.split("/")) {
@@ -108,15 +112,10 @@ export function assertSafeGlobPattern(pattern: string): void {
   }
 }
 
-function assertAbsPathWithinCheckout(
-  checkoutRoot: string,
-  absPath: string,
-): void {
-  const base = resolve(checkoutRoot)
-  const full = resolve(absPath)
-  if (full !== base && !full.startsWith(`${base}${sep}`)) {
-    throw new GlobInvalidRequestError("Path traversal is not allowed")
-  }
+function errorCode(error: unknown): string {
+  return error && typeof error === "object" && "code" in error
+    ? String((error as { code: unknown }).code)
+    : ""
 }
 
 /**
@@ -128,14 +127,18 @@ export async function globFilesInCheckout(
   const onlyFiles = options.onlyFiles ?? false
   const dot = options.dot ?? true
   const limit = resolveGlobLimit(options.limit)
-  const relativeCwd = (options.path ?? "").replace(/\\/g, "/").replace(/^\//, "")
+  const relativeCwd = (options.path ?? "")
+    .replace(/\\/g, "/")
+    .replace(/^\//, "")
   assertSafeGlobPattern(options.pattern)
 
+  // Follow symlinks in the cwd only when they end inside the checkout.
   let absCwd: string
   try {
-    absCwd = relativeCwd
-      ? resolveSafePath(options.checkoutRoot, relativeCwd)
-      : resolveSafePath(options.checkoutRoot, ".")
+    absCwd = await resolveContainedRealPath(
+      options.checkoutRoot,
+      relativeCwd || ".",
+    )
   } catch (error) {
     if (
       error instanceof Error &&
@@ -143,24 +146,12 @@ export async function globFilesInCheckout(
     ) {
       throw new GlobInvalidRequestError("Path traversal is not allowed")
     }
-    throw error
-  }
-
-  // Ensure cwd exists and is a directory (not a file / missing path).
-  let cwdStat: Awaited<ReturnType<typeof lstat>>
-  try {
-    cwdStat = await lstat(absCwd)
-  } catch (error) {
-    const code =
-      error && typeof error === "object" && "code" in error
-        ? String((error as { code: unknown }).code)
-        : ""
-    if (code === "ENOENT") {
+    if (errorCode(error) === "ENOENT" || errorCode(error) === "ENOTDIR") {
       throw new GlobPathNotFoundError()
     }
     throw error
   }
-  if (!cwdStat.isDirectory()) {
+  if (!(await stat(absCwd)).isDirectory()) {
     throw new GlobPathNotFoundError("Path is not a directory")
   }
 
@@ -169,7 +160,6 @@ export async function globFilesInCheckout(
   if (typeof Bun === "undefined" || typeof Bun.Glob !== "function") {
     throw new Error("Bun.Glob is required for repository glob scanning")
   }
-  const checkoutRootAbs = resolve(options.checkoutRoot)
   const glob = new Bun.Glob(options.pattern)
   const entries: GlobFileEntry[] = []
   let matched = 0
@@ -193,13 +183,8 @@ export async function globFilesInCheckout(
 
     if (isSkippedGlobPath(repoPath)) continue
 
-    let absPath: string
-    try {
-      absPath = resolveSafePath(checkoutRootAbs, repoPath)
-    } catch {
-      continue
-    }
-    assertAbsPathWithinCheckout(checkoutRootAbs, absPath)
+    // The scan does not follow symlinks, so each entry is under the real cwd.
+    const absPath = join(absCwd, normalizedRel)
 
     let type: "file" | "dir"
     try {

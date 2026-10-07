@@ -1,10 +1,11 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import {
-  GlobInvalidRequestError,
   assertSafeGlobPattern,
+  GlobInvalidRequestError,
+  GlobPathNotFoundError,
   globFilesInCheckout,
   isSkippedGlobPath,
   resolveGlobLimit,
@@ -37,7 +38,9 @@ describe("resolveGlobLimit", () => {
 
 describe("assertSafeGlobPattern", () => {
   it("rejects parent-directory and absolute patterns", () => {
-    expect(() => assertSafeGlobPattern("../**")).toThrow(GlobInvalidRequestError)
+    expect(() => assertSafeGlobPattern("../**")).toThrow(
+      GlobInvalidRequestError,
+    )
     expect(() => assertSafeGlobPattern("foo/../../../**")).toThrow(
       GlobInvalidRequestError,
     )
@@ -142,5 +145,37 @@ describe("globFilesInCheckout", () => {
         path: "src",
       }),
     ).rejects.toThrow(GlobInvalidRequestError)
+  })
+
+  it("follows a symlinked cwd that stays inside the checkout", async () => {
+    const root = await setupCheckout()
+    await symlink("src", join(root, "src-link"))
+    await symlink("../README.md", join(root, "src", "readme-link"))
+    const result = await globFilesInCheckout({
+      checkoutRoot: root,
+      pattern: "*",
+      path: "src-link",
+    })
+    expect(result.entries.map((e) => e.path).sort()).toEqual([
+      "src-link/a.ts",
+      "src-link/nested",
+    ])
+  })
+
+  it("answers a symlinked cwd that ends outside like a missing path", async () => {
+    const root = await setupCheckout()
+    const outside = await mkdtemp(join(tmpdir(), "glob-outside-"))
+    try {
+      await mkdir(join(outside, "dir"))
+      await writeFile(join(outside, "dir", "data.txt"), "outside\n")
+      await symlink(outside, join(root, "out-link"))
+      for (const path of ["out-link", "out-link/dir"]) {
+        await expect(
+          globFilesInCheckout({ checkoutRoot: root, pattern: "**", path }),
+        ).rejects.toThrow(GlobPathNotFoundError)
+      }
+    } finally {
+      await rm(outside, { recursive: true, force: true })
+    }
   })
 })

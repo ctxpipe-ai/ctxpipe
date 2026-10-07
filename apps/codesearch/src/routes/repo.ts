@@ -13,7 +13,7 @@ import {
 import {
   DEFAULT_CHECKOUT_KEY,
   repoCheckoutPath,
-  resolveSafePath,
+  resolveContainedRealPath,
   resolveSafeReadableFilePath,
   scipIndexPath,
 } from "../domain/repositories/paths.js"
@@ -501,7 +501,7 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     let dirPath: string
     let names: string[]
     try {
-      dirPath = path ? resolveSafePath(basePath, path) : basePath
+      dirPath = await resolveContainedRealPath(basePath, path ?? ".")
       names = await readdir(dirPath)
     } catch {
       return c.json({ error: "Path not found" }, 404)
@@ -627,12 +627,8 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     const result: Record<string, string> = {}
     for (const p of paths) {
       try {
-        const fullPath = resolveSafePath(basePath, p)
-        const file = Bun.file(fullPath)
-        if (await file.exists()) {
-          const buf = await file.arrayBuffer()
-          result[p] = btoa(String.fromCharCode(...new Uint8Array(buf)))
-        }
+        const fullPath = await resolveSafeReadableFilePath(basePath, p)
+        result[p] = (await readFile(fullPath)).toString("base64")
       } catch {
         // omit missing files
       }
