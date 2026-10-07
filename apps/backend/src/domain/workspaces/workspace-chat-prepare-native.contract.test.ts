@@ -5,7 +5,6 @@ import Docker from "dockerode"
 import { eq } from "drizzle-orm"
 import { expect, it, vi } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
-import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { conversations } from "../../db/schema/conversations.js"
 import { workspaces } from "../../db/schema/workspaces.js"
@@ -825,7 +824,7 @@ it(
 )
 
 it(
-  "warm runtime uses its captured branch and cached repository credential without GitHub requests",
+  "warm runtime uses its captured branch without GitHub requests",
   { timeout: 60_000 },
   async () => {
     const requests: string[] = []
@@ -848,7 +847,6 @@ it(
               lastBranch: "ctxpipe/chat/conv_warm/1",
             },
             workspace,
-            env: parseEnv(process.env),
           }
           const cold = await resolveWorkspaceChatTurnRuntime(input)
           requests.length = 0
@@ -863,7 +861,6 @@ it(
           expect(warm.lastBranch).toBe("ctxpipe/chat/conv_warm/1")
           expect(warm.cloneRef).toBe(f.sha)
           expect(warm.desiredSha).toBe(f.sha)
-          expect(warm.cloneToken).toBe("fixture-only-github-read-token")
           expect(warm).toEqual(cold)
           expect(requests).toEqual([])
           const ranked = [...samples].sort((left, right) => left - right)

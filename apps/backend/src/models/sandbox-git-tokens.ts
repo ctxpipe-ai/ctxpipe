@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm"
+import { eq, sql } from "drizzle-orm"
 import type { Env } from "../config/env.js"
 import { withOrgDbContext } from "../db/client.js"
 import { workspaceSandboxGitTokens } from "../db/schema/workspaces.js"
@@ -14,11 +14,25 @@ export type SandboxGitTokenStore = {
   take: (sandboxId: string) => Promise<string | null>
 }
 
-/** Encrypted per-sandbox GitHub read tokens for one organization. */
+/** The store, with the operations run tokens use. */
+export type RunGitTokenStore = SandboxGitTokenStore & {
+  /** Records a token only when the key is free; false when another holds it. */
+  add: (key: string, token: string) => Promise<boolean>
+  /** Every record whose key starts with the prefix. */
+  list: (
+    prefix: string,
+  ) => Promise<Array<{ key: string; token: string; mintedAt: Date }>>
+}
+
+/**
+ * Encrypted GitHub read tokens for one organization: one per hosted sandbox
+ * (keyed by the sandbox name), and the run tokens of Docker and local
+ * conversations (keyed `run:<conversation>:…`, see `run-git-tokens.ts`).
+ */
 export function sandboxGitTokenStore(
   orgId: string,
   env: Env,
-): SandboxGitTokenStore {
+): RunGitTokenStore {
   return {
     get: (sandboxId) =>
       withOrgDbContext(orgId, async (db) => {
@@ -55,6 +69,34 @@ export function sandboxGitTokenStore(
           .where(eq(workspaceSandboxGitTokens.sandboxId, sandboxId))
           .returning()
         return row ? decryptConnectionSecret(row.tokenCiphertext, env) : null
+      }),
+    add: (key, token) =>
+      withOrgDbContext(orgId, async (db) => {
+        const inserted = await db
+          .insert(workspaceSandboxGitTokens)
+          .values({
+            sandboxId: key,
+            orgId,
+            tokenCiphertext: encryptConnectionSecret(token, env),
+            mintedAt: new Date(),
+          })
+          .onConflictDoNothing({ target: workspaceSandboxGitTokens.sandboxId })
+          .returning({ key: workspaceSandboxGitTokens.sandboxId })
+        return inserted.length > 0
+      }),
+    list: (prefix) =>
+      withOrgDbContext(orgId, async (db) => {
+        const rows = await db
+          .select()
+          .from(workspaceSandboxGitTokens)
+          .where(
+            sql`starts_with(${workspaceSandboxGitTokens.sandboxId}, ${prefix})`,
+          )
+        return rows.map((row) => ({
+          key: row.sandboxId,
+          token: decryptConnectionSecret(row.tokenCiphertext, env),
+          mintedAt: row.mintedAt,
+        }))
       }),
   }
 }

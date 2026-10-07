@@ -1,9 +1,13 @@
+import { createHash } from "node:crypto"
 import { and, eq } from "drizzle-orm"
 import type { Env } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { repositories } from "../../db/schema/repositories.js"
 import { workspaceLinkedRepositories } from "../../db/schema/workspaces.js"
 import { getWorkspaceGithubReadToken } from "../../models/github-installation.js"
+import { sandboxGitTokenStore } from "../../models/sandbox-git-tokens.js"
+import { listSandboxInstances } from "../../models/workspace-sandboxes.js"
+import { recordedRunGitToken } from "./run-git-tokens.js"
 import { verifyWorkspaceChatRunCapability } from "./workspace-chat-run-capability.js"
 
 /** Git credential-protocol inputs name an exact HTTPS GitHub repository. */
@@ -50,6 +54,18 @@ export async function resolveWorkspaceChatGitCredential(input: {
   }
   const claims = await verifyWorkspaceChatRunCapability(authority)
   if (!claims) return { ok: false, status: 401, error: "Unauthorized" }
+  // Hosted sandboxes reach GitHub only through their firewall rule, which
+  // adds the header; they never get a token. Their runs get no capability,
+  // and this refuses one that reaches us anyway.
+  const sandboxes = await withOrgDbContext(claims.orgId, () =>
+    listSandboxInstances({ conversationId: claims.conversationId }),
+  )
+  if (sandboxes.some((row) => row.provider === "vercel"))
+    return {
+      ok: false,
+      status: 403,
+      error: "Hosted sandboxes get GitHub access through their firewall",
+    }
   const connectionId = claims.revision.remote.connectionId
   if (!connectionId)
     return {
@@ -108,9 +124,17 @@ export async function resolveWorkspaceChatGitCredential(input: {
       status: 403,
       error: "Workspace GitHub read scope must contain 1 to 500 repositories",
     }
-  const token = await getWorkspaceGithubReadToken(claims.orgId, input.env, {
-    githubConnectionId: connectionId,
-    repoFullNames: names,
+  // One recorded token per run and scope; the turn end revokes it.
+  const token = await recordedRunGitToken({
+    orgId: claims.orgId,
+    store: sandboxGitTokenStore(claims.orgId, input.env),
+    conversationId: claims.conversationId,
+    label: `git:${claims.lockOwner}:${createHash("sha256").update(names.join(",")).digest("hex").slice(0, 16)}`,
+    mint: () =>
+      getWorkspaceGithubReadToken(claims.orgId, input.env, {
+        githubConnectionId: connectionId,
+        repoFullNames: names,
+      }),
   })
   // GitHub IO occurs outside SQL. Do not disclose a credential after a relink,
   // deletion, completion, or loss of the native run owner during that request.

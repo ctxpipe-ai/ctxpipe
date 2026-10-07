@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto"
 import { createServer } from "node:net"
 import { trace } from "@opentelemetry/api"
 import {
@@ -26,9 +27,11 @@ import {
 import { dockerSandbox } from "@tanstack/ai-sandbox-docker"
 import { localProcessSandbox } from "@tanstack/ai-sandbox-local-process"
 import { eq } from "drizzle-orm"
+import { parseEnv } from "../../config/env.js"
 import { getSystemDb } from "../../db/client.js"
 import { organizations } from "../../db/schema/auth.js"
 import { loadConversationTurns } from "../../models/conversation-messages.js"
+import { getRepoReadCloneToken } from "../../models/github-installation.js"
 import {
   heartbeatSandboxInstance,
   SandboxInstanceOwnershipConflict,
@@ -58,6 +61,7 @@ import { checkoutSessionBranch } from "./conversation-session-branch.js"
 import { nameConversationIfUnnamed } from "./conversation-title.js"
 import { hostedSandboxAccess } from "./hosted-sandbox-access.js"
 import { type WorkspaceRevision, workspaceRevisionSchema } from "./revision.js"
+import { recordedRunGitToken, revokeRunGitTokens } from "./run-git-tokens.js"
 import { postgresSandboxInstanceStore } from "./sandbox-instance-store.js"
 import {
   enterSandboxLifecycleContext,
@@ -118,7 +122,10 @@ import {
 } from "./workspace-chat-otel.js"
 import { workspaceChatPersistence } from "./workspace-chat-persistence.js"
 import { updateConversationSandboxRevision } from "./workspace-chat-revision-transition.js"
-import { mintWorkspaceChatRunCapability } from "./workspace-chat-run-capability.js"
+import {
+  mintWorkspaceChatRunCapability,
+  type WorkspaceChatRunCapabilityPurpose,
+} from "./workspace-chat-run-capability.js"
 import { workspaceChatThreadLock } from "./workspace-chat-thread-lock.js"
 import { mintWorkspaceChatToken } from "./workspace-chat-token.js"
 import { WORKSPACE_CHAT_TOOLS } from "./workspace-chat-tools.js"
@@ -126,6 +133,7 @@ import {
   baseForNewSandbox,
   startingFromBase,
 } from "./workspace-sandbox-base.js"
+import { githubRepoFullNameFromWorkspaceUrl } from "./write-status.js"
 
 export type TanstackWorkspaceChatMessage = {
   id?: string
@@ -467,7 +475,11 @@ export async function warmTanstackWorkspaceChat(
   }
   enterSandboxLifecycleContext(input.conversationId)
   const prepareStarted = Date.now()
-  const built = await buildWorkspaceChatSandbox(input)
+  // Attaching (Files reads) runs no Git command that needs a token.
+  const built = await buildWorkspaceChatSandbox(
+    input,
+    options?.existingOnly ? undefined : `clone:${randomUUID()}`,
+  )
   if (!built.ok) return built
   const abortController = abortControllerFrom(input.abortSignal)
   try {
@@ -524,7 +536,8 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
     }
   | { ok: false; status: number; error: string }
 > {
-  const built = await buildWorkspaceChatSandbox(input)
+  const cloneLabel = `clone:${randomUUID()}`
+  const built = await buildWorkspaceChatSandbox(input, cloneLabel)
   if (!built.ok) return built
   let activeSandbox: SandboxHandle | undefined
   const runtime = workspaceChatRuntimeConfig({
@@ -597,6 +610,19 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
     if (built.isolation !== "unsandboxed")
       await scheduleIdleStop(input.orgId, usedAt)
   }
+  // Revoke this turn's GitHub tokens as soon as it ends; a failure is left
+  // for the sandbox sweep and never fails the turn.
+  const revokeTurnGitTokens = async () => {
+    if (built.isolation === "vercel") return
+    await revokeRunGitTokens({
+      orgId: input.orgId,
+      conversationId: input.conversationId,
+      prefixes: [
+        `${cloneLabel}:`,
+        ...(transcriptOwner ? [`git:${transcriptOwner}:`] : []),
+      ],
+    })
+  }
   const stream = await chat({
     adapter: opencodeText(built.contract.opencodeModel, {
       ...opencodeListen,
@@ -633,6 +659,12 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
         onFinish: markSandboxUsed,
         onError: markSandboxUsed,
         onAbort: markSandboxUsed,
+      }),
+      defineChatMiddleware({
+        name: "workspace-chat-run-git-tokens",
+        onFinish: revokeTurnGitTokens,
+        onError: revokeTurnGitTokens,
+        onAbort: revokeTurnGitTokens,
       }),
       workspaceChatThreadLock({
         locks: postgresSandboxLocks(
@@ -717,25 +749,19 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
               conversationId: input.conversationId,
               revision: built.revision,
             }
-            const [gitCapability, modelCapability] = await Promise.all([
-              mintWorkspaceChatRunCapability({
-                ...authority,
-                runId: input.runId,
-                purpose: "workspace-chat-git",
-              }),
-              mintWorkspaceChatRunCapability({
-                ...authority,
-                runId: input.runId,
-                purpose: "workspace-chat-model",
-              }),
-            ])
+            const capabilities = await workspaceChatRunCapabilities(
+              built.isolation,
+              (purpose) =>
+                mintWorkspaceChatRunCapability({
+                  ...authority,
+                  runId: input.runId,
+                  purpose,
+                }),
+            )
             abortController.signal.throwIfAborted()
             // The conversation lock is held and OpenCode has not started.
             // Its subprocesses inherit these values.
-            await activeSandbox.env.set({
-              CTXPIPE_GIT_RUN_CAPABILITY: gitCapability,
-              CTXPIPE_OPENCODE_RUN_TOKEN: modelCapability,
-            })
+            await activeSandbox.env.set(capabilities)
             abortController.signal.throwIfAborted()
           })
         },
@@ -754,6 +780,25 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
   return {
     ok: true,
     stream,
+  }
+}
+
+/**
+ * The run capabilities a sandbox gets as environment variables. A hosted
+ * sandbox gets no Git capability: it reaches GitHub only through its
+ * firewall rule, which adds the header, and it never sees a token.
+ */
+export async function workspaceChatRunCapabilities(
+  isolation: SandboxProviderName,
+  mint: (purpose: WorkspaceChatRunCapabilityPurpose) => Promise<string>,
+): Promise<Record<string, string>> {
+  const [git, model] = await Promise.all([
+    isolation === "vercel" ? undefined : mint("workspace-chat-git"),
+    mint("workspace-chat-model"),
+  ])
+  return {
+    ...(git ? { CTXPIPE_GIT_RUN_CAPABILITY: git } : {}),
+    CTXPIPE_OPENCODE_RUN_TOKEN: model,
   }
 }
 
@@ -817,7 +862,15 @@ async function resolveWorkspaceChatOrgSlug(
   return row?.slug ?? null
 }
 
-async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
+/**
+ * `cloneLabel` names the clone token that Docker and local sandboxes get for
+ * this call (a turn revokes its own when it ends; the sweep revokes the
+ * others). Without it the sandbox gets no token: it is only attached to.
+ */
+async function buildWorkspaceChatSandbox(
+  input: TanstackWorkspaceChatInput,
+  cloneLabel?: string,
+) {
   const desiredUrl = input.desiredUrl?.trim() ?? ""
   if (!desiredUrl) {
     return {
@@ -922,9 +975,34 @@ async function buildWorkspaceChatSandbox(input: TanstackWorkspaceChatInput) {
       void requestBaseBuild(input.orgId, input.workspaceId)
     return choice
   }
+  const repoFullName = githubRepoFullNameFromWorkspaceUrl(desiredUrl)
+  // Hosted sandboxes never hold the token: the firewall adds it to GitHub calls.
+  const cloneToken =
+    selectedProvider === "vercel"
+      ? ""
+      : (input.cloneToken ??
+        (cloneLabel && repoFullName
+          ? await recordedRunGitToken({
+              orgId: input.orgId,
+              conversationId: input.conversationId,
+              label: cloneLabel,
+              mint: () =>
+                getRepoReadCloneToken(
+                  input.orgId,
+                  parseEnv(process.env as Record<string, string | undefined>),
+                  {
+                    githubConnectionId: input.githubConnectionId ?? undefined,
+                    repoFullName,
+                    fresh: true,
+                  },
+                ),
+            })
+          : undefined) ??
+        "")
   const workspace = conversationSandboxWorkspace({
     isolation: selectedProvider,
     input,
+    cloneToken,
     desiredUrl,
     runToken: session.runToken,
     proxyUrl: session.proxyUrl,
@@ -1040,6 +1118,7 @@ async function hostedSandboxOptions(
 function conversationSandboxWorkspace(input: {
   isolation: SandboxProviderName
   input: TanstackWorkspaceChatInput
+  cloneToken: string
   desiredUrl: string
   runToken: string
   proxyUrl: string
@@ -1051,9 +1130,7 @@ function conversationSandboxWorkspace(input: {
     modelBase: input.modelBase,
     isolation: input.isolation,
   })
-  // Hosted sandboxes never hold the token: the firewall adds it to GitHub calls.
-  const cloneToken =
-    input.isolation === "vercel" ? "" : (chatInput.cloneToken ?? "")
+  const { cloneToken } = input
   const secrets = createSecrets({
     ...(input.isolation === "unsandboxed"
       ? { CTXPIPE_OPENCODE_RUN_TOKEN: input.runToken }

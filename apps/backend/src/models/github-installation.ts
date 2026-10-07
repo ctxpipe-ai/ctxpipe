@@ -946,16 +946,43 @@ export async function getRepoReadCloneToken(
   const id = input.githubConnectionId ?? installation.id
   const row = await loadGithubConnectionRow(orgId, id)
   if (!row) return undefined
+  const request = repoReadCloneTokenRequest(input.repoFullName)
+  if (input.fresh)
+    return mintUncachedInstallationToken(
+      row,
+      env,
+      installation.installationId,
+      {
+        repositories: request.repositoryNames,
+        permissions: request.permissions,
+      },
+    )
   const app = buildAppForConnection(row, env)
   const octokit = await app.getInstallationOctokit(installation.installationId)
-  const request = repoReadCloneTokenRequest(input.repoFullName)
   const { token } = (await octokit.auth({
     type: "installation",
     repositoryNames: request.repositoryNames,
     permissions: request.permissions,
-    ...(input.fresh ? { refresh: true } : {}),
   })) as { token: string }
   return token
+}
+
+/**
+ * A new installation token that never enters Octokit's token cache. Use it
+ * for a token that is revoked later: a revoked token in the shared cache
+ * would reach every other reader of the same scope until it expires.
+ */
+async function mintUncachedInstallationToken(
+  row: ConnectionRow,
+  env: Env,
+  installationId: number,
+  request: { repositories: string[]; permissions: Record<string, "read"> },
+): Promise<string> {
+  const { data } = await buildAppForConnection(row, env).octokit.request(
+    "POST /app/installations/{installation_id}/access_tokens",
+    { installation_id: installationId, ...request },
+  )
+  return data.token
 }
 
 /**
@@ -1064,31 +1091,16 @@ export async function getWorkspaceGithubReadToken(
     throw new Error("Workspace GitHub read scope exceeds 500 repositories")
   const row = await loadGithubConnectionRow(orgId, input.githubConnectionId)
   if (!row) return undefined
-  const app = buildAppForConnection(row, env)
-  const octokit = await app.getInstallationOctokit(installation.installationId)
-  const request = {
-    type: "installation" as const,
-    repositoryNames: names,
+  // Uncached: the caller records the token and revokes it when the run ends.
+  return mintUncachedInstallationToken(row, env, installation.installationId, {
+    repositories: names,
     permissions: {
-      contents: "read" as const,
-      issues: "read" as const,
-      pull_requests: "read" as const,
-      metadata: "read" as const,
+      contents: "read",
+      issues: "read",
+      pull_requests: "read",
+      metadata: "read",
     },
-  }
-  type ReadCredential = { token: string; expiresAt: string }
-  let credential = (await octokit.auth(request)) as ReadCredential
-  const fresh = (value: ReadCredential) =>
-    !!value.token && Date.parse(value.expiresAt) > Date.now() + 60_000
-  // Octokit's cache has its own TTL; honor the issuer's actual expiry too.
-  if (!fresh(credential))
-    credential = (await octokit.auth({
-      ...request,
-      refresh: true,
-    })) as ReadCredential
-  if (!fresh(credential))
-    throw new Error("GitHub read credential expires too soon")
-  return credential.token
+  })
 }
 
 /** Legacy repository ingestion still resolves by repository ID, never by installation alone. */

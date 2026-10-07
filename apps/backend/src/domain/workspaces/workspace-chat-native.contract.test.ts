@@ -12,17 +12,26 @@ import {
 } from "@tanstack/ai"
 import { reconstructChat } from "@tanstack/ai-persistence"
 import { eq } from "drizzle-orm"
+import { HttpResponse, http } from "msw"
+import { setupServer } from "msw/node"
 import { expect, it } from "vitest"
+import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { conversations } from "../../db/schema/conversations.js"
+import { sandboxLocks } from "../../db/schema/sandbox-locks.js"
 import { workspaces } from "../../db/schema/workspaces.js"
 import { conversationIdFromIdempotencyKey } from "../../lib/id.js"
 import { registerMcpTools } from "../../mcp/tools.js"
+import { sandboxGitTokenStore } from "../../models/sandbox-git-tokens.js"
 import {
   listSandboxInstances,
   persistOrgFirstWorkspace,
 } from "../../models/workspaces.js"
 import { withNativeChatFixture } from "../../test/native-chat-fixture.js"
+import {
+  recordedRunGitToken,
+  revokeIdleRunGitTokens,
+} from "./run-git-tokens.js"
 import { workspaceChatInstanceAccess } from "./sandbox-instance-store.js"
 import {
   streamTanstackWorkspaceChat,
@@ -667,5 +676,120 @@ it(
       ).not.toBe(firstId)
       await Promise.all([first.text(), second.text()])
     })
+  },
+)
+
+it(
+  "revokes the run's GitHub tokens when a turn finishes or is aborted, and leaves a failed revoke to the sweep",
+  { timeout: 90_000 },
+  async () => {
+    const revoked: string[] = []
+    let revokeStatus = 500
+    const github = setupServer(
+      http.delete(
+        "https://api.github.com/installation/token",
+        ({ request }) => {
+          revoked.push(request.headers.get("authorization") ?? "")
+          return new HttpResponse(null, { status: revokeStatus })
+        },
+      ),
+    )
+    github.listen({ onUnhandledRequest: "bypass" })
+    let fixture: { orgId: string; conversationId: string } | undefined
+    let seed = ""
+    let started: () => void = () => undefined
+    let modelResponse: Promise<void> = Promise.resolve()
+    try {
+      await withNativeChatFixture(
+        async (f) => {
+          fixture = f
+          const tokens = sandboxGitTokenStore(f.orgId, parseEnv(process.env))
+          const input = {
+            conversationId: f.conversationId,
+            orgId: f.orgId,
+            orgSlug: f.orgSlug,
+            workspaceId: f.workspaceId,
+            desiredUrl: f.directory,
+            desiredSha: f.sha,
+            defaultBranch: "main",
+            writeStatus: "read_only",
+          }
+          // Finished turn: GitHub refuses the revoke; the turn still succeeds.
+          seed = "ghs_finished_turn"
+          const chunks: StreamChunk[] = []
+          for await (const chunk of streamTanstackWorkspaceChat({
+            ...input,
+            runId: `finish-${f.conversationId}`,
+            prompt: "Finish this turn",
+          }))
+            chunks.push(chunk)
+          expect(chunks.filter((chunk) => chunk.type === "RUN_ERROR")).toEqual(
+            [],
+          )
+          expect(revoked).toEqual(["token ghs_finished_turn"])
+          expect(
+            (await tokens.list(`run:${f.conversationId}:`)).map(
+              (row) => row.token,
+            ),
+          ).toEqual(["ghs_finished_turn"])
+          // The sweep retries it.
+          revokeStatus = 204
+          expect(await revokeIdleRunGitTokens({ orgId: f.orgId })).toBe(false)
+          expect(await tokens.list(`run:${f.conversationId}:`)).toEqual([])
+
+          // Aborted turn.
+          revoked.length = 0
+          seed = "ghs_aborted_turn"
+          let release!: () => void
+          modelResponse = new Promise<void>((resolve) => {
+            release = resolve
+          })
+          const modelStarted = new Promise<void>((resolve) => {
+            started = resolve
+          })
+          const controller = new AbortController()
+          const stopped = (async () => {
+            for await (const _chunk of streamTanstackWorkspaceChat({
+              ...input,
+              runId: `abort-${f.conversationId}`,
+              prompt: "Abort this turn",
+              abortSignal: controller.signal,
+            })) {
+              /* Drain the cancelled run. */
+            }
+          })()
+          await modelStarted
+          controller.abort(RUN_CANCEL_REASON)
+          release()
+          await stopped
+          expect(revoked).toEqual(["token ghs_aborted_turn"])
+          expect(await tokens.list(`run:${f.conversationId}:`)).toEqual([])
+        },
+        async () => {
+          // What the Git credential route records for the turn that holds
+          // the conversation lock.
+          if (!fixture) throw new Error("Fixture missing")
+          const { orgId, conversationId } = fixture
+          const [lock] = await withOrgDbContext(orgId, (db) =>
+            db
+              .select({ owner: sandboxLocks.owner })
+              .from(sandboxLocks)
+              .where(eq(sandboxLocks.key, `chat-thread:${conversationId}`)),
+          )
+          if (!lock) throw new Error("Turn lock missing")
+          const token = seed
+          await recordedRunGitToken({
+            orgId,
+            conversationId,
+            label: `git:${lock.owner}:scope`,
+            mint: async () => token,
+          })
+          started()
+          await modelResponse
+        },
+      )
+    } finally {
+      github.close()
+    }
   },
 )
