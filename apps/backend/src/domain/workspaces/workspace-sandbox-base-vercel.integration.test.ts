@@ -63,7 +63,10 @@ import { collectUnusedWorkspaceBases } from "./workspace-sandbox-cleanup.js"
 
 const API = "https://vercel.com/api/v2/sandboxes"
 /** The agent snapshot builders' `opencode` tag: runtime and OpenCode version. */
-const agentTag = `node26-${WORKSPACE_CHAT_OPENCODE_CLI}`.replace(/[^\w.-]/g, "-")
+const agentTag = `node26-${WORKSPACE_CHAT_OPENCODE_CLI}`.replace(
+  /[^\w.-]/g,
+  "-",
+)
 const credentials = {
   token: "test-token",
   teamId: "team_test",
@@ -1219,7 +1222,9 @@ describe("agent snapshot lookup", () => {
       tags: { opencode: agentTag },
     })
     // Workspace bases are keyed by the same runtime, so they rebuild once.
-    expect(agent.image).toBe(`vercel-agent/node26/${WORKSPACE_CHAT_OPENCODE_CLI}`)
+    expect(agent.image).toBe(
+      `vercel-agent/node26/${WORKSPACE_CHAT_OPENCODE_CLI}`,
+    )
   })
 
   it("is cached in the process, and looked up again after a failed start", async () => {

@@ -28,7 +28,10 @@ import {
   vercelConversationProvider,
   workspaceBaseTags,
 } from "./vercel-sandbox-provider.js"
-import { writeWorkspaceChatOpenCodeConfig } from "./workspace-chat-opencode-contract.js"
+import {
+  VERCEL_SANDBOX,
+  writeWorkspaceChatOpenCodeConfig,
+} from "./workspace-chat-opencode-contract.js"
 
 /**
  * Real Vercel Sandbox behavior the hosted provider relies on (ticket 02).
@@ -74,6 +77,8 @@ async function create(
     ...credentials,
     tags,
     timeout: 10 * 60_000,
+    // The size production uses, so this lane proves it.
+    resources: VERCEL_SANDBOX.resources,
     ...params,
   } as Parameters<typeof Sandbox.create>[0])
   created.push(sandbox.name)
@@ -137,7 +142,7 @@ afterAll(async () => {
 describe("Vercel Sandbox", { timeout: 600_000 }, () => {
   it("resumes a stopped persistent sandbox with its files", async () => {
     const sandbox = await create({
-      runtime: "node24",
+      runtime: VERCEL_SANDBOX.runtime,
       persistent: true,
       snapshotExpiration: 24 * 60 * 60_000,
       keepLastSnapshots: { count: 1 },
@@ -168,7 +173,7 @@ describe("Vercel Sandbox", { timeout: 600_000 }, () => {
 
   it("deletes a stopped sandbox together with its saved state", async () => {
     const sandbox = await create({
-      runtime: "node24",
+      runtime: VERCEL_SANDBOX.runtime,
       persistent: true,
       snapshotExpiration: 24 * 60 * 60_000,
       keepLastSnapshots: { count: 1 },
@@ -189,7 +194,7 @@ describe("Vercel Sandbox", { timeout: 600_000 }, () => {
   })
 
   it("starts a new sandbox from a snapshot of a prepared base", async () => {
-    const base = await create({ runtime: "node24" })
+    const base = await create({ runtime: VERCEL_SANDBOX.runtime })
     await handle(base).fs.write("/workspace/base.txt", "prepared")
     let started = Date.now()
     const snapshot = await base.snapshot().catch((error: unknown) => {
@@ -219,7 +224,7 @@ describe("Vercel Sandbox", { timeout: 600_000 }, () => {
       },
     })
     const sandbox = await create({
-      runtime: "node24",
+      runtime: VERCEL_SANDBOX.runtime,
       networkPolicy: policy("token-1"),
     })
     const echo = async () => {
@@ -258,7 +263,10 @@ describe("Vercel Sandbox", { timeout: 600_000 }, () => {
 
   it("allows only allowlisted hosts", async () => {
     const networkPolicy: NetworkPolicy = { allow: ["github.com"] }
-    const sandbox = await create({ runtime: "node24", networkPolicy })
+    const sandbox = await create({
+      runtime: VERCEL_SANDBOX.runtime,
+      networkPolicy,
+    })
     const probe = (url: string) =>
       handle(sandbox).process.exec(
         `node -e "fetch('${url}',{redirect:'manual'}).then(r=>console.log(r.status),e=>console.log('blocked',e.cause?.code??e.message))"`,
@@ -273,7 +281,10 @@ describe("Vercel Sandbox", { timeout: 600_000 }, () => {
   })
 
   it("serves the agent port only with the OpenCode password", async () => {
-    const sandbox = await create({ runtime: "node24", ports: [4096] })
+    const sandbox = await create({
+      runtime: VERCEL_SANDBOX.runtime,
+      ports: [4096],
+    })
     const agent = handle(sandbox, [4096])
     let started = Date.now()
     const install = await agent.process.exec(
@@ -315,7 +326,7 @@ describe("Vercel Sandbox", { timeout: 600_000 }, () => {
   })
 
   it("kills a command together with its child processes", async () => {
-    const sandbox = await create({ runtime: "node24" })
+    const sandbox = await create({ runtime: VERCEL_SANDBOX.runtime })
     const command = await sandbox.runCommand({
       cmd: "sh",
       args: ["-c", "mkdir -p /tmp/k; : >> /tmp/k/f; tail -f /tmp/k/f"],
