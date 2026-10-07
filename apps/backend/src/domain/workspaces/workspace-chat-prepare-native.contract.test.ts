@@ -408,6 +408,14 @@ it(
   },
 )
 
+/** OpenCode's name for the bridge's `graph_lookup` tool, if it listed it. */
+function bridgedTool(request: Record<string, unknown>): string | undefined {
+  const tools = (request.tools ?? []) as Array<{ function?: { name?: string } }>
+  return tools
+    .map((tool) => tool.function?.name ?? "")
+    .find((name) => name.endsWith("graph_lookup"))
+}
+
 it(
   "prepare discovers Docker and keeps its HTTPS-cloned worktree while the default branch moves",
   { timeout: 300_000 },
@@ -611,9 +619,6 @@ it(
                         desiredSha: f.sha,
                         defaultBranch: "main",
                         writeStatus: "read_only" as const,
-                        // The turn runtime mints this read token for a GitHub
-                        // repository. The fixture remote accepts any token.
-                        cloneToken: "fixture-docker-read-token",
                       }
                       workspaceChatInstanceAccess.reset()
                       const first = await warmTanstackWorkspaceChat({
@@ -661,17 +666,48 @@ it(
                       )
                       expect(remoteHeads.exitCode).toBe(0)
                       expect(remoteHeads.stdout).toContain(f.sha)
-                      // The sandbox holds no token: Agent Vault adds it to the
-                      // fetch the session_moved hint gives.
-                      phase = "read credential"
+                      // The sandbox holds no credential: Agent Vault adds each
+                      // one. The OpenCode config sends a placeholder.
+                      phase = "no credential"
                       const leaked = await first.handle.process.exec(
-                        "cat /proc/*/environ 2>/dev/null | tr '\\0' '\\n' | grep -c fixture-docker-read-token; env | grep -c fixture-docker-read-token; git config --list | grep -c fixture-docker-read-token",
+                        "{ cat /proc/*/environ 2>/dev/null | tr '\\0' '\\n'; env; git config --list; } | grep -c -e ghs_ -e x-access-token -e CTXPIPE_OPENCODE_RUN_TOKEN= -e CTXPIPE_CLONE_TOKEN=; printenv CTXPIPE_OPENCODE_JSON | grep -c ctxpipe-firewall",
                       )
                       expect(leaked.stdout.trim().split("\n")).toEqual([
                         "0",
-                        "0",
-                        "0",
+                        "1",
                       ])
+                      phase = "tool bridge turn"
+                      const toolRequestsBefore = f.modelRequests.length
+                      const toolEvents: string[] = []
+                      for await (const chunk of streamTanstackWorkspaceChat({
+                        ...input,
+                        prompt: "Use the tool",
+                        runId: `${f.conversationId}-docker-chat-tool`,
+                        messages: [
+                          ...(await persistence.stores.messages.loadThread(
+                            f.conversationId,
+                          )),
+                          {
+                            id: "user-docker-chat-tool",
+                            role: "user",
+                            content: "Use the tool",
+                          },
+                        ],
+                      }))
+                        toolEvents.push(chunk.type)
+                      expect(toolEvents).toContain("RUN_FINISHED")
+                      const toolTurn = f.modelRequests.slice(toolRequestsBefore)
+                      // OpenCode listed the bridge's tools through Agent Vault
+                      // (the bridge refuses the placeholder token) ...
+                      expect(bridgedTool(toolTurn[0] ?? {})).toBeDefined()
+                      // ... and the call's result came back from the bridge.
+                      expect(
+                        toolTurn.some((request) =>
+                          (request.messages as Array<{ role: string }>).some(
+                            (message) => message.role === "tool",
+                          ),
+                        ),
+                      ).toBe(true)
                       const read = await first.handle.process.exec(
                         `GIT_TERMINAL_PROMPT=0 ${SANDBOX_READ_GIT} ls-remote --heads origin refs/heads/main`,
                       )
@@ -841,7 +877,24 @@ it(
                   })
                 },
                 undefined,
-                { listenHost: "0.0.0.0" },
+                {
+                  listenHost: "0.0.0.0",
+                  // One tool call through the bridge in the tool turn.
+                  toolCall: (request) => {
+                    const messages = request.messages as Array<{
+                      role: string
+                      content?: unknown
+                    }>
+                    const asked = JSON.stringify(messages.at(-1)?.content)
+                    const name = bridgedTool(request)
+                    return asked.includes("Use the tool") && name
+                      ? {
+                          name,
+                          arguments: JSON.stringify({ nodeId: "missing" }),
+                        }
+                      : undefined
+                  },
+                },
               )
             },
           ),

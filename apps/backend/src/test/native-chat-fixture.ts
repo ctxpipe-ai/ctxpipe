@@ -44,7 +44,13 @@ export async function withNativeChatFixture<T>(
     runInHonoContext: <R>(operation: () => Promise<R>) => Promise<R>
   }) => Promise<T>,
   beforeModelResponse?: () => Promise<void>,
-  options: { listenHost?: string } = {},
+  options: {
+    listenHost?: string
+    /** A tool call to answer instead of the text reply (one per request). */
+    toolCall?: (
+      request: Record<string, unknown>,
+    ) => { name: string; arguments: string } | undefined
+  } = {},
 ): Promise<T> {
   if (!process.env.DATABASE_URL)
     throw new Error("DATABASE_URL is required for native chat proof")
@@ -98,6 +104,33 @@ export async function withNativeChatFixture<T>(
         modelRequests.push(request)
         await beforeModelResponse?.()
         const content = "Native reply completed."
+        const toolCall = options.toolCall?.(request)
+        if (toolCall && request.stream) {
+          res.writeHead(200, { "content-type": "text/event-stream" })
+          for (const choice of [
+            {
+              index: 0,
+              delta: {
+                role: "assistant",
+                tool_calls: [
+                  {
+                    index: 0,
+                    id: `call-${modelRequests.length}`,
+                    type: "function",
+                    function: toolCall,
+                  },
+                ],
+              },
+              finish_reason: null,
+            },
+            { index: 0, delta: {}, finish_reason: "tool_calls" },
+          ])
+            res.write(
+              `data: ${JSON.stringify({ id: `completion-${modelRequests.length}`, object: "chat.completion.chunk", created: 1, model: request.model, choices: [choice] })}\n\n`,
+            )
+          res.end("data: [DONE]\n\n")
+          return
+        }
         if (request.stream) {
           res.writeHead(200, { "content-type": "text/event-stream" })
           for (const choice of [

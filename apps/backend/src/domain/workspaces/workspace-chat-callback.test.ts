@@ -53,7 +53,7 @@ describe("sandbox callback host for a remote Docker daemon", () => {
     ).resolves.toBe("[fd00::9]")
   })
 
-  it("names the address on AWS, because Agent Vault rules take host names", async () => {
+  it("names the address when the deploy gives a VPC DNS suffix, because Agent Vault rules take host names", async () => {
     const aws = network({
       hosts: {
         "sandbox-host.ctxpipe.local": { address: "10.0.2.9", family: 4 },
@@ -62,11 +62,15 @@ describe("sandbox callback host for a remote Docker daemon", () => {
     })
     const env = { DOCKER_HOST: "tcp://sandbox-host.ctxpipe.local:2376" }
     await expect(
-      sandboxCallbackHost({ ...env, AWS_REGION: "eu-west-1" }, aws),
+      sandboxCallbackHost(
+        { ...env, SANDBOX_CALLBACK_DNS_SUFFIX: "eu-west-1.compute.internal" },
+        aws,
+      ),
     ).resolves.toBe("ip-10-0-1-23.eu-west-1.compute.internal")
+    // AWS_REGION alone (Bedrock users set it) changes nothing.
     await expect(
-      sandboxCallbackHost({ ...env, AWS_REGION: "us-east-1" }, aws),
-    ).resolves.toBe("ip-10-0-1-23.ec2.internal")
+      sandboxCallbackHost({ ...env, AWS_REGION: "eu-west-1" }, aws),
+    ).resolves.toBe("10.0.1.23")
   })
 
   it("leaves a daemon reached over loopback to the provider's local defaults", async () => {
