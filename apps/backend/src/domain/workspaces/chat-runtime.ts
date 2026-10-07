@@ -96,7 +96,13 @@ export const COMMIT_IDENTITY = {
  * builds on, so commits no remote-tracking ref covers are the unpushed ones.
  */
 export const WORKSPACE_CHAT_THREAD_SETUP = [
-  `(git rev-parse --git-dir >/dev/null 2>&1 || { echo "Workspace clone failed: $CTXPIPE_CLONE_URL" >&2; exit 1; }
+  `(git rev-parse --git-dir >/dev/null 2>&1 || {
+  # The stock clone does not report its failure: ask the remote again, so the
+  # setup error (which shows stdout) says why. Git's output names no credential.
+  echo "Workspace clone failed: $CTXPIPE_CLONE_URL"
+  git ls-remote --heads -- "$CTXPIPE_CLONE_URL" 2>&1 | tail -n 5
+  exit 1
+}
 # The stock clone is shallow; fetch the desired commit when the tip has moved on.
 git cat-file -e "$CTXPIPE_CLONE_SHA^{commit}" 2>/dev/null ||
   ${SANDBOX_READ_GIT} fetch --depth 1 origin "$CTXPIPE_CLONE_SHA" || exit 1
