@@ -234,21 +234,13 @@ describe("createBetterAuth", () => {
   it("requires email verification when mail can be sent, except on PR previews", () => {
     vi.stubEnv("SMTP_CONNECTION_URL", "smtp://mail.example.com:587")
     vi.stubEnv("EMAIL_FROM_ADDRESS", "noreply@example.com")
-    const production = createAuth().options
-    expect(production.emailAndPassword).toMatchObject({
+    expect(createAuth().options.emailAndPassword).toMatchObject({
       requireEmailVerification: true,
-      autoSignIn: false,
-    })
-    expect(production.emailVerification).toMatchObject({
-      sendOnSignUp: true,
-      sendOnSignIn: true,
-      autoSignInAfterVerification: true,
     })
 
     vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", "pr-361")
     expect(createAuth().options.emailAndPassword).toMatchObject({
       requireEmailVerification: false,
-      autoSignIn: true,
     })
   })
 
@@ -257,7 +249,6 @@ describe("createBetterAuth", () => {
     vi.stubEnv("EMAIL_FROM_ADDRESS", "")
     expect(createAuth().options.emailAndPassword).toMatchObject({
       requireEmailVerification: false,
-      autoSignIn: true,
     })
   })
 

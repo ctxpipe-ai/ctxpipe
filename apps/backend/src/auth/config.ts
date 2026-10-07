@@ -21,10 +21,11 @@ import {
 } from "better-auth/plugins/organization/access"
 import { eq } from "drizzle-orm"
 import { parseEnv } from "../config/env.js"
-import { type Db, initDb } from "../db/client.js"
+import { type Db, initDb, isRailwayPrPreview } from "../db/client.js"
 import { members, users } from "../db/schema/auth.js"
 import { schema } from "../db/schema.js"
 import { generateObjectId } from "../lib/id.js"
+import { log } from "../observability/logger.js"
 import { invitationEmailLink } from "./invitation-email-url.js"
 import {
   getOAuthConsentOrganizationId,
@@ -32,7 +33,6 @@ import {
   resolveOAuthConsentReferenceId,
   selectOAuthOrganizationBinding,
 } from "./oauth-organization.js"
-import { resolveEmailVerificationUrl } from "./verification-email-url.js"
 
 export type BetterAuthInstance = ReturnType<typeof createBetterAuth>
 export type AuthUser = BetterAuthInstance["$Infer"]["Session"]["user"]
@@ -129,22 +129,16 @@ export function createBetterAuth() {
   // Email/password accounts verify their address before signing in. Not on
   // PR previews (throwaway test accounts), and not without SMTP, where mail
   // is only logged and nobody could verify.
-  const requireEmailVerification =
-    Boolean(env.SMTP_CONNECTION_URL && env.EMAIL_FROM_ADDRESS) &&
-    !process.env.RAILWAY_ENVIRONMENT_NAME?.trim().startsWith("pr-")
-  const sendVerificationLink = async (email: string, url: string) => {
-    const [{ sendEmail }, { VerifyEmail }] = await Promise.all([
-      import("../email/index.js"),
-      import("../email/templates/verify-email.js"),
-    ])
-    await sendEmail(
-      email,
-      "Verify your email address",
-      VerifyEmail({
-        url: resolveEmailVerificationUrl(env.AUTH_BASE_URL, url),
-        userEmail: email,
-      }),
-    )
+  const smtpConfigured = Boolean(
+    env.SMTP_CONNECTION_URL && env.EMAIL_FROM_ADDRESS,
+  )
+  const requireEmailVerification = smtpConfigured && !isRailwayPrPreview()
+  if (!smtpConfigured && !isRailwayPrPreview()) {
+    log.warn({
+      step: "auth.email_verification",
+      message:
+        "Email verification is off: SMTP_CONNECTION_URL or EMAIL_FROM_ADDRESS is not set",
+    })
   }
 
   return betterAuth({
@@ -184,18 +178,26 @@ export function createBetterAuth() {
       },
     },
     emailVerification: {
-      sendOnSignUp: requireEmailVerification,
       // An unverified account that signs in gets a fresh link instead of a
       // dead end; existing accounts verify this way on their next sign-in.
       sendOnSignIn: true,
       autoSignInAfterVerification: true,
-      sendVerificationEmail: ({ user, url }) =>
-        sendVerificationLink(user.email, url),
+      sendVerificationEmail: async ({ user, url }) => {
+        const [{ sendEmail }, { VerifyEmail }] = await Promise.all([
+          import("../email/index.js"),
+          import("../email/templates/verify-email.js"),
+        ])
+        await sendEmail(
+          user.email,
+          "Verify your email address",
+          VerifyEmail({ url, userEmail: user.email }),
+        )
+      },
     },
     emailAndPassword: {
       enabled: true,
+      // Better Auth then sends the link at sign-up and starts no session.
       requireEmailVerification,
-      autoSignIn: !requireEmailVerification,
       // With verification on, signing up with a taken address answers as if
       // it were new (no account enumeration), so the address's owner gets
       // the email instead: a pointer to sign in or reset the password. Never

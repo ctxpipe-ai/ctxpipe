@@ -131,6 +131,38 @@ describeWithDatabase("email verification (Postgres)", () => {
     await new Promise((resolve) => smtp.close(resolve))
   })
 
+  it("signs up without a session and emails a link that verifies and signs in", async () => {
+    const email = newEmail()
+
+    const signedUp = await signUp(email, "password-1234", `${base}/onboarding`)
+
+    expect(await signedUp.json()).toMatchObject({ token: null })
+    const link = /href="([^"]*\/verify-email\?[^"]+)"/.exec(
+      mailsTo(email)[0]?.body ?? "",
+    )?.[1]
+    expect(link).toMatch(`${base}/.auth/api/v1/auth/verify-email?token=`)
+    const verified = await getAuth().handler(new Request(link as string))
+    expect(verified.headers.get("location")).toBe(`${base}/onboarding`)
+    expect(verified.headers.getSetCookie().join()).toContain("session_token")
+  })
+
+  it("refuses an unverified sign-in and emails a fresh link", async () => {
+    const email = newEmail()
+    await signUp(email, "password-1234")
+
+    const signIn = await post("/sign-in/email", {
+      email,
+      password: "password-1234",
+    })
+
+    expect(signIn.status).toBe(403)
+    expect(await signIn.json()).toMatchObject({ code: "EMAIL_NOT_VERIFIED" })
+    expect(mailsTo(email).map((mail) => mail.subject)).toEqual([
+      "Verify your email address",
+      "Verify your email address",
+    ])
+  })
+
   it("answers a sign-up with an unverified account's address with the account-exists email, not a link into that account", async () => {
     const email = newEmail()
 
