@@ -235,6 +235,50 @@ describe("conversation sandbox files", { timeout: 15_000 }, () => {
     )
   })
 
+  it("keeps a committed deletion listed until the base branch has it", async () => {
+    await withWorktree(
+      (directory) => {
+        writeFileSync(join(directory, "AGENTS.md"), "# Agents\n")
+        writeFileSync(join(directory, "knowledge.md"), "K\n")
+        writeFileSync(join(directory, "restored.md"), "R\n")
+      },
+      async ({ directory, handle, git }) => {
+        const remote = mkdtempSync(
+          join(tmpdir(), "ctxpipe-conversation-remote-"),
+        )
+        try {
+          execFileSync("git", ["init", "-q", "--bare", remote])
+          git("remote", "add", "origin", remote)
+          git("checkout", "-q", "-b", "ctxpipe/session")
+          git("rm", "-q", "knowledge.md", "restored.md")
+          git("commit", "-q", "-m", "Remove notes")
+          writeFileSync(join(directory, "restored.md"), "R again\n")
+          const status = () =>
+            conversationSandboxStatus({
+              handle,
+              defaultBranch: "main",
+              sessionBranch: "ctxpipe/session",
+            })
+          const deleted = async () =>
+            (await status()).items
+              .filter((item) => item.status === "deleted")
+              .map((item) => item.path)
+
+          expect(await deleted()).toEqual(["knowledge.md"])
+
+          git("push", "-q", "origin", "ctxpipe/session")
+          expect((await status()).published).toBe(true)
+          expect(await deleted()).toEqual(["knowledge.md"])
+
+          git("branch", "-f", "main", "ctxpipe/session")
+          expect(await deleted()).toEqual([])
+        } finally {
+          rmSync(remote, { recursive: true, force: true })
+        }
+      },
+    )
+  })
+
   it("reads a worktree version from native git without staging", async () => {
     await withWorktree(
       (directory) => {
