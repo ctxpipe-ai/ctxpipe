@@ -343,14 +343,15 @@ describe("ingestion validator queries (Postgres)", () => {
       "repository-ingestion-orchestrator",
       ingestionInput("val_follow"),
     )
-    expect(
-      await findAttributedIngestions({
-        orgId,
-        namespaceId,
-        repositoryId,
-        requestId: "val_follow",
-      }),
-    ).toEqual([own.id, followUp.id])
+    // Runs created in one burst can share created_at; the order is not part
+    // of the contract.
+    const attributed = await findAttributedIngestions({
+      orgId,
+      namespaceId,
+      repositoryId,
+      requestId: "val_follow",
+    })
+    expect([...attributed].sort()).toEqual([own.id, followUp.id].sort())
 
     const repository = await withOrgDbContext(orgId, async (db) => {
       const [row] = await db

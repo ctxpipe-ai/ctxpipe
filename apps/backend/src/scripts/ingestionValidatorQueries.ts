@@ -191,7 +191,7 @@ export async function findAttributedIngestions(input: {
         and input->>'orgId' = ${input.orgId}
         and input->>'repositoryId' = ${input.repositoryId}
         and input->'telemetry'->>'request.id' = ${input.requestId}
-      order by created_at
+      order by created_at, id
     `)
     return result.rows.map((row) => row.id)
   })
