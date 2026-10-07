@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { expect, fn, userEvent, within } from "storybook/test"
+import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
@@ -92,11 +92,11 @@ export const DirtyCommitPush: Story = {
     expect(sync).toBeVisible()
     expect(sync).toHaveTextContent("Sync")
     await userEvent.hover(sync)
-    expect(
-      await within(canvasElement.ownerDocument.body).findByText(
-        "Commit and push your changes to the conversation branch",
-      ),
-    ).toBeVisible()
+    const tooltip = await within(canvasElement.ownerDocument.body).findByText(
+      "Commit and push your changes to the conversation branch",
+    )
+    // The tooltip fades in, so wait for it to become visible.
+    await waitFor(() => expect(tooltip).toBeVisible())
     expect(canvas.getByRole("button", { name: "Create PR" })).toBeVisible()
   },
 }

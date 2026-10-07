@@ -679,8 +679,9 @@ export const ConversationCommittedCreatePr: Story = {
     await waitFor(() => {
       expect(canvas.getByRole("button", { name: "Create PR" })).toBeVisible()
     })
+    // At a wide viewport the conversation header has Sync, so the pane hides its copy.
     expect(
-      canvas.queryByRole("button", { name: /^Sync/, hidden: true }),
+      canvas.queryByRole("button", { name: /^Sync/ }),
     ).not.toBeInTheDocument()
   },
 }
