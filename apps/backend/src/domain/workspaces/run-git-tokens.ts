@@ -19,6 +19,7 @@ import { withSandboxLockIfFree } from "./sandbox-lock-store.js"
  */
 const WINDOW_MS = 50 * 60_000
 const TOKEN_LIFETIME_MS = 60 * 60_000
+const SWEEP_MIN_AGE_MS = 2 * 60_000
 
 type RunTokenOptions = {
   orgId: string
@@ -66,12 +67,17 @@ export async function recordedRunGitToken(
 
 /**
  * Revoke the conversation's run tokens, or only those whose labels start
- * with one of `prefixes` (one turn's tokens). A record is removed only after
+ * with one of `prefixes` (one turn's tokens). `minAgeMs` leaves younger
+ * tokens (counted as left). A record is removed only after
  * GitHub confirms, so the sweep retries a failed revoke. Never throws: the
  * count of tokens left is returned.
  */
 export async function revokeRunGitTokens(
-  input: RunTokenOptions & { conversationId: string; prefixes?: string[] },
+  input: RunTokenOptions & {
+    conversationId: string
+    prefixes?: string[]
+    minAgeMs?: number
+  },
 ): Promise<number> {
   const store = storeFor(input)
   const base = `run:${input.conversationId}:`
@@ -83,6 +89,10 @@ export async function revokeRunGitTokens(
       )
     ).flat()
     for (const row of rows) {
+      if (Date.now() - row.mintedAt.getTime() < (input.minAgeMs ?? 0)) {
+        left += 1
+        continue
+      }
       try {
         if (Date.now() - row.mintedAt.getTime() < TOKEN_LIFETIME_MS)
           await (input.revoke ?? revokeGithubToken)(row.token)
@@ -108,9 +118,10 @@ export async function revokeRunGitTokens(
 }
 
 /**
- * The sweep's backstop: revoke the run tokens of every conversation that no
- * turn or file read holds. Returns true when a token is left for a later
- * sweep (a failed revoke or a held conversation).
+ * The sweep's backstop: revoke the run tokens, older than 2 minutes, of
+ * every conversation that no turn or file read holds. Returns true when a
+ * token is left for a later sweep (a failed revoke, a young token, or a held
+ * conversation).
  */
 export async function revokeIdleRunGitTokens(
   input: RunTokenOptions,
@@ -124,7 +135,15 @@ export async function revokeIdleRunGitTokens(
     const outcome = await withSandboxLockIfFree(
       input.orgId,
       `chat-thread:${conversationId}`,
-      () => revokeRunGitTokens({ ...input, store, conversationId }),
+      // A turn mints its clone token before it takes the lock; a young
+      // token may belong to a turn that is about to start.
+      () =>
+        revokeRunGitTokens({
+          ...input,
+          store,
+          conversationId,
+          minAgeMs: SWEEP_MIN_AGE_MS,
+        }),
     )
     if (outcome.busy || outcome.value > 0) pending = true
   }

@@ -4,7 +4,7 @@ import { config } from "dotenv"
 import { eq } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
-import { afterAll, beforeAll, beforeEach, expect, it } from "vitest"
+import { afterAll, beforeAll, beforeEach, expect, it, vi } from "vitest"
 import { parseEnv } from "../../config/env.js"
 import { closeDb, getSystemDb, initDb } from "../../db/client.js"
 import { organizations } from "../../db/schema/auth.js"
@@ -134,16 +134,25 @@ it("revokes only one turn's tokens, keeps a token whose revoke failed, and the s
     (await store.list(`run:${conversationId}:`)).map((row) => row.token),
   ).toEqual(["ghs_clone_other"])
 
-  // The sweep leaves a conversation that a turn holds, then revokes the rest.
+  // The sweep leaves a token younger than 2 minutes: it can belong to a turn
+  // that minted it and waits for the conversation lock.
   revoked.length = 0
-  await postgresSandboxLocks(orgId).withLock(
-    `chat-thread:${conversationId}`,
-    async () => {
-      expect(await revokeIdleRunGitTokens({ orgId })).toBe(true)
-    },
-  )
+  expect(await revokeIdleRunGitTokens({ orgId })).toBe(true)
   expect(revoked).toEqual([])
-  expect(await revokeIdleRunGitTokens({ orgId })).toBe(false)
-  expect(revoked).toEqual(["token ghs_clone_other"])
+  vi.useFakeTimers({ toFake: ["Date"], now: Date.now() + 3 * 60_000 })
+  try {
+    // It also leaves a conversation that a turn holds, then revokes the rest.
+    await postgresSandboxLocks(orgId).withLock(
+      `chat-thread:${conversationId}`,
+      async () => {
+        expect(await revokeIdleRunGitTokens({ orgId })).toBe(true)
+      },
+    )
+    expect(revoked).toEqual([])
+    expect(await revokeIdleRunGitTokens({ orgId })).toBe(false)
+    expect(revoked).toEqual(["token ghs_clone_other"])
+  } finally {
+    vi.useRealTimers()
+  }
   expect(await store.list(`run:${conversationId}:`)).toEqual([])
 })
