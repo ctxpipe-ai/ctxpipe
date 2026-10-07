@@ -23,6 +23,7 @@
   ],
   "chat engine": [
     "src/domain/workspaces/workspace-chat-native.contract.test.ts",
+    "src/routes/v1/conversation-websocket-native.contract.test.ts",
     "src/routes/v1/conversation-files-routes.live.test.ts",
     "src/routes/v1/conversation-publish-native.contract.test.ts",
     "src/domain/workspaces/protected-conversation-native.contract.test.ts"

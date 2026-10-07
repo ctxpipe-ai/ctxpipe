@@ -17,43 +17,12 @@ import {
   openWorkspaceConversation,
   seedWorkspaceConversation,
   seedWorkspaceDetailFromList,
+  takeFirstMessage,
 } from "./start-workspace-conversation-ui"
 import { docsWorkspace } from "./workspace-fixtures"
 
-const hyperdx = vi.hoisted(() => ({ addAction: vi.fn() }))
-// The HyperDX browser SDK sends product analytics to the network.
-vi.mock("@hyperdx/browser", () => ({ default: hyperdx }))
-
 const server = setupServer()
 const conversationId = "conv_0123456789abcdef0123456789abcdef"
-
-function listenForConversationHttp(
-  onCreate: (request: Request) => Promise<Response> | Response,
-) {
-  server.use(
-    http.post(
-      ({ request }) =>
-        /\/api\/v1\/conversations\/?$/.test(
-          new URL(request.url, "http://localhost").pathname,
-        ),
-      ({ request }) => onCreate(request),
-    ),
-    http.get(
-      ({ request }) =>
-        /\/api\/v1\/conversations\/[^/]+$/.test(
-          new URL(request.url, "http://localhost").pathname,
-        ),
-      () => HttpResponse.json({ error: "not found" }, { status: 404 }),
-    ),
-    http.get(
-      ({ request }) =>
-        /\/api\/v1\/workspaces\/[^/]+$/.test(
-          new URL(request.url, "http://localhost").pathname,
-        ),
-      () => HttpResponse.json(docsWorkspace),
-    ),
-  )
-}
 
 describe("newUiConversationId", () => {
   it("returns a conv_ hex id the server will accept", () => {
@@ -62,19 +31,15 @@ describe("newUiConversationId", () => {
 })
 
 describe("seedWorkspaceConversation", () => {
-  it("writes the user bubble and list row before navigate", () => {
+  it("writes an empty transcript and the list row before navigate", () => {
     const queryClient = new QueryClient()
     const detail = seedWorkspaceConversation({
       queryClient,
       orgSlug: "acme",
       workspaceId: "ws_1",
       conversationId,
-      text: "What is hydrate status?",
     })
-    expect(detail.messages[0]?.parts[0]).toMatchObject({
-      type: "text",
-      content: "What is hydrate status?",
-    })
+    expect(detail.messages).toEqual([])
     expect(
       queryClient.getQueryData(
         workspaceKeys.conversation("acme", conversationId, "ws_1"),
@@ -140,50 +105,44 @@ describe("openWorkspaceConversation", () => {
     server.close()
   })
 
-  it("selects nav and navigates before the POST settles", async () => {
+  it("hands the first message to the conversation once and navigates to it", () => {
     const queryClient = new QueryClient()
     const selectNav = vi.fn()
     const navigate = vi.fn().mockResolvedValue(undefined)
-    let releasePost!: () => void
-    const postHeld = new Promise<void>((resolve) => {
-      releasePost = resolve
-    })
-    let createSettled = false
-    listenForConversationHttp(async () => {
-      await postHeld
-      createSettled = true
-      return new HttpResponse(
-        'data: {"type":"RUN_STARTED"}\n\ndata: {"type":"RUN_FINISHED"}\n\n',
-        {
-          status: 200,
-          headers: {
-            "content-type": "text/event-stream",
-            "x-conversation-id": conversationId,
-          },
-        },
-      )
-    })
-    const opened = openWorkspaceConversation({
+    server.use(
+      http.get(/\/api\/v1\/workspaces\/[^/]+$/, () =>
+        HttpResponse.json(docsWorkspace),
+      ),
+    )
+    openWorkspaceConversation({
       queryClient,
       navigate: navigate as never,
       selectNav,
       orgSlug: "acme",
       workspace: { id: "ws_1", slug: "docs" },
       text: "What is hydrate status?",
-      conversationId,
-      idempotencyKey: conversationId,
     })
+    const opened = navigate.mock.calls[0]?.[0]?.params?.conversationId
+    expect(opened).toMatch(/^conv_[a-f0-9]{32}$/)
+    expect(navigate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: "/$orgSlug/ws/$workspaceSlug/$conversationId",
+        params: {
+          orgSlug: "acme",
+          workspaceSlug: "docs",
+          conversationId: opened,
+        },
+      }),
+    )
     expect(selectNav).toHaveBeenCalledWith({
       orgSlug: "acme",
       primary: "workspace",
       workspaceSlug: "docs",
-      conversationId,
+      conversationId: opened,
     })
-    expect(navigate).toHaveBeenCalled()
-    expect(hyperdx.addAction).toHaveBeenCalledWith("advisor_question_sent")
-    expect(createSettled).toBe(false)
-    releasePost()
-    await expect(opened).resolves.toEqual({ conversationId })
-    expect(createSettled).toBe(true)
+    expect(takeFirstMessage(queryClient, "acme", opened)).toBe(
+      "What is hydrate status?",
+    )
+    expect(takeFirstMessage(queryClient, "acme", opened)).toBeUndefined()
   })
 })
