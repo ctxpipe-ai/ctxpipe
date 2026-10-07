@@ -1,8 +1,8 @@
 import { eq } from "drizzle-orm"
 import { getOrgDb } from "../../db/client.js"
+import { withAmbientOrgDb } from "../../db/org-sql.js"
 import { confluenceSpaces } from "../../db/schema/confluenceSpaces.js"
 import { confluenceSyncTargets } from "../../db/schema/confluenceSyncTargets.js"
-import { withAmbientOrgDb } from "../../db/org-sql.js"
 
 /**
  * Repo lost valid config — reset wizard to before scope selection while keeping repo selection when possible.

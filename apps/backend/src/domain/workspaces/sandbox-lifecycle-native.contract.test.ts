@@ -46,11 +46,11 @@ import { workspaceChatPersistence } from "./workspace-chat-persistence.js"
 import { destroySandboxesForWorkspace } from "./workspace-sandbox-cleanup.js"
 
 // Docker sandboxes get credentials only through Agent Vault.
-let stopAgentVault: () => Promise<void> = async () => undefined
+let agentVault: Awaited<ReturnType<typeof startTestAgentVaultEnv>>
 beforeAll(async () => {
-  stopAgentVault = await startTestAgentVaultEnv()
+  agentVault = await startTestAgentVaultEnv()
 }, 120_000)
-afterAll(() => stopAgentVault())
+afterAll(() => agentVault?.stop())
 
 const IMAGE = "alpine:3.22"
 const FIVE_MINUTES = 5 * 60_000

@@ -293,7 +293,7 @@ describe("conversationFirewall", () => {
   it("sets the turn's credentials at turn start and removes them at turn end", async () => {
     const firewall = await attached("sbx-1", "git-1")
     await firewall.openTurn("sbx-1", turn)
-    expect(backendRules(policies.at(-1))).toHaveLength(2)
+    expect(backendRules(policies.at(-1))).toHaveLength(3)
     expect(JSON.stringify(policies.at(-1))).toContain("Bearer git-1")
     // A token rotation during the turn keeps the turn's credentials, also
     // when another chat call (a Files read) starts it.
@@ -301,7 +301,7 @@ describe("conversationFirewall", () => {
       await Sandbox.get({ ...credentials, name: "sbx-1" }),
       "git-2",
     )
-    expect(backendRules(policies.at(-1))).toHaveLength(2)
+    expect(backendRules(policies.at(-1))).toHaveLength(3)
     expect(JSON.stringify(policies.at(-1))).toContain("Bearer git-2")
     await firewall.closeTurn("sbx-1")
     expect(backendRules(policies.at(-1))).toBeUndefined()
@@ -327,7 +327,7 @@ describe("conversationFirewall", () => {
     failure = "applied-then-fail"
     await expect(firewall.openTurn("sbx-3", turn)).rejects.toThrow(/firewall/i)
     // Vercel applied the rules although it answered with an error.
-    expect(backendRules(policies.at(-1))).toHaveLength(2)
+    expect(backendRules(policies.at(-1))).toHaveLength(3)
     failure = "none"
     await firewall.closeTurn("sbx-3")
     expect(backendRules(policies.at(-1))).toBeUndefined()
@@ -371,7 +371,7 @@ describe("conversationFirewall", () => {
     const handle = await provider.resume({ id: "sbx-resume-1" })
     if (!handle) throw new Error("not resumed")
     await firewall.openTurn(handle.id, turn)
-    expect(backendRules(policies.at(-1))).toHaveLength(2)
+    expect(backendRules(policies.at(-1))).toHaveLength(3)
     expect(JSON.stringify(policies.at(-1))).toContain("Bearer git-minted-1")
     await firewall.closeTurn(handle.id)
   })
@@ -385,7 +385,7 @@ describe("conversationFirewall", () => {
     if (!handle) throw new Error("not resumed")
     await expect.poll(rotated).toBe(true)
     await firewall.openTurn(handle.id, turn)
-    expect(backendRules(policies.at(-1))).toHaveLength(2)
+    expect(backendRules(policies.at(-1))).toHaveLength(3)
     expect(JSON.stringify(policies.at(-1))).toContain("Bearer git-minted-1")
     await firewall.closeTurn(handle.id)
   })

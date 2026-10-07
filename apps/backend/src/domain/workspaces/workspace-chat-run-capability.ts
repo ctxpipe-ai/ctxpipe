@@ -17,7 +17,7 @@ const RUN_CAPABILITY_KEY_PREFIX = "chat-thread:"
 
 const RunCapabilityClaimsSchema = z.object({
   version: z.literal(RUN_CAPABILITY_VERSION),
-  purpose: z.enum(["workspace-chat-git", "workspace-chat-model"]),
+  purpose: z.literal("workspace-chat-model"),
   orgId: z.string().min(1),
   orgSlug: z.string().min(1).optional(),
   conversationId: z.string().min(1),

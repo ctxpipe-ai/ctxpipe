@@ -33,7 +33,7 @@ import {
   CHAT_IMAGE,
   dockerChat,
   type Fixture,
-  TOKEN,
+  PROXY_SESSION_PREFIX,
 } from "../../test/docker-workspace-base.js"
 import { withNativeChatFixture } from "../../test/native-chat-fixture.js"
 import { withTestLogger } from "../../test/with-test-logger.js"
@@ -51,11 +51,12 @@ import {
 } from "./workspace-sandbox-cleanup.js"
 
 // Docker sandboxes get credentials only through Agent Vault.
-let stopAgentVault: () => Promise<void> = async () => undefined
+let agentVault: Awaited<ReturnType<typeof startTestAgentVaultEnv>>
 beforeAll(async () => {
-  stopAgentVault = await startTestAgentVaultEnv()
+  agentVault = await startTestAgentVaultEnv()
 }, 120_000)
-afterAll(() => stopAgentVault())
+afterAll(() => agentVault?.stop())
+const GIT_HOST = "git.ctxpipe.test"
 
 /**
  * Workspace bases on real Docker and Postgres (ADR-048, "Fast start"). The
@@ -102,17 +103,14 @@ async function containerExec(
   return { exitCode: ExitCode, output: Buffer.concat(output).toString() }
 }
 
-/** Smart HTTP over `git http-backend`; 401 without the token. */
+/**
+ * Smart HTTP over `git http-backend`, without auth: Agent Vault adds tokens
+ * only for GitHub hosts (agent-vault-native proves that path).
+ */
 const gitServerSource = String.raw`
 import { spawn } from "node:child_process"
 import { createServer } from "node:http"
-const expected = "Basic " + Buffer.from("x-access-token:" + process.env.GIT_TOKEN).toString("base64")
 createServer((request, response) => {
-  if (request.headers.authorization !== expected) {
-    response.writeHead(401, { "WWW-Authenticate": 'Basic realm="fixture"' })
-    response.end()
-    return
-  }
   const url = new URL(request.url ?? "/", "http://fixture")
   const child = spawn("git", ["-c", "safe.directory=*", "http-backend"], {
     env: {
@@ -172,6 +170,7 @@ async function withGitRemote<T>(
 ): Promise<T> {
   const root = await mkdtemp(join(tmpdir(), "ctxpipe-base-remote-"))
   let container: Docker.Container | undefined
+  let network: string | undefined
   try {
     const bare = join(root, "srv", "repo.git")
     await exec("git", ["clone", "--bare", directory, bare])
@@ -186,28 +185,31 @@ async function withGitRemote<T>(
     await writeFile(join(root, "srv", "server.mjs"), gitServerSource)
     const archive = join(root, "srv.tar")
     await exec("tar", ["--no-xattrs", "-C", root, "-cf", archive, "srv"])
+    // Agent Vault rules and dials take host names: the remote has one on a
+    // network that the test Agent Vault joins.
+    network = `ctxpipe-base-git-${randomUUID().slice(0, 8)}`
+    await docker.createNetwork({ Name: network })
     container = await docker.createContainer({
       Image: CHAT_IMAGE,
       User: "0:0",
       Entrypoint: ["node"],
       Cmd: ["/tmp/srv/server.mjs"],
-      Env: [`GIT_TOKEN=${TOKEN}`],
       Labels: { "ai.ctxpipe.purpose": "workspace-base-proof" },
+      HostConfig: { NetworkMode: network },
+      NetworkingConfig: {
+        EndpointsConfig: { [network]: { Aliases: [GIT_HOST] } },
+      },
     })
     await container.putArchive(await readFile(archive), { path: "/tmp" })
     await container.start()
+    await docker.getNetwork(network).connect({ Container: agentVault.name })
     const server = container
-    const ip = (await server.inspect()).NetworkSettings.Networks.bridge
-      ?.IPAddress
-    if (!ip) throw new Error("git remote has no bridge address")
-    const url = `http://${ip}:8080/repo.git`
+    const url = `http://${GIT_HOST}:8080/repo.git`
     const deadline = Date.now() + 15_000
     while (
       (
         await containerExec(server, [
           "git",
-          "-c",
-          `http.extraHeader=Authorization: Basic ${Buffer.from(`x-access-token:${TOKEN}`).toString("base64")}`,
           "ls-remote",
           "http://127.0.0.1:8080/repo.git",
         ])
@@ -259,6 +261,13 @@ async function withGitRemote<T>(
     })
   } finally {
     await container?.remove({ force: true, v: true }).catch(() => undefined)
+    if (network) {
+      const joined = docker.getNetwork(network)
+      await joined
+        .disconnect({ Container: agentVault.name, Force: true })
+        .catch(() => undefined)
+      await joined.remove().catch(() => undefined)
+    }
     await rm(root, { recursive: true, force: true })
   }
 }
@@ -390,10 +399,11 @@ it(
       })
       expect(await chat.build()).toBeNull()
 
-      // The clone used the token; the base holds it nowhere.
+      // The clone went through the build's proxy session; the base holds it
+      // nowhere.
       expect(
         JSON.stringify(await docker.getImage(image).inspect()),
-      ).not.toContain(TOKEN)
+      ).not.toContain(PROXY_SESSION_PREFIX)
       const probe = await docker.createContainer({
         Image: image,
         User: "0:0",
@@ -409,9 +419,9 @@ it(
             "-c",
             'git -C /workspace config --list --show-origin; grep -rIlF -- "$NEEDLE" /workspace /home /root /etc /tmp /var/tmp 2>/dev/null; true',
           ],
-          { env: [`NEEDLE=${TOKEN}`] },
+          { env: [`NEEDLE=${PROXY_SESSION_PREFIX}`] },
         )
-        expect(scan.output).not.toContain(TOKEN)
+        expect(scan.output).not.toContain(PROXY_SESSION_PREFIX)
         expect(scan.output).not.toMatch(/^\/(workspace|home|root|etc|tmp|var)/m)
       } finally {
         await probe.remove({ force: true, v: true })

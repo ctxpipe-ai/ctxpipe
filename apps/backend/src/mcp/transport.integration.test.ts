@@ -63,7 +63,9 @@ describeWithDatabase("MCP OAuth client actor", () => {
   afterAll(async () => {
     if (seed) {
       await withOrgDbContext(seed.orgId, async (db) => {
-        await db.delete(conversations).where(eq(conversations.orgId, seed.orgId))
+        await db
+          .delete(conversations)
+          .where(eq(conversations.orgId, seed.orgId))
         await db.delete(workspaces).where(eq(workspaces.id, workspaceId))
       })
       await cleanupSeededOrg(seed)

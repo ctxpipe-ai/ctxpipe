@@ -179,7 +179,9 @@ describe("browser OTLP proxy headers", () => {
       trust,
     )
     expect(headers.get("origin")).toBe("https://evil.example")
-    expect(headers.get("x-forwarded-host")).toBe("backend-pr-280.up.railway.app")
+    expect(headers.get("x-forwarded-host")).toBe(
+      "backend-pr-280.up.railway.app",
+    )
     expect(headers.get("x-forwarded-proto")).toBe("https")
   })
 })

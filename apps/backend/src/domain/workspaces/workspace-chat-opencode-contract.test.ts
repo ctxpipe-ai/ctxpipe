@@ -234,8 +234,9 @@ describe("workspaceChatOpenCodeContract", () => {
       `${written.homeEnv.HOME}/opencode.json`,
     )
     expect(written.homeEnv.PATH).toBe("/usr/local/bin:/usr/bin:/bin")
+    // Agent Vault adds the model capability: the config holds a placeholder.
     expect(JSON.parse(written.configJson).provider.ctxpipe.options.apiKey).toBe(
-      "{env:CTXPIPE_OPENCODE_RUN_TOKEN}",
+      WORKSPACE_CHAT_FIREWALL_PLACEHOLDER,
     )
   })
 

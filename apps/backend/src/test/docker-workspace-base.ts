@@ -11,6 +11,7 @@ import {
   workspaceSandboxInstances,
   workspaces,
 } from "../db/schema/workspaces.js"
+import { openDockerRunVault } from "../domain/workspaces/docker-run-vault.js"
 import { warmTanstackWorkspaceChat } from "../domain/workspaces/tanstack-workspace-chat.js"
 import {
   dockerWorkspaceBaseBuilder,
@@ -37,8 +38,8 @@ const docker = new Docker({ timeout: 60_000 })
 export const CHAT_IMAGE =
   process.env.CTXPIPE_TEST_CHAT_SANDBOX_IMAGE?.trim() ||
   "ctxpipe-chat-sandbox:opencode-1.18.34"
-/** Stands in for a minted GitHub read token; must never land in a base. */
-export const TOKEN = `ghs_fixture${randomUUID().replaceAll("-", "")}`
+/** The proxy session's prefix; a session must never land in a base. */
+export const PROXY_SESSION_PREFIX = "av_sess_"
 
 export type Fixture = Parameters<Parameters<typeof withNativeChatFixture>[0]>[0]
 
@@ -65,7 +66,6 @@ export function dockerChat(f: Fixture, remoteUrl: string) {
       defaultBranch: "main",
       writeStatus: "read_only",
       prompt: "prepare",
-      cloneToken: TOKEN,
     })
     if (!warmed.ok) throw new Error(`prepare failed: ${warmed.error}`)
     return { handle: warmed.handle, ms: Date.now() - started }
@@ -79,7 +79,24 @@ export function dockerChat(f: Fixture, remoteUrl: string) {
     image: await sandboxAgentImage("docker"),
   })
   const builder = async (): Promise<WorkspaceBaseBuilder> =>
-    dockerWorkspaceBaseBuilder({ chatImage: CHAT_IMAGE, cloneToken: TOKEN })
+    dockerWorkspaceBaseBuilder({
+      chatImage: CHAT_IMAGE,
+      // As production: the builder clones through a run vault.
+      vault: () =>
+        openDockerRunVault({
+          orgId: f.orgId,
+          conversationId: `workspace-base-${f.workspaceId}`,
+          label: `clone:${randomUUID()}`,
+          revision: {
+            workspaceId: f.workspaceId,
+            remote: { url: remoteUrl, connectionId: null },
+            sha: f.sha,
+            generation: 1,
+            defaultBranch: "main",
+            access: "read",
+          },
+        }),
+    })
   const reserve = async (runId = randomUUID()) =>
     reserveWorkspaceBaseBuild({
       orgId: f.orgId,

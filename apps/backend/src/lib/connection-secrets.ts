@@ -1,4 +1,9 @@
-import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from "node:crypto"
+import {
+  createCipheriv,
+  createDecipheriv,
+  randomBytes,
+  scryptSync,
+} from "node:crypto"
 import type { Env } from "../config/env.js"
 
 const PREFIX = "ctxv1:"
@@ -24,10 +29,7 @@ export function encryptConnectionSecret(plaintext: string, env: Env): string {
   const key = decodeKeyMaterial(env)
   const iv = randomBytes(IV_LENGTH)
   const cipher = createCipheriv("aes-256-gcm", key, iv)
-  const enc = Buffer.concat([
-    cipher.update(plaintext, "utf8"),
-    cipher.final(),
-  ])
+  const enc = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()])
   const tag = cipher.getAuthTag()
   const out = Buffer.concat([iv, tag, enc])
   return `${PREFIX}${out.toString("base64url")}`

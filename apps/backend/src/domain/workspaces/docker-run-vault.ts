@@ -8,13 +8,12 @@ import {
   type AgentVaultAccess,
   AgentVaultUnavailableError,
   agentVaultAccess,
-  githubRules,
   openRunVault,
   type RunVault,
-  type RunVaultRule,
 } from "./agent-vault.js"
 import type { WorkspaceRevision } from "./revision.js"
-import { recordedRunGitToken } from "./run-git-tokens.js"
+import { recordedRunGitToken, revokeRunGitTokens } from "./run-git-tokens.js"
+import { githubCredentialRules } from "./sandbox-credential-rules.js"
 
 /** The `owner/name` of an exact HTTPS GitHub repository URL. */
 export function workspaceChatGithubRepository(url: string): string | undefined {
@@ -91,44 +90,63 @@ export const RUN_VAULT_TTL_SECONDS = 2 * 60 * 60
 /**
  * Open the vault of one Docker run (a turn, a prepare, or a Workspace base
  * build). It holds a GitHub read token for the Workspace's read scope,
- * recorded under `label` so the run end (or the sweep) revokes it. Throws
- * {@link AgentVaultUnavailableError} when the deployment has no Agent Vault
- * or it does not answer: Docker sandboxes never get a credential instead.
+ * recorded under `label`. `close` deletes the vault (its proxy session stops
+ * at once) and then revokes that token; the sweep revokes what a crash left.
+ * Throws {@link AgentVaultUnavailableError} when the deployment has no Agent
+ * Vault or it does not answer: Docker sandboxes never get a credential
+ * instead.
  */
 export async function openDockerRunVault(input: {
   orgId: string
   conversationId: string
   label: string
   revision: WorkspaceRevision
+  /** Defaults to the deployment's (`AGENT_VAULT_ADDR`). */
   access?: AgentVaultAccess
-  /** Test fixtures only: rules for a Git server that is not GitHub. */
-  extraRules?: RunVaultRule[]
 }): Promise<RunVault> {
   const access = input.access ?? agentVaultAccess()
   if (!access)
     throw new AgentVaultUnavailableError(
       "Docker chat sandboxes need Agent Vault (AGENT_VAULT_ADDR is not set)",
     )
-  const connectionId = input.revision.remote.connectionId
-  const names = await workspaceGithubReadScope(input.orgId, input.revision)
-  const token =
-    connectionId && names.length > 0
-      ? await recordedRunGitToken({
-          orgId: input.orgId,
-          conversationId: input.conversationId,
-          label: input.label,
-          mint: () =>
-            getWorkspaceGithubReadToken(
-              input.orgId,
-              parseEnv(process.env as Record<string, string | undefined>),
-              { githubConnectionId: connectionId, repoFullNames: names },
-            ),
-        })
-      : undefined
-  return openRunVault({
-    access,
-    runKey: `${input.conversationId}:${input.label}`,
-    ttlSeconds: RUN_VAULT_TTL_SECONDS,
-    rules: [...(token ? githubRules(token) : []), ...(input.extraRules ?? [])],
-  })
+  const revokeToken = () =>
+    revokeRunGitTokens({
+      orgId: input.orgId,
+      conversationId: input.conversationId,
+      prefixes: [`${input.label}:`],
+    })
+  try {
+    const connectionId = input.revision.remote.connectionId
+    const names = await workspaceGithubReadScope(input.orgId, input.revision)
+    const token =
+      connectionId && names.length > 0
+        ? await recordedRunGitToken({
+            orgId: input.orgId,
+            conversationId: input.conversationId,
+            label: input.label,
+            mint: () =>
+              getWorkspaceGithubReadToken(
+                input.orgId,
+                parseEnv(process.env as Record<string, string | undefined>),
+                { githubConnectionId: connectionId, repoFullNames: names },
+              ),
+          })
+        : undefined
+    const vault = await openRunVault({
+      access,
+      runKey: `${input.conversationId}:${input.label}`,
+      ttlSeconds: RUN_VAULT_TTL_SECONDS,
+      rules: token ? githubCredentialRules(token) : [],
+    })
+    return {
+      ...vault,
+      close: async () => {
+        await vault.close()
+        await revokeToken()
+      },
+    }
+  } catch (error) {
+    await revokeToken()
+    throw error
+  }
 }

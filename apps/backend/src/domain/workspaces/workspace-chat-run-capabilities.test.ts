@@ -25,7 +25,7 @@ it("gives an unsandboxed run only the model capability", async () => {
   })
 })
 
-it("keeps a Docker run's model capability in its vault and gives the sandbox a placeholder", async () => {
+it("keeps a Docker run's model capability in its vault and gives the sandbox none", async () => {
   const rules: RunVaultRule[] = []
   const vault = {
     addRules: async (added: RunVaultRule[]) => void rules.push(...added),
@@ -36,21 +36,22 @@ it("keeps a Docker run's model capability in its vault and gives the sandbox a p
     proxyUrl,
     mint,
   )
-  expect(env).toEqual({ CTXPIPE_OPENCODE_RUN_TOKEN: "added-by-proxy" })
-  expect(JSON.stringify(env)).not.toContain("capability-for")
-  const base =
-    "backend.sandbox.ctxpipe.internal:3000/acme/api/v1/workspace-chat/openai/v1"
+  expect(env).toEqual({})
+  const base = "backend.sandbox.ctxpipe.internal:3000"
+  const path = "/acme/api/v1/workspace-chat/openai/v1"
   // Exact paths only: no glob that a `..` segment could pass.
   expect(rules).toEqual([
     {
       name: "model-proxy-chat",
-      host: `${base}/chat/completions`,
-      bearer: "capability-for-workspace-chat-model",
+      host: base,
+      path: `${path}/chat/completions`,
+      authorization: "Bearer capability-for-workspace-chat-model",
     },
     {
       name: "model-proxy-models",
-      host: `${base}/models`,
-      bearer: "capability-for-workspace-chat-model",
+      host: base,
+      path: `${path}/models`,
+      authorization: "Bearer capability-for-workspace-chat-model",
     },
   ])
 })

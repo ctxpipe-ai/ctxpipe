@@ -16,7 +16,8 @@ import {
   timingSafeBearerEqual,
 } from "@tanstack/ai-sandbox"
 import { Hono } from "hono"
-import { type RunVault, SANDBOX_CREDENTIAL_PLACEHOLDER } from "./agent-vault.js"
+import type { RunVault } from "./agent-vault.js"
+import { bearerUrlRule } from "./sandbox-credential-rules.js"
 import { remoteDockerHost } from "./sandbox-provider.js"
 import { WORKSPACE_CHAT_FIREWALL_PLACEHOLDER } from "./workspace-chat-opencode-contract.js"
 
@@ -232,15 +233,10 @@ export function withBridgeTokenInVault(
   return {
     async provision(tools, options) {
       const bridge = await provisioner.provision(tools, options)
-      const url = new URL(bridge.url)
       await vault.addRules([
-        {
-          name: "tool-bridge",
-          host: `${url.host}${url.pathname}`,
-          bearer: bridge.token,
-        },
+        bearerUrlRule("tool-bridge", bridge.url, bridge.token),
       ])
-      return { ...bridge, token: SANDBOX_CREDENTIAL_PLACEHOLDER }
+      return { ...bridge, token: WORKSPACE_CHAT_FIREWALL_PLACEHOLDER }
     },
   }
 }

@@ -59,7 +59,9 @@ import {
 async function syncNotionContent(input: {
   orgId: string
   env: never
-  notionConnection: Parameters<typeof captureNotionContent>[0]["notionConnection"]
+  notionConnection: Parameters<
+    typeof captureNotionContent
+  >[0]["notionConnection"]
   binding: unknown
   scopeFromRepo: Parameters<typeof captureNotionContent>[0]["config"]
 }) {

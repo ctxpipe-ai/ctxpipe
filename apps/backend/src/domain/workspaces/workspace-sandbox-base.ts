@@ -175,13 +175,12 @@ export function startingFromBase(input: {
 function workspaceBaseDefinition(input: {
   provider: RunningSandboxProvider
   revision: WorkspaceRevision
-  cloneToken: string
 }) {
+  // No token: Agent Vault (Docker) or the firewall (Vercel) adds it.
   return defineWorkspace({
     source: gitSource({
       url: originUrlWithoutCredentials(input.revision.remote.url),
       ref: input.revision.defaultBranch,
-      auth: { token: input.cloneToken },
     }),
     setup: [
       ...(input.provider === "docker"
@@ -365,7 +364,6 @@ export async function runWorkspaceBaseBuild(input: {
       workspaceBaseDefinition({
         provider,
         revision,
-        cloneToken: builder.cloneToken,
       }),
     )
     const head = await build.handle.process.exec("git rev-parse HEAD")

@@ -9,10 +9,9 @@ export const orgOnboarding = pgTable.withRLS(
       .primaryKey()
       .references(() => organizations.id, { onDelete: "cascade" }),
     completedAt: timestamp("completed_at"),
-    completedByUserId: text("completed_by_user_id").references(
-      () => users.id,
-      { onDelete: "set null" },
-    ),
+    completedByUserId: text("completed_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (t) => [orgIsolationPolicy(t.organizationId)],

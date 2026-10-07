@@ -62,11 +62,7 @@ describe("retrieval schema", () => {
     expect(
       (parsed.steps[0]?.params as { predicates: string[] } | undefined)
         ?.predicates,
-    ).toEqual([
-      "WRITES_TO",
-      "READS_FROM",
-      "USES_LIBRARY",
-    ])
+    ).toEqual(["WRITES_TO", "READS_FROM", "USES_LIBRARY"])
   })
 
   it("getYamlSchemaForLlm returns non-empty string", () => {

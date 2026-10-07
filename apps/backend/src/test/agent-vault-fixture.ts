@@ -1,5 +1,9 @@
 import { execFile } from "node:child_process"
 import { randomBytes, randomUUID } from "node:crypto"
+import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { type AddressInfo, createServer } from "node:net"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { promisify } from "node:util"
 import type { AgentVaultAccess } from "../domain/workspaces/agent-vault.js"
 
@@ -10,16 +14,23 @@ const docker = async (...args: string[]) =>
 
 /**
  * An upstream on the test network: it echoes the request headers at
- * `/echo/*`, and serves the bare repository `/srv/repo.git` with
+ * `/echo/*` (HTTP) and at every path over HTTPS on 443 (a GitHub API stand-in
+ * for `gh`), and serves the bare repository `/srv/repo.git` with
  * `git http-backend` at `/git/*` when Basic auth is `x-access-token:<GIT_TOKEN>`.
  */
 const UPSTREAM = `
 const http = require("node:http")
+const https = require("node:https")
+const fs = require("node:fs")
 const { spawn } = require("node:child_process")
+const echo = (req, res) => {
+  res.setHeader("content-type", "application/json")
+  res.end(JSON.stringify({ url: req.url, headers: req.headers }))
+}
+https.createServer({ key: fs.readFileSync("/tls/server.key"), cert: fs.readFileSync("/tls/server.crt") }, echo).listen(443, "0.0.0.0")
 http.createServer((req, res) => {
   if (req.url.startsWith("/echo/")) {
-    res.setHeader("content-type", "application/json")
-    res.end(JSON.stringify({ url: req.url, headers: req.headers }))
+    echo(req, res)
     return
   }
   const expected = "Basic " + Buffer.from("x-access-token:" + process.env.GIT_TOKEN).toString("base64")
@@ -68,6 +79,8 @@ export type AgentVaultFixture = {
   /** The upstream's name on the test network (rules take names, not IPs). */
   upstream: string
   gitToken: string
+  /** Agent Vault's container name, which the test network resolves. */
+  agentVaultName: string
   /** Run `script` in a fresh chat-image container on the test network. */
   sandbox: (
     env: Record<string, string>,
@@ -99,6 +112,60 @@ export async function withAgentVault<T>(
   const upstreamName = `ctxpipe-av-upstream-${id}`
   const gitToken = `ghs_${randomBytes(12).toString("hex")}`
   const ownerPassword = randomBytes(16).toString("hex")
+  // The upstream's HTTPS certificate, from a CA only Agent Vault trusts.
+  const tls = await mkdtemp(join(tmpdir(), "ctxpipe-av-tls-"))
+  const openssl = (...args: string[]) =>
+    exec("openssl", args, { timeout: 20_000 })
+  await openssl(
+    "req",
+    "-x509",
+    "-newkey",
+    "rsa:2048",
+    "-nodes",
+    "-days",
+    "1",
+    "-subj",
+    "/CN=ctxpipe-av-test-ca",
+    "-keyout",
+    join(tls, "ca.key"),
+    "-out",
+    join(tls, "ca.crt"),
+  )
+  await openssl(
+    "req",
+    "-newkey",
+    "rsa:2048",
+    "-nodes",
+    "-subj",
+    "/CN=upstream.ctxpipe.test",
+    "-keyout",
+    join(tls, "server.key"),
+    "-out",
+    join(tls, "server.csr"),
+  )
+  await writeFile(
+    join(tls, "server.ext"),
+    "subjectAltName=DNS:upstream.ctxpipe.test\n",
+  )
+  await openssl(
+    "x509",
+    "-req",
+    "-days",
+    "1",
+    "-in",
+    join(tls, "server.csr"),
+    "-CA",
+    join(tls, "ca.crt"),
+    "-CAkey",
+    join(tls, "ca.key"),
+    "-CAcreateserial",
+    "-extfile",
+    join(tls, "server.ext"),
+    "-out",
+    join(tls, "server.crt"),
+  )
+  await chmod(join(tls, "server.key"), 0o644)
+  await chmod(tls, 0o755)
   await docker("network", "create", network)
   try {
     await docker(
@@ -112,6 +179,8 @@ export async function withAgentVault<T>(
       "upstream.ctxpipe.test",
       "--user",
       "0:0",
+      "-v",
+      `${tls}:/tls:ro`,
       "-e",
       `GIT_TOKEN=${gitToken}`,
       "--entrypoint",
@@ -142,7 +211,15 @@ exec node /tmp/upstream.cjs`,
       "-e",
       `AGENT_VAULT_MASTER_PASSWORD=${randomBytes(16).toString("hex")}`,
       "-e",
-      "AGENT_VAULT_RATELIMIT_PROFILE=off",
+      "AGENT_VAULT_RATELIMIT_PROXY_RATE=200",
+      "-e",
+      "AGENT_VAULT_RATELIMIT_PROXY_BURST=2000",
+      "-e",
+      "AGENT_VAULT_RATELIMIT_PROXY_CONCURRENCY=256",
+      "-v",
+      `${join(tls, "ca.crt")}:/extra-ca/ca.crt:ro`,
+      "-e",
+      "SSL_CERT_DIR=/etc/ssl/certs:/extra-ca",
       "-e",
       "AGENT_VAULT_TELEMETRY=false",
       "-e",
@@ -164,16 +241,17 @@ exec node /tmp/upstream.cjs`,
         throw new Error("Agent Vault did not become healthy")
       await new Promise((resolve) => setTimeout(resolve, 250))
     }
-    const proxyAddress = `${await ipOn(vaultName, network)}:14322`
+    const proxyHost = await ipOn(vaultName, network)
     return await fn({
       access: {
         address,
-        proxyAddress,
+        proxyHost,
         ownerPassword: async () => ownerPassword,
       },
       network,
       upstream: "upstream.ctxpipe.test",
       gitToken,
+      agentVaultName: vaultName,
       sandbox: async (env, script) => {
         const args = ["run", "--rm", "--network", network]
         for (const [key, value] of Object.entries(env))
@@ -204,25 +282,38 @@ exec node /tmp/upstream.cjs`,
   } finally {
     await docker("rm", "-f", "-v", vaultName, upstreamName).catch(() => "")
     await docker("network", "rm", network).catch(() => "")
+    await rm(tls, { recursive: true, force: true })
   }
+}
+
+/** The rate limits our deployments set (see docker-compose.yml). */
+export const AGENT_VAULT_RATE_LIMIT_ENV = [
+  "AGENT_VAULT_RATELIMIT_PROXY_RATE=200",
+  "AGENT_VAULT_RATELIMIT_PROXY_BURST=2000",
+  "AGENT_VAULT_RATELIMIT_PROXY_CONCURRENCY=256",
+]
+
+async function freePort(): Promise<number> {
+  const server = createServer()
+  await new Promise<void>((resolve) => server.listen(0, "0.0.0.0", resolve))
+  const { port } = server.address() as AddressInfo
+  await new Promise((resolve) => server.close(resolve))
+  return port
 }
 
 /**
  * A real Agent Vault for chat tests on the local Docker daemon, as host dev
  * runs it: sandboxes reach its proxy at `host.docker.internal`, and it dials
- * the test backend there. It sets what the backend reads; the returned stop
- * restores it. `extraCa` is a CA file the proxy trusts (a test Git server's).
+ * the test backend there. It sets what the backend reads; `stop` restores
+ * it. `extraCa` is a CA file the proxy trusts (a test Git server's). Join a
+ * test network with `docker network connect <network> <name>`.
  */
 export async function startTestAgentVaultEnv(
   options: { extraCa?: string } = {},
-): Promise<() => Promise<void>> {
+): Promise<{ name: string; stop: () => Promise<void> }> {
   const name = `ctxpipe-test-agent-vault-${randomUUID().slice(0, 8)}`
   const ownerPassword = randomBytes(16).toString("hex")
-  const keys = [
-    "AGENT_VAULT_ADDR",
-    "AGENT_VAULT_OWNER_PASSWORD",
-    "AGENT_VAULT_PROXY_ADDR",
-  ]
+  const keys = ["AGENT_VAULT_ADDR", "AGENT_VAULT_OWNER_PASSWORD"]
   const previous = Object.fromEntries(
     keys.map((key) => [key, process.env[key]]),
   )
@@ -234,6 +325,9 @@ export async function startTestAgentVaultEnv(
     await docker("rm", "-f", "-v", name).catch(() => "")
   }
   try {
+    // Agent Vault reports its proxy port, and sandboxes dial that port on
+    // their Docker host: publish it on the same host port.
+    const proxyPort = await freePort()
     await docker(
       "run",
       "-d",
@@ -244,15 +338,15 @@ export async function startTestAgentVaultEnv(
       "-p",
       "127.0.0.1::14321",
       "-p",
-      "14322",
+      `${proxyPort}:${proxyPort}`,
       "-e",
       `AGENT_VAULT_MASTER_PASSWORD=${randomBytes(16).toString("hex")}`,
-      "-e",
-      "AGENT_VAULT_RATELIMIT_PROFILE=off",
+      ...AGENT_VAULT_RATE_LIMIT_ENV.flatMap((entry) => ["-e", entry]),
       "-e",
       "AGENT_VAULT_TELEMETRY=false",
+      // Test only: the Docker host (the test backend) and test networks.
       "-e",
-      "AGENT_VAULT_ALLOW_PRIVATE_RANGES=true",
+      "AGENT_VAULT_NETWORK_ALLOWLIST=172.16.0.0/12,192.168.0.0/16",
       ...(options.extraCa
         ? [
             "-v",
@@ -262,13 +356,19 @@ export async function startTestAgentVaultEnv(
           ]
         : []),
       "infisical/agent-vault:latest",
+      "server",
+      "--host",
+      "0.0.0.0",
+      "--port",
+      "14321",
+      "--mitm-port",
+      String(proxyPort),
     )
-    const published = async (port: string) =>
-      (await docker("port", name, `${port}/tcp`))
-        .split("\n")[0]
-        ?.split(":")
-        .pop()
-    const address = `http://127.0.0.1:${await published("14321")}`
+    const published = (await docker("port", name, "14321/tcp"))
+      .split("\n")[0]
+      ?.split(":")
+      .pop()
+    const address = `http://127.0.0.1:${published}`
     const deadline = Date.now() + 60_000
     while (
       !(await fetch(`${address}/health`)
@@ -281,8 +381,7 @@ export async function startTestAgentVaultEnv(
     }
     process.env.AGENT_VAULT_ADDR = address
     process.env.AGENT_VAULT_OWNER_PASSWORD = ownerPassword
-    process.env.AGENT_VAULT_PROXY_ADDR = `host.docker.internal:${await published("14322")}`
-    return stop
+    return { name, stop }
   } catch (error) {
     await stop()
     throw error
@@ -293,10 +392,10 @@ export async function withTestAgentVaultEnv<T>(
   options: { extraCa?: string },
   fn: () => Promise<T>,
 ): Promise<T> {
-  const stop = await startTestAgentVaultEnv(options)
+  const agentVault = await startTestAgentVaultEnv(options)
   try {
     return await fn()
   } finally {
-    await stop()
+    await agentVault.stop()
   }
 }

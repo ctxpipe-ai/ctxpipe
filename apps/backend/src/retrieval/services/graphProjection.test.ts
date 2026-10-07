@@ -34,6 +34,7 @@ vi.mock("../../platform/graph/client.js", () => ({
   withGraphClient: withGraphClientMock,
 }))
 
+import { withTestLogger } from "../../test/with-test-logger.js"
 import type { ClaimForProjection } from "../schema/claimForProjection.js"
 import {
   deleteObjectsFromGraph,
@@ -44,7 +45,6 @@ import {
   refreshClaimProjections,
   retractClaimsFromGraph,
 } from "./graphProjection.js"
-import { withTestLogger } from "../../test/with-test-logger.js"
 
 function makeClaim(
   overrides: Partial<ClaimForProjection> & Pick<ClaimForProjection, "id">,

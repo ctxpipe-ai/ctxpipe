@@ -48,14 +48,18 @@ vi.mock("./config.js", () => ({
 }))
 
 vi.mock("../db/client.js", () => ({
-    tryGetOrgDb: () => ({}),
-    tryGetOrgDbOrgId: () => "org_test",
-    assertNotInOrgDbContext: () => undefined,
+  tryGetOrgDb: () => ({}),
+  tryGetOrgDbOrgId: () => "org_test",
+  assertNotInOrgDbContext: () => undefined,
 
   getSystemDb: getSystemDbMock,
   withOrgDbContext: withOrgDbContextMock,
 }))
 
+import {
+  contextStorage,
+  withTestRequestLogger,
+} from "../test/hono-test-logger.js"
 import { OAUTH_ORGANIZATION_CLAIM } from "./oauth-organization.js"
 import {
   mcpOAuthProtectedResourceMetadataUrl,
@@ -67,10 +71,6 @@ import {
   withNetworkOrgContext,
   withOrgApiKeyAuth,
 } from "./withAuth.js"
-import {
-  contextStorage,
-  withTestRequestLogger,
-} from "../test/hono-test-logger.js"
 
 function createMockDb(input: {
   orgRows?: Array<{ id: string; slug?: string }>

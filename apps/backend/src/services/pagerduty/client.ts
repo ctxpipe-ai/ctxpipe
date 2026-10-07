@@ -4,15 +4,15 @@ import type {
   PagerdutyOAuthAppCreds,
   PagerdutyRegion,
 } from "../../lib/connection-config.js"
-import {
-  PAGERDUTY_INCIDENT_LOOKBACK_DAYS,
-  PAGERDUTY_MAX_INCIDENTS_PER_SERVICE,
-} from "./limits.js"
 import type {
   PagerdutyAlertForMirror,
   PagerdutyIncidentForMirror,
   PagerdutyNoteForMirror,
 } from "./converter.js"
+import {
+  PAGERDUTY_INCIDENT_LOOKBACK_DAYS,
+  PAGERDUTY_MAX_INCIDENTS_PER_SERVICE,
+} from "./limits.js"
 
 export const PAGERDUTY_OAUTH_SCOPES = [
   "incidents.read",
@@ -471,8 +471,7 @@ function mapIncident(
         : typeof raw.summary === "string"
           ? raw.summary
           : "Incident",
-    htmlUrl:
-      typeof raw.html_url === "string" ? raw.html_url : "",
+    htmlUrl: typeof raw.html_url === "string" ? raw.html_url : "",
     status: typeof raw.status === "string" ? raw.status : "unknown",
     urgency: typeof raw.urgency === "string" ? raw.urgency : null,
     priority: referenceName(raw.priority),
@@ -570,7 +569,10 @@ async function listPagerdutyIncidentAlerts(input: {
   region: PagerdutyRegion
   incidentId: string
 }): Promise<PagerdutyAlertForMirror[]> {
-  const search = new URLSearchParams({ limit: "100", sort_by: "created_at:asc" })
+  const search = new URLSearchParams({
+    limit: "100",
+    sort_by: "created_at:asc",
+  })
   const response = await pagerdutyFetch({
     region: input.region,
     accessToken: input.accessToken,
@@ -654,7 +656,9 @@ export async function createPagerdutyWebhookSubscription(input: {
   const id = body.webhook_subscription?.id
   const secret = body.webhook_subscription?.delivery_method?.secret
   if (!id || !secret) {
-    throw new Error("PagerDuty webhook subscription did not return an id/secret")
+    throw new Error(
+      "PagerDuty webhook subscription did not return an id/secret",
+    )
   }
   return { id, secret }
 }

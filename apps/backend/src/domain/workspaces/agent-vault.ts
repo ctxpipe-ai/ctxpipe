@@ -2,31 +2,30 @@ import { createHash } from "node:crypto"
 import { lookup } from "node:dns/promises"
 import { readFile } from "node:fs/promises"
 import { isIP } from "node:net"
-import { AgentVault, type ServiceInput } from "@infisical/agent-vault-sdk"
+import {
+  AgentVault,
+  buildProxyEnv,
+  type ServiceInput,
+} from "@infisical/agent-vault-sdk"
+import type { SandboxHandle } from "@tanstack/ai-sandbox"
 import { log } from "../../observability/logger.js"
+import type { SandboxCredentialRule } from "./sandbox-credential-rules.js"
 
 /**
  * Agent Vault (Infisical, open source) adds the credentials of Docker
  * sandboxes in flight. A sandbox gets only a proxy session; the vault of its
  * run holds each credential and the rule that adds it. The deployment runs
  * Agent Vault and generates its owner password; the backend registers the
- * owner on first use and logs in after that.
+ * owner while the instance has none, and logs in after that.
  */
 
 /** The owner account of the backend. The address is never sent mail. */
 const OWNER_EMAIL = "backend@agent-vault.ctxpipe.internal"
-const PROXY_PORT = 14322
 const RUN_VAULT_PREFIX = "ctxpipe-run-"
 const REQUEST_TIMEOUT_MS = 10_000
 
 /** Where a sandbox finds the proxy's CA certificate. */
 export const SANDBOX_PROXY_CA_PATH = "/tmp/ctxpipe-proxy-ca.pem"
-
-/**
- * The credential value a sandbox sees. The proxy replaces the whole header,
- * so this text is never a credential.
- */
-export const SANDBOX_CREDENTIAL_PLACEHOLDER = "added-by-proxy"
 
 /** Agent Vault is not configured or does not answer: Docker chat fails closed. */
 export class AgentVaultUnavailableError extends Error {
@@ -40,10 +39,11 @@ export type AgentVaultAccess = {
   /** The API, for example `http://agent-vault:14321`. */
   address: string
   /**
-   * The proxy's `host:port` as sandboxes dial it, when it is not the API's
-   * host on port 14322 (a published port in tests).
+   * The proxy's host as sandboxes dial it, when it is not derived from the
+   * API's host. Tests set it (an address on a test network); deployments do
+   * not. The port is the one Agent Vault reports.
    */
-  proxyAddress?: string
+  proxyHost?: string
   ownerPassword: () => Promise<string>
 }
 
@@ -59,10 +59,8 @@ export function agentVaultAccess(
   if (!address) return undefined
   const value = env.AGENT_VAULT_OWNER_PASSWORD?.trim()
   const file = env.AGENT_VAULT_OWNER_PASSWORD_FILE?.trim()
-  const proxyAddress = env.AGENT_VAULT_PROXY_ADDR?.trim()
   return {
     address: address.replace(/\/$/, ""),
-    ...(proxyAddress ? { proxyAddress } : {}),
     ownerPassword: async () => {
       if (value) return value
       if (!file)
@@ -74,11 +72,7 @@ export function agentVaultAccess(
   }
 }
 
-/** One credential rule: a host pattern (with an optional path glob) and its header. */
-export type RunVaultRule = {
-  name: string
-  host: string
-} & ({ bearer: string } | { basic: { username: string; password: string } })
+export type RunVaultRule = SandboxCredentialRule
 
 export type RunVault = {
   name: string
@@ -124,7 +118,18 @@ async function login(access: AgentVaultAccess): Promise<string> {
     body: credentials,
   })
   if (loggedIn.ok) return ((await loggedIn.json()) as { token: string }).token
-  // A new Agent Vault has no owner: the first account becomes the owner.
+  // Register only while the instance has no owner (the first account becomes
+  // the owner). An instance with an owner that refuses this password stays
+  // closed: the password changed, or another backend owns it.
+  const status = await avFetch(access, "/v1/status")
+  const initialized = status.ok
+    ? ((await status.json()) as { needs_first_user?: boolean })
+        .needs_first_user === false
+    : true
+  if (initialized)
+    throw new AgentVaultUnavailableError(
+      `Agent Vault refused the backend's owner password (${loggedIn.status}); see "Agent Vault owner password" in the self-hosting docs`,
+    )
   const registered = await avFetch(access, "/v1/auth/register", {
     method: "POST",
     body: credentials,
@@ -189,12 +194,8 @@ function unavailable(error: unknown): Error {
  * Agent Vault on this machine (host dev, CI) is the sandbox's Docker host,
  * which every Docker sandbox has in its hosts file.
  */
-async function proxyAddress(access: AgentVaultAccess): Promise<string> {
-  if (access.proxyAddress) return access.proxyAddress
-  return `${await proxyHost(access)}:${PROXY_PORT}`
-}
-
 async function proxyHost(access: AgentVaultAccess): Promise<string> {
+  if (access.proxyHost) return access.proxyHost
   const host = new URL(access.address).hostname.replace(/^\[(.*)\]$/, "$1")
   if (host === "localhost" || host.startsWith("127.") || host === "::1")
     return "host.docker.internal"
@@ -213,29 +214,24 @@ function credentialKey(rule: string, part: string): string {
   return `${rule.replace(/[^a-z0-9]/gi, "_").toUpperCase()}_${part}`
 }
 
+/**
+ * Each rule as an Agent Vault service that sets the whole `Authorization`
+ * header (a path rule matches that exact path). Agent Vault sets the `Host`
+ * header from the target it dials, so a rule cannot send its header to
+ * another site.
+ */
 function servicesFor(rules: RunVaultRule[]): {
   credentials: Record<string, string>
   services: ServiceInput[]
 } {
   const credentials: Record<string, string> = {}
   const services: ServiceInput[] = rules.map((rule) => {
-    if ("bearer" in rule) {
-      const token = credentialKey(rule.name, "TOKEN")
-      credentials[token] = rule.bearer
-      return {
-        name: rule.name,
-        host: rule.host,
-        auth: { type: "bearer", token },
-      }
-    }
-    const username = credentialKey(rule.name, "USER")
-    const password = credentialKey(rule.name, "PASSWORD")
-    credentials[username] = rule.basic.username
-    credentials[password] = rule.basic.password
+    const key = credentialKey(rule.name, "AUTHORIZATION")
+    credentials[key] = rule.authorization
     return {
       name: rule.name,
-      host: rule.host,
-      auth: { type: "basic", username, password },
+      host: `${rule.host}${rule.path ?? ""}`,
+      auth: { type: "custom", headers: { Authorization: `{{ ${key} }}` } },
     }
   })
   return { credentials, services }
@@ -258,7 +254,7 @@ export async function openRunVault(input: {
 }): Promise<RunVault> {
   const { access } = input
   const name = runVaultName(input.runKey)
-  const proxyAt = await proxyAddress(access)
+  const proxyAt = await proxyHost(access)
   const addRules = async (rules: RunVaultRule[]) => {
     if (rules.length === 0) return
     const { credentials, services } = servicesFor(rules)
@@ -287,33 +283,37 @@ export async function openRunVault(input: {
   })
   try {
     await addRules(input.rules)
-    if (!session) throw new AgentVaultUnavailableError("No proxy session")
-    const ca = await avFetch(access, "/v1/mitm/ca.pem")
-    if (!ca.ok)
+    if (!session?.containerConfig)
       throw new AgentVaultUnavailableError(
-        "Agent Vault has no proxy CA (its TLS proxy is off)",
+        "Agent Vault has no TLS proxy (MITM is off)",
       )
-    const caPem = await ca.text()
-    const proxy = `http://${session.token}:${name}@${proxyAt}`
-    const noProxy = "localhost,127.0.0.1"
+    const { containerConfig } = session
+    // The SDK names the proxy by the API's host; sandboxes dial `proxyAt` on
+    // the port Agent Vault reports.
+    const proxy = new URL(containerConfig.env.HTTPS_PROXY)
+    proxy.hostname = proxyAt
+    const proxied = buildProxyEnv(
+      {
+        ...containerConfig,
+        env: {
+          ...containerConfig.env,
+          HTTPS_PROXY: proxy.href.replace(/\/$/, ""),
+          HTTP_PROXY: proxy.href.replace(/\/$/, ""),
+        },
+      },
+      SANDBOX_PROXY_CA_PATH,
+    )
     return {
       name,
-      caPem,
+      caPem: containerConfig.caCertificate,
       addRules,
       close,
       env: {
-        HTTPS_PROXY: proxy,
-        HTTP_PROXY: proxy,
-        https_proxy: proxy,
-        http_proxy: proxy,
-        NO_PROXY: noProxy,
-        no_proxy: noProxy,
-        NODE_USE_ENV_PROXY: "1",
-        SSL_CERT_FILE: SANDBOX_PROXY_CA_PATH,
-        NODE_EXTRA_CA_CERTS: SANDBOX_PROXY_CA_PATH,
-        GIT_SSL_CAINFO: SANDBOX_PROXY_CA_PATH,
-        REQUESTS_CA_BUNDLE: SANDBOX_PROXY_CA_PATH,
-        CURL_CA_BUNDLE: SANDBOX_PROXY_CA_PATH,
+        ...proxied,
+        // curl reads only the lowercase name for `http://` targets.
+        http_proxy: proxied.HTTP_PROXY ?? "",
+        https_proxy: proxied.HTTPS_PROXY ?? "",
+        no_proxy: proxied.NO_PROXY ?? "",
       },
     }
   } catch (error) {
@@ -371,21 +371,17 @@ export async function sweepRunVaults(
   }
 }
 
-/**
- * The run's GitHub rules: Basic `x-access-token` for Git (`github.com`,
- * `codeload.github.com`) and Bearer for the REST API, so `git` and `gh`
- * work with no token in the sandbox.
- */
-export function githubRules(token: string): RunVaultRule[] {
-  const basic = { username: "x-access-token", password: token }
-  return [
-    { name: "github-git", host: "github.com", basic },
-    { name: "github-codeload", host: "codeload.github.com", basic },
-    { name: "github-api", host: "api.github.com", bearer: token },
-  ]
-}
-
 /** The shell command that writes the proxy CA into a sandbox. */
 export function writeProxyCaCommand(caPem: string): string {
   return `mkdir -p "$(dirname ${SANDBOX_PROXY_CA_PATH})" && printf '%s\\n' '${caPem.trim().replace(/'/g, "")}' > ${SANDBOX_PROXY_CA_PATH}`
+}
+
+/** Write the proxy CA into a sandbox (before anything there uses the proxy). */
+export async function writeProxyCa(
+  handle: Pick<SandboxHandle, "process">,
+  caPem: string,
+): Promise<void> {
+  const written = await handle.process.exec(writeProxyCaCommand(caPem))
+  if (written.exitCode !== 0)
+    throw new Error(`Writing the proxy CA failed: ${written.stderr}`)
 }

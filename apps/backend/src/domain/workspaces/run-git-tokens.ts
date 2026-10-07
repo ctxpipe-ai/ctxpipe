@@ -8,9 +8,9 @@ import { revokeGithubToken } from "./clone-credentials.js"
 import { withSandboxLockIfFree } from "./sandbox-lock-store.js"
 
 /**
- * Run tokens: the GitHub read tokens that Docker and local conversations get
- * (the clone token and the tokens of the Git credential route). Each is
- * recorded under `run:<conversation>:<label>:<window>` and revoked when the
+ * Run tokens: the GitHub read tokens of Docker and local runs (a Docker
+ * run's token is in its Agent Vault vault, a local run's clone token is in
+ * its environment). Each is recorded under `run:<conversation>:<label>:<window>` and revoked when the
  * turn ends. The conversation sandbox sweep revokes what a turn end could not.
  *
  * GitHub installation tokens are valid for 60 minutes. A token is used only

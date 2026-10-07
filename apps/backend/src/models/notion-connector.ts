@@ -515,144 +515,149 @@ export async function upsertNotionConnectionFromOAuth(input: {
   const shaped = await orgSql(async () => {
     const db = getOrgDb()
     return db.transaction(async (tx) => {
-    await tx.execute(
-      sql`select pg_advisory_xact_lock(hashtextextended(${`${input.orgId}:${input.botId}`}, 0))`,
-    )
-    const [matched] = await tx
-      .select()
-      .from(connections)
-      .where(
-        and(
-          eq(connections.orgId, input.orgId),
-          eq(connections.type, CONNECTION_TYPE_NOTION),
-          eq(notionConfigBotIdRef(), input.botId),
-        ),
-      )
-      .orderBy(desc(connections.updatedAt))
-      .limit(1)
-    let existing = matched
-    if (existing) {
       await tx.execute(
-        sql`select pg_advisory_xact_lock(hashtextextended(${existing.id}, 0))`,
+        sql`select pg_advisory_xact_lock(hashtextextended(${`${input.orgId}:${input.botId}`}, 0))`,
       )
-      const [latestExisting] = await tx
+      const [matched] = await tx
         .select()
         .from(connections)
         .where(
           and(
-            eq(connections.id, existing.id),
             eq(connections.orgId, input.orgId),
             eq(connections.type, CONNECTION_TYPE_NOTION),
+            eq(notionConfigBotIdRef(), input.botId),
           ),
         )
+        .orderBy(desc(connections.updatedAt))
         .limit(1)
-      existing = latestExisting
-    }
-
-    let targeted: ConnectionRow | undefined
-    if (input.connectionId) {
-      const [targetedRow] = await tx
-        .select()
-        .from(connections)
-        .where(
-          and(
-            eq(connections.id, input.connectionId),
-            eq(connections.orgId, input.orgId),
-            eq(connections.type, CONNECTION_TYPE_NOTION),
-          ),
+      let existing = matched
+      if (existing) {
+        await tx.execute(
+          sql`select pg_advisory_xact_lock(hashtextextended(${existing.id}, 0))`,
         )
-        .limit(1)
-      targeted = targetedRow
-    }
-
-    const targetedStored = targeted
-      ? parseNotionConnectionConfig(targeted.config as Record<string, unknown>)
-      : undefined
-    const unusedDraft =
-      targeted &&
-      existing &&
-      targeted.id !== existing.id &&
-      isTokenlessNotionDraft(targetedStored ?? parseNotionConnectionConfig({}))
-        ? targeted
-        : undefined
-    const writeTarget = unusedDraft ? existing : (targeted ?? existing)
-    const writeStored = writeTarget
-      ? parseNotionConnectionConfig(
-          writeTarget.config as Record<string, unknown>,
-        )
-      : undefined
-    const draftStored = unusedDraft
-      ? parseNotionConnectionConfig(
-          unusedDraft.config as Record<string, unknown>,
-        )
-      : undefined
-
-    const existingShape = writeTarget
-      ? notionConnectionToShape(writeTarget, input.env)
-      : undefined
-    const config = {
-      ...notionShapeToConfig(
-        {
-          accessToken: input.accessToken,
-          refreshToken: input.refreshToken ?? null,
-          botId: input.botId,
-          workspaceId: input.workspaceId ?? null,
-          workspaceName: input.workspaceName ?? null,
-          workspaceIcon: input.workspaceIcon ?? null,
-          ownerUserId: input.ownerUserId,
-          status: "installed",
-          lastEventPayload: existingShape?.lastEventPayload ?? null,
-          // Preserve the sync binding when re-running OAuth for an existing connection.
-          repositoryId: existingShape?.repositoryId ?? null,
-          branch: existingShape?.branch ?? null,
-          enabled: existingShape?.enabled ?? true,
-          setupPhase: existingShape?.setupPhase ?? "draft",
-          pendingConfigPullUrl: existingShape?.pendingConfigPullUrl ?? null,
-          pendingConfigPrCreating:
-            existingShape?.pendingConfigPrCreating ?? false,
-        },
-        input.env,
-      ),
-      oauthClientId: writeStored?.oauthClientId ?? draftStored?.oauthClientId,
-      oauthClientSecretEnc:
-        writeStored?.oauthClientSecretEnc ?? draftStored?.oauthClientSecretEnc,
-      webhookSecretEnc:
-        writeStored?.webhookSecretEnc ?? draftStored?.webhookSecretEnc,
-    }
-
-    if (writeTarget) {
-      const [row] = await tx
-        .update(connections)
-        .set({ config, updatedAt: new Date() })
-        .where(eq(connections.id, writeTarget.id))
-        .returning()
-      if (!row) throw new Error("Failed to update Notion connection")
-      if (unusedDraft) {
-        await tx
-          .delete(connections)
+        const [latestExisting] = await tx
+          .select()
+          .from(connections)
           .where(
             and(
-              eq(connections.id, unusedDraft.id),
+              eq(connections.id, existing.id),
               eq(connections.orgId, input.orgId),
               eq(connections.type, CONNECTION_TYPE_NOTION),
             ),
           )
+          .limit(1)
+        existing = latestExisting
       }
-      return notionConnectionToShape(row, input.env)
-    }
 
-    const [row] = await tx
-      .insert(connections)
-      .values({
-        id: generateObjectId("con"),
-        orgId: input.orgId,
-        type: CONNECTION_TYPE_NOTION,
-        config,
-      })
-      .returning()
-    if (!row) throw new Error("Failed to create Notion connection")
-    return notionConnectionToShape(row, input.env)
-  })
+      let targeted: ConnectionRow | undefined
+      if (input.connectionId) {
+        const [targetedRow] = await tx
+          .select()
+          .from(connections)
+          .where(
+            and(
+              eq(connections.id, input.connectionId),
+              eq(connections.orgId, input.orgId),
+              eq(connections.type, CONNECTION_TYPE_NOTION),
+            ),
+          )
+          .limit(1)
+        targeted = targetedRow
+      }
+
+      const targetedStored = targeted
+        ? parseNotionConnectionConfig(
+            targeted.config as Record<string, unknown>,
+          )
+        : undefined
+      const unusedDraft =
+        targeted &&
+        existing &&
+        targeted.id !== existing.id &&
+        isTokenlessNotionDraft(
+          targetedStored ?? parseNotionConnectionConfig({}),
+        )
+          ? targeted
+          : undefined
+      const writeTarget = unusedDraft ? existing : (targeted ?? existing)
+      const writeStored = writeTarget
+        ? parseNotionConnectionConfig(
+            writeTarget.config as Record<string, unknown>,
+          )
+        : undefined
+      const draftStored = unusedDraft
+        ? parseNotionConnectionConfig(
+            unusedDraft.config as Record<string, unknown>,
+          )
+        : undefined
+
+      const existingShape = writeTarget
+        ? notionConnectionToShape(writeTarget, input.env)
+        : undefined
+      const config = {
+        ...notionShapeToConfig(
+          {
+            accessToken: input.accessToken,
+            refreshToken: input.refreshToken ?? null,
+            botId: input.botId,
+            workspaceId: input.workspaceId ?? null,
+            workspaceName: input.workspaceName ?? null,
+            workspaceIcon: input.workspaceIcon ?? null,
+            ownerUserId: input.ownerUserId,
+            status: "installed",
+            lastEventPayload: existingShape?.lastEventPayload ?? null,
+            // Preserve the sync binding when re-running OAuth for an existing connection.
+            repositoryId: existingShape?.repositoryId ?? null,
+            branch: existingShape?.branch ?? null,
+            enabled: existingShape?.enabled ?? true,
+            setupPhase: existingShape?.setupPhase ?? "draft",
+            pendingConfigPullUrl: existingShape?.pendingConfigPullUrl ?? null,
+            pendingConfigPrCreating:
+              existingShape?.pendingConfigPrCreating ?? false,
+          },
+          input.env,
+        ),
+        oauthClientId: writeStored?.oauthClientId ?? draftStored?.oauthClientId,
+        oauthClientSecretEnc:
+          writeStored?.oauthClientSecretEnc ??
+          draftStored?.oauthClientSecretEnc,
+        webhookSecretEnc:
+          writeStored?.webhookSecretEnc ?? draftStored?.webhookSecretEnc,
+      }
+
+      if (writeTarget) {
+        const [row] = await tx
+          .update(connections)
+          .set({ config, updatedAt: new Date() })
+          .where(eq(connections.id, writeTarget.id))
+          .returning()
+        if (!row) throw new Error("Failed to update Notion connection")
+        if (unusedDraft) {
+          await tx
+            .delete(connections)
+            .where(
+              and(
+                eq(connections.id, unusedDraft.id),
+                eq(connections.orgId, input.orgId),
+                eq(connections.type, CONNECTION_TYPE_NOTION),
+              ),
+            )
+        }
+        return notionConnectionToShape(row, input.env)
+      }
+
+      const [row] = await tx
+        .insert(connections)
+        .values({
+          id: generateObjectId("con"),
+          orgId: input.orgId,
+          type: CONNECTION_TYPE_NOTION,
+          config,
+        })
+        .returning()
+      if (!row) throw new Error("Failed to create Notion connection")
+      return notionConnectionToShape(row, input.env)
+    })
   })
   await orgSql(async () => {
     const db = getOrgDb()

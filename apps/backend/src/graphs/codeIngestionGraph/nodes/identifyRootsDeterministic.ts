@@ -1,10 +1,13 @@
 import {
   fetchFiles,
-  listFiles,
   globFiles,
+  listFiles,
 } from "../../../domain/codeIngestion/codesearchClient.js"
 import type { CodeIngestionState } from "../schemas.js"
-import { expandWorkspaceGlobs, packageRootsFromPaths } from "./identifyRootsGlobExpand.js"
+import {
+  expandWorkspaceGlobs,
+  packageRootsFromPaths,
+} from "./identifyRootsGlobExpand.js"
 import {
   parseCargoWorkspaceMembers,
   parseDenoWorkspace,
@@ -77,7 +80,9 @@ function normalizeOutputRoots(roots: Set<string>): string[] {
   return (withoutRoot.length > 0 ? withoutRoot : ["./"]).sort()
 }
 
-function hasRootPackageMarker(rootEntries: Awaited<ReturnType<typeof listFiles>>): boolean {
+function hasRootPackageMarker(
+  rootEntries: Awaited<ReturnType<typeof listFiles>>,
+): boolean {
   return rootEntries.some(
     (entry) =>
       entry.type === "file" && WORKSPACE_PACKAGE_MARKER_FILES.has(entry.name),
@@ -98,7 +103,9 @@ function parseWorkspaceJsonProjects(content: string): string[] {
         roots.push(value.root)
       }
     }
-    return roots.map((root) => normalizeRoot(root)).filter((root) => root !== "./")
+    return roots
+      .map((root) => normalizeRoot(root))
+      .filter((root) => root !== "./")
   } catch {
     return []
   }
@@ -126,7 +133,9 @@ export async function deterministicDetectRoots(
 ): Promise<DeterministicRootsDetection> {
   const rootEntries = await listFiles(state.repositoryId, state.orgId, "")
   const rootFiles = new Set(
-    rootEntries.filter((entry) => entry.type === "file").map((entry) => entry.path),
+    rootEntries
+      .filter((entry) => entry.type === "file")
+      .map((entry) => entry.path),
   )
   const presentManifests = ROOT_MANIFESTS.filter((manifest) =>
     rootFiles.has(manifest),
@@ -144,17 +153,23 @@ export async function deterministicDetectRoots(
       ? "pnpm-workspace.yml"
       : null
   if (pnpmManifestPath) {
-    const packages = parsePnpmWorkspacePackages(contents[pnpmManifestPath] ?? "")
+    const packages = parsePnpmWorkspacePackages(
+      contents[pnpmManifestPath] ?? "",
+    )
     if (packages.length > 0) {
       workspacePatterns.push(...packages)
       evidence.push(`${pnpmManifestPath}:packages`)
     } else {
-      ambiguityReasons.push(`${pnpmManifestPath} present but no packages parsed`)
+      ambiguityReasons.push(
+        `${pnpmManifestPath} present but no packages parsed`,
+      )
     }
   }
 
   if (rootFiles.has("package.json")) {
-    const workspaces = parsePackageJsonWorkspaces(contents["package.json"] ?? "")
+    const workspaces = parsePackageJsonWorkspaces(
+      contents["package.json"] ?? "",
+    )
     if (workspaces.length > 0) {
       workspacePatterns.push(...workspaces)
       evidence.push("package.json:workspaces")
@@ -187,12 +202,16 @@ export async function deterministicDetectRoots(
       ? "deno.jsonc"
       : null
   if (denoManifestPath) {
-    const workspaceMembers = parseDenoWorkspace(contents[denoManifestPath] ?? "")
+    const workspaceMembers = parseDenoWorkspace(
+      contents[denoManifestPath] ?? "",
+    )
     if (workspaceMembers.length > 0) {
       addMany(roots, workspaceMembers)
       evidence.push(`${denoManifestPath}:workspace`)
     } else {
-      ambiguityReasons.push(`${denoManifestPath} present but no workspace parsed`)
+      ambiguityReasons.push(
+        `${denoManifestPath} present but no workspace parsed`,
+      )
     }
   }
 
@@ -236,7 +255,9 @@ export async function deterministicDetectRoots(
       ? "settings.gradle.kts"
       : null
   if (gradleSettingsPath) {
-    const includes = parseGradleSettingsIncludes(contents[gradleSettingsPath] ?? "")
+    const includes = parseGradleSettingsIncludes(
+      contents[gradleSettingsPath] ?? "",
+    )
     if (includes.length > 0) {
       addMany(roots, includes)
       evidence.push(`${gradleSettingsPath}:include`)

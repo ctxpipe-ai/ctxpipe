@@ -4,6 +4,7 @@ import { VERCEL_CAPS, VercelHandle } from "@tanstack/ai-sandbox-vercel"
 import {
   APIError,
   type NetworkPolicy,
+  type NetworkPolicyRule,
   Sandbox,
   Snapshot,
 } from "@vercel/sandbox"
@@ -15,6 +16,11 @@ import {
   WORKSPACE_CHAT_VERCEL_AGENT_INSTALL,
 } from "./chat-runtime.js"
 import { revokeGithubToken } from "./clone-credentials.js"
+import {
+  bearerUrlRule,
+  githubCredentialRules,
+  modelProxyCredentialRules,
+} from "./sandbox-credential-rules.js"
 import {
   VERCEL_SANDBOX,
   WORKSPACE_CHAT_OPENCODE_CLI,
@@ -153,56 +159,35 @@ export function hostedNetworkPolicy(input: {
   turn?: HostedTurnCredentials
 }): NetworkPolicy {
   const { turn, backendHost } = input
-  return {
-    allow: {
-      ...githubAllowlist(input.gitToken),
-      ...(backendHost && turn
-        ? {
-            [backendHost]: [
-              {
-                match: { path: { exact: turn.bridgePath } },
-                transform: pinned(backendHost, `Bearer ${turn.bridgeToken}`),
-              },
-              {
-                match: {
-                  path: {
-                    regex: `^${escapeRegex(turn.modelProxyPath)}/(?:chat/completions|models)$`,
-                  },
-                },
-                transform: pinned(
-                  backendHost,
-                  `Bearer ${turn.modelCapability}`,
-                ),
-              },
-            ],
-          }
-        : {}),
-      "*": [],
-    },
+  const rules = [
+    ...githubCredentialRules(input.gitToken),
+    ...(backendHost && turn
+      ? [
+          bearerUrlRule(
+            "tool-bridge",
+            `https://${backendHost}${turn.bridgePath}`,
+            turn.bridgeToken,
+          ),
+          ...modelProxyCredentialRules(
+            `https://${backendHost}${turn.modelProxyPath}`,
+            turn.modelCapability,
+          ),
+        ]
+      : []),
+  ]
+  const allow: Record<string, NetworkPolicyRule[]> = {}
+  for (const rule of rules) {
+    const entries = allow[rule.host] ?? []
+    allow[rule.host] = entries
+    entries.push({
+      ...(rule.path ? { match: { path: { exact: rule.path } } } : {}),
+      // Set the credential, and the host it is for.
+      transform: [
+        { headers: { host: rule.host, authorization: rule.authorization } },
+      ],
+    })
   }
-}
-
-/** Set the credential, and the host it is for. */
-function pinned(host: string, authorization: string) {
-  return [{ headers: { host, authorization } }]
-}
-
-function escapeRegex(value: string): string {
-  return value.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&")
-}
-
-/** GitHub hosts, each with the read token added by the firewall. */
-function githubAllowlist(gitToken: string) {
-  const basic = `Basic ${Buffer.from(`x-access-token:${gitToken}`).toString("base64")}`
-  return {
-    "github.com": [{ transform: pinned("github.com", basic) }],
-    "codeload.github.com": [
-      { transform: pinned("codeload.github.com", basic) },
-    ],
-    "api.github.com": [
-      { transform: pinned("api.github.com", `Bearer ${gitToken}`) },
-    ],
-  }
+  return { allow: { ...allow, "*": [] } }
 }
 
 /**

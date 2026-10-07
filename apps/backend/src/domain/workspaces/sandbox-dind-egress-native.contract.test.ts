@@ -24,7 +24,7 @@ it(
       { image: workspaceChatDockerImage() },
       async (fixture) => {
         const name = `ctxpipe-dind-egress-${randomUUID().slice(0, 8)}`
-        const proxy = fixture.access.proxyAddress ?? ""
+        const proxy = `${fixture.access.proxyHost}:14322`
         await docker(
           "run",
           "-d",
@@ -110,23 +110,26 @@ it(
               `{{(index .NetworkSettings.Networks "${fixture.network}").IPAddress}}`,
               `ctxpipe-av-upstream-${fixture.network.split("-").pop()}`,
             )
-            // Through the proxy: the internet and the backend's place.
+            // Through the proxy: the upstream stands in for the internet and
+            // the backend.
             expect(
               await run(
-                `${writeProxyCaCommand(vault.caPem)} && curl -sSf -o /dev/null https://example.com/ && echo ok`,
+                `${writeProxyCaCommand(vault.caPem)} && curl -sSf -o /dev/null http://${fixture.upstream}:8080/echo/x && echo ok`,
               ),
             ).toEqual({ code: 0, out: "ok" })
-            // A connection that ignores the proxy is refused, to the
-            // internet (by address: there is no DNS) and inside the stack.
-            for (const target of [
-              "http://93.184.215.14/",
-              `http://${upstream}:8080/echo/x`,
-            ]) {
-              const direct = await run(
-                `unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY; curl -sS -m 5 -o /dev/null ${target} && echo reached`,
-              )
-              expect(direct.out).not.toBe("reached")
-            }
+            // A connection that ignores the proxy is refused.
+            const direct = await run(
+              `unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY; curl -sS -m 5 -o /dev/null http://${upstream}:8080/echo/x && echo reached`,
+            )
+            expect(direct.out).not.toBe("reached")
+            // The proxy never reaches Agent Vault's own management API.
+            const manage = await run(
+              `${writeProxyCaCommand(vault.caPem)} && curl -sS -o /dev/null -w "%{http_code}" http://${fixture.agentVaultName}:14321/health`,
+            )
+            expect(manage.out).not.toBe("200")
+            // Sandboxes resolve no names. The one public host in this test:
+            // Docker gives sandboxes a public resolver, so that is the path
+            // that must be closed.
             const dns = await run(
               "unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY; nslookup -timeout=3 example.com 8.8.8.8 >/dev/null 2>&1 && echo resolved",
             )

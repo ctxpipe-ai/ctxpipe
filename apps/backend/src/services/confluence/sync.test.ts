@@ -60,7 +60,9 @@ import {
 async function syncConfluenceContent(input: {
   orgId?: string
   env?: unknown
-  forgeInstallation: Parameters<typeof captureConfluenceContent>[0]["forgeInstallation"]
+  forgeInstallation: Parameters<
+    typeof captureConfluenceContent
+  >[0]["forgeInstallation"]
   target?: unknown
   scopeFromRepo?: Parameters<typeof captureConfluenceContent>[0]["config"]
   mode?: Parameters<typeof captureConfluenceContent>[0]["mode"]

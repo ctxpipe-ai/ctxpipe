@@ -96,7 +96,9 @@ describe("identifyPatterns post-processing", () => {
     })
     expect(objects).toHaveLength(1)
     expect(objects[0]?.name).toBe("Repository")
-    expect(objects[0]?.deduplicationKey).toBe("pat:repo_abc:apps/api:Repository")
+    expect(objects[0]?.deduplicationKey).toBe(
+      "pat:repo_abc:apps/api:Repository",
+    )
   })
 
   it("produces correct output shape for objects and claims", () => {

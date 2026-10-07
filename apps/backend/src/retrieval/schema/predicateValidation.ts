@@ -21,9 +21,7 @@ const ALL_VALID_PREDICATES = new Set([
 export function validatePredicate(predicate: string): void {
   if (!ALL_VALID_PREDICATES.has(predicate)) {
     const allowed = [...ALL_VALID_PREDICATES].sort().join(", ")
-    throw new Error(
-      `Invalid predicate "${predicate}". Allowed: ${allowed}`,
-    )
+    throw new Error(`Invalid predicate "${predicate}". Allowed: ${allowed}`)
   }
 }
 

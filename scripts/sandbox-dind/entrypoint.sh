@@ -41,12 +41,34 @@ force_proxy() {
     done
   done
 }
+# IPv6: the proxy has an IPv4 address only, so sandboxes get no IPv6 at all
+# (replies to the backend's connections stay).
+block_ipv6() {
+  ipt=$1
+  "$ipt" -t mangle -N CTXPIPE-SANDBOX 2>/dev/null || "$ipt" -t mangle -F CTXPIPE-SANDBOX || return 1
+  "$ipt" -t mangle -A CTXPIPE-SANDBOX -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN &&
+    "$ipt" -t mangle -A CTXPIPE-SANDBOX -j DROP || return 1
+  for chain in FORWARD INPUT; do
+    for bridge in docker0 br-+; do
+      "$ipt" -t mangle -C "$chain" -i "$bridge" -j CTXPIPE-SANDBOX 2>/dev/null ||
+        "$ipt" -t mangle -I "$chain" -i "$bridge" -j CTXPIPE-SANDBOX || return 1
+    done
+  done
+}
 if [ -n "${CTXPIPE_SANDBOX_PROXY:-}" ]; then
   force_proxy iptables 2>/dev/null ||
     force_proxy /usr/local/sbin/.iptables-legacy/iptables || {
     echo 'ctxpipe: cannot force sandbox traffic through Agent Vault with iptables' >&2
     exit 1
   }
+  # Fails closed: where IPv6 is on and ip6tables does not work, dind stops.
+  if [ "$(cat /proc/sys/net/ipv6/conf/all/disable_ipv6 2>/dev/null || echo 1)" != 1 ]; then
+    block_ipv6 ip6tables 2>/dev/null ||
+      block_ipv6 /usr/local/sbin/.iptables-legacy/ip6tables || {
+      echo 'ctxpipe: cannot block sandbox IPv6 with ip6tables' >&2
+      exit 1
+    }
+  fi
 fi
 
 # All sandboxes share one cgroup (`cgroup-parent` in daemon.json) capped at

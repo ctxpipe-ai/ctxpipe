@@ -6,7 +6,7 @@ import Docker from "dockerode"
 import { assertNotInOrgDbContext } from "../../db/client.js"
 import type { RunningSandboxProvider } from "../../models/workspace-sandboxes.js"
 import { log } from "../../observability/logger.js"
-import { writeProxyCaCommand } from "./agent-vault.js"
+import { writeProxyCa } from "./agent-vault.js"
 import { wrapSandboxHandles } from "./sandbox-process-guards.js"
 
 /** Hosted runs Vercel, self-host runs Docker; unsandboxed is explicit only. */
@@ -97,9 +97,7 @@ export function withProxyCa(
 ): TanstackSandboxProvider {
   if (!caPem) return provider
   return wrapSandboxHandles(provider, async (handle) => {
-    const written = await handle.process.exec(writeProxyCaCommand(caPem))
-    if (written.exitCode !== 0)
-      throw new Error(`Writing the proxy CA failed: ${written.stderr}`)
+    await writeProxyCa(handle, caPem)
     return handle
   })
 }
