@@ -23,20 +23,33 @@ The self-host (Docker) part is a separate ticket (Agent Vault). This ticket chan
 
 ## Resolution
 
-- `hostedNetworkPolicy` (vercel-sandbox-provider.ts) is the one policy builder for conversations and Workspace base builders: GitHub hosts with the read token, the backend host with the turn's path rules (bridge path exact, first; model proxy path prefix), and `"*": []` last.
-- `conversationFirewall` keeps the GitHub token and the turn's rules for one chat call and sends one update at a time. A GitHub token rotation keeps the turn's rules. `openTurn` runs in the permissions setup (lock held, before OpenCode). `closeTurn` runs in the run-token middleware, after the lock release. A failed open fails the turn with "Setting the sandbox firewall for this turn failed"; a failed close is logged.
-- The hosted run environment gets no capability (`workspaceChatRunCapabilities("vercel")` is `{}`). The hosted OpenCode config `apiKey` and the bridge token that OpenCode gets are `WORKSPACE_CHAT_FIREWALL_PLACEHOLDER`. The bridge id and token are set before the run (`publicRouteBridgeProvisioner(publicBaseUrl, bridge)`). Docker and unsandboxed are unchanged.
-- ADR-048 and the Workspace chat docs say that hosted egress is open and that the firewall adds every credential.
+- `hostedNetworkPolicy` (vercel-sandbox-provider.ts) is the one policy builder for conversations and Workspace base builders. It has GitHub hosts with the read token and `"*": []` last. During a turn, it also has the backend host with two rules: the bridge path (exact match) and the two model proxy paths (anchored regular expression). Each rule sets the `Authorization` header and pins the `Host` header.
+- `conversationFirewall` keeps the GitHub token and the turn's rules per sandbox in the process, and it sends one update at a time. A GitHub token rotation from any chat call keeps the turn's rules.
+  - `openTurn` runs in the permissions setup (lock held, before OpenCode). If it fails, the turn fails with "Setting the sandbox firewall for this turn failed".
+  - `closeTurn` runs before the lock release, also after a failed `openTurn`. A failed close is logged.
+- The hosted run environment gets no capability. The hosted OpenCode `apiKey` and the bridge token that OpenCode gets are `WORKSPACE_CHAT_FIREWALL_PLACEHOLDER`. The bridge id and token are set before the run.
+- Each turn gets a new random OpenCode password (`turnAgentPassword`), on Docker and Vercel. The server must hold it, so it is in the sandbox, but it opens nothing after the turn.
+- A hosted agent can read the web: OpenCode `webfetch` is allowed, and the tool policy does not refuse a public host (`openNetwork`). The cloud metadata address stays refused. Web search stays off: it uses OpenCode's own search service.
+- The model proxy and bridge routes do not check for dot segments: Bun resolves `..` and `%2e` before routing (measured), so a route cannot see them. The exact firewall matchers are the check.
+- ADR-048, the Workspaces PRD and the Workspace chat docs say that hosted egress is open and that the firewall adds every credential.
 
-Proof (each failed before the change):
+Proof (each failed before its change):
 
-- `vercel-sandbox-provider.test.ts`: the policy rules, their order and the catch-all; the firewall with msw for the Vercel API (open, rotate during a turn, close; a failed open keeps no turn).
+- `vercel-sandbox-provider.test.ts`: the policy (rules, pinned host, exact paths, dot segments, catch-all last), the firewall with msw for the Vercel API (open, rotation from another call, close, failed open, applied-then-failed open, not attached), and `turnAgentPassword`.
 - `workspace-chat-run-capabilities.test.ts`: the hosted run environment is empty.
-- `workspace-chat-opencode-contract.test.ts`: the hosted OpenCode config has the placeholder key.
-- `workspace-chat-callback.test.ts`: the bridge gives OpenCode the placeholder; the route answers 401 to the placeholder and 200 to the real token, and 401 after the bridge closes.
-- `vercel-sandbox.contract.test.ts` (CI lane only), "hosted turn credentials": an echo host stands in for the backend. The turn's headers are added by path, no credential is in the environment, `/proc`, the Git config or the files, the headers are gone after `closeTurn`, and `https://example.com` answers 200. The agent snapshot and base tests now expect the npm registry to be reachable.
+- `workspace-chat-opencode-contract.test.ts`: the hosted config has the placeholder key and allows `webfetch`.
+- `chat-sandbox-policy.test.ts`: with an open network, a curl to a public host is allowed and the metadata address is refused.
+- `workspace-chat-callback.test.ts`: the bridge gives OpenCode the placeholder. The route answers 401 to the placeholder, 200 to the real token, and 401 after the bridge closes.
+- `docker-agent-port-native.contract.test.ts` (run locally): the next turn's server refuses the earlier turn's password.
+- `vercel-sandbox.contract.test.ts` (CI lane only), "hosted turn credentials": an echo host stands in for the backend. It checks the credentials on exact paths only, the pinned host, no credential inside (environment, `/proc`, Git config, files), no credential after `closeTurn`, and that `https://example.com` answers 200.
 
 ## Open
 
-- The contract lane has no public backend, thus a full turn with a tool call and a 401 from the real backend after turn end are not proven against Vercel. The preview (pr-280) can prove them.
-- `chat-sandbox-policy.ts` still refuses hosts in the agent's command policy (`host_not_allowlisted`) and the OpenCode config denies web tools. The network is open, but those agent rules are not changed by this ticket.
+- Proved on the pr-280 preview, not in CI: a full hosted turn with a tool call, and a 401 from the real backend after the turn ends. Manual check:
+  1. On the preview, open a Workspace chat and send "Use the ctxpipe search tool to find the README, then reply with its first line".
+  2. Make sure that the reply uses the tool and that the turn finishes.
+  3. While the turn runs, ask the agent in a second message to run `env` and `cat /proc/*/environ`. Make sure that no `CTXPIPE_OPENCODE_RUN_TOKEN` and no bridge token are in the output.
+  4. After the turn ends, ask the agent to run `curl -s -o /dev/null -w '%{http_code}' -X POST <preview origin>/<org>/api/v1/workspace-chat/openai/v1/chat/completions`. Make sure that the answer is 401. (That command runs in the next turn, so the result shows that the earlier turn's capability is gone. The current turn's rule adds the current capability, thus send it to the bridge path of the earlier turn instead if the model path answers 200.)
+  5. Ask the agent to fetch `https://example.com` with `webfetch`. Make sure that it works.
+- Known debt: the contract lane uses an in-memory `SandboxGitTokenStore` and depends on httpbin.org as the echo host.
+- Known limit: a GitHub token rotation that another backend process started can remove a running turn's rules.
