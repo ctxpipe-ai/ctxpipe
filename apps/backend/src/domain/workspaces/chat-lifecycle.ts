@@ -1,6 +1,6 @@
 import { chatSandboxAllowsRemotePush } from "./chat-sandbox-policy.js"
 
-/** Lifetime of a chat run token, and how long an unused Workspace base is kept. */
+/** Lifetime of a chat run token. */
 export const CHAT_SESSION_TTL_MS = 30 * 60 * 1000
 /** A conversation sandbox stops (files kept) after this long unused. */
 export const CHAT_SANDBOX_IDLE_STOP_MS = 5 * 60 * 1000
