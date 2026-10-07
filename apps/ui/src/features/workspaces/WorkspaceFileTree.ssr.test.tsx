@@ -29,4 +29,17 @@ describe("WorkspaceFileTree SSR", () => {
     expect(markup).toContain("cached-note.md")
     expect(markup).toContain("Updating…")
   })
+
+  it("lists a deleted file, struck through, in the first HTML", () => {
+    const markup = renderToStaticMarkup(
+      <WorkspaceFileTree
+        paths={["AGENTS.md"]}
+        selectedPath="AGENTS.md"
+        gitStatus={[{ path: "knowledge/gone.md", status: "deleted" }]}
+        writable={false}
+        onSelect={() => {}}
+      />,
+    )
+    expect(markup).toMatch(/<li[^>]*line-through[^>]*>gone\.md<\/li>/)
+  })
 })

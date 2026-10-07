@@ -5,7 +5,7 @@ describe("workspaceTreeEntries", () => {
   it("keeps a deleted file in the tree but not as an openable file", () => {
     const entries = workspaceTreeEntries(
       ["AGENTS.md", "knowledge/a.md"],
-      [{ path: "knowledge/gone.md", status: "deleted" }],
+      ["knowledge/gone.md"],
     )
     expect(entries.paths).toEqual([
       "AGENTS.md",
@@ -20,20 +20,14 @@ describe("workspaceTreeEntries", () => {
   it("keeps a folder whose files were all deleted", () => {
     const entries = workspaceTreeEntries(
       ["AGENTS.md"],
-      [
-        { path: "old/a.md", status: "deleted" },
-        { path: "old/b.md", status: "deleted" },
-      ],
+      ["old/a.md", "old/b.md"],
     )
     expect(entries.paths).toEqual(["AGENTS.md", "old/a.md", "old/b.md"])
     expect(entries.files).toEqual(new Set(["AGENTS.md"]))
   })
 
   it("does not list a path twice when the worktree still lists it", () => {
-    const entries = workspaceTreeEntries(
-      ["AGENTS.md", "gone.md"],
-      [{ path: "gone.md", status: "deleted" }],
-    )
+    const entries = workspaceTreeEntries(["AGENTS.md", "gone.md"], ["gone.md"])
     expect(entries.paths).toEqual(["AGENTS.md", "gone.md"])
     expect(entries.files.has("gone.md")).toBe(false)
   })
@@ -43,16 +37,31 @@ describe("workspaceTreeEntries", () => {
     expect(entries.paths).toEqual(["AGENTS.md"])
     expect(entries.deleted).toEqual([])
   })
+})
 
-  it("ignores added and modified paths", () => {
-    const entries = workspaceTreeEntries(
-      ["AGENTS.md", "new.md"],
-      [
-        { path: "new.md", status: "added" },
-        { path: "AGENTS.md", status: "modified" },
-      ],
-    )
-    expect(entries.paths).toEqual(["AGENTS.md", "new.md"])
-    expect(entries.files).toEqual(new Set(["AGENTS.md", "new.md"]))
+describe("isDeletedRow", () => {
+  const entries = workspaceTreeEntries(
+    ["AGENTS.md", "knowledge/billing.md"],
+    ["knowledge/archive/2023.md", "knowledge/archive/old/2022.md", "gone.md"],
+  )
+
+  it("marks a deleted file", () => {
+    expect(entries.isDeletedRow("gone.md")).toBe(true)
+    expect(entries.isDeletedRow("AGENTS.md")).toBe(false)
+  })
+
+  it("marks a folder when every row under it is deleted", () => {
+    expect(entries.isDeletedRow("knowledge/archive")).toBe(true)
+    expect(entries.isDeletedRow("knowledge/archive/")).toBe(true)
+    expect(entries.isDeletedRow("knowledge/archive/old")).toBe(true)
+  })
+
+  it("does not mark a folder that still has a file", () => {
+    expect(entries.isDeletedRow("knowledge")).toBe(false)
+    expect(entries.isDeletedRow("knowledge/")).toBe(false)
+  })
+
+  it("does not mark an unknown path", () => {
+    expect(entries.isDeletedRow("missing")).toBe(false)
   })
 })

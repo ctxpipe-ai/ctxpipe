@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { type ComponentProps, useState } from "react"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
+import { Button } from "@/components/ui/Button"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { WorkspaceFileTree } from "./WorkspaceFileTree"
@@ -321,13 +322,9 @@ function DeletedFileHarness(props: ComponentProps<typeof WorkspaceFileTree>) {
   const [gitStatus, setGitStatus] = useState(props.gitStatus)
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <button
-        type="button"
-        className="text-xs text-zinc-300"
-        onClick={() => setGitStatus([])}
-      >
-        Publish changes
-      </button>
+      <Button variant="quiet" onPress={() => setGitStatus([])}>
+        Merge into base branch
+      </Button>
       <WorkspaceFileTree {...props} gitStatus={gitStatus} />
     </div>
   )
@@ -335,7 +332,7 @@ function DeletedFileHarness(props: ComponentProps<typeof WorkspaceFileTree>) {
 
 const deletedRowSelector = "button[data-item-path='old-pricing.md']"
 
-export const DeletedFileStaysUntilPublished: Story = {
+export const DeletedFileStaysUntilMerged: Story = {
   tags: ["workspace-golden"],
   args: {
     paths: ["AGENTS.md", "knowledge/billing.md"],
@@ -355,19 +352,31 @@ export const DeletedFileStaysUntilPublished: Story = {
     if (!name) throw new Error("Deleted row has no name")
     const view = canvasElement.ownerDocument.defaultView
     expect(view?.getComputedStyle(name).textDecorationLine).toBe("line-through")
-    expect(
-      canvas.getByText("Deleted, not published yet: old-pricing.md"),
-    ).toBeTruthy()
+
+    const summary = canvas.getByText(
+      "Deleted in this conversation: old-pricing.md",
+    )
+    const host = canvasElement.querySelector("[aria-describedby]")
+    expect(host?.getAttribute("aria-describedby")).toBe(summary.id)
 
     await userEvent.click(row)
     expect(args.onSelect).not.toHaveBeenCalledWith("old-pricing.md")
+    await waitFor(() => {
+      expect(row.getAttribute("aria-selected")).toBe("false")
+      expect(
+        findInShadows(
+          canvasElement,
+          "button[data-item-path='AGENTS.md']",
+        )?.getAttribute("aria-selected"),
+      ).toBe("true")
+    })
 
     await userEvent.click(
-      canvas.getByRole("button", { name: "Publish changes" }),
+      canvas.getByRole("button", { name: "Merge into base branch" }),
     )
     await waitFor(() => {
       expect(findInShadows(canvasElement, deletedRowSelector)).toBeNull()
     })
-    expect(canvas.queryByText(/Deleted, not published yet/)).toBeNull()
+    expect(canvas.queryByText(/Deleted in this conversation/)).toBeNull()
   },
 }

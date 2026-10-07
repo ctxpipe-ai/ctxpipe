@@ -10,7 +10,7 @@ export const requiredStories = [
   "SharedPublishPending",
   "StableRequestBudget",
   "StableFilesRequestBudget",
-  "DeletedFileStaysUntilPublished",
+  "DeletedFileStaysUntilMerged",
 ]
 
 export function isGoldenPlaySuccess(phase) {

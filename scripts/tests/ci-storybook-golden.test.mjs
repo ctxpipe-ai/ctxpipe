@@ -49,7 +49,7 @@ const required = [
   ],
   [
     "apps/ui/src/features/workspaces/WorkspaceFileTree.stories.tsx",
-    "DeletedFileStaysUntilPublished",
+    "DeletedFileStaysUntilMerged",
   ],
   [
     "apps/ui/src/features/workspaces/WorkspaceSurface.stories.tsx",
