@@ -1,4 +1,5 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
+import { RequestError } from "octokit"
 import { reconstructChat } from "@tanstack/ai-persistence"
 import type { AppEnv } from "../../app/env.js"
 import { hasOrgAdminOrOwnerRole } from "../../auth/withAuth.js"
@@ -484,7 +485,7 @@ const publishErrorResponses = {
   400: {
     content: { "application/json": { schema: ErrorResponseSchema } },
     description:
-      "Not publishable: missing_conversation, missing_workspace, read_only, not_github, not_allowed, workspace_required, default_branch (the branch would reach the default), other_branch (the sandbox is on another branch), nothing_committed, no_changes, no_write_access, or a sandbox on an older revision (stale_url, stale_generation, stale_sha, stale_default_branch, stale_connection)",
+      "Not publishable: missing_conversation, missing_workspace, read_only, not_github, not_allowed, workspace_required, default_branch (the branch would reach the default), other_branch (the sandbox is on another branch), nothing_committed, no_changes, no_write_access, or a sandbox on an older revision (stale_url, stale_generation, stale_sha, stale_default_branch, stale_connection); no_pr_access (the GitHub App cannot open pull requests: it needs the Pull requests: Read and write permission)",
   },
   401: {
     content: { "application/json": { schema: ErrorResponseSchema } },
@@ -571,6 +572,7 @@ type PublishErrorCode =
   | "turn_running"
   | "pr_merged"
   | "github_unavailable"
+  | "no_pr_access"
   | "workspace_required"
   | "sandbox_capacity"
   | "sandbox_unavailable"
@@ -771,6 +773,14 @@ async function createConversationPullRequest(input: {
       error instanceof Error ? error : new Error(String(error)),
       { step: "conversation-pull-request" },
     )
+    // GitHub refuses a Pull requests: write credential (422) or the call (403)
+    // when the App or its installation lacks that permission.
+    if (
+      error instanceof RequestError &&
+      (error.status === 403 ||
+        (error.status === 422 && /permission/i.test(error.message)))
+    )
+      return { status: 400, error: "no_pr_access" }
     return { status: 502, error: "github_unavailable" }
   }
 }
@@ -810,7 +820,7 @@ async function pushConversationBranch(input: {
 
 /**
  * The publish routes: find the conversation and its Workspace, then publish
- * while no turn holds the conversation. A turn answers 409 at once.
+ * while no turn holds the conversation. A turn answers 409 after 10 seconds.
  */
 async function publishWhenNoTurnRuns<T>(input: {
   signedIn: boolean
@@ -830,10 +840,13 @@ async function publishWhenNoTurnRuns<T>(input: {
   if (!conversation?.workspaceId) return { status: 404, error: "Not found" }
   const workspace = await getWorkspaceById(conversation.workspaceId)
   if (!workspace) return { status: 404, error: "Not found" }
+  // A Files read or a sandbox warm-up holds the conversation for seconds; a
+  // turn holds it for its whole run.
   const locked = await withSandboxLockIfFree(
     conversation.orgId,
     `chat-thread:${conversation.id}`,
     () => input.publish({ conversation, workspace }),
+    10_000,
   )
   return locked.busy ? { status: 409, error: "turn_running" } : locked.value
 }

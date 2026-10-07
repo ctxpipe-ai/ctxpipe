@@ -10,6 +10,7 @@ import { dockerSandbox } from "@tanstack/ai-sandbox-docker"
 import Docker from "dockerode"
 import { eq } from "drizzle-orm"
 import { initLogger } from "evlog"
+import { HttpResponse, http } from "msw"
 import { expect, it, vi } from "vitest"
 import type { AppEnv } from "../../app/env.js"
 import { withUserIdContext } from "../../auth/context.js"
@@ -414,7 +415,7 @@ it(
       )
       await holding
       const started = Date.now()
-      const busy = [await s.commitPush(), await s.createPr("Notes")]
+      const busy = await Promise.all([s.commitPush(), s.createPr("Notes")])
       release()
       await lock
       for (const response of busy)
@@ -422,9 +423,23 @@ it(
           status: response.status,
           body: await response.json(),
         }).toEqual({ status: 409, body: { error: "turn_running" } })
-      expect(Date.now() - started).toBeLessThan(5_000)
+      expect(Date.now() - started).toBeLessThan(15_000)
+      // A Files read holds the conversation for a moment: the push waits for
+      // it and does not answer turn_running.
+      let reading!: () => void
+      const read = postgresSandboxLocks(f.org.id).withLock(
+        `chat-thread:${s.conversationId}`,
+        async () => {
+          reading()
+          await new Promise((resolve) => setTimeout(resolve, 1_500))
+        },
+      )
+      await new Promise<void>((resolve) => {
+        reading = resolve
+      })
       // Commit+Push: the Files edit is committed, everything is pushed.
       const pushed = await s.commitPush()
+      await read
       expect({ status: pushed.status, body: await pushed.json() }).toEqual({
         status: 200,
         body: {
@@ -491,6 +506,43 @@ it(
       handle = await s.warm()
       expect(await handle.fs.read("two.md")).toBe("# Add note two\n")
       expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(f.sha)
+    })
+  },
+)
+
+it(
+  "answers no_pr_access when the GitHub App cannot open pull requests",
+  { timeout: 180_000 },
+  async () => {
+    await withSession({}, async (f, s) => {
+      const handle = await s.warm()
+      await s.agentCommit(handle, "one.md", "Add note one")
+      expect((await s.commitPush()).status).toBe(200)
+      // GitHub's answer when the installation lacks Pull requests: write.
+      f.server.use(
+        http.post(
+          "https://api.github.com/app/installations/123456789/access_tokens",
+          async ({ request }) => {
+            const body = (await request.clone().json()) as {
+              permissions?: { pull_requests?: string }
+            }
+            if (body.permissions?.pull_requests !== "write") return
+            return HttpResponse.json(
+              {
+                message:
+                  "The permissions requested are not granted to this installation.",
+              },
+              { status: 422 },
+            )
+          },
+        ),
+      )
+      const refused = await s.createPr("Write the notes")
+      expect({
+        status: refused.status,
+        body: await refused.json(),
+      }).toEqual({ status: 400, body: { error: "no_pr_access" } })
+      expect(s.pullRequests).toEqual([])
     })
   },
 )

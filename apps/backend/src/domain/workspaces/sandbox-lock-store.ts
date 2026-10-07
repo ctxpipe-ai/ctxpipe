@@ -30,27 +30,28 @@ export function postgresSandboxLocks(
         scoped.withLock(scopeKey, () => locks.withLock(key, fn)),
     })
   }
-  return postgresLocks(orgId, abortController, onAcquired, true)
+  return postgresLocks(orgId, abortController, onAcquired, Infinity)
 }
 
 class SandboxLockBusy extends Error {}
 
 /**
- * Run `fn` under `key` only if nobody holds it now; otherwise return
- * `{ busy: true }` at once. Cleanup uses this to leave a conversation alone
- * while a turn holds it.
+ * Run `fn` under `key` only if nobody holds it now, or frees it within
+ * `waitMs`; otherwise return `{ busy: true }`. Cleanup uses this to leave a
+ * conversation alone while a turn holds it.
  */
 export async function withSandboxLockIfFree<T>(
   orgId: string,
   key: string,
   fn: (signal: AbortSignal) => Promise<T>,
+  waitMs = 0,
 ): Promise<{ busy: true } | { busy: false; value: T }> {
   try {
     const value = await postgresLocks(
       orgId,
       undefined,
       undefined,
-      false,
+      waitMs,
     ).withLock(key, fn)
     return { busy: false, value }
   } catch (error) {
@@ -63,7 +64,7 @@ function postgresLocks(
   orgId: string,
   abortController: AbortController | undefined,
   onAcquired: SandboxLockAcquired | undefined,
-  wait: boolean,
+  waitMs: number,
 ): LockStore {
   return defineLock({
     async withLock(key, fn) {
@@ -102,7 +103,7 @@ function postgresLocks(
           markSandboxLifecycle("lock-acquired", { key })
           break
         }
-        if (!wait) throw new SandboxLockBusy(key)
+        if (Date.now() - waitStarted >= waitMs) throw new SandboxLockBusy(key)
         await delay(250, undefined, { signal })
       }
       const holdStarted = Date.now()
