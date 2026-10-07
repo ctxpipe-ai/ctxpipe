@@ -332,7 +332,7 @@ at synth.
 | Isolation | Each agent port needs a per-conversation password. Agent ports are reachable inside the VPC, so the host also blocks sandboxes from each other, from the host itself, and from instance metadata. |
 | Limits | All sandbox containers share one systemd slice capped at 85% of host memory. Container logs rotate at 3 × 10 MB. |
 | Chat image | `ghcr.io/ctxpipe-ai/chat-sandbox`, published for arm64 and amd64 with the same release tag as the service images. The backend pulls it through the host's Docker daemon on the first chat after a release, so releases never replace the host. |
-| Backend and worker | Get `SANDBOX_PROVIDER=docker`, `SANDBOX_CHAT_IMAGE`, `DOCKER_HOST=tcp://sandbox-host.ctxpipe.local:2376`, `DOCKER_TLS_VERIFY=1`, and `DOCKER_CERT_PATH`. A short init container in each task writes the client certificates there as files. They also get `AGENT_VAULT_ADDR` and the `AGENT_VAULT_OWNER_PASSWORD` secret. Sandboxes call the backend back at its task's VPC DNS name (`ip-….compute.internal`), so they reach the replica that runs their turn. The VPC must have DNS host names on (the default). |
+| Backend and worker | Get `SANDBOX_PROVIDER=docker`, `SANDBOX_CHAT_IMAGE`, `DOCKER_HOST=tcp://sandbox-host.ctxpipe.local:2376`, `DOCKER_TLS_VERIFY=1`, and `DOCKER_CERT_PATH`. A short init container in each task writes the client certificates there as files. They also get `AGENT_VAULT_ADDR` and the `AGENT_VAULT_OWNER_PASSWORD` secret. Sandboxes call the backend back at its task's VPC DNS name (`ip-….compute.internal`), so they reach the replica that runs their turn. The stack sets `SANDBOX_CALLBACK_DNS_SUFFIX` for this. The VPC must have DNS host names and DNS resolution on; the stack's VPC has both. |
 
 ### Alarms
 

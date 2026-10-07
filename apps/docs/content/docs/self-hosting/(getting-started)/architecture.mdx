@@ -48,16 +48,21 @@ The same policy holds on Docker Compose and AWS:
   configuration. [Agent Vault](https://github.com/Infisical/agent-vault)
   (open source) runs next to the sandboxes and adds each credential to the
   requests that need it.
-- Sandboxes reach the network only through the Agent Vault proxy. HTTP and
+- Sandboxes reach the network only through the Agent Vault proxy. On Compose,
+  rules in the `dind` service enforce this; on AWS, `DOCKER-USER` rules on the
+  sandbox host do. HTTP and
   HTTPS stay open: agents can clone, fetch, push, call the GitHub CLI, install
   packages, and read documentation on the internet. The proxy forwards hosts
   that have no credential rule as they are.
 - All other traffic from a sandbox is blocked: a direct connection that does
   not use the proxy, any non-HTTP protocol (SSH, raw TCP, UDP), and DNS.
   Sandboxes do not resolve names; the proxy resolves them.
-- The proxy can reach private addresses only at the backend. Data stores are
-  never exposed to sandboxes. Compose never publishes Postgres or FalkorDB;
-  AWS admits only the app's security group to them.
+- Private addresses through the proxy: on Compose, only the backend's fixed
+  address on the `sandbox` network. On AWS, only the backend's subnets; the
+  host also rejects traffic from Agent Vault to the host itself. Agent Vault
+  never reaches its own management API. Data stores are never exposed to
+  sandboxes: Compose never publishes Postgres or FalkorDB, and AWS admits only
+  the app's security group to them.
 - Sandboxes cannot reach cloud instance metadata (`169.254.169.254`).
 - Each agent port needs a password, and sandboxes cannot reach each other over
   the Docker bridge.
@@ -67,9 +72,22 @@ The same policy holds on Docker Compose and AWS:
 - If Agent Vault does not answer, Docker chat fails closed with a clear error.
   The backend never gives a sandbox a credential instead.
 
-The deployment generates the Agent Vault passwords. You do not set them:
-Compose writes them to a volume that only Agent Vault, the backend, and the
-worker mount, and the AWS stack keeps them in Secrets Manager.
+The deployment generates the Agent Vault passwords. You do not set them. On
+Compose, the master password is on a volume that only Agent Vault mounts, and
+the owner password is on a volume that only the backend and the worker mount.
+On AWS, the stack keeps both in Secrets Manager; only the host reads the
+master password.
+
+#### Agent Vault owner password
+
+The backend registers the owner password on its first login to an Agent Vault
+with no owner. After that, Agent Vault refuses another password, and Docker
+chat fails closed with an error that names this section. To change the
+password, change it in Agent Vault first (`agent-vault account change-password`,
+or its web UI on port 14321 inside the deployment), then give the backend the
+new value. To start over, remove Agent Vault's data (Compose: the
+`agent_vault_data` volume; AWS: replace the sandbox host). Run vaults are
+temporary, so no data is lost.
 
 Tools in a sandbox must use the standard proxy variables (`HTTPS_PROXY`,
 `HTTP_PROXY`) and trust the proxy's certificate authority. The sandbox
