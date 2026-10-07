@@ -34,7 +34,8 @@ export function AccountExistsEmail({
           <Text style={paragraph}>
             Someone tried to create a <strong>ctx|</strong> account for{" "}
             <strong>{userEmail}</strong>, which already has one. Sign in
-            instead, or reset your password if you have forgotten it.
+            instead. If you have not verified this address yet, we will send
+            you a link when you do.
           </Text>
           <Section style={buttonContainer}>
             <Button href={signInUrl} style={button}>

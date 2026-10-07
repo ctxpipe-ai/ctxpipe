@@ -4,7 +4,7 @@ import { oauthProvider } from "@better-auth/oauth-provider"
 import { passkey } from "@better-auth/passkey"
 import { betterAuth } from "better-auth"
 import { drizzleAdapter } from "better-auth/adapters/drizzle"
-import { APIError, createEmailVerificationToken } from "better-auth/api"
+import { APIError } from "better-auth/api"
 import {
   bearer,
   deviceAuthorization,
@@ -198,25 +198,11 @@ export function createBetterAuth() {
       autoSignIn: !requireEmailVerification,
       // With verification on, signing up with a taken address answers as if
       // it were new (no account enumeration), so the address's owner gets
-      // the email instead: a fresh link if it is still unverified, otherwise
-      // a pointer to sign in or reset the password.
-      onExistingUserSignUp: async ({ user }, request) => {
-        if (!user.emailVerified) {
-          const body = (await request?.json().catch(() => null)) as {
-            callbackURL?: unknown
-          } | null
-          const callbackURL =
-            typeof body?.callbackURL === "string" ? body.callbackURL : "/"
-          const token = await createEmailVerificationToken(
-            env.AUTH_SECRET,
-            user.email,
-          )
-          await sendVerificationLink(
-            user.email,
-            `${env.AUTH_BASE_URL}/.auth/api/v1/auth/verify-email?token=${token}&callbackURL=${encodeURIComponent(callbackURL)}`,
-          )
-          return
-        }
+      // the email instead: a pointer to sign in or reset the password. Never
+      // a verification link, even while the account is unverified: that would
+      // verify whatever password its first registrant set. Signing in sends
+      // the owner a link; resetting the password verifies too.
+      onExistingUserSignUp: async ({ user }) => {
         const [{ sendEmail }, { AccountExistsEmail }] = await Promise.all([
           import("../email/index.js"),
           import("../email/templates/account-exists.js"),
