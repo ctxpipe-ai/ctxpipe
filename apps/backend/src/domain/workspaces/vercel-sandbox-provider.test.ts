@@ -9,6 +9,7 @@ import {
   deleteVercelBuilder,
   hostedNetworkPolicy,
   listTaggedSandboxes,
+  turnAgentPassword,
 } from "./vercel-sandbox-provider.js"
 
 const credentials = { token: "t", teamId: "team_test", projectId: "prj_test" }
@@ -295,5 +296,14 @@ describe("conversationFirewall", () => {
     failUpdates = false
     await firewall.rotateGitToken("git-2")
     expect(backendRules(policies.at(-1))).toEqual([])
+  })
+})
+
+describe("turnAgentPassword", () => {
+  it("gives each turn its own OpenCode password", () => {
+    const first = turnAgentPassword()
+    const second = turnAgentPassword()
+    expect(first).toMatch(/^[0-9a-f]{48}$/)
+    expect(second).not.toBe(first)
   })
 })

@@ -85,10 +85,10 @@ import {
   withSessionOnlyEnv,
 } from "./sandbox-provider.js"
 import {
-  conversationAgentPassword,
   conversationFirewall,
   conversationSandboxTags,
   vercelAgentSnapshot,
+  turnAgentPassword,
   vercelConversationProvider,
 } from "./vercel-sandbox-provider.js"
 import { sandboxAgentImage } from "./workspace-base-providers.js"
@@ -244,7 +244,8 @@ function conversationSandboxDefinition(input: {
 
 export function conversationSandboxProvider(
   isolation: SandboxProviderName,
-  conversationId: string,
+  /** This turn's OpenCode password (`turnAgentPassword`). */
+  agentPassword: string,
   /** Docker: the Workspace base image a new sandbox starts from, if any. */
   baseImage: () => Promise<string | undefined>,
   vercel?: Parameters<typeof vercelConversationProvider>[0],
@@ -272,11 +273,7 @@ export function conversationSandboxProvider(
           baseImage,
         }),
         {
-          // AUTH_SECRET is checked before the provider is built.
-          agentPassword: conversationAgentPassword(
-            process.env.AUTH_SECRET?.trim() ?? "",
-            conversationId,
-          ),
+          agentPassword,
           daemonHost: remoteDockerHost(),
         },
       ),
@@ -979,9 +976,10 @@ async function buildWorkspaceChatSandbox(
       error: "Workspace chat needs a stored desired SHA",
     }
   }
+  const agentPassword = turnAgentPassword()
   const vercel =
     selectedProvider === "vercel"
-      ? await hostedSandboxOptions(input, desiredUrl)
+      ? await hostedSandboxOptions(input, desiredUrl, agentPassword)
       : undefined
   if (vercel && !vercel.ok) return vercel
   const publicBaseUrl = vercel?.ok ? vercel.publicBaseUrl : undefined
@@ -1077,7 +1075,7 @@ async function buildWorkspaceChatSandbox(
   })
   const provider = conversationSandboxProvider(
     selectedProvider,
-    input.conversationId,
+    agentPassword,
     async () => (await base()).ref,
     vercel?.ok
       ? {
@@ -1138,6 +1136,7 @@ async function buildWorkspaceChatSandbox(
 async function hostedSandboxOptions(
   input: TanstackWorkspaceChatInput,
   desiredUrl: string,
+  agentPassword: string,
 ): Promise<
   | {
       ok: true
@@ -1156,23 +1155,13 @@ async function hostedSandboxOptions(
     desiredUrl,
   })
   if (!hosted.ok) return hosted
-  const authSecret = process.env.AUTH_SECRET?.trim() ?? ""
-  if (authSecret.length < 32)
-    return {
-      ok: false,
-      status: 503,
-      error: "Workspace chat needs AUTH_SECRET",
-    }
   return {
     ok: true,
     publicBaseUrl: hosted.publicBaseUrl,
     environment: hosted.environment,
     options: {
       credentials: hosted.credentials,
-      agentPassword: conversationAgentPassword(
-        authSecret,
-        input.conversationId,
-      ),
+      agentPassword,
       access: {
         firewall: conversationFirewall({
           credentials: hosted.credentials,

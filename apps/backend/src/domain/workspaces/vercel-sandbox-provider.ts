@@ -1,4 +1,4 @@
-import { createHmac } from "node:crypto"
+import { randomBytes } from "node:crypto"
 import type { SandboxHandle, SandboxProvider } from "@tanstack/ai-sandbox"
 import { VERCEL_CAPS, VercelHandle } from "@tanstack/ai-sandbox-vercel"
 import {
@@ -115,14 +115,14 @@ export function vercelCredentials(
   return resolvedScope
 }
 
-/** The conversation's agent-port password; derived, so any replica can rebuild it. */
-export function conversationAgentPassword(
-  authSecret: string,
-  conversationId: string,
-): string {
-  return createHmac("sha256", authSecret)
-    .update(`workspace-chat-agent:${conversationId}`)
-    .digest("hex")
+/**
+ * The OpenCode password for one turn's agent port. The OpenCode server must
+ * hold it, so it is in the sandbox. A new one each turn makes it useless
+ * after the turn: the next turn stops the earlier server and starts one with
+ * its own password.
+ */
+export function turnAgentPassword(): string {
+  return randomBytes(24).toString("hex")
 }
 
 /** One turn's credentials, which the firewall adds on the backend host. */

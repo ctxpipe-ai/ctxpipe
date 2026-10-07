@@ -19,6 +19,7 @@ import { localProcessSandbox } from "@tanstack/ai-sandbox-local-process"
 import { expect, it, vi } from "vitest"
 import { timedSandboxProvider } from "./sandbox-lifecycle-timing.js"
 import { conversationSandboxProvider } from "./tanstack-workspace-chat.js"
+import { turnAgentPassword } from "./vercel-sandbox-provider.js"
 
 function deferred<T>(): {
   promise: Promise<T>
@@ -534,7 +535,7 @@ async function runFixtureTurn(input: {
 }> {
   const provider = conversationSandboxProvider(
     "unsandboxed",
-    `opencode-finish-${Date.now()}`,
+    turnAgentPassword(),
     async () => undefined,
   )
   const abortController = new AbortController()

@@ -2,13 +2,14 @@ import { type AddressInfo, connect, createServer, type Socket } from "node:net"
 import { startOpencodeServerInSandbox } from "@tanstack/ai-opencode"
 import type { SandboxHandle } from "@tanstack/ai-sandbox"
 import { dockerSandbox } from "@tanstack/ai-sandbox-docker"
-import { expect, it, vi } from "vitest"
+import { expect, it } from "vitest"
 import {
   WORKSPACE_CHAT_OPENCODE_PORT,
   workspaceChatDockerImage,
 } from "./chat-runtime.js"
 import { withDockerAgentPort } from "./sandbox-provider.js"
 import { conversationSandboxProvider } from "./tanstack-workspace-chat.js"
+import { turnAgentPassword } from "./vercel-sandbox-provider.js"
 
 /** The stock local Docker daemon: `DOCKER_HOST`, else the default socket. */
 function dockerEndpoint():
@@ -94,10 +95,15 @@ it(
   "starts the agent server in a reused Docker sandbox after a dead backend left its server running",
   { timeout: 180_000 },
   async () => {
-    vi.stubEnv("AUTH_SECRET", "native-docker-reuse-secret-0123456789abcdef")
+    // Each turn builds its provider with its own agent password.
     const provider = conversationSandboxProvider(
       "docker",
-      `docker-reuse-${Date.now()}`,
+      turnAgentPassword(),
+      async () => undefined,
+    )
+    const nextTurn = conversationSandboxProvider(
+      "docker",
+      turnAgentPassword(),
       async () => undefined,
     )
     const options = {
@@ -116,17 +122,24 @@ it(
       })
       // The first turn's backend dies: nothing disposes this server, and it
       // keeps the agent port in the sandbox.
-      await startOpencodeServerInSandbox(handle, options)
+      const first = await startOpencodeServerInSandbox(handle, options)
       // The next turn resumes the same sandbox from its id.
-      const reused = await provider.resume({ id: handle.id })
+      const reused = await nextTurn.resume({ id: handle.id })
       if (!reused) throw new Error("The Docker sandbox did not resume")
       server = await startOpencodeServerInSandbox(reused, options)
       const config = await fetch(`${server.baseUrl}/config`, {
         headers: server.headers,
       })
       expect(config.status).toBe(200)
+      // The earlier turn's password no longer opens the agent port.
+      expect(first.headers?.Authorization).not.toBe(
+        server.headers?.Authorization,
+      )
+      const old = await fetch(`${server.baseUrl}/config`, {
+        headers: first.headers,
+      })
+      expect(old.status).toBe(401)
     } finally {
-      vi.unstubAllEnvs()
       await server?.dispose().catch(() => undefined)
       await handle?.destroy().catch(() => undefined)
     }
