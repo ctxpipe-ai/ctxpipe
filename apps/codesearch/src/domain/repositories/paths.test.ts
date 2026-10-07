@@ -10,6 +10,7 @@ import { tmpdir } from "node:os"
 import { join, relative } from "node:path"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import {
+  readContainedFile,
   resolveContainedRealPath,
   resolveSafeReadableFilePath,
   scipIndexPath,
@@ -76,6 +77,16 @@ describe("paths inside the checkout", () => {
     await expect(
       resolveSafeReadableFilePath(checkout, path),
     ).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("reads a file inside through a symlink and refuses one outside", async () => {
+    expect((await readContainedFile(checkout, "in-link")).toString()).toBe(
+      "inside\n",
+    )
+    await expect(readContainedFile(checkout, "chain-a")).rejects.toMatchObject({
+      code: "ENOENT",
+    })
+    await expect(readContainedFile(checkout, "sub")).rejects.toThrow()
   })
 
   it("follows a symlink to a file inside", async () => {

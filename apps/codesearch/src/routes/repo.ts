@@ -1,4 +1,4 @@
-import { lstat, readdir, readFile } from "node:fs/promises"
+import { lstat, readdir } from "node:fs/promises"
 import { join } from "node:path"
 import type { OpenAPIHono } from "@hono/zod-openapi"
 import { createRoute, z } from "@hono/zod-openapi"
@@ -12,9 +12,9 @@ import {
 } from "../domain/repositories/globFiles.js"
 import {
   DEFAULT_CHECKOUT_KEY,
+  readContainedFile,
   repoCheckoutPath,
   resolveContainedRealPath,
-  resolveSafeReadableFilePath,
   scipIndexPath,
 } from "../domain/repositories/paths.js"
 import { purgeRepositoryFromDisk } from "../domain/repositories/purge.js"
@@ -592,9 +592,9 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     const repo = await getAccessibleRepository(db, repoId, auth.orgId)
     if (!repo) return c.json(repositoryNotFoundBody, 404)
     const basePath = repoCheckoutPath(repo.orgId, repo.id, DEFAULT_CHECKOUT_KEY)
-    let fullPath: string
+    let data: Awaited<ReturnType<typeof readContainedFile>>
     try {
-      fullPath = await resolveSafeReadableFilePath(basePath, filePath)
+      data = await readContainedFile(basePath, filePath)
     } catch (error) {
       if (
         error instanceof Error &&
@@ -604,14 +604,9 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
       }
       return c.json({ error: "File not found" }, 404)
     }
-    try {
-      const data = await readFile(fullPath)
-      return new Response(data, {
-        headers: { "Content-Type": "application/octet-stream" },
-      })
-    } catch {
-      return c.json({ error: "File not found" }, 404)
-    }
+    return new Response(data, {
+      headers: { "Content-Type": "application/octet-stream" },
+    })
   })
 
   app.openapi(filesQueryRoute, async (c) => {
@@ -627,8 +622,7 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     const result: Record<string, string> = {}
     for (const p of paths) {
       try {
-        const fullPath = await resolveSafeReadableFilePath(basePath, p)
-        result[p] = (await readFile(fullPath)).toString("base64")
+        result[p] = (await readContainedFile(basePath, p)).toString("base64")
       } catch {
         // omit missing files
       }

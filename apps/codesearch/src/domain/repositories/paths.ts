@@ -1,5 +1,14 @@
 import { randomUUID } from "node:crypto"
-import { realpath, rename, rm, stat, writeFile } from "node:fs/promises"
+import { constants } from "node:fs"
+import {
+  open,
+  readlink,
+  realpath,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises"
 import { dirname, join, resolve, sep } from "node:path"
 import { REPO_CACHE_DIR } from "../../config/paths.js"
 
@@ -77,6 +86,38 @@ export async function resolveSafeReadableFilePath(
     throw new Error("Not a file")
   }
   return resolved
+}
+
+/**
+ * Reads a regular file inside the checkout. The file is opened without
+ * following a symlink at its last component. On Linux, the real path of
+ * the open descriptor is checked again, so a path that a checkout changes
+ * after the first check is not read. Other platforms have only the first
+ * check.
+ */
+export async function readContainedFile(
+  basePath: string,
+  relativePath: string,
+) {
+  const resolved = await resolveSafeReadableFilePath(basePath, relativePath)
+  const handle = await open(resolved, constants.O_RDONLY | constants.O_NOFOLLOW)
+  try {
+    if (process.platform === "linux") {
+      const [base, opened] = await Promise.all([
+        realpath(basePath),
+        readlink(`/proc/self/fd/${handle.fd}`),
+      ])
+      if (!opened.startsWith(`${base}${sep}`)) {
+        throw Object.assign(new Error("Path not found"), { code: "ENOENT" })
+      }
+    }
+    if (!(await handle.stat()).isFile()) {
+      throw new Error("Not a file")
+    }
+    return await handle.readFile()
+  } finally {
+    await handle.close()
+  }
 }
 
 /**
