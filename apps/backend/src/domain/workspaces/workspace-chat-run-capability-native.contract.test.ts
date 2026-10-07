@@ -48,18 +48,7 @@ it(
           conversationId: fixture.conversationId,
           expectedOwner: acquisition.owner,
           revision,
-          purpose: "workspace-chat-git",
-        })
-        expect(
-          await verifyWorkspaceChatRunCapability({
-            authSecret,
-            token,
-            purpose: "workspace-chat-git",
-          }),
-        ).toMatchObject({
-          orgId: fixture.orgId,
-          conversationId: fixture.conversationId,
-          revision,
+          purpose: "workspace-chat-model",
         })
         expect(
           await verifyWorkspaceChatRunCapability({
@@ -67,13 +56,17 @@ it(
             token,
             purpose: "workspace-chat-model",
           }),
-        ).toBeUndefined()
+        ).toMatchObject({
+          orgId: fixture.orgId,
+          conversationId: fixture.conversationId,
+          revision,
+        })
         const tampered = `${token.slice(0, -1)}${token.endsWith("a") ? "b" : "a"}`
         expect(
           await verifyWorkspaceChatRunCapability({
             authSecret,
             token: tampered,
-            purpose: "workspace-chat-git",
+            purpose: "workspace-chat-model",
           }),
         ).toBeUndefined()
 
@@ -87,7 +80,7 @@ it(
           await verifyWorkspaceChatRunCapability({
             authSecret,
             token,
-            purpose: "workspace-chat-git",
+            purpose: "workspace-chat-model",
           }),
         ).toBeDefined()
         return token
@@ -99,7 +92,7 @@ it(
         await verifyWorkspaceChatRunCapability({
           authSecret,
           token: firstToken,
-          purpose: "workspace-chat-git",
+          purpose: "workspace-chat-model",
         }),
       ).toBeUndefined()
       await expect(
@@ -110,7 +103,7 @@ it(
           conversationId: fixture.conversationId,
           expectedOwner: firstLockOwner,
           revision,
-          purpose: "workspace-chat-git",
+          purpose: "workspace-chat-model",
         }),
       ).rejects.toThrow()
 
@@ -125,7 +118,7 @@ it(
           await verifyWorkspaceChatRunCapability({
             authSecret,
             token: firstToken,
-            purpose: "workspace-chat-git",
+            purpose: "workspace-chat-model",
           }),
         ).toBeUndefined()
         await expect(

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { parseEnv, type Env } from "../config/env.js"
+import { type Env, parseEnv } from "../config/env.js"
 import { encryptConnectionSecret } from "../lib/connection-secrets.js"
 import {
   envLinearOauthConfigured,
@@ -24,7 +24,10 @@ describe("Linear OAuth app credentials", () => {
       },
       env,
     )
-    expect(creds).toEqual({ clientId: "row-client", clientSecret: "row-secret" })
+    expect(creds).toEqual({
+      clientId: "row-client",
+      clientSecret: "row-secret",
+    })
   })
 
   it("falls back to env when the row has no app", () => {

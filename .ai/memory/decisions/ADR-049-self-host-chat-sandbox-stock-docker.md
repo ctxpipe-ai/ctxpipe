@@ -1,6 +1,6 @@
 # ADR-049: Self-host chat sandboxes: stock Docker on DinD and an EC2 host
 
-**Status:** Accepted | **Date:** 2026-10-05 | **Tags:** sandbox, self-host, docker, compose, aws-cdk, security
+**Status:** Accepted | **Date:** 2026-10-05 (credentials: 2026-10-08) | **Tags:** sandbox, self-host, docker, compose, aws-cdk, security
 
 ## Context
 
@@ -44,7 +44,21 @@ Earlier PR 280 work had a custom sandbox runner for Compose. It was Docker-in-Do
 
 - One policy applies to Compose and AWS. The details are in the [chat sandbox network policy](<../../../apps/docs/content/docs/self-hosting/(getting-started)/architecture.mdx#chat-sandbox-network-policy>).
 - The root cause of data-store exposure was published ports. Docker routes to published ports from other networks, so Compose publishes no data store in any profile. On AWS, security groups admit only the app.
-- One added rule blocks instance metadata (`169.254.169.254`). Apart from this rule and the CDK host's block on traffic to the host itself, only the stock TanStack policy applies.
+- One added rule blocks instance metadata (`169.254.169.254`). The CDK host also blocks traffic to the host itself.
+
+### Credentials: Agent Vault (2026-10-08)
+
+- A Docker sandbox holds no credential of ours: no GitHub token, model proxy capability, tool bridge token, or Git run capability. Agent Vault (Infisical, open source, `infisical/agent-vault:latest`, not pinned) adds each credential in flight. The OpenCode config and `GH_TOKEN` hold the same placeholder as on hosted sandboxes.
+- One rule list (`sandbox-credential-rules.ts`) serves the Vercel firewall and Agent Vault: GitHub hosts (Basic `x-access-token` for `github.com` and `codeload.github.com`, Bearer for `api.github.com`), and exact paths on the backend for the model proxy (`…/chat/completions`, `…/models`) and the run's tool bridge. Agent Vault matches the raw path and does not resolve `..`, so a rule never has a glob. Each rule sets the whole `Authorization` header (a custom header rule); Agent Vault sets `Host` from the target it dials.
+- Sandbox traffic is forced through the proxy at the network level. On Compose, `scripts/sandbox-dind/entrypoint.sh` adds mangle-table rules in `dind`: replies, then TCP to the proxy (`CTXPIPE_SANDBOX_PROXY`), then drop; IPv6 from sandboxes is dropped (dind stops if it cannot). On AWS, `DOCKER-USER` rules let `docker0` reach only the Agent Vault bridge (`ctxpipe-av`) on the proxy port, and Agent Vault cannot reach the host or itself. Non-HTTP traffic and DNS from sandboxes are blocked (accepted). Hosts with no rule are forwarded, so HTTP(S) to the internet stays open, and Docker turns get the open network policy and `webfetch`.
+- The proxy may dial private addresses only at the backend: Compose gives the backend a fixed address (`172.30.99.10`, alias `backend.sandbox.ctxpipe.internal`); AWS allows the backend subnets (the stack's only private subnets, which also hold RDS, Neptune, EFS, and the UI and codesearch tasks: only security groups keep the proxy out of them, so the sandbox host's group must never be admitted to them) and sets `SANDBOX_CALLBACK_DNS_SUFFIX`, so the backend calls itself back by its VPC DNS name. Rule hosts must be names, not addresses. The proxy never reaches Agent Vault's management API (tested on the Compose layout).
+- Rate limits stay on (the login limit guards the owner account); only the proxy tier is raised, because all requests of a turn share one vault. Issue #380 (failed proxy logins share the `dind` address) is an accepted risk: turn ends stop the earlier turn's processes.
+- One vault per run (a turn, a prepare, or a Workspace base build). The sandbox gets the proxy variables (from the SDK's `containerConfig` and `buildProxyEnv`, with the host the sandbox dials and the port Agent Vault reports) and the CA. `close` deletes the vault, then revokes the run's GitHub token through `run-git-tokens.ts`. The prune workflow sweeps vaults older than the session TTL (2 hours) once per window.
+- The deployment generates the passwords: Compose uses two volumes (master password for Agent Vault only, owner password for backend and worker); AWS uses two Secrets Manager secrets. The backend registers the owner only while the instance has none; otherwise a refused login fails closed. No new customer-set variable.
+- If Agent Vault is not configured or does not answer, Docker chat fails closed (503 with a clear error). The `git-credentials` route, `git-credential.mjs`, the `gh` wrapper, the Git run capability, and `CTXPIPE_CLONE_TOKEN` for Docker are removed.
+- Known limit: Agent Vault matches the decoded path, so `chat%2Fcompletions` matches the model rule. The token still goes only to the backend, which routes on its own.
+- Host dev is for a trusted machine: on Docker Desktop local containers reach the 127.0.0.1-bound API and the proxy. On a fresh volume a local container could register the owner first; the backend then fails closed (remove the `agent_vault_dev` volume). Production Compose and CDK are not affected.
+- Known limits: Node's `fetch` tunnels plain-HTTP requests with `CONNECT`, which Agent Vault does not accept for HTTP targets (HTTPS works; Bun, curl, Git, and `gh` work). Host dev and CI have no forced egress. A Compose `sandbox` subnet that overlaps a host network needs a manual change.
 
 ### Lifecycle
 

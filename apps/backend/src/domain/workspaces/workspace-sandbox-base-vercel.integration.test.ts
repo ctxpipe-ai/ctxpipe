@@ -521,7 +521,6 @@ describe("Vercel build step", () => {
   ): WorkspaceBaseBuilder & { finished: () => number } => {
     let finished = 0
     return {
-      cloneToken: "",
       finished: () => finished,
       start: async () => ({
         builderId: "builder-local",

@@ -140,6 +140,10 @@ export interface SandboxHostResources {
   readonly clientTlsSecret: secretsmanager.Secret;
   /** `DOCKER_HOST` for the clients. */
   readonly dockerHost: string;
+  /** Agent Vault on the host: the API for backend and worker. */
+  readonly agentVaultAddress: string;
+  /** The generated owner password that backend and worker log in with. */
+  readonly agentVaultOwnerSecret: secretsmanager.Secret;
   readonly alarms: cloudwatch.Alarm[];
 }
 

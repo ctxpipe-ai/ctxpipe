@@ -1,16 +1,17 @@
-import { createHash } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
 import type { SandboxHandle } from "@tanstack/ai-sandbox"
 import { DockerHandle } from "@tanstack/ai-sandbox-docker"
 import { APIError, Snapshot } from "@vercel/sandbox"
 import Docker from "dockerode"
 import { parseEnv } from "../../config/env.js"
 import { assertNotInOrgDbContext } from "../../db/client.js"
-import { getRepoReadCloneToken } from "../../models/github-installation.js"
 import type {
   RunningSandboxProvider,
   SandboxInstanceRecord,
 } from "../../models/workspace-sandboxes.js"
+import { type RunVault, writeProxyCa } from "./agent-vault.js"
 import { workspaceChatDockerImage } from "./chat-runtime.js"
+import { openDockerRunVault } from "./docker-run-vault.js"
 import { hostedSandboxAccess } from "./hosted-sandbox-access.js"
 import type { WorkspaceRevision } from "./revision.js"
 import { discoverSandboxProvider, dockerImageId } from "./sandbox-provider.js"
@@ -26,7 +27,6 @@ import {
   VERCEL_SANDBOX,
   WORKSPACE_CHAT_OPENCODE_CLI,
 } from "./workspace-chat-opencode-contract.js"
-import { githubRepoFullNameFromWorkspaceUrl } from "./write-status.js"
 
 /** Docker labels on what our code creates, so a host prune can find it. */
 export const DOCKER_LABELS = {
@@ -114,8 +114,6 @@ export type WorkspaceBaseBuild = {
 
 /** How the deployment's provider builds Workspace bases. */
 export type WorkspaceBaseBuilder = {
-  /** Clone credential for the stock clone; empty on Vercel (firewall). */
-  cloneToken: string
   start: (base: { id: string; orgId: string }) => Promise<WorkspaceBaseBuild>
 }
 
@@ -126,11 +124,14 @@ export type WorkspaceBaseBuilder = {
  */
 export function dockerWorkspaceBaseBuilder(input: {
   chatImage: string
-  cloneToken: string
+  /**
+   * The build's Agent Vault: the builder clones through its proxy and never
+   * holds the GitHub token. Its `close` ends the build's credentials.
+   */
+  vault: () => Promise<RunVault>
 }): WorkspaceBaseBuilder {
   const docker = new Docker({ timeout: 120_000 })
   return {
-    cloneToken: input.cloneToken,
     async start(base) {
       assertNotInOrgDbContext()
       const owners = {
@@ -144,24 +145,34 @@ export function dockerWorkspaceBaseBuilder(input: {
         WorkingDir: "/workspace",
         Labels: { ...owners, [DOCKER_LABELS.kind]: "workspace-base-builder" },
       })
-      const remove = () =>
-        removeDockerObject(() => container.remove({ force: true, v: true }))
+      let vault: RunVault | undefined
+      const remove = async () => {
+        await vault?.close()
+        await removeDockerObject(() =>
+          container.remove({ force: true, v: true }),
+        )
+      }
+      const handle = new DockerHandle({
+        docker,
+        container,
+        workdir: "/workspace",
+        forkFactory: () =>
+          Promise.reject(new Error("Base builders never fork")),
+        removeOnDestroy: true,
+      })
       try {
         await container.start()
+        vault = await input.vault()
+        await writeProxyCa(handle, vault.caPem)
+        // Session only: `docker commit` keeps no proxy session.
+        await handle.env.set(vault.env)
       } catch (error) {
         await remove()
         throw error
       }
       return {
         builderId: container.id,
-        handle: new DockerHandle({
-          docker,
-          container,
-          workdir: "/workspace",
-          forkFactory: () =>
-            Promise.reject(new Error("Base builders never fork")),
-          removeOnDestroy: true,
-        }),
+        handle,
         capture: async () => {
           const labels = { ...owners, [DOCKER_LABELS.kind]: "workspace-base" }
           const committed = (await container.commit({
@@ -190,16 +201,17 @@ export async function workspaceBaseBuilder(input: {
 }): Promise<WorkspaceBaseBuilder> {
   const { revision } = input
   if (input.provider === "docker") {
-    const repoFullName = githubRepoFullNameFromWorkspaceUrl(revision.remote.url)
-    const cloneToken = repoFullName
-      ? ((await getRepoReadCloneToken(input.orgId, appEnv(), {
-          githubConnectionId: revision.remote.connectionId ?? undefined,
-          repoFullName,
-        })) ?? "")
-      : ""
+    // The build's GitHub token is recorded like a run token: the build's end
+    // revokes it, and the sandbox sweep revokes what a crash left.
     return dockerWorkspaceBaseBuilder({
       chatImage: workspaceChatDockerImage(),
-      cloneToken,
+      vault: () =>
+        openDockerRunVault({
+          orgId: input.orgId,
+          conversationId: `workspace-base-${revision.workspaceId}`,
+          label: `clone:${randomUUID()}`,
+          revision,
+        }),
     })
   }
   const hosted = await hostedSandboxAccess({
@@ -209,7 +221,6 @@ export async function workspaceBaseBuilder(input: {
   })
   if (!hosted.ok) throw new Error(hosted.error)
   return {
-    cloneToken: "",
     start: async () =>
       startVercelWorkspaceBase({
         credentials: hosted.credentials,

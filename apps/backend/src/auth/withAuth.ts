@@ -818,7 +818,9 @@ export const withNetworkOrgContext: MiddlewareHandler<AppEnv> = async (
   })
   // Short org SQL only. Do not hold a request-wide transaction across HTTP,
   // MCP, or sandbox I/O — those gateways call `assertNotInOrgDbContext()`.
-  return withOrgIdContext({ id: resolved.id, slug: resolved.slug }, () => next())
+  return withOrgIdContext({ id: resolved.id, slug: resolved.slug }, () =>
+    next(),
+  )
 }
 
 type OrgContext = { id: string; slug: string }

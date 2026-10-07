@@ -17,13 +17,13 @@ function isNonEmptyRecord(value: Record<string, unknown>): boolean {
 }
 
 /** Bedrock Converse chat via `ChatBedrockConverse` inference fields. */
-export function lowerBedrockConverseParams(
-  params: ModelParams | undefined,
-): {
-  maxTokens?: number
-  topP?: number
-  additionalModelRequestFields?: Record<string, unknown>
-} | undefined {
+export function lowerBedrockConverseParams(params: ModelParams | undefined):
+  | {
+      maxTokens?: number
+      topP?: number
+      additionalModelRequestFields?: Record<string, unknown>
+    }
+  | undefined {
   if (!params) return undefined
 
   const additionalModelRequestFields: Record<string, unknown> = {}
@@ -88,10 +88,13 @@ export function bedrockModelProvider(
       ...(converseParams?.maxTokens !== undefined
         ? { maxTokens: converseParams.maxTokens }
         : {}),
-      ...(converseParams?.topP !== undefined ? { topP: converseParams.topP } : {}),
+      ...(converseParams?.topP !== undefined
+        ? { topP: converseParams.topP }
+        : {}),
       ...(converseParams?.additionalModelRequestFields
         ? {
-            additionalModelRequestFields: converseParams.additionalModelRequestFields as ChatBedrockConverseInput["additionalModelRequestFields"],
+            additionalModelRequestFields:
+              converseParams.additionalModelRequestFields as ChatBedrockConverseInput["additionalModelRequestFields"],
           }
         : {}),
     }),

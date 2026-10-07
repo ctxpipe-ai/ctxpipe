@@ -254,7 +254,11 @@ export async function captureSlackThreadFiles(input: {
   existing?: Array<{ path: string; sha: string }>
 }): Promise<
   SlackCaptureResult & {
-    files: Array<{ path: string; content: string; encoding?: "utf-8" | "base64" }>
+    files: Array<{
+      path: string
+      content: string
+      encoding?: "utf-8" | "base64"
+    }>
     deletePaths: string[]
   }
 > {

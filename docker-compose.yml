@@ -26,6 +26,22 @@ x-sandbox-docker-env: &sandbox-docker-env
   DOCKER_TLS_VERIFY: "1"
   DOCKER_CERT_PATH: /certs/client
 
+# Agent Vault adds the credentials of chat sandboxes in flight. The backend
+# and the worker log in as its owner with a password the deploy generates.
+x-agent-vault-env: &agent-vault-env
+  AGENT_VAULT_ADDR: http://agent-vault:14321
+  AGENT_VAULT_OWNER_PASSWORD_FILE: /run/agent-vault/owner-password
+
+x-agent-vault-image: &agent-vault-image infisical/agent-vault:latest
+
+# Rate limits stay on (the login limit guards the owner account). The proxy
+# tier is raised: all sandboxes of one turn share one vault and fan out.
+x-agent-vault-limits: &agent-vault-limits
+  AGENT_VAULT_RATELIMIT_PROXY_RATE: "200"
+  AGENT_VAULT_RATELIMIT_PROXY_BURST: "2000"
+  AGENT_VAULT_RATELIMIT_PROXY_CONCURRENCY: "256"
+  AGENT_VAULT_TELEMETRY: "false"
+
 x-dind-image: &dind-image docker:29.8.2-dind@sha256:7dcdfc4a20246236f558175182ccace1eb15a41bd3eb119dd2284f393498b7c1
 
 services:
@@ -85,6 +101,86 @@ services:
     ports:
       - "${CTXPIPE_OTEL_COLLECTOR_HOST_PORT:-4318}:4318"
 
+  # Host dev only, on a trusted machine: Agent Vault for sandboxes on the
+  # host's Docker daemon. Its API is published on 127.0.0.1, but on Docker
+  # Desktop any local container reaches it at host.docker.internal, and so
+  # can the proxy (192.168.65.254 is on the allowlist). The owner password is
+  # generated and the login limit is on. On a fresh volume a local container
+  # could register the owner first; the backend then fails closed: remove the
+  # `agent_vault_dev` volume to recover. Sandboxes reach the proxy at
+  # host.docker.internal on the port it listens on; it may dial only the
+  # Docker host (the backend). Host dev has no forced egress; `deploy` does.
+  agent-vault-dev:
+    profiles: [infra]
+    image: *agent-vault-image
+    restart: unless-stopped
+    command:
+      - server
+      - --host
+      - 0.0.0.0
+      - --port
+      - "14321"
+      - --mitm-port
+      - "${CTXPIPE_AGENT_VAULT_PROXY_HOST_PORT:-14322}"
+    environment:
+      <<: *agent-vault-limits
+      AGENT_VAULT_NETWORK_ALLOWLIST: 192.168.65.254,172.17.0.1
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    ports:
+      - "127.0.0.1:${CTXPIPE_AGENT_VAULT_API_HOST_PORT:-14321}:14321"
+      - "${CTXPIPE_AGENT_VAULT_PROXY_HOST_PORT:-14322}:${CTXPIPE_AGENT_VAULT_PROXY_HOST_PORT:-14322}"
+    volumes:
+      - agent_vault_dev:/data
+
+  # Generates the Agent Vault passwords once: the master password on a volume
+  # only Agent Vault mounts, the owner password on one only the backend and
+  # the worker mount.
+  agent-vault-secrets:
+    profiles: [deploy]
+    image: *agent-vault-image
+    restart: "no"
+    user: "0:0"
+    entrypoint: ["sh", "-ec"]
+    command:
+      - |
+        for file in /master/master-password /owner/owner-password; do
+          [ -s "$$file" ] && continue
+          head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' > "$$file.tmp"
+          mv "$$file.tmp" "$$file"
+          chmod 0444 "$$file"
+        done
+    volumes:
+      - agent_vault_master:/master
+      - agent_vault_owner:/owner
+
+  # Adds each credential to sandbox requests (ADR-049). Sandboxes reach only
+  # its proxy port (scripts/sandbox-dind/entrypoint.sh), and the proxy may
+  # dial private addresses only at the backend's fixed `sandbox` address.
+  # Other HTTP(S) hosts are forwarded, so the internet stays open.
+  agent-vault:
+    profiles: [deploy]
+    image: *agent-vault-image
+    restart: unless-stopped
+    entrypoint: ["sh", "-ec"]
+    command:
+      - |
+        AGENT_VAULT_MASTER_PASSWORD="$$(cat /run/agent-vault-master/master-password)"
+        export AGENT_VAULT_MASTER_PASSWORD
+        exec agent-vault server --host 0.0.0.0 --port 14321
+    environment:
+      <<: *agent-vault-limits
+      # Only the backend: not Agent Vault's own address (its API), not `dind`.
+      AGENT_VAULT_NETWORK_ALLOWLIST: 172.30.99.10
+    volumes:
+      - agent_vault_data:/data
+      - agent_vault_master:/run/agent-vault-master:ro
+    networks:
+      sandbox:
+        ipv4_address: 172.30.99.11
+    depends_on:
+      agent-vault-secrets:
+        condition: service_completed_successfully
+
   migrate:
     profiles: [deploy]
     build:
@@ -104,8 +200,9 @@ services:
   # Docker daemon for Workspace chat sandboxes (stock docker:dind). Only this
   # container is privileged; sandboxes are not, and the host Docker socket is
   # never mounted. It sits only on the `sandbox` network with backend and
-  # worker. Sandboxes reach the internet and the backend; data stores are never
-  # published, and scripts/sandbox-dind/entrypoint.sh blocks instance metadata.
+  # worker. Sandboxes reach only Agent Vault's proxy (HTTP and HTTPS to the
+  # internet and the backend, with credentials added outside the sandbox);
+  # scripts/sandbox-dind/entrypoint.sh blocks everything else.
   dind:
     profiles: [deploy]
     image: *dind-image
@@ -117,6 +214,8 @@ services:
     environment:
       DOCKER_TLS_CERTDIR: /certs
       DOCKER_TLS_SAN: DNS:dind
+      # Sandboxes reach only this address (Agent Vault's proxy).
+      CTXPIPE_SANDBOX_PROXY: 172.30.99.11:14322
     configs:
       - source: sandbox-dind-entrypoint
         target: /sandbox-dind/entrypoint.sh
@@ -173,10 +272,11 @@ services:
       AUTH_SECRET: ${AUTH_SECRET:-}
       AUTH_BASE_URL: ${AUTH_BASE_URL:-http://localhost:3000}
       AUTH_ALLOWED_ORIGINS: ${AUTH_ALLOWED_ORIGINS:-}
-      # Unset, sandboxes call back on the backend's `sandbox` network address
-      # (the one it reaches `dind` from). Empty OTEL values are unset: no export.
-      SANDBOX_CALLBACK_HOST: ${SANDBOX_CALLBACK_HOST:-}
-      <<: [*otel-env, *sandbox-docker-env]
+      # Sandboxes call back through Agent Vault, whose rules take host names:
+      # the backend's alias on the `sandbox` network. Empty OTEL values are
+      # unset: no export.
+      SANDBOX_CALLBACK_HOST: ${SANDBOX_CALLBACK_HOST:-backend.sandbox.ctxpipe.internal}
+      <<: [*otel-env, *sandbox-docker-env, *agent-vault-env]
       OTEL_SERVICE_NAME: backend
       CONFLUENCE_FORGE_INSTALL_URL: ${CONFLUENCE_FORGE_INSTALL_URL:-}
       SLACK_CLIENT_ID: ${SLACK_CLIENT_ID:-}
@@ -199,8 +299,15 @@ services:
       - "${CTXPIPE_BACKEND_HOST_PORT:-3000}:3000"
     volumes:
       - sandbox_client_certs:/certs/client:ro
-    networks: [default, sandbox]
-    # Not `dind` or `chat-sandbox-image`: without them only chat fails (503).
+      - agent_vault_owner:/run/agent-vault:ro
+    networks:
+      default:
+      sandbox:
+        # Fixed: Agent Vault may dial only this private address.
+        ipv4_address: 172.30.99.10
+        aliases: [backend.sandbox.ctxpipe.internal]
+    # Not `dind`, `chat-sandbox-image` or `agent-vault`: without them only
+    # chat fails (503).
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -228,8 +335,9 @@ services:
       SLACK_CLIENT_ID: ${SLACK_CLIENT_ID:-}
       SLACK_CLIENT_SECRET: ${SLACK_CLIENT_SECRET:-}
       SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET:-}
-      # The worker removes idle sandboxes through the same daemon.
-      <<: [*otel-env, *sandbox-docker-env]
+      # The worker removes idle sandboxes through the same daemon, and builds
+      # Workspace bases through Agent Vault.
+      <<: [*otel-env, *sandbox-docker-env, *agent-vault-env]
       OTEL_SERVICE_NAME: openworkflow
       OPENWORKFLOW_CONCURRENCY: "6"
       CODESEARCH_INDEXER_CONCURRENCY: "1"
@@ -244,6 +352,7 @@ services:
       PAGERDUTY_REDIRECT_URI: ${PAGERDUTY_REDIRECT_URI:-}
     volumes:
       - sandbox_client_certs:/certs/client:ro
+      - agent_vault_owner:/run/agent-vault:ro
     networks: [default, sandbox]
     depends_on:
       migrate:
@@ -304,7 +413,14 @@ services:
 networks:
   # DinD, backend, and worker only: sandbox traffic leaves through `dind`
   # onto this network, so it reaches nothing else in the stack.
+  # A fixed subnet, so Agent Vault's allowlist and the DinD rules name exact
+  # addresses. If it overlaps a network of the host, change every 172.30.99.x
+  # address in this file. Other containers get addresses from the upper half.
   sandbox:
+    ipam:
+      config:
+        - subnet: 172.30.99.0/24
+          ip_range: 172.30.99.128/25
 
 configs:
   sandbox-dind-entrypoint:
@@ -321,3 +437,9 @@ volumes:
   sandbox_client_certs:
   zoekt_index_deploy:
   repo_cache:
+  # Agent Vault's SQLite store (run vaults are deleted when runs end) and the
+  # generated passwords (master: Agent Vault only; owner: backend and worker).
+  agent_vault_data:
+  agent_vault_master:
+  agent_vault_owner:
+  agent_vault_dev:

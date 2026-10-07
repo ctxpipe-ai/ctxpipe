@@ -13,8 +13,8 @@ import {
 } from "../../../db/client.js"
 import { organizations } from "../../../db/schema/auth.js"
 import {
-  connections,
   connectionDirectory,
+  connections,
 } from "../../../db/schema/connections.js"
 import { workspaces } from "../../../db/schema/workspaces.js"
 import { generateObjectId } from "../../../lib/id.js"

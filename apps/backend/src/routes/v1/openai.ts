@@ -229,10 +229,7 @@ export const openaiRoutes = new OpenAPIHono<AppEnv>()
       )
     }
     if (env.MODEL_PROVIDER === "bedrock") {
-      return handleNativeBedrockResponse(
-        c,
-        handleBedrockEmbedding(env, body),
-      )
+      return handleNativeBedrockResponse(c, handleBedrockEmbedding(env, body))
     }
     return forwardToUpstream(c, "/v1/embeddings", body)
   })

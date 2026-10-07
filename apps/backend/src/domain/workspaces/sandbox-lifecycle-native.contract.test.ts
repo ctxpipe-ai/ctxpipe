@@ -4,7 +4,7 @@ import { dockerSandbox } from "@tanstack/ai-sandbox-docker"
 import Docker from "dockerode"
 import { eq } from "drizzle-orm"
 import { BackendPostgres } from "openworkflow/postgres"
-import { afterAll, expect, it } from "vitest"
+import { afterAll, beforeAll, expect, it } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import {
   closeDb,
@@ -21,6 +21,7 @@ import {
 import { generateObjectId } from "../../lib/id.js"
 import { getSandboxInstance } from "../../models/workspaces.js"
 import { scheduleConversationSandboxSweep } from "../../openworkflow/workflows/conversation-sandbox-sweep.js"
+import { startTestAgentVaultEnv } from "../../test/agent-vault-fixture.js"
 import { withNativeChatFixture } from "../../test/native-chat-fixture.js"
 import {
   CHAT_SANDBOX_DELETE_AFTER_MS,
@@ -43,6 +44,13 @@ import {
 } from "./tanstack-workspace-chat.js"
 import { workspaceChatPersistence } from "./workspace-chat-persistence.js"
 import { destroySandboxesForWorkspace } from "./workspace-sandbox-cleanup.js"
+
+// Docker sandboxes get credentials only through Agent Vault.
+let agentVault: Awaited<ReturnType<typeof startTestAgentVaultEnv>>
+beforeAll(async () => {
+  agentVault = await startTestAgentVaultEnv()
+}, 120_000)
+afterAll(() => agentVault?.stop())
 
 const IMAGE = "alpine:3.22"
 const FIVE_MINUTES = 5 * 60_000

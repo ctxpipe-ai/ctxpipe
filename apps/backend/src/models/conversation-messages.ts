@@ -1,9 +1,9 @@
 import { eq, max } from "drizzle-orm"
 import { requireCurrentOrgId } from "../auth/context.js"
 import { getOrgDb } from "../db/client.js"
+import { withAmbientOrgDb } from "../db/org-sql.js"
 import { conversationMessages } from "../db/schema/conversations.js"
 import { generateObjectId } from "../lib/id.js"
-import { withAmbientOrgDb } from "../db/org-sql.js"
 
 function orgSql<T>(fn: () => Promise<T>): Promise<T> {
   return withAmbientOrgDb(fn)

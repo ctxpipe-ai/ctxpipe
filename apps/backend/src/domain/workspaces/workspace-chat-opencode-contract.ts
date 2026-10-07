@@ -117,8 +117,9 @@ export const WORKSPACE_CHAT_OPENCODE_PROXY_URL_ENV =
   "{env:CTXPIPE_MODEL_PROXY_URL}" as const
 
 /**
- * What a hosted sandbox sends where a credential goes (the model key and the
- * tool-bridge token). The firewall replaces the Authorization header.
+ * What a hosted or Docker sandbox sends where a credential goes (the model
+ * key, the tool-bridge token, the GitHub CLI token). The Vercel firewall or
+ * Agent Vault replaces the Authorization header outside the sandbox.
  */
 export const WORKSPACE_CHAT_FIREWALL_PLACEHOLDER = "ctxpipe-firewall" as const
 
@@ -195,7 +196,8 @@ export function writeWorkspaceChatOpenCodeConfig(input: {
   const configJson = `${JSON.stringify(
     workspaceChatOpenCodeConfig({
       modelBase: input.modelBase,
-      hosted: input.isolation === "vercel",
+      proxyAddsCredentials:
+        input.isolation === "vercel" || input.isolation === "docker",
     }),
     null,
     2,
@@ -252,10 +254,11 @@ export function workspaceChatOpenCodeConfig(input: {
   modelBase: string
   mcp?: { name: string; url: string; token: string }
   /**
-   * Hosted sandboxes: the firewall adds the key, and the open network lets
-   * the agent read web pages.
+   * Hosted and Docker sandboxes: the Vercel firewall or Agent Vault adds the
+   * key outside the sandbox. Their network holds no credential and reaches
+   * no private address but the backend, so the agent may read web pages.
    */
-  hosted?: boolean
+  proxyAddsCredentials?: boolean
 }): {
   $schema: "https://opencode.ai/config.json"
   enabled_providers: readonly ["ctxpipe"]
@@ -303,7 +306,7 @@ export function workspaceChatOpenCodeConfig(input: {
         name: "ctxpipe",
         options: {
           baseURL: WORKSPACE_CHAT_OPENCODE_PROXY_URL_ENV,
-          apiKey: input.hosted
+          apiKey: input.proxyAddsCredentials
             ? WORKSPACE_CHAT_FIREWALL_PLACEHOLDER
             : "{env:CTXPIPE_OPENCODE_RUN_TOKEN}",
         },
@@ -314,12 +317,12 @@ export function workspaceChatOpenCodeConfig(input: {
     },
     model: workspaceChatOpenCodeModel(input.modelBase),
     // Subagents burn TTFT. Web search uses OpenCode's own search service,
-    // not ours, so it stays off. A hosted agent may read web pages: its
-    // network is open and holds no credential. Elsewhere the network is not
-    // isolated from the host, so web reads stay off.
+    // not ours, so it stays off. A hosted or Docker agent may read web
+    // pages: its network is open and holds no credential. An unsandboxed
+    // agent shares the backend's network, so web reads stay off.
     permission: {
       task: "deny",
-      webfetch: input.hosted ? "allow" : "deny",
+      webfetch: input.proxyAddsCredentials ? "allow" : "deny",
       websearch: "deny",
     },
     // Title generation is a parallel completion that contends for the same

@@ -37,6 +37,7 @@ import {
   SandboxInstanceOwnershipConflict,
 } from "../../models/workspace-sandboxes.js"
 import { getLogger, log } from "../../observability/logger.js"
+import { AgentVaultUnavailableError, type RunVault } from "./agent-vault.js"
 import {
   WORKSPACE_CHAT_CLONE_BRANCH_SECRET,
   WORKSPACE_CHAT_CLONE_SHA_SECRET,
@@ -59,9 +60,11 @@ import {
 } from "./conversation-sandbox-lifecycle.js"
 import { checkoutSessionBranch } from "./conversation-session-branch.js"
 import { nameConversationIfUnnamed } from "./conversation-title.js"
+import { openDockerRunVault } from "./docker-run-vault.js"
 import { hostedSandboxAccess } from "./hosted-sandbox-access.js"
 import { type WorkspaceRevision, workspaceRevisionSchema } from "./revision.js"
 import { recordedRunGitToken, revokeRunGitTokens } from "./run-git-tokens.js"
+import { modelProxyCredentialRules } from "./sandbox-credential-rules.js"
 import { postgresSandboxInstanceStore } from "./sandbox-instance-store.js"
 import {
   enterSandboxLifecycleContext,
@@ -83,6 +86,7 @@ import {
   remoteDockerHost,
   type SandboxProvider as SandboxProviderName,
   withDockerAgentPort,
+  withProxyCa,
   withSessionOnlyEnv,
 } from "./sandbox-provider.js"
 import {
@@ -109,6 +113,7 @@ import {
 } from "./workspace-chat-callback.js"
 import { workspaceChatCompletionsBaseUrl } from "./workspace-chat-model-proxy.js"
 import {
+  WORKSPACE_CHAT_FIREWALL_PLACEHOLDER,
   WORKSPACE_CHAT_LOCAL_PROCESS_SCRUB_ENV,
   WORKSPACE_CHAT_OPENCODE_JSON_SECRET,
   workspaceChatOpenCodeContract,
@@ -250,6 +255,8 @@ export function conversationSandboxProvider(
   /** Docker: the Workspace base image a new sandbox starts from, if any. */
   baseImage: () => Promise<string | undefined>,
   vercel?: Parameters<typeof vercelConversationProvider>[0],
+  /** Docker: the run's proxy CA, written into each sandbox before its clone. */
+  proxyCaPem?: string,
 ): SandboxProvider {
   if (isolation === "vercel") {
     if (!vercel) throw new Error("Vercel sandbox options are missing")
@@ -262,22 +269,25 @@ export function conversationSandboxProvider(
       }),
     )
   return withSingleOpencodeServer(
-    withSessionOnlyEnv(
-      withDockerAgentPort(
-        startingFromBase({
-          make: (image) =>
-            dockerSandbox({
-              image: image ?? workspaceChatDockerImage(),
-              publishPorts: [WORKSPACE_CHAT_OPENCODE_PORT],
-              dockerodeOptions: { timeout: 120_000 },
-            }),
-          baseImage,
-        }),
-        {
-          agentPassword,
-          daemonHost: remoteDockerHost(),
-        },
+    withProxyCa(
+      withSessionOnlyEnv(
+        withDockerAgentPort(
+          startingFromBase({
+            make: (image) =>
+              dockerSandbox({
+                image: image ?? workspaceChatDockerImage(),
+                publishPorts: [WORKSPACE_CHAT_OPENCODE_PORT],
+                dockerodeOptions: { timeout: 120_000 },
+              }),
+            baseImage,
+          }),
+          {
+            agentPassword,
+            daemonHost: remoteDockerHost(),
+          },
+        ),
       ),
+      proxyCaPem,
     ),
   )
 }
@@ -481,21 +491,8 @@ export async function warmTanstackWorkspaceChat(
   const prepareStarted = Date.now()
   // Attaching (Files reads) runs no Git command that needs a token.
   const cloneLabel = options?.existingOnly ? undefined : `clone:${randomUUID()}`
-  // The prepare's own clone token is revoked when it returns, while the
-  // conversation lock is still held. A turn mints its own token.
-  const revokeCloneToken = async () => {
-    if (cloneLabel)
-      await revokeRunGitTokens({
-        orgId: input.orgId,
-        conversationId: input.conversationId,
-        prefixes: [`${cloneLabel}:`],
-      })
-  }
   const built = await buildWorkspaceChatSandbox(input, cloneLabel)
-  if (!built.ok) {
-    await revokeCloneToken()
-    return built
-  }
+  if (!built.ok) return built
   const abortController = abortControllerFrom(input.abortSignal)
   try {
     const ctx = sandboxEnsureContext(input, built, abortController)
@@ -537,7 +534,9 @@ export async function warmTanstackWorkspaceChat(
     )
     return { ok: false, status: 503, error: "workspace chat prepare failed" }
   } finally {
-    await revokeCloneToken()
+    // The prepare's credentials end with it, while the conversation lock is
+    // still held. A turn gets its own.
+    await built.release()
     // Opening or reading a conversation counts as use; also covers a start
     // that failed after its sandbox began running.
     if (built.isolation !== "unsandboxed")
@@ -552,16 +551,10 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
     }
   | { ok: false; status: number; error: string }
 > {
-  const cloneLabel = `clone:${randomUUID()}`
+  // One label per turn: the turn end revokes exactly its own token.
+  const cloneLabel = `clone:${input.runId ?? randomUUID()}`
   const built = await buildWorkspaceChatSandbox(input, cloneLabel)
-  if (!built.ok) {
-    await revokeRunGitTokens({
-      orgId: input.orgId,
-      conversationId: input.conversationId,
-      prefixes: [`${cloneLabel}:`],
-    })
-    return built
-  }
+  if (!built.ok) return built
   let activeSandbox: SandboxHandle | undefined
   const runtime = workspaceChatRuntimeConfig({
     writeStatus: input.writeStatus,
@@ -575,7 +568,8 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
       return current.stdout.trim()
     },
     defaultBranch: input.defaultBranch,
-    openNetwork: built.isolation === "vercel",
+    // Hosted: the firewall. Docker: all egress goes through Agent Vault.
+    openNetwork: built.isolation !== "unsandboxed",
   })
   const { session, callbackHost, definition } = built
   // OpenCode treats `--port=0` as 4096, so overlapping unsandboxed sends must
@@ -662,17 +656,7 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
   }
   // Revoke this turn's GitHub tokens as soon as it ends; a failure is left
   // for the sandbox sweep and never fails the turn.
-  const revokeTurnGitTokens = async () => {
-    if (hosted) return
-    await revokeRunGitTokens({
-      orgId: input.orgId,
-      conversationId: input.conversationId,
-      prefixes: [
-        `${cloneLabel}:`,
-        ...(transcriptOwner ? [`git:${transcriptOwner}:`] : []),
-      ],
-    })
-  }
+  const revokeTurnGitTokens = () => built.release()
   const stream = await chat({
     adapter: opencodeText(built.contract.opencodeModel, {
       ...opencodeListen,
@@ -797,6 +781,7 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
         built.publicBaseUrl && hosted
           ? { publicBaseUrl: built.publicBaseUrl, bridge: hosted.bridge }
           : undefined,
+        built.vault,
       ),
       defineChatMiddleware({
         name: "workspace-chat-permissions",
@@ -822,13 +807,19 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
                 purpose,
               })
             // A turn starts with no agent process of an earlier turn: such a
-            // process would get this turn's capability or firewall rules.
+            // process would get this turn's capability, rules or session.
             if (built.isolation !== "unsandboxed")
               await stopEarlierTurnProcesses(activeSandbox)
             // The conversation lock is held and OpenCode has not started.
-            // Its subprocesses inherit these values (none when hosted).
+            // Its subprocesses inherit these values (none when hosted, a
+            // placeholder on Docker).
             await activeSandbox.env.set(
-              await workspaceChatRunCapabilities(built.isolation, mint),
+              await workspaceChatRunCapabilities(
+                built.isolation,
+                built.vault,
+                session.proxyUrl,
+                mint,
+              ),
             )
             abortController.signal.throwIfAborted()
             if (hosted) {
@@ -866,21 +857,22 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
 /**
  * The run capabilities a sandbox gets as environment variables. A hosted
  * sandbox gets none: its firewall adds each credential outside the sandbox
- * (see `conversationFirewall`).
+ * (see `conversationFirewall`). A Docker sandbox gets none either: the run's
+ * vault holds the model capability, and Agent Vault adds it to model proxy
+ * calls (the OpenCode config sends a placeholder). Only an unsandboxed run
+ * gets the capability itself.
  */
 export async function workspaceChatRunCapabilities(
   isolation: SandboxProviderName,
+  vault: Pick<RunVault, "addRules"> | undefined,
+  proxyUrl: string,
   mint: (purpose: WorkspaceChatRunCapabilityPurpose) => Promise<string>,
 ): Promise<Record<string, string>> {
   if (isolation === "vercel") return {}
-  const [git, model] = await Promise.all([
-    mint("workspace-chat-git"),
-    mint("workspace-chat-model"),
-  ])
-  return {
-    CTXPIPE_GIT_RUN_CAPABILITY: git,
-    CTXPIPE_OPENCODE_RUN_TOKEN: model,
-  }
+  const model = await mint("workspace-chat-model")
+  if (!vault) return { CTXPIPE_OPENCODE_RUN_TOKEN: model }
+  await vault.addRules(modelProxyCredentialRules(proxyUrl, model))
+  return {}
 }
 
 async function resolveWorkspaceChatSession(
@@ -944,9 +936,9 @@ async function resolveWorkspaceChatOrgSlug(
 }
 
 /**
- * `cloneLabel` names the clone token that Docker and local sandboxes get for
- * this call (a turn revokes its own when it ends; the sweep revokes the
- * others). Without it the sandbox gets no token: it is only attached to.
+ * `cloneLabel` names this call's GitHub token: in a Docker run's vault, or a
+ * local run's clone token (`release` ends it; the sweep ends what a crash
+ * left). Without it the sandbox gets no credential: it is only attached to.
  */
 async function buildWorkspaceChatSandbox(
   input: TanstackWorkspaceChatInput,
@@ -1058,9 +1050,31 @@ async function buildWorkspaceChatSandbox(
     return choice
   }
   const repoFullName = githubRepoFullNameFromWorkspaceUrl(desiredUrl)
-  // Hosted sandboxes never hold the token: the firewall adds it to GitHub calls.
+  // Docker: the run's vault holds the GitHub token and Agent Vault adds it.
+  // A Files read (no label) runs no network command and gets no vault.
+  let vault: RunVault | undefined
+  if (selectedProvider === "docker" && cloneLabel) {
+    try {
+      vault = await openDockerRunVault({
+        orgId: input.orgId,
+        conversationId: input.conversationId,
+        label: cloneLabel,
+        revision: revision.data,
+      })
+    } catch (error) {
+      if (!(error instanceof AgentVaultUnavailableError)) throw error
+      getLogger().error(error, { step: "workspace-chat-agent-vault" })
+      return {
+        ok: false as const,
+        status: 503 as const,
+        error: `Workspace chat is unavailable: ${error.message}`,
+      }
+    }
+  }
+  // Hosted sandboxes never hold the token: the firewall adds it to GitHub
+  // calls. Docker sandboxes never hold it either: Agent Vault adds it.
   const cloneToken =
-    selectedProvider === "vercel"
+    selectedProvider === "vercel" || selectedProvider === "docker"
       ? ""
       : input.cloneToken
         ? input.cloneToken
@@ -1089,6 +1103,7 @@ async function buildWorkspaceChatSandbox(
     runToken: session.runToken,
     proxyUrl: session.proxyUrl,
     modelBase: contract.modelBase,
+    proxyEnv: vault?.env,
   })
   const provider = conversationSandboxProvider(
     selectedProvider,
@@ -1107,11 +1122,26 @@ async function buildWorkspaceChatSandbox(
             }),
         }
       : undefined,
+    vault?.caPem,
   )
   return {
     ok: true as const,
     isolation: selectedProvider,
     publicBaseUrl,
+    vault,
+    /**
+     * End this call's credentials: a Docker vault (its session stops, then
+     * its GitHub token is revoked) or a local run's clone token. Never throws.
+     */
+    release: async () => {
+      if (vault) return vault.close()
+      if (selectedProvider === "unsandboxed" && cloneLabel)
+        await revokeRunGitTokens({
+          orgId: input.orgId,
+          conversationId: input.conversationId,
+          prefixes: [`${cloneLabel}:`],
+        })
+    },
     firewall: vercel?.ok ? vercel.options.access.firewall : undefined,
     definition: conversationSandboxDefinition({
       provider:
@@ -1197,6 +1227,8 @@ function conversationSandboxWorkspace(input: {
   runToken: string
   proxyUrl: string
   modelBase: string
+  /** Docker: the run's proxy session and CA trust. */
+  proxyEnv?: Record<string, string>
 }) {
   const { input: chatInput } = input
   const opencodeHome = writeWorkspaceChatOpenCodeConfig({
@@ -1221,7 +1253,13 @@ function conversationSandboxWorkspace(input: {
       ? { [WORKSPACE_CHAT_SESSION_BRANCH_SECRET]: chatInput.lastBranch }
       : {}),
     ...opencodeHome.homeEnv,
-    [WORKSPACE_CHAT_CLONE_TOKEN_SECRET]: cloneToken,
+    ...(input.isolation === "docker"
+      ? {
+          ...input.proxyEnv,
+          // `gh` sends no request without a token; Agent Vault replaces the header.
+          GH_TOKEN: WORKSPACE_CHAT_FIREWALL_PLACEHOLDER,
+        }
+      : { [WORKSPACE_CHAT_CLONE_TOKEN_SECRET]: cloneToken }),
   })
   const setup = [
     ...(input.isolation === "docker"

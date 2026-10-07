@@ -9,11 +9,8 @@ RUN apt-get update \
     && mkdir -p /workspace /home/node/.config /home/node/.local/share /home/node/.local/state /home/node/.cache \
     && chown -R 1000:1000 /workspace /home/node
 
-COPY git-credential.mjs /usr/local/bin/ctxpipe-git-credential
-RUN chmod 755 /usr/local/bin/ctxpipe-git-credential \
-    && ln -s /usr/local/bin/ctxpipe-git-credential /usr/local/bin/gh \
-    && git config --system credential.helper /usr/local/bin/ctxpipe-git-credential \
-    && git config --system credential.useHttpPath true
+# No credential helper and no token: the run's Agent Vault proxy adds the
+# GitHub credential to each request outside the sandbox.
 
 ENV GIT_TERMINAL_PROMPT=0
 ENV HOME=/home/node

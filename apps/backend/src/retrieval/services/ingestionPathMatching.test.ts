@@ -46,7 +46,9 @@ describe("evidenceSourceIdMayHaveWindowsDriveColon", () => {
       evidenceSourceIdMayHaveWindowsDriveColon("x:repo:C:\\foo\\bar.ts:hash"),
     ).toBe(true)
     expect(
-      evidenceSourceIdMayHaveWindowsDriveColon("identifyAPIs:repo_1:./:src/a.ts:h"),
+      evidenceSourceIdMayHaveWindowsDriveColon(
+        "identifyAPIs:repo_1:./:src/a.ts:h",
+      ),
     ).toBe(false)
   })
 })

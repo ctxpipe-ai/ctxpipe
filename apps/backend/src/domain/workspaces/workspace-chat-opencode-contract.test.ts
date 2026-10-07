@@ -234,8 +234,9 @@ describe("workspaceChatOpenCodeContract", () => {
       `${written.homeEnv.HOME}/opencode.json`,
     )
     expect(written.homeEnv.PATH).toBe("/usr/local/bin:/usr/bin:/bin")
+    // Agent Vault adds the model capability: the config holds a placeholder.
     expect(JSON.parse(written.configJson).provider.ctxpipe.options.apiKey).toBe(
-      "{env:CTXPIPE_OPENCODE_RUN_TOKEN}",
+      WORKSPACE_CHAT_FIREWALL_PLACEHOLDER,
     )
   })
 
@@ -254,6 +255,23 @@ describe("workspaceChatOpenCodeContract", () => {
     const permission = JSON.parse(written.configJson).permission
     expect(permission.webfetch).toBe("allow")
     expect(permission.websearch).toBe("deny")
+  })
+
+  it("lets a Docker agent read web pages through Agent Vault, but not an unsandboxed one", () => {
+    const permission = (isolation: "docker" | "unsandboxed") =>
+      JSON.parse(
+        writeWorkspaceChatOpenCodeConfig({
+          conversationId: `conv_${isolation}_web`,
+          modelBase: "openai/gpt-5.6-terra",
+          isolation,
+        }).configJson,
+      ).permission
+    // Docker egress goes only through the Agent Vault proxy, which holds the
+    // credentials and reaches no private address but the backend.
+    expect(permission("docker").webfetch).toBe("allow")
+    expect(permission("docker").websearch).toBe("deny")
+    // Unsandboxed runs share the backend's network.
+    expect(permission("unsandboxed").webfetch).toBe("deny")
   })
 
   it("keeps the Vercel runtime's Node on PATH next to the agent CLI", () => {

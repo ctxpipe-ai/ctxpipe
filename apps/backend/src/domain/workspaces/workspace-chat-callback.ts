@@ -16,6 +16,8 @@ import {
   timingSafeBearerEqual,
 } from "@tanstack/ai-sandbox"
 import { Hono } from "hono"
+import type { RunVault } from "./agent-vault.js"
+import { bearerUrlRule } from "./sandbox-credential-rules.js"
 import { remoteDockerHost } from "./sandbox-provider.js"
 import { WORKSPACE_CHAT_FIREWALL_PLACEHOLDER } from "./workspace-chat-opencode-contract.js"
 
@@ -35,7 +37,15 @@ export async function sandboxCallbackHost(
   const raw = env.SANDBOX_CALLBACK_HOST?.trim()
   if (!raw) {
     const daemonHost = remoteDockerHost(env)
-    return daemonHost ? localAddressTowards(daemonHost, network) : undefined
+    const address = daemonHost
+      ? await localAddressTowards(daemonHost, network)
+      : undefined
+    // Agent Vault rules take host names, not addresses. The AWS stack sets
+    // the VPC's DNS suffix, under which every VPC address has a name.
+    const suffix = env.SANDBOX_CALLBACK_DNS_SUFFIX?.trim()
+    if (address && suffix && isIP(address) === 4)
+      return `ip-${address.replaceAll(".", "-")}.${suffix}`
+    return address
   }
 
   const unwrapped =
@@ -211,6 +221,26 @@ export function publicRouteBridgeProvisioner(
   }
 }
 
+/**
+ * The OpenCode MCP configuration in the sandbox gets a placeholder; the run's
+ * vault holds the bridge token, and Agent Vault adds it to bridge calls.
+ */
+export function withBridgeTokenInVault(
+  provisioner: ToolBridgeProvisioner,
+  vault: Pick<RunVault, "addRules"> | undefined,
+): ToolBridgeProvisioner {
+  if (!vault) return provisioner
+  return {
+    async provision(tools, options) {
+      const bridge = await provisioner.provision(tools, options)
+      await vault.addRules([
+        bearerUrlRule("tool-bridge", bridge.url, bridge.token),
+      ])
+      return { ...bridge, token: WORKSPACE_CHAT_FIREWALL_PLACEHOLDER }
+    },
+  }
+}
+
 /** Stateless MCP over HTTP: JSON-RPC in, JSON out, per-run bearer token. */
 export const workspaceChatToolBridgeRoutes = new Hono()
   .post("/api/v1/workspace-chat/tool-bridge/:bridgeId", async (c) => {
@@ -237,12 +267,17 @@ export const workspaceChatToolBridgeRoutes = new Hono()
 export function workspaceChatCallbackMiddleware(
   callbackHost?: string,
   hosted?: { publicBaseUrl: string; bridge: { id: string; token: string } },
+  /** Docker: the run's vault, which holds the bridge token. */
+  vault?: Pick<RunVault, "addRules">,
 ) {
-  const provisioner = hosted
-    ? publicRouteBridgeProvisioner(hosted.publicBaseUrl, hosted.bridge)
-    : callbackHost
-      ? workspaceChatToolBridgeProvisioner(callbackHost)
-      : nodeHttpBridgeProvisioner
+  const provisioner = withBridgeTokenInVault(
+    hosted
+      ? publicRouteBridgeProvisioner(hosted.publicBaseUrl, hosted.bridge)
+      : callbackHost
+        ? workspaceChatToolBridgeProvisioner(callbackHost)
+        : nodeHttpBridgeProvisioner,
+    vault,
+  )
   return defineChatMiddleware({
     name: "workspace-chat-callback",
     provides: [ToolBridgeProvisionerCapability],

@@ -2,13 +2,12 @@ import { and, eq } from "drizzle-orm"
 import type { Env } from "../../config/env.js"
 import { getOrgDb, withOrgDbContext } from "../../db/client.js"
 import { repositories } from "../../db/schema/repositories.js"
+import { resolveNotionOAuthApp } from "../../lib/notion-oauth.js"
 import type {
   NotionBinding,
   NotionConnection,
 } from "../../models/notion-connector.js"
 import { refreshNotionConnectionTokensWithLock } from "../../models/notion-connector.js"
-import { loadNotionStoredConfig } from "./connection-load.js"
-import { resolveNotionOAuthApp } from "../../lib/notion-oauth.js"
 import {
   connectorPathMatchesPreservation,
   createConnectorAssetBytePool,
@@ -43,6 +42,7 @@ import {
   hasNotionConfigYamlChanged,
   renderNotionConfigYaml,
 } from "./config-yaml.js"
+import { loadNotionStoredConfig } from "./connection-load.js"
 import {
   getManagedNotionRootPath,
   getNotionDatabaseIndexPath,
@@ -427,7 +427,9 @@ export async function captureNotionContent(input: {
   const managedRoot = getManagedNotionRootPath()
   const managedRepoFiles = (
     input.existingBlobs?.map((entry) => entry.path) ?? input.existingPaths
-  ).filter((path) => path.startsWith(managedRoot) && path !== NOTION_CONFIG_PATH)
+  ).filter(
+    (path) => path.startsWith(managedRoot) && path !== NOTION_CONFIG_PATH,
+  )
   const desiredPaths = new Set(filesToWrite.map((file) => file.path))
   const deletePaths = getNotionDeletePaths({
     managedRepoPaths: managedRepoFiles,
@@ -491,7 +493,9 @@ export async function captureNotionIncrementalContent(input: {
   const managedRoot = getManagedNotionRootPath()
   const managedPaths = (
     input.existingBlobs?.map((entry) => entry.path) ?? input.existingPaths
-  ).filter((path) => path.startsWith(managedRoot) && path !== NOTION_CONFIG_PATH)
+  ).filter(
+    (path) => path.startsWith(managedRoot) && path !== NOTION_CONFIG_PATH,
+  )
 
   const changes = await buildNotionIncrementalChanges({
     env: input.env,

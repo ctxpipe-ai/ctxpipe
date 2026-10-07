@@ -37,6 +37,8 @@ export interface NativeHttpsGitGithubAuth {
 
 export interface NativeHttpsGitFixture {
   image: string
+  /** The fixture CA, for a proxy (Agent Vault) that dials the server. */
+  caCertificatePath: string
   serve<T>(
     directory: string,
     fn: (remote: NativeHttpsGitRemote) => Promise<T>,
@@ -163,6 +165,7 @@ export async function withNativeHttpsGitFixture<T>(
 
     result = await fn({
       image: derivedImage,
+      caCertificatePath: caCert,
       async serve<R>(
         directory: string,
         remoteFn: (remote: NativeHttpsGitRemote) => Promise<R>,

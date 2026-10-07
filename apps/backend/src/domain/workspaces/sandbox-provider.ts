@@ -6,6 +6,7 @@ import Docker from "dockerode"
 import { assertNotInOrgDbContext } from "../../db/client.js"
 import type { RunningSandboxProvider } from "../../models/workspace-sandboxes.js"
 import { log } from "../../observability/logger.js"
+import { writeProxyCa } from "./agent-vault.js"
 import { wrapSandboxHandles } from "./sandbox-process-guards.js"
 
 /** Hosted runs Vercel, self-host runs Docker; unsandboxed is explicit only. */
@@ -84,6 +85,21 @@ export function withSessionOnlyEnv(
     (handle) => handle,
     (options) => ({ ...options, env: undefined }),
   )
+}
+
+/**
+ * Docker sandboxes trust the run's Agent Vault CA. The file is written on
+ * every create and attach, before the stock clone runs; the CA is public.
+ */
+export function withProxyCa(
+  provider: TanstackSandboxProvider,
+  caPem: string | undefined,
+): TanstackSandboxProvider {
+  if (!caPem) return provider
+  return wrapSandboxHandles(provider, async (handle) => {
+    await writeProxyCa(handle, caPem)
+    return handle
+  })
 }
 
 /**

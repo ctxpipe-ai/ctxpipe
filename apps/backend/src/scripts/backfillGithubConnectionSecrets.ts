@@ -1,7 +1,6 @@
 import { and, eq, sql } from "drizzle-orm"
 import type { Env } from "../config/env.js"
 import { getSystemDb } from "../db/client.js"
-import { upsertConnectionDirectory } from "../models/connection-directory.js"
 import {
   CONNECTION_TYPE_GITHUB,
   connections,
@@ -11,6 +10,7 @@ import {
   parseGithubConnectionStored,
   serialiseGithubConnectionConfigForDb,
 } from "../lib/connection-config.js"
+import { upsertConnectionDirectory } from "../models/connection-directory.js"
 import { log } from "../observability/logger.js"
 
 const HOSTED_FALLBACK_APP_SLUG = "ctxpipe-agent"

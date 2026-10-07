@@ -1,6 +1,6 @@
 import { expect, it } from "vitest"
-import { closeDb, initDb, withOrgDbContext } from "./client.js"
 import { enqueueWorkspaceIndex } from "../openworkflow/enqueue-workspace-index.js"
+import { closeDb, initDb, withOrgDbContext } from "./client.js"
 
 it("rejects outbound workflow enqueue inside a real PostgreSQL transaction", async () => {
   if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL required")

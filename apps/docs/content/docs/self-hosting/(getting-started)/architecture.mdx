@@ -43,36 +43,70 @@ backend origin.
 
 The same policy holds on Docker Compose and AWS:
 
-- Sandboxes reach the internet (Git hosts, package registries) and the
-  backend's model proxy and per-run tool bridges.
-- Data stores are never exposed to sandboxes. Compose never publishes
-  Postgres or FalkorDB, because Docker routes to a container's published ports
-  from other networks; AWS admits only the app's security group to them.
+- A chat sandbox holds no credential. It has no GitHub token, no model proxy
+  credential, and no tool bridge token in its environment, files, or Git
+  configuration. [Agent Vault](https://github.com/Infisical/agent-vault)
+  (open source) runs next to the sandboxes and adds each credential to the
+  requests that need it.
+- Sandboxes reach the network only through the Agent Vault proxy. On Compose,
+  rules in the `dind` service enforce this; on AWS, `DOCKER-USER` rules on the
+  sandbox host do. HTTP and
+  HTTPS stay open: agents can clone, fetch, push, call the GitHub CLI, install
+  packages, and read documentation on the internet. The proxy forwards hosts
+  that have no credential rule as they are.
+- All other traffic from a sandbox is blocked: a direct connection that does
+  not use the proxy, any non-HTTP protocol (SSH, raw TCP, UDP), and DNS.
+  Sandboxes do not resolve names; the proxy resolves them.
+- Private addresses through the proxy: on Compose, only the backend's fixed
+  address on the `sandbox` network. On AWS, only the backend's subnets; the
+  host also rejects traffic from Agent Vault to the host itself. Agent Vault
+  never reaches its own management API. Data stores are never exposed to
+  sandboxes: Compose never publishes Postgres or FalkorDB, and AWS admits only
+  the app's security group to them.
 - Sandboxes cannot reach cloud instance metadata (`169.254.169.254`).
-- Each agent port needs a per-conversation password, and sandboxes cannot
-  reach each other over the Docker bridge.
+- Each agent port needs a password, and sandboxes cannot reach each other over
+  the Docker bridge.
+- Each chat turn gets its own Agent Vault vault and proxy session. The backend
+  deletes the vault when the turn ends, and the session stops with it. The
+  backend also revokes the turn's GitHub token.
+- If Agent Vault does not answer, Docker chat fails closed with a clear error.
+  The backend never gives a sandbox a credential instead.
 
-Sandboxes can reach anything else that is published on the Docker host or the
-network, so do not publish other unauthenticated services on a host that runs
-sandboxes.
+The deployment generates the Agent Vault passwords. You do not set them. On
+Compose, the master password is on a volume that only Agent Vault mounts, and
+the owner password is on a volume that only the backend and the worker mount.
+On AWS, the stack keeps both in Secrets Manager; only the host reads the
+master password.
 
-DNS inside a sandbox: on Compose, sandboxes use public resolvers (`8.8.8.8`,
-`8.8.4.4`), because Docker substitutes them on its default bridge when the
-daemon's own resolver is a loopback address, as Compose's is. Compose service
-names and private DNS zones do not resolve there. On AWS, sandboxes use the
-VPC resolver through the host.
+#### Agent Vault owner password
+
+The backend registers the owner password on its first login to an Agent Vault
+with no owner. After that, Agent Vault refuses another password, and Docker
+chat fails closed with an error that names this section. To change the
+password, change it in Agent Vault first (`agent-vault account change-password`,
+or its web UI on port 14321 inside the deployment), then give the backend the
+new value. To start over, remove Agent Vault's data (Compose: the
+`agent_vault_data` volume; AWS: replace the sandbox host). Run vaults are
+temporary, so no data is lost.
+
+Tools in a sandbox must use the standard proxy variables (`HTTPS_PROXY`,
+`HTTP_PROXY`) and trust the proxy's certificate authority. The sandbox
+environment sets both. A tool that ignores the proxy variables cannot reach
+the network.
 
 ### Chat sandboxes on Docker Compose
 
 Compose runs each Workspace conversation's agent in its own container inside
-`dind`, a stock Docker-in-Docker service. `dind`, `backend`, and `worker` share
-a separate `sandbox` network:
+`dind`, a stock Docker-in-Docker service. `dind`, `agent-vault`, `backend`, and
+`worker` share a separate `sandbox` network (`172.30.99.0/24`):
 
 | Component | Port | Reached by | Purpose |
 |---|---:|---|---|
 | Docker API (mutual TLS) | `2376` | `backend`, `worker` | Create, stop, resume, and remove sandboxes |
 | Sandbox agent ports (password per conversation) | `32768`–`60999` on `dind` | `backend` | The backend talks to the agent in each sandbox |
-| Backend model proxy and tool bridges | `3000` and per-run ports on the backend's `sandbox` address | Sandboxes | Model calls and tool calls go back to the backend |
+| Agent Vault API | `14321` | `backend`, `worker` | One vault per chat turn |
+| Agent Vault proxy | `14322` | Sandboxes (the only address they reach) | Adds credentials and forwards HTTP(S) |
+| Backend model proxy and tool bridges | `3000` and per-run ports on `backend.sandbox.ctxpipe.internal` | Agent Vault, for sandboxes | Model calls and tool calls go back to the backend |
 
 See [Docker: Chat sandboxes](/docs/self-hosting/deployment/docker#chat-sandboxes).
 
@@ -85,12 +119,15 @@ services. Each Workspace conversation's agent runs in its own container there.
 |---|---:|---|---|
 | Docker API (mutual TLS) | `2376` | `backend`, `worker` | Create, stop, resume, and remove sandboxes |
 | Sandbox agent ports (password per conversation) | `32768`–`60999` | `backend` | The backend talks to the agent in each sandbox |
-| Backend model proxy and tool bridges | `3000`, `32768`–`60999` | Sandboxes | Model calls and tool calls go back to the backend task that runs the turn |
+| Agent Vault API | `14321` | `backend`, `worker` | One vault per chat turn |
+| Agent Vault proxy | `14322` (on the host) | Sandboxes (the only address they reach) | Adds credentials and forwards HTTP(S) |
+| Backend model proxy and tool bridges | `3000`, `32768`–`60999` | Agent Vault, for sandboxes | Model calls and tool calls go back to the backend task that runs the turn, at its VPC DNS name |
 
-Sandboxes reach the internet through NAT. Security groups keep Postgres,
-Neptune, EFS, codesearch, the UI, and the worker away from them. Agent ports
-are reachable inside the VPC, so the host also blocks sandboxes from the host
-itself. See
+`DOCKER-USER` rules on the host let sandboxes reach only the Agent Vault proxy.
+Agent Vault reaches the internet through NAT and may dial private addresses
+only in the VPC. Security groups keep Postgres, Neptune, EFS, codesearch, the
+UI, and the worker away from the host. The host also blocks sandboxes from the
+host itself. See
 [AWS: Chat sandbox host](/docs/self-hosting/deployment/aws#chat-sandbox-host).
 
 ## Public surface

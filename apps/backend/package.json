@@ -42,6 +42,7 @@
     "@hono/mcp": "^0.2.3",
     "@hono/otel": "^1.1.2",
     "@hono/zod-openapi": "^1.2.2",
+    "@infisical/agent-vault-sdk": "^0.7.0",
     "@langchain/aws": "^1.4.2",
     "@langchain/core": "^1.2.1",
     "@langchain/langgraph": "^1.4.7",

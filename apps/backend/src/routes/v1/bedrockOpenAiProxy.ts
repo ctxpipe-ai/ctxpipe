@@ -1,19 +1,19 @@
+import { ChatBedrockConverse } from "@langchain/aws"
+import type { BaseMessage } from "@langchain/core/messages"
 import {
   AIMessage,
-  AIMessageChunk,
+  type AIMessageChunk,
   HumanMessage,
   SystemMessage,
 } from "@langchain/core/messages"
-import type { BaseMessage } from "@langchain/core/messages"
-import { ChatBedrockConverse } from "@langchain/aws"
 
 import type { AppEnv } from "../../app/env.js"
-import { invokeBedrockEmbedding } from "../../retrieval/services/providers/bedrockEmbeddings.js"
-import { lowerBedrockConverseParams } from "../../retrieval/services/providers/bedrockModelProvider.js"
 import {
   modelParamsFromSpec,
   modelSpecBase,
 } from "../../retrieval/services/parseModelSpec.js"
+import { invokeBedrockEmbedding } from "../../retrieval/services/providers/bedrockEmbeddings.js"
+import { lowerBedrockConverseParams } from "../../retrieval/services/providers/bedrockModelProvider.js"
 import { resolveBedrockRegion } from "../../retrieval/services/providers/bedrockRegion.js"
 
 type OpenAiChatBody = {
@@ -89,7 +89,9 @@ function createBedrockChatModel(
     ...(converseParams?.maxTokens !== undefined
       ? { maxTokens: converseParams.maxTokens }
       : {}),
-    ...(converseParams?.topP !== undefined ? { topP: converseParams.topP } : {}),
+    ...(converseParams?.topP !== undefined
+      ? { topP: converseParams.topP }
+      : {}),
     ...(converseParams?.additionalModelRequestFields
       ? {
           additionalModelRequestFields:

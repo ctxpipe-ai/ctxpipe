@@ -186,7 +186,10 @@ describe("codesearch checkout reads", () => {
 
 describe("globFiles", () => {
   beforeEach(() => {
-    vi.stubEnv("AUTH_SECRET", "test-only-auth-secret-with-at-least-32-characters")
+    vi.stubEnv(
+      "AUTH_SECRET",
+      "test-only-auth-secret-with-at-least-32-characters",
+    )
     vi.stubEnv("CODESEARCH_URL", "http://codesearch.test")
     vi.stubEnv(
       "DATABASE_URL",
