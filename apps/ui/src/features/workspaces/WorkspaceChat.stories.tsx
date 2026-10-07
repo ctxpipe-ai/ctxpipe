@@ -649,3 +649,215 @@ export const LateErrorDoesNotClobberSuccess: Story = {
     }
   },
 }
+
+const firstTurnAnswer = "The billing service lives in the ledger package."
+
+/** A first turn as the backend streams it: setup, reasoning, a tool, text. */
+function firstTurnEvents(threadId: string, runId: string): object[] {
+  return [
+    { type: "RUN_STARTED", threadId, runId },
+    { type: "CUSTOM", name: "sandbox-setup", value: { phase: "starting" } },
+    { type: "CUSTOM", name: "sandbox-setup", value: { phase: "ready" } },
+    { type: "REASONING_START", messageId: "reason_first" },
+    {
+      type: "REASONING_MESSAGE_START",
+      messageId: "reason_first",
+      role: "reasoning",
+    },
+    {
+      type: "REASONING_MESSAGE_CONTENT",
+      messageId: "reason_first",
+      delta: "**Finding billing**\n\nLooking for the billing service.",
+    },
+    { type: "REASONING_MESSAGE_END", messageId: "reason_first" },
+    { type: "REASONING_END", messageId: "reason_first" },
+    {
+      type: "TOOL_CALL_START",
+      toolCallId: "call_first",
+      toolCallName: "bash",
+      parentMessageId: "msg_first_turn",
+    },
+    {
+      type: "TOOL_CALL_ARGS",
+      toolCallId: "call_first",
+      delta: '{"command":"ls packages"}',
+    },
+    { type: "TOOL_CALL_END", toolCallId: "call_first" },
+    {
+      type: "TOOL_CALL_RESULT",
+      messageId: "tool_result_first",
+      toolCallId: "call_first",
+      content: "ledger",
+      role: "tool",
+    },
+    {
+      type: "TEXT_MESSAGE_START",
+      messageId: "msg_first_turn",
+      role: "assistant",
+    },
+    {
+      type: "TEXT_MESSAGE_CONTENT",
+      messageId: "msg_first_turn",
+      delta: firstTurnAnswer,
+    },
+    { type: "TEXT_MESSAGE_END", messageId: "msg_first_turn" },
+    { type: "RUN_FINISHED", threadId, runId },
+  ]
+}
+
+/**
+ * Replace `window.WebSocket` with a socket that answers each AG-UI run frame
+ * with `events(threadId, runId)`, one frame per chunk, as the backend does.
+ */
+function installAguiWebSocket(
+  events: (threadId: string, runId: string) => object[],
+) {
+  const Original = window.WebSocket
+  const runFrames: unknown[] = []
+  function AguiWebSocket(url: string | URL) {
+    const listeners = new Map<string, Set<(event: Event) => void>>()
+    const emit = (type: string, event: Event) => {
+      const handler = socket[`on${type}` as keyof typeof socket]
+      if (typeof handler === "function") {
+        ;(handler as (event: Event) => void)(event)
+      }
+      for (const listener of listeners.get(type) ?? []) listener(event)
+    }
+    const socket = {
+      url: String(url),
+      readyState: Original.CONNECTING as number,
+      bufferedAmount: 0,
+      extensions: "",
+      protocol: "",
+      binaryType: "blob" as BinaryType,
+      onopen: null as ((event: Event) => void) | null,
+      onerror: null as ((event: Event) => void) | null,
+      onclose: null as ((event: CloseEvent) => void) | null,
+      onmessage: null as ((event: MessageEvent<string>) => void) | null,
+      close() {
+        if (socket.readyState === Original.CLOSED) return
+        socket.readyState = Original.CLOSED
+        emit("close", new CloseEvent("close", { code: 1000 }))
+      },
+      send(data: string) {
+        const frame = JSON.parse(data) as { threadId?: string; runId?: string }
+        if (!frame.runId) return
+        runFrames.push(frame)
+        const chunks = events(frame.threadId ?? "", frame.runId)
+        void (async () => {
+          for (const chunk of chunks) {
+            await new Promise((resolve) => setTimeout(resolve, 20))
+            if (socket.readyState !== Original.OPEN) return
+            emit(
+              "message",
+              new MessageEvent("message", { data: JSON.stringify(chunk) }),
+            )
+          }
+        })()
+      },
+      addEventListener(type: string, listener: (event: Event) => void) {
+        const set = listeners.get(type) ?? new Set()
+        set.add(listener)
+        listeners.set(type, set)
+      },
+      removeEventListener(type: string, listener: (event: Event) => void) {
+        listeners.get(type)?.delete(listener)
+      },
+      dispatchEvent() {
+        return true
+      },
+    }
+    setTimeout(() => {
+      if (socket.readyState !== Original.CONNECTING) return
+      socket.readyState = Original.OPEN
+      emit("open", new Event("open"))
+    }, 0)
+    return socket
+  }
+  AguiWebSocket.prototype = Original.prototype
+  Object.assign(AguiWebSocket, {
+    CONNECTING: Original.CONNECTING,
+    OPEN: Original.OPEN,
+    CLOSING: Original.CLOSING,
+    CLOSED: Original.CLOSED,
+  })
+  window.WebSocket = AguiWebSocket as unknown as typeof WebSocket
+  return {
+    runFrames,
+    restore() {
+      window.WebSocket = Original
+    },
+  }
+}
+
+/**
+ * The first turn of a new conversation streams live: the sandbox setup, the
+ * reasoning, the tool call, and the answer show without a reload. The stored
+ * transcript stays empty while the turn runs, as on a real backend, so only
+ * the live stream can show the answer.
+ */
+export const FirstTurnStreamsLive: Story = {
+  tags: ["workspace-golden"],
+  render: () => <LateErrorComposeHarness />,
+  parameters: {
+    storyRoute: {
+      pattern: "orgWorkspace",
+      orgSlug: "acme",
+      workspaceSlug: "docs",
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: [
+          http.post(conversationPostPath, async ({ request }) => {
+            const body = (await request.json()) as {
+              threadId?: string
+              runId?: string
+              forwardedProps?: { conversationId?: string }
+            }
+            const threadId =
+              body.forwardedProps?.conversationId ?? body.threadId ?? ""
+            return conversationAguiSseResponse(
+              firstTurnEvents(threadId, body.runId ?? "run_first"),
+            )
+          }),
+          http.get(
+            ({ request }) =>
+              /\/api\/v1\/conversations\/[^/]+(?:\/chat)?$/.test(
+                new URL(request.url).pathname,
+              ),
+            () => HttpResponse.json({ error: "Not found" }, { status: 404 }),
+          ),
+          ...workspaceShellHandlers(),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const socket = installAguiWebSocket(firstTurnEvents)
+    try {
+      await userEvent.type(
+        await canvas.findByPlaceholderText(/ask about this workspace/i),
+        "Where is the billing service?",
+      )
+      await userEvent.click(canvas.getByRole("button", { name: /send/i }))
+      expect(
+        await canvas.findByText(firstTurnAnswer, undefined, {
+          timeout: SEND_WAIT_MS,
+        }),
+      ).toBeVisible()
+      expect(canvas.getByText("Used 1 tool")).toBeVisible()
+      expect(canvas.getByText(/Where is the billing service\?/)).toBeVisible()
+      expect(canvas.getAllByText(/Where is the billing service\?/)).toHaveLength(
+        1,
+      )
+      await waitFor(() => {
+        expect(
+          canvas.queryByRole("status", { name: /setting up sandbox/i }),
+        ).toBeNull()
+      })
+    } finally {
+      socket.restore()
+    }
+  },
+}
