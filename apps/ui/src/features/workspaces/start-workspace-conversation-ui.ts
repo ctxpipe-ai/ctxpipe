@@ -1,4 +1,3 @@
-import HyperDX from "@hyperdx/browser"
 import type { QueryClient } from "@tanstack/react-query"
 import type { NavigateFn } from "@tanstack/react-router"
 import type { SideNavLocation } from "@/components/SideNav/sideNavLocation"
@@ -8,21 +7,19 @@ import type {
   ConversationListInfiniteData,
 } from "@/features/chat/types"
 import {
-  fetchConversation,
-  StartWorkspaceConversationError,
-  startWorkspaceConversation,
   workspaceDetailOptions,
   workspaceKeys,
   workspaceListOptions,
 } from "./queries"
 import type { WorkspaceDetail, WorkspaceListResponse } from "./types"
 
+/**
+ * The first message of a new conversation. The compose view puts it in the
+ * query cache; the conversation session takes it once and sends it through
+ * its own chat stream, so the first turn shows live like each later turn.
+ */
 export type ConversationStartState = {
   text: string
-  idempotencyKey: string
-  workspaceId: string
-  status: "starting" | "error"
-  error?: string
 }
 
 export function newUiConversationId(): string {
@@ -66,7 +63,6 @@ export function seedWorkspaceConversation(input: {
   orgSlug: string
   workspaceId: string
   conversationId: string
-  text: string
 }): ConversationDetail {
   const now = new Date().toISOString()
   const detail: ConversationDetail = {
@@ -80,13 +76,7 @@ export function seedWorkspaceConversation(input: {
       createdAt: now,
       updatedAt: now,
     },
-    messages: [
-      {
-        id: `user-${input.conversationId}`,
-        role: "user",
-        parts: [{ type: "text", content: input.text }],
-      },
-    ],
+    messages: [],
   }
   input.queryClient.setQueryData(
     workspaceKeys.conversation(
@@ -111,49 +101,30 @@ export function seedWorkspaceConversation(input: {
   return detail
 }
 
-export function setConversationStartState(
-  queryClient: QueryClient,
-  orgSlug: string,
-  conversationId: string,
-  state: ConversationStartState | null,
-) {
-  queryClient.setQueryData(
-    workspaceKeys.conversationStart(orgSlug, conversationId),
-    state,
-  )
-}
-
-export async function openWorkspaceConversation(input: {
+export function openWorkspaceConversation(input: {
   queryClient: QueryClient
   navigate: NavigateFn
   selectNav: (next: SideNavLocation) => void
   orgSlug: string
   workspace: { id: string; slug: string }
   text: string
-  conversationId?: string
-  idempotencyKey?: string
-}): Promise<{ conversationId: string }> {
-  const conversationId = input.conversationId ?? newUiConversationId()
-  const idempotencyKey = input.idempotencyKey ?? conversationId
-  HyperDX.addAction("advisor_question_sent")
+}): { conversationId: string } {
+  const conversationId = newUiConversationId()
   seedWorkspaceConversation({
     queryClient: input.queryClient,
     orgSlug: input.orgSlug,
     workspaceId: input.workspace.id,
     conversationId,
-    text: input.text,
   })
   seedWorkspaceDetailFromList({
     queryClient: input.queryClient,
     orgSlug: input.orgSlug,
     workspace: input.workspace,
   })
-  setConversationStartState(input.queryClient, input.orgSlug, conversationId, {
-    text: input.text,
-    idempotencyKey,
-    workspaceId: input.workspace.id,
-    status: "starting",
-  })
+  input.queryClient.setQueryData<ConversationStartState>(
+    workspaceKeys.conversationStart(input.orgSlug, conversationId),
+    { text: input.text },
+  )
   void input.queryClient.prefetchQuery(
     workspaceDetailOptions(input.orgSlug, input.workspace.slug),
   )
@@ -172,58 +143,5 @@ export async function openWorkspaceConversation(input: {
     },
     search: (prev) => prev,
   })
-  try {
-    const started = await startWorkspaceConversation(input.orgSlug, {
-      conversationId,
-      idempotencyKey,
-      workspaceId: input.workspace.id,
-      text: input.text,
-    })
-    const fetched = await fetchConversation(
-      input.orgSlug,
-      started.conversationId,
-      input.workspace.id,
-    )
-    if (fetched) {
-      input.queryClient.setQueryData(
-        workspaceKeys.conversation(
-          input.orgSlug,
-          started.conversationId,
-          input.workspace.id,
-        ),
-        fetched,
-      )
-    }
-    setConversationStartState(
-      input.queryClient,
-      input.orgSlug,
-      conversationId,
-      null,
-    )
-    return started
-  } catch (error) {
-    const assigned =
-      error instanceof StartWorkspaceConversationError
-        ? error.conversationId
-        : conversationId
-    setConversationStartState(
-      input.queryClient,
-      input.orgSlug,
-      conversationId,
-      {
-        text: input.text,
-        idempotencyKey,
-        workspaceId: input.workspace.id,
-        status: "error",
-        error:
-          error instanceof Error
-            ? error.message
-            : "Failed to start conversation",
-      },
-    )
-    throw new StartWorkspaceConversationError(
-      error instanceof Error ? error.message : "Failed to start conversation",
-      assigned,
-    )
-  }
+  return { conversationId }
 }

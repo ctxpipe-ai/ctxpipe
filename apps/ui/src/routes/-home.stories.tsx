@@ -2,11 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 import { emptyWorkspaceActivity } from "@/features/workspaces/workspace-fixtures"
-import {
-  conversationAguiSseResponse,
-  conversationAguiTextEvents,
-  conversationPostPath,
-} from "@/mocks/conversation-agui"
+import { conversationPostPath } from "@/mocks/conversation-agui"
 import {
   workspaceActivityHandler,
   workspaceActivityLoadingHandler,
@@ -126,9 +122,10 @@ export const ActivityLoading: Story = {
   },
 }
 
-const firstMessagePosts = { count: 0 }
+const composerPosts = { count: 0 }
 
-export const FirstMessageSendsOnce: Story = {
+/** The composer opens the conversation; the conversation sends the message. */
+export const FirstMessageOpensConversation: Story = {
   render: () => <OrgHomePageContent orgSlug="acme" />,
   parameters: {
     storyRoute: homeRoute,
@@ -136,14 +133,8 @@ export const FirstMessageSendsOnce: Story = {
       handlers: {
         page: [
           http.post(conversationPostPath, () => {
-            firstMessagePosts.count += 1
-            return conversationAguiSseResponse(
-              conversationAguiTextEvents({
-                threadId: "conv_home",
-                messageId: "msg_home",
-                text: "Native reply completed.",
-              }),
-            )
+            composerPosts.count += 1
+            return new Response(null, { status: 500 })
           }),
           ...workspaceShellHandlers(),
         ],
@@ -151,7 +142,7 @@ export const FirstMessageSendsOnce: Story = {
     },
   },
   play: async ({ canvasElement }) => {
-    firstMessagePosts.count = 0
+    composerPosts.count = 0
     const canvas = within(canvasElement)
     expect(
       canvas.getByRole("navigation", { name: "Main navigation" }),
@@ -162,12 +153,12 @@ export const FirstMessageSendsOnce: Story = {
       "What changed this week?",
     )
     await userEvent.click(canvas.getByRole("button", { name: /send/i }))
-    await waitFor(() => expect(firstMessagePosts.count).toBe(1))
     await waitFor(() =>
       expect(
         canvas.queryByPlaceholderText(/ask about this workspace/i),
       ).toBeNull(),
     )
+    expect(composerPosts.count).toBe(0)
   },
 }
 

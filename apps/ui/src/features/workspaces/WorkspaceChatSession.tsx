@@ -2,10 +2,7 @@ import HyperDX from "@hyperdx/browser"
 import type { StreamChunk, UIMessage } from "@tanstack/ai"
 import { useChat } from "@tanstack/ai-react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { useNavigate } from "@tanstack/react-router"
 import { type ReactNode, useEffect, useMemo, useState } from "react"
-import { useSelectNav } from "@/components/ShellLayoutContext"
-import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { ConversationThread } from "@/features/chat/ConversationThread"
 import { MessageInputBox } from "@/features/chat/MessageInputBox"
@@ -22,10 +19,7 @@ import {
   conversationGithubTreeHref,
 } from "./conversationPublish"
 import { workspaceChatPrepareOptions, workspaceKeys } from "./queries"
-import {
-  type ConversationStartState,
-  openWorkspaceConversation,
-} from "./start-workspace-conversation-ui"
+import type { ConversationStartState } from "./start-workspace-conversation-ui"
 import type { Workspace } from "./types"
 import { useConversationPublish } from "./useConversationPublish"
 import { WorkspaceChatChrome } from "./WorkspaceChatChrome"
@@ -92,16 +86,6 @@ export function WorkspaceChatSession(props: {
 }) {
   const { orgSlug, workspace, conversationId, title, initialMessages } = props
   const queryClient = useQueryClient()
-  const navigate = useNavigate()
-  const selectNav = useSelectNav()
-  const { data: startState } = useQuery({
-    queryKey: workspaceKeys.conversationStart(orgSlug, conversationId),
-    queryFn: async () =>
-      queryClient.getQueryData<ConversationStartState>(
-        workspaceKeys.conversationStart(orgSlug, conversationId),
-      ) ?? null,
-    enabled: false,
-  })
   const [headerTitle, setHeaderTitle] = useState(title)
   const [sandboxPhase, setSandboxPhase] = useState<SandboxPhase>("idle")
   const [sendError, setSendError] = useState<Error | null>(null)
@@ -227,6 +211,18 @@ export function WorkspaceChatSession(props: {
     }
   }
 
+  // A new conversation's first message waits in the query cache. Take it
+  // once (StrictMode runs this effect twice) and send it on this chat, so
+  // the first turn streams live.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: send the first message once per conversation
+  useEffect(() => {
+    const key = workspaceKeys.conversationStart(orgSlug, conversationId)
+    const first = queryClient.getQueryData<ConversationStartState>(key)
+    if (!first) return
+    queryClient.removeQueries({ queryKey: key, exact: true })
+    void handleSendMessage({ text: first.text })
+  }, [queryClient, orgSlug, conversationId])
+
   return (
     <WorkspaceChatChrome
       workspace={workspace}
@@ -269,43 +265,11 @@ export function WorkspaceChatSession(props: {
           the conflict before publishing.
         </InlineAlert>
       ) : null}
-      {startState?.status === "error" ? (
-        <div className="px-6 pt-3">
-          <InlineAlert
-            variant="error"
-            title="Could not send"
-            actions={
-              <Button
-                variant="secondary"
-                onPress={() => {
-                  void openWorkspaceConversation({
-                    queryClient,
-                    navigate,
-                    selectNav,
-                    orgSlug,
-                    workspace,
-                    text: startState.text,
-                    conversationId,
-                    idempotencyKey: startState.idempotencyKey,
-                  })
-                }}
-              >
-                Send again
-              </Button>
-            }
-          >
-            {startState.error ?? "Failed to start conversation"} Send again to
-            retry.
-          </InlineAlert>
-        </div>
-      ) : null}
       <ConversationThread
         messages={messages as ChatMessage[]}
         error={error ?? sendError}
-        status={startState?.status === "starting" ? "submitted" : status}
-        waitLabel={workspaceChatWaitLabel(
-          startState?.status === "starting" ? "starting" : sandboxPhase,
-        )}
+        status={status}
+        waitLabel={workspaceChatWaitLabel(sandboxPhase)}
       />
       <MessageInputBox
         layout="thread"

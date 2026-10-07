@@ -13,7 +13,6 @@ import {
   fetchWorkspaceGitTree,
   landingWorkspace,
   retryPrepareWorkspace,
-  startWorkspaceConversation,
   workspaceChatPrepareOptions,
   workspaceGitTreeOptions,
   workspaceGraphOptions,
@@ -308,37 +307,6 @@ describe("workspace query HTTP helpers", () => {
       branch: "ctxpipe/chat/conv_2/1",
     })
     clearAllConversationGitTreeSnapshots()
-  })
-
-  it("starts a conversation from the SSE header without a fetch timeout", async () => {
-    let requestAborted = true
-    server.use(
-      http.post(
-        "http://localhost/:orgSlug/api/v1/conversations",
-        ({ request }) => {
-          requestAborted = request.signal.aborted
-          return new HttpResponse(
-            'data: {"type":"RUN_STARTED"}\n\ndata: {"type":"RUN_FINISHED"}\n\n',
-            {
-              status: 200,
-              headers: {
-                "content-type": "text/event-stream",
-                "x-conversation-id": "conv_started",
-              },
-            },
-          )
-        },
-      ),
-    )
-    await expect(
-      startWorkspaceConversation("acme", {
-        workspaceId: "ws_1",
-        text: "How does hydrate become ready?",
-        idempotencyKey: "idem_1",
-        conversationId: "conv_started",
-      }),
-    ).resolves.toEqual({ conversationId: "conv_started" })
-    expect(requestAborted).toBe(false)
   })
 
   it("treats a 204 chat prepare as Query success", async () => {

@@ -1,14 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import { HttpResponse, http } from "msw"
-import { useState } from "react"
+import { StrictMode, useState } from "react"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 import { Button } from "@/components/ui/Button"
-import {
-  conversationAguiSseResponse,
-  conversationAguiTextEvents,
-  conversationPostPath,
-} from "@/mocks/conversation-agui"
+import { conversationAguiTextEvents } from "@/mocks/conversation-agui"
 import {
   conversationDetailHandler,
   conversationDetailLoadingHandler,
@@ -514,24 +510,6 @@ export const LateErrorDoesNotClobberSuccess: Story = {
     msw: {
       handlers: {
         page: [
-          http.post(conversationPostPath, async ({ request }) => {
-            const path = new URL(request.url).pathname
-            if (/\/api\/v1\/conversations\/?$/.test(path)) {
-              const body = (await request.json()) as {
-                forwardedProps?: { conversationId?: string }
-              }
-              const conversationId =
-                body.forwardedProps?.conversationId ?? lateErrorConversationId
-              return conversationAguiSseResponse(
-                conversationAguiTextEvents({
-                  threadId: conversationId,
-                  messageId: "msg_first",
-                  text: lateErrorFirstAnswer,
-                }),
-              )
-            }
-            return HttpResponse.json({ error: "late failure" }, { status: 500 })
-          }),
           http.get(
             ({ request }) =>
               /\/api\/v1\/conversations\/[^/]+\/chat$/.test(
@@ -567,57 +545,19 @@ export const LateErrorDoesNotClobberSuccess: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    const Original = window.WebSocket
-    function FailedWebSocket(url: string | URL) {
-      const listeners = new Map<string, Set<(event: Event) => void>>()
-      const emit = (type: string, event: Event) => {
-        const handler = socket[`on${type}` as keyof typeof socket]
-        if (typeof handler === "function") {
-          ;(handler as (event: Event) => void)(event)
-        }
-        for (const listener of listeners.get(type) ?? []) {
-          listener(event)
-        }
-      }
-      const socket = {
-        url: String(url),
-        readyState: Original.CLOSED,
-        bufferedAmount: 0,
-        extensions: "",
-        protocol: "",
-        binaryType: "blob" as BinaryType,
-        onopen: null as ((event: Event) => void) | null,
-        onerror: null as ((event: Event) => void) | null,
-        onclose: null as ((event: CloseEvent) => void) | null,
-        onmessage: null as ((event: MessageEvent<string>) => void) | null,
-        close() {},
-        send() {},
-        addEventListener(type: string, listener: (event: Event) => void) {
-          const set = listeners.get(type) ?? new Set()
-          set.add(listener)
-          listeners.set(type, set)
-        },
-        removeEventListener(type: string, listener: (event: Event) => void) {
-          listeners.get(type)?.delete(listener)
-        },
-        dispatchEvent() {
-          return true
-        },
-      }
-      queueMicrotask(() => {
-        emit("error", new Event("error"))
-        emit("close", new CloseEvent("close"))
-      })
-      return socket
-    }
-    FailedWebSocket.prototype = Original.prototype
-    Object.assign(FailedWebSocket, {
-      CONNECTING: Original.CONNECTING,
-      OPEN: Original.OPEN,
-      CLOSING: Original.CLOSING,
-      CLOSED: Original.CLOSED,
-    })
-    window.WebSocket = FailedWebSocket as unknown as typeof WebSocket
+    const socket = installAguiWebSocket((threadId, runId, index) =>
+      index === 0
+        ? conversationAguiTextEvents({
+            threadId,
+            runId,
+            messageId: "msg_first",
+            text: lateErrorFirstAnswer,
+          })
+        : [
+            { type: "RUN_STARTED", threadId, runId },
+            { type: "RUN_ERROR", runId, message: "late failure" },
+          ],
+    )
     try {
       await userEvent.type(
         await canvas.findByPlaceholderText(/ask about this workspace/i),
@@ -645,7 +585,7 @@ export const LateErrorDoesNotClobberSuccess: Story = {
       await waitFor(() => canvas.getByRole("alert"), { timeout: SEND_WAIT_MS })
       expect(canvas.getByText(lateErrorFirstAnswer)).toBeVisible()
     } finally {
-      window.WebSocket = Original
+      socket.restore()
     }
   },
 }
@@ -707,10 +647,11 @@ function firstTurnEvents(threadId: string, runId: string): object[] {
 
 /**
  * Replace `window.WebSocket` with a socket that answers each AG-UI run frame
- * with `events(threadId, runId)`, one frame per chunk, as the backend does.
+ * with `events(threadId, runId, index)`, one frame per chunk, as the backend
+ * does. `index` counts the run frames from 0.
  */
 function installAguiWebSocket(
-  events: (threadId: string, runId: string) => object[],
+  events: (threadId: string, runId: string, index: number) => object[],
 ) {
   const Original = window.WebSocket
   const runFrames: unknown[] = []
@@ -742,8 +683,11 @@ function installAguiWebSocket(
       send(data: string) {
         const frame = JSON.parse(data) as { threadId?: string; runId?: string }
         if (!frame.runId) return
-        runFrames.push(frame)
-        const chunks = events(frame.threadId ?? "", frame.runId)
+        const chunks = events(
+          frame.threadId ?? "",
+          frame.runId,
+          runFrames.push(frame) - 1,
+        )
         void (async () => {
           for (const chunk of chunks) {
             await new Promise((resolve) => setTimeout(resolve, 20))
@@ -798,6 +742,13 @@ function installAguiWebSocket(
  */
 export const FirstTurnStreamsLive: Story = {
   tags: ["workspace-golden"],
+  decorators: [
+    (Story) => (
+      <StrictMode>
+        <Story />
+      </StrictMode>
+    ),
+  ],
   render: () => <LateErrorComposeHarness />,
   parameters: {
     storyRoute: {
@@ -808,18 +759,6 @@ export const FirstTurnStreamsLive: Story = {
     msw: {
       handlers: {
         page: [
-          http.post(conversationPostPath, async ({ request }) => {
-            const body = (await request.json()) as {
-              threadId?: string
-              runId?: string
-              forwardedProps?: { conversationId?: string }
-            }
-            const threadId =
-              body.forwardedProps?.conversationId ?? body.threadId ?? ""
-            return conversationAguiSseResponse(
-              firstTurnEvents(threadId, body.runId ?? "run_first"),
-            )
-          }),
           http.get(
             ({ request }) =>
               /\/api\/v1\/conversations\/[^/]+(?:\/chat)?$/.test(
@@ -848,9 +787,10 @@ export const FirstTurnStreamsLive: Story = {
       ).toBeVisible()
       expect(canvas.getByText("Used 1 tool")).toBeVisible()
       expect(canvas.getByText(/Where is the billing service\?/)).toBeVisible()
-      expect(canvas.getAllByText(/Where is the billing service\?/)).toHaveLength(
-        1,
-      )
+      expect(
+        canvas.getAllByText(/Where is the billing service\?/),
+      ).toHaveLength(1)
+      expect(socket.runFrames).toHaveLength(1)
       await waitFor(() => {
         expect(
           canvas.queryByRole("status", { name: /setting up sandbox/i }),

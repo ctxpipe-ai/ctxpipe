@@ -360,6 +360,41 @@ it.each([false, true])(
 )
 
 it(
+  "streams the first turn of a new conversation on the WebSocket, setup first, and stores it",
+  { timeout: 90_000 },
+  async () => {
+    const { stdout, stderr } = await promisify(execFile)(
+      "bun",
+      [
+        fileURLToPath(
+          new URL(
+            "../../test/native-chat-websocket-client.ts",
+            import.meta.url,
+          ),
+        ),
+        "--new-conversation",
+      ],
+      { timeout: 80_000 },
+    )
+    expect(stderr).not.toMatch(/hook failed|durability failure|AbortError/)
+    const result = JSON.parse(stdout.trim().split("\n").at(-1) ?? "")
+    expect(result).toEqual({
+      replayMatches: true,
+      oneTerminal: true,
+      noReplayModelCall: true,
+      turnOrder: [
+        "RUN_STARTED",
+        "setup:starting",
+        "setup:ready",
+        "TEXT_MESSAGE_START",
+        "RUN_FINISHED",
+      ],
+      freshTranscript: ["First socket question", "Native reply completed."],
+    })
+  },
+)
+
+it(
   "releases native transcript ownership after cancellation",
   { timeout: 35_000 },
   async () => {

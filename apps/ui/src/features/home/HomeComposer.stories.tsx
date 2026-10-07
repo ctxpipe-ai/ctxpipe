@@ -1,22 +1,18 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { delay, http } from "msw"
+import { http } from "msw"
 import { StrictMode } from "react"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 import {
   docsWorkspace,
   readOnlyWorkspace,
 } from "@/features/workspaces/workspace-fixtures"
-import {
-  conversationAguiSseResponse,
-  conversationAguiTextEvents,
-  conversationPostPath,
-} from "@/mocks/conversation-agui"
+import { conversationPostPath } from "@/mocks/conversation-agui"
 import { workspaceShellHandlers } from "@/mocks/workspace-handlers"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { HomeComposer } from "./HomeComposer"
 
-const firstMessagePosts = { count: 0 }
+const composerPosts = { count: 0 }
 
 const meta = {
   title: "Components/Home/Composer",
@@ -58,21 +54,19 @@ export const NoWorkspaces: Story = {
   },
 }
 
-export const FirstMessageSendsOnce: Story = {
+/**
+ * The composer opens the new conversation and hands it the first message.
+ * The conversation sends it on its own chat stream, so the composer itself
+ * sends nothing.
+ */
+export const FirstMessageOpensConversation: Story = {
   parameters: {
     msw: {
       handlers: {
         page: [
-          http.post(conversationPostPath, async () => {
-            firstMessagePosts.count += 1
-            await delay(2_000)
-            return conversationAguiSseResponse(
-              conversationAguiTextEvents({
-                threadId: "conv_home",
-                messageId: "msg_home",
-                text: "Native reply completed.",
-              }),
-            )
+          http.post(conversationPostPath, () => {
+            composerPosts.count += 1
+            return new Response(null, { status: 500 })
           }),
           ...workspaceShellHandlers(),
         ],
@@ -80,23 +74,23 @@ export const FirstMessageSendsOnce: Story = {
     },
   },
   play: async ({ canvasElement }) => {
-    firstMessagePosts.count = 0
+    composerPosts.count = 0
     const canvas = within(canvasElement)
     await userEvent.type(
       await canvas.findByPlaceholderText(/ask about this workspace/i),
       "What changed this week?",
     )
     await userEvent.click(canvas.getByRole("button", { name: /send/i }))
-    await waitFor(() => expect(firstMessagePosts.count).toBe(1))
     await waitFor(() =>
       expect(
         canvas.queryByPlaceholderText(/ask about this workspace/i),
       ).toBeNull(),
     )
+    expect(composerPosts.count).toBe(0)
   },
 }
 
-export const FirstMessageSendsOnceInStrictMode: Story = {
+export const FirstMessageOpensConversationInStrictMode: Story = {
   tags: ["workspace-golden"],
   decorators: [
     (Story) => (
@@ -105,6 +99,6 @@ export const FirstMessageSendsOnceInStrictMode: Story = {
       </StrictMode>
     ),
   ],
-  parameters: FirstMessageSendsOnce.parameters,
-  play: FirstMessageSendsOnce.play,
+  parameters: FirstMessageOpensConversation.parameters,
+  play: FirstMessageOpensConversation.play,
 }
