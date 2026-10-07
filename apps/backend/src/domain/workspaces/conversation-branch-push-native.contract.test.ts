@@ -17,6 +17,7 @@ import { withUserIdContext } from "../../auth/context.js"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
+import { chatRuns } from "../../db/schema/chat-persistence.js"
 import { conversations } from "../../db/schema/conversations.js"
 import {
   workspaceSandboxInstances,
@@ -398,32 +399,65 @@ it(
       expect(await s.status()).toMatchObject({ unpushed: true })
       // A Files edit nobody committed.
       await handle.fs.write("files.md", "# Edited in Files\n")
-      // A turn holds the conversation: both answer at once.
-      let release!: () => void
-      let held!: () => void
-      const holding = new Promise<void>((resolve) => {
-        held = resolve
-      })
-      const lock = postgresSandboxLocks(f.org.id).withLock(
-        `chat-thread:${s.conversationId}`,
-        () => {
-          held()
-          return new Promise<void>((resolve) => {
-            release = resolve
-          })
-        },
+      // A turn runs: both answer at once, without waiting for its lock.
+      const holdLock = () => {
+        let release!: () => void
+        let held!: () => void
+        const holding = new Promise<void>((resolve) => {
+          held = resolve
+        })
+        const done = postgresSandboxLocks(f.org.id).withLock(
+          `chat-thread:${s.conversationId}`,
+          () => {
+            held()
+            return new Promise<void>((resolve) => {
+              release = resolve
+            })
+          },
+        )
+        return holding.then(() => ({ release, done }))
+      }
+      const turnLock = await holdLock()
+      await withOrgDbContext(f.org.id, (db) =>
+        db.insert(chatRuns).values({
+          runId: `run_${f.id}_busy`,
+          threadId: s.conversationId,
+          orgId: f.org.id,
+          status: "running",
+          startedAt: Date.now(),
+        }),
       )
-      await holding
       const started = Date.now()
       const busy = await Promise.all([s.commitPush(), s.createPr("Notes")])
-      release()
-      await lock
+      expect(Date.now() - started).toBeLessThan(2_000)
+      await withOrgDbContext(f.org.id, (db) =>
+        db.delete(chatRuns).where(eq(chatRuns.runId, `run_${f.id}_busy`)),
+      )
+      turnLock.release()
+      await turnLock.done
       for (const response of busy)
         expect({
           status: response.status,
           body: await response.json(),
         }).toEqual({ status: 409, body: { error: "turn_running" } })
-      expect(Date.now() - started).toBeLessThan(15_000)
+      // A request aborted while it waits stops waiting, pushes nothing and
+      // leaves the holder's lock alone.
+      const otherLock = await holdLock()
+      const abort = new AbortController()
+      const aborted = Promise.resolve(
+        s.app.request(`/conversations/${s.conversationId}/push`, {
+          method: "POST",
+          signal: abort.signal,
+        }),
+      ).catch((error: unknown) => error)
+      await new Promise((resolve) => setTimeout(resolve, 500))
+      const abortedAt = Date.now()
+      abort.abort()
+      await aborted
+      expect(Date.now() - abortedAt).toBeLessThan(2_000)
+      otherLock.release()
+      await otherLock.done
+      expect(s.remoteHas(s.branch)).toBe(false)
       // A Files read holds the conversation for a moment: the push waits for
       // it and does not answer turn_running.
       let reading!: () => void
@@ -511,14 +545,16 @@ it(
 )
 
 it(
-  "answers no_pr_access when the GitHub App cannot open pull requests",
+  "names why GitHub refused to open the pull request",
   { timeout: 180_000 },
   async () => {
     await withSession({}, async (f, s) => {
       const handle = await s.warm()
       await s.agentCommit(handle, "one.md", "Add note one")
       expect((await s.commitPush()).status).toBe(200)
-      // GitHub's answer when the installation lacks Pull requests: write.
+      // GitHub's answers when the installation lacks Pull requests: write,
+      // when it limits the rate, and when the branch adds nothing.
+      let github: "mint" | "create" | "rate" | "empty" = "mint"
       f.server.use(
         http.post(
           "https://api.github.com/app/installations/123456789/access_tokens",
@@ -526,7 +562,8 @@ it(
             const body = (await request.clone().json()) as {
               permissions?: { pull_requests?: string }
             }
-            if (body.permissions?.pull_requests !== "write") return
+            if (github !== "mint" || body.permissions?.pull_requests !== "write")
+              return
             return HttpResponse.json(
               {
                 message:
@@ -536,12 +573,54 @@ it(
             )
           },
         ),
+        http.post(
+          "https://api.github.com/repos/fixture/hydration-contract/pulls",
+          () => {
+            if (github === "create")
+              return HttpResponse.json(
+                { message: "Resource not accessible by integration" },
+                { status: 403 },
+              )
+            if (github === "rate")
+              return HttpResponse.json(
+                // GitHub's older secondary rate limit text; Octokit's own
+                // throttle waits a minute on the newer one.
+                {
+                  message:
+                    "You have triggered an abuse detection mechanism. Please wait a few minutes before you try again.",
+                },
+                { status: 403, headers: { "retry-after": "0" } },
+              )
+            if (github === "empty")
+              return HttpResponse.json(
+                {
+                  message: "Validation Failed",
+                  errors: [
+                    {
+                      resource: "PullRequest",
+                      code: "custom",
+                      message: `No commits between main and ${s.branch}`,
+                    },
+                  ],
+                },
+                { status: 422 },
+              )
+            return undefined
+          },
+        ),
       )
-      const refused = await s.createPr("Write the notes")
-      expect({
-        status: refused.status,
-        body: await refused.json(),
-      }).toEqual({ status: 400, body: { error: "no_pr_access" } })
+      const answers: Array<{ status: number; body: unknown }> = []
+      for (const mode of ["mint", "create", "rate", "empty"] as const) {
+        github = mode
+        const response = await s.createPr("Write the notes")
+        answers.push({ status: response.status, body: await response.json() })
+      }
+      expect(answers).toEqual([
+        { status: 400, body: { error: "no_pr_access" } },
+        { status: 400, body: { error: "no_pr_access" } },
+        { status: 502, body: { error: "github_unavailable" } },
+        { status: 400, body: { error: "no_changes" } },
+      ])
       expect(s.pullRequests).toEqual([])
     })
   },

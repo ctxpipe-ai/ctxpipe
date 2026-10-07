@@ -734,6 +734,40 @@ export async function getPullRequestState(
   }
 }
 
+/** GitHub refused the Pull requests: write permission (not a rate limit). */
+function isPullRequestPermissionError(error: unknown): boolean {
+  const status = (error as { status?: number }).status
+  const message = error instanceof Error ? error.message.toLowerCase() : ""
+  if (isTransientGithubError(error)) return false
+  return (
+    (status === 422 && message.includes("permissions requested")) ||
+    (status === 403 &&
+      (message.includes("not accessible by integration") ||
+        message.includes("permission")))
+  )
+}
+
+export type PullRequestRefusal = {
+  refused: "no_pr_access" | "no_changes"
+  githubStatus?: number
+  githubMessage: string
+}
+
+function refusal(
+  refused: PullRequestRefusal["refused"],
+  error: unknown,
+): PullRequestRefusal {
+  return {
+    refused,
+    githubStatus: (error as { status?: number }).status,
+    githubMessage: error instanceof Error ? error.message : String(error),
+  }
+}
+
+/**
+ * Open the pull request. `null`: the Workspace was relinked. A refusal: the
+ * App may not open pull requests, or the branch adds no commit.
+ */
 export async function createPullRequestFromBranch(
   input: BaseInput & {
     revision: WorkspaceRevision
@@ -742,15 +776,26 @@ export async function createPullRequestFromBranch(
     title: string
     body: string
   },
-): Promise<{
-  pullNumber: number
-  pullUrl: string
-  branch: string
-  prState: GithubPullRequestState
-} | null> {
-  const context = await getInstallationContext(input, {
-    pull_requests: "write",
-  })
+): Promise<
+  | {
+      pullNumber: number
+      pullUrl: string
+      branch: string
+      prState: GithubPullRequestState
+    }
+  | PullRequestRefusal
+  | null
+> {
+  let context: Awaited<ReturnType<typeof getInstallationContext>>
+  try {
+    context = await getInstallationContext(input, {
+      pull_requests: "write",
+    })
+  } catch (error) {
+    if (isPullRequestPermissionError(error))
+      return refusal("no_pr_access", error)
+    throw error
+  }
   try {
     const response = await withTransientGitHubRetry(async () => {
       if (
@@ -781,8 +826,15 @@ export async function createPullRequestFromBranch(
       prState: "open",
     }
   } catch (error) {
+    if (isPullRequestPermissionError(error))
+      return refusal("no_pr_access", error)
     const status = (error as { status?: number }).status
     if (status !== 422) throw error
+    if (
+      error instanceof Error &&
+      error.message.toLowerCase().includes("no commits between")
+    )
+      return refusal("no_changes", error)
     const { data: existing } = await context.octokit.rest.pulls.list({
       owner: context.owner,
       repo: context.repo,
