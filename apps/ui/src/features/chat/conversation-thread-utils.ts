@@ -178,6 +178,11 @@ export function collapsedToolSummary(counts: ToolBucketCounts): string[] {
   return collapsedToolChips(counts).map((chip) => chip.label)
 }
 
+/** Label for the group of earlier thinking blocks in one turn. */
+export function thoughtGroupLabel(count: number): string {
+  return count === 1 ? "Thought" : `Thought ${count}x`
+}
+
 const BOLD_HEADING_LINE = /^\s*\*\*([^*]+)\*\*\s*$/
 const ATX_HEADING_LINE = /^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$/
 

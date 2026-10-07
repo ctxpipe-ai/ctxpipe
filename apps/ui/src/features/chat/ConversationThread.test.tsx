@@ -353,3 +353,118 @@ describe("ConversationThread activity chrome", () => {
     expect(html).toContain("Billing lives in the ledger.")
   })
 })
+
+function thinking(content: string) {
+  return { type: "thinking", content }
+}
+
+function search(id: string) {
+  return { type: "tool-call", id, name: "hybrid_search", input: { query: id } }
+}
+
+function assistant(parts: ChatMessage["parts"]): ChatMessage {
+  return { id: "a1", role: "assistant", parts }
+}
+
+describe("ConversationThread earlier thinking blocks", () => {
+  it("shows one thinking block without a Thought group", () => {
+    const html = renderThread(
+      [
+        user,
+        assistant([
+          thinking("First idea about the ledger."),
+          { type: "text", content: "Use the ledger." },
+        ]),
+      ],
+      "ready",
+    )
+    expect(html).toContain('aria-label="Reasoning"')
+    expect(html).toContain("First idea about the ledger.")
+    expect(html).not.toContain("Thought")
+  })
+
+  it("labels one earlier block Thought and keeps the latest block visible", () => {
+    const html = renderThread(
+      [
+        user,
+        assistant([
+          thinking("First idea about the ledger."),
+          thinking("Second idea about invoices."),
+          { type: "text", content: "Use the ledger." },
+        ]),
+      ],
+      "ready",
+    )
+    expect(html).toContain('aria-label="Thought"')
+    expect(html).toContain("Second idea about invoices.")
+    expect(html).not.toContain("First idea about the ledger.")
+  })
+
+  it("collapses all earlier blocks into one Thought 2x group", () => {
+    const html = renderThread(
+      [
+        user,
+        assistant([
+          thinking("First idea about the ledger."),
+          thinking("Second idea about invoices."),
+          thinking("Third idea about payments."),
+          { type: "text", content: "Use the ledger." },
+        ]),
+      ],
+      "ready",
+    )
+    expect(html.match(/aria-label="Thought 2x"/g)).toHaveLength(1)
+    const groupTag = html.match(/<button[^>]*aria-label="Thought 2x"[^>]*>/)
+    expect(groupTag?.[0]).toContain('aria-expanded="false"')
+    expect(html).toContain("Third idea about payments.")
+    expect(html).not.toContain("First idea about the ledger.")
+    expect(html).not.toContain("Second idea about invoices.")
+  })
+
+  it("keeps the newest block live while the turn streams", () => {
+    const html = renderThread(
+      [
+        user,
+        assistant([
+          thinking("First idea about the ledger."),
+          thinking("Second idea about invoices."),
+          thinking("**Checking payments**\n\nThird idea about payments."),
+        ]),
+      ],
+      "streaming",
+    )
+    expect(html).toContain('aria-label="Thought 2x"')
+    const live = html.slice(html.indexOf('role="status"'))
+    expect(live).toContain('aria-label="Reasoning"')
+    expect(live).toContain("Checking payments")
+    expect(live).toContain("Third idea about payments.")
+    expect(html).not.toContain("First idea about the ledger.")
+    expect(html).not.toContain("Second idea about invoices.")
+  })
+
+  it("groups thinking across tool calls the same way tools group across thinking", () => {
+    const html = renderThread(
+      [
+        user,
+        assistant([
+          thinking("First idea about the ledger."),
+          search("tc_1"),
+          thinking("Second idea about invoices."),
+          search("tc_2"),
+          thinking("Third idea about payments."),
+          { type: "text", content: "Use the ledger." },
+        ]),
+      ],
+      "ready",
+    )
+    expect(html.match(/aria-label="2 searches"/g)).toHaveLength(1)
+    expect(html.match(/aria-label="Thought 2x"/g)).toHaveLength(1)
+    const tools = html.indexOf('aria-label="2 searches"')
+    const group = html.indexOf('aria-label="Thought 2x"')
+    const latest = html.indexOf("Third idea about payments.")
+    const reply = html.indexOf("Use the ledger.")
+    expect(tools).toBeLessThan(group)
+    expect(group).toBeLessThan(latest)
+    expect(latest).toBeLessThan(reply)
+  })
+})

@@ -17,6 +17,7 @@ import {
   latestReasoningHeading,
   normalizeReasoningMarkdown,
   summarizeToolCalls,
+  thoughtGroupLabel,
   type ToolBucket,
   type ToolCallSummary,
   toolBucketCounts,
@@ -150,11 +151,14 @@ function ToolChip(props: { bucket: ToolBucket; label: string }) {
   )
 }
 
-function ToolUseRow(props: { tools: ToolCallSummary[]; live: boolean }) {
-  const { tools, live } = props
+function ActivityGroup(props: {
+  label: string
+  live: boolean
+  summary: ReactElement
+  details: ReactElement
+}) {
+  const { label, live, summary, details } = props
   const [expanded, setExpanded] = useState(false)
-  const chips = collapsedToolChips(toolBucketCounts(tools))
-  const label = chips.map((chip) => chip.label).join(", ")
 
   const button = (
     <AriaButton
@@ -167,7 +171,40 @@ function ToolUseRow(props: { tools: ToolCallSummary[]; live: boolean }) {
         "hover:text-foreground/80",
       )}
     >
-      {expanded ? (
+      {expanded ? details : summary}
+    </AriaButton>
+  )
+
+  if (live) {
+    return (
+      // biome-ignore lint/a11y/useSemanticElements: live activity is a status, not a form output
+      <div role="status">{button}</div>
+    )
+  }
+
+  return button
+}
+
+function ToolUseRow(props: { tools: ToolCallSummary[]; live: boolean }) {
+  const { tools, live } = props
+  const chips = collapsedToolChips(toolBucketCounts(tools))
+
+  return (
+    <ActivityGroup
+      label={chips.map((chip) => chip.label).join(", ")}
+      live={live}
+      summary={
+        <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
+          {chips.map((chip) => (
+            <ToolChip
+              key={chip.bucket}
+              bucket={chip.bucket}
+              label={chip.label}
+            />
+          ))}
+        </span>
+      }
+      details={
         <span className="flex min-w-0 flex-1 flex-col gap-1">
           {tools.map((tool) => (
             <span key={tool.id} className="flex min-w-0 items-start gap-2">
@@ -178,28 +215,47 @@ function ToolUseRow(props: { tools: ToolCallSummary[]; live: boolean }) {
             </span>
           ))}
         </span>
-      ) : (
-        <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
-          {chips.map((chip) => (
-            <ToolChip
-              key={chip.bucket}
-              bucket={chip.bucket}
-              label={chip.label}
-            />
-          ))}
-        </span>
-      )}
-    </AriaButton>
+      }
+    />
+  )
+}
+
+function ThoughtGroup(props: { thoughts: string[] }) {
+  const { thoughts } = props
+  const label = thoughtGroupLabel(thoughts.length)
+  const icon = (
+    <ActivityIconSlot live={false}>
+      <IconBrain className="size-4" aria-hidden />
+    </ActivityIconSlot>
   )
 
-  if (live) {
-    return (
-      // biome-ignore lint/a11y/useSemanticElements: live tool use is a status, not a form output
-      <div role="status">{button}</div>
-    )
-  }
-
-  return button
+  return (
+    <ActivityGroup
+      label={label}
+      live={false}
+      summary={
+        <span className="inline-flex min-w-0 items-center gap-1.5">
+          {icon}
+          <span className="tabular-nums">{label}</span>
+        </span>
+      }
+      details={
+        <span className="flex min-w-0 flex-1 flex-col gap-2">
+          {thoughts.map((thought, index) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: earlier thoughts only append, so the index is stable
+            <span key={index} className="flex min-w-0 items-start gap-2">
+              {icon}
+              <span className="min-w-0 flex-1">
+                <MessageResponse className={reasoningResponseClassName(false)}>
+                  {normalizeReasoningMarkdown(thought)}
+                </MessageResponse>
+              </span>
+            </span>
+          ))}
+        </span>
+      }
+    />
+  )
 }
 
 function renderUserParts(message: ChatMessage): ReactElement[] {
@@ -218,11 +274,12 @@ function renderAssistantParts(
   options: { streaming: boolean },
 ): ReactElement[] {
   const tools = summarizeToolCalls(message.parts)
-  const thinking = message.parts
+  const thoughts = message.parts
     .filter((part) => part.type === "thinking")
     .map(partText)
     .filter(Boolean)
-    .join("\n\n")
+  const earlierThoughts = thoughts.slice(0, -1)
+  const thinking = thoughts.at(-1)
   const replyParts = message.parts.filter(
     (part) =>
       (part.type === "text" && Boolean(partText(part))) ||
@@ -239,6 +296,14 @@ function renderAssistantParts(
         key={`${message.id}-tools`}
         tools={tools}
         live={options.streaming && !hasReply}
+      />,
+    )
+  }
+  if (earlierThoughts.length > 0) {
+    activity.push(
+      <ThoughtGroup
+        key={`${message.id}-thoughts`}
+        thoughts={earlierThoughts}
       />,
     )
   }
