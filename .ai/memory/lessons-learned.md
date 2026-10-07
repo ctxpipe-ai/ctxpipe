@@ -2,6 +2,24 @@
 
 Highest-priority confirmed rules for agents. Migrated from former `patterns.md` (ADR-024).
 
+## Rules kept in agent instructions or ADRs
+
+These lessons moved to the instructions that agents always read. Do not add them here again.
+
+| Rule | Where it is now |
+| --- | --- |
+| Do not pull one-off values to globals; environment variables only for deployment or operator values | Root [AGENTS.md](../../AGENTS.md) Code style (details: Environment variables below) |
+| US English and ASD-STE100; UI copy at about 80% strength | Root [AGENTS.md](../../AGENTS.md) Language |
+| Stay on the current feature branch; sub-agent models; agent writing goes to `.ai/scratchpad/` or `.ai/memory/`, not root `docs/` | Root [AGENTS.md](../../AGENTS.md) Git branches, Sub-agent models, Public docs |
+| `pnpm dev`, `pnpm dev:infra`, `pnpm start`, portless | Root [AGENTS.md](../../AGENTS.md) Local development |
+| Tests fake the environment, not our modules; proof uses a real collaborator | Root [AGENTS.md](../../AGENTS.md) Testing and the [tdd skill](../../.agents/skills/tdd/SKILL.md) |
+| Markdown-only memory with capture skills | [ADR-024](decisions/ADR-024-markdown-only-local-memory-capture.md) and root [AGENTS.md](../../AGENTS.md) Local agent memory |
+| `@hono/zod-openapi` routes, `/:orgSlug/api/v1`, `/.docs/openapi`, `@hono/mcp`, collocated Zod schemas, transactions, `db:generate` migrations | [apps/backend/AGENTS.md](../../apps/backend/AGENTS.md) |
+| Codesearch Kubernetes memory gate | [apps/codesearch/AGENTS.md](../../apps/codesearch/AGENTS.md) |
+| `rounded-md`, React Aria first, CSS-first responsive layout, selected chrome on the click, no shell remount | [apps/ui/AGENTS.md](../../apps/ui/AGENTS.md) |
+| Pierre for the Files pane | [ADR-040](decisions/ADR-040-pierre-files-pane-chrome.md) |
+| RLS with the `ctxpipe_app` role | [ADR-042](decisions/ADR-042-postgres-rls-app-role.md) |
+
 ## Entries
 
 ### Environment variables
@@ -22,18 +40,6 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-11
 - **Source:** migrated from patterns.md
 
-### Zod schemas collocated
-- **Rule:** with the modules they describe (routes, domain, DB models) — no central `src/schemas`
-- **Category:** convention
-- **Date:** 2026-08-11
-- **Source:** migrated from patterns.md
-
-### Avoid pulling to globals
-- **Rule:** inline config/one-off values unless reused in more than one place
-- **Category:** convention
-- **Date:** 2026-08-11
-- **Source:** migrated from patterns.md
-
 ### No premature helper extraction
 - **Rule:** keep single-use logic (truncation, slicing, small transforms) inline in the tool or node that needs it; only move to `src/lib` or a shared helper when a **second** call site exists
 - **Category:** convention
@@ -48,18 +54,6 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 
 ### Avoid `unknown` as a default or escape-hatch type
 - **Rule:** it is easy to follow with assertions or casts that drop compile-time safety; prefer concrete types, generics, Zod-validated shapes, or discriminated unions. Reserve `unknown` for true unknown external input only when it is immediately narrowed or parsed. **`any` disables checking entirely** — avoid except in unavoidable interop or documented patches (see @hono/zod-openapi notes above)
-- **Category:** convention
-- **Date:** 2026-08-11
-- **Source:** migrated from patterns.md
-
-### DB migrations
-- **Rule:** only in `apps/backend`; generate via `pnpm run db:generate`, never hand-write migration SQL
-- **Category:** convention
-- **Date:** 2026-08-11
-- **Source:** migrated from patterns.md
-
-### Transactions
-- **Rule:** always wrap multi-table operations in `db.transaction(async (tx) => { ... })`
 - **Category:** convention
 - **Date:** 2026-08-11
 - **Source:** migrated from patterns.md
@@ -94,26 +88,8 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-11
 - **Source:** migrated from patterns.md
 
-### Hono apps
-- **Rule:** for both backend and codesearch — REST via `@hono/zod-openapi`, MCP via `@hono/mcp`
-- **Category:** convention
-- **Date:** 2026-08-11
-- **Source:** migrated from patterns.md
-
 ### Domain services
 - **Rule:** shared between REST routes and MCP tools
-- **Category:** convention
-- **Date:** 2026-08-11
-- **Source:** migrated from patterns.md
-
-### Public API routes
-- **Rule:** org-scoped: `/:orgSlug/api/v1`
-- **Category:** convention
-- **Date:** 2026-08-11
-- **Source:** migrated from patterns.md
-
-### OpenAPI spec
-- **Rule:** at `/.docs/openapi` (JSON), Scalar API reference at `/.docs/api-reference`
 - **Category:** convention
 - **Date:** 2026-08-11
 - **Source:** migrated from patterns.md
@@ -124,29 +100,11 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-11
 - **Source:** migrated from patterns.md
 
-### Local dev
-- **Rule:** **`pnpm dev`** — portless + Turbo (host; see root [AGENTS.md](../../AGENTS.md)); **`pnpm dev:infra`** — Compose **`infra`** profile (Postgres, FalkorDB, OTEL, Zoekt). **Small-scale container deploy**: **`pnpm start`** — Compose **`deploy`** profile (production images); see [ADR-015](decisions/ADR-015-docker-compose-profiles-and-small-scale-deploy.md)
-- **Category:** convention
-- **Date:** 2026-08-11
-- **Source:** migrated from patterns.md
-
-### Portless (host dev)
-- **Rule:** root **`devDependency`**; use **`pnpm exec portless`** from repo root (see [`scripts/dev-apps.sh`](../../scripts/dev-apps.sh)). Canonical origin when proxy binds **443**: **`https://app.ctxpipe.localhost`**; align env with **`pnpm exec portless get`**. [portless.sh](https://portless.sh/).
-- **Category:** convention
-- **Date:** 2026-08-11
-- **Source:** migrated from patterns.md
-
 ### Universal CLI UX
 - **Rule:** publish the unscoped `ctxpipe` package from `packages/cli`; primary entry is **`npx ctxpipe`**; human path `npx ctxpipe init`; agent/CI uses explicit flags (`--org`, `--agents`/`--client`, `--scope`, `--non-interactive`, `--json`, `--base-url`, …). Setup auth prefers **OS keychain** via `@napi-rs/keyring`, with file fallback under `~/.config/ctxpipe/` when keyring is unavailable. Full flag list per command: `npx ctxpipe <cmd> --help` (commander.js).
 - **Category:** convention
 - **Date:** 2026-08-11
 - **Source:** migrated from patterns.md
-
-### Local agent memory
-- **Rule:** Durable memory is Markdown under `.ai/memory/` with `index.md` routers; host hooks append gitignored candidates under `events/`; promote via capture skills; no local memory search daemon. See [ADR-024](decisions/ADR-024-markdown-only-local-memory-capture.md).
-- **Category:** convention
-- **Date:** 2026-08-11
-- **Source:** ADR-024 migration
 
 ### Memory hook candidates that are file-read telemetry
 - **Rule:** Dismiss observe candidates whose excerpt is only `{file_path, content_length}` (or a glob/plan dump) of files already under `.ai/memory/` or `/opt/cursor/artifacts/plans/`. Those are Read-tool telemetry, not lessons. Do not copy them into `lessons-learned.md` or auto-write ADRs from hooks ([ADR-024](decisions/ADR-024-markdown-only-local-memory-capture.md)). Promote only user-confirmed facts via capture skills.
@@ -165,12 +123,6 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Category:** convention
 - **Date:** 2026-08-11
 - **Source:** migrated from patterns.md
-
-### `@ctxpipe/aws-cdk` self-host upgrades stay `cdk deploy`
-- **Rule:** AWS self-hosters pick up construct-managed infra (new DB roles, secret rewrites, migrate-time provisioning) by bumping `@ctxpipe/aws-cdk` and running `cdk deploy`. Do not add `CtxPipe` props, a second connection string in the operator CDK app, or operator `psql` for work the construct can do. When that operator-visible behavior changes, update [`packages/aws-cdk/README.md`](../../packages/aws-cdk/README.md) and `apps/docs` self-hosting upgrade/AWS pages so the story remains bump-package-then-deploy.
-- **Category:** convention
-- **Date:** 2026-08-21
-- **Source:** user requirement (RLS two-role split; candidate `2f0d95e99ba317d8`)
 
 ### `@ctxpipe/aws-cdk` self-host upgrades stay `cdk deploy`
 - **Rule:** AWS self-hosters pick up construct-managed infra (new DB roles, secret rewrites, migrate-time provisioning) by bumping `@ctxpipe/aws-cdk` and running `cdk deploy`. Do not add `CtxPipe` props, a second connection string in the operator CDK app, or operator `psql` for work the construct can do. When that operator-visible behavior changes, update [`packages/aws-cdk/README.md`](../../packages/aws-cdk/README.md) and `apps/docs` self-hosting upgrade/AWS pages so the story remains bump-package-then-deploy.
@@ -466,23 +418,11 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-11
 - **Source:** migrated from patterns.md
 
-### UI copy language
-- **Rule:** Use US English spelling everywhere, including user-facing UI copy (`organization`, not `organisation`). UI copy follows ASD-STE100 at about 80% strength. See the Language section in root `AGENTS.md`.
-- **Category:** convention
-- **Date:** 2026-10-04
-- **Source:** user correction; replaces the 2026-08-11 UK English rule
-
 ### GitHub setup copy after connect
 - **Rule:** After the GitHub App is installed, tell the user the connection is complete, then offer create a workspace, add repositories to an existing one (listed), or close the wizard. Do **not** explain that the connection is organization-wide or that repositories are linked per workspace.
 - **Category:** product
 - **Date:** 2026-08-22
 - **Source:** user correction (GitHub workspace destination); candidate `ba616391f38e94cf`
-
-### Product UI corners
-- **Rule:** Product chrome uses `rounded-md`. Apply it to new or touched controls, menus, cards, dialogs, and data surfaces; do not add `rounded-none`.
-- **Category:** convention
-- **Date:** 2026-10-01
-- **Source:** user correction (supersedes the 2026-08-24 square-chrome rule)
 
 ### UI icon library
 - **Rule:** use `@tabler/icons-react` (not lucide-react); map Tabler `Icon*` names semantically from prior Lucide glyphs; keep size/class/ARIA props
@@ -538,29 +478,11 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-11
 - **Source:** migrated from patterns.md
 
-### Codesearch ingest memory gate
-- **Rule:** after significant Zoekt/SCIP ingest changes, run `pnpm --filter @ctxpipe/codesearch test:manual:kubernetes-memory`; this expensive Kubernetes gate stays outside default tests and must pass without OOM/137 with non-empty SCIP artifacts. Calibrate its placeholder ceiling from VmHWM/cgroup peak plus 10-15% headroom (at most 512 MiB).
-- **Category:** convention
-- **Date:** 2026-08-11
-- **Source:** migrated from patterns.md
-
-### Stay on feature branch across planning sessions
-- **Rule:** Do not create a new git branch unless HEAD is already on `main` (or the user explicitly asks). Continue multiple planning/implementation sessions on the current feature branch.
-- **Category:** workflow
-- **Date:** 2026-08-12
-- **Source:** user correction
-
 ### Git sources vs GitHub picker
 - **Rule:** GitHub App install grants **access** only. The post-install setup page is a **workspace destination** (create / pick existing / close), not an org ingest picker. Link remotes from workspace Settings; ingest is on-attach. Do not mix connector types (docs/tools) onto Git sources. Large-list UX for remaining GitHub repo pickers (workspace Settings add) is verified with Storybook + MSW, not a DB/GitHub seed script.
 - **Category:** pattern
 - **Date:** 2026-08-13; updated 2026-08-22
 - **Source:** repo-page-ux; GitHub workspace destination (candidate `ba616391f38e94cf`)
-
-### Git sources list virtualisation
-- **Rule:** `/$orgSlug/repositories` uses `@tanstack/react-virtual` `useWindowVirtualizer` (`GitSourcesVirtualList`). Do not mount every `RepositoryCard`/React Aria menu. Row order is `buildGitSourceListRows` (pending then indexed). Scroll is still the document. Use a **fixed row size** — do not `measureElement`. While `isScrolling`, skip menus/tooltips and raise overscan. Hairline dividers (`border-white/[0.06]` / 1px repeating gradient), not a painted `gap`. Verify with **Pages / Repositories / Four Hundred Sources**.
-- **Category:** pattern
-- **Date:** 2026-08-13
-- **Source:** repo-page-ux
 
 ### GitHub picker list virtualisation
 - **Rule:** the setup form’s select-mode list is a nested `max-h-96` scroller (`GithubRepoPickerList` + `useVirtualizer`), not RAC `GridList`. Selection is a `Set` of GitHub ids; toggling one id must not rebuild from the visible slice. Verify with **Pages / Repositories / Four Hundred GitHub Picker**.
@@ -586,12 +508,6 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-15
 - **Source:** ui-design-skills research / product-ui skill
 
-### Sub-agent models
-- **Rule:** always set the sub-agent model explicitly (see root [AGENTS.md](../../AGENTS.md) **Sub-agent models**). Implementation and explore: Opus at medium effort. Review and grilling: Opus at high effort. Keep the wording harness-agnostic (plain "Opus" plus an effort level, no Cursor or Claude slugs) so the instructions work in both Cursor and Claude Code.
-- **Category:** convention
-- **Date:** 2026-09-29
-- **Source:** user preference (Opus replaces Grok for implementation and Sol for review)
-
 ### Scope shared UI class helpers
 - **Rule:** when iterating on one region of a surface (footer vs list, one panel vs another), do **not** put hover/focus/outline experiments on shared class helpers that restyle siblings. Keep shared layout tokens shared; keep region-only treatments on region helpers.
 - **Category:** convention
@@ -609,18 +525,6 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Category:** pattern
 - **Date:** 2026-08-18
 - **Source:** SideNav polish session (generalized)
-
-### Responsive UI — CSS-first
-- **Rule:** Prefer Tailwind responsive classes for layout and chrome. Use JS (`matchMedia`, `useMediaQuery`, resize listeners) for responsive design **only when CSS cannot express it** (e.g. open/closed overlay state). Do not drive show/hide, padding, borders, or column layout from reactive media-query state when `md:` / `lg:` / `max-md:` would suffice. Documented in [apps/ui/AGENTS.md](../../apps/ui/AGENTS.md) and product-ui Build.
-- **Category:** convention
-- **Date:** 2026-08-18
-- **Source:** workspace responsive layout feedback
-
-### React Aria first for interactive chrome
-- **Rule:** New or restyled interactive controls in `apps/ui` start from React Aria Components (`src/components/ui/*` when the primitive exists, otherwise `react-aria-components`). Tab strips use RAC `Tabs` / `TabList` / `Tab` / `TabPanel` (keyboard + ARIA), not a row of raw `<button>`s. Documented in [apps/ui/AGENTS.md](../../apps/ui/AGENTS.md) and product-ui Build. **Exception:** the Workspace Files explorer tree and file/diff surfaces are Pierre (`@pierre/trees`, `@pierre/diffs`) — same class of exception as Cosmograph. Context menus on that pane stay RAC.
-- **Category:** convention
-- **Date:** 2026-08-18
-- **Source:** workspace pane tabs accessibility
 
 ### Workspace write jobs and native OpenWorkflow ownership
 - **Rule:** Each typed write is a native OpenWorkflow workflow with explicit steps. OpenWorkflow owns retries, waits and resume; a paused command keeps its native owner. `workspace_write_jobs` stores bound command/result metadata, per-concern planning limits and path assignments. Public projections may reconcile the matching native owner's terminal state in short tenant-scoped SQL; do not create a second runner or scheduler. Brokered native Git is the default-branch write authority. See [ADR-047](decisions/ADR-047-native-durable-write-workflows.md).
@@ -742,24 +646,6 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-21
 - **Source:** user correction (RLS is a hard requirement; lock pool caused DELETE 500; ADR-042 enablement)
 
-### Enable RLS in the same PR as the org-SQL work
-- **Rule:** Do not split RLS enablement into a follow-up because the org-SQL / workspace PR already needs a full preview pass. Enabling policies does not add a second product-surface test matrix; ship the audit and enablement on that branch. A role-split `DATABASE_URL` still needs one preview smoke (sign-in, list, webhook, index) as deploy verification, not extra feature testing.
-- **Category:** convention
-- **Date:** 2026-08-21
-- **Source:** user correction (RLS in this branch; does not expand manual-test scope)
-
-### Selected chrome is urgent; SSR still includes the landing region
-- **Rule:** TanStack Router commits location inside `startTransition`, so `selectedKey` / `aria-current` / current workspace driven only from `useSearch`, `useMatchRoute`, or `pathname` waits for the new body. Set selection in the click handler (`useUrgentValue`); write the URL afterwards. `Link` does not make the highlight instant. SSR `ensureQueryData`s the landing region (workspace default is files when `?pane=` is empty) so first HTML is not “Loading files…”. Client page enter (Home / Connectors / Workspace) `prefetchQuery`s and does not `await`. Do not put in-page chrome in `loaderDeps`.
-- **Category:** convention
-- **Date:** 2026-08-22
-- **Source:** workspace pane tab lag in PR preview; Home / Connectors / Workspace page enter still awaited files
-
-### Org pages and in-page identity must not remount the shell
-- **Rule:** `AppShell` lives on `/$orgSlug`. Home, Connectors, and Workspace leaves render main content only. Compose vs thread belongs on the workspace **layout** that stays mounted; children return `null`. Client loaders `prefetchQuery` landing + in-page detail and do not `await` — sibling `enter` still runs the child loader. `useSuspenseQuery` for that detail sits under a **local** `Suspense`. Never wrap `AppShell` or a sibling pane in that boundary. Session-pending fallbacks are main-column skeletons. RAC `Link` does not preload; `prefetchQuery` on hover/press. In-page `navigate` keeps `?pane=`.
-- **Category:** convention
-- **Date:** 2026-08-22
-- **Source:** workspace nav audit; page switches remounted SideNav and awaited the files tree
-
 ### Region loading is a skeleton; process loading is the teal bar
 - **Rule:** A wait whose populated UI is a list, tree, thread, or pane uses `Skeleton` / `SkeletonRow` that matches those rows — not `"Loading…"` and not a centered spinner. Long jobs or unknown structure (hydrate, OAuth wait, discovery) use `InlineLoader` / `ProgressLoader`. Button mutations use `isPending`. In-progress status on a known entity is a pulse-dot plus the word. Every fetch surface ships a `Loading` (or `Checking` / `Hydrating`) story with `delay("infinite")`.
 - **Category:** convention
@@ -801,18 +687,6 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Category:** convention
 - **Date:** 2026-08-24
 - **Source:** user correction (workspace-chat latency)
-
-### Proof uses a real collaborator
-- **Rule:** A product test is _proof_ only when the owned collaborator runs in this process and the assertion is an HTTP, status, or paths literal. See [tdd/mocking.md](../../.agents/skills/tdd/mocking.md).
-- **Category:** convention
-- **Date:** 2026-08-28
-- **Source:** user correction (sandbox tree listed a fresh clone after a write)
-
-### Agent writing stays out of root `docs/`
-- **Rule:** In-progress plans, tickets, ledgers, reviews, and logs go in [`.ai/scratchpad/`](../scratchpad/). Durable decisions, lessons, and PRDs go in [`.ai/memory/`](./). Customer-facing documentation lives in [`apps/docs/content/docs/`](../../apps/docs/content/docs/). Do not write those artifacts under root `docs/` or `docs/plans` — that tree is not the public docs app and is not an internal dump.
-- **Category:** convention
-- **Date:** 2026-09-11
-- **Source:** user correction (docs/plans used as a recovery dump)
 
 ### Workspace proof owners
 - **Rule:** Native git owns repository, revision, branch, diff, and worktree. OpenWorkflow owns durable job orchestration. Stock TanStack AI owns chat, persistence, stream lifecycle, and OpenCode sandbox integration. Pierre owns file-tree and diff/editor chrome. ctxpipe code owns organisation authorization, Workspace identity, projection activation, credential brokering, and publish rules. Do not add a second chat or write engine beside those owners.
@@ -867,12 +741,6 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Category:** convention
 - **Date:** 2026-09-25
 - **Source:** PR-343 `/.otel` same-origin check rejected every browser telemetry post on pr-343 (403) after deploy
-
-### Tests fake the environment, not our modules
-- **Rule:** Use msw for outbound HTTP, a real Postgres for database paths (`*.integration.test.ts` gated on `DATABASE_URL`), `vi.stubEnv` for config, fake timers for time, and OTel in-memory exporters for telemetry. `vi.mock` of a repo module is only for an import-time side effect that cannot be configured, with a comment naming it. A test that mocks our env, db client, logger, and helpers together asserts the mocks, survives behavior breaks, and fails on harmless refactors.
-- **Category:** testing
-- **Date:** 2026-09-26
-- **Source:** Repository owner review of PR-343 ("tests abusing mocks"; `domain/codeIngestion/codesearchClient.test.ts` had six module mocks before PR-343)
 
 ### Every runtime import must be a direct `dependency` of its app
 - **Rule:** An app's production image installs only its own `dependencies`, so a package imported from non-test code must be listed there, not in `devDependencies` and not only reachable as another package's transitive dependency. pnpm hoisting makes the import resolve locally and in Vitest, so the break shows up only when the built image starts (`Cannot find module …`). When a change adds an import from a new package, add it to that app's `dependencies` in the same commit.
