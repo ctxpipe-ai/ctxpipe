@@ -74,6 +74,7 @@ import {
 } from "./sandbox-lifecycle-timing.js"
 import { postgresSandboxLocks } from "./sandbox-lock-store.js"
 import {
+  stopEarlierTurnProcesses,
   withOwnerWatchdog,
   withSingleOpencodeServer,
 } from "./sandbox-process-guards.js"
@@ -820,6 +821,10 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
                 runId: input.runId,
                 purpose,
               })
+            // A turn starts with no agent process of an earlier turn: such a
+            // process would get this turn's capability or firewall rules.
+            if (built.isolation !== "unsandboxed")
+              await stopEarlierTurnProcesses(activeSandbox)
             // The conversation lock is held and OpenCode has not started.
             // Its subprocesses inherit these values (none when hosted).
             await activeSandbox.env.set(

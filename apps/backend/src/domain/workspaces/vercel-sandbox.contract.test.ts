@@ -16,6 +16,7 @@ import {
   sandboxGitTokenStore,
 } from "../../models/sandbox-git-tokens.js"
 import { WORKSPACE_CHAT_VERCEL_SETUP } from "./chat-runtime.js"
+import { stopEarlierTurnProcesses } from "./sandbox-process-guards.js"
 import {
   agentSnapshotTags,
   conversationFirewall,
@@ -514,7 +515,18 @@ describe("hosted turn credentials", { timeout: 600_000 }, () => {
       }
       throw new Error("The firewall rule did not change within 30 s")
     }
+    // An earlier turn left a process in its own session; the next turn
+    // starts without it, and the sandbox still answers.
+    await handle.process.exec(
+      "setsid nohup sleep 1001 >/dev/null 2>&1 & sleep 0.2",
+    )
     let started = Date.now()
+    await stopEarlierTurnProcesses(handle)
+    report(`[vercel] earlier turn processes stopped ${Date.now() - started}ms`)
+    const left = await handle.process.exec("pgrep -x sleep | wc -l")
+    expect(left.exitCode).toBe(0)
+    expect(left.stdout.trim()).toBe("0")
+    started = Date.now()
     await firewall.openTurn(handle.id, turn)
     report(`[vercel] turn credentials set ${Date.now() - started}ms`)
     report(
