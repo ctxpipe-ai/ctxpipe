@@ -134,6 +134,8 @@ export function workspaceChatRuntimeConfig(input?: {
   currentBranch?: string | null
   getCurrentBranch?: () => Promise<string>
   defaultBranch?: string | null
+  /** Hosted sandboxes: see `classifyChatToolRequest`. */
+  openNetwork?: boolean
   judge?: (
     toolName: string,
     argsExcerpt: string,
@@ -146,6 +148,7 @@ export function workspaceChatRuntimeConfig(input?: {
       currentBranch: input?.currentBranch,
       getCurrentBranch: input?.getCurrentBranch,
       defaultBranch: input?.defaultBranch,
+      openNetwork: input?.openNetwork,
       judge: input?.judge ?? judgeChatToolWithFastModel,
     }),
   }

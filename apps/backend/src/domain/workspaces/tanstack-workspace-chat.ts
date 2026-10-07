@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto"
+import { randomBytes, randomUUID } from "node:crypto"
 import { createServer } from "node:net"
 import { trace } from "@opentelemetry/api"
 import {
@@ -74,6 +74,7 @@ import {
 } from "./sandbox-lifecycle-timing.js"
 import { postgresSandboxLocks } from "./sandbox-lock-store.js"
 import {
+  stopEarlierTurnProcesses,
   withOwnerWatchdog,
   withSingleOpencodeServer,
 } from "./sandbox-process-guards.js"
@@ -85,8 +86,9 @@ import {
   withSessionOnlyEnv,
 } from "./sandbox-provider.js"
 import {
-  conversationAgentPassword,
+  conversationFirewall,
   conversationSandboxTags,
+  turnAgentPassword,
   vercelAgentSnapshot,
   vercelConversationProvider,
 } from "./vercel-sandbox-provider.js"
@@ -103,6 +105,7 @@ import {
 import {
   sandboxCallbackHost,
   workspaceChatCallbackMiddleware,
+  workspaceChatToolBridgePath,
 } from "./workspace-chat-callback.js"
 import { workspaceChatCompletionsBaseUrl } from "./workspace-chat-model-proxy.js"
 import {
@@ -242,7 +245,8 @@ function conversationSandboxDefinition(input: {
 
 export function conversationSandboxProvider(
   isolation: SandboxProviderName,
-  conversationId: string,
+  /** This turn's OpenCode password (`turnAgentPassword`). */
+  agentPassword: string,
   /** Docker: the Workspace base image a new sandbox starts from, if any. */
   baseImage: () => Promise<string | undefined>,
   vercel?: Parameters<typeof vercelConversationProvider>[0],
@@ -270,11 +274,7 @@ export function conversationSandboxProvider(
           baseImage,
         }),
         {
-          // AUTH_SECRET is checked before the provider is built.
-          agentPassword: conversationAgentPassword(
-            process.env.AUTH_SECRET?.trim() ?? "",
-            conversationId,
-          ),
+          agentPassword,
           daemonHost: remoteDockerHost(),
         },
       ),
@@ -575,6 +575,7 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
       return current.stdout.trim()
     },
     defaultBranch: input.defaultBranch,
+    openNetwork: built.isolation === "vercel",
   })
   const { session, callbackHost, definition } = built
   // OpenCode treats `--port=0` as 4096, so overlapping unsandboxed sends must
@@ -608,6 +609,32 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
   const chatStarted = Date.now()
   const abortController = abortControllerFrom(input.abortSignal)
   let transcriptOwner: string | undefined
+  // Hosted: the firewall, and the turn's tool bridge, known before the run
+  // so the firewall can add its token.
+  const hosted = built.firewall
+    ? {
+        firewall: built.firewall,
+        bridge: {
+          id: randomBytes(16).toString("hex"),
+          token: randomBytes(24).toString("hex"),
+        },
+        sandboxId: undefined as string | undefined,
+      }
+    : undefined
+  // The turn's credentials leave the firewall before the conversation lock
+  // is released, so this cannot replace the next turn's rules. A failure is
+  // logged: the model capability stops working when the lock is released,
+  // the bridge closes with the run, and the next update replaces the rules.
+  const closeHostedTurn = async () => {
+    if (!hosted?.sandboxId) return
+    await hosted.firewall.closeTurn(hosted.sandboxId).catch((error: unknown) =>
+      log.warn({
+        step: "workspace-chat-firewall-close",
+        message: `Removing the turn's credentials from the sandbox firewall failed: ${String(error)}`,
+        conversationId: input.conversationId,
+      }),
+    )
+  }
   // The idle clock starts when the turn ends. Runs before the conversation
   // lock is released, so the sweep never sees a free lock with a stale time.
   // The sweep it schedules is due exactly 5 minutes after this use.
@@ -636,7 +663,7 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
   // Revoke this turn's GitHub tokens as soon as it ends; a failure is left
   // for the sandbox sweep and never fails the turn.
   const revokeTurnGitTokens = async () => {
-    if (built.isolation === "vercel") return
+    if (hosted) return
     await revokeRunGitTokens({
       orgId: input.orgId,
       conversationId: input.conversationId,
@@ -682,6 +709,13 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
         onFinish: markSandboxUsed,
         onError: markSandboxUsed,
         onAbort: markSandboxUsed,
+      }),
+      // Before the thread lock: TanStack runs onFinish in this order.
+      defineChatMiddleware({
+        name: "workspace-chat-firewall",
+        onFinish: closeHostedTurn,
+        onError: closeHostedTurn,
+        onAbort: closeHostedTurn,
       }),
       workspaceChatThreadLock({
         locks: postgresSandboxLocks(
@@ -758,7 +792,12 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
           }
         },
       }),
-      workspaceChatCallbackMiddleware(callbackHost, built.publicBaseUrl),
+      workspaceChatCallbackMiddleware(
+        callbackHost,
+        built.publicBaseUrl && hosted
+          ? { publicBaseUrl: built.publicBaseUrl, bridge: hosted.bridge }
+          : undefined,
+      ),
       defineChatMiddleware({
         name: "workspace-chat-permissions",
         requires: [SandboxCapability],
@@ -776,20 +815,34 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
               conversationId: input.conversationId,
               revision: built.revision,
             }
-            const capabilities = await workspaceChatRunCapabilities(
-              built.isolation,
-              (purpose) =>
-                mintWorkspaceChatRunCapability({
-                  ...authority,
-                  runId: input.runId,
-                  purpose,
-                }),
+            const mint = (purpose: WorkspaceChatRunCapabilityPurpose) =>
+              mintWorkspaceChatRunCapability({
+                ...authority,
+                runId: input.runId,
+                purpose,
+              })
+            // A turn starts with no agent process of an earlier turn: such a
+            // process would get this turn's capability or firewall rules.
+            if (built.isolation !== "unsandboxed")
+              await stopEarlierTurnProcesses(activeSandbox)
+            // The conversation lock is held and OpenCode has not started.
+            // Its subprocesses inherit these values (none when hosted).
+            await activeSandbox.env.set(
+              await workspaceChatRunCapabilities(built.isolation, mint),
             )
             abortController.signal.throwIfAborted()
-            // The conversation lock is held and OpenCode has not started.
-            // Its subprocesses inherit these values.
-            await activeSandbox.env.set(capabilities)
-            abortController.signal.throwIfAborted()
+            if (hosted) {
+              // The firewall adds the turn's credentials; the sandbox sends
+              // placeholders.
+              hosted.sandboxId = activeSandbox.id
+              await hosted.firewall.openTurn(activeSandbox.id, {
+                modelProxyPath: new URL(session.proxyUrl).pathname,
+                modelCapability: await mint("workspace-chat-model"),
+                bridgePath: workspaceChatToolBridgePath(hosted.bridge.id),
+                bridgeToken: hosted.bridge.token,
+              })
+              abortController.signal.throwIfAborted()
+            }
           })
         },
       }),
@@ -812,19 +865,20 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
 
 /**
  * The run capabilities a sandbox gets as environment variables. A hosted
- * sandbox gets no Git capability: it reaches GitHub only through its
- * firewall rule, which adds the header, and it never sees a token.
+ * sandbox gets none: its firewall adds each credential outside the sandbox
+ * (see `conversationFirewall`).
  */
 export async function workspaceChatRunCapabilities(
   isolation: SandboxProviderName,
   mint: (purpose: WorkspaceChatRunCapabilityPurpose) => Promise<string>,
 ): Promise<Record<string, string>> {
+  if (isolation === "vercel") return {}
   const [git, model] = await Promise.all([
-    isolation === "vercel" ? undefined : mint("workspace-chat-git"),
+    mint("workspace-chat-git"),
     mint("workspace-chat-model"),
   ])
   return {
-    ...(git ? { CTXPIPE_GIT_RUN_CAPABILITY: git } : {}),
+    CTXPIPE_GIT_RUN_CAPABILITY: git,
     CTXPIPE_OPENCODE_RUN_TOKEN: model,
   }
 }
@@ -939,9 +993,10 @@ async function buildWorkspaceChatSandbox(
       error: "Workspace chat needs a stored desired SHA",
     }
   }
+  const agentPassword = turnAgentPassword()
   const vercel =
     selectedProvider === "vercel"
-      ? await hostedSandboxOptions(input, desiredUrl)
+      ? await hostedSandboxOptions(input, desiredUrl, agentPassword)
       : undefined
   if (vercel && !vercel.ok) return vercel
   const publicBaseUrl = vercel?.ok ? vercel.publicBaseUrl : undefined
@@ -1037,7 +1092,7 @@ async function buildWorkspaceChatSandbox(
   })
   const provider = conversationSandboxProvider(
     selectedProvider,
-    input.conversationId,
+    agentPassword,
     async () => (await base()).ref,
     vercel?.ok
       ? {
@@ -1057,6 +1112,7 @@ async function buildWorkspaceChatSandbox(
     ok: true as const,
     isolation: selectedProvider,
     publicBaseUrl,
+    firewall: vercel?.ok ? vercel.options.access.firewall : undefined,
     definition: conversationSandboxDefinition({
       provider:
         selectedProvider === "unsandboxed"
@@ -1097,6 +1153,7 @@ async function buildWorkspaceChatSandbox(
 async function hostedSandboxOptions(
   input: TanstackWorkspaceChatInput,
   desiredUrl: string,
+  agentPassword: string,
 ): Promise<
   | {
       ok: true
@@ -1115,25 +1172,15 @@ async function hostedSandboxOptions(
     desiredUrl,
   })
   if (!hosted.ok) return hosted
-  const authSecret = process.env.AUTH_SECRET?.trim() ?? ""
-  if (authSecret.length < 32)
-    return {
-      ok: false,
-      status: 503,
-      error: "Workspace chat needs AUTH_SECRET",
-    }
   return {
     ok: true,
     publicBaseUrl: hosted.publicBaseUrl,
     environment: hosted.environment,
     options: {
       credentials: hosted.credentials,
-      agentPassword: conversationAgentPassword(
-        authSecret,
-        input.conversationId,
-      ),
+      agentPassword,
       access: {
-        backendHost: hosted.backendHost,
+        firewall: conversationFirewall(hosted.backendHost),
         tokens: hosted.tokens,
         mintGitToken: hosted.mintGitToken,
       },

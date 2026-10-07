@@ -116,6 +116,12 @@ export const WORKSPACE_CHAT_OPENCODE_CLI = "opencode-ai@1.18.34" as const
 export const WORKSPACE_CHAT_OPENCODE_PROXY_URL_ENV =
   "{env:CTXPIPE_MODEL_PROXY_URL}" as const
 
+/**
+ * What a hosted sandbox sends where a credential goes (the model key and the
+ * tool-bridge token). The firewall replaces the Authorization header.
+ */
+export const WORKSPACE_CHAT_FIREWALL_PLACEHOLDER = "ctxpipe-firewall" as const
+
 export const WORKSPACE_CHAT_OPENCODE_JSON_SECRET =
   "CTXPIPE_OPENCODE_JSON" as const
 
@@ -187,7 +193,10 @@ export function writeWorkspaceChatOpenCodeConfig(input: {
   isolation?: "docker" | "unsandboxed" | "vercel"
 }): { homeEnv: Record<string, string>; configJson: string } {
   const configJson = `${JSON.stringify(
-    workspaceChatOpenCodeConfig({ modelBase: input.modelBase }),
+    workspaceChatOpenCodeConfig({
+      modelBase: input.modelBase,
+      hosted: input.isolation === "vercel",
+    }),
     null,
     2,
   )}\n`
@@ -233,7 +242,7 @@ function unixLoginPath(): string {
 export const WORKSPACE_CHAT_OPENCODE_AGENT_PROMPT = [
   "Prefer the smallest tool set that answers the question.",
   "Issue independent glob, grep, and read calls in one step when they do not depend on each other.",
-  "Do not use subagents or the web.",
+  "Do not use subagents. Use the web only to read documentation that the task needs.",
   "After the first useful files, answer. Do not keep searching for completeness.",
   "When you change files, commit with git when a task is done, with a clear message that says why.",
   "Publish your commits with push_conversation_branch when the user should see the work on GitHub, or when they ask; never use git push.",
@@ -242,6 +251,11 @@ export const WORKSPACE_CHAT_OPENCODE_AGENT_PROMPT = [
 export function workspaceChatOpenCodeConfig(input: {
   modelBase: string
   mcp?: { name: string; url: string; token: string }
+  /**
+   * Hosted sandboxes: the firewall adds the key, and the open network lets
+   * the agent read web pages.
+   */
+  hosted?: boolean
 }): {
   $schema: "https://opencode.ai/config.json"
   enabled_providers: readonly ["ctxpipe"]
@@ -251,7 +265,9 @@ export function workspaceChatOpenCodeConfig(input: {
       name: "ctxpipe"
       options: {
         baseURL: typeof WORKSPACE_CHAT_OPENCODE_PROXY_URL_ENV
-        apiKey: "{env:CTXPIPE_OPENCODE_RUN_TOKEN}"
+        apiKey:
+          | "{env:CTXPIPE_OPENCODE_RUN_TOKEN}"
+          | typeof WORKSPACE_CHAT_FIREWALL_PLACEHOLDER
       }
       models: Record<string, { name: string }>
     }
@@ -259,7 +275,7 @@ export function workspaceChatOpenCodeConfig(input: {
   model: string
   permission: {
     task: "deny"
-    webfetch: "deny"
+    webfetch: "allow" | "deny"
     websearch: "deny"
   }
   agent: {
@@ -287,7 +303,9 @@ export function workspaceChatOpenCodeConfig(input: {
         name: "ctxpipe",
         options: {
           baseURL: WORKSPACE_CHAT_OPENCODE_PROXY_URL_ENV,
-          apiKey: "{env:CTXPIPE_OPENCODE_RUN_TOKEN}",
+          apiKey: input.hosted
+            ? WORKSPACE_CHAT_FIREWALL_PLACEHOLDER
+            : "{env:CTXPIPE_OPENCODE_RUN_TOKEN}",
         },
         models: {
           [input.modelBase]: { name: input.modelBase },
@@ -295,11 +313,13 @@ export function workspaceChatOpenCodeConfig(input: {
       },
     },
     model: workspaceChatOpenCodeModel(input.modelBase),
-    // Subagents and outbound web tools burn TTFT and send tokens off the
-    // configured model proxy. Direct read/grep/glob/bash stay allowed.
+    // Subagents burn TTFT. Web search uses OpenCode's own search service,
+    // not ours, so it stays off. A hosted agent may read web pages: its
+    // network is open and holds no credential. Elsewhere the network is not
+    // isolated from the host, so web reads stay off.
     permission: {
       task: "deny",
-      webfetch: "deny",
+      webfetch: input.hosted ? "allow" : "deny",
       websearch: "deny",
     },
     // Title generation is a parallel completion that contends for the same

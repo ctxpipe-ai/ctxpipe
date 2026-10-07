@@ -89,6 +89,11 @@ export function classifyChatToolRequest(input: {
   writeStatus: string
   currentBranch?: string | null
   defaultBranch?: string | null
+  /**
+   * Hosted sandboxes: the network is open and holds no credential, so a
+   * request to a public host goes to the judge like other commands.
+   */
+  openNetwork?: boolean
 }): {
   hardDeny: ChatHardDenyReason | null
   acceptEditsWouldAllow: boolean
@@ -152,7 +157,7 @@ export function classifyChatToolRequest(input: {
   if (excerptLooksLikeSensitivePath(excerpt)) {
     return { hardDeny: "sensitive_path", acceptEditsWouldAllow: false }
   }
-  if (excerptLooksLikeEgress(excerpt)) {
+  if (!input.openNetwork && excerptLooksLikeEgress(excerpt)) {
     return { hardDeny: "host_not_allowlisted", acceptEditsWouldAllow: false }
   }
   if (
@@ -225,6 +230,7 @@ export function createWorkspaceChatPermissionHandler(input: {
   currentBranch?: string | null
   getCurrentBranch?: () => Promise<string>
   defaultBranch?: string | null
+  openNetwork?: boolean
   judge?: (
     toolName: string,
     argsExcerpt: string,
@@ -248,6 +254,7 @@ export function createWorkspaceChatPermissionHandler(input: {
           ? await input.getCurrentBranch()
           : input.currentBranch,
       defaultBranch: input.defaultBranch,
+      openNetwork: input.openNetwork,
     })
     if (classified.hardDeny) return "reject"
     if (classified.acceptEditsWouldAllow) return "once"

@@ -3,10 +3,8 @@ import { workspaceChatRunCapabilities } from "./tanstack-workspace-chat.js"
 
 const mint = async (purpose: string) => `capability-for-${purpose}`
 
-it("gives a hosted sandbox no Git capability", async () => {
-  expect(await workspaceChatRunCapabilities("vercel", mint)).toEqual({
-    CTXPIPE_OPENCODE_RUN_TOKEN: "capability-for-workspace-chat-model",
-  })
+it("gives a hosted sandbox no capability: its firewall adds them", async () => {
+  expect(await workspaceChatRunCapabilities("vercel", mint)).toEqual({})
 })
 
 it.each([
