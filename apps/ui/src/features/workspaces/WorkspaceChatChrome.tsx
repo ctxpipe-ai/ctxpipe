@@ -1,7 +1,14 @@
+import { IconCloudUpload } from "@tabler/icons-react"
 import type { ReactNode } from "react"
 import { Link as AriaLink } from "react-aria-components"
 import { OverlayNavMenuButton } from "@/components/OverlayNavButton"
 import { Button } from "@/components/ui/Button"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/Tooltip"
 import { cn } from "@/lib/utils"
 import type { Workspace } from "./types"
 import {
@@ -135,8 +142,14 @@ export function WorkspaceChatChrome(props: {
   )
 }
 
+/**
+ * Sync (commit and push), Create PR, and Show PR. `syncClassName` lets the
+ * tools pane show Sync only when the conversation column is hidden, so the
+ * page shows Sync once.
+ */
 export function ConversationPublishActions(props: {
   publish: ConversationPublishChrome
+  syncClassName?: string
 }) {
   const { commitPush, pullRequest } = props.publish
   const showCommit = commitPush.visible
@@ -146,16 +159,42 @@ export function ConversationPublishActions(props: {
   return (
     <div className="mb-px flex h-[37px] shrink-0 items-center gap-1">
       {showCommit ? (
-        <Button
-          variant="ghost"
-          size="default"
-          isDisabled={!commitPush.enabled || commitPush.pending}
-          isPending={commitPush.pending}
-          onPress={commitPush.onPress}
-          className="h-8 px-2 text-xs"
-        >
-          {commitPush.pending ? "Pushing…" : "Commit+Push"}
-        </Button>
+        <TooltipProvider delay={200}>
+          <Tooltip>
+            {/* A span trigger: the tooltip shows on hover also while Sync is disabled. */}
+            <TooltipTrigger
+              nativeButton={false}
+              render={
+                <span className={cn("inline-flex", props.syncClassName)} />
+              }
+            >
+              <Button
+                variant="ghost"
+                size="default"
+                isDisabled={!commitPush.enabled || commitPush.pending}
+                isPending={commitPush.pending}
+                onPress={commitPush.onPress}
+                aria-label={
+                  commitPush.pending
+                    ? "Syncing: commit and push in progress"
+                    : "Sync: commit and push your changes"
+                }
+                className="h-8 gap-1.5 px-2 text-xs"
+              >
+                <IconCloudUpload className="size-4" stroke={1.6} aria-hidden />
+                {commitPush.pending ? "Syncing…" : "Sync"}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent
+              side="bottom"
+              sideOffset={6}
+              className="border-0 bg-zinc-800 text-zinc-100 shadow-md"
+              arrowClassName="bg-zinc-800 fill-zinc-800"
+            >
+              Commit and push your changes to the conversation branch
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
       ) : null}
       {showPrLink ? (
         <AriaLink
