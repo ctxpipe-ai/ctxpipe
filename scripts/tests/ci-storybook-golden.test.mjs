@@ -12,16 +12,16 @@ const root = fileURLToPath(new URL("../../", import.meta.url))
 
 const required = [
   [
-    "apps/ui/src/features/home/HomeComposer.stories.tsx",
-    "FirstMessageOpensConversationInStrictMode",
-  ],
-  [
     "apps/ui/src/features/workspaces/WorkspaceChat.stories.tsx",
     "LateErrorDoesNotClobberSuccess",
   ],
   [
     "apps/ui/src/features/workspaces/WorkspaceChat.stories.tsx",
     "FirstTurnStreamsLive",
+  ],
+  [
+    "apps/ui/src/features/workspaces/WorkspaceChat.stories.tsx",
+    "FirstTurnFailureRestoresDraft",
   ],
   [
     "apps/ui/src/features/workspaces/WorkspaceChat.stories.tsx",
@@ -84,7 +84,7 @@ test("inventory rejects a tagged required story without play-fn", () => {
       selectGoldenStories({
         entries: {
           remap: {
-            exportName: "FirstMessageOpensConversationInStrictMode",
+            exportName: "LateErrorDoesNotClobberSuccess",
             tags: ["workspace-golden"],
           },
         },

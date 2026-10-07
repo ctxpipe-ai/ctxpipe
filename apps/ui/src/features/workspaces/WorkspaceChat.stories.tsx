@@ -4,7 +4,10 @@ import { HttpResponse, http } from "msw"
 import { StrictMode, useState } from "react"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 import { Button } from "@/components/ui/Button"
-import { conversationAguiTextEvents } from "@/mocks/conversation-agui"
+import {
+  conversationAguiTextEvents,
+  installAguiWebSocket,
+} from "@/mocks/conversation-agui"
 import {
   conversationDetailHandler,
   conversationDetailLoadingHandler,
@@ -483,7 +486,7 @@ const lateErrorDetail = {
   ],
 }
 
-function LateErrorComposeHarness() {
+function ComposeHarness() {
   const params = useParams({ strict: false })
   const conversationId =
     typeof params.conversationId === "string"
@@ -500,7 +503,7 @@ function LateErrorComposeHarness() {
 
 export const LateErrorDoesNotClobberSuccess: Story = {
   tags: ["workspace-golden"],
-  render: () => <LateErrorComposeHarness />,
+  render: () => <ComposeHarness />,
   parameters: {
     storyRoute: {
       pattern: "orgWorkspace",
@@ -646,95 +649,6 @@ function firstTurnEvents(threadId: string, runId: string): object[] {
 }
 
 /**
- * Replace `window.WebSocket` with a socket that answers each AG-UI run frame
- * with `events(threadId, runId, index)`, one frame per chunk, as the backend
- * does. `index` counts the run frames from 0.
- */
-function installAguiWebSocket(
-  events: (threadId: string, runId: string, index: number) => object[],
-) {
-  const Original = window.WebSocket
-  const runFrames: unknown[] = []
-  function AguiWebSocket(url: string | URL) {
-    const listeners = new Map<string, Set<(event: Event) => void>>()
-    const emit = (type: string, event: Event) => {
-      const handler = socket[`on${type}` as keyof typeof socket]
-      if (typeof handler === "function") {
-        ;(handler as (event: Event) => void)(event)
-      }
-      for (const listener of listeners.get(type) ?? []) listener(event)
-    }
-    const socket = {
-      url: String(url),
-      readyState: Original.CONNECTING as number,
-      bufferedAmount: 0,
-      extensions: "",
-      protocol: "",
-      binaryType: "blob" as BinaryType,
-      onopen: null as ((event: Event) => void) | null,
-      onerror: null as ((event: Event) => void) | null,
-      onclose: null as ((event: CloseEvent) => void) | null,
-      onmessage: null as ((event: MessageEvent<string>) => void) | null,
-      close() {
-        if (socket.readyState === Original.CLOSED) return
-        socket.readyState = Original.CLOSED
-        emit("close", new CloseEvent("close", { code: 1000 }))
-      },
-      send(data: string) {
-        const frame = JSON.parse(data) as { threadId?: string; runId?: string }
-        if (!frame.runId) return
-        const chunks = events(
-          frame.threadId ?? "",
-          frame.runId,
-          runFrames.push(frame) - 1,
-        )
-        void (async () => {
-          for (const chunk of chunks) {
-            await new Promise((resolve) => setTimeout(resolve, 20))
-            if (socket.readyState !== Original.OPEN) return
-            emit(
-              "message",
-              new MessageEvent("message", { data: JSON.stringify(chunk) }),
-            )
-          }
-        })()
-      },
-      addEventListener(type: string, listener: (event: Event) => void) {
-        const set = listeners.get(type) ?? new Set()
-        set.add(listener)
-        listeners.set(type, set)
-      },
-      removeEventListener(type: string, listener: (event: Event) => void) {
-        listeners.get(type)?.delete(listener)
-      },
-      dispatchEvent() {
-        return true
-      },
-    }
-    setTimeout(() => {
-      if (socket.readyState !== Original.CONNECTING) return
-      socket.readyState = Original.OPEN
-      emit("open", new Event("open"))
-    }, 0)
-    return socket
-  }
-  AguiWebSocket.prototype = Original.prototype
-  Object.assign(AguiWebSocket, {
-    CONNECTING: Original.CONNECTING,
-    OPEN: Original.OPEN,
-    CLOSING: Original.CLOSING,
-    CLOSED: Original.CLOSED,
-  })
-  window.WebSocket = AguiWebSocket as unknown as typeof WebSocket
-  return {
-    runFrames,
-    restore() {
-      window.WebSocket = Original
-    },
-  }
-}
-
-/**
  * The first turn of a new conversation streams live: the sandbox setup, the
  * reasoning, the tool call, and the answer show without a reload. The stored
  * transcript stays empty while the turn runs, as on a real backend, so only
@@ -749,7 +663,7 @@ export const FirstTurnStreamsLive: Story = {
       </StrictMode>
     ),
   ],
-  render: () => <LateErrorComposeHarness />,
+  render: () => <ComposeHarness />,
   parameters: {
     storyRoute: {
       pattern: "orgWorkspace",
@@ -780,13 +694,25 @@ export const FirstTurnStreamsLive: Story = {
         "Where is the billing service?",
       )
       await userEvent.click(canvas.getByRole("button", { name: /send/i }))
+      // The user's sequence: the sandbox setup shows first, then the
+      // reasoning, the tool call, and the answer stream in that order.
       expect(
-        await canvas.findByText(firstTurnAnswer, undefined, {
-          timeout: SEND_WAIT_MS,
-        }),
+        await canvas.findByRole("status", { name: /setting up sandbox/i }),
       ).toBeVisible()
-      expect(canvas.getByText("Used 1 tool")).toBeVisible()
-      expect(canvas.getByText(/Where is the billing service\?/)).toBeVisible()
+      const answer = await canvas.findByText(firstTurnAnswer, undefined, {
+        timeout: SEND_WAIT_MS,
+      })
+      const reasoning = canvas.getByText(/Looking for the billing service/)
+      const tool = canvas.getByText("Used 1 tool")
+      const follows = (first: Element, second: Element) =>
+        Boolean(
+          first.compareDocumentPosition(second) &
+            Node.DOCUMENT_POSITION_FOLLOWING,
+        )
+      expect(follows(reasoning, tool)).toBe(true)
+      expect(follows(tool, answer)).toBe(true)
+      expect(answer).toBeVisible()
+      expect(tool).toBeVisible()
       expect(
         canvas.getAllByText(/Where is the billing service\?/),
       ).toHaveLength(1)
@@ -795,6 +721,46 @@ export const FirstTurnStreamsLive: Story = {
         expect(
           canvas.queryByRole("status", { name: /setting up sandbox/i }),
         ).toBeNull()
+      })
+    } finally {
+      socket.restore()
+    }
+  },
+}
+
+const capacityError =
+  "Workspace chat is at capacity: your organization already has 50 chats running."
+
+/**
+ * When the first turn fails, the message goes back into the composer, so the
+ * user can send it again without typing it.
+ */
+export const FirstTurnFailureRestoresDraft: Story = {
+  tags: ["workspace-golden"],
+  render: () => <ComposeHarness />,
+  parameters: FirstTurnStreamsLive.parameters,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const socket = installAguiWebSocket((threadId, runId) => [
+      { type: "RUN_STARTED", threadId, runId },
+      { type: "RUN_ERROR", runId, message: capacityError },
+    ])
+    try {
+      await userEvent.type(
+        await canvas.findByPlaceholderText(/ask about this workspace/i),
+        "Where is the billing service?",
+      )
+      await userEvent.click(canvas.getByRole("button", { name: /send/i }))
+      expect(
+        await canvas.findByText(/at capacity/, undefined, {
+          timeout: SEND_WAIT_MS,
+        }),
+      ).toBeVisible()
+      const composer = await canvas.findByPlaceholderText(
+        /continue the conversation/i,
+      )
+      await waitFor(() => {
+        expect(composer).toHaveValue("Where is the billing service?")
       })
     } finally {
       socket.restore()

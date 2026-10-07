@@ -13,15 +13,6 @@ import {
 } from "./queries"
 import type { WorkspaceDetail, WorkspaceListResponse } from "./types"
 
-/**
- * The first message of a new conversation. The compose view puts it in the
- * query cache; the conversation session takes it once and sends it through
- * its own chat stream, so the first turn shows live like each later turn.
- */
-export type ConversationStartState = {
-  text: string
-}
-
 export function newUiConversationId(): string {
   const bytes = new Uint8Array(16)
   crypto.getRandomValues(bytes)
@@ -108,7 +99,7 @@ export function openWorkspaceConversation(input: {
   orgSlug: string
   workspace: { id: string; slug: string }
   text: string
-}): { conversationId: string } {
+}): void {
   const conversationId = newUiConversationId()
   seedWorkspaceConversation({
     queryClient: input.queryClient,
@@ -121,9 +112,13 @@ export function openWorkspaceConversation(input: {
     orgSlug: input.orgSlug,
     workspace: input.workspace,
   })
-  input.queryClient.setQueryData<ConversationStartState>(
+  // The conversation session takes this message with takeFirstMessage and
+  // sends it on its own chat stream. The cache does not survive a reload, so
+  // a reload between this navigate and the session mount loses the message.
+  // The window is short and the risk is low.
+  input.queryClient.setQueryData<string>(
     workspaceKeys.conversationStart(input.orgSlug, conversationId),
-    { text: input.text },
+    input.text,
   )
   void input.queryClient.prefetchQuery(
     workspaceDetailOptions(input.orgSlug, input.workspace.slug),
@@ -143,5 +138,19 @@ export function openWorkspaceConversation(input: {
     },
     search: (prev) => prev,
   })
-  return { conversationId }
+}
+
+/**
+ * Take the first message that openWorkspaceConversation left for this
+ * conversation. It returns the message once, then undefined.
+ */
+export function takeFirstMessage(
+  queryClient: QueryClient,
+  orgSlug: string,
+  conversationId: string,
+): string | undefined {
+  const key = workspaceKeys.conversationStart(orgSlug, conversationId)
+  const text = queryClient.getQueryData<string>(key)
+  queryClient.removeQueries({ queryKey: key, exact: true })
+  return text
 }

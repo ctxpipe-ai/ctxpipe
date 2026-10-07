@@ -17,6 +17,7 @@ import {
   openWorkspaceConversation,
   seedWorkspaceConversation,
   seedWorkspaceDetailFromList,
+  takeFirstMessage,
 } from "./start-workspace-conversation-ui"
 import { docsWorkspace } from "./workspace-fixtures"
 
@@ -104,21 +105,16 @@ describe("openWorkspaceConversation", () => {
     server.close()
   })
 
-  it("hands the first message to the conversation and navigates without a send", async () => {
+  it("hands the first message to the conversation once and navigates to it", () => {
     const queryClient = new QueryClient()
     const selectNav = vi.fn()
     const navigate = vi.fn().mockResolvedValue(undefined)
-    const sends: Request[] = []
     server.use(
-      http.post(/\/api\/v1\/conversations/, ({ request }) => {
-        sends.push(request)
-        return HttpResponse.json({ error: "unexpected" }, { status: 500 })
-      }),
       http.get(/\/api\/v1\/workspaces\/[^/]+$/, () =>
         HttpResponse.json(docsWorkspace),
       ),
     )
-    const { conversationId: opened } = openWorkspaceConversation({
+    openWorkspaceConversation({
       queryClient,
       navigate: navigate as never,
       selectNav,
@@ -126,16 +122,8 @@ describe("openWorkspaceConversation", () => {
       workspace: { id: "ws_1", slug: "docs" },
       text: "What is hydrate status?",
     })
+    const opened = navigate.mock.calls[0]?.[0]?.params?.conversationId
     expect(opened).toMatch(/^conv_[a-f0-9]{32}$/)
-    expect(
-      queryClient.getQueryData(workspaceKeys.conversationStart("acme", opened)),
-    ).toEqual({ text: "What is hydrate status?" })
-    expect(selectNav).toHaveBeenCalledWith({
-      orgSlug: "acme",
-      primary: "workspace",
-      workspaceSlug: "docs",
-      conversationId: opened,
-    })
     expect(navigate).toHaveBeenCalledWith(
       expect.objectContaining({
         to: "/$orgSlug/ws/$workspaceSlug/$conversationId",
@@ -146,7 +134,15 @@ describe("openWorkspaceConversation", () => {
         },
       }),
     )
-    await queryClient.cancelQueries()
-    expect(sends).toEqual([])
+    expect(selectNav).toHaveBeenCalledWith({
+      orgSlug: "acme",
+      primary: "workspace",
+      workspaceSlug: "docs",
+      conversationId: opened,
+    })
+    expect(takeFirstMessage(queryClient, "acme", opened)).toBe(
+      "What is hydrate status?",
+    )
+    expect(takeFirstMessage(queryClient, "acme", opened)).toBeUndefined()
   })
 })

@@ -1,7 +1,7 @@
 export const requiredStories = [
-  "FirstMessageOpensConversationInStrictMode",
   "LateErrorDoesNotClobberSuccess",
   "FirstTurnStreamsLive",
+  "FirstTurnFailureRestoresDraft",
   "SocketCleansUpOnLeave",
   "ReloadReconnects",
   "RapidRouteChanges",

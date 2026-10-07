@@ -2,7 +2,6 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 import { emptyWorkspaceActivity } from "@/features/workspaces/workspace-fixtures"
-import { conversationPostPath } from "@/mocks/conversation-agui"
 import {
   workspaceActivityHandler,
   workspaceActivityLoadingHandler,
@@ -122,27 +121,18 @@ export const ActivityLoading: Story = {
   },
 }
 
-const composerPosts = { count: 0 }
-
-/** The composer opens the conversation; the conversation sends the message. */
+/** The composer opens the new conversation, which sends the message. */
 export const FirstMessageOpensConversation: Story = {
   render: () => <OrgHomePageContent orgSlug="acme" />,
   parameters: {
     storyRoute: homeRoute,
     msw: {
       handlers: {
-        page: [
-          http.post(conversationPostPath, () => {
-            composerPosts.count += 1
-            return new Response(null, { status: 500 })
-          }),
-          ...workspaceShellHandlers(),
-        ],
+        page: [...workspaceShellHandlers()],
       },
     },
   },
   play: async ({ canvasElement }) => {
-    composerPosts.count = 0
     const canvas = within(canvasElement)
     expect(
       canvas.getByRole("navigation", { name: "Main navigation" }),
@@ -158,7 +148,6 @@ export const FirstMessageOpensConversation: Story = {
         canvas.queryByPlaceholderText(/ask about this workspace/i),
       ).toBeNull(),
     )
-    expect(composerPosts.count).toBe(0)
   },
 }
 

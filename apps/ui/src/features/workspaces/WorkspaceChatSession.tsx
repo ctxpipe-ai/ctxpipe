@@ -2,7 +2,14 @@ import HyperDX from "@hyperdx/browser"
 import type { StreamChunk, UIMessage } from "@tanstack/ai"
 import { useChat } from "@tanstack/ai-react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { type ReactNode, useEffect, useMemo, useState } from "react"
+import {
+  type ReactNode,
+  useEffect,
+  useEffectEvent,
+  useMemo,
+  useRef,
+  useState,
+} from "react"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { ConversationThread } from "@/features/chat/ConversationThread"
 import { MessageInputBox } from "@/features/chat/MessageInputBox"
@@ -19,7 +26,7 @@ import {
   conversationGithubTreeHref,
 } from "./conversationPublish"
 import { workspaceChatPrepareOptions, workspaceKeys } from "./queries"
-import type { ConversationStartState } from "./start-workspace-conversation-ui"
+import { takeFirstMessage } from "./start-workspace-conversation-ui"
 import type { Workspace } from "./types"
 import { useConversationPublish } from "./useConversationPublish"
 import { WorkspaceChatChrome } from "./WorkspaceChatChrome"
@@ -89,6 +96,9 @@ export function WorkspaceChatSession(props: {
   const [headerTitle, setHeaderTitle] = useState(title)
   const [sandboxPhase, setSandboxPhase] = useState<SandboxPhase>("idle")
   const [sendError, setSendError] = useState<Error | null>(null)
+  const [draftSeed, setDraftSeed] = useState<string | null>(null)
+  // The first message of a new conversation while its turn runs.
+  const firstMessageRef = useRef<string | null>(null)
   useEffect(() => {
     setHeaderTitle(title)
   }, [title])
@@ -152,6 +162,18 @@ export function WorkspaceChatSession(props: {
   })
   const gitStatus = publish.status
 
+  // When the first turn fails, the backend can drop the new conversation.
+  // Give the text back to the composer and reload the list from the server.
+  const firstSendFailed = () => {
+    const text = firstMessageRef.current
+    if (text === null) return
+    firstMessageRef.current = null
+    setDraftSeed(text)
+    void queryClient.invalidateQueries({
+      queryKey: workspaceKeys.conversations(orgSlug, workspace.id),
+    })
+  }
+
   const { messages, sendMessage, status, error, isLoading, stop } = useChat({
     threadId: conversationId,
     connection,
@@ -163,6 +185,7 @@ export function WorkspaceChatSession(props: {
       workspaceId: workspace.id,
       source: "ui",
     },
+    onError: firstSendFailed,
     onChunk: (chunk) => {
       const name = renameFromChunk(chunk)
       if (name) applyRename(name)
@@ -170,7 +193,9 @@ export function WorkspaceChatSession(props: {
       if (phase) setSandboxPhase(phase)
       if (chunk.type === "RUN_FINISHED" || chunk.type === "RUN_ERROR") {
         setSandboxPhase("idle")
+        if (chunk.type === "RUN_FINISHED") firstMessageRef.current = null
         if (chunk.type === "RUN_ERROR") {
+          firstSendFailed()
           const message =
             "error" in chunk && typeof chunk.error === "string"
               ? chunk.error
@@ -197,30 +222,34 @@ export function WorkspaceChatSession(props: {
     },
   })
 
-  const handleSendMessage = async (params: { text: string }) => {
-    setSandboxPhase("idle")
+  const handleSendMessage = async (
+    params: { text: string },
+    phase: SandboxPhase = "idle",
+  ) => {
+    setSandboxPhase(phase)
     setSendError(null)
     HyperDX.addAction("advisor_question_sent")
     try {
       await sendMessage(params.text)
     } catch (error) {
       setSandboxPhase("idle")
+      firstSendFailed()
       setSendError(
         error instanceof Error ? error : new Error("Failed to send message"),
       )
     }
   }
 
-  // A new conversation's first message waits in the query cache. Take it
-  // once (StrictMode runs this effect twice) and send it on this chat, so
-  // the first turn streams live.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: send the first message once per conversation
+  // A new conversation's first message waits in the query cache. The
+  // session takes it once and sends it on this chat, so the first turn
+  // streams live. The sandbox starts first, so the label starts there.
+  const sendFirstMessage = useEffectEvent((text: string) => {
+    firstMessageRef.current = text
+    void handleSendMessage({ text }, "starting")
+  })
   useEffect(() => {
-    const key = workspaceKeys.conversationStart(orgSlug, conversationId)
-    const first = queryClient.getQueryData<ConversationStartState>(key)
-    if (!first) return
-    queryClient.removeQueries({ queryKey: key, exact: true })
-    void handleSendMessage({ text: first.text })
+    const text = takeFirstMessage(queryClient, orgSlug, conversationId)
+    if (text) sendFirstMessage(text)
   }, [queryClient, orgSlug, conversationId])
 
   return (
@@ -277,6 +306,7 @@ export function WorkspaceChatSession(props: {
         status={status}
         onStop={stop}
         isDisabled={isLoading}
+        draftSeed={draftSeed}
       />
     </WorkspaceChatChrome>
   )
