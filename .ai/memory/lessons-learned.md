@@ -904,3 +904,9 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Category:** convention
 - **Date:** 2026-10-07
 - **Source:** repository owner, after PR 280 CI took 45 minutes (ticket 18)
+
+### Vercel sandbox tokens live only in GitHub environments
+- **Rule:** The production Vercel token is a secret of the GitHub `Production` environment, which only protected branches can use. Previews and CI use the separate Vercel project `ctxpipe-previews`, and its token is a secret of the `Preview` environment. There is no repository-level `VERCEL_ACCESS_TOKEN`. A workflow job that needs the token declares `environment: Preview` (or `production` on `main`), and a pull request job never gets the production token.
+- **Category:** convention
+- **Date:** 2026-10-07
+- **Source:** repository owner, after a security audit found one Vercel token shared by production, previews and CI
