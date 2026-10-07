@@ -120,8 +120,7 @@ const publishErrorMessages: Record<PublishErrorCode, string> = {
     "ctx| never pushes to the default branch. Ask the agent to work on its own branch.",
   other_branch:
     "The sandbox is on another branch. Ask the agent to switch back to the conversation branch.",
-  nothing_committed:
-    "There are no commits yet. Use Sync to commit the files.",
+  nothing_committed: "There are no commits yet. Use Sync to commit the files.",
   no_changes: "There are no changes to publish.",
   no_write_access: "The ctx| GitHub App can't push to this repository.",
   no_pr_access:

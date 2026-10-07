@@ -409,7 +409,9 @@ export const SharedPublishPending: Story = {
     expect(
       within(pane).queryByRole("button", { name: /^Sync/ }),
     ).not.toBeInTheDocument()
-    expect(within(pane).getByRole("button", { name: "Create PR" })).toBeVisible()
+    expect(
+      within(pane).getByRole("button", { name: "Create PR" }),
+    ).toBeVisible()
     await userEvent.click(sync)
     const pendingName = "Syncing: commit and push in progress"
     await waitFor(

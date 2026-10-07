@@ -163,7 +163,6 @@ export function ConversationPublishActions(props: {
           <Tooltip>
             {/* A span trigger: the tooltip shows on hover also while Sync is disabled. */}
             <TooltipTrigger
-              nativeButton={false}
               render={
                 <span className={cn("inline-flex", props.syncClassName)} />
               }
