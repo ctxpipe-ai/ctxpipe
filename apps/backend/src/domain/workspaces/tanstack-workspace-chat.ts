@@ -574,6 +574,7 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
       return current.stdout.trim()
     },
     defaultBranch: input.defaultBranch,
+    openNetwork: built.isolation === "vercel",
   })
   const { session, callbackHost, definition } = built
   // OpenCode treats `--port=0` as 4096, so overlapping unsandboxed sends must

@@ -64,6 +64,31 @@ describe("advisorWorkspaceId", () => {
 })
 
 describe("createWorkspaceChatPermissionHandler", () => {
+  it("lets a hosted agent reach a public host, never the cloud metadata service", async () => {
+    const handler = createWorkspaceChatPermissionHandler({
+      writeStatus: "writable",
+      openNetwork: true,
+      judge: async () => "allow" as const,
+    })
+    await expect(
+      handler({
+        id: "perm_web",
+        sessionID: "sess_1",
+        type: "bash",
+        title: "curl -sS https://example.com/docs",
+      }),
+    ).resolves.toBe("once")
+    await expect(
+      handler({
+        id: "perm_metadata",
+        sessionID: "sess_1",
+        type: "bash",
+        title: "curl http://169.254.169.254/latest/meta-data/",
+      }),
+    ).resolves.toBe("reject")
+  })
+
+
   it("denies hard cases before the judge runs", async () => {
     const judge = async () => "allow" as const
     const handler = createWorkspaceChatPermissionHandler({

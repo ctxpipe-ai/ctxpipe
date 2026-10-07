@@ -249,6 +249,11 @@ describe("workspaceChatOpenCodeContract", () => {
     const options = JSON.parse(written.configJson).provider.ctxpipe.options
     expect(options.apiKey).toBe(WORKSPACE_CHAT_FIREWALL_PLACEHOLDER)
     expect(written.configJson).not.toContain("CTXPIPE_OPENCODE_RUN_TOKEN")
+    // The hosted network is open: the agent may read web pages. Web search
+    // stays off: OpenCode's search service is not ours.
+    const permission = JSON.parse(written.configJson).permission
+    expect(permission.webfetch).toBe("allow")
+    expect(permission.websearch).toBe("deny")
   })
 
   it("keeps the Vercel runtime's Node on PATH next to the agent CLI", () => {
