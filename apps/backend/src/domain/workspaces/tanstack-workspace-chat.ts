@@ -161,7 +161,11 @@ export type TanstackWorkspaceChatInput = {
   lastBranch?: string | null
   ref?: string
   writeStatus: string
-  cloneToken?: string | null
+  /**
+   * Test fixtures only: the clone token for a remote that is not on GitHub
+   * (a local Git server). The backend never sets it; it is not recorded.
+   */
+  cloneToken?: string
   onFinish?: () => Promise<void> | void
   onError?: () => Promise<void> | void
   onUserPersist?: () => Promise<void> | void
@@ -476,11 +480,22 @@ export async function warmTanstackWorkspaceChat(
   enterSandboxLifecycleContext(input.conversationId)
   const prepareStarted = Date.now()
   // Attaching (Files reads) runs no Git command that needs a token.
-  const built = await buildWorkspaceChatSandbox(
-    input,
-    options?.existingOnly ? undefined : `clone:${randomUUID()}`,
-  )
-  if (!built.ok) return built
+  const cloneLabel = options?.existingOnly ? undefined : `clone:${randomUUID()}`
+  // The prepare's own clone token is revoked when it returns, while the
+  // conversation lock is still held. A turn mints its own token.
+  const revokeCloneToken = async () => {
+    if (cloneLabel)
+      await revokeRunGitTokens({
+        orgId: input.orgId,
+        conversationId: input.conversationId,
+        prefixes: [`${cloneLabel}:`],
+      })
+  }
+  const built = await buildWorkspaceChatSandbox(input, cloneLabel)
+  if (!built.ok) {
+    await revokeCloneToken()
+    return built
+  }
   const abortController = abortControllerFrom(input.abortSignal)
   try {
     const ctx = sandboxEnsureContext(input, built, abortController)
@@ -522,6 +537,7 @@ export async function warmTanstackWorkspaceChat(
     )
     return { ok: false, status: 503, error: "workspace chat prepare failed" }
   } finally {
+    await revokeCloneToken()
     // Opening or reading a conversation counts as use; also covers a start
     // that failed after its sandbox began running.
     if (built.isolation !== "unsandboxed")
@@ -538,7 +554,14 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
 > {
   const cloneLabel = `clone:${randomUUID()}`
   const built = await buildWorkspaceChatSandbox(input, cloneLabel)
-  if (!built.ok) return built
+  if (!built.ok) {
+    await revokeRunGitTokens({
+      orgId: input.orgId,
+      conversationId: input.conversationId,
+      prefixes: [`${cloneLabel}:`],
+    })
+    return built
+  }
   let activeSandbox: SandboxHandle | undefined
   const runtime = workspaceChatRuntimeConfig({
     writeStatus: input.writeStatus,
@@ -660,12 +683,6 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
         onError: markSandboxUsed,
         onAbort: markSandboxUsed,
       }),
-      defineChatMiddleware({
-        name: "workspace-chat-run-git-tokens",
-        onFinish: revokeTurnGitTokens,
-        onError: revokeTurnGitTokens,
-        onAbort: revokeTurnGitTokens,
-      }),
       workspaceChatThreadLock({
         locks: postgresSandboxLocks(
           input.orgId,
@@ -678,6 +695,16 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
         ),
         loadThread: (threadId) =>
           persistence.stores.messages.loadThread(threadId),
+      }),
+      // After the thread lock: TanStack runs onFinish in this order, so the
+      // lock is released first and a run capability can mint nothing after
+      // the revoke. A mint already in flight is recorded for the sweep, and
+      // the route does not return it.
+      defineChatMiddleware({
+        name: "workspace-chat-run-git-tokens",
+        onFinish: revokeTurnGitTokens,
+        onError: revokeTurnGitTokens,
+        onAbort: revokeTurnGitTokens,
       }),
       withPersistence(persistence, { snapshotStreaming: true }),
       withSandbox(definition, {
@@ -980,9 +1007,10 @@ async function buildWorkspaceChatSandbox(
   const cloneToken =
     selectedProvider === "vercel"
       ? ""
-      : (input.cloneToken ??
-        (cloneLabel && repoFullName
-          ? await recordedRunGitToken({
+      : input.cloneToken
+        ? input.cloneToken
+        : cloneLabel && repoFullName
+          ? ((await recordedRunGitToken({
               orgId: input.orgId,
               conversationId: input.conversationId,
               label: cloneLabel,
@@ -996,9 +1024,8 @@ async function buildWorkspaceChatSandbox(
                     fresh: true,
                   },
                 ),
-            })
-          : undefined) ??
-        "")
+            })) ?? "")
+          : ""
   const workspace = conversationSandboxWorkspace({
     isolation: selectedProvider,
     input,

@@ -19,6 +19,7 @@ import { sandboxGitTokenStore } from "../../models/sandbox-git-tokens.js"
 import { withNativeChatFixture } from "../../test/native-chat-fixture.js"
 import { revokeRunGitTokens } from "./run-git-tokens.js"
 import { postgresSandboxLocks } from "./sandbox-lock-store.js"
+import { warmTanstackWorkspaceChat } from "./tanstack-workspace-chat.js"
 import { mintWorkspaceChatRunCapability } from "./workspace-chat-run-capability.js"
 
 const helper = fileURLToPath(
@@ -307,6 +308,28 @@ it(
           expect(expired.code).toBe(1)
           expect(expired.stdout).toBe("")
           expect(requests).toHaveLength(2)
+          // A Files read (putFile, getDiff) prepares the sandbox with its own
+          // clone token; the prepare revokes it when it returns.
+          revoked.length = 0
+          await warmTanstackWorkspaceChat({
+            conversationId: f.conversationId,
+            orgId: f.orgId,
+            orgSlug: f.orgSlug,
+            workspaceId: f.workspaceId,
+            desiredUrl: revision.remote.url,
+            desiredSha: f.sha,
+            defaultBranch: "main",
+            githubConnectionId: connectionId,
+            writeStatus: "read_only",
+            prompt: "prepare",
+          })
+          expect(requests).toHaveLength(3)
+          expect(revoked).toEqual(["token fixture-read-3"])
+          expect(
+            await sandboxGitTokenStore(f.orgId, parseEnv(process.env)).list(
+              `run:${f.conversationId}:`,
+            ),
+          ).toEqual([])
         } finally {
           invalidateGithubAppCacheForConnection(connectionId)
           await withOrgDbContext(f.orgId, async (db) => {
