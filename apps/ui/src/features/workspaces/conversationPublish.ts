@@ -76,3 +76,34 @@ export function conversationPullRequestVisible(
 ): boolean {
   return action === "show" || conversationCreatePrEnabled(status)
 }
+
+const publishErrorMessages: Record<string, string> = {
+  turn_running: "the agent is still working. Try again when the turn ends.",
+  no_changes: "there are no changes to publish.",
+  nothing_committed:
+    "there are no commits yet. Use Commit+Push to commit the files.",
+  no_write_access: "the ctx| GitHub App cannot push to this repository.",
+  no_pr_access:
+    "the ctx| GitHub App cannot open pull requests. Give it the Pull requests: Read and write permission.",
+  session_moved:
+    "the branch on GitHub has commits ctx| did not push. Ask the agent to fetch and rebase.",
+  rebase_in_progress: "a rebase is in progress. Ask the agent to finish it.",
+  pr_merged:
+    "the pull request was merged. Send a message to continue on a new branch.",
+  push_failed: "Git or GitHub refused the push. Try again.",
+  github_unavailable: "GitHub did not answer. Try again.",
+  sandbox_unavailable: "the sandbox is not available. Try again.",
+  sandbox_capacity: "too many sandboxes are running. Try again later.",
+  missing_sandbox: "the sandbox stopped. Send a message to start it again.",
+  stale_binding: "the Workspace changed. Reload the page.",
+}
+
+/** The toast text for a failed Commit+Push or Create PR. */
+export function conversationPublishErrorMessage(
+  action: "Commit+Push" | "Create PR",
+  error: unknown,
+): string {
+  const code = error instanceof Error ? error.message : String(error)
+  const reason = publishErrorMessages[code]
+  return reason ? `${action} failed: ${reason}` : `${action} failed (${code}).`
+}
