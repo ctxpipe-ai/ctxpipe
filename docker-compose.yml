@@ -101,11 +101,15 @@ services:
     ports:
       - "${CTXPIPE_OTEL_COLLECTOR_HOST_PORT:-4318}:4318"
 
-  # Host dev only: Agent Vault for sandboxes on the host's Docker daemon. Its
-  # API is on 127.0.0.1 only. Sandboxes reach its proxy at
-  # host.docker.internal on the same port it listens on, and it may dial only
-  # the Docker host (the backend): Docker Desktop's and Linux's default
-  # host-gateway addresses. Host dev has no forced egress; `deploy` does.
+  # Host dev only, on a trusted machine: Agent Vault for sandboxes on the
+  # host's Docker daemon. Its API is published on 127.0.0.1, but on Docker
+  # Desktop any local container reaches it at host.docker.internal, and so
+  # can the proxy (192.168.65.254 is on the allowlist). The owner password is
+  # generated and the login limit is on. On a fresh volume a local container
+  # could register the owner first; the backend then fails closed: remove the
+  # `agent_vault_dev` volume to recover. Sandboxes reach the proxy at
+  # host.docker.internal on the port it listens on; it may dial only the
+  # Docker host (the backend). Host dev has no forced egress; `deploy` does.
   agent-vault-dev:
     profiles: [infra]
     image: *agent-vault-image
