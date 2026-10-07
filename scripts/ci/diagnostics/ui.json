@@ -44,12 +44,6 @@
       "count": 2
     },
     {
-      "file": "../backend/src/models/atlassian-connector.ts",
-      "code": 2345,
-      "message": "Argument of type '{ status: string; provisionStatus: \"idle\" | \"running\" | \"failed\" | \"succeeded\"; cloudId?: string | null | undefined; installationContext?: string | null | undefined; installationId?: string | ... 1 more ... | undefined; ... 14 more ...; atlassianOAuthClientSecret?: string | ... 1 more ... | undefined; }' is not assignable to parameter of type '{ atlassianOAuthClientId: unknown; atlassianOAuthClientSecret: unknown; cloudId?: string | null | undefined; installationContext?: string | null | undefined; installationId?: string | null | undefined; ... 14 more ...; lastProvisionAt?: string | ... 1 more ... | undefined; }'.\n  Property 'atlassianOAuthClientId' is optional in type '{ status: string; provisionStatus: \"idle\" | \"running\" | \"failed\" | \"succeeded\"; cloudId?: string | null | undefined; installationContext?: string | null | undefined; installationId?: string | ... 1 more ... | undefined; ... 14 more ...; atlassianOAuthClientSecret?: string | ... 1 more ... | undefined; }' but required in type '{ atlassianOAuthClientId: unknown; atlassianOAuthClientSecret: unknown; cloudId?: string | null | undefined; installationContext?: string | null | undefined; installationId?: string | null | undefined; ... 14 more ...; lastProvisionAt?: string | ... 1 more ... | undefined; }'.",
-      "count": 1
-    },
-    {
       "file": "../backend/src/models/github-installation.ts",
       "code": 2345,
       "message": "Argument of type 'Error' is not assignable to parameter of type 'string'.",

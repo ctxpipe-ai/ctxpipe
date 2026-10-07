@@ -225,7 +225,12 @@ export async function patchForgeConnectionTypedConfig(
     const cur = parseForgeConnectionConfig(
       row.config as Record<string, unknown>,
     )
-    const next = serialiseForgeConnectionConfigForDb({ ...cur, ...patch })
+    const merged = { ...cur, ...patch }
+    const next = serialiseForgeConnectionConfigForDb({
+      ...merged,
+      atlassianOAuthClientId: merged.atlassianOAuthClientId,
+      atlassianOAuthClientSecret: merged.atlassianOAuthClientSecret,
+    })
     const [out] = await db
       .update(connections)
       .set({ config: next as Record<string, unknown>, updatedAt: new Date() })
