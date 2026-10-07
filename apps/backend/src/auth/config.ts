@@ -228,6 +228,9 @@ export function createBetterAuth() {
           }),
         )
       },
+      // A reset ends other sessions, including any held by whoever set the
+      // password before the address was proven.
+      revokeSessionsOnPasswordReset: true,
       // The reset link went to their inbox, which proves the address.
       onPasswordReset: async ({ user }) => {
         if (user.emailVerified) return

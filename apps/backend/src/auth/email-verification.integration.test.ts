@@ -154,4 +154,39 @@ describeWithDatabase("email verification (Postgres)", () => {
       `${base}/.auth/sign-in?redirectTo=${encodeURIComponent(invitation)}`,
     )
   })
+
+  it("verifies an unverified account through a password reset and signs out its other sessions", async () => {
+    const email = newEmail()
+    // An account from before verification was required: unverified, signed in.
+    vi.stubEnv("SMTP_CONNECTION_URL", "")
+    resetBetterAuthForTests()
+    const legacy = await signUp(email, "first-registrant-password")
+    const cookie = legacy.headers
+      .getSetCookie()
+      .map((part) => part.split(";")[0])
+      .join("; ")
+    withSmtp()
+
+    await post("/request-password-reset", {
+      email,
+      redirectTo: `${base}/.auth/reset-password`,
+    })
+    const token = /\/reset-password\/([^?"]+)/.exec(
+      mailsTo(email).at(-1)?.body ?? "",
+    )?.[1]
+    const reset = await post("/reset-password", {
+      token,
+      newPassword: "address-owner-password",
+    })
+
+    expect(reset.status).toBe(200)
+    const signIn = await post("/sign-in/email", {
+      email,
+      password: "address-owner-password",
+    })
+    expect(signIn.status).toBe(200)
+    expect(
+      await getAuth().api.getSession({ headers: new Headers({ cookie }) }),
+    ).toBeNull()
+  })
 })
