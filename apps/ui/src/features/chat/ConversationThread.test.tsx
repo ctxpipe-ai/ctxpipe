@@ -143,12 +143,12 @@ describe("ConversationThread activity chrome", () => {
     )
     expect(html).toContain('aria-expanded="false"')
     expect(html).toContain("Reasoning")
-    expect(html).toContain("inspect the repository")
+    expect(html).not.toContain("inspect the repository")
     expect(html).toContain("This is a TypeScript monorepo.")
     expect(html).not.toContain("Thinking…")
   })
 
-  it("renders markdown in collapsed reasoning instead of raw markers", () => {
+  it("titles collapsed reasoning with its heading as plain text", () => {
     const html = renderThread(
       [
         user,
@@ -159,7 +159,7 @@ describe("ConversationThread activity chrome", () => {
             {
               type: "thinking",
               content:
-                "**Inspecting repository options** I'm thinking we should look at the repo.",
+                "**Inspecting repository options**\n\nI'm thinking we should look at the repo.",
             },
             { type: "text", content: "This is a TypeScript monorepo." },
           ],
@@ -169,9 +169,39 @@ describe("ConversationThread activity chrome", () => {
     )
     expect(html).toContain('aria-expanded="false"')
     expect(html).toContain("Inspecting repository options")
-    expect(html).toContain('data-streamdown="strong"')
-    expect(html).toContain("ctx-streamdown-reasoning-collapsed")
     expect(html).not.toContain("**Inspecting repository options**")
+    expect(html).not.toContain("look at the repo")
+  })
+
+  it("keeps expanded details in a region next to the button, not inside it", () => {
+    const html = renderThread(
+      [
+        user,
+        {
+          id: "a1",
+          role: "assistant",
+          parts: [
+            {
+              type: "thinking",
+              content: "Read [the guide](https://example.com/guide) first.",
+            },
+          ],
+        },
+      ],
+      "ready",
+    )
+    const button = html.match(
+      /<button[^>]*aria-label="Reasoning"[^>]*>[\s\S]*?<\/button>/,
+    )?.[0]
+    expect(button).toContain('aria-expanded="true"')
+    expect(button).not.toContain("the guide")
+    const controls = button?.match(/aria-controls="([^"]+)"/)?.[1]
+    expect(controls).toBeTruthy()
+    const region = html.match(
+      new RegExp(`<section[^>]*id="${controls}"[^>]*>[\\s\\S]*?</section>`),
+    )?.[0]
+    expect(region).toContain('aria-label="Reasoning"')
+    expect(region).toContain("the guide")
   })
 
   it("omits sender marks and timestamps", () => {
@@ -351,5 +381,169 @@ describe("ConversationThread activity chrome", () => {
     expect(html).not.toContain("get_file")
     expect(html).not.toContain("knowledge/billing/ledger.md")
     expect(html).toContain("Billing lives in the ledger.")
+  })
+})
+
+function thinking(content: string) {
+  return { type: "thinking", content }
+}
+
+function search(id: string) {
+  return { type: "tool-call", id, name: "hybrid_search", input: { query: id } }
+}
+
+function assistant(parts: ChatMessage["parts"]): ChatMessage {
+  return { id: "a1", role: "assistant", parts }
+}
+
+describe("ConversationThread earlier thinking blocks", () => {
+  it("moves the first AG-UI reasoning step into a Thought group when a new step starts", () => {
+    const processor = new StreamProcessor({
+      initialMessages: [
+        {
+          id: user.id,
+          role: "user",
+          parts: [{ type: "text", content: "What's in this Workspace?" }],
+        },
+      ],
+    })
+    processor.processChunk({
+      type: EventType.RUN_STARTED,
+      runId: "run_1",
+      threadId: "conv_1",
+      timestamp: Date.now(),
+    })
+    processor.processChunk({
+      type: EventType.STEP_STARTED,
+      stepName: "step_1",
+      timestamp: Date.now(),
+    })
+    processor.processChunk({
+      type: EventType.REASONING_MESSAGE_CONTENT,
+      messageId: "reason_1",
+      delta: "First idea about the ledger.",
+      timestamp: Date.now(),
+    })
+    processor.processChunk({
+      type: EventType.STEP_STARTED,
+      stepName: "step_2",
+      timestamp: Date.now(),
+    })
+    processor.processChunk({
+      type: EventType.REASONING_MESSAGE_CONTENT,
+      messageId: "reason_2",
+      delta: "Second idea about invoices.",
+      timestamp: Date.now(),
+    })
+
+    const html = renderThread(
+      processor.getMessages() as ChatMessage[],
+      "streaming",
+    )
+    expect(html).toContain('aria-label="Thought"')
+    const live = html.slice(html.indexOf('role="status"'))
+    expect(live).toContain("Second idea about invoices.")
+    expect(html).not.toContain("First idea about the ledger.")
+  })
+
+  it("shows one thinking block without a Thought group", () => {
+    const html = renderThread(
+      [
+        user,
+        assistant([
+          thinking("**Reading the ledger**\n\nFirst idea about the ledger."),
+          { type: "text", content: "Use the ledger." },
+        ]),
+      ],
+      "ready",
+    )
+    expect(html).toContain('aria-label="Reasoning"')
+    expect(html).toContain("Reading the ledger")
+    expect(html).not.toContain("Thought")
+  })
+
+  it("labels one earlier block Thought and keeps the latest block visible", () => {
+    const html = renderThread(
+      [
+        user,
+        assistant([
+          thinking("**Reading the ledger**\n\nFirst idea about the ledger."),
+          thinking("**Comparing invoices**\n\nSecond idea about invoices."),
+          { type: "text", content: "Use the ledger." },
+        ]),
+      ],
+      "ready",
+    )
+    expect(html).toContain('aria-label="Thought"')
+    expect(html).toContain("Comparing invoices")
+    expect(html).not.toContain("Reading the ledger")
+  })
+
+  it("collapses all earlier blocks into one Thought 2x group", () => {
+    const html = renderThread(
+      [
+        user,
+        assistant([
+          thinking("**Reading the ledger**\n\nFirst idea about the ledger."),
+          thinking("**Comparing invoices**\n\nSecond idea about invoices."),
+          thinking("**Checking payments**\n\nThird idea about payments."),
+          { type: "text", content: "Use the ledger." },
+        ]),
+      ],
+      "ready",
+    )
+    expect(html.match(/aria-label="Thought 2x"/g)).toHaveLength(1)
+    const groupTag = html.match(/<button[^>]*aria-label="Thought 2x"[^>]*>/)
+    expect(groupTag?.[0]).toContain('aria-expanded="false"')
+    expect(html).toContain("Checking payments")
+    expect(html).not.toContain("Reading the ledger")
+    expect(html).not.toContain("Comparing invoices")
+  })
+
+  it("keeps the newest block live while the turn streams", () => {
+    const html = renderThread(
+      [
+        user,
+        assistant([
+          thinking("First idea about the ledger."),
+          thinking("Second idea about invoices."),
+          thinking("**Checking payments**\n\nThird idea about payments."),
+        ]),
+      ],
+      "streaming",
+    )
+    expect(html).toContain('aria-label="Thought 2x"')
+    const live = html.slice(html.indexOf('role="status"'))
+    expect(live).toContain('aria-label="Reasoning"')
+    expect(live).toContain("Checking payments")
+    expect(live).toContain("Third idea about payments.")
+    expect(html).not.toContain("First idea about the ledger.")
+    expect(html).not.toContain("Second idea about invoices.")
+  })
+
+  it("groups thinking across tool calls the same way tools group across thinking", () => {
+    const html = renderThread(
+      [
+        user,
+        assistant([
+          thinking("**Reading the ledger**\n\nFirst idea about the ledger."),
+          search("tc_1"),
+          thinking("**Comparing invoices**\n\nSecond idea about invoices."),
+          search("tc_2"),
+          thinking("**Checking payments**\n\nThird idea about payments."),
+          { type: "text", content: "Use the ledger." },
+        ]),
+      ],
+      "ready",
+    )
+    expect(html.match(/aria-label="2 searches"/g)).toHaveLength(1)
+    expect(html.match(/aria-label="Thought 2x"/g)).toHaveLength(1)
+    const tools = html.indexOf('aria-label="2 searches"')
+    const group = html.indexOf('aria-label="Thought 2x"')
+    const latest = html.indexOf("Checking payments")
+    const reply = html.indexOf("Use the ledger.")
+    expect(tools).toBeLessThan(group)
+    expect(group).toBeLessThan(latest)
+    expect(latest).toBeLessThan(reply)
   })
 })
