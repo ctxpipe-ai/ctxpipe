@@ -51,16 +51,24 @@ export const AuthProvider: FC<React.PropsWithChildren> = ({ children }) => {
 
   const { data: config } = useGetAuthConfig()
 
-  // A spent or expired verification link sends them to its callback with
+  // An expired or invalid verification link sends them to its callback with
   // ?error=…, on whichever page that was. Say so once, wherever they land.
+  // (A link that was already used just redirects, with no error.)
   useEffect(() => {
     const url = new URL(window.location.href)
     const error = url.searchParams.get("error")
-    if (error !== "TOKEN_EXPIRED" && error !== "INVALID_TOKEN") return
-    // After this commit: the Toaster mounts later in the tree.
+    if (
+      error !== "TOKEN_EXPIRED" &&
+      error !== "INVALID_TOKEN" &&
+      error !== "USER_NOT_FOUND"
+    ) {
+      return
+    }
+    // The Toaster in __root subscribes in its own effect, which runs after
+    // this one; a toast sent before then is dropped.
     window.setTimeout(() =>
       toast.error(
-        "That verification link has expired or was already used. Sign in and we will send a new one.",
+        "That verification link has expired or is not valid. Sign in and we will send a new one.",
       ),
     )
     url.searchParams.delete("error")
