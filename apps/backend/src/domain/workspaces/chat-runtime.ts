@@ -61,7 +61,7 @@ export const WORKSPACE_CHAT_DOCKER_SETUP = [
 ] as const
 
 /**
- * Vercel's `node24` runtime has no OpenCode, and its user cannot write the
+ * The Vercel Node runtime has no OpenCode, and its user cannot write the
  * global npm prefix, so the CLI goes under the user's home. Only the agent
  * snapshot's builder runs this, with egress to the npm registry alone; every
  * conversation sandbox starts from that snapshot (or a Workspace base made

@@ -239,7 +239,7 @@ describe("workspaceChatOpenCodeContract", () => {
   })
 
   it("keeps the Vercel runtime's Node on PATH next to the agent CLI", () => {
-    // Vercel's node24 image has Node and npm only under /vercel/runtimes, so a
+    // Vercel's node26 image has Node and npm only under /vercel/runtimes, so a
     // PATH without it leaves the agent's commands without `node` or `npm`.
     process.env.PATH = "/backend/private/bin"
     const written = writeWorkspaceChatOpenCodeConfig({
@@ -248,7 +248,7 @@ describe("workspaceChatOpenCodeContract", () => {
       isolation: "vercel",
     })
     expect(written.homeEnv.PATH).toBe(
-      "/home/vercel-sandbox/.local/bin:/vercel/runtimes/node24/bin:/usr/local/bin:/usr/bin:/bin",
+      "/home/vercel-sandbox/.local/bin:/vercel/runtimes/node26/bin:/usr/local/bin:/usr/bin:/bin",
     )
   })
 

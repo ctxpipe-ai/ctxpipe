@@ -18,6 +18,18 @@ import type {
 /** Home of the Vercel sandbox user; the agent CLI and its home live under it. */
 export const VERCEL_AGENT_ROOT = "/home/vercel-sandbox"
 
+/**
+ * The runtime and size of each Vercel sandbox we create. Vercel gives 2048 MB
+ * of memory for each vCPU, so 1 vCPU gives 2 GB. A sandbox from a snapshot
+ * keeps the runtime of that snapshot, so only the agent snapshot's builder
+ * names the runtime. The agent snapshot and the Workspace bases are keyed by
+ * it, so a new runtime builds them again once.
+ */
+export const VERCEL_SANDBOX = {
+  runtime: "node26",
+  resources: { vcpus: 1 },
+} as const
+
 export const WORKSPACE_CHAT_OPENCODE_PROVIDER_ID = "ctxpipe" as const
 
 const DEFAULT_OPENROUTER_BASE = "https://openrouter.ai/api/v1"
@@ -196,8 +208,8 @@ export function writeWorkspaceChatOpenCodeConfig(input: {
         OPENCODE_CONFIG: `${home}/opencode.json`,
         PATH:
           input.isolation === "vercel"
-            ? // The node24 image keeps Node and npm under /vercel/runtimes.
-              `${VERCEL_AGENT_ROOT}/.local/bin:/vercel/runtimes/node24/bin:/usr/local/bin:/usr/bin:/bin`
+            ? // The runtime image keeps Node and npm under /vercel/runtimes.
+              `${VERCEL_AGENT_ROOT}/.local/bin:/vercel/runtimes/${VERCEL_SANDBOX.runtime}/bin:/usr/local/bin:/usr/bin:/bin`
             : "/usr/local/bin:/usr/bin:/bin",
       },
     }

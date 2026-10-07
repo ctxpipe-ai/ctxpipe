@@ -297,5 +297,6 @@ Keep each patch minimal and listed with its removal condition. Never fall back t
 - 2026-10-01 (user): no separate spike (Railway plan).
 - 2026-10-01 (user): 100 Railway sandboxes too low; asked about Cloudflare. Comparison given (Cloudflare: pooled 1,500 vCPU / 6 TiB limits, ~7× cheaper memory, wipes files on sleep, Worker-only access, no process kill).
 - 2026-10-01 (user): Cloudflare Sandboxes chosen — limits are enough, no new vendor, no Enterprise. Files are not a problem because work is pushed to git. Ticket rewritten for Cloudflare.
+- 2026-10-07 (user): every Vercel sandbox runs at 1 vCPU (2 GB of memory; before, no size was set, so the Vercel default applied) on `node26` (it was `node24`). `VERCEL_SANDBOX` in `workspace-chat-opencode-contract.ts` sets both. The agent builder tag is now `opencode=node26-opencode-ai-<version>`, and the base image key is `vercel-agent/node26/opencode-ai@<version>`. So the agent snapshot and the Workspace bases are built again once, and existing hosted conversations get a new sandbox once. The session PATH comes from the runtime (`/vercel/runtimes/node26/bin`).
 
 ## Resolution
