@@ -197,9 +197,9 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
   if (verifyEmailFor) {
     return (
       <p className="text-sm text-zinc-300">
-        We sent a link to{" "}
+        We sent an email to{" "}
         <span className="font-medium text-zinc-100">{verifyEmailFor}</span>.
-        Open it to verify your address and finish joining
+        Open it to finish joining
         {invitationEmailQuery.data?.organizationName
           ? ` ${invitationEmailQuery.data.organizationName}`
           : " the organisation"}
@@ -366,7 +366,8 @@ function EmailVerificationSent() {
               arrived, sign in and we will send a new one.
             </p>
             <a
-              href="/.auth/sign-in"
+              // Same redirectTo as the sign-up, so a new link returns there too.
+              href={`/.auth/sign-in${window.location.search}`}
               className="mt-4 inline-block text-sm text-teal-400 hover:text-teal-300 hover:underline"
             >
               Back to sign in

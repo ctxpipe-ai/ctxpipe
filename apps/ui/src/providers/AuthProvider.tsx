@@ -10,7 +10,8 @@ import { useGetAuthConfig } from "@/lib/useGetAuthConfig"
 /**
  * better-auth-ui's SignUpForm navigates to sign-in after a successful link-based
  * sign-up (emailVerification.otp is falsy). Detect that specific transition and
- * redirect to our custom "check your email" view instead.
+ * redirect to our custom "check your email" view instead, keeping the query
+ * (redirectTo) so its sign-in link returns to the same destination.
  */
 function toEmailVerificationIfSignUp(href: string): string {
   try {
@@ -19,7 +20,7 @@ function toEmailVerificationIfSignUp(href: string): string {
       url.pathname === "/.auth/sign-in" &&
       window.location.pathname === "/.auth/sign-up"
     ) {
-      return "/.auth/email-verification"
+      return `/.auth/email-verification${url.search}`
     }
   } catch {
     /* invalid URL — pass through */
