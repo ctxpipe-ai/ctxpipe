@@ -25,4 +25,4 @@ Updated: 2026-10-07. Tickets are implemented by sub-agents in separate worktrees
 | — | 19 | [The first turn of a new conversation does not stream](issues/19-first-turn-stream-lost.md) | done | P0 | claude | — |
 | — | 20 | [Commit+Push is unreliable and Create PR does not work](issues/20-commit-push-create-pr-unreliable.md) | open: confirm the Create PR cause on the preview | P0 | claude | — |
 | — | 21 | [Hosted (Vercel) chat sandboxes hold no credential](issues/21-hosted-sandbox-no-credentials.md) | review: the real Vercel lane runs in CI only | P0 | claude | — |
-| — | 22 | [Self-host (Docker) sandboxes hold no credential, through Agent Vault](issues/22-selfhost-sandbox-agent-vault.md) | in-progress | P0 | claude | — |
+| — | 22 | [Self-host (Docker) sandboxes hold no credential, through Agent Vault](issues/22-selfhost-sandbox-agent-vault.md) | review: Compose and AWS deploys not run end to end | P0 | claude | — |

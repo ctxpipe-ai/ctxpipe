@@ -1,6 +1,6 @@
 # Self-host (Docker) sandboxes hold no credential, through Agent Vault
 
-Status: in-progress
+Status: review: Compose deploy and AWS deploy not run end to end
 Priority: P0
 Owner: claude
 Blocked by: none
@@ -25,4 +25,16 @@ The user approved this decision: no credential of ours is ever inside a chat san
 
 ## Resolution
 
-Open.
+- `agent-vault.ts` (SDK `@infisical/agent-vault-sdk`) opens one vault per run with a proxy session. `docker-run-vault.ts` adds the run's GitHub read token (Workspace read scope). The turn adds exact-path rules for the model proxy and the tool bridge. The sandbox gets proxy and CA variables and placeholders only. The turn end and the prepare end delete the vault, then revoke the token. The sandbox sweep deletes old run vaults. No Agent Vault: 503 with a clear error.
+- Workspace base builds clone through a run vault.
+- Removed: the `git-credentials` route, `git-credential.mjs`, the `gh` wrapper, `CTXPIPE_CLONE_TOKEN` and `CTXPIPE_GIT_RUN_CAPABILITY` for Docker.
+- Compose: `agent-vault`, `agent-vault-secrets`, fixed `sandbox` subnet, backend alias `backend.sandbox.ctxpipe.internal`; `agent-vault-dev` in the infra profile. `dind` lets sandboxes reach only the proxy (no DNS).
+- CDK: Agent Vault on the sandbox host, two generated secrets, `DOCKER-USER` rules, backend callback at its VPC DNS name. Changeset (minor).
+- Docker turns now get the open network policy and `webfetch` (after the merge of ticket 21).
+- Proof: `agent-vault-native.contract.test.ts` (real Agent Vault: no credential in env, `/proc`, Git config; Git clone/fetch/push and HTTP get the credential; public HTTPS works; session ends with the vault; sweep; fail closed), `sandbox-dind-egress-native.contract.test.ts` (real DinD with our entrypoint: proxy only; failed without the rules), CDK synth tests, unit tests.
+
+## Open
+
+- Run `pnpm start` and a real AWS deploy end to end (not run).
+- The two HTTPS-fixture Docker tests in `workspace-chat-prepare-native.contract.test.ts` need Linux `host-gateway` (CI); they do not run on Docker Desktop.
+- Node `fetch` to a plain `http://` site fails through the proxy (HTTPS works).
