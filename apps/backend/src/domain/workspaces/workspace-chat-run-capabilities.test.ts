@@ -22,10 +22,18 @@ it("keeps a Docker run's model capability in its vault and gives the sandbox a p
   const env = await workspaceChatRunCapabilities(vault, proxyUrl, mint)
   expect(env).toEqual({ CTXPIPE_OPENCODE_RUN_TOKEN: "added-by-proxy" })
   expect(JSON.stringify(env)).not.toContain("capability-for")
+  const base =
+    "backend.sandbox.ctxpipe.internal:3000/acme/api/v1/workspace-chat/openai/v1"
+  // Exact paths only: no glob that a `..` segment could pass.
   expect(rules).toEqual([
     {
-      name: "model-proxy",
-      host: "backend.sandbox.ctxpipe.internal:3000/acme/api/v1/workspace-chat/openai/v1/*",
+      name: "model-proxy-chat",
+      host: `${base}/chat/completions`,
+      bearer: "capability-for-workspace-chat-model",
+    },
+    {
+      name: "model-proxy-models",
+      host: `${base}/models`,
       bearer: "capability-for-workspace-chat-model",
     },
   ])

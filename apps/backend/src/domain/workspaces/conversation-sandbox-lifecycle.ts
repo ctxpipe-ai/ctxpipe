@@ -18,6 +18,7 @@ import {
   SandboxInstanceOwnershipConflict,
 } from "../../models/workspaces.js"
 import { log } from "../../observability/logger.js"
+import { agentVaultAccess, sweepRunVaults } from "./agent-vault.js"
 import {
   CHAT_SANDBOX_DELETE_AFTER_MS,
   CHAT_SANDBOX_IDLE_STOP_MS,
@@ -25,6 +26,7 @@ import {
   ORG_RUNNING_SANDBOX_LIMIT,
 } from "./chat-lifecycle.js"
 import { pushBeforeSandboxDelete } from "./conversation-branch-push.js"
+import { RUN_VAULT_TTL_SECONDS } from "./docker-run-vault.js"
 import type { WorkspaceRevision } from "./revision.js"
 import { revokeIdleRunGitTokens } from "./run-git-tokens.js"
 import {
@@ -322,6 +324,9 @@ export async function sweepConversationSandboxes(
     Math.floor(now.getTime() / RETRY_GRID_MS) * RETRY_GRID_MS + RETRY_GRID_MS
   // Run tokens a turn end could not revoke (or a prepare left) go now.
   if (await revokeIdleRunGitTokens({ orgId }).catch(() => true)) dueAt(retryAt)
+  // Run vaults a turn end could not delete; their sessions have ended.
+  const vaults = agentVaultAccess()
+  if (vaults) await sweepRunVaults(vaults, RUN_VAULT_TTL_SECONDS * 1000)
   const idleSince = new Date(now.getTime() - CHAT_SANDBOX_IDLE_STOP_MS)
   for (const row of rows) {
     const conversationId = row.conversationId

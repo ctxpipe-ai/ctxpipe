@@ -844,13 +844,17 @@ export async function workspaceChatRunCapabilities(
 ): Promise<Record<string, string>> {
   const model = await mint("workspace-chat-model")
   if (!vault) return { CTXPIPE_OPENCODE_RUN_TOKEN: model }
+  // Exact paths: Agent Vault matches the raw path, so a glob would also
+  // match a path with `..` segments. The Host header is the rule's host.
   const url = new URL(proxyUrl)
+  const base = `${url.host}${url.pathname.replace(/\/$/, "")}`
   await vault.addRules([
     {
-      name: "model-proxy",
-      host: `${url.host}${url.pathname.replace(/\/$/, "")}/*`,
+      name: "model-proxy-chat",
+      host: `${base}/chat/completions`,
       bearer: model,
     },
+    { name: "model-proxy-models", host: `${base}/models`, bearer: model },
   ])
   return { CTXPIPE_OPENCODE_RUN_TOKEN: SANDBOX_CREDENTIAL_PLACEHOLDER }
 }
