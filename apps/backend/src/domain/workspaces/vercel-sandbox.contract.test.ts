@@ -545,13 +545,11 @@ describe("hosted turn credentials", { timeout: 600_000 }, () => {
       expect(body, path).not.toContain(turn.modelCapability)
       expect(body, path).not.toContain(turn.bridgeToken)
     }
-    // Another Host header still reaches the pinned host.
+    // The firewall refuses a Host header that differs from the TLS server
+    // name, so a credential never goes to another host.
     const otherHost = await echo(model, "-H 'Host: example.com'")
-    expect(otherHost).toContain(turn.modelCapability)
-    expect(
-      (JSON.parse(otherHost) as { headers: Record<string, string> }).headers
-        .Host,
-    ).toBe("httpbin.org")
+    expect(otherHost).toContain("request authority does not match SNI")
+    expect(otherHost).not.toContain(turn.modelCapability)
 
     // No credential is inside: not in the environment of any process, the
     // Git config, or the files a turn writes (the OpenCode config included).
