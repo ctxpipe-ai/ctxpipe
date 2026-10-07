@@ -22,6 +22,8 @@ The Compose `deploy` profile starts:
 | `falkordb` | Default graph database (no host port) |
 | `dind` | Docker daemon for Workspace chat sandboxes (stock `docker:dind`) |
 | `chat-sandbox-image` | One-shot: builds the chat sandbox image inside `dind` |
+| `agent-vault` | Adds credentials to sandbox requests; the only address sandboxes reach |
+| `agent-vault-secrets` | One-shot: generates the Agent Vault passwords on the `agent_vault_secrets` volume |
 
 ## Start the stack
 
@@ -78,7 +80,8 @@ app, and wires the backend and worker to it. It needs no settings.
 |---|---|
 | Daemon | Stock `docker:dind`. It is the only privileged container in the stack; sandboxes are not privileged. The backend never mounts the host's Docker socket. |
 | Docker API | Port 2376 inside Compose with mutual TLS. `dind` creates its certificates on first start; backend and worker read the client certificates from the `sandbox_client_certs` volume. The API is not published on the host. |
-| Network | `dind`, `backend`, and `worker` share a separate `sandbox` network. Sandboxes follow the [chat sandbox network policy](/docs/self-hosting/architecture#chat-sandbox-network-policy): the deploy profile never publishes Postgres or FalkorDB, and `dind` drops traffic to instance metadata. |
+| Network | `dind`, `agent-vault`, `backend`, and `worker` share a separate `sandbox` network with the fixed subnet `172.30.99.0/24`. If it overlaps a network of your host, change every `172.30.99.x` address in `docker-compose.yml`. Sandboxes follow the [chat sandbox network policy](/docs/self-hosting/architecture#chat-sandbox-network-policy): `dind` lets them reach only the Agent Vault proxy, the deploy profile never publishes Postgres or FalkorDB, and `dind` drops traffic to instance metadata. |
+| Credentials | Sandboxes hold none. `agent-vault` adds the GitHub token and the backend credentials to each request. Its passwords are generated on first start; do not set them. If `agent-vault` does not answer, chat fails closed with an error. |
 | Isolation | Each agent port needs a per-conversation password, and sandboxes cannot reach each other over the bridge. |
 | Limits | On cgroup v2 hosts, all sandboxes share one cgroup capped at 85% of the memory `dind` may use, and 8192 processes. Without cgroup v2 the caps are skipped and `dind` logs a warning. Container logs rotate at 3 × 10 MB. |
 | Chat image | `chat-sandbox-image` builds `scripts/chat-sandbox` inside `dind` on every `pnpm start`, from the same checkout as the other images. Builds after the first are cached. Nothing waits for it: until it exists, chat answers 503 and the rest of the app works. Once the published `ghcr.io/ctxpipe-ai/chat-sandbox` image is public, Compose will pull it instead. |
