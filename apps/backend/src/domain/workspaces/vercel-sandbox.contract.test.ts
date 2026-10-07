@@ -18,6 +18,7 @@ import {
 import { WORKSPACE_CHAT_VERCEL_SETUP } from "./chat-runtime.js"
 import {
   agentSnapshotTags,
+  conversationFirewall,
   deleteVercelBuilder,
   deleteVercelSandbox,
   GIT_TOKEN_ROTATE_MS,
@@ -30,6 +31,7 @@ import {
 } from "./vercel-sandbox-provider.js"
 import {
   VERCEL_SANDBOX,
+  WORKSPACE_CHAT_FIREWALL_PLACEHOLDER,
   writeWorkspaceChatOpenCodeConfig,
 } from "./workspace-chat-opencode-contract.js"
 
@@ -365,7 +367,11 @@ describe("hosted conversation provider", { timeout: 600_000 }, () => {
     let mints = 0
     const revoked: string[] = []
     const access = {
-      backendHost: "ctxpipe-contract.invalid",
+      firewall: conversationFirewall({
+        credentials,
+        backendHost: "ctxpipe-contract.invalid",
+        tokens,
+      }),
       tokens,
       mintGitToken: async () => {
         mints += 1
@@ -450,6 +456,115 @@ describe("hosted conversation provider", { timeout: 600_000 }, () => {
   })
 })
 
+describe("hosted turn credentials", { timeout: 600_000 }, () => {
+  it("adds a turn's credentials outside the sandbox and removes them at turn end; the internet stays open", async () => {
+    // An echo service stands in for the backend host: it shows the header
+    // that the firewall added. The paths stand in for the model proxy and
+    // the tool bridge.
+    const githubToken = process.env.GITHUB_TOKEN?.trim()
+    if (!githubToken)
+      throw new Error("GITHUB_TOKEN is required for the hosted sandbox lane")
+    const held = new Map<string, { token: string; mintedAt: Date }>()
+    const tokens: SandboxGitTokenStore = {
+      get: async (id) => held.get(id) ?? null,
+      put: async (id, token) => {
+        held.set(id, { token, mintedAt: new Date() })
+      },
+      take: async (id) => {
+        const token = held.get(id)?.token ?? null
+        held.delete(id)
+        return token
+      },
+    }
+    const firewall = conversationFirewall({
+      credentials,
+      backendHost: "postman-echo.com",
+      tokens,
+    })
+    const provider = vercelConversationProvider({
+      credentials,
+      agentPassword: "contract-agent-password",
+      access: {
+        firewall,
+        tokens,
+        mintGitToken: async () => githubToken,
+        revokeGitToken: async () => undefined,
+      },
+      tags,
+      base: async () => ({ failed: async () => undefined }),
+      agentSnapshot,
+    })
+    const handle = await provider.create({
+      workspace: { source: { type: "none" } },
+    } as Parameters<typeof provider.create>[0])
+    created.push(handle.id)
+    const suffix = Date.now().toString(36)
+    const turn = {
+      modelPath: "/get",
+      modelCapability: `contract-model-${suffix}`,
+      bridgePath: "/headers",
+      bridgeToken: `contract-bridge-${suffix}`,
+    }
+    // The sandbox sends the placeholder, as OpenCode does.
+    const echo = async (path: string) =>
+      (
+        await handle.process.exec(
+          `curl -sS -H 'Authorization: Bearer ${WORKSPACE_CHAT_FIREWALL_PLACEHOLDER}' https://postman-echo.com${path}`,
+        )
+      ).stdout
+    const until = async (check: () => Promise<boolean>) => {
+      const started = Date.now()
+      while (Date.now() - started < 30_000) {
+        if (await check()) return Date.now() - started
+        await new Promise((resolve) => setTimeout(resolve, 500))
+      }
+      throw new Error("The firewall rule did not change within 30 s")
+    }
+    let started = Date.now()
+    await firewall.openTurn(handle.id, turn)
+    report(`[vercel] turn credentials set ${Date.now() - started}ms`)
+    report(
+      `[vercel] turn credentials visible after ${await until(async () => (await echo("/get")).includes(turn.modelCapability))}ms`,
+    )
+    const bridge = await echo("/headers")
+    expect(bridge).toContain(turn.bridgeToken)
+    expect(bridge).not.toContain(turn.modelCapability)
+
+    // No credential is inside: not in the environment of any process, the
+    // Git config, or the files a turn writes (the OpenCode config included).
+    const secrets = [githubToken, turn.modelCapability, turn.bridgeToken]
+    const inside = await handle.process.exec(
+      "env; cat /proc/[0-9]*/environ /proc/[0-9]*/cmdline 2>/dev/null | tr '\\0' '\\n'; git config --global --list 2>/dev/null; git config --system --list 2>/dev/null",
+    )
+    expect(inside.stdout.length).toBeGreaterThan(0)
+    for (const secret of secrets)
+      expect(inside.stdout.includes(secret)).toBe(false)
+    const tree = await handle.process.exec(
+      'tar -czf - --ignore-failed-read /vercel/sandbox "$HOME" /etc /tmp 2>/dev/null | base64 -w0',
+    )
+    const archive = gunzipSync(Buffer.from(tree.stdout, "base64"))
+    for (const secret of secrets) expect(archive.includes(secret)).toBe(false)
+
+    started = Date.now()
+    await firewall.closeTurn()
+    report(`[vercel] turn credentials removed ${Date.now() - started}ms`)
+    report(
+      `[vercel] turn credentials gone after ${await until(async () => !(await echo("/get")).includes(turn.modelCapability))}ms`,
+    )
+    const after = `${await echo("/get")}${await echo("/headers")}`
+    expect(after).not.toContain(turn.modelCapability)
+    expect(after).not.toContain(turn.bridgeToken)
+    expect(after).toContain(WORKSPACE_CHAT_FIREWALL_PLACEHOLDER)
+
+    // The internet stays open: a public site with no rule is reachable.
+    const site = await handle.process.exec(
+      "curl -sS -o /dev/null -w '%{http_code}' https://example.com/",
+    )
+    expect(site.stdout.trim()).toBe("200")
+    await provider.destroy({ id: handle.id })
+  })
+})
+
 describe("agent snapshot and Workspace base", { timeout: 900_000 }, () => {
   const githubToken = () => {
     const token = process.env.GITHUB_TOKEN?.trim()
@@ -472,13 +587,18 @@ describe("agent snapshot and Workspace base", { timeout: 900_000 }, () => {
     }
   }
   /** A conversation provider starting from `baseRef`, else the agent snapshot. */
-  const conversationFrom = (baseRef?: string) =>
-    vercelConversationProvider({
+  const conversationFrom = (baseRef?: string) => {
+    const tokens = memoryTokens()
+    return vercelConversationProvider({
       credentials,
       agentPassword: "contract-agent-password",
       access: {
-        backendHost: "ctxpipe-contract.invalid",
-        tokens: memoryTokens(),
+        firewall: conversationFirewall({
+          credentials,
+          backendHost: "ctxpipe-contract.invalid",
+          tokens,
+        }),
+        tokens,
         mintGitToken: async () => githubToken(),
         revokeGitToken: async () => undefined,
       },
@@ -489,6 +609,7 @@ describe("agent snapshot and Workspace base", { timeout: 900_000 }, () => {
       }),
       agentSnapshot,
     })
+  }
   const start = async (provider: ReturnType<typeof conversationFrom>) => {
     const handle = await provider.create({
       workspace: { source: { type: "none" } },
@@ -530,7 +651,7 @@ describe("agent snapshot and Workspace base", { timeout: 900_000 }, () => {
       )
     ).stdout.includes("blocked")
 
-  it("a conversation without a base starts from the agent snapshot: OpenCode present, npm unreachable", async () => {
+  it("a conversation without a base starts from the agent snapshot: OpenCode present, internet open", async () => {
     let started = Date.now()
     const snapshotId = await agentSnapshot()
     report(
@@ -550,7 +671,7 @@ describe("agent snapshot and Workspace base", { timeout: 900_000 }, () => {
     const version = await opencode(conversation)
     expect(version.exitCode).toBe(0)
     expect(version.stdout).toContain(OPENCODE_VERSION)
-    expect(await npmReachable(conversation)).toBe(false)
+    expect(await npmReachable(conversation)).toBe(true)
   })
 
   it("builds a base from the agent snapshot, starts a conversation from it with no token inside, and deletes it even without its recorded id", async () => {
@@ -579,8 +700,8 @@ describe("agent snapshot and Workspace base", { timeout: 900_000 }, () => {
         setup: [...WORKSPACE_CHAT_VERCEL_SETUP],
       }),
     )
-    // The builder reaches GitHub only: not the npm registry.
-    expect(await npmReachable(build.handle)).toBe(false)
+    // The builder's internet is open; only GitHub gets a credential.
+    expect(await npmReachable(build.handle)).toBe(true)
     report(
       `[vercel] base builder start + clone + setup ${Date.now() - started}ms`,
     )
@@ -613,7 +734,7 @@ describe("agent snapshot and Workspace base", { timeout: 900_000 }, () => {
       "Hello World",
     )
     expect((await opencode(conversation)).stdout).toContain(OPENCODE_VERSION)
-    expect(await npmReachable(conversation)).toBe(false)
+    expect(await npmReachable(conversation)).toBe(true)
     // The base holds the token nowhere: not in the git config or the
     // environment, and not in any file under .git, $HOME, /etc or /tmp. The
     // token never enters the sandbox: the sandbox streams those trees as a

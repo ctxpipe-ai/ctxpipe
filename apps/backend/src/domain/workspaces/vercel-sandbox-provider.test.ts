@@ -1,7 +1,7 @@
+import type { NetworkPolicy } from "@vercel/sandbox"
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
-import type { NetworkPolicy } from "@vercel/sandbox"
 import {
   agentSnapshotTags,
   conversationFirewall,
@@ -223,16 +223,19 @@ describe("conversationFirewall", () => {
         routes: [],
       }),
     ),
-    http.patch("https://vercel.com/api/v2/sandboxes/:name", async ({ request }) => {
-      if (failUpdates)
-        return HttpResponse.json(
-          { error: { code: "bad_request", message: "update failed" } },
-          { status: 400 },
-        )
-      const body = (await request.json()) as { networkPolicy: NetworkPolicy }
-      policies.push(body.networkPolicy)
-      return HttpResponse.json({ sandbox: sandboxJson })
-    }),
+    http.patch(
+      "https://vercel.com/api/v2/sandboxes/:name",
+      async ({ request }) => {
+        if (failUpdates)
+          return HttpResponse.json(
+            { error: { code: "bad_request", message: "update failed" } },
+            { status: 400 },
+          )
+        const body = (await request.json()) as { networkPolicy: NetworkPolicy }
+        policies.push(body.networkPolicy)
+        return HttpResponse.json({ sandbox: sandboxJson })
+      },
+    ),
     // A running session gets the same policy at once.
     http.post(
       "https://vercel.com/api/v2/sandboxes/sessions/:id/network-policy",
@@ -288,9 +291,7 @@ describe("conversationFirewall", () => {
       backendHost: "app.example.test",
       tokens,
     })
-    await expect(firewall.openTurn("sbx-1", turn)).rejects.toThrow(
-      /firewall/i,
-    )
+    await expect(firewall.openTurn("sbx-1", turn)).rejects.toThrow(/firewall/i)
     failUpdates = false
     await firewall.rotateGitToken("git-2")
     expect(backendRules(policies.at(-1))).toEqual([])

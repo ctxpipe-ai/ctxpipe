@@ -116,6 +116,12 @@ export const WORKSPACE_CHAT_OPENCODE_CLI = "opencode-ai@1.18.34" as const
 export const WORKSPACE_CHAT_OPENCODE_PROXY_URL_ENV =
   "{env:CTXPIPE_MODEL_PROXY_URL}" as const
 
+/**
+ * What a hosted sandbox sends where a credential goes (the model key and the
+ * tool-bridge token). The firewall replaces the Authorization header.
+ */
+export const WORKSPACE_CHAT_FIREWALL_PLACEHOLDER = "ctxpipe-firewall" as const
+
 export const WORKSPACE_CHAT_OPENCODE_JSON_SECRET =
   "CTXPIPE_OPENCODE_JSON" as const
 
@@ -187,7 +193,10 @@ export function writeWorkspaceChatOpenCodeConfig(input: {
   isolation?: "docker" | "unsandboxed" | "vercel"
 }): { homeEnv: Record<string, string>; configJson: string } {
   const configJson = `${JSON.stringify(
-    workspaceChatOpenCodeConfig({ modelBase: input.modelBase }),
+    workspaceChatOpenCodeConfig({
+      modelBase: input.modelBase,
+      keyFromFirewall: input.isolation === "vercel",
+    }),
     null,
     2,
   )}\n`
@@ -242,6 +251,8 @@ export const WORKSPACE_CHAT_OPENCODE_AGENT_PROMPT = [
 export function workspaceChatOpenCodeConfig(input: {
   modelBase: string
   mcp?: { name: string; url: string; token: string }
+  /** Hosted sandboxes: the firewall adds the key. */
+  keyFromFirewall?: boolean
 }): {
   $schema: "https://opencode.ai/config.json"
   enabled_providers: readonly ["ctxpipe"]
@@ -251,7 +262,9 @@ export function workspaceChatOpenCodeConfig(input: {
       name: "ctxpipe"
       options: {
         baseURL: typeof WORKSPACE_CHAT_OPENCODE_PROXY_URL_ENV
-        apiKey: "{env:CTXPIPE_OPENCODE_RUN_TOKEN}"
+        apiKey:
+          | "{env:CTXPIPE_OPENCODE_RUN_TOKEN}"
+          | typeof WORKSPACE_CHAT_FIREWALL_PLACEHOLDER
       }
       models: Record<string, { name: string }>
     }
@@ -287,7 +300,9 @@ export function workspaceChatOpenCodeConfig(input: {
         name: "ctxpipe",
         options: {
           baseURL: WORKSPACE_CHAT_OPENCODE_PROXY_URL_ENV,
-          apiKey: "{env:CTXPIPE_OPENCODE_RUN_TOKEN}",
+          apiKey: input.keyFromFirewall
+            ? WORKSPACE_CHAT_FIREWALL_PLACEHOLDER
+            : "{env:CTXPIPE_OPENCODE_RUN_TOKEN}",
         },
         models: {
           [input.modelBase]: { name: input.modelBase },

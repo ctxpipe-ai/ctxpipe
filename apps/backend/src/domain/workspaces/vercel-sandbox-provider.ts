@@ -205,7 +205,11 @@ export function conversationFirewall(input: {
   let turn: HostedTurnCredentials | undefined
   let queue: Promise<unknown> = Promise.resolve()
   const policy = (token: string) =>
-    hostedNetworkPolicy({ gitToken: token, backendHost: input.backendHost, turn })
+    hostedNetworkPolicy({
+      gitToken: token,
+      backendHost: input.backendHost,
+      turn,
+    })
   /** Sends the current policy after the updates before it. */
   const apply = () => {
     const run = queue.then(async () => {

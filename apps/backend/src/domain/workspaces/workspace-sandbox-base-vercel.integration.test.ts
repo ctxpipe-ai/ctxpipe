@@ -23,6 +23,7 @@ import {
   workspaces,
 } from "../../db/schema/workspaces.js"
 import { generateObjectId } from "../../lib/id.js"
+import type { SandboxGitTokenStore } from "../../models/sandbox-git-tokens.js"
 import {
   BASE_BUILD_LEASE_MS,
   getSandboxInstance,
@@ -37,6 +38,7 @@ import type { WorkspaceRevision } from "./revision.js"
 import { postgresSandboxLocks } from "./sandbox-lock-store.js"
 import {
   builderSnapshotExpiration,
+  conversationFirewall,
   forgetAgentSnapshot,
   vercelAgentSnapshot,
   vercelConversationProvider,
@@ -308,20 +310,25 @@ describe("hosted base choice", () => {
       }),
     )
     const tokens = new Map<string, { token: string; mintedAt: Date }>()
+    const tokenStore: SandboxGitTokenStore = {
+      get: async (id) => tokens.get(id) ?? null,
+      put: async (id, token) => {
+        tokens.set(id, { token, mintedAt: new Date() })
+      },
+      take: async () => null,
+    }
     const provider = vercelConversationProvider({
       credentials,
       agentPassword: "password",
       access: {
-        backendHost: "ctxpipe.test",
+        firewall: conversationFirewall({
+          credentials,
+          backendHost: "ctxpipe.test",
+          tokens: tokenStore,
+        }),
         mintGitToken: async () => "read-token",
         revokeGitToken: async () => undefined,
-        tokens: {
-          get: async (id) => tokens.get(id) ?? null,
-          put: async (id, token) => {
-            tokens.set(id, { token, mintedAt: new Date() })
-          },
-          take: async () => null,
-        },
+        tokens: tokenStore,
       },
       tags: { ctxpipe: "workspace-chat", environment: "pr-1" },
       base: () =>
@@ -396,18 +403,23 @@ describe("hosted base choice", () => {
         return HttpResponse.json(sandboxBody("conversation-1"))
       }),
     )
+    const noTokens: SandboxGitTokenStore = {
+      get: async () => null,
+      put: async () => undefined,
+      take: async () => null,
+    }
     const provider = vercelConversationProvider({
       credentials,
       agentPassword: "password",
       access: {
-        backendHost: "ctxpipe.test",
+        firewall: conversationFirewall({
+          credentials,
+          backendHost: "ctxpipe.test",
+          tokens: noTokens,
+        }),
         mintGitToken: async () => "read-token",
         revokeGitToken: async () => undefined,
-        tokens: {
-          get: async () => null,
-          put: async () => undefined,
-          take: async () => null,
-        },
+        tokens: noTokens,
       },
       tags: { ctxpipe: "workspace-chat", environment: "pr-1" },
       base: () =>
