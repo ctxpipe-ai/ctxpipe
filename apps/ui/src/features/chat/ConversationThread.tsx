@@ -1,5 +1,5 @@
 import { IconBrain, IconFile, IconSearch, IconTool } from "@tabler/icons-react"
-import { type ReactElement, useState } from "react"
+import { type ReactElement, useId, useState } from "react"
 import { Button as AriaButton } from "react-aria-components"
 import {
   Conversation,
@@ -19,7 +19,6 @@ import {
   summarizeToolCalls,
   type ToolBucket,
   type ToolCallSummary,
-  thoughtGroupLabel,
   toolBucketCounts,
 } from "@/features/chat/conversation-thread-utils"
 import type { ChatMessage, ChatStatus } from "@/features/chat/types"
@@ -69,12 +68,8 @@ function ActivityIconSlot(props: { live: boolean; children: ReactElement }) {
   )
 }
 
-function reasoningResponseClassName(collapsed: boolean) {
-  return cn(
-    "ctx-streamdown-reasoning h-auto space-y-1 text-xs leading-relaxed text-muted-foreground [&_blockquote]:text-muted-foreground [&_h1]:text-muted-foreground [&_h2]:text-muted-foreground [&_h3]:text-muted-foreground [&_h4]:text-muted-foreground [&_li]:text-muted-foreground [&_ol]:text-muted-foreground [&_p]:text-muted-foreground [&_strong]:text-muted-foreground [&_ul]:text-muted-foreground",
-    collapsed && "ctx-streamdown-reasoning-collapsed",
-  )
-}
+const reasoningResponseClassName =
+  "ctx-streamdown-reasoning h-auto space-y-1 text-xs leading-relaxed text-muted-foreground [&_blockquote]:text-muted-foreground [&_h1]:text-muted-foreground [&_h2]:text-muted-foreground [&_h3]:text-muted-foreground [&_h4]:text-muted-foreground [&_li]:text-muted-foreground [&_ol]:text-muted-foreground [&_p]:text-muted-foreground [&_strong]:text-muted-foreground [&_ul]:text-muted-foreground"
 
 function ReasoningBox(props: {
   text: string
@@ -82,18 +77,8 @@ function ReasoningBox(props: {
   collapsed: boolean
 }) {
   const { text, live, collapsed } = props
-  const [userExpanded, setUserExpanded] = useState<boolean | null>(null)
-  const expanded = live || (userExpanded ?? !collapsed)
   const markdown = normalizeReasoningMarkdown(text)
   const liveTitle = latestReasoningHeading(text)
-  const body = (
-    <MessageResponse
-      className={reasoningResponseClassName(!expanded)}
-      isAnimating={live}
-    >
-      {markdown}
-    </MessageResponse>
-  )
 
   if (live) {
     return (
@@ -113,30 +98,33 @@ function ReasoningBox(props: {
           >
             {liveTitle ?? "Thinking…"}
           </p>
-          {body}
+          <MessageResponse className={reasoningResponseClassName} isAnimating>
+            {markdown}
+          </MessageResponse>
         </div>
       </div>
     )
   }
 
   return (
-    <AriaButton
-      aria-expanded={expanded}
-      aria-label="Reasoning"
-      onPress={() => setUserExpanded(!expanded)}
-      className={cn(
-        focusVisibleClassName,
-        "flex w-full min-w-0 items-start gap-2 rounded-md text-left text-xs leading-relaxed text-muted-foreground",
-        "hover:text-foreground/80",
-      )}
-    >
-      <ActivityIconSlot live={false}>
-        <IconBrain className="size-4" aria-hidden />
-      </ActivityIconSlot>
-      <span className={cn("min-w-0 flex-1", !expanded && "line-clamp-1")}>
-        {body}
-      </span>
-    </AriaButton>
+    <ActivityGroup
+      label="Reasoning"
+      live={false}
+      defaultExpanded={!collapsed}
+      summary={
+        <span className="inline-flex min-w-0 items-center gap-1.5">
+          <ActivityIconSlot live={false}>
+            <IconBrain className="size-4" aria-hidden />
+          </ActivityIconSlot>
+          <span className="line-clamp-1">{liveTitle ?? "Reasoning"}</span>
+        </span>
+      }
+      details={
+        <MessageResponse className={reasoningResponseClassName}>
+          {markdown}
+        </MessageResponse>
+      }
+    />
   )
 }
 
@@ -154,35 +142,50 @@ function ToolChip(props: { bucket: ToolBucket; label: string }) {
 function ActivityGroup(props: {
   label: string
   live: boolean
+  defaultExpanded?: boolean
   summary: ReactElement
   details: ReactElement
 }) {
-  const { label, live, summary, details } = props
-  const [expanded, setExpanded] = useState(false)
+  const { label, live, defaultExpanded = false, summary, details } = props
+  const [userExpanded, setUserExpanded] = useState<boolean | null>(null)
+  const expanded = userExpanded ?? defaultExpanded
+  const detailsId = useId()
 
-  const button = (
-    <AriaButton
-      aria-expanded={expanded}
-      aria-label={label}
-      onPress={() => setExpanded(!expanded)}
-      className={cn(
-        focusVisibleClassName,
-        "flex w-full min-w-0 items-start gap-2 rounded-md text-left text-xs leading-relaxed text-muted-foreground",
-        "hover:text-foreground/80",
-      )}
-    >
-      {expanded ? details : summary}
-    </AriaButton>
+  const group = (
+    <div className="flex w-full min-w-0 flex-col gap-1">
+      <AriaButton
+        aria-expanded={expanded}
+        aria-controls={expanded ? detailsId : undefined}
+        aria-label={label}
+        onPress={() => setUserExpanded(!expanded)}
+        className={cn(
+          focusVisibleClassName,
+          "flex w-full min-w-0 items-start gap-2 rounded-md text-left text-xs leading-relaxed text-muted-foreground",
+          "hover:text-foreground/80",
+        )}
+      >
+        {summary}
+      </AriaButton>
+      {expanded ? (
+        <section
+          id={detailsId}
+          aria-label={label}
+          className="min-w-0 pl-6 text-xs leading-relaxed text-muted-foreground"
+        >
+          {details}
+        </section>
+      ) : null}
+    </div>
   )
 
   if (live) {
     return (
       // biome-ignore lint/a11y/useSemanticElements: live activity is a status, not a form output
-      <div role="status">{button}</div>
+      <div role="status">{group}</div>
     )
   }
 
-  return button
+  return group
 }
 
 function ToolUseRow(props: { tools: ToolCallSummary[]; live: boolean }) {
@@ -222,7 +225,8 @@ function ToolUseRow(props: { tools: ToolCallSummary[]; live: boolean }) {
 
 function ThoughtGroup(props: { thoughts: string[] }) {
   const { thoughts } = props
-  const label = thoughtGroupLabel(thoughts.length)
+  const label =
+    thoughts.length === 1 ? "Thought" : `Thought ${thoughts.length}x`
   const icon = (
     <ActivityIconSlot live={false}>
       <IconBrain className="size-4" aria-hidden />
@@ -246,7 +250,7 @@ function ThoughtGroup(props: { thoughts: string[] }) {
             <span key={index} className="flex min-w-0 items-start gap-2">
               {icon}
               <span className="min-w-0 flex-1">
-                <MessageResponse className={reasoningResponseClassName(false)}>
+                <MessageResponse className={reasoningResponseClassName}>
                   {normalizeReasoningMarkdown(thought)}
                 </MessageResponse>
               </span>
