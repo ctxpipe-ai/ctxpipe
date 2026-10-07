@@ -1,4 +1,4 @@
-import { lstat, readdir, readFile } from "node:fs/promises"
+import { lstat, readdir } from "node:fs/promises"
 import { join } from "node:path"
 import type { OpenAPIHono } from "@hono/zod-openapi"
 import { createRoute, z } from "@hono/zod-openapi"
@@ -13,9 +13,9 @@ import {
   listCheckoutFilePaths,
 } from "../domain/repositories/globFiles.js"
 import {
+  readContainedFile,
   repoCheckoutPath,
-  resolveSafePath,
-  resolveSafeReadableFilePath,
+  resolveContainedRealPath,
   scipIndexPath,
 } from "../domain/repositories/paths.js"
 import { purgeRepositoryFromDisk } from "../domain/repositories/purge.js"
@@ -528,7 +528,7 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     let dirPath: string
     let names: string[]
     try {
-      dirPath = path ? resolveSafePath(basePath, path) : basePath
+      dirPath = await resolveContainedRealPath(basePath, path ?? ".")
       names = await readdir(dirPath)
     } catch {
       return c.json({ error: "Path not found" }, 404)
@@ -654,9 +654,9 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
       repo.id,
       checkoutKeyFromAuth(auth, repoId, repo.publishedCheckoutKey),
     )
-    let fullPath: string
+    let data: Awaited<ReturnType<typeof readContainedFile>>
     try {
-      fullPath = await resolveSafeReadableFilePath(basePath, filePath)
+      data = await readContainedFile(basePath, filePath)
     } catch (error) {
       if (
         error instanceof Error &&
@@ -666,14 +666,9 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
       }
       return c.json({ error: "File not found" }, 404)
     }
-    try {
-      const data = await readFile(fullPath)
-      return new Response(data, {
-        headers: { "Content-Type": "application/octet-stream" },
-      })
-    } catch {
-      return c.json({ error: "File not found" }, 404)
-    }
+    return new Response(data, {
+      headers: { "Content-Type": "application/octet-stream" },
+    })
   })
 
   app.openapi(filesQueryRoute, async (c) => {
@@ -693,12 +688,7 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     const result: Record<string, string> = {}
     for (const p of paths) {
       try {
-        const fullPath = resolveSafePath(basePath, p)
-        const file = Bun.file(fullPath)
-        if (await file.exists()) {
-          const buf = await file.arrayBuffer()
-          result[p] = btoa(String.fromCharCode(...new Uint8Array(buf)))
-        }
+        result[p] = (await readContainedFile(basePath, p)).toString("base64")
       } catch {
         // omit missing files
       }
