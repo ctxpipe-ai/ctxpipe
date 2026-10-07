@@ -562,7 +562,10 @@ it(
             const body = (await request.clone().json()) as {
               permissions?: { pull_requests?: string }
             }
-            if (github !== "mint" || body.permissions?.pull_requests !== "write")
+            if (
+              github !== "mint" ||
+              body.permissions?.pull_requests !== "write"
+            )
               return
             return HttpResponse.json(
               {

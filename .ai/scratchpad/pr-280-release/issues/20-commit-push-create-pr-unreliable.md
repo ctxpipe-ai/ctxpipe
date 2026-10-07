@@ -1,6 +1,6 @@
 # Commit+Push is unreliable and Create PR does not work
 
-Status: done (one cause needs a preview check, see "Open")
+Status: open: confirm the Create PR cause on the preview
 Priority: P0
 Owner: claude
 Blocked by: none
@@ -19,17 +19,23 @@ On the pr-280 preview, in a Workspace chat conversation with changes, the user p
 
 ## Resolution
 
-- `withSandboxLockIfFree` takes an optional `waitMs`. The publish routes wait up to 10 s for the lock. A Files read or a warm-up ends in that time; a turn still answers `turn_running`.
-- Create PR answers 400 `no_pr_access` when GitHub refuses the permission (403, or 422 with "permission"). Other GitHub errors still answer 502 `github_unavailable`.
-- The UI shows a toast for each failure, with a message for each error code (`conversationPublishErrorMessage`).
+- The publish routes answer 409 `turn_running` at once when the conversation has a running chat run (`findActiveRun`). Otherwise they wait for the `chat-thread:` lock until the client aborts the request. Files reads keep their exclusive lock.
+- `createPullRequestFromBranch` returns a refusal:
+  - `no_pr_access` (400) when GitHub refuses the `pull_requests: write` token (422 "permissions requested") or the call (403 "not accessible by integration" or a 403 that names a permission). A rate limit 403 stays `github_unavailable` (502).
+  - `no_changes` (400) for 422 "No commits between".
+- The route logs GitHub's status and message: `conversation-pull-request refused` at warn for a refusal, and the `conversation-pull-request` error with `githubStatus` and `githubMessage` for other GitHub errors.
+- The UI shows a toast for each failure. Every error code has a message (`conversationPublishErrorMessage`).
 
-Proof (each test failed first for the same reason as on the preview):
+Proof:
 
-- `conversation-branch-push-native.contract.test.ts` "publishes with Commit+Push and Create PR": a short lock hold (as a Files read) made Commit+Push answer 409 `turn_running`; now 200.
-- Same file, "answers no_pr_access when the GitHub App cannot open pull requests": answered 502 `github_unavailable`; now 400 `no_pr_access`.
-- `apps/ui/src/features/workspaces/useConversationPublish.test.ts`: the error messages for `turn_running`, `no_pr_access` and `github_unavailable`.
+- `conversation-branch-push-native.contract.test.ts` "publishes with Commit+Push and Create PR":
+  - A running turn answers 409 at once.
+  - A short lock hold (as a Files read) made Commit+Push answer 409 `turn_running` first. Now the push waits and gets 200.
+  - An aborted request stops its wait, pushes nothing, and leaves the holder's lock alone.
+- Same file, "names why GitHub refused to open the pull request": the token-mint 422 and the pulls.create 403 give `no_pr_access`. A rate limit 403 gives 502. "No commits between" gives `no_changes`. The token-mint case gave 502 `github_unavailable` before the fix.
+- `conversationPublish.test.ts` and `useConversationPublish.test.ts`: the error codes and their messages.
+- Storybook golden story `PublishErrorsToast`: the toast texts for `turn_running` and `no_pr_access`.
 
 ## Open
 
-- Confirm cause 2 on the preview. Look at the `conversation-pull-request` error in HyperDX (DeploymentEnvironment `pr-280`) for the two 502 requests. If it is the permission, set the GitHub App of the preview to Repository permissions → Pull requests: Read and write, and accept the new permission on the installation. After this fix, the UI names that cause.
-- A polling client can keep the lock busy for more than 10 s. Then Commit+Push still answers `turn_running`, now with a message.
+- Confirm cause 2 on the preview. In HyperDX (DeploymentEnvironment `pr-280`), find the `conversation-pull-request` error of the two 502 requests on 2026-10-07 at 08:44 UTC. Read the GitHub status and message on that event. After this change deploys, a new attempt logs `conversation-pull-request refused` with `githubStatus` and `githubMessage`. If GitHub refused the permission, set the preview's GitHub App to Repository permissions → Pull requests: Read and write, and accept the new permission on the installation.
