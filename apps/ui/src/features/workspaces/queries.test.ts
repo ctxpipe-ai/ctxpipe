@@ -18,6 +18,7 @@ import {
   workspaceGraphOptions,
   workspaceKeys,
 } from "./queries"
+import { installRelativeFetch } from "./relative-fetch-test"
 import { installMemorySessionStorage } from "./session-storage-test"
 import type { Workspace, WorkspaceListResponse } from "./types"
 import { failedHydrateWorkspace } from "./workspace-fixtures"
@@ -72,23 +73,18 @@ describe("landingWorkspace", () => {
 })
 
 const server = setupServer()
+let restoreFetch = () => {}
 
 describe("workspace query HTTP helpers", () => {
   beforeAll(() => {
     installMemorySessionStorage()
     server.listen({ onUnhandledRequest: "error" })
-    const intercepted = globalThis.fetch
-    globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
-      const next =
-        typeof input === "string" && input.startsWith("/")
-          ? `http://localhost${input}`
-          : input
-      return intercepted(next as RequestInfo, init)
-    }) as typeof fetch
+    restoreFetch = installRelativeFetch()
   })
   afterEach(() => server.resetHandlers())
   afterAll(() => {
     server.close()
+    restoreFetch()
   })
 
   it("returns pending after a successful retry", async () => {

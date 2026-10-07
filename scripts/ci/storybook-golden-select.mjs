@@ -9,6 +9,7 @@ export const requiredStories = [
   "OutOfOrderSaves",
   "PierreKeyboardFocus",
   "SharedPublishPending",
+  "PublishErrorsToast",
   "StableRequestBudget",
   "StableFilesRequestBudget",
   "DeletedFileStaysUntilMerged",
