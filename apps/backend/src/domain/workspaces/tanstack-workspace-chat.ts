@@ -551,7 +551,8 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
     }
   | { ok: false; status: number; error: string }
 > {
-  const cloneLabel = `clone:${randomUUID()}`
+  // One label per turn: the turn end revokes exactly its own token.
+  const cloneLabel = `clone:${input.runId ?? randomUUID()}`
   const built = await buildWorkspaceChatSandbox(input, cloneLabel)
   if (!built.ok) return built
   let activeSandbox: SandboxHandle | undefined

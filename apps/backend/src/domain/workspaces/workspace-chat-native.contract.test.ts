@@ -18,7 +18,6 @@ import { expect, it, vi } from "vitest"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { conversations } from "../../db/schema/conversations.js"
-import { sandboxLocks } from "../../db/schema/sandbox-locks.js"
 import { workspaces } from "../../db/schema/workspaces.js"
 import { conversationIdFromIdempotencyKey } from "../../lib/id.js"
 import { registerMcpTools } from "../../mcp/tools.js"
@@ -815,21 +814,15 @@ it(
           expect(await tokens.list(`run:${f.conversationId}:`)).toEqual([])
         },
         async () => {
-          // A run token recorded for the turn that holds the conversation lock.
+          // The turn's run token (a local run's clone token), recorded while
+          // the turn holds the conversation lock.
           if (!fixture) throw new Error("Fixture missing")
           const { orgId, conversationId } = fixture
-          const [lock] = await withOrgDbContext(orgId, (db) =>
-            db
-              .select({ owner: sandboxLocks.owner })
-              .from(sandboxLocks)
-              .where(eq(sandboxLocks.key, `chat-thread:${conversationId}`)),
-          )
-          if (!lock) throw new Error("Turn lock missing")
           const token = seed
           await recordedRunGitToken({
             orgId,
             conversationId,
-            label: `git:${lock.owner}:scope`,
+            label: `clone:${seed === "ghs_finished_turn" ? "finish" : "abort"}-${conversationId}`,
             mint: async () => token,
           })
           started()
