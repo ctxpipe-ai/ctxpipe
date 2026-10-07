@@ -17,9 +17,9 @@ import {
   latestReasoningHeading,
   normalizeReasoningMarkdown,
   summarizeToolCalls,
-  thoughtGroupLabel,
   type ToolBucket,
   type ToolCallSummary,
+  thoughtGroupLabel,
   toolBucketCounts,
 } from "@/features/chat/conversation-thread-utils"
 import type { ChatMessage, ChatStatus } from "@/features/chat/types"
