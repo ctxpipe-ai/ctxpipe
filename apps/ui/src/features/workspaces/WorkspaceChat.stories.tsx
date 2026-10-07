@@ -693,26 +693,37 @@ export const FirstTurnStreamsLive: Story = {
         await canvas.findByPlaceholderText(/ask about this workspace/i),
         "Where is the billing service?",
       )
-      await userEvent.click(canvas.getByRole("button", { name: /send/i }))
-      // The user's sequence: the sandbox setup shows first, then the
-      // reasoning, the tool call, and the answer stream in that order.
-      expect(
-        await canvas.findByRole("status", { name: /setting up sandbox/i }),
-      ).toBeVisible()
-      const answer = await canvas.findByText(firstTurnAnswer, undefined, {
-        timeout: SEND_WAIT_MS,
+      // Record the order in which each step of the turn first shows.
+      const steps = [
+        "Setting up sandbox",
+        "Thinking…",
+        "Looking for the billing service.",
+        "Used 1 tool",
+        firstTurnAnswer,
+      ]
+      const seen: string[] = []
+      const observer = new MutationObserver(() => {
+        const text = canvasElement.textContent ?? ""
+        for (const step of steps)
+          if (!seen.includes(step) && text.includes(step)) seen.push(step)
       })
-      const reasoning = canvas.getByText(/Looking for the billing service/)
-      const tool = canvas.getByText("Used 1 tool")
-      const follows = (first: Element, second: Element) =>
-        Boolean(
-          first.compareDocumentPosition(second) &
-            Node.DOCUMENT_POSITION_FOLLOWING,
-        )
-      expect(follows(reasoning, tool)).toBe(true)
-      expect(follows(tool, answer)).toBe(true)
-      expect(answer).toBeVisible()
-      expect(tool).toBeVisible()
+      observer.observe(canvasElement, {
+        childList: true,
+        subtree: true,
+        characterData: true,
+      })
+      await userEvent.click(canvas.getByRole("button", { name: /send/i }))
+      try {
+        expect(
+          await canvas.findByText(firstTurnAnswer, undefined, {
+            timeout: SEND_WAIT_MS,
+          }),
+        ).toBeVisible()
+      } finally {
+        observer.disconnect()
+      }
+      expect(seen).toEqual(steps)
+      expect(canvas.getByText("Used 1 tool")).toBeVisible()
       expect(
         canvas.getAllByText(/Where is the billing service\?/),
       ).toHaveLength(1)

@@ -30,12 +30,19 @@ Evidence: the new golden story `FirstTurnStreamsLive` (stored transcript empty w
 
 The first turn now goes through the same path as each later turn.
 
-- `openWorkspaceConversation` seeds the conversation with an empty transcript, puts `{ text }` in the query cache under `conversationStart`, and navigates. It sends nothing.
-- `WorkspaceChatSession` takes that message once (it removes the cache entry first, so StrictMode does not send twice) and calls its own `sendMessage`. The turn streams on the session's WebSocket, which also has the durability log for a reload during the turn.
-- I removed `startWorkspaceConversation`, `StartWorkspaceConversationError`, the composer retry state, and the session's "Could not send / Send again" branch. Nothing used them after the change. A send error now shows in the thread, as for a later turn. The backend `POST /conversations` route stays for other clients.
+- `openWorkspaceConversation` seeds the conversation with an empty transcript, puts the message text in the query cache under `conversationStart`, and navigates. It sends nothing.
+- `WorkspaceChatSession` gets that text once with `takeFirstMessage` (in a `useEffectEvent`, so StrictMode does not send twice) and calls its own `sendMessage`. The label starts at "Setting up sandbox". The turn streams on the session's WebSocket, which also has the durability log for a reload during the turn.
+- If the first turn fails (for example, at capacity), the session puts the text back in the composer and reloads the conversation list, because the backend can drop a conversation with no turns. The error shows in the thread.
+- The WebSocket turn now runs in the conversation's Langfuse context (`withLangfuseTurnContext`, shared with the POST path), so UI turns keep their session, user, and source tag.
+- I removed `startWorkspaceConversation`, `StartWorkspaceConversationError`, the composer retry state, and the session's "Could not send / Send again" branch.
+- The backend `POST /conversations` start route stays. It is a public REST route that API-key clients use. The UI does not use it now.
+- Known gap: a reload between the navigation and the session mount loses the first message, because the query cache does not survive a reload. The window is short.
 
 Proof:
-- Storybook golden `FirstTurnStreamsLive` (StrictMode): setup, reasoning, one tool, and the answer show without a reload; the user message shows once; exactly one run frame goes on the socket. It was red before the fix and is green after it. All 12 golden journeys pass.
+- Storybook golden `FirstTurnStreamsLive` (StrictMode): the steps show in this time order without a reload: "Setting up sandbox", "Thinking…", the reasoning, the tool row, the answer. The user message shows once, and exactly one run frame goes on the socket. It was red before the fix and is green after it.
+- Storybook golden `FirstTurnFailureRestoresDraft`: an at-capacity `RUN_ERROR` on the first turn shows the error and puts the text back in the composer. It was red without the `draftSeed` change.
+- Native contract `conversation-websocket-native.contract.test.ts`: a UI turn on the WebSocket gives turn and chat spans with the conversation's `session.id`, the `user.id`, and the `ui` tag. It was red before `withLangfuseTurnContext`.
+- All 12 golden journeys pass.
 - Native contract `streams the first turn of a new conversation on the WebSocket, setup first, and stores it` (`workspace-chat-native.contract.test.ts`, `native-chat-websocket-client.ts --new-conversation`): a conversation id with no row gets `RUN_STARTED`, `setup:starting`, `setup:ready`, the text, and `RUN_FINISHED` on the socket, and a fresh process reloads the stored transcript.
 - Unit: `start-workspace-conversation-ui.test.ts` proves that the compose step hands off the message and sends no request.
 
