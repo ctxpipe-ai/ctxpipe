@@ -36,8 +36,9 @@ deployment reliably.
 
 With SMTP and `EMAIL_FROM_ADDRESS` set, new email/password accounts verify
 their address before they can sign in. An unverified account that signs in is
-sent a fresh link. Without SMTP, messages are only logged, so verification is
-not required.
+sent a fresh link. Resetting a password also verifies the address, and signs
+out the account's other sessions. Without SMTP, messages are only logged, so
+verification is not required and the backend logs a warning at startup.
 
 ## Social providers (OAuth)
 
