@@ -14,7 +14,10 @@ import {
   WORKSPACE_CHAT_OPENCODE_PORT,
   WORKSPACE_CHAT_VERCEL_AGENT_INSTALL,
 } from "./chat-runtime.js"
-import { WORKSPACE_CHAT_OPENCODE_CLI } from "./workspace-chat-opencode-contract.js"
+import {
+  VERCEL_SANDBOX,
+  WORKSPACE_CHAT_OPENCODE_CLI,
+} from "./workspace-chat-opencode-contract.js"
 
 /** Where the stock Vercel handle maps the `/workspace` root. */
 const WORKDIR = "/vercel/sandbox"
@@ -57,8 +60,15 @@ export function agentSnapshotTags(environment: string): Record<string, string> {
   return { ctxpipe: "workspace-agent", environment }
 }
 
-/** The `opencode` tag value of this deployment's agent snapshot builders. */
-const AGENT_VERSION = WORKSPACE_CHAT_OPENCODE_CLI.replace(/[^\w.-]/g, "-")
+/**
+ * The `opencode` tag value of this deployment's agent snapshot builders: the
+ * runtime and the OpenCode version, so a change of either builds a new one.
+ */
+const AGENT_VERSION =
+  `${VERCEL_SANDBOX.runtime}-${WORKSPACE_CHAT_OPENCODE_CLI}`.replace(
+    /[^\w.-]/g,
+    "-",
+  )
 
 export type VercelCredentials = {
   token: string
@@ -305,6 +315,7 @@ export function vercelConversationProvider(input: {
         Sandbox.create({
           ...credentials,
           source: { type: "snapshot", snapshotId },
+          resources: VERCEL_SANDBOX.resources,
           ports: [WORKSPACE_CHAT_OPENCODE_PORT],
           persistent: true,
           timeout: SESSION_TIMEOUT_MS,
@@ -568,6 +579,7 @@ export async function startVercelWorkspaceBase(input: {
     sandbox = await Sandbox.create({
       ...input.credentials,
       source: { type: "snapshot", snapshotId: input.agentSnapshotId },
+      resources: VERCEL_SANDBOX.resources,
       timeout: 15 * 60_000,
       networkPolicy: { allow: githubAllowlist(gitToken) },
       tags: input.tags,
@@ -643,7 +655,7 @@ async function deleteOldAgentBuilders(
 }
 
 /**
- * Install OpenCode in a `node24` sandbox that reaches only the npm registry
+ * Install OpenCode in a sandbox of our runtime that reaches only the npm registry
  * (no repository, no credential) and snapshot it. The one hosted sandbox
  * that installs anything.
  */
@@ -653,7 +665,8 @@ async function buildAgentSnapshot(
 ): Promise<string> {
   const sandbox = await Sandbox.create({
     ...credentials,
-    runtime: "node24",
+    runtime: VERCEL_SANDBOX.runtime,
+    resources: VERCEL_SANDBOX.resources,
     timeout: 15 * 60_000,
     networkPolicy: { allow: ["registry.npmjs.org"] },
     tags: { ...agentSnapshotTags(environment), opencode: AGENT_VERSION },
