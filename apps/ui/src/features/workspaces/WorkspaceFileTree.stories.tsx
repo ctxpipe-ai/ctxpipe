@@ -241,3 +241,133 @@ export const PierreKeyboardFocus: Story = {
     expect(args.onSelect).toHaveBeenCalled()
   },
 }
+
+export const DeletedFile: Story = {
+  args: {
+    paths: ["AGENTS.md", "knowledge/billing.md"],
+    selectedPath: "knowledge/billing.md",
+    gitStatus: [
+      { path: "knowledge/old-pricing.md", status: "deleted", deletions: 12 },
+    ],
+  },
+}
+
+export const DeletedFolder: Story = {
+  args: {
+    paths: ["AGENTS.md", "knowledge/billing.md"],
+    selectedPath: "knowledge/billing.md",
+    gitStatus: [
+      { path: "knowledge/archive/2023.md", status: "deleted", deletions: 40 },
+      { path: "knowledge/archive/2024.md", status: "deleted", deletions: 31 },
+    ],
+  },
+}
+
+export const MixedAddedModifiedDeleted: Story = {
+  decorators: [
+    (Story) => (
+      <div className="flex h-96 w-80 flex-col bg-card">
+        <Story />
+      </div>
+    ),
+  ],
+  args: {
+    paths: [...docsWorkspaceGitTree.paths, "knowledge/billing/refunds.md"],
+    selectedPath: "knowledge/billing/ledger.md",
+    gitStatus: [
+      {
+        path: "knowledge/billing/ledger.md",
+        status: "modified",
+        additions: 2,
+        deletions: 1,
+      },
+      {
+        path: "knowledge/billing/refunds.md",
+        status: "added",
+        additions: 18,
+        deletions: 0,
+      },
+      {
+        path: "knowledge/billing/invoices-legacy.md",
+        status: "deleted",
+        deletions: 25,
+      },
+    ],
+  },
+}
+
+export const DeletedLongNestedName: Story = {
+  decorators: [
+    (Story) => (
+      <div className="flex h-96 w-44 flex-col bg-card">
+        <Story />
+      </div>
+    ),
+  ],
+  args: {
+    paths: ["knowledge/auth/a-very-long-session-handler-module-name.tsx"],
+    selectedPath: "knowledge/auth/a-very-long-session-handler-module-name.tsx",
+    gitStatus: [
+      {
+        path: "knowledge/auth/deep/nested/a-very-long-deleted-oauth-callback-handler.tsx",
+        status: "deleted",
+        deletions: 88,
+      },
+    ],
+  },
+}
+
+function DeletedFileHarness(props: ComponentProps<typeof WorkspaceFileTree>) {
+  const [gitStatus, setGitStatus] = useState(props.gitStatus)
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <button
+        type="button"
+        className="text-xs text-zinc-300"
+        onClick={() => setGitStatus([])}
+      >
+        Publish changes
+      </button>
+      <WorkspaceFileTree {...props} gitStatus={gitStatus} />
+    </div>
+  )
+}
+
+const deletedRowSelector = "button[data-item-path='old-pricing.md']"
+
+export const DeletedFileStaysUntilPublished: Story = {
+  tags: ["workspace-golden"],
+  args: {
+    paths: ["AGENTS.md", "knowledge/billing.md"],
+    selectedPath: "AGENTS.md",
+    onSelect: fn(),
+    gitStatus: [{ path: "old-pricing.md", status: "deleted", deletions: 12 }],
+  },
+  render: (args) => <DeletedFileHarness {...args} />,
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() => {
+      expect(findInShadows(canvasElement, deletedRowSelector)).toBeTruthy()
+    })
+    const row = findInShadows(canvasElement, deletedRowSelector) as HTMLElement
+    expect(row.getAttribute("data-item-git-status")).toBe("deleted")
+    const name = row.querySelector("[data-item-section='content']")
+    if (!name) throw new Error("Deleted row has no name")
+    const view = canvasElement.ownerDocument.defaultView
+    expect(view?.getComputedStyle(name).textDecorationLine).toBe("line-through")
+    expect(
+      canvas.getByText("Deleted, not published yet: old-pricing.md"),
+    ).toBeTruthy()
+
+    await userEvent.click(row)
+    expect(args.onSelect).not.toHaveBeenCalledWith("old-pricing.md")
+
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Publish changes" }),
+    )
+    await waitFor(() => {
+      expect(findInShadows(canvasElement, deletedRowSelector)).toBeNull()
+    })
+    expect(canvas.queryByText(/Deleted, not published yet/)).toBeNull()
+  },
+}
