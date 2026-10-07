@@ -78,6 +78,7 @@
     "src/domain/workspaces/workspace-sandbox-base-native.contract.test.ts",
     "src/domain/workspaces/workspace-chat-run-capability-native.contract.test.ts",
     "src/domain/workspaces/agent-vault-native.contract.test.ts",
+    "src/domain/workspaces/sandbox-dind-egress-native.contract.test.ts",
     "src/domain/workspaces/sandbox-replica-native.contract.test.ts",
     "src/domain/workspaces/workspace-chat-prepare-native.contract.test.ts",
     "src/domain/workspaces/native-https-git-github-auth.contract.test.ts"

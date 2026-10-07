@@ -164,11 +164,11 @@ exec node /tmp/upstream.cjs`,
         throw new Error("Agent Vault did not become healthy")
       await new Promise((resolve) => setTimeout(resolve, 250))
     }
-    const proxyHost = await ipOn(vaultName, network)
+    const proxyAddress = `${await ipOn(vaultName, network)}:14322`
     return await fn({
       access: {
         address,
-        proxyHost,
+        proxyAddress,
         ownerPassword: async () => ownerPassword,
       },
       network,
@@ -204,5 +204,99 @@ exec node /tmp/upstream.cjs`,
   } finally {
     await docker("rm", "-f", "-v", vaultName, upstreamName).catch(() => "")
     await docker("network", "rm", network).catch(() => "")
+  }
+}
+
+/**
+ * A real Agent Vault for chat tests on the local Docker daemon, as host dev
+ * runs it: sandboxes reach its proxy at `host.docker.internal`, and it dials
+ * the test backend there. It sets what the backend reads; the returned stop
+ * restores it. `extraCa` is a CA file the proxy trusts (a test Git server's).
+ */
+export async function startTestAgentVaultEnv(
+  options: { extraCa?: string } = {},
+): Promise<() => Promise<void>> {
+  const name = `ctxpipe-test-agent-vault-${randomUUID().slice(0, 8)}`
+  const ownerPassword = randomBytes(16).toString("hex")
+  const keys = [
+    "AGENT_VAULT_ADDR",
+    "AGENT_VAULT_OWNER_PASSWORD",
+    "AGENT_VAULT_PROXY_ADDR",
+  ]
+  const previous = Object.fromEntries(
+    keys.map((key) => [key, process.env[key]]),
+  )
+  const stop = async () => {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+    await docker("rm", "-f", "-v", name).catch(() => "")
+  }
+  try {
+    await docker(
+      "run",
+      "-d",
+      "--name",
+      name,
+      "--add-host",
+      "host.docker.internal:host-gateway",
+      "-p",
+      "127.0.0.1::14321",
+      "-p",
+      "14322",
+      "-e",
+      `AGENT_VAULT_MASTER_PASSWORD=${randomBytes(16).toString("hex")}`,
+      "-e",
+      "AGENT_VAULT_RATELIMIT_PROFILE=off",
+      "-e",
+      "AGENT_VAULT_TELEMETRY=false",
+      "-e",
+      "AGENT_VAULT_ALLOW_PRIVATE_RANGES=true",
+      ...(options.extraCa
+        ? [
+            "-v",
+            `${options.extraCa}:/extra-ca/ca.crt:ro`,
+            "-e",
+            "SSL_CERT_DIR=/etc/ssl/certs:/extra-ca",
+          ]
+        : []),
+      "infisical/agent-vault:latest",
+    )
+    const published = async (port: string) =>
+      (await docker("port", name, `${port}/tcp`))
+        .split("\n")[0]
+        ?.split(":")
+        .pop()
+    const address = `http://127.0.0.1:${await published("14321")}`
+    const deadline = Date.now() + 60_000
+    while (
+      !(await fetch(`${address}/health`)
+        .then((response) => response.ok)
+        .catch(() => false))
+    ) {
+      if (Date.now() > deadline)
+        throw new Error("Agent Vault did not become healthy")
+      await new Promise((resolve) => setTimeout(resolve, 250))
+    }
+    process.env.AGENT_VAULT_ADDR = address
+    process.env.AGENT_VAULT_OWNER_PASSWORD = ownerPassword
+    process.env.AGENT_VAULT_PROXY_ADDR = `host.docker.internal:${await published("14322")}`
+    return stop
+  } catch (error) {
+    await stop()
+    throw error
+  }
+}
+
+export async function withTestAgentVaultEnv<T>(
+  options: { extraCa?: string },
+  fn: () => Promise<T>,
+): Promise<T> {
+  const stop = await startTestAgentVaultEnv(options)
+  try {
+    return await fn()
+  } finally {
+    await stop()
   }
 }

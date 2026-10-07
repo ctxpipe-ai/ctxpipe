@@ -9,7 +9,7 @@ import { promisify } from "node:util"
 import Docker from "dockerode"
 import { eq } from "drizzle-orm"
 import { BackendPostgres } from "openworkflow/postgres"
-import { afterAll, expect, it, vi } from "vitest"
+import { afterAll, beforeAll, expect, it, vi } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import {
   closeDb,
@@ -28,6 +28,7 @@ import {
   countRunningSandboxes,
   getSandboxInstance,
 } from "../../models/workspaces.js"
+import { startTestAgentVaultEnv } from "../../test/agent-vault-fixture.js"
 import {
   CHAT_IMAGE,
   dockerChat,
@@ -48,6 +49,13 @@ import {
   destroySandboxesForConversation,
   destroySandboxesForWorkspace,
 } from "./workspace-sandbox-cleanup.js"
+
+// Docker sandboxes get credentials only through Agent Vault.
+let stopAgentVault: () => Promise<void> = async () => undefined
+beforeAll(async () => {
+  stopAgentVault = await startTestAgentVaultEnv()
+}, 120_000)
+afterAll(() => stopAgentVault())
 
 /**
  * Workspace bases on real Docker and Postgres (ADR-048, "Fast start"). The

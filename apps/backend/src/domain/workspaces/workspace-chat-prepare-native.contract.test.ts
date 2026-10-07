@@ -12,6 +12,7 @@ import {
   getWorkspaceById,
   listSandboxInstances,
 } from "../../models/workspaces.js"
+import { withTestAgentVaultEnv } from "../../test/agent-vault-fixture.js"
 import { withNativeChatFixture } from "../../test/native-chat-fixture.js"
 import { withNativeHttpsGitFixture } from "../../test/native-https-git-fixture.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
@@ -423,129 +424,140 @@ it(
             "ctxpipe-chat-sandbox:opencode-1.18.34",
           docker,
         },
-        async (gitFixture) => {
-          process.env.SANDBOX_CHAT_IMAGE = gitFixture.image
-          await withNativeChatFixture(async (f) => {
-            delete process.env.SANDBOX_PROVIDER
-            await gitFixture.serve(f.directory, async (remote) => {
-              let phase = "first prepare"
-              try {
-                const parsedRemote = new URL(remote.url)
-                expect(parsedRemote.protocol).toBe("https:")
-                expect(parsedRemote.username).toBe("")
-                expect(parsedRemote.password).toBe("")
-                expect(parsedRemote.search).toBe("")
-                const input = {
-                  conversationId: f.conversationId,
-                  orgId: f.orgId,
-                  orgSlug: f.orgSlug,
-                  workspaceId: f.workspaceId,
-                  desiredUrl: remote.url,
-                  desiredSha: f.sha,
-                  defaultBranch: "main",
-                  writeStatus: "read_only",
-                  prompt: "prepare",
-                }
-                const first = await warmTanstackWorkspaceChat(input)
-                if (!first.ok) throw new Error(first.error)
-                expect(
-                  (await first.handle.process.exec("uname -s")).stdout.trim(),
-                ).toBe("Linux")
-                expect(
-                  (
-                    await first.handle.process.exec("printenv HOME")
-                  ).stdout.trim(),
-                ).toBe(`/home/node/ctxpipe-opencode/${f.conversationId}`)
-                expect(
-                  (
-                    await first.handle.process.exec("git remote get-url origin")
-                  ).stdout.trim(),
-                ).toBe(remote.url)
-                expect(await first.handle.fs.read("/workspace/README.md")).toBe(
-                  "# Native chat workspace\n",
-                )
-                await first.handle.fs.write(
-                  "/workspace/unsaved.txt",
-                  "Docker worktree survives prepare",
-                )
-                phase = "reuse prepare"
-                const second = await warmTanstackWorkspaceChat(input)
-                if (!second.ok) throw new Error(second.error)
-                expect(second.handle.id).toBe(first.handle.id)
-                expect(
-                  await second.handle.fs.read("/workspace/unsaved.txt"),
-                ).toBe("Docker worktree survives prepare")
-                await writeFile(
-                  join(f.directory, "README.md"),
-                  "# Docker revision advanced\n",
-                )
-                execFileSync(
-                  "git",
-                  [
-                    "-c",
-                    "user.name=Fixture",
-                    "-c",
-                    "user.email=fixture@example.test",
-                    "commit",
-                    "-am",
-                    "Advance Docker source",
-                  ],
-                  { cwd: f.directory },
-                )
-                phase = "HTTPS Git fixture update"
-                await remote.sync()
-                const sha = execFileSync("git", ["rev-parse", "HEAD"], {
-                  cwd: f.directory,
-                  encoding: "utf8",
-                }).trim()
-                await withOrgDbContext(f.orgId, (db) =>
-                  db
-                    .update(workspaces)
-                    .set({ desiredSha: sha })
-                    .where(eq(workspaces.id, f.workspaceId)),
-                )
-                phase = "revision prepare"
-                const advanced = await warmTanstackWorkspaceChat({
-                  ...input,
-                  desiredSha: sha,
-                })
-                if (!advanced.ok) throw new Error(advanced.error)
-                expect(advanced.handle.id).toBe(first.handle.id)
-                expect(
-                  await advanced.handle.fs.read("/workspace/unsaved.txt"),
-                ).toBe("Docker worktree survives prepare")
-                // Simulate provider loss while the exact native record survives.
-                phase = "provider loss"
-                await advanced.handle.destroy()
-                phase = "provider recovery"
-                const recovered = await warmTanstackWorkspaceChat({
-                  ...input,
-                  desiredSha: sha,
-                })
-                if (!recovered.ok) throw new Error(recovered.error)
-                expect(recovered.handle.id).not.toBe(first.handle.id)
-                expect(
-                  await recovered.handle.fs.read("/workspace/README.md"),
-                ).toBe("# Docker revision advanced\n")
-                expect(
-                  await recovered.handle.fs.exists("/workspace/unsaved.txt"),
-                ).toBe(false)
-                expect(
-                  (
-                    await recovered.handle.process.exec(
-                      "git branch --show-current",
+        async (gitFixture) =>
+          // Docker sandboxes clone through Agent Vault, which trusts the fixture CA.
+          withTestAgentVaultEnv(
+            { extraCa: gitFixture.caCertificatePath },
+            async () => {
+              process.env.SANDBOX_CHAT_IMAGE = gitFixture.image
+              await withNativeChatFixture(async (f) => {
+                delete process.env.SANDBOX_PROVIDER
+                await gitFixture.serve(f.directory, async (remote) => {
+                  let phase = "first prepare"
+                  try {
+                    const parsedRemote = new URL(remote.url)
+                    expect(parsedRemote.protocol).toBe("https:")
+                    expect(parsedRemote.username).toBe("")
+                    expect(parsedRemote.password).toBe("")
+                    expect(parsedRemote.search).toBe("")
+                    const input = {
+                      conversationId: f.conversationId,
+                      orgId: f.orgId,
+                      orgSlug: f.orgSlug,
+                      workspaceId: f.workspaceId,
+                      desiredUrl: remote.url,
+                      desiredSha: f.sha,
+                      defaultBranch: "main",
+                      writeStatus: "read_only",
+                      prompt: "prepare",
+                    }
+                    const first = await warmTanstackWorkspaceChat(input)
+                    if (!first.ok) throw new Error(first.error)
+                    expect(
+                      (
+                        await first.handle.process.exec("uname -s")
+                      ).stdout.trim(),
+                    ).toBe("Linux")
+                    expect(
+                      (
+                        await first.handle.process.exec("printenv HOME")
+                      ).stdout.trim(),
+                    ).toBe(`/home/node/ctxpipe-opencode/${f.conversationId}`)
+                    expect(
+                      (
+                        await first.handle.process.exec(
+                          "git remote get-url origin",
+                        )
+                      ).stdout.trim(),
+                    ).toBe(remote.url)
+                    expect(
+                      await first.handle.fs.read("/workspace/README.md"),
+                    ).toBe("# Native chat workspace\n")
+                    await first.handle.fs.write(
+                      "/workspace/unsaved.txt",
+                      "Docker worktree survives prepare",
                     )
-                  ).stdout.trim(),
-                ).toBe("main")
-              } catch (error) {
-                throw new Error(
-                  `Docker prepare fixture ${phase} failed: ${String(error)}`,
-                  { cause: error },
-                )
-              }
-            })
-          })
-        },
+                    phase = "reuse prepare"
+                    const second = await warmTanstackWorkspaceChat(input)
+                    if (!second.ok) throw new Error(second.error)
+                    expect(second.handle.id).toBe(first.handle.id)
+                    expect(
+                      await second.handle.fs.read("/workspace/unsaved.txt"),
+                    ).toBe("Docker worktree survives prepare")
+                    await writeFile(
+                      join(f.directory, "README.md"),
+                      "# Docker revision advanced\n",
+                    )
+                    execFileSync(
+                      "git",
+                      [
+                        "-c",
+                        "user.name=Fixture",
+                        "-c",
+                        "user.email=fixture@example.test",
+                        "commit",
+                        "-am",
+                        "Advance Docker source",
+                      ],
+                      { cwd: f.directory },
+                    )
+                    phase = "HTTPS Git fixture update"
+                    await remote.sync()
+                    const sha = execFileSync("git", ["rev-parse", "HEAD"], {
+                      cwd: f.directory,
+                      encoding: "utf8",
+                    }).trim()
+                    await withOrgDbContext(f.orgId, (db) =>
+                      db
+                        .update(workspaces)
+                        .set({ desiredSha: sha })
+                        .where(eq(workspaces.id, f.workspaceId)),
+                    )
+                    phase = "revision prepare"
+                    const advanced = await warmTanstackWorkspaceChat({
+                      ...input,
+                      desiredSha: sha,
+                    })
+                    if (!advanced.ok) throw new Error(advanced.error)
+                    expect(advanced.handle.id).toBe(first.handle.id)
+                    expect(
+                      await advanced.handle.fs.read("/workspace/unsaved.txt"),
+                    ).toBe("Docker worktree survives prepare")
+                    // Simulate provider loss while the exact native record survives.
+                    phase = "provider loss"
+                    await advanced.handle.destroy()
+                    phase = "provider recovery"
+                    const recovered = await warmTanstackWorkspaceChat({
+                      ...input,
+                      desiredSha: sha,
+                    })
+                    if (!recovered.ok) throw new Error(recovered.error)
+                    expect(recovered.handle.id).not.toBe(first.handle.id)
+                    expect(
+                      await recovered.handle.fs.read("/workspace/README.md"),
+                    ).toBe("# Docker revision advanced\n")
+                    expect(
+                      await recovered.handle.fs.exists(
+                        "/workspace/unsaved.txt",
+                      ),
+                    ).toBe(false)
+                    expect(
+                      (
+                        await recovered.handle.process.exec(
+                          "git branch --show-current",
+                        )
+                      ).stdout.trim(),
+                    ).toBe("main")
+                  } catch (error) {
+                    throw new Error(
+                      `Docker prepare fixture ${phase} failed: ${String(error)}`,
+                      { cause: error },
+                    )
+                  }
+                })
+              })
+            },
+          ),
       )
     } finally {
       for (const [key, value] of Object.entries(previous)) {
@@ -572,247 +584,267 @@ it(
             "ctxpipe-chat-sandbox:opencode-1.18.34",
           docker,
         },
-        async (gitFixture) => {
-          process.env.SANDBOX_CHAT_IMAGE = gitFixture.image
-          await withNativeChatFixture(
-            async (f) => {
-              delete process.env.SANDBOX_PROVIDER
-              await gitFixture.serve(f.directory, async (remote) => {
-                let phase = "first prepare"
-                try {
-                  await withOrgDbContext(f.orgId, (db) =>
-                    db
-                      .update(workspaces)
-                      .set({ workspaceRepositoryUrl: remote.url })
-                      .where(eq(workspaces.id, f.workspaceId)),
-                  )
-                  const input = {
-                    conversationId: f.conversationId,
-                    orgId: f.orgId,
-                    orgSlug: f.orgSlug,
-                    workspaceId: f.workspaceId,
-                    desiredUrl: remote.url,
-                    desiredSha: f.sha,
-                    defaultBranch: "main",
-                    writeStatus: "read_only" as const,
-                    // The turn runtime mints this read token for a GitHub
-                    // repository. The fixture remote accepts any token.
-                    cloneToken: "fixture-docker-read-token",
-                  }
-                  workspaceChatInstanceAccess.reset()
-                  const first = await warmTanstackWorkspaceChat({
-                    ...input,
-                    prompt: "prepare",
-                  })
-                  if (!first.ok) throw new Error(first.error)
-                  await first.handle.fs.write(
-                    "/workspace/unsaved.txt",
-                    "Docker chat preserves unsaved work",
-                  )
-                  phase = "first chat"
-                  const persistence = workspaceChatPersistence()
-                  const firstEvents: string[] = []
-                  let firstText = ""
-                  for await (const chunk of streamTanstackWorkspaceChat({
-                    ...input,
-                    prompt: "First question",
-                    runId: `${f.conversationId}-docker-chat-1`,
-                    messages: [
-                      ...(await persistence.stores.messages.loadThread(
-                        f.conversationId,
-                      )),
-                      {
-                        id: "user-docker-chat-1",
-                        role: "user",
-                        content: "First question",
-                      },
-                    ],
-                  })) {
-                    firstEvents.push(chunk.type)
-                    if (chunk.type === "TEXT_MESSAGE_CONTENT")
-                      firstText += chunk.delta
-                  }
-                  expect(firstEvents).toContain("RUN_FINISHED")
-                  expect(firstEvents).not.toContain("RUN_ERROR")
-                  expect(firstText).toBe("Native reply completed.")
-                  expect(f.modelRequests.length).toBeGreaterThanOrEqual(1)
-                  expect(
-                    await first.handle.fs.read("/workspace/unsaved.txt"),
-                  ).toBe("Docker chat preserves unsaved work")
-                  phase = "git ls-remote"
-                  const remoteHeads = await first.handle.process.exec(
-                    "git ls-remote --heads origin refs/heads/main",
-                  )
-                  expect(remoteHeads.exitCode).toBe(0)
-                  expect(remoteHeads.stdout).toContain(f.sha)
-                  // The agent's shell holds the read token, and the fetch the
-                  // session_moved hint gives reads with it alone.
-                  phase = "read credential"
-                  const token = await first.handle.process.exec(
-                    "printenv CTXPIPE_CLONE_TOKEN",
-                  )
-                  expect(token.stdout.trim()).toBe("fixture-docker-read-token")
-                  const read = await first.handle.process.exec(
-                    `GIT_TERMINAL_PROMPT=0 ${SANDBOX_READ_GIT} ls-remote --heads origin refs/heads/main`,
-                  )
-                  expect(read.stdout).toContain(f.sha)
-                  phase = "warm chat"
-                  const instanceCreatesBeforeWarm =
-                    workspaceChatInstanceAccess.creates
-                  const hitsBeforeWarm = workspaceChatInstanceAccess.hits
-                  const modelRequestsBeforeWarm = f.modelRequests.length
-                  const warmEvents: string[] = []
-                  let warmText = ""
-                  const warmStarted = Date.now()
-                  for await (const chunk of streamTanstackWorkspaceChat({
-                    ...input,
-                    prompt: "Warm question",
-                    runId: `${f.conversationId}-docker-chat-warm`,
-                    messages: [
-                      ...(await persistence.stores.messages.loadThread(
-                        f.conversationId,
-                      )),
-                      {
-                        id: "user-docker-chat-warm",
-                        role: "user",
-                        content: "Warm question",
-                      },
-                    ],
-                  })) {
-                    warmEvents.push(chunk.type)
-                    if (chunk.type === "TEXT_MESSAGE_CONTENT")
-                      warmText += chunk.delta
-                  }
-                  expect(Date.now() - warmStarted).toBeLessThan(30_000)
-                  expect(warmEvents).toContain("RUN_FINISHED")
-                  expect(warmEvents).not.toContain("RUN_ERROR")
-                  expect(warmText).toBe("Native reply completed.")
-                  expect(f.modelRequests.length).toBeGreaterThan(
-                    modelRequestsBeforeWarm,
-                  )
-                  expect(workspaceChatInstanceAccess.creates).toBe(
-                    instanceCreatesBeforeWarm,
-                  )
-                  expect(
-                    workspaceChatInstanceAccess.hits - hitsBeforeWarm,
-                  ).toBeGreaterThanOrEqual(1)
-                  phase = "provider loss"
-                  await first.handle.destroy()
-                  phase = "recovery prepare"
-                  const recovered = await warmTanstackWorkspaceChat({
-                    ...input,
-                    prompt: "prepare",
-                  })
-                  if (!recovered.ok) throw new Error(recovered.error)
-                  expect(recovered.handle.id).not.toBe(first.handle.id)
-                  expect(
-                    await recovered.handle.fs.exists("/workspace/unsaved.txt"),
-                  ).toBe(false)
-                  phase = "recovery chat"
-                  const recoveredEvents: string[] = []
-                  let recoveredText = ""
-                  for await (const chunk of streamTanstackWorkspaceChat({
-                    ...input,
-                    prompt: "Second question",
-                    runId: `${f.conversationId}-docker-chat-2`,
-                    messages: [
-                      ...(await persistence.stores.messages.loadThread(
-                        f.conversationId,
-                      )),
-                      {
-                        id: "user-docker-chat-2",
-                        role: "user",
-                        content: "Second question",
-                      },
-                    ],
-                  })) {
-                    recoveredEvents.push(chunk.type)
-                    if (chunk.type === "TEXT_MESSAGE_CONTENT")
-                      recoveredText += chunk.delta
-                  }
-                  expect(recoveredEvents).toContain("RUN_FINISHED")
-                  expect(recoveredEvents).not.toContain("RUN_ERROR")
-                  expect(recoveredText).toBe("Native reply completed.")
-                  expect(f.modelRequests.length).toBeGreaterThanOrEqual(2)
-                  const containerRunning = async () =>
-                    (await docker.getContainer(recovered.handle.id).inspect())
-                      .State.Running
-                  const chatTurn = async (name: string, unattended = false) => {
-                    const events: string[] = []
-                    let text = ""
-                    const stream = streamTanstackWorkspaceChat({
-                      ...input,
-                      prompt: name,
-                      runId: `${f.conversationId}-${name}`,
-                      messages: [
-                        ...(await persistence.stores.messages.loadThread(
-                          f.conversationId,
-                        )),
-                        { id: `user-${name}`, role: "user", content: name },
-                      ],
-                    })
-                    for await (const chunk of unattended
-                      ? stoppingSandboxWhenDone(
-                          { orgId: f.orgId, conversationId: f.conversationId },
-                          stream,
-                        )
-                      : stream) {
-                      events.push(chunk.type)
-                      if (chunk.type === "TEXT_MESSAGE_CONTENT")
-                        text += chunk.delta
-                    }
-                    expect(events).toContain("RUN_FINISHED")
-                    expect(events).not.toContain("RUN_ERROR")
-                    expect(text).toBe("Native reply completed.")
-                  }
-                  phase = "idle stop"
-                  await recovered.handle.fs.write(
-                    "/workspace/idle.txt",
-                    "kept through the idle stop",
-                  )
-                  const swept = await sweepConversationSandboxes(
-                    f.orgId,
-                    new Date(Date.now() + CHAT_SANDBOX_IDLE_STOP_MS),
-                  )
-                  expect(swept.stopped).toBe(1)
-                  expect(await containerRunning()).toBe(false)
-                  phase = "chat after idle stop"
-                  await chatTurn("after-idle")
-                  expect(await containerRunning()).toBe(true)
-                  const resumed = await warmTanstackWorkspaceChat({
-                    ...input,
-                    prompt: "prepare",
-                  })
-                  if (!resumed.ok) throw new Error(resumed.error)
-                  expect(resumed.handle.id).toBe(recovered.handle.id)
-                  expect(
-                    await resumed.handle.fs.read("/workspace/idle.txt"),
-                  ).toBe("kept through the idle stop")
-                  phase = "unattended chat"
-                  await chatTurn("unattended", true)
-                  expect(await containerRunning()).toBe(false)
-                  expect(
-                    (
-                      await withOrgDbContext(f.orgId, () =>
-                        listSandboxInstances({
-                          conversationId: f.conversationId,
-                          kind: "chat",
-                        }),
+        async (gitFixture) =>
+          // Docker sandboxes clone through Agent Vault, which trusts the fixture CA.
+          withTestAgentVaultEnv(
+            { extraCa: gitFixture.caCertificatePath },
+            async () => {
+              process.env.SANDBOX_CHAT_IMAGE = gitFixture.image
+              await withNativeChatFixture(
+                async (f) => {
+                  delete process.env.SANDBOX_PROVIDER
+                  await gitFixture.serve(f.directory, async (remote) => {
+                    let phase = "first prepare"
+                    try {
+                      await withOrgDbContext(f.orgId, (db) =>
+                        db
+                          .update(workspaces)
+                          .set({ workspaceRepositoryUrl: remote.url })
+                          .where(eq(workspaces.id, f.workspaceId)),
                       )
-                    ).map((row) => row.state),
-                  ).toEqual(["stopped"])
-                } catch (error) {
-                  throw new Error(
-                    `Docker chat fixture ${phase} failed: ${String(error)}`,
-                    { cause: error },
-                  )
-                }
-              })
+                      const input = {
+                        conversationId: f.conversationId,
+                        orgId: f.orgId,
+                        orgSlug: f.orgSlug,
+                        workspaceId: f.workspaceId,
+                        desiredUrl: remote.url,
+                        desiredSha: f.sha,
+                        defaultBranch: "main",
+                        writeStatus: "read_only" as const,
+                        // The turn runtime mints this read token for a GitHub
+                        // repository. The fixture remote accepts any token.
+                        cloneToken: "fixture-docker-read-token",
+                      }
+                      workspaceChatInstanceAccess.reset()
+                      const first = await warmTanstackWorkspaceChat({
+                        ...input,
+                        prompt: "prepare",
+                      })
+                      if (!first.ok) throw new Error(first.error)
+                      await first.handle.fs.write(
+                        "/workspace/unsaved.txt",
+                        "Docker chat preserves unsaved work",
+                      )
+                      phase = "first chat"
+                      const persistence = workspaceChatPersistence()
+                      const firstEvents: string[] = []
+                      let firstText = ""
+                      for await (const chunk of streamTanstackWorkspaceChat({
+                        ...input,
+                        prompt: "First question",
+                        runId: `${f.conversationId}-docker-chat-1`,
+                        messages: [
+                          ...(await persistence.stores.messages.loadThread(
+                            f.conversationId,
+                          )),
+                          {
+                            id: "user-docker-chat-1",
+                            role: "user",
+                            content: "First question",
+                          },
+                        ],
+                      })) {
+                        firstEvents.push(chunk.type)
+                        if (chunk.type === "TEXT_MESSAGE_CONTENT")
+                          firstText += chunk.delta
+                      }
+                      expect(firstEvents).toContain("RUN_FINISHED")
+                      expect(firstEvents).not.toContain("RUN_ERROR")
+                      expect(firstText).toBe("Native reply completed.")
+                      expect(f.modelRequests.length).toBeGreaterThanOrEqual(1)
+                      expect(
+                        await first.handle.fs.read("/workspace/unsaved.txt"),
+                      ).toBe("Docker chat preserves unsaved work")
+                      phase = "git ls-remote"
+                      const remoteHeads = await first.handle.process.exec(
+                        "git ls-remote --heads origin refs/heads/main",
+                      )
+                      expect(remoteHeads.exitCode).toBe(0)
+                      expect(remoteHeads.stdout).toContain(f.sha)
+                      // The sandbox holds no token: Agent Vault adds it to the
+                      // fetch the session_moved hint gives.
+                      phase = "read credential"
+                      const leaked = await first.handle.process.exec(
+                        "cat /proc/*/environ 2>/dev/null | tr '\\0' '\\n' | grep -c fixture-docker-read-token; env | grep -c fixture-docker-read-token; git config --list | grep -c fixture-docker-read-token",
+                      )
+                      expect(leaked.stdout.trim().split("\n")).toEqual([
+                        "0",
+                        "0",
+                        "0",
+                      ])
+                      const read = await first.handle.process.exec(
+                        `GIT_TERMINAL_PROMPT=0 ${SANDBOX_READ_GIT} ls-remote --heads origin refs/heads/main`,
+                      )
+                      expect(read.stdout).toContain(f.sha)
+                      phase = "warm chat"
+                      const instanceCreatesBeforeWarm =
+                        workspaceChatInstanceAccess.creates
+                      const hitsBeforeWarm = workspaceChatInstanceAccess.hits
+                      const modelRequestsBeforeWarm = f.modelRequests.length
+                      const warmEvents: string[] = []
+                      let warmText = ""
+                      const warmStarted = Date.now()
+                      for await (const chunk of streamTanstackWorkspaceChat({
+                        ...input,
+                        prompt: "Warm question",
+                        runId: `${f.conversationId}-docker-chat-warm`,
+                        messages: [
+                          ...(await persistence.stores.messages.loadThread(
+                            f.conversationId,
+                          )),
+                          {
+                            id: "user-docker-chat-warm",
+                            role: "user",
+                            content: "Warm question",
+                          },
+                        ],
+                      })) {
+                        warmEvents.push(chunk.type)
+                        if (chunk.type === "TEXT_MESSAGE_CONTENT")
+                          warmText += chunk.delta
+                      }
+                      expect(Date.now() - warmStarted).toBeLessThan(30_000)
+                      expect(warmEvents).toContain("RUN_FINISHED")
+                      expect(warmEvents).not.toContain("RUN_ERROR")
+                      expect(warmText).toBe("Native reply completed.")
+                      expect(f.modelRequests.length).toBeGreaterThan(
+                        modelRequestsBeforeWarm,
+                      )
+                      expect(workspaceChatInstanceAccess.creates).toBe(
+                        instanceCreatesBeforeWarm,
+                      )
+                      expect(
+                        workspaceChatInstanceAccess.hits - hitsBeforeWarm,
+                      ).toBeGreaterThanOrEqual(1)
+                      phase = "provider loss"
+                      await first.handle.destroy()
+                      phase = "recovery prepare"
+                      const recovered = await warmTanstackWorkspaceChat({
+                        ...input,
+                        prompt: "prepare",
+                      })
+                      if (!recovered.ok) throw new Error(recovered.error)
+                      expect(recovered.handle.id).not.toBe(first.handle.id)
+                      expect(
+                        await recovered.handle.fs.exists(
+                          "/workspace/unsaved.txt",
+                        ),
+                      ).toBe(false)
+                      phase = "recovery chat"
+                      const recoveredEvents: string[] = []
+                      let recoveredText = ""
+                      for await (const chunk of streamTanstackWorkspaceChat({
+                        ...input,
+                        prompt: "Second question",
+                        runId: `${f.conversationId}-docker-chat-2`,
+                        messages: [
+                          ...(await persistence.stores.messages.loadThread(
+                            f.conversationId,
+                          )),
+                          {
+                            id: "user-docker-chat-2",
+                            role: "user",
+                            content: "Second question",
+                          },
+                        ],
+                      })) {
+                        recoveredEvents.push(chunk.type)
+                        if (chunk.type === "TEXT_MESSAGE_CONTENT")
+                          recoveredText += chunk.delta
+                      }
+                      expect(recoveredEvents).toContain("RUN_FINISHED")
+                      expect(recoveredEvents).not.toContain("RUN_ERROR")
+                      expect(recoveredText).toBe("Native reply completed.")
+                      expect(f.modelRequests.length).toBeGreaterThanOrEqual(2)
+                      const containerRunning = async () =>
+                        (
+                          await docker
+                            .getContainer(recovered.handle.id)
+                            .inspect()
+                        ).State.Running
+                      const chatTurn = async (
+                        name: string,
+                        unattended = false,
+                      ) => {
+                        const events: string[] = []
+                        let text = ""
+                        const stream = streamTanstackWorkspaceChat({
+                          ...input,
+                          prompt: name,
+                          runId: `${f.conversationId}-${name}`,
+                          messages: [
+                            ...(await persistence.stores.messages.loadThread(
+                              f.conversationId,
+                            )),
+                            { id: `user-${name}`, role: "user", content: name },
+                          ],
+                        })
+                        for await (const chunk of unattended
+                          ? stoppingSandboxWhenDone(
+                              {
+                                orgId: f.orgId,
+                                conversationId: f.conversationId,
+                              },
+                              stream,
+                            )
+                          : stream) {
+                          events.push(chunk.type)
+                          if (chunk.type === "TEXT_MESSAGE_CONTENT")
+                            text += chunk.delta
+                        }
+                        expect(events).toContain("RUN_FINISHED")
+                        expect(events).not.toContain("RUN_ERROR")
+                        expect(text).toBe("Native reply completed.")
+                      }
+                      phase = "idle stop"
+                      await recovered.handle.fs.write(
+                        "/workspace/idle.txt",
+                        "kept through the idle stop",
+                      )
+                      const swept = await sweepConversationSandboxes(
+                        f.orgId,
+                        new Date(Date.now() + CHAT_SANDBOX_IDLE_STOP_MS),
+                      )
+                      expect(swept.stopped).toBe(1)
+                      expect(await containerRunning()).toBe(false)
+                      phase = "chat after idle stop"
+                      await chatTurn("after-idle")
+                      expect(await containerRunning()).toBe(true)
+                      const resumed = await warmTanstackWorkspaceChat({
+                        ...input,
+                        prompt: "prepare",
+                      })
+                      if (!resumed.ok) throw new Error(resumed.error)
+                      expect(resumed.handle.id).toBe(recovered.handle.id)
+                      expect(
+                        await resumed.handle.fs.read("/workspace/idle.txt"),
+                      ).toBe("kept through the idle stop")
+                      phase = "unattended chat"
+                      await chatTurn("unattended", true)
+                      expect(await containerRunning()).toBe(false)
+                      expect(
+                        (
+                          await withOrgDbContext(f.orgId, () =>
+                            listSandboxInstances({
+                              conversationId: f.conversationId,
+                              kind: "chat",
+                            }),
+                          )
+                        ).map((row) => row.state),
+                      ).toEqual(["stopped"])
+                    } catch (error) {
+                      throw new Error(
+                        `Docker chat fixture ${phase} failed: ${String(error)}`,
+                        { cause: error },
+                      )
+                    }
+                  })
+                },
+                undefined,
+                { listenHost: "0.0.0.0" },
+              )
             },
-            undefined,
-            { listenHost: "0.0.0.0" },
-          )
-        },
+          ),
       )
     } finally {
       for (const [key, value] of Object.entries(previous)) {

@@ -40,10 +40,10 @@ export type AgentVaultAccess = {
   /** The API, for example `http://agent-vault:14321`. */
   address: string
   /**
-   * The proxy's address as sandboxes dial it, when it is not the API's host
-   * (tests reach the API on a published port).
+   * The proxy's `host:port` as sandboxes dial it, when it is not the API's
+   * host on port 14322 (a published port in tests).
    */
-  proxyHost?: string
+  proxyAddress?: string
   ownerPassword: () => Promise<string>
 }
 
@@ -59,8 +59,10 @@ export function agentVaultAccess(
   if (!address) return undefined
   const value = env.AGENT_VAULT_OWNER_PASSWORD?.trim()
   const file = env.AGENT_VAULT_OWNER_PASSWORD_FILE?.trim()
+  const proxyAddress = env.AGENT_VAULT_PROXY_ADDR?.trim()
   return {
     address: address.replace(/\/$/, ""),
+    ...(proxyAddress ? { proxyAddress } : {}),
     ownerPassword: async () => {
       if (value) return value
       if (!file)
@@ -187,8 +189,12 @@ function unavailable(error: unknown): Error {
  * Agent Vault on this machine (host dev, CI) is the sandbox's Docker host,
  * which every Docker sandbox has in its hosts file.
  */
+async function proxyAddress(access: AgentVaultAccess): Promise<string> {
+  if (access.proxyAddress) return access.proxyAddress
+  return `${await proxyHost(access)}:${PROXY_PORT}`
+}
+
 async function proxyHost(access: AgentVaultAccess): Promise<string> {
-  if (access.proxyHost) return access.proxyHost
   const host = new URL(access.address).hostname.replace(/^\[(.*)\]$/, "$1")
   if (host === "localhost" || host.startsWith("127.") || host === "::1")
     return "host.docker.internal"
@@ -252,7 +258,7 @@ export async function openRunVault(input: {
 }): Promise<RunVault> {
   const { access } = input
   const name = runVaultName(input.runKey)
-  const host = await proxyHost(access)
+  const proxyAt = await proxyAddress(access)
   const addRules = async (rules: RunVaultRule[]) => {
     if (rules.length === 0) return
     const { credentials, services } = servicesFor(rules)
@@ -288,7 +294,7 @@ export async function openRunVault(input: {
         "Agent Vault has no proxy CA (its TLS proxy is off)",
       )
     const caPem = await ca.text()
-    const proxy = `http://${session.token}:${name}@${host}:${PROXY_PORT}`
+    const proxy = `http://${session.token}:${name}@${proxyAt}`
     const noProxy = "localhost,127.0.0.1"
     return {
       name,

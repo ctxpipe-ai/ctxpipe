@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto"
-import { createServer } from "node:net"
+import { createServer, isIP } from "node:net"
 import { trace } from "@opentelemetry/api"
 import {
   chat,
@@ -40,6 +40,7 @@ import { getLogger, log } from "../../observability/logger.js"
 import {
   AgentVaultUnavailableError,
   type RunVault,
+  type RunVaultRule,
   SANDBOX_CREDENTIAL_PLACEHOLDER,
 } from "./agent-vault.js"
 import {
@@ -1036,6 +1037,10 @@ async function buildWorkspaceChatSandbox(
   // Docker: the run's vault holds the GitHub token and Agent Vault adds it.
   // A Files read (no label) runs no network command and gets no vault.
   let vault: RunVault | undefined
+  // Test fixtures only: Agent Vault rules take host names, so a fixture Git
+  // server at an IP address gets its token as before and no proxy.
+  const fixtureHost = input.cloneToken ? new URL(desiredUrl).hostname : ""
+  const fixtureDirect = selectedProvider === "docker" && isIP(fixtureHost) > 0
   if (selectedProvider === "docker" && cloneLabel) {
     try {
       vault = await openDockerRunVault({
@@ -1043,6 +1048,10 @@ async function buildWorkspaceChatSandbox(
         conversationId: input.conversationId,
         label: cloneLabel,
         revision: revision.data,
+        // Test fixtures: their Git server gets its token from the vault too.
+        ...(input.cloneToken && !fixtureDirect
+          ? { extraRules: [fixtureGitRule(desiredUrl, input.cloneToken)] }
+          : {}),
       })
     } catch (error) {
       if (!(error instanceof AgentVaultUnavailableError)) throw error
@@ -1057,7 +1066,8 @@ async function buildWorkspaceChatSandbox(
   // Hosted sandboxes never hold the token: the firewall adds it to GitHub
   // calls. Docker sandboxes never hold it either: Agent Vault adds it.
   const cloneToken =
-    selectedProvider === "vercel" || selectedProvider === "docker"
+    selectedProvider === "vercel" ||
+    (selectedProvider === "docker" && !fixtureDirect)
       ? ""
       : input.cloneToken
         ? input.cloneToken
@@ -1086,7 +1096,14 @@ async function buildWorkspaceChatSandbox(
     runToken: session.runToken,
     proxyUrl: session.proxyUrl,
     modelBase: contract.modelBase,
-    proxyEnv: vault?.env,
+    proxyEnv:
+      vault && fixtureDirect
+        ? {
+            ...vault.env,
+            NO_PROXY: `${vault.env.NO_PROXY},${fixtureHost}`,
+            no_proxy: `${vault.env.NO_PROXY},${fixtureHost}`,
+          }
+        : vault?.env,
   })
   const provider = conversationSandboxProvider(
     selectedProvider,
@@ -1142,6 +1159,15 @@ async function buildWorkspaceChatSandbox(
       provider:
         selectedProvider === "unsandboxed" ? "local-process" : selectedProvider,
     }),
+  }
+}
+
+function fixtureGitRule(url: string, token: string): RunVaultRule {
+  const remote = new URL(url)
+  return {
+    name: "fixture-git",
+    host: `${remote.host}${remote.pathname.replace(/\/$/, "")}/*`,
+    basic: { username: "x-access-token", password: token },
   }
 }
 
@@ -1236,6 +1262,10 @@ function conversationSandboxWorkspace(input: {
           ...input.proxyEnv,
           // `gh` sends no request without a token; Agent Vault replaces the header.
           GH_TOKEN: SANDBOX_CREDENTIAL_PLACEHOLDER,
+          // Empty except for a test fixture's Git server at an IP address.
+          ...(cloneToken
+            ? { [WORKSPACE_CHAT_CLONE_TOKEN_SECRET]: cloneToken }
+            : {}),
         }
       : { [WORKSPACE_CHAT_CLONE_TOKEN_SECRET]: cloneToken }),
   })

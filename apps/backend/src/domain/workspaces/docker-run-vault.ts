@@ -11,6 +11,7 @@ import {
   githubRules,
   openRunVault,
   type RunVault,
+  type RunVaultRule,
 } from "./agent-vault.js"
 import type { WorkspaceRevision } from "./revision.js"
 import { recordedRunGitToken } from "./run-git-tokens.js"
@@ -100,6 +101,8 @@ export async function openDockerRunVault(input: {
   label: string
   revision: WorkspaceRevision
   access?: AgentVaultAccess
+  /** Test fixtures only: rules for a Git server that is not GitHub. */
+  extraRules?: RunVaultRule[]
 }): Promise<RunVault> {
   const access = input.access ?? agentVaultAccess()
   if (!access)
@@ -126,6 +129,6 @@ export async function openDockerRunVault(input: {
     access,
     runKey: `${input.conversationId}:${input.label}`,
     ttlSeconds: RUN_VAULT_TTL_SECONDS,
-    rules: token ? githubRules(token) : [],
+    rules: [...(token ? githubRules(token) : []), ...(input.extraRules ?? [])],
   })
 }
