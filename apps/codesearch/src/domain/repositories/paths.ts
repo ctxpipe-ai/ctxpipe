@@ -1,5 +1,6 @@
-import { realpath, stat } from "node:fs/promises"
-import { resolve, sep } from "node:path"
+import { randomUUID } from "node:crypto"
+import { realpath, rename, rm, stat, writeFile } from "node:fs/promises"
+import { dirname, join, resolve, sep } from "node:path"
 import { REPO_CACHE_DIR } from "../../config/paths.js"
 
 /** Matches backend `DEFAULT_CHECKOUT_KEY` for the primary branch checkout. */
@@ -76,4 +77,23 @@ export async function resolveSafeReadableFilePath(
     throw new Error("Not a file")
   }
   return resolved
+}
+
+/**
+ * Writes a file in a checkout directory without following a symlink at
+ * `path`: writes a new file beside it, then renames the new file over the
+ * old entry. The parent directory must be a real directory of the checkout.
+ */
+export async function replaceCheckoutFile(
+  path: string,
+  content: string,
+): Promise<void> {
+  const temporaryPath = join(dirname(path), `.ctxpipe-${randomUUID()}.tmp`)
+  await writeFile(temporaryPath, content, { flag: "wx" })
+  try {
+    await rename(temporaryPath, path)
+  } catch (error) {
+    await rm(temporaryPath, { force: true })
+    throw error
+  }
 }
