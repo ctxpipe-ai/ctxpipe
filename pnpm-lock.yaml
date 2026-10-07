@@ -87,6 +87,9 @@ importers:
       '@hono/zod-openapi':
         specifier: ^1.2.2
         version: 1.2.2(patch_hash=e9d1cc8a2cdc198215919e404891152978de735b3505fe90947a13311aac6b73)(hono@4.12.27)(zod@4.3.6)
+      '@infisical/agent-vault-sdk':
+        specifier: ^0.7.0
+        version: 0.7.0
       '@langchain/aws':
         specifier: ^1.4.2
         version: 1.4.2(@langchain/core@1.2.1(@opentelemetry/api@1.9.1)(@opentelemetry/exporter-trace-otlp-proto@0.213.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.6.0(@opentelemetry/api@1.9.1))(openai@6.45.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(ws@8.22.0)(zod@4.3.6))(ws@8.22.0))
@@ -3070,6 +3073,10 @@ packages:
     engines: {node: ^18.17.0 || ^20.3.0 || >=21.0.0}
     cpu: [x64]
     os: [win32]
+
+  '@infisical/agent-vault-sdk@0.7.0':
+    resolution: {integrity: sha512-3/LlUSLz8njpu+28RMBWrF1Jsa7OsxG++I+E6Yf2S/Wm36MN4AZFp0Xx68xObBRyOtDPyqVAuDYUmwkHxeirtg==}
+    engines: {node: '>=18.0.0'}
 
   '@inquirer/ansi@2.0.5':
     resolution: {integrity: sha512-doc2sWgJpbFQ64UflSVd17ibMGDuxO1yKgOgLMwavzESnXjFWJqUeG8saYosqKpHp4kWiM5x1nXvEjbpx90gzw==}
@@ -18211,6 +18218,8 @@ snapshots:
 
   '@img/sharp-win32-x64@0.34.5':
     optional: true
+
+  '@infisical/agent-vault-sdk@0.7.0': {}
 
   '@inquirer/ansi@2.0.5': {}
 
