@@ -281,6 +281,8 @@ export const Triggers: Story = {
       within(group).getByRole("button", { name: "Files" }),
     ).toHaveTextContent("Files")
     expect(within(group).getAllByRole("button")).toHaveLength(3)
+  },
+}
 
 /** Hide, show, and maximise: the end states are asserted; the motion between them is checked by eye. */
 export const HideShowMaximize: Story = {
