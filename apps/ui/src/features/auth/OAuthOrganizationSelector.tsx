@@ -24,7 +24,7 @@ export function OAuthOrganizationSelector({
 
   return (
     <main className="mx-auto max-w-xl px-6 py-16 text-foreground">
-      <section className="space-y-6 rounded-none border border-border bg-card/80 p-6">
+      <section className="space-y-6 rounded-md border border-border bg-card/80 p-6">
         <div className="space-y-2">
           <p className="ctx-label">OAuth connection</p>
           <h1 className="text-xl font-medium">Choose an organisation</h1>
@@ -45,7 +45,7 @@ export function OAuthOrganizationSelector({
               <Radio
                 key={organization.id}
                 value={organization.id}
-                className="rounded-none border border-border bg-background/35 p-3 hover:bg-foreground/[0.04]"
+                className="rounded-md border border-border bg-background/35 p-3 hover:bg-foreground/[0.04]"
               >
                 <span className="min-w-0">
                   <span className="block font-medium text-foreground">
@@ -66,7 +66,7 @@ export function OAuthOrganizationSelector({
               <Button
                 href="/onboarding"
                 variant="outline"
-                className="rounded-none"
+                className="rounded-md"
               >
                 Open ctx| setup
               </Button>
@@ -85,7 +85,7 @@ export function OAuthOrganizationSelector({
         {organizations.length > 0 ? (
           <div className="flex justify-end">
             <Button
-              className="rounded-none"
+              className="rounded-md"
               isDisabled={!selectedId || isSubmitting}
               isPending={isSubmitting}
               onPress={() => {

@@ -53,7 +53,7 @@ export const MessageContent = ({
   <div
     className={cn(
       "flex w-full min-w-0 max-w-full flex-col gap-2 text-sm leading-relaxed",
-      /* User bubble: clip to rounded box. Assistant: no overflow-y clip so Streamdown code
+      /* User bubble: clip to rounded-md box. Assistant: no overflow-y clip so Streamdown code
          block sticky copy/download controls (negative top offset) stay visible and clickable. */
       "group-[.is-user]:overflow-hidden",
       "group-[.is-assistant]:overflow-visible",

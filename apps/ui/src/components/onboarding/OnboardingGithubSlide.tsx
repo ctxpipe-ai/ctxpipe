@@ -141,7 +141,7 @@ export function OnboardingGithubSlide({
               (!orgSlug && !hasGithubInstallation) ||
               !flowEnabled
             }
-            className={`inline-flex h-11 items-center justify-center rounded-none border border-border px-6 text-sm font-medium transition-colors ${
+            className={`inline-flex h-11 items-center justify-center rounded-md border border-border px-6 text-sm font-medium transition-colors ${
               primaryBusy || (!orgSlug && !hasGithubInstallation)
                 ? "cursor-not-allowed bg-zinc-100/80 text-zinc-700"
                 : "bg-zinc-100 text-zinc-950 hover:bg-zinc-200"

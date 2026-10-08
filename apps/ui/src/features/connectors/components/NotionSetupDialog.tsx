@@ -379,7 +379,7 @@ export function NotionSetupDialog({
           </div>
           <Button
             variant="primary"
-            className="rounded-none"
+            className="rounded-md"
             isPending={oauthConnect.busy}
             onPress={startConnect}
           >
@@ -456,7 +456,7 @@ export function NotionSetupDialog({
           </div>
           <Button
             variant="primary"
-            className="rounded-none"
+            className="rounded-md"
             isPending={retrySyncMutation.isPending}
             onPress={() => retrySyncMutation.mutate()}
           >
@@ -482,7 +482,7 @@ export function NotionSetupDialog({
           </div>
           <Button
             variant="primary"
-            className="rounded-none"
+            className="rounded-md"
             isPending={retryConfigMutation.isPending}
             onPress={() => retryConfigMutation.mutate()}
           >
@@ -506,7 +506,7 @@ export function NotionSetupDialog({
               <>
                 Your configuration is merged. We are syncing Notion content to
                 Git from{" "}
-                <code className="rounded-none bg-muted px-1 py-0.5 text-[11px]">
+                <code className="rounded-md bg-muted px-1 py-0.5 text-[11px]">
                   notion/config.yaml
                 </code>
                 .
@@ -514,7 +514,7 @@ export function NotionSetupDialog({
             ) : (
               <>
                 ctxpipe first proposes only the approved sync scope in{" "}
-                <code className="rounded-none bg-muted px-1 py-0.5 text-[11px]">
+                <code className="rounded-md bg-muted px-1 py-0.5 text-[11px]">
                   notion/config.yaml
                 </code>
                 . Review and merge the pull request before any Notion content is
@@ -530,7 +530,7 @@ export function NotionSetupDialog({
           ) : status.pendingConfigPullUrl ? (
             <Button
               variant="outline"
-              className="rounded-none"
+              className="rounded-md"
               onPress={() =>
                 window.open(
                   status.pendingConfigPullUrl ?? "",
@@ -562,7 +562,7 @@ export function NotionSetupDialog({
               </p>
               <Button
                 variant="outline"
-                className="rounded-none"
+                className="rounded-md"
                 isPending={saveResourcesMutation.isPending}
                 onPress={() => saveResourcesMutation.mutate()}
               >
@@ -582,7 +582,7 @@ export function NotionSetupDialog({
             </h3>
             <p className="mt-2 text-sm text-muted-foreground">
               The approved scope is stored in{" "}
-              <code className="rounded-none bg-muted px-1 py-0.5 text-[11px]">
+              <code className="rounded-md bg-muted px-1 py-0.5 text-[11px]">
                 notion/config.yaml
               </code>
               , and the selected Notion content is now mirrored to Git. You can
@@ -591,7 +591,7 @@ export function NotionSetupDialog({
           </div>
           <Button
             variant="secondary"
-            className="rounded-none"
+            className="rounded-md"
             onPress={() => onOpenChange(false)}
           >
             Close
@@ -623,7 +623,7 @@ export function NotionSetupDialog({
             {editingLiveScope ? (
               <>
                 Scope changes are proposed through{" "}
-                <code className="rounded-none bg-muted px-1 py-0.5 text-[11px]">
+                <code className="rounded-md bg-muted px-1 py-0.5 text-[11px]">
                   notion/config.yaml
                 </code>
                 . Sync updates after you review and merge the pull request.
@@ -632,7 +632,7 @@ export function NotionSetupDialog({
               <>
                 Pick the pages and databases ctxpipe should mirror into GitHub.
                 Your selection is proposed in{" "}
-                <code className="rounded-none bg-muted px-1 py-0.5 text-[11px]">
+                <code className="rounded-md bg-muted px-1 py-0.5 text-[11px]">
                   notion/config.yaml
                 </code>{" "}
                 and content sync begins after you merge the pull request.
@@ -642,7 +642,7 @@ export function NotionSetupDialog({
             )}
           </p>
         </div>
-        <label className="flex items-center gap-2 rounded-none border border-border bg-card/40 px-3 py-2 text-sm">
+        <label className="flex items-center gap-2 rounded-md border border-border bg-card/40 px-3 py-2 text-sm">
           <IconSearch className="size-4 shrink-0 text-muted-foreground" />
           <input
             value={resourceSearch}
@@ -653,7 +653,7 @@ export function NotionSetupDialog({
         </label>
         <Button
           variant="secondary"
-          className="rounded-none"
+          className="rounded-md"
           isPending={resourcesQuery.isFetching}
           onPress={() => void resourcesQuery.refetch()}
         >
@@ -718,7 +718,7 @@ export function NotionSetupDialog({
         ) : null}
         <Button
           variant="primary"
-          className="rounded-none"
+          className="rounded-md"
           isPending={
             failureAction === "retry_config"
               ? retryConfigMutation.isPending
@@ -772,7 +772,7 @@ export function NotionSetupDialog({
           </div>
           <Button
             variant="secondary"
-            className="rounded-none"
+            className="rounded-md"
             onPress={() => onOpenChange(false)}
           >
             Close

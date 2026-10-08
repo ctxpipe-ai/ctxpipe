@@ -221,7 +221,7 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
               <Button
                 variant="secondary"
                 size="icon"
-                className="rounded-none"
+                className="rounded-md"
                 aria-label="Add connection"
                 onPress={() => setCatalogOpen(true)}
               >

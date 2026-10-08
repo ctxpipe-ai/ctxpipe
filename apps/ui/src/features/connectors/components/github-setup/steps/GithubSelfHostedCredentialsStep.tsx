@@ -1,4 +1,4 @@
-import { useState, type DragEvent } from "react"
+import { type DragEvent, useState } from "react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
 import { TextField } from "@/components/ui/TextField"
@@ -44,9 +44,7 @@ export function GithubSelfHostedCredentialsStep({
   const [pemDropActive, setPemDropActive] = useState(false)
 
   const selfHostedDomain =
-    typeof window !== "undefined"
-      ? window.location.origin
-      : null
+    typeof window !== "undefined" ? window.location.origin : null
   const callbackUrl = selfHostedDomain
     ? `${selfHostedDomain}/.auth/api/v1/auth/callback/github`
     : null
@@ -378,7 +376,7 @@ export function GithubSelfHostedCredentialsStep({
             </strong>{" "}
             section — entire PEM including BEGIN/END lines. You can also drop a
             downloaded{" "}
-            <code className="rounded bg-muted/80 px-1 py-0.5 font-mono text-xs text-foreground">
+            <code className="rounded-md bg-muted/80 px-1 py-0.5 font-mono text-xs text-foreground">
               .pem
             </code>{" "}
             file here.
@@ -412,7 +410,7 @@ export function GithubSelfHostedCredentialsStep({
           <Button
             type="button"
             variant="secondary"
-            className="rounded-none"
+            className="rounded-md"
             onPress={onCancel}
           >
             Cancel
@@ -420,7 +418,7 @@ export function GithubSelfHostedCredentialsStep({
           <Button
             type="submit"
             variant="primary"
-            className="rounded-none"
+            className="rounded-md"
             isDisabled={draftPending || saveDisabled}
           >
             Install App

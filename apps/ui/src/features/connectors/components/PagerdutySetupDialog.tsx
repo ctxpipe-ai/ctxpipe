@@ -401,7 +401,7 @@ function PagerdutySetupDialogContent({
           </p>
           <Button
             variant="secondary"
-            className="rounded-none"
+            className="rounded-md"
             onPress={() => void statusQuery.refetch()}
           >
             Retry
@@ -493,7 +493,7 @@ function PagerdutySetupDialogContent({
           </div>
           <Button
             variant="primary"
-            className="rounded-none"
+            className="rounded-md"
             isPending={retrySyncMutation.isPending}
             onPress={() => retrySyncMutation.mutate()}
           >
@@ -520,7 +520,7 @@ function PagerdutySetupDialogContent({
           </div>
           <Button
             variant="primary"
-            className="rounded-none"
+            className="rounded-md"
             isPending={retryConfigMutation.isPending}
             onPress={() => retryConfigMutation.mutate()}
           >
@@ -544,7 +544,7 @@ function PagerdutySetupDialogContent({
               <>
                 Your configuration is merged. We are syncing PagerDuty incidents
                 to Git from{" "}
-                <code className="rounded-none bg-muted px-1 py-0.5 text-[11px]">
+                <code className="rounded-md bg-muted px-1 py-0.5 text-[11px]">
                   pagerduty/config.yaml
                 </code>
                 .
@@ -552,7 +552,7 @@ function PagerdutySetupDialogContent({
             ) : (
               <>
                 ctxpipe first proposes only the approved sync scope in{" "}
-                <code className="rounded-none bg-muted px-1 py-0.5 text-[11px]">
+                <code className="rounded-md bg-muted px-1 py-0.5 text-[11px]">
                   pagerduty/config.yaml
                 </code>
                 . Review and merge the pull request before any PagerDuty
@@ -568,7 +568,7 @@ function PagerdutySetupDialogContent({
           ) : status.pendingConfigPullUrl ? (
             <Button
               variant="outline"
-              className="rounded-none"
+              className="rounded-md"
               onPress={() =>
                 window.open(
                   status.pendingConfigPullUrl ?? "",
@@ -600,7 +600,7 @@ function PagerdutySetupDialogContent({
               </p>
               <Button
                 variant="outline"
-                className="rounded-none"
+                className="rounded-md"
                 isPending={saveServicesMutation.isPending}
                 onPress={() => saveServicesMutation.mutate()}
               >
@@ -620,7 +620,7 @@ function PagerdutySetupDialogContent({
             </h3>
             <p className="mt-2 text-sm text-muted-foreground">
               The approved scope is stored in{" "}
-              <code className="rounded-none bg-muted px-1 py-0.5 text-[11px]">
+              <code className="rounded-md bg-muted px-1 py-0.5 text-[11px]">
                 pagerduty/config.yaml
               </code>
               , and incidents from the selected services are now mirrored to
@@ -629,7 +629,7 @@ function PagerdutySetupDialogContent({
           </div>
           <Button
             variant="secondary"
-            className="rounded-none"
+            className="rounded-md"
             onPress={() => onOpenChange(false)}
           >
             Close
@@ -662,7 +662,7 @@ function PagerdutySetupDialogContent({
             {editingLiveScope ? (
               <>
                 Scope changes are proposed through{" "}
-                <code className="rounded-none bg-muted px-1 py-0.5 text-[11px]">
+                <code className="rounded-md bg-muted px-1 py-0.5 text-[11px]">
                   pagerduty/config.yaml
                 </code>
                 . Sync updates after you review and merge the pull request.
@@ -671,7 +671,7 @@ function PagerdutySetupDialogContent({
               <>
                 Pick the services ctx| should mirror into GitHub. Your selection
                 is proposed in{" "}
-                <code className="rounded-none bg-muted px-1 py-0.5 text-[11px]">
+                <code className="rounded-md bg-muted px-1 py-0.5 text-[11px]">
                   pagerduty/config.yaml
                 </code>{" "}
                 and incident sync begins after you merge the pull request.
@@ -680,7 +680,7 @@ function PagerdutySetupDialogContent({
             )}
           </p>
         </div>
-        <label className="flex items-center gap-2 rounded-none border border-border bg-card/40 px-3 py-2 text-sm">
+        <label className="flex items-center gap-2 rounded-md border border-border bg-card/40 px-3 py-2 text-sm">
           <IconSearch className="size-4 shrink-0 text-muted-foreground" />
           <input
             value={serviceSearch}
@@ -709,7 +709,7 @@ function PagerdutySetupDialogContent({
                 {status.accountSubdomain ? (
                   <Button
                     variant="secondary"
-                    className="rounded-none"
+                    className="rounded-md"
                     onPress={() =>
                       window.open(
                         status.region === "eu"
@@ -726,7 +726,7 @@ function PagerdutySetupDialogContent({
                 ) : null}
                 <Button
                   variant="secondary"
-                  className="rounded-none"
+                  className="rounded-md"
                   isPending={servicesQuery.isFetching}
                   onPress={() => void servicesQuery.refetch()}
                 >
@@ -773,7 +773,7 @@ function PagerdutySetupDialogContent({
         <div className="flex items-center justify-between text-sm">
           <Button
             variant="secondary"
-            className="rounded-none"
+            className="rounded-md"
             isDisabled={serviceOffset === 0}
             onPress={() =>
               setServiceOffset((offset) => Math.max(0, offset - 25))
@@ -783,7 +783,7 @@ function PagerdutySetupDialogContent({
           </Button>
           <Button
             variant="secondary"
-            className="rounded-none"
+            className="rounded-md"
             isDisabled={!servicesQuery.data?.more}
             onPress={() => setServiceOffset((offset) => offset + 25)}
           >
@@ -797,7 +797,7 @@ function PagerdutySetupDialogContent({
         ) : null}
         <Button
           variant="primary"
-          className="rounded-none"
+          className="rounded-md"
           isPending={
             failureAction === "retry_config"
               ? retryConfigMutation.isPending
@@ -851,7 +851,7 @@ function PagerdutySetupDialogContent({
           </div>
           <Button
             variant="secondary"
-            className="rounded-none"
+            className="rounded-md"
             onPress={() => onOpenChange(false)}
           >
             Close

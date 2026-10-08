@@ -96,7 +96,7 @@ export function EditScopeModal({
 
   return (
     <div
-      className={`flex min-h-0 min-w-0 w-full max-w-full flex-col rounded-none ${
+      className={`flex min-h-0 min-w-0 w-full max-w-full flex-col rounded-md ${
         embedded
           ? "h-[min(520px,calc(var(--visual-viewport-height)*0.62))]"
           : "h-[min(660px,calc(var(--visual-viewport-height)*0.88))]"
@@ -176,7 +176,7 @@ export function EditScopeModal({
           <Button
             type="button"
             variant="secondary"
-            className="rounded-none"
+            className="rounded-md"
             onPress={onClose}
             isDisabled={scopeMutation.isPending}
           >
@@ -185,7 +185,7 @@ export function EditScopeModal({
           <Button
             type="button"
             variant="primary"
-            className="rounded-none"
+            className="rounded-md"
             isPending={scopeMutation.isPending}
             isDisabled={scopeLoadError || savedScope === null || isLoadingScope}
             onPress={() => {

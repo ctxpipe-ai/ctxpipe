@@ -27,7 +27,7 @@ export function OAuthConsent({
 }) {
   return (
     <main className="mx-auto max-w-xl px-6 py-16 text-foreground">
-      <section className="space-y-6 rounded-none border border-border bg-card/80 p-6">
+      <section className="space-y-6 rounded-md border border-border bg-card/80 p-6">
         <div className="space-y-2">
           <p className="ctx-label">OAuth connection</p>
           <h1 className="text-xl font-medium">Authorise client</h1>
@@ -50,7 +50,7 @@ export function OAuthConsent({
                 <Button
                   href={changeOrganizationHref}
                   variant="quiet"
-                  className="rounded-none px-0 text-zinc-300"
+                  className="rounded-md px-0 text-zinc-300"
                 >
                   Change organisation
                 </Button>
@@ -94,7 +94,7 @@ export function OAuthConsent({
         <div className="flex justify-end gap-3">
           <Button
             variant="outline"
-            className="rounded-none"
+            className="rounded-md"
             isDisabled={isSubmitting !== null}
             isPending={isSubmitting === "deny"}
             onPress={onDeny}
@@ -102,7 +102,7 @@ export function OAuthConsent({
             Deny
           </Button>
           <Button
-            className="rounded-none"
+            className="rounded-md"
             isDisabled={isSubmitting !== null || !organization}
             isPending={isSubmitting === "allow"}
             onPress={onAllow}

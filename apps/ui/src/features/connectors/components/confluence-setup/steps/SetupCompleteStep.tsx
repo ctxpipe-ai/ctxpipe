@@ -17,7 +17,7 @@ export function SetupCompleteStep({ onClose }: SetupCompleteStepProps) {
           manage scope anytime from the connector card.
         </p>
       </div>
-      <Button variant="secondary" className="rounded-none" onPress={onClose}>
+      <Button variant="secondary" className="rounded-md" onPress={onClose}>
         Close
       </Button>
     </div>

@@ -39,10 +39,7 @@ export function AddNotionConnectorButton({
         queryKey: orgConnectionsKeys.list(orgSlug),
       })
       const oauthApp = await fetchNotionOauthApp(orgSlug, draft.id)
-      if (
-        !oauthApp.globalNotionOAuthConfigured &&
-        !oauthApp.oauthAppSaved
-      ) {
+      if (!oauthApp.globalNotionOAuthConfigured && !oauthApp.oauthAppSaved) {
         onRegisterRequired?.({ connectionId: draft.id })
         return
       }
@@ -69,7 +66,7 @@ export function AddNotionConnectorButton({
     <button
       type="button"
       disabled={busy}
-      className="group flex w-full items-start gap-4 rounded-none border border-border bg-card/40 p-4 text-left outline-none transition-colors hover:border-teal-400/40 hover:bg-foreground/[0.03] focus-visible:ring-2 focus-visible:ring-primary/50 disabled:cursor-wait disabled:opacity-60"
+      className="group flex w-full items-start gap-4 rounded-md border border-border bg-card/40 p-4 text-left outline-none transition-colors hover:border-teal-400/40 hover:bg-foreground/[0.03] focus-visible:ring-2 focus-visible:ring-primary/50 disabled:cursor-wait disabled:opacity-60"
       onClick={() => void handleClick()}
     >
       <span className="ctx-node size-12 transition-colors group-hover:border-teal-400/60 group-hover:bg-teal-400/5">

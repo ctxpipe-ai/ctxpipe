@@ -23,10 +23,10 @@ export function AtlassianAccountClaimModalContent({
         account, and the other user’s Atlassian connection will be unlinked.
       </p>
       <div className="mt-6 flex flex-wrap justify-end gap-2">
-        <Button variant="secondary" className="rounded-none" onPress={onCancel}>
+        <Button variant="secondary" className="rounded-md" onPress={onCancel}>
           No, cancel
         </Button>
-        <Button variant="primary" className="rounded-none" onPress={onConfirm}>
+        <Button variant="primary" className="rounded-md" onPress={onConfirm}>
           Yes, use this profile
         </Button>
       </div>

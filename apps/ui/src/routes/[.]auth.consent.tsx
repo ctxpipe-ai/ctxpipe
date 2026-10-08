@@ -83,7 +83,7 @@ export function ConsentPage() {
       <main className="mx-auto max-w-xl px-6 py-16">
         <section
           aria-label="Loading authorisation"
-          className="space-y-6 rounded-none border border-border bg-card/80 p-6"
+          className="space-y-6 rounded-md border border-border bg-card/80 p-6"
         >
           <div className="h-4 w-32 animate-pulse bg-muted" />
           <div className="h-8 w-64 animate-pulse bg-muted" />

@@ -53,7 +53,9 @@ export function CopyableBlock({
             {variant === "secret" ? (
               value ? (
                 isSecretVisible ? (
-                  <span className="inline-block break-all select-text">{value}</span>
+                  <span className="inline-block break-all select-text">
+                    {value}
+                  </span>
                 ) : (
                   <span
                     className="block min-w-0 truncate select-none tracking-wider"
@@ -77,7 +79,7 @@ export function CopyableBlock({
                 type="button"
                 variant="ghost"
                 size="icon-sm"
-                className="h-full min-h-10 w-10 shrink-0 rounded-none text-muted-foreground hover:bg-foreground/6 hover:text-foreground"
+                className="h-full min-h-10 w-10 shrink-0 rounded-md text-muted-foreground hover:bg-foreground/6 hover:text-foreground"
                 aria-label={isSecretVisible ? hideAriaLabel : revealAriaLabel}
                 aria-pressed={isSecretVisible}
                 isDisabled={!value}
@@ -99,10 +101,12 @@ export function CopyableBlock({
             size="icon-sm"
             className={
               copyState === "copied"
-                ? "h-full min-h-10 w-11 shrink-0 rounded-none px-0 text-emerald-600 transition-colors duration-200 hover:bg-emerald-500/10 hover:text-emerald-600 dark:text-emerald-400 dark:hover:text-emerald-400"
-                : "h-full min-h-10 w-11 shrink-0 rounded-none px-0 text-primary transition-colors duration-200 hover:bg-primary/10 hover:text-primary pressed:bg-primary/15"
+                ? "h-full min-h-10 w-11 shrink-0 rounded-md px-0 text-emerald-600 transition-colors duration-200 hover:bg-emerald-500/10 hover:text-emerald-600 dark:text-emerald-400 dark:hover:text-emerald-400"
+                : "h-full min-h-10 w-11 shrink-0 rounded-md px-0 text-primary transition-colors duration-200 hover:bg-primary/10 hover:text-primary pressed:bg-primary/15"
             }
-            aria-label={copyState === "copied" ? copiedAriaLabel : copyAriaLabel}
+            aria-label={
+              copyState === "copied" ? copiedAriaLabel : copyAriaLabel
+            }
             isDisabled={!value}
             onPress={() => void handleCopy()}
           >
