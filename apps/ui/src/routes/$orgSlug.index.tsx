@@ -2,9 +2,11 @@ import { useQuery } from "@tanstack/react-query"
 import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
 import { useEffect } from "react"
 import { Button } from "@/components/ui/Button"
-import { PageBodySkeleton } from "@/components/ui/Skeleton"
 import { HomeComposer } from "@/features/home/HomeComposer"
-import { WorkspaceActivity } from "@/features/home/WorkspaceActivity"
+import {
+  WorkspaceActivity,
+  WorkspaceActivityLoading,
+} from "@/features/home/WorkspaceActivity"
 import { OrgOutletError } from "@/features/org/OrgOutletError"
 import {
   landingWorkspace,
@@ -24,14 +26,6 @@ export const Route = createFileRoute("/$orgSlug/")({
 function OrgHomePage() {
   const { orgSlug } = Route.useParams()
   return <OrgHomePageContent orgSlug={orgSlug} />
-}
-
-export function OrgHomeSessionFallback() {
-  return (
-    <main className="mx-auto box-border flex min-h-screen w-full max-w-2xl items-center p-8 text-zinc-100">
-      <PageBodySkeleton label="Loading home" />
-    </main>
-  )
 }
 
 /** Exported for Storybook — same dashboard as org home `/` under `/$orgSlug`. */
@@ -58,8 +52,9 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
     }
   }, [orgSlug, preferences.selectedOrganizationSlug, updatePreferences])
 
-  if (sessionPending) return <OrgHomeSessionFallback />
-  if (!session) return <Navigate to="/.auth/sign-in" replace />
+  if (!sessionPending && !session) {
+    return <Navigate to="/.auth/sign-in" replace />
+  }
 
   return (
     <div className="flex min-h-full min-w-0 flex-1 flex-col text-foreground">
@@ -71,7 +66,9 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
             selected={selected}
             onSelectWorkspace={setSelectedId}
           />
-          {selected ? (
+          {sessionPending || listQuery.isPending ? (
+            <WorkspaceActivityLoading />
+          ) : selected ? (
             <WorkspaceActivity
               orgSlug={orgSlug}
               workspaceSlug={selected.slug}
