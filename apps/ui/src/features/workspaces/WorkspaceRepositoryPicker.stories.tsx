@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
-import { fn, userEvent, within } from "storybook/test"
+import { expect, fn, userEvent, within } from "storybook/test"
 import {
   githubInstallationReposHandler,
   orgGithubConnectionsHandler,
@@ -77,6 +77,14 @@ export const SelectGitHub: Story = {
     const canvas = within(canvasElement)
     await canvas.findByRole("list", { name: /repositories/i })
     await canvas.findByRole("link", { name: /change access/i })
+    // One Workspace repository: the rows are radios, and picking one reveals Create.
+    expect(canvas.queryByRole("checkbox")).toBeNull()
+    const [firstRadio] = canvas.getAllByRole("radio")
+    if (!firstRadio) throw new Error("No repository radios rendered")
+    await userEvent.click(firstRadio)
+    expect(
+      await canvas.findByRole("button", { name: /create workspace/i }),
+    ).toBeVisible()
   },
 }
 

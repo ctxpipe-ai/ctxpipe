@@ -3,6 +3,7 @@ import { HttpResponse, http } from "msw"
 import { userEvent, waitFor, within } from "storybook/test"
 import {
   githubInstallationReposHandler,
+  orgGithubConnectionsHandler,
   workspaceListHandler,
 } from "@/mocks/workspace-handlers"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
@@ -28,7 +29,11 @@ const meta = {
     } satisfies StoryRouteParams,
     msw: {
       handlers: {
-        page: [workspaceListHandler([]), githubInstallationReposHandler()],
+        page: [
+          workspaceListHandler([]),
+          orgGithubConnectionsHandler(),
+          githubInstallationReposHandler(),
+        ],
       },
     },
   },
@@ -42,6 +47,7 @@ type Story = StoryObj<typeof meta>
 export const ZeroWorkspaces: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
+    await canvas.findByText(/pick one repository/i)
     await canvas.findByRole("list", { name: /repositories/i })
   },
 }
