@@ -7,9 +7,9 @@ import {
 } from "./WorkspaceChatSession"
 
 describe("workspace chat wait copy", () => {
-  it("defaults to Thinking and only names the sandbox while it is starting", () => {
-    expect(workspaceChatWaitLabel("idle")).toBe("Thinking…")
-    expect(workspaceChatWaitLabel("ready")).toBe("Thinking…")
+  it("names the sandbox only while it is starting, else leaves the thread its working verbs", () => {
+    expect(workspaceChatWaitLabel("idle")).toBeNull()
+    expect(workspaceChatWaitLabel("ready")).toBeNull()
     expect(workspaceChatWaitLabel("starting")).toBe("Setting up sandbox")
   })
 

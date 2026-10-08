@@ -199,7 +199,7 @@ export const Waiting: Story = {
       "What about auth?",
     )
     await userEvent.click(canvas.getByRole("button", { name: /send/i }))
-    await waitFor(() => canvas.getByRole("status", { name: /thinking/i }), {
+    await waitFor(() => canvas.getByRole("status", { name: "Working" }), {
       timeout: SEND_WAIT_MS,
     })
   },

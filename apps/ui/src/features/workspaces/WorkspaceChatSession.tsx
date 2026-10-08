@@ -48,8 +48,9 @@ export function workspaceChatHasAssistantText(
 
 export type SandboxPhase = "idle" | "starting" | "ready"
 
-export function workspaceChatWaitLabel(phase: SandboxPhase) {
-  return phase === "starting" ? "Setting up sandbox" : "Thinking…"
+/** Null lets the thread show its rotating working verbs. */
+export function workspaceChatWaitLabel(phase: SandboxPhase): string | null {
+  return phase === "starting" ? "Setting up sandbox" : null
 }
 
 export function sandboxPhaseFromChunk(chunk: StreamChunk): SandboxPhase | null {

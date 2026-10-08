@@ -1,5 +1,5 @@
 import { IconBrain, IconFile, IconSearch, IconTool } from "@tabler/icons-react"
-import { type ReactElement, useId, useState } from "react"
+import { type ReactElement, useEffect, useId, useState } from "react"
 import { Button as AriaButton } from "react-aria-components"
 import {
   Conversation,
@@ -14,6 +14,7 @@ import {
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import {
   collapsedToolChips,
+  groupAssistantTurns,
   latestReasoningHeading,
   normalizeReasoningMarkdown,
   summarizeToolCalls,
@@ -68,6 +69,26 @@ function ActivityIconSlot(props: { live: boolean; children: ReactElement }) {
   )
 }
 
+const WORKING_VERBS = [
+  "Contextualizing…",
+  "Analyzing…",
+  "Traversing your graph…",
+  "Reading knowledge…",
+  "Checking sources…",
+]
+
+/** Rotates through the product's working verbs while the agent runs. */
+function useWorkingVerb(): string {
+  const [index, setIndex] = useState(0)
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setIndex((value) => (value + 1) % WORKING_VERBS.length)
+    }, 2400)
+    return () => clearInterval(timer)
+  }, [])
+  return WORKING_VERBS[index] ?? WORKING_VERBS[0] ?? "Thinking…"
+}
+
 const reasoningResponseClassName =
   "ctx-streamdown-reasoning h-auto space-y-1 text-xs leading-relaxed text-muted-foreground [&_blockquote]:text-muted-foreground [&_h1]:text-muted-foreground [&_h2]:text-muted-foreground [&_h3]:text-muted-foreground [&_h4]:text-muted-foreground [&_li]:text-muted-foreground [&_ol]:text-muted-foreground [&_p]:text-muted-foreground [&_strong]:text-muted-foreground [&_ul]:text-muted-foreground"
 
@@ -80,31 +101,7 @@ function ReasoningBox(props: {
   const markdown = normalizeReasoningMarkdown(text)
   const liveTitle = latestReasoningHeading(text)
 
-  if (live) {
-    return (
-      // biome-ignore lint/a11y/useSemanticElements: live reasoning is a status, not a form output
-      <div
-        className="flex w-full min-w-0 items-start gap-2"
-        role="status"
-        aria-label="Reasoning"
-      >
-        <ActivityIconSlot live>
-          <IconBrain className="size-4" aria-hidden />
-        </ActivityIconSlot>
-        <div className="min-w-0 flex-1 space-y-1">
-          <p
-            data-reasoning-title
-            className="text-xs font-medium text-muted-foreground"
-          >
-            {liveTitle ?? "Thinking…"}
-          </p>
-          <MessageResponse className={reasoningResponseClassName} isAnimating>
-            {markdown}
-          </MessageResponse>
-        </div>
-      </div>
-    )
-  }
+  if (live) return <LiveReasoning heading={liveTitle} />
 
   return (
     <ActivityGroup
@@ -125,6 +122,33 @@ function ReasoningBox(props: {
         </MessageResponse>
       }
     />
+  )
+}
+
+/** The full reasoning text stays out of view while live; it opens from the collapsed group after the turn. */
+function LiveReasoning(props: { heading: string | null }) {
+  const verb = useWorkingVerb()
+  return (
+    // biome-ignore lint/a11y/useSemanticElements: live reasoning is a status, not a form output
+    <div
+      className="flex w-full min-w-0 items-start gap-2"
+      role="status"
+      aria-label="Reasoning"
+    >
+      <ActivityIconSlot live>
+        <IconBrain className="size-4" aria-hidden />
+      </ActivityIconSlot>
+      <div className="min-w-0 flex-1 space-y-1 text-xs leading-relaxed">
+        <p data-reasoning-title className="font-medium text-muted-foreground">
+          {verb}
+        </p>
+        {props.heading ? (
+          <p className="line-clamp-1 text-muted-foreground/70">
+            {props.heading}
+          </p>
+        ) : null}
+      </div>
+    </div>
   )
 }
 
@@ -364,21 +388,36 @@ function messageHasVisibleActivity(message: ChatMessage) {
   )
 }
 
+function WaitIndicator(props: { label: string | null }) {
+  const verb = useWorkingVerb()
+  const label = props.label ?? verb
+  return (
+    // biome-ignore lint/a11y/useSemanticElements: div + role="status" for loading indicator; output is for form/calculation results, not live status
+    <div
+      className="flex w-full justify-start"
+      role="status"
+      aria-live="polite"
+      aria-label={props.label ?? "Working"}
+    >
+      <div className="flex items-center gap-2">
+        <span className="ctx-indexing-dot" aria-hidden />
+        <p className="text-xs text-muted-foreground">{label}</p>
+      </div>
+    </div>
+  )
+}
+
 export function ConversationThread(props: {
   messages: ChatMessage[]
   error: Error | null
   status?: ChatStatus
-  waitLabel?: string
+  /** Explicit wait copy; omit (or pass null) for the rotating working verbs. */
+  waitLabel?: string | null
   contentClassName?: string
 }) {
-  const {
-    messages,
-    error,
-    status,
-    waitLabel = "Thinking…",
-    contentClassName,
-  } = props
-  const lastMessage = messages[messages.length - 1]
+  const { messages, error, status, waitLabel, contentClassName } = props
+  const turns = groupAssistantTurns(messages)
+  const lastMessage = turns[turns.length - 1]
   const lastAssistantHasVisibleActivity =
     lastMessage?.role === "assistant"
       ? messageHasVisibleActivity(lastMessage)
@@ -394,11 +433,11 @@ export function ConversationThread(props: {
           <ConversationContent
             className={cn("mx-auto max-w-2xl gap-6 p-5", contentClassName)}
           >
-            {messages.map((message, messageIndex) => {
+            {turns.map((message, messageIndex) => {
               const streaming =
                 status === "streaming" &&
                 message.role === "assistant" &&
-                messageIndex === messages.length - 1
+                messageIndex === turns.length - 1
               const renderedParts =
                 message.role === "assistant"
                   ? renderAssistantParts(message, { streaming })
@@ -427,20 +466,7 @@ export function ConversationThread(props: {
                 </div>
               )
             })}
-            {showPulsatingLoader && (
-              // biome-ignore lint/a11y/useSemanticElements: div + role="status" for loading indicator; output is for form/calculation results, not live status
-              <div
-                className="flex w-full justify-start"
-                role="status"
-                aria-live="polite"
-                aria-label={waitLabel}
-              >
-                <div className="flex items-center gap-2">
-                  <span className="ctx-indexing-dot" aria-hidden />
-                  <p className="text-xs text-muted-foreground">{waitLabel}</p>
-                </div>
-              </div>
-            )}
+            {showPulsatingLoader && <WaitIndicator label={waitLabel ?? null} />}
           </ConversationContent>
           <ConversationScrollButton />
         </Conversation>
