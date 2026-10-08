@@ -12,6 +12,7 @@ import {
 } from "react"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { ConversationThread } from "@/features/chat/ConversationThread"
+import { chatDraftKey } from "@/features/chat/chat-draft"
 import { MessageInputBox } from "@/features/chat/MessageInputBox"
 import { reviveChatMessages } from "@/features/chat/reviveChatMessageCreatedAt"
 import type {
@@ -307,6 +308,7 @@ export function WorkspaceChatSession(props: {
         onStop={stop}
         isDisabled={isLoading}
         draftSeed={draftSeed}
+        draftKey={chatDraftKey(orgSlug, workspace.id, conversationId)}
       />
     </WorkspaceChatChrome>
   )

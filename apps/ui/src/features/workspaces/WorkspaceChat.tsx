@@ -8,6 +8,7 @@ import { type ReactNode, Suspense } from "react"
 import { useSelectNav } from "@/components/ShellLayoutContext"
 import { Button } from "@/components/ui/Button"
 import { Skeleton } from "@/components/ui/Skeleton"
+import { chatDraftKey } from "@/features/chat/chat-draft"
 import { ConversationThreadSkeleton } from "@/features/chat/components/ConversationThreadSkeleton"
 import { MessageInputBox } from "@/features/chat/MessageInputBox"
 import { workspaceConversationOptions, workspaceKeys } from "./queries"
@@ -83,6 +84,7 @@ function WorkspaceComposeChat(props: {
           </div>
           <MessageInputBox
             layout="empty"
+            draftKey={chatDraftKey(props.orgSlug, props.workspace.id)}
             sendMessage={({ text }) => {
               openWorkspaceConversation({
                 queryClient,
