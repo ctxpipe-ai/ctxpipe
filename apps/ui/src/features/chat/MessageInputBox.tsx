@@ -15,6 +15,7 @@ import {
 import type { ChatStatus } from "@/features/chat/types"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
+import { readChatDraft, writeChatDraft } from "./chat-draft"
 
 export type MessageInputLayout = "thread" | "empty"
 
@@ -27,6 +28,8 @@ export function MessageInputBox(props: {
   layout?: MessageInputLayout
   placeholder?: string
   draftSeed?: string | null
+  /** Unsent text survives navigation for the session under this key. */
+  draftKey?: string
   contentClassName?: string
 }) {
   const {
@@ -37,6 +40,7 @@ export function MessageInputBox(props: {
     layout = "thread",
     placeholder,
     draftSeed,
+    draftKey,
     contentClassName,
   } = props
   const isGenerating = status === "submitted" || status === "streaming"
@@ -44,12 +48,17 @@ export function MessageInputBox(props: {
   const handleSubmit = ({ text }: { text: string }) => {
     const trimmed = text.trim()
     if (!trimmed || isDisabled) return
+    if (draftKey) writeChatDraft(draftKey, "")
     sendMessage({ text: trimmed })
   }
 
   const inputShell = (
-    <PromptInputProvider initialInput={draftSeed ?? ""}>
+    <PromptInputProvider
+      key={draftKey}
+      initialInput={draftSeed ?? (draftKey ? readChatDraft(draftKey) : "")}
+    >
       <MessageInputDraftSeed seed={draftSeed ?? null} />
+      {draftKey ? <MessageInputDraftStore draftKey={draftKey} /> : null}
       <div
         className={cn(
           "workspace-composer-vt relative overflow-hidden rounded-md bg-zinc-900/80",
@@ -132,5 +141,15 @@ function MessageInputDraftSeed(props: { seed: string | null }) {
     controller.textInput.clear()
   }, [controller, props.seed])
 
+  return null
+}
+
+/** Mirrors the composer text to sessionStorage; an empty text removes the entry. */
+function MessageInputDraftStore(props: { draftKey: string }) {
+  const controller = usePromptInputController()
+  const text = controller.textInput.value
+  useEffect(() => {
+    writeChatDraft(props.draftKey, text)
+  }, [props.draftKey, text])
   return null
 }
