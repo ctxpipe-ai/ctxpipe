@@ -238,9 +238,11 @@ export const Triggers: Story = {
     const canvas = within(canvasElement)
     await userEvent.click(canvas.getByRole("button", { name: "Graph" }))
     expect(args.onPane).toHaveBeenCalledWith({ kind: "graph" })
-    expect(canvas.getByRole("button", { name: "Files" })).toHaveClass(
-      "border-white/10",
-    )
+    const group = canvas.getByRole("group", { name: "Workspace panes" })
+    expect(
+      within(group).getByRole("button", { name: "Files" }),
+    ).toHaveTextContent("Files")
+    expect(within(group).getAllByRole("button")).toHaveLength(3)
   },
 }
 

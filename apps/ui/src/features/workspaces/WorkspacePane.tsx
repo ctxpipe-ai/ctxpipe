@@ -17,7 +17,14 @@ import {
 import { ClientOnly } from "@tanstack/react-router"
 import type { CSSProperties, ReactNode } from "react"
 import { lazy, Suspense, useEffect, useRef } from "react"
-import { type Key, Tab, TabList, TabPanel, Tabs } from "react-aria-components"
+import {
+  Button as AriaButton,
+  type Key,
+  Tab,
+  TabList,
+  TabPanel,
+  Tabs,
+} from "react-aria-components"
 import { OverlayNavMenuButton } from "@/components/OverlayNavButton"
 import { Button } from "@/components/ui/Button"
 import {
@@ -571,47 +578,72 @@ export function WorkspacePaneTriggers(props: {
       props.conversationId,
     )
   }
-  // These stand alone in the chat header, so they need a hairline to read as controls.
-  const triggerClassName = "border border-white/10 text-zinc-200"
   return (
     <TooltipProvider delay={200}>
-      <div className={workspaceChromeTabStripClassName}>
-        <HeaderIcon
-          label="Files"
-          icon={<IconFolder stroke={1.6} aria-hidden />}
-          onIntent={() => prefetch({ kind: "files" })}
-          onClick={() => {
-            prefetch({ kind: "files" })
-            props.onOpen({ kind: "files" })
-          }}
-          className={triggerClassName}
-        />
-        <HeaderIcon
-          label="Graph"
-          icon={<IconAffiliate stroke={1.6} aria-hidden />}
-          onIntent={() => prefetch({ kind: "graph" })}
-          onClick={() => {
-            prefetch({ kind: "graph" })
-            props.onOpen({ kind: "graph" })
-          }}
-          className={triggerClassName}
-        />
-        <HeaderIcon
-          label="Settings"
-          icon={<IconSettings stroke={1.6} aria-hidden />}
-          onClick={() => props.onOpen({ kind: "settings" })}
-          className={triggerClassName}
-        />
+      <div className="flex items-center gap-1">
+        {/* Labeled group on a plate: these stand alone in the chat header, so icons alone were too quiet. */}
+        <div
+          role="group"
+          aria-label="Workspace panes"
+          className="inline-flex items-center gap-0.5 rounded-md bg-zinc-800/80 p-0.5"
+        >
+          <PaneTrigger
+            label="Files"
+            icon={<IconFolder aria-hidden />}
+            onIntent={() => prefetch({ kind: "files" })}
+            onPress={() => {
+              prefetch({ kind: "files" })
+              props.onOpen({ kind: "files" })
+            }}
+          />
+          <PaneTrigger
+            label="Graph"
+            icon={<IconAffiliate aria-hidden />}
+            onIntent={() => prefetch({ kind: "graph" })}
+            onPress={() => {
+              prefetch({ kind: "graph" })
+              props.onOpen({ kind: "graph" })
+            }}
+          />
+          <PaneTrigger
+            label="Settings"
+            icon={<IconSettings aria-hidden />}
+            onPress={() => props.onOpen({ kind: "settings" })}
+          />
+        </div>
         {props.onExpand ? (
           <HeaderIcon
             label="Show pane"
             icon={<IconLayoutSidebarRightExpand stroke={1.6} aria-hidden />}
             onClick={props.onExpand}
-            className={triggerClassName}
           />
         ) : null}
       </div>
     </TooltipProvider>
+  )
+}
+
+/** Icon plus visible label; the group plate makes the trio read as one control. */
+function PaneTrigger(props: {
+  label: string
+  icon: ReactNode
+  onPress: () => void
+  onIntent?: () => void
+}) {
+  return (
+    <AriaButton
+      onPress={props.onPress}
+      onHoverStart={props.onIntent}
+      className={cn(
+        "inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md px-2.5 text-xs font-medium text-zinc-200",
+        "transition-colors hover:bg-zinc-700 hover:text-zinc-50 pressed:bg-zinc-700",
+        "[&_svg]:size-4 [&_svg]:stroke-[1.6]",
+        focusVisibleClassName,
+      )}
+    >
+      {props.icon}
+      {props.label}
+    </AriaButton>
   )
 }
 
