@@ -146,13 +146,13 @@ export function DeviceAuthorizationPage() {
                     value={inputCode}
                     onChange={(event) => setInputCode(event.target.value)}
                     placeholder="ABCD-1234"
-                    className="h-10 w-full rounded-none border border-border bg-zinc-950 px-3 font-mono text-zinc-100"
+                    className="h-10 w-full rounded-md border border-border bg-zinc-950 px-3 font-mono text-zinc-100"
                   />
                 </label>
                 <Button
                   type="submit"
                   variant="secondary"
-                  className="rounded-none"
+                  className="rounded-md"
                   isDisabled={!inputCode.trim() || codeQuery.isFetching}
                 >
                   {codeQuery.isFetching ? "Checking..." : "Check code"}
@@ -176,7 +176,7 @@ export function DeviceAuthorizationPage() {
             {codeQuery.data ? (
               <div className="mt-5 grid gap-4">
                 {hasPrefilledCode ? null : (
-                  <div className="rounded-none border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm">
+                  <div className="rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm">
                     <p className="text-zinc-400">Request code</p>
                     <p className="font-mono text-zinc-100">{submittedCode}</p>
                   </div>
@@ -206,7 +206,7 @@ export function DeviceAuthorizationPage() {
                       <Button
                         type="button"
                         variant="secondary"
-                        className="flex-1 rounded-none"
+                        className="flex-1 rounded-md"
                         onPress={() => denyMutation.mutate()}
                         isDisabled={isSubmitting}
                       >
@@ -214,7 +214,7 @@ export function DeviceAuthorizationPage() {
                       </Button>
                       <Button
                         type="button"
-                        className="flex-1 rounded-none"
+                        className="flex-1 rounded-md"
                         onPress={() => approveMutation.mutate()}
                         isDisabled={isSubmitting}
                       >
@@ -225,7 +225,7 @@ export function DeviceAuthorizationPage() {
                 ) : (
                   <a
                     href={signInHref}
-                    className="inline-flex h-9 items-center justify-center rounded-none bg-zinc-100 px-3.5 text-sm font-medium text-zinc-950 hover:bg-zinc-200"
+                    className="inline-flex h-9 items-center justify-center rounded-md bg-zinc-100 px-3.5 text-sm font-medium text-zinc-950 hover:bg-zinc-200"
                   >
                     Sign in to approve
                   </a>
