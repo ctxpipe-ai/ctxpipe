@@ -240,6 +240,10 @@ export const FilesLoading: Story = {
       },
     },
   },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    expect(await canvas.findByText("Loading your files")).toBeVisible()
+  },
 }
 
 export const FilesEmpty: Story = {
@@ -774,7 +778,7 @@ export const SandboxLoading: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    expect(canvas.getByText("Loading files")).toBeInTheDocument()
+    expect(canvas.getByText("Loading your files")).toBeInTheDocument()
     expect(canvas.queryByText("knowledge")).not.toBeInTheDocument()
     expect(canvas.queryByText("repositories")).not.toBeInTheDocument()
   },
