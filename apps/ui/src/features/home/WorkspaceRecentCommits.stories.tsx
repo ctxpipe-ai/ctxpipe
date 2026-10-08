@@ -1,6 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { docsWorkspaceActivityRecent } from "@/features/workspaces/workspace-fixtures"
-import { WorkspaceRecentCommits } from "./WorkspaceRecentCommits"
+import {
+  WorkspaceRecentCommits,
+  WorkspaceRecentCommitsSkeleton,
+} from "./WorkspaceRecentCommits"
 
 const meta = {
   title: "Components/Home/Recent commits",
@@ -24,4 +27,11 @@ export const NoHistory: Story = {
   args: {
     commits: [],
   },
+}
+
+export const Loading: Story = {
+  args: {
+    commits: [],
+  },
+  render: () => <WorkspaceRecentCommitsSkeleton />,
 }
