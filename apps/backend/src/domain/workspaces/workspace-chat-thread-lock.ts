@@ -1,9 +1,4 @@
-import {
-  convertMessagesToModelMessages,
-  defineChatMiddleware,
-  type ModelMessage,
-  modelMessagesToUIMessages,
-} from "@tanstack/ai"
+import { defineChatMiddleware, type ModelMessage } from "@tanstack/ai"
 import type { LockStore } from "@tanstack/ai/locks"
 
 export class ConversationChangedError extends Error {
@@ -12,20 +7,17 @@ export class ConversationChangedError extends Error {
   }
 }
 
-/** Persisted message content after the UI round trip, ignoring ids and times. */
-function transcriptContent(messages: ReadonlyArray<ModelMessage>): string {
-  const normalized = convertMessagesToModelMessages(
-    modelMessagesToUIMessages([...messages]),
-  ).map(({ id: _id, createdAt: _createdAt, ...message }) => message)
-  return JSON.stringify(normalized, (_key, value) => {
-    if (!value || typeof value !== "object" || Array.isArray(value))
-      return value
-    return Object.fromEntries(
-      Object.entries(value).sort(([left], [right]) =>
-        left.localeCompare(right),
-      ),
-    )
-  })
+/**
+ * The ids of the user messages, in order. The browser and the store keep
+ * different shapes for the same answer (one message per text part or a
+ * separate tool message in the browser, one merged message in the store, and
+ * metadata only in the store). The questions keep their ids, thus a send is
+ * stale when its history does not start with the stored questions.
+ */
+function questionIds(messages: ReadonlyArray<ModelMessage>): string[] {
+  return messages
+    .filter((message) => message.role === "user")
+    .map((message) => message.id ?? "")
 }
 
 /**
@@ -90,12 +82,9 @@ export function workspaceChatThreadLock(input: {
       if (validated) return
       validated = true
       if (config.messages.length === 0) return
-      const stored = await input.loadThread(ctx.threadId)
-      if (
-        transcriptContent(
-          (config.messages as ModelMessage[]).slice(0, stored.length),
-        ) !== transcriptContent(stored)
-      )
+      const stored = questionIds(await input.loadThread(ctx.threadId))
+      const sent = questionIds(config.messages as ModelMessage[])
+      if (stored.some((id, index) => id !== sent[index]))
         throw new ConversationChangedError()
     },
     onFinish: settle,
