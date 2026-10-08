@@ -16,8 +16,6 @@ import {
   toCalendarCells,
 } from "./calendar-days"
 
-const WEEKDAY_TICKS = ["Mon", "Wed", "Fri"]
-
 export function WorkspaceActivityHeatmap(props: {
   days: readonly WorkspaceActivityDay[]
 }) {
@@ -73,7 +71,7 @@ export function WorkspaceActivityHeatmap(props: {
             axis: {
               line: false,
               ticks: {
-                values: WEEKDAY_TICKS,
+                values: [...CALENDAR_WEEKDAYS],
                 size: 0,
                 padding: 4,
               },
@@ -113,7 +111,7 @@ export function WorkspaceActivityHeatmap(props: {
 
 export function WorkspaceActivityHeatmapSkeleton() {
   return (
-    <div aria-busy className="w-full">
+    <div aria-busy className="w-full pl-7">
       <span className="sr-only">Loading activity</span>
       <Skeleton className="h-32 w-full rounded-md" />
     </div>
