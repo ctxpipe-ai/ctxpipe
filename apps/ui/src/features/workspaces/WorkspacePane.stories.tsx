@@ -38,7 +38,7 @@ import {
   tabsIncludingPanePath,
 } from "./fileTabs"
 import { type ParsedPane, parsePane, serializePane } from "./pane"
-import { WorkspacePane } from "./WorkspacePane"
+import { WorkspacePane, WorkspacePaneTriggers } from "./WorkspacePane"
 import {
   docsWorkspace,
   docsWorkspaceDetail,
@@ -222,6 +222,28 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/** Collapsed pane: the triggers stand alone in the chat header. */
+export const Triggers: Story = {
+  render: (args) => (
+    <div className="flex h-full min-w-0 flex-1 items-start justify-end p-4">
+      <WorkspacePaneTriggers
+        orgSlug={args.orgSlug}
+        workspace={args.workspace}
+        onOpen={args.onPane}
+        onExpand={args.onClose}
+      />
+    </div>
+  ),
+  play: async ({ args, canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(canvas.getByRole("button", { name: "Graph" }))
+    expect(args.onPane).toHaveBeenCalledWith({ kind: "graph" })
+    expect(canvas.getByRole("button", { name: "Files" })).toHaveClass(
+      "border-white/10",
+    )
+  },
+}
+
 export const Files: Story = {
   parameters: {
     msw: {
@@ -239,6 +261,10 @@ export const FilesLoading: Story = {
         page: [workspaceGitTreeLoadingHandler()],
       },
     },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    expect(await canvas.findByText("Loading your files")).toBeVisible()
   },
 }
 
@@ -424,6 +450,11 @@ export const GraphLoading: Story = {
         page: [workspaceGraphLoadingHandler()],
       },
     },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    expect(await canvas.findByText("Loading graph")).toBeVisible()
+    expect(canvas.queryAllByRole("presentation")).toHaveLength(0)
   },
 }
 
@@ -769,7 +800,7 @@ export const SandboxLoading: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    expect(canvas.getByText("Loading files")).toBeInTheDocument()
+    expect(canvas.getByText("Loading your files")).toBeInTheDocument()
     expect(canvas.queryByText("knowledge")).not.toBeInTheDocument()
     expect(canvas.queryByText("repositories")).not.toBeInTheDocument()
   },

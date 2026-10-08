@@ -1,5 +1,6 @@
 import { Skeleton, SkeletonLine, SkeletonRow } from "@/components/ui/Skeleton"
 import { ConversationThreadSkeleton } from "@/features/chat/components/ConversationThreadSkeleton"
+import { GraphWaitState } from "@/features/knowledge-graph/GraphWaitState"
 import { cn } from "@/lib/utils"
 import {
   workspaceChromeCardClassName,
@@ -9,38 +10,47 @@ import {
   workspaceChromeTabStripClassName,
 } from "./workspaceChrome"
 
+/** Same view as the explorer's loading state, for the SSR and lazy-chunk fallback. */
 export function WorkspaceGraphPaneSkeleton() {
   return (
-    <div className="relative h-full min-h-0 min-w-0 flex-1" aria-busy>
-      <span className="sr-only">Loading graph</span>
-      <div className="flex h-full items-center justify-center">
-        <div className="grid grid-cols-3 gap-8 p-8">
-          <Skeleton className="size-8 rounded-full" />
-          <Skeleton className="size-6 justify-self-center rounded-full" />
-          <Skeleton className="size-10 rounded-full" />
-          <Skeleton className="size-7 rounded-full" />
-          <Skeleton className="size-8 justify-self-end rounded-full" />
-          <Skeleton className="size-6 rounded-full" />
-        </div>
-      </div>
+    <div
+      className="flex h-full min-h-0 min-w-0 flex-1 items-center justify-center bg-background"
+      aria-busy
+    >
+      <GraphWaitState
+        title="Loading graph"
+        detail="Large graphs may take a few seconds to arrive and lay out."
+        status="Fetching graph"
+      />
     </div>
   )
 }
 
 export function WorkspaceFilesPaneSkeleton() {
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col" aria-busy>
-      <span className="sr-only">Loading files</span>
-      <div className="flex h-8 shrink-0 items-center px-1" />
-      <div className="min-h-0 flex-1 space-y-0.5 overflow-hidden px-1 pb-2">
-        <SkeletonRow />
-        <SkeletonRow className="pl-4" />
-        <SkeletonRow className="pl-4" />
-        <SkeletonRow />
-        <SkeletonRow className="pl-4" />
-        <SkeletonRow className="pl-8" />
-        <SkeletonRow className="pl-8" />
-        <SkeletonRow />
+    <div
+      className="grid h-full min-h-0 min-w-0 flex-1 overflow-hidden"
+      style={{ gridTemplateColumns: "minmax(0, 208px) minmax(0,1fr)" }}
+      aria-busy
+    >
+      <div className="flex h-full min-h-0 min-w-0 flex-col border-r border-white/[0.06]">
+        <div className="flex h-8 shrink-0 items-center px-1" />
+        <div className="min-h-0 flex-1 space-y-0.5 overflow-hidden px-1 pb-2">
+          <SkeletonRow className="h-6" />
+          <SkeletonRow className="h-6 pl-4" />
+          <SkeletonRow className="h-6 pl-4" />
+          <SkeletonRow className="h-6" />
+          <SkeletonRow className="h-6 pl-4" />
+          <SkeletonRow className="h-6 pl-8" />
+          <SkeletonRow className="h-6 pl-8" />
+          <SkeletonRow className="h-6" />
+        </div>
+      </div>
+      <div className="flex flex-col items-center justify-center gap-2 p-6 text-center">
+        <p className="text-sm font-medium text-foreground">Loading your files</p>
+        <p className="text-sm text-muted-foreground">
+          The file tree arrives first, then the file you open.
+        </p>
       </div>
     </div>
   )
