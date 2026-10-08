@@ -15,6 +15,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query"
 import { ClientOnly } from "@tanstack/react-router"
+import { motion } from "motion/react"
 import type { CSSProperties, ReactNode } from "react"
 import { lazy, Suspense, useEffect, useRef } from "react"
 import { type Key, Tab, TabList, TabPanel, Tabs } from "react-aria-components"
@@ -147,21 +148,30 @@ export function WorkspacePane(props: {
   }, [props.fileTabs, props.onCloseFileTab])
 
   return (
-    <aside
+    <motion.aside
+      initial={{ opacity: 0, x: 16 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: 16 }}
+      transition={{ duration: 0.2, ease: "easeOut" }}
       className={cn(
         workspaceChromeOuterClassName,
         workspaceChromeOuterFlushClassName,
         "relative flex h-full min-h-0 pl-0 pr-3",
-        props.maximized || !paneWidthLocked
-          ? "min-w-0 flex-1"
-          : "w-[var(--workspace-pane-width)] max-lg:min-w-0 max-lg:w-auto max-lg:flex-1 shrink-0",
+        paneWidthLocked
+          ? cn(
+              "w-[var(--workspace-pane-width)] shrink-0 transition-[flex-grow] duration-200 ease-out",
+              "max-lg:min-w-0 max-lg:w-auto max-lg:flex-1",
+              // Maximise keeps the locked width as the flex basis and grows into the collapsed chat column.
+              props.maximized && "min-w-0 grow",
+            )
+          : "min-w-0 flex-1",
       )}
       style={
-        props.maximized || !paneWidthLocked
-          ? undefined
-          : ({
+        paneWidthLocked
+          ? ({
               "--workspace-pane-width": `${props.width}px`,
             } as CSSProperties)
+          : undefined
       }
       data-workspace-surface=""
     >
@@ -409,7 +419,7 @@ export function WorkspacePane(props: {
           </div>
         </TabPanel>
       </Tabs>
-    </aside>
+    </motion.aside>
   )
 }
 
