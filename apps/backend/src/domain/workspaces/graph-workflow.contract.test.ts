@@ -18,6 +18,7 @@ import {
   withGraphClient,
 } from "../../platform/graph/client.js"
 import { workspaceGraphRoutes } from "../../routes/v1/workspace-graph-routes.js"
+import { workspaceRoutes } from "../../routes/v1/workspaces.js"
 import {
   type NativeHydrationFixture,
   type NativeHydrationOptions,
@@ -150,6 +151,41 @@ it(
       expect({ status: response.status, body: await response.json() }).toEqual({
         status: 503,
         body: { error: "Workspace graph projection is unavailable." },
+      })
+    })
+  },
+)
+
+it(
+  "Workspace HTTP reports the graph and index phases of the active projection",
+  { timeout: 60_000 },
+  async () => {
+    await withGraphHydration({}, async (f) => {
+      const phases = async () => {
+        const response = await workspaceHttpApp(f.org, workspaceRoutes).request(
+          "/workspaces/knowledge",
+        )
+        return ((await response.json()) as { hydratePhases?: unknown })
+          .hydratePhases
+      }
+      expect(await phases()).toEqual({
+        graph: { kind: "pending" },
+        index: { kind: "pending" },
+      })
+      await f.publish()
+      expect(await phases()).toMatchObject({ graph: { kind: "ready" } })
+      const projection = await withOrgIdContext(f.org, () =>
+        getWorkspaceProjection(f.workspaceId),
+      )
+      if (projection.kind !== "active") throw new Error("projection not active")
+      await withOrgIdContext(f.org, () =>
+        persistWorkspaceGraphResult({
+          revision: projection.revision,
+          result: { kind: "failed", message: "graph store refused the write" },
+        }),
+      )
+      expect(await phases()).toMatchObject({
+        graph: { kind: "failed", message: "graph store refused the write" },
       })
     })
   },
