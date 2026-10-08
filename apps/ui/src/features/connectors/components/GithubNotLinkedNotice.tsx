@@ -50,7 +50,7 @@ export function GithubNotLinkedNotice({
         <Button
           type="button"
           variant="primary"
-          className="rounded-none"
+          className="rounded-md"
           onPress={async () => {
             await authClient.linkSocial({
               provider: "github",

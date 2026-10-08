@@ -22,7 +22,7 @@ function ExpandTrigger({ name }: { name: string }) {
       slot="trigger"
       variant="ghost"
       size="icon-sm"
-      className="rounded-none"
+      className="rounded-md"
       aria-label={isExpanded ? `Collapse ${name}` : `Expand ${name}`}
     >
       <IconChevronRight
@@ -49,7 +49,7 @@ export function ConnectorRemoveMenu({
           <button
             type="button"
             aria-label={ariaLabel}
-            className="inline-flex size-8 shrink-0 items-center justify-center rounded-none text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
+            className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
           >
             <IconDotsVertical className="size-4" aria-hidden />
           </button>

@@ -23,7 +23,7 @@ export function OnboardingExternalInviteModal({
     <Modal isOpen={isOpen} onOpenChange={onOpenChange} isDismissable>
       <Dialog role="alertdialog">
         {({ close }) => (
-          <div className="rounded-none bg-zinc-950/95 p-6">
+          <div className="rounded-md bg-zinc-950/95 p-6">
             <h2 className="mb-3 text-xl font-semibold text-zinc-100">
               Invite external users?
             </h2>
@@ -35,7 +35,7 @@ export function OnboardingExternalInviteModal({
             <div className="mt-6 flex justify-end gap-3">
               <Button
                 variant="ghost"
-                className="rounded-none text-zinc-400 hover:text-zinc-200"
+                className="rounded-md text-zinc-400 hover:text-zinc-200"
                 onPress={() => {
                   onCancel()
                   close()
@@ -44,7 +44,7 @@ export function OnboardingExternalInviteModal({
                 Cancel
               </Button>
               <Button
-                className="rounded-none bg-zinc-100 text-zinc-950 hover:bg-zinc-200"
+                className="rounded-md bg-zinc-100 text-zinc-950 hover:bg-zinc-200"
                 onPress={() => {
                   onConfirmSend()
                   close()

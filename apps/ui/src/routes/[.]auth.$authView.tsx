@@ -262,7 +262,7 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
           type="text"
           value={invitationEmailQuery.data.organizationName}
           disabled
-          className="h-10 w-full rounded-none border border-border bg-zinc-900 px-3 text-zinc-400"
+          className="h-10 w-full rounded-md border border-border bg-zinc-900 px-3 text-zinc-400"
         />
       </label>
       <label className="grid gap-1 text-sm">
@@ -271,7 +271,7 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
           type="email"
           value={invitationEmailQuery.data.email}
           disabled
-          className="h-10 w-full rounded-none border border-border bg-zinc-900 px-3 text-zinc-400"
+          className="h-10 w-full rounded-md border border-border bg-zinc-900 px-3 text-zinc-400"
         />
       </label>
       <label className="grid gap-1 text-sm">
@@ -280,7 +280,7 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
           type="text"
           value={name}
           onChange={(event) => setName(event.target.value)}
-          className="h-10 w-full rounded-none border border-border bg-zinc-950 px-3 text-zinc-100"
+          className="h-10 w-full rounded-md border border-border bg-zinc-950 px-3 text-zinc-100"
         />
       </label>
       <label className="grid gap-1 text-sm">
@@ -289,7 +289,7 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
           type="password"
           value={password}
           onChange={(event) => setPassword(event.target.value)}
-          className="h-10 w-full rounded-none border border-border bg-zinc-950 px-3 text-zinc-100"
+          className="h-10 w-full rounded-md border border-border bg-zinc-950 px-3 text-zinc-100"
         />
       </label>
       <label className="grid gap-1 text-sm">
@@ -298,13 +298,13 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
           type="password"
           value={confirmPassword}
           onChange={(event) => setConfirmPassword(event.target.value)}
-          className="h-10 w-full rounded-none border border-border bg-zinc-950 px-3 text-zinc-100"
+          className="h-10 w-full rounded-md border border-border bg-zinc-950 px-3 text-zinc-100"
         />
       </label>
       {error ? <p className="text-sm text-red-400">{error}</p> : null}
       <Button
         type="submit"
-        className="w-full rounded-none bg-zinc-100 text-zinc-950 hover:bg-zinc-200"
+        className="w-full rounded-md bg-zinc-100 text-zinc-950 hover:bg-zinc-200"
         isDisabled={signUpMutation.isPending || acceptInviteMutation.isPending}
       >
         {signUpMutation.isPending || acceptInviteMutation.isPending

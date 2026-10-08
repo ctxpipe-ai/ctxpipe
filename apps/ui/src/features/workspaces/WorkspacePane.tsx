@@ -295,7 +295,7 @@ export function WorkspacePane(props: {
                     </span>
                     <span
                       aria-hidden
-                      className="rounded p-0.5 hover:bg-zinc-700"
+                      className="rounded-md p-0.5 hover:bg-zinc-700"
                       onPointerDown={(event) => {
                         event.preventDefault()
                         event.stopPropagation()

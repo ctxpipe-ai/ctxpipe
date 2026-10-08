@@ -23,7 +23,7 @@ export function OnboardingJoinerDoneSlide({
         <button
           type="button"
           disabled={completing}
-          className="inline-flex h-11 items-center justify-center rounded-none border border-border bg-zinc-100 px-6 text-sm font-medium text-zinc-950 transition-colors hover:bg-zinc-200 disabled:opacity-50"
+          className="inline-flex h-11 items-center justify-center rounded-md border border-border bg-zinc-100 px-6 text-sm font-medium text-zinc-950 transition-colors hover:bg-zinc-200 disabled:opacity-50"
           onClick={() => void onFinish()}
         >
           {completing ? "Finishing..." : "Get started"}

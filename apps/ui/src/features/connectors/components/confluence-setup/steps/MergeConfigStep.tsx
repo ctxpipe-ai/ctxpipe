@@ -53,7 +53,7 @@ export function MergeConfigStep({
             <>
               Your configuration is merged. We are syncing Confluence pages to
               Git based on{" "}
-              <code className="rounded-none bg-muted px-1 py-0.5 text-xs">
+              <code className="rounded-md bg-muted px-1 py-0.5 text-xs">
                 confluence/config.yaml
               </code>
               . This usually completes within a minute or two.
@@ -61,7 +61,7 @@ export function MergeConfigStep({
           ) : (
             <>
               Sync scope is stored as infrastructure-as-code in{" "}
-              <code className="rounded-none bg-muted px-1 py-0.5 text-xs">
+              <code className="rounded-md bg-muted px-1 py-0.5 text-xs">
                 confluence/config.yaml
               </code>{" "}
               on your repository&apos;s default branch. Open the pull request,
@@ -94,7 +94,7 @@ export function MergeConfigStep({
       {!syncingAfterMerge && status?.pendingConfigPullUrl ? (
         <Button
           variant="primary"
-          className="rounded-none"
+          className="rounded-md"
           onPress={() =>
             window.open(
               status.pendingConfigPullUrl ?? "",

@@ -5,59 +5,59 @@ import type {
 
 /**
  * Shared @daveyplate/better-auth-ui shell styling for AccountView and OrganizationView:
- * square corners, teal active nav, ctx surfaces.
+ * house radius, teal active nav, ctx surfaces.
  */
 export const betterAuthShellClassNames: NonNullable<
   AccountViewProps["classNames"]
 > = {
   sidebar: {
     button:
-      "rounded-none px-3 text-sm font-normal tracking-normal transition-colors hover:bg-white/[0.05]",
+      "rounded-md px-3 text-sm font-normal tracking-normal transition-colors hover:bg-white/[0.05]",
     buttonActive: "text-teal-400",
   },
   drawer: {
-    menuItem: "rounded-none",
+    menuItem: "rounded-md",
   },
   card: {
-    base: "ctx-border ctx-surface rounded-none border-border shadow-none",
-    footer: "rounded-none border-border bg-transparent shadow-none",
-    cell: "rounded-none border border-border bg-transparent shadow-none",
+    base: "ctx-border ctx-surface rounded-md border-border shadow-none",
+    footer: "rounded-md border-border bg-transparent shadow-none",
+    cell: "rounded-md border border-border bg-transparent shadow-none",
     input:
-      "!rounded-none border-border bg-transparent shadow-none focus-visible:border-teal-400/50 focus-visible:ring-1 focus-visible:ring-teal-400/35",
-    button: "!rounded-none",
-    outlineButton: "!rounded-none",
-    primaryButton: "!rounded-none",
-    secondaryButton: "!rounded-none",
-    destructiveButton: "!rounded-none",
-    skeleton: "rounded-none",
+      "!rounded-md border-border bg-transparent shadow-none focus-visible:border-teal-400/50 focus-visible:ring-1 focus-visible:ring-teal-400/35",
+    button: "!rounded-md",
+    outlineButton: "!rounded-md",
+    primaryButton: "!rounded-md",
+    secondaryButton: "!rounded-md",
+    destructiveButton: "!rounded-md",
+    skeleton: "rounded-md",
     dialog: {
-      content: "rounded-none border-border",
+      content: "rounded-md border-border",
       header: "",
-      footer: "rounded-none",
+      footer: "rounded-md",
     },
   },
 }
 
 /**
  * Shared @daveyplate/better-auth-ui auth page styling for Sign In / Sign Up:
- * square corners for cards, fields and buttons.
+ * house radius for cards, fields and buttons.
  */
 export const betterAuthEmailPlaceholder = "you@company.com"
 
 export const betterAuthAuthViewClassNames: NonNullable<
   AuthViewProps["classNames"]
 > = {
-  base: "ctx-border ctx-surface rounded-none border-border shadow-none",
-  header: "rounded-none",
-  content: "rounded-none",
-  footer: "rounded-none border-border bg-transparent shadow-none",
+  base: "ctx-border ctx-surface rounded-md border-border shadow-none",
+  header: "rounded-md",
+  content: "rounded-md",
+  footer: "rounded-md border-border bg-transparent shadow-none",
   form: {
     input:
-      "!rounded-none border-border bg-transparent shadow-none focus-visible:border-teal-400/50 focus-visible:ring-1 focus-visible:ring-teal-400/35",
-    button: "!rounded-none",
-    primaryButton: "!rounded-none",
-    secondaryButton: "!rounded-none",
-    outlineButton: "!rounded-none",
-    providerButton: "!rounded-none",
+      "!rounded-md border-border bg-transparent shadow-none focus-visible:border-teal-400/50 focus-visible:ring-1 focus-visible:ring-teal-400/35",
+    button: "!rounded-md",
+    primaryButton: "!rounded-md",
+    secondaryButton: "!rounded-md",
+    outlineButton: "!rounded-md",
+    providerButton: "!rounded-md",
   },
 }

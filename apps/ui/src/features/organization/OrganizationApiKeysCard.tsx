@@ -286,7 +286,7 @@ function ApiKeysCard(props: ApiKeysCardProps) {
                   key={apiKey.id}
                   id={apiKey.id}
                   textValue={apiKey.name ?? apiKey.start ?? apiKey.id}
-                  className="rounded-none border-border"
+                  className="rounded-md border-border"
                 >
                   <IconKey
                     className="size-4 shrink-0 text-muted-foreground"
@@ -304,7 +304,7 @@ function ApiKeysCard(props: ApiKeysCardProps) {
                   </div>
                   <Button
                     variant="outline"
-                    className="rounded-none"
+                    className="rounded-md"
                     onPress={() => setKeyToRevoke(apiKey)}
                   >
                     <IconTrash className="size-4" aria-hidden />
@@ -323,7 +323,7 @@ function ApiKeysCard(props: ApiKeysCardProps) {
         >
           <Button
             variant="primary"
-            className="rounded-none"
+            className="rounded-md"
             onPress={() => {
               createMutation.reset()
               setCreateOpen(true)
@@ -491,7 +491,7 @@ function CreateApiKeyModal(props: {
             <Button
               type="button"
               variant="quiet"
-              className="rounded-none"
+              className="rounded-md"
               isDisabled={isPending}
               onPress={() => onOpenChange(false)}
             >
@@ -500,7 +500,7 @@ function CreateApiKeyModal(props: {
             <Button
               type="submit"
               variant="primary"
-              className="rounded-none"
+              className="rounded-md"
               isDisabled={isPending || !name.trim()}
               isPending={isPending}
             >
@@ -527,13 +527,13 @@ function CreatedSecretDialog(props: { secret: string; onDone: () => void }) {
           commit it; it will not be shown again.
         </DialogDescription>
       </DialogHeader>
-      <p className="mt-4 break-all rounded-none border border-border bg-zinc-900 px-3 py-3 font-mono text-sm text-zinc-100">
+      <p className="mt-4 break-all rounded-md border border-border bg-zinc-900 px-3 py-3 font-mono text-sm text-zinc-100">
         {secret}
       </p>
       <div className="mt-5 flex justify-end gap-2">
         <Button
           variant="outline"
-          className="rounded-none"
+          className="rounded-md"
           onPress={() => {
             void navigator.clipboard.writeText(secret)
             setCopied(true)
@@ -542,7 +542,7 @@ function CreatedSecretDialog(props: { secret: string; onDone: () => void }) {
           <IconCopy className="size-4" aria-hidden />
           {copied ? "Copied" : "Copy"}
         </Button>
-        <Button variant="primary" className="rounded-none" onPress={onDone}>
+        <Button variant="primary" className="rounded-md" onPress={onDone}>
           Done
         </Button>
       </div>

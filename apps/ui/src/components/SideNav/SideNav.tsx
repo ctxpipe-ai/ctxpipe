@@ -236,7 +236,7 @@ export function SideNav() {
         </ul>
 
         <ul
-          className="relative w-full shrink-0 space-y-1.5 pt-3 pb-3"
+          className="relative w-full shrink-0 space-y-3 pt-3 pb-3"
           aria-label="User actions"
         >
           <li className="w-full">

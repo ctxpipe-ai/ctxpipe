@@ -248,7 +248,7 @@ function OrgSetupPage() {
                     <button
                       type="button"
                       disabled={githubButtonBusy}
-                      className={`inline-flex h-11 items-center justify-center rounded-none border border-border px-6 text-sm font-medium transition-colors ${
+                      className={`inline-flex h-11 items-center justify-center rounded-md border border-border px-6 text-sm font-medium transition-colors ${
                         githubButtonBusy
                           ? "cursor-not-allowed bg-zinc-100/80 text-zinc-700"
                           : "bg-zinc-100 text-zinc-950 hover:bg-zinc-200"
@@ -282,7 +282,7 @@ function OrgSetupPage() {
                     ctx| is designed for your whole team and their agents.
                     Invite some co-workers to test it out with.
                   </p>
-                  <div className="mx-auto max-w-3xl rounded-none border border-border bg-zinc-950/70 p-6 text-left">
+                  <div className="mx-auto max-w-3xl rounded-md border border-border bg-zinc-950/70 p-6 text-left">
                     <label
                       className="mb-2 block text-sm text-zinc-200"
                       htmlFor={inviteEmailsFieldId}
@@ -295,7 +295,7 @@ function OrgSetupPage() {
                       value={inviteEmails}
                       onChange={(e) => setInviteEmails(e.target.value)}
                       placeholder="email@example.com, email2@example.com..."
-                      className="mb-4 h-11 w-full rounded-none border border-border bg-zinc-950 px-3 text-sm text-zinc-100 outline-none focus:border-teal-400/60"
+                      className="mb-4 h-11 w-full rounded-md border border-border bg-zinc-950 px-3 text-sm text-zinc-100 outline-none focus:border-teal-400/60"
                     />
                     {inviteError && (
                       <p className="mb-4 text-xs text-red-400">{inviteError}</p>
@@ -304,7 +304,7 @@ function OrgSetupPage() {
                       <button
                         type="button"
                         disabled={inviteSubmitting || inviteSent}
-                        className="inline-flex h-10 items-center justify-center rounded-none border border-border bg-zinc-100 px-5 text-sm font-medium text-zinc-950 transition-colors hover:bg-zinc-200"
+                        className="inline-flex h-10 items-center justify-center rounded-md border border-border bg-zinc-100 px-5 text-sm font-medium text-zinc-950 transition-colors hover:bg-zinc-200"
                         onClick={handleSendInvites}
                       >
                         {inviteSent
@@ -316,7 +316,7 @@ function OrgSetupPage() {
                     </div>
                   </div>
                   {inviteSent && (
-                    <div className="mx-auto mt-4 max-w-3xl rounded-none border border-teal-400/40 bg-teal-400/10 px-4 py-3 text-sm text-teal-200">
+                    <div className="mx-auto mt-4 max-w-3xl rounded-md border border-teal-400/40 bg-teal-400/10 px-4 py-3 text-sm text-teal-200">
                       Invites sent to your team
                     </div>
                   )}
@@ -324,7 +324,7 @@ function OrgSetupPage() {
                     {inviteSent ? (
                       <button
                         type="button"
-                        className="inline-flex h-11 items-center justify-center rounded-none border border-border bg-zinc-100 px-6 text-sm font-medium text-zinc-950 transition-colors hover:bg-zinc-200"
+                        className="inline-flex h-11 items-center justify-center rounded-md border border-border bg-zinc-100 px-6 text-sm font-medium text-zinc-950 transition-colors hover:bg-zinc-200"
                         onClick={completeSetup}
                       >
                         Continue
@@ -370,7 +370,7 @@ function OrgSetupPage() {
       >
         <Dialog role="alertdialog">
           {({ close }) => (
-            <div className="rounded-none bg-zinc-950/95 p-6">
+            <div className="rounded-md bg-zinc-950/95 p-6">
               <h2 className="mb-3 text-xl font-semibold text-zinc-100">
                 Invite external users?
               </h2>
@@ -382,7 +382,7 @@ function OrgSetupPage() {
               <div className="mt-6 flex justify-end gap-3">
                 <Button
                   variant="ghost"
-                  className="rounded-none text-zinc-400 hover:text-zinc-200"
+                  className="rounded-md text-zinc-400 hover:text-zinc-200"
                   onPress={() => {
                     setPendingExternalRecipients([])
                     close()
@@ -391,7 +391,7 @@ function OrgSetupPage() {
                   Cancel
                 </Button>
                 <Button
-                  className="rounded-none bg-zinc-100 text-zinc-950 hover:bg-zinc-200"
+                  className="rounded-md bg-zinc-100 text-zinc-950 hover:bg-zinc-200"
                   onPress={() => {
                     void sendInvites()
                     setPendingExternalRecipients([])

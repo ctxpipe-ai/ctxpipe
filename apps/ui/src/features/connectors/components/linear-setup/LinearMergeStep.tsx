@@ -82,7 +82,7 @@ export function LinearMergeStep({
             <>
               The configuration is merged. ctxpipe is mirroring Linear content
               to Git from{" "}
-              <code className="rounded-none bg-muted px-1 py-0.5 text-xs">
+              <code className="rounded-md bg-muted px-1 py-0.5 text-xs">
                 linear/config.yaml
               </code>
               .
@@ -90,7 +90,7 @@ export function LinearMergeStep({
           ) : (
             <>
               Review and merge the pull request for{" "}
-              <code className="rounded-none bg-muted px-1 py-0.5 text-xs">
+              <code className="rounded-md bg-muted px-1 py-0.5 text-xs">
                 linear/config.yaml
               </code>
               . The merged file controls scope; initial sync starts
@@ -133,7 +133,7 @@ export function LinearMergeStep({
       {!failed && !syncing && status.pendingConfigPullUrl ? (
         <Button
           variant="outline"
-          className="rounded-none"
+          className="rounded-md"
           onPress={() =>
             window.open(
               status.pendingConfigPullUrl ?? "",
@@ -149,7 +149,7 @@ export function LinearMergeStep({
       {failed ? (
         <Button
           variant="primary"
-          className="rounded-none"
+          className="rounded-md"
           isPending={retryMutation.isPending}
           onPress={() => retryMutation.mutate()}
         >
@@ -159,7 +159,7 @@ export function LinearMergeStep({
       {configFailed ? (
         <Button
           variant="primary"
-          className="rounded-none"
+          className="rounded-md"
           isPending={retryConfigMutation.isPending}
           onPress={() => retryConfigMutation.mutate()}
         >

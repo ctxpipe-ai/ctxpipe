@@ -217,7 +217,7 @@ export function ConfluenceSetupWizard({
           </div>
           <Button
             variant="secondary"
-            className="rounded-none"
+            className="rounded-md"
             onPress={() => onOpenChange(false)}
           >
             Close
@@ -255,7 +255,7 @@ export function ConfluenceSetupWizard({
             <p className="text-destructive">Could not load connector status.</p>
             <Button
               variant="secondary"
-              className="rounded-none"
+              className="rounded-md"
               onPress={() => void refetchStatus()}
             >
               Retry

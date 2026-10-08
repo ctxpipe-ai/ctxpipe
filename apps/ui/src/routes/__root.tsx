@@ -76,7 +76,7 @@ function RootErrorComponent({ reset }: ErrorComponentProps) {
         <p className="text-sm text-muted-foreground">Something went wrong</p>
         <button
           type="button"
-          className="mt-4 rounded-none border border-border px-3 py-1.5 text-sm"
+          className="mt-4 rounded-md border border-border px-3 py-1.5 text-sm"
           onClick={() => reset()}
         >
           Try again

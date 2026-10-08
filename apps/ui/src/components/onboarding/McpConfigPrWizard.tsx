@@ -316,7 +316,7 @@ export function McpConfigPrWizard(props: McpConfigPrWizardProps) {
       {intro}
 
       <div className="mb-4 flex flex-col gap-3">
-        <div className="rounded-none border border-border bg-zinc-950/70">
+        <div className="rounded-md border border-border bg-zinc-950/70">
           <button
             type="button"
             className="flex w-full items-center justify-between gap-3 p-5 text-left transition-colors hover:bg-zinc-900/40"
@@ -345,7 +345,7 @@ export function McpConfigPrWizard(props: McpConfigPrWizardProps) {
                   >
                     <input
                       type="checkbox"
-                      className="mt-1 h-4 w-4 rounded border-border accent-teal-500"
+                      className="mt-1 h-4 w-4 rounded-md border-border accent-teal-500"
                       checked={agents.has(a.id)}
                       onChange={() => toggleAgent(a.id)}
                     />
@@ -362,7 +362,7 @@ export function McpConfigPrWizard(props: McpConfigPrWizardProps) {
           )}
         </div>
 
-        <div className="rounded-none border border-border bg-zinc-950/70">
+        <div className="rounded-md border border-border bg-zinc-950/70">
           <button
             type="button"
             className="flex w-full items-center justify-between gap-3 p-5 text-left transition-colors hover:bg-zinc-900/40"
@@ -405,7 +405,7 @@ export function McpConfigPrWizard(props: McpConfigPrWizardProps) {
                       <label className="flex cursor-pointer items-center gap-2 text-zinc-200">
                         <input
                           type="checkbox"
-                          className="h-4 w-4 rounded border-border accent-teal-500"
+                          className="h-4 w-4 rounded-md border-border accent-teal-500"
                           checked={selectedRepoFullNames.has(r.full_name)}
                           onChange={() => toggleRepo(r.full_name)}
                         />
@@ -419,7 +419,7 @@ export function McpConfigPrWizard(props: McpConfigPrWizardProps) {
           )}
         </div>
 
-        <div className="rounded-none border border-border bg-zinc-950/70">
+        <div className="rounded-md border border-border bg-zinc-950/70">
           <button
             type="button"
             className="flex w-full items-center justify-between gap-3 p-5 text-left transition-colors hover:bg-zinc-900/40"
@@ -478,11 +478,11 @@ export function McpConfigPrWizard(props: McpConfigPrWizardProps) {
                               <div className="mb-1 flex flex-wrap items-center gap-2 font-mono text-xs text-teal-400/90">
                                 <span>{file.path}</span>
                                 {file.exists ? (
-                                  <span className="rounded border border-zinc-600 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
+                                  <span className="rounded-md border border-zinc-600 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
                                     Existing file
                                   </span>
                                 ) : (
-                                  <span className="rounded border border-teal-500/40 bg-teal-500/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-teal-300/90">
+                                  <span className="rounded-md border border-teal-500/40 bg-teal-500/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-teal-300/90">
                                     New file
                                   </span>
                                 )}
@@ -498,7 +498,7 @@ export function McpConfigPrWizard(props: McpConfigPrWizardProps) {
                                   />
                                 </>
                               ) : (
-                                <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-none border border-zinc-800 bg-zinc-950 p-3 text-xs leading-relaxed text-zinc-200">
+                                <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md border border-zinc-800 bg-zinc-950 p-3 text-xs leading-relaxed text-zinc-200">
                                   {file.mergedUtf8.trimEnd()}
                                 </pre>
                               )}
@@ -520,7 +520,7 @@ export function McpConfigPrWizard(props: McpConfigPrWizardProps) {
       )}
 
       {prLinks && prLinks.length > 0 && (
-        <div className="mb-4 rounded-none border border-teal-400/30 bg-teal-400/5 p-4 text-sm text-teal-100">
+        <div className="mb-4 rounded-md border border-teal-400/30 bg-teal-400/5 p-4 text-sm text-teal-100">
           <p className="mb-2 font-medium">
             Pull requests opened ({prLinks.length})
           </p>
@@ -542,7 +542,7 @@ export function McpConfigPrWizard(props: McpConfigPrWizardProps) {
       )}
 
       {prFailures && prFailures.length > 0 && (
-        <div className="mb-6 rounded-none border border-red-500/30 bg-red-500/5 p-4 text-sm text-red-100">
+        <div className="mb-6 rounded-md border border-red-500/30 bg-red-500/5 p-4 text-sm text-red-100">
           <p className="mb-2 font-medium">
             Could not open PR for {prFailures.length}{" "}
             {prFailures.length === 1 ? "repository" : "repositories"}
@@ -575,7 +575,7 @@ export function McpConfigPrWizard(props: McpConfigPrWizardProps) {
               variant="secondary"
               isDisabled={createPrsMutation.isPending}
               onPress={onCancel}
-              className="rounded-none"
+              className="rounded-md"
             >
               Cancel
             </Button>
@@ -586,7 +586,7 @@ export function McpConfigPrWizard(props: McpConfigPrWizardProps) {
             isDisabled={createPrsMutation.isPending || !canRaisePullRequests}
             isPending={createPrsMutation.isPending}
             onPress={() => void createPrsMutation.mutateAsync()}
-            className="rounded-none"
+            className="rounded-md"
           >
             Raise pull requests
           </Button>

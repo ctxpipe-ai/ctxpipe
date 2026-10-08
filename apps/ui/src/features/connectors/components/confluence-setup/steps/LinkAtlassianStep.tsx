@@ -72,7 +72,7 @@ export function LinkAtlassianStep({
         <div className="space-y-3">
           <Button
             variant="primary"
-            className="rounded-none"
+            className="rounded-md"
             isPending={meta.isPending}
             onPress={async () => {
               await authClient.linkSocial({
@@ -103,7 +103,7 @@ export function LinkAtlassianStep({
           </Disclosure>
           <Button
             variant="primary"
-            className="rounded-none"
+            className="rounded-md"
             onPress={() => {
               const returnTo = `${window.location.pathname}${window.location.search}`
               const u = new URL(

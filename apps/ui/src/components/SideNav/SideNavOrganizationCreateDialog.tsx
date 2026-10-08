@@ -162,7 +162,7 @@ export function SideNavOrganizationCreateDialog({
                 if (e.key === "Enter" && !createOrg.isPending) handleCreate()
               }}
               placeholder="Acme Engineering"
-              className="mb-4 h-11 w-full rounded-none border border-border bg-zinc-950 px-3 text-sm text-zinc-100 outline-none focus:border-teal-400/60 disabled:opacity-50"
+              className="mb-4 h-11 w-full rounded-md border border-border bg-zinc-950 px-3 text-sm text-zinc-100 outline-none focus:border-teal-400/60 disabled:opacity-50"
             />
             <label
               className="mb-2 block text-sm text-zinc-200"
@@ -185,7 +185,7 @@ export function SideNavOrganizationCreateDialog({
                 if (e.key === "Enter" && !createOrg.isPending) handleCreate()
               }}
               placeholder="acme-engineering"
-              className="mb-4 h-11 w-full rounded-none border border-border bg-zinc-950 px-3 text-sm text-zinc-100 outline-none focus:border-teal-400/60 disabled:opacity-50"
+              className="mb-4 h-11 w-full rounded-md border border-border bg-zinc-950 px-3 text-sm text-zinc-100 outline-none focus:border-teal-400/60 disabled:opacity-50"
             />
             {orgError ? (
               <p className="mb-4 text-xs text-red-400">{orgError}</p>
@@ -193,7 +193,7 @@ export function SideNavOrganizationCreateDialog({
             <div className="flex justify-end gap-3">
               <Button
                 variant="ghost"
-                className="rounded-none text-zinc-400 hover:text-zinc-200"
+                className="rounded-md text-zinc-400 hover:text-zinc-200"
                 isDisabled={createOrg.isPending}
                 onPress={() => close()}
               >
@@ -201,7 +201,7 @@ export function SideNavOrganizationCreateDialog({
               </Button>
               <Button
                 className={cn(
-                  "min-w-[11rem] rounded-none bg-zinc-100 hover:bg-zinc-200",
+                  "min-w-[11rem] rounded-md bg-zinc-100 hover:bg-zinc-200",
                   createOrg.isPending
                     ? "!text-transparent [&_svg]:text-zinc-950"
                     : "text-zinc-950",

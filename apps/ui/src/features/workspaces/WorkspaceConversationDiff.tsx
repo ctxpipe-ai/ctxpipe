@@ -43,7 +43,7 @@ function ConversationDiffFile(props: {
       <Button
         variant="ghost"
         onPress={props.onOpen}
-        className="h-8 w-full justify-start rounded-none px-3 font-mono text-xs"
+        className="h-8 w-full justify-start rounded-md px-3 font-mono text-xs"
       >
         {props.item.path}
       </Button>

@@ -37,7 +37,7 @@ export function AddConnectorCatalogDialog({
           <Button
             variant="ghost"
             size="icon-sm"
-            className="rounded-none"
+            className="rounded-md"
             aria-label="Close"
             onPress={() => onOpenChange(false)}
           >
