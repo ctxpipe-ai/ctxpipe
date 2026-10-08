@@ -142,6 +142,22 @@ describe("workspaceChatOpenCodeContract", () => {
     )
   })
 
+  it("tells the agent the product vocabulary in the prompt it gets", () => {
+    const { prompt } = workspaceChatOpenCodeConfig({
+      modelBase: "openai/gpt-5.6-terra",
+    }).agent.build
+
+    expect(prompt).toMatch(/Workspace/)
+    expect(prompt).toMatch(/knowledge\//)
+    expect(prompt).toMatch(/repositories\//)
+    expect(prompt).toMatch(/lessons learned/i)
+    expect(prompt).toMatch(/\.ai\/memory\/lessons-learned\.md/)
+    expect(prompt).toMatch(/ADR/)
+    expect(prompt).toMatch(/\.ai\/memory\/decisions\//)
+    expect(prompt).toMatch(/glossary/i)
+    expect(prompt).not.toMatch(/context repository/i)
+  })
+
   it("embeds a bridged MCP server when tools are provisioned", () => {
     expect(
       workspaceChatOpenCodeConfig({
