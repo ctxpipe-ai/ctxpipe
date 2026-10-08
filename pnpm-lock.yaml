@@ -292,6 +292,9 @@ importers:
       '@opentelemetry/sdk-trace-node':
         specifier: 2.6.0
         version: 2.6.0(@opentelemetry/api@1.9.1)
+      '@tanstack/ai-client':
+        specifier: ^0.36.0
+        version: 0.36.0(@opentelemetry/api@1.9.1)(zod@4.3.6)
       '@types/bun':
         specifier: ^1.3.9
         version: 1.3.9
@@ -6998,10 +7001,6 @@ packages:
 
   '@tanstack/devtools-event-bus@0.4.1':
     resolution: {integrity: sha512-cNnJ89Q021Zf883rlbBTfsaxTfi2r73/qejGtyTa7ksErF3hyDyAq1aTbo5crK9dAL7zSHh9viKY1BtMls1QOA==}
-    engines: {node: '>=18'}
-
-  '@tanstack/devtools-event-client@0.4.0':
-    resolution: {integrity: sha512-RPfGuk2bDZgcu9bAJodvO2lnZeHuz4/71HjZ0bGb/SPg8+lyTA+RLSKQvo7fSmPSi8/vcH3aKQ8EM9ywf1olaw==}
     engines: {node: '>=18'}
 
   '@tanstack/devtools-event-client@0.4.4':
@@ -22876,7 +22875,7 @@ snapshots:
 
   '@tanstack/devtools-client@0.0.5':
     dependencies:
-      '@tanstack/devtools-event-client': 0.4.0
+      '@tanstack/devtools-event-client': 0.4.4
 
   '@tanstack/devtools-event-bus@0.4.1':
     dependencies:
@@ -22884,8 +22883,6 @@ snapshots:
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
-
-  '@tanstack/devtools-event-client@0.4.0': {}
 
   '@tanstack/devtools-event-client@0.4.4': {}
 
