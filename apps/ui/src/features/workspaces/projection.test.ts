@@ -181,4 +181,23 @@ describe("workspacePrepareNeedsPoll", () => {
       }),
     ).toBe(false)
   })
+
+  it("keeps polling a ready Workspace while write access is still unknown", () => {
+    expect(
+      workspacePrepareNeedsPoll({
+        hydrateStatus: "ready",
+        desiredSha: "aaa",
+        activeProjectionSha: "aaa",
+        writeStatus: "unknown",
+      }),
+    ).toBe(true)
+    expect(
+      workspacePrepareNeedsPoll({
+        hydrateStatus: "ready",
+        desiredSha: "aaa",
+        activeProjectionSha: "aaa",
+        writeStatus: "writable",
+      }),
+    ).toBe(false)
+  })
 })

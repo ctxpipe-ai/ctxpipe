@@ -161,3 +161,37 @@ it(
     })
   },
 )
+
+it(
+  "re-checks write access once when Workspace detail is read with an unknown write status",
+  { timeout: 45_000 },
+  async () => {
+    await withNativeHydrationFixture({ github: true }, async (f) => {
+      await f.handle.cancel()
+      const app = workspaceHttpApp(f.org, workspaceRoutes)
+      await withOrgDbContext(f.org.id, (db) =>
+        db
+          .update(workspaces)
+          .set({ writeStatus: "unknown" })
+          .where(eq(workspaces.id, f.workspaceId)),
+      )
+      const tipChecks = async () =>
+        (await workflowNames(f.org.id, f.workspaceId)).filter(
+          (name) => name === "workspace-tip-check",
+        ).length
+      const beforeTip = await tipChecks()
+
+      for (let i = 0; i < 3; i++) {
+        const detail = await app.request("/workspaces/knowledge")
+        expect(detail.status).toBe(200)
+        expect(await detail.json()).toMatchObject({ writeStatus: "unknown" })
+      }
+
+      await expect
+        .poll(tipChecks, { timeout: 5_000 })
+        .toBeGreaterThan(beforeTip)
+      await new Promise((resolve) => setTimeout(resolve, 500))
+      expect(await tipChecks()).toBe(beforeTip + 1)
+    })
+  },
+)

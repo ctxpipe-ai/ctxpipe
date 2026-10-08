@@ -61,6 +61,15 @@ export const PendingProbe: Story = {
     workspace: pendingWriteWorkspace,
     title: "Repo layout",
   },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const pill = await canvas.findByText("Checking write access")
+    await userEvent.hover(pill)
+    const tooltip = await within(canvasElement.ownerDocument.body).findByText(
+      "Checking whether the GitHub App can push to this repository",
+    )
+    await waitFor(() => expect(tooltip).toBeVisible())
+  },
 }
 
 /** Uncommitted changes: Sync (cloud-upload icon) and Create PR. */
