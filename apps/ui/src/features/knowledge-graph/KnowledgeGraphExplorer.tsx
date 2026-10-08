@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import type { ActivityBuckets } from "./ActivitySparkline"
+import { GraphWaitState } from "./GraphWaitState"
 import {
   type GraphLinkRow,
   KnowledgeGraphCosmographCanvas,
@@ -572,11 +573,12 @@ export function KnowledgeGraphExplorer({
       ) : null}
 
       {isLoading && !data ? (
-        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-background">
-          <p className="text-sm font-medium text-foreground">Loading graph</p>
-          <p className="text-sm text-muted-foreground">
-            Large graphs may take a few seconds to arrive and lay out.
-          </p>
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-background">
+          <GraphWaitState
+            title="Loading graph"
+            detail="Large graphs may take a few seconds to arrive and lay out."
+            status="Fetching graph"
+          />
         </div>
       ) : null}
 

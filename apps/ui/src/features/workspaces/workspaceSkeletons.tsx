@@ -1,5 +1,6 @@
 import { Skeleton, SkeletonLine, SkeletonRow } from "@/components/ui/Skeleton"
 import { ConversationThreadSkeleton } from "@/features/chat/components/ConversationThreadSkeleton"
+import { GraphWaitState } from "@/features/knowledge-graph/GraphWaitState"
 import { cn } from "@/lib/utils"
 import {
   workspaceChromeCardClassName,
@@ -9,20 +10,18 @@ import {
   workspaceChromeTabStripClassName,
 } from "./workspaceChrome"
 
+/** Same view as the explorer's loading state, for the SSR and lazy-chunk fallback. */
 export function WorkspaceGraphPaneSkeleton() {
   return (
-    <div className="relative h-full min-h-0 min-w-0 flex-1" aria-busy>
-      <span className="sr-only">Loading graph</span>
-      <div className="flex h-full items-center justify-center">
-        <div className="grid grid-cols-3 gap-8 p-8">
-          <Skeleton className="size-8 rounded-full" />
-          <Skeleton className="size-6 justify-self-center rounded-full" />
-          <Skeleton className="size-10 rounded-full" />
-          <Skeleton className="size-7 rounded-full" />
-          <Skeleton className="size-8 justify-self-end rounded-full" />
-          <Skeleton className="size-6 rounded-full" />
-        </div>
-      </div>
+    <div
+      className="flex h-full min-h-0 min-w-0 flex-1 items-center justify-center bg-background"
+      aria-busy
+    >
+      <GraphWaitState
+        title="Loading graph"
+        detail="Large graphs may take a few seconds to arrive and lay out."
+        status="Fetching graph"
+      />
     </div>
   )
 }

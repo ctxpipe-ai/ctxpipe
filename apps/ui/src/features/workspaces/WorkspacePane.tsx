@@ -421,16 +421,17 @@ function WorkspaceGraphPaneBody(props: {
   const query = useQuery(
     workspaceGraphOptions(props.orgSlug, props.workspaceSlug),
   )
-  if (query.isPending) return <WorkspaceGraphPaneSkeleton />
   return (
-    <WorkspaceGraphPane
-      orgSlug={props.orgSlug}
-      workspaceSlug={props.workspaceSlug}
-      graph={query.data}
-      pending={false}
-      error={query.error instanceof Error ? query.error : null}
-      onOpenSource={props.onOpenSource}
-    />
+    <Suspense fallback={<WorkspaceGraphPaneSkeleton />}>
+      <WorkspaceGraphPane
+        orgSlug={props.orgSlug}
+        workspaceSlug={props.workspaceSlug}
+        graph={query.data}
+        pending={query.isPending}
+        error={query.error instanceof Error ? query.error : null}
+        onOpenSource={props.onOpenSource}
+      />
+    </Suspense>
   )
 }
 

@@ -425,6 +425,11 @@ export const GraphLoading: Story = {
       },
     },
   },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    expect(await canvas.findByText("Loading graph")).toBeVisible()
+    expect(canvas.queryAllByRole("presentation")).toHaveLength(0)
+  },
 }
 
 export const Settings: Story = {
