@@ -144,6 +144,9 @@ export function dockerWorkspaceBaseBuilder(input: {
         Cmd: ["sh", "-c", "tail -f /dev/null"],
         WorkingDir: "/workspace",
         Labels: { ...owners, [DOCKER_LABELS.kind]: "workspace-base-builder" },
+        // As stock `dockerSandbox`: a sandbox reaches an Agent Vault on its
+        // Docker host (host dev, CI) by this name.
+        HostConfig: { ExtraHosts: ["host.docker.internal:host-gateway"] },
       })
       let vault: RunVault | undefined
       const remove = async () => {

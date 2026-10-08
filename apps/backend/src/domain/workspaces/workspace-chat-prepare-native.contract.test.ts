@@ -18,7 +18,7 @@ import { withNativeHttpsGitFixture } from "../../test/native-https-git-fixture.j
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { withTestLogger } from "../../test/with-test-logger.js"
 import { CHAT_SANDBOX_IDLE_STOP_MS } from "./chat-lifecycle.js"
-import { SANDBOX_READ_GIT, workspaceChatRuntimeConfig } from "./chat-runtime.js"
+import { workspaceChatRuntimeConfig } from "./chat-runtime.js"
 import {
   stoppingSandboxWhenDone,
   sweepConversationSandboxes,
@@ -660,12 +660,18 @@ it(
                       expect(
                         await first.handle.fs.read("/workspace/unsaved.txt"),
                       ).toBe("Docker chat preserves unsaved work")
-                      phase = "git ls-remote"
+                      // The prepare's and the turn's proxy sessions ended with
+                      // them: outside a run the sandbox reaches nothing. (The
+                      // turn itself fetched through its own session.)
+                      phase = "git ls-remote after the run"
                       const remoteHeads = await first.handle.process.exec(
                         "git ls-remote --heads origin refs/heads/main",
                       )
-                      expect(remoteHeads.exitCode).toBe(0)
-                      expect(remoteHeads.stdout).toContain(f.sha)
+                      expect(
+                        remoteHeads.exitCode,
+                        `${remoteHeads.stdout}${remoteHeads.stderr}`,
+                      ).not.toBe(0)
+                      expect(remoteHeads.stderr).toContain("407")
                       // The sandbox holds no credential: Agent Vault adds each
                       // one. The OpenCode config sends a placeholder.
                       phase = "no credential"
@@ -708,10 +714,6 @@ it(
                           ),
                         ),
                       ).toBe(true)
-                      const read = await first.handle.process.exec(
-                        `GIT_TERMINAL_PROMPT=0 ${SANDBOX_READ_GIT} ls-remote --heads origin refs/heads/main`,
-                      )
-                      expect(read.stdout).toContain(f.sha)
                       phase = "warm chat"
                       const instanceCreatesBeforeWarm =
                         workspaceChatInstanceAccess.creates

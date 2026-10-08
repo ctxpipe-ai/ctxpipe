@@ -368,8 +368,16 @@ export async function runWorkspaceBaseBuild(input: {
     )
     const head = await build.handle.process.exec("git rev-parse HEAD")
     const sha = head.stdout.trim()
-    if (head.exitCode !== 0 || !sha)
-      throw new Error("The base clone has no commit")
+    if (head.exitCode !== 0 || !sha) {
+      // The stock clone does not report its own failure: ask the remote
+      // again, so the error says why (Git's stderr names no credential).
+      const probe = await build.handle.process.exec(
+        `git ls-remote --heads -- '${originUrlWithoutCredentials(revision.remote.url).replace(/'/g, "")}' 2>&1 | tail -n 5`,
+      )
+      throw new Error(
+        `The base clone has no commit: ${probe.stdout.trim() || "no output"}`,
+      )
+    }
     // Still ours before taking a snapshot nobody would publish.
     if (!(await write(build.builderId, {}))) return await lapsed()
     const ref = await build.capture()
