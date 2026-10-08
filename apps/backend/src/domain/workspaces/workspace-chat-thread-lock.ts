@@ -12,11 +12,18 @@ export class ConversationChangedError extends Error {
   }
 }
 
-/** Persisted message content after the UI round trip, ignoring ids and times. */
+/**
+ * Persisted message content after the UI round trip, ignoring ids, times and
+ * metadata. Persistence adds the run id to the metadata of a stored answer,
+ * and a browser that streamed that answer does not have it.
+ */
 function transcriptContent(messages: ReadonlyArray<ModelMessage>): string {
   const normalized = convertMessagesToModelMessages(
     modelMessagesToUIMessages([...messages]),
-  ).map(({ id: _id, createdAt: _createdAt, ...message }) => message)
+  ).map(
+    ({ id: _id, createdAt: _createdAt, metadata: _metadata, ...message }) =>
+      message,
+  )
   return JSON.stringify(normalized, (_key, value) => {
     if (!value || typeof value !== "object" || Array.isArray(value))
       return value

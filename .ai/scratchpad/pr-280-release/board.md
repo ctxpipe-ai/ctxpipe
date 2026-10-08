@@ -26,3 +26,4 @@ Updated: 2026-10-07. Tickets are implemented by sub-agents in separate worktrees
 | — | 20 | [Commit+Push is unreliable and Create PR does not work](issues/20-commit-push-create-pr-unreliable.md) | open: confirm the Create PR cause on the preview | P0 | claude | — |
 | — | 21 | [Hosted (Vercel) chat sandboxes hold no credential](issues/21-hosted-sandbox-no-credentials.md) | review: the real Vercel lane runs in CI only | P0 | claude | — |
 | — | 22 | [Self-host (Docker) sandboxes hold no credential, through Agent Vault](issues/22-selfhost-sandbox-agent-vault.md) | review: Compose and AWS deploys not run end to end | P0 | claude | — |
+| — | 23 | [A second question in a chat conversation fails](issues/23-second-turn-fails.md) | review: confirm on the preview after the next deploy | P0 | claude | — |
