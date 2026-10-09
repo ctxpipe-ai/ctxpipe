@@ -6,6 +6,11 @@ import {
   shouldHydrateBeforeMigrationExport,
 } from "../../domain/workspaces/hydrate.js"
 import {
+  type DerivedStoreResult,
+  type ProjectionState,
+  publishedProjection,
+} from "../../domain/workspaces/revision.js"
+import {
   createWorkspaceLifecycle,
   relinkWorkspaceLifecycle,
   renameWorkspaceLifecycle,
@@ -16,6 +21,7 @@ import {
   deleteWorkspace,
   getMigrationExportSha,
   getWorkspaceBySlug,
+  getWorkspaceProjection,
   listLinkedRepositories,
   listMigrationExportShas,
   listWorkspaces,
@@ -75,7 +81,25 @@ const WorkspaceSchema = z
   })
   .openapi("Workspace")
 
+const WorkspaceStorePhaseSchema = z
+  .object({
+    kind: z.enum(["pending", "ready", "failed"]),
+    message: z.string().optional().openapi({
+      description: "Why the store failed. Only when `kind` is `failed`.",
+    }),
+  })
+  .openapi("WorkspaceStorePhase")
+
 const WorkspaceDetailSchema = WorkspaceSchema.extend({
+  hydratePhases: z
+    .object({
+      graph: WorkspaceStorePhaseSchema,
+      index: WorkspaceStorePhaseSchema,
+    })
+    .openapi({
+      description:
+        "Graph and code index state of the projection that reads use. `pending` until the first hydrate publishes the store.",
+    }),
   linkedRepositories: z.array(LinkedRepositorySchema),
   skippedFiles: z.array(WorkspaceSkippedFileSchema).openapi({
     description:
@@ -117,6 +141,26 @@ const DeleteWorkspaceRequestSchema = z
     confirmName: z.string().min(1),
   })
   .openapi("DeleteWorkspaceRequest")
+
+function storePhase(result: DerivedStoreResult): DerivedStoreResult {
+  return result.kind === "failed"
+    ? { kind: "failed", message: result.message }
+    : { kind: result.kind }
+}
+
+function hydratePhasesView(state: ProjectionState) {
+  const published = publishedProjection(state)
+  if (published?.kind === "active")
+    return {
+      graph: storePhase(published.stores.graph),
+      index: storePhase(published.stores.index),
+    }
+  const phase: DerivedStoreResult =
+    state.kind === "failed"
+      ? { kind: "failed", message: state.error }
+      : { kind: "pending" }
+  return { graph: phase, index: phase }
+}
 
 function serializeWorkspace(
   row: {
@@ -397,6 +441,9 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
           createdAt: row.createdAt.toISOString(),
         })),
         skippedFiles: workspace.hydratePhases?.skipped ?? [],
+        hydratePhases: hydratePhasesView(
+          await getWorkspaceProjection(workspace.id),
+        ),
       },
       200,
     )
