@@ -56,6 +56,14 @@ describe("paths inside the checkout", () => {
     await symlink("inside.txt", join(checkout, "in-link"))
     await symlink("sub", join(checkout, "in-dir"))
     await symlink("missing.txt", join(checkout, "dangling"))
+    await mkdir(join(checkout, ".git"))
+    await writeFile(
+      join(checkout, ".git", "config"),
+      'url = "https://x-access-token:secret@example.com/repo.git"\n',
+    )
+    await mkdir(join(checkout, "sub", ".git"))
+    await writeFile(join(checkout, "sub", ".git", "config"), "nested\n")
+    await symlink(".git/config", join(checkout, "leak"))
   })
 
   afterEach(async () => {
@@ -79,14 +87,27 @@ describe("paths inside the checkout", () => {
     ).rejects.toMatchObject({ code: "ENOENT" })
   })
 
-  it("reads a file inside through a symlink and refuses one outside", async () => {
-    expect((await readContainedFile(checkout, "in-link")).toString()).toBe(
+  it("reads a regular file and refuses a directory", async () => {
+    expect((await readContainedFile(checkout, "sub/inner.txt")).toString()).toBe(
       "inside\n",
     )
-    await expect(readContainedFile(checkout, "chain-a")).rejects.toMatchObject({
+    await expect(readContainedFile(checkout, "sub")).rejects.toThrow()
+  })
+
+  // The tree lists only regular files outside .git. A read must not serve
+  // more than the tree, because .git/config can hold a clone token.
+  it.each([
+    ["a symlink to .git/config", "leak"],
+    ["a symlink to a file inside", "in-link"],
+    ["a file under a symlinked directory inside", "in-dir/inner.txt"],
+    ["a chain of symlinks that ends outside", "chain-a"],
+    ["an absolute symlink to a file outside", "abs-link"],
+    ["the .git/config file", ".git/config"],
+    ["a file under a nested .git directory", "sub/.git/config"],
+  ])("refuses to read %s", async (_, path) => {
+    await expect(readContainedFile(checkout, path)).rejects.toMatchObject({
       code: "ENOENT",
     })
-    await expect(readContainedFile(checkout, "sub")).rejects.toThrow()
   })
 
   it("follows a symlink to a file inside", async () => {
