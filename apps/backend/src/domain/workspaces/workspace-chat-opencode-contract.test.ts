@@ -147,15 +147,18 @@ describe("workspaceChatOpenCodeContract", () => {
       modelBase: "openai/gpt-5.6-terra",
     }).agent.build
 
-    expect(prompt).toMatch(/Workspace/)
-    expect(prompt).toMatch(/knowledge\//)
-    expect(prompt).toMatch(/repositories\//)
-    expect(prompt).toMatch(/lessons learned/i)
+    expect(prompt).toMatch(/clone of the Workspace repository/)
+    expect(prompt).toMatch(
+      /Each Markdown file in it, connector mirrors included, is a knowledge unit/,
+    )
+    expect(prompt).toMatch(/except AGENTS\.md, \.agents\/, and repositories\//)
+    expect(prompt).toMatch(/repositories\/<name>\.md/)
+    expect(prompt).toMatch(/Linked repositories are read-only and not cloned/)
     expect(prompt).toMatch(/\.ai\/memory\/lessons-learned\.md/)
-    expect(prompt).toMatch(/ADR/)
     expect(prompt).toMatch(/\.ai\/memory\/decisions\//)
     expect(prompt).toMatch(/glossary/i)
     expect(prompt).not.toMatch(/context repository/i)
+    expect(prompt).not.toMatch(/knowledge\/ holds/)
   })
 
   it("gives the agent the context advisor role in the prompt it gets", () => {
@@ -164,10 +167,16 @@ describe("workspaceChatOpenCodeContract", () => {
     }).agent.build
 
     expect(prompt).toMatch(/context advisor/i)
+    expect(prompt).toMatch(/Look first in/)
     expect(prompt).toMatch(/knowledge graph/i)
-    expect(prompt).toMatch(/code as evidence/i)
-    expect(prompt).toMatch(/knowledge or decision updates, not code patches/i)
-    expect(prompt).toMatch(/commit/i)
+    expect(prompt).toMatch(/code only as evidence/i)
+    expect(prompt).toMatch(/knowledge updates, not code patches/i)
+    expect(prompt).toMatch(/ctxpipe-knowledge skill/)
+    expect(prompt).toMatch(/Do not create \.ai\/memory\/ in this repository/)
+    expect(prompt).toMatch(
+      /write the proposed lesson, ADR, or glossary text in your answer/,
+    )
+    expect(prompt).not.toMatch(/edit files in knowledge\/ or \.ai\/memory\//)
   })
 
   it("embeds a bridged MCP server when tools are provisioned", () => {
