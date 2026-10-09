@@ -1,6 +1,8 @@
+import { execFileSync, spawn } from "node:child_process"
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { Readable } from "node:stream"
 import { describe, expect, it, vi } from "vitest"
 import {
   buildAstGrepArgv,
@@ -101,6 +103,72 @@ describe("structural search path containment", () => {
           limit: 10,
         }),
       ).rejects.toThrow("Structural search path escapes checkout")
+    } finally {
+      vi.unstubAllGlobals()
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  // A user glob is a whitelist override in ast-grep, so it skips the hidden
+  // file check. With a committed sgconfig.yml that maps "config" to bash,
+  // the glob "*" would print .git/config and its clone token.
+  it("returns no match from .git when a user glob matches every file", async () => {
+    const root = await mkdtemp(join(tmpdir(), "structural-search-"))
+    const checkoutPath = join(root, "checkout")
+    await mkdir(checkoutPath)
+    const git = (...args: string[]) =>
+      execFileSync("git", args, { cwd: checkoutPath, stdio: "ignore" })
+    git("init", "-q")
+    git(
+      "remote",
+      "add",
+      "origin",
+      "https://x-access-token:ghs_faketoken@example.com/demo.git",
+    )
+    await writeFile(
+      join(checkoutPath, "sgconfig.yml"),
+      'languageGlobs:\n  bash: ["config"]\n',
+    )
+    await writeFile(join(checkoutPath, "run.sh"), "echo hi\n")
+    git("add", "-A")
+    git(
+      "-c",
+      "user.email=a@example.com",
+      "-c",
+      "user.name=a",
+      "commit",
+      "-qm",
+      "init",
+    )
+    // Vitest runs in Node, so give runStructuralSearch a Bun.spawn that
+    // starts the real ast-grep binary.
+    vi.stubGlobal("Bun", {
+      spawn: (argv: string[], options: { cwd: string }) => {
+        const child = spawn(argv[0] as string, argv.slice(1), {
+          cwd: options.cwd,
+        })
+        return {
+          stdout: Readable.toWeb(child.stdout),
+          stderr: Readable.toWeb(child.stderr),
+          exited: new Promise((done) => child.on("close", done)),
+        }
+      },
+    })
+
+    try {
+      const matches = await runStructuralSearch({
+        checkoutPath,
+        pattern: "$A",
+        lang: "bash",
+        globs: ["*"],
+        paths: [checkoutPath],
+        limit: 100,
+      })
+
+      const files = matches.map((match) => String(match.file))
+      expect(files.some((file) => file.endsWith("run.sh"))).toBe(true)
+      expect(files.filter((file) => file.includes(".git"))).toEqual([])
+      expect(JSON.stringify(matches)).not.toContain("ghs_faketoken")
     } finally {
       vi.unstubAllGlobals()
       await rm(root, { recursive: true, force: true })
