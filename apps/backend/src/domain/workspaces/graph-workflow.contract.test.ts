@@ -99,6 +99,32 @@ it(
 )
 
 it(
+  "hydrate finds claim endpoints through a FalkorDB index",
+  { timeout: 60_000 },
+  async () => {
+    await withGraphHydration(
+      {
+        files: [
+          { path: "first.md", body: "# First\n[second](second.md)\n" },
+          { path: "second.md", body: "# Second\n" },
+        ],
+      },
+      async (f, graph) => {
+        await f.publish()
+        // Without an index, each claim scans all units. A large repository
+        // then keeps FalkorDB busy for many minutes.
+        const plan = await graph.explain(
+          "UNWIND $claims AS claim MATCH (s:WorkspaceKnowledgeUnit {projectionKey: $projectionKey, id: claim.subjectId}) RETURN s",
+        )
+        expect(plan.join("\n")).toContain(
+          "Node By Index Scan | (s:WorkspaceKnowledgeUnit)",
+        )
+      },
+    )
+  },
+)
+
+it(
   "hydrate preserves declared claims alongside permanent body links in FalkorDB",
   { timeout: 60_000 },
   async () => {
