@@ -1,5 +1,12 @@
 import { existsSync } from "node:fs"
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { OpenAPIHono } from "@hono/zod-openapi"
@@ -622,35 +629,39 @@ describe("codesearch never reads or lists inside .git", () => {
     await rm(tmpDir, { recursive: true, force: true })
   })
 
-  it.each([".git", ".GIT", "sub/.git", "git-dir"])(
-    "GET /files and POST /glob answer %s like a missing directory",
-    async (path) => {
-      const app = createTestApp()
-      const list = await app.request(
-        `/repo_abcdef27/files?path=${encodeURIComponent(path)}`,
-      )
-      const glob = await app.request("/repo_abcdef27/glob", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ pattern: "*", path }),
-      })
+  it.each([
+    ".git",
+    ".GIT",
+    "sub/.git",
+    "git-dir",
+  ])("GET /files and POST /glob answer %s like a missing directory", async (path) => {
+    const app = createTestApp()
+    const list = await app.request(
+      `/repo_abcdef27/files?path=${encodeURIComponent(path)}`,
+    )
+    const glob = await app.request("/repo_abcdef27/glob", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ pattern: "*", path }),
+    })
 
-      expect(list.status).toBe(404)
-      expect(glob.status).toBe(404)
-    },
-  )
+    expect(list.status).toBe(404)
+    expect(glob.status).toBe(404)
+  })
 
-  it.each([".git/config", ".GIT/config", "sub/.git/config", "config-link"])(
-    "GET /files/{path} answers %s like a missing file",
-    async (path) => {
-      const app = createTestApp()
-      const res = await app.request(
-        `/repo_abcdef27/files/${encodeURIComponent(path)}`,
-      )
+  it.each([
+    ".git/config",
+    ".GIT/config",
+    "sub/.git/config",
+    "config-link",
+  ])("GET /files/{path} answers %s like a missing file", async (path) => {
+    const app = createTestApp()
+    const res = await app.request(
+      `/repo_abcdef27/files/${encodeURIComponent(path)}`,
+    )
 
-      expect(res.status).toBe(404)
-    },
-  )
+    expect(res.status).toBe(404)
+  })
 
   it("POST /files-query returns no file from .git", async () => {
     // Vitest runs in Node, so give the route a Bun.file that reads from disk.

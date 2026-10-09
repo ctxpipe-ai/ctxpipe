@@ -143,6 +143,9 @@ export async function globFilesInCheckout(
     ) {
       throw new GlobInvalidRequestError("Path traversal is not allowed")
     }
+    if ((error as { code?: unknown }).code === "ENOENT") {
+      throw new GlobPathNotFoundError()
+    }
     throw error
   }
 

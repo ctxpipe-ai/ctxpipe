@@ -126,7 +126,10 @@ describe("structural search path containment", () => {
     await mkdir(join(checkoutPath, ".git", "hooks"), { recursive: true })
     await mkdir(join(checkoutPath, "sub", ".GIT"), { recursive: true })
     await writeFile(join(checkoutPath, ".git", "config"), "[core]\n")
-    await writeFile(join(checkoutPath, ".git", "hooks", "check.sh"), "echo hi\n")
+    await writeFile(
+      join(checkoutPath, ".git", "hooks", "check.sh"),
+      "echo hi\n",
+    )
     await writeFile(join(checkoutPath, "sub", ".GIT", "check.sh"), "echo hi\n")
     await writeFile(join(checkoutPath, "run.sh"), "echo hi\n")
     // Vitest runs in Node, so give runStructuralSearch a Bun.spawn that
