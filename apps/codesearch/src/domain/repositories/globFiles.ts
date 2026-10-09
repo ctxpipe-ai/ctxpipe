@@ -1,6 +1,6 @@
-import { lstat } from "node:fs/promises"
-import { basename, resolve, sep } from "node:path"
-import { resolveSafePath } from "./paths.js"
+import { lstat, realpath } from "node:fs/promises"
+import { basename, isAbsolute, relative, resolve, sep } from "node:path"
+import { hasGitSegment, resolveSafePath } from "./paths.js"
 
 export class GlobPathNotFoundError extends Error {
   constructor(message = "Path not found") {
@@ -165,6 +165,22 @@ export async function globFilesInCheckout(
   }
   if (!cwdStat.isDirectory()) {
     throw new GlobPathNotFoundError("Path is not a directory")
+  }
+
+  // A symlink earlier in the path must not move cwd out of the checkout or
+  // into .git.
+  const [realRoot, realCwd] = await Promise.all([
+    realpath(options.checkoutRoot),
+    realpath(absCwd),
+  ])
+  const realRelative = relative(realRoot, realCwd)
+  if (
+    realRelative === ".." ||
+    realRelative.startsWith(`..${sep}`) ||
+    isAbsolute(realRelative) ||
+    hasGitSegment(realRelative)
+  ) {
+    throw new GlobPathNotFoundError()
   }
 
   // Codesearch runs on Bun. Use the Bun global (not `import from "bun"`) so Node
