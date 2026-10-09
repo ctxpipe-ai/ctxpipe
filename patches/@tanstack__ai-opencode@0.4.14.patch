@@ -1,5 +1,5 @@
 diff --git a/dist/esm/adapters/text.js b/dist/esm/adapters/text.js
-index d11df14ae2159d0558a0f928b72c3d24867b164a..5dd0a49a97af157c7d7e108b955dd97b87db636f 100644
+index d11df14ae2159d0558a0f928b72c3d24867b164a..18095baa3b8dd18fd811f7b8f692d12940394a44 100644
 --- a/dist/esm/adapters/text.js
 +++ b/dist/esm/adapters/text.js
 @@ -223,9 +223,12 @@ var OpencodeTextAdapter = class extends BaseTextAdapter {
@@ -94,10 +94,10 @@ index c3f62754a7a2e2dbf6cc4482e188b4bf5d10b37d..e46983d0b02d5a9583fbb8f097c74278
  			}
  		};
 diff --git a/dist/esm/stream/translate.js b/dist/esm/stream/translate.js
-index a63df2314be1bf53f30f08bf21b6d56a6408122f..85a5899f0c35813b406d064445f21fd78053ea5b 100644
+index a63df2314be1bf53f30f08bf21b6d56a6408122f..d07981d66ba3f429c1f4f735710a6db388501de4 100644
 --- a/dist/esm/stream/translate.js
 +++ b/dist/esm/stream/translate.js
-@@ -62,6 +62,10 @@ function messageError(message) {
+@@ -62,6 +62,14 @@ function messageError(message) {
  async function* translateOpencodeStream(events, ctx) {
  	const { model, runId, threadId, genId } = ctx;
  	const now = () => Date.now();
@@ -105,10 +105,14 @@ index a63df2314be1bf53f30f08bf21b6d56a6408122f..85a5899f0c35813b406d064445f21fd7
 +	// parts on one session stream; translate only parts of assistant messages.
 +	const messageRoles = new Map();
 +	const pendingParts = new Map();
++	// ctxpipe patch (upstream issue: to be opened): OpenCode 1.x streams text
++	// and reasoning as message.part.delta events. Keep each assistant text or
++	// reasoning part so that its deltas go out as they arrive.
++	const streamedParts = new Map();
  	let runStarted = false;
  	/** Tool calls started but with no result yet, keyed by callID. */
  	const unresolvedToolCalls = /* @__PURE__ */ new Set();
-@@ -249,8 +253,21 @@ async function* translateOpencodeStream(events, ctx) {
+@@ -249,11 +257,31 @@ async function* translateOpencodeStream(events, ctx) {
  		};
  	}
  	function* handleEvent(event) {
@@ -128,6 +132,16 @@ index a63df2314be1bf53f30f08bf21b6d56a6408122f..85a5899f0c35813b406d064445f21fd7
 +				return;
 +			}
 +			if (role !== "assistant") return;
++			if (isTextPart(part) || isReasoningPart(part)) streamedParts.set(part.id, part);
  			if (isTextPart(part)) yield* handleTextPart(part, delta);
  			else if (isReasoningPart(part)) yield* handleReasoningPart(part, delta);
  			else if (isToolPart(part)) yield* handleToolPart(part);
++		} else if (event.type === "message.part.delta") {
++			const { partID, field, delta } = event.properties;
++			const part = streamedParts.get(partID);
++			if (part === void 0 || field !== "text" || !delta) return;
++			if (isTextPart(part)) yield* handleTextPart(part, delta);
++			else yield* handleReasoningPart(part, delta);
+ 		} else if (event.type === "todo.updated") yield {
+ 			type: EventType.CUSTOM,
+ 			model,
