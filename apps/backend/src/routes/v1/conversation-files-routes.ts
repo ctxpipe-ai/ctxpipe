@@ -20,7 +20,10 @@ import {
 } from "../../domain/workspaces/conversation-publish.js"
 import { adaptTanstackHandle } from "../../domain/workspaces/job-sandbox.js"
 import type { JobSandboxHandle } from "../../domain/workspaces/job-worktree.js"
-import { postgresSandboxLocks } from "../../domain/workspaces/sandbox-lock-store.js"
+import {
+  postgresSandboxLocks,
+  withSandboxLockIfFree,
+} from "../../domain/workspaces/sandbox-lock-store.js"
 import { warmTanstackWorkspaceChat } from "../../domain/workspaces/tanstack-workspace-chat.js"
 import { resolveWorkspaceChatTurnRuntime } from "../../domain/workspaces/workspace-chat-turn-runtime.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
@@ -475,11 +478,32 @@ const withConversationFileLock = createMiddleware<ConversationFileEnv>(
     c.req.raw.signal.addEventListener("abort", onRequestAbort, { once: true })
     if (c.req.raw.signal.aborted) onRequestAbort()
     c.set("sandboxAbortSignal", controller.signal)
+    const key = `chat-thread:${conversationId}`
     try {
+      // A turn holds the lock until its reply ends. The Files pane polls the
+      // tree and status, so these reads do not wait: 409 keeps its last tree.
+      if (
+        c.req.method === "GET" &&
+        /\/files\/(tree|status)$/.test(c.req.path)
+      ) {
+        const read = await withSandboxLockIfFree(
+          loaded.conversation.orgId,
+          key,
+          async (signal) => {
+            c.set(
+              "sandboxAbortSignal",
+              AbortSignal.any([signal, controller.signal]),
+            )
+            await next()
+          },
+        )
+        if (read.busy) return c.json({ error: "conversation_busy" }, 409)
+        return
+      }
       return await postgresSandboxLocks(
         loaded.conversation.orgId,
         controller,
-      ).withLock(`chat-thread:${conversationId}`, () => next())
+      ).withLock(key, () => next())
     } finally {
       c.req.raw.signal.removeEventListener("abort", onRequestAbort)
     }
