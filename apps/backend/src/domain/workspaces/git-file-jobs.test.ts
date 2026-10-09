@@ -107,6 +107,16 @@ describe("planWorkspaceFileJob", () => {
     ).toEqual({ ok: false, error: "That path already exists." })
   })
 
+  it("rejects a write into .git", async () => {
+    expect(
+      await planWorkspaceFileJob({
+        request: { op: "save", path: ".git/hooks/x", content: "#!/bin/sh\n" },
+        treePaths: tree,
+        readBlob: await blobs({}),
+      }),
+    ).toEqual({ ok: false, error: "A valid file path is required" })
+  })
+
   it("deletes a file or every blob under a folder", async () => {
     expect(
       await planWorkspaceFileJob({

@@ -5,6 +5,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
@@ -12,6 +13,7 @@ import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import {
   conversationPathIsSafe,
+  conversationSandboxDiff,
   conversationSandboxStatus,
   conversationWorktreeVersion,
   fingerprintConversationWorktree,
@@ -338,6 +340,51 @@ describe("conversation sandbox files", { timeout: 15_000 }, () => {
         })
       },
     )
+  })
+
+  it("does not read through a symlink, listed or not", async () => {
+    const outside = mkdtempSync(join(tmpdir(), "ctxpipe-outside-"))
+    writeFileSync(join(outside, "hosts"), "outside\n")
+    try {
+      await withWorktree(
+        (directory) => {
+          writeFileSync(join(directory, ".gitignore"), ".env\n")
+          mkdirSync(join(directory, "docs"))
+          writeFileSync(join(directory, "docs/hosts"), "tracked\n")
+        },
+        async ({ directory, handle }) => {
+          writeFileSync(join(directory, ".env"), "API_KEY=hidden\n")
+          symlinkSync(".env", join(directory, "env-link"))
+          symlinkSync(join(outside, "hosts"), join(directory, "hosts-link"))
+          // Git still lists docs/hosts from the index after this swap.
+          rmSync(join(directory, "docs"), { recursive: true })
+          symlinkSync(outside, join(directory, "docs"))
+          const read = (path: string) =>
+            readConversationSandboxFile(handle, path)
+          expect({
+            envLink: await read("env-link"),
+            hostsLink: await read("hosts-link"),
+            swappedParent: await read("docs/hosts"),
+          }).toEqual({
+            envLink: null,
+            hostsLink: null,
+            swappedParent: null,
+          })
+          expect({
+            diff: (
+              await conversationSandboxDiff({ handle, defaultBranch: "main" })
+            ).map(({ path, body }) => ({ path, body })),
+          }).toEqual({
+            diff: expect.arrayContaining([
+              { path: "env-link", body: null },
+              { path: "hosts-link", body: null },
+            ]),
+          })
+        },
+      )
+    } finally {
+      rmSync(outside, { recursive: true, force: true })
+    }
   })
 
   it("does not treat an unreadable untracked file as empty content", async () => {
