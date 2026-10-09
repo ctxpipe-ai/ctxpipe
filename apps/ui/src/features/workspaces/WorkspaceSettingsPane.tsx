@@ -16,7 +16,11 @@ import {
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
 import { deleteWorkspace, updateWorkspace, workspaceKeys } from "./queries"
-import type { WorkspaceDetail, WorkspaceSkippedFile } from "./types"
+import type {
+  WorkspaceDetail,
+  WorkspaceListResponse,
+  WorkspaceSkippedFile,
+} from "./types"
 import { WorkspaceLinkedRepositories } from "./WorkspaceLinkedRepositories"
 import { WorkspaceRepositoryPicker } from "./WorkspaceRepositoryPicker"
 import { workspaceDeleteNameMatches } from "./workspaceDeleteNameMatches"
@@ -223,6 +227,18 @@ export function WorkspaceSettingsPane(props: {
     onSuccess: () => {
       toast.success("Workspace deleted")
       setDeleteOpen(false)
+      // Home reads this list. Remove the Workspace before Home shows.
+      queryClient.setQueryData<WorkspaceListResponse>(
+        workspaceKeys.list(orgSlug),
+        (list) =>
+          list && {
+            items: list.items.filter((item) => item.id !== workspace.id),
+            lastUsedWorkspaceId:
+              list.lastUsedWorkspaceId === workspace.id
+                ? null
+                : list.lastUsedWorkspaceId,
+          },
+      )
       void navigate({
         to: "/$orgSlug",
         params: { orgSlug },
