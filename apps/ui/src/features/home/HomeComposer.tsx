@@ -4,6 +4,7 @@ import { useNavigate } from "@tanstack/react-router"
 import { Button as RACButton } from "react-aria-components"
 import { useSelectNav } from "@/components/ShellLayoutContext"
 import { Menu, MenuItem, MenuTrigger } from "@/components/ui/Menu"
+import { chatDraftKey } from "@/features/chat/chat-draft"
 import { MessageInputBox } from "@/features/chat/MessageInputBox"
 import { workspaceDetailOptions } from "@/features/workspaces/queries"
 import { openWorkspaceConversation } from "@/features/workspaces/start-workspace-conversation-ui"
@@ -78,6 +79,7 @@ export function HomeComposer(props: {
           sendMessage={({ text }) => startConversation(text)}
           isDisabled={!selected}
           placeholder="Ask about this Workspace…"
+          draftKey={selected ? chatDraftKey(orgSlug, selected.id) : undefined}
         />
       </div>
     </section>
