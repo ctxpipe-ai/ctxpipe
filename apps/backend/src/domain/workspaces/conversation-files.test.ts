@@ -387,6 +387,33 @@ describe("conversation sandbox files", { timeout: 15_000 }, () => {
     }
   })
 
+  it("does not read a diff path that git now ignores and does not track", async () => {
+    await withWorktree(
+      (directory) => {
+        writeFileSync(join(directory, ".env"), "API_KEY=committed\n")
+      },
+      async ({ directory, handle, git }) => {
+        git("checkout", "-q", "-b", "ctxpipe/session")
+        git("rm", "-q", "--cached", ".env")
+        writeFileSync(join(directory, ".gitignore"), ".env\n")
+        git("add", ".gitignore")
+        git("commit", "-q", "-m", "Ignore .env")
+        writeFileSync(join(directory, ".env"), "API_KEY=secret\n")
+
+        const diff = await conversationSandboxDiff({
+          handle,
+          defaultBranch: "main",
+        })
+
+        expect(diff.find((file) => file.path === ".env")).toEqual({
+          path: ".env",
+          oldBody: "API_KEY=committed\n",
+          body: null,
+        })
+      },
+    )
+  })
+
   it("does not treat an unreadable untracked file as empty content", async () => {
     await withWorktree(
       (directory) => {
