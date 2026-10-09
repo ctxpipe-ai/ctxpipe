@@ -158,6 +158,18 @@ describe("workspaceChatOpenCodeContract", () => {
     expect(prompt).not.toMatch(/context repository/i)
   })
 
+  it("gives the agent the context advisor role in the prompt it gets", () => {
+    const { prompt } = workspaceChatOpenCodeConfig({
+      modelBase: "openai/gpt-5.6-terra",
+    }).agent.build
+
+    expect(prompt).toMatch(/context advisor/i)
+    expect(prompt).toMatch(/knowledge graph/i)
+    expect(prompt).toMatch(/code as evidence/i)
+    expect(prompt).toMatch(/knowledge or decision updates, not code patches/i)
+    expect(prompt).toMatch(/commit/i)
+  })
+
   it("embeds a bridged MCP server when tools are provisioned", () => {
     expect(
       workspaceChatOpenCodeConfig({
