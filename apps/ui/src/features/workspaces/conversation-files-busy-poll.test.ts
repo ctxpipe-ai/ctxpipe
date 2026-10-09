@@ -108,5 +108,50 @@ describe("conversation Files queries while a turn runs", () => {
         clearAllConversationGitTreeSnapshots()
       }
     }, 10_000)
+
+    it(`does not ask files/${route} again after a 409 missing_sandbox`, async () => {
+      clearAllConversationGitTreeSnapshots()
+      let hits = 0
+      server.use(
+        http.get(
+          `http://localhost:3000/:orgSlug/api/v1/conversations/:conversationId/files/${route}`,
+          () => {
+            hits += 1
+            // An idle-stopped sandbox: no turn will end this 409.
+            return HttpResponse.json(
+              { error: "missing_sandbox" },
+              { status: 409 },
+            )
+          },
+        ),
+      )
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      })
+      const observer =
+        route === "tree"
+          ? new QueryObserver(
+              queryClient,
+              conversationGitTreeOptions("acme", "conv_1"),
+            )
+          : new QueryObserver(
+              queryClient,
+              conversationGitStatusOptions("acme", "conv_1"),
+            )
+      const unsubscribe = observer.subscribe(() => {})
+      try {
+        await vi.waitFor(() => expect(hits).toBe(1), {
+          timeout: 2_000,
+          interval: 50,
+        })
+        // Wait past one poll interval (2 s).
+        await new Promise((resolve) => setTimeout(resolve, 2_500))
+        expect(hits).toBe(1)
+      } finally {
+        unsubscribe()
+        queryClient.clear()
+        clearAllConversationGitTreeSnapshots()
+      }
+    }, 10_000)
   }
 })
