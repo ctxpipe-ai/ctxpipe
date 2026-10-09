@@ -134,7 +134,15 @@ export async function readConversationSandboxFile(
   handle: JobSandboxHandle,
   path: string,
 ): Promise<{ path: string; body: string | null; binary: boolean } | null> {
-  if (!conversationPathIsSafe(path)) return null
+  if (!isConversationSandboxListedPath(path)) return null
+  // Read only a path that the tree lists. This keeps .git and ignored files,
+  // such as .env, out of reach.
+  const listed = await execGitOk(
+    handle.exec,
+    'git ls-files -z --cached --others --exclude-standard -- ":(literal)$CTXPIPE_FILE_PATH"',
+    { CTXPIPE_FILE_PATH: path },
+  )
+  if (!splitGitNulPaths(listed).includes(path)) return null
   try {
     const content = await handle.fs.read(path)
     const blob = explorerBlobFromContent(content)

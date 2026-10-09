@@ -7,7 +7,12 @@ export function explorerBlobPath(raw: string): string | null {
   const path = raw.trim()
   if (!path) return null
   const parts = path.split("/")
-  if (parts.some((part) => part === "" || part === "." || part === "..")) {
+  // The tree never lists git metadata, so a blob read must not reach it.
+  if (
+    parts.some(
+      (part) => part === "" || part === "." || part === ".." || part === ".git",
+    )
+  ) {
     return null
   }
   if (path.startsWith("/") || path.includes("\\")) return null
