@@ -3,8 +3,10 @@ import { delay, HttpResponse, http } from "msw"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 import {
   githubInstallationReposHandler,
+  workspaceActivityHandler,
   workspaceListHandler,
 } from "@/mocks/workspace-handlers"
+import { OrgHomePageContent } from "@/routes/$orgSlug.index"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { WorkspaceSettingsPane } from "./WorkspaceSettingsPane"
@@ -261,5 +263,80 @@ export const DeleteConfirmPending: Story = {
         pending.querySelector("svg[role='presentation']"),
       ).toBeInTheDocument()
     })
+  },
+}
+
+/**
+ * Delete the only Workspace while Home reads the same list cache. Home must
+ * show zero Workspaces at once, also when the list request does not complete.
+ */
+export const DeleteLastWorkspaceEmptiesHome: Story = {
+  render: (args) => (
+    <>
+      <WorkspaceSettingsPane {...args} />
+      <OrgHomePageContent orgSlug="acme" />
+    </>
+  ),
+  parameters: {
+    msw: {
+      handlers: {
+        page: (() => {
+          let deleted = false
+          return [
+            http.get(
+              ({ request }) =>
+                /\/api\/v1\/workspaces$/.test(new URL(request.url).pathname),
+              async () => {
+                if (deleted) await delay("infinite")
+                return HttpResponse.json({
+                  items: [docsWorkspace],
+                  lastUsedWorkspaceId: docsWorkspace.id,
+                })
+              },
+            ),
+            workspaceActivityHandler(),
+            githubInstallationReposHandler(),
+            http.delete(
+              ({ request }) =>
+                /\/api\/v1\/workspaces\/[^/]+$/.test(
+                  new URL(request.url).pathname,
+                ),
+              () => {
+                deleted = true
+                return new HttpResponse(null, { status: 204 })
+              },
+            ),
+          ]
+        })(),
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const composer = await canvas.findByPlaceholderText(
+      "Ask about this Workspace…",
+    )
+    await waitFor(() => expect(composer).toBeEnabled())
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Delete Workspace" }),
+    )
+    const body = within(canvasElement.ownerDocument.body)
+    const dialog = await body.findByRole("alertdialog")
+    await userEvent.type(
+      within(dialog).getByLabelText("Workspace name"),
+      "Docs",
+    )
+    await userEvent.keyboard("{Enter}")
+    await waitFor(() => {
+      expect(body.queryByRole("alertdialog")).not.toBeInTheDocument()
+    })
+    await waitFor(() => {
+      expect(
+        canvas.getByPlaceholderText("Ask about this Workspace…"),
+      ).toBeDisabled()
+    })
+    expect(
+      canvas.getByRole("button", { name: "Create a workspace" }),
+    ).toBeVisible()
   },
 }

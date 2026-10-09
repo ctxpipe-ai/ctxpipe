@@ -16,7 +16,11 @@ import {
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
 import { deleteWorkspace, updateWorkspace, workspaceKeys } from "./queries"
-import type { WorkspaceDetail, WorkspaceSkippedFile } from "./types"
+import type {
+  WorkspaceDetail,
+  WorkspaceListResponse,
+  WorkspaceSkippedFile,
+} from "./types"
 import { WorkspaceLinkedRepositories } from "./WorkspaceLinkedRepositories"
 import { WorkspaceRepositoryPicker } from "./WorkspaceRepositoryPicker"
 import { workspaceDeleteNameMatches } from "./workspaceDeleteNameMatches"
@@ -220,9 +224,21 @@ export function WorkspaceSettingsPane(props: {
   const deleteMutation = useMutation({
     mutationFn: (name: string) =>
       deleteWorkspace(orgSlug, workspace.slug, name),
-    onSuccess: () => {
+    onSuccess: async () => {
       toast.success("Workspace deleted")
       setDeleteOpen(false)
+      // Remove the Workspace from the cached list before Home renders.
+      await queryClient.cancelQueries({
+        queryKey: workspaceKeys.list(orgSlug),
+      })
+      queryClient.setQueryData<WorkspaceListResponse>(
+        workspaceKeys.list(orgSlug),
+        (list) =>
+          list && {
+            ...list,
+            items: list.items.filter((item) => item.id !== workspace.id),
+          },
+      )
       void navigate({
         to: "/$orgSlug",
         params: { orgSlug },
