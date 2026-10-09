@@ -149,7 +149,8 @@ export async function readConversationSandboxFile(
 
 /**
  * Reads a path when `listCommand` prints it after the symlink check. The
- * diff already knows that git lists its paths, so it only prints the path.
+ * diff checks the tree list before the call, so its command only prints the
+ * path.
  */
 async function readSandboxFileIfListed(
   handle: JobSandboxHandle,
@@ -389,7 +390,7 @@ export async function conversationSandboxDiff(input: {
   handle: JobSandboxHandle
   defaultBranch: string
 }): Promise<ConversationFileDiff[]> {
-  const [committed, unstaged, untracked] = await Promise.all([
+  const [committed, unstaged, untracked, listed] = await Promise.all([
     execGitOk(
       input.handle.exec,
       'git diff --name-only -z "refs/heads/$CTXPIPE_DEFAULT_BRANCH"...HEAD',
@@ -397,7 +398,11 @@ export async function conversationSandboxDiff(input: {
     ),
     execGitOk(input.handle.exec, "git diff --name-only -z HEAD"),
     execGitOk(input.handle.exec, "git ls-files --others --exclude-standard -z"),
+    execGitOk(input.handle.exec, LIST_TREE_FILES_COMMAND),
   ])
+  // A diff can name a path that git now ignores and does not track, such as
+  // a local .env. Read the current body only of a path that the tree lists.
+  const treePaths = new Set(splitGitNulPaths(listed))
   const paths = new Set<string>()
   for (const path of [
     ...splitGitNulPaths(committed),
@@ -417,11 +422,13 @@ export async function conversationSandboxDiff(input: {
       },
     )
     const oldBody = oldResult.exitCode === 0 ? oldResult.stdout : null
-    const current = await readSandboxFileIfListed(
-      input.handle,
-      path,
-      "printf '%s\\0' \"$CTXPIPE_FILE_PATH\"",
-    )
+    const current = treePaths.has(path)
+      ? await readSandboxFileIfListed(
+          input.handle,
+          path,
+          "printf '%s\\0' \"$CTXPIPE_FILE_PATH\"",
+        )
+      : null
     diffs.push({
       path,
       oldBody,
