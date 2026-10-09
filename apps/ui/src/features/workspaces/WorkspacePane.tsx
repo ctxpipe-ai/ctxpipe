@@ -617,8 +617,13 @@ export function WorkspacePaneTriggers(props: {
           className={triggerClassName}
         />
         <HeaderIcon
-          label="Graph"
+          label={
+            props.workspace.hydratePhases?.graph.kind === "pending"
+              ? "Graph, building"
+              : "Graph"
+          }
           icon={<IconAffiliate stroke={1.6} aria-hidden />}
+          busy={props.workspace.hydratePhases?.graph.kind === "pending"}
           onIntent={() => prefetch({ kind: "graph" })}
           onClick={() => {
             prefetch({ kind: "graph" })
@@ -652,6 +657,8 @@ function HeaderIcon(props: {
   onClick: () => void
   onIntent?: () => void
   className?: string
+  /** Shows a pulse dot while the work behind this trigger runs. */
+  busy?: boolean
 }) {
   return (
     <Tooltip>
@@ -665,8 +672,14 @@ function HeaderIcon(props: {
           props.className,
         )}
       >
-        <span className="inline-flex size-4 items-center justify-center [&_svg]:size-4 [&_svg]:stroke-[1.6]">
+        <span className="relative inline-flex size-4 items-center justify-center [&_svg]:size-4 [&_svg]:stroke-[1.6]">
           {props.icon}
+          {props.busy ? (
+            <span
+              className="ctx-indexing-dot absolute -top-0.5 -right-0.5"
+              aria-hidden
+            />
+          ) : null}
         </span>
       </TooltipTrigger>
       <TooltipContent

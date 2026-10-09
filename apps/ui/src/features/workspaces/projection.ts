@@ -55,6 +55,7 @@ export function workspacePrepareNeedsPoll(input: {
   activeProjectionSha?: string | null
   migrationExportSha?: string | null
   writeStatus?: string | null
+  hydratePhases?: { graph: { kind: string } }
 }): boolean {
   if (
     workspaceProjectionReady({
@@ -64,7 +65,10 @@ export function workspacePrepareNeedsPoll(input: {
       writeStatus: input.writeStatus,
     })
   ) {
-    return workspaceHydrateInFlight(input)
+    return (
+      workspaceHydrateInFlight(input) ||
+      input.hydratePhases?.graph.kind === "pending"
+    )
   }
   return workspaceHydrateView(input) !== "failed"
 }
