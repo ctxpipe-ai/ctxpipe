@@ -1,7 +1,14 @@
 import { execFileSync, spawn } from "node:child_process"
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
+import {
+  mkdir,
+  mkdtemp,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { join, relative } from "node:path"
 import { Readable } from "node:stream"
 import { describe, expect, it, vi } from "vitest"
 import {
@@ -9,6 +16,23 @@ import {
   resolveStructuralSearchPaths,
   runStructuralSearch,
 } from "./structuralSearch.js"
+
+// Vitest runs in Node, so give runStructuralSearch a Bun.spawn that starts
+// the real ast-grep binary.
+function stubBunSpawnWithNode(): void {
+  vi.stubGlobal("Bun", {
+    spawn: (argv: string[], options: { cwd: string }) => {
+      const child = spawn(argv[0] as string, argv.slice(1), {
+        cwd: options.cwd,
+      })
+      return {
+        stdout: Readable.toWeb(child.stdout),
+        stderr: Readable.toWeb(child.stderr),
+        exited: new Promise((done) => child.on("close", done)),
+      }
+    },
+  })
+}
 
 describe("buildAstGrepArgv", () => {
   it("builds an ast-grep argv without shell interpretation", () => {
@@ -22,6 +46,8 @@ describe("buildAstGrepArgv", () => {
     expect(argv).toEqual([
       "ast-grep",
       "run",
+      "--config",
+      "/dev/null",
       "--pattern",
       "$CALL($ARG); rm -rf /",
       "--json=stream",
@@ -111,6 +137,39 @@ describe("structural search path containment", () => {
     }
   })
 
+  it("ignores an ast-grep config file from the checkout", async () => {
+    const root = await realpath(
+      await mkdtemp(join(tmpdir(), "structural-search-")),
+    )
+    const checkoutPath = join(root, "checkout")
+    await mkdir(checkoutPath)
+    await writeFile(
+      join(checkoutPath, "sgconfig.yml"),
+      'languageGlobs:\n  python: ["notes.cfg"]\n',
+    )
+    await writeFile(join(checkoutPath, "notes.cfg"), "print(1)\n")
+    await writeFile(join(checkoutPath, "main.py"), "print(2)\n")
+    stubBunSpawnWithNode()
+
+    try {
+      const matches = await runStructuralSearch({
+        checkoutPath,
+        pattern: "print($A)",
+        lang: "python",
+        paths: [checkoutPath],
+        limit: 100,
+      })
+
+      const files = matches.map((match) =>
+        relative(checkoutPath, String(match.file)),
+      )
+      expect(files).toEqual(["main.py"])
+    } finally {
+      vi.unstubAllGlobals()
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   // A user glob is a whitelist override in ast-grep, so it skips the hidden
   // file check. With a committed sgconfig.yml that maps "config" to bash,
   // the glob "*" would print .git/config and its clone token.
@@ -142,20 +201,7 @@ describe("structural search path containment", () => {
       "-qm",
       "init",
     )
-    // Vitest runs in Node, so give runStructuralSearch a Bun.spawn that
-    // starts the real ast-grep binary.
-    vi.stubGlobal("Bun", {
-      spawn: (argv: string[], options: { cwd: string }) => {
-        const child = spawn(argv[0] as string, argv.slice(1), {
-          cwd: options.cwd,
-        })
-        return {
-          stdout: Readable.toWeb(child.stdout),
-          stderr: Readable.toWeb(child.stderr),
-          exited: new Promise((done) => child.on("close", done)),
-        }
-      },
-    })
+    stubBunSpawnWithNode()
 
     try {
       const matches = await runStructuralSearch({
