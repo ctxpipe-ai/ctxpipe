@@ -13,6 +13,7 @@ export const requiredStories = [
   "StableRequestBudget",
   "StableFilesRequestBudget",
   "DeletedFileStaysUntilMerged",
+  "NodesWithoutRelationships",
 ]
 
 export function isGoldenPlaySuccess(phase) {

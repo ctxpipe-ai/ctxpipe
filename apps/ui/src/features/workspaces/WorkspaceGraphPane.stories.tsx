@@ -1,4 +1,5 @@
 import type { Decorator, Meta, StoryObj } from "@storybook/react-vite"
+import { expect, within } from "storybook/test"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { WorkspaceGraphPane } from "./WorkspaceGraphPane"
@@ -57,6 +58,10 @@ export const Loading: Story = {
 }
 
 export const Populated: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(canvas.queryByText(/but no edges yet/)).toBeNull()
+  },
   args: {
     pending: false,
     graph: docsWorkspaceGraph,
@@ -77,4 +82,26 @@ export const WidePane: Story = {
     graph: docsWorkspaceGraph,
   },
   decorators: [paneFrame("w-full max-w-5xl")],
+}
+
+export const NodesWithoutRelationships: Story = {
+  tags: ["workspace-golden"],
+  args: {
+    pending: false,
+    graph: {
+      ...docsWorkspaceGraph,
+      metrics: {
+        ...docsWorkspaceGraph.metrics,
+        totalEdges: 0,
+        edgesReturned: 0,
+      },
+      edges: [],
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(
+      await canvas.findByText(/has 28 nodes but no edges yet/),
+    ).toBeVisible()
+  },
 }
