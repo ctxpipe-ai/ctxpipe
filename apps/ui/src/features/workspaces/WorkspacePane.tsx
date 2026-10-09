@@ -421,16 +421,17 @@ function WorkspaceGraphPaneBody(props: {
   const query = useQuery(
     workspaceGraphOptions(props.orgSlug, props.workspaceSlug),
   )
-  if (query.isPending) return <WorkspaceGraphPaneSkeleton />
   return (
-    <WorkspaceGraphPane
-      orgSlug={props.orgSlug}
-      workspaceSlug={props.workspaceSlug}
-      graph={query.data}
-      pending={false}
-      error={query.error instanceof Error ? query.error : null}
-      onOpenSource={props.onOpenSource}
-    />
+    <Suspense fallback={<WorkspaceGraphPaneSkeleton />}>
+      <WorkspaceGraphPane
+        orgSlug={props.orgSlug}
+        workspaceSlug={props.workspaceSlug}
+        graph={query.data}
+        pending={query.isPending}
+        error={query.error instanceof Error ? query.error : null}
+        onOpenSource={props.onOpenSource}
+      />
+    </Suspense>
   )
 }
 
@@ -570,6 +571,8 @@ export function WorkspacePaneTriggers(props: {
       props.conversationId,
     )
   }
+  // These stand alone in the chat header, so they need a hairline to read as controls.
+  const triggerClassName = "border border-white/10 text-zinc-200"
   return (
     <TooltipProvider delay={200}>
       <div className={workspaceChromeTabStripClassName}>
@@ -581,6 +584,7 @@ export function WorkspacePaneTriggers(props: {
             prefetch({ kind: "files" })
             props.onOpen({ kind: "files" })
           }}
+          className={triggerClassName}
         />
         <HeaderIcon
           label="Graph"
@@ -590,17 +594,20 @@ export function WorkspacePaneTriggers(props: {
             prefetch({ kind: "graph" })
             props.onOpen({ kind: "graph" })
           }}
+          className={triggerClassName}
         />
         <HeaderIcon
           label="Settings"
           icon={<IconSettings stroke={1.6} aria-hidden />}
           onClick={() => props.onOpen({ kind: "settings" })}
+          className={triggerClassName}
         />
         {props.onExpand ? (
           <HeaderIcon
             label="Show pane"
             icon={<IconLayoutSidebarRightExpand stroke={1.6} aria-hidden />}
             onClick={props.onExpand}
+            className={triggerClassName}
           />
         ) : null}
       </div>
