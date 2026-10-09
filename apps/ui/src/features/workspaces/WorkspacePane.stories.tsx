@@ -511,8 +511,8 @@ export const GraphPhasePending: Story = {
     ).toBeVisible()
     const tab = canvas.getByRole("tab", { name: "Graph, building" })
     expect(tab.querySelector(".ctx-indexing-dot")).not.toBeNull()
-    // Wait longer than two workspace poll intervals (2 s each).
-    await new Promise((resolve) => setTimeout(resolve, 4_500))
+    // A graph query that was turned on would fetch at mount. Give it time.
+    await new Promise((resolve) => setTimeout(resolve, 300))
     expect(canvas.queryByText("Could not load graph")).toBeNull()
     expect(graphGets.count).toBe(0)
   },
@@ -536,7 +536,7 @@ export const GraphPhaseFailed: Story = {
     expect(await canvas.findByText("Could not build graph")).toBeVisible()
     expect(
       canvas.getByText(
-        "Could not build the graph. It builds again after the next change to the repository.",
+        "Could not build the graph. It builds again automatically.",
       ),
     ).toBeVisible()
     expect(canvas.getByRole("tab", { name: "Graph" })).toBeVisible()

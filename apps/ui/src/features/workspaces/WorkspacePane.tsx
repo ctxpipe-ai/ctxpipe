@@ -444,8 +444,7 @@ function WorkspaceGraphPaneBody(props: {
       <div className="flex h-full min-h-0 flex-1 items-center justify-center p-6">
         <div className="w-full max-w-md">
           <InlineAlert variant="error" title="Could not build graph">
-            Could not build the graph. It builds again after the next change to
-            the repository.
+            Could not build the graph. It builds again automatically.
           </InlineAlert>
         </div>
       </div>
