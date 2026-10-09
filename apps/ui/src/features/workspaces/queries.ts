@@ -639,19 +639,22 @@ export function conversationGitTreeOptions(
         const cached = client.getQueryData<ConversationGitTreeResponse>(
           workspaceKeys.conversationGitTree(orgSlug, conversationId),
         )
-        if (cached && cached.ready !== false) return cached
+        if (cached && cached.ready !== false) return { ...cached, busy: true }
         return {
           sha: "HEAD",
           paths: [],
           // Unknown until the sandbox answers.
           branch: "",
           ready: false,
+          busy: true,
         }
       }
       const listed = { ...tree, ready: true }
       writeConversationGitTreeSnapshot(conversationId, listed)
       return listed
     },
+    // 409: a turn or a sandbox warmup holds the conversation. Ask again.
+    refetchInterval: (query) => (query.state.data?.busy ? 2000 : false),
     placeholderData: (previousData): ConversationGitTreeResponse | undefined =>
       readConversationGitTreeSnapshot(conversationId) ?? previousData,
     initialData: (): ConversationGitTreeResponse | undefined =>
@@ -670,6 +673,12 @@ export function conversationGitBlobOptions(
   })
 }
 
+class ConversationSandboxBusy extends Error {
+  constructor() {
+    super("Conversation sandbox is not ready")
+  }
+}
+
 export function conversationGitStatusOptions(
   orgSlug: string,
   conversationId: string,
@@ -681,13 +690,23 @@ export function conversationGitStatusOptions(
     ReturnType<typeof workspaceKeys.conversationGitStatus>
   >({
     queryKey: workspaceKeys.conversationGitStatus(orgSlug, conversationId),
-    queryFn: async (): Promise<ConversationGitStatusResponse> => {
+    queryFn: async ({ client }): Promise<ConversationGitStatusResponse> => {
       const status = await fetchConversationGitStatus(orgSlug, conversationId)
       if (!status) {
-        throw new Error("Conversation sandbox is not ready")
+        const cached = client.getQueryData<ConversationGitStatusResponse>(
+          workspaceKeys.conversationGitStatus(orgSlug, conversationId),
+        )
+        if (cached) return { ...cached, busy: true }
+        throw new ConversationSandboxBusy()
       }
       return status
     },
+    // 409: a turn or a sandbox warmup holds the conversation. Ask again.
+    refetchInterval: (query) =>
+      query.state.data?.busy ||
+      query.state.error instanceof ConversationSandboxBusy
+        ? 2000
+        : false,
   })
 }
 
