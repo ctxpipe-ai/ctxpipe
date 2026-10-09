@@ -82,13 +82,7 @@ const WorkspaceSchema = z
   .openapi("Workspace")
 
 const WorkspaceStorePhaseSchema = z
-  .discriminatedUnion("kind", [
-    z.object({ kind: z.enum(["pending", "ready"]) }),
-    z.object({
-      kind: z.literal("failed"),
-      message: z.string().openapi({ description: "Why the store failed." }),
-    }),
-  ])
+  .object({ kind: z.enum(["pending", "ready", "failed"]) })
   .openapi("WorkspaceStorePhase")
 
 const WorkspaceDetailSchema = WorkspaceSchema.extend({
@@ -139,18 +133,14 @@ const DeleteWorkspaceRequestSchema = z
   .openapi("DeleteWorkspaceRequest")
 
 function hydratePhasesView(state: ProjectionState): {
-  graph: DerivedStoreResult
+  graph: { kind: DerivedStoreResult["kind"] }
 } {
   const published = publishedProjection(state)
   // A legacy projection has no graph phase. The graph route reports its state.
   if (published?.kind === "legacy") return { graph: { kind: "ready" } }
-  if (published?.kind === "active") return { graph: published.stores.graph }
-  return {
-    graph:
-      state.kind === "failed"
-        ? { kind: "failed", message: state.error }
-        : { kind: "pending" },
-  }
+  if (published?.kind === "active")
+    return { graph: { kind: published.stores.graph.kind } }
+  return { graph: { kind: state.kind === "failed" ? "failed" : "pending" } }
 }
 
 function serializeWorkspace(

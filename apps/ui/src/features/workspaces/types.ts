@@ -27,9 +27,7 @@ export type WorkspaceSkippedFile = {
   reason: "malformed" | "duplicate_repository"
 }
 
-export type WorkspaceStorePhase =
-  | { kind: "pending" | "ready" }
-  | { kind: "failed"; message: string }
+export type WorkspaceStorePhase = { kind: "pending" | "ready" | "failed" }
 
 export type WorkspaceDetail = Workspace & {
   linkedRepositories: WorkspaceLinkedRepository[]

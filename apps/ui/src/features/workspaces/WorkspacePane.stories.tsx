@@ -524,10 +524,7 @@ export const GraphPhaseFailed: Story = {
     workspace: {
       ...docsWorkspaceDetail,
       hydratePhases: {
-        graph: {
-          kind: "failed",
-          message: "connect ECONNREFUSED falkordb.internal:6379",
-        },
+        graph: { kind: "failed" },
       },
     },
   },
@@ -537,10 +534,9 @@ export const GraphPhaseFailed: Story = {
     expect(await canvas.findByText("Could not build graph")).toBeVisible()
     expect(
       canvas.getByText(
-        "Could not build the graph. Try again later or contact support.",
+        "Could not build the graph. It builds again after the next change to the repository.",
       ),
     ).toBeVisible()
-    expect(canvasElement.textContent).not.toContain("falkordb.internal")
     expect(canvas.getByRole("tab", { name: "Graph" })).toBeVisible()
   },
 }

@@ -181,9 +181,7 @@ it(
           result: { kind: "failed", message: "graph store refused the write" },
         }),
       )
-      expect(await phases()).toEqual({
-        graph: { kind: "failed", message: "graph store refused the write" },
-      })
+      expect(await phases()).toEqual({ graph: { kind: "failed" } })
     })
   },
 )
@@ -287,7 +285,7 @@ it(
           `CREATE FUNCTION public.${fixtureName}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF nextval('public.${fixtureName}_seq') = 1 THEN RAISE EXCEPTION 'fixture graph failure write unavailable'; END IF; RETURN NEW; END; $$`,
         )
         await owner.unsafe(
-          `CREATE TRIGGER ${fixtureName} BEFORE UPDATE ON public.workspaces FOR EACH ROW WHEN (NEW.id = '${f.workspaceId}' AND NEW.hydrate_phases->'graph'->'result'->>'kind' = 'failed') EXECUTE FUNCTION public.${fixtureName}()`,
+          `CREATE TRIGGER ${fixtureName} BEFORE UPDATE ON public.workspaces FOR EACH ROW WHEN (NEW.id = '${f.workspaceId}' AND NEW.hydrate_phases->'graph' IS DISTINCT FROM OLD.hydrate_phases->'graph' AND NEW.hydrate_phases->'graph'->'result'->>'kind' = 'failed') EXECUTE FUNCTION public.${fixtureName}()`,
         )
         await withGraphWriteDenied(f, db, () => f.publish())
         const fired = await owner.unsafe(
