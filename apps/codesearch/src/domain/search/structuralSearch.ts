@@ -1,5 +1,6 @@
 import { realpath } from "node:fs/promises"
 import { isAbsolute, relative, resolve, sep } from "node:path"
+import { hasGitSegment } from "../repositories/paths.js"
 
 export type StructuralSearchMatch = Record<string, unknown>
 
@@ -26,6 +27,9 @@ export async function resolveStructuralSearchPaths(
     paths.map(async (path) => {
       const resolvedPath = await realpath(resolve(resolvedCheckoutPath, path))
       assertWithinCheckout(resolvedCheckoutPath, resolvedPath)
+      if (hasGitSegment(relative(resolvedCheckoutPath, resolvedPath))) {
+        throw new Error("Structural search path is inside .git")
+      }
       return resolvedPath
     }),
   )
@@ -38,19 +42,31 @@ export function buildAstGrepArgv(input: {
   globs?: readonly string[]
   paths: readonly string[]
 }): string[] {
-  const argv = ["ast-grep", "run", "--pattern", input.pattern, "--json=stream"]
+  // Use an empty config. Without --config, ast-grep reads an sgconfig.yml
+  // from the checkout, and codesearch uses only its own config.
+  const argv = [
+    "ast-grep",
+    "run",
+    "--config",
+    "/dev/null",
+    "--pattern",
+    input.pattern,
+    "--json=stream",
+  ]
   if (input.lang) argv.push("--lang", input.lang)
   for (const glob of input.globs ?? []) {
     argv.push("--globs", glob)
   }
-  argv.push("--", ...input.paths)
+  // A user glob makes ast-grep include hidden paths. The last matching glob
+  // wins, so this exclusion must come after every user glob.
+  argv.push("--globs", "!.git", "--", ...input.paths)
   return argv
 }
 
 async function parseMatch(
   line: string,
   checkoutPath: string,
-): Promise<StructuralSearchMatch> {
+): Promise<StructuralSearchMatch | undefined> {
   const value: unknown = JSON.parse(line)
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new Error("ast-grep returned an invalid JSON match")
@@ -62,6 +78,8 @@ async function parseMatch(
     resolve(checkoutPath, (value as StructuralSearchMatch).file as string),
   )
   assertWithinCheckout(checkoutPath, matchPath)
+  // The glob above is case-sensitive, so also drop a match in `.GIT`.
+  if (hasGitSegment(relative(checkoutPath, matchPath))) return undefined
   return value as StructuralSearchMatch
 }
 
@@ -86,7 +104,8 @@ async function readMatches(
       const line = pending.slice(0, newline).trim()
       pending = pending.slice(newline + 1)
       if (line && matches.length < limit) {
-        matches.push(await parseMatch(line, checkoutPath))
+        const match = await parseMatch(line, checkoutPath)
+        if (match) matches.push(match)
       }
       newline = pending.indexOf("\n")
     }
@@ -96,7 +115,8 @@ async function readMatches(
 
   const finalLine = pending.trim()
   if (finalLine && matches.length < limit) {
-    matches.push(await parseMatch(finalLine, checkoutPath))
+    const match = await parseMatch(finalLine, checkoutPath)
+    if (match) matches.push(match)
   }
   return matches
 }

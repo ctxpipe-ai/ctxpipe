@@ -143,9 +143,14 @@ export function registerGraphRoutes(app: OpenAPIHono<AppEnv>) {
 
     const checkoutPath = repoCheckoutPath(repo.orgId, repo.id, body.checkoutKey)
     const graphIndexPath = scipIndexPath(repo.orgId, repo.id, body.checkoutKey)
-    const resolvedFilePath = body.filePath
-      ? resolveSafePath(checkoutPath, body.filePath)
-      : undefined
+    let resolvedFilePath: string | undefined
+    try {
+      resolvedFilePath = body.filePath
+        ? resolveSafePath(checkoutPath, body.filePath)
+        : undefined
+    } catch {
+      return c.json({ error: "Path not found" }, 404)
+    }
 
     const result = await executeScipGraphQuery({
       primitive: body.primitive,
