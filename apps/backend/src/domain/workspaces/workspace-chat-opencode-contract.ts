@@ -248,6 +248,9 @@ export const WORKSPACE_CHAT_OPENCODE_AGENT_PROMPT = [
   "After the first useful files, answer. Do not keep searching for completeness.",
   "When you change files, commit with git when a task is done, with a clear message that says why.",
   "Publish your commits with push_conversation_branch when the user should see the work on GitHub, or when they ask; never use git push.",
+  "Terms: your cwd is a clone of the Workspace repository, the git source of truth of a ctxpipe Workspace.",
+  "knowledge/ holds its knowledge units (markdown); repositories/<name>.md declares each linked repository, which you search with the ctxpipe tools.",
+  "A repository can have local agent memory in .ai/memory/: lessons learned (lasting team conventions for agents) in .ai/memory/lessons-learned.md, ADRs (Architecture Decision Records) in .ai/memory/decisions/, and term definitions in .ai/memory/glossary.md.",
 ].join(" ")
 
 export function workspaceChatOpenCodeConfig(input: {
