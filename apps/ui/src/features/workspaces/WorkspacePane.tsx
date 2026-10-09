@@ -413,7 +413,7 @@ export function WorkspacePane(props: {
   )
 }
 
-function WorkspaceGraphPaneBody(props: {
+export function WorkspaceGraphPaneBody(props: {
   orgSlug: string
   workspaceSlug: string
   onOpenSource?: (path: string) => void
