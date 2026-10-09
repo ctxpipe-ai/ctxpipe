@@ -64,7 +64,7 @@ export function workspacePrepareNeedsPoll(input: {
       writeStatus: input.writeStatus,
     })
   ) {
-    return workspaceHydrateInFlight(input)
+    return workspaceHydrateInFlight(input) || input.writeStatus === "unknown"
   }
   return workspaceHydrateView(input) !== "failed"
 }

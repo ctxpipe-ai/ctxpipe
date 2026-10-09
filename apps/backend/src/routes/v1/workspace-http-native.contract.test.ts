@@ -1,5 +1,5 @@
 import { eq, sql } from "drizzle-orm"
-import { expect, it } from "vitest"
+import { expect, it, vi } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import {
@@ -158,6 +158,86 @@ it(
       expect(
         await withOrgIdContext(f.org, () => getWorkspaceById(f.workspaceId)),
       ).toMatchObject({ id: f.workspaceId })
+    })
+  },
+)
+
+async function tipCheckKeys(orgId: string) {
+  const result = await getSystemDb().execute(sql`
+    select idempotency_key
+    from openworkflow.workflow_runs
+    where input->>'orgId' = ${orgId}
+      and workflow_name = 'workspace-tip-check'
+    order by created_at
+  `)
+  return (result.rows as Array<{ idempotency_key: string | null }>).map(
+    (row) => row.idempotency_key,
+  )
+}
+
+it(
+  "re-checks write access once a minute when Workspace detail is read with an unknown write status",
+  { timeout: 45_000 },
+  async () => {
+    await withNativeHydrationFixture({ github: true }, async (f) => {
+      await f.handle.cancel()
+      const app = workspaceHttpApp(f.org, workspaceRoutes)
+      await withOrgDbContext(f.org.id, (db) =>
+        db
+          .update(workspaces)
+          .set({ writeStatus: "unknown" })
+          .where(eq(workspaces.id, f.workspaceId)),
+      )
+      const before = await tipCheckKeys(f.org.id)
+      // Pin the clock so the three reads share one minute. The route makes
+      // the key before it returns, so the pin covers each key.
+      const now = vi.spyOn(Date, "now").mockReturnValue(Date.now())
+      const minute = Math.floor(Date.now() / 60_000)
+      try {
+        for (let i = 0; i < 3; i++) {
+          const detail = await app.request("/workspaces/knowledge")
+          expect(detail.status).toBe(200)
+          expect(await detail.json()).toMatchObject({ writeStatus: "unknown" })
+        }
+      } finally {
+        now.mockRestore()
+      }
+
+      // Each enqueue uses the same key, so the queue keeps one run for it.
+      await expect
+        .poll(async () => (await tipCheckKeys(f.org.id)).slice(before.length), {
+          timeout: 5_000,
+        })
+        .toEqual([`tip-check-on-read:${f.org.id}:${minute}`])
+    })
+  },
+)
+
+it(
+  "re-checks write access on each Workspace detail read with a read_only write status",
+  { timeout: 45_000 },
+  async () => {
+    await withNativeHydrationFixture({ github: true }, async (f) => {
+      await f.handle.cancel()
+      const app = workspaceHttpApp(f.org, workspaceRoutes)
+      await withOrgDbContext(f.org.id, (db) =>
+        db
+          .update(workspaces)
+          .set({ writeStatus: "read_only" })
+          .where(eq(workspaces.id, f.workspaceId)),
+      )
+      const before = await tipCheckKeys(f.org.id)
+
+      for (let i = 0; i < 2; i++) {
+        const detail = await app.request("/workspaces/knowledge")
+        expect(detail.status).toBe(200)
+      }
+
+      await expect
+        .poll(async () => (await tipCheckKeys(f.org.id)).slice(before.length), {
+          timeout: 5_000,
+        })
+        .toEqual([null, null])
     })
   },
 )

@@ -1,5 +1,5 @@
 import { IconCloudUpload } from "@tabler/icons-react"
-import type { ReactNode } from "react"
+import type { ReactElement, ReactNode } from "react"
 import { Link as AriaLink } from "react-aria-components"
 import { OverlayNavMenuButton } from "@/components/OverlayNavButton"
 import { Button } from "@/components/ui/Button"
@@ -36,6 +36,29 @@ export type ConversationPublishChrome = {
   }
 }
 
+/** Header tooltip on a non-focusable `trigger` element (a span). */
+function ChromeTooltip(props: {
+  trigger: ReactElement
+  content: ReactNode
+  children: ReactNode
+}) {
+  return (
+    <TooltipProvider delay={200}>
+      <Tooltip>
+        <TooltipTrigger render={props.trigger}>{props.children}</TooltipTrigger>
+        <TooltipContent
+          side="bottom"
+          sideOffset={6}
+          className="border-0 bg-zinc-800 text-zinc-100 shadow-md"
+          arrowClassName="bg-zinc-800 fill-zinc-800"
+        >
+          {props.content}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  )
+}
+
 export type ConversationBranchChrome = {
   shortName: string
   fullRef: string
@@ -54,7 +77,10 @@ export function WorkspaceChatChrome(props: {
   publish?: ConversationPublishChrome | null
   children: ReactNode
 }) {
-  const write = writeStatusLabel(props.workspace.writeStatus)
+  const write = writeStatusLabel(
+    props.workspace.writeStatus,
+    props.workspace.readOnlyReason,
+  )
   const publishHasActions = Boolean(
     props.publish &&
       (props.publish.commitPush.visible || props.publish.pullRequest.visible),
@@ -116,16 +142,22 @@ export function WorkspaceChatChrome(props: {
             <div className="ml-auto flex min-w-0 items-end gap-0.5">
               {showWriteBadge ? (
                 <span className="inline-flex h-[37px] shrink-0 items-center">
-                  <span
-                    title={props.workspace.readOnlyReason ?? write.label}
-                    className={
-                      write.tone === "pending"
-                        ? "rounded-md border border-border bg-zinc-800 px-2 py-0.5 text-xs font-medium text-muted-foreground"
-                        : "rounded-md border border-amber-500/80 bg-amber-950 px-2 py-0.5 text-xs font-medium text-amber-200"
+                  <ChromeTooltip
+                    trigger={
+                      <span
+                        className={
+                          write.tone === "pending"
+                            ? "rounded-md border border-border bg-zinc-800 px-2 py-0.5 text-xs font-medium text-muted-foreground"
+                            : "rounded-md border border-amber-500/80 bg-amber-950 px-2 py-0.5 text-xs font-medium text-amber-200"
+                        }
+                      />
                     }
+                    content={write.description}
                   >
                     {write.label}
-                  </span>
+                    {/* The popup shows on hover only; keep the text for assistive tech. */}
+                    <span className="sr-only">: {write.description}</span>
+                  </ChromeTooltip>
                 </span>
               ) : null}
               {publishHasActions && props.publish ? (
@@ -159,41 +191,28 @@ export function ConversationPublishActions(props: {
   return (
     <div className="mb-px flex h-[37px] shrink-0 items-center gap-1">
       {showCommit ? (
-        <TooltipProvider delay={200}>
-          <Tooltip>
-            {/* A span trigger: the tooltip shows on hover also while Sync is disabled. */}
-            <TooltipTrigger
-              render={
-                <span className={cn("inline-flex", props.syncClassName)} />
-              }
-            >
-              <Button
-                variant="ghost"
-                size="default"
-                isDisabled={!commitPush.enabled || commitPush.pending}
-                isPending={commitPush.pending}
-                onPress={commitPush.onPress}
-                aria-label={
-                  commitPush.pending
-                    ? "Syncing: commit and push in progress"
-                    : "Sync: commit and push your changes"
-                }
-                className="h-8 gap-1.5 px-2 text-xs"
-              >
-                <IconCloudUpload className="size-4" stroke={1.6} aria-hidden />
-                {commitPush.pending ? "Syncing…" : "Sync"}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent
-              side="bottom"
-              sideOffset={6}
-              className="border-0 bg-zinc-800 text-zinc-100 shadow-md"
-              arrowClassName="bg-zinc-800 fill-zinc-800"
-            >
-              Commit and push your changes to the conversation branch
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
+        // A span trigger: the tooltip shows on hover also while Sync is disabled.
+        <ChromeTooltip
+          trigger={<span className={cn("inline-flex", props.syncClassName)} />}
+          content="Commit and push your changes to the conversation branch"
+        >
+          <Button
+            variant="ghost"
+            size="default"
+            isDisabled={!commitPush.enabled || commitPush.pending}
+            isPending={commitPush.pending}
+            onPress={commitPush.onPress}
+            aria-label={
+              commitPush.pending
+                ? "Syncing: commit and push in progress"
+                : "Sync: commit and push your changes"
+            }
+            className="h-8 gap-1.5 px-2 text-xs"
+          >
+            <IconCloudUpload className="size-4" stroke={1.6} aria-hidden />
+            {commitPush.pending ? "Syncing…" : "Sync"}
+          </Button>
+        </ChromeTooltip>
       ) : null}
       {showPrLink ? (
         <AriaLink
