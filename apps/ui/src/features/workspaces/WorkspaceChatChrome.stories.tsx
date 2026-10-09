@@ -54,6 +54,13 @@ export const ReadOnly: Story = {
     workspace: readOnlyWorkspace,
     title: "Handbook",
   },
+  play: async ({ canvasElement }) => {
+    const pill = await within(canvasElement).findByText("Read-only")
+    // Assistive tech gets the reason without the hover popup.
+    await expect(pill).toHaveTextContent(
+      "The GitHub App cannot write to this repository.",
+    )
+  },
 }
 
 export const PendingProbe: Story = {
@@ -64,6 +71,12 @@ export const PendingProbe: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const pill = await canvas.findByText("Checking write access")
+    // A span, not a focusable no-op button, with the text for assistive tech.
+    await expect(pill.tagName).toBe("SPAN")
+    await expect(pill).not.toHaveAttribute("tabindex")
+    await expect(pill).toHaveTextContent(
+      "Checking whether the GitHub App can push to this repository",
+    )
     await userEvent.hover(pill)
     const tooltip = await within(canvasElement.ownerDocument.body).findByText(
       "Checking whether the GitHub App can push to this repository",
