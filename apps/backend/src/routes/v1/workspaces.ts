@@ -382,11 +382,15 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
     const workspace = await getWorkspaceBySlug(workspaceSlug)
     if (!workspace) return c.json({ error: "Not found" }, 404)
     const orgId = c.get("orgId")
-    if (orgId && workspace.writeStatus !== WORKSPACE_WRITE_STATUSES.writable) {
+    if (orgId && workspace.writeStatus === WORKSPACE_WRITE_STATUSES.read_only) {
+      // "Then refresh" after an admin fix must start a new probe at once.
+      void enqueueWorkspaceTipCheck(orgId, c.get("log"))
+    }
+    if (orgId && workspace.writeStatus === WORKSPACE_WRITE_STATUSES.unknown) {
       // The UI polls this route while write access is unknown. Enqueue at
       // most one probe per org each minute.
       void enqueueWorkspaceTipCheck(orgId, c.get("log"), {
-        idempotencyKey: `read:${orgId}:${Math.floor(Date.now() / 60_000)}`,
+        idempotencyKey: `tip-check-on-read:${orgId}:${Math.floor(Date.now() / 60_000)}`,
       })
     }
     const linked = await listLinkedRepositories(workspace.id)
