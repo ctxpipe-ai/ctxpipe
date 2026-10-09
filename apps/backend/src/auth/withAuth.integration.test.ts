@@ -14,7 +14,12 @@ import { recordSpans } from "../../test/spans.js"
 import type { AppEnv } from "../app/env.js"
 import { parseEnv } from "../config/env.js"
 import { getSystemDb } from "../db/client.js"
-import { oauthAccessTokens, oauthClients, sessions } from "../db/schema/auth.js"
+import {
+  oauthAccessTokens,
+  oauthClients,
+  organizations,
+  sessions,
+} from "../db/schema/auth.js"
 import { generateObjectId } from "../lib/id.js"
 import { backendOtelMiddleware } from "../observability/http.js"
 import {
@@ -38,6 +43,8 @@ describeWithDatabase("auth attribution (Postgres)", () => {
   let orgKey = ""
   let opaqueToken = ""
   let clientId = ""
+  let otherOrgId = ""
+  let otherOrgSlug = ""
 
   beforeAll(async () => {
     const seed = await seedOrg()
@@ -77,9 +84,23 @@ describeWithDatabase("auth attribution (Postgres)", () => {
       createdAt: new Date(),
       scopes: ["openid"],
     })
+    // An organization the seeded user does not belong to.
+    otherOrgId = generateObjectId("org")
+    otherOrgSlug = `other-${userId.toLowerCase().replace(/[^a-z0-9]/g, "-")}`
+    await db.insert(organizations).values({
+      id: otherOrgId,
+      name: "Other org",
+      slug: otherOrgSlug,
+      createdAt: new Date(),
+    })
   })
 
   afterAll(async () => {
+    if (otherOrgId) {
+      await getSystemDb()
+        .delete(organizations)
+        .where(eq(organizations.id, otherOrgId))
+    }
     if (seeded) await cleanupSeededOrg(seeded)
   })
 
@@ -195,5 +216,63 @@ describeWithDatabase("auth attribution (Postgres)", () => {
     expect(JSON.stringify(spans.serverSpan()?.attributes)).not.toContain(
       opaqueToken,
     )
+  })
+
+  it("tells an MCP client its OAuth grant is for a different organization than orgSlug", async () => {
+    const app = createApp()
+    const response = await app.request(
+      `http://backend.test/mcp?orgSlug=${otherOrgSlug}`,
+      {
+        method: "POST",
+        headers: { authorization: `Bearer ${opaqueToken}` },
+      },
+    )
+    expect(response.status).toBe(400)
+    const body = await response.json()
+    expect(body).toMatchObject({
+      jsonrpc: "2.0",
+      error: { code: -32600 },
+      id: null,
+    })
+    expect(body.error.message).toContain(otherOrgSlug)
+    expect(body.error.message).toContain("different organization")
+    expect(body.error.message).toContain("Reconnect")
+  })
+
+  it("gives an MCP client one answer for an org it cannot access, whether or not the org exists", async () => {
+    const app = createApp()
+    const notMember = await app.request(
+      `http://backend.test/mcp?orgSlug=${otherOrgSlug}`,
+      { method: "POST", headers: { cookie } },
+    )
+    const missingSlug = `missing-${userId.toLowerCase().replace(/[^a-z0-9]/g, "-")}`
+    const missing = await app.request(
+      `http://backend.test/mcp?orgSlug=${missingSlug}`,
+      { method: "POST", headers: { cookie } },
+    )
+
+    expect(notMember.status).toBe(400)
+    expect(missing.status).toBe(400)
+    const notMemberBody = await notMember.json()
+    const missingBody = await missing.json()
+    expect(notMemberBody).toMatchObject({
+      jsonrpc: "2.0",
+      error: { code: -32600 },
+      id: null,
+    })
+    expect(notMemberBody.error.message).toContain(otherOrgSlug)
+    expect(missingBody.error.message).toBe(
+      notMemberBody.error.message.replace(otherOrgSlug, missingSlug),
+    )
+  })
+
+  it("keeps a bare 404 for an inaccessible org outside /mcp", async () => {
+    const app = createApp()
+    const response = await app.request(
+      `http://backend.test/${otherOrgSlug}/api/v1/whoami`,
+      { headers: { cookie } },
+    )
+    expect(response.status).toBe(404)
+    expect(await response.json()).toEqual({ error: "Not found" })
   })
 })
