@@ -85,18 +85,18 @@ describe("POST /{repoId}/graph checkout isolation", () => {
     expect(executeScipGraphQueryMock).not.toHaveBeenCalled()
   })
 
-  it.each([".git/config", "../outside.ts"])(
-    "answers 404 for the file path %s",
-    async (filePath) => {
-      const res = await createTestApp().request("/repo_abcdef27/graph", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ primitive: "get_imports", filePath }),
-      })
+  it.each([
+    ".git/config",
+    "../outside.ts",
+  ])("answers 404 for the file path %s", async (filePath) => {
+    const res = await createTestApp().request("/repo_abcdef27/graph", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ primitive: "get_imports", filePath }),
+    })
 
-      expect(res.status).toBe(404)
-      expect(await res.json()).toEqual({ error: "Path not found" })
-      expect(executeScipGraphQueryMock).not.toHaveBeenCalled()
-    },
-  )
+    expect(res.status).toBe(404)
+    expect(await res.json()).toEqual({ error: "Path not found" })
+    expect(executeScipGraphQueryMock).not.toHaveBeenCalled()
+  })
 })
