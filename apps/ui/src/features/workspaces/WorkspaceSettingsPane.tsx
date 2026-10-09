@@ -224,19 +224,19 @@ export function WorkspaceSettingsPane(props: {
   const deleteMutation = useMutation({
     mutationFn: (name: string) =>
       deleteWorkspace(orgSlug, workspace.slug, name),
-    onSuccess: () => {
+    onSuccess: async () => {
       toast.success("Workspace deleted")
       setDeleteOpen(false)
-      // Home reads this list. Remove the Workspace before Home shows.
+      // Remove the Workspace from the cached list before Home renders.
+      await queryClient.cancelQueries({
+        queryKey: workspaceKeys.list(orgSlug),
+      })
       queryClient.setQueryData<WorkspaceListResponse>(
         workspaceKeys.list(orgSlug),
         (list) =>
           list && {
+            ...list,
             items: list.items.filter((item) => item.id !== workspace.id),
-            lastUsedWorkspaceId:
-              list.lastUsedWorkspaceId === workspace.id
-                ? null
-                : list.lastUsedWorkspaceId,
           },
       )
       void navigate({

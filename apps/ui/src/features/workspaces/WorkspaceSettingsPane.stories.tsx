@@ -268,7 +268,7 @@ export const DeleteConfirmPending: Story = {
 
 /**
  * Delete the only Workspace while Home reads the same list cache. Home must
- * show zero Workspaces at once, also when the list refetch is slow.
+ * show zero Workspaces at once, also when the list request does not complete.
  */
 export const DeleteLastWorkspaceEmptiesHome: Story = {
   render: (args) => (
