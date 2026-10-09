@@ -271,6 +271,50 @@ it(
 )
 
 it(
+  "a graph failure that Postgres refuses to record once still leaves the graph failed",
+  { timeout: 60_000 },
+  async () => {
+    await withGraphHydration({}, async (f, _graph, db) => {
+      const { default: postgres } = await import("postgres")
+      const ownerUrl = new URL(f.databaseUrl)
+      ownerUrl.username = "ctxpipe"
+      const owner = postgres(ownerUrl.toString(), { max: 1 })
+      const fixtureName = `fixture_graph_fail_${f.id}`
+      try {
+        // This disposable database fault refuses only the first failed-graph write of this fixture workspace.
+        await owner.unsafe(`CREATE SEQUENCE public.${fixtureName}_seq`)
+        await owner.unsafe(
+          `CREATE FUNCTION public.${fixtureName}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF nextval('public.${fixtureName}_seq') = 1 THEN RAISE EXCEPTION 'fixture graph failure write unavailable'; END IF; RETURN NEW; END; $$`,
+        )
+        await owner.unsafe(
+          `CREATE TRIGGER ${fixtureName} BEFORE UPDATE ON public.workspaces FOR EACH ROW WHEN (NEW.id = '${f.workspaceId}' AND NEW.hydrate_phases->'graph'->'result'->>'kind' = 'failed') EXECUTE FUNCTION public.${fixtureName}()`,
+        )
+        await withGraphWriteDenied(f, db, () => f.publish())
+        const fired = await owner.unsafe(
+          `SELECT last_value FROM public.${fixtureName}_seq`,
+        )
+        expect({
+          refusedWrites: Number(fired[0]?.last_value),
+          projection: await withOrgIdContext(f.org, () =>
+            getWorkspaceProjection(f.workspaceId),
+          ),
+        }).toMatchObject({
+          refusedWrites: 2,
+          projection: { kind: "active", stores: { graph: { kind: "failed" } } },
+        })
+      } finally {
+        await owner.unsafe(
+          `DROP TRIGGER IF EXISTS ${fixtureName} ON public.workspaces`,
+        )
+        await owner.unsafe(`DROP FUNCTION IF EXISTS public.${fixtureName}()`)
+        await owner.unsafe(`DROP SEQUENCE IF EXISTS public.${fixtureName}_seq`)
+        await owner.end()
+      }
+    })
+  },
+)
+
+it(
   "retries a failed graph from Postgres after the Git remote disappears",
   { timeout: 60_000 },
   async () => {
