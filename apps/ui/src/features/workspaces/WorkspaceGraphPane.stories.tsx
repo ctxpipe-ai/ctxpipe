@@ -58,6 +58,10 @@ export const Loading: Story = {
 }
 
 export const Populated: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(canvas.queryByText(/but no edges yet/)).toBeNull()
+  },
   args: {
     pending: false,
     graph: docsWorkspaceGraph,
@@ -81,6 +85,7 @@ export const WidePane: Story = {
 }
 
 export const NodesWithoutRelationships: Story = {
+  tags: ["workspace-golden"],
   args: {
     pending: false,
     graph: {
@@ -96,7 +101,7 @@ export const NodesWithoutRelationships: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await expect(
-      await canvas.findByText(/has 28 items but no relationships yet/),
+      await canvas.findByText(/has 28 nodes but no edges yet/),
     ).toBeVisible()
   },
 }
