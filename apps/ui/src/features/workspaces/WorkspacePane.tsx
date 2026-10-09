@@ -20,12 +20,14 @@ import { lazy, Suspense, useEffect, useRef } from "react"
 import { type Key, Tab, TabList, TabPanel, Tabs } from "react-aria-components"
 import { OverlayNavMenuButton } from "@/components/OverlayNavButton"
 import { Button } from "@/components/ui/Button"
+import { InlineAlert } from "@/components/ui/InlineAlert"
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/Tooltip"
+import { GraphWaitState } from "@/features/knowledge-graph/GraphWaitState"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { useUrgentValue } from "@/lib/useUrgentValue"
 import { cn } from "@/lib/utils"
@@ -387,7 +389,7 @@ export function WorkspacePane(props: {
               <ClientOnly fallback={<WorkspaceGraphPaneSkeleton />}>
                 <WorkspaceGraphPaneBody
                   orgSlug={props.orgSlug}
-                  workspaceSlug={props.workspace.slug}
+                  workspace={props.workspace}
                   onOpenSource={openFile}
                 />
               </ClientOnly>
@@ -415,17 +417,40 @@ export function WorkspacePane(props: {
 
 export function WorkspaceGraphPaneBody(props: {
   orgSlug: string
-  workspaceSlug: string
+  workspace: WorkspaceDetail
   onOpenSource?: (path: string) => void
 }) {
-  const query = useQuery(
-    workspaceGraphOptions(props.orgSlug, props.workspaceSlug),
-  )
+  // A detail seeded from the list has no phases; then the graph route decides.
+  const phase = props.workspace.hydratePhases?.graph
+  const query = useQuery({
+    ...workspaceGraphOptions(props.orgSlug, props.workspace.slug),
+    enabled: graphPhaseReadable(props.workspace),
+  })
+  if (phase?.kind === "pending")
+    return (
+      <div className="flex h-full min-h-0 flex-1 items-center justify-center p-6">
+        <GraphWaitState
+          title="Building graph"
+          detail="The graph opens when ctx| finishes reading this Workspace."
+          status="Building graph"
+        />
+      </div>
+    )
+  if (phase?.kind === "failed")
+    return (
+      <div className="flex h-full min-h-0 flex-1 items-center justify-center p-6">
+        <div className="w-full max-w-md">
+          <InlineAlert variant="error" title="Could not build graph">
+            {phase.message ?? "The graph build failed."}
+          </InlineAlert>
+        </div>
+      </div>
+    )
   return (
     <Suspense fallback={<WorkspaceGraphPaneSkeleton />}>
       <WorkspaceGraphPane
         orgSlug={props.orgSlug}
-        workspaceSlug={props.workspaceSlug}
+        workspaceSlug={props.workspace.slug}
         graph={query.data}
         pending={query.isPending}
         error={query.error instanceof Error ? query.error : null}
@@ -433,6 +458,11 @@ export function WorkspaceGraphPaneBody(props: {
       />
     </Suspense>
   )
+}
+
+function graphPhaseReadable(workspace: WorkspaceDetail): boolean {
+  const kind = workspace.hydratePhases?.graph.kind
+  return kind !== "pending" && kind !== "failed"
 }
 
 function prefetchWorkspacePane(
@@ -468,7 +498,7 @@ function prefetchWorkspacePane(
     void queryClient.prefetchQuery(
       conversationGitDiffOptions(orgSlug, conversationId),
     )
-  } else if (pane.kind === "graph") {
+  } else if (pane.kind === "graph" && graphPhaseReadable(workspace)) {
     void queryClient.prefetchQuery(
       workspaceGraphOptions(orgSlug, workspace.slug),
     )

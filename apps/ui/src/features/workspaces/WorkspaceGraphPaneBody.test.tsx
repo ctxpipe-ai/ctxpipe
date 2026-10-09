@@ -1,9 +1,9 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
+import type { WorkspaceDetail } from "./types"
 import { WorkspaceGraphPaneBody } from "./WorkspacePane"
 import { docsWorkspaceDetail } from "./workspace-fixtures"
-import type { WorkspaceDetail } from "./types"
 
 function render(graph: NonNullable<WorkspaceDetail["hydratePhases"]>["graph"]) {
   const queryClient = new QueryClient({

@@ -27,10 +27,16 @@ export type WorkspaceSkippedFile = {
   reason: "malformed" | "duplicate_repository"
 }
 
+export type WorkspaceStorePhase =
+  | { kind: "pending" | "ready" }
+  | { kind: "failed"; message?: string }
+
 export type WorkspaceDetail = Workspace & {
   linkedRepositories: WorkspaceLinkedRepository[]
   /** Absent on a detail seeded from the list. */
   skippedFiles?: WorkspaceSkippedFile[]
+  /** Absent on a detail seeded from the list. */
+  hydratePhases?: { graph: WorkspaceStorePhase; index: WorkspaceStorePhase }
 }
 
 export type WorkspaceLinkedRepository = {
