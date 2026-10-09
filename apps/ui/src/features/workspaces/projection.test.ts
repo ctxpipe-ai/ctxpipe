@@ -201,3 +201,30 @@ describe("workspacePrepareNeedsPoll", () => {
     ).toBe(false)
   })
 })
+
+describe("workspacePrepareNeedsPoll graph phase", () => {
+  const ready = {
+    hydrateStatus: "ready",
+    desiredSha: "aaa",
+    activeProjectionSha: "aaa",
+    hydrateError: null,
+  }
+
+  it("keeps polling after ready while the graph phase is pending", () => {
+    expect(
+      workspacePrepareNeedsPoll({
+        ...ready,
+        hydratePhases: { graph: { kind: "pending" } },
+      }),
+    ).toBe(true)
+  })
+
+  it("stops polling once the graph phase is ready", () => {
+    expect(
+      workspacePrepareNeedsPoll({
+        ...ready,
+        hydratePhases: { graph: { kind: "ready" } },
+      }),
+    ).toBe(false)
+  })
+})

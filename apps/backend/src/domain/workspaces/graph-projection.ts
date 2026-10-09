@@ -55,62 +55,48 @@ export async function projectWorkspaceGraph(
   const orgId = requireCurrentOrgId()
   const orgSlug = requireCurrentOrgSlug()
   const projectionKey = workspaceGraphRevisionKey(revision)
-  try {
-    await withGraphClient({ orgId, orgSlug }, async () => {
-      const graph = getGraphClient()
-      // Each claim finds its two units by projectionKey and id. Without this
-      // index, a large repository keeps FalkorDB busy for many minutes.
-      // This statement is FalkorDB syntax. Neptune openCypher has no CREATE INDEX.
-      if (getConfig().provider === "falkordb")
-        await graph
-          .executeQuery(
-            "CREATE INDEX FOR (n:WorkspaceKnowledgeUnit) ON (n.projectionKey, n.id)",
-          )
-          .catch((error: unknown) => {
-            // FalkorDB has no IF NOT EXISTS. A second create gives this error.
-            if (!/already indexed/i.test(String(error))) throw error
-          })
-      const nodes = workspaceGraphNodes(snapshot.units)
-      if (nodes.length)
-        await graph.executeQuery(
-          `UNWIND $nodes AS node
+  await withGraphClient({ orgId, orgSlug }, async () => {
+    const graph = getGraphClient()
+    // Each claim finds its two units by projectionKey and id. Without this
+    // index, a large repository keeps FalkorDB busy for many minutes.
+    // This statement is FalkorDB syntax. Neptune openCypher has no CREATE INDEX.
+    if (getConfig().provider === "falkordb")
+      await graph
+        .executeQuery(
+          "CREATE INDEX FOR (n:WorkspaceKnowledgeUnit) ON (n.projectionKey, n.id)",
+        )
+        .catch((error: unknown) => {
+          // FalkorDB has no IF NOT EXISTS. A second create gives this error.
+          if (!/already indexed/i.test(String(error))) throw error
+        })
+    const nodes = workspaceGraphNodes(snapshot.units)
+    if (nodes.length)
+      await graph.executeQuery(
+        `UNWIND $nodes AS node
         MERGE (n:WorkspaceKnowledgeUnit {projectionKey: $projectionKey, id: node.id})
         SET n.workspaceId = $workspaceId, n.kind = node.kind, n.name = node.name, n.summary = node.summary`,
-          { projectionKey, workspaceId: revision.workspaceId, nodes },
-        )
-      const claims = hydrateUnitsToProjectionClaims(snapshot.units)
-      if (claims.length)
-        await graph.executeQuery(workspaceClaimsQuery, {
-          projectionKey,
-          claims,
-        })
-      await graph.executeQuery(
-        `MERGE (p:WorkspaceProjection {projectionKey: $projectionKey})
-        SET p.workspaceId = $workspaceId, p.revision = $revision, p.nodeCount = $nodeCount, p.claimCount = $claimCount, p.completedAt = $completedAt`,
-        {
-          projectionKey,
-          workspaceId: revision.workspaceId,
-          revision: JSON.stringify(revision),
-          nodeCount: nodes.length,
-          claimCount: claims.length,
-          completedAt: new Date().toISOString(),
-        },
+        { projectionKey, workspaceId: revision.workspaceId, nodes },
       )
-    })
-    return await persistWorkspaceGraphResult({
-      revision,
-      result: { kind: "ready" },
-    })
-  } catch (error) {
-    await persistWorkspaceGraphResult({
-      revision,
-      result: {
-        kind: "failed",
-        message: error instanceof Error ? error.message : String(error),
+    const claims = hydrateUnitsToProjectionClaims(snapshot.units)
+    if (claims.length)
+      await graph.executeQuery(workspaceClaimsQuery, {
+        projectionKey,
+        claims,
+      })
+    await graph.executeQuery(
+      `MERGE (p:WorkspaceProjection {projectionKey: $projectionKey})
+        SET p.workspaceId = $workspaceId, p.revision = $revision, p.nodeCount = $nodeCount, p.claimCount = $claimCount, p.completedAt = $completedAt`,
+      {
+        projectionKey,
+        workspaceId: revision.workspaceId,
+        revision: JSON.stringify(revision),
+        nodeCount: nodes.length,
+        claimCount: claims.length,
+        completedAt: new Date().toISOString(),
       },
-    })
-    throw error
-  }
+    )
+  })
+  return persistWorkspaceGraphResult({ revision, result: { kind: "ready" } })
 }
 
 export class WorkspaceGraphUnavailableError extends Error {

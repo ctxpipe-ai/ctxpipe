@@ -18,6 +18,7 @@ import {
   withGraphClient,
 } from "../../platform/graph/client.js"
 import { workspaceGraphRoutes } from "../../routes/v1/workspace-graph-routes.js"
+import { workspaceRoutes } from "../../routes/v1/workspaces.js"
 import {
   type NativeHydrationFixture,
   type NativeHydrationOptions,
@@ -186,6 +187,36 @@ it(
 )
 
 it(
+  "Workspace HTTP reports the graph phase of the active projection",
+  { timeout: 60_000 },
+  async () => {
+    await withGraphHydration({}, async (f) => {
+      const phases = async () => {
+        const response = await workspaceHttpApp(f.org, workspaceRoutes).request(
+          "/workspaces/knowledge",
+        )
+        return ((await response.json()) as { hydratePhases?: unknown })
+          .hydratePhases
+      }
+      expect(await phases()).toEqual({ graph: { kind: "pending" } })
+      await f.publish()
+      expect(await phases()).toEqual({ graph: { kind: "ready" } })
+      const projection = await withOrgIdContext(f.org, () =>
+        getWorkspaceProjection(f.workspaceId),
+      )
+      if (projection.kind !== "active") throw new Error("projection not active")
+      await withOrgIdContext(f.org, () =>
+        persistWorkspaceGraphResult({
+          revision: projection.revision,
+          result: { kind: "failed", message: "graph store refused the write" },
+        }),
+      )
+      expect(await phases()).toEqual({ graph: { kind: "failed" } })
+    })
+  },
+)
+
+it(
   "chat graph reads report missing Falkor data for their captured revision",
   { timeout: 60_000 },
   async () => {
@@ -263,6 +294,50 @@ it(
         kind: "active",
         stores: { graph: { kind: "failed" }, embeddings: { kind: "ready" } },
       })
+    })
+  },
+)
+
+it(
+  "a graph failure that Postgres refuses to record once still leaves the graph failed",
+  { timeout: 60_000 },
+  async () => {
+    await withGraphHydration({}, async (f, _graph, db) => {
+      const { default: postgres } = await import("postgres")
+      const ownerUrl = new URL(f.databaseUrl)
+      ownerUrl.username = "ctxpipe"
+      const owner = postgres(ownerUrl.toString(), { max: 1 })
+      const fixtureName = `fixture_graph_fail_${f.id}`
+      try {
+        // This disposable database fault refuses only the first failed-graph write of this fixture workspace.
+        await owner.unsafe(`CREATE SEQUENCE public.${fixtureName}_seq`)
+        await owner.unsafe(
+          `CREATE FUNCTION public.${fixtureName}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF nextval('public.${fixtureName}_seq') = 1 THEN RAISE EXCEPTION 'fixture graph failure write unavailable'; END IF; RETURN NEW; END; $$`,
+        )
+        await owner.unsafe(
+          `CREATE TRIGGER ${fixtureName} BEFORE UPDATE ON public.workspaces FOR EACH ROW WHEN (NEW.id = '${f.workspaceId}' AND NEW.hydrate_phases->'graph' IS DISTINCT FROM OLD.hydrate_phases->'graph' AND NEW.hydrate_phases->'graph'->'result'->>'kind' = 'failed') EXECUTE FUNCTION public.${fixtureName}()`,
+        )
+        await withGraphWriteDenied(f, db, () => f.publish())
+        const fired = await owner.unsafe(
+          `SELECT last_value FROM public.${fixtureName}_seq`,
+        )
+        expect({
+          refusedWrites: Number(fired[0]?.last_value),
+          projection: await withOrgIdContext(f.org, () =>
+            getWorkspaceProjection(f.workspaceId),
+          ),
+        }).toMatchObject({
+          refusedWrites: 2,
+          projection: { kind: "active", stores: { graph: { kind: "failed" } } },
+        })
+      } finally {
+        await owner.unsafe(
+          `DROP TRIGGER IF EXISTS ${fixtureName} ON public.workspaces`,
+        )
+        await owner.unsafe(`DROP FUNCTION IF EXISTS public.${fixtureName}()`)
+        await owner.unsafe(`DROP SEQUENCE IF EXISTS public.${fixtureName}_seq`)
+        await owner.end()
+      }
     })
   },
 )

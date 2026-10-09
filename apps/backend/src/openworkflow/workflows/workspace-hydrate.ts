@@ -33,6 +33,7 @@ import {
   persistEmbeddingFailure,
   persistHydrateFailure,
   persistUnitEmbeddings,
+  persistWorkspaceGraphResult,
 } from "../../models/workspaces.js"
 import {
   createLogger,
@@ -348,6 +349,17 @@ export const workspaceHydrate = defineWorkflow(
               } catch (error) {
                 log.error(
                   error instanceof Error ? error : new Error(String(error)),
+                )
+                // A step so that a failed write retries and the graph phase leaves `pending`.
+                await step.run({ name: "persist-graph-failure" }, () =>
+                  persistWorkspaceGraphResult({
+                    revision,
+                    result: {
+                      kind: "failed",
+                      message:
+                        error instanceof Error ? error.message : String(error),
+                    },
+                  }),
                 )
               }
             }

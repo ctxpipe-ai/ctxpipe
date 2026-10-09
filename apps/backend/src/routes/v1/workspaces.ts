@@ -6,6 +6,11 @@ import {
   shouldHydrateBeforeMigrationExport,
 } from "../../domain/workspaces/hydrate.js"
 import {
+  type DerivedStoreResult,
+  type ProjectionState,
+  publishedProjection,
+} from "../../domain/workspaces/revision.js"
+import {
   createWorkspaceLifecycle,
   relinkWorkspaceLifecycle,
   renameWorkspaceLifecycle,
@@ -20,6 +25,7 @@ import {
   listMigrationExportShas,
   listWorkspaces,
   persistHydrateRetry,
+  projectionFromWorkspace,
   touchLastUsedWorkspace,
 } from "../../models/workspaces.js"
 import { enqueueWorkspaceHydrate } from "../../openworkflow/enqueue-workspace-hydrate.js"
@@ -75,7 +81,15 @@ const WorkspaceSchema = z
   })
   .openapi("Workspace")
 
+const WorkspaceStorePhaseSchema = z
+  .object({ kind: z.enum(["pending", "ready", "failed"]) })
+  .openapi("WorkspaceStorePhase")
+
 const WorkspaceDetailSchema = WorkspaceSchema.extend({
+  hydratePhases: z.object({ graph: WorkspaceStorePhaseSchema }).openapi({
+    description:
+      "Graph state of the projection that reads use. `pending` until the first hydrate publishes the graph.",
+  }),
   linkedRepositories: z.array(LinkedRepositorySchema),
   skippedFiles: z.array(WorkspaceSkippedFileSchema).openapi({
     description:
@@ -117,6 +131,17 @@ const DeleteWorkspaceRequestSchema = z
     confirmName: z.string().min(1),
   })
   .openapi("DeleteWorkspaceRequest")
+
+function hydratePhasesView(state: ProjectionState): {
+  graph: { kind: DerivedStoreResult["kind"] }
+} {
+  const published = publishedProjection(state)
+  // A legacy projection has no graph phase. The graph route reports its state.
+  if (published?.kind === "legacy") return { graph: { kind: "ready" } }
+  if (published?.kind === "active")
+    return { graph: { kind: published.stores.graph.kind } }
+  return { graph: { kind: state.kind === "failed" ? "failed" : "pending" } }
+}
 
 function serializeWorkspace(
   row: {
@@ -405,6 +430,7 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
           createdAt: row.createdAt.toISOString(),
         })),
         skippedFiles: workspace.hydratePhases?.skipped ?? [],
+        hydratePhases: hydratePhasesView(projectionFromWorkspace(workspace)),
       },
       200,
     )

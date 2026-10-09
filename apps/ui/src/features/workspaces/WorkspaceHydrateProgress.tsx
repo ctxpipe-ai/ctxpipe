@@ -27,13 +27,13 @@ export function WorkspaceHydrateFailedBody(props: {
     <div className="w-full max-w-md">
       <h1 className="text-lg font-medium tracking-tight">Prepare failed</h1>
       <p className="mt-2 text-sm text-muted-foreground">
-        Chat and the graph wait until hydrate succeeds. Change the Workspace
-        repository in settings, or try again.
+        Chat and the graph open when ctx| can read this repository. Change the
+        Workspace repository in settings, or try again.
       </p>
       <div className="mt-5">
         <InlineAlert
           variant="error"
-          title="Could not hydrate"
+          title="Could not prepare the Workspace"
           actions={
             <Button
               variant="primary"
@@ -44,8 +44,7 @@ export function WorkspaceHydrateFailedBody(props: {
             </Button>
           }
         >
-          {workspace.hydrateError ??
-            "The prepare job failed before a hydrate SHA was ready."}
+          {workspace.hydrateError ?? "ctx| could not read this repository."}
         </InlineAlert>
       </div>
     </div>
@@ -70,7 +69,7 @@ export function WorkspaceHydrateProgress(props: {
       })
     },
   })
-  const sha = workspace.desiredSha
+  const currentStage = view === "waiting_for_tip" ? 0 : 1
 
   if (view === "failed") {
     return (
@@ -88,34 +87,32 @@ export function WorkspaceHydrateProgress(props: {
           Preparing {workspace.displayName}
         </h1>
         <p className="mt-3 text-sm text-muted-foreground">
-          Chat and the graph wait until the first hydrate SHA is the active
-          projection. This Workspace is still importing knowledge from git.
+          ctx| reads the knowledge in this repository. Chat and the graph open
+          when it is done.
         </p>
-        <p className="mt-5 flex items-center gap-2 text-sm">
-          <span className="relative flex h-2 w-2">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-teal-400 opacity-60" />
-            <span className="relative inline-flex h-2 w-2 rounded-full bg-teal-400" />
-          </span>
-          <span>
-            Hydrate {workspace.hydrateStatus}
-            {sha ? (
-              <>
-                {" "}
-                for{" "}
-                <code className="font-mono text-xs tabular-nums">
-                  {sha.slice(0, 12)}
-                </code>
-              </>
-            ) : (
-              ". Waiting for a resolved tip."
-            )}
-          </span>
-        </p>
+        <ol className="mt-5 space-y-2 text-sm">
+          {["Fetching repository", "Reading knowledge"].map((label, index) => (
+            <li
+              key={label}
+              aria-current={index === currentStage ? "step" : undefined}
+              className={
+                index === currentStage
+                  ? "flex items-center gap-2 text-foreground"
+                  : "text-muted-foreground"
+              }
+            >
+              {label}
+              {index === currentStage ? (
+                <span className="ctx-indexing-dot" aria-hidden />
+              ) : null}
+            </li>
+          ))}
+        </ol>
         {view === "waiting_for_tip" ? (
           <div className="mt-5">
             <p className="text-sm text-muted-foreground">
-              Hydrate does not wait on a bootstrap commit. Try again resolves
-              the git tip and hydrates.
+              The latest commit of this repository is not known yet. Select Try
+              again to check the repository.
             </p>
             <div className="mt-4">
               <Button

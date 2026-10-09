@@ -21,12 +21,14 @@ import { lazy, Suspense, useEffect, useRef } from "react"
 import { type Key, Tab, TabList, TabPanel, Tabs } from "react-aria-components"
 import { OverlayNavMenuButton } from "@/components/OverlayNavButton"
 import { Button } from "@/components/ui/Button"
+import { InlineAlert } from "@/components/ui/InlineAlert"
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/Tooltip"
+import { GraphWaitState } from "@/features/knowledge-graph/GraphWaitState"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { useUrgentValue } from "@/lib/useUrgentValue"
 import { cn } from "@/lib/utils"
@@ -42,7 +44,7 @@ import {
   workspaceGitTreeOptions,
   workspaceGraphOptions,
 } from "./queries"
-import type { WorkspaceDetail } from "./types"
+import type { WorkspaceDetail, WorkspaceStorePhase } from "./types"
 import { useConversationPublish } from "./useConversationPublish"
 import { ConversationPublishActions } from "./WorkspaceChatChrome"
 import { WorkspaceConversationDiffPane } from "./WorkspaceConversationDiff"
@@ -97,6 +99,7 @@ export function WorkspacePane(props: {
   const filesTabActive = pane.kind === "files" || pane.kind === "diff"
   const selectedKey = serializePane(pane)
   const paneWidthLocked = props.width != null
+  const graphBuilding = props.workspace.hydratePhases?.graph.kind === "pending"
 
   const prefetchPane = (next: ParsedPane) => {
     prefetchWorkspacePane(
@@ -258,8 +261,9 @@ export function WorkspacePane(props: {
               ) : null}
               <PaneIconTab
                 id="graph"
-                label="Graph"
+                label={graphBuilding ? "Graph, building" : "Graph"}
                 icon={<IconAffiliate stroke={1.6} aria-hidden />}
+                busy={graphBuilding}
                 onIntent={() => prefetchPane({ kind: "graph" })}
               />
               <PaneIconTab
@@ -397,7 +401,7 @@ export function WorkspacePane(props: {
               <ClientOnly fallback={<WorkspaceGraphPaneSkeleton />}>
                 <WorkspaceGraphPaneBody
                   orgSlug={props.orgSlug}
-                  workspaceSlug={props.workspace.slug}
+                  workspace={props.workspace}
                   onOpenSource={openFile}
                 />
               </ClientOnly>
@@ -425,17 +429,41 @@ export function WorkspacePane(props: {
 
 function WorkspaceGraphPaneBody(props: {
   orgSlug: string
-  workspaceSlug: string
+  workspace: WorkspaceDetail
   onOpenSource?: (path: string) => void
 }) {
-  const query = useQuery(
-    workspaceGraphOptions(props.orgSlug, props.workspaceSlug),
-  )
+  // A detail seeded from the list has no phases; then the graph route decides.
+  const phase = props.workspace.hydratePhases?.graph.kind
+  const query = useQuery({
+    ...workspaceGraphOptions(props.orgSlug, props.workspace.slug),
+    enabled: graphReadable(phase),
+  })
+  if (phase === "pending")
+    return (
+      <div className="flex h-full min-h-0 flex-1 items-center justify-center p-6">
+        <GraphWaitState
+          title="Building graph"
+          detail="The graph opens when ctx| finishes reading this Workspace."
+          status="Building graph"
+        />
+      </div>
+    )
+  // The failure message can name internal hosts, so the UI shows plain copy.
+  if (phase === "failed")
+    return (
+      <div className="flex h-full min-h-0 flex-1 items-center justify-center p-6">
+        <div className="w-full max-w-md">
+          <InlineAlert variant="error" title="Could not build graph">
+            Could not build the graph. It builds again automatically.
+          </InlineAlert>
+        </div>
+      </div>
+    )
   return (
     <Suspense fallback={<WorkspaceGraphPaneSkeleton />}>
       <WorkspaceGraphPane
         orgSlug={props.orgSlug}
-        workspaceSlug={props.workspaceSlug}
+        workspaceSlug={props.workspace.slug}
         graph={query.data}
         pending={query.isPending}
         error={query.error instanceof Error ? query.error : null}
@@ -443,6 +471,10 @@ function WorkspaceGraphPaneBody(props: {
       />
     </Suspense>
   )
+}
+
+function graphReadable(phase: WorkspaceStorePhase["kind"] | undefined) {
+  return phase !== "pending" && phase !== "failed"
 }
 
 function prefetchWorkspacePane(
@@ -478,7 +510,10 @@ function prefetchWorkspacePane(
     void queryClient.prefetchQuery(
       conversationGitDiffOptions(orgSlug, conversationId),
     )
-  } else if (pane.kind === "graph") {
+  } else if (
+    pane.kind === "graph" &&
+    graphReadable(workspace.hydratePhases?.graph.kind)
+  ) {
     void queryClient.prefetchQuery(
       workspaceGraphOptions(orgSlug, workspace.slug),
     )
@@ -544,6 +579,7 @@ function PaneIconTab(props: {
   label: string
   icon: ReactNode
   onIntent?: () => void
+  busy?: boolean
 }) {
   return (
     <Tab
@@ -554,13 +590,26 @@ function PaneIconTab(props: {
         cn(workspaceChromeIconTabClassName(isSelected), focusVisibleClassName)
       }
     >
-      <span
-        title={props.label}
-        className="inline-flex size-4 items-center justify-center [&_svg]:size-4 [&_svg]:stroke-[1.6]"
-      >
-        {props.icon}
-      </span>
+      <PaneIcon title={props.label} icon={props.icon} busy={props.busy} />
     </Tab>
+  )
+}
+
+/** Shows a pulse dot on the icon while the work behind it runs. */
+function PaneIcon(props: { icon: ReactNode; busy?: boolean; title?: string }) {
+  return (
+    <span
+      title={props.title}
+      className="relative inline-flex size-4 items-center justify-center [&_svg]:size-4 [&_svg]:stroke-[1.6]"
+    >
+      {props.icon}
+      {props.busy ? (
+        <span
+          className="ctx-indexing-dot absolute -top-0.5 -right-0.5"
+          aria-hidden
+        />
+      ) : null}
+    </span>
   )
 }
 
@@ -581,6 +630,7 @@ export function WorkspacePaneTriggers(props: {
       props.conversationId,
     )
   }
+  const graphBuilding = props.workspace.hydratePhases?.graph.kind === "pending"
   // These stand alone in the chat header, so they need a hairline to read as controls.
   const triggerClassName = "border border-white/10 text-zinc-200"
   return (
@@ -597,8 +647,9 @@ export function WorkspacePaneTriggers(props: {
           className={triggerClassName}
         />
         <HeaderIcon
-          label="Graph"
+          label={graphBuilding ? "Graph, building" : "Graph"}
           icon={<IconAffiliate stroke={1.6} aria-hidden />}
+          busy={graphBuilding}
           onIntent={() => prefetch({ kind: "graph" })}
           onClick={() => {
             prefetch({ kind: "graph" })
@@ -632,6 +683,7 @@ function HeaderIcon(props: {
   onClick: () => void
   onIntent?: () => void
   className?: string
+  busy?: boolean
 }) {
   return (
     <Tooltip>
@@ -645,9 +697,7 @@ function HeaderIcon(props: {
           props.className,
         )}
       >
-        <span className="inline-flex size-4 items-center justify-center [&_svg]:size-4 [&_svg]:stroke-[1.6]">
-          {props.icon}
-        </span>
+        <PaneIcon icon={props.icon} busy={props.busy} />
       </TooltipTrigger>
       <TooltipContent
         side="bottom"
