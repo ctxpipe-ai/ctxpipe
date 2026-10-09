@@ -314,6 +314,7 @@ function SelectGitHubPanel(props: {
           repos={props.filteredRepos}
           selectedIds={props.selectedIds}
           onToggle={props.onToggle}
+          selectionMode="single"
           className="rounded-md border-border bg-zinc-900/40"
         />
       )}

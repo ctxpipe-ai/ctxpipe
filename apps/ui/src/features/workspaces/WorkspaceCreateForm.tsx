@@ -44,11 +44,10 @@ export function WorkspaceCreateForm(props: {
     <div className="w-full">
       <h1 className="text-lg font-medium tracking-tight">Add Workspace</h1>
       <p className="mt-2 text-sm text-muted-foreground">
-        Select the repository that will be the source of truth for all the
-        context in this Workspace.
-        {after === "settings"
-          ? " You can add more repositories in Settings after you create."
-          : null}
+        Pick one repository to be this Workspace’s repository. ctxpipe writes
+        the Workspace’s knowledge and connector files into it and reads its
+        code. A monorepo works as one repository. You can link more repositories
+        for code search in Settings after you create the Workspace.
       </p>
       <div className="mt-6">
         <WorkspaceRepositoryPicker
