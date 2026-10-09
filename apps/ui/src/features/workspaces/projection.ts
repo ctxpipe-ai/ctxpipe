@@ -1,3 +1,5 @@
+import type { WorkspaceStorePhase } from "./types"
+
 export type WorkspaceHydrateView =
   | "waiting_for_tip"
   | "hydrating"
@@ -55,7 +57,7 @@ export function workspacePrepareNeedsPoll(input: {
   activeProjectionSha?: string | null
   migrationExportSha?: string | null
   writeStatus?: string | null
-  hydratePhases?: { graph: { kind: string } }
+  hydratePhases?: { graph: WorkspaceStorePhase }
 }): boolean {
   if (
     workspaceProjectionReady({

@@ -458,6 +458,168 @@ export const GraphLoading: Story = {
   },
 }
 
+const graphPaneRoute = {
+  pattern: "orgWorkspace",
+  orgSlug: "acme",
+  workspaceSlug: "docs",
+  pane: "graph",
+} satisfies StoryRouteParams
+
+const graphGets = { count: 0 }
+
+/** The graph phase is pending: the pane waits and does not read the graph. */
+export const GraphPhasePending: Story = {
+  tags: ["workspace-golden"],
+  args: {
+    pane: { kind: "graph" },
+    workspace: {
+      ...docsWorkspaceDetail,
+      hydratePhases: { graph: { kind: "pending" } },
+    },
+  },
+  beforeEach: () => {
+    graphGets.count = 0
+  },
+  parameters: {
+    storyRoute: graphPaneRoute,
+    msw: {
+      handlers: {
+        page: [
+          http.get(
+            ({ request }) =>
+              /\/api\/v1\/workspaces\/[^/]+\/graph$/.test(
+                new URL(request.url).pathname,
+              ),
+            () => {
+              graphGets.count += 1
+              return HttpResponse.json(
+                { error: "Workspace graph projection is unavailable." },
+                { status: 503 },
+              )
+            },
+          ),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    expect(
+      await canvas.findByText(
+        "The graph opens when ctx| finishes reading this Workspace.",
+      ),
+    ).toBeVisible()
+    const tab = canvas.getByRole("tab", { name: "Graph, building" })
+    expect(tab.querySelector(".ctx-indexing-dot")).not.toBeNull()
+    expect(canvas.queryByText("Could not load graph")).toBeNull()
+    expect(graphGets.count).toBe(0)
+  },
+}
+
+/** The graph phase failed: the pane shows plain copy, not the store error. */
+export const GraphPhaseFailed: Story = {
+  tags: ["workspace-golden"],
+  args: {
+    pane: { kind: "graph" },
+    workspace: {
+      ...docsWorkspaceDetail,
+      hydratePhases: {
+        graph: {
+          kind: "failed",
+          message: "connect ECONNREFUSED falkordb.internal:6379",
+        },
+      },
+    },
+  },
+  parameters: { storyRoute: graphPaneRoute },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    expect(await canvas.findByText("Could not build graph")).toBeVisible()
+    expect(
+      canvas.getByText(
+        "Could not build the graph. Try again later or contact support.",
+      ),
+    ).toBeVisible()
+    expect(canvasElement.textContent).not.toContain("falkordb.internal")
+    expect(canvas.getByRole("tab", { name: "Graph" })).toBeVisible()
+  },
+}
+
+/** The graph phase is ready but the graph route fails: the route error shows. */
+export const GraphPhaseReadyStoreUnavailable: Story = {
+  tags: ["workspace-golden"],
+  args: {
+    pane: { kind: "graph" },
+    workspace: {
+      ...docsWorkspaceDetail,
+      hydratePhases: { graph: { kind: "ready" } },
+    },
+  },
+  parameters: {
+    storyRoute: graphPaneRoute,
+    msw: {
+      handlers: {
+        page: [
+          http.get(
+            ({ request }) =>
+              /\/api\/v1\/workspaces\/[^/]+\/graph$/.test(
+                new URL(request.url).pathname,
+              ),
+            () =>
+              HttpResponse.json(
+                { error: "Workspace graph projection is unavailable." },
+                { status: 503 },
+              ),
+          ),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    expect(
+      await canvas.findByText("Could not load graph", undefined, {
+        timeout: 15_000,
+      }),
+    ).toBeVisible()
+    expect(canvas.queryByText("Building graph")).toBeNull()
+  },
+}
+
+/** Collapsed pane: the Graph trigger shows a busy dot while the graph builds. */
+export const TriggersGraphBuilding: Story = {
+  tags: ["workspace-golden"],
+  args: {
+    workspace: {
+      ...docsWorkspaceDetail,
+      hydratePhases: { graph: { kind: "pending" } },
+    },
+  },
+  render: (args) => (
+    <div className="flex h-full min-w-0 flex-1 items-start justify-end p-4">
+      <WorkspacePaneTriggers
+        orgSlug={args.orgSlug}
+        workspace={args.workspace}
+        onOpen={args.onPane}
+      />
+    </div>
+  ),
+  play: async ({ args, canvasElement }) => {
+    const canvas = within(canvasElement)
+    const trigger = await canvas.findByRole("button", {
+      name: "Graph, building",
+    })
+    expect(trigger.querySelector(".ctx-indexing-dot")).not.toBeNull()
+    expect(
+      canvas
+        .getByRole("button", { name: "Files" })
+        .querySelector(".ctx-indexing-dot"),
+    ).toBeNull()
+    await userEvent.click(trigger)
+    expect(args.onPane).toHaveBeenCalledWith({ kind: "graph" })
+  },
+}
+
 export const Settings: Story = {
   args: { pane: { kind: "settings" } },
   parameters: {

@@ -13,6 +13,14 @@ export const requiredStories = [
   "StableRequestBudget",
   "StableFilesRequestBudget",
   "DeletedFileStaysUntilMerged",
+  "GraphPhasePending",
+  "GraphPhaseFailed",
+  "GraphPhaseReadyStoreUnavailable",
+  "TriggersGraphBuilding",
+  "PrepareReadingKnowledge",
+  "PrepareWaitingForTip",
+  "PrepareFailed",
+  "PreparePendingWithError",
 ]
 
 export function isGoldenPlaySuccess(phase) {

@@ -29,14 +29,14 @@ export type WorkspaceSkippedFile = {
 
 export type WorkspaceStorePhase =
   | { kind: "pending" | "ready" }
-  | { kind: "failed"; message?: string }
+  | { kind: "failed"; message: string }
 
 export type WorkspaceDetail = Workspace & {
   linkedRepositories: WorkspaceLinkedRepository[]
   /** Absent on a detail seeded from the list. */
   skippedFiles?: WorkspaceSkippedFile[]
   /** Absent on a detail seeded from the list. */
-  hydratePhases?: { graph: WorkspaceStorePhase; index: WorkspaceStorePhase }
+  hydratePhases?: { graph: WorkspaceStorePhase }
 }
 
 export type WorkspaceLinkedRepository = {

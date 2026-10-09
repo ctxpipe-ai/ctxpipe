@@ -43,7 +43,7 @@ import {
   workspaceGitTreeOptions,
   workspaceGraphOptions,
 } from "./queries"
-import type { WorkspaceDetail } from "./types"
+import type { WorkspaceDetail, WorkspaceStorePhase } from "./types"
 import { useConversationPublish } from "./useConversationPublish"
 import { ConversationPublishActions } from "./WorkspaceChatChrome"
 import { WorkspaceConversationDiffPane } from "./WorkspaceConversationDiff"
@@ -98,6 +98,7 @@ export function WorkspacePane(props: {
   const filesTabActive = pane.kind === "files" || pane.kind === "diff"
   const selectedKey = serializePane(pane)
   const paneWidthLocked = props.width != null
+  const graphBuilding = props.workspace.hydratePhases?.graph.kind === "pending"
 
   const prefetchPane = (next: ParsedPane) => {
     prefetchWorkspacePane(
@@ -250,8 +251,9 @@ export function WorkspacePane(props: {
               ) : null}
               <PaneIconTab
                 id="graph"
-                label="Graph"
+                label={graphBuilding ? "Graph, building" : "Graph"}
                 icon={<IconAffiliate stroke={1.6} aria-hidden />}
+                busy={graphBuilding}
                 onIntent={() => prefetchPane({ kind: "graph" })}
               />
               <PaneIconTab
@@ -415,18 +417,18 @@ export function WorkspacePane(props: {
   )
 }
 
-export function WorkspaceGraphPaneBody(props: {
+function WorkspaceGraphPaneBody(props: {
   orgSlug: string
   workspace: WorkspaceDetail
   onOpenSource?: (path: string) => void
 }) {
   // A detail seeded from the list has no phases; then the graph route decides.
-  const phase = props.workspace.hydratePhases?.graph
+  const phase = props.workspace.hydratePhases?.graph.kind
   const query = useQuery({
     ...workspaceGraphOptions(props.orgSlug, props.workspace.slug),
-    enabled: graphPhaseReadable(props.workspace),
+    enabled: graphReadable(phase),
   })
-  if (phase?.kind === "pending")
+  if (phase === "pending")
     return (
       <div className="flex h-full min-h-0 flex-1 items-center justify-center p-6">
         <GraphWaitState
@@ -436,12 +438,13 @@ export function WorkspaceGraphPaneBody(props: {
         />
       </div>
     )
-  if (phase?.kind === "failed")
+  // The failure message can name internal hosts, so the UI shows plain copy.
+  if (phase === "failed")
     return (
       <div className="flex h-full min-h-0 flex-1 items-center justify-center p-6">
         <div className="w-full max-w-md">
           <InlineAlert variant="error" title="Could not build graph">
-            {phase.message ?? "The graph build failed."}
+            Could not build the graph. Try again later or contact support.
           </InlineAlert>
         </div>
       </div>
@@ -460,9 +463,8 @@ export function WorkspaceGraphPaneBody(props: {
   )
 }
 
-function graphPhaseReadable(workspace: WorkspaceDetail): boolean {
-  const kind = workspace.hydratePhases?.graph.kind
-  return kind !== "pending" && kind !== "failed"
+function graphReadable(phase: WorkspaceStorePhase["kind"] | undefined) {
+  return phase !== "pending" && phase !== "failed"
 }
 
 function prefetchWorkspacePane(
@@ -498,7 +500,10 @@ function prefetchWorkspacePane(
     void queryClient.prefetchQuery(
       conversationGitDiffOptions(orgSlug, conversationId),
     )
-  } else if (pane.kind === "graph" && graphPhaseReadable(workspace)) {
+  } else if (
+    pane.kind === "graph" &&
+    graphReadable(workspace.hydratePhases?.graph.kind)
+  ) {
     void queryClient.prefetchQuery(
       workspaceGraphOptions(orgSlug, workspace.slug),
     )
@@ -564,6 +569,7 @@ function PaneIconTab(props: {
   label: string
   icon: ReactNode
   onIntent?: () => void
+  busy?: boolean
 }) {
   return (
     <Tab
@@ -574,13 +580,26 @@ function PaneIconTab(props: {
         cn(workspaceChromeIconTabClassName(isSelected), focusVisibleClassName)
       }
     >
-      <span
-        title={props.label}
-        className="inline-flex size-4 items-center justify-center [&_svg]:size-4 [&_svg]:stroke-[1.6]"
-      >
-        {props.icon}
-      </span>
+      <PaneIcon title={props.label} icon={props.icon} busy={props.busy} />
     </Tab>
+  )
+}
+
+/** Shows a pulse dot on the icon while the work behind it runs. */
+function PaneIcon(props: { icon: ReactNode; busy?: boolean; title?: string }) {
+  return (
+    <span
+      title={props.title}
+      className="relative inline-flex size-4 items-center justify-center [&_svg]:size-4 [&_svg]:stroke-[1.6]"
+    >
+      {props.icon}
+      {props.busy ? (
+        <span
+          className="ctx-indexing-dot absolute -top-0.5 -right-0.5"
+          aria-hidden
+        />
+      ) : null}
+    </span>
   )
 }
 
@@ -601,6 +620,7 @@ export function WorkspacePaneTriggers(props: {
       props.conversationId,
     )
   }
+  const graphBuilding = props.workspace.hydratePhases?.graph.kind === "pending"
   // These stand alone in the chat header, so they need a hairline to read as controls.
   const triggerClassName = "border border-white/10 text-zinc-200"
   return (
@@ -617,13 +637,9 @@ export function WorkspacePaneTriggers(props: {
           className={triggerClassName}
         />
         <HeaderIcon
-          label={
-            props.workspace.hydratePhases?.graph.kind === "pending"
-              ? "Graph, building"
-              : "Graph"
-          }
+          label={graphBuilding ? "Graph, building" : "Graph"}
           icon={<IconAffiliate stroke={1.6} aria-hidden />}
-          busy={props.workspace.hydratePhases?.graph.kind === "pending"}
+          busy={graphBuilding}
           onIntent={() => prefetch({ kind: "graph" })}
           onClick={() => {
             prefetch({ kind: "graph" })
@@ -657,7 +673,6 @@ function HeaderIcon(props: {
   onClick: () => void
   onIntent?: () => void
   className?: string
-  /** Shows a pulse dot while the work behind this trigger runs. */
   busy?: boolean
 }) {
   return (
@@ -672,15 +687,7 @@ function HeaderIcon(props: {
           props.className,
         )}
       >
-        <span className="relative inline-flex size-4 items-center justify-center [&_svg]:size-4 [&_svg]:stroke-[1.6]">
-          {props.icon}
-          {props.busy ? (
-            <span
-              className="ctx-indexing-dot absolute -top-0.5 -right-0.5"
-              aria-hidden
-            />
-          ) : null}
-        </span>
+        <PaneIcon icon={props.icon} busy={props.busy} />
       </TooltipTrigger>
       <TooltipContent
         side="bottom"

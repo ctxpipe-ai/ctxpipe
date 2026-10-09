@@ -195,10 +195,7 @@ describe("workspacePrepareNeedsPoll graph phase", () => {
     expect(
       workspacePrepareNeedsPoll({
         ...ready,
-        hydratePhases: {
-          graph: { kind: "pending" },
-          index: { kind: "ready" },
-        },
+        hydratePhases: { graph: { kind: "pending" } },
       }),
     ).toBe(true)
   })
@@ -207,7 +204,7 @@ describe("workspacePrepareNeedsPoll graph phase", () => {
     expect(
       workspacePrepareNeedsPoll({
         ...ready,
-        hydratePhases: { graph: { kind: "ready" }, index: { kind: "ready" } },
+        hydratePhases: { graph: { kind: "ready" } },
       }),
     ).toBe(false)
   })

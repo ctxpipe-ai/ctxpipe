@@ -27,13 +27,13 @@ export function WorkspaceHydrateFailedBody(props: {
     <div className="w-full max-w-md">
       <h1 className="text-lg font-medium tracking-tight">Prepare failed</h1>
       <p className="mt-2 text-sm text-muted-foreground">
-        Chat and the graph wait until hydrate succeeds. Change the Workspace
-        repository in settings, or try again.
+        Chat and the graph open when ctx| can read this repository. Change the
+        Workspace repository in settings, or try again.
       </p>
       <div className="mt-5">
         <InlineAlert
           variant="error"
-          title="Could not hydrate"
+          title="Could not prepare the Workspace"
           actions={
             <Button
               variant="primary"
@@ -44,8 +44,7 @@ export function WorkspaceHydrateFailedBody(props: {
             </Button>
           }
         >
-          {workspace.hydrateError ??
-            "The prepare job failed before a hydrate SHA was ready."}
+          {workspace.hydrateError ?? "ctx| could not read this repository."}
         </InlineAlert>
       </div>
     </div>
@@ -92,27 +91,28 @@ export function WorkspaceHydrateProgress(props: {
           when it is done.
         </p>
         <ol className="mt-5 space-y-2 text-sm">
-          {["Fetching repository", "Reading knowledge", "Building graph"].map(
-            (label, index) => (
-              <li
-                key={label}
-                aria-current={index === currentStage ? "step" : undefined}
-                className={
-                  index === currentStage
-                    ? "flex items-center gap-2 text-foreground after:size-2 after:animate-pulse after:rounded-full after:bg-teal-400"
-                    : "text-muted-foreground"
-                }
-              >
-                {label}
-              </li>
-            ),
-          )}
+          {["Fetching repository", "Reading knowledge"].map((label, index) => (
+            <li
+              key={label}
+              aria-current={index === currentStage ? "step" : undefined}
+              className={
+                index === currentStage
+                  ? "flex items-center gap-2 text-foreground"
+                  : "text-muted-foreground"
+              }
+            >
+              {label}
+              {index === currentStage ? (
+                <span className="ctx-indexing-dot" aria-hidden />
+              ) : null}
+            </li>
+          ))}
         </ol>
         {view === "waiting_for_tip" ? (
           <div className="mt-5">
             <p className="text-sm text-muted-foreground">
-              The latest commit of this repository is not known yet. Try again
-              to check the repository again.
+              The latest commit of this repository is not known yet. Select Try
+              again to check the repository.
             </p>
             <div className="mt-4">
               <Button
