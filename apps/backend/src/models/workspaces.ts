@@ -215,7 +215,7 @@ function desiredWorkspaceRevision(
   })
 }
 
-function projectionFromWorkspace(row: WorkspaceRecord): ProjectionState {
+export function projectionFromWorkspace(row: WorkspaceRecord): ProjectionState {
   const desired = desiredWorkspaceRevision(row)
   const index = row.hydratePhases?.index
   const active = row.activeRevision

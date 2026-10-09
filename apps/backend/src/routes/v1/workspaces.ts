@@ -21,11 +21,11 @@ import {
   deleteWorkspace,
   getMigrationExportSha,
   getWorkspaceBySlug,
-  getWorkspaceProjection,
   listLinkedRepositories,
   listMigrationExportShas,
   listWorkspaces,
   persistHydrateRetry,
+  projectionFromWorkspace,
   touchLastUsedWorkspace,
 } from "../../models/workspaces.js"
 import { enqueueWorkspaceHydrate } from "../../openworkflow/enqueue-workspace-hydrate.js"
@@ -82,24 +82,20 @@ const WorkspaceSchema = z
   .openapi("Workspace")
 
 const WorkspaceStorePhaseSchema = z
-  .object({
-    kind: z.enum(["pending", "ready", "failed"]),
-    message: z.string().optional().openapi({
-      description: "Why the store failed. Only when `kind` is `failed`.",
+  .discriminatedUnion("kind", [
+    z.object({ kind: z.enum(["pending", "ready"]) }),
+    z.object({
+      kind: z.literal("failed"),
+      message: z.string().openapi({ description: "Why the store failed." }),
     }),
-  })
+  ])
   .openapi("WorkspaceStorePhase")
 
 const WorkspaceDetailSchema = WorkspaceSchema.extend({
-  hydratePhases: z
-    .object({
-      graph: WorkspaceStorePhaseSchema,
-      index: WorkspaceStorePhaseSchema,
-    })
-    .openapi({
-      description:
-        "Graph and code index state of the projection that reads use. `pending` until the first hydrate publishes the store.",
-    }),
+  hydratePhases: z.object({ graph: WorkspaceStorePhaseSchema }).openapi({
+    description:
+      "Graph state of the projection that reads use. `pending` until the first hydrate publishes the graph.",
+  }),
   linkedRepositories: z.array(LinkedRepositorySchema),
   skippedFiles: z.array(WorkspaceSkippedFileSchema).openapi({
     description:
@@ -142,24 +138,19 @@ const DeleteWorkspaceRequestSchema = z
   })
   .openapi("DeleteWorkspaceRequest")
 
-function storePhase(result: DerivedStoreResult): DerivedStoreResult {
-  return result.kind === "failed"
-    ? { kind: "failed", message: result.message }
-    : { kind: result.kind }
-}
-
-function hydratePhasesView(state: ProjectionState) {
+function hydratePhasesView(state: ProjectionState): {
+  graph: DerivedStoreResult
+} {
   const published = publishedProjection(state)
-  if (published?.kind === "active")
-    return {
-      graph: storePhase(published.stores.graph),
-      index: storePhase(published.stores.index),
-    }
-  const phase: DerivedStoreResult =
-    state.kind === "failed"
-      ? { kind: "failed", message: state.error }
-      : { kind: "pending" }
-  return { graph: phase, index: phase }
+  // A legacy projection has no graph phase. The graph route reports its state.
+  if (published?.kind === "legacy") return { graph: { kind: "ready" } }
+  if (published?.kind === "active") return { graph: published.stores.graph }
+  return {
+    graph:
+      state.kind === "failed"
+        ? { kind: "failed", message: state.error }
+        : { kind: "pending" },
+  }
 }
 
 function serializeWorkspace(
@@ -441,9 +432,7 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
           createdAt: row.createdAt.toISOString(),
         })),
         skippedFiles: workspace.hydratePhases?.skipped ?? [],
-        hydratePhases: hydratePhasesView(
-          await getWorkspaceProjection(workspace.id),
-        ),
+        hydratePhases: hydratePhasesView(projectionFromWorkspace(workspace)),
       },
       200,
     )

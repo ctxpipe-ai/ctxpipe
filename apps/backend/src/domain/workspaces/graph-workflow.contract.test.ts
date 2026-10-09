@@ -157,7 +157,7 @@ it(
 )
 
 it(
-  "Workspace HTTP reports the graph and index phases of the active projection",
+  "Workspace HTTP reports the graph phase of the active projection",
   { timeout: 60_000 },
   async () => {
     await withGraphHydration({}, async (f) => {
@@ -168,12 +168,9 @@ it(
         return ((await response.json()) as { hydratePhases?: unknown })
           .hydratePhases
       }
-      expect(await phases()).toEqual({
-        graph: { kind: "pending" },
-        index: { kind: "pending" },
-      })
+      expect(await phases()).toEqual({ graph: { kind: "pending" } })
       await f.publish()
-      expect(await phases()).toMatchObject({ graph: { kind: "ready" } })
+      expect(await phases()).toEqual({ graph: { kind: "ready" } })
       const projection = await withOrgIdContext(f.org, () =>
         getWorkspaceProjection(f.workspaceId),
       )
@@ -184,7 +181,7 @@ it(
           result: { kind: "failed", message: "graph store refused the write" },
         }),
       )
-      expect(await phases()).toMatchObject({
+      expect(await phases()).toEqual({
         graph: { kind: "failed", message: "graph store refused the write" },
       })
     })
