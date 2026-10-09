@@ -171,7 +171,8 @@ const listTreeRoute = createRoute({
     },
     409: {
       content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Chat sandbox missing",
+      description:
+        "Chat sandbox missing, or turn_running: a turn holds the conversation now (ask again later)",
     },
   },
 })
@@ -246,7 +247,8 @@ const getStatusRoute = createRoute({
     },
     409: {
       content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Chat sandbox missing",
+      description:
+        "Chat sandbox missing, or turn_running: a turn holds the conversation now (ask again later)",
     },
   },
 })
@@ -462,8 +464,19 @@ async function conversationFileSnapshot(input: {
 }
 
 type ConversationFileEnv = AppEnv & {
-  Variables: { sandboxAbortSignal: AbortSignal }
+  Variables: { sandboxAbortSignal: AbortSignal; readWithoutWait?: boolean }
 }
+/**
+ * A turn holds the conversation lock until its reply ends. The Files pane
+ * polls the tree and status, so these reads do not wait for the lock: when a
+ * turn holds it, they answer 409 `turn_running` and the pane polls again.
+ */
+const readWithoutWait = createMiddleware<ConversationFileEnv>(
+  async (c, next) => {
+    c.set("readWithoutWait", true)
+    await next()
+  },
+)
 const withConversationFileLock = createMiddleware<ConversationFileEnv>(
   async (c, next) => {
     if (!requireUser(c)) return c.json({ error: "Unauthorized" }, 401)
@@ -478,38 +491,30 @@ const withConversationFileLock = createMiddleware<ConversationFileEnv>(
     c.req.raw.signal.addEventListener("abort", onRequestAbort, { once: true })
     if (c.req.raw.signal.aborted) onRequestAbort()
     c.set("sandboxAbortSignal", controller.signal)
+    const orgId = loaded.conversation.orgId
     const key = `chat-thread:${conversationId}`
     try {
-      // A turn holds the lock until its reply ends. The Files pane polls the
-      // tree and status, so these reads do not wait: 409 keeps its last tree.
-      if (
-        c.req.method === "GET" &&
-        /\/files\/(tree|status)$/.test(c.req.path)
-      ) {
+      if (c.get("readWithoutWait")) {
         const read = await withSandboxLockIfFree(
-          loaded.conversation.orgId,
+          orgId,
           key,
-          async (signal) => {
-            c.set(
-              "sandboxAbortSignal",
-              AbortSignal.any([signal, controller.signal]),
-            )
-            await next()
-          },
+          () => next(),
+          controller,
         )
-        if (read.busy) return c.json({ error: "conversation_busy" }, 409)
+        if (read.busy) return c.json({ error: "turn_running" }, 409)
         return
       }
-      return await postgresSandboxLocks(
-        loaded.conversation.orgId,
-        controller,
-      ).withLock(key, () => next())
+      return await postgresSandboxLocks(orgId, controller).withLock(key, () =>
+        next(),
+      )
     } finally {
       c.req.raw.signal.removeEventListener("abort", onRequestAbort)
     }
   },
 )
 const fileRoutes = new OpenAPIHono<ConversationFileEnv>()
+fileRoutes.get("/:conversationId/files/tree", readWithoutWait)
+fileRoutes.get("/:conversationId/files/status", readWithoutWait)
 fileRoutes.use("/:conversationId/files/*", withConversationFileLock)
 export const conversationFileRoutes = fileRoutes
   .openapi(listTreeRoute, async (c) => {
