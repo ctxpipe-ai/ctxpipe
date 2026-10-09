@@ -61,3 +61,22 @@ export const workspaceChromeCardPaneClassName = [
   "bg-card text-card-foreground",
   workspaceChromeCardFlushClassName,
 ].join(" ")
+
+/**
+ * Conversation column beside the tools pane. Maximise collapses it with a
+ * flex-grow transition instead of `hidden`, so the pane widens smoothly;
+ * the caller also sets `inert` while it is collapsed.
+ */
+export function workspaceChatColumnClassName(input: {
+  maximized: boolean
+  paneOpen: boolean
+}): string {
+  return [
+    "flex h-full min-h-0 min-w-0 flex-1 transition-[flex-grow,opacity] duration-200 ease-out",
+    input.maximized
+      ? "grow-0 overflow-hidden opacity-0"
+      : input.paneOpen
+        ? "max-lg:hidden"
+        : "",
+  ].join(" ")
+}

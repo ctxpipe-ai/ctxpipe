@@ -4,13 +4,13 @@ import {
   useSuspenseQuery,
 } from "@tanstack/react-query"
 import { useNavigate, useRouterState, useSearch } from "@tanstack/react-router"
+import { AnimatePresence } from "motion/react"
 import { Component, type ReactNode, Suspense, useEffect, useState } from "react"
 import { useSideNavLocation } from "@/components/ShellLayoutContext"
 import { parseSideNavLocation } from "@/components/SideNav/sideNavLocation"
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { pollWhileOk } from "@/lib/api-result"
-import { cn } from "@/lib/utils"
 import {
   closeFileTab,
   type FileTabSession,
@@ -44,6 +44,7 @@ import {
 } from "./WorkspaceHydrateProgress"
 import { WorkspacePane, WorkspacePaneTriggers } from "./WorkspacePane"
 import { WorkspaceRouteError } from "./WorkspaceRouteError"
+import { workspaceChatColumnClassName } from "./workspaceChrome"
 import { WorkspaceSurfaceSkeleton } from "./workspaceSkeletons"
 
 export function WorkspaceSurface(props: {
@@ -152,10 +153,8 @@ function WorkspacePrepareFailedLayout(props: {
   return (
     <div className="flex h-svh min-h-0 min-w-0" data-workspace-surface="">
       <div
-        className={cn(
-          "flex h-full min-h-0 min-w-0 flex-1",
-          maximized ? "hidden" : paneOpen ? "max-lg:hidden" : null,
-        )}
+        className={workspaceChatColumnClassName({ maximized, paneOpen })}
+        inert={maximized}
       >
         <WorkspaceChatChrome
           workspace={workspace}
@@ -181,40 +180,43 @@ function WorkspacePrepareFailedLayout(props: {
           </div>
         </WorkspaceChatChrome>
       </div>
-      {paneOpen ? (
-        <WorkspacePane
-          orgSlug={orgSlug}
-          workspace={workspace}
-          pane={pane}
-          fileTabs={[]}
-          previewPath={null}
-          treeCollapsed
-          maximized={maximized}
-          width={paneWidth}
-          conversationTitle={workspace.displayName}
-          onPane={setPane}
-          onClose={() => {
-            setMaximized(false)
-            setPaneCollapsed(true)
-          }}
-          onToggleMaximize={() => setMaximized((value) => !value)}
-          onRestoreConversation={() => {
-            setMaximized(false)
-            if (
-              typeof window !== "undefined" &&
-              window.matchMedia("(max-width: 1023px)").matches
-            ) {
+      <AnimatePresence initial={false}>
+        {paneOpen ? (
+          <WorkspacePane
+            key="pane"
+            orgSlug={orgSlug}
+            workspace={workspace}
+            pane={pane}
+            fileTabs={[]}
+            previewPath={null}
+            treeCollapsed
+            maximized={maximized}
+            width={paneWidth}
+            conversationTitle={workspace.displayName}
+            onPane={setPane}
+            onClose={() => {
+              setMaximized(false)
               setPaneCollapsed(true)
-            }
-          }}
-          onResize={setPaneWidth}
-          onPreviewFile={() => {}}
-          onPinFile={() => {}}
-          onCloseFileTab={() => {}}
-          onCloseActiveFile={() => {}}
-          onToggleTree={() => {}}
-        />
-      ) : null}
+            }}
+            onToggleMaximize={() => setMaximized((value) => !value)}
+            onRestoreConversation={() => {
+              setMaximized(false)
+              if (
+                typeof window !== "undefined" &&
+                window.matchMedia("(max-width: 1023px)").matches
+              ) {
+                setPaneCollapsed(true)
+              }
+            }}
+            onResize={setPaneWidth}
+            onPreviewFile={() => {}}
+            onPinFile={() => {}}
+            onCloseFileTab={() => {}}
+            onCloseActiveFile={() => {}}
+            onToggleTree={() => {}}
+          />
+        ) : null}
+      </AnimatePresence>
     </div>
   )
 }
@@ -473,10 +475,8 @@ function WorkspaceSurfaceColumns(props: {
         - otherwise show chat
       */}
       <div
-        className={cn(
-          "flex h-full min-h-0 min-w-0 flex-1",
-          maximized ? "hidden" : paneOpen ? "max-lg:hidden" : null,
-        )}
+        className={workspaceChatColumnClassName({ maximized, paneOpen })}
+        inert={maximized}
       >
         <WorkspaceQueryErrorBoundary
           fallback={(error, reset) => (
@@ -514,61 +514,64 @@ function WorkspaceSurfaceColumns(props: {
           />
         </WorkspaceQueryErrorBoundary>
       </div>
-      {paneOpen && shownPane ? (
-        <WorkspaceQueryErrorBoundary
-          fallback={(error, reset) => (
-            <WorkspaceColumnError
-              title="Could not load pane"
-              error={error}
-              reset={reset}
-            />
-          )}
-        >
-          <WorkspacePane
-            orgSlug={orgSlug}
-            workspace={workspace}
-            conversationId={conversationId}
-            pane={shownPane}
-            fileTabs={fileTabs}
-            previewPath={previewPath}
-            treeCollapsed={treeCollapsed}
-            maximized={maximized}
-            width={paneWidth}
-            conversationTitle={conversationTitle}
-            onPane={(next) => setPane(next)}
-            onClose={collapsePane}
-            onToggleMaximize={() => setMaximized((value) => !value)}
-            onRestoreConversation={() => {
-              setMaximized(false)
-              // Below lg the tools pane owns the viewport — restore means hide it.
-              if (
-                typeof window !== "undefined" &&
-                window.matchMedia("(max-width: 1023px)").matches
-              ) {
-                collapsePane()
-              }
-            }}
-            onResize={setPaneWidth}
-            onPreviewFile={(path) => openFile(path, false)}
-            onPinFile={(path) => openFile(path, true)}
-            onCloseFileTab={(path) => {
-              const nextTabs = closeFileTab(fileTabSession, path)
-              setFileTabs(nextTabs)
-              if (shownPane.kind === "file" && shownPane.path === path) {
-                setPane({ kind: "files" }, nextTabs)
-              }
-            }}
-            onCloseActiveFile={() => {
-              if (shownPane.kind === "file") {
-                const nextTabs = closeFileTab(fileTabSession, shownPane.path)
+      <AnimatePresence initial={false}>
+        {paneOpen && shownPane ? (
+          <WorkspaceQueryErrorBoundary
+            key="pane"
+            fallback={(error, reset) => (
+              <WorkspaceColumnError
+                title="Could not load pane"
+                error={error}
+                reset={reset}
+              />
+            )}
+          >
+            <WorkspacePane
+              orgSlug={orgSlug}
+              workspace={workspace}
+              conversationId={conversationId}
+              pane={shownPane}
+              fileTabs={fileTabs}
+              previewPath={previewPath}
+              treeCollapsed={treeCollapsed}
+              maximized={maximized}
+              width={paneWidth}
+              conversationTitle={conversationTitle}
+              onPane={(next) => setPane(next)}
+              onClose={collapsePane}
+              onToggleMaximize={() => setMaximized((value) => !value)}
+              onRestoreConversation={() => {
+                setMaximized(false)
+                // Below lg the tools pane owns the viewport — restore means hide it.
+                if (
+                  typeof window !== "undefined" &&
+                  window.matchMedia("(max-width: 1023px)").matches
+                ) {
+                  collapsePane()
+                }
+              }}
+              onResize={setPaneWidth}
+              onPreviewFile={(path) => openFile(path, false)}
+              onPinFile={(path) => openFile(path, true)}
+              onCloseFileTab={(path) => {
+                const nextTabs = closeFileTab(fileTabSession, path)
                 setFileTabs(nextTabs)
-                setPane({ kind: "files" }, nextTabs)
-              }
-            }}
-            onToggleTree={() => setTreeCollapsed((value) => !value)}
-          />
-        </WorkspaceQueryErrorBoundary>
-      ) : null}
+                if (shownPane.kind === "file" && shownPane.path === path) {
+                  setPane({ kind: "files" }, nextTabs)
+                }
+              }}
+              onCloseActiveFile={() => {
+                if (shownPane.kind === "file") {
+                  const nextTabs = closeFileTab(fileTabSession, shownPane.path)
+                  setFileTabs(nextTabs)
+                  setPane({ kind: "files" }, nextTabs)
+                }
+              }}
+              onToggleTree={() => setTreeCollapsed((value) => !value)}
+            />
+          </WorkspaceQueryErrorBoundary>
+        ) : null}
+      </AnimatePresence>
     </div>
   )
 }
