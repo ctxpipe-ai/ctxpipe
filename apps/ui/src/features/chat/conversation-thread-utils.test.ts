@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   collapsedToolSummary,
+  groupAssistantTurns,
   latestReasoningHeading,
   normalizeReasoningMarkdown,
   summarizeToolCalls,
@@ -122,5 +123,58 @@ describe("reasoning markdown", () => {
         "# Inspecting\n\nBody\n## Consolidating documents",
       ),
     ).toBe("Consolidating documents")
+  })
+})
+
+describe("groupAssistantTurns", () => {
+  it("merges consecutive assistant messages of one turn, in order", () => {
+    const turns = groupAssistantTurns([
+      { id: "u1", role: "user", parts: [{ type: "text", content: "Why?" }] },
+      {
+        id: "a1",
+        role: "assistant",
+        parts: [
+          { type: "thinking", content: "**Inspecting**" },
+          { type: "tool-call", id: "c1", name: "read", input: {} },
+        ],
+      },
+      {
+        id: "a1",
+        role: "assistant",
+        parts: [
+          { type: "thinking", content: "**Answering**" },
+          { type: "text", content: "Because." },
+        ],
+      },
+      { id: "u2", role: "user", parts: [{ type: "text", content: "Thanks" }] },
+      {
+        id: "a2",
+        role: "assistant",
+        parts: [{ type: "text", content: "Sure." }],
+      },
+    ])
+    expect(turns.map((turn) => turn.id)).toEqual(["u1", "a1", "u2", "a2"])
+    expect(turns[1]?.parts.map((part) => part.type)).toEqual([
+      "thinking",
+      "tool-call",
+      "thinking",
+      "text",
+    ])
+  })
+
+  it("leaves a live single assistant message as it is", () => {
+    const messages = [
+      {
+        id: "u1",
+        role: "user" as const,
+        parts: [{ type: "text", content: "Hi" }],
+      },
+      {
+        id: "a1",
+        role: "assistant" as const,
+        parts: [{ type: "text", content: "Hello" }],
+      },
+    ]
+    expect(groupAssistantTurns(messages)).toEqual(messages)
   })
 })

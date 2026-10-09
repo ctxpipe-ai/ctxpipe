@@ -607,6 +607,54 @@ export const streamingToolMessages: ChatMessage[] = [
   },
 ]
 
+/**
+ * What `modelMessagesToUIMessages` returns for one stored turn: two assistant
+ * messages with the turn's id, the first with the tool call and a thought.
+ */
+export const hydratedReasoningAndToolsMessages: ChatMessage[] = [
+  {
+    id: "msg_hyd_u1",
+    role: "user",
+    parts: [{ type: "text", content: "Why ledger.md and not invoices.md?" }],
+    createdAt: new Date("2026-08-16T09:47:00.000Z"),
+  },
+  {
+    id: "msg_hyd_a1",
+    role: "assistant",
+    parts: [
+      {
+        type: "thinking",
+        content:
+          "**Inspecting repository options**\n\nThe payments API claims DEPENDS_ON ledger.md.",
+      },
+      {
+        type: "tool-call",
+        id: "tc_hyd_1",
+        name: "get_file",
+        input: { filePath: "knowledge/billing/ledger.md" },
+      },
+    ],
+    createdAt: new Date("2026-08-16T09:47:01.000Z"),
+  },
+  {
+    id: "msg_hyd_a1",
+    role: "assistant",
+    parts: [
+      {
+        type: "thinking",
+        content: "**Writing the answer**\n\nInvoices are a derived view.",
+      },
+      {
+        type: "text",
+        content:
+          "ledger.md is the source of truth. invoices.md is generated from it.",
+      },
+      { type: "tool-result", id: "tc_hyd_1", content: "ok" },
+    ],
+    createdAt: new Date("2026-08-16T09:47:02.000Z"),
+  },
+]
+
 export const reasoningAndToolsMessages: ChatMessage[] = [
   {
     id: "msg_all_u1",

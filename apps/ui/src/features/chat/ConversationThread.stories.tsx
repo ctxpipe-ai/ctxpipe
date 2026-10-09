@@ -3,6 +3,7 @@ import { expect, userEvent, within } from "storybook/test"
 import type { ChatMessage } from "@/features/chat/types"
 import {
   docsConversationDetail,
+  hydratedReasoningAndToolsMessages,
   manyToolMessages,
   oneToolMessages,
   reasoningAndToolsMessages,
@@ -70,6 +71,9 @@ export const ReasoningExpanded: Story = {
   },
 }
 
+const workingVerb =
+  /Contextualizing|Analyzing|Traversing your graph|Reading knowledge|Checking sources/
+
 export const ReasoningLive: Story = {
   args: {
     messages: streamingReasoningMessages,
@@ -78,8 +82,11 @@ export const ReasoningLive: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const live = canvas.getByRole("status", { name: /reasoning/i })
+    // A working verb, the latest heading, and no reasoning body while live.
+    await expect(live).toHaveTextContent(workingVerb)
     await expect(live).toHaveTextContent("Consolidating documents")
-    await expect(live).toHaveTextContent("Implementing document updates")
+    await expect(live).not.toHaveTextContent("Editing docker.md")
+    await expect(live).not.toHaveTextContent("Implementing document updates")
   },
 }
 
@@ -196,6 +203,28 @@ export const ReasoningAndToolsLive: Story = {
   },
 }
 
+/** A reopened conversation: the turn arrives as two assistant messages and must render as one. */
+export const ReasoningAndToolsHydrated: Story = {
+  args: {
+    messages: hydratedReasoningAndToolsMessages,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const reasoning = canvas.getAllByRole("button", { name: /reasoning/i })
+    await expect(reasoning).toHaveLength(1)
+    await expect(reasoning[0]).toHaveAttribute("aria-expanded", "false")
+    await expect(
+      canvas.getByRole("button", { name: /read 1 file/i }),
+    ).toHaveAttribute("aria-expanded", "false")
+    await expect(
+      canvas.getByRole("button", { name: "Thought" }),
+    ).toHaveAttribute("aria-expanded", "false")
+    await expect(
+      canvas.getByText(/ledger.md is the source of truth/),
+    ).toBeVisible()
+  },
+}
+
 export const Waiting: Story = {
   args: {
     messages: [
@@ -206,6 +235,12 @@ export const Waiting: Story = {
       } satisfies ChatMessage,
     ],
     status: "submitted",
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(
+      canvas.getByRole("status", { name: "Working" }),
+    ).toHaveTextContent(workingVerb)
   },
 }
 

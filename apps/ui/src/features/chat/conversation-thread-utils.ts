@@ -1,3 +1,5 @@
+import type { ChatMessage } from "./types"
+
 export type ToolBucket = "read" | "search" | "tool"
 
 export type ToolCallSummary = {
@@ -216,4 +218,25 @@ export function normalizeReasoningMarkdown(text: string): string {
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim()
+}
+
+/**
+ * A hydrated turn arrives as several assistant messages, one per engine
+ * segment, all with the turn's id. Render them as one message so tools,
+ * thoughts, and the reply group as they did live.
+ */
+export function groupAssistantTurns(messages: ChatMessage[]): ChatMessage[] {
+  const turns: ChatMessage[] = []
+  for (const message of messages) {
+    const previous = turns.at(-1)
+    if (message.role === "assistant" && previous?.role === "assistant") {
+      turns[turns.length - 1] = {
+        ...previous,
+        parts: [...previous.parts, ...message.parts],
+      }
+      continue
+    }
+    turns.push(message)
+  }
+  return turns
 }
