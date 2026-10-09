@@ -24,6 +24,7 @@ import {
   withNativeHydrationFixture,
 } from "../../test/native-hydration-fixture.js"
 import { workspaceHttpApp } from "../../test/workspace-http-fixture.js"
+import { workspaceClaimsQuery } from "./graph-projection.js"
 import { workspaceChatTools } from "./workspace-chat-tools.js"
 
 async function withGraphHydration(
@@ -113,11 +114,14 @@ it(
         await f.publish()
         // Without an index, each claim scans all units. A large repository
         // then keeps FalkorDB busy for many minutes.
+        // Explain the production query. Literal values replace the parameters.
         const plan = await graph.explain(
-          "UNWIND [{subjectId: 'a'}] AS claim MATCH (s:WorkspaceKnowledgeUnit {projectionKey: 'k', id: claim.subjectId}) RETURN s",
+          workspaceClaimsQuery
+            .replace("$claims", "[{subjectId: 'a', objectId: 'b', id: 'c'}]")
+            .replaceAll("$projectionKey", "'k'"),
         )
-        expect(plan.join("\n")).toContain(
-          "Node By Index Scan | (s:WorkspaceKnowledgeUnit)",
+        expect(plan.join("\n")).toMatch(
+          /Node By Index Scan \| \(s:WorkspaceKnowledgeUnit\)[\s\S]*Node By Index Scan \| \(t:WorkspaceKnowledgeUnit\)/,
         )
       },
     )
