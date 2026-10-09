@@ -24,7 +24,7 @@ vi.mock("../domain/repositories/service.js", () => ({
 
 import { registerGraphRoutes } from "./graph.js"
 
-function createTestApp(workspaceId: string) {
+function createTestApp(workspaceId?: string) {
   const limit = vi.fn().mockResolvedValue([{ id: "checkout_1" }])
   const where = vi.fn().mockReturnValue({ limit })
   const from = vi.fn().mockReturnValue({ where })
@@ -84,4 +84,19 @@ describe("POST /{repoId}/graph checkout isolation", () => {
     expect(res.status).toBe(403)
     expect(executeScipGraphQueryMock).not.toHaveBeenCalled()
   })
+
+  it.each([".git/config", "../outside.ts"])(
+    "answers 404 for the file path %s",
+    async (filePath) => {
+      const res = await createTestApp().request("/repo_abcdef27/graph", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ primitive: "get_imports", filePath }),
+      })
+
+      expect(res.status).toBe(404)
+      expect(await res.json()).toEqual({ error: "Path not found" })
+      expect(executeScipGraphQueryMock).not.toHaveBeenCalled()
+    },
+  )
 })
