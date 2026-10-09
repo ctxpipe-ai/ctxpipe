@@ -56,6 +56,15 @@ describe("paths inside the checkout", () => {
     await symlink("inside.txt", join(checkout, "in-link"))
     await symlink("sub", join(checkout, "in-dir"))
     await symlink("missing.txt", join(checkout, "dangling"))
+    await mkdir(join(checkout, ".git"))
+    await writeFile(
+      join(checkout, ".git", "config"),
+      'url = "https://x-access-token:secret@example.com/repo.git"\n',
+    )
+    await mkdir(join(checkout, "sub", ".git"))
+    await writeFile(join(checkout, "sub", ".git", "config"), "nested\n")
+    await symlink(".git/config", join(checkout, "leak"))
+    await symlink(".git", join(checkout, "git-dir"))
   })
 
   afterEach(async () => {
@@ -79,14 +88,42 @@ describe("paths inside the checkout", () => {
     ).rejects.toMatchObject({ code: "ENOENT" })
   })
 
-  it("reads a file inside through a symlink and refuses one outside", async () => {
+  it("reads a file inside through a symlink and refuses a directory", async () => {
     expect((await readContainedFile(checkout, "in-link")).toString()).toBe(
       "inside\n",
     )
-    await expect(readContainedFile(checkout, "chain-a")).rejects.toMatchObject({
+    expect(
+      (await readContainedFile(checkout, "in-dir/inner.txt")).toString(),
+    ).toBe("inside\n")
+    await expect(readContainedFile(checkout, "sub")).rejects.toThrow()
+  })
+
+  // The tree never lists .git, and .git/config can hold a clone token.
+  it.each([
+    ["a symlink to .git/config", "leak"],
+    ["a file under a symlink to .git", "git-dir/config"],
+    ["a chain of symlinks that ends outside", "chain-a"],
+    ["an absolute symlink to a file outside", "abs-link"],
+    ["the .git/config file", ".git/config"],
+    ["a file under a nested .git directory", "sub/.git/config"],
+  ])("refuses to read %s", async (_, path) => {
+    await expect(readContainedFile(checkout, path)).rejects.toMatchObject({
       code: "ENOENT",
     })
-    await expect(readContainedFile(checkout, "sub")).rejects.toThrow()
+  })
+
+  it.each([
+    ["the .git directory", ".git"],
+    ["the .git/config file", ".git/config"],
+    ["a .git segment in upper case", ".GIT/config"],
+    ["a symlink to .git", "git-dir"],
+    ["a symlink to .git/config", "leak"],
+    ["a nested .git directory", "sub/.git"],
+    ["a path that climbs back into .git", "sub/../.git/config"],
+  ])("does not resolve %s, like a missing path", async (_, path) => {
+    await expect(
+      resolveContainedRealPath(checkout, path),
+    ).rejects.toMatchObject({ code: "ENOENT" })
   })
 
   it("follows a symlink to a file inside", async () => {

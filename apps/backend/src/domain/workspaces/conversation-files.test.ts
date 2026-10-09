@@ -5,6 +5,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
@@ -12,10 +13,12 @@ import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import {
   conversationPathIsSafe,
+  conversationSandboxDiff,
   conversationSandboxStatus,
   conversationWorktreeVersion,
   fingerprintConversationWorktree,
   listConversationSandboxPaths,
+  readConversationSandboxFile,
   sanitizeGitRemoteError,
   splitGitNulPaths,
 } from "./conversation-files.js"
@@ -301,6 +304,112 @@ describe("conversation sandbox files", { timeout: 15_000 }, () => {
         )
         expect(await conversationWorktreeVersion(handle)).toBe(dirty)
         expect(git("diff", "--cached", "--name-only")).toBe("")
+      },
+    )
+  })
+
+  it("reads only the files the tree lists, never ignored files or .git", async () => {
+    await withWorktree(
+      (directory) => {
+        writeFileSync(join(directory, ".gitignore"), ".env\nsecret/\n")
+        writeFileSync(join(directory, "AGENTS.md"), "# Agents\n")
+      },
+      async ({ directory, handle }) => {
+        writeFileSync(join(directory, ".env"), "API_KEY=hidden\n")
+        mkdirSync(join(directory, "secret"), { recursive: true })
+        writeFileSync(join(directory, "secret/key.txt"), "hidden\n")
+        writeFileSync(join(directory, "opencode.json"), "{}\n")
+        writeFileSync(join(directory, "draft.md"), "fresh\n")
+        const read = (path: string) => readConversationSandboxFile(handle, path)
+        expect({
+          gitConfig: await read(".git/config"),
+          gitHead: await read(".git/HEAD"),
+          env: await read(".env"),
+          ignoredDirectory: await read("secret/key.txt"),
+          harness: await read("opencode.json"),
+          tracked: await read("AGENTS.md"),
+          untracked: await read("draft.md"),
+        }).toEqual({
+          gitConfig: null,
+          gitHead: null,
+          env: null,
+          ignoredDirectory: null,
+          harness: null,
+          tracked: { path: "AGENTS.md", body: "# Agents\n", binary: false },
+          untracked: { path: "draft.md", body: "fresh\n", binary: false },
+        })
+      },
+    )
+  })
+
+  it("does not read through a symlink, listed or not", async () => {
+    const outside = mkdtempSync(join(tmpdir(), "ctxpipe-outside-"))
+    writeFileSync(join(outside, "hosts"), "outside\n")
+    try {
+      await withWorktree(
+        (directory) => {
+          writeFileSync(join(directory, ".gitignore"), ".env\n")
+          mkdirSync(join(directory, "docs"))
+          writeFileSync(join(directory, "docs/hosts"), "tracked\n")
+        },
+        async ({ directory, handle }) => {
+          writeFileSync(join(directory, ".env"), "API_KEY=hidden\n")
+          symlinkSync(".env", join(directory, "env-link"))
+          symlinkSync(join(outside, "hosts"), join(directory, "hosts-link"))
+          // Git still lists docs/hosts from the index after this swap.
+          rmSync(join(directory, "docs"), { recursive: true })
+          symlinkSync(outside, join(directory, "docs"))
+          const read = (path: string) =>
+            readConversationSandboxFile(handle, path)
+          expect({
+            envLink: await read("env-link"),
+            hostsLink: await read("hosts-link"),
+            swappedParent: await read("docs/hosts"),
+          }).toEqual({
+            envLink: null,
+            hostsLink: null,
+            swappedParent: null,
+          })
+          expect({
+            diff: (
+              await conversationSandboxDiff({ handle, defaultBranch: "main" })
+            ).map(({ path, body }) => ({ path, body })),
+          }).toEqual({
+            diff: expect.arrayContaining([
+              { path: "env-link", body: null },
+              { path: "hosts-link", body: null },
+            ]),
+          })
+        },
+      )
+    } finally {
+      rmSync(outside, { recursive: true, force: true })
+    }
+  })
+
+  it("does not read a diff path that git now ignores and does not track", async () => {
+    await withWorktree(
+      (directory) => {
+        writeFileSync(join(directory, ".env"), "API_KEY=committed\n")
+      },
+      async ({ directory, handle, git }) => {
+        git("checkout", "-q", "-b", "ctxpipe/session")
+        git("rm", "-q", "--cached", ".env")
+        writeFileSync(join(directory, ".gitignore"), ".env\n")
+        git("add", ".gitignore")
+        git("commit", "-q", "-m", "Ignore .env")
+        writeFileSync(join(directory, ".env"), "API_KEY=secret\n")
+
+        const diff = await conversationSandboxDiff({
+          handle,
+          defaultBranch: "main",
+        })
+
+        expect(diff.find((file) => file.path === ".env")).toEqual({
+          path: ".env",
+          oldBody: "API_KEY=committed\n",
+          body: null,
+        })
       },
     )
   })

@@ -113,28 +113,57 @@ async function execGitOk(
   return result.stdout
 }
 
+/** Lists the tracked files and the untracked files that git does not ignore. */
+const LIST_TREE_FILES_COMMAND =
+  "git ls-files -z --cached --others --exclude-standard"
+
+/**
+ * Shell prefix that stops with no output when a component of
+ * $CTXPIPE_FILE_PATH is a symlink. Git lists a symlink as a file, and it
+ * keeps an index path when a parent directory becomes a symlink.
+ */
+const STOP_AT_SYMLINK =
+  'set -f; p=; s=; IFS=/; for part in $CTXPIPE_FILE_PATH; do p="$p$s$part"; s=/; if [ -L "$p" ]; then exit 0; fi; done; unset IFS; '
+
 export async function listConversationSandboxPaths(
   handle: JobSandboxHandle,
 ): Promise<string[]> {
-  const [tracked, untracked] = await Promise.all([
-    execGitOk(handle.exec, "git ls-files -z"),
-    execGitOk(handle.exec, "git ls-files --others --exclude-standard -z"),
-  ])
-  const paths = new Set<string>()
-  for (const path of [
-    ...splitGitNulPaths(tracked),
-    ...splitGitNulPaths(untracked),
-  ]) {
-    if (isConversationSandboxListedPath(path)) paths.add(path)
-  }
-  return [...paths].sort()
+  const listed = await execGitOk(handle.exec, LIST_TREE_FILES_COMMAND)
+  return [...new Set(splitGitNulPaths(listed))]
+    .filter(isConversationSandboxListedPath)
+    .sort()
 }
 
 export async function readConversationSandboxFile(
   handle: JobSandboxHandle,
   path: string,
 ): Promise<{ path: string; body: string | null; binary: boolean } | null> {
-  if (!conversationPathIsSafe(path)) return null
+  // Read only a path that the tree lists, with no symlink. This prevents a
+  // read of .git and of ignored files, such as .env.
+  return readSandboxFileIfListed(
+    handle,
+    path,
+    `${LIST_TREE_FILES_COMMAND} -- ":(literal)$CTXPIPE_FILE_PATH"`,
+  )
+}
+
+/**
+ * Reads a path when `listCommand` prints it after the symlink check. The
+ * diff checks the tree list before the call, so its command only prints the
+ * path.
+ */
+async function readSandboxFileIfListed(
+  handle: JobSandboxHandle,
+  path: string,
+  listCommand: string,
+): Promise<{ path: string; body: string | null; binary: boolean } | null> {
+  if (!isConversationSandboxListedPath(path)) return null
+  const listed = await execGitOk(
+    handle.exec,
+    `${STOP_AT_SYMLINK}${listCommand}`,
+    { CTXPIPE_FILE_PATH: path },
+  )
+  if (!splitGitNulPaths(listed).includes(path)) return null
   try {
     const content = await handle.fs.read(path)
     const blob = explorerBlobFromContent(content)
@@ -361,7 +390,7 @@ export async function conversationSandboxDiff(input: {
   handle: JobSandboxHandle
   defaultBranch: string
 }): Promise<ConversationFileDiff[]> {
-  const [committed, unstaged, untracked] = await Promise.all([
+  const [committed, unstaged, untracked, listed] = await Promise.all([
     execGitOk(
       input.handle.exec,
       'git diff --name-only -z "refs/heads/$CTXPIPE_DEFAULT_BRANCH"...HEAD',
@@ -369,7 +398,11 @@ export async function conversationSandboxDiff(input: {
     ),
     execGitOk(input.handle.exec, "git diff --name-only -z HEAD"),
     execGitOk(input.handle.exec, "git ls-files --others --exclude-standard -z"),
+    execGitOk(input.handle.exec, LIST_TREE_FILES_COMMAND),
   ])
+  // A diff can name a path that git now ignores and does not track, such as
+  // a local .env. Read the current body only of a path that the tree lists.
+  const treePaths = new Set(splitGitNulPaths(listed))
   const paths = new Set<string>()
   for (const path of [
     ...splitGitNulPaths(committed),
@@ -389,7 +422,13 @@ export async function conversationSandboxDiff(input: {
       },
     )
     const oldBody = oldResult.exitCode === 0 ? oldResult.stdout : null
-    const current = await readConversationSandboxFile(input.handle, path)
+    const current = treePaths.has(path)
+      ? await readSandboxFileIfListed(
+          input.handle,
+          path,
+          "printf '%s\\0' \"$CTXPIPE_FILE_PATH\"",
+        )
+      : null
     diffs.push({
       path,
       oldBody,

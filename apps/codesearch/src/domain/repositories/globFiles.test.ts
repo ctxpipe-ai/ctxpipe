@@ -180,6 +180,18 @@ describe("globFilesInCheckout", () => {
     }
   })
 
+  it("answers a cwd under a symlink to .git like a missing path", async () => {
+    const root = await setupCheckout()
+    await mkdir(join(root, ".git", "hooks"), { recursive: true })
+    await writeFile(join(root, ".git", "hooks", "check.sh"), "echo hi\n")
+    await symlink(".git", join(root, "gl"))
+    for (const path of ["gl", "gl/hooks"]) {
+      await expect(
+        globFilesInCheckout({ checkoutRoot: root, pattern: "*", path }),
+      ).rejects.toThrow(GlobPathNotFoundError)
+    }
+  })
+
   it("answers any cwd it cannot resolve as a missing path", async () => {
     const root = await setupCheckout()
     await symlink("loop-b", join(root, "loop-a"))

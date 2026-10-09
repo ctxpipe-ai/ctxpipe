@@ -22,6 +22,16 @@ describe("explorerBlobPath", () => {
     expect(explorerBlobPath("")).toBeNull()
     expect(explorerBlobPath("foo//bar")).toBeNull()
   })
+
+  it("rejects git metadata, which the tree never lists", () => {
+    expect(explorerBlobPath(".git/config")).toBeNull()
+    expect(explorerBlobPath(".git")).toBeNull()
+    expect(explorerBlobPath("vendor/lib/.git/config")).toBeNull()
+    expect(explorerBlobPath(".github/workflows/ci.yml")).toBe(
+      ".github/workflows/ci.yml",
+    )
+    expect(explorerBlobPath(".gitignore")).toBe(".gitignore")
+  })
 })
 
 describe("explorerGitStatusFromPorcelain", () => {

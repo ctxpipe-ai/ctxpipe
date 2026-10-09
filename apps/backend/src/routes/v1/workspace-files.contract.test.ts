@@ -104,6 +104,18 @@ it.each([
   ],
   ["missing files", "missing.md", 404, { error: "Not found" }],
   [
+    "git metadata",
+    ".git/config",
+    400,
+    { error: "A valid file path is required" },
+  ],
+  [
+    "nested git metadata",
+    "docs/.git/config",
+    400,
+    { error: "A valid file path is required" },
+  ],
+  [
     "path traversal",
     "../secret",
     400,
