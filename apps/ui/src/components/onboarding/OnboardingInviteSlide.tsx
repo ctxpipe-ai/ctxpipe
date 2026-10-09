@@ -75,7 +75,7 @@ export function OnboardingInviteSlide({
           ctx| is designed for your whole team and their agents. Invite some
           co-workers to test it out with.
         </p>
-        <div className="mx-auto max-w-3xl rounded-none border border-border bg-zinc-950/70 p-6 text-left">
+        <div className="mx-auto max-w-3xl rounded-md border border-border bg-zinc-950/70 p-6 text-left">
           <label
             className="mb-2 block text-sm text-zinc-200"
             htmlFor={inviteEmailsFieldId}
@@ -88,7 +88,7 @@ export function OnboardingInviteSlide({
             value={inviteEmails}
             onChange={(e) => setInviteEmails(e.target.value)}
             placeholder="email@example.com, email2@example.com..."
-            className="mb-4 h-11 w-full rounded-none border border-border bg-zinc-950 px-3 text-sm text-zinc-100 outline-none focus:border-teal-400/60"
+            className="mb-4 h-11 w-full rounded-md border border-border bg-zinc-950 px-3 text-sm text-zinc-100 outline-none focus:border-teal-400/60"
           />
           {inviteError ? (
             <p className="mb-4 text-xs text-red-400">{inviteError}</p>
@@ -97,7 +97,7 @@ export function OnboardingInviteSlide({
             <button
               type="button"
               disabled={inviteSubmitting || inviteSent}
-              className="inline-flex h-10 items-center justify-center rounded-none border border-border bg-zinc-100 px-5 text-sm font-medium text-zinc-950 transition-colors hover:bg-zinc-200"
+              className="inline-flex h-10 items-center justify-center rounded-md border border-border bg-zinc-100 px-5 text-sm font-medium text-zinc-950 transition-colors hover:bg-zinc-200"
               onClick={() => void handleSendInvites()}
             >
               {inviteSent
@@ -109,7 +109,7 @@ export function OnboardingInviteSlide({
           </div>
         </div>
         {inviteSent ? (
-          <div className="mx-auto mt-4 max-w-3xl rounded-none border border-teal-400/40 bg-teal-400/10 px-4 py-3 text-sm text-teal-200">
+          <div className="mx-auto mt-4 max-w-3xl rounded-md border border-teal-400/40 bg-teal-400/10 px-4 py-3 text-sm text-teal-200">
             Invites sent to your team
           </div>
         ) : null}
@@ -118,7 +118,7 @@ export function OnboardingInviteSlide({
             <button
               type="button"
               disabled={completing}
-              className="inline-flex h-11 items-center justify-center rounded-none border border-border bg-zinc-100 px-6 text-sm font-medium text-zinc-950 transition-colors hover:bg-zinc-200 disabled:opacity-50"
+              className="inline-flex h-11 items-center justify-center rounded-md border border-border bg-zinc-100 px-6 text-sm font-medium text-zinc-950 transition-colors hover:bg-zinc-200 disabled:opacity-50"
               onClick={() => void onCompleteOnboarding()}
             >
               {completing ? "Finishing..." : "Continue"}

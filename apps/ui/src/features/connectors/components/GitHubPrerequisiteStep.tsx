@@ -38,7 +38,7 @@ export function GitHubPrerequisiteStep({
         <div className="flex flex-wrap items-center gap-3">
           <Button
             variant="primary"
-            className="rounded-none"
+            className="rounded-md"
             isPending={isPending || isSyncing}
             onPress={() => start("connect")}
           >

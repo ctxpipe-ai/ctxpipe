@@ -43,14 +43,12 @@ export function AlertDialog({
               <IconInfoCircle aria-hidden />
             )}
           </div>
-          <p className="mt-3 text-zinc-400">
-            {children}
-          </p>
+          <p className="mt-3 text-zinc-400">{children}</p>
           <div className="mt-6 flex justify-end gap-2">
             <Button
               variant="quiet"
               onPress={close}
-              className="rounded-none !text-zinc-400 hover:!text-teal-500"
+              className="rounded-md !text-zinc-400 hover:!text-teal-500"
             >
               {cancelLabel || "Cancel"}
             </Button>
@@ -60,8 +58,8 @@ export function AlertDialog({
               onPress={chain(onAction, close)}
               className={
                 variant !== "destructive"
-                  ? "rounded-none !bg-teal-500 !text-black hover:!bg-teal-600"
-                  : "rounded-none"
+                  ? "rounded-md !bg-teal-500 !text-black hover:!bg-teal-600"
+                  : "rounded-md"
               }
             >
               {actionLabel}

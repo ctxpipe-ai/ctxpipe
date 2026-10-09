@@ -21,7 +21,7 @@ export function InviteWrongAccountNotice({
       </InlineAlert>
       <Button
         variant="primary"
-        className="w-full rounded-none"
+        className="w-full rounded-md"
         onPress={() => {
           window.location.assign(signOutHref)
         }}

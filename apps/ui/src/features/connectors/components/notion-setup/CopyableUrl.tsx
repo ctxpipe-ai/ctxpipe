@@ -24,7 +24,7 @@ export function CopyableUrl({ url, label }: { url?: string; label: string }) {
 
   return (
     <div className="mt-2">
-      <div className="flex w-full min-w-0 items-stretch overflow-hidden rounded-none border border-border bg-muted/50">
+      <div className="flex w-full min-w-0 items-stretch overflow-hidden rounded-md border border-border bg-muted/50">
         <div className="flex min-h-10 min-w-0 flex-1 items-center overflow-x-auto px-2">
           <code className="break-all font-mono text-sm text-muted-foreground">
             {display}
@@ -37,8 +37,8 @@ export function CopyableUrl({ url, label }: { url?: string; label: string }) {
             size="icon-sm"
             className={
               copyState === "copied"
-                ? "h-full min-h-10 w-11 shrink-0 rounded-none px-0 text-emerald-600 hover:bg-emerald-500/10 hover:text-emerald-600 dark:text-emerald-400"
-                : "h-full min-h-10 w-11 shrink-0 rounded-none px-0 text-primary hover:bg-primary/10"
+                ? "h-full min-h-10 w-11 shrink-0 rounded-md px-0 text-emerald-600 hover:bg-emerald-500/10 hover:text-emerald-600 dark:text-emerald-400"
+                : "h-full min-h-10 w-11 shrink-0 rounded-md px-0 text-primary hover:bg-primary/10"
             }
             aria-label={
               copyState === "copied" ? `${label} copied` : `Copy ${label}`

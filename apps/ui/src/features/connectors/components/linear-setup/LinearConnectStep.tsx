@@ -42,7 +42,7 @@ export function LinearConnectStep({
       </div>
       <Button
         variant="primary"
-        className="rounded-none"
+        className="rounded-md"
         isPending={connectMutation.isPending}
         onPress={() => connectMutation.mutate()}
       >

@@ -279,7 +279,7 @@ export function SlackSetupDialog({
           </div>
           <Button
             variant="secondary"
-            className="rounded-none"
+            className="rounded-md"
             onPress={() => setOpen(false)}
           >
             Close
@@ -315,14 +315,14 @@ export function SlackSetupDialog({
             <div className="flex flex-wrap gap-2">
               <Button
                 variant="secondary"
-                className="rounded-none"
+                className="rounded-md"
                 isPending={statusQuery.isFetching}
                 onPress={() => void statusQuery.refetch()}
               >
                 Retry
               </Button>
               <Button
-                className="rounded-none"
+                className="rounded-md"
                 onPress={() => {
                   setConnectionId(undefined)
                   void queryClient.removeQueries({
@@ -345,7 +345,7 @@ export function SlackSetupDialog({
               </p>
             </div>
             <Button
-              className="rounded-none"
+              className="rounded-md"
               onPress={() => oauthMutation.mutate()}
               isPending={oauthMutation.isPending}
             >
@@ -393,7 +393,7 @@ export function SlackSetupDialog({
                   </span>
                   <p>
                     Invite the bot to the channel:{" "}
-                    <code className="rounded-none bg-muted px-1 py-0.5 text-[11px]">
+                    <code className="rounded-md bg-muted px-1 py-0.5 text-[11px]">
                       /invite {formatSlackBotMention(status?.botHandle)}
                     </code>
                   </p>
@@ -405,7 +405,7 @@ export function SlackSetupDialog({
                   <p>
                     Mention {formatSlackBotMention(status?.botHandle)} in an
                     existing thread to run ctx|. Say{" "}
-                    <code className="rounded-none bg-muted px-1 py-0.5 text-[11px]">
+                    <code className="rounded-md bg-muted px-1 py-0.5 text-[11px]">
                       capture this
                     </code>{" "}
                     or mention the bot with no extra text to snapshot the thread
@@ -425,12 +425,12 @@ export function SlackSetupDialog({
             <div className="flex flex-wrap justify-end gap-2 border-t border-border pt-4">
               <Button
                 variant="secondary"
-                className="rounded-none"
+                className="rounded-md"
                 onPress={() => setManualView("target")}
               >
                 Change workspace
               </Button>
-              <Button className="rounded-none" onPress={() => setOpen(false)}>
+              <Button className="rounded-md" onPress={() => setOpen(false)}>
                 Done
               </Button>
             </div>

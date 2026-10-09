@@ -18,13 +18,7 @@ type LinearOauthAppPanelProps = {
   connectionId: string
 }
 
-function CopyableUrl({
-  label,
-  value,
-}: {
-  label: string
-  value?: string
-}) {
+function CopyableUrl({ label, value }: { label: string; value?: string }) {
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">(
     "idle",
   )
@@ -45,7 +39,7 @@ function CopyableUrl({
   return (
     <div className="mt-2">
       <p className="text-xs font-medium text-foreground">{label}</p>
-      <div className="mt-1 flex w-full min-w-0 items-stretch overflow-hidden rounded-none border border-border bg-muted/50">
+      <div className="mt-1 flex w-full min-w-0 items-stretch overflow-hidden rounded-md border border-border bg-muted/50">
         <div className="flex min-h-10 min-w-0 flex-1 items-center overflow-x-auto px-2">
           <code className="break-all font-mono text-sm text-muted-foreground">
             {display}
@@ -58,8 +52,8 @@ function CopyableUrl({
             size="icon-sm"
             className={
               copyState === "copied"
-                ? "h-full min-h-10 w-11 shrink-0 rounded-none px-0 text-emerald-600 transition-colors duration-200 hover:bg-emerald-500/10 hover:text-emerald-600 dark:text-emerald-400 dark:hover:text-emerald-400"
-                : "h-full min-h-10 w-11 shrink-0 rounded-none px-0 text-primary transition-colors duration-200 hover:bg-primary/10 hover:text-primary pressed:bg-primary/15"
+                ? "h-full min-h-10 w-11 shrink-0 rounded-md px-0 text-emerald-600 transition-colors duration-200 hover:bg-emerald-500/10 hover:text-emerald-600 dark:text-emerald-400 dark:hover:text-emerald-400"
+                : "h-full min-h-10 w-11 shrink-0 rounded-md px-0 text-primary transition-colors duration-200 hover:bg-primary/10 hover:text-primary pressed:bg-primary/15"
             }
             aria-label={
               copyState === "copied" ? `${label} copied` : `Copy ${label}`
@@ -125,7 +119,7 @@ export function LinearOauthAppPanel({
       {saved ? (
         <p className="text-sm text-muted-foreground">
           Client ID{" "}
-          <code className="rounded-none bg-muted px-1 py-0.5 font-mono text-xs text-foreground">
+          <code className="rounded-md bg-muted px-1 py-0.5 font-mono text-xs text-foreground">
             {meta.data?.oauthClientId}
           </code>{" "}
           is saved. Leave secrets empty to keep the current values.
@@ -259,7 +253,7 @@ export function LinearOauthAppPanel({
       />
       <Button
         variant="primary"
-        className="rounded-none"
+        className="rounded-md"
         isPending={save.isPending}
         isDisabled={
           meta.isPending ||

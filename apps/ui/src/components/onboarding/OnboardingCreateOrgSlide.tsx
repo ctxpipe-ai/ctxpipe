@@ -89,7 +89,7 @@ export function OnboardingCreateOrgSlide({
           Set up your organisation to start building your context layer. Your
           team will join here.
         </p>
-        <div className="mx-auto max-w-md rounded-none border border-border bg-zinc-950/70 p-6 text-left">
+        <div className="mx-auto max-w-md rounded-md border border-border bg-zinc-950/70 p-6 text-left">
           <label
             className="mb-2 block text-sm text-zinc-200"
             htmlFor={orgNameFieldId}
@@ -110,7 +110,7 @@ export function OnboardingCreateOrgSlide({
               if (e.key === "Enter") handleCreateOrg()
             }}
             placeholder="Acme Engineering"
-            className="mb-4 h-11 w-full rounded-none border border-border bg-zinc-950 px-3 text-sm text-zinc-100 outline-none focus:border-teal-400/60"
+            className="mb-4 h-11 w-full rounded-md border border-border bg-zinc-950 px-3 text-sm text-zinc-100 outline-none focus:border-teal-400/60"
             // biome-ignore lint/a11y/noAutofocus: first field on this step of onboarding
             autoFocus
           />
@@ -123,7 +123,7 @@ export function OnboardingCreateOrgSlide({
           <p className="mb-2 text-xs leading-relaxed text-zinc-400">
             If you are self-hosting, use the same organisation slug you
             configured at deploy time (for example{" "}
-            <code className="rounded-none bg-zinc-900 px-1 py-0.5 font-mono text-[11px] text-zinc-300">
+            <code className="rounded-md bg-zinc-900 px-1 py-0.5 font-mono text-[11px] text-zinc-300">
               orgSlug
             </code>{" "}
             in your deployment config).
@@ -143,7 +143,7 @@ export function OnboardingCreateOrgSlide({
               if (e.key === "Enter") handleCreateOrg()
             }}
             placeholder="acme-engineering"
-            className="mb-4 h-11 w-full rounded-none border border-border bg-zinc-950 px-3 text-sm text-zinc-100 outline-none focus:border-teal-400/60"
+            className="mb-4 h-11 w-full rounded-md border border-border bg-zinc-950 px-3 text-sm text-zinc-100 outline-none focus:border-teal-400/60"
           />
           {orgError ? (
             <p className="mb-4 text-xs text-red-400">{orgError}</p>
@@ -152,7 +152,7 @@ export function OnboardingCreateOrgSlide({
             <button
               type="button"
               disabled={createOrg.isPending}
-              className="inline-flex h-10 items-center justify-center rounded-none border border-border bg-zinc-100 px-5 text-sm font-medium text-zinc-950 transition-colors hover:bg-zinc-200 disabled:opacity-50"
+              className="inline-flex h-10 items-center justify-center rounded-md border border-border bg-zinc-100 px-5 text-sm font-medium text-zinc-950 transition-colors hover:bg-zinc-200 disabled:opacity-50"
               onClick={handleCreateOrg}
             >
               Create organisation

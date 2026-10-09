@@ -25,7 +25,7 @@ export function DialogContent(
     <div
       {...rest}
       className={twMerge(
-        "relative rounded-xl border border-zinc-800 bg-zinc-950/95 p-6",
+        "relative rounded-md border border-zinc-800 bg-zinc-950/95 p-6",
         className,
       )}
     >

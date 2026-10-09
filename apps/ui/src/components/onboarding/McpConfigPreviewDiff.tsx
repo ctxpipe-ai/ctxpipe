@@ -3,7 +3,7 @@ import { diffLines } from "diff"
 export function McpConfigPreviewDiff(props: { before: string; after: string }) {
   const parts = diffLines(props.before, props.after)
   return (
-    <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-none border border-zinc-800 bg-zinc-950 p-3 text-xs leading-relaxed">
+    <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-md border border-zinc-800 bg-zinc-950 p-3 text-xs leading-relaxed">
       <code>
         {parts.map((part, i) => {
           const cls = part.added

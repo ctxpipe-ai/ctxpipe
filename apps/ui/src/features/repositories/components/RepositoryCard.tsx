@@ -95,12 +95,12 @@ export function RepositoryCard({
         {interactive ? (
           <MenuTrigger
             placement="bottom end"
-            popoverClassName="rounded-none border-border bg-card"
+            popoverClassName="rounded-md border-border bg-card"
           >
             <Button
               variant="ghost"
               size="icon-sm"
-              className="rounded-none"
+              className="rounded-md"
               aria-label="Repository actions"
               isDisabled={isRetrying || isDeleting}
             >

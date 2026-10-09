@@ -66,7 +66,7 @@ export function GithubRepoPickerList({
               <Checkbox
                 isSelected={isSelected}
                 onChange={(selected) => onToggle(repo.id, selected)}
-                className={`rounded-none ${rowClassName}`}
+                className={`rounded-md ${rowClassName}`}
               >
                 <span className="min-w-0 truncate">{repo.full_name}</span>
               </Checkbox>
@@ -82,7 +82,7 @@ export function GithubRepoPickerList({
     <div
       ref={parentRef}
       className={cn(
-        "max-h-96 overflow-auto rounded-none border border-white/[0.06] bg-card/40 [overflow-anchor:none]",
+        "max-h-96 overflow-auto rounded-md border border-white/[0.06] bg-card/40 [overflow-anchor:none]",
         className,
       )}
     >
@@ -113,7 +113,7 @@ export function GithubRepoPickerSkeleton({
   return (
     <div
       className={cn(
-        "max-h-96 overflow-hidden rounded-none border border-white/[0.06] bg-card/40",
+        "max-h-96 overflow-hidden rounded-md border border-white/[0.06] bg-card/40",
         className,
       )}
       aria-busy
