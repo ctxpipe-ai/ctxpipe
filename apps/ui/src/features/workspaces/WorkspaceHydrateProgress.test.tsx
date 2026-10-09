@@ -71,11 +71,10 @@ describe("WorkspaceHydrateProgress waiting_for_tip view", () => {
         />
       </QueryClientProvider>,
     )
-    expect(markup).toContain("Waiting for a resolved tip.")
-    expect(markup).toContain("animate-ping")
+    expect(markup).toContain("animate-pulse")
     expect(markup).toContain("Try again")
     expect(markup).toContain(
-      "Hydrate does not wait on a bootstrap commit. Try again resolves the git tip and hydrates.",
+      "The latest commit of this repository is not known yet. Try again to check the repository again.",
     )
   })
 })
