@@ -116,16 +116,29 @@ export function WorkspaceChatChrome(props: {
             <div className="ml-auto flex min-w-0 items-end gap-0.5">
               {showWriteBadge ? (
                 <span className="inline-flex h-[37px] shrink-0 items-center">
-                  <span
-                    title={props.workspace.readOnlyReason ?? write.label}
-                    className={
-                      write.tone === "pending"
-                        ? "rounded-md border border-border bg-zinc-800 px-2 py-0.5 text-xs font-medium text-muted-foreground"
-                        : "rounded-md border border-amber-500/80 bg-amber-950 px-2 py-0.5 text-xs font-medium text-amber-200"
-                    }
-                  >
-                    {write.label}
-                  </span>
+                  <TooltipProvider delay={200}>
+                    <Tooltip>
+                      <TooltipTrigger
+                        className={
+                          write.tone === "pending"
+                            ? "rounded-md border border-border bg-zinc-800 px-2 py-0.5 text-xs font-medium text-muted-foreground"
+                            : "rounded-md border border-amber-500/80 bg-amber-950 px-2 py-0.5 text-xs font-medium text-amber-200"
+                        }
+                      >
+                        {write.label}
+                      </TooltipTrigger>
+                      <TooltipContent
+                        side="bottom"
+                        sideOffset={6}
+                        className="border-0 bg-zinc-800 text-zinc-100 shadow-md"
+                        arrowClassName="bg-zinc-800 fill-zinc-800"
+                      >
+                        {write.tone === "pending"
+                          ? "Checking whether the GitHub App can push to this repository"
+                          : (props.workspace.readOnlyReason ?? write.label)}
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 </span>
               ) : null}
               {publishHasActions && props.publish ? (
