@@ -9,7 +9,7 @@ import {
   stat,
   writeFile,
 } from "node:fs/promises"
-import { dirname, join, resolve, sep } from "node:path"
+import { dirname, join, relative, resolve, sep } from "node:path"
 import { REPO_CACHE_DIR } from "../../config/paths.js"
 
 /** Matches backend `DEFAULT_CHECKOUT_KEY` for the primary branch checkout. */
@@ -90,10 +90,18 @@ export async function resolveSafeReadableFilePath(
   return resolved
 }
 
+/** True when a repo-relative path has a `.git` segment, in any letter case. */
+function hasGitSegment(path: string): boolean {
+  return path.toLowerCase().split(/[\\/]/).includes(".git")
+}
+
 /**
- * Reads a regular file inside the checkout. The file is opened without
- * following a symlink at its last component. On Linux, the real path of
- * the open descriptor is checked again, so a path that a checkout changes
+ * Reads a regular file inside the checkout. A symlink is followed only when
+ * its final target stays inside the checkout and outside `.git`. The read
+ * refuses a path or a target with a `.git` segment, the same as a missing
+ * path, because `.git/config` can hold a clone token. The file is opened
+ * without following a symlink at its last component. On Linux, the real path
+ * of the open descriptor is checked again, so a path that a checkout changes
  * after the first check is not read. Other platforms have only the first
  * check.
  */
@@ -101,16 +109,22 @@ export async function readContainedFile(
   basePath: string,
   relativePath: string,
 ) {
+  const notFound = () =>
+    Object.assign(new Error("Path not found"), { code: "ENOENT" })
+  resolveSafePath(basePath, relativePath)
+  if (hasGitSegment(relativePath)) throw notFound()
   const resolved = await resolveSafeReadableFilePath(basePath, relativePath)
+  const base = await realpath(basePath)
+  if (hasGitSegment(relative(base, resolved))) throw notFound()
   const handle = await open(resolved, constants.O_RDONLY | constants.O_NOFOLLOW)
   try {
     if (process.platform === "linux") {
-      const [base, opened] = await Promise.all([
-        realpath(basePath),
-        readlink(`/proc/self/fd/${handle.fd}`),
-      ])
-      if (!opened.startsWith(`${base}${sep}`)) {
-        throw Object.assign(new Error("Path not found"), { code: "ENOENT" })
+      const opened = await readlink(`/proc/self/fd/${handle.fd}`)
+      if (
+        !opened.startsWith(`${base}${sep}`) ||
+        hasGitSegment(relative(base, opened))
+      ) {
+        throw notFound()
       }
     }
     if (!(await handle.stat()).isFile()) {

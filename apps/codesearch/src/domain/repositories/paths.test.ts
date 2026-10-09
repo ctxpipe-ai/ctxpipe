@@ -64,6 +64,7 @@ describe("paths inside the checkout", () => {
     await mkdir(join(checkout, "sub", ".git"))
     await writeFile(join(checkout, "sub", ".git", "config"), "nested\n")
     await symlink(".git/config", join(checkout, "leak"))
+    await symlink(".git", join(checkout, "git-dir"))
   })
 
   afterEach(async () => {
@@ -87,19 +88,20 @@ describe("paths inside the checkout", () => {
     ).rejects.toMatchObject({ code: "ENOENT" })
   })
 
-  it("reads a regular file and refuses a directory", async () => {
-    expect((await readContainedFile(checkout, "sub/inner.txt")).toString()).toBe(
+  it("reads a file inside through a symlink and refuses a directory", async () => {
+    expect((await readContainedFile(checkout, "in-link")).toString()).toBe(
       "inside\n",
     )
+    expect(
+      (await readContainedFile(checkout, "in-dir/inner.txt")).toString(),
+    ).toBe("inside\n")
     await expect(readContainedFile(checkout, "sub")).rejects.toThrow()
   })
 
-  // The tree lists only regular files outside .git. A read must not serve
-  // more than the tree, because .git/config can hold a clone token.
+  // The tree never lists .git, and .git/config can hold a clone token.
   it.each([
     ["a symlink to .git/config", "leak"],
-    ["a symlink to a file inside", "in-link"],
-    ["a file under a symlinked directory inside", "in-dir/inner.txt"],
+    ["a file under a symlink to .git", "git-dir/config"],
     ["a chain of symlinks that ends outside", "chain-a"],
     ["an absolute symlink to a file outside", "abs-link"],
     ["the .git/config file", ".git/config"],
