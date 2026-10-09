@@ -94,7 +94,7 @@ index c3f62754a7a2e2dbf6cc4482e188b4bf5d10b37d..e46983d0b02d5a9583fbb8f097c74278
  			}
  		};
 diff --git a/dist/esm/stream/translate.js b/dist/esm/stream/translate.js
-index a63df2314be1bf53f30f08bf21b6d56a6408122f..d07981d66ba3f429c1f4f735710a6db388501de4 100644
+index a63df2314be1bf53f30f08bf21b6d56a6408122f..cfd9b3eaf920c5266fda97969e2c3e3c035851c6 100644
 --- a/dist/esm/stream/translate.js
 +++ b/dist/esm/stream/translate.js
 @@ -62,6 +62,14 @@ function messageError(message) {
@@ -106,13 +106,13 @@ index a63df2314be1bf53f30f08bf21b6d56a6408122f..d07981d66ba3f429c1f4f735710a6db3
 +	const messageRoles = new Map();
 +	const pendingParts = new Map();
 +	// ctxpipe patch (upstream issue: to be opened): OpenCode 1.x streams text
-+	// and reasoning as message.part.delta events. Keep each assistant text or
-+	// reasoning part so that its deltas go out as they arrive.
++	// and reasoning as message.part.delta events. Keep each part by id so that
++	// its deltas go out as they arrive, or wait with the part for the role.
 +	const streamedParts = new Map();
  	let runStarted = false;
  	/** Tool calls started but with no result yet, keyed by callID. */
  	const unresolvedToolCalls = /* @__PURE__ */ new Set();
-@@ -249,11 +257,31 @@ async function* translateOpencodeStream(events, ctx) {
+@@ -249,11 +257,37 @@ async function* translateOpencodeStream(events, ctx) {
  		};
  	}
  	function* handleEvent(event) {
@@ -126,13 +126,13 @@ index a63df2314be1bf53f30f08bf21b6d56a6408122f..d07981d66ba3f429c1f4f735710a6db3
 +		} else if (event.type === "message.part.updated") {
  			const { part, delta } = event.properties;
 +			if (!part.messageID) return;
++			streamedParts.set(part.id, part);
 +			const role = messageRoles.get(part.messageID);
 +			if (role === void 0) {
 +				pendingParts.set(part.messageID, [...pendingParts.get(part.messageID) ?? [], event]);
 +				return;
 +			}
 +			if (role !== "assistant") return;
-+			if (isTextPart(part) || isReasoningPart(part)) streamedParts.set(part.id, part);
  			if (isTextPart(part)) yield* handleTextPart(part, delta);
  			else if (isReasoningPart(part)) yield* handleReasoningPart(part, delta);
  			else if (isToolPart(part)) yield* handleToolPart(part);
@@ -140,8 +140,14 @@ index a63df2314be1bf53f30f08bf21b6d56a6408122f..d07981d66ba3f429c1f4f735710a6db3
 +			const { partID, field, delta } = event.properties;
 +			const part = streamedParts.get(partID);
 +			if (part === void 0 || field !== "text" || !delta) return;
++			const role = messageRoles.get(part.messageID);
++			if (role === void 0) {
++				pendingParts.set(part.messageID, [...pendingParts.get(part.messageID) ?? [], event]);
++				return;
++			}
++			if (role !== "assistant") return;
 +			if (isTextPart(part)) yield* handleTextPart(part, delta);
-+			else yield* handleReasoningPart(part, delta);
++			else if (isReasoningPart(part)) yield* handleReasoningPart(part, delta);
  		} else if (event.type === "todo.updated") yield {
  			type: EventType.CUSTOM,
  			model,
