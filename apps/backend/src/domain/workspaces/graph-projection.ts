@@ -8,7 +8,11 @@ import {
   getWorkspaceProjectionSnapshot,
   persistWorkspaceGraphResult,
 } from "../../models/workspaces.js"
-import { getGraphClient, withGraphClient } from "../../platform/graph/client.js"
+import {
+  getConfig,
+  getGraphClient,
+  withGraphClient,
+} from "../../platform/graph/client.js"
 import { hydrateUnitsToProjectionClaims } from "./hydrate.js"
 import {
   type PublishedProjection,
@@ -28,6 +32,15 @@ export function workspaceGraphRevisionKey(revision: WorkspaceRevision): string {
     .digest("hex")
 }
 
+/** Write one revision's claims as edges between its units. */
+export const workspaceClaimsQuery = `UNWIND $claims AS claim
+MATCH (s:WorkspaceKnowledgeUnit {projectionKey: $projectionKey, id: claim.subjectId})
+MATCH (t:WorkspaceKnowledgeUnit {projectionKey: $projectionKey, id: claim.objectId})
+MERGE (s)-[r:WorkspaceSignal {projectionKey: $projectionKey, id: claim.id}]->(t)
+SET r.predicate = claim.predicate, r.confidence = claim.aggregatedConfidence,
+    r.validFrom = claim.validFrom, r.validTo = claim.validTo,
+    r.source = claim.source, r.lastObservedAt = claim.lastObservedAt`
+
 /** Build the derived graph from a captured PostgreSQL projection, never by parsing Git again. */
 export async function projectWorkspaceGraph(
   revision: WorkspaceRevision,
@@ -45,6 +58,18 @@ export async function projectWorkspaceGraph(
   try {
     await withGraphClient({ orgId, orgSlug }, async () => {
       const graph = getGraphClient()
+      // Each claim finds its two units by projectionKey and id. Without this
+      // index, a large repository keeps FalkorDB busy for many minutes.
+      // This statement is FalkorDB syntax. Neptune openCypher has no CREATE INDEX.
+      if (getConfig().provider === "falkordb")
+        await graph
+          .executeQuery(
+            "CREATE INDEX FOR (n:WorkspaceKnowledgeUnit) ON (n.projectionKey, n.id)",
+          )
+          .catch((error: unknown) => {
+            // FalkorDB has no IF NOT EXISTS. A second create gives this error.
+            if (!/already indexed/i.test(String(error))) throw error
+          })
       const nodes = workspaceGraphNodes(snapshot.units)
       if (nodes.length)
         await graph.executeQuery(
@@ -55,16 +80,10 @@ export async function projectWorkspaceGraph(
         )
       const claims = hydrateUnitsToProjectionClaims(snapshot.units)
       if (claims.length)
-        await graph.executeQuery(
-          `UNWIND $claims AS claim
-        MATCH (s:WorkspaceKnowledgeUnit {projectionKey: $projectionKey, id: claim.subjectId})
-        MATCH (t:WorkspaceKnowledgeUnit {projectionKey: $projectionKey, id: claim.objectId})
-        MERGE (s)-[r:WorkspaceSignal {projectionKey: $projectionKey, id: claim.id}]->(t)
-        SET r.predicate = claim.predicate, r.confidence = claim.aggregatedConfidence,
-            r.validFrom = claim.validFrom, r.validTo = claim.validTo,
-            r.source = claim.source, r.lastObservedAt = claim.lastObservedAt`,
-          { projectionKey, claims },
-        )
+        await graph.executeQuery(workspaceClaimsQuery, {
+          projectionKey,
+          claims,
+        })
       await graph.executeQuery(
         `MERGE (p:WorkspaceProjection {projectionKey: $projectionKey})
         SET p.workspaceId = $workspaceId, p.revision = $revision, p.nodeCount = $nodeCount, p.claimCount = $claimCount, p.completedAt = $completedAt`,

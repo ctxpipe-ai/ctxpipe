@@ -326,6 +326,36 @@ describe("clone-tree", { timeout: 30_000 }, () => {
     ).not.toMatch(/root:/)
   })
 
+  it("reads a markdown-only repository larger than 64 MB", async () => {
+    dir = await mkdtemp(join(tmpdir(), "ctxpipe-large-markdown-"))
+    const git = async (...args: string[]) =>
+      (await execFileAsync("git", ["-C", dir as string, ...args])).stdout.trim()
+    await git("init", "-b", "main")
+    await git("config", "user.name", "Contract")
+    await git("config", "user.email", "contract@example.test")
+    // 9 pages of 8.4 MB each: about 76 MB of markdown in one commit.
+    const page = (n: number) =>
+      `# Page ${n}\n\n${"Knowledge about the system. ".repeat(300_000)}\n`
+    for (let n = 0; n < 9; n++)
+      await writeFile(join(dir, `page-${n}.md`), page(n))
+    await git("add", ".")
+    await git("commit", "-q", "-m", "Pages")
+    const sha = await git("rev-parse", "HEAD")
+
+    const files = await listMarkdownFilesAtGitSha({
+      url: dir,
+      sha,
+      includeIntroducingCommits: true,
+    })
+
+    expect(files).toHaveLength(9)
+    expect(files.find((file) => file.path === "page-8.md")).toEqual({
+      path: "page-8.md",
+      content: page(8),
+      introducingCommitTimestamp: expect.any(String),
+    })
+  })
+
   it("fails clearly when git is not on PATH", async () => {
     const previousPath = process.env.PATH
     process.env.PATH = "/tmp/ctxpipe-no-git"
