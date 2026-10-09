@@ -191,9 +191,11 @@ export async function listMarkdownFilesAtGitSha(input: {
       (entry) => entry.kind === "blob" && entry.path.endsWith(".md"),
     )
     if (entries.length === 0) return []
+    // The batch holds every markdown blob, and the caller keeps all of them in
+    // memory anyway. A buffer cap only rejects large markdown repositories.
     const { stdout } = await gitExec(
       ["-C", dir, "cat-file", "--batch"],
-      { timeout: 30_000, maxBuffer: 64 * 1024 * 1024 },
+      { timeout: 30_000, maxBuffer: Number.POSITIVE_INFINITY },
       `${entries.map((entry) => entry.sha).join("\n")}\n`,
     )
     const introduced = new Map<string, string>()
