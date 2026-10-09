@@ -270,6 +270,7 @@ describe("workspace query HTTP helpers", () => {
       // The branch is unknown until the sandbox answers (it may be …/2).
       branch: "",
       ready: false,
+      busy: false,
     })
     expect(readConversationGitTreeSnapshot("conv_1")).toBeUndefined()
     clearAllConversationGitTreeSnapshots()

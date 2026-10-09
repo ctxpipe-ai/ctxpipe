@@ -37,18 +37,20 @@ class SandboxLockBusy extends Error {}
 
 /**
  * Run `fn` under `key` only if nobody holds it now; otherwise return
- * `{ busy: true }` at once. Cleanup uses this to leave a conversation alone
- * while a turn holds it.
+ * `{ busy: true }` at once. A caller uses this when it must not wait for a
+ * running turn. `abortController` aborts `fn` the same way as in
+ * `postgresSandboxLocks`.
  */
 export async function withSandboxLockIfFree<T>(
   orgId: string,
   key: string,
   fn: (signal: AbortSignal) => Promise<T>,
+  abortController?: AbortController,
 ): Promise<{ busy: true } | { busy: false; value: T }> {
   try {
     const value = await postgresLocks(
       orgId,
-      undefined,
+      abortController,
       undefined,
       false,
     ).withLock(key, fn)

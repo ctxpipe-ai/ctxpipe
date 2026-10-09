@@ -1,12 +1,7 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { eq } from "drizzle-orm"
-import { afterAll, beforeAll, expect, it } from "vitest"
-import {
-  cleanupSeededOrg,
-  describeWithDatabase,
-  type SeededOrg,
-  seedOrg,
-} from "../../../test/db.js"
+import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../../test/db.js"
 import { recordSpans } from "../../../test/spans.js"
 import type { AppEnv } from "../../app/env.js"
 import { withOrgIdContext } from "../../auth/withAuth.js"
@@ -14,6 +9,7 @@ import { withOrgDbContext } from "../../db/client.js"
 import { conversations } from "../../db/schema/conversations.js"
 import { sandboxLocks } from "../../db/schema/sandbox-locks.js"
 import { workspaces } from "../../db/schema/workspaces.js"
+import { postgresSandboxLocks } from "../../domain/workspaces/sandbox-lock-store.js"
 import { generateObjectId } from "../../lib/id.js"
 import { applyAttribution } from "../../observability/attribution.js"
 import { backendOtelMiddleware } from "../../observability/http.js"
@@ -25,12 +21,13 @@ import { conversationFileRoutes } from "./conversation-files-routes.js"
 
 const spans = recordSpans()
 
-describeWithDatabase("conversation files/status HTTP attribution", () => {
+describe("conversation Files routes over HTTP", () => {
   let seed: SeededOrg
   const workspaceId = generateObjectId("ws")
   const conversationId = generateObjectId("conv")
 
   beforeAll(async () => {
+    if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required")
     seed = await seedOrg()
     await withOrgDbContext(seed.orgId, async (db) => {
       await db.insert(workspaces).values({
@@ -136,4 +133,49 @@ describeWithDatabase("conversation files/status HTTP attribution", () => {
     expect(span?.attributes["ctxpipe.conversation.id"]).toBeUndefined()
     expect(JSON.stringify(span?.attributes)).not.toContain("conv_SPOOFED")
   })
+
+  /** Hold the conversation lock as a chat turn does, until the call to release. */
+  async function holdTurnLock() {
+    let release = () => {}
+    let acquired = () => {}
+    const isAcquired = new Promise<void>((resolve) => {
+      acquired = resolve
+    })
+    const held = postgresSandboxLocks(seed.orgId).withLock(
+      `chat-thread:${conversationId}`,
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve
+          acquired()
+        }),
+    )
+    await isAcquired
+    return async () => {
+      release()
+      await held
+    }
+  }
+
+  for (const route of ["tree", "status"] as const) {
+    it(`answers GET files/${route} at once with turn_running while a turn holds the conversation`, async () => {
+      const releaseTurn = await holdTurnLock()
+      try {
+        const answered = Promise.resolve(
+          createApp().request(
+            `/conversations/${conversationId}/files/${route}`,
+            { headers: { cookie: seed.cookie } },
+          ),
+        ).then(async (res) => ({ status: res.status, body: await res.json() }))
+        const blocked = new Promise<"blocked">((resolve) =>
+          setTimeout(() => resolve("blocked"), 3_000),
+        )
+        expect(await Promise.race([answered, blocked])).toEqual({
+          status: 409,
+          body: { error: "turn_running" },
+        })
+      } finally {
+        await releaseTurn()
+      }
+    })
+  }
 })

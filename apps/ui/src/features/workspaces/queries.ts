@@ -367,21 +367,32 @@ export function workspaceActivityOptions(
   })
 }
 
+/**
+ * A 409 from a Files read. `busy`: a turn holds the conversation
+ * (`turn_running`), so a later read can succeed. Other 409s (for example
+ * `missing_sandbox`) do not end on their own.
+ */
+type ConversationFilesBlocked = { blocked: true; busy: boolean }
+
+async function readConversationFilesBlocked(
+  res: Response,
+): Promise<ConversationFilesBlocked> {
+  const body = (await res.json().catch(() => ({}))) as { error?: string }
+  return { blocked: true, busy: body.error === "turn_running" }
+}
+
 export async function fetchConversationGitTree(
   orgSlug: string,
   conversationId: string,
-): Promise<ConversationGitTreeResponse | null> {
+): Promise<ConversationGitTreeResponse | ConversationFilesBlocked> {
   const client = await getApiClient()
   const res = await client[":orgSlug"].api.v1.conversations[
     ":conversationId"
   ].files.tree.$get({
     param: { orgSlug, conversationId },
   })
-  return readApiJson(res, {
-    emptyOn: [409],
-    empty: null,
-    message: "Failed to load conversation files",
-  })
+  if (res.status === 409) return readConversationFilesBlocked(res)
+  return readApiJson(res, { message: "Failed to load conversation files" })
 }
 
 export async function fetchConversationGitBlob(
@@ -406,16 +417,15 @@ export async function fetchConversationGitBlob(
 export async function fetchConversationGitStatus(
   orgSlug: string,
   conversationId: string,
-): Promise<ConversationGitStatusResponse | null> {
+): Promise<ConversationGitStatusResponse | ConversationFilesBlocked> {
   const client = await getApiClient()
   const res = await client[":orgSlug"].api.v1.conversations[
     ":conversationId"
   ].files.status.$get({
     param: { orgSlug, conversationId },
   })
+  if (res.status === 409) return readConversationFilesBlocked(res)
   return readApiJson(res, {
-    emptyOn: [409],
-    empty: null,
     message: "Failed to load conversation git status",
   })
 }
@@ -474,7 +484,7 @@ export async function resolveConversationWorktreeVersion(
   )
   if (cached) return cached
   const tree = await fetchConversationGitTree(orgSlug, conversationId)
-  if (!tree?.worktreeVersion) {
+  if ("blocked" in tree || !tree.worktreeVersion) {
     throw new Error("Conversation worktree version is missing")
   }
   client.setQueryData(
@@ -622,36 +632,45 @@ export async function createConversationPullRequest(
   return readApiJson(res, { message: "Failed to create pull request" })
 }
 
+/** Query data for a Files read. `busy`: the last read got 409 turn_running. */
+type PolledFiles<T> = T & { busy?: boolean }
+
 export function conversationGitTreeOptions(
   orgSlug: string,
   conversationId: string,
 ) {
   return queryOptions<
-    ConversationGitTreeResponse,
+    PolledFiles<ConversationGitTreeResponse>,
     Error,
-    ConversationGitTreeResponse,
+    PolledFiles<ConversationGitTreeResponse>,
     ReturnType<typeof workspaceKeys.conversationGitTree>
   >({
     queryKey: workspaceKeys.conversationGitTree(orgSlug, conversationId),
-    queryFn: async ({ client }): Promise<ConversationGitTreeResponse> => {
+    queryFn: async ({
+      client,
+    }): Promise<PolledFiles<ConversationGitTreeResponse>> => {
       const tree = await fetchConversationGitTree(orgSlug, conversationId)
-      if (!tree) {
+      if ("blocked" in tree) {
+        const { busy } = tree
         const cached = client.getQueryData<ConversationGitTreeResponse>(
           workspaceKeys.conversationGitTree(orgSlug, conversationId),
         )
-        if (cached && cached.ready !== false) return cached
+        if (cached && cached.ready !== false) return { ...cached, busy }
         return {
           sha: "HEAD",
           paths: [],
           // Unknown until the sandbox answers.
           branch: "",
           ready: false,
+          busy,
         }
       }
       const listed = { ...tree, ready: true }
       writeConversationGitTreeSnapshot(conversationId, listed)
       return listed
     },
+    // 409 turn_running: a turn holds the conversation. Ask again.
+    refetchInterval: (query) => (query.state.data?.busy ? 2000 : false),
     placeholderData: (previousData): ConversationGitTreeResponse | undefined =>
       readConversationGitTreeSnapshot(conversationId) ?? previousData,
     initialData: (): ConversationGitTreeResponse | undefined =>
@@ -670,24 +689,43 @@ export function conversationGitBlobOptions(
   })
 }
 
+class ConversationSandboxBusy extends Error {
+  constructor() {
+    super("Conversation sandbox is not ready")
+  }
+}
+
 export function conversationGitStatusOptions(
   orgSlug: string,
   conversationId: string,
 ) {
   return queryOptions<
-    ConversationGitStatusResponse,
+    PolledFiles<ConversationGitStatusResponse>,
     Error,
-    ConversationGitStatusResponse,
+    PolledFiles<ConversationGitStatusResponse>,
     ReturnType<typeof workspaceKeys.conversationGitStatus>
   >({
     queryKey: workspaceKeys.conversationGitStatus(orgSlug, conversationId),
-    queryFn: async (): Promise<ConversationGitStatusResponse> => {
+    queryFn: async ({
+      client,
+    }): Promise<PolledFiles<ConversationGitStatusResponse>> => {
       const status = await fetchConversationGitStatus(orgSlug, conversationId)
-      if (!status) {
-        throw new Error("Conversation sandbox is not ready")
+      if ("blocked" in status) {
+        if (!status.busy) throw new Error("Conversation sandbox is not ready")
+        const cached = client.getQueryData<ConversationGitStatusResponse>(
+          workspaceKeys.conversationGitStatus(orgSlug, conversationId),
+        )
+        if (cached) return { ...cached, busy: true }
+        throw new ConversationSandboxBusy()
       }
       return status
     },
+    // 409 turn_running: a turn holds the conversation. Ask again.
+    refetchInterval: (query) =>
+      query.state.data?.busy ||
+      query.state.error instanceof ConversationSandboxBusy
+        ? 2000
+        : false,
   })
 }
 
