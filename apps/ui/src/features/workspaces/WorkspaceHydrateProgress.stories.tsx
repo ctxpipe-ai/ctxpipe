@@ -1,5 +1,4 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { HttpResponse, http } from "msw"
 import { expect, within } from "storybook/test"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
@@ -71,27 +70,6 @@ export const PrepareWaitingForTip: Story = {
   args: {
     workspace: { ...hydratingWorkspace, desiredSha: null },
   },
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          http.post(
-            ({ request }) =>
-              /\/api\/v1\/workspaces\/[^/]+\/retry-prepare$/.test(
-                new URL(request.url).pathname,
-              ),
-            () =>
-              HttpResponse.json({
-                ...hydratingWorkspace,
-                desiredSha: "abc123def456",
-                hydrateStatus: "pending",
-                hydrateError: null,
-              }),
-          ),
-        ],
-      },
-    },
-  },
 }
 
 export const PrepareFailed: Story = {
@@ -111,26 +89,6 @@ export const PrepareFailed: Story = {
   },
   args: {
     workspace: failedHydrateWorkspace,
-  },
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          http.post(
-            ({ request }) =>
-              /\/api\/v1\/workspaces\/[^/]+\/retry-prepare$/.test(
-                new URL(request.url).pathname,
-              ),
-            () =>
-              HttpResponse.json({
-                ...failedHydrateWorkspace,
-                hydrateStatus: "pending",
-                hydrateError: null,
-              }),
-          ),
-        ],
-      },
-    },
   },
 }
 

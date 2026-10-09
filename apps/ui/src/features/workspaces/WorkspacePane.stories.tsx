@@ -511,6 +511,8 @@ export const GraphPhasePending: Story = {
     ).toBeVisible()
     const tab = canvas.getByRole("tab", { name: "Graph, building" })
     expect(tab.querySelector(".ctx-indexing-dot")).not.toBeNull()
+    // Wait longer than two workspace poll intervals (2 s each).
+    await new Promise((resolve) => setTimeout(resolve, 4_500))
     expect(canvas.queryByText("Could not load graph")).toBeNull()
     expect(graphGets.count).toBe(0)
   },
@@ -578,7 +580,8 @@ export const GraphPhaseReadyStoreUnavailable: Story = {
         timeout: 15_000,
       }),
     ).toBeVisible()
-    expect(canvas.queryByText("Building graph")).toBeNull()
+    const tab = canvas.getByRole("tab", { name: "Graph" })
+    expect(tab.querySelector(".ctx-indexing-dot")).toBeNull()
   },
 }
 
