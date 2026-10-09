@@ -42,7 +42,17 @@ export function buildAstGrepArgv(input: {
   globs?: readonly string[]
   paths: readonly string[]
 }): string[] {
-  const argv = ["ast-grep", "run", "--pattern", input.pattern, "--json=stream"]
+  // Use an empty config. Without --config, ast-grep reads an sgconfig.yml
+  // from the checkout, and codesearch uses only its own config.
+  const argv = [
+    "ast-grep",
+    "run",
+    "--config",
+    "/dev/null",
+    "--pattern",
+    input.pattern,
+    "--json=stream",
+  ]
   if (input.lang) argv.push("--lang", input.lang)
   for (const glob of input.globs ?? []) {
     argv.push("--globs", glob)
