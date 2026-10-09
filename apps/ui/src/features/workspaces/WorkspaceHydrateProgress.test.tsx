@@ -79,3 +79,31 @@ describe("WorkspaceHydrateProgress waiting_for_tip view", () => {
     )
   })
 })
+
+describe("WorkspaceHydrateProgress stages", () => {
+  function render(workspace: typeof hydratingWorkspace) {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    return renderToStaticMarkup(
+      <QueryClientProvider client={queryClient}>
+        <WorkspaceHydrateProgress orgSlug="acme" workspace={workspace} />
+      </QueryClientProvider>,
+    )
+  }
+
+  it("names the stages in plain words and marks reading knowledge as current", () => {
+    const markup = render({ ...hydratingWorkspace, desiredSha: "87797371c413" })
+    expect(markup).toContain("Fetching repository")
+    expect(markup).toContain("Reading knowledge")
+    expect(markup).toContain("Building graph")
+    expect(markup).toMatch(/aria-current="step"[^>]*>[^<]*Reading knowledge/)
+    expect(markup).not.toContain("hydrate SHA")
+    expect(markup).not.toContain("Hydrate running")
+  })
+
+  it("marks fetching repository as current before the tip resolves", () => {
+    const markup = render({ ...hydratingWorkspace, desiredSha: null })
+    expect(markup).toMatch(/aria-current="step"[^>]*>[^<]*Fetching repository/)
+  })
+})
