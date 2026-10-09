@@ -31,6 +31,8 @@ describe("buildAstGrepArgv", () => {
       "src/**/*.ts",
       "--globs",
       "!**/*.test.ts",
+      "--globs",
+      "!.git",
       "--",
       "/repo/checkout/src",
       "/repo/checkout/packages/api",

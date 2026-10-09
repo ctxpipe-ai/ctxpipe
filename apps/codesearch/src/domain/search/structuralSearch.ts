@@ -1,6 +1,9 @@
 import { realpath } from "node:fs/promises"
 import { isAbsolute, relative, resolve, sep } from "node:path"
-import { resolveContainedRealPath } from "../repositories/paths.js"
+import {
+  hasGitSegment,
+  resolveContainedRealPath,
+} from "../repositories/paths.js"
 
 export type StructuralSearchMatch = Record<string, unknown>
 
@@ -40,14 +43,16 @@ export function buildAstGrepArgv(input: {
   for (const glob of input.globs ?? []) {
     argv.push("--globs", glob)
   }
-  argv.push("--", ...input.paths)
+  // A user glob skips the hidden file check. The last matching glob wins, so
+  // this exclusion must come after every user glob.
+  argv.push("--globs", "!.git", "--", ...input.paths)
   return argv
 }
 
 async function parseMatch(
   line: string,
   checkoutPath: string,
-): Promise<StructuralSearchMatch> {
+): Promise<StructuralSearchMatch | undefined> {
   const value: unknown = JSON.parse(line)
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new Error("ast-grep returned an invalid JSON match")
@@ -59,6 +64,8 @@ async function parseMatch(
     resolve(checkoutPath, (value as StructuralSearchMatch).file as string),
   )
   assertWithinCheckout(checkoutPath, matchPath)
+  // Drop a .git match, because .git/config can hold a clone token.
+  if (hasGitSegment(relative(checkoutPath, matchPath))) return undefined
   return value as StructuralSearchMatch
 }
 
@@ -83,7 +90,8 @@ async function readMatches(
       const line = pending.slice(0, newline).trim()
       pending = pending.slice(newline + 1)
       if (line && matches.length < limit) {
-        matches.push(await parseMatch(line, checkoutPath))
+        const match = await parseMatch(line, checkoutPath)
+        if (match) matches.push(match)
       }
       newline = pending.indexOf("\n")
     }
@@ -93,7 +101,8 @@ async function readMatches(
 
   const finalLine = pending.trim()
   if (finalLine && matches.length < limit) {
-    matches.push(await parseMatch(finalLine, checkoutPath))
+    const match = await parseMatch(finalLine, checkoutPath)
+    if (match) matches.push(match)
   }
   return matches
 }

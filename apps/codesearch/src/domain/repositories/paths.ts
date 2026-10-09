@@ -58,7 +58,7 @@ export function resolveSafePath(
 }
 
 /** True when a repo-relative path has a `.git` segment, in any letter case. */
-function hasGitSegment(path: string): boolean {
+export function hasGitSegment(path: string): boolean {
   return path.toLowerCase().split(/[\\/]/).includes(".git")
 }
 
