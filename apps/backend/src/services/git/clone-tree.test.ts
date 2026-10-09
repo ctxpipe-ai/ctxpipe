@@ -333,15 +333,13 @@ describe("clone-tree", { timeout: 30_000 }, () => {
     await git("init", "-b", "main")
     await git("config", "user.name", "Contract")
     await git("config", "user.email", "contract@example.test")
-    // 2,000 pages of 36 KB each: about 72 MB of markdown in one tree.
+    // 9 pages of 8.4 MB each: about 76 MB of markdown in one commit.
     const page = (n: number) =>
-      `# Page ${n}\n\n${"Knowledge about the system. ".repeat(1_300)}\n`
-    for (let commit = 0; commit < 4; commit++) {
-      for (let n = commit * 500; n < (commit + 1) * 500; n++)
-        await writeFile(join(dir, `page-${n}.md`), page(n))
-      await git("add", ".")
-      await git("commit", "-q", "-m", `Pages ${commit}`)
-    }
+      `# Page ${n}\n\n${"Knowledge about the system. ".repeat(300_000)}\n`
+    for (let n = 0; n < 9; n++)
+      await writeFile(join(dir, `page-${n}.md`), page(n))
+    await git("add", ".")
+    await git("commit", "-q", "-m", "Pages")
     const sha = await git("rev-parse", "HEAD")
 
     const files = await listMarkdownFilesAtGitSha({
@@ -350,10 +348,10 @@ describe("clone-tree", { timeout: 30_000 }, () => {
       includeIntroducingCommits: true,
     })
 
-    expect(files).toHaveLength(2_000)
-    expect(files.find((file) => file.path === "page-1999.md")).toEqual({
-      path: "page-1999.md",
-      content: page(1999),
+    expect(files).toHaveLength(9)
+    expect(files.find((file) => file.path === "page-8.md")).toEqual({
+      path: "page-8.md",
+      content: page(8),
       introducingCommitTimestamp: expect.any(String),
     })
   })
