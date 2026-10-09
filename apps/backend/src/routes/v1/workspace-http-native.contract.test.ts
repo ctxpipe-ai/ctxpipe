@@ -161,3 +161,39 @@ it(
     })
   },
 )
+
+it(
+  "reports a legacy projection graph as ready so the graph route decides",
+  { timeout: 45_000 },
+  async () => {
+    await withNativeHydrationFixture({}, async (f) => {
+      await f.handle.cancel()
+      const app = workspaceHttpApp(f.org, workspaceRoutes)
+      const phases = async () =>
+        (
+          (await (await app.request("/workspaces/knowledge")).json()) as {
+            hydratePhases?: { graph: unknown }
+          }
+        ).hydratePhases?.graph
+      const legacy = {
+        activeRevision: null,
+        activeProjectionSha: "a".repeat(40),
+        activeProjectionUrl: "https://github.com/acme/knowledge",
+      }
+      await withOrgDbContext(f.org.id, (db) =>
+        db
+          .update(workspaces)
+          .set({ ...legacy, hydrateStatus: "ready" })
+          .where(eq(workspaces.id, f.workspaceId)),
+      )
+      expect(await phases()).toEqual({ kind: "ready" })
+      await withOrgDbContext(f.org.id, (db) =>
+        db
+          .update(workspaces)
+          .set({ ...legacy, hydrateStatus: "failed", hydrateError: "boom" })
+          .where(eq(workspaces.id, f.workspaceId)),
+      )
+      expect(await phases()).toEqual({ kind: "ready" })
+    })
+  },
+)
