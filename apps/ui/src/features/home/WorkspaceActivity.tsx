@@ -67,7 +67,7 @@ export function WorkspaceActivity(props: {
   )
 }
 
-function WorkspaceActivityLoading() {
+export function WorkspaceActivityLoading() {
   return (
     <>
       <section>

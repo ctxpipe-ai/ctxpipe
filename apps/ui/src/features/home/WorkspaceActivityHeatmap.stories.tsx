@@ -1,9 +1,14 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { expect, within } from "storybook/test"
 import {
   docsWorkspaceActivity,
   emptyWorkspaceActivity,
 } from "@/features/workspaces/workspace-fixtures"
-import { WorkspaceActivityHeatmap } from "./WorkspaceActivityHeatmap"
+import { CALENDAR_WEEKDAYS } from "./calendar-days"
+import {
+  WorkspaceActivityHeatmap,
+  WorkspaceActivityHeatmapSkeleton,
+} from "./WorkspaceActivityHeatmap"
 
 const meta = {
   title: "Components/Home/Activity heatmap",
@@ -21,10 +26,23 @@ export const Populated: Story = {
   args: {
     days: docsWorkspaceActivity.days,
   },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    for (const weekday of CALENDAR_WEEKDAYS) {
+      expect(await canvas.findByText(weekday)).toBeInTheDocument()
+    }
+  },
 }
 
 export const NoHistory: Story = {
   args: {
     days: emptyWorkspaceActivity.days,
   },
+}
+
+export const Loading: Story = {
+  args: {
+    days: [],
+  },
+  render: () => <WorkspaceActivityHeatmapSkeleton />,
 }

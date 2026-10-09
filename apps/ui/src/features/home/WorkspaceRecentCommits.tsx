@@ -1,4 +1,4 @@
-import { SkeletonRow } from "@/components/ui/Skeleton"
+import { Skeleton, SkeletonLine } from "@/components/ui/Skeleton"
 import type { WorkspaceActivityCommit } from "@/features/workspaces/types"
 import { formatDate } from "@/lib/format"
 
@@ -70,11 +70,20 @@ export function WorkspaceRecentCommitsSkeleton() {
   return (
     <div aria-busy>
       <span className="sr-only">Loading recent commits</span>
-      <SkeletonRow size="catalog" lines={2} />
-      <SkeletonRow size="catalog" lines={2} />
-      <SkeletonRow size="catalog" lines={2} />
-      <SkeletonRow size="catalog" lines={2} />
-      <SkeletonRow size="catalog" lines={2} />
+      <ul className="list-none p-0">
+        {[0, 1, 2, 3, 4].map((row) => (
+          <li
+            key={row}
+            className="flex items-start justify-between gap-4 border-b border-white/[0.06] py-3 last:border-b-0"
+          >
+            <div className="min-w-0 flex-1 space-y-2">
+              <SkeletonLine className="h-4 w-3/4" />
+              <SkeletonLine className="h-4 w-1/2" />
+            </div>
+            <Skeleton className="mt-0.5 h-3 w-14" />
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }
