@@ -114,7 +114,7 @@ it(
         // Without an index, each claim scans all units. A large repository
         // then keeps FalkorDB busy for many minutes.
         const plan = await graph.explain(
-          "UNWIND $claims AS claim MATCH (s:WorkspaceKnowledgeUnit {projectionKey: $projectionKey, id: claim.subjectId}) RETURN s",
+          "UNWIND [{subjectId: 'a'}] AS claim MATCH (s:WorkspaceKnowledgeUnit {projectionKey: 'k', id: claim.subjectId}) RETURN s",
         )
         expect(plan.join("\n")).toContain(
           "Node By Index Scan | (s:WorkspaceKnowledgeUnit)",

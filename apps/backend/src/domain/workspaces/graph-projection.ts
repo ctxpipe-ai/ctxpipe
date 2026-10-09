@@ -45,6 +45,16 @@ export async function projectWorkspaceGraph(
   try {
     await withGraphClient({ orgId, orgSlug }, async () => {
       const graph = getGraphClient()
+      // Each claim finds its two units by projectionKey and id. Without this
+      // index, a large repository keeps FalkorDB busy for many minutes.
+      await graph
+        .executeQuery(
+          "CREATE INDEX FOR (n:WorkspaceKnowledgeUnit) ON (n.projectionKey, n.id)",
+        )
+        .catch((error: unknown) => {
+          // FalkorDB has no IF NOT EXISTS. A second create gives this error.
+          if (!/already (indexed|exists)/i.test(String(error))) throw error
+        })
       const nodes = workspaceGraphNodes(snapshot.units)
       if (nodes.length)
         await graph.executeQuery(
