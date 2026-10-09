@@ -113,33 +113,53 @@ async function execGitOk(
   return result.stdout
 }
 
+/** Lists the tracked files and the untracked files that git does not ignore. */
+const LIST_TREE_FILES_COMMAND =
+  "git ls-files -z --cached --others --exclude-standard"
+
+/**
+ * Shell prefix that stops with no output when a component of
+ * $CTXPIPE_FILE_PATH is a symlink. Git lists a symlink as a file, and it
+ * keeps an index path when a parent directory becomes a symlink.
+ */
+const STOP_AT_SYMLINK =
+  'set -f; p=; s=; IFS=/; for part in $CTXPIPE_FILE_PATH; do p="$p$s$part"; s=/; if [ -L "$p" ]; then exit 0; fi; done; unset IFS; '
+
 export async function listConversationSandboxPaths(
   handle: JobSandboxHandle,
 ): Promise<string[]> {
-  const [tracked, untracked] = await Promise.all([
-    execGitOk(handle.exec, "git ls-files -z"),
-    execGitOk(handle.exec, "git ls-files --others --exclude-standard -z"),
-  ])
-  const paths = new Set<string>()
-  for (const path of [
-    ...splitGitNulPaths(tracked),
-    ...splitGitNulPaths(untracked),
-  ]) {
-    if (isConversationSandboxListedPath(path)) paths.add(path)
-  }
-  return [...paths].sort()
+  const listed = await execGitOk(handle.exec, LIST_TREE_FILES_COMMAND)
+  return [...new Set(splitGitNulPaths(listed))]
+    .filter(isConversationSandboxListedPath)
+    .sort()
 }
 
 export async function readConversationSandboxFile(
   handle: JobSandboxHandle,
   path: string,
 ): Promise<{ path: string; body: string | null; binary: boolean } | null> {
+  // Read only a path that the tree lists, with no symlink. This prevents a
+  // read of .git and of ignored files, such as .env.
+  return readSandboxFileIfListed(
+    handle,
+    path,
+    `${LIST_TREE_FILES_COMMAND} -- ":(literal)$CTXPIPE_FILE_PATH"`,
+  )
+}
+
+/**
+ * Reads a path when `listCommand` prints it after the symlink check. The
+ * diff already knows that git lists its paths, so it only prints the path.
+ */
+async function readSandboxFileIfListed(
+  handle: JobSandboxHandle,
+  path: string,
+  listCommand: string,
+): Promise<{ path: string; body: string | null; binary: boolean } | null> {
   if (!isConversationSandboxListedPath(path)) return null
-  // Read only a path that the tree lists. This keeps .git and ignored files,
-  // such as .env, out of reach.
   const listed = await execGitOk(
     handle.exec,
-    'git ls-files -z --cached --others --exclude-standard -- ":(literal)$CTXPIPE_FILE_PATH"',
+    `${STOP_AT_SYMLINK}${listCommand}`,
     { CTXPIPE_FILE_PATH: path },
   )
   if (!splitGitNulPaths(listed).includes(path)) return null
@@ -397,7 +417,11 @@ export async function conversationSandboxDiff(input: {
       },
     )
     const oldBody = oldResult.exitCode === 0 ? oldResult.stdout : null
-    const current = await readConversationSandboxFile(input.handle, path)
+    const current = await readSandboxFileIfListed(
+      input.handle,
+      path,
+      "printf '%s\\0' \"$CTXPIPE_FILE_PATH\"",
+    )
     diffs.push({
       path,
       oldBody,

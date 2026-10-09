@@ -7,7 +7,9 @@ export function explorerBlobPath(raw: string): string | null {
   const path = raw.trim()
   if (!path) return null
   const parts = path.split("/")
-  // The tree never lists git metadata, so a blob read must not reach it.
+  // The tree never lists git metadata. This check refuses a .git path for
+  // blob reads and for write, move, and delete jobs. Codesearch also refuses
+  // .git and symlinks to it, because every reader goes through it.
   if (
     parts.some(
       (part) => part === "" || part === "." || part === ".." || part === ".git",
