@@ -57,10 +57,16 @@ export function resolveSafePath(
   return fullPath
 }
 
+/** True when a repo-relative path has a `.git` segment, in any letter case. */
+function hasGitSegment(path: string): boolean {
+  return path.toLowerCase().split(/[\\/]/).includes(".git")
+}
+
 /**
  * Resolves a repo-relative path to its real path. Symlinks are followed only
- * when the final target stays inside the checkout. A target outside the
- * checkout fails with ENOENT, the same as a missing path. Read from the
+ * when the final target stays inside the checkout. A path or a target with a
+ * `.git` segment is refused, because `.git/config` can hold a clone token. A
+ * refused path fails with ENOENT, the same as a missing path. Read from the
  * returned path, not from the original one.
  */
 export async function resolveContainedRealPath(
@@ -68,13 +74,17 @@ export async function resolveContainedRealPath(
   relativePath: string,
 ): Promise<string> {
   const candidate = resolveSafePath(basePath, relativePath)
+  const notFound = () =>
+    Object.assign(new Error("Path not found"), { code: "ENOENT" })
+  if (hasGitSegment(relative(resolve(basePath), candidate))) throw notFound()
   const [base, resolved] = await Promise.all([
     realpath(basePath),
     realpath(candidate),
   ])
   if (resolved !== base && !resolved.startsWith(`${base}${sep}`)) {
-    throw Object.assign(new Error("Path not found"), { code: "ENOENT" })
+    throw notFound()
   }
+  if (hasGitSegment(relative(base, resolved))) throw notFound()
   return resolved
 }
 
@@ -88,11 +98,6 @@ export async function resolveSafeReadableFilePath(
     throw new Error("Not a file")
   }
   return resolved
-}
-
-/** True when a repo-relative path has a `.git` segment, in any letter case. */
-function hasGitSegment(path: string): boolean {
-  return path.toLowerCase().split(/[\\/]/).includes(".git")
 }
 
 /**
@@ -111,11 +116,8 @@ export async function readContainedFile(
 ) {
   const notFound = () =>
     Object.assign(new Error("Path not found"), { code: "ENOENT" })
-  resolveSafePath(basePath, relativePath)
-  if (hasGitSegment(relativePath)) throw notFound()
   const resolved = await resolveSafeReadableFilePath(basePath, relativePath)
   const base = await realpath(basePath)
-  if (hasGitSegment(relative(base, resolved))) throw notFound()
   const handle = await open(resolved, constants.O_RDONLY | constants.O_NOFOLLOW)
   try {
     if (process.platform === "linux") {
