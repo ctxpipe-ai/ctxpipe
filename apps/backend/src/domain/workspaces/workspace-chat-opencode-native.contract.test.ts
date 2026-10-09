@@ -3,12 +3,14 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { createServer, request as httpRequest } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { chat } from "@tanstack/ai"
+import { type AdapterYieldChunk, chat } from "@tanstack/ai"
 import {
+  type OpencodeStreamEvent,
   opencodeText,
   type SandboxOpencodeServer,
   startOpencodeServerInSandbox,
   startOpencodeSession,
+  translateOpencodeStream,
 } from "@tanstack/ai-opencode"
 import {
   defineSandbox,
@@ -84,22 +86,7 @@ wait "$keeper"
     try {
       await sandbox.env.set({
         PATH: `${bin}:${process.env.PATH ?? ""}`,
-        XDG_DATA_HOME: join(directory, "data"),
-        OPENCODE_CONFIG_CONTENT: JSON.stringify({
-          $schema: "https://opencode.ai/config.json",
-          enabled_providers: ["synthetic"],
-          provider: {
-            synthetic: {
-              npm: "@ai-sdk/openai-compatible",
-              name: "synthetic",
-              options: {
-                baseURL: "http://127.0.0.1:9",
-                apiKey: "synthetic-test-key",
-              },
-              models: { probe: { name: "probe" } },
-            },
-          },
-        }),
+        ...syntheticOpencodeEnv(directory, "http://127.0.0.1:9"),
       })
       server = await startOpencodeServerInSandbox(sandbox, {
         port,
@@ -165,50 +152,16 @@ it.each(["startup", "completion"] as const)(
     let proxy: ReturnType<typeof createServer> | undefined
     const modelCompleted = deferred<void>()
     const promptResponseCompleted = deferred<void>()
-    const model = createServer((request, response) => {
-      if (request.url !== "/model/v1/chat/completions") {
-        response.writeHead(404)
-        response.end()
-        return
-      }
-      const body: Buffer[] = []
-      request.on("data", (chunk: Buffer) => body.push(chunk))
-      request.on("end", () => {
-        void body
-        response.writeHead(200, { "content-type": "text/event-stream" })
-        response.end(
-          [
-            {
-              id: "native-sse-proof",
-              object: "chat.completion.chunk",
-              created: 1,
-              model: "probe",
-              choices: [
-                {
-                  index: 0,
-                  delta: {
-                    role: "assistant",
-                    content: "Native reply completed.",
-                  },
-                  finish_reason: null,
-                },
-              ],
-            },
-            {
-              id: "native-sse-proof",
-              object: "chat.completion.chunk",
-              created: 1,
-              model: "probe",
-              choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
-            },
-          ]
-            .map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`)
-            .concat("data: [DONE]\n\n")
-            .join(""),
-        )
-        modelCompleted.resolve()
-      })
-    })
+    const model = syntheticModelServer(
+      [
+        completionChunk({
+          role: "assistant",
+          content: "Native reply completed.",
+        }),
+        completionChunk({}, "stop"),
+      ],
+      () => modelCompleted.resolve(),
+    )
     const handshakeObserved = deferred<void>()
     const handshakeRelease = deferred<void>()
     const eventsRelease = deferred<void>()
@@ -243,24 +196,12 @@ it.each(["startup", "completion"] as const)(
       const modelAddress = model.address()
       if (!modelAddress || typeof modelAddress === "string")
         throw new Error("model fixture did not bind")
-      await sandbox.env.set({
-        XDG_DATA_HOME: join(directory, "data"),
-        OPENCODE_CONFIG_CONTENT: JSON.stringify({
-          $schema: "https://opencode.ai/config.json",
-          enabled_providers: ["synthetic"],
-          provider: {
-            synthetic: {
-              npm: "@ai-sdk/openai-compatible",
-              name: "synthetic",
-              options: {
-                baseURL: `http://127.0.0.1:${modelAddress.port}/model/v1`,
-                apiKey: "synthetic-test-key",
-              },
-              models: { probe: { name: "probe" } },
-            },
-          },
-        }),
-      })
+      await sandbox.env.set(
+        syntheticOpencodeEnv(
+          directory,
+          `http://127.0.0.1:${modelAddress.port}/model/v1`,
+        ),
+      )
       // Production picks a free loopback port for unsandboxed OpenCode.
       server = await startOpencodeServerInSandbox(sandbox, {
         port: await freeLoopbackPort(),
@@ -436,6 +377,93 @@ it.each(["startup", "completion"] as const)(
   },
 )
 
+it(
+  "translates each streamed text and reasoning piece from real OpenCode into its own content chunk",
+  { timeout: 60_000 },
+  async () => {
+    // The model streams its reply in small pieces. The UI must get each piece
+    // when it arrives, not one chunk when the part is complete.
+    const reasoningPieces = ["Think ", "about ", "it."]
+    const textPieces = ["One ", "two ", "three ", "four."]
+    const directory = await mkdtemp(join(tmpdir(), "ctxpipe-opencode-stream-"))
+    const model = syntheticModelServer(
+      [
+        completionChunk({ role: "assistant" }),
+        ...reasoningPieces.map((piece) =>
+          completionChunk({ reasoning_content: piece }),
+        ),
+        ...textPieces.map((piece) => completionChunk({ content: piece })),
+        completionChunk({}, "stop"),
+      ],
+      () => undefined,
+      50,
+    )
+    const sandbox = await localProcessSandbox({
+      dir: directory,
+      removeOnDestroy: true,
+    }).create({ id: directory, workspace: { source: { type: "none" } } })
+    const raw: OpencodeStreamEvent[] = []
+    try {
+      await new Promise<void>((resolve) =>
+        model.listen(0, "127.0.0.1", () => resolve()),
+      )
+      const address = model.address()
+      if (!address || typeof address === "string")
+        throw new Error("model fixture did not bind")
+      await sandbox.env.set(
+        syntheticOpencodeEnv(
+          directory,
+          `http://127.0.0.1:${address.port}/model/v1`,
+        ),
+      )
+      const server = await startOpencodeServerInSandbox(sandbox, {
+        port: await freeLoopbackPort(),
+        hostname: "127.0.0.1",
+        cwd: ".",
+      })
+      let session: Awaited<ReturnType<typeof startOpencodeSession>> | undefined
+      try {
+        session = await startOpencodeSession({
+          baseUrl: server.baseUrl,
+          providerID: "synthetic",
+          modelID: "probe",
+          onEvent: (event) => raw.push({ kind: "event", event }),
+          onPermissionRequest: () => "reject",
+        })
+        const { message } = await session.prompt("count to four")
+        raw.push({ kind: "done", message })
+      } finally {
+        await session?.dispose()
+        await server.dispose()
+      }
+    } finally {
+      model.closeAllConnections()
+      model.close()
+      await sandbox.destroy()
+      await rm(directory, { recursive: true, force: true })
+    }
+
+    async function* replay() {
+      yield* raw
+    }
+    const chunks: AdapterYieldChunk[] = []
+    let id = 0
+    for await (const chunk of translateOpencodeStream(replay(), {
+      model: "synthetic/probe",
+      runId: "run",
+      threadId: "thread",
+      genId: () => `gen-${id++}`,
+    }))
+      chunks.push(chunk)
+    const deltas = (type: string) =>
+      chunks.flatMap((chunk) =>
+        chunk.type === type && "delta" in chunk ? [chunk.delta] : [],
+      )
+    expect(deltas("TEXT_MESSAGE_CONTENT")).toEqual(textPieces)
+    expect(deltas("REASONING_MESSAGE_CONTENT")).toEqual(reasoningPieces)
+  },
+)
+
 function freeLoopbackPort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const probe = createServer()
@@ -448,6 +476,69 @@ function freeLoopbackPort(): Promise<number> {
         return
       }
       probe.close(() => resolve(address.port))
+    })
+  })
+}
+
+/** OpenCode env for one OpenAI-compatible model `synthetic/probe`. */
+function syntheticOpencodeEnv(
+  directory: string,
+  baseURL: string,
+): Record<string, string> {
+  return {
+    XDG_CONFIG_HOME: join(directory, "config"),
+    XDG_DATA_HOME: join(directory, "data"),
+    XDG_STATE_HOME: join(directory, "state"),
+    OPENCODE_CONFIG_CONTENT: JSON.stringify({
+      $schema: "https://opencode.ai/config.json",
+      enabled_providers: ["synthetic"],
+      provider: {
+        synthetic: {
+          npm: "@ai-sdk/openai-compatible",
+          name: "synthetic",
+          options: { baseURL, apiKey: "synthetic-test-key" },
+          models: { probe: { name: "probe", reasoning: true } },
+        },
+      },
+    }),
+  }
+}
+
+function completionChunk(delta: Record<string, unknown>, finish?: string) {
+  return {
+    id: "native-sse-proof",
+    object: "chat.completion.chunk",
+    created: 1,
+    model: "probe",
+    choices: [{ index: 0, delta, finish_reason: finish ?? null }],
+  }
+}
+
+/**
+ * A chat completions model at `/model/v1` that streams `chunks` as SSE, with
+ * `delayMs` between chunks, and calls `onEnd` when the stream is complete.
+ */
+function syntheticModelServer(
+  chunks: unknown[],
+  onEnd: () => void,
+  delayMs = 0,
+) {
+  return createServer((request, response) => {
+    if (request.url !== "/model/v1/chat/completions") {
+      response.writeHead(404)
+      response.end()
+      return
+    }
+    request.resume()
+    request.on("end", async () => {
+      response.writeHead(200, { "content-type": "text/event-stream" })
+      for (const chunk of chunks) {
+        response.write(`data: ${JSON.stringify(chunk)}\n\n`)
+        if (delayMs)
+          await new Promise((resolve) => setTimeout(resolve, delayMs))
+      }
+      response.end("data: [DONE]\n\n")
+      onEnd()
     })
   })
 }
