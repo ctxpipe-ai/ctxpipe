@@ -94,8 +94,6 @@ export type WorkspaceGitTreeResponse = {
 export type ConversationGitTreeResponse = WorkspaceGitTreeResponse & {
   branch: string
   ready?: boolean
-  /** Client only: the last answer was 409, so the query asks again. */
-  busy?: boolean
   worktreeVersion?: string
 }
 
@@ -141,8 +139,6 @@ export type ConversationGitStatusResponse = {
   behind: number
   items: WorkspaceGitStatusItem[]
   worktreeVersion?: string
-  /** Client only: the last answer was 409, so the query asks again. */
-  busy?: boolean
 }
 
 export type ConversationGitDiffItem = {
