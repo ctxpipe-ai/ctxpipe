@@ -690,6 +690,9 @@ describe("reads stay inside the checkout", () => {
     await symlink("inside.txt", join(checkoutDir, "in-link"))
     await symlink("sub", join(checkoutDir, "in-dir"))
     await symlink("missing.txt", join(checkoutDir, "dangling"))
+    await mkdir(join(checkoutDir, ".git"))
+    await writeFile(join(checkoutDir, ".git", "config"), "token\n")
+    await symlink(".git", join(checkoutDir, "git-dir"))
   })
 
   afterEach(async () => {
@@ -753,6 +756,26 @@ describe("reads stay inside the checkout", () => {
     expect(res.status).toBe(200)
     const body = (await res.json()) as { entries: Array<{ path: string }> }
     expect(body.entries.map((e) => e.path)).toEqual(["in-dir/inner.txt"])
+  })
+
+  // .git/config can hold a clone token, so .git is never listed.
+  it.each([
+    ".git",
+    ".GIT",
+    "git-dir",
+  ])("GET /files and POST /glob answer %s like a missing directory", async (path) => {
+    const app = createTestApp()
+    const list = await app.request(
+      `/repo_abcdef27/files?path=${encodeURIComponent(path)}`,
+    )
+    const glob = await app.request("/repo_abcdef27/glob", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ pattern: "*", path }),
+    })
+
+    expect(list.status).toBe(404)
+    expect(glob.status).toBe(404)
   })
 
   it("POST /glob answers a symlinked directory outside like a missing one", async () => {

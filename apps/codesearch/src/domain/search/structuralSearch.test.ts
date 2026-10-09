@@ -57,6 +57,25 @@ describe("structural search path containment", () => {
     }
   })
 
+  // A committed sgconfig.yml can map "config" to a language, so ast-grep
+  // would print .git/config and its clone token.
+  it("refuses a requested path inside .git", async () => {
+    const root = await mkdtemp(join(tmpdir(), "structural-search-"))
+    const checkoutPath = join(root, "checkout")
+    await mkdir(join(checkoutPath, ".git"), { recursive: true })
+    await writeFile(join(checkoutPath, ".git", "config"), "token\n")
+
+    try {
+      for (const path of [".git/config", ".git", ".Git/config"]) {
+        await expect(
+          resolveStructuralSearchPaths(checkoutPath, [path]),
+        ).rejects.toMatchObject({ code: "ENOENT" })
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it("rejects an ast-grep result whose file resolves outside the checkout", async () => {
     const root = await mkdtemp(join(tmpdir(), "structural-search-"))
     const checkoutPath = join(root, "checkout")

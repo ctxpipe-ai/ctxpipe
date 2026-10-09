@@ -112,6 +112,20 @@ describe("paths inside the checkout", () => {
     })
   })
 
+  it.each([
+    ["the .git directory", ".git"],
+    ["the .git/config file", ".git/config"],
+    ["a .git segment in upper case", ".GIT/config"],
+    ["a symlink to .git", "git-dir"],
+    ["a symlink to .git/config", "leak"],
+    ["a nested .git directory", "sub/.git"],
+    ["a path that climbs back into .git", "sub/../.git/config"],
+  ])("does not resolve %s, like a missing path", async (_, path) => {
+    await expect(
+      resolveContainedRealPath(checkout, path),
+    ).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
   it("follows a symlink to a file inside", async () => {
     expect(await resolveSafeReadableFilePath(checkout, "in-link")).toBe(
       join(checkout, "inside.txt"),
