@@ -1,11 +1,11 @@
 # Browser end-to-end testing of critical flows
 
-Status: in-progress (phase 1 approved 2026-10-04; next: first local run)
+Status: in-progress (first pr-280 run done 2026-10-10: 11 FAIL, 20 BLOCKED by the GitHub App variables; next: fix tickets, then re-run)
 Priority: P0
 Owner: unassigned
 Blocked by: none (skill phases); 02 for the final hosted pass
 Created: 2026-10-01
-Updated: 2026-10-04
+Updated: 2026-10-10
 
 ## Context
 
@@ -70,6 +70,8 @@ Read first: this ticket, `.cursor/skills/preview-env/` (all files), `.cursor/ski
 The next agent does step 3 (first local run), then step 4 (pr-280). Never point flows at production. Report: catalogue diff, run report, list of fixes and new tickets.
 
 ## Comments
+
+- 2026-10-10 (claude): **first full run on pr-280** (run `20261010-051159`, commit `f6fa4c48`, report [`preview-env-runs/20261010-051159.md`](../preview-env-runs/20261010-051159.md)). The local run (plan step 3) was not done first; the brief asked for pr-280. Driver: headless Playwright, one context per account. The preview's GitHub App variables point to the production App, so the GitHub install cannot finish; every flow that needs the App is `BLOCKED(github-app-env)`. To get more coverage, Workspace 2 used a public copy of the knowledge template through **Paste URL**. FAILs, each with steps and a trace in the report: onboarding goes back to the welcome slide after it ends (ONB-4, AUTH-5); two-factor enable 500 because the `twoFactors` schema has no `verified` field (AUTH-4); full-page loads sometimes return 504 after 16 s as `application/octet-stream`, so the browser downloads instead of rendering (RES-3; probably also the slow ONB-2, AUTH-1, GRAPH-3); rename saves the slug but not the display name and keeps the old URL (WS-5); a push does not re-hydrate while the Workspace still reports `ready` (HYD-3); no node inspector in headless (GRAPH-2, to confirm); React #418 on graph reload (GRAPH-3); connector first screens create `forge` and `notion` rows and PagerDuty setup returns 500 (CON-2). Cleanup could not delete the four `pe-20261010-051159-*` repositories: the `gh` token has no `delete_repo` scope (all are private now).
 
 - 2026-10-04 (claude): **review round.** Superseding parts of the comment below: provider connector flows use `SKIP(needs-human)` rather than a separate `SKIP(first-run)` (credentials do not exist yet, and "first run" never expires); the create-workspace docs sentence is restored and the PRD now says there is no dedicated Workspace slide, while **Create workspace** on the connected-GitHub slide ends onboarding at Add Workspace; CHAT-9 is listed as retired, pointing to `sandbox-lifecycle-native.contract.test.ts`. Kept out of the skill and recorded here: budgets approved (user, 2026-10-04); Commit+Push / Create PR without squash / Show PR, the onboarding Workspace behavior, and the first-run connector skip are the 2026-10-04 decisions. The skill now names the real template content (`ctxpipe-ai/preview-env-seed-knowledge`, `ctxpipe-ai/preview-env-seed-code`): 4 knowledge units, 7 `LINKS_TO` plus 4 claim edges (`WorkspaceSignal` with a `predicate`), the malformed file, and `loyaltyPoints(12345) === 17`. The codesearch dev container now gets `DATABASE_URL`, `AUTH_SECRET`, and the OTLP variables by name, with localhost endpoints rewritten to `host.docker.internal`.
 
@@ -140,3 +142,19 @@ The next agent does step 3 (first local run), then step 4 (pr-280). Never point 
 - 2026-10-01 (user): flows start with registration and onboarding, creating accounts as needed. Email sign-up currently needs no verification (`emailAndPassword` without `requireEmailVerification`); if that changes, the run needs a test inbox.
 
 ## Resolution
+
+Not resolved. First pr-280 run, 2026-10-10 (run `20261010-051159`, commit `f6fa4c48`): 65 flows, 23 PASS, 11 FAIL, 20 BLOCKED(github-app-env), 11 SKIP. Full table: [`preview-env-runs/20261010-051159.md`](../preview-env-runs/20261010-051159.md).
+
+| Area | PASS | FAIL | BLOCKED | SKIP |
+| --- | --- | --- | --- | --- |
+| onboarding | ONB-1 | ONB-2, ONB-4 | ONB-3, ONB-5 | - |
+| auth | AUTH-2, AUTH-3, AUTH-6, AUTH-7 | AUTH-1, AUTH-4, AUTH-5 | - | - |
+| org-home | HOME-1, HOME-3, HOME-4, HOME-5 | - | HOME-2 | - |
+| workspaces | WS-1, WS-2, WS-3, WS-4, WS-7 | WS-5 | WS-6 | - |
+| hydrate | HYD-1, HYD-2, HYD-4 | HYD-3 | HYD-5 | - |
+| graph | GRAPH-1 | GRAPH-2, GRAPH-3 | - | - |
+| chat | - | - | CHAT-1 to CHAT-5 | CHAT-6 to CHAT-9 |
+| files-publish | - | - | FP-1 to FP-6 | FP-7 |
+| connectors | - | CON-2 | CON-1, CON-8 | CON-3 to CON-7 |
+| mcp | MCP-1, MCP-2, MCP-3, MCP-4, MCP-6 | - | MCP-5 | - |
+| resilience | - | RES-3 | RES-2 | RES-1 |
