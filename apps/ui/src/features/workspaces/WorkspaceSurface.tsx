@@ -244,11 +244,16 @@ function WorkspaceSurfaceReady(props: {
   })
 
   useEffect(() => {
-    void touchWorkspace(orgSlug, workspaceSlug).then(() => {
-      void queryClient.invalidateQueries({
-        queryKey: workspaceKeys.list(orgSlug),
-      })
-    })
+    // The touch only records the last-used Workspace. After a slug rename the
+    // old slug can answer 404, and that must not become an uncaught error.
+    touchWorkspace(orgSlug, workspaceSlug).then(
+      () => {
+        void queryClient.invalidateQueries({
+          queryKey: workspaceKeys.list(orgSlug),
+        })
+      },
+      () => {},
+    )
   }, [orgSlug, workspaceSlug, queryClient])
 
   if (workspace === null) {

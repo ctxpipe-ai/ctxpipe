@@ -86,6 +86,44 @@ export const NotFound: Story = {
   },
 }
 
+const failedTouch = { count: 0, rejections: [] as unknown[] }
+
+/**
+ * The last-used touch fails with 404, as it can for an old slug just after a
+ * slug rename. The page stays, and the failure is not an uncaught error.
+ */
+export const FailedTouchIsCaught: Story = {
+  tags: ["workspace-golden"],
+  parameters: {
+    storyRoute: workspaceRoute(),
+    msw: {
+      handlers: {
+        page: [
+          http.post(/\/api\/v1\/workspaces\/[^/]+\/touch$/, () => {
+            failedTouch.count += 1
+            return HttpResponse.json({ error: "Not found" }, { status: 404 })
+          }),
+          ...workspaceShellHandlers(),
+        ],
+      },
+    },
+  },
+  beforeEach: () => {
+    failedTouch.count = 0
+    failedTouch.rejections = []
+    const onRejection = (event: PromiseRejectionEvent) => {
+      failedTouch.rejections.push(event.reason)
+    }
+    window.addEventListener("unhandledrejection", onRejection)
+    return () => window.removeEventListener("unhandledrejection", onRejection)
+  },
+  play: async () => {
+    await waitFor(() => expect(failedTouch.count).toBeGreaterThan(0))
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    expect(failedTouch.rejections).toEqual([])
+  },
+}
+
 export const LoadError: Story = {
   parameters: {
     storyRoute: workspaceRoute(),
