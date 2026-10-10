@@ -23,6 +23,11 @@ x-model-env: &model-env
   MODEL_PROVIDER: ${MODEL_PROVIDER:-}
   MODEL_PROVIDER_API_KEY: ${MODEL_PROVIDER_API_KEY:-}
   MODEL_PROVIDER_URL: ${MODEL_PROVIDER_URL:-}
+  MODEL_FAST_NAME: ${MODEL_FAST_NAME:-}
+  MODEL_MEDIUM_NAME: ${MODEL_MEDIUM_NAME:-}
+  MODEL_HIGH_NAME: ${MODEL_HIGH_NAME:-}
+  MODEL_EMBEDDING_NAME: ${MODEL_EMBEDDING_NAME:-}
+  MODEL_BEDROCK_AWS_REGION: ${MODEL_BEDROCK_AWS_REGION:-}
 
 # The DinD daemon over mutual TLS; the client certificates come from `dind`.
 x-sandbox-docker-env: &sandbox-docker-env
