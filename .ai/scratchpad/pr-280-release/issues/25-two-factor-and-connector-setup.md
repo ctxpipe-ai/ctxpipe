@@ -56,22 +56,24 @@ Read only: the plugin schema in `node_modules`, the trace span error, `git show 
 
 - `apps/backend/src/models/pagerduty-connector.ts`: the read and write functions that took `getOrgDb()` without a context now open `withOrgDbContext` themselves. A nested call reuses the open transaction. The routes and the PagerDuty sync workflows no longer wrap these calls. `refreshPagerdutyConnectionTokensWithLock` and `clearPagerdutySyncBindingsForRepository` keep the context of their callers.
 - `apps/backend/src/models/linear-connector.ts`: `upsertLinearDraftConnection` opens the org context.
-- Each provider model exports one empty-draft predicate: `isEmptyForgeSetupDraft`, `isEmptyNotionSetupDraft`, `isEmptyLinearSetupDraft`, and `isEmptyPagerdutySetupDraft` (built on `isPagerdutyPlaceholderDraft` and `isTokenlessNotionDraft`). A draft is empty when it has no linked account, no token, no saved OAuth app or webhook secret, and no sync binding. For Forge, it also has no site host, no operator token, and no provisioning run.
+- The Notion, Linear, and PagerDuty models each export one empty-draft predicate: `isEmptyNotionSetupDraft`, `isEmptyLinearSetupDraft`, and `isEmptyPagerdutySetupDraft` (built on `isPagerdutyPlaceholderDraft` and `isTokenlessNotionDraft`). A draft is empty when it has no linked account, no token, no saved OAuth app or webhook secret, and no sync binding.
 - `apps/backend/src/models/org-connections.ts`: `listOrgConnections` leaves out only empty drafts. A draft with progress or a stored credential stays listed, so the user can see and remove it. A row whose config does not parse stays listed.
-- `apps/backend/src/models/atlassian-connector.ts`: `upsertPendingForgeInstallation` reuses a pending draft as it is and no longer resets its saved state. `getPendingForgeInstallationForUserInOtherOrg` deletes the user's empty Forge drafts in other organizations, so a hidden draft does not cause `409 atlassian_pending_installation_exists`. A draft with progress still causes the 409.
+- A pending Confluence (Forge) draft always stays listed, so the user can finish or remove it from its card. Do not hide it or delete it from another organization: in hosted mode the draft stays empty until the Marketplace install event arrives, and that event matches the draft only by installer and pending status. A delete could bind the installed site to the wrong organization, and a read-then-delete could race a concurrent write.
+- `apps/backend/src/models/atlassian-connector.ts`: `upsertPendingForgeInstallation` reuses a pending draft as it is and no longer resets its saved state.
+- `apps/backend/src/routes/v1/connectors-atlassian.ts`: a pending Confluence setup in another organization still returns `409 atlassian_pending_installation_exists`. The message now tells the user to finish or remove that setup on the Connectors page of the other organization.
 - The Atlassian account link leaves the page, and the pending card was the only way back into the wizard. `LinkAtlassianStep` now returns to `/connectors?atlassianConnectionId=<id>`, and the connectors page opens the wizard for that connection (the same pattern as `notionConnectionId`). The search key is optional, so other links to the page do not name it.
 - `apps/ui/vite.config.ts`: Vitest loads React Aria and React Query through Vite. Before this change, a jsdom test that rendered them loaded a second React copy, so the existing jsdom tests mock those modules.
 
 ### Proof
 
-- `apps/backend/src/routes/v1/connectors-setup.http.integration.test.ts` (real Postgres, real routes, 7 tests):
+- `apps/backend/src/routes/v1/connectors-setup.http.integration.test.ts` (real Postgres, real routes, 8 tests):
   - PagerDuty self-hosted setup returns 200 and reuses its draft.
-  - After the Confluence, Notion, Linear, and PagerDuty first screens, `GET /connectors` is empty.
+  - After the Notion, Linear, and PagerDuty first screens, `GET /connectors` is empty.
+  - After the Confluence first screen, `GET /connectors` lists the pending Forge draft.
   - A draft of each of the four providers with a saved OAuth client id is listed.
   - After the provider accounts are linked, the four rows are listed.
   - A second Confluence setup keeps the saved OAuth client id on the same row.
-  - An empty Confluence draft in another organization of the same user is deleted, and setup returns 200.
-  - A Confluence draft with a site host in the other organization still returns 409 and stays.
+  - A pending Confluence draft in another organization of the same user returns 409, with or without saved progress. The draft stays, and no draft is created in this organization.
 - `apps/ui/src/features/connectors/components/confluence-setup/steps/LinkAtlassianStep.test.tsx` (jsdom, real QueryClient, msw): the test renders the step and presses **Connect Atlassian account**. Better Auth sends `callbackURL` `/acme/connectors?pendingAccountClaim=x&atlassianConnectionId=con_forge1`.
 - Story `Pages/Connections` `ReopensConfluenceWizardAfterAccountLink` (`apps/ui/src/routes/-connectors.stories.tsx`): the page opens with `?atlassianConnectionId=` and the play function expects the Confluence setup wizard. I ran the play function in Playwright against Storybook. It fails without the page effect. CI runs only the golden story list, so CI does not run this play function.
 - Each test failed before its fix.
