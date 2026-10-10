@@ -36,8 +36,10 @@ The 504 body was `Gateway Timeout` as text. A local Bun run of the same code sen
 
 ## Fix
 
-- `apps/backend/src/routes/auth.ts`: remove `x-request-id` from the request before the Better Auth handler gets it. The plugin then does not write `__infra-rid`. When a browser has an old cookie, the next auth POST clears it. An old cookie expires after 10 minutes at most.
-- `apps/backend/src/routes/ui.ts`: a proxy timeout (504) or upstream error (502) now returns an HTML page with the request id for a document request, and JSON for other requests. Both use `cache-control: no-store`. The failure writes a warn wide event (`uiProxy.outcome`, `path`, `timeoutMs`, `error`), because UI proxy requests have no server span.
+- `apps/backend/src/routes/auth.ts`: one middleware on `/.auth/api/v1/auth/*` removes `x-request-id` before each Better Auth route, the Atlassian callback included. The plugin then does not write `__infra-rid`. The request log keeps the id, because `backendOtelMiddleware` reads it first. If the browser `sentinelClient` is added later, this middleware also removes its real visitor id.
+- `apps/backend/src/routes/ui.ts`: a proxy timeout (504) or upstream error (502) keeps its text body and now has `cache-control: no-store`. The failure writes a warn wide event (`uiProxy.outcome`, `timeoutMs`, `error`), because UI proxy requests have no server span. A missing request logger falls back to the global log, so the failure cannot become a 500. A review removed an HTML/JSON error page: the octet-stream download did not reproduce, and the auth fix removes the slow render.
+
+Known limit: a browser that has an old `__infra-rid` cookie keeps it until its next auth POST, which clears it, or for 10 minutes at most. Until then, each server-side session lookup is slow.
 
 Proposed Railway changes (not made):
 
@@ -46,7 +48,8 @@ Proposed Railway changes (not made):
 ## Proof
 
 - `src/routes/auth-infra-request-id.integration.test.ts` (real Postgres, real Better Auth with `dash()`, msw for the infra KV): sign-up with `x-request-id`, then an org API call with the session. Before the fix, sign-up set `__infra-rid`. With only the cookie check removed, one org API call made three KV `/identify` calls and the test took 2.2 s. After the fix: no cookie, no KV call, 156 ms.
-- `src/routes/ui.test.ts` "UI proxy failure response": before the fix, both tests failed with `text/plain;charset=UTF-8`. After the fix, a document gets `text/html; charset=utf-8` with the request id, other requests get `application/json; charset=utf-8`, and the logger has the `uiProxy` context.
+- The same test sends a GET and a POST to `/.auth/api/v1/auth/callback/atlassian` with `x-request-id`. Before the middleware, both set `__infra-rid`. After, neither does.
+- `src/routes/ui.test.ts` "UI proxy failure response": the 504 and the 502 have `no-store` and the logger has the `uiProxy` context. A call with no request logger still answers 502. Before the fix, all six proxy tests failed.
 
 ## Follow-ups
 
