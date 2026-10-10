@@ -644,12 +644,6 @@
       "count": 1
     },
     {
-      "file": "src/features/connectors/components/ConfluenceConnectionCard.stories.tsx",
-      "code": 2322,
-      "message": "Type '{ render: () => JSX.Element; parameters: { msw: { handlers: { page: HttpHandler[]; }; }; }; }' is not assignable to type 'StoryAnnotations<ReactRenderer, { orgSlug: string; connectionId: string; onOpenWizard: () => void; onOpenScope: () => void; }, { orgSlug: string; connectionId: string; onOpenWizard: () => void; onOpenScope: () => void; }>'.\n  Property 'args' is missing in type '{ render: () => JSX.Element; parameters: { msw: { handlers: { page: HttpHandler[]; }; }; }; }' but required in type '{ args: { orgSlug: string; connectionId: string; onOpenWizard: () => void; onOpenScope: () => void; }; }'.",
-      "count": 5
-    },
-    {
       "file": "src/features/connectors/components/ConnectorsEmptyState.stories.tsx",
       "code": 2322,
       "message": "Type '{ render: () => JSX.Element; }' is not assignable to type 'StoryAnnotations<ReactRenderer, { onAddConnection: () => void; }, { onAddConnection: () => void; }>'.\n  Property 'args' is missing in type '{ render: () => JSX.Element; }' but required in type '{ args: { onAddConnection: () => void; }; }'.",
@@ -680,12 +674,6 @@
       "count": 4
     },
     {
-      "file": "src/features/connectors/components/NotionConnectionCard.stories.tsx",
-      "code": 2322,
-      "message": "Type '{ render: () => JSX.Element; parameters: { msw: { handlers: { page: HttpHandler[]; }; }; }; }' is not assignable to type 'StoryAnnotations<ReactRenderer, { orgSlug: string; connectionId: string; onOpenSetup: (manageScope: boolean) => void; }, { orgSlug: string; connectionId: string; onOpenSetup: (manageScope: boolean) => void; }>'.\n  Property 'args' is missing in type '{ render: () => JSX.Element; parameters: { msw: { handlers: { page: HttpHandler[]; }; }; }; }' but required in type '{ args: { orgSlug: string; connectionId: string; onOpenSetup: (manageScope: boolean) => void; }; }'.",
-      "count": 6
-    },
-    {
       "file": "src/features/connectors/components/OrgAtlassianOauthPanel.stories.tsx",
       "code": 2322,
       "message": "Type '{ render: () => JSX.Element; parameters: { msw: { handlers: { page: HttpHandler[]; }; }; }; }' is not assignable to type 'StoryAnnotations<ReactRenderer, { orgSlug: string; connectionId: string; embedded?: boolean | undefined; }, { orgSlug: string; connectionId: string; embedded?: boolean | undefined; }>'.\n  Property 'args' is missing in type '{ render: () => JSX.Element; parameters: { msw: { handlers: { page: HttpHandler[]; }; }; }; }' but required in type '{ args: { orgSlug: string; connectionId: string; embedded?: boolean | undefined; }; }'.",
@@ -708,12 +696,6 @@
       "code": 2345,
       "message": "Argument of type 'unknown' is not assignable to parameter of type 'JsonBodyType'.",
       "count": 1
-    },
-    {
-      "file": "src/features/connectors/components/SlackConnectionCard.stories.tsx",
-      "code": 2322,
-      "message": "Type '{ render: () => JSX.Element; parameters: { msw: { handlers: { page: HttpHandler[]; }; }; }; }' is not assignable to type 'StoryAnnotations<ReactRenderer, { orgSlug: string; connectionId: string; }, { orgSlug: string; connectionId: string; }>'.\n  Property 'args' is missing in type '{ render: () => JSX.Element; parameters: { msw: { handlers: { page: HttpHandler[]; }; }; }; }' but required in type '{ args: { orgSlug: string; connectionId: string; }; }'.",
-      "count": 4
     },
     {
       "file": "src/features/connectors/components/SlackConnectionCard.tsx",
