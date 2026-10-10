@@ -552,7 +552,12 @@ These lessons moved to the instructions that agents always read. Do not add them
 
 ### Vercel sandbox tokens live only in GitHub environments
 - **Rule:** The production Vercel token is a secret of the GitHub `Production` environment, which only protected branches can use. Previews and CI use the separate Vercel project `ctxpipe-previews`, and its token is a secret of the `Preview` environment. There is no repository-level `VERCEL_ACCESS_TOKEN`. A workflow job that needs the token declares `environment: Preview` (or `production` on `main`), and a pull request job never gets the production token.
-- **Rule (preview credentials):** The same applies to every preview credential. A Railway preview is a duplicate of production, so it starts with production secrets (for example the GitHub App). The PR deploy overwrites each such secret with a value from the `Preview` GitHub environment and fails when that value is empty. A preview never keeps a credential from the production copy.
 - **Category:** convention
 - **Date:** 2026-10-07
 - **Source:** repository owner, after a security audit found one Vercel token shared by production, previews and CI
+
+### Preview GitHub App comes from the Preview environment
+- **Rule:** A Railway preview is a duplicate of production, so it starts with the production GitHub App. The PR deploy writes the preview App from the `Preview` GitHub environment secrets `GH_*` (`scripts/preview-github-app-vars.sh`) and fails when one is empty. Do not let a preview keep the production GitHub App or the production Vercel token. Other production secrets in a preview are still shared.
+- **Category:** convention
+- **Date:** 2026-10-10
+- **Source:** team lead, after a failed PR deploy deleted a live preview and re-created it with the production GitHub App

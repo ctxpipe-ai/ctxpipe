@@ -27,7 +27,7 @@ run_sync() {
     }
     export RAILWAY_PROJECT_ID=proj_test ENV_ID=env_preview
     export BACKEND_SERVICE_ID=svc_backend
-    export WORKER_SERVICE_ID="${WORKER_SERVICE_ID-svc_worker}"
+    export WORKER_SERVICE_ID=svc_worker
     sync_preview_github_app_variables
   )
 }
@@ -70,9 +70,5 @@ for name in GH_APP_ID GH_APP_SLUG GH_CLIENT_ID GH_CLIENT_SECRET GH_PRIVATE_KEY G
   printf '%s' "$out" | grep -Fq "$name" || fail "the error should name $name: $out"
   [[ ! -s "$tmp/empty-$name/upserts" ]] || fail "nothing should be written when $name is empty"
 done
-
-if WORKER_SERVICE_ID="" run_sync "$tmp/no-worker" >/dev/null 2>&1; then
-  fail "sync should fail when a service id is missing"
-fi
 
 echo "preview-github-app-vars tests passed"

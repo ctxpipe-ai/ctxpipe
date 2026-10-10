@@ -165,6 +165,22 @@ jobs:
         with:
           ref: ${{ needs.resolve_pr.outputs.head_sha }}
 
+      - name: Check preview GitHub App secrets
+        # Fail before the job creates anything: a preview must not run with
+        # the production GitHub App that the production duplicate carries.
+        env:
+          GH_APP_ID: ${{ secrets.GH_APP_ID }}
+          GH_APP_SLUG: ${{ secrets.GH_APP_SLUG }}
+          GH_CLIENT_ID: ${{ secrets.GH_CLIENT_ID }}
+          GH_CLIENT_SECRET: ${{ secrets.GH_CLIENT_SECRET }}
+          GH_PRIVATE_KEY: ${{ secrets.GH_PRIVATE_KEY }}
+          GH_WEBHOOK_SECRET: ${{ secrets.GH_WEBHOOK_SECRET }}
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC1091
+          source "${GITHUB_WORKSPACE}/scripts/preview-github-app-vars.sh"
+          check_preview_github_app_secrets
+
       - name: Mount pnpm store sticky disk
         uses: useblacksmith/stickydisk@v1
         with:
@@ -234,6 +250,13 @@ jobs:
     if: needs.resolve_pr.outputs.pr_number != ''
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 45
+    # One deploy per PR at a time, for every event. The workflow group above
+    # keeps the event name (a skipped push or pull_request run must not
+    # replace a queued real run), so a manual run could otherwise overlap a
+    # pull_request run on the same Railway environment.
+    concurrency:
+      group: pr-deploy-environment-${{ needs.resolve_pr.outputs.pr_number }}
+      cancel-in-progress: false
     # The Preview environment's VERCEL_ACCESS_TOKEN reaches only the preview
     # Vercel project (scripts/preview-sandbox-vars.sh), never production.
     environment: Preview
@@ -276,66 +299,34 @@ jobs:
           command: npm install -g @railway/cli@4.35.2
 
       - name: Ensure Railway PR environment exists
-        # Railway API/CLI calls can be flaky; retry once before failing.
-        # "Exists" comes from the GraphQL environments query, not from the exit
+        id: railway_env
+        # "Exists" comes from the GraphQL environment list, not from the exit
         # code of `railway environment config`: that command can fail for a
-        # live environment, and an earlier version of this step then deleted
-        # the live preview with its custom variables. The step deletes an
-        # environment only when this attempt saw it absent and created it.
+        # live environment. The step never deletes an environment. When
+        # `environment new` fails, the step fails, and the retry looks again.
         env:
           RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
         uses: nick-fields/retry@v4
         with:
           timeout_minutes: 12
           max_attempts: 2
+          retry_wait_seconds: 30
           command: |
             set -euo pipefail
-            # Print the id of $PR_ENV, or nothing when it does not exist.
-            # Fail (after retries) when Railway does not return the list.
-            pr_env_id() {
-              local attempt resp
-              for attempt in 1 2 3 4 5; do
-                if resp="$(curl -fsS -X POST \
-                    -H "Authorization: Bearer ${RAILWAY_API_TOKEN}" \
-                    -H "Content-Type: application/json" \
-                    -d "$(jq -nc --arg id "$RAILWAY_PROJECT_ID" '{query:"query($id:String!){project(id:$id){environments{edges{node{id name}}}}}",variables:{id:$id}}')" \
-                    https://backboard.railway.com/graphql/v2)" \
-                  && printf '%s' "$resp" | jq -e '.data.project.environments.edges | type == "array"' >/dev/null; then
-                  printf '%s' "$resp" | jq -r --arg name "$PR_ENV" '[.data.project.environments.edges[].node | select(.name == $name) | .id][0] // empty'
-                  return 0
-                fi
-                echo "Railway environments query failed (attempt $attempt); retrying" >&2
-                sleep $((attempt * 5))
-              done
-              echo "Could not list Railway environments; not creating or deleting $PR_ENV" >&2
-              return 1
-            }
-
+            # shellcheck disable=SC1091
+            source "${GITHUB_WORKSPACE}/scripts/railway-graphql.sh"
             railway link --project "$RAILWAY_PROJECT_ID" --environment production
-            EXISTING_ID="$(pr_env_id)"
-            if [[ -n "$EXISTING_ID" ]]; then
-              echo "Railway environment $PR_ENV already exists ($EXISTING_ID)"
+            ENV_ID="$(railway_environment_id "$RAILWAY_PROJECT_ID" "$PR_ENV")"
+            if [[ -n "$ENV_ID" ]]; then
+              echo "Railway environment $PR_ENV already exists"
             else
-              set +e
               railway environment new "$PR_ENV" --duplicate production
-              CREATE_STATUS=$?
-              set -e
-
-              if [[ "$CREATE_STATUS" -ne 0 ]]; then
-                echo "Failed to create Railway environment $PR_ENV from production duplicate."
-                # This attempt saw no $PR_ENV before the create, so a $PR_ENV
-                # that exists now is the broken copy this attempt made.
-                if [[ -n "$(pr_env_id)" ]]; then
-                  echo "Deleting the partial $PR_ENV this attempt created, so the retry starts clean."
-                  railway environment delete "$PR_ENV" --yes || echo "Railway environment delete failed or it is already removed"
-                  echo "Waiting 10 minutes for Railway environment deletion consistency before retry..."
-                  sleep 600
-                fi
-                exit "$CREATE_STATUS"
-              fi
-              [[ -n "$(pr_env_id)" ]] || { echo "Railway reports success but $PR_ENV is not listed"; exit 1; }
+              ENV_ID="$(railway_environment_id "$RAILWAY_PROJECT_ID" "$PR_ENV")"
+              [[ -n "$ENV_ID" ]] || { echo "Railway created $PR_ENV but does not list it yet"; exit 1; }
             fi
             railway link --project "$RAILWAY_PROJECT_ID" --environment "$PR_ENV"
+            echo "env_id=$ENV_ID" >> "$GITHUB_OUTPUT"
+            echo "Railway environment id: $ENV_ID"
 
       - name: Neon branch expiration (14 days)
         id: neon_expires
@@ -399,32 +390,6 @@ jobs:
           echo "::add-mask::$POOLED"
           DATABASE_URL="$OWNER_DB_URL" DATABASE_APP_PASSWORD="$PASSWORD" pnpm exec tsx src/db/provision-app-role-cli.ts
           echo "db_url_pooled=$POOLED" >> "$GITHUB_OUTPUT"
-
-      - name: Get Railway environment ID
-        id: railway_env
-        env:
-          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
-        # Railway API/CLI calls can be flaky; retry once before failing.
-        uses: nick-fields/retry@v4
-        with:
-          timeout_minutes: 5
-          max_attempts: 2
-          command: |
-            set -euo pipefail
-            ENV_NAME="pr-${{ needs.resolve_pr.outputs.pr_number }}"
-            # Query for environment ID by name
-            ENV_ID=$(curl -fsS -X POST \
-              -H "Authorization: Bearer ${RAILWAY_API_TOKEN}" \
-              -H "Content-Type: application/json" \
-              -d "{\"query\": \"query { project(id: \\\"${{ vars.RAILWAY_PROJECT_ID }}\\\") { environments { edges { node { id name } } } } }\"}" \
-              https://backboard.railway.com/graphql/v2 \
-              | jq -r --arg name "$ENV_NAME" '.data.project.environments.edges[] | select(.node.name == $name) | .node.id')
-            if [[ -z "$ENV_ID" ]]; then
-              echo "Error: Could not find environment $ENV_NAME"
-              exit 1
-            fi
-            echo "env_id=$ENV_ID" >> "$GITHUB_OUTPUT"
-            echo "Found environment ID: $ENV_ID"
 
       - name: Update Railway service config via GraphQL and deploy once
         env:
@@ -1069,8 +1034,10 @@ jobs:
             source "${GITHUB_WORKSPACE}/scripts/preview-sandbox-vars.sh"
             sync_preview_sandbox_variables
 
-            # A duplicate of production carries the production GitHub App;
-            # replace it with the preview App before any service starts.
+            # A duplicate of production carries the production GitHub App,
+            # and its services run the production image until this roll.
+            # Replace the App here, so branch code starts only with the
+            # preview App.
             # shellcheck disable=SC1091
             source "${GITHUB_WORKSPACE}/scripts/preview-github-app-vars.sh"
             sync_preview_github_app_variables

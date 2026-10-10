@@ -51,3 +51,23 @@ load_project() {
     | from_entries
   ')"
 }
+
+# railway_environment_id <project-id> <environment-name>
+# Print the id of the named environment, or nothing when it does not exist.
+# Fail when Railway does not return the environment list after 3 attempts, so
+# a caller never reads an API error as "the environment does not exist".
+railway_environment_id() {
+  local project="$1" name="$2" attempt body
+  for attempt in 1 2 3; do
+    if body="$(railway_graphql \
+        'query Environments($id: String!) { project(id: $id) { environments { edges { node { id name } } } } }' \
+        "$(jq -nc --arg id "$project" '{id:$id}')")" \
+      && printf '%s' "$body" | jq -e '.data.project.environments.edges | type == "array"' >/dev/null; then
+      printf '%s' "$body" | jq -r --arg n "$name" '[.data.project.environments.edges[].node | select(.name == $n) | .id][0] // empty'
+      return 0
+    fi
+    echo "railway_environment_id: the environment list query failed (attempt $attempt of 3)" >&2
+    [[ "$attempt" -eq 3 ]] || sleep $((attempt * 5))
+  done
+  return 1
+}
