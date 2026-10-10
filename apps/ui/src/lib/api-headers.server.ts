@@ -8,9 +8,6 @@ export function getServerApiHeaders(): HeadersInit {
     if (cookie) headers.cookie = cookie
     const authorization = getRequestHeader("authorization")
     if (authorization) headers.authorization = authorization
-    // `ssrFetch` makes its span a child of the document request's span.
-    const traceparent = getRequestHeader("traceparent")
-    if (traceparent) headers.traceparent = traceparent
     return headers
   } catch {
     // Vitest / non-request contexts have no Start AsyncLocalStorage event.
