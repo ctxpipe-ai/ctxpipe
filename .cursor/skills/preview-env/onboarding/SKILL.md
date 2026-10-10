@@ -35,7 +35,7 @@ First area of every run. Creates account A, the org, the GitHub connection, and 
 **Evidence** `ONB-2-1.png` (validation error), `ONB-2-2.png` (GitHub slide); trace of the org-create request.
 
 ### ONB-3 Connect the GitHub App (human checkpoint)
-**Requires** ONB-2; `GH_TEST_ORG` with the App installable; a human at the GitHub consent screen (`SKIP(needs-human)` otherwise). *Uncertain:* whether the hosted App's install callback and webhooks reach a Railway preview or `app.ctxpipe.localhost`; on `local` the operator may first have to finish the self-hosted App wizard.
+**Requires** ONB-2; `GH_TEST_ORG` with the App installable; a human at the GitHub consent screen (`SKIP(needs-human)` otherwise). A Railway preview uses the preview GitHub App (secrets of the GitHub environment `Preview`), not the production App; add the preview callback URL that the PR comment gives to that App. *Uncertain:* whether the App's install callback and webhooks reach a Railway preview or `app.ctxpipe.localhost`; on `local` the operator may first have to finish the self-hosted App wizard.
 **Steps**
 1. Click **Connect GitHub**.
 2. Human: install the App on `GH_TEST_ORG` with access to **all repositories**, then return.

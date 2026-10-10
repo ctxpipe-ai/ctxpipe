@@ -277,15 +277,44 @@ jobs:
 
       - name: Ensure Railway PR environment exists
         # Railway API/CLI calls can be flaky; retry once before failing.
+        # "Exists" comes from the GraphQL environments query, not from the exit
+        # code of `railway environment config`: that command can fail for a
+        # live environment, and an earlier version of this step then deleted
+        # the live preview with its custom variables. The step deletes an
+        # environment only when this attempt saw it absent and created it.
+        env:
+          RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
         uses: nick-fields/retry@v4
         with:
           timeout_minutes: 12
           max_attempts: 2
           command: |
             set -euo pipefail
-            railway link --project "${{ vars.RAILWAY_PROJECT_ID }}" --environment production
-            if railway environment config --environment "$PR_ENV" --json >/dev/null 2>&1; then
-              echo "Railway environment $PR_ENV already exists"
+            # Print the id of $PR_ENV, or nothing when it does not exist.
+            # Fail (after retries) when Railway does not return the list.
+            pr_env_id() {
+              local attempt resp
+              for attempt in 1 2 3 4 5; do
+                if resp="$(curl -fsS -X POST \
+                    -H "Authorization: Bearer ${RAILWAY_API_TOKEN}" \
+                    -H "Content-Type: application/json" \
+                    -d "$(jq -nc --arg id "$RAILWAY_PROJECT_ID" '{query:"query($id:String!){project(id:$id){environments{edges{node{id name}}}}}",variables:{id:$id}}')" \
+                    https://backboard.railway.com/graphql/v2)" \
+                  && printf '%s' "$resp" | jq -e '.data.project.environments.edges | type == "array"' >/dev/null; then
+                  printf '%s' "$resp" | jq -r --arg name "$PR_ENV" '[.data.project.environments.edges[].node | select(.name == $name) | .id][0] // empty'
+                  return 0
+                fi
+                echo "Railway environments query failed (attempt $attempt); retrying" >&2
+                sleep $((attempt * 5))
+              done
+              echo "Could not list Railway environments; not creating or deleting $PR_ENV" >&2
+              return 1
+            }
+
+            railway link --project "$RAILWAY_PROJECT_ID" --environment production
+            EXISTING_ID="$(pr_env_id)"
+            if [[ -n "$EXISTING_ID" ]]; then
+              echo "Railway environment $PR_ENV already exists ($EXISTING_ID)"
             else
               set +e
               railway environment new "$PR_ENV" --duplicate production
@@ -294,14 +323,19 @@ jobs:
 
               if [[ "$CREATE_STATUS" -ne 0 ]]; then
                 echo "Failed to create Railway environment $PR_ENV from production duplicate."
-                echo "Deleting partially-created environment so retry can start from a clean slate."
-                railway environment delete "$PR_ENV" --yes || echo "Railway environment delete skipped or already removed"
-                echo "Waiting 10 minutes for Railway environment deletion consistency before retry..."
-                sleep 600
+                # This attempt saw no $PR_ENV before the create, so a $PR_ENV
+                # that exists now is the broken copy this attempt made.
+                if [[ -n "$(pr_env_id)" ]]; then
+                  echo "Deleting the partial $PR_ENV this attempt created, so the retry starts clean."
+                  railway environment delete "$PR_ENV" --yes || echo "Railway environment delete failed or it is already removed"
+                  echo "Waiting 10 minutes for Railway environment deletion consistency before retry..."
+                  sleep 600
+                fi
                 exit "$CREATE_STATUS"
               fi
+              [[ -n "$(pr_env_id)" ]] || { echo "Railway reports success but $PR_ENV is not listed"; exit 1; }
             fi
-            railway link --project "${{ vars.RAILWAY_PROJECT_ID }}" --environment "$PR_ENV"
+            railway link --project "$RAILWAY_PROJECT_ID" --environment "$PR_ENV"
 
       - name: Neon branch expiration (14 days)
         id: neon_expires
@@ -408,6 +442,12 @@ jobs:
           CODESEARCH_IMAGE: ghcr.io/ctxpipe-ai/codesearch:${{ env.IMAGE_TAG }}
           OBSERVABILITY_OTLP_HEADERS: ${{ secrets.OBSERVABILITY_OTLP_HEADERS }}
           VERCEL_ACCESS_TOKEN: ${{ secrets.VERCEL_ACCESS_TOKEN }}
+          GH_APP_ID: ${{ secrets.GH_APP_ID }}
+          GH_APP_SLUG: ${{ secrets.GH_APP_SLUG }}
+          GH_CLIENT_ID: ${{ secrets.GH_CLIENT_ID }}
+          GH_CLIENT_SECRET: ${{ secrets.GH_CLIENT_SECRET }}
+          GH_PRIVATE_KEY: ${{ secrets.GH_PRIVATE_KEY }}
+          GH_WEBHOOK_SECRET: ${{ secrets.GH_WEBHOOK_SECRET }}
         # Single Railway roll. Do not wrap this script in nick-fields/retry —
         # a second attempt stacks serviceInstanceDeployV2 on a still-DEPLOYING
         # instance. GraphQL HTTP retries live in railway_graphql.
@@ -1029,6 +1069,12 @@ jobs:
             source "${GITHUB_WORKSPACE}/scripts/preview-sandbox-vars.sh"
             sync_preview_sandbox_variables
 
+            # A duplicate of production carries the production GitHub App;
+            # replace it with the preview App before any service starts.
+            # shellcheck disable=SC1091
+            source "${GITHUB_WORKSPACE}/scripts/preview-github-app-vars.sh"
+            sync_preview_github_app_variables
+
             upsert_database_url_without_deploy "$BACKEND_SERVICE_ID" >/dev/null
             upsert_preview_service_variables "$BACKEND_SERVICE_ID" >/dev/null
             upsert_preview_backend_wake_variables "$BACKEND_SERVICE_ID" >/dev/null
@@ -1114,6 +1160,8 @@ jobs:
 
       - name: Build PR deploy comment body
         if: always()
+        env:
+          GH_APP_SLUG: ${{ secrets.GH_APP_SLUG }}
         run: |
           set -euo pipefail
           BACKEND_URL="${{ steps.backend_url.outputs.backend_url }}"
@@ -1128,7 +1176,7 @@ jobs:
               echo "- Preview URL: _Unavailable (service may still be provisioning or has no public domain)_"
             fi
             echo "- Railway Dashboard: $DASHBOARD_URL"
-            echo "- If you want to sign in with Github on this preview URL, you need to add $BACKEND_URL/.auth/api/v1/auth/callback/github to list of callback URLs [here](https://github.com/organizations/ctxpipe-ai/settings/apps/ctxpipe-agent). Unfortunately, GitHub doesn't allow wildcard callback URLs or an API to do this automatically, so you need to add the exact URL."
+            echo "- This preview uses the preview GitHub App, not the production App. To sign in with GitHub here, add $BACKEND_URL/.auth/api/v1/auth/callback/github to the callback URLs of the [preview GitHub App](https://github.com/organizations/ctxpipe-ai/settings/apps/${GH_APP_SLUG:-}). GitHub doesn't allow wildcard callback URLs or an API to do this automatically, so you need to add the exact URL."
             echo "- To test Linear OAuth, add $BACKEND_URL/api/v1/integrations/linear/callback to the Linear application's redirect URIs. Linear applications have one webhook URL, so a shared production application will not deliver incremental events to this preview; use a dedicated preview application if webhook testing is required."
           } > pr-deploy-comment.md
 
