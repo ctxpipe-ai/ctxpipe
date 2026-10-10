@@ -20,6 +20,9 @@ COPY apps/ui ./apps/ui
 COPY apps/backend/src ./apps/backend/src
 ARG VITE_PUBLIC_API_URL=http://localhost:3000
 ENV VITE_PUBLIC_API_URL=$VITE_PUBLIC_API_URL
+# Node sets a heap limit of about 2 GB on a Docker Desktop VM with 8 GB of
+# memory, and the Vite build needs more.
+ENV NODE_OPTIONS=--max-old-space-size=4096
 RUN pnpm --filter @ctxpipe/ui build
 
 # Production stage — Nitro/Vinxi outputs a self-contained server bundle to .output/
