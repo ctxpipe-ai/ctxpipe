@@ -50,16 +50,7 @@ export const Route = createFileRoute("/$orgSlug/connectors")({
       reset={reset}
     />
   ),
-  validateSearch: (
-    search: Record<string, unknown>,
-  ): {
-    error: string | undefined
-    error_description: string | undefined
-    pendingAccountClaim: string | undefined
-    notionConnectionId: string | undefined
-    // Optional: only the Atlassian account-link return path sets it.
-    atlassianConnectionId?: string
-  } => ({
+  validateSearch: (search: Record<string, unknown>) => ({
     error: typeof search.error === "string" ? search.error : undefined,
     error_description:
       typeof search.error_description === "string"
@@ -73,10 +64,11 @@ export const Route = createFileRoute("/$orgSlug/connectors")({
       typeof search.notionConnectionId === "string"
         ? search.notionConnectionId
         : undefined,
-    atlassianConnectionId:
-      typeof search.atlassianConnectionId === "string"
-        ? search.atlassianConnectionId
-        : undefined,
+    // Optional, so links to this page need not name it: only the Atlassian
+    // account-link return path sets it.
+    ...(typeof search.atlassianConnectionId === "string" && {
+      atlassianConnectionId: search.atlassianConnectionId,
+    }),
   }),
   component: ConnectorsPage,
 })
@@ -183,7 +175,6 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
         error_description: prev.error_description,
         pendingAccountClaim: prev.pendingAccountClaim,
         notionConnectionId: undefined,
-        atlassianConnectionId: prev.atlassianConnectionId,
       }),
       replace: true,
     })
@@ -220,7 +211,6 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
         error_description: undefined,
         pendingAccountClaim: prev.pendingAccountClaim,
         notionConnectionId: prev.notionConnectionId,
-        atlassianConnectionId: prev.atlassianConnectionId,
       }),
       replace: true,
     })
@@ -544,7 +534,6 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
                 error_description: prev.error_description,
                 pendingAccountClaim: undefined,
                 notionConnectionId: prev.notionConnectionId,
-                atlassianConnectionId: prev.atlassianConnectionId,
               }),
               replace: true,
             })
@@ -585,7 +574,6 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
                 error_description: prev.error_description,
                 pendingAccountClaim: undefined,
                 notionConnectionId: prev.notionConnectionId,
-                atlassianConnectionId: prev.atlassianConnectionId,
               }),
               replace: true,
             })

@@ -19,7 +19,7 @@ import { AtlassianOauthAppSavedSection } from "../../AtlassianOauthAppSavedSecti
  * The account link leaves the page. The connectors page reads
  * `atlassianConnectionId` and opens the wizard again for this connection.
  */
-export function atlassianLinkReturnPath(
+function atlassianLinkReturnPath(
   href: string,
   atlassianConnectionId: string,
 ): string {
