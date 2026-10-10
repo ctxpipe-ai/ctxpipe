@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import type { ReactNode } from "react"
+import { expect, within } from "storybook/test"
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
 import { SlackConnectionCard } from "./SlackConnectionCard"
@@ -79,6 +80,41 @@ export const DraftAwaitingRepository: Story = {
         ],
       },
     },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("Setup not finished")
+    expect(
+      canvas.getByRole("button", { name: "Remove Slack setup" }),
+    ).toBeVisible()
+  },
+}
+
+export const Revoked: Story = {
+  render: () =>
+    shell(
+      <SlackConnectionCard orgSlug={orgSlug} connectionId={connectionId} />,
+    ),
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          statusHandler({
+            ...statusLive,
+            isInstalled: false,
+            installationStatus: "revoked",
+          }),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("Needs reconnect")
+    expect(canvas.queryByText("Setup not finished")).toBeNull()
+    expect(
+      canvas.getByRole("button", { name: "Slack connector actions" }),
+    ).toBeVisible()
   },
 }
 

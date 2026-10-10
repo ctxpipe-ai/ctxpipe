@@ -1,10 +1,14 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import type { ReactNode } from "react"
-import { expect, fn, screen, userEvent, waitFor, within } from "storybook/test"
+import { fn } from "storybook/test"
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
 import { notionOauthAppHandler } from "../mocks/notion-oauth-app-msw"
+import {
+  pendingSetupHandlers,
+  playPendingSetup,
+} from "../mocks/pending-setup-stories"
 import { NotionConnectionCard } from "./NotionConnectionCard"
 
 const orgSlug = "acme"
@@ -117,12 +121,21 @@ export const CouldntLoad: Story = {
   },
 }
 
+const statusReads = fn()
+const deleted = fn()
+
 export const PendingSetup: Story = {
   render: () => shell(card()),
   parameters: {
     msw: {
       handlers: {
         page: [
+          ...pendingSetupHandlers({
+            orgSlug,
+            provider: "notion",
+            statusReads,
+            deleted,
+          }),
           notionStatus({
             isInstalled: false,
             installationStatus: null,
@@ -145,23 +158,14 @@ export const PendingSetup: Story = {
       },
     },
   },
-  play: async ({ canvasElement }) => {
-    onOpenSetup.mockClear()
-    const canvas = within(canvasElement)
-    await canvas.findByText("Setup not finished")
-    await userEvent.click(
-      canvas.getByRole("button", { name: "Continue setup" }),
-    )
-    expect(onOpenSetup).toHaveBeenCalledWith(false)
-    await userEvent.click(canvas.getByRole("button", { name: "Remove" }))
-    const dialog = await screen.findByRole("alertdialog")
-    await within(dialog).findByText("Remove this Notion setup?")
-    await waitFor(() =>
-      expect(
-        within(dialog).getByRole("button", { name: "Remove setup" }),
-      ).toBeVisible(),
-    )
-  },
+  play: ({ canvasElement }) =>
+    playPendingSetup({
+      canvasElement,
+      name: "Notion",
+      onOpen: onOpenSetup,
+      statusReads,
+      deleted,
+    }),
 }
 
 export const SyncFailed: Story = {

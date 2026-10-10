@@ -1,9 +1,13 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import type { ReactNode } from "react"
-import { expect, fn, screen, userEvent, waitFor, within } from "storybook/test"
+import { fn } from "storybook/test"
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
+import {
+  pendingSetupHandlers,
+  playPendingSetup,
+} from "../mocks/pending-setup-stories"
 import { PagerdutyConnectionCard } from "./PagerdutyConnectionCard"
 
 const orgSlug = "acme"
@@ -129,12 +133,21 @@ export const CouldntLoad: Story = {
   },
 }
 
+const statusReads = fn()
+const deleted = fn()
+
 export const PendingSetup: Story = {
   render: () => shell(card()),
   parameters: {
     msw: {
       handlers: {
         page: [
+          ...pendingSetupHandlers({
+            orgSlug,
+            provider: "pagerduty",
+            statusReads,
+            deleted,
+          }),
           pagerdutyStatus({
             isInstalled: false,
             installationStatus: null,
@@ -153,23 +166,14 @@ export const PendingSetup: Story = {
       },
     },
   },
-  play: async ({ canvasElement }) => {
-    onOpenSetup.mockClear()
-    const canvas = within(canvasElement)
-    await canvas.findByText("Setup not finished")
-    await userEvent.click(
-      canvas.getByRole("button", { name: "Continue setup" }),
-    )
-    expect(onOpenSetup).toHaveBeenCalledWith(false)
-    await userEvent.click(canvas.getByRole("button", { name: "Remove" }))
-    const dialog = await screen.findByRole("alertdialog")
-    await within(dialog).findByText("Remove this PagerDuty setup?")
-    await waitFor(() =>
-      expect(
-        within(dialog).getByRole("button", { name: "Remove setup" }),
-      ).toBeVisible(),
-    )
-  },
+  play: ({ canvasElement }) =>
+    playPendingSetup({
+      canvasElement,
+      name: "PagerDuty",
+      onOpen: onOpenSetup,
+      statusReads,
+      deleted,
+    }),
 }
 
 export const SyncFailed: Story = {
