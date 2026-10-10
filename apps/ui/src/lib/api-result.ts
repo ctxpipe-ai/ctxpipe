@@ -59,6 +59,11 @@ export async function apiFetch(
       ? fetchInit.signal
       : mergeSignals(fetchInit.signal, timeoutMs ?? defaultTimeoutMs())
   try {
+    // `import.meta.env.SSR` lets Vite drop the .server import from the client bundle.
+    if (import.meta.env.SSR) {
+      const { ssrFetch } = await import("./ssr-fetch.server")
+      return await ssrFetch(input, { ...fetchInit, signal })
+    }
     return await fetch(input, { ...fetchInit, signal })
   } catch (error) {
     throw new ApiError(

@@ -479,6 +479,21 @@ importers:
       '@hyperdx/browser':
         specifier: ^0.26.0
         version: 0.26.0(zone.js@0.16.3)
+      '@opentelemetry/api':
+        specifier: ^1.9.1
+        version: 1.9.1
+      '@opentelemetry/core':
+        specifier: 2.6.0
+        version: 2.6.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/exporter-trace-otlp-http':
+        specifier: ^0.213.0
+        version: 0.213.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/resources':
+        specifier: ^2.11.0
+        version: 2.11.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/sdk-trace-base':
+        specifier: 2.6.0
+        version: 2.6.0(@opentelemetry/api@1.9.1)
       '@pierre/diffs':
         specifier: ^1.3.5
         version: 1.3.5(@shikijs/themes@3.23.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
@@ -17997,7 +18012,7 @@ snapshots:
     dependencies:
       lodash.camelcase: 4.3.0
       long: 5.3.2
-      protobufjs: 7.5.4
+      protobufjs: 7.6.6
       yargs: 17.7.2
 
   '@hcaptcha/react-hcaptcha@2.0.2': {}
@@ -19577,7 +19592,7 @@ snapshots:
       '@opentelemetry/sdk-logs': 0.213.0(@opentelemetry/api@1.9.1)
       '@opentelemetry/sdk-metrics': 2.6.0(@opentelemetry/api@1.9.1)
       '@opentelemetry/sdk-trace-base': 2.6.0(@opentelemetry/api@1.9.1)
-      protobufjs: 7.5.4
+      protobufjs: 7.6.6
 
   '@opentelemetry/otlp-transformer@0.219.0(@opentelemetry/api@1.9.1)':
     dependencies:

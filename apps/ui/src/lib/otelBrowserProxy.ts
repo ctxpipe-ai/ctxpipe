@@ -93,7 +93,7 @@ function percentDecode(value: string): string {
 }
 
 /** Railway name, else the last `deployment.environment`, else NODE_ENV. */
-function deploymentEnvironment(): string {
+export function deploymentEnvironment(): string {
   const railway = process.env.RAILWAY_ENVIRONMENT_NAME?.trim()
   if (railway) return railway
   const raw = process.env.OTEL_RESOURCE_ATTRIBUTES?.trim()
