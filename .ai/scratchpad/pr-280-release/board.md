@@ -9,7 +9,7 @@ Updated: 2026-10-07. Tickets are implemented by sub-agents in separate worktrees
 | 2 | 03 | [Docker sandboxing for self-hosters](issues/03-docker-sandbox-self-host.md) | in-progress | P0 | claude (orchestrating) | 01 |
 | 3 | 12 | [Mirror merged PRs into every Workspace that links the repository](issues/12-github-pr-mirror-per-workspace.md) | done | P1 | claude | — |
 | 3 | 04 | [End-to-end ingestion validator](issues/04-e2e-ingestion-validator.md) | in-progress (review fixes merged; ticket 14 is done, so the next paid n8n run can start) | P0 | claude (orchestrating) | — |
-| 4 | 05 | [Ingestion performance from traces](issues/05-ingestion-performance.md) | plan-review | P1 | unassigned | 04 |
+| 4 | 05 | [Ingestion performance from traces](issues/05-ingestion-performance.md) | in-progress (2 changes in; needs a paid validator run) | P1 | claude | 04 |
 | 5 | 06 | [Browser end-to-end critical flows](issues/06-browser-critical-flows.md) | in-progress (decisions applied; first local run next) | P0 | claude (orchestrating) | 02 (final pass) |
 | 6 | 09 | [Release @ctxpipe/aws-cdk as a minor](issues/09-aws-cdk-minor-changeset.md) | in-progress | P2 | claude | 03, 06 (final wording) |
 | — | 07 | [Carry main's intent into Workspaces code](issues/07-carry-main-intent.md) | done | P0 | claude | — |
