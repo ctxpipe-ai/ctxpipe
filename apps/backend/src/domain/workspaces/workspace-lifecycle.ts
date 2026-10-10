@@ -111,7 +111,7 @@ export async function renameWorkspaceLifecycle(input: {
   workspaceId: string
   displayName: string
   log: WorkspaceLog
-}): Promise<void> {
+}): Promise<boolean> {
   const jobId = generateObjectId("wjob")
   const result = await enqueueWorkspaceWriteCommit(
     {
@@ -123,11 +123,10 @@ export async function renameWorkspaceLifecycle(input: {
     },
     input.log,
   )
-  if (
-    !result.started &&
-    (await reconcileWorkspaceWriteJob(jobId))?.status !== "paused"
+  return (
+    result.started ||
+    (await reconcileWorkspaceWriteJob(jobId))?.status === "paused"
   )
-    throw new Error("Unable to schedule the workspace rename")
 }
 
 export async function relinkWorkspaceLifecycle(input: {

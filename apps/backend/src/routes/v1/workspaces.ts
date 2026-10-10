@@ -16,10 +16,7 @@ import {
   renameWorkspaceLifecycle,
 } from "../../domain/workspaces/workspace-lifecycle.js"
 import { withDestroyedWorkspaceSandboxes } from "../../domain/workspaces/workspace-sandbox-cleanup.js"
-import {
-  githubRepoFullNameFromWorkspaceUrl,
-  WORKSPACE_WRITE_STATUSES,
-} from "../../domain/workspaces/write-status.js"
+import { WORKSPACE_WRITE_STATUSES } from "../../domain/workspaces/write-status.js"
 import {
   deleteWorkspace,
   getMigrationExportSha,
@@ -293,7 +290,8 @@ const patchWorkspaceRoute = createRoute({
     },
     409: {
       content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Slug or workspace repository URL conflict",
+      description:
+        "Slug or workspace repository URL conflict, or a rename that cannot be written to the Workspace repository",
     },
   },
 })
@@ -450,20 +448,41 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
       body.workspaceRepositoryUrl !== undefined ||
       body.githubConnectionId !== undefined ||
       body.source !== undefined
-    const displayName = body.displayName?.trim()
-    const renamed = Boolean(displayName) && displayName !== current.displayName
-    // The name lives in AGENTS.md. Refuse a rename that cannot be written
-    // before the slug changes, so that the request does not half-apply.
+    const trimmedName = body.displayName?.trim()
+    // The settings form always sends the name, so only a new name renames.
+    const renamed =
+      trimmedName && trimmedName !== current.displayName
+        ? trimmedName
+        : undefined
+    if (renamed && bindingSubmitted)
+      return c.json(
+        {
+          error:
+            "Save the new display name and the repository link in separate requests.",
+        },
+        409,
+      )
+    if (
+      body.slug !== undefined &&
+      body.slug !== current.slug &&
+      (await getWorkspaceBySlug(body.slug))
+    )
+      return c.json({ error: "That slug is already used by a Workspace." }, 409)
+    // The name lives in AGENTS.md. Schedule that write before the slug
+    // changes, so that a refused rename leaves the Workspace unchanged.
     if (
       renamed &&
-      !bindingSubmitted &&
-      (!githubRepoFullNameFromWorkspaceUrl(current.workspaceRepositoryUrl) ||
-        !current.githubConnectionId)
+      !(await renameWorkspaceLifecycle({
+        orgId: current.orgId,
+        workspaceId: current.id,
+        displayName: renamed,
+        log: c.get("log"),
+      }))
     )
       return c.json(
         {
           error:
-            "The display name is stored in the Workspace repository. Connect the repository through GitHub to rename this Workspace.",
+            "The display name is stored in the Workspace repository, and the rename could not be scheduled there. Connect the repository through GitHub, then try again.",
         },
         409,
       )
@@ -482,14 +501,6 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
       log: c.get("log"),
     })
     if (!updated) return c.json({ error: "Not found" }, 404)
-    if (renamed && displayName) {
-      await renameWorkspaceLifecycle({
-        orgId: updated.orgId,
-        workspaceId: updated.id,
-        displayName,
-        log: c.get("log"),
-      })
-    }
     return c.json(
       serializeWorkspace(updated, await getMigrationExportSha(updated.id)),
       200,
