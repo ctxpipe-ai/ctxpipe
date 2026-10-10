@@ -567,9 +567,9 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
       if (error instanceof GlobPathNotFoundError) {
         return c.json({ error: error.message }, 404)
       }
-      const message =
-        error instanceof Error ? error.message : "Tree listing failed"
-      return c.json({ error: message }, 500)
+      // The error text holds absolute cache paths, so only the log gets it.
+      c.get("log").error(error instanceof Error ? error : String(error))
+      return c.json({ error: "Tree listing failed" }, 500)
     }
   })
 
@@ -606,9 +606,9 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
       if (error instanceof GlobInvalidRequestError) {
         return c.json({ error: error.message }, 400)
       }
-      const message =
-        error instanceof Error ? error.message : "Glob scan failed"
-      return c.json({ error: message }, 500)
+      // The error text holds absolute cache paths, so only the log gets it.
+      c.get("log").error(error instanceof Error ? error : String(error))
+      return c.json({ error: "Glob scan failed" }, 500)
     }
   })
 

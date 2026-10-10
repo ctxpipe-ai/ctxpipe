@@ -1,5 +1,13 @@
 import { execFileSync } from "node:child_process"
-import { mkdir, mkdtemp, rm, stat, symlink, writeFile } from "node:fs/promises"
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, relative } from "node:path"
 import { OpenAPIHono } from "@hono/zod-openapi"
@@ -29,6 +37,7 @@ const { getAccessibleRepositoryMock } = vi.hoisted(() => ({
   getAccessibleRepositoryMock: vi.fn(),
 }))
 
+// Codesearch tests have no database, so this stubs the repository row lookup.
 vi.mock("../domain/repositories/service.js", () => ({
   getAccessibleRepository: getAccessibleRepositoryMock,
   getIndexableRepository: vi.fn(),
@@ -37,6 +46,7 @@ vi.mock("../domain/repositories/service.js", () => ({
 import { registerRepoRoutes } from "./repo.js"
 
 const repoCacheDir = join(cacheRoot, "repo-cache")
+const loggedErrors: string[] = []
 
 afterEach(async () => {
   await rm(repoCacheDir, { recursive: true, force: true })
@@ -56,6 +66,9 @@ function createTreeTestApp() {
   const app = new OpenAPIHono<AppEnv>()
   app.use("*", async (c, next) => {
     c.set("env", { NODE_ENV: "test", PORT: 3001 } as AppEnv["Variables"]["env"])
+    c.set("log", {
+      error: (error: Error | string) => loggedErrors.push(String(error)),
+    } as unknown as AppEnv["Variables"]["log"])
     c.set("auth", {
       sub: "repo:repo_abcdef27",
       orgId: "org_mock123",
@@ -75,6 +88,9 @@ function createTestApp() {
   app.use("*", async (c, next) => {
     c.set("db", {} as AppEnv["Variables"]["db"])
     c.set("env", { NODE_ENV: "test", PORT: 3001 } as AppEnv["Variables"]["env"])
+    c.set("log", {
+      error: (error: Error | string) => loggedErrors.push(String(error)),
+    } as unknown as AppEnv["Variables"]["log"])
     c.set("auth", {
       sub: "user_test",
       orgId: "org_mock123",
@@ -346,6 +362,21 @@ describe("GET /{repoId}/tree", () => {
     expect(getAccessibleRepositoryMock).not.toHaveBeenCalled()
   })
 
+  it("returns a fixed message for a failed listing and logs the detail", async () => {
+    await mkdir(join(checkoutDir, "locked"), { recursive: true })
+    await chmod(join(checkoutDir, "locked"), 0o000)
+    loggedErrors.length = 0
+    try {
+      const res = await createTreeTestApp().request("/repo_abcdef27/tree")
+
+      expect(res.status).toBe(500)
+      expect(await res.json()).toEqual({ error: "Tree listing failed" })
+      expect(loggedErrors.join("\n")).toContain("locked")
+    } finally {
+      await chmod(join(checkoutDir, "locked"), 0o755)
+    }
+  })
+
   it("returns 404 immediately when the checkout is missing", async () => {
     const app = createTreeTestApp()
     const started = performance.now()
@@ -379,6 +410,25 @@ describe("POST /{repoId}/glob", () => {
 
   afterEach(async () => {
     await rm(tmpDir, { recursive: true, force: true })
+  })
+
+  it("returns a fixed message for a failed scan and logs the detail", async () => {
+    await mkdir(join(checkoutDir, "locked"), { recursive: true })
+    await chmod(join(checkoutDir, "locked"), 0o000)
+    loggedErrors.length = 0
+    try {
+      const res = await createTestApp().request("/repo_abcdef27/glob", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ pattern: "**/*" }),
+      })
+
+      expect(res.status).toBe(500)
+      expect(await res.json()).toEqual({ error: "Glob scan failed" })
+      expect(loggedErrors.join("\n")).toContain("locked")
+    } finally {
+      await chmod(join(checkoutDir, "locked"), 0o755)
+    }
   })
 
   // This route suite runs under Bun so the production Glob implementation executes.
