@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { HttpResponse, http } from "msw"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 import { OnboardingCreateOrgSlide } from "@/components/onboarding/OnboardingCreateOrgSlide"
 import {
@@ -65,9 +66,12 @@ export const ValidationError: Story = {
     await userEvent.click(
       canvas.getByRole("button", { name: /create organisation/i }),
     )
-    expect(
-      canvas.getByText(/enter a name for your organisation/i),
-    ).toBeVisible()
+    // The slide fades in, so wait until the message is visible.
+    await waitFor(() =>
+      expect(
+        canvas.getByText(/enter a name for your organisation/i),
+      ).toBeVisible(),
+    )
   },
 }
 
@@ -85,6 +89,10 @@ export const CreateFailed: Story = {
       canvas.getByRole("textbox", { name: /organisation name/i }),
       "Acme Labs",
     )
+    await userEvent.type(
+      canvas.getByRole("textbox", { name: /slug url/i }),
+      "acme-labs",
+    )
     await userEvent.click(
       canvas.getByRole("button", { name: /create organisation/i }),
     )
@@ -94,11 +102,23 @@ export const CreateFailed: Story = {
   },
 }
 
+/** Records `set-active` calls. Create already makes the new org active. */
+const setActive = fn()
 export const CreatingOrganization: Story = {
+  beforeEach: () => {
+    setActive.mockClear()
+  },
   parameters: {
     msw: {
       handlers: {
-        page: [...createOrgBaseMsw, organizationCreateSlowSuccessHandler()],
+        page: [
+          ...createOrgBaseMsw,
+          organizationCreateSlowSuccessHandler(),
+          http.post("*/.auth/api/v1/auth/organization/set-active", () => {
+            setActive()
+            return HttpResponse.json({})
+          }),
+        ],
       },
     },
     docs: {
@@ -114,11 +134,17 @@ export const CreatingOrganization: Story = {
       canvas.getByRole("textbox", { name: /organisation name/i }),
       "Acme Labs",
     )
+    await userEvent.type(
+      canvas.getByRole("textbox", { name: /slug url/i }),
+      "acme-labs",
+    )
     await userEvent.click(
       canvas.getByRole("button", { name: /create organisation/i }),
     )
     await waitFor(() => expect(args.onOrgCreated).toHaveBeenCalled(), {
       timeout: 4000,
     })
+    // Each auth round trip costs seconds on a hosted deploy (ONB-2).
+    await expect(setActive).not.toHaveBeenCalled()
   },
 }

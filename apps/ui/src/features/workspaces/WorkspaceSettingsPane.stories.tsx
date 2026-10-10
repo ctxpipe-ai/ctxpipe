@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
+import { Toaster } from "sonner"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 import {
   githubInstallationReposHandler,
@@ -183,6 +184,57 @@ export const RelinkError: Story = {
     )
     await userEvent.click(scoped.getByRole("button", { name: /^save$/i }))
     await waitFor(() => scoped.getByText(/could not save/i))
+  },
+}
+
+/**
+ * The server refuses a rename it cannot write to AGENTS.md (WS-5). The pane
+ * shows the reason and stays on the current slug.
+ */
+export const RenameRefused: Story = {
+  decorators: [
+    (Story) => (
+      <>
+        <Story />
+        <Toaster />
+      </>
+    ),
+  ],
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceListHandler([docsWorkspace]),
+          githubInstallationReposHandler(),
+          http.patch(
+            ({ request }) =>
+              /\/api\/v1\/workspaces\/[^/]+$/.test(
+                new URL(request.url).pathname,
+              ),
+            () =>
+              HttpResponse.json(
+                {
+                  error:
+                    "The display name is stored in the Workspace repository, and the rename could not be scheduled there. Connect the repository through GitHub, then try again.",
+                },
+                { status: 409 },
+              ),
+          ),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const name = canvas.getByRole("textbox", { name: /display name/i })
+    await userEvent.clear(name)
+    await userEvent.type(name, "Renamed Workspace")
+    await userEvent.click(canvas.getByRole("button", { name: /^save$/i }))
+    const body = within(canvasElement.ownerDocument.body)
+    await body.findByText(/rename could not be scheduled/i)
+    await expect(canvas.getByRole("textbox", { name: /^slug$/i })).toHaveValue(
+      docsWorkspaceDetail.slug,
+    )
   },
 }
 

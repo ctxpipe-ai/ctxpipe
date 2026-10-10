@@ -252,3 +252,134 @@ it(
     )
   },
 )
+
+it(
+  "rejects a rename it cannot write before it changes the slug",
+  { timeout: 30_000 },
+  async () => {
+    await withNativeHydrationFixture({ github: false }, async (f) => {
+      const { workspaceRoutes } = await import("../../routes/v1/workspaces.js")
+      const { workspaceHttpApp } = await import(
+        "../../test/workspace-http-fixture.js"
+      )
+      const { getWorkspaceById } = await import("../../models/workspaces.js")
+      const app = workspaceHttpApp(f.org, workspaceRoutes)
+      const current = await withOrgIdContext(f.org, () =>
+        getWorkspaceById(f.workspaceId),
+      )
+
+      const rename = await app.request("/workspaces/knowledge", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ displayName: "Renamed", slug: "renamed" }),
+      })
+      expect(rename.status).toBe(409)
+      expect(await rename.json()).toMatchObject({
+        error: expect.stringContaining("GitHub"),
+      })
+      expect(
+        await withOrgIdContext(f.org, () => getWorkspaceById(f.workspaceId)),
+      ).toMatchObject({ slug: "knowledge" })
+
+      // The form sends the unchanged name with a slug-only edit.
+      const slugOnly = await app.request("/workspaces/knowledge", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          displayName: current?.displayName,
+          slug: "renamed",
+        }),
+      })
+      expect(slugOnly.status).toBe(200)
+      expect(await slugOnly.json()).toMatchObject({ slug: "renamed" })
+    })
+  },
+)
+
+it(
+  "pauses the rename and moves the slug when the write probe fails",
+  { timeout: 30_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      { github: true, githubWriteView: "writable", writeStatus: "writable" },
+      async (f) => {
+        const { workspaceRoutes } = await import(
+          "../../routes/v1/workspaces.js"
+        )
+        const { workspaceHttpApp } = await import(
+          "../../test/workspace-http-fixture.js"
+        )
+        const { getWorkspaceById } = await import("../../models/workspaces.js")
+        const app = workspaceHttpApp(f.org, workspaceRoutes)
+        f.onWriteProbe(async () => {
+          throw new Error("GitHub is unavailable")
+        })
+
+        const rename = await app.request("/workspaces/knowledge", {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ displayName: "Renamed", slug: "renamed" }),
+        })
+        // The rename waits as a paused write job, so the slug may move.
+        expect(rename.status).toBe(200)
+        expect(
+          await withOrgIdContext(f.org, () => getWorkspaceById(f.workspaceId)),
+        ).toMatchObject({ slug: "renamed" })
+        const { listPausedWriteJobs } = await import(
+          "../../models/workspace-write-jobs.js"
+        )
+        expect(
+          await withOrgIdContext(f.org, () =>
+            listPausedWriteJobs(f.workspaceId),
+          ),
+        ).toContainEqual(
+          expect.objectContaining({
+            kind: "ops_folder_map",
+            payload: expect.objectContaining({ displayName: "Renamed" }),
+          }),
+        )
+      },
+    )
+  },
+)
+
+it(
+  "refuses a rename and a relink in one request",
+  { timeout: 30_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      { github: true, githubWriteView: "writable", writeStatus: "writable" },
+      async (f) => {
+        const { workspaceRoutes } = await import(
+          "../../routes/v1/workspaces.js"
+        )
+        const { workspaceHttpApp } = await import(
+          "../../test/workspace-http-fixture.js"
+        )
+        const { getWorkspaceById } = await import("../../models/workspaces.js")
+        const app = workspaceHttpApp(f.org, workspaceRoutes)
+        const before = await withOrgIdContext(f.org, () =>
+          getWorkspaceById(f.workspaceId),
+        )
+
+        const both = await app.request("/workspaces/knowledge", {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            displayName: "Renamed",
+            slug: "renamed",
+            workspaceRepositoryUrl: "https://github.com/fixture/other.git",
+            source: "paste",
+          }),
+        })
+        expect(both.status).toBe(409)
+        expect(
+          await withOrgIdContext(f.org, () => getWorkspaceById(f.workspaceId)),
+        ).toMatchObject({
+          slug: "knowledge",
+          workspaceRepositoryUrl: before?.workspaceRepositoryUrl,
+        })
+      },
+    )
+  },
+)

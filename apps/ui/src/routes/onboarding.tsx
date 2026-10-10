@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 import { createFileRoute, Navigate, useRouter } from "@tanstack/react-router"
 import { useCallback, useEffect, useState } from "react"
+import { toast } from "sonner"
 import { ADMIN_SLIDES, JOINER_SLIDES } from "@/components/onboarding/constants"
 import { McpOnboardingSlide } from "@/components/onboarding/McpOnboardingSlide"
 import { OnboardingCreateOrgSlide } from "@/components/onboarding/OnboardingCreateOrgSlide"
@@ -22,7 +23,7 @@ import { client } from "@/lib/api"
 import { apiFetch, readApiJson } from "@/lib/api-result"
 import {
   authClient,
-  getSession,
+  refetchSessionOnboardingComplete,
   useListOrganizations,
   useSession,
 } from "@/lib/auth-client"
@@ -50,6 +51,8 @@ function OnboardingPage() {
   const search = Route.useSearch()
   return <OnboardingPageContent urlOrgSlug={search.orgSlug ?? null} />
 }
+
+const FINISH_ERROR = "Could not finish onboarding. Try again."
 
 export function OnboardingPageContent({
   urlOrgSlug,
@@ -240,9 +243,11 @@ export function OnboardingPageContent({
         ...prev,
         selectedOrganizationSlug: orgSlug,
       }))
-      void getSession({ fetchOptions: { throw: false } })
+      if (!(await refetchSessionOnboardingComplete()))
+        throw new Error("The session does not show onboarding as complete")
     } catch {
       setCompleting(false)
+      toast.error(FINISH_ERROR)
       return
     }
     transitionToApp(leave)
@@ -270,9 +275,11 @@ export function OnboardingPageContent({
         method: "POST",
         credentials: "include",
       }).then((res) => readApiJson(res))
-      void getSession({ fetchOptions: { throw: false } })
+      if (!(await refetchSessionOnboardingComplete()))
+        throw new Error("The session does not show onboarding as complete")
     } catch {
       setCompleting(false)
+      toast.error(FINISH_ERROR)
       return
     }
     transitionToApp(() => {
