@@ -325,6 +325,34 @@ describe("conversation sandbox files", { timeout: 15_000 }, () => {
     )
   })
 
+  it("reconciles uncommitted work with the base branch", async () => {
+    await withWorktree(
+      (directory) => {
+        writeFileSync(join(directory, "AGENTS.md"), "# Agents\n")
+        writeFileSync(join(directory, "notes.md"), "N\n")
+        writeFileSync(join(directory, "pricing.md"), "P\n")
+      },
+      async ({ directory, handle, git }) => {
+        git("checkout", "-q", "-b", "ctxpipe/session")
+        writeFileSync(join(directory, "notes.md"), "N\nmore\n")
+        git("rm", "-q", "pricing.md")
+        git("commit", "-q", "-am", "Change notes, drop pricing")
+        writeFileSync(join(directory, "notes.md"), "N\n")
+        writeFileSync(join(directory, "pricing.md"), "P again\n")
+        mkdirSync(join(directory, "guides/setup"), { recursive: true })
+        writeFileSync(join(directory, "guides/setup/install.md"), "I\n")
+        const status = await conversationSandboxStatus({
+          handle,
+          defaultBranch: "main",
+          sessionBranch: "ctxpipe/session",
+        })
+        expect(
+          status.items.map((item) => `${item.status} ${item.path}`).sort(),
+        ).toEqual(["added guides/setup/install.md", "modified pricing.md"])
+      },
+    )
+  })
+
   it("reads a worktree version from native git without staging", async () => {
     await withWorktree(
       (directory) => {

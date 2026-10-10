@@ -315,10 +315,12 @@ export async function conversationSandboxStatus(input: {
     remoteSession,
     unpushed,
     currentBranch,
-    committed,
-    listed,
+    againstBase,
   ] = await Promise.all([
-    execGitOk(input.handle.exec, "git status --porcelain"),
+    execGitOk(
+      input.handle.exec,
+      "git status --porcelain --untracked-files=all",
+    ),
     execGitOk(input.handle.exec, "git diff --numstat HEAD"),
     execGit(
       input.handle.exec,
@@ -332,56 +334,36 @@ export async function conversationSandboxStatus(input: {
     ),
     execGitOk(input.handle.exec, UNPUSHED_COMMITS_COMMAND),
     execGitOk(input.handle.exec, "git branch --show-current"),
-    // Files this conversation changed in its own commits, against its base.
-    execGit(
-      input.handle.exec,
-      'git diff --no-renames --name-status --diff-filter=ADM -z "refs/heads/$CTXPIPE_DEFAULT_BRANCH"...HEAD',
-      { CTXPIPE_DEFAULT_BRANCH: input.defaultBranch },
-    ),
+    // Tracked files that differ from the base, committed or not. Without a
+    // base branch, compare with HEAD.
     execGitOk(
       input.handle.exec,
-      "git ls-files --cached --others --exclude-standard -z",
+      'base=$(git merge-base "refs/heads/$CTXPIPE_DEFAULT_BRANCH" HEAD 2>/dev/null || git rev-parse HEAD) && git diff --no-renames --name-status --diff-filter=ADM -z "$base"',
+      { CTXPIPE_DEFAULT_BRANCH: input.defaultBranch },
     ),
   ])
   const branch = currentBranch.trim()
   if (!branch) throw new Error("Conversation worktree has no current branch")
   const counts = explorerGitNumstatFromStdout(numstat)
-  // Against the base, a file git does not track yet is an added file.
-  const items = explorerGitStatusFromPorcelain(porcelain)
+  const byPath = new Map<string, ExplorerGitStatusEntry>()
+  const fields = splitGitNulPaths(againstBase)
+  for (let index = 0; index + 1 < fields.length; index += 2) {
+    const path = fields[index + 1] ?? ""
+    const code = fields[index]
+    const status =
+      code === "A" ? "added" : code === "D" ? "deleted" : "modified"
+    byPath.set(path, { path, status })
+  }
+  // An untracked file is new against the base, unless the base has a file
+  // at that path. Then it is modified, also when the content is the same.
+  for (const item of explorerGitStatusFromPorcelain(porcelain)) {
+    if (item.status !== "untracked") continue
+    const status = byPath.has(item.path) ? "modified" : "added"
+    byPath.set(item.path, { path: item.path, status })
+  }
+  const items = [...byPath.values()]
     .filter((item) => isConversationSandboxListedPath(item.path))
     .map((item) => withExplorerGitLineCounts(item, counts))
-    .map((item) =>
-      item.status === "untracked"
-        ? { ...item, status: "added" as const }
-        : item,
-    )
-  // A committed change leaves `git status`; keep it until the base has it.
-  const listedPaths = new Set(splitGitNulPaths(listed))
-  const fields = splitGitNulPaths(
-    committed.exitCode === 0 ? committed.stdout : "",
-  )
-  for (let index = 0; index + 1 < fields.length; index += 2) {
-    const code = fields[index]
-    const path = fields[index + 1]
-    if (!path || !isConversationSandboxListedPath(path)) continue
-    const current = items.findIndex((item) => item.path === path)
-    if (code === "D") {
-      if (current >= 0 || listedPaths.has(path)) continue
-      items.push({ path, status: "deleted", additions: 0 })
-      continue
-    }
-    if (current < 0) {
-      if (listedPaths.has(path)) {
-        items.push({ path, status: code === "A" ? "added" : "modified" })
-      }
-      continue
-    }
-    // Against the base, a file this conversation added is still added after
-    // a later edit, and is gone (not deleted) after a later removal.
-    if (code !== "A") continue
-    if (items[current]?.status === "deleted") items.splice(current, 1)
-    else if (items[current]) items[current].status = "added"
-  }
   const dirty = porcelain.trim().length > 0
   const [behindRaw, aheadRaw] = (revList.stdout.trim() || "0\t0").split(/\s+/)
   const ahead = Number.parseInt(aheadRaw || "0", 10) || 0
