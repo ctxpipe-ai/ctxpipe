@@ -165,22 +165,6 @@ jobs:
         with:
           ref: ${{ needs.resolve_pr.outputs.head_sha }}
 
-      - name: Check preview GitHub App secrets
-        # Fail before the job creates anything: a preview must not run with
-        # the production GitHub App that the production duplicate carries.
-        env:
-          GH_APP_ID: ${{ secrets.GH_APP_ID }}
-          GH_APP_SLUG: ${{ secrets.GH_APP_SLUG }}
-          GH_CLIENT_ID: ${{ secrets.GH_CLIENT_ID }}
-          GH_CLIENT_SECRET: ${{ secrets.GH_CLIENT_SECRET }}
-          GH_PRIVATE_KEY: ${{ secrets.GH_PRIVATE_KEY }}
-          GH_WEBHOOK_SECRET: ${{ secrets.GH_WEBHOOK_SECRET }}
-        run: |
-          set -euo pipefail
-          # shellcheck disable=SC1091
-          source "${GITHUB_WORKSPACE}/scripts/preview-github-app-vars.sh"
-          check_preview_github_app_secrets
-
       - name: Mount pnpm store sticky disk
         uses: useblacksmith/stickydisk@v1
         with:
@@ -272,6 +256,22 @@ jobs:
         uses: useblacksmith/checkout@v1
         with:
           ref: ${{ needs.resolve_pr.outputs.head_sha }}
+
+      - name: Check preview GitHub App secrets
+        # Fail before the job creates anything: a preview must not run with
+        # the production GitHub App that the production duplicate carries.
+        env:
+          GH_APP_ID: ${{ secrets.PREVIEW_GH_APP_ID }}
+          GH_APP_SLUG: ${{ secrets.PREVIEW_GH_APP_SLUG }}
+          GH_CLIENT_ID: ${{ secrets.PREVIEW_GH_CLIENT_ID }}
+          GH_CLIENT_SECRET: ${{ secrets.PREVIEW_GH_CLIENT_SECRET }}
+          GH_PRIVATE_KEY: ${{ secrets.PREVIEW_GH_PRIVATE_KEY }}
+          GH_WEBHOOK_SECRET: ${{ secrets.PREVIEW_GH_WEBHOOK_SECRET }}
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC1091
+          source "${GITHUB_WORKSPACE}/scripts/preview-github-app-vars.sh"
+          check_preview_github_app_secrets
 
       - name: Mount pnpm store sticky disk
         uses: useblacksmith/stickydisk@v1
@@ -407,12 +407,12 @@ jobs:
           CODESEARCH_IMAGE: ghcr.io/ctxpipe-ai/codesearch:${{ env.IMAGE_TAG }}
           OBSERVABILITY_OTLP_HEADERS: ${{ secrets.OBSERVABILITY_OTLP_HEADERS }}
           VERCEL_ACCESS_TOKEN: ${{ secrets.VERCEL_ACCESS_TOKEN }}
-          GH_APP_ID: ${{ secrets.GH_APP_ID }}
-          GH_APP_SLUG: ${{ secrets.GH_APP_SLUG }}
-          GH_CLIENT_ID: ${{ secrets.GH_CLIENT_ID }}
-          GH_CLIENT_SECRET: ${{ secrets.GH_CLIENT_SECRET }}
-          GH_PRIVATE_KEY: ${{ secrets.GH_PRIVATE_KEY }}
-          GH_WEBHOOK_SECRET: ${{ secrets.GH_WEBHOOK_SECRET }}
+          GH_APP_ID: ${{ secrets.PREVIEW_GH_APP_ID }}
+          GH_APP_SLUG: ${{ secrets.PREVIEW_GH_APP_SLUG }}
+          GH_CLIENT_ID: ${{ secrets.PREVIEW_GH_CLIENT_ID }}
+          GH_CLIENT_SECRET: ${{ secrets.PREVIEW_GH_CLIENT_SECRET }}
+          GH_PRIVATE_KEY: ${{ secrets.PREVIEW_GH_PRIVATE_KEY }}
+          GH_WEBHOOK_SECRET: ${{ secrets.PREVIEW_GH_WEBHOOK_SECRET }}
         # Single Railway roll. Do not wrap this script in nick-fields/retry —
         # a second attempt stacks serviceInstanceDeployV2 on a still-DEPLOYING
         # instance. GraphQL HTTP retries live in railway_graphql.
@@ -1128,7 +1128,7 @@ jobs:
       - name: Build PR deploy comment body
         if: always()
         env:
-          GH_APP_SLUG: ${{ secrets.GH_APP_SLUG }}
+          GH_APP_SLUG: ${{ secrets.PREVIEW_GH_APP_SLUG }}
         run: |
           set -euo pipefail
           BACKEND_URL="${{ steps.backend_url.outputs.backend_url }}"
