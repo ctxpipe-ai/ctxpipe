@@ -33,11 +33,9 @@ export function OnboardingCreateOrgSlide({
       }
       return result.data
     },
-    onSuccess: async (org) => {
-      await authClient.organization.setActive({
-        organizationId: org.id,
-        fetchOptions: { throw: true },
-      })
+    // Create also makes the new organization active on the session, and the
+    // auth client refreshes its session and active-organization atoms.
+    onSuccess: (org) => {
       setPreferences((prev) => ({
         ...prev,
         selectedOrganizationSlug: org.slug,
