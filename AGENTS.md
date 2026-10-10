@@ -180,9 +180,11 @@ Use **one shared Postgres** on the host (default **5433**) and **one database pe
 
 ### Git branches (agents)
 
-- **Stay on the current branch** for follow-up planning/implementation sessions. Do **not** create a new branch (or worktree branch) unless `HEAD` is already on **`main`** (or the user explicitly asks for a new branch).
-- Multiple plans/features in one PR branch are normal; continue committing on the existing feature branch.
+- **Stay on the current branch** for follow-up planning/implementation of the work that branch is for. Do **not** create a new branch (or worktree branch) unless `HEAD` is already on **`main`**, the user explicitly asks for a new branch, or the work is unrelated to the branch.
+- Related plans in one PR branch are normal; continue committing on the existing feature branch.
+- **Unrelated work gets its own PR.** A bug fix, customer report, or package change that has nothing to do with the current branch's PR goes on a new branch from `main` (use `git worktree add` so the user's checkout is untouched), never into the open PR.
 - If you are on `main` and need isolated work, then create a feature branch from `main`.
+- **No customer names** in branches, commits, PRs, changesets, code, or docs. Describe the symptom and the deployment shape (for example "self-hosted AWS on `small`"), not who reported it.
 
 ## Local agent memory
 
