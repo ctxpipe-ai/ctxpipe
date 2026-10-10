@@ -625,22 +625,33 @@ describe("reads stay inside the checkout", () => {
     await symlink("inside.txt", join(checkoutDir, "in-link"))
     await symlink("sub", join(checkoutDir, "in-dir"))
     await symlink("missing.txt", join(checkoutDir, "dangling"))
+    await mkdir(join(checkoutDir, ".git"))
+    await writeFile(join(checkoutDir, ".git", "config"), "token\n")
+    await symlink(".git", join(checkoutDir, "git-dir"))
+    await symlink(".git/config", join(checkoutDir, "config-link"))
+    await mkdir(join(checkoutDir, "nested", ".git"), { recursive: true })
+    await writeFile(join(checkoutDir, "nested", ".git", "config"), "nested\n")
   })
 
   afterEach(async () => {
     await rm(tmpDir, { recursive: true, force: true })
   })
 
-  const outsideFiles = [
+  const refusedFiles = [
     "abs-link",
     "sub/rel-link",
     "out-dir/inner.txt",
     "chain-a",
     "dangling",
+    ".git/config",
+    ".GIT/config",
+    "nested/.git/config",
+    "config-link",
+    "git-dir/config",
   ]
 
   it.each(
-    outsideFiles,
+    refusedFiles,
   )("GET /files/{path} answers %s like a missing file", async (path) => {
     const app = createTestApp()
     const missing = await app.request("/repo_abcdef27/files/missing.txt")
@@ -652,13 +663,13 @@ describe("reads stay inside the checkout", () => {
     expect(await res.json()).toEqual(await missing.json())
   })
 
-  it("POST /files-query omits files that end outside and keeps files inside", async () => {
+  it("POST /files-query omits refused files and keeps files inside", async () => {
     const app = createTestApp()
     const res = await app.request("/repo_abcdef27/files-query", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        paths: [...outsideFiles, "inside.txt", "in-link", "in-dir/inner.txt"],
+        paths: [...refusedFiles, "inside.txt", "in-link", "in-dir/inner.txt"],
       }),
     })
 
@@ -688,6 +699,27 @@ describe("reads stay inside the checkout", () => {
     expect(res.status).toBe(200)
     const body = (await res.json()) as { entries: Array<{ path: string }> }
     expect(body.entries.map((e) => e.path)).toEqual(["in-dir/inner.txt"])
+  })
+
+  // .git/config can hold a clone token, so .git is never listed.
+  it.each([
+    ".git",
+    ".GIT",
+    "nested/.git",
+    "git-dir",
+  ])("GET /files and POST /glob answer %s like a missing directory", async (path) => {
+    const app = createTestApp()
+    const list = await app.request(
+      `/repo_abcdef27/files?path=${encodeURIComponent(path)}`,
+    )
+    const glob = await app.request("/repo_abcdef27/glob", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ pattern: "*", path }),
+    })
+
+    expect(list.status).toBe(404)
+    expect(glob.status).toBe(404)
   })
 
   it("POST /glob answers a symlinked directory outside like a missing one", async () => {

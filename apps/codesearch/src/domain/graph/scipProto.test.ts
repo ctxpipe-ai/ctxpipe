@@ -145,4 +145,41 @@ describe("SCIP protobuf helpers", () => {
       await rm(directory, { recursive: true, force: true })
     }
   })
+
+  it("drops documents with a .git segment", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "scip-git-"))
+    try {
+      const checkoutPath = join(directory, "checkout")
+      await mkdir(join(checkoutPath, ".git"), { recursive: true })
+      await writeFile(join(checkoutPath, ".git", "config"), "[core]\n")
+      await symlink(".git", join(checkoutPath, "git-dir"))
+      const shardPath = join(directory, "0.scip")
+      await writeFile(
+        shardPath,
+        encodeScipIndex({
+          documents: [
+            { relativePath: "src/main.ts" },
+            { relativePath: ".git/config" },
+            { relativePath: "sub/.GIT/hook.ts" },
+            { relativePath: "git-dir/config" },
+          ],
+          externalSymbols: [],
+        }),
+      )
+      const outputPath = join(directory, "index.scip")
+
+      await mergeScipShardFiles([shardPath], outputPath, {
+        dedupe: false,
+        checkoutPath,
+      })
+
+      expect(
+        decodeScipIndex(await readFile(outputPath)).documents?.map(
+          (document) => (document as { relativePath: string }).relativePath,
+        ),
+      ).toEqual(["src/main.ts"])
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
 })

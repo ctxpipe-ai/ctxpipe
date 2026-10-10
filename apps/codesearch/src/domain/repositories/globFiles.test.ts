@@ -179,6 +179,18 @@ describe("globFilesInCheckout", () => {
     }
   })
 
+  it("answers a cwd under a symlink to .git like a missing path", async () => {
+    const root = await setupCheckout()
+    await mkdir(join(root, ".git", "hooks"), { recursive: true })
+    await writeFile(join(root, ".git", "hooks", "check.sh"), "echo hi\n")
+    await symlink(".git", join(root, "gl"))
+    for (const path of ["gl", "gl/hooks"]) {
+      await expect(
+        globFilesInCheckout({ checkoutRoot: root, pattern: "*", path }),
+      ).rejects.toThrow(GlobPathNotFoundError)
+    }
+  })
+
   it("answers any cwd it cannot resolve as a missing path", async () => {
     const root = await setupCheckout()
     await symlink("loop-b", join(root, "loop-a"))
@@ -203,5 +215,22 @@ describe("globFilesInCheckout", () => {
       path: "deps",
     })
     expect(result.entries).toEqual([])
+  })
+
+  it("does not descend into .git while matching **/*", async () => {
+    const root = await setupCheckout()
+    await mkdir(join(root, ".git", "objects"), { recursive: true })
+    await writeFile(join(root, ".git", "objects", "pack.idx"), "idx\n")
+    const result = await globFilesInCheckout({
+      checkoutRoot: root,
+      pattern: "**/*",
+      onlyFiles: true,
+    })
+    expect(result.entries.map((e) => e.path).sort()).toEqual([
+      ".cursor/rules/x.mdc",
+      "README.md",
+      "src/a.ts",
+      "src/nested/b.ts",
+    ])
   })
 })
