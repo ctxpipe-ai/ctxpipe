@@ -63,6 +63,9 @@ const TREE_HOST_STYLE = {
   "--trees-theme-focus-ring":
     "color-mix(in srgb, var(--color-teal-400) 60%, transparent)",
   "--trees-padding-inline-override": "8px",
+  "--trees-git-added-color-override": ADDITIONS_COLOR,
+  "--trees-git-untracked-color-override": ADDITIONS_COLOR,
+  "--trees-git-modified-color-override": "var(--color-amber-400)",
   "--trees-git-deleted-color-override": DELETIONS_COLOR,
 } as CSSProperties
 
@@ -252,7 +255,26 @@ function WorkspaceFileTreeClient(props: {
   isDeletedRowRef.current = entries.isDeletedRow
   const selectedPathRef = useRef(props.selectedPath)
   selectedPathRef.current = props.selectedPath
-  const deletedSummaryId = useId()
+  const changeSummaryId = useId()
+  // The tree shows a change as a colored letter. Screen readers get the
+  // same change list as the tree description.
+  const changeSummary = (
+    [
+      ["Added", ["added", "untracked"]],
+      ["Modified", ["modified"]],
+      ["Deleted", ["deleted"]],
+    ] as const
+  )
+    .map(([label, statuses]) => {
+      const paths = (props.gitStatus ?? [])
+        .filter((item) => (statuses as readonly string[]).includes(item.status))
+        .map((item) => item.path)
+      return paths.length > 0
+        ? `${label} in this conversation: ${paths.join(", ")}.`
+        : null
+    })
+    .filter((line) => line !== null)
+    .join(" ")
   const onSelectRef = useRef(props.onSelect)
   onSelectRef.current = props.onSelect
   const onHoverFileRef = useRef(props.onHoverFile)
@@ -433,9 +455,9 @@ function WorkspaceFileTreeClient(props: {
           </Button>
         ) : null}
       </div>
-      {entries.deleted.length > 0 ? (
-        <p id={deletedSummaryId} className="sr-only">
-          {`Deleted in this conversation: ${entries.deleted.join(", ")}`}
+      {changeSummary ? (
+        <p id={changeSummaryId} className="sr-only">
+          {changeSummary}
         </p>
       ) : null}
       <FileTree
@@ -443,9 +465,7 @@ function WorkspaceFileTreeClient(props: {
         className="block h-full min-h-0 min-w-0 flex-1"
         style={TREE_HOST_STYLE}
         aria-label="Workspace files"
-        aria-describedby={
-          entries.deleted.length > 0 ? deletedSummaryId : undefined
-        }
+        aria-describedby={changeSummary ? changeSummaryId : undefined}
         onMouseOver={(event) => {
           const path = workspaceFilePathFromHoverNodes(
             event.nativeEvent.composedPath(),

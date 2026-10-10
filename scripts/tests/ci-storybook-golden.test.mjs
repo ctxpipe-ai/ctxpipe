@@ -56,6 +56,10 @@ const required = [
     "DeletedFileStaysUntilMerged",
   ],
   [
+    "apps/ui/src/features/workspaces/WorkspaceFileTree.stories.tsx",
+    "ChangeMarkers",
+  ],
+  [
     "apps/ui/src/features/workspaces/WorkspaceSurface.stories.tsx",
     "SharedPublishPending",
   ],

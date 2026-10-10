@@ -13,6 +13,7 @@ export const requiredStories = [
   "StableRequestBudget",
   "StableFilesRequestBudget",
   "DeletedFileStaysUntilMerged",
+  "ChangeMarkers",
   "NodesWithoutRelationships",
   "GraphPhasePending",
   "GraphPhaseFailed",

@@ -354,7 +354,7 @@ export const DeletedFileStaysUntilMerged: Story = {
     expect(view?.getComputedStyle(name).textDecorationLine).toBe("line-through")
 
     const summary = canvas.getByText(
-      "Deleted in this conversation: old-pricing.md",
+      "Deleted in this conversation: old-pricing.md.",
     )
     const host = canvasElement.querySelector("[aria-describedby]")
     expect(host?.getAttribute("aria-describedby")).toBe(summary.id)
@@ -378,5 +378,73 @@ export const DeletedFileStaysUntilMerged: Story = {
       expect(findInShadows(canvasElement, deletedRowSelector)).toBeNull()
     })
     expect(canvas.queryByText(/Deleted in this conversation/)).toBeNull()
+  },
+}
+
+export const ChangeMarkers: Story = {
+  tags: ["workspace-golden"],
+  args: {
+    paths: [
+      "AGENTS.md",
+      "README.md",
+      "new-guide.md",
+      "knowledge/billing.md",
+      "knowledge/refunds.md",
+    ],
+    selectedPath: "AGENTS.md",
+    gitStatus: [
+      { path: "new-guide.md", status: "added", additions: 18, deletions: 0 },
+      { path: "README.md", status: "modified", additions: 4, deletions: 1 },
+      { path: "old-pricing.md", status: "deleted", deletions: 12 },
+      { path: "knowledge/refunds.md", status: "added", additions: 6 },
+    ],
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const row = (path: string) =>
+      findInShadows(canvasElement, `button[data-item-path='${path}']`)
+    await waitFor(() => {
+      expect(row("new-guide.md")).toBeTruthy()
+    })
+    const view = canvasElement.ownerDocument.defaultView
+    const marker = (path: string) => {
+      const lane = row(path)?.querySelector("[data-item-section='git']")
+      if (!lane) throw new Error(`${path} has no change marker lane`)
+      return {
+        text: lane.textContent ?? "",
+        title: lane.querySelector("[title]")?.getAttribute("title") ?? null,
+        color: view?.getComputedStyle(lane).color,
+      }
+    }
+
+    const added = marker("new-guide.md")
+    expect(added.text).toBe("A")
+    expect(added.title).toBe("Git status: added")
+    expect(added.color).toBe("rgb(52, 211, 153)")
+    const modified = marker("README.md")
+    expect(modified.text).toBe("M")
+    expect(modified.color).not.toBe(added.color)
+    const deleted = marker("old-pricing.md")
+    expect(deleted.text).toBe("D")
+    expect(deleted.color).not.toBe(modified.color)
+    expect(row("AGENTS.md")?.hasAttribute("data-item-git-status")).toBe(false)
+    expect(marker("AGENTS.md").text).toBe("")
+
+    const folder = findInShadows(
+      canvasElement,
+      "[data-item-type='folder'][data-item-contains-git-change='true']",
+    )
+    expect(folder?.getAttribute("data-item-path")).toMatch(/^knowledge\/?$/)
+
+    const host = canvasElement.querySelector("[aria-describedby]")
+    const summary = canvasElement.ownerDocument.getElementById(
+      host?.getAttribute("aria-describedby") ?? "",
+    )
+    expect(summary?.textContent).toBe(
+      "Added in this conversation: new-guide.md, knowledge/refunds.md. " +
+        "Modified in this conversation: README.md. " +
+        "Deleted in this conversation: old-pricing.md.",
+    )
+    expect(canvas.queryByText(/Added in this conversation/)).toBeTruthy()
   },
 }
