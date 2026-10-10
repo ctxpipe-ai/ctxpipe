@@ -1,13 +1,6 @@
 import { execFileSync } from "node:child_process"
-import {
-  chmod,
-  mkdir,
-  mkdtemp,
-  rm,
-  stat,
-  symlink,
-  writeFile,
-} from "node:fs/promises"
+import { mkdirSync, renameSync } from "node:fs"
+import { mkdir, mkdtemp, rm, stat, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, relative } from "node:path"
 import { OpenAPIHono } from "@hono/zod-openapi"
@@ -47,6 +40,23 @@ import { registerRepoRoutes } from "./repo.js"
 
 const repoCacheDir = join(cacheRoot, "repo-cache")
 const loggedErrors: string[] = []
+
+/**
+ * Makes a directory tree whose deepest path is longer than PATH_MAX. Opening
+ * it by its absolute path fails with ENAMETOOLONG, also for root, so the
+ * listing fails with an error that is not a missing path.
+ */
+function makeTooDeepDirectory(path: string) {
+  // Each rename uses short paths. The moved tree grows by one level each time.
+  const name = "d".repeat(200)
+  const next = `${path}.next`
+  mkdirSync(path)
+  for (let level = 0; level < 25; level++) {
+    mkdirSync(next)
+    renameSync(path, join(next, name))
+    renameSync(next, path)
+  }
+}
 
 afterEach(async () => {
   await rm(repoCacheDir, { recursive: true, force: true })
@@ -363,17 +373,17 @@ describe("GET /{repoId}/tree", () => {
   })
 
   it("returns a fixed message for a failed listing and logs the detail", async () => {
-    await mkdir(join(checkoutDir, "locked"), { recursive: true })
-    await chmod(join(checkoutDir, "locked"), 0o000)
+    await mkdir(checkoutDir, { recursive: true })
+    makeTooDeepDirectory(join(checkoutDir, "deep"))
     loggedErrors.length = 0
     try {
       const res = await createTreeTestApp().request("/repo_abcdef27/tree")
 
       expect(res.status).toBe(500)
       expect(await res.json()).toEqual({ error: "Tree listing failed" })
-      expect(loggedErrors.join("\n")).toContain("locked")
+      expect(loggedErrors.join("\n")).toContain("deep")
     } finally {
-      await chmod(join(checkoutDir, "locked"), 0o755)
+      execFileSync("rm", ["-rf", join(checkoutDir, "deep")])
     }
   })
 
@@ -413,8 +423,8 @@ describe("POST /{repoId}/glob", () => {
   })
 
   it("returns a fixed message for a failed scan and logs the detail", async () => {
-    await mkdir(join(checkoutDir, "locked"), { recursive: true })
-    await chmod(join(checkoutDir, "locked"), 0o000)
+    await mkdir(checkoutDir, { recursive: true })
+    makeTooDeepDirectory(join(checkoutDir, "deep"))
     loggedErrors.length = 0
     try {
       const res = await createTestApp().request("/repo_abcdef27/glob", {
@@ -425,9 +435,9 @@ describe("POST /{repoId}/glob", () => {
 
       expect(res.status).toBe(500)
       expect(await res.json()).toEqual({ error: "Glob scan failed" })
-      expect(loggedErrors.join("\n")).toContain("locked")
+      expect(loggedErrors.join("\n")).toContain("deep")
     } finally {
-      await chmod(join(checkoutDir, "locked"), 0o755)
+      execFileSync("rm", ["-rf", join(checkoutDir, "deep")])
     }
   })
 
