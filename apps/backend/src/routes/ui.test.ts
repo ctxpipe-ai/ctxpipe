@@ -1,5 +1,7 @@
 import { createServer } from "node:http"
-import { describe, expect, it } from "vitest"
+import { initLogger } from "evlog"
+import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { createLogger, withLogger } from "../observability/logger.js"
 import {
   isViteHmrWebSocketRequest,
   proxyUiRequest,
@@ -99,7 +101,6 @@ describe("UI HTTP proxy budget", () => {
       trust,
     )
     expect(response.status).toBe(502)
-    expect(await response.text()).toBe("Bad Gateway")
   })
 
   it("returns 502 when the upstream resets the connection", async () => {
@@ -123,12 +124,101 @@ describe("UI HTTP proxy budget", () => {
         trust,
       )
       expect(response.status).toBe(502)
-      expect(await response.text()).toBe("Bad Gateway")
     } finally {
       await new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()))
       })
     }
+  })
+})
+
+describe("UI proxy failure response", () => {
+  const trust = { publicOrigin: "http://localhost:3000" }
+  // `setup-evlog.ts` turns loggers into no-ops. Turn them on so the tests can
+  // read the failure log, then put the setup config back.
+  beforeAll(() => {
+    initLogger({
+      env: { service: "ctxpipe-backend", environment: "test" },
+      pretty: false,
+    })
+  })
+  afterAll(() => {
+    initLogger({
+      enabled: false,
+      env: { service: "ctxpipe-backend-test" },
+    })
+  })
+
+  async function withHangingUpstream<T>(
+    fn: (upstream: string) => Promise<T>,
+  ): Promise<T> {
+    const server = createServer(() => {
+      // Never respond, so the proxy timeout fires.
+    })
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", resolve)
+    })
+    const address = server.address()
+    if (!address || typeof address === "string") {
+      server.close()
+      throw new Error("expected a TCP listen address")
+    }
+    try {
+      return await fn(`http://127.0.0.1:${address.port}`)
+    } finally {
+      server.closeAllConnections()
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()))
+      })
+    }
+  }
+
+  it("logs a timeout and does not let a cache keep the 504", async () => {
+    const logger = createLogger({ test: true })
+    const response = await withHangingUpstream((upstream) =>
+      withLogger(logger, () =>
+        proxyUiRequest(
+          new Request("http://localhost/acme/ws/docs"),
+          upstream,
+          50,
+          trust,
+        ),
+      ),
+    )
+    expect(response.status).toBe(504)
+    expect(response.headers.get("cache-control")).toBe("no-store")
+    expect(await response.text()).toBe("Gateway Timeout")
+    expect(logger.getContext()).toMatchObject({
+      uiProxy: { outcome: "timeout", timeoutMs: 50 },
+    })
+  })
+
+  it("logs an upstream error and does not let a cache keep the 502", async () => {
+    const logger = createLogger({ test: true })
+    const response = await withLogger(logger, () =>
+      proxyUiRequest(
+        new Request("http://localhost/assets/app.js"),
+        "http://127.0.0.1:1",
+        200,
+        trust,
+      ),
+    )
+    expect(response.status).toBe(502)
+    expect(response.headers.get("cache-control")).toBe("no-store")
+    expect(await response.text()).toBe("Bad Gateway")
+    expect(logger.getContext()).toMatchObject({
+      uiProxy: { outcome: "upstream_error" },
+    })
+  })
+
+  it("still answers 502 when no request logger exists", async () => {
+    const response = await proxyUiRequest(
+      new Request("http://localhost/assets/app.js"),
+      "http://127.0.0.1:1",
+      200,
+      trust,
+    )
+    expect(response.status).toBe(502)
   })
 })
 

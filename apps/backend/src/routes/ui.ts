@@ -2,6 +2,7 @@ import type { Context, Hono } from "hono"
 import { proxy } from "hono/proxy"
 import type { AppEnv } from "../app/env.js"
 import type { Env } from "../config/env.js"
+import { getLogger, log } from "../observability/logger.js"
 
 type UiProxyClientMessage = string | ArrayBuffer | Uint8Array
 
@@ -45,14 +46,30 @@ export async function proxyUiRequest(
       signal,
     })
   } catch (error) {
-    if (
-      isUiProxyAbortError(error) ||
-      timeout.aborted ||
-      request.signal.aborted
-    ) {
-      return new Response("Gateway Timeout", { status: 504 })
+    const timedOut =
+      isUiProxyAbortError(error) || timeout.aborted || request.signal.aborted
+    // UI proxy requests have no server span, so the wide event carries this.
+    const uiProxy = {
+      outcome: timedOut ? "timeout" : "upstream_error",
+      timeoutMs,
+      error: error instanceof Error ? error.message : String(error),
     }
-    return new Response("Bad Gateway", { status: 502 })
+    const requestLog = tryGetLogger()
+    if (requestLog) requestLog.warn("UI proxy request failed", { uiProxy })
+    else log.warn({ message: "UI proxy request failed", uiProxy })
+    return new Response(timedOut ? "Gateway Timeout" : "Bad Gateway", {
+      status: timedOut ? 504 : 502,
+      headers: { "cache-control": "no-store" },
+    })
+  }
+}
+
+/** A missing logger must not turn a 502 or 504 into a 500. */
+function tryGetLogger() {
+  try {
+    return getLogger()
+  } catch {
+    return undefined
   }
 }
 

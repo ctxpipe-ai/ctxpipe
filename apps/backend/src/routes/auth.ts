@@ -121,6 +121,17 @@ export function registerAuthRoutes(app: Hono<AppEnv>) {
     )
   })
 
+  // The Better Auth infra plugin reads `X-Request-Id` as its own
+  // identification id and stores it in the `__infra-rid` cookie. Railway and
+  // `backendOtelMiddleware` set that header on each request. With the cookie,
+  // each server-side session lookup asks the infra KV for an unknown id, gets
+  // 404, and retries for about 1.1 s. The request log keeps the id.
+  // If the browser `sentinelClient` is added, this also removes its real id.
+  app.use("/.auth/api/v1/auth/*", async (c, next) => {
+    c.req.raw.headers.delete("x-request-id")
+    await next()
+  })
+
   app.on(["GET", "POST"], "/.auth/api/v1/auth/callback/atlassian", (c) =>
     atlassianLinkCallbackFirst(c),
   )
