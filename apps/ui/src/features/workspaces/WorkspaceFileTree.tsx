@@ -102,7 +102,6 @@ export function workspaceTreeEntries(
 ): {
   paths: string[]
   files: Set<string>
-  deleted: string[]
   isDeletedRow: (path: string) => boolean
 } {
   const deleted = new Set(deletedPaths)
@@ -110,7 +109,6 @@ export function workspaceTreeEntries(
   return {
     paths: rows,
     files: new Set(paths.filter((path) => !deleted.has(path))),
-    deleted: [...deletedPaths],
     isDeletedRow: (path) => {
       if (deleted.has(path)) return true
       const prefix = `${path.replace(/\/+$/, "")}/`

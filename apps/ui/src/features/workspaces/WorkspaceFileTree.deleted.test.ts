@@ -12,7 +12,7 @@ describe("workspaceTreeEntries", () => {
       "knowledge/a.md",
       "knowledge/gone.md",
     ])
-    expect(entries.deleted).toEqual(["knowledge/gone.md"])
+    expect(entries.isDeletedRow("knowledge/gone.md")).toBe(true)
     expect(entries.files.has("knowledge/gone.md")).toBe(false)
     expect(entries.files.has("knowledge/a.md")).toBe(true)
   })
@@ -35,7 +35,7 @@ describe("workspaceTreeEntries", () => {
   it("drops the deleted path after the status clears", () => {
     const entries = workspaceTreeEntries(["AGENTS.md"], [])
     expect(entries.paths).toEqual(["AGENTS.md"])
-    expect(entries.deleted).toEqual([])
+    expect(entries.isDeletedRow("gone.md")).toBe(false)
   })
 })
 

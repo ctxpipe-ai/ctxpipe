@@ -423,7 +423,7 @@ export const ChangeMarkers: Story = {
     expect(added.color).toBe("rgb(52, 211, 153)")
     const modified = marker("README.md")
     expect(modified.text).toBe("M")
-    expect(modified.color).not.toBe(added.color)
+    expect(modified.color).toBe("oklch(0.828 0.189 84.429)")
     const deleted = marker("old-pricing.md")
     expect(deleted.text).toBe("D")
     expect(deleted.color).not.toBe(modified.color)
@@ -445,6 +445,6 @@ export const ChangeMarkers: Story = {
         "Modified in this conversation: README.md. " +
         "Deleted in this conversation: old-pricing.md.",
     )
-    expect(canvas.queryByText(/Added in this conversation/)).toBeTruthy()
+    expect(canvas.getByText(/Added in this conversation/)).toBe(summary)
   },
 }
