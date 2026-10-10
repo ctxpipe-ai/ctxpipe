@@ -86,6 +86,50 @@ export const NotFound: Story = {
   },
 }
 
+let oldSlugTouches = 0
+
+/** A slug rename leaves the old URL. Its last-used touch returns 404. */
+export const OldSlugNotFound: Story = {
+  tags: ["workspace-golden"],
+  parameters: {
+    storyRoute: workspaceRoute(),
+    msw: {
+      handlers: {
+        page: [
+          http.post(/\/api\/v1\/workspaces\/[^/]+\/touch$/, () => {
+            oldSlugTouches += 1
+            return HttpResponse.json({ error: "Not found" }, { status: 404 })
+          }),
+          ...workspaceShellHandlers({ detail: null }),
+        ],
+      },
+    },
+  },
+  beforeEach: () => {
+    oldSlugTouches = 0
+    const rejections: unknown[] = []
+    const onRejection = (event: PromiseRejectionEvent) => {
+      rejections.push(event.reason)
+    }
+    window.addEventListener("unhandledrejection", onRejection)
+    ;(window as { __oldSlugRejections?: unknown[] }).__oldSlugRejections =
+      rejections
+    return () => window.removeEventListener("unhandledrejection", onRejection)
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(
+      await canvas.findByRole("heading", { name: "Workspace not found" }),
+    ).toBeVisible()
+    // An unknown slug sends no touch. A touch that still fails is caught.
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    expect(oldSlugTouches).toBe(0)
+    expect(
+      (window as { __oldSlugRejections?: unknown[] }).__oldSlugRejections,
+    ).toEqual([])
+  },
+}
+
 export const LoadError: Story = {
   parameters: {
     storyRoute: workspaceRoute(),
