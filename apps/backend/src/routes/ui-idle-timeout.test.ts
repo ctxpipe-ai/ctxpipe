@@ -68,33 +68,34 @@ async function startSlowUi(
 }
 
 const originTrust = { publicOrigin: "https://app.example.test" }
-// Bun 1.4 closes a silent request about 12 s after it starts. This page is
-// slower than that, but faster than the proxy timeout.
-const slowPageMs = 13_500
+
+async function proxySlowPage(idleTimeout: string) {
+  // Bun checks idle sockets on a 4 s tick, so `idleTimeout: 1` closes the
+  // request after about 4 s. The page answers after 5.5 s, and the proxy
+  // waits 7 s.
+  const uiUrl = await startSlowUi(5_500, idleTimeout)
+  const response = await proxyUiRequest(
+    new Request("https://app.example.test/projects"),
+    uiUrl,
+    7_000,
+    originTrust,
+  )
+  return { status: response.status, body: await response.text() }
+}
 
 describe("UI server idle timeout", () => {
-  it("drops a page slower than the Bun default when Bun keeps its default idle timeout", async () => {
-    const uiUrl = await startSlowUi(slowPageMs, undefined)
-    const response = await proxyUiRequest(
-      new Request("https://app.example.test/projects"),
-      uiUrl,
+  it("keeps the UI image idle timeout above the UI proxy timeout", async () => {
+    expect(Number(await uiImageIdleTimeout()) * 1000).toBeGreaterThan(
       UI_PROXY_TIMEOUT_MS,
-      originTrust,
     )
-    expect(response.status).toBe(502)
-  }, 30_000)
+  })
 
-  it("serves a page slower than the Bun default with the idle timeout of the UI image", async () => {
-    const idleTimeout = await uiImageIdleTimeout()
-    expect(Number(idleTimeout) * 1000).toBeGreaterThan(UI_PROXY_TIMEOUT_MS)
-    const uiUrl = await startSlowUi(slowPageMs, idleTimeout)
-    const response = await proxyUiRequest(
-      new Request("https://app.example.test/projects"),
-      uiUrl,
-      UI_PROXY_TIMEOUT_MS,
-      originTrust,
-    )
-    expect(response.status).toBe(200)
-    expect(await response.text()).toBe("<html>slow page</html>")
-  }, 30_000)
+  it("answers 502 when the UI server idle timeout is shorter than the page, and 200 when it is longer than the proxy timeout", async () => {
+    const [short, long] = await Promise.all([
+      proxySlowPage("1"),
+      proxySlowPage("8"),
+    ])
+    expect(short.status).toBe(502)
+    expect(long).toEqual({ status: 200, body: "<html>slow page</html>" })
+  }, 20_000)
 })
