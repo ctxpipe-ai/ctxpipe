@@ -8,7 +8,10 @@ import {
 import { CONNECTOR_EXTRACTORS } from "./nodes/connectorExtractors.js"
 import { extractCodeowners } from "./nodes/extractCodeowners.js"
 import { extractDecisions } from "./nodes/extractDecisions.js"
-import { extractInstructionUnits } from "./nodes/extractInstructionUnits.js"
+import {
+  extractInstructionUnits,
+  ownsRepoRootInstructions,
+} from "./nodes/extractInstructionUnits.js"
 import { extractKind } from "./nodes/extractKind.js"
 import { identifyAPIClients } from "./nodes/identifyAPIClients.js"
 import { identifyAPIs } from "./nodes/identifyAPIs.js"
@@ -36,6 +39,16 @@ import type {
  * root captures of an older extractor.
  */
 export const EXTRACTOR_VERSION = 1
+
+/**
+ * Row name of a root in `repository_extraction_captures`. The root that reads
+ * the repo-root instruction files (see `ownsRepoRootInstructions`) has its own
+ * row name. Thus a later run with a different root set does not reuse a row
+ * that has those files, or that does not have them, for the wrong root.
+ */
+export function captureRowRoot(root: string, roots: string[]): string {
+  return ownsRepoRootInstructions(root, roots) ? `${root}#repo-root` : root
+}
 
 /** Stable OpenWorkflow step-name fragment for a package root path. */
 export function stableRootStepId(root: string): string {
@@ -75,9 +88,13 @@ function concatExtracted(
 export async function runExtractKindForRoot(
   state: CodeIngestionState,
   root: string,
+  roots: string[],
   captureKey: ExtractionCaptureKey,
 ): Promise<Partial<CodeIngestionState> | { reused: ExtractionCounts }> {
-  const reused = await storedRootCapture(captureKey, root)
+  const reused = await storedRootCapture(
+    captureKey,
+    captureRowRoot(root, roots),
+  )
   if (reused) return { reused }
   return extractKind({ ...state, roots: [root] })
 }
@@ -92,6 +109,7 @@ export async function runExtractKindForRoot(
 export async function runIdentifyPhaseForRoot(
   state: CodeIngestionState,
   root: string,
+  roots: string[],
   kindPartial: Awaited<ReturnType<typeof runExtractKindForRoot>>,
   captureKey: ExtractionCaptureKey,
 ): Promise<ExtractionCounts> {
@@ -100,6 +118,7 @@ export async function runIdentifyPhaseForRoot(
     ...state,
     ...kindPartial,
     roots: [root],
+    extractionRoots: roots,
     extractedObjects: kindPartial.extractedObjects ?? [],
     extractedClaims: kindPartial.extractedClaims ?? [],
   }
@@ -135,7 +154,7 @@ export async function runIdentifyPhaseForRoot(
   )
   return storeRootCapture(
     captureKey,
-    root,
+    captureRowRoot(root, roots),
     sanitizePostgresJson(extracted),
     skippedFiles,
   )

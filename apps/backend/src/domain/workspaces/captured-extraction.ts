@@ -1,5 +1,8 @@
 import { linkPackageHierarchy } from "../../graphs/codeIngestionGraph/nodes/linkLocatedPaths.js"
-import { finalizeExtractedReferences } from "../../graphs/codeIngestionGraph/runExtractRoot.js"
+import {
+  captureRowRoot,
+  finalizeExtractedReferences,
+} from "../../graphs/codeIngestionGraph/runExtractRoot.js"
 import {
   deleteExtractionCapture,
   type ExtractionCaptureKey,
@@ -38,7 +41,7 @@ export async function loadCapturedExtraction(
   const { capture, ...header } = extraction
   const stored = await loadExtractionCapture(
     captureKey(orgId, extraction),
-    capture.roots,
+    capture.roots.map((root) => captureRowRoot(root, capture.roots)),
   )
   const finalized = await finalizeExtractedReferences({ orgId, ...stored })
   const claims = [

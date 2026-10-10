@@ -1,6 +1,7 @@
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models"
 import { z } from "zod"
 import { assertNotInOrgDbContext } from "../../db/client.js"
+import { mapPool } from "../../lib/mapPool.js"
 import {
   type LangfuseUsageDetails,
   withLangfuseGeneration,
@@ -194,27 +195,6 @@ function chunkArray<T>(items: T[], size: number): T[][] {
     chunks.push(items.slice(i, i + size))
   }
   return chunks
-}
-
-async function mapPool<T, R>(
-  items: T[],
-  concurrency: number,
-  fn: (item: T, index: number) => Promise<R>,
-): Promise<R[]> {
-  const results = new Array<R>(items.length)
-  let next = 0
-  async function worker() {
-    while (next < items.length) {
-      const i = next++
-      results[i] = await fn(items[i] as T, i)
-    }
-  }
-  const workers = Array.from(
-    { length: Math.min(concurrency, Math.max(items.length, 1)) },
-    () => worker(),
-  )
-  await Promise.all(workers)
-  return results
 }
 
 function assertEmbeddingDims(embedding: number[], index?: number): number[] {

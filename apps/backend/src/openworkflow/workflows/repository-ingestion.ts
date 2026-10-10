@@ -530,6 +530,7 @@ export const repositoryIngestion = defineWorkflow(
                                         runExtractKindForRoot(
                                           baseIngestState,
                                           root,
+                                          roots,
                                           captureKey,
                                         ),
                                     ),
@@ -580,6 +581,7 @@ export const repositoryIngestion = defineWorkflow(
                                         runIdentifyPhaseForRoot(
                                           baseIngestState,
                                           root,
+                                          roots,
                                           kindPartial,
                                           captureKey,
                                         ),

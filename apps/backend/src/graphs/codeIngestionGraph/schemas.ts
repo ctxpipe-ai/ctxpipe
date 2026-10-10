@@ -92,6 +92,8 @@ export const CodeIngestionStateSchema = z.object({
    */
   extractionSkippedFiles: z.number().int().nonnegative().optional(),
   roots: z.array(z.string()).optional(),
+  /** Every root of the run, when the graph extracts one root at a time. */
+  extractionRoots: z.array(z.string()).optional(),
   extractedObjects: z.array(ExtractedObjectSchema).default([]),
   extractedClaims: z.array(ExtractedClaimSchema).default([]),
 })

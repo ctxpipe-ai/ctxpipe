@@ -17,6 +17,7 @@ import {
 } from "../../../domain/codeIngestion/codesearchClient.js"
 import { isConnectorMirrorPath } from "../../../domain/codeIngestion/connectorMirrorPaths.js"
 import { isUnderDependencyVendorPath } from "../../../domain/codeIngestion/dependencyVendorPaths.js"
+import { mapPool } from "../../../lib/mapPool.js"
 import { getLogger } from "../../../observability/logger.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
 import type {
@@ -272,11 +273,12 @@ export function isRepoRootInstructionPath(path: string): boolean {
 export function resolveInstructionSubmissionRoot(
   path: string,
   roots: string[],
+  ownsRepoRoot = true,
 ): string | null {
   const resolved = resolveSubmissionRoot(path, roots)
   if (resolved !== null) return resolved
 
-  if (roots.length !== 1 || roots[0] === "./") {
+  if (!ownsRepoRoot || roots.length !== 1 || roots[0] === "./") {
     return null
   }
 
@@ -284,6 +286,21 @@ export function resolveInstructionSubmissionRoot(
   if (!isRepoRootInstructionPath(path)) return null
 
   return "./"
+}
+
+/**
+ * A run that extracts one package root at a time gives the repo-root
+ * instruction files to one root only: the first root in path order. When the
+ * run has a `./` root, that root reads them and no package root does. Without
+ * the run's roots, the root reads them.
+ */
+export function ownsRepoRootInstructions(
+  root: string,
+  extractionRoots: string[] | undefined,
+): boolean {
+  if (!extractionRoots?.length) return true
+  if (extractionRoots.some((r) => normalizeRootDir(r) === "")) return false
+  return [...extractionRoots].sort()[0] === root
 }
 
 /** Stable identity for merge/idempotency: repo scope + path + root + excerpt bytes (not LLM name/summary). */
@@ -587,17 +604,26 @@ export async function extractInstructionUnits(
   )
   const logger = getLogger()
 
+  const ownsRepoRoot =
+    roots.length !== 1 ||
+    ownsRepoRootInstructions(roots[0] ?? "./", state.extractionRoots)
+  const routed = candidates.flatMap((path) => {
+    const root = resolveInstructionSubmissionRoot(path, roots, ownsRepoRoot)
+    return root === null ? [] : [{ path, root }]
+  })
   const contents =
-    candidates.length > 0
-      ? await fetchFiles(repositoryId, orgId, candidates)
+    routed.length > 0
+      ? await fetchFiles(
+          repositoryId,
+          orgId,
+          routed.map((r) => r.path),
+        )
       : {}
 
   const extractedObjects: ExtractedObject[] = []
   const extractedClaims: ExtractedClaim[] = []
 
-  const needsWorkspaceRootService = candidates.some(
-    (p) => resolveInstructionSubmissionRoot(p, roots) === "./",
-  )
+  const needsWorkspaceRootService = routed.some((r) => r.root === "./")
 
   if (needsWorkspaceRootService) {
     extractedObjects.push({
@@ -609,26 +635,18 @@ export async function extractInstructionUnits(
   }
 
   let filesSkippedEmpty = 0
-  let filesSkippedRoot = 0
+  const filesSkippedRoot = candidates.length - routed.length
   let filesSkippedLlmError = 0
   let filesProcessed = 0
   let unitsReturned = 0
   let unitsAfterExcerptDedupe = 0
   let unitsPromoted = 0
 
-  for (const path of candidates) {
+  // One model call per file (or chunk) is the slowest part of a root, so files
+  // run four at a time. The loop below keeps the file order.
+  const fileUnits = await mapPool(routed, 4, async ({ path }) => {
     const content = contents[path]
-    if (!content || content.trim().length === 0) {
-      filesSkippedEmpty++
-      continue
-    }
-
-    const root = resolveInstructionSubmissionRoot(path, roots)
-    if (root === null) {
-      filesSkippedRoot++
-      continue
-    }
-
+    if (!content || content.trim().length === 0) return "empty" as const
     const returned: z.infer<typeof LlmUnitsResponseSchema>["units"] = []
     try {
       for (const chunk of splitForExtraction(content, 48_000)) {
@@ -641,6 +659,19 @@ export async function extractInstructionUnits(
         returned.push(...parsed.units)
       }
     } catch {
+      return "failed" as const
+    }
+    return returned
+  })
+
+  for (const [i, { path, root }] of routed.entries()) {
+    const content = contents[path] ?? ""
+    const returned = fileUnits[i]
+    if (returned === "empty") {
+      filesSkippedEmpty++
+      continue
+    }
+    if (returned === "failed" || returned === undefined) {
       filesSkippedLlmError++
       continue
     }
