@@ -27,6 +27,7 @@ import type { SandboxGitTokenStore } from "../../models/sandbox-git-tokens.js"
 import {
   BASE_BUILD_LEASE_MS,
   getSandboxInstance,
+  listSandboxInstances,
 } from "../../models/workspaces.js"
 import { withTestLogger } from "../../test/with-test-logger.js"
 import {
@@ -55,7 +56,10 @@ import {
   reserveWorkspaceBaseBuild,
   runWorkspaceBaseBuild,
 } from "./workspace-sandbox-base.js"
-import { collectUnusedWorkspaceBases } from "./workspace-sandbox-cleanup.js"
+import {
+  collectUnusedWorkspaceBases,
+  workspaceBaseHeldUntil,
+} from "./workspace-sandbox-cleanup.js"
 
 /**
  * Hosted Workspace bases against the Vercel API (msw) and a real database:
@@ -995,6 +999,7 @@ describe("base sweep schedule", () => {
   async function withSweptOrg(
     test: (org: {
       workspaceId: string
+      rows: () => Promise<Awaited<ReturnType<typeof listSandboxInstances>>>
       row: (
         id: string,
         values: Partial<typeof workspaceSandboxInstances.$inferInsert>,
@@ -1026,6 +1031,10 @@ describe("base sweep schedule", () => {
       )
       await test({
         workspaceId,
+        rows: () =>
+          withOrgDbContext(sweptOrg, () =>
+            listSandboxInstances({ workspaceId }),
+          ),
         row: (id, values) =>
           withOrgDbContext(sweptOrg, (db) =>
             db.insert(workspaceSandboxInstances).values({
@@ -1112,66 +1121,76 @@ describe("base sweep schedule", () => {
         HttpResponse.json(snapshotBody(String(params.id), "created")),
       ),
     )
-    await withSweptOrg(async ({ workspaceId, row, sweep, conversation }) => {
-      const now = new Date()
-      const used = now.getTime() - 2 * DAY
-      // A conversation sandbox that started from the old bases before the
-      // current base was published: Vercel keeps those bases for it.
-      await row(`chat-${workspaceId}`, {
-        kind: "chat",
-        conversationId: await conversation(),
-        image: null,
-        revision: null,
-        providerSandboxId: "conversation-held",
-        state: "stopped",
-        lastHeartbeatAt: new Date(used),
-        createdAt: new Date(now.getTime() - 40 * DAY),
-      })
-      await row(`base:${workspaceId}:current`, {
-        providerSandboxId: "builder-current",
-        latestSnapshotId: "snap_current",
-        createdAt: new Date(now.getTime() - DAY),
-      })
-      await row(`base:${workspaceId}:failed`, {
-        state: "destroy_failed",
-        providerSandboxId: "builder-failed",
-        latestSnapshotId: "snap_failed",
-        lastHeartbeatAt: new Date(now.getTime() - 3 * DAY),
-        createdAt: new Date(now.getTime() - 45 * DAY),
-      })
-      // The failed base waits for that sandbox's expiry, not the next retry.
-      // The sandbox's own deletion (a day before its expiry) comes first, so
-      // the next sweep is due then.
-      expect(await sweep(now)).toBe(used + CHAT_SANDBOX_DELETE_AFTER_MS)
+    await withSweptOrg(
+      async ({ workspaceId, rows, row, sweep, conversation }) => {
+        const now = new Date()
+        const used = now.getTime() - 2 * DAY
+        // A conversation sandbox that started from the old bases before the
+        // current base was published: Vercel keeps those bases for it.
+        await row(`chat-${workspaceId}`, {
+          kind: "chat",
+          conversationId: await conversation(),
+          image: null,
+          revision: null,
+          providerSandboxId: "conversation-held",
+          state: "stopped",
+          lastHeartbeatAt: new Date(used),
+          createdAt: new Date(now.getTime() - 40 * DAY),
+        })
+        await row(`base:${workspaceId}:current`, {
+          providerSandboxId: "builder-current",
+          latestSnapshotId: "snap_current",
+          createdAt: new Date(now.getTime() - DAY),
+        })
+        await row(`base:${workspaceId}:failed`, {
+          state: "destroy_failed",
+          providerSandboxId: "builder-failed",
+          latestSnapshotId: "snap_failed",
+          lastHeartbeatAt: new Date(now.getTime() - 3 * DAY),
+          createdAt: new Date(now.getTime() - 45 * DAY),
+        })
+        // The failed base waits for that sandbox's expiry, not the next retry.
+        // The sandbox's own deletion (a day before its expiry) comes first, so
+        // the next sweep is due then.
+        expect(await sweep(now)).toBe(used + CHAT_SANDBOX_DELETE_AFTER_MS)
+        // The sandbox that holds a base always deletes a day before its hold
+        // ends, so the hold is never the earliest due time. Check the hold
+        // value itself.
+        const listed = await rows()
+        const failed = listed.find((r) => r.id === `base:${workspaceId}:failed`)
+        expect(failed && workspaceBaseHeldUntil(failed, listed)).toBe(
+          used + CHAT_SANDBOX_RETENTION_MS,
+        )
 
-      // A superseded base past its retention end, still in use, also waits
-      // for that sandbox's expiry.
-      await row(`base:${workspaceId}:old`, {
-        providerSandboxId: "builder-old",
-        latestSnapshotId: "snap_old",
-        lastHeartbeatAt: new Date(now.getTime() - 31 * DAY),
-        createdAt: new Date(now.getTime() - 50 * DAY),
-      })
-      expect(await sweep(now)).toBe(used + CHAT_SANDBOX_DELETE_AFTER_MS)
+        // A superseded base past its retention end, still in use, also waits
+        // for that sandbox's expiry.
+        await row(`base:${workspaceId}:old`, {
+          providerSandboxId: "builder-old",
+          latestSnapshotId: "snap_old",
+          lastHeartbeatAt: new Date(now.getTime() - 31 * DAY),
+          createdAt: new Date(now.getTime() - 50 * DAY),
+        })
+        expect(await sweep(now)).toBe(used + CHAT_SANDBOX_DELETE_AFTER_MS)
 
-      // A build whose lease lapsed, while cleanup is skipped (the agent
-      // image is unreadable), is due in the past: the sweep schedules the
-      // next retry instead.
-      await row(`base:${workspaceId}:lapsed`, {
-        state: "building",
-        latestSnapshotId: null,
-        lastHeartbeatAt: new Date(now.getTime() - 2 * BASE_BUILD_LEASE_MS),
-      })
-      const dockerHost = process.env.DOCKER_HOST
-      vi.stubEnv("SANDBOX_PROVIDER", "docker")
-      vi.stubEnv("DOCKER_HOST", "tcp://127.0.0.1:1")
-      const next = await sweep(now).finally(() => {
-        vi.stubEnv("SANDBOX_PROVIDER", "vercel")
-        vi.stubEnv("DOCKER_HOST", dockerHost)
-      })
-      expect(next ?? 0).toBeGreaterThan(now.getTime())
-      expect(next).toBeLessThanOrEqual(now.getTime() + 5 * 60_000)
-    })
+        // A build whose lease lapsed, while cleanup is skipped (the agent
+        // image is unreadable), is due in the past: the sweep schedules the
+        // next retry instead.
+        await row(`base:${workspaceId}:lapsed`, {
+          state: "building",
+          latestSnapshotId: null,
+          lastHeartbeatAt: new Date(now.getTime() - 2 * BASE_BUILD_LEASE_MS),
+        })
+        const dockerHost = process.env.DOCKER_HOST
+        vi.stubEnv("SANDBOX_PROVIDER", "docker")
+        vi.stubEnv("DOCKER_HOST", "tcp://127.0.0.1:1")
+        const next = await sweep(now).finally(() => {
+          vi.stubEnv("SANDBOX_PROVIDER", "vercel")
+          vi.stubEnv("DOCKER_HOST", dockerHost)
+        })
+        expect(next ?? 0).toBeGreaterThan(now.getTime())
+        expect(next).toBeLessThanOrEqual(now.getTime() + 5 * 60_000)
+      },
+    )
   })
 })
 

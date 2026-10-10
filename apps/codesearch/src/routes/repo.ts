@@ -1,5 +1,4 @@
-import { lstat, readdir } from "node:fs/promises"
-import { join } from "node:path"
+import { realpath } from "node:fs/promises"
 import type { OpenAPIHono } from "@hono/zod-openapi"
 import { createRoute, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../app/env.js"
@@ -13,6 +12,7 @@ import {
   listCheckoutFilePaths,
 } from "../domain/repositories/globFiles.js"
 import {
+  readContainedDirectory,
   readContainedFile,
   repoCheckoutPath,
   resolveContainedRealPath,
@@ -525,26 +525,20 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
       repo.id,
       checkoutKeyFromAuth(auth, repoId, repo.publishedCheckoutKey),
     )
-    let dirPath: string
-    let names: string[]
+    let dirents: Awaited<ReturnType<typeof readContainedDirectory>>
     try {
-      dirPath = await resolveContainedRealPath(basePath, path ?? ".")
-      names = await readdir(dirPath)
+      const dirPath = await resolveContainedRealPath(basePath, path ?? ".")
+      dirents = await readContainedDirectory(await realpath(basePath), dirPath)
     } catch {
       return c.json({ error: "Path not found" }, 404)
     }
-    const entries: { name: string; path: string; type: "file" | "dir" }[] = []
-    for (const name of names) {
-      const fullPath = join(dirPath, name)
-      const relPath = path ? `${path}/${name}` : name
-      const s = await lstat(fullPath)
-      if (s.isSymbolicLink()) continue
-      entries.push({
-        name,
-        path: relPath,
-        type: s.isDirectory() ? "dir" : "file",
-      })
-    }
+    const entries = dirents
+      .filter((dirent) => !dirent.isSymbolicLink())
+      .map((dirent) => ({
+        name: dirent.name,
+        path: path ? `${path}/${dirent.name}` : dirent.name,
+        type: dirent.isDirectory() ? ("dir" as const) : ("file" as const),
+      }))
     return c.json({ entries }, 200)
   })
 
@@ -573,9 +567,9 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
       if (error instanceof GlobPathNotFoundError) {
         return c.json({ error: error.message }, 404)
       }
-      const message =
-        error instanceof Error ? error.message : "Tree listing failed"
-      return c.json({ error: message }, 500)
+      // The error text holds absolute cache paths, so only the log gets it.
+      c.get("log").error(error instanceof Error ? error : String(error))
+      return c.json({ error: "Tree listing failed" }, 500)
     }
   })
 
@@ -612,9 +606,9 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
       if (error instanceof GlobInvalidRequestError) {
         return c.json({ error: error.message }, 400)
       }
-      const message =
-        error instanceof Error ? error.message : "Glob scan failed"
-      return c.json({ error: message }, 500)
+      // The error text holds absolute cache paths, so only the log gets it.
+      c.get("log").error(error instanceof Error ? error : String(error))
+      return c.json({ error: "Glob scan failed" }, 500)
     }
   })
 

@@ -24,9 +24,10 @@ import { enqueueRepositoryIngestionWorkflow } from "../enqueue-repository-ingest
 import { repositoryIngestionOrchestrator } from "./repository-ingestion-orchestrator.js"
 
 // A worker claims every open run in its namespace, also runs it does not
-// implement. Earlier contract files leave open runs in "default", and the
-// worker must work through them first, so a poll or a result wait can time
-// out. A private namespace keeps the worker on the runs of one test.
+// implement. Earlier tests of this file leave open runs in "default" (the
+// test setup cancels them only when the file ends), and the worker must
+// work through them first, so a poll or a result wait can time out. A
+// private namespace keeps the worker on the runs of one test.
 // Activation reads the namespace from the environment on each call.
 async function withPrivateNamespace(
   run: (namespaceId: string) => Promise<void>,

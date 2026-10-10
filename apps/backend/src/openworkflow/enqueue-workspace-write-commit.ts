@@ -61,10 +61,21 @@ type WorkspaceWriteSnapshot = WorkspaceWriteProbeBinding & {
   writeStatus: string
 }
 
-async function probedWriteStatus(input: {
+/**
+ * Probes GitHub write access and stores the result. Returns the stored status
+ * and the tip of the row that holds it.
+ *
+ * A relink starts a tip check and a hydrate beside its bootstrap. They can
+ * store a new tip or default branch during the probe. The probe reads only the
+ * repository and the connection. Thus, with `retry`, the result is stored
+ * again on the new row while the generation, the URL and the connection stay
+ * the same.
+ */
+async function storeProbedWriteStatus(input: {
   orgId: string
   workspace: WorkspaceWriteSnapshot
-}): Promise<string | null> {
+  retry: boolean
+}): Promise<{ writeStatus: string; desiredSha: string | null } | null> {
   try {
     const { getGithubRepoWriteView } = await import(
       "../routes/webhooks/github/github-workspace-tip.js"
@@ -79,14 +90,35 @@ async function probedWriteStatus(input: {
           env: parseEnv(process.env as Record<string, string | undefined>),
         }),
     })
-    const write = nextPersistedWriteProbe({
-      currentStatus: input.workspace.writeStatus,
-      probe,
-    })
-    const persisted = await withOrgDbContext(input.orgId, () =>
-      persistWriteStatus(input.workspace, write, input.orgId),
-    )
-    return persisted ? write.writeStatus : null
+    let workspace: WorkspaceWriteSnapshot = input.workspace
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const write = nextPersistedWriteProbe({
+        currentStatus: workspace.writeStatus,
+        probe,
+      })
+      const stored = await withOrgDbContext(input.orgId, () =>
+        persistWriteStatus(workspace, write, input.orgId),
+      )
+      if (stored)
+        return {
+          writeStatus: write.writeStatus,
+          desiredSha: workspace.desiredSha,
+        }
+      if (!input.retry) return null
+      const latest = await withOrgDbContext(input.orgId, () =>
+        getWorkspaceById(input.workspace.id),
+      )
+      if (
+        !latest ||
+        latest.desiredGeneration !== input.workspace.desiredGeneration ||
+        latest.workspaceRepositoryUrl !==
+          input.workspace.workspaceRepositoryUrl ||
+        latest.githubConnectionId !== input.workspace.githubConnectionId
+      )
+        return null
+      workspace = latest
+    }
+    return null
   } catch {
     return null
   }
@@ -109,6 +141,9 @@ export async function enqueueWriteJob(
   let jobWorkspaceUrl = input.jobWorkspaceUrl
   let jobDesiredSha = input.jobDesiredSha
   let writeStatus: string | null = null
+  // A new bootstrap binds the current tip, so a moved tip does not refuse it.
+  const rebindsTip =
+    input.kind === "bootstrap" && input.jobDesiredSha === undefined
   try {
     if (input.kind === "semantic_merge") {
       const content = semanticMergeContentSchema.parse({
@@ -143,19 +178,14 @@ export async function enqueueWriteJob(
         )
       jobGeneration = jobGeneration ?? workspace.desiredGeneration
       jobWorkspaceUrl = jobWorkspaceUrl ?? workspace.workspaceRepositoryUrl
-      if (jobDesiredSha === undefined) jobDesiredSha = workspace.desiredSha
-      writeStatus = await probedWriteStatus({
+      const stored = await storeProbedWriteStatus({
         orgId: input.orgId,
-        workspace: {
-          id: workspace.id,
-          desiredGeneration: workspace.desiredGeneration,
-          workspaceRepositoryUrl: workspace.workspaceRepositoryUrl,
-          desiredSha: workspace.desiredSha,
-          desiredDefaultBranch: workspace.desiredDefaultBranch,
-          writeStatus: workspace.writeStatus,
-          githubConnectionId: workspace.githubConnectionId,
-        },
+        workspace,
+        retry: rebindsTip,
       })
+      writeStatus = stored?.writeStatus ?? null
+      if (jobDesiredSha === undefined)
+        jobDesiredSha = stored ? stored.desiredSha : workspace.desiredSha
     }
   } catch (error) {
     log.error(error instanceof Error ? error : new Error(String(error)))
@@ -188,8 +218,8 @@ export async function enqueueWriteJob(
   ) {
     let bound = false
     try {
-      const admissionStatus =
-        writeStatus === "writable" ? ("queued" as const) : ("paused" as const)
+      let admissionStatus: "queued" | "paused" =
+        writeStatus === "writable" ? "queued" : "paused"
       const recorded = await withOrgDbContext(input.orgId, () =>
         reconcileWorkspaceWriteJob(jobId),
       )
@@ -233,42 +263,61 @@ export async function enqueueWriteJob(
           return { started: true }
         }
       }
-      const resolved = await resolveWorkspaceReadRevision({
-        orgId: input.orgId,
-        workspaceId: input.workspaceId,
-        env: parseEnv(process.env),
-      })
-      if (!resolved) throw new Error("Workspace revision is unavailable")
-      const current = {
-        ...resolved.revision,
-        access: "write-default" as const,
-      }
       const captured = recorded?.payload?.revision
-      if (
-        captured &&
-        !sameWorkspaceRevision({ ...captured, sha: current.sha }, current)
-      )
-        throw new Error("Captured write command belongs to a different binding")
-      // A pre-upgrade paused intent stored its SHA beside the payload. Bind that
-      // same tree once; the broker owns reconciliation with later remote tips.
-      const legacySha =
-        !captured &&
-        recorded &&
-        ["paused", "queued"].includes(recorded.status) &&
-        !recorded.commitSha &&
-        !recorded.payload?.workflowRunId
-          ? recorded.desiredSha
-          : null
-      const revision = captured ?? { ...current, sha: legacySha ?? current.sha }
       if (captured && input.jobDesiredSha === undefined)
         jobDesiredSha = captured.sha
-      if (
-        (jobGeneration != null && revision.generation !== jobGeneration) ||
-        (jobWorkspaceUrl && revision.remote.url !== jobWorkspaceUrl) ||
-        (jobDesiredSha && revision.sha !== jobDesiredSha) ||
-        (input.defaultBranch && revision.defaultBranch !== input.defaultBranch)
-      )
-        throw new Error("Write command binding changed during admission")
+      let revision: NonNullable<typeof captured>
+      for (let attempt = 0; ; attempt++) {
+        const resolved = await resolveWorkspaceReadRevision({
+          orgId: input.orgId,
+          workspaceId: input.workspaceId,
+          env: parseEnv(process.env),
+        })
+        if (!resolved) throw new Error("Workspace revision is unavailable")
+        const current = {
+          ...resolved.revision,
+          access: "write-default" as const,
+        }
+        if (
+          captured &&
+          !sameWorkspaceRevision({ ...captured, sha: current.sha }, current)
+        )
+          throw new Error(
+            "Captured write command belongs to a different binding",
+          )
+        // A pre-upgrade paused intent stored its SHA beside the payload. Bind that
+        // same tree once; the broker owns reconciliation with later remote tips.
+        const legacySha =
+          !captured &&
+          recorded &&
+          ["paused", "queued"].includes(recorded.status) &&
+          !recorded.commitSha &&
+          !recorded.payload?.workflowRunId
+            ? recorded.desiredSha
+            : null
+        revision = captured ?? { ...current, sha: legacySha ?? current.sha }
+        const sameBinding =
+          (jobGeneration == null || revision.generation === jobGeneration) &&
+          (!jobWorkspaceUrl || revision.remote.url === jobWorkspaceUrl) &&
+          (!input.defaultBranch ||
+            revision.defaultBranch === input.defaultBranch)
+        if (sameBinding && (!jobDesiredSha || revision.sha === jobDesiredSha))
+          break
+        // The tip can move after the write status is stored. A new bootstrap
+        // then probes again, stores the status on the new row and resolves
+        // again.
+        if (!sameBinding || !rebindsTip || captured || attempt >= 2)
+          throw new Error("Write command binding changed during admission")
+        const stored = await storeProbedWriteStatus({
+          orgId: input.orgId,
+          workspace: resolved.workspace,
+          retry: true,
+        })
+        if (!stored) throw new Error("Workspace write binding is unavailable")
+        jobDesiredSha = stored.desiredSha
+        admissionStatus =
+          stored.writeStatus === "writable" ? "queued" : "paused"
+      }
       if (input.kind === "extract_ingest") {
         const command = workspaceExtractIngestInputSchema.parse({
           orgId: input.orgId,

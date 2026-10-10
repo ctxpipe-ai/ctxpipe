@@ -11,6 +11,7 @@ import {
   upsertInstallation,
 } from "../../models/github-installation.js"
 import { getWorkspaceById } from "../../models/workspaces.js"
+import { enqueueWriteJob } from "../../openworkflow/enqueue-workspace-write-commit.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { rebindUnboundWorkspaces } from "./workspace-lifecycle.js"
 
@@ -141,13 +142,7 @@ it(
             { timeout: 10_000 },
           )
           .toBe(true)
-        // The bootstrap admission can lose a race with the other relink jobs
-        // and then logs this error. It does not come from the rebind.
-        expect(
-          errors.filter(
-            (message) => message !== "Workspace write binding is unavailable",
-          ),
-        ).toEqual([])
+        expect(errors).toEqual([])
       } finally {
         await withOrgDbContext(f.org.id, async (db) => {
           await db.delete(workspaces).where(eq(workspaces.id, outsideId))
@@ -158,5 +153,152 @@ it(
         })
       }
     })
+  },
+)
+
+it(
+  "admits the relink bootstrap when the tip moves during its write probe",
+  { timeout: 30_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      { github: true, githubWriteView: "writable", writeStatus: "writable" },
+      async (f) => {
+        await f.handle.cancel()
+        const tip = await withOrgIdContext(f.org, () =>
+          getWorkspaceById(f.workspaceId),
+        )
+        if (!tip?.desiredSha) throw new Error("Fixture tip missing")
+        // A relink starts the hydrate and the tip check beside the bootstrap.
+        // They can store the remote tip while the bootstrap probes GitHub.
+        let moved = false
+        f.onWriteProbe(async () => {
+          if (moved) return
+          moved = true
+          await withOrgDbContext(f.org.id, (db) =>
+            db
+              .update(workspaces)
+              .set({ desiredSha: null })
+              .where(eq(workspaces.id, f.workspaceId)),
+          )
+        })
+        const errors: string[] = []
+        const admitted = await withOrgIdContext(f.org, () =>
+          enqueueWriteJob(
+            { orgId: f.org.id, workspaceId: f.workspaceId, kind: "bootstrap" },
+            { error: (error) => errors.push(error.message) },
+          ),
+        )
+
+        expect(errors).toEqual([])
+        expect(moved).toBe(true)
+        expect(admitted).toEqual({ started: true })
+        const result = await getSystemDb().execute(sql`
+          select count(*)::int as runs from openworkflow.workflow_runs
+          where workflow_name = 'workspace-write-bootstrap'
+            and input->>'workspaceId' = ${f.workspaceId}
+        `)
+        expect(result.rows[0]?.runs).toBe(1)
+      },
+    )
+  },
+)
+
+it(
+  "refuses a write that is not a bootstrap when the tip moves during its write probe",
+  { timeout: 30_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      { github: true, githubWriteView: "writable", writeStatus: "writable" },
+      async (f) => {
+        await f.handle.cancel()
+        let moved = false
+        f.onWriteProbe(async () => {
+          if (moved) return
+          moved = true
+          await withOrgDbContext(f.org.id, (db) =>
+            db
+              .update(workspaces)
+              .set({ desiredSha: null })
+              .where(eq(workspaces.id, f.workspaceId)),
+          )
+        })
+        const errors: string[] = []
+        const admitted = await withOrgIdContext(f.org, () =>
+          enqueueWriteJob(
+            {
+              orgId: f.org.id,
+              workspaceId: f.workspaceId,
+              kind: "claims_upgrade",
+            },
+            { error: (error) => errors.push(error.message) },
+          ),
+        )
+
+        expect(moved).toBe(true)
+        expect(admitted).toEqual({ started: false })
+        expect(errors).toEqual(["Workspace write binding is unavailable"])
+      },
+    )
+  },
+)
+
+it(
+  "admits the relink bootstrap when the tip moves after its write status is stored",
+  { timeout: 30_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      { github: true, githubWriteView: "writable", writeStatus: "writable" },
+      async (f) => {
+        await f.handle.cancel()
+        const tip = await withOrgIdContext(f.org, () =>
+          getWorkspaceById(f.workspaceId),
+        )
+        if (!tip?.desiredSha) throw new Error("Fixture tip missing")
+        const movedSha = "f".repeat(40)
+        const { default: postgres } = await import("postgres")
+        const ownerUrl = new URL(process.env.DATABASE_URL ?? "")
+        ownerUrl.username = "ctxpipe"
+        const owner = postgres(ownerUrl.toString(), { max: 1 })
+        const fixtureName = `fixture_tip_move_${Date.now()}`
+        try {
+          // This disposable trigger moves the tip in the same statement that
+          // stores the write status. Thus the tip moves after the
+          // compare-and-set and before admission resolves the revision.
+          await owner.unsafe(
+            `CREATE FUNCTION public.${fixtureName}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN NEW.desired_sha := '${movedSha}'; RETURN NEW; END; $$`,
+          )
+          await owner.unsafe(
+            `CREATE TRIGGER ${fixtureName} BEFORE UPDATE ON public.workspaces FOR EACH ROW WHEN (NEW.id = '${f.workspaceId}' AND OLD.desired_sha = '${tip.desiredSha}' AND NEW.desired_sha IS NOT DISTINCT FROM OLD.desired_sha) EXECUTE FUNCTION public.${fixtureName}()`,
+          )
+          const errors: string[] = []
+          const admitted = await withOrgIdContext(f.org, () =>
+            enqueueWriteJob(
+              {
+                orgId: f.org.id,
+                workspaceId: f.workspaceId,
+                kind: "bootstrap",
+              },
+              { error: (error) => errors.push(error.message) },
+            ),
+          )
+
+          expect(errors).toEqual([])
+          expect(admitted).toEqual({ started: true })
+          const result = await getSystemDb().execute(sql`
+            select input->'revision'->>'sha' as sha
+            from openworkflow.workflow_runs
+            where workflow_name = 'workspace-write-bootstrap'
+              and input->>'workspaceId' = ${f.workspaceId}
+          `)
+          expect(result.rows).toEqual([{ sha: movedSha }])
+        } finally {
+          await owner.unsafe(
+            `DROP TRIGGER IF EXISTS ${fixtureName} ON public.workspaces`,
+          )
+          await owner.unsafe(`DROP FUNCTION IF EXISTS public.${fixtureName}()`)
+          await owner.end()
+        }
+      },
+    )
   },
 )

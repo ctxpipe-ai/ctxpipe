@@ -1,23 +1,24 @@
+import { mkdir, rm, writeFile } from "node:fs/promises"
+import { join } from "node:path"
 import { OpenAPIHono } from "@hono/zod-openapi"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../app/env.js"
 
-vi.mock("../config/paths.js", () => ({
-  REPO_CACHE_DIR: "/repo-cache",
-  ZOEKT_INDEX_DIR: "/zoekt-index",
+// config/paths.js reads this variable when it loads.
+const { cacheRoot } = await vi.hoisted(async () => {
+  const { mkdtempSync, realpathSync } = await import("node:fs")
+  const { tmpdir } = await import("node:os")
+  const { join } = await import("node:path")
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "graph-route-")))
+  vi.stubEnv("REPO_CACHE_DIR", root)
+  return { cacheRoot: root }
+})
+
+const { getAccessibleRepositoryMock } = vi.hoisted(() => ({
+  getAccessibleRepositoryMock: vi.fn(),
 }))
 
-const { executeScipGraphQueryMock, getAccessibleRepositoryMock } = vi.hoisted(
-  () => ({
-    executeScipGraphQueryMock: vi.fn(),
-    getAccessibleRepositoryMock: vi.fn(),
-  }),
-)
-
-vi.mock("../domain/graph/executeGraphPrimitive.js", () => ({
-  executeScipGraphQuery: executeScipGraphQueryMock,
-}))
-
+// Codesearch tests have no database, so this stubs the repository row lookup.
 vi.mock("../domain/repositories/service.js", () => ({
   getAccessibleRepository: getAccessibleRepositoryMock,
 }))
@@ -54,17 +55,29 @@ function createTestApp(workspaceId?: string) {
 }
 
 describe("POST /{repoId}/graph checkout isolation", () => {
-  beforeEach(() => {
+  const checkoutDir = join(
+    cacheRoot,
+    "org_mock123",
+    "repo_abcdef27",
+    "checkouts",
+    "default",
+  )
+
+  beforeEach(async () => {
     vi.clearAllMocks()
+    await mkdir(join(checkoutDir, ".git"), { recursive: true })
+    await mkdir(join(checkoutDir, "src"), { recursive: true })
+    await writeFile(join(checkoutDir, ".git", "config"), "token\n")
+    await writeFile(join(checkoutDir, "src", "a.ts"), "export {}\n")
     getAccessibleRepositoryMock.mockResolvedValue({
       id: "repo_abcdef27",
       orgId: "org_mock123",
       gitUrl: "https://github.com/ctxpipe/repo.git",
     })
-    executeScipGraphQueryMock.mockResolvedValue({
-      ok: true,
-      results: [],
-    })
+  })
+
+  afterAll(async () => {
+    await rm(cacheRoot, { recursive: true, force: true })
   })
 
   it("rejects a checkoutKey that differs from the JWT workspace", async () => {
@@ -82,7 +95,6 @@ describe("POST /{repoId}/graph checkout isolation", () => {
     )
 
     expect(res.status).toBe(403)
-    expect(executeScipGraphQueryMock).not.toHaveBeenCalled()
   })
 
   it.each([
@@ -97,6 +109,20 @@ describe("POST /{repoId}/graph checkout isolation", () => {
 
     expect(res.status).toBe(404)
     expect(await res.json()).toEqual({ error: "Path not found" })
-    expect(executeScipGraphQueryMock).not.toHaveBeenCalled()
+  })
+
+  it("queries the graph for a file inside the checkout", async () => {
+    const res = await createTestApp().request("/repo_abcdef27/graph", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ primitive: "get_imports", filePath: "src/a.ts" }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({
+      ok: true,
+      primitive: "get_imports",
+      results: [],
+    })
   })
 })
