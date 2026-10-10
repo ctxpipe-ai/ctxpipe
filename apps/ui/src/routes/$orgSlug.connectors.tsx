@@ -50,7 +50,16 @@ export const Route = createFileRoute("/$orgSlug/connectors")({
       reset={reset}
     />
   ),
-  validateSearch: (search: Record<string, unknown>) => ({
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): {
+    error: string | undefined
+    error_description: string | undefined
+    pendingAccountClaim: string | undefined
+    notionConnectionId: string | undefined
+    // Optional: only the Atlassian account-link return path sets it.
+    atlassianConnectionId?: string
+  } => ({
     error: typeof search.error === "string" ? search.error : undefined,
     error_description:
       typeof search.error_description === "string"
@@ -63,6 +72,10 @@ export const Route = createFileRoute("/$orgSlug/connectors")({
     notionConnectionId:
       typeof search.notionConnectionId === "string"
         ? search.notionConnectionId
+        : undefined,
+    atlassianConnectionId:
+      typeof search.atlassianConnectionId === "string"
+        ? search.atlassianConnectionId
         : undefined,
   }),
   component: ConnectorsPage,
@@ -170,10 +183,31 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
         error_description: prev.error_description,
         pendingAccountClaim: prev.pendingAccountClaim,
         notionConnectionId: undefined,
+        atlassianConnectionId: prev.atlassianConnectionId,
       }),
       replace: true,
     })
   }, [search.notionConnectionId, navigate, orgSlug])
+
+  // The Atlassian account link leaves the page; its return path names the
+  // connection, so the wizard opens again on the next step.
+  useEffect(() => {
+    if (!search.atlassianConnectionId) return
+    setWizardAtlassianConnectionId(search.atlassianConnectionId)
+    setWizardOpen(true)
+    void navigate({
+      to: "/$orgSlug/connectors",
+      params: { orgSlug },
+      search: (prev) => ({
+        error: prev.error,
+        error_description: prev.error_description,
+        pendingAccountClaim: prev.pendingAccountClaim,
+        notionConnectionId: prev.notionConnectionId,
+        atlassianConnectionId: undefined,
+      }),
+      replace: true,
+    })
+  }, [search.atlassianConnectionId, navigate, orgSlug])
 
   useEffect(() => {
     if (search.error == null) return
@@ -186,6 +220,7 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
         error_description: undefined,
         pendingAccountClaim: prev.pendingAccountClaim,
         notionConnectionId: prev.notionConnectionId,
+        atlassianConnectionId: prev.atlassianConnectionId,
       }),
       replace: true,
     })
@@ -509,6 +544,7 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
                 error_description: prev.error_description,
                 pendingAccountClaim: undefined,
                 notionConnectionId: prev.notionConnectionId,
+                atlassianConnectionId: prev.atlassianConnectionId,
               }),
               replace: true,
             })
@@ -549,6 +585,7 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
                 error_description: prev.error_description,
                 pendingAccountClaim: undefined,
                 notionConnectionId: prev.notionConnectionId,
+                atlassianConnectionId: prev.atlassianConnectionId,
               }),
               replace: true,
             })
