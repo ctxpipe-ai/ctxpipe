@@ -17,6 +17,7 @@ import {
 } from "../../../domain/codeIngestion/codesearchClient.js"
 import { isConnectorMirrorPath } from "../../../domain/codeIngestion/connectorMirrorPaths.js"
 import { isUnderDependencyVendorPath } from "../../../domain/codeIngestion/dependencyVendorPaths.js"
+import { mapPool } from "../../../lib/mapPool.js"
 import { getLogger } from "../../../observability/logger.js"
 import { getModel } from "../../../retrieval/services/modelProvider.js"
 import type {
@@ -272,11 +273,12 @@ export function isRepoRootInstructionPath(path: string): boolean {
 export function resolveInstructionSubmissionRoot(
   path: string,
   roots: string[],
+  ownsRepoRoot: boolean,
 ): string | null {
   const resolved = resolveSubmissionRoot(path, roots)
   if (resolved !== null) return resolved
 
-  if (roots.length !== 1 || roots[0] === "./") {
+  if (!ownsRepoRoot || roots.length !== 1 || roots[0] === "./") {
     return null
   }
 
@@ -284,6 +286,85 @@ export function resolveInstructionSubmissionRoot(
   if (!isRepoRootInstructionPath(path)) return null
 
   return "./"
+}
+
+/** True for the repository root (`./`, `.`, or empty). */
+export function isRepoRootDir(root: string): boolean {
+  return normalizeRootDir(root) === ""
+}
+
+/**
+ * The root that reads the repo-root instruction files when a run extracts one
+ * root at a time. This is the `./` root when the run has one. Otherwise, it is
+ * the first root in path order. Each other root skips those files.
+ */
+export function repoRootInstructionOwner(roots: string[]): string | undefined {
+  return roots.find(isRepoRootDir) ?? [...roots].sort()[0]
+}
+
+/**
+ * Skills of the roots that skipped the repo-root instruction files. Each such
+ * root gets the Skills of its own units together with the repo-root units, as
+ * when it read those files itself. The result has only Skills and claims that
+ * are not in the capture.
+ */
+export function deriveSharedRepoRootSkills(input: {
+  repositoryId: string
+  targetHash: string
+  roots: string[]
+  capture: {
+    extractedObjects: ExtractedObject[]
+    extractedClaims: ExtractedClaim[]
+  }
+}): { objects: ExtractedObject[]; claims: ExtractedClaim[] } {
+  const owner = repoRootInstructionOwner(input.roots)
+  const unitRoot = (unit: ExtractedObject) =>
+    normalizeRootDir(String((unit.payload as { root?: string })?.root ?? ""))
+  // A `./` run gives the root `./` to each file, also to package files. Only
+  // the files at the repository root are the repo-root units.
+  const isRepoRootUnit = (unit: ExtractedObject) =>
+    unitRoot(unit) === "" &&
+    isRepoRootInstructionPath(
+      String((unit.payload as { path?: string })?.path ?? ""),
+    )
+  // A capture of an older run can hold the same unit in more than one root.
+  const units = [
+    ...new Map(
+      input.capture.extractedObjects
+        .filter((object) => object.kind === "InstructionUnit")
+        .map((unit) => [unit.deduplicationKey, unit]),
+    ).values(),
+  ]
+  const objectKeys = new Set(
+    input.capture.extractedObjects.map((object) => object.deduplicationKey),
+  )
+  const claimIds = new Set(
+    input.capture.extractedClaims.map((claim) => claim.sourceId),
+  )
+  const objects: ExtractedObject[] = []
+  const claims: ExtractedClaim[] = []
+  for (const root of input.roots) {
+    if (root === owner) continue
+    const dir = normalizeRootDir(root)
+    const derived = deriveSkillsFromUnits({
+      repositoryId: input.repositoryId,
+      targetHash: input.targetHash,
+      units: units.filter(
+        (unit) => unitRoot(unit) === dir || isRepoRootUnit(unit),
+      ),
+    })
+    for (const object of derived.objects) {
+      if (objectKeys.has(object.deduplicationKey)) continue
+      objectKeys.add(object.deduplicationKey)
+      objects.push(object)
+    }
+    for (const claim of derived.claims) {
+      if (claimIds.has(claim.sourceId)) continue
+      claimIds.add(claim.sourceId)
+      claims.push(claim)
+    }
+  }
+  return { objects, claims }
 }
 
 /** Stable identity for merge/idempotency: repo scope + path + root + excerpt bytes (not LLM name/summary). */
@@ -587,17 +668,24 @@ export async function extractInstructionUnits(
   )
   const logger = getLogger()
 
+  const ownsRepoRoot = state.ownsRepoRootInstructions ?? true
+  const routed = candidates.flatMap((path) => {
+    const root = resolveInstructionSubmissionRoot(path, roots, ownsRepoRoot)
+    return root === null ? [] : [{ path, root }]
+  })
   const contents =
-    candidates.length > 0
-      ? await fetchFiles(repositoryId, orgId, candidates)
+    routed.length > 0
+      ? await fetchFiles(
+          repositoryId,
+          orgId,
+          routed.map((r) => r.path),
+        )
       : {}
 
   const extractedObjects: ExtractedObject[] = []
   const extractedClaims: ExtractedClaim[] = []
 
-  const needsWorkspaceRootService = candidates.some(
-    (p) => resolveInstructionSubmissionRoot(p, roots) === "./",
-  )
+  const needsWorkspaceRootService = routed.some((r) => r.root === "./")
 
   if (needsWorkspaceRootService) {
     extractedObjects.push({
@@ -609,26 +697,19 @@ export async function extractInstructionUnits(
   }
 
   let filesSkippedEmpty = 0
-  let filesSkippedRoot = 0
+  const filesSkippedRoot = candidates.length - routed.length
   let filesSkippedLlmError = 0
   let filesProcessed = 0
   let unitsReturned = 0
   let unitsAfterExcerptDedupe = 0
   let unitsPromoted = 0
 
-  for (const path of candidates) {
-    const content = contents[path]
-    if (!content || content.trim().length === 0) {
-      filesSkippedEmpty++
-      continue
-    }
-
-    const root = resolveInstructionSubmissionRoot(path, roots)
-    if (root === null) {
-      filesSkippedRoot++
-      continue
-    }
-
+  // One model call per file (or chunk) is the slowest part of a root, so files
+  // run four at a time. The loop below keeps the file order.
+  const fileUnits = await mapPool(routed, 4, async ({ path, root }) => {
+    const content = contents[path] ?? ""
+    if (content.trim().length === 0)
+      return { path, root, content, returned: "empty" as const }
     const returned: z.infer<typeof LlmUnitsResponseSchema>["units"] = []
     try {
       for (const chunk of splitForExtraction(content, 48_000)) {
@@ -641,6 +722,17 @@ export async function extractInstructionUnits(
         returned.push(...parsed.units)
       }
     } catch {
+      return { path, root, content, returned: "failed" as const }
+    }
+    return { path, root, content, returned }
+  })
+
+  for (const { path, root, content, returned } of fileUnits) {
+    if (returned === "empty") {
+      filesSkippedEmpty++
+      continue
+    }
+    if (returned === "failed") {
       filesSkippedLlmError++
       continue
     }
@@ -712,11 +804,15 @@ export async function extractInstructionUnits(
     }
   }
 
-  const { objects: skillObjects, claims: skillClaims } = deriveSkillsFromUnits({
-    repositoryId,
-    targetHash,
-    units: extractedObjects,
-  })
+  // A root without the repo-root units gets its Skills when the run loads
+  // its capture (deriveSharedRepoRootSkills).
+  const { objects: skillObjects, claims: skillClaims } = ownsRepoRoot
+    ? deriveSkillsFromUnits({
+        repositoryId,
+        targetHash,
+        units: extractedObjects,
+      })
+    : { objects: [], claims: [] }
 
   const instructionUnitsExtracted = extractedObjects.length
   const skillsDerived = skillObjects.length

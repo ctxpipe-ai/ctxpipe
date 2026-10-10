@@ -11,6 +11,7 @@ import {
   partialRetractionPaths,
   workspaceExtractionSchema,
 } from "../../domain/workspaces/extraction.js"
+import { repoRootInstructionOwner } from "../../graphs/codeIngestionGraph/nodes/extractInstructionUnits.js"
 import { identifyRoots } from "../../graphs/codeIngestionGraph/nodes/identifyRoots.js"
 import {
   EXTRACTOR_VERSION,
@@ -474,6 +475,7 @@ export const repositoryIngestion = defineWorkflow(
                     const roots = extractionRootsSchema.parse(
                       rootsPartial.roots ?? [],
                     )
+                    const repoRootOwner = repoRootInstructionOwner(roots)
                     logWorkflowMilestone(
                       "repository-ingestion.step.identify-roots.done",
                       {
@@ -530,6 +532,7 @@ export const repositoryIngestion = defineWorkflow(
                                         runExtractKindForRoot(
                                           baseIngestState,
                                           root,
+                                          root === repoRootOwner,
                                           captureKey,
                                         ),
                                     ),
@@ -580,6 +583,7 @@ export const repositoryIngestion = defineWorkflow(
                                         runIdentifyPhaseForRoot(
                                           baseIngestState,
                                           root,
+                                          root === repoRootOwner,
                                           kindPartial,
                                           captureKey,
                                         ),

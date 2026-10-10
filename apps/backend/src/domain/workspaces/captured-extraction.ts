@@ -1,6 +1,11 @@
+import {
+  deriveSharedRepoRootSkills,
+  repoRootInstructionOwner,
+} from "../../graphs/codeIngestionGraph/nodes/extractInstructionUnits.js"
 import { linkPackageHierarchy } from "../../graphs/codeIngestionGraph/nodes/linkLocatedPaths.js"
 import { finalizeExtractedReferences } from "../../graphs/codeIngestionGraph/runExtractRoot.js"
 import {
+  captureRowRoot,
   deleteExtractionCapture,
   type ExtractionCaptureKey,
   InvalidExtractionCaptureError,
@@ -36,10 +41,19 @@ export async function loadCapturedExtraction(
   extraction: WorkspaceExtraction,
 ): Promise<CapturedExtraction> {
   const { capture, ...header } = extraction
+  const owner = repoRootInstructionOwner(capture.roots)
   const stored = await loadExtractionCapture(
     captureKey(orgId, extraction),
-    capture.roots,
+    capture.roots.map((root) => captureRowRoot(root, root === owner)),
   )
+  const skills = deriveSharedRepoRootSkills({
+    repositoryId: header.repositoryId,
+    targetHash: header.sourceSha,
+    roots: capture.roots,
+    capture: stored,
+  })
+  stored.extractedObjects.push(...skills.objects)
+  stored.extractedClaims.push(...skills.claims)
   const finalized = await finalizeExtractedReferences({ orgId, ...stored })
   const claims = [
     ...finalized.extractedClaims,

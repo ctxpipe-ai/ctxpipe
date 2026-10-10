@@ -130,33 +130,43 @@ describe("extractInstructionUnits helpers", () => {
 
   it("resolveInstructionSubmissionRoot falls back to ./ for repo-root instructions on a package-only fan-out branch", () => {
     const roots = ["apps/backend"] as const
-    expect(resolveInstructionSubmissionRoot("AGENTS.md", [...roots])).toBe("./")
     expect(
-      resolveInstructionSubmissionRoot(".cursor/rules/x.md", [...roots]),
+      resolveInstructionSubmissionRoot("AGENTS.md", [...roots], true),
     ).toBe("./")
     expect(
-      resolveInstructionSubmissionRoot(".agents/rules/x.mdc", [...roots]),
-    ).toBe("./")
-    expect(resolveInstructionSubmissionRoot("docs/README.md", [...roots])).toBe(
-      "./",
-    )
-    expect(
-      resolveInstructionSubmissionRoot(".ai/memory/lessons-learned.md", [
-        ...roots,
-      ]),
+      resolveInstructionSubmissionRoot(".cursor/rules/x.md", [...roots], true),
     ).toBe("./")
     expect(
-      resolveInstructionSubmissionRoot("apps/ui/README.md", [...roots]),
+      resolveInstructionSubmissionRoot(".agents/rules/x.mdc", [...roots], true),
+    ).toBe("./")
+    expect(
+      resolveInstructionSubmissionRoot("docs/README.md", [...roots], true),
+    ).toBe("./")
+    expect(
+      resolveInstructionSubmissionRoot(
+        ".ai/memory/lessons-learned.md",
+        [...roots],
+        true,
+      ),
+    ).toBe("./")
+    expect(
+      resolveInstructionSubmissionRoot("apps/ui/README.md", [...roots], true),
     ).toBeNull()
     expect(
-      resolveInstructionSubmissionRoot("apps/backend/README.md", [...roots]),
+      resolveInstructionSubmissionRoot(
+        "apps/backend/README.md",
+        [...roots],
+        true,
+      ),
     ).toBe("apps/backend")
   })
 
   it("resolveInstructionSubmissionRoot leaves multi-root + ./ drop behavior to generic resolver", () => {
     const multi = ["./", "apps/web"]
-    expect(resolveInstructionSubmissionRoot("AGENTS.md", multi)).toBeNull()
-    expect(resolveInstructionSubmissionRoot("apps/web/foo", multi)).toBe(
+    expect(
+      resolveInstructionSubmissionRoot("AGENTS.md", multi, true),
+    ).toBeNull()
+    expect(resolveInstructionSubmissionRoot("apps/web/foo", multi, true)).toBe(
       "apps/web",
     )
   })
@@ -165,14 +175,15 @@ describe("extractInstructionUnits helpers", () => {
     const rootsDefault = ["./"]
     expect(
       ["AGENTS.md"].some(
-        (p) => resolveInstructionSubmissionRoot(p, rootsDefault) === "./",
+        (p) => resolveInstructionSubmissionRoot(p, rootsDefault, true) === "./",
       ),
     ).toBe(true)
 
     const rootsPackageOnly = ["apps/backend"]
     expect(
       ["AGENTS.md"].some(
-        (p) => resolveInstructionSubmissionRoot(p, rootsPackageOnly) === "./",
+        (p) =>
+          resolveInstructionSubmissionRoot(p, rootsPackageOnly, true) === "./",
       ),
     ).toBe(true)
   })
@@ -181,7 +192,7 @@ describe("extractInstructionUnits helpers", () => {
     const roots = ["apps/backend"]
     expect(
       ["apps/backend/README.md"].some(
-        (p) => resolveInstructionSubmissionRoot(p, roots) === "./",
+        (p) => resolveInstructionSubmissionRoot(p, roots, true) === "./",
       ),
     ).toBe(false)
   })

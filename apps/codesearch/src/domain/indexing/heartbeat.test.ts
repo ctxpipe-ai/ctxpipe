@@ -47,7 +47,16 @@ describe("SCIP indexer heartbeat", () => {
     vi.stubGlobal("Bun", {
       spawn: vi.fn().mockImplementation((argv: string[]) => {
         writeFileSync(argv.at(-1) as string, "fake-scip-index")
-        return { pid: 1234, exited, stdout: null, stderr: null }
+        return {
+          pid: 1234,
+          exited,
+          stdout: null,
+          stderr: null,
+          resourceUsage: () => ({
+            maxRSS: 0,
+            cpuTime: { user: 0n, system: 0n, total: 0n },
+          }),
+        }
       }),
     })
 
@@ -111,6 +120,10 @@ describe("SCIP indexer heartbeat", () => {
           exited: Promise.resolve(0),
           stdout: null,
           stderr: null,
+          resourceUsage: () => ({
+            maxRSS: 0,
+            cpuTime: { user: 0n, system: 0n, total: 0n },
+          }),
         }
       }),
     })

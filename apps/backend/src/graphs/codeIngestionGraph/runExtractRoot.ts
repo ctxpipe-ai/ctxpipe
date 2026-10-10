@@ -1,5 +1,6 @@
 import { isUnresolvedProviderIdentity } from "../../domain/codeIngestion/referenceResolver.js"
 import {
+  captureRowRoot,
   type ExtractionCaptureKey,
   type ExtractionCounts,
   storedRootCapture,
@@ -75,9 +76,13 @@ function concatExtracted(
 export async function runExtractKindForRoot(
   state: CodeIngestionState,
   root: string,
+  ownsRepoRootInstructions: boolean,
   captureKey: ExtractionCaptureKey,
 ): Promise<Partial<CodeIngestionState> | { reused: ExtractionCounts }> {
-  const reused = await storedRootCapture(captureKey, root)
+  const reused = await storedRootCapture(
+    captureKey,
+    captureRowRoot(root, ownsRepoRootInstructions),
+  )
   if (reused) return { reused }
   return extractKind({ ...state, roots: [root] })
 }
@@ -92,6 +97,7 @@ export async function runExtractKindForRoot(
 export async function runIdentifyPhaseForRoot(
   state: CodeIngestionState,
   root: string,
+  ownsRepoRootInstructions: boolean,
   kindPartial: Awaited<ReturnType<typeof runExtractKindForRoot>>,
   captureKey: ExtractionCaptureKey,
 ): Promise<ExtractionCounts> {
@@ -100,6 +106,7 @@ export async function runIdentifyPhaseForRoot(
     ...state,
     ...kindPartial,
     roots: [root],
+    ownsRepoRootInstructions,
     extractedObjects: kindPartial.extractedObjects ?? [],
     extractedClaims: kindPartial.extractedClaims ?? [],
   }
@@ -135,7 +142,7 @@ export async function runIdentifyPhaseForRoot(
   )
   return storeRootCapture(
     captureKey,
-    root,
+    captureRowRoot(root, ownsRepoRootInstructions),
     sanitizePostgresJson(extracted),
     skippedFiles,
   )
