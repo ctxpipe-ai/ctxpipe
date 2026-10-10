@@ -1,14 +1,6 @@
-import { existsSync } from "node:fs"
-import {
-  mkdir,
-  mkdtemp,
-  readFile,
-  rm,
-  symlink,
-  writeFile,
-} from "node:fs/promises"
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { join, relative } from "node:path"
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../app/env.js"
@@ -595,14 +587,14 @@ describe("POST /{repoId}/purge", () => {
   })
 })
 
-describe("codesearch never reads or lists inside .git", () => {
+describe("reads stay inside the checkout", () => {
   let tmpDir: string
   let checkoutDir: string
 
   beforeEach(async () => {
     vi.clearAllMocks()
     getAccessibleRepositoryMock.mockResolvedValue(MOCK_REPO)
-    tmpDir = await mkdtemp(join(tmpdir(), "git-dir-route-test-"))
+    tmpDir = await mkdtemp(join(tmpdir(), "contained-read-test-"))
     const repoCacheDir = join(tmpDir, "repo-cache")
     checkoutDir = join(
       repoCacheDir,
@@ -615,24 +607,105 @@ describe("codesearch never reads or lists inside .git", () => {
       value: repoCacheDir,
       writable: true,
     })
-    await mkdir(join(checkoutDir, ".git"), { recursive: true })
-    await writeFile(join(checkoutDir, ".git", "config"), "[core]\n")
-    await mkdir(join(checkoutDir, "sub", ".git"), { recursive: true })
-    await writeFile(join(checkoutDir, "sub", ".git", "config"), "[core]\n")
-    await writeFile(join(checkoutDir, "ok.txt"), "ok\n")
+    const outside = join(tmpDir, "outside")
+    await mkdir(join(outside, "dir"), { recursive: true })
+    await writeFile(join(outside, "data.txt"), "outside\n")
+    await writeFile(join(outside, "dir", "inner.txt"), "outside\n")
+    await mkdir(join(checkoutDir, "sub"), { recursive: true })
+    await writeFile(join(checkoutDir, "inside.txt"), "inside\n")
+    await writeFile(join(checkoutDir, "sub", "inner.txt"), "inside\n")
+    await symlink(join(outside, "data.txt"), join(checkoutDir, "abs-link"))
+    await symlink(
+      relative(join(checkoutDir, "sub"), join(outside, "data.txt")),
+      join(checkoutDir, "sub", "rel-link"),
+    )
+    await symlink(join(outside, "dir"), join(checkoutDir, "out-dir"))
+    await symlink("chain-b", join(checkoutDir, "chain-a"))
+    await symlink(join(outside, "data.txt"), join(checkoutDir, "chain-b"))
+    await symlink("inside.txt", join(checkoutDir, "in-link"))
+    await symlink("sub", join(checkoutDir, "in-dir"))
+    await symlink("missing.txt", join(checkoutDir, "dangling"))
+    await mkdir(join(checkoutDir, ".git"))
+    await writeFile(join(checkoutDir, ".git", "config"), "token\n")
     await symlink(".git", join(checkoutDir, "git-dir"))
     await symlink(".git/config", join(checkoutDir, "config-link"))
+    await mkdir(join(checkoutDir, "nested", ".git"), { recursive: true })
+    await writeFile(join(checkoutDir, "nested", ".git", "config"), "nested\n")
   })
 
   afterEach(async () => {
-    vi.unstubAllGlobals()
     await rm(tmpDir, { recursive: true, force: true })
   })
 
+  const refusedFiles = [
+    "abs-link",
+    "sub/rel-link",
+    "out-dir/inner.txt",
+    "chain-a",
+    "dangling",
+    ".git/config",
+    ".GIT/config",
+    "nested/.git/config",
+    "config-link",
+    "git-dir/config",
+  ]
+
+  it.each(
+    refusedFiles,
+  )("GET /files/{path} answers %s like a missing file", async (path) => {
+    const app = createTestApp()
+    const missing = await app.request("/repo_abcdef27/files/missing.txt")
+    const res = await app.request(
+      `/repo_abcdef27/files/${encodeURIComponent(path)}`,
+    )
+
+    expect(res.status).toBe(404)
+    expect(await res.json()).toEqual(await missing.json())
+  })
+
+  it("POST /files-query omits refused files and keeps files inside", async () => {
+    const app = createTestApp()
+    const res = await app.request("/repo_abcdef27/files-query", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        paths: [...refusedFiles, "inside.txt", "in-link", "in-dir/inner.txt"],
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as Record<string, string>
+    expect(Object.keys(body).sort()).toEqual([
+      "in-dir/inner.txt",
+      "in-link",
+      "inside.txt",
+    ])
+    expect(atob(body["in-link"] as string)).toBe("inside\n")
+  })
+
+  it("GET /files answers a symlinked directory outside like a missing one", async () => {
+    const app = createTestApp()
+    const missing = await app.request("/repo_abcdef27/files?path=missing")
+    const res = await app.request("/repo_abcdef27/files?path=out-dir")
+
+    expect(res.status).toBe(404)
+    expect(await res.json()).toEqual(await missing.json())
+  })
+
+  it("GET /files lists a symlinked directory inside", async () => {
+    const app = createTestApp()
+    const res = await app.request("/repo_abcdef27/files?path=in-dir")
+
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { entries: Array<{ path: string }> }
+    expect(body.entries.map((e) => e.path)).toEqual(["in-dir/inner.txt"])
+  })
+
+  // .git/config can hold a clone token, so .git is never listed.
   it.each([
     ".git",
     ".GIT",
-    "sub/.git",
+    "nested/.git",
     "git-dir",
   ])("GET /files and POST /glob answer %s like a missing directory", async (path) => {
     const app = createTestApp()
@@ -649,45 +722,20 @@ describe("codesearch never reads or lists inside .git", () => {
     expect(glob.status).toBe(404)
   })
 
-  it.each([
-    ".git/config",
-    ".GIT/config",
-    "sub/.git/config",
-    "config-link",
-  ])("GET /files/{path} answers %s like a missing file", async (path) => {
+  it("POST /glob answers a symlinked directory outside like a missing one", async () => {
     const app = createTestApp()
-    const res = await app.request(
-      `/repo_abcdef27/files/${encodeURIComponent(path)}`,
-    )
+    const glob = (path: string) =>
+      app.request("/repo_abcdef27/glob", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ pattern: "*", path }),
+      })
+    const missing = await glob("missing")
+    const res = await glob("out-dir")
+    const nested = await glob("out-dir/nested")
 
     expect(res.status).toBe(404)
-  })
-
-  it("POST /files-query returns no file from .git", async () => {
-    // Vitest runs in Node, so give the route a Bun.file that reads from disk.
-    vi.stubGlobal("Bun", {
-      file: (path: string) => ({
-        exists: async () => existsSync(path),
-        arrayBuffer: async () => new Uint8Array(await readFile(path)).buffer,
-      }),
-    })
-    const app = createTestApp()
-    const res = await app.request("/repo_abcdef27/files-query", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        paths: [
-          "ok.txt",
-          ".git/config",
-          ".GIT/config",
-          "sub/.git/config",
-          "config-link",
-          "git-dir/config",
-        ],
-      }),
-    })
-
-    expect(res.status).toBe(200)
-    expect(Object.keys((await res.json()) as object)).toEqual(["ok.txt"])
+    expect(await res.json()).toEqual(await missing.json())
+    expect(nested.status).toBe(404)
   })
 })

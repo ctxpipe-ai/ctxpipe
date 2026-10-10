@@ -429,6 +429,8 @@ export async function publishMergedScipIndex(input: {
   detectedLanguages: readonly string[]
   shardPaths: readonly string[]
   outputPath: string
+  /** Documents whose path ends outside this checkout are dropped. */
+  checkoutPath: string
 }): Promise<{ shardCount: number }> {
   const valid: string[] = []
   for (const shardPath of input.shardPaths) {
@@ -474,19 +476,20 @@ export async function publishMergedScipIndex(input: {
   }
   if (valid.length === 0) {
     if (input.detectedLanguages.length === 0) {
-      await writeMergedScipIndex([], input.outputPath)
+      await writeMergedScipIndex([], input.outputPath, input.checkoutPath)
     } else {
       await rm(input.outputPath, { force: true })
     }
     return { shardCount: 0 }
   }
-  await writeMergedScipIndex(valid, input.outputPath)
+  await writeMergedScipIndex(valid, input.outputPath, input.checkoutPath)
   return { shardCount: valid.length }
 }
 
 export async function writeMergedScipIndex(
   shardPaths: readonly string[],
   outputPath: string,
+  checkoutPath: string,
 ): Promise<void> {
   await mkdir(dirname(outputPath), { recursive: true })
   const temporaryPath = `${outputPath}.${randomUUID()}.tmp`
@@ -497,7 +500,10 @@ export async function writeMergedScipIndex(
         encodeScipIndex({ documents: [], externalSymbols: [] }),
       )
     } else {
-      await mergeScipShardFiles(shardPaths, temporaryPath, { dedupe: false })
+      await mergeScipShardFiles(shardPaths, temporaryPath, {
+        dedupe: false,
+        checkoutPath,
+      })
     }
     await rename(temporaryPath, outputPath)
   } finally {
@@ -709,6 +715,7 @@ export async function phaseMergeScip(
         detectedLanguages: detected,
         shardPaths,
         outputPath: ctx.scipIndexPath,
+        checkoutPath: ctx.clonePath,
       })
     })
   } catch (error) {

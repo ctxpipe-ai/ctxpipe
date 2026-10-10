@@ -81,7 +81,7 @@ describe("structural search path containment", () => {
         resolveStructuralSearchPaths(checkoutPath, [
           join(checkoutPath, "escape.ts"),
         ]),
-      ).rejects.toThrow("Structural search path escapes checkout")
+      ).rejects.toMatchObject({ code: "ENOENT" })
     } finally {
       await rm(root, { recursive: true, force: true })
     }
@@ -171,6 +171,47 @@ describe("structural search path containment", () => {
   // A user glob makes ast-grep include hidden paths, so the search itself
   // must keep .git out.
   it("returns no match from .git when a user glob matches every file", async () => {
+    const root = await realpath(
+      await mkdtemp(join(tmpdir(), "structural-search-")),
+    )
+    const checkoutPath = join(root, "checkout")
+    await mkdir(join(checkoutPath, ".git", "hooks"), { recursive: true })
+    await mkdir(join(checkoutPath, "sub", ".GIT"), { recursive: true })
+    await writeFile(join(checkoutPath, ".git", "config"), "[core]\n")
+    await writeFile(
+      join(checkoutPath, ".git", "hooks", "check.sh"),
+      "echo hi\n",
+    )
+    await writeFile(join(checkoutPath, "sub", ".GIT", "check.sh"), "echo hi\n")
+    await writeFile(join(checkoutPath, "run.sh"), "echo hi\n")
+    stubBunSpawnWithNode()
+
+    try {
+      const matches = await runStructuralSearch({
+        checkoutPath,
+        pattern: "$A",
+        lang: "bash",
+        globs: ["*"],
+        paths: [checkoutPath],
+        limit: 100,
+      })
+
+      const files = matches.map((match) =>
+        relative(checkoutPath, String(match.file)),
+      )
+      expect(files).toContain("run.sh")
+      expect(files.filter((file) => /(^|\/)\.git(\/|$)/i.test(file))).toEqual(
+        [],
+      )
+    } finally {
+      vi.unstubAllGlobals()
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  // Structural search must also remove a match in a nested .GIT directory,
+  // because the "!.git" glob is case-sensitive.
+  it("returns no match from .git or a nested .GIT when a user glob matches every file", async () => {
     const root = await realpath(
       await mkdtemp(join(tmpdir(), "structural-search-")),
     )

@@ -1,6 +1,9 @@
 import { realpath } from "node:fs/promises"
 import { isAbsolute, relative, resolve, sep } from "node:path"
-import { hasGitSegment } from "../repositories/paths.js"
+import {
+  hasGitSegment,
+  resolveContainedRealPath,
+} from "../repositories/paths.js"
 
 export type StructuralSearchMatch = Record<string, unknown>
 
@@ -22,18 +25,11 @@ export async function resolveStructuralSearchPaths(
   checkoutPath: string,
   paths: readonly string[],
 ): Promise<{ checkoutPath: string; paths: string[] }> {
-  const resolvedCheckoutPath = await realpath(checkoutPath)
-  const resolvedPaths = await Promise.all(
-    paths.map(async (path) => {
-      const resolvedPath = await realpath(resolve(resolvedCheckoutPath, path))
-      assertWithinCheckout(resolvedCheckoutPath, resolvedPath)
-      if (hasGitSegment(relative(resolvedCheckoutPath, resolvedPath))) {
-        throw new Error("Structural search path is inside .git")
-      }
-      return resolvedPath
-    }),
-  )
-  return { checkoutPath: resolvedCheckoutPath, paths: resolvedPaths }
+  const [resolvedCheckoutPath, ...resolvedPaths] = await Promise.all([
+    realpath(checkoutPath),
+    ...paths.map((path) => resolveContainedRealPath(checkoutPath, path)),
+  ])
+  return { checkoutPath: resolvedCheckoutPath as string, paths: resolvedPaths }
 }
 
 export function buildAstGrepArgv(input: {
