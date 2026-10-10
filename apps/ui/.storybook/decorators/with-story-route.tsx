@@ -15,7 +15,12 @@ function storyRouteStub() {
 
 /** Where to mount the story component in an in-memory router. */
 export type StoryRouteParams =
-  | { pattern: "flat"; path: string }
+  | {
+      pattern: "flat"
+      path: string
+      /** More paths that also render the story, so a play can follow a navigation. */
+      alsoAt?: string[]
+    }
   | { pattern: "orgIndex"; orgSlug: string }
   | { pattern: "orgConnectors"; orgSlug: string }
   | { pattern: "orgRepositories"; orgSlug: string }
@@ -88,8 +93,15 @@ function createStoryRouter(
             }),
             leaf,
           ]
+    const extra = (spec.alsoAt ?? []).map((path) =>
+      createRoute({
+        getParentRoute: () => rootRoute,
+        path,
+        component: StoryRoute,
+      }),
+    )
     return createRouter({
-      routeTree: rootRoute.addChildren(siblings),
+      routeTree: rootRoute.addChildren([...siblings, ...extra]),
       history: createMemoryHistory({ initialEntries: [spec.path] }),
     })
   }

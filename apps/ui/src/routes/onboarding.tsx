@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 import { createFileRoute, Navigate, useRouter } from "@tanstack/react-router"
 import { useCallback, useEffect, useState } from "react"
+import { toast } from "sonner"
 import { ADMIN_SLIDES, JOINER_SLIDES } from "@/components/onboarding/constants"
 import { McpOnboardingSlide } from "@/components/onboarding/McpOnboardingSlide"
 import { OnboardingCreateOrgSlide } from "@/components/onboarding/OnboardingCreateOrgSlide"
@@ -20,7 +21,12 @@ import {
 import { useRepositoryIndexingSummary } from "@/features/repositories"
 import { client } from "@/lib/api"
 import { apiFetch, readApiJson } from "@/lib/api-result"
-import { authClient, useListOrganizations, useSession } from "@/lib/auth-client"
+import {
+  authClient,
+  refetchSessionOnboardingComplete,
+  useListOrganizations,
+  useSession,
+} from "@/lib/auth-client"
 import { useUserPreferences } from "@/lib/user-preferences"
 
 export const Route = createFileRoute("/onboarding")({
@@ -46,12 +52,14 @@ function OnboardingPage() {
   return <OnboardingPageContent urlOrgSlug={search.orgSlug ?? null} />
 }
 
+const FINISH_ERROR = "Could not finish onboarding. Try again."
+
 export function OnboardingPageContent({
   urlOrgSlug,
 }: {
   urlOrgSlug: string | null
 }) {
-  const { data: session, isPending, refetch: refetchSession } = useSession()
+  const { data: session, isPending } = useSession()
   const router = useRouter()
   const { data: organizations, isPending: orgsPending } = useListOrganizations()
   const [, setPreferences] = useUserPreferences()
@@ -235,10 +243,11 @@ export function OnboardingPageContent({
         ...prev,
         selectedOrganizationSlug: orgSlug,
       }))
-      // `/` reads this session atom. A stale atom sends the user back here.
-      await refetchSession()
+      if (!(await refetchSessionOnboardingComplete()))
+        throw new Error("The session does not show onboarding as complete")
     } catch {
       setCompleting(false)
+      toast.error(FINISH_ERROR)
       return
     }
     transitionToApp(leave)
@@ -266,9 +275,11 @@ export function OnboardingPageContent({
         method: "POST",
         credentials: "include",
       }).then((res) => readApiJson(res))
-      await refetchSession()
+      if (!(await refetchSessionOnboardingComplete()))
+        throw new Error("The session does not show onboarding as complete")
     } catch {
       setCompleting(false)
+      toast.error(FINISH_ERROR)
       return
     }
     transitionToApp(() => {

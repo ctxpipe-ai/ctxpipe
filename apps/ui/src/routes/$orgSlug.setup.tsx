@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 import { createFileRoute, Navigate, useRouter } from "@tanstack/react-router"
 import { useEffect, useId, useRef, useState } from "react"
+import { toast } from "sonner"
 import { AnimatedBackground } from "@/components/AnimatedBackground"
 import { Button } from "@/components/ui/Button"
 import { Dialog } from "@/components/ui/Dialog"
@@ -14,7 +15,11 @@ import {
 import { useGithubConnectFlow } from "@/features/connectors/useGithubConnectFlow"
 import { client } from "@/lib/api"
 import { apiFetch, readApiJson } from "@/lib/api-result"
-import { authClient, getSession, useSession } from "@/lib/auth-client"
+import {
+  authClient,
+  refetchSessionOnboardingComplete,
+  useSession,
+} from "@/lib/auth-client"
 
 export const Route = createFileRoute("/$orgSlug/setup")({
   component: OrgSetupPage,
@@ -184,9 +189,13 @@ function OrgSetupPage() {
           credentials: "include",
         }).then((res) => readApiJson(res)),
       ])
-      await getSession({ fetchOptions: { throw: false } })
+      if (!(await refetchSessionOnboardingComplete()))
+        throw new Error("The session does not show onboarding as complete")
     } catch {
-      // best-effort — don't block navigation
+      // The org pages read the session atom. A stale atom sends the user
+      // back to onboarding, so stay here and let the user try again.
+      toast.error("Could not finish setup. Try again.")
+      return
     }
     sessionStorage.setItem("ctxpipe:app-shell-fade-in", "1")
     void router.navigate({

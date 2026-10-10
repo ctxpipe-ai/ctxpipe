@@ -74,6 +74,22 @@ signedInBeforeRequest = () => {
   return Boolean(data?.user?.id)
 }
 
+/**
+ * Fetch the session into the `useSession` atom, then tell if onboarding is
+ * complete. Pages such as `/` read this atom, so a stale atom sends the user
+ * back to onboarding. `getSession` does not update the atom, and `refetch`
+ * does not reject on a failed request.
+ */
+export async function refetchSessionOnboardingComplete(): Promise<boolean> {
+  const session = authClient.$store.atoms.session
+  await session.get().refetch()
+  const data = session.get().data as
+    | { user?: { onboardingCompletedAt?: string | null } | null }
+    | null
+    | undefined
+  return Boolean(data?.user?.onboardingCompletedAt)
+}
+
 export const {
   signIn,
   signOut,
