@@ -51,6 +51,19 @@ Proposed Railway changes (not made):
 - The same test sends a GET and a POST to `/.auth/api/v1/auth/callback/atlassian` with `x-request-id`. Before the middleware, both set `__infra-rid`. After, neither does.
 - `src/routes/ui.test.ts` "UI proxy failure response": the 504 and the 502 have `no-store` and the logger has the `uiProxy` context. A call with no request logger still answers 502. Before the fix, all six proxy tests failed.
 
+## Follow-up: Bun idle timeout on the UI server
+
+Cause: Bun.serve closes a request that sends no bytes for its `idleTimeout` (10 s by default; in Bun 1.4 the close comes about 12 s after the request starts). The client then gets an empty reply, not a status. The UI image runs the Nitro `bun` preset entry, which passes `NITRO_BUN_IDLE_TIMEOUT` to Bun.serve and otherwise keeps the default. The backend waits 15 s for a page (`UI_PROXY_TIMEOUT_MS`). A server render between about 12 s and 15 s therefore failed at the UI server first, and the backend answered 502.
+
+Checked, no change needed:
+
+- `apps/backend/src/server.ts` already sets `idleTimeout: 255` (the Bun maximum), so the backend does not cut a slow proxy or chat stream.
+- The OpenWorkflow worker does not serve HTTP.
+
+Fix: `apps/ui/Dockerfile` sets `ENV NITRO_BUN_IDLE_TIMEOUT=30`, above the 15 s proxy timeout. This is a fixed image value, not a new operator setting. Local `vite dev` does not use the Nitro bun entry.
+
+Proof: `apps/backend/src/routes/ui-idle-timeout.test.ts` starts a real Bun upstream (`src/test/slow-bun-server.ts`, with the same idle-timeout expression as the Nitro entry) that answers after 13.5 s, and calls `proxyUiRequest` with the 15 s timeout. With the Bun default, the result is 502. With the value from the UI Dockerfile, the result is 200 with the page. Before the Dockerfile change, the second test failed.
+
 ## Follow-ups
 
 - A rerun of RES-3, AUTH-1 and GRAPH-3 on the preview after a deploy.
