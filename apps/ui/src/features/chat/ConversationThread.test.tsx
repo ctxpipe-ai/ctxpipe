@@ -44,7 +44,6 @@ describe("ConversationThread activity chrome", () => {
       "streaming",
     )
     expect(html).toContain("Reasoning")
-    expect(html).toContain("data-reasoning-title")
     expect(html).toMatch(/data-reasoning-title="true"[^>]*>Contextualizing…</)
     expect(html).not.toContain("inspect the repository structure")
   })
@@ -67,7 +66,6 @@ describe("ConversationThread activity chrome", () => {
       ],
       "streaming",
     )
-    expect(html).toContain('data-reasoning-title="true"')
     expect(html).toMatch(/data-reasoning-title="true"[^>]*>Contextualizing…</)
     expect(html).toContain("Consolidating documents")
     expect(html).not.toContain("Inspecting documentation steps")
@@ -121,6 +119,7 @@ describe("ConversationThread activity chrome", () => {
     expect(html).toContain('aria-expanded="false"')
     expect(html).not.toContain("hybrid_search")
     expect(html).not.toContain("get_file")
+    expect(html).not.toContain('aria-label="Working"')
     expect(html).not.toContain("Contextualizing…")
   })
 
@@ -143,6 +142,7 @@ describe("ConversationThread activity chrome", () => {
     expect(html).toContain("Reasoning")
     expect(html).not.toContain("inspect the repository")
     expect(html).toContain("This is a TypeScript monorepo.")
+    expect(html).not.toContain('aria-label="Working"')
     expect(html).not.toContain("Contextualizing…")
   })
 
@@ -233,6 +233,7 @@ describe("ConversationThread activity chrome", () => {
   it("shows Setting up sandbox before the working verb while the sandbox starts", () => {
     const html = renderThread([user], "submitted", "Setting up sandbox")
     expect(html).toContain("Setting up sandbox")
+    expect(html).not.toContain('aria-label="Working"')
     expect(html).not.toContain("Contextualizing…")
   })
 
@@ -251,6 +252,7 @@ describe("ConversationThread activity chrome", () => {
     )
     expect(html).toContain("Read 1 file")
     expect(html).not.toContain("Setting up sandbox")
+    expect(html).not.toContain('aria-label="Working"')
     expect(html).not.toContain("Contextualizing…")
   })
 
@@ -272,6 +274,7 @@ describe("ConversationThread activity chrome", () => {
       "submitted",
     )
     expect(html).toContain("Reasoning")
+    expect(html).not.toContain('aria-label="Working"')
     expect(html).not.toContain("Contextualizing…")
   })
 
@@ -319,7 +322,6 @@ describe("ConversationThread activity chrome", () => {
     expect(html).toContain("Inspecting repositories")
     expect(html).toContain("1 search")
     expect(html).not.toContain("hybrid_search")
-    expect(html).not.toMatch(/data-reasoning-title="true"[^>]*>Thinking/)
     expect(html).not.toContain("Auth0")
 
     processor.processChunk({

@@ -424,14 +424,13 @@ export const SharedPublishPending: Story = {
       { timeout: 15_000 },
     )
     // Maximized, the pane hides the conversation and shows Sync, still pending.
-    // The collapsed conversation column stays mounted for its animation, but
-    // it is inert, so its Sync is out of reach and out of the accessibility
-    // tree. Testing Library does not read `inert`, so filter it here.
+    // Testing Library ignores `inert`, so skip the hidden conversation column's Sync.
     await userEvent.click(page.getByRole("button", { name: "Maximise pane" }))
     await waitFor(() => {
-      const pending = page
-        .getAllByRole("button", { name: pendingName })
-        .filter((button) => !button.closest("[inert]"))
+      const all = page.getAllByRole("button", { name: pendingName })
+      for (const button of all.filter((b) => b.closest("[inert]")))
+        expect(button).not.toBeVisible()
+      const pending = all.filter((button) => !button.closest("[inert]"))
       expect(pending).toHaveLength(1)
       expect(pending[0]?.closest("aside")).toBe(pane)
       expect(pending[0]).toHaveAttribute("data-pending", "true")

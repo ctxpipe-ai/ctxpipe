@@ -69,7 +69,8 @@ function ActivityIconSlot(props: { live: boolean; children: ReactElement }) {
   )
 }
 
-const WORKING_VERBS = [
+/** Exported so stories can match the rotating verb without a second copy of the list. */
+export const WORKING_VERBS = [
   "Contextualizing…",
   "Analyzing…",
   "Traversing your graph…",

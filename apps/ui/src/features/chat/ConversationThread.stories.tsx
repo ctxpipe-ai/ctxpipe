@@ -15,7 +15,7 @@ import {
   streamingToolMessages,
   thoughtsBetweenToolsMessages,
 } from "@/features/workspaces/workspace-fixtures"
-import { ConversationThread } from "./ConversationThread"
+import { ConversationThread, WORKING_VERBS } from "./ConversationThread"
 
 const meta = {
   title: "Components/Chat/ConversationThread",
@@ -71,8 +71,9 @@ export const ReasoningExpanded: Story = {
   },
 }
 
-const workingVerb =
-  /Contextualizing|Analyzing|Traversing your graph|Reading knowledge|Checking sources/
+const workingVerb = new RegExp(
+  WORKING_VERBS.map((verb) => verb.replace("…", "")).join("|"),
+)
 
 export const ReasoningLive: Story = {
   args: {

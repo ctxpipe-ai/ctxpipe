@@ -4,6 +4,7 @@ import { HttpResponse, http } from "msw"
 import { StrictMode, useState } from "react"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 import { Button } from "@/components/ui/Button"
+import { WORKING_VERBS } from "@/features/chat/ConversationThread"
 import {
   conversationAguiTextEvents,
   installAguiWebSocket,
@@ -694,19 +695,27 @@ export const FirstTurnStreamsLive: Story = {
         "Where is the billing service?",
       )
       // Record the order in which each step of the turn first shows. While
-      // the agent thinks, a working verb shows, then the reasoning heading.
-      const steps = [
-        "Setting up sandbox",
-        "Contextualizing…",
-        "Finding billing",
-        "Used 1 tool",
-        firstTurnAnswer,
+      // the agent thinks, a working verb shows. Then the live reasoning box
+      // shows the reasoning heading.
+      const shows = (text: string) =>
+        canvasElement.textContent?.includes(text) ?? false
+      const steps: [string, () => boolean][] = [
+        ["Setting up sandbox", () => shows("Setting up sandbox")],
+        ["working verb", () => WORKING_VERBS.some(shows)],
+        [
+          "live reasoning heading",
+          () =>
+            canvasElement
+              .querySelector('[role="status"][aria-label="Reasoning"]')
+              ?.textContent?.includes("Finding billing") ?? false,
+        ],
+        ["Used 1 tool", () => shows("Used 1 tool")],
+        ["answer", () => shows(firstTurnAnswer)],
       ]
       const seen: string[] = []
       const observer = new MutationObserver(() => {
-        const text = canvasElement.textContent ?? ""
-        for (const step of steps)
-          if (!seen.includes(step) && text.includes(step)) seen.push(step)
+        for (const [name, test] of steps)
+          if (!seen.includes(name) && test()) seen.push(name)
       })
       observer.observe(canvasElement, {
         childList: true,
@@ -723,7 +732,7 @@ export const FirstTurnStreamsLive: Story = {
       } finally {
         observer.disconnect()
       }
-      expect(seen).toEqual(steps)
+      expect(seen).toEqual(steps.map(([name]) => name))
       expect(canvas.getByText("Used 1 tool")).toBeVisible()
       expect(
         canvas.getAllByText(/Where is the billing service\?/),
