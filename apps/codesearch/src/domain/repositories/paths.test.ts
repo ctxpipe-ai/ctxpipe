@@ -199,7 +199,7 @@ describe("paths inside the checkout", () => {
 
   // A checkout can change a parent directory into a symlink after the path
   // check. Only the Linux descriptor check refuses that path.
-  it("refuses a directory whose parent became a symlink to outside", async () => {
+  it("on Linux refuses a directory whose parent became a symlink to outside; other platforms list it (known gap)", async () => {
     await mkdir(join(tmpDir, "outside", "dir", "deeper"))
     await writeFile(join(tmpDir, "outside", "dir", "deeper", "x.txt"), "x\n")
     const listing = readContainedDirectory(
@@ -213,7 +213,7 @@ describe("paths inside the checkout", () => {
     }
   })
 
-  it("refuses a directory whose parent became a symlink to .git", async () => {
+  it("on Linux refuses a directory whose parent became a symlink to .git; other platforms list it (known gap)", async () => {
     await mkdir(join(checkout, ".git", "hooks"))
     const listing = readContainedDirectory(
       checkout,

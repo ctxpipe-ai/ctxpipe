@@ -18,6 +18,7 @@ const { getAccessibleRepositoryMock } = vi.hoisted(() => ({
   getAccessibleRepositoryMock: vi.fn(),
 }))
 
+// Codesearch tests have no database, so this stubs the repository row lookup.
 vi.mock("../domain/repositories/service.js", () => ({
   getAccessibleRepository: getAccessibleRepositoryMock,
 }))

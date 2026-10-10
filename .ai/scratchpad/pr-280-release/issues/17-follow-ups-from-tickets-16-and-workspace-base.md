@@ -27,7 +27,7 @@ Two small gaps stayed open when ticket 16 and the Workspace base work merged int
 3. **Real; fixed by ending runs.** A per-file namespace needs edits in about 40 test sites and child scripts that connect to the library default namespace. A backend test setup file instead cancels, when each file ends, the open runs that the file created in "default". This also covers the test that enqueues through the module-level `ow` client. Cost: about 13 ms for each test file. The two private-namespace tests stay, because runs from earlier tests of the same file stay open until the file ends.
 4. **Real; fixed.** `readContainedDirectory` opens a directory with `O_DIRECTORY | O_NOFOLLOW`. On Linux it checks the descriptor path and reads the list through the descriptor. `GET /files` and the glob walk use it. Checked on Linux with Bun in a container.
 5. **Fixed.** Directory lists leave out a `.git` entry, in any letter case.
-6. **Fixed.** `routes/repo.test.ts` and `routes/graph.test.ts` set the cache paths through the environment and use a real checkout, a real git remote and the real purge. Each mocks only the repository service.
+6. **Fixed.** `routes/repo.test.ts` and `routes/graph.test.ts` set the cache paths through the environment and use a real checkout, a real git remote and the real purge. Each mocks only the repository service, because codesearch tests have no database. `routes/graph.test.ts` also gives the route a stub `db` object for the graph query.
 
 ## Resolution
 
