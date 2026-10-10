@@ -346,9 +346,15 @@ export async function conversationSandboxStatus(input: {
   const branch = currentBranch.trim()
   if (!branch) throw new Error("Conversation worktree has no current branch")
   const counts = explorerGitNumstatFromStdout(numstat)
+  // Against the base, a file git does not track yet is an added file.
   const items = explorerGitStatusFromPorcelain(porcelain)
     .filter((item) => isConversationSandboxListedPath(item.path))
     .map((item) => withExplorerGitLineCounts(item, counts))
+    .map((item) =>
+      item.status === "untracked"
+        ? { ...item, status: "added" as const }
+        : item,
+    )
   // A committed change leaves `git status`; keep it until the base has it.
   const listedPaths = new Set(splitGitNulPaths(listed))
   const fields = splitGitNulPaths(

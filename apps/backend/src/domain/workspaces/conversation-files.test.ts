@@ -299,6 +299,7 @@ describe("conversation sandbox files", { timeout: 15_000 }, () => {
         git("commit", "-q", "-m", "Add and change notes")
         writeFileSync(join(directory, "knowledge/new.md"), "fresh\nedit\n")
         rmSync(join(directory, "temp.md"))
+        writeFileSync(join(directory, "draft.md"), "new, not committed\n")
         const status = () =>
           conversationSandboxStatus({
             handle,
@@ -311,6 +312,7 @@ describe("conversation sandbox files", { timeout: 15_000 }, () => {
             .sort()
 
         expect(await changes()).toEqual([
+          "added draft.md",
           "added knowledge/new.md",
           "modified notes.md",
         ])
