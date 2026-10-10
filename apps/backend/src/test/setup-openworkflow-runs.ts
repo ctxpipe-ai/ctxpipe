@@ -1,4 +1,4 @@
-import { afterAll } from "vitest"
+import { afterAll, vi } from "vitest"
 import { cancelOpenWorkflowRunsSince } from "./open-workflow-runs.js"
 
 // Contract files leave open runs in the shared "default" namespace. Examples
@@ -14,8 +14,20 @@ const since = new Date()
 afterAll(async () => {
   const databaseUrl = process.env.DATABASE_URL
   if (!databaseUrl) return
-  // The cleanup is best effort: a file without a usable database still passes.
-  await cancelOpenWorkflowRunsSince(databaseUrl, since).catch((error) =>
-    console.warn("Could not cancel the open OpenWorkflow runs", error),
-  )
+  // A file can leave fake timers on. The database client needs real timers.
+  vi.useRealTimers()
+  // The cleanup is best effort. A file with a slow or unusable database
+  // still passes, and the cleanup logs a warning.
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error("The cleanup took more than 5 seconds")),
+      5_000,
+    )
+  })
+  await Promise.race([cancelOpenWorkflowRunsSince(databaseUrl, since), timeout])
+    .catch((error) =>
+      console.warn("Could not cancel the open OpenWorkflow runs", error),
+    )
+    .finally(() => clearTimeout(timer))
 })
