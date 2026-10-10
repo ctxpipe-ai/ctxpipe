@@ -31,3 +31,11 @@ Storybook play functions, run in Playwright against a local Storybook:
 ## PagerDuty self-host step on the hosted preview
 
 This is configuration, not code. The backend shows the hosted OAuth path only when `PAGERDUTY_CLIENT_ID` and `PAGERDUTY_CLIENT_SECRET` are both set (`envHasPagerdutyOAuthApp` in `apps/backend/src/lib/connection-config.ts`). Terraform sets them from the GitHub secrets `PAGERDUTY_CLIENT_ID` and `PAGERDUTY_CLIENT_SECRET` (`deploy.yaml`). The repository has no such secrets (the Linear and Notion pairs exist), and the `production` and `Preview` environments have none. PR environments are copies of production (`railway environment new --duplicate production`), so production and previews both show **Register PagerDuty OAuth app**. To fix: register a hosted PagerDuty OAuth app, add the two secrets (and `PAGERDUTY_REDIRECT_URI` if needed), and apply Terraform. No config was changed.
+
+## Review round 1
+
+- **Setup not finished** now comes only from the server state of the row: `setupPhase === "draft"`. For Slack, the row must also not be revoked. For GitHub, the installation must not be linked. The per-member step index does not decide it.
+- A live row that is revoked, uninstalled, or not linked for this member shows **Needs reconnect** and keeps the menu. A row in `awaiting_merge` shows **Awaiting merge** and keeps the menu, because a live row also goes back to `awaiting_merge` after a scope change. For this reason the dialog in `awaiting_merge` is the connector dialog, not the setup dialog.
+- `ConnectorListItem` owns one remove dialog and the menu. A draft row shows **Remove** and the step action (`actionLabel`) on the row, and the panel does not show the action again. The labels are `Remove <name> setup` and `<action> for <name>`.
+- In a container narrower than `2xl`, the status and the actions go to a second line.
+- New plays: a live Confluence row for a member with no Atlassian link, an uninstalled Forge row, a revoked Linear row, a revoked Slack row, a Slack draft, a list-item draft, and a 375 px list item. The Notion, Linear, and PagerDuty draft plays confirm the remove, see the `DELETE`, and see the status read again.
