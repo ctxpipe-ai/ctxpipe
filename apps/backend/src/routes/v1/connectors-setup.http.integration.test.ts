@@ -136,10 +136,18 @@ describe("connector setup first screens (Postgres)", () => {
     expect(await again.json()).toEqual({ connectionId })
   })
 
-  it("does not list a connection that only opened a setup first screen", async () => {
-    await openEveryFirstScreen()
+  it("does not list a Notion, Linear, or PagerDuty draft that only opened a setup first screen", async () => {
+    expect((await call("POST", "/notion/draft")).status).toBe(200)
+    expect((await call("POST", "/linear/draft")).status).toBe(200)
+    expect((await call("POST", "/pagerduty/setup")).status).toBe(200)
 
     expect(await listedTypes()).toEqual([])
+  })
+
+  it("lists a pending Confluence draft, so the user can finish or remove it", async () => {
+    expect((await call("POST", "/atlassian/installation")).status).toBe(200)
+
+    expect(await listedTypes()).toEqual(["forge"])
   })
 
   it("lists a setup draft that holds saved progress", async () => {
@@ -227,15 +235,18 @@ describe("connector setup first screens (Postgres)", () => {
         .where(eq(organizations.id, otherOrg.id))
     })
 
-    it("replaces an empty draft from the other organization", async () => {
+    it("refuses while the other organization has a pending draft", async () => {
       expect(
         (await call("POST", "/atlassian/installation", otherOrg.slug)).status,
       ).toBe(200)
 
-      expect((await call("POST", "/atlassian/installation")).status).toBe(200)
-
-      expect(await connectionIds(otherOrg.id, "forge")).toEqual([])
-      expect(await connectionIds(seed.orgId, "forge")).toHaveLength(1)
+      const res = await call("POST", "/atlassian/installation")
+      expect(res.status).toBe(409)
+      expect(await res.json()).toMatchObject({
+        code: "atlassian_pending_installation_exists",
+      })
+      expect(await connectionIds(otherOrg.id, "forge")).toHaveLength(1)
+      expect(await connectionIds(seed.orgId, "forge")).toEqual([])
     })
 
     it("refuses while the other organization's draft holds progress", async () => {

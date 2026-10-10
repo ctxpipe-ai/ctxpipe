@@ -638,6 +638,9 @@ async function searchPages(input: {
   }))
 }
 
+const PENDING_INSTALLATION_IN_OTHER_ORG_MESSAGE =
+  "You have a pending Confluence setup in another organization. Finish or remove it on the Connectors page of that organization, then try again."
+
 export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
   .openapi(registerAtlassianInstallationRoute, async (c) => {
     if (!c.get("user") || !c.get("session")) {
@@ -656,8 +659,7 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
     if (pendingInOtherOrg) {
       return c.json(
         {
-          error:
-            "A pending Atlassian installation already exists for this user in another organization",
+          error: PENDING_INSTALLATION_IN_OTHER_ORG_MESSAGE,
           code: "atlassian_pending_installation_exists",
         },
         409,
@@ -675,8 +677,7 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
       if (dbError?.code === "23505") {
         return c.json(
           {
-            error:
-              "A pending Atlassian installation already exists for this user in another organization",
+            error: PENDING_INSTALLATION_IN_OTHER_ORG_MESSAGE,
             code: "atlassian_pending_installation_exists",
           },
           409,

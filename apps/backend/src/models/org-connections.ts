@@ -2,12 +2,10 @@ import { asc, eq } from "drizzle-orm"
 import { getOrgDb, withOrgDbContext } from "../db/client.js"
 import { type ConnectionType, connections } from "../db/schema/connections.js"
 import {
-  forgeConnectionConfigSchema,
   linearConnectionConfigStoredSchema,
   notionConnectionConfigSchema,
   pagerdutyConnectionConfigStoredSchema,
 } from "../lib/connection-config.js"
-import { isEmptyForgeSetupDraft } from "./atlassian-connector.js"
 import { isEmptyLinearSetupDraft } from "./linear-connector.js"
 import { isEmptyNotionSetupDraft } from "./notion-connector.js"
 import { isEmptyPagerdutySetupDraft } from "./pagerduty-connector.js"
@@ -21,14 +19,12 @@ export type OrgConnectionListItem = {
 
 /**
  * True for a draft that only a setup first screen created. A row that does
- * not parse stays listed, so the operator can see and remove it.
+ * not parse stays listed, so the operator can see and remove it. A pending
+ * Forge draft always stays listed: the Marketplace install event binds the
+ * installed site to it, and the user must be able to finish or remove it.
  */
 function isEmptySetupDraft(type: ConnectionType, config: unknown): boolean {
   switch (type) {
-    case "forge": {
-      const parsed = forgeConnectionConfigSchema.safeParse(config)
-      return parsed.success && isEmptyForgeSetupDraft(parsed.data)
-    }
     case "notion": {
       const parsed = notionConnectionConfigSchema.safeParse(config)
       return parsed.success && isEmptyNotionSetupDraft(parsed.data)
