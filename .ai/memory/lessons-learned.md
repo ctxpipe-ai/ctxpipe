@@ -557,7 +557,7 @@ These lessons moved to the instructions that agents always read. Do not add them
 - **Source:** repository owner, after a security audit found one Vercel token shared by production, previews and CI
 
 ### Preview GitHub App comes from the Preview environment
-- **Rule:** A Railway preview is a duplicate of production, so it starts with the production GitHub App. The PR deploy writes the preview App from the `Preview` GitHub environment secrets `GH_*` (`scripts/preview-github-app-vars.sh`) and fails when one is empty. Do not let a preview keep the production GitHub App or the production Vercel token. Other production secrets in a preview are still shared.
+- **Rule:** A Railway preview is a duplicate of production, so it starts with the production GitHub App. The PR deploy writes the preview App from the `Preview` GitHub environment secrets `PREVIEW_GH_*` (`scripts/preview-github-app-vars.sh`) and fails when one is empty. The prefix keeps them apart from the production repository secrets `GH_*`, which a job in the environment can also read. Do not let a preview keep the production GitHub App or the production Vercel token. Other production secrets in a preview are still shared.
 - **Category:** convention
 - **Date:** 2026-10-10
 - **Source:** team lead, after a failed PR deploy deleted a live preview and re-created it with the production GitHub App
