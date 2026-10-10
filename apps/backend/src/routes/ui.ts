@@ -42,7 +42,9 @@ export async function proxyUiRequest(
     return await proxy(upstreamUrl, {
       raw: request,
       headers: Object.fromEntries(headers),
-      redirect: "follow",
+      // The browser must follow a UI redirect itself. A followed redirect
+      // serves the target page at the old URL, and hydration then fails.
+      redirect: "manual",
       signal,
     })
   } catch (error) {

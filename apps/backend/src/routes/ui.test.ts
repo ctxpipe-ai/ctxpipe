@@ -132,6 +132,47 @@ describe("UI HTTP proxy budget", () => {
   })
 })
 
+describe("UI proxy redirects", () => {
+  // A signed-out document request for an org page gets a server-render
+  // redirect to sign-in. If the proxy follows it, the browser receives the
+  // sign-in HTML at the org URL. The client router then renders the org
+  // route over the sign-in markup: React error #418.
+  it("passes a server-render redirect to the browser", async () => {
+    const server = createServer((req, res) => {
+      if (req.url === "/acme") {
+        res.writeHead(307, { location: "/.auth/sign-in" })
+        res.end()
+        return
+      }
+      res.writeHead(200, { "content-type": "text/html" })
+      res.end("<html>sign in</html>")
+    })
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", resolve)
+    })
+    const address = server.address()
+    if (!address || typeof address === "string") {
+      server.close()
+      throw new Error("expected a TCP listen address")
+    }
+
+    try {
+      const response = await proxyUiRequest(
+        new Request("http://localhost/acme"),
+        `http://127.0.0.1:${address.port}`,
+        1_000,
+        { publicOrigin: "http://localhost:3000" },
+      )
+      expect(response.status).toBe(307)
+      expect(response.headers.get("location")).toBe("/.auth/sign-in")
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()))
+      })
+    }
+  })
+})
+
 describe("UI proxy failure response", () => {
   const trust = { publicOrigin: "http://localhost:3000" }
   // `setup-evlog.ts` turns loggers into no-ops. Turn them on so the tests can
