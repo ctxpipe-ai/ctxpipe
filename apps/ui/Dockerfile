@@ -32,6 +32,9 @@ ENV NODE_ENV=production
 # Nitro defaults to localhost; Railway healthchecks hit the container IP, so bind all interfaces.
 ENV HOST=0.0.0.0
 ENV NITRO_HOST=0.0.0.0
+# Bun closes a silent request after 10 s by default. The backend waits 15 s
+# for a page (UI_PROXY_TIMEOUT_MS), so keep the UI server open longer than that.
+ENV NITRO_BUN_IDLE_TIMEOUT=30
 COPY --from=builder /app/apps/ui/.output ./.output
 EXPOSE 3002
 CMD ["bun", "run", ".output/server/index.mjs"]
