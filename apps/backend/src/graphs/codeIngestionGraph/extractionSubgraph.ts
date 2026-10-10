@@ -13,7 +13,11 @@ import { identifyPatterns } from "./nodes/identifyPatterns.js"
 import { identifyServiceDependencies } from "./nodes/identifyServiceDependencies.js"
 import { identifyStreams } from "./nodes/identifyStreams.js"
 import { linkLocatedPathsNode } from "./nodes/linkLocatedPaths.js"
-import type { ExtractedClaim, ExtractedObject } from "./schemas.js"
+import type {
+  CodeIngestionState,
+  ExtractedClaim,
+  ExtractedObject,
+} from "./schemas.js"
 
 const arrayReducer = <T>(left: T[], right: T | T[]): T[] =>
   left.concat(Array.isArray(right) ? right : [right])
@@ -74,7 +78,9 @@ const identifyNodes = [
   ["identifyLibraries", identifyLibraries],
   ["identifyPatterns", identifyPatterns],
   ["extractInstructionUnits", extractInstructionUnits],
-  ["extractDecisions", extractDecisions],
+  // LangGraph gives the run config as the second argument. Do not let it
+  // become the `packageObjects` argument.
+  ["extractDecisions", (state: CodeIngestionState) => extractDecisions(state)],
   ["extractCodeowners", extractCodeowners],
 ] as const
 

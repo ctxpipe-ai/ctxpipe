@@ -30,6 +30,14 @@ export type RepositoryIngestionEnqueueInput = {
    * webhook-driven ingests stay incremental.
    */
   fullReingest?: boolean
+  /**
+   * Re-read the whole repository with only the deterministic extractors. The
+   * LLM extractors and the unobserved-evidence sweep do not run, and the last
+   * ingested commit stays the same. Root and package detection can still ask
+   * an agent, and the run embeds the objects that it extracts. Operator
+   * tooling only.
+   */
+  deterministicOnly?: boolean
 }
 
 export type ConnectorRepositoryIngestionInput = Omit<
@@ -97,6 +105,9 @@ function startRepositoryIngestionWorkflow(
       : {}),
     ...(input.fullReingest !== undefined
       ? { fullReingest: input.fullReingest }
+      : {}),
+    ...(input.deterministicOnly !== undefined
+      ? { deterministicOnly: input.deterministicOnly }
       : {}),
   }
   return input.idempotencyKey

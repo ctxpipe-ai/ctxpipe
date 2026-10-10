@@ -1,3 +1,4 @@
+import { posix } from "node:path"
 import {
   fetchFiles,
   globFiles,
@@ -59,6 +60,25 @@ export type ParsedDecision = {
   /** ADR numbers this decision supersedes / is superseded by, as `ADR-n`. */
   supersedes: string[]
   supersededBy: string[]
+  /** Repository paths the decision points at, backticked or linked. */
+  references: string[]
+}
+
+/** Backticked paths are repository-rooted; Markdown links resolve from the ADR's folder. */
+function referencedPaths(body: string, path: string): string[] {
+  const found = new Set<string>()
+  for (const match of body.matchAll(/`([^`\s]+\/[^`\s]*)`/g)) {
+    const located = asLocatedPath(match[1])
+    if (located) found.add(located)
+  }
+  const folder = posix.dirname(path)
+  for (const match of body.matchAll(/\]\(([^)\s#]+)/g)) {
+    const target = match[1] ?? ""
+    if (/^[a-z][a-z0-9+.-]*:/i.test(target)) continue
+    const located = asLocatedPath(posix.normalize(posix.join(folder, target)))
+    if (located) found.add(located)
+  }
+  return [...found]
 }
 
 function adrIdFrom(text: string): string | null {
@@ -162,6 +182,27 @@ export function parseDecisionMarkdown(
     sectionParagraph(body, /^##\s+(?:Context|Decision)\s*$/im) ??
     firstParagraph(excerpt)
 
+  // A status header or a field line declares supersession, often as a link
+  // (`Superseded by [ADR-24](...)`, `**Supersedes:** [ADR-21](...)`). In
+  // prose, only a sentence about this ADR counts: "This ADR is superseded by
+  // ADR-24", "This decision supersedes ADR-3", or a sentence that starts with
+  // "Supersedes ADR-3". Other prose can describe a different ADR.
+  const declared = [
+    asString(data.status),
+    /^.*\*\*Status:\*\*.*$/im.exec(split?.body ?? content)?.[0],
+    statusLine?.[0],
+    statusSection?.[0],
+    ...((split?.body ?? content).match(
+      /^\s*(?:\*\*|__)?(?:supersedes|superseded\s+by)\b.*$/gim,
+    ) ?? []),
+  ].join("\n")
+  const supersession = (declaredPattern: RegExp, prosePattern: RegExp) => [
+    ...new Set([
+      ...adrNumbers(declared, declaredPattern),
+      ...adrNumbers(body, prosePattern),
+    ]),
+  ]
+
   return {
     title,
     adrId,
@@ -169,11 +210,15 @@ export function parseDecisionMarkdown(
     date,
     summary,
     excerpt,
-    supersedes: adrNumbers(body, /\bsupersedes\s+ADR[-\s]?0*(\d{1,5})\b/gi),
-    supersededBy: adrNumbers(
-      body,
-      /\bsuperseded\s+by\s+ADR[-\s]?0*(\d{1,5})\b/gi,
+    supersedes: supersession(
+      /\bsupersedes\b[\s:*_[]*ADR[-\s]?0*(\d{1,5})\b/gi,
+      /(?:^\s*|[.!?]\s+|\bthis\s+(?:adr|decision|record)\s+)supersedes\s+\[?ADR[-\s]?0*(\d{1,5})\b/gim,
     ),
+    supersededBy: supersession(
+      /\bsuperseded\s+by\b[\s:*_[]*ADR[-\s]?0*(\d{1,5})\b/gi,
+      /(?:^\s*|[.!?]\s+|\bthis\s+(?:adr|decision|record)\s+(?:is|was|has\s+been)\s+)superseded\s+by\s+\[?ADR[-\s]?0*(\d{1,5})\b/gim,
+    ),
+    references: referencedPaths(split?.body ?? content, path),
   }
 }
 
@@ -189,11 +234,18 @@ function isDecisionCandidate(path: string): boolean {
 /**
  * Source-repository extractor for architecture decision records (ADR-033):
  * `Decision` nodes with `DECLARED_IN File` (via the link pass),
- * `Decision INFLUENCES Service` by location, `Decision SUPERSEDES Decision`,
- * and `Decision MENTIONS File` for backticked repo paths. Deterministic.
+ * `Decision INFLUENCES Service` by the narrowest scope the ADR gives (its
+ * package, else the services it references, else every service in the
+ * repository; ADR-036), `Decision SUPERSEDES Decision`, and
+ * `Decision MENTIONS File` for backticked repo paths. Deterministic.
+ *
+ * The extractor reads every ADR in the repository, so it needs the packages
+ * of every root in `packageObjects`. The ingestion workflow runs it once for
+ * each root, and the state of a root holds only the package of that root.
  */
 export async function extractDecisions(
   state: CodeIngestionState,
+  packageObjects: ExtractedObject[] = state.extractedObjects ?? [],
 ): Promise<Partial<CodeIngestionState>> {
   if (shouldSkipCodeExtractorForPartialDiff(state)) return {}
 
@@ -226,11 +278,11 @@ export async function extractDecisions(
     state.orgId,
     scopedPaths,
   )
-  const packages = packageRootsFromObjects(state.extractedObjects ?? []).filter(
+  const packages = packageRootsFromObjects(packageObjects).filter(
     (entry) => entry.repositoryId === state.repositoryId,
   )
   const rootServiceKey = `svc:${state.repositoryId}:./`
-  const hasRootService = (state.extractedObjects ?? []).some(
+  const hasRootService = packageObjects.some(
     (object) =>
       object.kind === "Service" && object.deduplicationKey === rootServiceKey,
   )
@@ -303,31 +355,45 @@ export async function extractDecisions(
       },
     })
 
+    const influenced = new Set<string>()
+    const influences = (service: string, root: string, confidence: number) => {
+      if (influenced.has(service)) return
+      influenced.add(service)
+      claims.push(
+        claim({
+          subjectRef: key,
+          objectRef: service,
+          objectKind: "Service",
+          predicate: "INFLUENCES",
+          path,
+          target: root,
+          confidence,
+        }),
+      )
+    }
+
     const pkg = matchPackageForPath(path, packages)
     if (pkg?.kind === "Service") {
-      claims.push(
-        claim({
-          subjectRef: key,
-          objectRef: pkg.deduplicationKey,
-          objectKind: "Service",
-          predicate: "INFLUENCES",
-          path,
-          target: pkg.root,
-          confidence: 0.9,
-        }),
-      )
+      influences(pkg.deduplicationKey, pkg.root, 0.9)
     } else if (!pkg && hasRootService) {
-      claims.push(
-        claim({
-          subjectRef: key,
-          objectRef: rootServiceKey,
-          objectKind: "Service",
-          predicate: "INFLUENCES",
-          path,
-          target: "./",
-          confidence: 0.9,
-        }),
-      )
+      influences(rootServiceKey, "./", 0.9)
+    }
+    // A package below the root is the narrowest scope; references narrow only
+    // an ADR that belongs to the repository root.
+    if (pkg?.kind !== "Service" || pkg.root === "./") {
+      for (const reference of parsed.references) {
+        const referenced = matchPackageForPath(reference, packages)
+        if (referenced?.kind === "Service") {
+          influences(referenced.deduplicationKey, referenced.root, 0.8)
+        }
+      }
+    }
+    if (influenced.size === 0) {
+      for (const service of packages) {
+        if (service.kind === "Service") {
+          influences(service.deduplicationKey, service.root, 0.6)
+        }
+      }
     }
 
     for (const adrId of parsed.supersedes) {

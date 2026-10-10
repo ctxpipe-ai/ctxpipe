@@ -108,6 +108,11 @@ export const EXTENSION_ALLOWED_CONNECTIONS: Array<{
   { subjectKind: "PullRequest", predicate: "MODIFIED", objectKind: "File" },
   { subjectKind: "PullRequest", predicate: "REMOVED", objectKind: "File" },
   { subjectKind: "PullRequest", predicate: "RENAMED", objectKind: "File" },
+  ...PACKAGE_KINDS.map((objectKind) => ({
+    subjectKind: "PullRequest",
+    predicate: "CHANGED",
+    objectKind,
+  })),
   // reference
   { subjectKind: "Issue", predicate: "REFERENCES", objectKind: "PullRequest" },
   { subjectKind: "PullRequest", predicate: "REFERENCES", objectKind: "Issue" },
@@ -159,6 +164,8 @@ export const PREDICATE_DESCRIPTIONS: Record<string, string> = {
     "change event: the PullRequest removed this File (valid_from = merge date)",
   RENAMED:
     "change event: the PullRequest renamed a file to this File (valid_from = merge date)",
+  CHANGED:
+    "change event: the PullRequest changed a path inside this Service, App or Library (valid_from = merge date)",
   REFERENCES:
     "explicit cross-tool link by URL or identifier: Issue and PullRequest reference each other; a Thread references a PullRequest, Issue or Decision",
   MENTIONS: "lexical mention of a File in an Issue, Thread or Decision",

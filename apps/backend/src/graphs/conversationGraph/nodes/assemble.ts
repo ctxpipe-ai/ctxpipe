@@ -1,33 +1,18 @@
+import { evidenceSourceRepositoryId } from "../../../domain/codeIngestion/evidenceSourceId.js"
+import { toToon } from "../../../lib/agentToolRuntime.js"
 import {
   deriveRepositoryIndexingStatus,
   listRepositoriesForOrg,
 } from "../../../models/repositories.js"
-import { toToon } from "../../../lib/agentToolRuntime.js"
 import { hydrateClaimsWithEvidence } from "../../../retrieval/index.js"
 import type { ConversationGraphState } from "../state.js"
 
-const TOP_CANDIDATES_FOR_CLAIM_HYDRATION = 20
-
-/** Extracts claim IDs referenced by top candidates (e.g. from traversal edgeClaimIds). */
-function claimIdsFromTopCandidates(
-  candidates: ConversationGraphState["candidates"],
-  limit: number,
-): string[] {
-  const ids = new Set<string>()
-  for (const c of (candidates ?? []).slice(0, limit)) {
-    const edgeClaimIds = (c.payload?.edgeClaimIds as string[] | undefined)
-    if (Array.isArray(edgeClaimIds)) {
-      for (const id of edgeClaimIds) if (id) ids.add(id)
-    }
-    const claimId = c.claimId
-    if (claimId) ids.add(claimId)
-  }
-  return [...ids]
-}
-
 /**
  * Builds retrieval context from combined candidates (graph + semantic + code)
- * and hydrated claims. Hydrates claims only for top-ranked candidates (after rerank).
+ * and hydrated claims. Hydrates every claim the traversal kept; the traversal
+ * budget bounds how many, and candidate rank does not. A claim row names its
+ * two nodes as "Kind name" from the candidates, and cites a path with the
+ * name of the repository that holds it.
  */
 export async function assembleNode(
   state: ConversationGraphState,
@@ -70,31 +55,56 @@ export async function assembleNode(
     )
   }
 
-  const claimIdsToHydrate = claimIdsFromTopCandidates(
-    state.candidates,
-    TOP_CANDIDATES_FOR_CLAIM_HYDRATION,
-  )
+  const repositories =
+    state.orgId != null ? await listRepositoriesForOrg(state.orgId) : []
+
+  const claimIdsToHydrate = state.claimIds ?? []
   const hydratedClaimsWithEvidence =
     state.orgId && claimIdsToHydrate.length > 0
       ? await hydrateClaimsWithEvidence(state.orgId, claimIdsToHydrate)
       : []
 
   if (hydratedClaimsWithEvidence.length > 0) {
+    const distinct = (values: Array<string | null | undefined>) =>
+      [...new Set(values.filter((v): v is string => Boolean(v)))].join(" ")
+    const labels = new Map<string, string>()
+    for (const { objectId, payload } of state.candidates ?? []) {
+      const { kind, name } = payload
+      if (!objectId || typeof name !== "string" || name === "") continue
+      labels.set(
+        objectId,
+        typeof kind === "string" && kind !== "unknown"
+          ? `${kind} ${name}`
+          : name,
+      )
+    }
+    const repositoryNames = new Map(repositories.map((r) => [r.id, r.name]))
     contextParts.push(
       `Claims with evidence (provenance):\n${toToon({
         claims: hydratedClaimsWithEvidence.map((c) => ({
-          ...c,
+          id: c.id,
+          subject: labels.get(c.subjectId) ?? c.subjectId,
+          predicate: c.predicate,
+          object: labels.get(c.objectId) ?? c.objectId,
+          confidence: c.aggregatedConfidence,
+          validFrom: c.validFrom?.toISOString().slice(0, 10) ?? "",
+          validTo: c.validTo?.toISOString().slice(0, 10) ?? "",
           evidenceCount: c.evidence.length,
+          sources: distinct(
+            c.evidence.map((e) => `${e.sourceType}/${e.extractionMethod}`),
+          ),
+          cite: distinct(
+            c.evidence.map((e) => {
+              if (e.sourceUrl) return e.sourceUrl
+              const path = e.provenance?.path
+              if (typeof path !== "string") return null
+              const repository = repositoryNames.get(
+                evidenceSourceRepositoryId(e.sourceId) ?? "",
+              )
+              return repository ? `${repository}:${path}` : path
+            }),
+          ),
         })),
-        evidence: hydratedClaimsWithEvidence.flatMap((c) =>
-          c.evidence.map((e) => ({
-            claimId: c.id,
-            sourceType: e.sourceType,
-            sourceId: e.sourceId,
-            extractionMethod: e.extractionMethod,
-            confidence: e.confidence,
-          })),
-        ),
       })}`,
     )
   }
@@ -104,10 +114,6 @@ export async function assembleNode(
       ? contextParts.join("\n\n")
       : "No retrieval results."
 
-  const repositories =
-    state.orgId != null
-      ? await listRepositoriesForOrg(state.orgId)
-      : []
   const repoSnapshot = toToon({
     repositories: repositories.map((r) => ({
       id: r.id,

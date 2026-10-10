@@ -232,6 +232,22 @@ describe("startClaimedRepositoryIngestionWorkflow", () => {
     )
   })
 
+  it("forwards deterministicOnly so the workflow skips LLM extractors and the sweep", async () => {
+    runWorkflowWithWorkerWakeMock.mockResolvedValue({
+      workflowRun: { id: "run_pending", status: "pending" },
+    })
+
+    await startClaimedRepositoryIngestionWorkflow(
+      { repositoryId: "repo_1", orgId: "org_1", deterministicOnly: true },
+      { error: vi.fn() },
+    )
+
+    expect(runWorkflowWithWorkerWakeMock).toHaveBeenCalledWith(
+      { name: "repository-ingestion-orchestrator" },
+      { repositoryId: "repo_1", orgId: "org_1", deterministicOnly: true },
+    )
+  })
+
   it("restores ready status when an idempotent run already completed", async () => {
     runWorkflowWithWorkerWakeMock.mockResolvedValue({
       workflowRun: {

@@ -58,6 +58,15 @@ const repositoryIngestionInputSchema = z.object({
   githubConnectionId: z.string().nullable().optional(),
   /** Ignore the last ingested commit: full codesearch mode plus the unobserved-evidence sweep. */
   fullReingest: z.boolean().optional(),
+  /**
+   * Re-read the whole repository with only the deterministic extractors
+   * (decisions, CODEOWNERS, connector files, path links). The LLM extractors
+   * do not run. The unobserved-evidence sweep does not run, because it would
+   * retract what the LLM extractors found. The last ingested commit stays the
+   * same. The run can still call a model: identify-roots and extract-kind can
+   * ask an agent, and the embed step embeds each object that the run extracts.
+   */
+  deterministicOnly: z.boolean().optional(),
 })
 
 const REPOSITORY_INGESTION_STOPPED = {
@@ -232,9 +241,11 @@ export const repositoryIngestion = defineWorkflow(
               input.githubConnectionId ?? repository.githubConnectionId
             // A requested full re-ingest ignores the last ingested commit, so
             // codesearch runs in full mode and the unobserved-evidence sweep applies.
-            const fromHash = input.fullReingest
-              ? undefined
-              : (repository.lastIngestedHash ?? undefined)
+            // A deterministic-only run also reads in full mode, but it does not sweep.
+            const fromHash =
+              input.fullReingest || input.deterministicOnly
+                ? undefined
+                : (repository.lastIngestedHash ?? undefined)
             logWorkflowMilestone("repository-ingestion.repository-loaded", {
               repositoryId: input.repositoryId,
               lastIngestedHash: repository.lastIngestedHash,
@@ -479,7 +490,7 @@ export const repositoryIngestion = defineWorkflow(
                   },
                 )
 
-                const rootExtractResults = await Promise.all(
+                const kinds = await Promise.all(
                   roots.map(async (root) => {
                     const rootId = stableRootStepId(root)
                     const kindPartial = await step.run(
@@ -497,12 +508,23 @@ export const repositoryIngestion = defineWorkflow(
                           ),
                         ),
                     )
+                    return { root, rootId, kindPartial }
+                  }),
+                )
+                // Decision scoping (ADR-036) must see the packages of every
+                // root. Thus all extract-kind steps finish before the first
+                // identify step starts.
+                const packageObjects = kinds.flatMap(
+                  ({ kindPartial }) => kindPartial.extractedObjects ?? [],
+                )
 
-                    // Coarsen identify_* into one durable step per root (kind
-                    // boundary stays durable). Avoids WORKFLOW_STEP_LIMIT blowups
-                    // on large monorepos while preserving extractKind-before-
-                    // identify ordering and cross-root parallelism.
-                    return step.run(
+                // Coarsen identify_* into one durable step per root (kind
+                // boundary stays durable). Avoids WORKFLOW_STEP_LIMIT blowups
+                // on large monorepos while preserving extractKind-before-
+                // identify ordering and cross-root parallelism.
+                const rootExtractResults = await Promise.all(
+                  kinds.map(({ root, rootId, kindPartial }) =>
+                    step.run(
                       {
                         name: `identify:${rootId}`,
                         retryPolicy: extractRetryPolicy,
@@ -518,11 +540,16 @@ export const repositoryIngestion = defineWorkflow(
                                 baseIngestState,
                                 root,
                                 kindPartial,
+                                {
+                                  deterministicOnly:
+                                    input.deterministicOnly === true,
+                                  packageObjects,
+                                },
                               ),
                           ),
                         ),
-                    )
-                  }),
+                    ),
+                  ),
                 )
 
                 const concatenatedObjects: ExtractedObject[] = []
@@ -638,6 +665,13 @@ export const repositoryIngestion = defineWorkflow(
               targetHash: reindexState.targetHash ?? resolved.hash,
               sourceBranch: resolved.branch,
             }
+            // A deterministic-only run skips the LLM extractors, so it keeps
+            // the last ingested commit. The next normal run extracts the
+            // commits after it and retracts the files that they deleted. When
+            // the tip is after that commit, the follow-up step starts that run.
+            const ingestedHash = input.deterministicOnly
+              ? repository.lastIngestedHash
+              : result.targetHash
 
             // Full ingests re-observe everything still true at the target commit;
             // whatever this repository's extractors did not touch since the index
@@ -651,6 +685,7 @@ export const repositoryIngestion = defineWorkflow(
             // An extractor that skipped files on LLM failure did not observe
             // everything; sweeping would retract those files' facts.
             const canSweepUnobserved =
+              !input.deterministicOnly &&
               reindexState.ingestMode === "full" &&
               reindexState.searchIndexOk !== false &&
               reindexState.scipIndexOk !== false &&
@@ -699,8 +734,9 @@ export const repositoryIngestion = defineWorkflow(
                 {
                   repositoryId: input.repositoryId,
                   targetHash: result.targetHash,
-                  reason:
-                    extractionSkippedFiles > 0
+                  reason: input.deterministicOnly
+                    ? "deterministic-only run"
+                    : extractionSkippedFiles > 0
                       ? "extraction skipped files"
                       : observedBefore
                         ? "index degraded"
@@ -778,12 +814,12 @@ export const repositoryIngestion = defineWorkflow(
                   return issueError
                     ? markRepositoryIndexingReadyWithIssues({
                         repositoryId: input.repositoryId,
-                        targetHash: result.targetHash,
+                        targetHash: ingestedHash,
                         error: issueError,
                       })
                     : markRepositoryIndexingReady({
                         repositoryId: input.repositoryId,
-                        targetHash: result.targetHash,
+                        targetHash: ingestedHash,
                       })
                 }),
               ),
@@ -815,7 +851,7 @@ export const repositoryIngestion = defineWorkflow(
                     {
                       orgId: input.orgId,
                       repositoryId: input.repositoryId,
-                      ingestedHash: result.targetHash,
+                      ingestedHash: ingestedHash ?? undefined,
                       githubConnectionId,
                       targetBranch: input.targetBranch ?? result.sourceBranch,
                     },
@@ -834,7 +870,7 @@ export const repositoryIngestion = defineWorkflow(
 
             logWorkflowMilestone("repository-ingestion.follow-up-tip.done", {
               repositoryId: input.repositoryId,
-              ingestedHash: result.targetHash,
+              ingestedHash: ingestedHash ?? null,
               tipHash: followUp.tipHash ?? null,
               enqueued: followUp.enqueued,
             })

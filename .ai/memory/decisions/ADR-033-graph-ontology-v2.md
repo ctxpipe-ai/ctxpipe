@@ -5,8 +5,15 @@
 Amends [ADR-032](ADR-032-path-located-graph-edges.md) §2 (predicates) and §4
 (connector nodes). Builds on [ADR-031](ADR-031-github-pr-scoped-mirror.md).
 
-**Amended by:** [ADR-037](ADR-037-committed-memory-reaches-the-graph.md) — §8:
+**Amended by:** [ADR-035](ADR-035-weighted-graph-traversal-and-node-id-indexes.md) —
+§2: the extension traversal also walks `DECLARED_IN` and the change family,
+so a "why" walk reaches pull requests.
+[ADR-036](ADR-036-decision-scope-and-status.md) —
+`Decision INFLUENCES Service` follows the ADR's scope, not only its location.
+[ADR-037](ADR-037-committed-memory-reaches-the-graph.md) — §8:
 `.ai/memory/lessons-learned.md` is an instruction source (tier 2).
+[ADR-040](ADR-040-read-time-retrieval-score-signals.md) — §2: the change
+family also has `PullRequest CHANGED Service|App|Library`.
 
 ## Context
 

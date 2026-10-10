@@ -1,4 +1,7 @@
-import type { CodeSearchResult } from "../../../retrieval/index.js"
+import type {
+  CodeSearchResult,
+  TraversalNode,
+} from "../../../retrieval/index.js"
 import {
   mergeCandidates,
   parseCodeSearchResults,
@@ -9,16 +12,25 @@ import type { ConversationGraphState } from "../state.js"
  * Converts retrieval results from all channels (graph, semantic, code) into
  * a unified Candidate[] model. Merges by objectId, aggregates sourceChannels,
  * and boosts score when the same entity appears in multiple sources.
- * Claim hydration happens in assemble (after rerank) for top candidates only.
+ * Claim hydration happens in assemble (after rerank) for every claim that a
+ * traversal kept, whatever the candidate rank.
  */
 export async function normalizeNode(
   state: ConversationGraphState,
 ): Promise<Partial<ConversationGraphState>> {
-  const { orgId, claimIds, hybridResults, codeResults, graphNodes, traversalResults } =
-    state
+  const {
+    orgId,
+    claimIds,
+    hybridResults,
+    codeResults,
+    graphNodes,
+    traversalResults,
+  } = state
   if (!orgId) return {}
 
-  const parsedCode = parseCodeSearchResults((codeResults ?? []) as CodeSearchResult[])
+  const parsedCode = parseCodeSearchResults(
+    (codeResults ?? []) as CodeSearchResult[],
+  )
   const candidates = mergeCandidates(
     (hybridResults ?? []).map((r) => ({
       objectId: (r as { objectId?: string }).objectId ?? "",
@@ -33,7 +45,7 @@ export async function normalizeNode(
     })),
     (traversalResults ?? []).map((t) => ({
       nodeIds: (t as { nodeIds?: string[] }).nodeIds ?? [],
-      edgeClaimIds: (t as { edgeClaimIds?: string[] }).edgeClaimIds ?? [],
+      nodes: (t as { nodes?: TraversalNode[] }).nodes ?? [],
     })),
   )
 

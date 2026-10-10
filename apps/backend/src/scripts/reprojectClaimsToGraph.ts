@@ -35,6 +35,7 @@ import {
   log,
   withLogger,
 } from "../observability/logger.js"
+import { closeGraphDb } from "../platform/graph/client.js"
 import type { ClaimForProjection } from "../retrieval/schema/claimForProjection.js"
 import { projectClaimsFromState } from "../retrieval/services/graphProjection.js"
 
@@ -201,7 +202,8 @@ async function main(): Promise<void> {
       }),
     )
   } finally {
-    await closeDb()
+    // An open graph connection keeps the process alive after the work is done.
+    await Promise.all([closeDb(), closeGraphDb()])
   }
 }
 
