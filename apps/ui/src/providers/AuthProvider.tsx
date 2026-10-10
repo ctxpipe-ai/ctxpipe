@@ -2,6 +2,7 @@ import { AuthQueryProvider } from "@daveyplate/better-auth-tanstack"
 import { AuthUIProviderTanstack } from "@daveyplate/better-auth-ui/tanstack"
 import { Link, useRouter } from "@tanstack/react-router"
 import { type ComponentProps, type FC, useEffect, useRef } from "react"
+import { toast } from "sonner"
 import { authClient } from "@/lib/auth-client"
 import { useAuthEvlogIdentity } from "@/lib/useAuthEvlogIdentity"
 import { useGetAuthConfig } from "@/lib/useGetAuthConfig"
@@ -9,7 +10,8 @@ import { useGetAuthConfig } from "@/lib/useGetAuthConfig"
 /**
  * better-auth-ui's SignUpForm navigates to sign-in after a successful link-based
  * sign-up (emailVerification.otp is falsy). Detect that specific transition and
- * redirect to our custom "check your email" view instead.
+ * redirect to our custom "check your email" view instead, keeping the query
+ * (redirectTo) so its sign-in link returns to the same destination.
  */
 function toEmailVerificationIfSignUp(href: string): string {
   try {
@@ -18,7 +20,7 @@ function toEmailVerificationIfSignUp(href: string): string {
       url.pathname === "/.auth/sign-in" &&
       window.location.pathname === "/.auth/sign-up"
     ) {
-      return "/.auth/email-verification"
+      return `/.auth/email-verification${url.search}`
     }
   } catch {
     /* invalid URL — pass through */
@@ -48,6 +50,30 @@ export const AuthProvider: FC<React.PropsWithChildren> = ({ children }) => {
   const isOrganizationSettings = pathSegments[1] === "organization"
 
   const { data: config } = useGetAuthConfig()
+
+  // An expired or invalid verification link sends them to its callback with
+  // ?error=…, on whichever page that was. Say so once, wherever they land.
+  // (A link that was already used just redirects, with no error.)
+  useEffect(() => {
+    const url = new URL(window.location.href)
+    const error = url.searchParams.get("error")
+    if (
+      error !== "TOKEN_EXPIRED" &&
+      error !== "INVALID_TOKEN" &&
+      error !== "USER_NOT_FOUND"
+    ) {
+      return
+    }
+    // The Toaster in __root subscribes in its own effect, which runs after
+    // this one; a toast sent before then is dropped.
+    window.setTimeout(() =>
+      toast.error(
+        "That verification link has expired or is not valid. Sign in and we will send a new one.",
+      ),
+    )
+    url.searchParams.delete("error")
+    window.history.replaceState(window.history.state, "", url)
+  }, [])
 
   useEffect(() => {
     const originalFetch = window.fetch.bind(window)
@@ -111,6 +137,11 @@ export const AuthProvider: FC<React.PropsWithChildren> = ({ children }) => {
         }}
         persistClient={false}
         credentials={{ forgotPassword: true }}
+        // Signing in unverified sends a fresh link (sendOnSignIn).
+        localization={{
+          EMAIL_NOT_VERIFIED:
+            "Verify your email to sign in. We sent a new link to your inbox.",
+        }}
         twoFactor={["totp"]}
         account={{ basePath: "/.auth/account" }}
         // Keep the library's API-key navigation on organisation settings while

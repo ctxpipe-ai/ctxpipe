@@ -14,7 +14,7 @@ same public backend origin.
 | `AUTH_SECRET` | A stable random value of at least 32 characters. Generate with `openssl rand -hex 32`. |
 | `AUTH_BASE_URL` | The public HTTPS backend origin users and providers can reach. |
 | `AUTH_ALLOWED_ORIGINS` | Optional comma-separated extra browser origins. Keep this list narrow. |
-| `SMTP_CONNECTION_URL` | Required for password reset and invitation email delivery. |
+| `SMTP_CONNECTION_URL` | Required for email verification, password reset, and invitation email delivery. |
 | `EMAIL_FROM_ADDRESS` | The sender address for transactional email. |
 
 `AUTH_SECRET` protects sessions and encrypted auth material. Do not generate a
@@ -33,6 +33,12 @@ operational change.
 Email/password sign-in is available by default. Configure SMTP before inviting a
 team so verification, invitation, and password-reset messages leave the
 deployment reliably.
+
+With SMTP and `EMAIL_FROM_ADDRESS` set, new email/password accounts verify
+their address before they can sign in. An unverified account that signs in is
+sent a fresh link. Resetting a password also verifies the address, and signs
+out the account's other sessions. Without SMTP, messages are only logged, so
+verification is not required and the backend logs a warning at startup.
 
 ## Social providers (OAuth)
 

@@ -76,6 +76,9 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
   const [error, setError] = useState<string | null>(null)
+  // Set when sign-up needs the address verified first: there is no session
+  // until they click the emailed link, which returns here to finish joining.
+  const [verifyEmailFor, setVerifyEmailFor] = useState<string | null>(null)
   const autoAcceptAttemptedRef = useRef(false)
 
   const invitationEmailQuery = useQuery({
@@ -111,13 +114,17 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
       password: string
     }) => {
       autoAcceptAttemptedRef.current = true
-      await authClient.signUp.email({
+      const result = await authClient.signUp.email({
         email: input.email,
         password: input.password,
         name: input.name,
         callbackURL: currentLocation,
         fetchOptions: { throw: true },
       })
+      if (!result.token) {
+        setVerifyEmailFor(input.email)
+        return
+      }
       await acceptInvitationThenRedirect(
         () => acceptInviteMutation.mutateAsync(invitationId),
         () => window.location.assign(redirectTo),
@@ -186,6 +193,26 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
   }
   if (session && error) {
     return <p className="text-sm text-red-400">{error}</p>
+  }
+  if (verifyEmailFor) {
+    return (
+      <p className="text-sm text-zinc-300">
+        We sent an email to{" "}
+        <span className="font-medium text-zinc-100">{verifyEmailFor}</span>.
+        Open it to finish joining
+        {invitationEmailQuery.data?.organizationName
+          ? ` ${invitationEmailQuery.data.organizationName}`
+          : " the organisation"}
+        . No email, or the link expired?{" "}
+        <a
+          href={inviteSignInHref(invitationId, verifyEmailFor)}
+          className="text-teal-400 hover:text-teal-300 hover:underline"
+        >
+          Sign in
+        </a>{" "}
+        and we will send a new one.
+      </p>
+    )
   }
   if (
     decision.kind === "accept" ||
@@ -335,10 +362,12 @@ function EmailVerificationSent() {
             </h2>
             <p className="mt-2 text-sm text-muted-foreground">
               Check your email inbox and click the verification link to
-              continue.
+              continue. It works for one hour; if it has expired or never
+              arrived, sign in and we will send a new one.
             </p>
             <a
-              href="/.auth/sign-in"
+              // Same redirectTo as the sign-up, so a new link returns there too.
+              href={`/.auth/sign-in${window.location.search}`}
               className="mt-4 inline-block text-sm text-teal-400 hover:text-teal-300 hover:underline"
             >
               Back to sign in
@@ -512,6 +541,8 @@ function AuthViewRoute() {
             <AuthView
               pathname={authView}
               redirectTo={continuation?.redirectTo ?? "/onboarding"}
+              // The verification link sent at sign-up returns here too.
+              callbackURL={continuation?.redirectTo}
               className={showBranding ? "pt-24" : undefined}
               classNames={betterAuthAuthViewClassNames}
             />

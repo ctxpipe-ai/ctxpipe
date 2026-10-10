@@ -231,6 +231,27 @@ describe("createBetterAuth", () => {
     })
   })
 
+  it("requires email verification when mail can be sent, except on PR previews", () => {
+    vi.stubEnv("SMTP_CONNECTION_URL", "smtp://mail.example.com:587")
+    vi.stubEnv("EMAIL_FROM_ADDRESS", "noreply@example.com")
+    expect(createAuth().options.emailAndPassword).toMatchObject({
+      requireEmailVerification: true,
+    })
+
+    vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", "pr-361")
+    expect(createAuth().options.emailAndPassword).toMatchObject({
+      requireEmailVerification: false,
+    })
+  })
+
+  it("does not require email verification without SMTP", () => {
+    vi.stubEnv("SMTP_CONNECTION_URL", "")
+    vi.stubEnv("EMAIL_FROM_ADDRESS", "")
+    expect(createAuth().options.emailAndPassword).toMatchObject({
+      requireEmailVerification: false,
+    })
+  })
+
   it("registers the dash plugin only when BETTER_AUTH_API_KEY is set", () => {
     vi.stubEnv("BETTER_AUTH_API_KEY", "")
     expect(getPlugin(createAuth(), "dash")).toBeUndefined()
