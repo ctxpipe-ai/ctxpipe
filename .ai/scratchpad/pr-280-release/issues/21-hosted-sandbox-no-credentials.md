@@ -1,6 +1,6 @@
 # Hosted (Vercel) chat sandboxes hold no credential
 
-Status: review: the real Vercel lane runs in CI only
+Status: in review (manual check by the CTO on the pr-280 preview)
 Priority: P0
 Owner: claude
 Blocked by: none

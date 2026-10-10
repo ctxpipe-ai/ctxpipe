@@ -1,6 +1,6 @@
 # Commit+Push is unreliable and Create PR does not work
 
-Status: open: confirm the Create PR cause on the preview
+Status: in review (manual check after the pr-280 GitHub App variables are fixed)
 Priority: P0
 Owner: claude
 Blocked by: none
@@ -39,3 +39,5 @@ Proof:
 ## Open
 
 - Confirm cause 2 on the preview. In HyperDX (DeploymentEnvironment `pr-280`), find the `conversation-pull-request` error of the two 502 requests on 2026-10-07 at 08:44 UTC. Read the GitHub status and message on that event. After this change deploys, a new attempt logs `conversation-pull-request refused` with `githubStatus` and `githubMessage`. If GitHub refused the permission, set the preview's GitHub App to Repository permissions → Pull requests: Read and write, and accept the new permission on the installation.
+
+- 2026-10-10 (claude): the likely cause of Create PR failing on the preview is configuration, not code. The pr-280 Railway environment has the production GitHub App variables (`GITHUB_APP_SLUG=ctxpipe-agent`), not the `ctxpipe-agent-pr-280` app. The PR Deploy workflow duplicates the production environment when it creates a preview, and it never writes the GitHub App variables, so a re-created environment gets the production app. Fix: set the six GitHub App variables of the pr-280 app on the pr-280 backend and worker services, then retest Create PR.

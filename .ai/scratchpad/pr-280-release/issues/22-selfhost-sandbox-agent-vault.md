@@ -1,6 +1,6 @@
 # Self-host (Docker) sandboxes hold no credential, through Agent Vault
 
-Status: review: Compose deploy and AWS deploy not run end to end
+Status: in progress (Compose and AWS end-to-end run)
 Priority: P0
 Owner: claude
 Blocked by: none

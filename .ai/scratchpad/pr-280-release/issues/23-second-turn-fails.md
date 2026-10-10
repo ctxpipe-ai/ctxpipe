@@ -1,6 +1,6 @@
 # A second question in a chat conversation fails
 
-Status: review: confirm on the preview after the next deploy
+Status: in review (manual check by the CTO on the pr-280 preview)
 Priority: P0
 Owner: claude
 Blocked by: none
