@@ -62,7 +62,7 @@ Checked, no change needed:
 
 Fix: `apps/ui/Dockerfile` sets `ENV NITRO_BUN_IDLE_TIMEOUT=30`, above the 15 s proxy timeout. This is a fixed image value, not a new operator setting. Local `vite dev` does not use the Nitro bun entry.
 
-Proof: `apps/backend/src/routes/ui-idle-timeout.test.ts` (about 6 s). It starts two real Bun upstreams (`src/test/slow-bun-server.ts`, with the same idle-timeout expression as the Nitro entry) that answer after 5.5 s, and calls `proxyUiRequest` with a 7 s timeout. Bun checks idle sockets on a 4 s tick. With `idleTimeout` 1 s, the result is 502. With 8 s, the result is 200 with the page. A second test reads `NITRO_BUN_IDLE_TIMEOUT` from the UI Dockerfile and checks that it is greater than `UI_PROXY_TIMEOUT_MS`. Before the Dockerfile change, that test failed.
+Proof: a red/green run with real Bun servers behind `proxyUiRequest`. Bun checks idle sockets on a 4 s sweep. Measured close times on Bun 1.4.2: `idleTimeout` 1 s closed at 4.0 s, and the default (10 s) closed at 12.0 s. A page that answered after 13.5 s gave 502 with the default and 200 with the UI Dockerfile value. A later page with `idleTimeout` 8 s closed at 4 to 8 s, depending on where the request lands in the sweep. These tests checked Bun, not our code, and their timing could fail in CI, so they were removed. `apps/backend/src/routes/ui-idle-timeout.test.ts` keeps one fast guard: `(NITRO_BUN_IDLE_TIMEOUT - 4) * 1000 > UI_PROXY_TIMEOUT_MS`, read from the UI Dockerfile and from code.
 
 ## Follow-ups
 
