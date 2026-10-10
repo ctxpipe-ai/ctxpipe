@@ -20,12 +20,7 @@ import {
 import { useRepositoryIndexingSummary } from "@/features/repositories"
 import { client } from "@/lib/api"
 import { apiFetch, readApiJson } from "@/lib/api-result"
-import {
-  authClient,
-  getSession,
-  useListOrganizations,
-  useSession,
-} from "@/lib/auth-client"
+import { authClient, useListOrganizations, useSession } from "@/lib/auth-client"
 import { useUserPreferences } from "@/lib/user-preferences"
 
 export const Route = createFileRoute("/onboarding")({
@@ -56,7 +51,7 @@ export function OnboardingPageContent({
 }: {
   urlOrgSlug: string | null
 }) {
-  const { data: session, isPending } = useSession()
+  const { data: session, isPending, refetch: refetchSession } = useSession()
   const router = useRouter()
   const { data: organizations, isPending: orgsPending } = useListOrganizations()
   const [, setPreferences] = useUserPreferences()
@@ -240,7 +235,8 @@ export function OnboardingPageContent({
         ...prev,
         selectedOrganizationSlug: orgSlug,
       }))
-      void getSession({ fetchOptions: { throw: false } })
+      // `/` reads this session atom. A stale atom sends the user back here.
+      await refetchSession()
     } catch {
       setCompleting(false)
       return
@@ -270,7 +266,7 @@ export function OnboardingPageContent({
         method: "POST",
         credentials: "include",
       }).then((res) => readApiJson(res))
-      void getSession({ fetchOptions: { throw: false } })
+      await refetchSession()
     } catch {
       setCompleting(false)
       return
