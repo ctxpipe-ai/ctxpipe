@@ -11,6 +11,7 @@ import {
   encodePagerdutyOAuthClientSecretForDb,
   encodePagerdutyWebhookSecretForDb,
   envHasPagerdutyOAuthApp,
+  type PagerdutyConnectionConfigStored,
   type PagerdutySetupPhase,
   parsePagerdutyConnectionStored,
   resolvePagerdutyOAuthAppCreds,
@@ -143,6 +144,26 @@ function isPagerdutyPlaceholderDraft(connection: {
     connection.status === "pending" &&
     connection.accountId.startsWith("pending:") &&
     !connection.hasAccessToken
+  )
+}
+
+/**
+ * True for a draft that only the setup first screen created: no linked
+ * account and no saved OAuth app, webhook, or sync binding.
+ */
+export function isEmptyPagerdutySetupDraft(
+  config: PagerdutyConnectionConfigStored,
+): boolean {
+  return (
+    isPagerdutyPlaceholderDraft({
+      status: config.status,
+      accountId: config.accountId,
+      hasAccessToken: Boolean(config.accessTokenEnc),
+    }) &&
+    !config.oauthClientId &&
+    !config.oauthClientSecretEnc &&
+    !config.webhookSecretEnc &&
+    !config.repositoryId
   )
 }
 

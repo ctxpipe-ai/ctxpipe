@@ -345,6 +345,30 @@ export async function updateForgeAppSystemTokenByInstallationId(input: {
   return true
 }
 
+/**
+ * True for a draft that only the setup first screen created: no linked site,
+ * no saved OAuth app, operator token, or site host, and no provisioning run.
+ */
+export function isEmptyForgeSetupDraft(config: ForgeConnectionConfig): boolean {
+  return (
+    config.status === "pending" &&
+    !config.cloudId &&
+    !config.installationId &&
+    !config.appSystemToken &&
+    !config.confluenceSiteHost &&
+    !config.forgeScopedApiToken &&
+    !config.forgeOperatorEmail &&
+    config.provisionStatus === "idle" &&
+    !config.atlassianOAuthClientId &&
+    !config.atlassianOAuthClientSecret
+  )
+}
+
+/**
+ * Returns the user's pending Forge installation in another org, if one holds
+ * setup progress. Deletes the user's empty drafts in other orgs: the
+ * connectors list hides them, so the user cannot remove them.
+ */
 export async function getPendingForgeInstallationForUserInOtherOrg(input: {
   userId: string
   orgId: string
@@ -356,22 +380,45 @@ export async function getPendingForgeInstallationForUserInOtherOrg(input: {
     .where(eq(members.userId, input.userId))
   for (const { orgId } of orgRows) {
     if (orgId === input.orgId) continue
-    const installation = await withOrgDbContext(orgId, async () => {
-      const [row] = await getOrgDb()
-        .select()
-        .from(connections)
-        .where(
-          and(
-            eq(connections.orgId, orgId),
-            eq(connections.type, CONNECTION_TYPE_FORGE),
-            eq(forgeConfigStatusRef(), "pending"),
-            eq(forgeConfigInstalledByUserIdRef(), input.userId),
+    const { installation, removedIds } = await withOrgDbContext(
+      orgId,
+      async (tx) => {
+        const rows = await tx
+          .select()
+          .from(connections)
+          .where(
+            and(
+              eq(connections.orgId, orgId),
+              eq(connections.type, CONNECTION_TYPE_FORGE),
+              eq(forgeConfigStatusRef(), "pending"),
+              eq(forgeConfigInstalledByUserIdRef(), input.userId),
+            ),
+          )
+          .orderBy(desc(connections.updatedAt))
+        const empty = rows.filter((row) =>
+          isEmptyForgeSetupDraft(
+            parseForgeConnectionConfig(row.config as Record<string, unknown>),
           ),
         )
-        .orderBy(desc(connections.updatedAt))
-        .limit(1)
-      return row ? forgeConnectionToShape(row) : undefined
-    })
+        const removed = empty.length
+          ? await tx
+              .delete(connections)
+              .where(
+                inArray(
+                  connections.id,
+                  empty.map((row) => row.id),
+                ),
+              )
+              .returning({ id: connections.id })
+          : []
+        const held = rows.find((row) => !empty.includes(row))
+        return {
+          installation: held ? forgeConnectionToShape(held) : undefined,
+          removedIds: removed.map((row) => row.id),
+        }
+      },
+    )
+    for (const id of removedIds) await deleteConnectionDirectory(id)
     if (installation) return installation
   }
   return undefined
@@ -396,6 +443,8 @@ export async function upsertPendingForgeInstallation(input: {
       )
       .orderBy(desc(connections.updatedAt))
       .limit(1)
+    // Reuse the draft as it is: it can hold a saved OAuth app or site host.
+    if (existing) return existing
 
     const pendingConfig = forgeShapeToConfig({
       cloudId: null,
@@ -418,17 +467,6 @@ export async function upsertPendingForgeInstallation(input: {
       lastProvisionAt: null,
       atlassianOAuthClientId: null,
     })
-
-    if (existing) {
-      const [updated] = await db
-        .update(connections)
-        .set({ config: pendingConfig, updatedAt: new Date() })
-        .where(eq(connections.id, existing.id))
-        .returning()
-      if (!updated)
-        throw new Error("Failed to upsert pending forge installation")
-      return updated
-    }
 
     const id = generateObjectId("con")
     const [created] = await db

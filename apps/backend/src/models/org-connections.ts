@@ -7,6 +7,10 @@ import {
   notionConnectionConfigSchema,
   pagerdutyConnectionConfigStoredSchema,
 } from "../lib/connection-config.js"
+import { isEmptyForgeSetupDraft } from "./atlassian-connector.js"
+import { isEmptyLinearSetupDraft } from "./linear-connector.js"
+import { isEmptyNotionSetupDraft } from "./notion-connector.js"
+import { isEmptyPagerdutySetupDraft } from "./pagerduty-connector.js"
 
 export type OrgConnectionListItem = {
   id: string
@@ -16,38 +20,26 @@ export type OrgConnectionListItem = {
 }
 
 /**
- * True while a setup wizard holds the row only to keep its state (OAuth app,
- * install intent) and no provider account is linked yet. A row that does not
- * parse stays listed, so the operator can see and remove it.
+ * True for a draft that only a setup first screen created. A row that does
+ * not parse stays listed, so the operator can see and remove it.
  */
-function isUnlinkedSetupDraft(type: ConnectionType, config: unknown): boolean {
+function isEmptySetupDraft(type: ConnectionType, config: unknown): boolean {
   switch (type) {
     case "forge": {
       const parsed = forgeConnectionConfigSchema.safeParse(config)
-      return (
-        parsed.success && !parsed.data.cloudId && !parsed.data.installationId
-      )
+      return parsed.success && isEmptyForgeSetupDraft(parsed.data)
     }
     case "notion": {
       const parsed = notionConnectionConfigSchema.safeParse(config)
-      return (
-        parsed.success &&
-        !parsed.data.workspaceId &&
-        !parsed.data.accessTokenEnc &&
-        !parsed.data.accessToken
-      )
+      return parsed.success && isEmptyNotionSetupDraft(parsed.data)
     }
     case "linear": {
       const parsed = linearConnectionConfigStoredSchema.safeParse(config)
-      return parsed.success && !parsed.data.workspaceId
+      return parsed.success && isEmptyLinearSetupDraft(parsed.data)
     }
     case "pagerduty": {
       const parsed = pagerdutyConnectionConfigStoredSchema.safeParse(config)
-      return (
-        parsed.success &&
-        parsed.data.accountId.startsWith("pending:") &&
-        !parsed.data.accessTokenEnc
-      )
+      return parsed.success && isEmptyPagerdutySetupDraft(parsed.data)
     }
     default:
       return false
@@ -55,9 +47,8 @@ function isUnlinkedSetupDraft(type: ConnectionType, config: unknown): boolean {
 }
 
 /**
- * Metadata only — never exposes `config` (secrets). Leaves out setup drafts
- * that have no linked provider account: opening a wizard must not add a
- * connection to the list.
+ * Metadata only — never exposes `config` (secrets). Leaves out empty setup
+ * drafts: opening a wizard must not add a connection to the list.
  */
 export async function listOrgConnections(
   orgId: string,
@@ -76,6 +67,6 @@ export async function listOrgConnections(
       .orderBy(asc(connections.createdAt))
   })
   return rows
-    .filter((row) => !isUnlinkedSetupDraft(row.type, row.config))
+    .filter((row) => !isEmptySetupDraft(row.type, row.config))
     .map(({ config: _config, ...item }) => item)
 }

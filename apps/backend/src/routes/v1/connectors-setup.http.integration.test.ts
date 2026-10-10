@@ -12,9 +12,14 @@ import {
 } from "vitest"
 import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../../test/db.js"
 import type { AppEnv } from "../../app/env.js"
+import { getAuth } from "../../auth/config.js"
 import { parseEnv } from "../../config/env.js"
-import { withOrgDbContext } from "../../db/client.js"
-import { connections } from "../../db/schema/connections.js"
+import { getSystemDb, withOrgDbContext } from "../../db/client.js"
+import { organizations } from "../../db/schema/auth.js"
+import {
+  type ConnectionType,
+  connections,
+} from "../../db/schema/connections.js"
 import {
   contextStorage,
   withTestRequestLogger,
@@ -56,9 +61,9 @@ describe("connector setup first screens (Postgres)", () => {
     return app
   }
 
-  function call(method: "GET" | "POST", path: string) {
+  function call(method: "GET" | "POST", path: string, orgSlug = seed.orgSlug) {
     return createApp().request(
-      `http://backend.test/${seed.orgSlug}/api/v1/connectors${path}`,
+      `http://backend.test/${orgSlug}/api/v1/connectors${path}`,
       { method, headers: { cookie: seed.cookie } },
     )
   }
@@ -67,7 +72,40 @@ describe("connector setup first screens (Postgres)", () => {
     const res = await call("GET", "")
     expect(res.status).toBe(200)
     const body = (await res.json()) as { items: { type: string }[] }
-    return body.items.map((item) => item.type)
+    return body.items.map((item) => item.type).sort()
+  }
+
+  /** Opens the first screen of each self-host setup wizard. */
+  async function openEveryFirstScreen() {
+    expect((await call("POST", "/atlassian/installation")).status).toBe(200)
+    expect((await call("POST", "/notion/draft")).status).toBe(200)
+    expect((await call("POST", "/linear/draft")).status).toBe(200)
+    expect((await call("POST", "/pagerduty/setup")).status).toBe(200)
+  }
+
+  async function patchConfig(
+    orgId: string,
+    type: ConnectionType,
+    patch: Record<string, unknown>,
+  ) {
+    await withOrgDbContext(orgId, (db) =>
+      db
+        .update(connections)
+        .set({
+          config: sql`${connections.config} || ${JSON.stringify(patch)}::jsonb`,
+        })
+        .where(and(eq(connections.orgId, orgId), eq(connections.type, type))),
+    )
+  }
+
+  async function connectionIds(orgId: string, type: ConnectionType) {
+    const rows = await withOrgDbContext(orgId, (db) =>
+      db
+        .select({ id: connections.id, config: connections.config })
+        .from(connections)
+        .where(and(eq(connections.orgId, orgId), eq(connections.type, type))),
+    )
+    return rows
   }
 
   beforeAll(async () => {
@@ -99,42 +137,121 @@ describe("connector setup first screens (Postgres)", () => {
   })
 
   it("does not list a connection that only opened a setup first screen", async () => {
-    expect((await call("POST", "/atlassian/installation")).status).toBe(200)
-    expect((await call("POST", "/notion/draft")).status).toBe(200)
-    expect((await call("POST", "/pagerduty/setup")).status).toBe(200)
+    await openEveryFirstScreen()
 
     expect(await listedTypes()).toEqual([])
   })
 
-  it("lists a connection once its provider account is linked", async () => {
-    expect((await call("POST", "/atlassian/installation")).status).toBe(200)
-    expect((await call("POST", "/notion/draft")).status).toBe(200)
-    expect((await call("POST", "/pagerduty/setup")).status).toBe(200)
-    const linked: Record<string, Record<string, string>> = {
-      forge: { cloudId: "cloud-1" },
-      notion: { workspaceId: "notion-ws-1" },
-      pagerduty: { accountId: "PD-ACCOUNT-1" },
-    }
-    for (const [type, patch] of Object.entries(linked)) {
-      await withOrgDbContext(seed.orgId, (db) =>
-        db
-          .update(connections)
-          .set({
-            config: sql`${connections.config} || ${JSON.stringify(patch)}::jsonb`,
-          })
-          .where(
-            and(
-              eq(connections.orgId, seed.orgId),
-              eq(connections.type, type as "forge" | "notion" | "pagerduty"),
-            ),
-          ),
-      )
+  it("lists a setup draft that holds saved progress", async () => {
+    await openEveryFirstScreen()
+    const progress: [ConnectionType, Record<string, unknown>][] = [
+      ["forge", { atlassianOAuthClientId: "atlassian-client-1" }],
+      ["notion", { oauthClientId: "notion-client-1" }],
+      ["linear", { oauthClientId: "linear-client-1" }],
+      ["pagerduty", { oauthClientId: "pagerduty-client-1" }],
+    ]
+    for (const [type, patch] of progress) {
+      await patchConfig(seed.orgId, type, patch)
     }
 
-    expect((await listedTypes()).sort()).toEqual([
+    expect(await listedTypes()).toEqual([
       "forge",
+      "linear",
       "notion",
       "pagerduty",
     ])
+  })
+
+  it("lists a connection once its provider account is linked", async () => {
+    await openEveryFirstScreen()
+    const linked: [ConnectionType, Record<string, unknown>][] = [
+      ["forge", { cloudId: "cloud-1" }],
+      ["notion", { workspaceId: "notion-ws-1" }],
+      ["linear", { workspaceId: "linear-ws-1" }],
+      ["pagerduty", { accountId: "PD-ACCOUNT-1" }],
+    ]
+    for (const [type, patch] of linked) {
+      await patchConfig(seed.orgId, type, patch)
+    }
+
+    expect(await listedTypes()).toEqual([
+      "forge",
+      "linear",
+      "notion",
+      "pagerduty",
+    ])
+  })
+
+  it("keeps the saved state of a Confluence draft when setup starts again", async () => {
+    expect((await call("POST", "/atlassian/installation")).status).toBe(200)
+    await patchConfig(seed.orgId, "forge", {
+      atlassianOAuthClientId: "atlassian-client-1",
+    })
+
+    expect((await call("POST", "/atlassian/installation")).status).toBe(200)
+
+    const rows = await connectionIds(seed.orgId, "forge")
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.config).toMatchObject({
+      atlassianOAuthClientId: "atlassian-client-1",
+    })
+  })
+
+  describe("with a Confluence draft in another organization", () => {
+    let otherOrg: { id: string; slug: string }
+
+    beforeAll(async () => {
+      const org = await getAuth().api.createOrganization({
+        body: {
+          name: `Other ${seed.orgSlug}`,
+          slug: `other-${seed.orgSlug}`,
+        },
+        headers: new Headers({
+          origin: process.env.AUTH_BASE_URL ?? "http://localhost:3000",
+          cookie: seed.cookie,
+        }),
+      })
+      if (!org?.id) throw new Error("createOrganization returned no id")
+      otherOrg = { id: org.id, slug: org.slug }
+    })
+
+    afterEach(async () => {
+      await withOrgDbContext(otherOrg.id, (db) =>
+        db.delete(connections).where(eq(connections.orgId, otherOrg.id)),
+      )
+    })
+
+    afterAll(async () => {
+      await getSystemDb()
+        .delete(organizations)
+        .where(eq(organizations.id, otherOrg.id))
+    })
+
+    it("replaces an empty draft from the other organization", async () => {
+      expect(
+        (await call("POST", "/atlassian/installation", otherOrg.slug)).status,
+      ).toBe(200)
+
+      expect((await call("POST", "/atlassian/installation")).status).toBe(200)
+
+      expect(await connectionIds(otherOrg.id, "forge")).toEqual([])
+      expect(await connectionIds(seed.orgId, "forge")).toHaveLength(1)
+    })
+
+    it("refuses while the other organization's draft holds progress", async () => {
+      expect(
+        (await call("POST", "/atlassian/installation", otherOrg.slug)).status,
+      ).toBe(200)
+      await patchConfig(otherOrg.id, "forge", {
+        confluenceSiteHost: "example.atlassian.net",
+      })
+
+      const res = await call("POST", "/atlassian/installation")
+      expect(res.status).toBe(409)
+      expect(await res.json()).toMatchObject({
+        code: "atlassian_pending_installation_exists",
+      })
+      expect(await connectionIds(otherOrg.id, "forge")).toHaveLength(1)
+    })
   })
 })
