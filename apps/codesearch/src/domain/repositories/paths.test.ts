@@ -10,6 +10,7 @@ import { tmpdir } from "node:os"
 import { join, relative } from "node:path"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import {
+  readContainedDirectory,
   readContainedFile,
   resolveContainedRealPath,
   resolveSafePath,
@@ -174,5 +175,54 @@ describe("paths inside the checkout", () => {
     expect(await resolveSafeReadableFilePath(checkout, ".gitignore")).toBe(
       join(checkout, ".gitignore"),
     )
+  })
+
+  it("lists a directory without its .git entry", async () => {
+    const names = (await readContainedDirectory(checkout, checkout))
+      .map((entry) => entry.name)
+      .sort()
+    expect(names).toContain(".github")
+    expect(names).toContain(".gitignore")
+    expect(names).not.toContain(".git")
+    expect(
+      (await readContainedDirectory(checkout, join(checkout, "sub")))
+        .map((entry) => entry.name)
+        .sort(),
+    ).toEqual(["inner.txt", "rel-link"])
+  })
+
+  it("does not list a directory through a symlink at its last component", async () => {
+    await expect(
+      readContainedDirectory(checkout, join(checkout, "out-dir")),
+    ).rejects.toHaveProperty("code", expect.stringMatching(/^(ELOOP|ENOTDIR)$/))
+  })
+
+  // A checkout can change a parent directory into a symlink after the path
+  // check. Only the Linux descriptor check refuses that path.
+  it("refuses a directory whose parent became a symlink to outside", async () => {
+    await mkdir(join(tmpDir, "outside", "dir", "deeper"))
+    await writeFile(join(tmpDir, "outside", "dir", "deeper", "x.txt"), "x\n")
+    const listing = readContainedDirectory(
+      checkout,
+      join(checkout, "out-dir", "deeper"),
+    )
+    if (process.platform === "linux") {
+      await expect(listing).rejects.toMatchObject({ code: "ENOENT" })
+    } else {
+      expect((await listing).map((entry) => entry.name)).toEqual(["x.txt"])
+    }
+  })
+
+  it("refuses a directory whose parent became a symlink to .git", async () => {
+    await mkdir(join(checkout, ".git", "hooks"))
+    const listing = readContainedDirectory(
+      checkout,
+      join(checkout, "git-dir", "hooks"),
+    )
+    if (process.platform === "linux") {
+      await expect(listing).rejects.toMatchObject({ code: "ENOENT" })
+    } else {
+      expect(await listing).toEqual([])
+    }
   })
 })

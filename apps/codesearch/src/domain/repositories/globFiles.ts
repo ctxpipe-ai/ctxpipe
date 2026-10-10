@@ -1,7 +1,7 @@
 import type { Dirent } from "node:fs"
-import { readdir, realpath, stat } from "node:fs/promises"
+import { realpath, stat } from "node:fs/promises"
 import { basename, join, relative, sep } from "node:path"
-import { resolveContainedRealPath } from "./paths.js"
+import { readContainedDirectory, resolveContainedRealPath } from "./paths.js"
 
 export class GlobPathNotFoundError extends Error {
   constructor(message = "Path not found") {
@@ -128,7 +128,7 @@ function errnoCode(error: unknown): string {
 async function resolveCheckoutCwd(
   checkoutRoot: string,
   relativeCwd: string,
-): Promise<{ absCwd: string; realCwd: string }> {
+): Promise<{ absCwd: string; realCwd: string; realRoot: string }> {
   try {
     const absCwd = await resolveContainedRealPath(
       checkoutRoot,
@@ -136,7 +136,11 @@ async function resolveCheckoutCwd(
     )
     const realRoot = await realpath(checkoutRoot)
     if (!(await stat(absCwd)).isDirectory()) throw new GlobPathNotFoundError()
-    return { absCwd, realCwd: relative(realRoot, absCwd).split(sep).join("/") }
+    return {
+      absCwd,
+      realCwd: relative(realRoot, absCwd).split(sep).join("/"),
+      realRoot,
+    }
   } catch (error) {
     if (
       error instanceof Error &&
@@ -150,9 +154,12 @@ async function resolveCheckoutCwd(
 
 /**
  * Recursive checkout walk that never descends into skipped vendor / VCS / build
- * directories. Uses dirent types (no per-file lstat).
+ * directories. Uses dirent types (no per-file lstat). Each directory is read
+ * through {@link readContainedDirectory}, so a directory that a checkout
+ * changes during the walk is skipped.
  */
 async function walkPrunedCheckout(input: {
+  realRoot: string
   absCwd: string
   relativeCwd: string
   realCwd: string
@@ -177,9 +184,9 @@ async function walkPrunedCheckout(input: {
     if (!current) break
     let dirents: Dirent<string>[]
     try {
-      dirents = await readdir(current.absDir, { withFileTypes: true })
+      dirents = await readContainedDirectory(input.realRoot, current.absDir)
     } catch (error) {
-      if (errnoCode(error) === "ENOENT") {
+      if (["ENOENT", "ENOTDIR", "ELOOP"].includes(errnoCode(error))) {
         if (current.absDir === input.absCwd) {
           throw new GlobPathNotFoundError()
         }
@@ -226,9 +233,13 @@ export async function listCheckoutFilePaths(
   options?: { limit?: number },
 ): Promise<string[]> {
   const limit = resolveGlobLimit(options?.limit)
-  const { absCwd, realCwd } = await resolveCheckoutCwd(checkoutRoot, "")
+  const { absCwd, realCwd, realRoot } = await resolveCheckoutCwd(
+    checkoutRoot,
+    "",
+  )
   const paths: string[] = []
   await walkPrunedCheckout({
+    realRoot,
     absCwd,
     relativeCwd: "",
     realCwd,
@@ -257,7 +268,7 @@ export async function globFilesInCheckout(
     .replace(/\\/g, "/")
     .replace(/^\//, "")
   assertSafeGlobPattern(options.pattern)
-  const { absCwd, realCwd } = await resolveCheckoutCwd(
+  const { absCwd, realCwd, realRoot } = await resolveCheckoutCwd(
     options.checkoutRoot,
     relativeCwd,
   )
@@ -273,6 +284,7 @@ export async function globFilesInCheckout(
   let truncated = false
 
   await walkPrunedCheckout({
+    realRoot,
     absCwd,
     relativeCwd,
     realCwd,

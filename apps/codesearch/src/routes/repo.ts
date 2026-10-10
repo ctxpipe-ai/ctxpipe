@@ -1,5 +1,4 @@
-import { lstat, readdir } from "node:fs/promises"
-import { join } from "node:path"
+import { realpath } from "node:fs/promises"
 import type { OpenAPIHono } from "@hono/zod-openapi"
 import { createRoute, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../app/env.js"
@@ -13,6 +12,7 @@ import {
   listCheckoutFilePaths,
 } from "../domain/repositories/globFiles.js"
 import {
+  readContainedDirectory,
   readContainedFile,
   repoCheckoutPath,
   resolveContainedRealPath,
@@ -525,26 +525,20 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
       repo.id,
       checkoutKeyFromAuth(auth, repoId, repo.publishedCheckoutKey),
     )
-    let dirPath: string
-    let names: string[]
+    let dirents: Awaited<ReturnType<typeof readContainedDirectory>>
     try {
-      dirPath = await resolveContainedRealPath(basePath, path ?? ".")
-      names = await readdir(dirPath)
+      const dirPath = await resolveContainedRealPath(basePath, path ?? ".")
+      dirents = await readContainedDirectory(await realpath(basePath), dirPath)
     } catch {
       return c.json({ error: "Path not found" }, 404)
     }
-    const entries: { name: string; path: string; type: "file" | "dir" }[] = []
-    for (const name of names) {
-      const fullPath = join(dirPath, name)
-      const relPath = path ? `${path}/${name}` : name
-      const s = await lstat(fullPath)
-      if (s.isSymbolicLink()) continue
-      entries.push({
-        name,
-        path: relPath,
-        type: s.isDirectory() ? "dir" : "file",
-      })
-    }
+    const entries = dirents
+      .filter((dirent) => !dirent.isSymbolicLink())
+      .map((dirent) => ({
+        name: dirent.name,
+        path: path ? `${path}/${dirent.name}` : dirent.name,
+        type: dirent.isDirectory() ? ("dir" as const) : ("file" as const),
+      }))
     return c.json({ entries }, 200)
   })
 

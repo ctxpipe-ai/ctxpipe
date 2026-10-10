@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto"
-import { constants } from "node:fs"
+import { constants, type Dirent } from "node:fs"
 import {
   open,
+  readdir,
   readlink,
   realpath,
   rename,
@@ -138,6 +139,42 @@ export async function readContainedFile(
       throw new Error("Not a file")
     }
     return await handle.readFile()
+  } finally {
+    await handle.close()
+  }
+}
+
+/**
+ * Lists a directory inside the checkout. `realBase` is the real path of the
+ * checkout root, and `dirPath` is a real path below it that a caller resolved
+ * before. The directory is opened without following a symlink at its last
+ * component. On Linux, the real path of the open descriptor is checked again,
+ * and the list is read through the descriptor, so a path that a checkout
+ * changes after the first check is not listed. Other platforms have only the
+ * first check. The list never holds a `.git` entry, in any letter case.
+ */
+export async function readContainedDirectory(
+  realBase: string,
+  dirPath: string,
+): Promise<Dirent<string>[]> {
+  const handle = await open(
+    dirPath,
+    constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
+  )
+  try {
+    let listPath = dirPath
+    if (process.platform === "linux") {
+      listPath = `/proc/self/fd/${handle.fd}`
+      const opened = await readlink(listPath)
+      if (
+        (opened !== realBase && !opened.startsWith(`${realBase}${sep}`)) ||
+        hasGitSegment(relative(realBase, opened))
+      ) {
+        throw notFound()
+      }
+    }
+    const entries = await readdir(listPath, { withFileTypes: true })
+    return entries.filter((entry) => !hasGitSegment(entry.name))
   } finally {
     await handle.close()
   }

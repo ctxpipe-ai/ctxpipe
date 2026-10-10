@@ -1,23 +1,32 @@
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
+import { execFileSync } from "node:child_process"
+import { mkdir, mkdtemp, rm, stat, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, relative } from "node:path"
 import { OpenAPIHono } from "@hono/zod-openapi"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest"
 import type { AppEnv } from "../app/env.js"
 
-vi.mock("../config/paths.js", () => ({
-  REPO_CACHE_DIR: "",
-  ZOEKT_INDEX_DIR: "",
-}))
+// config/paths.js reads these variables when it loads.
+const { cacheRoot } = await vi.hoisted(async () => {
+  const { mkdtempSync, realpathSync } = await import("node:fs")
+  const { tmpdir } = await import("node:os")
+  const { join } = await import("node:path")
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "repo-route-")))
+  vi.stubEnv("REPO_CACHE_DIR", join(root, "repo-cache"))
+  vi.stubEnv("ZOEKT_INDEX_DIR", join(root, "zoekt-index"))
+  return { cacheRoot: root }
+})
 
-const {
-  getAccessibleRepositoryMock,
-  resolveRepositoryRefMock,
-  purgeRepositoryFromDiskMock,
-} = vi.hoisted(() => ({
+const { getAccessibleRepositoryMock } = vi.hoisted(() => ({
   getAccessibleRepositoryMock: vi.fn(),
-  resolveRepositoryRefMock: vi.fn(),
-  purgeRepositoryFromDiskMock: vi.fn(),
 }))
 
 vi.mock("../domain/repositories/service.js", () => ({
@@ -25,16 +34,17 @@ vi.mock("../domain/repositories/service.js", () => ({
   getIndexableRepository: vi.fn(),
 }))
 
-vi.mock("../domain/repositories/resolveRef.js", () => ({
-  resolveRepositoryRef: resolveRepositoryRefMock,
-}))
-
-vi.mock("../domain/repositories/purge.js", () => ({
-  purgeRepositoryFromDisk: purgeRepositoryFromDiskMock,
-}))
-
-import * as paths from "../config/paths.js"
 import { registerRepoRoutes } from "./repo.js"
+
+const repoCacheDir = join(cacheRoot, "repo-cache")
+
+afterEach(async () => {
+  await rm(repoCacheDir, { recursive: true, force: true })
+})
+
+afterAll(async () => {
+  await rm(cacheRoot, { recursive: true, force: true })
+})
 
 const MOCK_REPO = {
   id: "repo_abcdef27",
@@ -78,14 +88,12 @@ function createTestApp() {
 
 describe("GET /{repoId}/files", () => {
   let tmpDir: string
-  let repoCacheDir: string
   let checkoutDir: string
 
   beforeEach(async () => {
     vi.clearAllMocks()
     getAccessibleRepositoryMock.mockResolvedValue(MOCK_REPO)
     tmpDir = await mkdtemp(join(tmpdir(), "list-files-test-"))
-    repoCacheDir = join(tmpDir, "repo-cache")
     checkoutDir = join(
       repoCacheDir,
       "org_mock123",
@@ -93,10 +101,6 @@ describe("GET /{repoId}/files", () => {
       "checkouts",
       "default",
     )
-    Object.defineProperty(paths, "REPO_CACHE_DIR", {
-      value: repoCacheDir,
-      writable: true,
-    })
   })
 
   afterEach(async () => {
@@ -139,14 +143,12 @@ describe("GET /{repoId}/files", () => {
 
 describe("GET /{repoId}/files/{path}", () => {
   let tmpDir: string
-  let repoCacheDir: string
   let checkoutDir: string
 
   beforeEach(async () => {
     vi.clearAllMocks()
     getAccessibleRepositoryMock.mockResolvedValue(MOCK_REPO)
     tmpDir = await mkdtemp(join(tmpdir(), "get-file-test-"))
-    repoCacheDir = join(tmpDir, "repo-cache")
     checkoutDir = join(
       repoCacheDir,
       "org_mock123",
@@ -154,10 +156,6 @@ describe("GET /{repoId}/files/{path}", () => {
       "checkouts",
       "default",
     )
-    Object.defineProperty(paths, "REPO_CACHE_DIR", {
-      value: repoCacheDir,
-      writable: true,
-    })
   })
 
   afterEach(async () => {
@@ -232,117 +230,67 @@ describe("GET /{repoId}/files/{path}", () => {
 })
 
 describe("POST /{repoId}/resolve-ref", () => {
-  beforeEach(() => {
+  let remoteDir: string
+  let mainHash: string
+
+  beforeEach(async () => {
     vi.clearAllMocks()
-  })
-
-  it("returns resolved branch/hash", async () => {
+    remoteDir = await mkdtemp(join(tmpdir(), "resolve-ref-remote-"))
+    const git = (...args: string[]) =>
+      execFileSync("git", args, { cwd: remoteDir, encoding: "utf8" }).trim()
+    git("init", "--quiet", "--initial-branch=trunk")
+    git("config", "user.email", "test@example.com")
+    git("config", "user.name", "Test")
+    await writeFile(join(remoteDir, "README.md"), "# remote\n")
+    git("add", "README.md")
+    git("commit", "--quiet", "-m", "first")
+    git("branch", "main")
+    mainHash = git("rev-parse", "main")
     getAccessibleRepositoryMock.mockResolvedValue({
-      id: "repo_abcdef27",
-      orgId: "org_mock123",
-      gitUrl: "https://github.com/appear/ctxpipe.git",
-    })
-    resolveRepositoryRefMock.mockResolvedValue({
-      branch: "main",
-      hash: "abc123",
-    })
-
-    const app = new OpenAPIHono<AppEnv>()
-    app.use("*", async (c, next) => {
-      c.set("db", {} as AppEnv["Variables"]["db"])
-      c.set("env", {
-        NODE_ENV: "test",
-        PORT: 3001,
-      } as AppEnv["Variables"]["env"])
-      c.set("auth", {
-        sub: "user_test",
-        orgId: "org_mock123",
-        principal: "user",
-      } as AppEnv["Variables"]["auth"])
-      await next()
-    })
-    registerRepoRoutes(app)
-
-    const res = await app.request("/repo_abcdef27/resolve-ref", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ branch: "main" }),
-    })
-
-    expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ branch: "main", hash: "abc123" })
-    expect(resolveRepositoryRefMock).toHaveBeenCalledWith({
-      gitUrl: "https://github.com/appear/ctxpipe.git",
-      branch: "main",
-      githubToken: undefined,
+      ...MOCK_REPO,
+      gitUrl: remoteDir,
     })
   })
 
-  it("passes githubToken from request body to resolveRepositoryRef", async () => {
-    getAccessibleRepositoryMock.mockResolvedValue({
-      id: "repo_abcdef27",
-      orgId: "org_mock123",
-      gitUrl: "https://github.com/appear/ctxpipe.git",
-    })
-    resolveRepositoryRefMock.mockResolvedValue({
-      branch: "main",
-      hash: "abc123",
-    })
+  afterEach(async () => {
+    await rm(remoteDir, { recursive: true, force: true })
+  })
 
-    const app = new OpenAPIHono<AppEnv>()
-    app.use("*", async (c, next) => {
-      c.set("db", {} as AppEnv["Variables"]["db"])
-      c.set("env", {
-        NODE_ENV: "test",
-        PORT: 3001,
-      } as AppEnv["Variables"]["env"])
-      c.set("auth", {
-        sub: "user_test",
-        orgId: "org_mock123",
-        principal: "user",
-      } as AppEnv["Variables"]["auth"])
-      await next()
-    })
-    registerRepoRoutes(app)
-
-    const res = await app.request("/repo_abcdef27/resolve-ref", {
+  const resolveRef = (body: Record<string, string>) =>
+    createTestApp().request("/repo_abcdef27/resolve-ref", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ branch: "main", githubToken: "ghs_testtoken123" }),
+      body: JSON.stringify(body),
     })
 
+  it("returns the hash of the requested branch", async () => {
+    const res = await resolveRef({ branch: "main" })
+
     expect(res.status).toBe(200)
-    expect(resolveRepositoryRefMock).toHaveBeenCalledWith({
-      gitUrl: "https://github.com/appear/ctxpipe.git",
+    expect(await res.json()).toEqual({ branch: "main", hash: mainHash })
+  })
+
+  it("resolves the remote default branch when the body has no branch", async () => {
+    const res = await resolveRef({})
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ branch: "trunk", hash: mainHash })
+  })
+
+  it("accepts a githubToken in the request body", async () => {
+    const res = await resolveRef({
       branch: "main",
       githubToken: "ghs_testtoken123",
     })
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ branch: "main", hash: mainHash })
   })
 
   it("returns 404 when repository is not accessible", async () => {
     getAccessibleRepositoryMock.mockResolvedValue(null)
 
-    const app = new OpenAPIHono<AppEnv>()
-    app.use("*", async (c, next) => {
-      c.set("db", {} as AppEnv["Variables"]["db"])
-      c.set("env", {
-        NODE_ENV: "test",
-        PORT: 3001,
-      } as AppEnv["Variables"]["env"])
-      c.set("auth", {
-        sub: "user_test",
-        orgId: "org_mock123",
-        principal: "user",
-      } as AppEnv["Variables"]["auth"])
-      await next()
-    })
-    registerRepoRoutes(app)
-
-    const res = await app.request("/repo_abcdef27/resolve-ref", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({}),
-    })
+    const res = await resolveRef({})
 
     expect(res.status).toBe(404)
     await expect(res.json()).resolves.toEqual({
@@ -353,33 +301,11 @@ describe("POST /{repoId}/resolve-ref", () => {
 
   it("returns 500 when ref resolution fails", async () => {
     getAccessibleRepositoryMock.mockResolvedValue({
-      id: "repo_abcdef27",
-      orgId: "org_mock123",
-      gitUrl: "https://github.com/appear/ctxpipe.git",
+      ...MOCK_REPO,
+      gitUrl: join(remoteDir, "missing"),
     })
-    resolveRepositoryRefMock.mockRejectedValue(new Error("failed"))
 
-    const app = new OpenAPIHono<AppEnv>()
-    app.use("*", async (c, next) => {
-      c.set("db", {} as AppEnv["Variables"]["db"])
-      c.set("env", {
-        NODE_ENV: "test",
-        PORT: 3001,
-      } as AppEnv["Variables"]["env"])
-      c.set("auth", {
-        sub: "user_test",
-        orgId: "org_mock123",
-        principal: "user",
-      } as AppEnv["Variables"]["auth"])
-      await next()
-    })
-    registerRepoRoutes(app)
-
-    const res = await app.request("/repo_abcdef27/resolve-ref", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ branch: "main" }),
-    })
+    const res = await resolveRef({ branch: "main" })
 
     expect(res.status).toBe(500)
   })
@@ -387,13 +313,11 @@ describe("POST /{repoId}/resolve-ref", () => {
 
 describe("GET /{repoId}/tree", () => {
   let tmpDir: string
-  let repoCacheDir: string
   let checkoutDir: string
 
   beforeEach(async () => {
     vi.clearAllMocks()
     tmpDir = await mkdtemp(join(tmpdir(), "list-tree-route-"))
-    repoCacheDir = join(tmpDir, "repo-cache")
     checkoutDir = join(
       repoCacheDir,
       "org_mock123",
@@ -401,10 +325,6 @@ describe("GET /{repoId}/tree", () => {
       "checkouts",
       `rev:${"a".repeat(40)}`,
     )
-    Object.defineProperty(paths, "REPO_CACHE_DIR", {
-      value: repoCacheDir,
-      writable: true,
-    })
   })
 
   afterEach(async () => {
@@ -442,14 +362,12 @@ const hasBunGlob = Boolean(
 
 describe("POST /{repoId}/glob", () => {
   let tmpDir: string
-  let repoCacheDir: string
   let checkoutDir: string
 
   beforeEach(async () => {
     vi.clearAllMocks()
     getAccessibleRepositoryMock.mockResolvedValue(MOCK_REPO)
     tmpDir = await mkdtemp(join(tmpdir(), "glob-route-test-"))
-    repoCacheDir = join(tmpDir, "repo-cache")
     checkoutDir = join(
       repoCacheDir,
       "org_mock123",
@@ -457,10 +375,6 @@ describe("POST /{repoId}/glob", () => {
       "checkouts",
       "default",
     )
-    Object.defineProperty(paths, "REPO_CACHE_DIR", {
-      value: repoCacheDir,
-      writable: true,
-    })
   })
 
   afterEach(async () => {
@@ -554,101 +468,92 @@ describe("POST /{repoId}/glob", () => {
 })
 
 describe("POST /{repoId}/purge", () => {
-  beforeEach(() => {
+  const repoRoot = join(repoCacheDir, "org_mock123", "repo_abcdef27")
+
+  beforeEach(async () => {
     vi.clearAllMocks()
-    purgeRepositoryFromDiskMock.mockResolvedValue(undefined)
+    await mkdir(join(repoRoot, "checkouts", "default"), { recursive: true })
+    await writeFile(join(repoRoot, "checkouts", "default", "a.ts"), "a\n")
   })
+
+  const exists = (path: string) =>
+    stat(path).then(
+      () => true,
+      () => false,
+    )
+
+  function createServiceApp(sub: string) {
+    const app = new OpenAPIHono<AppEnv>()
+    app.use("*", async (c, next) => {
+      c.set("db", {} as AppEnv["Variables"]["db"])
+      c.set("env", {
+        NODE_ENV: "test",
+        PORT: 3001,
+      } as AppEnv["Variables"]["env"])
+      c.set("auth", {
+        sub,
+        orgId: "org_mock123",
+        principal: "service",
+      } as AppEnv["Variables"]["auth"])
+      await next()
+    })
+    registerRepoRoutes(app)
+    return app
+  }
+
+  const purge = (app: OpenAPIHono<AppEnv>, body: Record<string, unknown>) =>
+    app.request("/repo_abcdef27/purge", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    })
 
   it("purges from the accessible repository row when present", async () => {
     getAccessibleRepositoryMock.mockResolvedValue({
       ...MOCK_REPO,
       name: "ctxpipe",
     })
-    const app = createTestApp()
-    const res = await app.request("/repo_abcdef27/purge", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ zoektRepoId: 7 }),
-    })
+
+    const res = await purge(createTestApp(), { zoektRepoId: 7 })
+
     expect(res.status).toBe(200)
-    expect(purgeRepositoryFromDiskMock).toHaveBeenCalledWith({
-      orgId: "org_mock123",
-      repoId: "repo_abcdef27",
-      repoName: "ctxpipe",
-      zoektRepoId: 7,
-    })
+    expect(await exists(repoRoot)).toBe(false)
   })
 
   it("allows service principal purge when the row is already gone", async () => {
     getAccessibleRepositoryMock.mockResolvedValue(null)
-    const app = new OpenAPIHono<AppEnv>()
-    app.use("*", async (c, next) => {
-      c.set("db", {} as AppEnv["Variables"]["db"])
-      c.set("env", {
-        NODE_ENV: "test",
-        PORT: 3001,
-      } as AppEnv["Variables"]["env"])
-      c.set("auth", {
-        sub: "repo-purge:repo_abcdef27",
-        orgId: "org_mock123",
-        principal: "service",
-      } as AppEnv["Variables"]["auth"])
-      await next()
-    })
-    registerRepoRoutes(app)
 
-    const res = await app.request("/repo_abcdef27/purge", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ zoektRepoId: 7, repoName: "ctxpipe" }),
+    const res = await purge(createServiceApp("repo-purge:repo_abcdef27"), {
+      zoektRepoId: 7,
+      repoName: "ctxpipe",
     })
 
     expect(res.status).toBe(200)
-    expect(purgeRepositoryFromDiskMock).toHaveBeenCalledWith({
-      orgId: "org_mock123",
-      repoId: "repo_abcdef27",
-      repoName: "ctxpipe",
-      zoektRepoId: 7,
-    })
+    expect(await exists(repoRoot)).toBe(false)
   })
 
   it("rejects user principal purge when the row is gone even with repoName", async () => {
     getAccessibleRepositoryMock.mockResolvedValue(null)
-    const app = createTestApp()
-    const res = await app.request("/repo_abcdef27/purge", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ zoektRepoId: 7, repoName: "ctxpipe" }),
+
+    const res = await purge(createTestApp(), {
+      zoektRepoId: 7,
+      repoName: "ctxpipe",
     })
+
     expect(res.status).toBe(404)
-    expect(purgeRepositoryFromDiskMock).not.toHaveBeenCalled()
+    expect(await exists(repoRoot)).toBe(true)
   })
 
   it("rejects service principal when JWT sub does not match path repoId", async () => {
     getAccessibleRepositoryMock.mockResolvedValue(null)
-    const app = new OpenAPIHono<AppEnv>()
-    app.use("*", async (c, next) => {
-      c.set("db", {} as AppEnv["Variables"]["db"])
-      c.set("env", {
-        NODE_ENV: "test",
-        PORT: 3001,
-      } as AppEnv["Variables"]["env"])
-      c.set("auth", {
-        sub: "repo-purge:repo_other",
-        orgId: "org_mock123",
-        principal: "service",
-      } as AppEnv["Variables"]["auth"])
-      await next()
-    })
-    registerRepoRoutes(app)
 
-    const res = await app.request("/repo_abcdef27/purge", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ zoektRepoId: 7, repoName: "ctxpipe" }),
+    const res = await purge(createServiceApp("repo-purge:repo_other"), {
+      zoektRepoId: 7,
+      repoName: "ctxpipe",
     })
+
     expect(res.status).toBe(404)
-    expect(purgeRepositoryFromDiskMock).not.toHaveBeenCalled()
+    expect(await exists(repoRoot)).toBe(true)
   })
 })
 
@@ -660,7 +565,6 @@ describe("reads stay inside the checkout", () => {
     vi.clearAllMocks()
     getAccessibleRepositoryMock.mockResolvedValue(MOCK_REPO)
     tmpDir = await mkdtemp(join(tmpdir(), "contained-read-test-"))
-    const repoCacheDir = join(tmpDir, "repo-cache")
     checkoutDir = join(
       repoCacheDir,
       "org_mock123",
@@ -668,10 +572,6 @@ describe("reads stay inside the checkout", () => {
       "checkouts",
       "default",
     )
-    Object.defineProperty(paths, "REPO_CACHE_DIR", {
-      value: repoCacheDir,
-      writable: true,
-    })
     const outside = join(tmpDir, "outside")
     await mkdir(join(outside, "dir"), { recursive: true })
     await writeFile(join(outside, "data.txt"), "outside\n")
@@ -764,6 +664,22 @@ describe("reads stay inside the checkout", () => {
     expect(res.status).toBe(200)
     const body = (await res.json()) as { entries: Array<{ path: string }> }
     expect(body.entries.map((e) => e.path)).toEqual(["in-dir/inner.txt"])
+  })
+
+  it("GET /files leaves a .git child out of the list", async () => {
+    const app = createTestApp()
+    const root = await app.request("/repo_abcdef27/files")
+    const nested = await app.request("/repo_abcdef27/files?path=nested")
+
+    expect(root.status).toBe(200)
+    expect(nested.status).toBe(200)
+    const rootBody = (await root.json()) as { entries: Array<{ name: string }> }
+    const nestedBody = (await nested.json()) as {
+      entries: Array<{ name: string }>
+    }
+    expect(rootBody.entries.map((e) => e.name)).toContain("inside.txt")
+    expect(rootBody.entries.map((e) => e.name)).not.toContain(".git")
+    expect(nestedBody.entries).toEqual([])
   })
 
   // .git/config can hold a clone token, so .git is never listed.
