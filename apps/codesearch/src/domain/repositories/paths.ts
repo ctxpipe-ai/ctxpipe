@@ -45,6 +45,20 @@ export function scipLangShardPath(
   return `${REPO_CACHE_DIR}/${orgId}/${repoId}/checkouts/${checkoutKey}.${langId}.scip`
 }
 
+/** True when a repo-relative path has a `.git` segment, in any letter case. */
+export function hasGitSegment(path: string): boolean {
+  return path.toLowerCase().split(/[\\/]/).includes(".git")
+}
+
+function notFound(): Error {
+  return Object.assign(new Error("Path not found"), { code: "ENOENT" })
+}
+
+/**
+ * Resolves a repo-relative path inside the checkout. A path with a `.git`
+ * segment fails with ENOENT, the same as a missing path, because codesearch
+ * never reads or searches inside `.git`.
+ */
 export function resolveSafePath(
   basePath: string,
   relativePath: string,
@@ -54,12 +68,8 @@ export function resolveSafePath(
   if (fullPath !== base && !fullPath.startsWith(`${base}${sep}`)) {
     throw new Error("Path traversal is not allowed")
   }
+  if (hasGitSegment(relative(base, fullPath))) throw notFound()
   return fullPath
-}
-
-/** True when a repo-relative path has a `.git` segment, in any letter case. */
-export function hasGitSegment(path: string): boolean {
-  return path.toLowerCase().split(/[\\/]/).includes(".git")
 }
 
 /**
@@ -74,9 +84,6 @@ export async function resolveContainedRealPath(
   relativePath: string,
 ): Promise<string> {
   const candidate = resolveSafePath(basePath, relativePath)
-  const notFound = () =>
-    Object.assign(new Error("Path not found"), { code: "ENOENT" })
-  if (hasGitSegment(relative(resolve(basePath), candidate))) throw notFound()
   const [base, resolved] = await Promise.all([
     realpath(basePath),
     realpath(candidate),
@@ -114,8 +121,6 @@ export async function readContainedFile(
   basePath: string,
   relativePath: string,
 ) {
-  const notFound = () =>
-    Object.assign(new Error("Path not found"), { code: "ENOENT" })
   const resolved = await resolveSafeReadableFilePath(basePath, relativePath)
   const base = await realpath(basePath)
   const handle = await open(resolved, constants.O_RDONLY | constants.O_NOFOLLOW)

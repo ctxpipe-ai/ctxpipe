@@ -1,31 +1,35 @@
+import { mkdir, mkdtemp, realpath, rm, symlink } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { OpenAPIHono } from "@hono/zod-openapi"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../app/env.js"
 
 vi.mock("../config/paths.js", () => ({
-  REPO_CACHE_DIR: "/repo-cache",
-  ZOEKT_INDEX_DIR: "/zoekt-index",
+  REPO_CACHE_DIR: "",
+  ZOEKT_INDEX_DIR: "",
 }))
 
-const {
-  getAccessibleRepositoryMock,
-  resolveStructuralSearchPathsMock,
-  runStructuralSearchMock,
-} = vi.hoisted(() => ({
-  getAccessibleRepositoryMock: vi.fn(),
-  resolveStructuralSearchPathsMock: vi.fn(),
-  runStructuralSearchMock: vi.fn(),
-}))
+const { getAccessibleRepositoryMock, runStructuralSearchMock } = vi.hoisted(
+  () => ({
+    getAccessibleRepositoryMock: vi.fn(),
+    runStructuralSearchMock: vi.fn(),
+  }),
+)
 
 vi.mock("../domain/repositories/service.js", () => ({
   getAccessibleRepository: getAccessibleRepositoryMock,
 }))
 
-vi.mock("../domain/search/structuralSearch.js", () => ({
-  resolveStructuralSearchPaths: resolveStructuralSearchPathsMock,
+// runStructuralSearch spawns ast-grep with Bun.spawn, which Node vitest lacks.
+vi.mock("../domain/search/structuralSearch.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../domain/search/structuralSearch.js")
+  >()),
   runStructuralSearch: runStructuralSearchMock,
 }))
 
+import * as paths from "../config/paths.js"
 import { registerStructuralSearchRoutes } from "./structuralSearch.js"
 
 function createTestApp() {
@@ -45,19 +49,38 @@ function createTestApp() {
 }
 
 describe("POST /{repoId}/structural-search", () => {
-  beforeEach(() => {
+  let tmpDir: string
+  let checkoutDir: string
+
+  beforeEach(async () => {
     vi.clearAllMocks()
     getAccessibleRepositoryMock.mockResolvedValue({
       id: "repo_abcdef27",
       orgId: "org_mock123",
     })
-    resolveStructuralSearchPathsMock.mockImplementation(
-      async (checkoutPath: string, paths: string[]) => ({
-        checkoutPath,
-        paths,
-      }),
+    tmpDir = await realpath(
+      await mkdtemp(join(tmpdir(), "structural-search-route-")),
     )
+    checkoutDir = join(
+      tmpDir,
+      "org_mock123",
+      "repo_abcdef27",
+      "checkouts",
+      "default",
+    )
+    Object.defineProperty(paths, "REPO_CACHE_DIR", {
+      value: tmpDir,
+      writable: true,
+    })
+    await mkdir(join(checkoutDir, "src"), { recursive: true })
+    await mkdir(join(checkoutDir, "packages", "api"), { recursive: true })
+    await mkdir(join(tmpDir, "outside"))
+    await symlink(join(tmpDir, "outside"), join(checkoutDir, "escape"))
     runStructuralSearchMock.mockResolvedValue([{ text: "foo()" }])
+  })
+
+  afterEach(async () => {
+    await rm(tmpDir, { recursive: true, force: true })
   })
 
   it("resolves path arguments inside the checkout and runs ast-grep", async () => {
@@ -79,14 +102,11 @@ describe("POST /{repoId}/structural-search", () => {
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ matches: [{ text: "foo()" }] })
     expect(runStructuralSearchMock).toHaveBeenCalledWith({
-      checkoutPath: "/repo-cache/org_mock123/repo_abcdef27/checkouts/default",
+      checkoutPath: checkoutDir,
       pattern: "$F($A)",
       lang: "typescript",
       globs: ["**/*.ts"],
-      paths: [
-        "/repo-cache/org_mock123/repo_abcdef27/checkouts/default/src",
-        "/repo-cache/org_mock123/repo_abcdef27/checkouts/default/packages/api",
-      ],
+      paths: [join(checkoutDir, "src"), join(checkoutDir, "packages", "api")],
       limit: 25,
     })
   })
@@ -109,10 +129,6 @@ describe("POST /{repoId}/structural-search", () => {
   })
 
   it("rejects a symlink escape without spawning ast-grep", async () => {
-    resolveStructuralSearchPathsMock.mockRejectedValue(
-      new Error("Structural search path escapes checkout"),
-    )
-
     const res = await createTestApp().request(
       "/repo_abcdef27/structural-search",
       {

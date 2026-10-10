@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import {
   readContainedFile,
   resolveContainedRealPath,
+  resolveSafePath,
   resolveSafeReadableFilePath,
   scipIndexPath,
   scipLangShardPath,
@@ -65,6 +66,9 @@ describe("paths inside the checkout", () => {
     await writeFile(join(checkout, "sub", ".git", "config"), "nested\n")
     await symlink(".git/config", join(checkout, "leak"))
     await symlink(".git", join(checkout, "git-dir"))
+    await mkdir(join(checkout, ".github"))
+    await writeFile(join(checkout, ".github", "ci.yml"), "on: push\n")
+    await writeFile(join(checkout, ".gitignore"), "dist\n")
   })
 
   afterEach(async () => {
@@ -149,5 +153,26 @@ describe("paths inside the checkout", () => {
     await expect(
       resolveContainedRealPath(checkout, "../outside/data.txt"),
     ).rejects.toThrow("Path traversal is not allowed")
+  })
+
+  it.each([
+    ".git",
+    ".git/config",
+    ".GIT/config",
+    "sub/.git/config",
+    "sub/../.git/config",
+  ])("resolveSafePath answers %s like a missing path", (path) => {
+    expect(() => resolveSafePath(checkout, path)).toThrow(
+      expect.objectContaining({ code: "ENOENT" }),
+    )
+  })
+
+  it("still reads .github and .gitignore", async () => {
+    expect(await resolveSafeReadableFilePath(checkout, ".github/ci.yml")).toBe(
+      join(checkout, ".github", "ci.yml"),
+    )
+    expect(await resolveSafeReadableFilePath(checkout, ".gitignore")).toBe(
+      join(checkout, ".gitignore"),
+    )
   })
 })

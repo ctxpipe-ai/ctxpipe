@@ -1,4 +1,3 @@
-import { relative } from "node:path"
 import type { OpenAPIHono } from "@hono/zod-openapi"
 import { createRoute, z } from "@hono/zod-openapi"
 import { and, eq } from "drizzle-orm"
@@ -8,7 +7,6 @@ import { withOrgDbContext } from "../db/client.js"
 import { repositoryCheckouts } from "../db/schema.js"
 import { executeScipGraphQuery } from "../domain/graph/executeGraphPrimitive.js"
 import {
-  hasGitSegment,
   repoCheckoutPath,
   resolveSafePath,
   scipIndexPath,
@@ -164,12 +162,6 @@ export function registerGraphRoutes(app: OpenAPIHono<AppEnv>) {
         ? resolveSafePath(checkoutPath, body.filePath)
         : undefined
     } catch {
-      return c.json({ error: "Path not found" }, 404)
-    }
-    if (
-      resolvedFilePath &&
-      hasGitSegment(relative(checkoutPath, resolvedFilePath))
-    ) {
       return c.json({ error: "Path not found" }, 404)
     }
 
