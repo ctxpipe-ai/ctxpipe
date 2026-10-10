@@ -1,6 +1,5 @@
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
-import { withOrgDbContext } from "../../db/client.js"
 import { captureConnectorMirrorTarget } from "../../domain/workspaces/capture-connector-mirror.js"
 import {
   finalizePagerdutyBindingAfterContentWorkflow,
@@ -34,13 +33,11 @@ export const pagerdutySyncContent = defineWorkflow(
       async () => {
         const env = parseEnv(process.env as Record<string, string | undefined>)
         const markSyncFailed = () =>
-          withOrgDbContext(input.orgId, () =>
-            finalizePagerdutyBindingAfterContentWorkflow({
-              orgId: input.orgId,
-              connectionId: input.connectionId,
-              workflowStatus: "failed",
-            }),
-          )
+          finalizePagerdutyBindingAfterContentWorkflow({
+            orgId: input.orgId,
+            connectionId: input.connectionId,
+            workflowStatus: "failed",
+          })
         const context = await step
           .run(
             {
@@ -49,12 +46,10 @@ export const pagerdutySyncContent = defineWorkflow(
             },
             async () => {
               const [connection, binding] = await Promise.all([
-                withOrgDbContext(input.orgId, () =>
-                  getPagerdutyConnectionByConnectionId(
-                    input.orgId,
-                    input.connectionId,
-                    env,
-                  ),
+                getPagerdutyConnectionByConnectionId(
+                  input.orgId,
+                  input.connectionId,
+                  env,
                 ),
                 getPagerdutyBindingWithRepoByConnectionId(
                   input.orgId,
@@ -104,12 +99,10 @@ export const pagerdutySyncContent = defineWorkflow(
           const captured = await step.run(
             { name: "capture-pagerduty-content" },
             async () => {
-              const connection = await withOrgDbContext(input.orgId, () =>
-                getPagerdutyConnectionByConnectionId(
-                  input.orgId,
-                  input.connectionId,
-                  env,
-                ),
+              const connection = await getPagerdutyConnectionByConnectionId(
+                input.orgId,
+                input.connectionId,
+                env,
               )
               if (!connection || connection.status !== "installed") {
                 throw new Error("PagerDuty authorization changed")
@@ -143,13 +136,11 @@ export const pagerdutySyncContent = defineWorkflow(
           }
 
           await step.run({ name: "finalize-setup-phase" }, () =>
-            withOrgDbContext(input.orgId, () =>
-              finalizePagerdutyBindingAfterContentWorkflow({
-                orgId: input.orgId,
-                connectionId: input.connectionId,
-                workflowStatus: captured.status,
-              }),
-            ),
+            finalizePagerdutyBindingAfterContentWorkflow({
+              orgId: input.orgId,
+              connectionId: input.connectionId,
+              workflowStatus: captured.status,
+            }),
           )
 
           return {

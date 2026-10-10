@@ -1,6 +1,5 @@
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
-import { withOrgDbContext } from "../../db/client.js"
 import { captureConnectorMirrorTarget } from "../../domain/workspaces/capture-connector-mirror.js"
 import {
   getPagerdutyBindingWithRepoByConnectionId,
@@ -39,12 +38,10 @@ export const pagerdutySyncEntity = defineWorkflow(
           },
           async () => {
             const [connection, binding] = await Promise.all([
-              withOrgDbContext(input.orgId, () =>
-                getPagerdutyConnectionByConnectionId(
-                  input.orgId,
-                  input.connectionId,
-                  env,
-                ),
+              getPagerdutyConnectionByConnectionId(
+                input.orgId,
+                input.connectionId,
+                env,
               ),
               getPagerdutyBindingWithRepoByConnectionId(
                 input.orgId,
@@ -98,12 +95,10 @@ export const pagerdutySyncEntity = defineWorkflow(
             },
           },
           async () => {
-            const connection = await withOrgDbContext(input.orgId, () =>
-              getPagerdutyConnectionByConnectionId(
-                input.orgId,
-                input.connectionId,
-                env,
-              ),
+            const connection = await getPagerdutyConnectionByConnectionId(
+              input.orgId,
+              input.connectionId,
+              env,
             )
             if (!connection || connection.status !== "installed") {
               throw new Error("PagerDuty authorization changed")

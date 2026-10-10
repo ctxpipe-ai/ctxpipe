@@ -1161,59 +1161,55 @@ export async function clearPagerdutySyncBindingsForRepository(input: {
   orgId: string
   repositoryId: string
 }): Promise<number> {
-  return withOrgDbContext(input.orgId, async (db) => {
-    const ids = await db
-      .select({ id: connections.id })
-      .from(connections)
-      .where(
-        and(
-          eq(connections.orgId, input.orgId),
-          eq(connections.type, CONNECTION_TYPE_PAGERDUTY),
-          eq(sql`${connections.config}->>'repositoryId'`, input.repositoryId),
-        ),
+  const db = getOrgDb()
+  const ids = await db
+    .select({ id: connections.id })
+    .from(connections)
+    .where(
+      and(
+        eq(connections.orgId, input.orgId),
+        eq(connections.type, CONNECTION_TYPE_PAGERDUTY),
+        eq(sql`${connections.config}->>'repositoryId'`, input.repositoryId),
+      ),
+    )
+  let cleared = 0
+  for (const { id } of ids) {
+    const updated = await db.transaction(async (tx) => {
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended(${id}, 0))`,
       )
-    let cleared = 0
-    for (const { id } of ids) {
-      const updated = await db.transaction(async (tx) => {
-        await tx.execute(
-          sql`select pg_advisory_xact_lock(hashtextextended(${id}, 0))`,
+      const [row] = await tx
+        .select()
+        .from(connections)
+        .where(
+          and(
+            eq(connections.id, id),
+            eq(connections.orgId, input.orgId),
+            eq(connections.type, CONNECTION_TYPE_PAGERDUTY),
+            eq(sql`${connections.config}->>'repositoryId'`, input.repositoryId),
+          ),
         )
-        const [row] = await tx
-          .select()
-          .from(connections)
-          .where(
-            and(
-              eq(connections.id, id),
-              eq(connections.orgId, input.orgId),
-              eq(connections.type, CONNECTION_TYPE_PAGERDUTY),
-              eq(
-                sql`${connections.config}->>'repositoryId'`,
-                input.repositoryId,
-              ),
-            ),
-          )
-          .limit(1)
-        if (!row) return false
-        await tx
-          .update(connections)
-          .set({
-            config: mergePagerdutyStoredConfig(row, {
-              repositoryId: null,
-              branch: null,
-              enabled: false,
-              setupPhase: "draft",
-              pendingConfigPullUrl: null,
-              pendingConfigPrCreating: false,
-            }),
-            updatedAt: new Date(),
-          })
-          .where(eq(connections.id, id))
-        return true
-      })
-      if (updated) cleared += 1
-    }
-    return cleared
-  })
+        .limit(1)
+      if (!row) return false
+      await tx
+        .update(connections)
+        .set({
+          config: mergePagerdutyStoredConfig(row, {
+            repositoryId: null,
+            branch: null,
+            enabled: false,
+            setupPhase: "draft",
+            pendingConfigPullUrl: null,
+            pendingConfigPrCreating: false,
+          }),
+          updatedAt: new Date(),
+        })
+        .where(eq(connections.id, id))
+      return true
+    })
+    if (updated) cleared += 1
+  }
+  return cleared
 }
 
 export async function finalizePagerdutyBindingAfterContentWorkflow(input: {
