@@ -129,6 +129,11 @@ async function runIndexerProcess(input: {
         async (span) => {
           try {
             await runIndexerSubprocess(input, span)
+          } catch (error) {
+            const message = errorMessage(error)
+            span.recordException(error instanceof Error ? error : message)
+            span.setStatus({ code: SpanStatusCode.ERROR, message })
+            throw error
           } finally {
             span.end()
           }
@@ -180,18 +185,16 @@ async function runIndexerSubprocess(
       readStreamTail(subprocess.stderr, INDEX_CHILD_LOG_TAIL_BYTES),
       subprocess.exited,
     ])
-    // Peak memory and CPU of the indexer, for the ingestion profile. Bun
-    // returns the CPU time as a bigint, although its type says number.
-    const usage = subprocess.resourceUsage?.()
-    span.setAttributes({
-      "process.exit_code": exitCode,
-      ...(usage
-        ? {
-            "process.max_rss_mb": Math.round(usage.maxRSS / 1024 / 1024),
-            "process.cpu_ms": Math.round(Number(usage.cpuTime.total) / 1000),
-          }
-        : {}),
-    })
+    span.setAttribute("process.exit.code", exitCode)
+    // Record the peak memory and the CPU time of the indexer for the
+    // ingestion profile. Bun gives no usage before the process exits, and it
+    // gives the CPU time as a bigint, but its type is number.
+    const usage = subprocess.resourceUsage()
+    if (usage)
+      span.setAttributes({
+        "scip.process.max_rss_mb": Math.round(usage.maxRSS / 1024 / 1024),
+        "scip.process.cpu_ms": Math.round(Number(usage.cpuTime.total) / 1000),
+      })
 
     if (exitCode !== 0) {
       if (exitCode === 137) {
