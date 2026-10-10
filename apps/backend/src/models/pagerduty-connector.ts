@@ -150,18 +150,19 @@ export async function listPagerdutyConnectionsForOrg(
   orgId: string,
   env: Env,
 ): Promise<PagerdutyConnection[]> {
-  const db = getOrgDb()
-  const rows = await db
-    .select()
-    .from(connections)
-    .where(
-      and(
-        eq(connections.orgId, orgId),
-        eq(connections.type, CONNECTION_TYPE_PAGERDUTY),
-      ),
-    )
-    .orderBy(desc(connections.updatedAt))
-  return rows.map((row) => pagerdutyConnectionToShape(row, env))
+  return withOrgDbContext(orgId, async (db) => {
+    const rows = await db
+      .select()
+      .from(connections)
+      .where(
+        and(
+          eq(connections.orgId, orgId),
+          eq(connections.type, CONNECTION_TYPE_PAGERDUTY),
+        ),
+      )
+      .orderBy(desc(connections.updatedAt))
+    return rows.map((row) => pagerdutyConnectionToShape(row, env))
+  })
 }
 
 export async function getPagerdutyConnectionByConnectionId(
@@ -169,19 +170,20 @@ export async function getPagerdutyConnectionByConnectionId(
   connectionId: string,
   env: Env,
 ): Promise<PagerdutyConnection | undefined> {
-  const db = getOrgDb()
-  const [row] = await db
-    .select()
-    .from(connections)
-    .where(
-      and(
-        eq(connections.id, connectionId),
-        eq(connections.orgId, orgId),
-        eq(connections.type, CONNECTION_TYPE_PAGERDUTY),
-      ),
-    )
-    .limit(1)
-  return row ? pagerdutyConnectionToShape(row, env) : undefined
+  return withOrgDbContext(orgId, async (db) => {
+    const [row] = await db
+      .select()
+      .from(connections)
+      .where(
+        and(
+          eq(connections.id, connectionId),
+          eq(connections.orgId, orgId),
+          eq(connections.type, CONNECTION_TYPE_PAGERDUTY),
+        ),
+      )
+      .limit(1)
+    return row ? pagerdutyConnectionToShape(row, env) : undefined
+  })
 }
 
 export const MULTIPLE_PAGERDUTY_CONNECTIONS_MESSAGE =
@@ -571,38 +573,42 @@ export async function createOrReusePagerdutyDraft(input: {
   env: Env
   ownerUserId: string
 }): Promise<PagerdutyConnection> {
-  const existing = await listPagerdutyConnectionsForOrg(input.orgId, input.env)
-  const reusable = existing.find((connection) =>
-    isPagerdutyPlaceholderDraft({
-      status: connection.status,
-      accountId: connection.accountId,
-      hasAccessToken: Boolean(connection.accessToken),
-    }),
-  )
-  if (reusable) return reusable
-
-  const db = getOrgDb()
-  const id = generateObjectId("con")
-  const [row] = await db
-    .insert(connections)
-    .values({
-      id,
-      orgId: input.orgId,
-      type: CONNECTION_TYPE_PAGERDUTY,
-      config: serialisePagerdutyConnectionConfigForDb({
-        accountId: `pending:${id}`,
-        accountName: "Pending PagerDuty account",
-        accountSubdomain: "pending",
-        region: "us",
-        ownerUserId: input.ownerUserId,
-        status: "pending",
-        setupPhase: "draft",
+  return withOrgDbContext(input.orgId, async (db) => {
+    const existing = await listPagerdutyConnectionsForOrg(
+      input.orgId,
+      input.env,
+    )
+    const reusable = existing.find((connection) =>
+      isPagerdutyPlaceholderDraft({
+        status: connection.status,
+        accountId: connection.accountId,
+        hasAccessToken: Boolean(connection.accessToken),
       }),
-    })
-    .returning()
-  if (!row) throw new Error("Failed to create PagerDuty draft connection")
-  await upsertConnectionDirectory(row)
-  return pagerdutyConnectionToShape(row, input.env)
+    )
+    if (reusable) return reusable
+
+    const id = generateObjectId("con")
+    const [row] = await db
+      .insert(connections)
+      .values({
+        id,
+        orgId: input.orgId,
+        type: CONNECTION_TYPE_PAGERDUTY,
+        config: serialisePagerdutyConnectionConfigForDb({
+          accountId: `pending:${id}`,
+          accountName: "Pending PagerDuty account",
+          accountSubdomain: "pending",
+          region: "us",
+          ownerUserId: input.ownerUserId,
+          status: "pending",
+          setupPhase: "draft",
+        }),
+      })
+      .returning()
+    if (!row) throw new Error("Failed to create PagerDuty draft connection")
+    await upsertConnectionDirectory(row)
+    return pagerdutyConnectionToShape(row, input.env)
+  })
 }
 
 export type PagerdutyOAuthAppMetadata = {
@@ -633,46 +639,47 @@ export async function savePagerdutyOAuthApp(input: {
   clientId: string
   clientSecret: string
 }): Promise<void> {
-  const db = getOrgDb()
-  return db.transaction(async (tx) => {
-    await tx.execute(
-      sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
-    )
-    const [row] = await tx
-      .select()
-      .from(connections)
-      .where(
-        and(
-          eq(connections.id, input.connectionId),
-          eq(connections.orgId, input.orgId),
-          eq(connections.type, CONNECTION_TYPE_PAGERDUTY),
-        ),
+  return withOrgDbContext(input.orgId, async (db) => {
+    return db.transaction(async (tx) => {
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
       )
-      .limit(1)
-    if (!row) throw new Error("PagerDuty connection not found")
-    const stored = parsePagerdutyConnectionStored(
-      row.config as Record<string, unknown>,
-    )
-    if (stored.accessTokenEnc) {
-      throw new Error(
-        "PagerDuty OAuth app cannot be changed after account authorisation",
-      )
-    }
-    const [updated] = await tx
-      .update(connections)
-      .set({
-        config: mergePagerdutyStoredConfig(row, {
-          oauthClientId: input.clientId.trim(),
-          oauthClientSecretEnc: encodePagerdutyOAuthClientSecretForDb(
-            input.clientSecret,
-            input.env,
+      const [row] = await tx
+        .select()
+        .from(connections)
+        .where(
+          and(
+            eq(connections.id, input.connectionId),
+            eq(connections.orgId, input.orgId),
+            eq(connections.type, CONNECTION_TYPE_PAGERDUTY),
           ),
-        }),
-        updatedAt: new Date(),
-      })
-      .where(eq(connections.id, input.connectionId))
-      .returning({ id: connections.id })
-    if (!updated) throw new Error("PagerDuty connection not found")
+        )
+        .limit(1)
+      if (!row) throw new Error("PagerDuty connection not found")
+      const stored = parsePagerdutyConnectionStored(
+        row.config as Record<string, unknown>,
+      )
+      if (stored.accessTokenEnc) {
+        throw new Error(
+          "PagerDuty OAuth app cannot be changed after account authorisation",
+        )
+      }
+      const [updated] = await tx
+        .update(connections)
+        .set({
+          config: mergePagerdutyStoredConfig(row, {
+            oauthClientId: input.clientId.trim(),
+            oauthClientSecretEnc: encodePagerdutyOAuthClientSecretForDb(
+              input.clientSecret,
+              input.env,
+            ),
+          }),
+          updatedAt: new Date(),
+        })
+        .where(eq(connections.id, input.connectionId))
+        .returning({ id: connections.id })
+      if (!updated) throw new Error("PagerDuty connection not found")
+    })
   })
 }
 
@@ -719,25 +726,26 @@ export async function deletePagerdutyConnectionById(
   orgId: string,
   connectionId: string,
 ): Promise<boolean> {
-  const db = getOrgDb()
-  const removed = await db.transaction(async (tx) => {
-    await tx.execute(
-      sql`select pg_advisory_xact_lock(hashtextextended(${connectionId}, 0))`,
-    )
-    const deleted = await tx
-      .delete(connections)
-      .where(
-        and(
-          eq(connections.orgId, orgId),
-          eq(connections.id, connectionId),
-          eq(connections.type, CONNECTION_TYPE_PAGERDUTY),
-        ),
+  return withOrgDbContext(orgId, async (db) => {
+    const removed = await db.transaction(async (tx) => {
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended(${connectionId}, 0))`,
       )
-      .returning({ id: connections.id })
-    return deleted.length > 0
+      const deleted = await tx
+        .delete(connections)
+        .where(
+          and(
+            eq(connections.orgId, orgId),
+            eq(connections.id, connectionId),
+            eq(connections.type, CONNECTION_TYPE_PAGERDUTY),
+          ),
+        )
+        .returning({ id: connections.id })
+      return deleted.length > 0
+    })
+    if (removed) await deleteConnectionDirectory(connectionId)
+    return removed
   })
-  if (removed) await deleteConnectionDirectory(connectionId)
-  return removed
 }
 
 export async function getPagerdutyBindingByConnectionId(
@@ -1132,55 +1140,59 @@ export async function clearPagerdutySyncBindingsForRepository(input: {
   orgId: string
   repositoryId: string
 }): Promise<number> {
-  const db = getOrgDb()
-  const ids = await db
-    .select({ id: connections.id })
-    .from(connections)
-    .where(
-      and(
-        eq(connections.orgId, input.orgId),
-        eq(connections.type, CONNECTION_TYPE_PAGERDUTY),
-        eq(sql`${connections.config}->>'repositoryId'`, input.repositoryId),
-      ),
-    )
-  let cleared = 0
-  for (const { id } of ids) {
-    const updated = await db.transaction(async (tx) => {
-      await tx.execute(
-        sql`select pg_advisory_xact_lock(hashtextextended(${id}, 0))`,
+  return withOrgDbContext(input.orgId, async (db) => {
+    const ids = await db
+      .select({ id: connections.id })
+      .from(connections)
+      .where(
+        and(
+          eq(connections.orgId, input.orgId),
+          eq(connections.type, CONNECTION_TYPE_PAGERDUTY),
+          eq(sql`${connections.config}->>'repositoryId'`, input.repositoryId),
+        ),
       )
-      const [row] = await tx
-        .select()
-        .from(connections)
-        .where(
-          and(
-            eq(connections.id, id),
-            eq(connections.orgId, input.orgId),
-            eq(connections.type, CONNECTION_TYPE_PAGERDUTY),
-            eq(sql`${connections.config}->>'repositoryId'`, input.repositoryId),
-          ),
+    let cleared = 0
+    for (const { id } of ids) {
+      const updated = await db.transaction(async (tx) => {
+        await tx.execute(
+          sql`select pg_advisory_xact_lock(hashtextextended(${id}, 0))`,
         )
-        .limit(1)
-      if (!row) return false
-      await tx
-        .update(connections)
-        .set({
-          config: mergePagerdutyStoredConfig(row, {
-            repositoryId: null,
-            branch: null,
-            enabled: false,
-            setupPhase: "draft",
-            pendingConfigPullUrl: null,
-            pendingConfigPrCreating: false,
-          }),
-          updatedAt: new Date(),
-        })
-        .where(eq(connections.id, id))
-      return true
-    })
-    if (updated) cleared += 1
-  }
-  return cleared
+        const [row] = await tx
+          .select()
+          .from(connections)
+          .where(
+            and(
+              eq(connections.id, id),
+              eq(connections.orgId, input.orgId),
+              eq(connections.type, CONNECTION_TYPE_PAGERDUTY),
+              eq(
+                sql`${connections.config}->>'repositoryId'`,
+                input.repositoryId,
+              ),
+            ),
+          )
+          .limit(1)
+        if (!row) return false
+        await tx
+          .update(connections)
+          .set({
+            config: mergePagerdutyStoredConfig(row, {
+              repositoryId: null,
+              branch: null,
+              enabled: false,
+              setupPhase: "draft",
+              pendingConfigPullUrl: null,
+              pendingConfigPrCreating: false,
+            }),
+            updatedAt: new Date(),
+          })
+          .where(eq(connections.id, id))
+        return true
+      })
+      if (updated) cleared += 1
+    }
+    return cleared
+  })
 }
 
 export async function finalizePagerdutyBindingAfterContentWorkflow(input: {
@@ -1314,99 +1326,100 @@ export async function patchPagerdutyConnectorConfig(input: {
     targetBranch?: string
   }
 }> {
-  if (input.syncTarget === undefined) {
-    return { bindingChanged: false }
-  }
-  const syncTarget = input.syncTarget
+  return withOrgDbContext(input.orgId, async (db) => {
+    if (input.syncTarget === undefined) {
+      return { bindingChanged: false }
+    }
+    const syncTarget = input.syncTarget
 
-  const githubConnections = await listGithubConnectionsForOrg(input.orgId)
-  const requestedGithubConnectionId = syncTarget.githubConnectionId
-  if (
-    requestedGithubConnectionId &&
-    !githubConnections.some(
-      (connection) => connection.id === requestedGithubConnectionId,
-    )
-  ) {
-    throw new Error("GitHub connection not found for organization")
-  }
-  const githubConnectionId =
-    requestedGithubConnectionId ??
-    (githubConnections.length === 1 ? githubConnections[0]?.id : undefined)
+    const githubConnections = await listGithubConnectionsForOrg(input.orgId)
+    const requestedGithubConnectionId = syncTarget.githubConnectionId
+    if (
+      requestedGithubConnectionId &&
+      !githubConnections.some(
+        (connection) => connection.id === requestedGithubConnectionId,
+      )
+    ) {
+      throw new Error("GitHub connection not found for organization")
+    }
+    const githubConnectionId =
+      requestedGithubConnectionId ??
+      (githubConnections.length === 1 ? githubConnections[0]?.id : undefined)
 
-  const db = getOrgDb()
-  return db.transaction(async (tx) => {
-    let repositoryIngestion:
-      | {
-          orgId: string
-          repositoryId: string
-          targetBranch?: string
+    return db.transaction(async (tx) => {
+      let repositoryIngestion:
+        | {
+            orgId: string
+            repositoryId: string
+            targetBranch?: string
+          }
+        | undefined
+
+      const { repositoryId, didCreate } =
+        await resolveRepositoryIdForPagerdutySync(
+          tx,
+          input.orgId,
+          syncTarget,
+          githubConnectionId,
+        )
+      if (didCreate) {
+        repositoryIngestion = {
+          orgId: input.orgId,
+          repositoryId,
+          targetBranch: syncTarget.branch,
         }
-      | undefined
-
-    const { repositoryId, didCreate } =
-      await resolveRepositoryIdForPagerdutySync(
-        tx,
-        input.orgId,
-        syncTarget,
-        githubConnectionId,
-      )
-    if (didCreate) {
-      repositoryIngestion = {
-        orgId: input.orgId,
-        repositoryId,
-        targetBranch: syncTarget.branch,
       }
-    }
 
-    await tx.execute(
-      sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
-    )
-    const [connectionRow] = await tx
-      .select()
-      .from(connections)
-      .where(
-        and(
-          eq(connections.id, input.connectionId),
-          eq(connections.orgId, input.orgId),
-          eq(connections.type, CONNECTION_TYPE_PAGERDUTY),
-        ),
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
       )
-      .limit(1)
-    if (!connectionRow) {
-      throw new Error("PagerDuty connection does not belong to organization")
-    }
-    const existingTarget = bindingFromConnectionRow(connectionRow)
-    const plan = planPagerdutySyncBindingUpdate({
-      existing: existingTarget,
-      repositoryId,
-      branch: syncTarget.branch,
-      enabled: syncTarget.enabled,
+      const [connectionRow] = await tx
+        .select()
+        .from(connections)
+        .where(
+          and(
+            eq(connections.id, input.connectionId),
+            eq(connections.orgId, input.orgId),
+            eq(connections.type, CONNECTION_TYPE_PAGERDUTY),
+          ),
+        )
+        .limit(1)
+      if (!connectionRow) {
+        throw new Error("PagerDuty connection does not belong to organization")
+      }
+      const existingTarget = bindingFromConnectionRow(connectionRow)
+      const plan = planPagerdutySyncBindingUpdate({
+        existing: existingTarget,
+        repositoryId,
+        branch: syncTarget.branch,
+        enabled: syncTarget.enabled,
+      })
+
+      if (plan.changed) {
+        await tx
+          .update(connections)
+          .set({
+            config: mergePagerdutyStoredConfig(connectionRow, {
+              repositoryId,
+              branch: syncTarget.branch,
+              enabled: syncTarget.enabled,
+              ...(plan.resetLifecycle
+                ? {
+                    setupPhase: "draft" as const,
+                    pendingConfigPullUrl: null,
+                    pendingConfigPrCreating: false,
+                  }
+                : {}),
+            }),
+            updatedAt: new Date(),
+          })
+          .where(eq(connections.id, input.connectionId))
+      }
+
+      return {
+        bindingChanged: plan.changed,
+        repositoryIngestion,
+      }
     })
-
-    if (plan.changed) {
-      await tx
-        .update(connections)
-        .set({
-          config: mergePagerdutyStoredConfig(connectionRow, {
-            repositoryId,
-            branch: syncTarget.branch,
-            enabled: syncTarget.enabled,
-            ...(plan.resetLifecycle
-              ? {
-                  setupPhase: "draft" as const,
-                  pendingConfigPullUrl: null,
-                  pendingConfigPrCreating: false,
-                }
-              : {}),
-          }),
-          updatedAt: new Date(),
-        })
-        .where(eq(connections.id, input.connectionId))
-    }
-
-    return {
-      bindingChanged: plan.changed,
-      repositoryIngestion,
-    }
   })
 }
