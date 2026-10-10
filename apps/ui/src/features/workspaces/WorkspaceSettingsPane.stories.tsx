@@ -215,7 +215,7 @@ export const RenameRefused: Story = {
               HttpResponse.json(
                 {
                   error:
-                    "The display name is stored in the Workspace repository. Connect the repository through GitHub to rename this Workspace.",
+                    "The display name is stored in the Workspace repository, and the rename could not be scheduled there. Connect the repository through GitHub, then try again.",
                 },
                 { status: 409 },
               ),
@@ -231,7 +231,7 @@ export const RenameRefused: Story = {
     await userEvent.type(name, "Renamed Workspace")
     await userEvent.click(canvas.getByRole("button", { name: /^save$/i }))
     const body = within(canvasElement.ownerDocument.body)
-    await body.findByText(/connect the repository through github to rename/i)
+    await body.findByText(/rename could not be scheduled/i)
     await expect(canvas.getByRole("textbox", { name: /^slug$/i })).toHaveValue(
       docsWorkspaceDetail.slug,
     )

@@ -102,11 +102,11 @@ export const CreateFailed: Story = {
   },
 }
 
-/** Counts `set-active` calls. Create already makes the new org active. */
-let setActiveCalls = 0
+/** Records `set-active` calls. Create already makes the new org active. */
+const setActive = fn()
 export const CreatingOrganization: Story = {
   beforeEach: () => {
-    setActiveCalls = 0
+    setActive.mockClear()
   },
   parameters: {
     msw: {
@@ -115,7 +115,7 @@ export const CreatingOrganization: Story = {
           ...createOrgBaseMsw,
           organizationCreateSlowSuccessHandler(),
           http.post("*/.auth/api/v1/auth/organization/set-active", () => {
-            setActiveCalls += 1
+            setActive()
             return HttpResponse.json({})
           }),
         ],
@@ -145,6 +145,6 @@ export const CreatingOrganization: Story = {
       timeout: 4000,
     })
     // Each auth round trip costs seconds on a hosted deploy (ONB-2).
-    await expect(setActiveCalls).toBe(0)
+    await expect(setActive).not.toHaveBeenCalled()
   },
 }
