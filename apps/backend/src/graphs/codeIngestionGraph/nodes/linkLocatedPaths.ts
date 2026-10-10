@@ -27,7 +27,11 @@ export type PackageRoot = {
 const PACKAGE_KINDS = new Set<string>(["Service", "App", "Library"])
 
 /** Kinds whose `payload.path` states where they are declared (`DECLARED_IN File`). */
-const DECLARED_IN_KINDS = new Set<string>(["InstructionUnit", "Decision"])
+const DECLARED_IN_KINDS = new Set<string>([
+  "InstructionUnit",
+  "Decision",
+  "Document",
+])
 
 /**
  * Reference-family predicates (ADR-033). Both ends must resolve to a node that
@@ -271,7 +275,7 @@ function lastKeySegment(deduplicationKey: string): string {
 /**
  * After extractors run, locate every this-repo path on a File node:
  * `File PART_OF Repository`, `File PART_OF Service|App|Library` and
- * `InstructionUnit|Decision DECLARED_IN File` (ADR-032, ADR-033).
+ * `InstructionUnit|Decision|Document DECLARED_IN File` (ADR-032, ADR-033, ADR-050).
  * Returns only the additional objects/claims (reducer-safe).
  */
 export function linkLocatedPaths(input: {

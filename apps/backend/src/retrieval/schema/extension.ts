@@ -6,6 +6,7 @@ import { z } from "zod/v3"
  */
 export const ExtensionNodeType = z.enum([
   "Decision",
+  "Document",
   "InstructionUnit",
   "Skill",
   "PullRequest",

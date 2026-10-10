@@ -5,6 +5,7 @@ import { resolveRepositoryRef } from "../../domain/codeIngestion/queue.js"
 import { isRepositoryGoneError } from "../../domain/codeIngestion/repositoryGone.js"
 import { deduplicateAndStore } from "../../graphs/codeIngestionGraph/nodes/deduplicateAndStore.js"
 import { embed } from "../../graphs/codeIngestionGraph/nodes/embed.js"
+import { extractReadmeDocuments } from "../../graphs/codeIngestionGraph/nodes/extractReadmeDocuments.js"
 import { identifyRoots } from "../../graphs/codeIngestionGraph/nodes/identifyRoots.js"
 import { linkPackageHierarchy } from "../../graphs/codeIngestionGraph/nodes/linkLocatedPaths.js"
 import { project } from "../../graphs/codeIngestionGraph/nodes/project.js"
@@ -533,6 +534,23 @@ export const repositoryIngestion = defineWorkflow(
                   concatenatedClaims.push(...part.extractedClaims)
                   extractionSkippedFiles += part.extractionSkippedFiles ?? 0
                 }
+                // Repo-wide, after all roots, so READMEs outside every package
+                // are kept and each README is read once (ADR-050).
+                const readmeDocuments = await step.run(
+                  {
+                    name: "extract-readme-documents",
+                    retryPolicy: extractRetryPolicy,
+                  },
+                  () =>
+                    wls("extract-readme-documents", () =>
+                      extractReadmeDocuments({
+                        ...baseIngestState,
+                        extractedObjects: concatenatedObjects,
+                      }),
+                    ),
+                )
+                concatenatedObjects.push(...readmeDocuments.extractedObjects)
+                concatenatedClaims.push(...readmeDocuments.extractedClaims)
                 const finalized = await finalizeExtractedReferences({
                   orgId: baseIngestState.orgId,
                   extractedObjects: concatenatedObjects,
