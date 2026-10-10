@@ -61,10 +61,18 @@ type WorkspaceWriteSnapshot = WorkspaceWriteProbeBinding & {
   writeStatus: string
 }
 
+/**
+ * Probes GitHub write access and stores the result. A relink starts a tip
+ * check and a hydrate beside its bootstrap, and they can store a new tip or
+ * default branch during the probe. The probe reads only the repository and
+ * the connection, so while those and the generation stay the same, the
+ * result is stored again on the new row. Returns the stored status and the
+ * tip of the row it was stored on.
+ */
 async function probedWriteStatus(input: {
   orgId: string
   workspace: WorkspaceWriteSnapshot
-}): Promise<string | null> {
+}): Promise<{ writeStatus: string; desiredSha: string | null } | null> {
   try {
     const { getGithubRepoWriteView } = await import(
       "../routes/webhooks/github/github-workspace-tip.js"
@@ -79,14 +87,43 @@ async function probedWriteStatus(input: {
           env: parseEnv(process.env as Record<string, string | undefined>),
         }),
     })
-    const write = nextPersistedWriteProbe({
-      currentStatus: input.workspace.writeStatus,
-      probe,
-    })
-    const persisted = await withOrgDbContext(input.orgId, () =>
-      persistWriteStatus(input.workspace, write, input.orgId),
-    )
-    return persisted ? write.writeStatus : null
+    let workspace: WorkspaceWriteSnapshot = input.workspace
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const write = nextPersistedWriteProbe({
+        currentStatus: workspace.writeStatus,
+        probe,
+      })
+      const expected = workspace
+      if (
+        await withOrgDbContext(input.orgId, () =>
+          persistWriteStatus(expected, write, input.orgId),
+        )
+      )
+        return {
+          writeStatus: write.writeStatus,
+          desiredSha: workspace.desiredSha,
+        }
+      const latest = await withOrgDbContext(input.orgId, () =>
+        getWorkspaceById(expected.id),
+      )
+      if (
+        !latest ||
+        latest.desiredGeneration !== expected.desiredGeneration ||
+        latest.workspaceRepositoryUrl !== expected.workspaceRepositoryUrl ||
+        latest.githubConnectionId !== expected.githubConnectionId
+      )
+        return null
+      workspace = {
+        id: latest.id,
+        desiredGeneration: latest.desiredGeneration,
+        workspaceRepositoryUrl: latest.workspaceRepositoryUrl,
+        desiredSha: latest.desiredSha,
+        desiredDefaultBranch: latest.desiredDefaultBranch,
+        writeStatus: latest.writeStatus,
+        githubConnectionId: latest.githubConnectionId,
+      }
+    }
+    return null
   } catch {
     return null
   }
@@ -143,8 +180,7 @@ export async function enqueueWriteJob(
         )
       jobGeneration = jobGeneration ?? workspace.desiredGeneration
       jobWorkspaceUrl = jobWorkspaceUrl ?? workspace.workspaceRepositoryUrl
-      if (jobDesiredSha === undefined) jobDesiredSha = workspace.desiredSha
-      writeStatus = await probedWriteStatus({
+      const probed = await probedWriteStatus({
         orgId: input.orgId,
         workspace: {
           id: workspace.id,
@@ -156,6 +192,9 @@ export async function enqueueWriteJob(
           githubConnectionId: workspace.githubConnectionId,
         },
       })
+      writeStatus = probed?.writeStatus ?? null
+      if (jobDesiredSha === undefined)
+        jobDesiredSha = probed ? probed.desiredSha : workspace.desiredSha
     }
   } catch (error) {
     log.error(error instanceof Error ? error : new Error(String(error)))

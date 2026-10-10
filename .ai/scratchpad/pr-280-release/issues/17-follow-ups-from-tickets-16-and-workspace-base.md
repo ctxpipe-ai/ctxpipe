@@ -1,8 +1,8 @@
 # Follow-ups from ticket 16 and the Workspace base merge
 
-Status: needs-triage
+Status: done
 Priority: P2
-Owner: unassigned
+Owner: claude
 Blocked by: none
 Created: 2026-10-07
 Updated: 2026-10-10
@@ -19,3 +19,17 @@ Two small gaps stayed open when ticket 16 and the Workspace base work merged int
 4. **Codesearch directory reads can race with a checkout change.** The directory list in `routes/repo.ts` and the glob walk in `globFiles.ts` check the real path, then call `readdir`. If a path component becomes a symlink between the two calls, the list can show names (not content) from the symlink target. File reads are safe on Linux because of the descriptor check. main has the same race. Optional fix: open the directory with `O_DIRECTORY | O_NOFOLLOW` and check the descriptor path, as `readContainedFile` does.
 5. **GET /files on a directory lists a child named `.git`.** The list shows only the name, not the content, and main does the same. Decide if the list must also leave out `.git`, to agree with the "never .git" rule of #413.
 6. **Two codesearch route tests mock more than two repo modules.** `routes/repo.test.ts` mocks four modules and `routes/graph.test.ts` mocks three. The testing rule in the root AGENTS.md permits two. Move these route tests to a seam with a real checkout on disk, as the structural search route test now does.
+
+## Triage
+
+1. **Real; fixed.** A test reproduces the race: the tip moves during the bootstrap's write probe, the compare-and-set in `persistWriteStatus` fails, and the bootstrap is not admitted. Nothing admits it again later, so a relinked Workspace can miss its bootstrap files. This is not harmless. `probedWriteStatus` now stores the probe result again on the new row while the generation, the URL and the connection stay the same (at most three tries). The bootstrap binds to the tip of that row. The rebind contract no longer ignores the error.
+2. **Real gap; fixed with a direct check.** The conversation sandbox that holds a base always deletes one day before the hold ends, so the hold can never be the earliest due time of a sweep. A sweep case for that does not exist. The test now checks the `workspaceBaseHeldUntil` value itself.
+3. **Real; fixed by ending runs.** A per-file namespace needs edits in about 40 test sites and child scripts that connect to the library default namespace. A backend test setup file instead cancels, when each file ends, the open runs that the file created in "default". This also covers the test that enqueues through the module-level `ow` client. Cost: about 13 ms for each test file. The two private-namespace tests stay, because runs from earlier tests of the same file stay open until the file ends.
+4. **Real; fixed.** `readContainedDirectory` opens a directory with `O_DIRECTORY | O_NOFOLLOW`. On Linux it checks the descriptor path and reads the list through the descriptor. `GET /files` and the glob walk use it. Checked on Linux with Bun in a container.
+5. **Fixed.** Directory lists leave out a `.git` entry, in any letter case.
+6. **Fixed.** `routes/repo.test.ts` and `routes/graph.test.ts` set the cache paths through the environment and use a real checkout, a real git remote and the real purge. Each mocks only the repository service.
+
+## Resolution
+
+See the commits on branch `t17-follow-ups` (base f6fa4c48).
+
