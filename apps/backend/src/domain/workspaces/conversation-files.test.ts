@@ -282,6 +282,47 @@ describe("conversation sandbox files", { timeout: 15_000 }, () => {
     )
   })
 
+  it("lists committed added and modified files against the base branch", async () => {
+    await withWorktree(
+      (directory) => {
+        writeFileSync(join(directory, "AGENTS.md"), "# Agents\n")
+        writeFileSync(join(directory, "notes.md"), "N\n")
+        writeFileSync(join(directory, "scratch.md"), "S\n")
+      },
+      async ({ directory, handle, git }) => {
+        git("checkout", "-q", "-b", "ctxpipe/session")
+        mkdirSync(join(directory, "knowledge"), { recursive: true })
+        writeFileSync(join(directory, "knowledge/new.md"), "fresh\n")
+        writeFileSync(join(directory, "temp.md"), "gone soon\n")
+        writeFileSync(join(directory, "notes.md"), "N\nmore\n")
+        git("add", "-A")
+        git("commit", "-q", "-m", "Add and change notes")
+        writeFileSync(join(directory, "knowledge/new.md"), "fresh\nedit\n")
+        rmSync(join(directory, "temp.md"))
+        const status = () =>
+          conversationSandboxStatus({
+            handle,
+            defaultBranch: "main",
+            sessionBranch: "ctxpipe/session",
+          })
+        const changes = async () =>
+          (await status()).items
+            .map((item) => `${item.status} ${item.path}`)
+            .sort()
+
+        expect(await changes()).toEqual([
+          "added knowledge/new.md",
+          "modified notes.md",
+        ])
+
+        git("add", "-A")
+        git("commit", "-q", "-m", "Drop temp")
+        git("branch", "-f", "main", "ctxpipe/session")
+        expect(await changes()).toEqual([])
+      },
+    )
+  })
+
   it("reads a worktree version from native git without staging", async () => {
     await withWorktree(
       (directory) => {

@@ -315,7 +315,7 @@ export async function conversationSandboxStatus(input: {
     remoteSession,
     unpushed,
     currentBranch,
-    committedDeletions,
+    committed,
     listed,
   ] = await Promise.all([
     execGitOk(input.handle.exec, "git status --porcelain"),
@@ -332,10 +332,10 @@ export async function conversationSandboxStatus(input: {
     ),
     execGitOk(input.handle.exec, UNPUSHED_COMMITS_COMMAND),
     execGitOk(input.handle.exec, "git branch --show-current"),
-    // Files this conversation deleted in its own commits, against its base.
+    // Files this conversation changed in its own commits, against its base.
     execGit(
       input.handle.exec,
-      'git diff --no-renames --name-only --diff-filter=D -z "refs/heads/$CTXPIPE_DEFAULT_BRANCH"...HEAD',
+      'git diff --no-renames --name-status --diff-filter=ADM -z "refs/heads/$CTXPIPE_DEFAULT_BRANCH"...HEAD',
       { CTXPIPE_DEFAULT_BRANCH: input.defaultBranch },
     ),
     execGitOk(
@@ -349,17 +349,32 @@ export async function conversationSandboxStatus(input: {
   const items = explorerGitStatusFromPorcelain(porcelain)
     .filter((item) => isConversationSandboxListedPath(item.path))
     .map((item) => withExplorerGitLineCounts(item, counts))
-  // A committed deletion leaves `git status`; keep it until the base has it.
-  const known = new Set([
-    ...splitGitNulPaths(listed),
-    ...items.map((i) => i.path),
-  ])
-  for (const path of splitGitNulPaths(
-    committedDeletions.exitCode === 0 ? committedDeletions.stdout : "",
-  )) {
-    if (known.has(path) || !isConversationSandboxListedPath(path)) continue
-    known.add(path)
-    items.push({ path, status: "deleted", additions: 0 })
+  // A committed change leaves `git status`; keep it until the base has it.
+  const listedPaths = new Set(splitGitNulPaths(listed))
+  const fields = splitGitNulPaths(
+    committed.exitCode === 0 ? committed.stdout : "",
+  )
+  for (let index = 0; index + 1 < fields.length; index += 2) {
+    const code = fields[index]
+    const path = fields[index + 1]
+    if (!path || !isConversationSandboxListedPath(path)) continue
+    const current = items.findIndex((item) => item.path === path)
+    if (code === "D") {
+      if (current >= 0 || listedPaths.has(path)) continue
+      items.push({ path, status: "deleted", additions: 0 })
+      continue
+    }
+    if (current < 0) {
+      if (listedPaths.has(path)) {
+        items.push({ path, status: code === "A" ? "added" : "modified" })
+      }
+      continue
+    }
+    // Against the base, a file this conversation added is still added after
+    // a later edit, and is gone (not deleted) after a later removal.
+    if (code !== "A") continue
+    if (items[current]?.status === "deleted") items.splice(current, 1)
+    else if (items[current]) items[current].status = "added"
   }
   const dirty = porcelain.trim().length > 0
   const [behindRaw, aheadRaw] = (revList.stdout.trim() || "0\t0").split(/\s+/)
