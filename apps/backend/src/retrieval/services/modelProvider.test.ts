@@ -111,6 +111,27 @@ describe("modelProvider", () => {
     expect(call?.modelKwargs?.reasoning).toEqual({ effort: "medium" })
   })
 
+  it("getModel treats empty optional settings as unset, as Compose passes them", async () => {
+    process.env.MODEL_PROVIDER = "openrouter"
+    process.env.MODEL_PROVIDER_API_KEY = "k"
+    process.env.MODEL_PROVIDER_URL = ""
+    process.env.MODEL_BEDROCK_AWS_REGION = ""
+    process.env.MODEL_FAST_NAME = ""
+    process.env.MODEL_MEDIUM_NAME = ""
+    process.env.MODEL_HIGH_NAME = ""
+    process.env.MODEL_EMBEDDING_NAME = ""
+    vi.resetModules()
+    const { getModel } = await import("./modelProvider.js")
+    getModel("high")
+
+    const call = chatOpenAIConstructor.mock.calls[0]?.[0] as {
+      model?: string
+      configuration?: { baseURL?: string }
+    }
+    expect(call?.model).toBe("xiaomi/mimo-v2.6-pro")
+    expect(call?.configuration?.baseURL).toBe("https://openrouter.ai/api/v1")
+  })
+
   it("getModel passes tier fallback order to OpenRouter (fast: med then high)", async () => {
     process.env.MODEL_PROVIDER = "openrouter"
     process.env.MODEL_PROVIDER_API_KEY = "k"

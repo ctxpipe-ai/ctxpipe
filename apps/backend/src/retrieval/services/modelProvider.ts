@@ -34,46 +34,52 @@ const modelProviderSchema = z.enum([
   "bedrock",
 ])
 
-const modelEnvSchema = z
-  .object({
-    MODEL_PROVIDER: z.preprocess(
-      (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
-      modelProviderSchema.default("openai-like"),
+// An empty value is unset, as in `parseEnv`: Compose passes unset settings as "".
+const modelEnvSchema = z.preprocess(
+  (env) =>
+    Object.fromEntries(
+      Object.entries(env as Record<string, string | undefined>).filter(
+        ([, value]) => value?.trim() !== "",
+      ),
     ),
-    MODEL_PROVIDER_API_KEY: z.string().optional(),
-    MODEL_PROVIDER_URL: z.string().url().optional(),
-    MODEL_BEDROCK_AWS_REGION: z.string().optional(),
-    MODEL_FAST_NAME: z
-      .string()
-      .default("openai/gpt-6-luna?reasoning.effort=high"),
-    MODEL_MEDIUM_NAME: z
-      .string()
-      .default("openai/gpt-6-luna?reasoning.effort=xhigh"),
-    MODEL_HIGH_NAME: z.string().default("xiaomi/mimo-v2.6-pro"),
-    MODEL_EMBEDDING_NAME: z.string().default("openai/text-embedding-3-large"),
-  })
-  .superRefine((data, ctx) => {
-    if (data.MODEL_PROVIDER === "azure") {
-      if (!data.MODEL_PROVIDER_URL?.trim()) {
+  z
+    .object({
+      MODEL_PROVIDER: modelProviderSchema.default("openai-like"),
+      MODEL_PROVIDER_API_KEY: z.string().optional(),
+      MODEL_PROVIDER_URL: z.string().url().optional(),
+      MODEL_BEDROCK_AWS_REGION: z.string().optional(),
+      MODEL_FAST_NAME: z
+        .string()
+        .default("openai/gpt-6-luna?reasoning.effort=high"),
+      MODEL_MEDIUM_NAME: z
+        .string()
+        .default("openai/gpt-6-luna?reasoning.effort=xhigh"),
+      MODEL_HIGH_NAME: z.string().default("xiaomi/mimo-v2.6-pro"),
+      MODEL_EMBEDDING_NAME: z.string().default("openai/text-embedding-3-large"),
+    })
+    .superRefine((data, ctx) => {
+      if (data.MODEL_PROVIDER === "azure") {
+        if (!data.MODEL_PROVIDER_URL?.trim()) {
+          ctx.addIssue({
+            code: "custom",
+            message: `MODEL_PROVIDER_URL is required when MODEL_PROVIDER is ${data.MODEL_PROVIDER}`,
+            path: ["MODEL_PROVIDER_URL"],
+          })
+        }
+      }
+
+      if (
+        data.MODEL_PROVIDER !== "bedrock" &&
+        !data.MODEL_PROVIDER_API_KEY?.trim()
+      ) {
         ctx.addIssue({
           code: "custom",
-          message: `MODEL_PROVIDER_URL is required when MODEL_PROVIDER is ${data.MODEL_PROVIDER}`,
-          path: ["MODEL_PROVIDER_URL"],
+          message: "MODEL_PROVIDER_API_KEY is required for LLM operations",
+          path: ["MODEL_PROVIDER_API_KEY"],
         })
       }
-    }
-
-    if (
-      data.MODEL_PROVIDER !== "bedrock" &&
-      !data.MODEL_PROVIDER_API_KEY?.trim()
-    ) {
-      ctx.addIssue({
-        code: "custom",
-        message: "MODEL_PROVIDER_API_KEY is required for LLM operations",
-        path: ["MODEL_PROVIDER_API_KEY"],
-      })
-    }
-  })
+    }),
+)
 
 export type GetModelOptions = {
   /** Fixed-purpose model selection; bypasses the configurable tier fallback chain. */
