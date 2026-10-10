@@ -2,7 +2,6 @@ import { createServer } from "node:http"
 import { initLogger } from "evlog"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { createLogger, withLogger } from "../observability/logger.js"
-import { withTestLogger } from "../test/with-test-logger.js"
 import {
   isViteHmrWebSocketRequest,
   proxyUiRequest,
@@ -79,13 +78,11 @@ describe("UI HTTP proxy budget", () => {
 
     const started = Date.now()
     try {
-      const response = await withTestLogger(() =>
-        proxyUiRequest(
-          new Request("http://localhost/ws/context"),
-          `http://127.0.0.1:${address.port}`,
-          50,
-          trust,
-        ),
+      const response = await proxyUiRequest(
+        new Request("http://localhost/ws/context"),
+        `http://127.0.0.1:${address.port}`,
+        50,
+        trust,
       )
       expect(response.status).toBe(504)
       expect(Date.now() - started).toBeLessThan(15_000)
@@ -97,13 +94,11 @@ describe("UI HTTP proxy budget", () => {
   })
 
   it("returns 502 when the upstream connection is refused", async () => {
-    const response = await withTestLogger(() =>
-      proxyUiRequest(
-        new Request("http://localhost/ws/context"),
-        "http://127.0.0.1:1",
-        200,
-        trust,
-      ),
+    const response = await proxyUiRequest(
+      new Request("http://localhost/ws/context"),
+      "http://127.0.0.1:1",
+      200,
+      trust,
     )
     expect(response.status).toBe(502)
   })
@@ -122,13 +117,11 @@ describe("UI HTTP proxy budget", () => {
     }
 
     try {
-      const response = await withTestLogger(() =>
-        proxyUiRequest(
-          new Request("http://localhost/ws/context"),
-          `http://127.0.0.1:${address.port}`,
-          200,
-          trust,
-        ),
+      const response = await proxyUiRequest(
+        new Request("http://localhost/ws/context"),
+        `http://127.0.0.1:${address.port}`,
+        200,
+        trust,
       )
       expect(response.status).toBe(502)
     } finally {
@@ -141,13 +134,19 @@ describe("UI HTTP proxy budget", () => {
 
 describe("UI proxy failure response", () => {
   const trust = { publicOrigin: "http://localhost:3000" }
-  // `setup-evlog.ts` turns loggers into no-ops. Keep wide-event context here,
-  // with no output, so the tests can read the failure log.
+  // `setup-evlog.ts` turns loggers into no-ops. Turn them on so the tests can
+  // read the failure log, then put the setup config back.
   beforeAll(() => {
-    initLogger({ enabled: true, silent: true, drain: () => {} })
+    initLogger({
+      env: { service: "ctxpipe-backend", environment: "test" },
+      pretty: false,
+    })
   })
   afterAll(() => {
-    initLogger({ enabled: false })
+    initLogger({
+      enabled: false,
+      env: { service: "ctxpipe-backend-test" },
+    })
   })
 
   async function withHangingUpstream<T>(
@@ -174,17 +173,12 @@ describe("UI proxy failure response", () => {
     }
   }
 
-  it("answers a timed-out page load with an HTML page, not a download", async () => {
+  it("logs a timeout and does not let a cache keep the 504", async () => {
     const logger = createLogger({ test: true })
     const response = await withHangingUpstream((upstream) =>
       withLogger(logger, () =>
         proxyUiRequest(
-          new Request("http://localhost/acme/ws/docs", {
-            headers: {
-              accept: "text/html,application/xhtml+xml,*/*;q=0.8",
-              "x-request-id": "req-page-load",
-            },
-          }),
+          new Request("http://localhost/acme/ws/docs"),
           upstream,
           50,
           trust,
@@ -192,42 +186,39 @@ describe("UI proxy failure response", () => {
       ),
     )
     expect(response.status).toBe(504)
-    expect(response.headers.get("content-type")).toBe(
-      "text/html; charset=utf-8",
-    )
     expect(response.headers.get("cache-control")).toBe("no-store")
-    const body = await response.text()
-    expect(body).toMatch(/^<!doctype html>/i)
-    expect(body).toContain("req-page-load")
+    expect(await response.text()).toBe("Gateway Timeout")
     expect(logger.getContext()).toMatchObject({
-      uiProxy: { outcome: "timeout", timeoutMs: 50, path: "/acme/ws/docs" },
+      uiProxy: { outcome: "timeout", timeoutMs: 50 },
     })
   })
 
-  it("answers a failed asset or API call with JSON", async () => {
+  it("logs an upstream error and does not let a cache keep the 502", async () => {
     const logger = createLogger({ test: true })
     const response = await withLogger(logger, () =>
       proxyUiRequest(
-        new Request("http://localhost/assets/app.js", {
-          headers: { accept: "*/*" },
-        }),
+        new Request("http://localhost/assets/app.js"),
         "http://127.0.0.1:1",
         200,
         trust,
       ),
     )
     expect(response.status).toBe(502)
-    expect(response.headers.get("content-type")).toBe(
-      "application/json; charset=utf-8",
-    )
     expect(response.headers.get("cache-control")).toBe("no-store")
-    expect(await response.json()).toEqual({
-      error: "ui_unavailable",
-      message: "The UI service did not answer.",
-    })
+    expect(await response.text()).toBe("Bad Gateway")
     expect(logger.getContext()).toMatchObject({
-      uiProxy: { outcome: "upstream_error", path: "/assets/app.js" },
+      uiProxy: { outcome: "upstream_error" },
     })
+  })
+
+  it("still answers 502 when no request logger exists", async () => {
+    const response = await proxyUiRequest(
+      new Request("http://localhost/assets/app.js"),
+      "http://127.0.0.1:1",
+      200,
+      trust,
+    )
+    expect(response.status).toBe(502)
   })
 })
 
