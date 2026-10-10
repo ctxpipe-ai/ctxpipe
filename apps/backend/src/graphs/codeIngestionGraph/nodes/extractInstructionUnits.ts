@@ -320,6 +320,13 @@ export function deriveSharedRepoRootSkills(input: {
   const owner = repoRootInstructionOwner(input.roots)
   const unitRoot = (unit: ExtractedObject) =>
     normalizeRootDir(String((unit.payload as { root?: string })?.root ?? ""))
+  // A `./` run gives the root `./` to each file, also to package files. Only
+  // the files at the repository root are the repo-root units.
+  const isRepoRootUnit = (unit: ExtractedObject) =>
+    unitRoot(unit) === "" &&
+    isRepoRootInstructionPath(
+      String((unit.payload as { path?: string })?.path ?? ""),
+    )
   // A capture of an older run can hold the same unit in more than one root.
   const units = [
     ...new Map(
@@ -342,7 +349,9 @@ export function deriveSharedRepoRootSkills(input: {
     const derived = deriveSkillsFromUnits({
       repositoryId: input.repositoryId,
       targetHash: input.targetHash,
-      units: units.filter((unit) => [dir, ""].includes(unitRoot(unit))),
+      units: units.filter(
+        (unit) => unitRoot(unit) === dir || isRepoRootUnit(unit),
+      ),
     })
     for (const object of derived.objects) {
       if (objectKeys.has(object.deduplicationKey)) continue

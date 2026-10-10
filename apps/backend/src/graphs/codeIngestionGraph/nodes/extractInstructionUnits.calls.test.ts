@@ -230,60 +230,12 @@ describe("extractInstructionUnits model calls", () => {
     { timeout: 30_000 },
     async () => {
       stubEnv()
-      const roots = ["packages/beta", "packages/alpha"]
-      const skillsOf = (
-        objects: ExtractedObject[],
-        claims: ExtractedClaim[],
-      ) => ({
-        skills: objects
-          .filter((object) => object.kind === "Skill")
-          .map((object) => object.deduplicationKey)
-          .sort(),
-        members: claims
-          .filter((claim) => claim.predicate === "MEMBER_OF_PRIMARY")
-          .map((claim) => claim.sourceId)
-          .sort(),
-      })
-      const unique = <T>(items: T[]) => [...new Set(items)]
-
-      // Before: each package root read the repo-root files itself.
-      const before = {
-        objects: [] as ExtractedObject[],
-        claims: [] as ExtractedClaim[],
-      }
-      for (const root of roots) {
-        const output = await run(rootState(root, true))
-        before.objects.push(...(output.extractedObjects ?? []))
-        before.claims.push(...(output.extractedClaims ?? []))
-      }
-
-      const owner = repoRootInstructionOwner(roots)
-      const after = {
-        objects: [] as ExtractedObject[],
-        claims: [] as ExtractedClaim[],
-      }
-      for (const root of roots) {
-        const output = await run(rootState(root, root === owner))
-        after.objects.push(...(output.extractedObjects ?? []))
-        after.claims.push(...(output.extractedClaims ?? []))
-      }
-      const shared = deriveSharedRepoRootSkills({
-        repositoryId: "repo_calls",
-        targetHash: "abc123",
-        roots,
-        capture: {
-          extractedObjects: after.objects,
-          extractedClaims: after.claims,
-        },
-      })
-      after.objects.push(...shared.objects)
-      after.claims.push(...shared.claims)
-
-      const expected = skillsOf(before.objects, before.claims)
-      const actual = skillsOf(after.objects, after.claims)
+      const { expected, actual, after } = await skillsBeforeAndAfter([
+        "packages/beta",
+        "packages/alpha",
+      ])
       expect(expected.skills.length).toBeGreaterThanOrEqual(2)
-      expect(unique(actual.skills)).toEqual(unique(expected.skills))
-      expect(unique(actual.members)).toEqual(unique(expected.members))
+      expect(actual).toEqual(expected)
       // The Skill of packages/beta has the repo-root units and the beta unit.
       const bSkill = after.claims.filter(
         (claim) =>
@@ -299,4 +251,68 @@ describe("extractInstructionUnits model calls", () => {
       )
     },
   )
+
+  it(
+    "keeps the Skills of each package root when the run has a ./ root",
+    { timeout: 30_000 },
+    async () => {
+      stubEnv()
+      // The ./ run gives every file the root ./, also the package files.
+      const { expected, actual } = await skillsBeforeAndAfter([
+        "./",
+        "packages/alpha",
+        "packages/beta",
+      ])
+      expect(expected.skills.length).toBeGreaterThanOrEqual(3)
+      expect(actual).toEqual(expected)
+    },
+  )
 })
+
+/**
+ * Skills of a run before this change (each root read the repo-root files) and
+ * after it (one root reads them, and the capture load adds the shared Skills).
+ */
+async function skillsBeforeAndAfter(roots: string[]) {
+  const unique = <T>(items: T[]) => [...new Set(items)].sort()
+  const skillsOf = (output: {
+    objects: ExtractedObject[]
+    claims: ExtractedClaim[]
+  }) => ({
+    skills: unique(
+      output.objects
+        .filter((object) => object.kind === "Skill")
+        .map((object) => object.deduplicationKey),
+    ),
+    members: unique(
+      output.claims
+        .filter((claim) => claim.predicate === "MEMBER_OF_PRIMARY")
+        .map((claim) => claim.sourceId),
+    ),
+  })
+  const collect = async (owns: (root: string) => boolean) => {
+    const output = {
+      objects: [] as ExtractedObject[],
+      claims: [] as ExtractedClaim[],
+    }
+    for (const root of roots) {
+      const part = await run(rootState(root, owns(root)))
+      output.objects.push(...(part.extractedObjects ?? []))
+      output.claims.push(...(part.extractedClaims ?? []))
+    }
+    return output
+  }
+
+  const before = await collect(() => true)
+  const owner = repoRootInstructionOwner(roots)
+  const after = await collect((root) => root === owner)
+  const shared = deriveSharedRepoRootSkills({
+    repositoryId: "repo_calls",
+    targetHash: "abc123",
+    roots,
+    capture: { extractedObjects: after.objects, extractedClaims: after.claims },
+  })
+  after.objects.push(...shared.objects)
+  after.claims.push(...shared.claims)
+  return { expected: skillsOf(before), actual: skillsOf(after), after }
+}
