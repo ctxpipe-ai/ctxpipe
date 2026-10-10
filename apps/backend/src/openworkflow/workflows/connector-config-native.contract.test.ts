@@ -260,6 +260,7 @@ it.each(
           const pool = new Pool({ connectionString: f.databaseUrl })
           const backend = await BackendPostgres.connect(f.databaseUrl, {
             runMigrations: false,
+            namespaceId: openWorkflowNamespaceId(),
           })
           try {
             await backfillConnectorContentAdmissions(pool, backend, {

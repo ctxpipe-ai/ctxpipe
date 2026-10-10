@@ -4,6 +4,7 @@ import { expect, it } from "vitest"
 import { withOrgDbContext } from "../../db/client.js"
 import { workspaces, workspaceWriteJobs } from "../../db/schema/workspaces.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
+import { openWorkflowNamespaceId } from "../namespace.js"
 import { workspaceTipCheck } from "./workspace-tip-check.js"
 
 it(
@@ -23,6 +24,7 @@ it(
         })
         const backend = await BackendPostgres.connect(f.databaseUrl, {
           runMigrations: false,
+          namespaceId: openWorkflowNamespaceId(),
         })
         try {
           const queued = (
@@ -80,6 +82,7 @@ it(
         await handle.result({ timeoutMs: 30_000 })
         const backend = await BackendPostgres.connect(f.databaseUrl, {
           runMigrations: false,
+          namespaceId: openWorkflowNamespaceId(),
         })
         try {
           const queued = (
