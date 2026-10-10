@@ -18,7 +18,11 @@ vi.mock("../../../openworkflow/client.js", () => ({
 vi.mock("../../../openworkflow/workflows/github-sync-pull-request.js", () => ({
   githubSyncPullRequest: { spec: { name: "github-sync-pull-request" } },
 }))
+vi.mock("../../../openworkflow/workflows/github-sync-issue.js", () => ({
+  githubSyncIssue: { spec: { name: "github-sync-issue" } },
+}))
 
+import { createLogger, withLogger } from "../../../observability/logger.js"
 import {
   candidateFromPullRequestPayload,
   githubPrMirrorIdempotencyKey,
@@ -95,6 +99,115 @@ describe("maybeEnqueueGithubPrMirror", () => {
       },
       { idempotencyKey: "github-pr:con_gh:acme/api:7:2026-03-03T00:00:00Z" },
     )
+  })
+
+  it("enqueues one issue job per delivery for issue events and plain-issue comments", async () => {
+    for (const deliveryId of ["delivery-1", "delivery-2"]) {
+      await maybeEnqueueGithubPrMirror({
+        eventName: "issues",
+        payload: {
+          action: "labeled",
+          issue: { number: 12, updated_at: "2026-03-04T00:00:00Z" },
+          repository: { full_name: "acme/api" },
+          installation: { id: 99 },
+        },
+        githubConnectionId: "con_gh",
+        deliveryId,
+      })
+    }
+    await maybeEnqueueGithubPrMirror({
+      eventName: "issue_comment",
+      payload: {
+        action: "deleted",
+        issue: { number: 12 },
+        comment: { updated_at: "2026-03-05T00:00:00Z" },
+        repository: { full_name: "acme/api" },
+        installation: { id: 99 },
+      },
+      githubConnectionId: "con_gh",
+      deliveryId: "delivery-3",
+    })
+
+    const job = {
+      orgId: "org_1",
+      connectionId: "con_gh",
+      sourceRepository: "acme/api",
+      number: 12,
+    }
+    expect(mocks.runWorkflow.mock.calls).toEqual([
+      [
+        { name: "github-sync-issue" },
+        job,
+        { idempotencyKey: "github-issue:con_gh:acme/api:12:delivery-1" },
+      ],
+      [
+        { name: "github-sync-issue" },
+        job,
+        { idempotencyKey: "github-issue:con_gh:acme/api:12:delivery-2" },
+      ],
+      [
+        { name: "github-sync-issue" },
+        job,
+        { idempotencyKey: "github-issue:con_gh:acme/api:12:delivery-3" },
+      ],
+    ])
+  })
+
+  it("fails the delivery when a mirror job cannot be enqueued", async () => {
+    mocks.runWorkflow.mockRejectedValueOnce(new Error("queue unavailable"))
+
+    // The webhook route runs inside the request logger.
+    await expect(
+      withLogger(createLogger({}), () =>
+        maybeEnqueueGithubPrMirror({
+          eventName: "issues",
+          payload: {
+            action: "opened",
+            issue: { number: 12, updated_at: "2026-03-04T00:00:00Z" },
+            repository: { full_name: "acme/api" },
+            installation: { id: 99 },
+          },
+          githubConnectionId: "con_gh",
+        }),
+      ),
+    ).rejects.toThrow("queue unavailable")
+  })
+
+  it("runs a full sync when the owner accepts new App permissions", async () => {
+    for (const action of ["created", "new_permissions_accepted"]) {
+      await maybeEnqueueGithubPrMirror({
+        eventName: "installation",
+        // GitHub's own payload example carries `updated_at` as a number.
+        payload: { action, installation: { id: 99, updated_at: 1557933591 } },
+        githubConnectionId: "con_gh",
+        deliveryId: "delivery-9",
+      })
+    }
+
+    expect(mocks.runWorkflow).toHaveBeenCalledTimes(1)
+    expect(mocks.runWorkflow).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "github-sync-content" }),
+      { orgId: "org_1", connectionId: "con_gh" },
+      {
+        idempotencyKey: "github-pr-mirror-permissions:con_gh:delivery-9",
+      },
+    )
+  })
+
+  it("skips issue actions that do not change the mirrored file", async () => {
+    for (const action of ["deleted", "transferred", "pinned", "locked"]) {
+      await maybeEnqueueGithubPrMirror({
+        eventName: "issues",
+        payload: {
+          action,
+          issue: { number: 12, updated_at: "2026-03-04T00:00:00Z" },
+          repository: { full_name: "acme/api" },
+          installation: { id: 99 },
+        },
+        githubConnectionId: "con_gh",
+      })
+    }
+    expect(mocks.runWorkflow).not.toHaveBeenCalled()
   })
 
   it("derives candidates from payload facts", () => {

@@ -60,6 +60,7 @@ export async function commitGithubPrMirrorConfigYaml(input: {
   env: Env
   binding: GithubPrMirrorBinding
   repositories: string[]
+  current?: GithubPrMirrorRepoConfig
 }) {
   const { commitSha } = await commitFiles({
     orgId: input.orgId,
@@ -73,6 +74,7 @@ export async function commitGithubPrMirrorConfigYaml(input: {
         path: GITHUB_PR_CONFIG_PATH,
         content: renderGithubPrConfigYaml({
           repositories: input.repositories,
+          current: input.current,
         }),
       },
     ],

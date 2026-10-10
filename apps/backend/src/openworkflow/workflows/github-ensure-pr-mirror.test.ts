@@ -63,13 +63,13 @@ describe("githubEnsurePrMirror", () => {
       1,
       githubEnsurePrMirror.spec,
       { orgId: "org_a", connectionId: "con_a" },
-      { idempotencyKey: "github-pr-mirror-startup:v1:org_a:con_a" },
+      { idempotencyKey: "github-pr-mirror-startup:v2:org_a:con_a" },
     )
     expect(runWorkflowWithWorkerWake).toHaveBeenNthCalledWith(
       2,
       githubEnsurePrMirror.spec,
       { orgId: "org_b", connectionId: "con_b" },
-      { idempotencyKey: "github-pr-mirror-startup:v1:org_b:con_b" },
+      { idempotencyKey: "github-pr-mirror-startup:v2:org_b:con_b" },
     )
   })
 
@@ -91,7 +91,7 @@ describe("githubEnsurePrMirror", () => {
       { orgId: "org_a", connectionId: "con_a" },
       {
         idempotencyKey:
-          "github-pr-mirror-startup:v1:org_a:con_a:retry:run_failed",
+          "github-pr-mirror-startup:v2:org_a:con_a:retry:run_failed",
       },
     )
   })

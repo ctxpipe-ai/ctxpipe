@@ -357,7 +357,7 @@ export function GitHubRepositorySetupForm({
         </h1>
         <p className="mt-3 text-balance leading-relaxed text-muted-foreground">
           {step === "context"
-            ? "ctx| writes pull-request capture and later connector content here. Prefer ctxpipe-context, or pick another repository the App can see."
+            ? "ctx| writes pull-request and issue capture and later connector content here. Prefer ctxpipe-context, or pick another repository the App can see."
             : variant === "onboarding"
               ? "GitHub controls which repositories ctx| can access. Now choose which of those repositories to index into your knowledge graph."
               : "Choose which repositories to ingest. Already indexed repositories stay selected even if you search or have not scrolled the list."}
