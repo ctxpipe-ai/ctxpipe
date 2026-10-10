@@ -12,6 +12,11 @@ const connectionId = "con_story_notion"
 const meta = {
   title: "Components/Connections/NotionSetupDialog",
   component: NotionSetupDialog,
+  args: {
+    orgSlug,
+    isOpen: true,
+    onOpenChange: () => {},
+  },
   decorators: entryPageInnerDecorators,
   parameters: {
     layout: "fullscreen",

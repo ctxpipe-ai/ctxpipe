@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
-import { entryPageInnerDecorators } from "../../.storybook/decorators/entry-page-decorators"
+import { expect, waitFor, within } from "storybook/test"
+import { orgPageDecorators } from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
 import { ConnectorsPageContent } from "./$orgSlug.connectors"
 
@@ -8,7 +9,7 @@ const orgSlug = "acme"
 
 const meta = {
   title: "Pages/Connections",
-  decorators: entryPageInnerDecorators,
+  decorators: orgPageDecorators,
   parameters: {
     layout: "fullscreen",
   },
@@ -43,6 +44,13 @@ export const Empty: Story = {
 
 export const Loading: Story = {
   render: () => <ConnectorsPageContent orgSlug={orgSlug} />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    expect(
+      canvas.getByRole("navigation", { name: "Main navigation" }),
+    ).toBeVisible()
+    expect(canvas.getByText("Loading connectors")).toBeInTheDocument()
+  },
   parameters: {
     storyRoute: {
       pattern: "orgConnectors",
@@ -454,4 +462,54 @@ export const CouldntLoad: Story = {
     statusFailed("/api/v1/connectors/slack/status", slackId),
     statusFailed("/api/v1/connectors/pagerduty/status", pagerdutyId),
   ]),
+}
+
+/** The Atlassian account link returns here and opens the wizard again. */
+export const ReopensConfluenceWizardAfterAccountLink: Story = {
+  render: () => <ConnectorsPageContent orgSlug={orgSlug} />,
+  play: async ({ canvasElement }) => {
+    const page = within(canvasElement.ownerDocument.body)
+    const heading = await page.findByRole("heading", {
+      name: "Set up Confluence connector",
+    })
+    await waitFor(() => expect(heading).toBeVisible())
+  },
+  parameters: {
+    storyRoute: {
+      pattern: "orgConnectors",
+      orgSlug,
+      search: "?atlassianConnectionId=con_forge_story",
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: [
+          http.get(
+            ({ request }) =>
+              new URL(request.url).pathname === `/${orgSlug}/api/v1/connectors`,
+            () => HttpResponse.json({ items: [] }),
+          ),
+          http.get(
+            ({ request }) =>
+              new URL(request.url).pathname.endsWith(
+                "/api/v1/connectors/atlassian/status",
+              ),
+            () =>
+              HttpResponse.json({
+                isLinked: true,
+                isInstalled: false,
+                installationStatus: null,
+                isGithubLinked: false,
+                selectedSpaceCount: 0,
+                syncTargetConfigured: false,
+                setupPhase: "draft",
+                pendingConfigPullUrl: null,
+                pendingConfigPrCreating: false,
+                syncTarget: null,
+                selectedSpaces: [],
+              }),
+          ),
+        ],
+      },
+    },
+  },
 }

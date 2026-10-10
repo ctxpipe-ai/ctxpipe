@@ -120,7 +120,7 @@ export function LinearScopeStep({
         </p>
         <Button
           variant="secondary"
-          className="rounded-none"
+          className="rounded-md"
           onPress={() => {
             void Promise.all([scopesQuery.refetch(), configQuery.refetch()])
           }}
@@ -141,7 +141,7 @@ export function LinearScopeStep({
           {manageLiveScope ? (
             <>
               Scope changes are proposed through{" "}
-              <code className="rounded-none bg-muted px-1 py-0.5 text-[11px]">
+              <code className="rounded-md bg-muted px-1 py-0.5 text-[11px]">
                 linear/config.yaml
               </code>
               . Sync updates after you review and merge the pull request.
@@ -215,7 +215,7 @@ export function LinearScopeStep({
       </p>
       <div className="flex items-center justify-between border-t border-border pt-4">
         {onBack ? (
-          <Button variant="secondary" className="rounded-none" onPress={onBack}>
+          <Button variant="secondary" className="rounded-md" onPress={onBack}>
             Back
           </Button>
         ) : (
@@ -223,7 +223,7 @@ export function LinearScopeStep({
         )}
         <Button
           variant="primary"
-          className="rounded-none"
+          className="rounded-md"
           isPending={saveMutation.isPending}
           isDisabled={
             saveMutation.isPending || selectedIds.length === 0 || !scopeChanged

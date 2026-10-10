@@ -14,6 +14,7 @@ generates:
       preResolveTypes: true
       skipTypename: true
       enumsAsTypes: true
+      useTypeImports: true
       defaultScalarType: unknown
       scalars:
         DateTime: string

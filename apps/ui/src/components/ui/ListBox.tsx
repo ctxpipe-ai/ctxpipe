@@ -6,11 +6,11 @@ import {
   ListBoxItem as AriaListBoxItem,
   type ListBoxProps as AriaListBoxProps,
   Collection,
+  composeRenderProps,
   Header,
   type ListBoxItemProps,
   ListBoxSection,
   type SectionProps,
-  composeRenderProps,
 } from "react-aria-components"
 import { tv } from "tailwind-variants"
 import { composeTailwindRenderProps, focusRing } from "@/lib/react-aria-utils"
@@ -27,7 +27,7 @@ export function ListBox<T extends object>({
       {...props}
       className={composeTailwindRenderProps(
         props.className,
-        "outline-0 p-1 w-[200px] bg-white dark:bg-neutral-900 border border-neutral-300 dark:border-neutral-700 rounded-lg font-sans",
+        "outline-0 p-1 w-[200px] bg-white dark:bg-neutral-900 border border-neutral-300 dark:border-neutral-700 rounded-md font-sans",
       )}
     >
       {children}
@@ -51,7 +51,7 @@ export const itemStyles = tv({
 })
 
 export function ListBoxItem(props: ListBoxItemProps) {
-  let textValue =
+  const textValue =
     props.textValue ||
     (typeof props.children === "string" ? props.children : undefined)
   return (
@@ -67,7 +67,7 @@ export function ListBoxItem(props: ListBoxItemProps) {
 }
 
 export const dropdownItemStyles = tv({
-  base: "group flex items-center gap-4 cursor-default select-none py-2 pl-3 pr-3 selected:pr-1 rounded-none outline outline-0 text-sm forced-color-adjust-none no-underline [&[href]]:cursor-pointer [-webkit-tap-highlight-color:transparent]",
+  base: "group flex items-center gap-4 cursor-default select-none py-2 pl-3 pr-3 selected:pr-1 rounded-md outline outline-0 text-sm forced-color-adjust-none no-underline [&[href]]:cursor-pointer [-webkit-tap-highlight-color:transparent]",
   variants: {
     isDisabled: {
       false: "text-neutral-900 dark:text-neutral-100",
@@ -91,7 +91,7 @@ export const dropdownItemStyles = tv({
 
 export const dropdownItemStylesDark = tv({
   extend: dropdownItemStyles,
-  base: "rounded-none !text-zinc-100 hover:bg-zinc-800",
+  base: "rounded-md !text-zinc-100 hover:bg-zinc-800",
   variants: {
     isSelected: {
       false: "!text-zinc-100",
@@ -118,7 +118,7 @@ export const dropdownItemStylesDark = tv({
 })
 
 export function DropdownItem(props: ListBoxItemProps) {
-  let textValue =
+  const textValue =
     props.textValue ||
     (typeof props.children === "string" ? props.children : undefined)
   return (

@@ -275,3 +275,14 @@ variable "codesearch_index_pipeline_concurrency" {
   description = "Max distinct repos with in-flight OpenWorkflow index-phase HTTP (clone included) on codesearch. Production default is the medium pair. Changing this requires redeploying codesearch."
   default     = "2"
 }
+
+variable "vercel_access_token" {
+  type        = string
+  description = "VERCEL_TOKEN for hosted chat sandboxes. Hosted chat never runs unsandboxed, so it is required."
+  sensitive   = true
+
+  validation {
+    condition     = length(trimspace(var.vercel_access_token)) > 0
+    error_message = "vercel_access_token is required so hosted chat runs in Vercel sandboxes."
+  }
+}

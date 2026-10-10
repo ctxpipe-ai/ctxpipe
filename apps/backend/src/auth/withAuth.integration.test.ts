@@ -2,7 +2,6 @@ import { createHash } from "node:crypto"
 import { eq } from "drizzle-orm"
 import { evlog } from "evlog/hono"
 import { Hono } from "hono"
-import { contextStorage } from "hono/context-storage"
 import { afterAll, beforeAll, expect, it } from "vitest"
 import {
   cleanupSeededOrg,
@@ -17,6 +16,10 @@ import { getSystemDb } from "../db/client.js"
 import { oauthAccessTokens, oauthClients, sessions } from "../db/schema/auth.js"
 import { generateObjectId } from "../lib/id.js"
 import { backendOtelMiddleware } from "../observability/http.js"
+import {
+  contextStorage,
+  withTestRequestLogger,
+} from "../test/hono-test-logger.js"
 import {
   requireAuth,
   withBearerAuth,
@@ -88,6 +91,8 @@ describeWithDatabase("auth attribution (Postgres)", () => {
     app.use(contextStorage())
     app.use("*", backendOtelMiddleware())
     app.use(evlog())
+    // setup-evlog disables evlog attach; production evlog() sets c.var.log.
+    app.use(withTestRequestLogger)
     app.use("*", async (c, next) => {
       c.set("env", parseEnv(process.env as Record<string, string | undefined>))
       c.set("user", null)

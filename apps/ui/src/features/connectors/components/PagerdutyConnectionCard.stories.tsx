@@ -47,6 +47,11 @@ function pagerdutyStatus(status: object) {
 const meta = {
   title: "Components/Connections/PagerdutyCard",
   component: PagerdutyConnectionCard,
+  args: {
+    orgSlug,
+    connectionId,
+    onOpenSetup: () => {},
+  },
   decorators: entryPageInnerDecorators,
   parameters: {
     layout: "fullscreen",

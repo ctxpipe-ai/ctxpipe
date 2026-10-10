@@ -50,12 +50,22 @@ function isRetryableFetchFailure(error: unknown): boolean {
   )
 }
 
-function isTransientGatewayResponse(value: unknown): value is Response {
-  return (
-    typeof Response !== "undefined" &&
-    value instanceof Response &&
-    (value.status === 502 || value.status === 503 || value.status === 504)
-  )
+function isGatewayStatus(status: number): boolean {
+  return status === 502 || status === 503 || status === 504
+}
+
+async function isOpaqueInternalServerError(value: Response): Promise<boolean> {
+  if (value.status !== 500) return false
+  const text = await value.clone().text()
+  return /^internal server error$/i.test(text.trim())
+}
+
+async function shouldRetryGatewayResponse(value: unknown): Promise<boolean> {
+  if (typeof Response === "undefined" || !(value instanceof Response)) {
+    return false
+  }
+  if (isGatewayStatus(value.status)) return true
+  return isOpaqueInternalServerError(value)
 }
 
 function errorMessage(error: unknown): string {
@@ -65,10 +75,10 @@ function errorMessage(error: unknown): string {
 
 /**
  * Retries `run` on transient HTTP upstream failures — {@link TransientHttpError},
- * Response status 502/503/504 when `run` returns a {@link Response}, and common
- * `fetch` network errors — with exponential backoff and small jitter. Logs info
- * on each retry; does not log errors for intermediate failures (callers may log
- * after the final throw).
+ * Response status 502/503/504 (and opaque 500 "Internal Server Error") when `run`
+ * returns a {@link Response}, and common `fetch` network errors — with exponential
+ * backoff and small jitter. Logs info on each retry; does not log errors for
+ * intermediate failures (callers may log after the final throw).
  */
 export async function withTransientHttpRetry<T>(
   run: () => Promise<T>,
@@ -83,7 +93,10 @@ export async function withTransientHttpRetry<T>(
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     try {
       const result = await run()
-      if (isTransientGatewayResponse(result)) {
+      if (
+        result instanceof Response &&
+        (await shouldRetryGatewayResponse(result))
+      ) {
         await result.text().catch(() => "")
         throw new TransientHttpError(
           `transient HTTP ${result.status}`,

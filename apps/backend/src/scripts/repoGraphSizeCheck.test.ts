@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest"
-import { countScipDocuments, estimateRepoGraph } from "./repoGraphSizeCheck.js"
+import {
+  compareRepoGraph,
+  countScipDocuments,
+  estimateRepoGraph,
+  measuredRepoGraph,
+} from "./repoGraphSizeCheck.js"
 
 describe("estimateRepoGraph", () => {
   it("scales lower bounds with packages, instruction docs, and TypeScript sources", () => {
@@ -27,7 +32,7 @@ describe("estimateRepoGraph", () => {
       "Service+App+Library": 1,
       InstructionUnit: 1,
       Decision: 0,
-      objects: 2,
+      units: 2,
       scipDocuments: 1,
     })
   })
@@ -48,5 +53,32 @@ describe("countScipDocuments", () => {
     ])
 
     expect(countScipDocuments(index)).toBe(2)
+  })
+})
+
+describe("measuredRepoGraph and compareRepoGraph", () => {
+  it("counts package kinds together and flags a bound the units miss", () => {
+    const actual = measuredRepoGraph({
+      Service: 2,
+      Library: 1,
+      InstructionUnit: 1,
+      "(none)": 3,
+    })
+    expect(actual).toEqual({
+      "Service+App+Library": 3,
+      InstructionUnit: 1,
+      Decision: 0,
+      units: 7,
+    })
+    expect(
+      compareRepoGraph(
+        { "Service+App+Library": 3, Decision: 1, scipDocuments: 10 },
+        actual,
+      ),
+    ).toEqual([
+      { name: "Service+App+Library", expected: 3, actual: 3, ok: true },
+      { name: "Decision", expected: 1, actual: 0, ok: false },
+      { name: "scipDocuments", expected: 10, actual: null, ok: null },
+    ])
   })
 })

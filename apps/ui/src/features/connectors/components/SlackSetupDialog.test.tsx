@@ -34,7 +34,12 @@ const slackStatusState = vi.hoisted(() => ({
 
 const patchSlackConnectorConfigMock = vi.hoisted(() => vi.fn())
 
+vi.mock("@tanstack/react-router", () => ({
+  Link: ({ children }: { children?: ReactNode }) => <span>{children}</span>,
+}))
+
 vi.mock("@tanstack/react-query", () => ({
+  queryOptions: (options: unknown) => options,
   useMutation: (options: { mutationFn: () => unknown }) => ({
     isPending: false,
     mutate: () => void options.mutationFn(),
@@ -84,6 +89,15 @@ vi.mock("@tanstack/react-query", () => ({
           appSlug: "ctxpipe-agent",
           accountSlug: "acme",
         },
+        isError: false,
+        isFetching: false,
+        isPending: false,
+        isEnabled: options.enabled !== false,
+      }
+    }
+    if (queryKey[0] === "workspaces") {
+      return {
+        data: { items: [], lastUsedWorkspaceId: null },
         isError: false,
         isFetching: false,
         isPending: false,
@@ -289,7 +303,7 @@ describe("SlackSetupDialog", () => {
     })
 
     expect(container.textContent).toContain(
-      "Select a repository for Slack content",
+      "Select a workspace for Slack content",
     )
     expect(slackStatusState.statusQueryOptions).toMatchObject({
       staleTime: 0,
@@ -331,7 +345,7 @@ describe("SlackSetupDialog", () => {
     expect(container.textContent).toContain("acme/context")
   })
 
-  it("lets the user return to repository selection from the live view", async () => {
+  it("lets the user return to workspace selection from the live view", async () => {
     Object.assign(slackStatusState.current, {
       setupPhase: "live",
       syncTarget: {
@@ -359,13 +373,13 @@ describe("SlackSetupDialog", () => {
 
     const changeRepoButton = Array.from(
       container.querySelectorAll("button"),
-    ).find((button) => button.textContent === "Change repository")
+    ).find((button) => button.textContent === "Change workspace")
     expect(changeRepoButton).toBeDefined()
 
     await act(async () => changeRepoButton?.click())
 
     expect(container.textContent).toContain(
-      "Select a repository for Slack content",
+      "Select a workspace for Slack content",
     )
     const cancelButton = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent === "Cancel",

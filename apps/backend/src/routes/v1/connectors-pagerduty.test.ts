@@ -639,6 +639,7 @@ describe("PagerDuty connector routes", () => {
     expect(response.status).toBe(200)
     expect(mocks.claimConfig).not.toHaveBeenCalled()
     expect(mocks.transitionTarget).toHaveBeenCalledWith({
+      orgId: "org_1",
       connectionId: "con_pd",
       expectedSetupPhase: "draft",
       expectedPendingConfigPrCreating: false,
@@ -676,6 +677,7 @@ describe("PagerDuty connector routes", () => {
     )
     expect(response.status).toBe(503)
     expect(mocks.transitionTarget).toHaveBeenLastCalledWith({
+      orgId: "org_1",
       connectionId: "con_pd",
       expectedSetupPhase: "initial_sync",
       expectedPendingConfigPrCreating: false,

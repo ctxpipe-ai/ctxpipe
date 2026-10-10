@@ -31,7 +31,9 @@ describe("PagerDuty webhook signatures", () => {
 
   it("treats events older than 15 minutes as stale", () => {
     expect(
-      pagerdutyEventIsStale(new Date(Date.now() - 16 * 60 * 1000).toISOString()),
+      pagerdutyEventIsStale(
+        new Date(Date.now() - 16 * 60 * 1000).toISOString(),
+      ),
     ).toBe(true)
     expect(pagerdutyEventIsStale(new Date().toISOString())).toBe(false)
   })

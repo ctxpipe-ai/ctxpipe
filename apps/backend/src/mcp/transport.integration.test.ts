@@ -6,15 +6,22 @@ import { Hono } from "hono"
 import { contextStorage } from "hono/context-storage"
 import { HttpResponse, http } from "msw"
 import { afterAll, beforeAll, expect, it, vi } from "vitest"
-import { describeWithDatabase } from "../../test/db.js"
+import {
+  cleanupSeededOrg,
+  describeWithDatabase,
+  type SeededOrg,
+  seedOrg,
+} from "../../test/db.js"
 import { useMswServer } from "../../test/msw.js"
 import { recordSpans } from "../../test/spans.js"
 import type { AppEnv } from "../app/env.js"
-import { closeDb, getSystemDb, initDb } from "../db/client.js"
+import { withNetworkOrgContext } from "../auth/withAuth.js"
+import { closeDb, withOrgDbContext } from "../db/client.js"
 import { conversations } from "../db/schema/conversations.js"
+import { workspaces } from "../db/schema/workspaces.js"
+import { generateObjectId } from "../lib/id.js"
 import { applyAttribution } from "../observability/attribution.js"
 import { backendOtelMiddleware } from "../observability/http.js"
-import { mcpAdvisorThreadId } from "./advisorThread.js"
 import { handleMcpTransportRequest } from "./transport.js"
 
 const spans = recordSpans()
@@ -29,30 +36,40 @@ useMswServer(
 )
 
 describeWithDatabase("MCP OAuth client actor", () => {
-  const suffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-  const orgId = `org_mcp_oauth_${suffix}`
-  const userId = `user_oauth_${suffix}`
-  const threadId = mcpAdvisorThreadId({
-    orgId,
-    actor: { type: "user", userId },
-    currentProjectName: "my-backend",
-    conversationId: "conv-xyz",
-  })
+  let seed: SeededOrg
+  let threadId: string
+  const workspaceId = generateObjectId("ws")
 
-  beforeAll(() => {
+  beforeAll(async () => {
     initLogger({
       env: { service: "ctxpipe-backend", environment: "test" },
       pretty: false,
     })
-    const databaseUrl = process.env.DATABASE_URL
-    if (!databaseUrl) throw new Error("DATABASE_URL is unset")
-    initDb(databaseUrl)
+    seed = await seedOrg()
+    threadId = `${seed.orgId}_${seed.userId}_my-backend_conv-xyz`
+    await withOrgDbContext(seed.orgId, (db) =>
+      db.insert(workspaces).values({
+        id: workspaceId,
+        orgId: seed.orgId,
+        slug: "context",
+        displayName: "Context",
+        workspaceRepositoryUrl: `/tmp/mcp-oauth-${seed.orgId}`,
+        desiredDefaultBranch: "main",
+        writeStatus: "read_only",
+      }),
+    )
   })
 
   afterAll(async () => {
-    await getSystemDb()
-      .delete(conversations)
-      .where(eq(conversations.orgId, orgId))
+    if (seed) {
+      await withOrgDbContext(seed.orgId, async (db) => {
+        await db
+          .delete(conversations)
+          .where(eq(conversations.orgId, seed.orgId))
+        await db.delete(workspaces).where(eq(workspaces.id, workspaceId))
+      })
+      await cleanupSeededOrg(seed)
+    }
     await closeDb()
   })
 
@@ -61,6 +78,8 @@ describeWithDatabase("MCP OAuth client actor", () => {
     vi.stubEnv("MODEL_PROVIDER_API_KEY", "test-key")
     vi.stubEnv("MODEL_PROVIDER_URL", "http://model.test/v1")
     const { registerMcpTools } = await import("./tools.js")
+    const orgId = seed.orgId
+    const userId = seed.userId
 
     const events: Record<string, unknown>[] = []
     const prompt = "SUPER_SECRET_PROMPT_SHOULD_NOT_LEAK"
@@ -89,17 +108,18 @@ describeWithDatabase("MCP OAuth client actor", () => {
       c.set("oauthClientId", "client_oauth")
       c.set("orgApiKey", null)
       c.set("personalApiKeyId", null)
-      c.set("orgSlug", "acme")
+      c.set("orgSlug", seed.orgSlug)
       c.set("orgId", orgId)
       applyAttribution({
         "ctxpipe.actor.type": "oauth_client",
         "ctxpipe.org.id": orgId,
-        "ctxpipe.org.slug": "acme",
+        "ctxpipe.org.slug": seed.orgSlug,
         "enduser.id": userId,
         "ctxpipe.oauth.client_id": "client_oauth",
       })
       await next()
     })
+    app.use("*", withNetworkOrgContext)
     app.post("/mcp", (c) => handleMcpTransportRequest(c, registerMcpTools))
 
     const response = await app.request("http://backend.test/mcp", {
@@ -162,10 +182,12 @@ describeWithDatabase("MCP OAuth client actor", () => {
       JSON.stringify({ span: serverSpan?.attributes, log: requestLog }),
     ).not.toContain(prompt)
 
-    const rows = await getSystemDb()
-      .select({ id: conversations.id })
-      .from(conversations)
-      .where(eq(conversations.id, threadId))
+    const rows = await withOrgDbContext(orgId, (db) =>
+      db
+        .select({ id: conversations.id })
+        .from(conversations)
+        .where(eq(conversations.id, threadId)),
+    )
     expect(rows).toHaveLength(1)
   }, 30_000)
 })

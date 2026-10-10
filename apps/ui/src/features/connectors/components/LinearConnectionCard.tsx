@@ -119,8 +119,14 @@ export function LinearConnectionCard({
               ? () => {
                   if (primary.kind === "navigate_repositories") {
                     void navigate({
-                      to: "/$orgSlug/repositories",
+                      to: "/$orgSlug/connectors",
                       params: { orgSlug },
+                      search: {
+                        error: undefined,
+                        error_description: undefined,
+                        pendingAccountClaim: undefined,
+                        notionConnectionId: undefined,
+                      },
                     })
                   } else {
                     onOpenWizard(primary.kind === "manage_scope")

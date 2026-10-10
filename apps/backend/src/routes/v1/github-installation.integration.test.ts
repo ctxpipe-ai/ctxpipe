@@ -2,7 +2,6 @@ import { generateKeyPairSync } from "node:crypto"
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { and, eq } from "drizzle-orm"
 import { evlog } from "evlog/hono"
-import { contextStorage } from "hono/context-storage"
 import { HttpResponse, http } from "msw"
 import {
   afterAll,
@@ -26,6 +25,10 @@ import {
   deleteGithubConnectionById,
   listGithubConnectionsForOrg,
 } from "../../models/github-installation.js"
+import {
+  contextStorage,
+  withTestRequestLogger,
+} from "../../test/hono-test-logger.js"
 import { registerV1Routes } from "./index.js"
 
 // registerV1Routes loads the conversation graph, which builds its model at import time.
@@ -105,6 +108,7 @@ describe("POST /github/installation requires GitHub access (Postgres)", () => {
     const app = new OpenAPIHono<AppEnv>()
     app.use(contextStorage())
     app.use(evlog())
+    app.use(withTestRequestLogger)
     app.use("*", async (c, next) => {
       c.set("env", env)
       c.set("user", null)

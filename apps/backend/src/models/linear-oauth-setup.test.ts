@@ -27,6 +27,12 @@ vi.mock("../db/client.js", async (importOriginal) => {
     ...actual,
     getOrgDb: dbMocks.getOrgDb,
     getSystemDb: dbMocks.getSystemDb,
+    // Real withOrgDbContext closes over unmocked getSystemDb; keep org-SQL
+    // on the same fixture as getOrgDb / getSystemDb.
+    withOrgDbContext: async (
+      _orgId: string,
+      fn: (db: Db) => Promise<unknown>,
+    ) => fn(dbMocks.getOrgDb()),
   }
 })
 
@@ -46,11 +52,11 @@ function linearRow(input: { id: string; config: Record<string, unknown> }) {
 }
 
 function thenableRows(rows: unknown[]) {
-  const query = {
+  const query = Object.assign(Promise.resolve(rows), {
     orderBy: vi.fn(() => query),
     limit: vi.fn(async () => rows),
-    then: (resolve: (value: unknown[]) => unknown) => resolve(rows),
-  }
+    for: vi.fn(() => query),
+  })
   return query
 }
 
@@ -73,6 +79,7 @@ function orgDb(selectQueues: unknown[][], updateId = "con_updated") {
             config: (values.config ?? {}) as Record<string, unknown>,
           }),
         ]),
+        onConflictDoUpdate: vi.fn(async () => undefined),
       })),
     })),
     update: vi.fn(() => ({
@@ -97,9 +104,14 @@ function orgDb(selectQueues: unknown[][], updateId = "con_updated") {
       }),
     })),
   }
-  dbMocks.getOrgDb.mockReturnValue({
+  const db = {
+    ...tx,
     transaction: async (run: (inner: typeof tx) => Promise<unknown>) => run(tx),
-  } as unknown as Db)
+  }
+  // Short org-SQL (`withOrgDbContext`) and connection-directory lookup both
+  // go through getSystemDb; getOrgDb is the tenant transaction seam.
+  dbMocks.getOrgDb.mockReturnValue(db as unknown as Db)
+  dbMocks.getSystemDb.mockReturnValue(db as unknown as Db)
   return { tx, deletedIds, getLastUpdate: () => lastUpdate }
 }
 
@@ -322,25 +334,25 @@ describe("upsertLinearConnectionFromOAuth", () => {
 describe("listLinearWebhookConnectionsByWorkspaceId", () => {
   it("decrypts the webhook secret without reading user tokens", async () => {
     const webhookSecretEnc = encryptConnectionSecret("row-webhook", env)
-    dbMocks.getSystemDb.mockReturnValue({
-      select: vi.fn(() => ({
-        from: vi.fn(() => ({
-          where: vi.fn(async () => [
-            linearRow({
-              id: "con_linear",
-              config: {
-                workspaceId: "ws_1",
-                workspaceName: "Acme",
-                ownerUserId: "user_1",
-                accessTokenEnc: "ctxv1:not-valid-ciphertext",
-                webhookSecretEnc,
-                status: "installed",
-              },
-            }),
-          ]),
-        })),
-      })),
-    } as unknown as Db)
+    const directory = {
+      connectionId: "con_linear",
+      orgId: "org_1",
+      type: "linear" as const,
+      linearWorkspaceId: "ws_1",
+    }
+    const connection = linearRow({
+      id: "con_linear",
+      config: {
+        workspaceId: "ws_1",
+        workspaceName: "Acme",
+        ownerUserId: "user_1",
+        accessTokenEnc: "ctxv1:not-valid-ciphertext",
+        webhookSecretEnc,
+        status: "installed",
+      },
+    })
+    // Directory list + get-by-id, then tenant row load via directory.
+    orgDb([[directory], [directory], [connection]])
     await expect(
       listLinearWebhookConnectionsByWorkspaceId("ws_1", env),
     ).resolves.toEqual([

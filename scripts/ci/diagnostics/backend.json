@@ -1,0 +1,131 @@
+{
+  "version": 1,
+  "diagnostics": [
+    {
+      "file": "src/auth/oauth-gateway-request.ts",
+      "code": 2345,
+      "message": "Argument of type 'Record<string, unknown>' is not assignable to parameter of type 'string'.",
+      "count": 1
+    },
+    {
+      "file": "src/email/index.ts",
+      "code": 7016,
+      "message": "Could not find a declaration file for module 'react'. '<repo>/node_modules/.pnpm/react@19.2.4/node_modules/react/index.js' implicitly has an 'any' type.\n  If the 'react' package actually exposes this module, consider sending a pull request to amend 'https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/react'",
+      "count": 1
+    },
+    {
+      "file": "src/email/templates/invitation.tsx",
+      "code": 7016,
+      "message": "Could not find a declaration file for module 'react'. '<repo>/node_modules/.pnpm/react@19.2.4/node_modules/react/index.js' implicitly has an 'any' type.\n  If the 'react' package actually exposes this module, consider sending a pull request to amend 'https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/react'",
+      "count": 1
+    },
+    {
+      "file": "src/email/templates/invitation.tsx",
+      "code": 1361,
+      "message": "'React' cannot be used as a value because it was imported using 'import type'.",
+      "count": 17
+    },
+    {
+      "file": "src/email/templates/invitation.tsx",
+      "code": 2322,
+      "message": "Type '{}' is not assignable to type 'Readonly<Omit<DetailedHTMLProps<HTMLAttributes<HTMLDivElement>, HTMLDivElement>, \"ref\"> & { children: string | string[]; }> & RefAttributes<HTMLDivElement>'.\n  Property 'children' is missing in type '{}' but required in type 'Readonly<Omit<DetailedHTMLProps<HTMLAttributes<HTMLDivElement>, HTMLDivElement>, \"ref\"> & { children: string | string[]; }>'.",
+      "count": 1
+    },
+    {
+      "file": "src/email/templates/invitation.tsx",
+      "code": 7026,
+      "message": "JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.",
+      "count": 8
+    },
+    {
+      "file": "src/email/templates/reset-password.tsx",
+      "code": 7016,
+      "message": "Could not find a declaration file for module 'react'. '<repo>/node_modules/.pnpm/react@19.2.4/node_modules/react/index.js' implicitly has an 'any' type.\n  If the 'react' package actually exposes this module, consider sending a pull request to amend 'https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/react'",
+      "count": 1
+    },
+    {
+      "file": "src/email/templates/reset-password.tsx",
+      "code": 1361,
+      "message": "'React' cannot be used as a value because it was imported using 'import type'.",
+      "count": 13
+    },
+    {
+      "file": "src/email/templates/reset-password.tsx",
+      "code": 2745,
+      "message": "This JSX tag's 'children' prop expects type 'ReactNode & (string | string[])' which requires multiple children, but only a single child was provided.",
+      "count": 1
+    },
+    {
+      "file": "src/email/templates/reset-password.tsx",
+      "code": 7026,
+      "message": "JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.",
+      "count": 2
+    },
+    {
+      "file": "src/email/templates/verify-email.tsx",
+      "code": 7016,
+      "message": "Could not find a declaration file for module 'react'. '<repo>/node_modules/.pnpm/react@19.2.4/node_modules/react/index.js' implicitly has an 'any' type.\n  If the 'react' package actually exposes this module, consider sending a pull request to amend 'https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/react'",
+      "count": 1
+    },
+    {
+      "file": "src/email/templates/verify-email.tsx",
+      "code": 1361,
+      "message": "'React' cannot be used as a value because it was imported using 'import type'.",
+      "count": 16
+    },
+    {
+      "file": "src/email/templates/verify-email.tsx",
+      "code": 2745,
+      "message": "This JSX tag's 'children' prop expects type 'ReactNode & (string | string[])' which requires multiple children, but only a single child was provided.",
+      "count": 1
+    },
+    {
+      "file": "src/email/templates/verify-email.tsx",
+      "code": 7026,
+      "message": "JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.",
+      "count": 4
+    },
+    {
+      "file": "src/models/github-installation.ts",
+      "code": 2345,
+      "message": "Argument of type 'Error' is not assignable to parameter of type 'string'.",
+      "count": 1
+    },
+    {
+      "file": "src/routes/auth.ts",
+      "code": 2339,
+      "message": "Property 'getProtectedResourceMetadata' does not exist on type 'AuthClient<BetterAuthClientOptions>'.",
+      "count": 1
+    },
+    {
+      "file": "src/routes/mcp.conformance.server.ts",
+      "code": 2769,
+      "message": "No overload matches this call.\n  The last overload gave the following error.\n    Type 'Promise<void> | Response' is not assignable to type 'Promise<void | Response>'.\n      Type 'Response' is missing the following properties from type 'Promise<void | Response>': then, catch, finally, [Symbol.toStringTag]",
+      "count": 1
+    },
+    {
+      "file": "src/routes/v1/bedrockOpenAiProxy.ts",
+      "code": 2769,
+      "message": "No overload matches this call.\n  Overload 1 of 2, '(model: string, params?: Omit<ChatBedrockConverseInput, \"model\"> | undefined): ChatBedrockConverse', gave the following error.\n    Argument of type '{ additionalModelRequestFields?: Record<string, unknown> | undefined; topP?: number | undefined; maxTokens?: number | undefined; temperature?: number | undefined; model: string; region: string; streaming: boolean; }' is not assignable to parameter of type 'string'.\n  Overload 2 of 2, '(fields?: ChatBedrockConverseInput | undefined): ChatBedrockConverse', gave the following error.\n    Argument of type '{ additionalModelRequestFields?: Record<string, unknown> | undefined; topP?: number | undefined; maxTokens?: number | undefined; temperature?: number | undefined; model: string; region: string; streaming: true; }' is not assignable to parameter of type 'ChatBedrockConverseInput'.\n      Types of property 'additionalModelRequestFields' are incompatible.\n        Type 'Record<string, unknown> | undefined' is not assignable to type 'DocumentType | undefined'.\n          Type 'Record<string, unknown>' is not assignable to type 'DocumentType | undefined'.\n            Type 'Record<string, unknown>' is missing the following properties from type 'DocumentType[]': length, pop, push, concat, and 35 more.",
+      "count": 1
+    },
+    {
+      "file": "src/routes/v1/openai.ts",
+      "code": 2345,
+      "message": "Argument of type '{ model?: unknown; stream?: unknown; messages?: unknown[] | undefined; temperature?: number | undefined; }' is not assignable to parameter of type 'OpenAiChatBody'.\n  Types of property 'model' are incompatible.\n    Type 'unknown' is not assignable to type 'string | undefined'.",
+      "count": 1
+    },
+    {
+      "file": "src/routes/v1/openai.ts",
+      "code": 2345,
+      "message": "Argument of type '{ model?: unknown; input?: unknown; }' is not assignable to parameter of type 'OpenAiEmbeddingBody'.\n  Types of property 'model' are incompatible.\n    Type 'unknown' is not assignable to type 'string | undefined'.",
+      "count": 1
+    },
+    {
+      "file": "src/routes/v1/org-atlassian-oauth.test.ts",
+      "code": 2532,
+      "message": "Object is possibly 'undefined'.",
+      "count": 1
+    }
+  ]
+}

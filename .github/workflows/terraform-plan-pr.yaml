@@ -59,6 +59,11 @@ jobs:
       TF_VAR_pagerduty_redirect_uri: ${{ vars.PAGERDUTY_REDIRECT_URI }}
       TF_VAR_falkordb_password: ${{ secrets.FALKORDB_PASSWORD }}
       TF_VAR_otel_otlp_headers: ${{ secrets.OBSERVABILITY_OTLP_HEADERS }}
+      # A pull request must not get the production Vercel token, and only the
+      # Production environment holds it. The plan does not need the real
+      # value: a non-empty placeholder passes the module validation, and the
+      # plan shows a masked VERCEL_TOKEN change that the deploy does not apply.
+      TF_VAR_vercel_access_token: pr-plan-placeholder
       R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
       RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}

@@ -4,6 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/Button"
 import { TextField } from "@/components/ui/TextField"
+import { apiFetch, readApiJson } from "@/lib/api-result"
 import { atlassianConnectorKeys } from "../queries/atlassian-connector"
 
 export type AtlassianOauthAppSavedSectionProps = {
@@ -51,7 +52,7 @@ export function AtlassianOauthAppSavedSection({
       if (newClientSecret.trim()) {
         body.clientSecret = newClientSecret.trim()
       }
-      const res = await fetch(
+      const res = await apiFetch(
         `/${orgSlug}/api/v1/org/atlassian-oauth?${q.toString()}`,
         {
           method: "PUT",
@@ -60,10 +61,7 @@ export function AtlassianOauthAppSavedSection({
           body: JSON.stringify(body),
         },
       )
-      if (!res.ok) {
-        const j = (await res.json().catch(() => ({}))) as { error?: string }
-        throw new Error(j.error ?? res.statusText)
-      }
+      await readApiJson(res, { message: res.statusText })
     },
     onSuccess: async () => {
       setNewClientSecret("")
@@ -81,7 +79,7 @@ export function AtlassianOauthAppSavedSection({
       className={
         embedded
           ? "max-w-lg space-y-3"
-          : "max-w-lg space-y-3 rounded-none border border-border p-4"
+          : "max-w-lg space-y-3 rounded-md border border-border p-4"
       }
     >
       <div className="space-y-2 text-sm text-muted-foreground">
@@ -94,7 +92,7 @@ export function AtlassianOauthAppSavedSection({
           <p>
             Client ID:{" "}
             <code
-              className="break-all rounded-none bg-muted/80 px-1.5 py-0.5 font-mono text-foreground"
+              className="break-all rounded-md bg-muted/80 px-1.5 py-0.5 font-mono text-foreground"
               title={savedClientId}
             >
               {savedClientId}
@@ -133,7 +131,7 @@ export function AtlassianOauthAppSavedSection({
         />
         <Button
           variant="secondary"
-          className="rounded-none"
+          className="rounded-md"
           isPending={save.isPending}
           onPress={() => {
             if (!clientId.trim()) return

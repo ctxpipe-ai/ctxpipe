@@ -96,6 +96,7 @@ export async function maybeActivatePagerdutySyncOnConfigPush(input: {
     if (!configTouched) continue
 
     const targets = await listPagerdutyBindingsWithRepoByRepositoryId(
+      installation.orgId,
       repository.id,
     )
     for (const target of targets) {
@@ -117,12 +118,10 @@ export async function maybeActivatePagerdutySyncOnConfigPush(input: {
         continue
       }
 
-      const connection = await withOrgDbContext(target.orgId, () =>
-        getPagerdutyConnectionByConnectionId(
-          target.orgId,
-          target.connectionId,
-          env,
-        ),
+      const connection = await getPagerdutyConnectionByConnectionId(
+        target.orgId,
+        target.connectionId,
+        env,
       )
       if (!connection || connection.accountId !== config.accountId) {
         input.log.error(
@@ -139,6 +138,7 @@ export async function maybeActivatePagerdutySyncOnConfigPush(input: {
 
       if (
         !(await claimPagerdutyBindingInitialSync({
+          orgId: target.orgId,
           connectionId: target.connectionId,
           repositoryId: target.repositoryId,
           branch: target.branch,
@@ -153,6 +153,7 @@ export async function maybeActivatePagerdutySyncOnConfigPush(input: {
         })
       } catch (error) {
         await transitionPagerdutyBindingState({
+          orgId: target.orgId,
           connectionId: target.connectionId,
           expectedSetupPhase: "initial_sync",
           expectedPendingConfigPrCreating: false,

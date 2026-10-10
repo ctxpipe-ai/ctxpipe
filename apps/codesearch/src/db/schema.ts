@@ -46,6 +46,7 @@ export const repositories = pgTable("repositories", {
 
 export const repositoryCheckouts = pgTable("repository_checkouts", {
   id: text("id").primaryKey(),
+  orgId: text("org_id").notNull(),
   repositoryId: text("repository_id").notNull(),
   ref: text("ref").notNull().default("main"),
   commitSha: text("commit_sha"),

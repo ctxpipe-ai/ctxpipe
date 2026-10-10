@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process"
+import { execFileSync, spawn } from "node:child_process"
 import {
   mkdir,
   mkdtemp,
@@ -81,7 +81,26 @@ describe("structural search path containment", () => {
         resolveStructuralSearchPaths(checkoutPath, [
           join(checkoutPath, "escape.ts"),
         ]),
-      ).rejects.toThrow("Structural search path escapes checkout")
+      ).rejects.toMatchObject({ code: "ENOENT" })
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  // A committed sgconfig.yml can map "config" to a language, so ast-grep
+  // would print .git/config and its clone token.
+  it("refuses a requested path inside .git", async () => {
+    const root = await mkdtemp(join(tmpdir(), "structural-search-"))
+    const checkoutPath = join(root, "checkout")
+    await mkdir(join(checkoutPath, ".git"), { recursive: true })
+    await writeFile(join(checkoutPath, ".git", "config"), "token\n")
+
+    try {
+      for (const path of [".git/config", ".git", ".Git/config"]) {
+        await expect(
+          resolveStructuralSearchPaths(checkoutPath, [path]),
+        ).rejects.toMatchObject({ code: "ENOENT" })
+      }
     } finally {
       await rm(root, { recursive: true, force: true })
     }
@@ -118,29 +137,12 @@ describe("structural search path containment", () => {
     }
   })
 
-  it("rejects a requested path whose symlink target is inside .git", async () => {
-    const root = await mkdtemp(join(tmpdir(), "structural-search-"))
-    const checkoutPath = join(root, "checkout")
-    await mkdir(join(checkoutPath, ".git"), { recursive: true })
-    await symlink(".git", join(checkoutPath, "git-dir"))
-
-    try {
-      await expect(
-        resolveStructuralSearchPaths(checkoutPath, [
-          join(checkoutPath, "git-dir"),
-        ]),
-      ).rejects.toThrow()
-    } finally {
-      await rm(root, { recursive: true, force: true })
-    }
-  })
-
   it("ignores an ast-grep config file from the checkout", async () => {
     const root = await realpath(
       await mkdtemp(join(tmpdir(), "structural-search-")),
     )
     const checkoutPath = join(root, "checkout")
-    await mkdir(checkoutPath, { recursive: true })
+    await mkdir(checkoutPath)
     await writeFile(
       join(checkoutPath, "sgconfig.yml"),
       'languageGlobs:\n  python: ["notes.cfg"]\n',
@@ -168,9 +170,62 @@ describe("structural search path containment", () => {
     }
   })
 
-  // A user glob makes ast-grep include hidden paths, so the search itself
-  // must keep .git out.
+  // A user glob is a whitelist override in ast-grep, so it skips the hidden
+  // file check. With a committed sgconfig.yml that maps "config" to bash,
+  // the glob "*" would print .git/config and its clone token.
   it("returns no match from .git when a user glob matches every file", async () => {
+    const root = await mkdtemp(join(tmpdir(), "structural-search-"))
+    const checkoutPath = join(root, "checkout")
+    await mkdir(checkoutPath)
+    const git = (...args: string[]) =>
+      execFileSync("git", args, { cwd: checkoutPath, stdio: "ignore" })
+    git("init", "-q")
+    git(
+      "remote",
+      "add",
+      "origin",
+      "https://x-access-token:ghs_faketoken@example.com/demo.git",
+    )
+    await writeFile(
+      join(checkoutPath, "sgconfig.yml"),
+      'languageGlobs:\n  bash: ["config"]\n',
+    )
+    await writeFile(join(checkoutPath, "run.sh"), "echo hi\n")
+    git("add", "-A")
+    git(
+      "-c",
+      "user.email=a@example.com",
+      "-c",
+      "user.name=a",
+      "commit",
+      "-qm",
+      "init",
+    )
+    stubBunSpawnWithNode()
+
+    try {
+      const matches = await runStructuralSearch({
+        checkoutPath,
+        pattern: "$A",
+        lang: "bash",
+        globs: ["*"],
+        paths: [checkoutPath],
+        limit: 100,
+      })
+
+      const files = matches.map((match) => String(match.file))
+      expect(files.some((file) => file.endsWith("run.sh"))).toBe(true)
+      expect(files.filter((file) => file.includes(".git"))).toEqual([])
+      expect(JSON.stringify(matches)).not.toContain("ghs_faketoken")
+    } finally {
+      vi.unstubAllGlobals()
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  // Structural search must also remove a match in a nested .GIT directory,
+  // because the "!.git" glob is case-sensitive.
+  it("returns no match from .git or a nested .GIT when a user glob matches every file", async () => {
     const root = await realpath(
       await mkdtemp(join(tmpdir(), "structural-search-")),
     )

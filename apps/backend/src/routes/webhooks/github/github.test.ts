@@ -8,7 +8,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { recordSpans } from "../../../../test/spans.js"
 import type { AppEnv } from "../../../app/env.js"
 import { parseEnv } from "../../../config/env.js"
-import { syncGithubRepositories } from "../../../openworkflow/workflows/sync-github-repositories.js"
 
 const spans = recordSpans()
 
@@ -39,6 +38,10 @@ const enqueueIngestionMock = vi.hoisted(() =>
 )
 
 vi.mock("../../../db/client.js", () => ({
+  tryGetOrgDb: () => ({}),
+  tryGetOrgDbOrgId: () => "org_test",
+  assertNotInOrgDbContext: () => undefined,
+
   // Webhook handler now wraps findRepositoryByGithubInstallation in
   // withOrgDbContext (moved out of the model). In tests we pass through so
   // mocked models still run.
@@ -59,6 +62,13 @@ vi.mock("../../../models/repositories.js", () => ({
   findRepositoryByGithubInstallation: vi.fn(),
 }))
 
+const ensureOrgRepoMock = vi.hoisted(() => vi.fn().mockResolvedValue(null))
+
+vi.mock("../../../domain/workspaces/ensure-org-repository.js", () => ({
+  ensureOrgRepositoryAndIngest: (...args: unknown[]) =>
+    ensureOrgRepoMock(...args),
+}))
+
 vi.mock("../../../openworkflow/client.js", () => ({
   ow: { runWorkflow: runWorkflowMock },
   runWorkflowWithWorkerWake: (...args: unknown[]) => runWorkflowMock(...args),
@@ -66,6 +76,21 @@ vi.mock("../../../openworkflow/client.js", () => ({
 
 vi.mock("../../../openworkflow/enqueue-repository-ingestion.js", () => ({
   enqueueRepositoryIngestionWorkflow: enqueueIngestionMock,
+}))
+
+const persistWorkspaceTipsMock = vi.hoisted(() => vi.fn().mockResolvedValue(0))
+
+vi.mock("../../../openworkflow/enqueue-workspace-tip-check.js", () => ({
+  enqueueWorkspaceTipCheck: vi.fn().mockResolvedValue(undefined),
+}))
+
+vi.mock("../../../openworkflow/enqueue-workspace-hydrate.js", () => ({
+  enqueueWorkspaceHydrate: vi.fn().mockResolvedValue(undefined),
+}))
+
+vi.mock("./github-workspace-tip.js", () => ({
+  persistWorkspaceTipsOnDefaultBranchPush: persistWorkspaceTipsMock,
+  resolveGithubBranchTip: vi.fn().mockResolvedValue(null),
 }))
 
 import {
@@ -94,6 +119,7 @@ const baseInstallationRow = {
 }
 
 const baseRepositoryIndexingRow = {
+  repositoryKey: null,
   indexReady: true,
   indexingStatus: "ready" as const,
   indexingFollowUpPending: false,
@@ -137,6 +163,8 @@ describe("POST /api/v1/webhook/github", () => {
     getRowByConMock.mockReset()
     registerInstallMock.mockReset()
     getWebhookSecretMock.mockReset()
+    persistWorkspaceTipsMock.mockReset()
+    persistWorkspaceTipsMock.mockResolvedValue(0)
   })
 
   function createTestApp(before?: MiddlewareHandler) {
@@ -503,7 +531,7 @@ describe("POST /api/v1/webhook/github", () => {
     expect(runWorkflowMock).not.toHaveBeenCalled()
   })
 
-  it("repository created with both flags enqueues sync workflow", async () => {
+  it("repository created never enqueues org ingest sync", async () => {
     listInstallationsMock.mockResolvedValue([
       {
         id: "ghi_1",
@@ -538,19 +566,10 @@ describe("POST /api/v1/webhook/github", () => {
     })
 
     expect(res.status).toBe(200)
-    expect(runWorkflowMock).toHaveBeenCalledWith(syncGithubRepositories.spec, {
-      orgId: "org_1",
-      githubConnectionId: "ghi_1",
-      reposToSync: [
-        {
-          name: "acme/new-repo",
-          gitUrl: "https://github.com/acme/new-repo.git",
-        },
-      ],
-    })
+    expect(runWorkflowMock).not.toHaveBeenCalled()
   })
 
-  it("repository created enqueues sync for each org with auto-sync enabled", async () => {
+  it("repository created does not enqueue sync for any org", async () => {
     listInstallationsMock.mockResolvedValue([
       {
         id: "ghi_1",
@@ -592,26 +611,18 @@ describe("POST /api/v1/webhook/github", () => {
     })
 
     expect(res.status).toBe(200)
-    expect(runWorkflowMock).toHaveBeenCalledTimes(2)
-    expect(runWorkflowMock).toHaveBeenCalledWith(syncGithubRepositories.spec, {
+    expect(ensureOrgRepoMock).toHaveBeenCalledTimes(2)
+    expect(ensureOrgRepoMock).toHaveBeenCalledWith({
       orgId: "org_1",
+      gitUrl: "https://github.com/acme/new-repo.git",
       githubConnectionId: "ghi_1",
-      reposToSync: [
-        {
-          name: "acme/new-repo",
-          gitUrl: "https://github.com/acme/new-repo.git",
-        },
-      ],
+      log: expect.any(Object),
     })
-    expect(runWorkflowMock).toHaveBeenCalledWith(syncGithubRepositories.spec, {
+    expect(ensureOrgRepoMock).toHaveBeenCalledWith({
       orgId: "org_2",
+      gitUrl: "https://github.com/acme/new-repo.git",
       githubConnectionId: "ghi_2",
-      reposToSync: [
-        {
-          name: "acme/new-repo",
-          gitUrl: "https://github.com/acme/new-repo.git",
-        },
-      ],
+      log: expect.any(Object),
     })
     expect(spans.finishedSpans().map((span) => span.name)).toContain("request")
     expect(requestSpanAttributes()["ctxpipe.org.id"]).toBeUndefined()
@@ -679,6 +690,8 @@ describe("POST /api/v1/webhook/github/:connectionId", () => {
       id: "con_abc",
       orgId: "org_1",
       type: "github",
+      contentSyncGeneration: 0,
+      contentSyncWorkflowRunId: null,
       config: {
         ingestAllRepositories: false,
         includeFutureRepos: false,
@@ -720,7 +733,8 @@ describe("POST /api/v1/webhook/github/:connectionId", () => {
       id: "con_abc",
       orgId: "org_1",
       type: "github",
-      name: null,
+      contentSyncGeneration: 0,
+      contentSyncWorkflowRunId: null,
       config: {
         installationId: 999,
         ingestAllRepositories: false,
@@ -763,7 +777,8 @@ describe("POST /api/v1/webhook/github/:connectionId", () => {
       id: "con_abc",
       orgId: "org_1",
       type: "github",
-      name: null,
+      contentSyncGeneration: 0,
+      contentSyncWorkflowRunId: null,
       config: {
         installationId: 999,
         ingestAllRepositories: false,

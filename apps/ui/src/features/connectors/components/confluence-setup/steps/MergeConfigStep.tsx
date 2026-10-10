@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query"
 import { ExternalLink } from "lucide-react"
 import { Button } from "@/components/ui/Button"
 import { Spinner } from "@/components/ui/spinner"
+import { pollWhileOk } from "@/lib/api-result"
 import {
   atlassianConnectorKeys,
   fetchAtlassianConnectorStatus,
@@ -24,10 +25,13 @@ export function MergeConfigStep({
       fetchAtlassianConnectorStatus(orgSlug, atlassianConnectionId),
     enabled: true,
     refetchInterval: (query) => {
+      const interval = pollWhileOk(2000)(query)
+      if (interval === false) return false
       const d = query.state.data
       if (d?.setupPhase === "live") return false
-      if (d?.setupPhase === "initial_sync") return 2000
-      if (d?.pendingConfigPrCreating || !d?.pendingConfigPullUrl) return 2000
+      if (d?.setupPhase === "initial_sync") return interval
+      if (d?.pendingConfigPrCreating || !d?.pendingConfigPullUrl)
+        return interval
       return false
     },
   })
@@ -49,7 +53,7 @@ export function MergeConfigStep({
             <>
               Your configuration is merged. We are syncing Confluence pages to
               Git based on{" "}
-              <code className="rounded-none bg-muted px-1 py-0.5 text-xs">
+              <code className="rounded-md bg-muted px-1 py-0.5 text-xs">
                 confluence/config.yaml
               </code>
               . This usually completes within a minute or two.
@@ -57,7 +61,7 @@ export function MergeConfigStep({
           ) : (
             <>
               Sync scope is stored as infrastructure-as-code in{" "}
-              <code className="rounded-none bg-muted px-1 py-0.5 text-xs">
+              <code className="rounded-md bg-muted px-1 py-0.5 text-xs">
                 confluence/config.yaml
               </code>{" "}
               on your repository&apos;s default branch. Open the pull request,
@@ -90,7 +94,7 @@ export function MergeConfigStep({
       {!syncingAfterMerge && status?.pendingConfigPullUrl ? (
         <Button
           variant="primary"
-          className="rounded-none"
+          className="rounded-md"
           onPress={() =>
             window.open(
               status.pendingConfigPullUrl ?? "",

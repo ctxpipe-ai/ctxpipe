@@ -1,8 +1,8 @@
 ---
 name: react
 description: React UI patterns for apps/ui—Effects vs rendering, TanStack Query for all server data, useMemo, keys, event handlers. Start here when creating or editing React components.
-skill_version: 1.0.1
-updated_at: 2026-04-25T12:00:00Z
+skill_version: 1.0.5
+updated_at: 2026-08-21T12:00:00Z
 tags: [react, hooks, useeffect, usememo, performance, components]
 progressive_disclosure:
   entry_point:
@@ -34,11 +34,17 @@ If there is **no external system**—for example, you only need to update local 
 
 **Data fetching in this repo:** use **TanStack Query** (`useQuery`, `useMutation`, `useInfiniteQuery`, etc.) for all server/API data. **Do not** use `useEffect` to load, refetch, or keep server data in sync—Query handles caching, loading and error state, and invalidation.
 
+**SSR product screens (e.g. Workspace):** warm the cache in route loaders with `queryClient.ensureQueryData(…queryOptions)` and read with **`useSuspenseQuery`** (same `queryOptions` factories). Create the **`QueryClient` per request** in `getRouter()` — never a module-level singleton. Keep streaming, polling, infinite “load more”, and mutations client-only. Loaders warm **entry** (first SSR / workspace change). They must not gate **in-page chrome** — see **Feel fast**.
+
+**Responsive layout:** CSS-first (Tailwind breakpoint classes). Do not use `useEffect` + `matchMedia` / `useMediaQuery` to toggle layout chrome when responsive classes can do it. JS only when CSS cannot express the behaviour — see [apps/ui/AGENTS.md](../../../apps/ui/AGENTS.md) and [product-ui](../product-ui/SKILL.md) Build.
+
 ## Patterns (read the official page for full examples)
 
 | Situation | Prefer |
 |-----------|--------|
 | Server / API data (read, mutations, refetch) | **TanStack Query** only—never `useEffect` + manual fetch for data loading |
+| First paint must include product data (SSR) | Route `ensureQueryData` + `useSuspenseQuery`; no module-level `QueryClient`. Do **not** put tab/pane search in `loaderDeps` |
+| In-page tab / pane / nav highlight | Set selected chrome in the click handler (`useUrgentValue`); write the URL afterwards. `Link` / `useMatchRoute` still wait on the router. Load the region with local `Suspense`. Prefetch on hover/select; do not `await` it before navigate |
 | Value derivable from props/state | Compute during render; avoid redundant state ([Thinking in React](https://react.dev/learn/thinking-in-react)) |
 | Expensive pure calculation | `useMemo` with correct deps; measure before optimizing. **React Compiler** may reduce the need for manual `useMemo` ([docs](https://react.dev/learn/react-compiler)) |
 | Reset *all* inner state when a prop changes (e.g. `userId`) | `key={userId}` on a child so React remounts a fresh subtree |
@@ -52,6 +58,34 @@ If there is **no external system**—for example, you only need to update local 
 | Data needed by both parent and child | **Data flows down**—parent fetches/owns, passes props down |
 
 **Rule of thumb:** If code runs *because the user did something specific*, it probably belongs in an **event handler**. If it runs *because the user saw the component on screen*, it might belong in an **Effect** (if it’s about an external system or real synchronization).
+
+## Feel fast
+
+Speed of the Operate UI is part of the product. **Chrome and the page body must move on the click. First HTML still includes the landing region.**
+
+TanStack Router commits location inside `React.startTransition`. If `selectedKey`, `aria-current`, or “current workspace” is driven only from `useSearch()` / `useParams()` / `useMatchRoute()` / `router.state.location`, the highlight waits until the new page body is ready. `Link` does not fix that. RAC `Link` also does **not** fire `defaultPreload: "intent"` — prefetch with `prefetchQuery` on hover/press.
+
+Urgent local state is for **in-page clicks**. **SSR / hard refresh / org identity** still `await ensureQueryData` so first HTML includes the landing region. **Client page enter** (Home ↔ Connectors ↔ Workspace) must not `await` landing data — `prefetchQuery` and local `Suspense`.
+
+Use [`useUrgentValue`](../../../apps/ui/src/lib/useUrgentValue.ts): set the value in the event handler; adopt the committed URL during render when it changes (back/forward). Include org/workspace in the key so ids do not leak across identities.
+
+Default checklist for any Operate screen:
+
+- **Chrome** — `useUrgentValue` in the press handler. RAC `Link` + `prefetchQuery` on hover/press.
+- **Shell stays** — `AppShell` / SideNav live on `/$orgSlug`, not on Home, Connectors, or Workspace leaves. In-page identity (tab, pane, conversation, compose vs thread) must not remount the shell or sibling columns. Hoist shared state to the layout that does not change. Sibling file routes that each mount the same surface are a bug.
+- **Client loaders do not await page or in-page detail** — `await ensureQueryData` is for **SSR / hard refresh** (session, org membership, workspace identity). Client Home / Connectors / Workspace enter: `prefetchQuery` only. Conversation, blob, graph, messages: `prefetchQuery` on the client. Sibling `enter` still runs the child loader — `shouldReload: enter` does not save compose ↔ thread.
+- **Suspense is local** — one region, skeleton fallback. Never put `AppShell` or a sibling pane inside that boundary. A cache miss must not flash the whole page. Session-pending fallbacks are main-column skeletons only.
+- **Preserve `search`** — in-page `navigate` keeps `?pane=` and other chrome search.
+
+Wrong: each org leaf wraps its own `AppShell`, and the workspace client loader `await`s files (previous page frozen until the tree returns).
+
+Right: `/$orgSlug` owns `AppShell`. Workspace layout owns `WorkspaceSurface`; children return `null`. Client workspace loader only `prefetchQuery`. Conversation `useSuspenseQuery` lives under the chat column’s `Suspense`.
+
+- **Loader:** identity queries on **SSR**. Warm the **landing** region on SSR enter (workspace default is files when `?pane=` is empty) **only when that region can succeed** (e.g. `workspaceProjectionReady`). Client enter prefetches the same queries and does not `await`. Do not list in-page search in `loaderDeps`. `shouldReload: ({ cause }) => cause === "enter"` so search-only / sibling stays do not re-await. Never pass `paneParam: undefined` on enter.
+- **HTTP:** every product call goes through `apiFetch` / `readApiJson`. Bare `fetch` + `if (!res.ok) throw` is a bug. Expected 409/404 (not ready / not installed) are data via `emptyOn`, not thrown errors. Query retries never run on 4xx (`retryQuery`). `refetchInterval` always uses `pollWhileOk` (or equivalent: return `false` on error).
+- **Loaders / `beforeLoad`:** `await` only queries required to **choose the route** on the server (session, org membership, workspace identity). Parallelize independent identity fetches (`Promise.all`). Keep the workspace SSR skip (`warmLandingPane` only in the browser). Do **not** flip the app to `ssr: false`.
+
+A blocked tab or nav click is a bug, even if the data eventually arrives. Holding the HTML document on a retried 4xx or hung fetch until the edge 502s is also a bug.
 
 ## Checklist before adding `useEffect`
 

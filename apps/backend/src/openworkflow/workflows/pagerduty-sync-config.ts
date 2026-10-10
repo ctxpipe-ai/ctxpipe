@@ -1,6 +1,5 @@
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
-import { withOrgDbContext } from "../../db/client.js"
 import {
   getPagerdutyBindingByConnectionId,
   getPagerdutyConnectionByConnectionId,
@@ -32,7 +31,7 @@ export const pagerdutySyncConfig = defineWorkflow(
   async ({ input, step }) => {
     const env = parseEnv(process.env as Record<string, string | undefined>)
     const binding = await step.run({ name: "load-pagerduty-binding" }, () =>
-      getPagerdutyBindingByConnectionId(input.connectionId),
+      getPagerdutyBindingByConnectionId(input.orgId, input.connectionId),
     )
     if (!binding) throw new Error("PagerDuty binding is not configured")
     if (binding.orgId !== input.orgId) {
@@ -48,12 +47,10 @@ export const pagerdutySyncConfig = defineWorkflow(
     const connection = await step.run(
       { name: "load-pagerduty-connection" },
       () =>
-        withOrgDbContext(input.orgId, () =>
-          getPagerdutyConnectionByConnectionId(
-            input.orgId,
-            input.connectionId,
-            env,
-          ),
+        getPagerdutyConnectionByConnectionId(
+          input.orgId,
+          input.connectionId,
+          env,
         ),
     )
     if (!connection) throw new Error("PagerDuty connection not found")
@@ -74,20 +71,19 @@ export const pagerdutySyncConfig = defineWorkflow(
       const transitioned = await step.run(
         { name: "persist-config-pr-state" },
         () =>
-          withOrgDbContext(input.orgId, () =>
-            transitionPagerdutyBindingState({
-              connectionId: input.connectionId,
-              expectedSetupPhase: "awaiting_merge",
-              expectedPendingConfigPrCreating: true,
-              repositoryId: binding.repositoryId,
-              branch: binding.branch,
-              pendingConfigPullUrl: result.changed
-                ? (result.pullUrl ?? null)
-                : null,
-              pendingConfigPrCreating: false,
-              setupPhase: result.changed ? "awaiting_merge" : "initial_sync",
-            }),
-          ),
+          transitionPagerdutyBindingState({
+            orgId: input.orgId,
+            connectionId: input.connectionId,
+            expectedSetupPhase: "awaiting_merge",
+            expectedPendingConfigPrCreating: true,
+            repositoryId: binding.repositoryId,
+            branch: binding.branch,
+            pendingConfigPullUrl: result.changed
+              ? (result.pullUrl ?? null)
+              : null,
+            pendingConfigPrCreating: false,
+            setupPhase: result.changed ? "awaiting_merge" : "initial_sync",
+          }),
       )
       if (!transitioned) {
         throw new Error("PagerDuty binding changed during configuration sync")
@@ -105,18 +101,17 @@ export const pagerdutySyncConfig = defineWorkflow(
       return result
     } catch (e) {
       await step.run({ name: "mark-config-failed" }, () =>
-        withOrgDbContext(input.orgId, () =>
-          transitionPagerdutyBindingState({
-            connectionId: input.connectionId,
-            expectedSetupPhase: expectedPhase,
-            expectedPendingConfigPrCreating,
-            repositoryId: binding.repositoryId,
-            branch: binding.branch,
-            pendingConfigPullUrl: binding.pendingConfigPullUrl ?? null,
-            pendingConfigPrCreating: false,
-            setupPhase: "config_failed",
-          }),
-        ),
+        transitionPagerdutyBindingState({
+          orgId: input.orgId,
+          connectionId: input.connectionId,
+          expectedSetupPhase: expectedPhase,
+          expectedPendingConfigPrCreating,
+          repositoryId: binding.repositoryId,
+          branch: binding.branch,
+          pendingConfigPullUrl: binding.pendingConfigPullUrl ?? null,
+          pendingConfigPrCreating: false,
+          setupPhase: "config_failed",
+        }),
       )
       throw e
     }

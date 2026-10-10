@@ -225,7 +225,7 @@ export function LinearSetupWizard({
           </div>
           <Button
             variant="secondary"
-            className="rounded-none"
+            className="rounded-md"
             onPress={closeWizard}
           >
             Close
@@ -268,7 +268,7 @@ export function LinearSetupWizard({
             </p>
             <Button
               variant="secondary"
-              className="rounded-none"
+              className="rounded-md"
               onPress={() => void statusQuery.refetch()}
             >
               Retry
@@ -358,7 +358,7 @@ export function LinearSetupWizard({
                   </h3>
                   <p className="mt-2 text-sm text-muted-foreground">
                     Content is synchronised through{" "}
-                    <code className="rounded-none bg-muted px-1 py-0.5 text-xs">
+                    <code className="rounded-md bg-muted px-1 py-0.5 text-xs">
                       linear/config.yaml
                     </code>
                     . Change scope at any time; updates remain reviewable in
@@ -368,14 +368,14 @@ export function LinearSetupWizard({
                 <div className="flex flex-wrap gap-2">
                   <Button
                     variant="primary"
-                    className="rounded-none"
+                    className="rounded-md"
                     onPress={() => setManualScope(true)}
                   >
                     Manage scope
                   </Button>
                   <Button
                     variant="secondary"
-                    className="rounded-none"
+                    className="rounded-md"
                     onPress={closeWizard}
                   >
                     Close

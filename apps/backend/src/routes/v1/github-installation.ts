@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { Context } from "hono"
 import { RequestError } from "octokit"
 import type { AppEnv } from "../../app/env.js"
+import { rebindUnboundWorkspaces } from "../../domain/workspaces/workspace-lifecycle.js"
 import type { GitHubInstallationShape } from "../../models/connection-rows.js"
 import {
   githubConnectionToShape,
@@ -15,6 +16,7 @@ import {
   getGithubConnectionRow,
   getGithubUserAccessToken,
   githubAppOwnsInstallation,
+  isGithubInstallationTokenError,
   listAllReposForInstallation,
   listGithubConnectionRowsForOrg,
   listReposForInstallation,
@@ -33,17 +35,13 @@ import {
   previewMcpConfigChanges,
 } from "../../models/github-mcp-config-pr.js"
 import {
-  bindGithubPrMirror,
-  resolveGithubPrMirrorRepository,
-} from "../../models/github-pr-mirror.js"
-import {
+  bulkCreateRepositoriesForOrg,
   countRepositoriesForGithubConnection,
   listRepositoriesForGithubConnection,
   pruneGithubConnectionRepositoriesNotInGitUrls,
 } from "../../models/repositories.js"
-import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
-import { enqueueGithubPrMirrorEnsureForOrg } from "../../openworkflow/workflows/github-ensure-pr-mirror.js"
-import { syncGithubRepositories } from "../../openworkflow/workflows/sync-github-repositories.js"
+import { getLogger } from "../../observability/logger.js"
+import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
 
 const ErrorResponseSchema = z
   .object({
@@ -157,13 +155,7 @@ const GITHUB_INSTALLATION_UNAVAILABLE_MESSAGE =
   "GitHub installation is no longer available. Reconnect GitHub from the Connectors page."
 
 function isGitHubInstallationUnavailableError(e: unknown): boolean {
-  if (!(e instanceof Error)) return false
-  const status =
-    "status" in e && typeof (e as { status: unknown }).status === "number"
-      ? (e as { status: number }).status
-      : undefined
-  if (status === 404) return true
-  return e.message.includes("create-an-installation-access-token-for-an-app")
+  return isGithubInstallationTokenError(e)
 }
 
 const GitHubRepoItemSchema = z
@@ -203,19 +195,11 @@ const SelectedRepoSchema = z.object({
   clone_url: z.string(),
 })
 
-const ContextRepositorySchema = z.object({
-  full_name: z.string().min(1),
-  name: z.string().min(1),
-  clone_url: z.string().min(1),
-  default_branch: z.string().min(1).optional(),
-})
-
 const UpdateInstallationOptionsBodySchema = z
   .object({
     ingestAllRepositories: z.boolean(),
     includeFutureRepos: z.boolean(),
     selectedRepositories: z.array(SelectedRepoSchema).optional(),
-    contextRepository: ContextRepositorySchema.optional(),
   })
   .openapi("UpdateInstallationOptionsBody")
 
@@ -1075,6 +1059,12 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
             c.var.env,
           )) ?? installation
       }
+      await rebindUnboundWorkspaces({
+        orgId,
+        connectionId: installation.id,
+        env: c.var.env,
+        log: c.get("log"),
+      })
 
       return c.json(await githubInstallationResponsePayload(installation), 200)
     } catch (e) {
@@ -1207,23 +1197,33 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
         )
       }
 
-      const selectedRepos = [
-        ...(body.selectedRepositories ?? []),
-        ...(body.contextRepository &&
-        !(body.selectedRepositories ?? []).some(
-          (repo) => repo.clone_url === body.contextRepository?.clone_url,
-        )
-          ? [
-              {
-                full_name: body.contextRepository.full_name,
-                name: body.contextRepository.name,
-                clone_url: body.contextRepository.clone_url,
-              },
-            ]
-          : []),
-      ]
+      const selectedRepos = body.selectedRepositories ?? []
       if (!body.ingestAllRepositories && selectedRepos.length === 0) {
         return c.json({ error: "Select at least one repository" }, 400)
+      }
+
+      // List first: a GitHub failure must change nothing.
+      let reposToSync: { name: string; gitUrl: string }[] | undefined
+      if (resolved.installation.installationId != null) {
+        // The client sends the selection. Sync only the repositories that
+        // GitHub lists for the installation, because the sync binds them to
+        // this connection.
+        const selectedNames = new Set(
+          selectedRepos.map((repo) => repo.full_name.toLowerCase()),
+        )
+        reposToSync = (
+          await listAllReposForInstallation(
+            orgId,
+            resolved.installation.id,
+            c.var.env,
+          )
+        )
+          .filter(
+            (repo) =>
+              body.ingestAllRepositories ||
+              selectedNames.has(repo.full_name.toLowerCase()),
+          )
+          .map((repo) => ({ name: repo.full_name, gitUrl: repo.clone_url }))
       }
 
       const installation = await updateInstallationOptions(
@@ -1250,39 +1250,24 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
         )
       }
 
-      const workflowPayload = body.ingestAllRepositories
-        ? { orgId, githubConnectionId: installation.id }
-        : {
-            orgId,
-            githubConnectionId: installation.id,
-            reposToSync: selectedRepos.map((r) => ({
-              name: r.full_name,
-              gitUrl: r.clone_url,
-            })),
-          }
-      if (installation.installationId != null) {
-        void runWorkflowWithWorkerWake(
-          syncGithubRepositories.spec,
-          workflowPayload,
+      if (reposToSync) {
+        const created = await bulkCreateRepositoriesForOrg(orgId, reposToSync, {
+          githubConnectionId: installation.id,
+        })
+        await Promise.all(
+          created.map((repo) =>
+            enqueueRepositoryIngestionWorkflow(
+              { repositoryId: repo.id, orgId: repo.orgId },
+              {
+                error: (error) =>
+                  getLogger().error(error, {
+                    step: "github_installation.sync_repositories.enqueue",
+                    repositoryId: repo.id,
+                  }),
+              },
+            ),
+          ),
         )
-      }
-
-      if (body.contextRepository) {
-        const branch = body.contextRepository.default_branch?.trim() || "main"
-        const repositoryId = await resolveGithubPrMirrorRepository({
-          orgId,
-          connectionId: installation.id,
-          repositoryName: body.contextRepository.full_name,
-          gitUrl: body.contextRepository.clone_url,
-          branch,
-        })
-        await bindGithubPrMirror({
-          orgId,
-          connectionId: installation.id,
-          repositoryId,
-          branch,
-        })
-        await enqueueGithubPrMirrorEnsureForOrg(orgId)
       }
 
       return c.json(await githubInstallationResponsePayload(installation), 200)

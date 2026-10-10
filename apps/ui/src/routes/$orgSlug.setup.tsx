@@ -1,17 +1,25 @@
 import { useQuery } from "@tanstack/react-query"
 import { createFileRoute, Navigate, useRouter } from "@tanstack/react-router"
 import { useEffect, useId, useRef, useState } from "react"
+import { toast } from "sonner"
 import { AnimatedBackground } from "@/components/AnimatedBackground"
 import { Button } from "@/components/ui/Button"
 import { Dialog } from "@/components/ui/Dialog"
 import { Modal } from "@/components/ui/Modal"
+import { PageBodySkeleton } from "@/components/ui/Skeleton"
 import {
   fetchGithubInstallationSummary,
   githubConnectorKeys,
+  githubInstallationIsLinked,
 } from "@/features/connectors/queries/github-connector"
 import { useGithubConnectFlow } from "@/features/connectors/useGithubConnectFlow"
 import { client } from "@/lib/api"
-import { authClient, getSession, useSession } from "@/lib/auth-client"
+import { apiFetch, readApiJson } from "@/lib/api-result"
+import {
+  authClient,
+  refetchSessionOnboardingComplete,
+  useSession,
+} from "@/lib/auth-client"
 
 export const Route = createFileRoute("/$orgSlug/setup")({
   component: OrgSetupPage,
@@ -57,7 +65,7 @@ function OrgSetupPage() {
     minFinalizeAfterRegistrationMs: GITHUB_FINALISING_MIN_MS,
     onAlreadyInstalled: () => {
       void router.navigate({
-        to: "/$orgSlug/repositories/github/setup",
+        to: "/$orgSlug/github/setup",
         params: { orgSlug },
       })
     },
@@ -69,7 +77,7 @@ function OrgSetupPage() {
   })
 
   const hasGithubInstallation =
-    Boolean(installation) || githubConnectedOptimistic
+    githubInstallationIsLinked(installation) || githubConnectedOptimistic
 
   const githubButtonBusy = installationPending || ghFlowPending || isSyncing
 
@@ -84,8 +92,8 @@ function OrgSetupPage() {
   if (sessionPending) {
     return (
       <main className="min-h-screen bg-zinc-950 text-zinc-100">
-        <div className="flex min-h-screen items-center justify-center px-6 text-center">
-          <p className="text-sm text-zinc-400">Loading setup…</p>
+        <div className="flex min-h-screen items-center px-6">
+          <PageBodySkeleton label="Loading setup" className="mx-auto" />
         </div>
       </main>
     )
@@ -171,14 +179,23 @@ function OrgSetupPage() {
   const completeSetup = async () => {
     try {
       await Promise.all([
-        client[":orgSlug"].api.v1.onboarding.complete.$post({
-          param: { orgSlug },
-        }),
-        client.api.v1.onboarding.user.complete.$post(),
+        client[":orgSlug"].api.v1.onboarding.complete
+          .$post({
+            param: { orgSlug },
+          })
+          .then((res) => readApiJson(res)),
+        apiFetch("/api/v1/onboarding/user/complete", {
+          method: "POST",
+          credentials: "include",
+        }).then((res) => readApiJson(res)),
       ])
-      await getSession({ fetchOptions: { throw: false } })
+      if (!(await refetchSessionOnboardingComplete()))
+        throw new Error("The session does not show onboarding as complete")
     } catch {
-      // best-effort — don't block navigation
+      // The org pages read the session atom. A stale atom sends the user
+      // back to onboarding, so stay here and let the user try again.
+      toast.error("Could not finish setup. Try again.")
+      return
     }
     sessionStorage.setItem("ctxpipe:app-shell-fade-in", "1")
     void router.navigate({
@@ -228,10 +245,10 @@ function OrgSetupPage() {
                 <div className="onb-in-2 mx-auto mb-14 flex min-h-[280px] max-w-3xl flex-col">
                   <p className="mx-auto mb-3 text-balance text-zinc-300">
                     {isSyncing
-                      ? "Finalising your GitHub connection..."
+                      ? "Finalizing your GitHub connection..."
                       : hasGithubInstallation
-                        ? "GitHub is connected. Continue onboarding, or adjust repository selection."
-                        : "ctx| allows you to determine which repos are ingested into your knowledge system. As ctx| detects insights about your engineering processes, it will raise changes in GitHub for you to view."}
+                        ? "GitHub is connected. Continue onboarding, or link repositories from a workspace."
+                        : "Connect the GitHub App. Then create a workspace or add repositories to one you already have."}
                   </p>
                   <p className="mx-auto min-h-5 text-xs text-zinc-400">
                     {githubSetupError ? githubSetupError : "\u00A0"}
@@ -240,7 +257,7 @@ function OrgSetupPage() {
                     <button
                       type="button"
                       disabled={githubButtonBusy}
-                      className={`inline-flex h-11 items-center justify-center rounded-none border border-border px-6 text-sm font-medium transition-colors ${
+                      className={`inline-flex h-11 items-center justify-center rounded-md border border-border px-6 text-sm font-medium transition-colors ${
                         githubButtonBusy
                           ? "cursor-not-allowed bg-zinc-100/80 text-zinc-700"
                           : "bg-zinc-100 text-zinc-950 hover:bg-zinc-200"
@@ -248,7 +265,7 @@ function OrgSetupPage() {
                       onClick={handleConnectGitHub}
                     >
                       {isSyncing
-                        ? "Finalising connection..."
+                        ? "Finalizing connection..."
                         : installationPending
                           ? "Checking..."
                           : hasGithubInstallation
@@ -274,7 +291,7 @@ function OrgSetupPage() {
                     ctx| is designed for your whole team and their agents.
                     Invite some co-workers to test it out with.
                   </p>
-                  <div className="mx-auto max-w-3xl rounded-none border border-border bg-zinc-950/70 p-6 text-left">
+                  <div className="mx-auto max-w-3xl rounded-md border border-border bg-zinc-950/70 p-6 text-left">
                     <label
                       className="mb-2 block text-sm text-zinc-200"
                       htmlFor={inviteEmailsFieldId}
@@ -287,7 +304,7 @@ function OrgSetupPage() {
                       value={inviteEmails}
                       onChange={(e) => setInviteEmails(e.target.value)}
                       placeholder="email@example.com, email2@example.com..."
-                      className="mb-4 h-11 w-full rounded-none border border-border bg-zinc-950 px-3 text-sm text-zinc-100 outline-none focus:border-teal-400/60"
+                      className="mb-4 h-11 w-full rounded-md border border-border bg-zinc-950 px-3 text-sm text-zinc-100 outline-none focus:border-teal-400/60"
                     />
                     {inviteError && (
                       <p className="mb-4 text-xs text-red-400">{inviteError}</p>
@@ -296,7 +313,7 @@ function OrgSetupPage() {
                       <button
                         type="button"
                         disabled={inviteSubmitting || inviteSent}
-                        className="inline-flex h-10 items-center justify-center rounded-none border border-border bg-zinc-100 px-5 text-sm font-medium text-zinc-950 transition-colors hover:bg-zinc-200"
+                        className="inline-flex h-10 items-center justify-center rounded-md border border-border bg-zinc-100 px-5 text-sm font-medium text-zinc-950 transition-colors hover:bg-zinc-200"
                         onClick={handleSendInvites}
                       >
                         {inviteSent
@@ -308,7 +325,7 @@ function OrgSetupPage() {
                     </div>
                   </div>
                   {inviteSent && (
-                    <div className="mx-auto mt-4 max-w-3xl rounded-none border border-teal-400/40 bg-teal-400/10 px-4 py-3 text-sm text-teal-200">
+                    <div className="mx-auto mt-4 max-w-3xl rounded-md border border-teal-400/40 bg-teal-400/10 px-4 py-3 text-sm text-teal-200">
                       Invites sent to your team
                     </div>
                   )}
@@ -316,7 +333,7 @@ function OrgSetupPage() {
                     {inviteSent ? (
                       <button
                         type="button"
-                        className="inline-flex h-11 items-center justify-center rounded-none border border-border bg-zinc-100 px-6 text-sm font-medium text-zinc-950 transition-colors hover:bg-zinc-200"
+                        className="inline-flex h-11 items-center justify-center rounded-md border border-border bg-zinc-100 px-6 text-sm font-medium text-zinc-950 transition-colors hover:bg-zinc-200"
                         onClick={completeSetup}
                       >
                         Continue
@@ -362,7 +379,7 @@ function OrgSetupPage() {
       >
         <Dialog role="alertdialog">
           {({ close }) => (
-            <div className="rounded-none bg-zinc-950/95 p-6">
+            <div className="rounded-md bg-zinc-950/95 p-6">
               <h2 className="mb-3 text-xl font-semibold text-zinc-100">
                 Invite external users?
               </h2>
@@ -374,7 +391,7 @@ function OrgSetupPage() {
               <div className="mt-6 flex justify-end gap-3">
                 <Button
                   variant="ghost"
-                  className="rounded-none text-zinc-400 hover:text-zinc-200"
+                  className="rounded-md text-zinc-400 hover:text-zinc-200"
                   onPress={() => {
                     setPendingExternalRecipients([])
                     close()
@@ -383,7 +400,7 @@ function OrgSetupPage() {
                   Cancel
                 </Button>
                 <Button
-                  className="rounded-none bg-zinc-100 text-zinc-950 hover:bg-zinc-200"
+                  className="rounded-md bg-zinc-100 text-zinc-950 hover:bg-zinc-200"
                   onPress={() => {
                     void sendInvites()
                     setPendingExternalRecipients([])

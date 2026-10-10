@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 import { createFileRoute, Navigate, useRouter } from "@tanstack/react-router"
 import { useCallback, useEffect, useState } from "react"
+import { toast } from "sonner"
 import { ADMIN_SLIDES, JOINER_SLIDES } from "@/components/onboarding/constants"
 import { McpOnboardingSlide } from "@/components/onboarding/McpOnboardingSlide"
 import { OnboardingCreateOrgSlide } from "@/components/onboarding/OnboardingCreateOrgSlide"
@@ -11,15 +12,18 @@ import { OnboardingOverviewSlide } from "@/components/onboarding/OnboardingOverv
 import { OnboardingPageShell } from "@/components/onboarding/OnboardingPageShell"
 import { OnboardingWelcomeSlide } from "@/components/onboarding/OnboardingWelcomeSlide"
 import { useOnboardingCarousel } from "@/components/onboarding/useOnboardingCarousel"
+import { PageBodySkeleton } from "@/components/ui/Skeleton"
 import {
   fetchGithubInstallationSummary,
   githubConnectorKeys,
+  githubInstallationIsLinked,
 } from "@/features/connectors/queries/github-connector"
 import { useRepositoryIndexingSummary } from "@/features/repositories"
 import { client } from "@/lib/api"
+import { apiFetch, readApiJson } from "@/lib/api-result"
 import {
   authClient,
-  getSession,
+  refetchSessionOnboardingComplete,
   useListOrganizations,
   useSession,
 } from "@/lib/auth-client"
@@ -48,6 +52,8 @@ function OnboardingPage() {
   return <OnboardingPageContent urlOrgSlug={search.orgSlug ?? null} />
 }
 
+const FINISH_ERROR = "Could not finish onboarding. Try again."
+
 export function OnboardingPageContent({
   urlOrgSlug,
 }: {
@@ -65,8 +71,6 @@ export function OnboardingPageContent({
   const [sceneReady, setSceneReady] = useState(false)
   const [showWelcomeDotNav, setShowWelcomeDotNav] = useState(false)
   const [completing, setCompleting] = useState(false)
-  const [repositorySelectionSaved, setRepositorySelectionSaved] =
-    useState(false)
 
   useEffect(() => {
     if (sceneReady || sceneFailed) return
@@ -95,13 +99,11 @@ export function OnboardingPageContent({
       orgSlug ? fetchGithubInstallationSummary(orgSlug) : Promise.resolve(null),
     enabled: Boolean(orgSlug && session),
   })
-  const hasGithubInstallation = Boolean(installation)
+  const hasGithubInstallation = githubInstallationIsLinked(installation)
   const repositoryIndexing = useRepositoryIndexingSummary(orgSlug, {
     enabled: Boolean(orgSlug && session),
-    pollWhileEmpty: repositorySelectionSaved,
   })
-  const { activeCount, failedCount, runningCount, totalCount } =
-    repositoryIndexing.summary
+  const { activeCount, failedCount, runningCount } = repositoryIndexing.summary
   const repositoryStatus =
     activeCount > 0
       ? {
@@ -117,25 +119,19 @@ export function OnboardingPageContent({
               failedCount === 1 ? "repository needs" : "repositories need"
             } attention`,
           }
-        : repositorySelectionSaved &&
-            totalCount === 0 &&
-            !repositoryIndexing.isError
-          ? {
-              tone: "indexing" as const,
-              label: "Starting repository indexing",
-            }
-          : null
+        : null
 
   const onWelcomeDetailsVisible = useCallback(() => {
     setShowWelcomeDotNav(true)
   }, [])
 
   const mcpSnippetOrgSlug = orgSlug ?? "your-org"
+  // ssr: false, so the browser is on the deployment's origin, which serves /mcp.
   const mcpSnippet = `{
   "mcpServers": {
     "ctxpipe": {
       "type": "http",
-      "url": "https://app.ctxpipe.ai/mcp?orgSlug=${mcpSnippetOrgSlug}"
+      "url": "${window.location.origin}/mcp?orgSlug=${mcpSnippetOrgSlug}"
     }
   }
 }`
@@ -155,7 +151,7 @@ export function OnboardingPageContent({
         onGoToSlide={() => {}}
       >
         <div className="onboarding-fade-in mx-auto max-w-2xl">
-          <p className="text-sm text-zinc-400">Preparing onboarding…</p>
+          <PageBodySkeleton label="Preparing onboarding" />
         </div>
       </OnboardingPageShell>
     )
@@ -168,7 +164,17 @@ export function OnboardingPageContent({
     email?: string
   }
   if (user.onboardingCompletedAt && orgSlug) {
-    return <Navigate to="/$orgSlug" params={{ orgSlug }} replace />
+    return (
+      <Navigate
+        to="/"
+        search={{
+          error: undefined,
+          error_description: undefined,
+          pendingAccountClaim: undefined,
+        }}
+        replace
+      />
+    )
   }
 
   if (organizations && organizations.length > 0) {
@@ -210,7 +216,7 @@ export function OnboardingPageContent({
     }, 320)
   }
 
-  const completeOnboarding = async () => {
+  const completeOnboardingThen = async (leave: () => void) => {
     if (!orgSlug || completing) return
     const organization = organizations?.find(
       (org: { slug: string }) => org.slug === orgSlug,
@@ -223,26 +229,39 @@ export function OnboardingPageContent({
         })
       }
       await Promise.all([
-        fetch("/api/v1/onboarding/user/complete", {
+        apiFetch("/api/v1/onboarding/user/complete", {
           method: "POST",
           credentials: "include",
-        }),
-        client[":orgSlug"].api.v1.onboarding.complete.$post({
-          param: { orgSlug },
-        }),
+        }).then((res) => readApiJson(res)),
+        client[":orgSlug"].api.v1.onboarding.complete
+          .$post({
+            param: { orgSlug },
+          })
+          .then((res) => readApiJson(res)),
       ])
       setPreferences((prev) => ({
         ...prev,
         selectedOrganizationSlug: orgSlug,
       }))
-      void getSession({ fetchOptions: { throw: false } })
+      if (!(await refetchSessionOnboardingComplete()))
+        throw new Error("The session does not show onboarding as complete")
     } catch {
-      // best-effort
+      setCompleting(false)
+      toast.error(FINISH_ERROR)
+      return
     }
-    transitionToApp(() => {
+    transitionToApp(leave)
+  }
+
+  const completeOnboarding = async () => {
+    await completeOnboardingThen(() => {
       void router.navigate({
-        to: "/$orgSlug",
-        params: { orgSlug },
+        to: "/",
+        search: {
+          error: undefined,
+          error_description: undefined,
+          pendingAccountClaim: undefined,
+        },
         replace: true,
       })
     })
@@ -250,24 +269,20 @@ export function OnboardingPageContent({
 
   const completeJoinerOnboarding = async () => {
     if (completing) return
+    setCompleting(true)
     try {
-      await fetch("/api/v1/onboarding/user/complete", {
+      await apiFetch("/api/v1/onboarding/user/complete", {
         method: "POST",
         credentials: "include",
-      })
-      void getSession({ fetchOptions: { throw: false } })
+      }).then((res) => readApiJson(res))
+      if (!(await refetchSessionOnboardingComplete()))
+        throw new Error("The session does not show onboarding as complete")
     } catch {
-      // best-effort
+      setCompleting(false)
+      toast.error(FINISH_ERROR)
+      return
     }
     transitionToApp(() => {
-      if (orgSlug) {
-        void router.navigate({
-          to: "/$orgSlug",
-          params: { orgSlug },
-          replace: true,
-        })
-        return
-      }
       void router.navigate({
         to: "/",
         search: {
@@ -356,8 +371,29 @@ export function OnboardingPageContent({
         {currentSlideName === "github" ? (
           <OnboardingGithubSlide
             orgSlug={orgSlug}
-            onRepositoriesQueued={() => setRepositorySelectionSaved(true)}
             onContinue={() => goToSlide(currentSlide + 1)}
+            onCreateWorkspace={() => {
+              if (!orgSlug) return
+              void completeOnboardingThen(() => {
+                void router.navigate({
+                  to: "/$orgSlug/workspaces/new",
+                  params: { orgSlug },
+                  search: { after: "settings" },
+                  replace: true,
+                })
+              })
+            }}
+            onSelectWorkspace={(workspace) => {
+              if (!orgSlug) return
+              void completeOnboardingThen(() => {
+                void router.navigate({
+                  to: "/$orgSlug/ws/$workspaceSlug",
+                  params: { orgSlug, workspaceSlug: workspace.slug },
+                  search: { pane: "settings" },
+                  replace: true,
+                })
+              })
+            }}
           />
         ) : null}
 

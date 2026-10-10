@@ -2,9 +2,9 @@ import {
   defineWorkflow as defineOpenWorkflow,
   type Workflow,
 } from "openworkflow"
-import type { z } from "zod"
+import { z } from "zod"
 import {
-  attachJobTelemetry,
+  attachJobTelemetryForSchema,
   type JobTelemetry,
   jobTelemetrySchema,
   restoreJobTelemetry,
@@ -16,7 +16,7 @@ type JobRaw<S extends z.ZodType> = z.input<S> & { telemetry?: JobTelemetry }
 type OpenSpec = Workflow<unknown, unknown, unknown>["spec"]
 type Step = Parameters<Workflow<unknown, unknown, unknown>["fn"]>[0]["step"]
 
-type ObservedSpec<S extends z.ZodObject<z.ZodRawShape>> = Pick<
+type ObservedSpec<S extends z.ZodType> = Pick<
   OpenSpec,
   "name" | "version" | "retryPolicy"
 > & {
@@ -29,20 +29,41 @@ function attachChildTelemetry(step: Step): void {
     runWorkflow.call(
       step,
       spec,
-      attachJobTelemetry(input),
+      attachJobTelemetryForSchema(spec.schema, input),
       options,
     )) as Step["runWorkflow"]
 }
 
-export function defineWorkflow<S extends z.ZodObject<z.ZodRawShape>, Output>(
+/** Accept enqueue telemetry beside any input schema without loosening it. */
+function withTelemetry(schema: z.ZodType): z.ZodType {
+  if (schema instanceof z.ZodObject)
+    return schema.extend({ telemetry: jobTelemetrySchema.optional() })
+  return z
+    .looseObject({ telemetry: jobTelemetrySchema.optional() })
+    .transform(({ telemetry, ...rest }, ctx) => {
+      const parsed = schema.safeParse(rest)
+      if (!parsed.success) {
+        for (const issue of parsed.error.issues) ctx.addIssue({ ...issue })
+        return z.NEVER
+      }
+      return telemetry ? { ...(parsed.data as object), telemetry } : parsed.data
+    })
+}
+
+/**
+ * The body gets the output of its own schema. The wrapper removes the
+ * enqueue telemetry from the input and restores it in the context.
+ */
+type BodyContext<S extends z.ZodType> = Omit<
+  Parameters<Workflow<JobInput<S>, unknown, unknown>["fn"]>[0],
+  "input"
+> & { input: z.output<S> }
+
+export function defineWorkflow<S extends z.ZodType, Output>(
   spec: ObservedSpec<S>,
-  fn: (
-    ctx: Parameters<Workflow<JobInput<S>, unknown, unknown>["fn"]>[0],
-  ) => Promise<Output>,
+  fn: (ctx: BodyContext<S>) => Promise<Output>,
 ): Workflow<JobInput<S>, Output, JobRaw<S>> {
-  const schema = spec.schema.extend({
-    telemetry: jobTelemetrySchema.optional(),
-  })
+  const schema = withTelemetry(spec.schema)
   return defineOpenWorkflow<JobInput<S>, Output, JobRaw<S>>(
     {
       name: spec.name,
@@ -56,7 +77,12 @@ export function defineWorkflow<S extends z.ZodObject<z.ZodRawShape>, Output>(
     },
     (ctx) => {
       attachChildTelemetry(ctx.step)
-      return restoreJobTelemetry(ctx.input, () => fn(ctx))
+      // Telemetry is enqueue-only: bodies re-parse `input` with their own
+      // strict schema, which has no `telemetry` key.
+      const { telemetry: _telemetry, ...input } = ctx.input
+      return restoreJobTelemetry(ctx.input, () =>
+        fn({ ...ctx, input: input as z.output<S> }),
+      )
     },
   )
 }

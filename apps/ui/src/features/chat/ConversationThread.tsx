@@ -1,10 +1,9 @@
-import { IconMessageCircle } from "@tabler/icons-react"
-import type { UIMessage } from "ai"
-import type { ReactElement } from "react"
+import { IconBrain, IconFile, IconSearch, IconTool } from "@tabler/icons-react"
+import { type ReactElement, useEffect, useId, useState } from "react"
+import { Button as AriaButton } from "react-aria-components"
 import {
   Conversation,
   ConversationContent,
-  ConversationEmptyState,
   ConversationScrollButton,
 } from "@/components/ai-elements/conversation"
 import {
@@ -12,46 +11,362 @@ import {
   MessageContent,
   MessageResponse,
 } from "@/components/ai-elements/message"
-import { formatDate } from "@/lib/format"
+import { InlineAlert } from "@/components/ui/InlineAlert"
+import {
+  collapsedToolChips,
+  groupAssistantTurns,
+  latestReasoningHeading,
+  normalizeReasoningMarkdown,
+  summarizeToolCalls,
+  type ToolBucket,
+  type ToolCallSummary,
+  toolBucketCounts,
+} from "@/features/chat/conversation-thread-utils"
+import type { ChatMessage, ChatStatus } from "@/features/chat/types"
+import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
 
 const HIDDEN_DATA_PARTS = new Set(["data-rename-conversation", "data-kg-focus"])
 
-function formatMessageTimeLabel(message: UIMessage): string | null {
-  const meta = message.metadata as { createdAt?: string } | undefined
-  if (!meta?.createdAt) return null
-  const d = new Date(meta.createdAt)
-  if (Number.isNaN(d.getTime())) return null
-  return formatDate(meta.createdAt)
+type ChatPart = ChatMessage["parts"][number]
+
+function partText(part: ChatPart): string {
+  return (part.content ?? part.text ?? "").trim()
 }
 
-function isRenderableMessagePart(part: UIMessage["parts"][number]) {
-  if (HIDDEN_DATA_PARTS.has(part.type)) return false
-  if (part.type === "text") return Boolean(part.text?.trim())
-  if (part.type === "reasoning") return Boolean(part.text?.trim())
-  if (part.type === "source-url") return true
-  if (part.type.startsWith("data-")) return "data" in part
+function bucketIcon(bucket: ToolBucket) {
+  if (bucket === "read") return <IconFile className="size-4" aria-hidden />
+  if (bucket === "search") return <IconSearch className="size-4" aria-hidden />
+  return <IconTool className="size-4" aria-hidden />
+}
+
+function isActivityMessagePart(part: ChatPart) {
+  if (part.type === "tool-call") return true
+  if (part.type === "thinking") return Boolean(partText(part))
   return false
 }
 
-function renderMessagePart(part: UIMessage["parts"][number], key: string) {
-  if (!isRenderableMessagePart(part)) return null
-  if (part.type === "text") {
-    return <MessageResponse key={key}>{part.text}</MessageResponse>
+function isRenderableMessagePart(part: ChatPart) {
+  if (HIDDEN_DATA_PARTS.has(part.type) || part.type.startsWith("data-")) {
+    return false
   }
-  if (part.type === "reasoning") {
-    return (
-      <details
-        key={key}
-        className="rounded-none border border-border/60 bg-foreground/[0.04] p-3 text-sm text-muted-foreground"
+  if (part.type === "text" || part.type === "thinking") {
+    return Boolean(partText(part))
+  }
+  if (part.type === "source-url" || part.type === "tool-call") return true
+  return false
+}
+
+function ActivityIconSlot(props: { live: boolean; children: ReactElement }) {
+  return (
+    <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center text-zinc-500">
+      {props.live ? (
+        <span className="ctx-indexing-dot" aria-hidden />
+      ) : (
+        props.children
+      )}
+    </span>
+  )
+}
+
+/** Exported so stories can match the rotating verb without a second copy of the list. */
+export const WORKING_VERBS = [
+  "Contextualizing…",
+  "Analyzing…",
+  "Traversing your graph…",
+  "Reading knowledge…",
+  "Checking sources…",
+]
+
+/** Rotates through the product's working verbs while the agent runs. */
+function useWorkingVerb(): string {
+  const [index, setIndex] = useState(0)
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setIndex((value) => (value + 1) % WORKING_VERBS.length)
+    }, 2400)
+    return () => clearInterval(timer)
+  }, [])
+  return WORKING_VERBS[index] ?? WORKING_VERBS[0] ?? "Thinking…"
+}
+
+const reasoningResponseClassName =
+  "ctx-streamdown-reasoning h-auto space-y-1 text-xs leading-relaxed text-muted-foreground [&_blockquote]:text-muted-foreground [&_h1]:text-muted-foreground [&_h2]:text-muted-foreground [&_h3]:text-muted-foreground [&_h4]:text-muted-foreground [&_li]:text-muted-foreground [&_ol]:text-muted-foreground [&_p]:text-muted-foreground [&_strong]:text-muted-foreground [&_ul]:text-muted-foreground"
+
+function ReasoningBox(props: {
+  text: string
+  live: boolean
+  collapsed: boolean
+}) {
+  const { text, live, collapsed } = props
+  const markdown = normalizeReasoningMarkdown(text)
+  const liveTitle = latestReasoningHeading(text)
+
+  if (live) return <LiveReasoning heading={liveTitle} />
+
+  return (
+    <ActivityGroup
+      label="Reasoning"
+      live={false}
+      defaultExpanded={!collapsed}
+      summary={
+        <span className="inline-flex min-w-0 items-center gap-1.5">
+          <ActivityIconSlot live={false}>
+            <IconBrain className="size-4" aria-hidden />
+          </ActivityIconSlot>
+          <span className="line-clamp-1">{liveTitle ?? "Reasoning"}</span>
+        </span>
+      }
+      details={
+        <MessageResponse className={reasoningResponseClassName}>
+          {markdown}
+        </MessageResponse>
+      }
+    />
+  )
+}
+
+/** The full reasoning text stays out of view while live; it opens from the collapsed group after the turn. */
+function LiveReasoning(props: { heading: string | null }) {
+  const verb = useWorkingVerb()
+  return (
+    // biome-ignore lint/a11y/useSemanticElements: live reasoning is a status, not a form output
+    <div
+      className="flex w-full min-w-0 items-start gap-2"
+      role="status"
+      aria-label="Reasoning"
+    >
+      <ActivityIconSlot live>
+        <IconBrain className="size-4" aria-hidden />
+      </ActivityIconSlot>
+      <div className="min-w-0 flex-1 space-y-1 text-xs leading-relaxed">
+        <p data-reasoning-title className="font-medium text-muted-foreground">
+          {verb}
+        </p>
+        {props.heading ? (
+          <p className="line-clamp-1 text-muted-foreground/70">
+            {props.heading}
+          </p>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
+function ToolChip(props: { bucket: ToolBucket; label: string }) {
+  return (
+    <span className="inline-flex min-w-0 items-center gap-1.5">
+      <ActivityIconSlot live={false}>
+        {bucketIcon(props.bucket)}
+      </ActivityIconSlot>
+      <span className="tabular-nums">{props.label}</span>
+    </span>
+  )
+}
+
+function ActivityGroup(props: {
+  label: string
+  live: boolean
+  defaultExpanded?: boolean
+  summary: ReactElement
+  details: ReactElement
+}) {
+  const { label, live, defaultExpanded = false, summary, details } = props
+  const [userExpanded, setUserExpanded] = useState<boolean | null>(null)
+  const expanded = userExpanded ?? defaultExpanded
+  const detailsId = useId()
+
+  const group = (
+    <div className="flex w-full min-w-0 flex-col gap-1">
+      <AriaButton
+        aria-expanded={expanded}
+        aria-controls={expanded ? detailsId : undefined}
+        aria-label={label}
+        onPress={() => setUserExpanded(!expanded)}
+        className={cn(
+          focusVisibleClassName,
+          "flex w-full min-w-0 items-start gap-2 rounded-md text-left text-xs leading-relaxed text-muted-foreground",
+          "hover:text-foreground/80",
+        )}
       >
-        <summary className="cursor-pointer text-foreground">Reasoning</summary>
-        <MessageResponse>{part.text}</MessageResponse>
-      </details>
+        {summary}
+      </AriaButton>
+      {expanded ? (
+        <section
+          id={detailsId}
+          aria-label={label}
+          className="min-w-0 pl-6 text-xs leading-relaxed text-muted-foreground"
+        >
+          {details}
+        </section>
+      ) : null}
+    </div>
+  )
+
+  if (live) {
+    return (
+      // biome-ignore lint/a11y/useSemanticElements: live activity is a status, not a form output
+      <div role="status">{group}</div>
     )
   }
-  if (part.type === "source-url") {
-    return (
+
+  return group
+}
+
+function ToolUseRow(props: { tools: ToolCallSummary[]; live: boolean }) {
+  const { tools, live } = props
+  const chips = collapsedToolChips(toolBucketCounts(tools))
+
+  return (
+    <ActivityGroup
+      label={chips.map((chip) => chip.label).join(", ")}
+      live={live}
+      summary={
+        <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
+          {chips.map((chip) => (
+            <ToolChip
+              key={chip.bucket}
+              bucket={chip.bucket}
+              label={chip.label}
+            />
+          ))}
+        </span>
+      }
+      details={
+        <span className="flex min-w-0 flex-1 flex-col gap-1">
+          {tools.map((tool) => (
+            <span key={tool.id} className="flex min-w-0 items-start gap-2">
+              <ActivityIconSlot live={false}>
+                {bucketIcon(tool.bucket)}
+              </ActivityIconSlot>
+              <span className="min-w-0 flex-1 font-mono">{tool.detail}</span>
+            </span>
+          ))}
+        </span>
+      }
+    />
+  )
+}
+
+function ThoughtGroup(props: { thoughts: string[] }) {
+  const { thoughts } = props
+  const label =
+    thoughts.length === 1 ? "Thought" : `Thought ${thoughts.length}x`
+  const icon = (
+    <ActivityIconSlot live={false}>
+      <IconBrain className="size-4" aria-hidden />
+    </ActivityIconSlot>
+  )
+
+  return (
+    <ActivityGroup
+      label={label}
+      live={false}
+      summary={
+        <span className="inline-flex min-w-0 items-center gap-1.5">
+          {icon}
+          <span className="tabular-nums">{label}</span>
+        </span>
+      }
+      details={
+        <span className="flex min-w-0 flex-1 flex-col gap-2">
+          {thoughts.map((thought, index) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: earlier thoughts only append, so the index is stable
+            <span key={index} className="flex min-w-0 items-start gap-2">
+              {icon}
+              <span className="min-w-0 flex-1">
+                <MessageResponse className={reasoningResponseClassName}>
+                  {normalizeReasoningMarkdown(thought)}
+                </MessageResponse>
+              </span>
+            </span>
+          ))}
+        </span>
+      }
+    />
+  )
+}
+
+function renderUserParts(message: ChatMessage): ReactElement[] {
+  return message.parts.flatMap((part, index) => {
+    if (part.type !== "text" || !partText(part)) return []
+    return [
+      <MessageResponse key={`${message.id}-${index}`}>
+        {partText(part)}
+      </MessageResponse>,
+    ]
+  })
+}
+
+function renderAssistantParts(
+  message: ChatMessage,
+  options: { streaming: boolean },
+): ReactElement[] {
+  const tools = summarizeToolCalls(message.parts)
+  const thoughts = message.parts
+    .filter((part) => part.type === "thinking")
+    .map(partText)
+    .filter(Boolean)
+  const earlierThoughts = thoughts.slice(0, -1)
+  const thinking = thoughts.at(-1)
+  const replyParts = message.parts.filter(
+    (part) =>
+      (part.type === "text" && Boolean(partText(part))) ||
+      part.type === "source-url",
+  )
+  const hasReply = replyParts.some(
+    (part) => part.type === "text" && Boolean(partText(part)),
+  )
+  const nodes: ReactElement[] = []
+  const activity: ReactElement[] = []
+  if (tools.length > 0) {
+    activity.push(
+      <ToolUseRow
+        key={`${message.id}-tools`}
+        tools={tools}
+        live={options.streaming && !hasReply}
+      />,
+    )
+  }
+  if (earlierThoughts.length > 0) {
+    activity.push(
+      <ThoughtGroup
+        key={`${message.id}-thoughts`}
+        thoughts={earlierThoughts}
+      />,
+    )
+  }
+  if (thinking) {
+    activity.push(
+      <ReasoningBox
+        key={`${message.id}-reasoning`}
+        text={thinking}
+        live={options.streaming && !hasReply}
+        collapsed={hasReply}
+      />,
+    )
+  }
+  if (activity.length > 0) {
+    nodes.push(
+      <div
+        key={`${message.id}-activity`}
+        className="flex w-full min-w-0 flex-col gap-1.5"
+      >
+        {activity}
+      </div>,
+    )
+  }
+  replyParts.forEach((part, index) => {
+    const key = `${message.id}-reply-${index}`
+    if (part.type === "text") {
+      nodes.push(
+        <MessageResponse key={key} isAnimating={options.streaming && hasReply}>
+          {partText(part)}
+        </MessageResponse>,
+      )
+      return
+    }
+    nodes.push(
       <p key={key} className="text-xs text-muted-foreground">
         Source:{" "}
         <a
@@ -62,143 +377,108 @@ function renderMessagePart(part: UIMessage["parts"][number], key: string) {
         >
           {part.title ?? part.url}
         </a>
-      </p>
+      </p>,
     )
-  }
-  if (part.type.startsWith("data-") && "data" in part) {
-    return (
-      <pre key={key} className="text-xs text-muted-foreground">
-        {JSON.stringify(part.data)}
-      </pre>
-    )
-  }
-  return null
+  })
+  return nodes
 }
 
-export type ChatStatus = "submitted" | "streaming" | "ready" | "error"
-
-function messageHasRenderableParts(message: UIMessage) {
-  return message.parts.some(isRenderableMessagePart)
+function messageHasVisibleActivity(message: ChatMessage) {
+  return message.parts.some(
+    (part) => isRenderableMessagePart(part) || isActivityMessagePart(part),
+  )
 }
 
-function AgentSenderLabel() {
-  // biome-ignore format: keep pipe inline so the span has no whitespace around |
-  const pipe = <span key="pipe" className="text-teal-400">|</span>
-  return <span className="ctx-label-muted">{["ctx", pipe]}</span>
+function WaitIndicator(props: { label: string | null }) {
+  const verb = useWorkingVerb()
+  const label = props.label ?? verb
+  return (
+    // biome-ignore lint/a11y/useSemanticElements: div + role="status" for loading indicator; output is for form/calculation results, not live status
+    <div
+      className="flex w-full justify-start"
+      role="status"
+      aria-live="polite"
+      aria-label={props.label ?? "Working"}
+    >
+      <div className="flex items-center gap-2">
+        <span className="ctx-indexing-dot" aria-hidden />
+        <p className="text-xs text-muted-foreground">{label}</p>
+      </div>
+    </div>
+  )
 }
 
 export function ConversationThread(props: {
-  messages: UIMessage[]
+  messages: ChatMessage[]
   error: Error | null
   status?: ChatStatus
+  /** Explicit wait copy; omit (or pass null) for the rotating working verbs. */
+  waitLabel?: string | null
   contentClassName?: string
 }) {
-  const { messages, error, status, contentClassName } = props
-  const lastMessage = messages[messages.length - 1]
-  const lastAssistantHasRenderableParts =
+  const { messages, error, status, waitLabel, contentClassName } = props
+  const turns = groupAssistantTurns(messages)
+  const lastMessage = turns[turns.length - 1]
+  const lastAssistantHasVisibleActivity =
     lastMessage?.role === "assistant"
-      ? messageHasRenderableParts(lastMessage)
+      ? messageHasVisibleActivity(lastMessage)
       : false
   const showPulsatingLoader =
-    status === "submitted" ||
-    (status === "streaming" && !lastAssistantHasRenderableParts)
+    (status === "submitted" || status === "streaming") &&
+    !lastAssistantHasVisibleActivity
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-transparent">
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <Conversation className="min-h-0 flex-1">
           <ConversationContent
-            className={cn("mx-auto max-w-2xl space-y-6 p-6", contentClassName)}
+            className={cn("mx-auto max-w-2xl gap-6 p-5", contentClassName)}
           >
-            {messages.length === 0 ? (
-              <ConversationEmptyState
-                icon={
-                  <IconMessageCircle className="h-10 w-10 text-muted-foreground" />
-                }
-                title="No messages yet"
-                description="Send the first message to begin."
-              />
-            ) : (
-              <>
-                {messages.map((message) => {
-                  const renderedParts = message.parts
-                    .map((part, index) =>
-                      renderMessagePart(part, `${message.id}-${index}`),
-                    )
-                    .filter((part): part is ReactElement => part !== null)
+            {turns.map((message, messageIndex) => {
+              const streaming =
+                status === "streaming" &&
+                message.role === "assistant" &&
+                messageIndex === turns.length - 1
+              const renderedParts =
+                message.role === "assistant"
+                  ? renderAssistantParts(message, { streaming })
+                  : renderUserParts(message)
 
-                  if (renderedParts.length === 0) return null
+              if (renderedParts.length === 0) return null
 
-                  const role = message.role
-                  const timeLabel = formatMessageTimeLabel(message)
-                  const isUser = role === "user"
+              const isUser = message.role === "user"
 
-                  return (
-                    <div
-                      key={message.id}
-                      className={cn(
-                        "flex w-full",
-                        isUser ? "justify-end" : "justify-start",
-                      )}
-                    >
-                      <Message from={role}>
-                        <div
-                          className={cn(
-                            "flex w-full flex-col space-y-1",
-                            isUser ? "items-end" : "items-start",
-                          )}
-                        >
-                          <div className="flex items-center gap-2">
-                            {isUser ? (
-                              <span className="ctx-label-muted">you</span>
-                            ) : (
-                              <AgentSenderLabel />
-                            )}
-                            {timeLabel ? (
-                              <span className="text-[10px] text-muted-foreground/50">
-                                {timeLabel}
-                              </span>
-                            ) : null}
-                          </div>
-                          <MessageContent>{renderedParts}</MessageContent>
-                        </div>
-                      </Message>
-                    </div>
-                  )
-                })}
-                {showPulsatingLoader && (
-                  // biome-ignore lint/a11y/useSemanticElements: div + role="status" for loading indicator; output is for form/calculation results, not live status
-                  <div
-                    className="flex w-full justify-start"
-                    role="status"
-                    aria-live="polite"
-                    aria-label="Waiting for response"
+              return (
+                <div
+                  key={message.id}
+                  className={cn(
+                    "flex w-full",
+                    isUser ? "justify-end" : "justify-start",
+                  )}
+                >
+                  <Message
+                    from={message.role}
+                    className={isUser ? "max-w-md" : undefined}
                   >
-                    <div className="flex w-full max-w-[85%] items-center gap-3">
-                      <div
-                        className="flex size-8 shrink-0 items-center justify-center rounded-full border border-white/[0.08] bg-foreground/[0.04]"
-                        aria-hidden
-                      >
-                        <span className="ctx-indexing-dot" />
-                      </div>
-                      <div className="min-w-0 flex-1 space-y-0.5">
-                        <AgentSenderLabel />
-                        <p className="text-xs text-muted-foreground">
-                          Thinking…
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
+                    <MessageContent className={isUser ? undefined : "gap-5"}>
+                      {renderedParts}
+                    </MessageContent>
+                  </Message>
+                </div>
+              )
+            })}
+            {showPulsatingLoader && <WaitIndicator label={waitLabel ?? null} />}
           </ConversationContent>
           <ConversationScrollButton />
         </Conversation>
         {error ? (
-          <p className="px-6 pb-2 text-sm text-destructive">
-            {error.message || "Chat request failed."}
-          </p>
+          <div className="px-4 pb-2">
+            <div className="mx-auto max-w-2xl">
+              <InlineAlert variant="error" title="Could not send">
+                {error.message || "Chat request failed."} Send again to retry.
+              </InlineAlert>
+            </div>
+          </div>
         ) : null}
       </div>
     </div>

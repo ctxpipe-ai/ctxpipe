@@ -1,244 +1,261 @@
-import { toUIMessageStream } from "@ai-sdk/langchain"
 import {
-  type AIMessage,
-  type BaseMessage,
-  type BaseMessageLike,
-  HumanMessage,
-} from "@langchain/core/messages"
+  chatParamsFromRequestBody,
+  modelMessagesToUIMessages,
+  type StreamChunk,
+} from "@tanstack/ai"
+import { loadConversationTurns } from "../../models/conversation-messages.js"
+import { runWithLangfuseContext } from "../../observability/langfuse.js"
+import { log } from "../../observability/logger.js"
+import { stoppingSandboxWhenDone } from "../workspaces/conversation-sandbox-lifecycle.js"
 import {
-  createUIMessageStreamResponse,
-  type UIMessage,
-  type UIMessageChunk,
-} from "ai"
-import { conversationGraph } from "../../graphs/index.js"
-import { generateObjectId } from "../../lib/id.js"
-import { applyAttribution } from "../../observability/attribution.js"
+  streamTanstackWorkspaceChat,
+  type TanstackWorkspaceChatInput,
+} from "../workspaces/tanstack-workspace-chat.js"
 import {
-  getLangfuseHandler,
-  runWithLangfuseContext,
-} from "../../observability/langfuse.js"
-import type { StreamEnhancer } from "./renameStream.js"
-import { createTextStartRepairTransform } from "./uiMessageStreamTextStartRepair.js"
-import { createToolInvocationRepairTransform } from "./uiMessageStreamToolInvocationRepair.js"
+  type WorkspaceChatWireFormat,
+  workspaceChatHttpResponse,
+  workspaceChatWireFormat,
+} from "../workspaces/workspace-chat-agui.js"
+import { workspaceChatPersistence } from "../workspaces/workspace-chat-persistence.js"
+import { reviveChatMessages } from "./chat-message-created-at.js"
+
+export type ConversationChatRequest = {
+  prompt: string
+  workspaceId: string
+  source?: string
+  conversationId?: string
+  messages?: TanstackWorkspaceChatInput["messages"]
+  threadId?: string
+  runId?: string
+}
 
 export type StreamInput = {
   conversationId: string
   checkpointNamespace: string
   prompt: string
+  messages?: TanstackWorkspaceChatInput["messages"]
+  threadId?: string
+  runId?: string
   source?: string | null
   userId?: string
+  writeStatus?: string | null
+  lastBranch?: string | null
+  workspaceId?: string | null
+  orgId?: string | null
+  orgSlug?: string | null
+  desiredUrl?: string | null
+  desiredSha?: string | null
+  desiredGeneration?: number
+  defaultBranch?: string
+  resolveRuntime?: TanstackWorkspaceChatInput["resolveRuntime"]
   onFinish?: () => Promise<void> | void
-  streamEnhancers?: StreamEnhancer[]
+  onError?: () => Promise<void> | void
+  onUserPersist?: () => Promise<void> | void
+  wireFormat?: WorkspaceChatWireFormat
+  abortSignal?: AbortSignal
 }
 
-export interface ConversationTransportAdapter {
-  toResponse(input: StreamInput): Promise<Response>
+export type ConversationChatMessage = {
+  id: string
+  role: string
+  parts: Array<{
+    type: string
+    content?: string
+    text?: string
+    name?: string
+    id?: string
+  }>
 }
 
-export function createDataStreamConversationTransport(): ConversationTransportAdapter {
-  return new DataStreamConversationTransport()
+export function workspaceChatStreamReady(input: {
+  workspaceId?: string | null
+  orgId?: string | null
+  desiredUrl?: string | null
+}): boolean {
+  return Boolean(
+    input.workspaceId?.trim() &&
+      input.orgId?.trim() &&
+      input.desiredUrl?.trim(),
+  )
 }
 
-class DataStreamConversationTransport implements ConversationTransportAdapter {
-  async toResponse(input: StreamInput): Promise<Response> {
-    applyAttribution({ "ctxpipe.conversation.id": input.conversationId })
-    return runWithLangfuseContext(
-      {
-        sessionId: input.conversationId,
-        ...(input.userId ? { userId: input.userId } : {}),
-        tags: input.source ? [input.source] : undefined,
-      },
-      async () => {
-        const graphStream = await conversationGraph.stream(
-          { messages: [new HumanMessage(input.prompt)] },
-          {
-            // "custom" carries conversationNaming's getWriter() events (rename) interleaved with LLM chunks.
-            streamMode: ["values", "messages", "custom"],
-            configurable: {
-              checkpoint_ns: input.checkpointNamespace,
-              thread_id: input.conversationId,
-              source: input.source ?? null,
-            },
-            callbacks: [getLangfuseHandler()],
-          },
-        )
+function toChatInput(input: StreamInput): TanstackWorkspaceChatInput | null {
+  const workspaceId = input.workspaceId?.trim() ?? ""
+  const orgId = input.orgId?.trim() ?? ""
+  const desiredUrl = input.desiredUrl?.trim() ?? ""
+  if (!workspaceId) return null
+  if (
+    !input.resolveRuntime &&
+    !workspaceChatStreamReady({ workspaceId, orgId, desiredUrl })
+  ) {
+    return null
+  }
+  return {
+    conversationId: input.conversationId,
+    prompt: input.prompt,
+    messages: input.messages,
+    threadId: input.threadId,
+    runId: input.runId,
+    orgId,
+    orgSlug: input.orgSlug?.trim() || undefined,
+    workspaceId,
+    desiredUrl,
+    desiredSha: input.desiredSha ?? null,
+    desiredGeneration: input.desiredGeneration,
+    defaultBranch: input.defaultBranch,
+    ref: input.lastBranch || input.desiredSha || "HEAD",
+    writeStatus: input.writeStatus ?? "read_only",
+    abortSignal: input.abortSignal,
+    resolveRuntime: input.resolveRuntime,
+    onFinish: input.onFinish,
+    onError: input.onError,
+    onUserPersist: input.onUserPersist,
+    wireFormat: input.wireFormat,
+  }
+}
 
-        let wrappedStream: AsyncIterable<unknown> = graphStream
-        const flushTransforms: TransformStream<unknown, unknown>[] = []
-
-        for (const enhancer of input.streamEnhancers ?? []) {
-          wrappedStream = enhancer.wrapGraphStream(wrappedStream)
-          flushTransforms.push(enhancer.getFlushTransform())
-        }
-
-        const uiStream = toUIMessageStream(
-          wrappedStream as Parameters<typeof toUIMessageStream>[0],
-        )
-
-        let stream: ReadableStream<UIMessageChunk> = uiStream
-          .pipeThrough(createToolInvocationRepairTransform())
-          .pipeThrough(createTextStartRepairTransform())
-        for (const transform of flushTransforms) {
-          stream = stream.pipeThrough(
-            transform as TransformStream<UIMessageChunk, UIMessageChunk>,
+/**
+ * Run each step of a chat turn's stream in the conversation's Langfuse
+ * context, so the turn's traces carry its session, user, and source tag.
+ */
+export function withLangfuseTurnContext(
+  attrs: { sessionId: string; userId?: string; source?: string | null },
+  open: () => AsyncIterable<StreamChunk>,
+): AsyncIterable<StreamChunk> {
+  const context = {
+    sessionId: attrs.sessionId,
+    ...(attrs.userId ? { userId: attrs.userId } : {}),
+    tags: attrs.source ? [attrs.source] : undefined,
+  }
+  return {
+    [Symbol.asyncIterator]() {
+      let iterator: AsyncIterator<StreamChunk> | undefined
+      return {
+        next() {
+          return runWithLangfuseContext(context, () => {
+            iterator ??= open()[Symbol.asyncIterator]()
+            return iterator.next()
+          })
+        },
+        return(value) {
+          return runWithLangfuseContext(context, () =>
+            iterator?.return
+              ? iterator.return(value)
+              : Promise.resolve({ done: true as const, value: undefined }),
           )
-        }
+        },
+      }
+    },
+  }
+}
 
-        return createUIMessageStreamResponse({ stream })
-      },
-    )
+export function workspaceChatStreamResponse(
+  input: StreamInput,
+  request?: Request,
+): Response {
+  const chatInput = toChatInput(input)
+  if (!chatInput) {
+    return Response.json({ error: "workspace_required" }, { status: 409 })
+  }
+  const format =
+    input.wireFormat ?? (request ? workspaceChatWireFormat(request) : "sse")
+  const stream = withLangfuseTurnContext(
+    {
+      sessionId: input.conversationId,
+      userId: input.userId,
+      source: input.source,
+    },
+    () => streamTanstackWorkspaceChat(chatInput),
+  )
+  return workspaceChatHttpResponse(
+    // Only the UI is a person watching; any other caller frees its slot.
+    input.source === "ui"
+      ? stream
+      : stoppingSandboxWhenDone(
+          { orgId: chatInput.orgId, conversationId: chatInput.conversationId },
+          stream,
+        ),
+    format,
+    request,
+  )
+}
+
+export const CONVERSATION_UI_MESSAGES_TIMEOUT_MS = 5_000
+
+export class ConversationUiMessagesTimeoutError extends Error {
+  readonly conversationId: string
+  constructor(conversationId: string) {
+    super("Conversation messages timed out")
+    this.name = "ConversationUiMessagesTimeoutError"
+    this.conversationId = conversationId
+  }
+}
+
+export async function withConversationLoadDeadline<T>(
+  conversationId: string,
+  load: () => Promise<T>,
+  timeoutMs = CONVERSATION_UI_MESSAGES_TIMEOUT_MS,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      load(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(new ConversationUiMessagesTimeoutError(conversationId))
+        }, timeoutMs)
+      }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
   }
 }
 
 export async function loadConversationUiMessages(input: {
   conversationId: string
   checkpointNamespace: string
-}): Promise<UIMessage[]> {
-  const graphWithState = conversationGraph as unknown as {
-    getState?: (config: {
-      configurable: { checkpoint_ns?: string; thread_id: string }
-    }) => Promise<{
-      values?: { messages?: BaseMessage[] }
-    }>
-  }
-  if (!graphWithState.getState) return []
-
-  const config = {
-    configurable: {
-      thread_id: input.conversationId,
-      checkpoint_ns: input.checkpointNamespace,
-    },
-  }
-
-  let state:
-    | {
-        values?: { messages?: BaseMessage[] }
-      }
-    | undefined
-
-  try {
-    state = await graphWithState.getState(config)
-  } catch {
-    return []
-  }
-
-  const messages = state.values?.messages ?? []
-  return messages.flatMap((message) => {
-    const role = toUiRole(message)
-    if (!role) return []
-    const snapshot = extractSnapshotFromMessage(message)
-    const parts: UIMessage["parts"] = []
-    if (snapshot.text.length > 0) {
-      parts.push({ type: "text", text: snapshot.text })
-    }
-    if (snapshot.reasoning.length > 0) {
-      parts.push({ type: "reasoning", text: snapshot.reasoning })
-    }
-    for (const source of snapshot.sources) {
-      parts.push({
-        type: "source-url",
-        sourceId: source.sourceId,
-        url: source.url,
-        title: source.title ?? source.url,
-      })
-    }
-    return [
-      {
-        id: generateObjectId("msg"),
-        role,
-        parts,
-      },
-    ] satisfies UIMessage[]
-  })
-}
-
-function toUiRole(message: BaseMessage): UIMessage["role"] | null {
-  const kind = message.getType()
-  if (kind === "human") return "user"
-  if (kind === "ai") return "assistant"
-  if (kind === "system") return "system"
-  return null
-}
-
-function extractSnapshotFromMessage(message: BaseMessageLike): {
-  text: string
-  reasoning: string
-  sources: Array<{ sourceId: string; url: string; title?: string }>
-} {
-  let text = ""
-  let reasoning = ""
-  const sources: Array<{ sourceId: string; url: string; title?: string }> = []
-
-  if (
-    typeof message === "object" &&
-    message !== null &&
-    "content" in message &&
-    typeof message.content === "string"
-  ) {
-    text = message.content
-  }
-
-  if (
-    typeof message === "object" &&
-    message !== null &&
-    "content" in message &&
-    Array.isArray(message.content)
-  ) {
-    for (const part of message.content) {
-      if (typeof part !== "object" || part === null) continue
-      if ("type" in part && part.type === "text" && "text" in part) {
-        if (typeof part.text === "string") text += part.text
-      }
-      if (
-        "type" in part &&
-        (part.type === "reasoning" || part.type === "thinking") &&
-        "text" in part &&
-        typeof part.text === "string"
-      ) {
-        reasoning += part.text
-      }
-    }
-  }
-
-  if (isAIMessage(message)) {
-    const rawSources = (message.additional_kwargs as Record<string, unknown>)
-      ?.sources
-    if (Array.isArray(rawSources)) {
-      for (const source of rawSources) {
-        if (typeof source === "string") {
-          sources.push({ sourceId: source, url: source })
-        }
-        if (
-          typeof source === "object" &&
-          source !== null &&
-          "url" in source &&
-          typeof source.url === "string"
-        ) {
-          const sourceId =
-            "id" in source && typeof source.id === "string"
-              ? source.id
-              : source.url
-          const title =
-            "title" in source && typeof source.title === "string"
-              ? source.title
-              : undefined
-          sources.push({ sourceId, url: source.url, title })
-        }
-      }
-    }
-  }
-
-  return { text, reasoning, sources }
-}
-
-function isAIMessage(message: BaseMessageLike): message is AIMessage {
-  return (
-    typeof message === "object" &&
-    message !== null &&
-    "getType" in message &&
-    typeof message.getType === "function" &&
-    message.getType() === "ai"
+  workspaceId?: string | null
+}): Promise<ConversationChatMessage[]> {
+  void input.checkpointNamespace
+  if (!input.workspaceId?.trim()) return []
+  const stored = await workspaceChatPersistence().stores.messages.loadThread(
+    input.conversationId,
   )
+  if (stored.length > 0) {
+    return modelMessagesToUIMessages(stored) as ConversationChatMessage[]
+  }
+  const turns = await loadConversationTurns(input.conversationId)
+  return turns.map((turn, index) => ({
+    id: `${input.conversationId}:${index}`,
+    role: turn.role,
+    parts: [{ type: "text" as const, content: turn.content }],
+  }))
+}
+
+export async function loadConversationUiMessagesBounded(input: {
+  conversationId: string
+  checkpointNamespace: string
+  workspaceId?: string | null
+  timeoutMs?: number
+}): Promise<ConversationChatMessage[]> {
+  return withConversationLoadDeadline(
+    input.conversationId,
+    () => loadConversationUiMessages(input),
+    input.timeoutMs ?? CONVERSATION_UI_MESSAGES_TIMEOUT_MS,
+  )
+}
+
+export function textFromMessagePart(part: unknown): string {
+  if (!part || typeof part !== "object") return ""
+  const record = part as { type?: unknown; content?: unknown; text?: unknown }
+  if (record.type !== "text") return ""
+  if (typeof record.content === "string" && record.content.trim()) {
+    return record.content
+  }
+  if (typeof record.text === "string" && record.text.trim()) {
+    return record.text
+  }
+  return ""
 }
 
 export function toPromptFromIncomingMessage(message: {
@@ -251,24 +268,164 @@ export function toPromptFromIncomingMessage(message: {
   ) {
     return message.content
   }
+  if (Array.isArray(message.content)) {
+    const fromContentParts = message.content
+      .map(textFromMessagePart)
+      .filter(Boolean)
+      .join("\n")
+      .trim()
+    if (fromContentParts.length > 0) return fromContentParts
+  }
   if (Array.isArray(message.parts)) {
     const textParts = message.parts
-      .flatMap((part) => {
-        if (
-          typeof part === "object" &&
-          part !== null &&
-          "type" in part &&
-          part.type === "text" &&
-          "text" in part &&
-          typeof part.text === "string"
-        ) {
-          return [part.text]
-        }
-        return []
-      })
+      .map(textFromMessagePart)
+      .filter(Boolean)
       .join("\n")
       .trim()
     if (textParts.length > 0) return textParts
   }
   return ""
+}
+
+function incomingMessageFields(value: unknown): {
+  content?: unknown
+  parts?: unknown[]
+} {
+  if (!value || typeof value !== "object") return {}
+  return value as { content?: unknown; parts?: unknown[] }
+}
+
+function lastUserPrompt(messages: unknown[]): string {
+  const last = [...messages].reverse().find((message) => {
+    return (
+      !!message &&
+      typeof message === "object" &&
+      "role" in message &&
+      message.role === "user"
+    )
+  })
+  return last ? toPromptFromIncomingMessage(incomingMessageFields(last)) : ""
+}
+
+const CLIENT_CONVERSATION_ID = /^conv_[a-z0-9]{8,64}$/
+
+export function clientConversationId(value: unknown): string | undefined {
+  return typeof value === "string" && CLIENT_CONVERSATION_ID.test(value)
+    ? value
+    : undefined
+}
+
+export function resolveCreatedConversationId(input: {
+  conversationId?: string
+  idempotencyKey: string
+  userId: string
+  workspaceId: string
+  generateId: () => string
+  idFromIdempotencyKey: (key: string, scope: string) => string
+}): string {
+  return (
+    clientConversationId(input.conversationId) ??
+    (input.idempotencyKey
+      ? input.idFromIdempotencyKey(
+          input.idempotencyKey,
+          `${input.userId}:${input.workspaceId}`,
+        )
+      : input.generateId())
+  )
+}
+
+function forwardedChatFields(record: Record<string, unknown>): {
+  workspaceId: string
+  source: string | undefined
+  conversationId?: string
+} {
+  const forwarded =
+    record.forwardedProps && typeof record.forwardedProps === "object"
+      ? (record.forwardedProps as Record<string, unknown>)
+      : {}
+  const workspaceId =
+    (typeof forwarded.workspaceId === "string" && forwarded.workspaceId) ||
+    (typeof forwarded.workspace_id === "string" && forwarded.workspace_id) ||
+    (typeof record.workspaceId === "string" && record.workspaceId) ||
+    ""
+  const source =
+    typeof forwarded.source === "string"
+      ? forwarded.source
+      : typeof record.source === "string"
+        ? record.source
+        : undefined
+  const conversationId =
+    clientConversationId(forwarded.conversationId) ??
+    clientConversationId(record.conversationId)
+  return { workspaceId, source, conversationId }
+}
+
+export async function parseConversationChatRequest(
+  body: unknown,
+): Promise<ConversationChatRequest> {
+  const record =
+    body && typeof body === "object" ? (body as Record<string, unknown>) : {}
+  const raw = forwardedChatFields(record)
+  const rawMessages = reviveChatMessages(
+    (Array.isArray(record.messages) ? record.messages : []) as Array<{
+      createdAt?: unknown
+    }>,
+  )
+  const rawPrompt =
+    lastUserPrompt(rawMessages) ||
+    toPromptFromIncomingMessage(incomingMessageFields(record.message))
+  const revivedBody =
+    body && typeof body === "object"
+      ? { ...(body as Record<string, unknown>), messages: rawMessages }
+      : body
+  const rawResult: ConversationChatRequest = {
+    prompt: rawPrompt,
+    workspaceId: raw.workspaceId,
+    source: raw.source,
+    conversationId: raw.conversationId,
+    messages:
+      rawMessages.length > 0
+        ? (rawMessages as ConversationChatRequest["messages"])
+        : undefined,
+    threadId: typeof record.threadId === "string" ? record.threadId : undefined,
+    runId: typeof record.runId === "string" ? record.runId : undefined,
+  }
+
+  // Official AG-UI RunAgentInput requires threadId + runId. The first HTTP
+  // POST creates the conversation, so those ids are not on the body yet.
+  const canUseOfficial =
+    typeof record.threadId === "string" && typeof record.runId === "string"
+
+  if (canUseOfficial && rawMessages.length > 0) {
+    try {
+      const params = await chatParamsFromRequestBody(revivedBody)
+      const prompt = lastUserPrompt(params.messages) || rawPrompt
+      const forwarded = params.forwardedProps
+      const workspaceId =
+        (typeof forwarded.workspaceId === "string" && forwarded.workspaceId) ||
+        (typeof forwarded.workspace_id === "string" &&
+          forwarded.workspace_id) ||
+        raw.workspaceId
+      const source =
+        typeof forwarded.source === "string" ? forwarded.source : raw.source
+      return {
+        prompt,
+        workspaceId,
+        source,
+        conversationId:
+          clientConversationId(forwarded.conversationId) ?? raw.conversationId,
+        messages: params.messages,
+        threadId: params.threadId,
+        runId: params.runId,
+      }
+    } catch (error) {
+      log.info({
+        step: "parse-conversation-chat-fallback",
+        message: error instanceof Error ? error.message : String(error),
+      })
+      return rawResult
+    }
+  }
+
+  return rawResult
 }

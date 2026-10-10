@@ -1,5 +1,6 @@
-import { useQuery } from "@tanstack/react-query"
+import { queryOptions, useQuery } from "@tanstack/react-query"
 import { client } from "@/lib/api"
+import { pollWhileOk, readApiJson } from "@/lib/api-result"
 import {
   formatIndexingStepLabel,
   getRepositoryIndexingStatus,
@@ -64,6 +65,21 @@ export function getRepositoryIndexingSummary(
   }
 }
 
+export function repositoriesListOptions(orgSlug: string) {
+  return queryOptions({
+    queryKey: ["repositories", orgSlug],
+    queryFn: async () => {
+      const res = await client[":orgSlug"].api.v1.repositories.$get({
+        param: { orgSlug },
+      })
+      const json = await readApiJson<{ items: Repository[] }>(res, {
+        message: "Failed to fetch repositories",
+      })
+      return json.items
+    },
+  })
+}
+
 export function useRepositoryIndexingSummary(
   orgSlug: string | null,
   options: {
@@ -72,23 +88,16 @@ export function useRepositoryIndexingSummary(
   } = {},
 ) {
   const query = useQuery({
-    queryKey: ["repositories", orgSlug],
+    ...repositoriesListOptions(orgSlug ?? ""),
     enabled: Boolean(orgSlug) && (options.enabled ?? true),
-    queryFn: async () => {
-      if (!orgSlug) throw new Error("Missing organisation")
-      const res = await client[":orgSlug"].api.v1.repositories.$get({
-        param: { orgSlug },
-      })
-      if (!res.ok) throw new Error("Failed to fetch repositories")
-      const json = (await res.json()) as { items: Repository[] }
-      return json.items
-    },
     refetchInterval: (query) => {
+      const interval = pollWhileOk(3000)(query)
+      if (interval === false) return false
       const repositories = (query.state.data as Repository[] | undefined) ?? []
       const summary = getRepositoryIndexingSummary(repositories)
       return summary.activeCount > 0 ||
         (options.pollWhileEmpty && repositories.length === 0)
-        ? 3000
+        ? interval
         : false
     },
   })

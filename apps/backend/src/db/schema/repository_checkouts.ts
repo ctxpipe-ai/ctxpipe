@@ -10,12 +10,14 @@ import {
   timestamp,
   unique,
 } from "drizzle-orm/pg-core"
+import { orgIsolationPolicy } from "./org-rls.js"
 import { repositories } from "./repositories.js"
 
-export const repositoryCheckouts = pgTable(
+export const repositoryCheckouts = pgTable.withRLS(
   "repository_checkouts",
   {
     id: text("id").primaryKey(),
+    orgId: text("org_id").notNull(),
     repositoryId: text("repository_id")
       .notNull()
       .references(() => repositories.id, { onDelete: "cascade" }),
@@ -36,5 +38,7 @@ export const repositoryCheckouts = pgTable(
   (t) => [
     unique().on(t.repositoryId, t.checkoutKey),
     index().on(t.repositoryId),
+    index("repository_checkouts_org_id_idx").on(t.orgId),
+    orgIsolationPolicy(t.orgId),
   ],
 )

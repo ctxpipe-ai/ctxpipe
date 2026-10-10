@@ -69,6 +69,8 @@ export function evidenceKeyMatchesPathSegment(
  * Colon-delimited evidence keys treat `:` as a segment separator. Windows paths like `C:\\`
  * add extra `:` and can make segment-based rename/delete logic ambiguous.
  */
-export function evidenceSourceIdMayHaveWindowsDriveColon(sourceId: string): boolean {
+export function evidenceSourceIdMayHaveWindowsDriveColon(
+  sourceId: string,
+): boolean {
   return /(?:^|:)[a-zA-Z]:[\\/]/.test(sourceId)
 }

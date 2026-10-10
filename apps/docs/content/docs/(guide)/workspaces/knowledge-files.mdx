@@ -1,0 +1,140 @@
+---
+title: Knowledge files
+description: How Markdown files, links, and claims in the workspace repository become search results and the knowledge graph.
+---
+
+A Workspace's knowledge is plain Markdown in its workspace repository. ctx|
+does not keep a hidden copy that can drift: what is in the default branch is
+what chat, search, and agents use.
+
+## One file, one unit
+
+Each Markdown file is one **knowledge unit**. Its path is its identity, so
+renaming a file creates a new unit. Keep units short and focused, and link to
+other units rather than copying them.
+
+On an empty repository, use `knowledge/<area>/<unit>.md`. On an existing
+repository, follow the folders already there.
+
+```text
+workspace-repository/
+├── AGENTS.md                        # Workspace name + folder map
+├── .agents/skills/ctxpipe-knowledge/
+│   └── SKILL.md                     # How agents should write knowledge here
+├── knowledge/
+│   ├── services/checkout.md
+│   └── decisions/payments-provider.md
+├── repositories/
+│   └── checkout-service.md          # A linked repository
+├── linear/  notion/  confluence/    # Connector mirrors
+└── slack/   pagerduty/  github/
+```
+
+## Relationships
+
+The knowledge graph has two layers.
+
+**Links.** A relative Markdown link from one file to another becomes a
+`LINKS_TO` relationship:
+
+```markdown
+Checkout calls the [payments service](../services/payments.md).
+```
+
+**Claims.** Optional `claims:` front matter states typed facts about the unit:
+
+```markdown
+---
+kind: Service
+claims:
+  - to: ../services/payments.md
+    predicate: DEPENDS_ON
+    confidence: 0.7
+    valid_from: 2026-03-01
+---
+
+# Checkout
+```
+
+| Field | Meaning |
+| --- | --- |
+| `to` | Required. File-relative path of the related unit. Items without `to` are skipped. |
+| `predicate` | The relationship, for example `DEPENDS_ON`, `PART_OF`, `OWNS`, `SUPERSEDES`. |
+| `confidence` | How sure the author is: about `0.5` typical, `0.7` strong, `0.85` and above rare. |
+| `valid_from`, `valid_to` | When the fact holds. A missing `valid_from` defaults to the time of the commit that introduced it. |
+| `source` | Optional pointer to where the fact came from. |
+
+`kind` is optional and sets the unit's node type in the graph (`Service`,
+`API`, `Library`, `Decision`, `Pattern`, and so on). Without it, the unit
+appears as a generic knowledge unit.
+
+Older facts count for less over time. Recent, well-sourced facts rank highest
+in answers.
+
+## Skipped files
+
+ctx| skips a file when it has one of the errors in the table below. ctx|
+then continues with the other files, so one bad file does not stop the
+Workspace. A skipped file stays in **Files** because it is in git. Chat, MCP,
+search, and the graph do not use it.
+
+Other errors do not cause a skip. For example, a set of files that is too
+large stops hydration, and **Settings** shows **Hydrate failed** with the
+error.
+
+**Settings** on the Workspace page shows the skipped files of the latest
+hydrated commit. Each row gives the path and the reason. Select the path to
+open the file in **Files**.
+
+| Reason | Cause | Fix |
+| --- | --- | --- |
+| Front matter or git URL is not valid | The front matter has no closing `---` line, or its YAML is not valid. In a `repositories/` file, the front matter has no `git` URL, or the `git` URL is not valid. | Correct the front matter or the `git` URL. |
+| Repeats a linked repository or the Workspace's own repository | A file in `repositories/` has the same `git` URL as an earlier file in `repositories/`, or as the Workspace repository. | Delete the file. |
+
+Push the fix to the default branch. When ctx| hydrates the new commit, it
+reads the fixed file again:
+
+- A fixed knowledge file is a knowledge unit again. Chat, MCP, search, and
+  the graph use it.
+- A fixed file in `repositories/` links its repository.
+
+The file is then not in the list of skipped files. When the list is empty,
+**Settings** does not show the notice.
+
+## Linked repository declarations
+
+Each file in `repositories/` declares one linked repository:
+
+```markdown
+---
+git: https://github.com/acme/checkout-service.git
+branch: main
+---
+```
+
+`git` is required and `branch` is optional. Adding or removing a repository in
+**Settings** edits these files for you.
+
+## What ctx| writes
+
+ctx| changes the workspace repository only through small, focused commits to
+the default branch. Each commit does one job and has a descriptive message:
+
+- the setup commit (`AGENTS.md` and the knowledge skill);
+- knowledge extracted from linked repositories;
+- connector mirrors from Linear, Notion, Confluence, Slack, PagerDuty, and
+  GitHub pull requests;
+- linked repository declarations you add or remove in Settings;
+- upkeep such as rewriting links after a rename or filling in a missing
+  `valid_from`.
+
+ctx| never force-pushes. If someone else pushed first, ctx| rebases its
+change onto theirs. If both changed the same lines, ctx| resolves the conflict
+before pushing.
+
+Changes made in [Workspace chat](/docs/workspaces/chat) are different: they go
+to a separate branch and reach the default branch only through a pull request
+you open.
+
+Connector configuration files (`<connector>/config.yaml`) also change through
+pull requests, so source scope is reviewed before content is mirrored.

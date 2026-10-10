@@ -48,13 +48,26 @@ export function parseConfluenceConfigYamlContent(
   }
 }
 
+export function confluenceSpaceSelection(
+  spaces: ParsedConfluenceRepoConfig["spaces"],
+) {
+  return spaces
+    .map((space) => ({
+      spaceKey: space.spaceKey,
+      selectedPageIds: space.selectedPageIds?.length
+        ? [...space.selectedPageIds].sort()
+        : null,
+    }))
+    .sort((a, b) => a.spaceKey.localeCompare(b.spaceKey))
+}
+
 export function renderConfluenceConfigYaml(input: {
   spaces: Array<{ spaceKey: string; selectedPageIds: string[] | null }>
 }): string {
   const payload = {
     version: 1,
     source: "confluence",
-    spaces: input.spaces.map((space) => ({
+    spaces: confluenceSpaceSelection(input.spaces).map((space) => ({
       key: space.spaceKey,
       selectedPageIds: space.selectedPageIds ?? [],
     })),

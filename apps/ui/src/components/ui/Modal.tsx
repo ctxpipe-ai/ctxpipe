@@ -20,10 +20,11 @@ const overlayStyles = tv({
 })
 
 const modalStyles = tv({
-  base: "font-sans w-full min-h-0 min-w-0 max-h-[calc(var(--visual-viewport-height)*.9)] overflow-x-hidden overflow-y-auto overscroll-contain rounded-none bg-zinc-950/95 border border-zinc-800 text-zinc-100 forced-colors:bg-[Canvas] text-left align-middle shadow-2xl bg-clip-padding",
+  base: "font-sans w-full min-h-0 min-w-0 max-h-[calc(var(--visual-viewport-height)*.9)] overflow-x-hidden overflow-y-auto overscroll-contain rounded-md bg-zinc-950/95 border border-zinc-800 text-zinc-100 forced-colors:bg-[Canvas] text-left align-middle shadow-2xl bg-clip-padding",
   variants: {
     size: {
       default: "max-w-[min(90vw,450px)]",
+      medium: "max-w-[min(92vw,36rem)]",
       wide: "max-w-[min(94vw,960px)]",
     },
     isEntering: {
@@ -38,16 +39,40 @@ const modalStyles = tv({
   },
 })
 
-type ModalSize = "default" | "wide"
+type ModalSize = "default" | "medium" | "wide"
+type ModalPlacement = "center" | "top"
 
-export function Modal(props: ModalOverlayProps & { size?: ModalSize }) {
-  const { children, size = "default", className, ...overlayProps } = props
+const frameStyles = tv({
+  base: "sticky top-0 left-0 box-border flex h-(--visual-viewport-height) w-full justify-center",
+  variants: {
+    placement: {
+      center: "items-center",
+      top: "items-start pt-16",
+    },
+  },
+  defaultVariants: {
+    placement: "center",
+  },
+})
+
+export function Modal(
+  props: ModalOverlayProps & { size?: ModalSize; placement?: ModalPlacement },
+) {
+  const {
+    children,
+    size = "default",
+    placement = "center",
+    className,
+    ...overlayProps
+  } = props
   return (
     <ModalOverlay {...overlayProps} className={overlayStyles}>
-      <div className="sticky top-0 left-0 w-full h-(--visual-viewport-height) flex items-center justify-center box-border">
+      <div className={frameStyles({ placement })}>
         <RACModal
-          className={composeRenderProps(className, (userClassName, renderProps) =>
-            modalStyles({ ...renderProps, size, className: userClassName }),
+          className={composeRenderProps(
+            className,
+            (userClassName, renderProps) =>
+              modalStyles({ ...renderProps, size, className: userClassName }),
           )}
         >
           {children}

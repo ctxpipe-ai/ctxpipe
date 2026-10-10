@@ -1,11 +1,17 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { parseError } from "evlog"
+import {
+  type BetterAuthInstance,
+  createAuthMiddleware,
+} from "evlog/better-auth"
 import { evlog } from "evlog/hono"
 import { contextStorage } from "hono/context-storage"
 import { cors } from "hono/cors"
 import type { ContentfulStatusCode } from "hono/utils/http-status"
+import { getAuth } from "../auth/config.js"
 import { parseEnv } from "../config/env.js"
 import { initDb } from "../db/client.js"
+import { httpWideEventMessage } from "../domain/workspaces/opencode-chat-stream.js"
 import { backendOtelMiddleware } from "../observability/http.js"
 import { log } from "../observability/logger.js"
 import { registerAuthRoutes } from "../routes/auth.js"
@@ -21,14 +27,42 @@ import type { AppEnv } from "./env.js"
 
 export type { AppEnv } from "./env.js"
 
+/**
+ * Paths that must not resolve Better Auth sessions (static UI + auth/webhook).
+ * Session lookup shares the backend pool; asset storms must not SELECT `sessions`.
+ */
+export const betterAuthIdentifyExclude = [
+  "/.auth/api/v1/auth/**",
+  "/.auth/api/config",
+  "/.auth/api/v1/public/**",
+  "/.well-known/**",
+  "/.status",
+  "/api/v1/webhook/**",
+  "/assets/**",
+  "/fonts/**",
+  "/favicon.ico",
+  "/@**",
+] as const
+
 export function createApp() {
   const env = parseEnv(process.env as Record<string, string | undefined>)
   initDb(env.DATABASE_URL)
   void backfillGithubAppSecretsFromEnv(env).catch((err: unknown) => {
-    log.error(err instanceof Error ? err : new Error(String(err)), {
+    log.error({
       step: "backfill.github_connection_secrets",
+      message: err instanceof Error ? err.message : String(err),
+      error: err instanceof Error ? err.stack : String(err),
     })
   })
+
+  /** Evlog only: enriches `c.var.log` wide events; does not set `c.var.user` or gate routes. */
+  const identifyBetterAuthUser = createAuthMiddleware(
+    getAuth() as unknown as BetterAuthInstance,
+    {
+      exclude: [...betterAuthIdentifyExclude],
+      maskEmail: env.NODE_ENV === "production",
+    },
+  )
 
   const app = new OpenAPIHono<AppEnv>()
 
@@ -46,7 +80,25 @@ export function createApp() {
   )
   app.use(contextStorage())
   app.use("*", backendOtelMiddleware())
-  app.use(evlog())
+  app.use(
+    evlog({
+      enrich: (ctx) => {
+        const message = httpWideEventMessage({
+          method: ctx.event.method ?? ctx.request?.method,
+          path: ctx.event.path ?? ctx.request?.path,
+          status: ctx.event.status ?? ctx.response?.status,
+        })
+        if (message) ctx.event.message = message
+      },
+    }),
+  )
+  app.use("*", async (c, next) => {
+    const requestLog = c.get("log")
+    if (requestLog) {
+      await identifyBetterAuthUser(requestLog, c.req.raw.headers, c.req.path)
+    }
+    await next()
+  })
   app.use("*", async (c, next) => {
     c.set("env", env)
     c.set("user", null)
@@ -70,7 +122,15 @@ export function createApp() {
       return new Response(null, { status: 499 })
     }
 
-    c.get("log").error(error)
+    const requestLog = c.get("log")
+    if (requestLog) {
+      requestLog.error(error)
+    } else {
+      log.error({
+        message: error instanceof Error ? error.message : String(error),
+        error: error instanceof Error ? error.stack : String(error),
+      })
+    }
     const parsed = parseError(error)
 
     return c.json(

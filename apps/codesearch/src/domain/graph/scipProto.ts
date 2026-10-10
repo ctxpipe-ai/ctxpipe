@@ -1,5 +1,7 @@
-import { open, readFile } from "node:fs/promises"
+import { open, readFile, realpath } from "node:fs/promises"
+import { relative, resolve, sep } from "node:path"
 import { parse, Reader } from "protobufjs"
+import { hasGitSegment } from "../repositories/paths.js"
 
 export type ScipWireIndex = {
   documents?: object[]
@@ -126,17 +128,49 @@ function firstString(message: Uint8Array): string | undefined {
 }
 
 /**
+ * True when a document path stays inside the checkout and outside `.git`:
+ * the path text does not climb out or have a `.git` segment, and the real
+ * path of an existing file obeys the same rules.
+ */
+async function documentInsideCheckout(
+  checkoutPath: string,
+  realCheckoutPath: string,
+  relativePath: string,
+): Promise<boolean> {
+  const inside = (root: string, path: string) =>
+    path === root || path.startsWith(`${root}${sep}`)
+  const root = resolve(checkoutPath)
+  const candidate = resolve(root, relativePath)
+  if (!inside(root, candidate) || hasGitSegment(relative(root, candidate))) {
+    return false
+  }
+  try {
+    const real = await realpath(candidate)
+    return (
+      inside(realCheckoutPath, real) &&
+      !hasGitSegment(relative(realCheckoutPath, real))
+    )
+  } catch (error) {
+    return (error as { code?: string }).code === "ENOENT"
+  }
+}
+
+/**
  * Merge SCIP shard files into `outputPath` one shard at a time without
  * decoding them. Language shards concatenate. With `dedupe` (TypeScript
  * projects, which re-index the projects they reference) the first metadata,
- * document per path, and external symbol per name win.
+ * document per path, and external symbol per name win. With
+ * `checkoutPath`, documents whose path ends outside the checkout or has a
+ * `.git` segment are dropped.
  */
 export async function mergeScipShardFiles(
   shardPaths: readonly string[],
   outputPath: string,
-  options: { dedupe: boolean },
+  options: { dedupe: boolean; checkoutPath?: string },
 ): Promise<void> {
   const seen = new Set<string>()
+  const { checkoutPath } = options
+  const realCheckoutPath = checkoutPath ? await realpath(checkoutPath) : ""
   const output = await open(outputPath, "w")
   try {
     for (const shardPath of shardPaths) {
@@ -146,6 +180,18 @@ export async function mergeScipShardFiles(
       const kept: Uint8Array[] = []
       try {
         for (const { field, raw, body } of scipIndexFields(bytes)) {
+          if (
+            checkoutPath &&
+            field === 2 &&
+            body &&
+            !(await documentInsideCheckout(
+              checkoutPath,
+              realCheckoutPath,
+              firstString(body) ?? "",
+            ))
+          ) {
+            continue
+          }
           if (options.dedupe) {
             const key =
               field === 1

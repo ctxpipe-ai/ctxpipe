@@ -1,23 +1,24 @@
 "use client"
 import { IconCheck, IconChevronRight } from "@tabler/icons-react"
 import React from "react"
+import type { SeparatorProps } from "react-aria-components"
 import {
   Menu as AriaMenu,
   MenuItem as AriaMenuItem,
-  type MenuProps,
-  type MenuItemProps,
   MenuSection as AriaMenuSection,
   type MenuSectionProps as AriaMenuSectionProps,
   MenuTrigger as AriaMenuTrigger,
+  type MenuTriggerProps as AriaMenuTriggerProps,
   SubmenuTrigger as AriaSubmenuTrigger,
-  Separator,
+  Collection,
   composeRenderProps,
   Header,
-  Collection,
+  type MenuItemProps,
+  type MenuProps,
+  Separator,
   type SubmenuTriggerProps,
-  type MenuTriggerProps as AriaMenuTriggerProps,
 } from "react-aria-components"
-import type { SeparatorProps } from "react-aria-components"
+import { twMerge } from "tailwind-merge"
 import { dropdownItemStylesDark } from "@/components/ui/ListBox"
 import { Popover, type PopoverProps } from "@/components/ui/Popover"
 
@@ -26,12 +27,10 @@ export function Menu<T extends object>(props: MenuProps<T>) {
     <AriaMenu
       {...props}
       className={composeRenderProps(props.className, (className) =>
-        [
-          "font-sans p-0.5 outline outline-0 max-h-[inherit] overflow-auto rounded-none",
+        twMerge(
+          "font-sans p-0.5 outline outline-0 max-h-[inherit] overflow-auto rounded-md",
           className,
-        ]
-          .filter(Boolean)
-          .join(" "),
+        ),
       )}
     />
   )
@@ -91,10 +90,7 @@ export interface MenuSectionProps<T> extends AriaMenuSectionProps<T> {
 
 export function MenuSection<T extends object>(props: MenuSectionProps<T>) {
   return (
-    <AriaMenuSection
-      {...props}
-      className="py-0.5 first:pt-0 last:pb-0"
-    >
+    <AriaMenuSection {...props} className="py-0.5 first:pt-0 last:pb-0">
       {props.title && (
         <Header
           className={[
@@ -128,7 +124,9 @@ export function MenuTrigger(props: MenuTriggerProps) {
       {trigger}
       <Popover
         placement={props.placement}
-        className={["min-w-[150px]", popoverClassName].filter(Boolean).join(" ")}
+        className={["min-w-[150px]", popoverClassName]
+          .filter(Boolean)
+          .join(" ")}
       >
         {menu}
       </Popover>

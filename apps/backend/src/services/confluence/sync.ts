@@ -3,10 +3,7 @@ import type { Env } from "../../config/env.js"
 import { getOrgDb, withOrgDbContext } from "../../db/client.js"
 import { repositories } from "../../db/schema/repositories.js"
 import type { ConfluenceSpaceSelection } from "../../models/atlassian-connector.js"
-import {
-  listConfluenceSpacesByConnectionId,
-  updateConfluenceSpaceSyncState,
-} from "../../models/atlassian-connector.js"
+import { listConfluenceSpacesByConnectionId } from "../../models/atlassian-connector.js"
 import type { ConfluenceSyncTarget } from "../../models/confluence-sync-target.js"
 import type { ConnectorAssetBytePool } from "../connectors/assets.js"
 import {
@@ -25,10 +22,8 @@ import {
 import type { CommitFile } from "../github/installation-write-client.js"
 import {
   closePullRequest,
-  commitFiles,
   createPullRequestWithFiles,
   getFileContent,
-  listFilesInTree,
   parseGithubPullNumberFromUrl,
 } from "../github/installation-write-client.js"
 import {
@@ -40,7 +35,6 @@ import {
   listConfluencePagesForSpace,
   listConfluenceSpaces,
 } from "./client.js"
-import { loadConfluenceScopeFromRepo } from "./config-from-repo.js"
 import type { ParsedConfluenceRepoConfig } from "./config-yaml.js"
 import {
   getConfigPullRequestPayload,
@@ -366,8 +360,9 @@ export type ConfluenceSyncResult = {
   spacesProcessed: number
   pagesProcessed: number
   pagesFailed: number
-  commitSha?: string
-  pullUrl?: string
+  files: Array<{ path: string; content: string }>
+  deletePaths: string[]
+  syncedSpaces: Array<{ spaceKey: string; lastSyncedPageId: string | null }>
   errors: Array<{ spaceKey: string; pageId?: string; message: string }>
 }
 
@@ -419,52 +414,16 @@ async function resolveRepoContextForSyncTarget(
   })
 }
 
-export async function syncConfluenceContent(input: {
-  orgId: string
-  env: Env
+/** Capture provider content; native workflow steps publish and acknowledge it. */
+export async function captureConfluenceContent(input: {
   forgeInstallation: ConfluenceClientInput & { id: string }
-  target: ConfluenceSyncTarget
   mode?: SyncModeInput
-  /** When set (e.g. push webhook), skip Git fetch — YAML already parsed */
-  scopeFromRepo?: ParsedConfluenceRepoConfig
+  config: ParsedConfluenceRepoConfig
+  existingPaths: string[]
+  existingBlobs?: ReadonlyArray<{ path: string; sha: string }>
 }): Promise<ConfluenceSyncResult> {
-  if (!input.target.enabled) {
-    return {
-      status: "completed",
-      spacesProcessed: 0,
-      pagesProcessed: 0,
-      pagesFailed: 0,
-      errors: [],
-    }
-  }
-
-  if (input.target.setupPhase === "awaiting_merge") {
-    return {
-      status: "completed",
-      spacesProcessed: 0,
-      pagesProcessed: 0,
-      pagesFailed: 0,
-      errors: [],
-    }
-  }
-
-  const { repositoryName, githubConnectionId } =
-    await resolveRepoContextForSyncTarget(input.orgId, input.target)
-
-  let repoScope: ParsedConfluenceRepoConfig | undefined = input.scopeFromRepo
-  if (!repoScope) {
-    repoScope = await loadConfluenceScopeFromRepo({
-      orgId: input.orgId,
-      env: input.env,
-      repositoryName,
-      githubConnectionId,
-      branch: input.target.branch,
-    })
-  }
-  if (!repoScope) {
-    throw new Error("confluence/config.yaml is missing or invalid")
-  }
-
+  const repoScope = input.config
+  const syncedSpaces: ConfluenceSyncResult["syncedSpaces"] = []
   const scopeRows = normalizeSpaceRows(
     (repoScope?.spaces ?? []).map((s) => ({
       spaceKey: s.spaceKey,
@@ -476,38 +435,46 @@ export async function syncConfluenceContent(input: {
   const reconcileMode = getConfluenceSyncReconcileMode(input.mode)
   const singlePageId =
     reconcileMode === "single_upsert" ? input.mode?.pageId : undefined
+  const emptyCapture = {
+    status: "completed" as const,
+    spacesProcessed: 0,
+    pagesProcessed: 0,
+    pagesFailed: 0,
+    errors: [] as ConfluenceSyncResult["errors"],
+    files: [] as ConfluenceSyncResult["files"],
+    deletePaths: [] as string[],
+    syncedSpaces: [] as ConfluenceSyncResult["syncedSpaces"],
+  }
+
+  if (input.mode?.spaceKey && scopeRows.length === 0) {
+    if (input.mode.pageId) return emptyCapture
+    const pruneRoot = `${getManagedConfluenceRootPath()}${input.mode.spaceKey}/`
+    return {
+      ...emptyCapture,
+      deletePaths: (
+        input.existingBlobs?.map((entry) => entry.path) ?? input.existingPaths
+      ).filter(
+        (path) => path.startsWith(pruneRoot) && path !== CONFLUENCE_CONFIG_PATH,
+      ),
+    }
+  }
 
   if (singlePageId) {
-    const spaceKey = input.mode?.spaceKey
-    const matchingRow = spaceKey
-      ? scopeRows.find((row) => row.spaceKey === spaceKey)
-      : scopeRows[0]
-    const inScope =
-      matchingRow !== undefined &&
-      (matchingRow.selectedPageIds === null ||
-        matchingRow.selectedPageIds.includes(singlePageId))
-    if (!inScope) {
-      return {
-        status: "completed",
-        spacesProcessed: 0,
-        pagesProcessed: 0,
-        pagesFailed: 0,
-        errors: [],
-      }
+    for (const row of scopeRows) {
+      const fromScope = row.selectedPageIds as string[] | null
+      if (fromScope === null) break
+      if (fromScope.length === 0) return emptyCapture
+      if (!fromScope.includes(singlePageId)) return emptyCapture
+      break
     }
   }
 
   const spaces = await listConfluenceSpaces(input.forgeInstallation)
   const spaceIdByKey = new Map(spaces.map((space) => [space.key, space.id]))
-  const allRepoFiles = await listFilesInTree({
-    orgId: input.orgId,
-    env: input.env,
-    repositoryName,
-    branch: input.target.branch,
-    githubConnectionId,
-  })
+  const existingRepoPaths =
+    input.existingBlobs?.map((entry) => entry.path) ?? input.existingPaths
   const existingShaByPath = new Map(
-    allRepoFiles.map((entry) => [entry.path, entry.sha]),
+    (input.existingBlobs ?? []).map((entry) => [entry.path, entry.sha]),
   )
   const filesToWrite: CommitFile[] = []
   const assetBytePool =
@@ -526,6 +493,7 @@ export async function syncConfluenceContent(input: {
   for (const scopeRow of scopeRows) {
     const spaceId = spaceIdByKey.get(scopeRow.spaceKey)
     if (!spaceId) {
+      pagesFailed += 1
       errors.push({
         spaceKey: scopeRow.spaceKey,
         message: "Confluence space not found",
@@ -641,14 +609,10 @@ export async function syncConfluenceContent(input: {
 
     const lastPageMarker =
       reconcileMode === "single_upsert" && singlePageId ? singlePageId : null
-    await withOrgDbContext(input.orgId, () =>
-      updateConfluenceSpaceSyncState({
-        connectionId: input.forgeInstallation.id,
-        spaceKey: scopeRow.spaceKey,
-        lastSyncedAt: new Date(),
-        lastSyncedPageId: lastPageMarker,
-      }),
-    )
+    syncedSpaces.push({
+      spaceKey: scopeRow.spaceKey,
+      lastSyncedPageId: lastPageMarker,
+    })
   }
 
   const managedRoot = getManagedConfluenceRootPath()
@@ -673,53 +637,34 @@ export async function syncConfluenceContent(input: {
     )
   }
   let deletePaths: string[] = []
-  if (reconcileMode === "full") {
+  if (reconcileMode === "full" && pagesFailed === 0) {
     const pruneRoot = input.mode?.spaceKey
       ? `${managedRoot}${input.mode.spaceKey}/`
       : managedRoot
-    deletePaths = allRepoFiles
-      .map((entry) => entry.path)
-      .filter(
-        (path) =>
-          path.startsWith(pruneRoot) &&
-          path !== CONFLUENCE_CONFIG_PATH &&
-          !desiredPaths.has(path) &&
-          !isPreservedPath(path),
-      )
+    deletePaths = existingRepoPaths.filter(
+      (path) =>
+        path.startsWith(pruneRoot) &&
+        path !== CONFLUENCE_CONFIG_PATH &&
+        !desiredPaths.has(path) &&
+        !isPreservedPath(path),
+    )
   } else if (input.mode?.spaceKey && singlePageId) {
     const prefix = confluencePageAssetPrefix(input.mode.spaceKey, singlePageId)
     const spaceRoot = `${managedRoot}${input.mode.spaceKey}/`
-    deletePaths = allRepoFiles
-      .map((entry) => entry.path)
-      .filter((path) => {
-        if (desiredPaths.has(path) || isPreservedPath(path)) return false
-        if (path.startsWith(prefix)) return true
-        return (
-          path.startsWith(spaceRoot) &&
-          isManagedConfluenceMarkdownForPage(path, singlePageId)
-        )
-      })
-  }
-
-  const filesToCommit = filesToWrite.filter(
-    (file) => !connectorCommitFileUnchanged(file, existingShaByPath),
-  )
-
-  let commitSha: string | undefined
-  if (filesToCommit.length > 0 || deletePaths.length > 0) {
-    const commit = await commitFiles({
-      orgId: input.orgId,
-      env: input.env,
-      repositoryName,
-      branch: input.target.branch,
-      githubConnectionId,
-      message: "chore(confluence): sync content",
-      files: filesToCommit,
-      deletePaths,
+    deletePaths = existingRepoPaths.filter((path) => {
+      if (desiredPaths.has(path) || isPreservedPath(path)) return false
+      if (path.startsWith(prefix)) return true
+      return (
+        path.startsWith(spaceRoot) &&
+        isManagedConfluenceMarkdownForPage(path, singlePageId)
+      )
     })
-    commitSha = commit.commitSha
   }
-
+  const files = input.existingBlobs
+    ? filesToWrite.filter(
+        (file) => !connectorCommitFileUnchanged(file, existingShaByPath),
+      )
+    : filesToWrite
   const status: ConfluenceSyncResult["status"] =
     pagesFailed === 0
       ? "completed"
@@ -731,7 +676,9 @@ export async function syncConfluenceContent(input: {
     spacesProcessed: scopeRows.length,
     pagesProcessed,
     pagesFailed,
-    commitSha,
+    files,
+    deletePaths,
+    syncedSpaces,
     errors,
   }
 }
@@ -742,10 +689,13 @@ export async function syncConfluenceConfigYaml(input: {
   env: Env
   connectionId: string
   target: ConfluenceSyncTarget
+  spaces?: Array<{ spaceKey: string; selectedPageIds: string[] | null }>
 }): Promise<{ pullUrl?: string; changed: boolean }> {
-  const scopeRows = await withOrgDbContext(input.orgId, () =>
-    listConfluenceSpacesByConnectionId(input.connectionId),
-  )
+  const scopeRows =
+    input.spaces ??
+    (await withOrgDbContext(input.orgId, () =>
+      listConfluenceSpacesByConnectionId(input.connectionId),
+    ))
   const { repositoryName, githubConnectionId } =
     await resolveRepoContextForSyncTarget(input.orgId, input.target)
 

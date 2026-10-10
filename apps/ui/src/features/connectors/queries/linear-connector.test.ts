@@ -36,7 +36,7 @@ describe("Linear connector API", () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       "/acme/api/v1/connectors/linear/status?connectionId=con_linear",
-      { credentials: "include" },
+      expect.objectContaining({ credentials: "include" }),
     )
   })
 
@@ -85,7 +85,7 @@ describe("Linear connector API", () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       "/acme/api/v1/connectors/linear/retry?connectionId=con_linear",
-      { method: "POST", credentials: "include" },
+      expect.objectContaining({ method: "POST", credentials: "include" }),
     )
   })
 
@@ -122,12 +122,12 @@ describe("Linear connector API", () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       "/acme/api/v1/connectors/linear/retry-config?connectionId=con_linear",
-      {
+      expect.objectContaining({
         method: "POST",
         credentials: "include",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ scopes }),
-      },
+      }),
     )
   })
 
@@ -142,7 +142,7 @@ describe("Linear connector API", () => {
     await fetchLinearOAuthStart("acme", "con_draft")
     expect(fetchMock).toHaveBeenCalledWith(
       "/acme/api/v1/connectors/linear/oauth/start?connectionId=con_draft",
-      { credentials: "include" },
+      expect.objectContaining({ credentials: "include" }),
     )
   })
 

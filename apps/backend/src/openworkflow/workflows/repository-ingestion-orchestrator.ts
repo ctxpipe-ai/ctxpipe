@@ -4,6 +4,7 @@ import {
   markRepositoryIndexingFailed,
   repositoryIngestionBlockedByDeletion,
 } from "../../models/repositories.js"
+import { activateRepositoryIngestionRequest } from "../../models/repository-ingestion-requests.js"
 import {
   createLogger,
   flushWorkflowLog,
@@ -11,7 +12,6 @@ import {
   withLogger,
 } from "../../observability/logger.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
-import { enqueueFollowUpIfTipAhead } from "../enqueue-follow-up-if-tip-ahead.js"
 import { isWorkflowControlSignal } from "../isSleepSignal.js"
 import { repositoryIngestion } from "./repository-ingestion.js"
 
@@ -20,6 +20,7 @@ const repositoryIngestionOrchestratorInputSchema = z.object({
   orgId: z.string().min(1),
   targetBranch: z.string().nullable().optional(),
   indexingReason: z.string().nullable().optional(),
+  requestId: z.string().min(1).optional(),
   githubConnectionId: z.string().nullable().optional(),
   fullReingest: z.boolean().optional(),
 })
@@ -29,7 +30,7 @@ export const repositoryIngestionOrchestrator = defineWorkflow(
     name: "repository-ingestion-orchestrator",
     schema: repositoryIngestionOrchestratorInputSchema,
   },
-  async ({ input, step }) =>
+  async ({ input, step, run }) =>
     withLogger(
       createLogger({
         workflow: "repository-ingestion-orchestrator",
@@ -37,12 +38,17 @@ export const repositoryIngestionOrchestrator = defineWorkflow(
         orgId: input.orgId,
       }),
       async () => {
+        const requestId = await step.run(
+          { name: "activate-ingestion-request" },
+          () => activateRepositoryIngestionRequest(input, run.id),
+        )
         try {
           return await step.runWorkflow(
             repositoryIngestion.spec,
             {
               repositoryId: input.repositoryId,
               orgId: input.orgId,
+              requestId,
               ...(input.targetBranch !== undefined
                 ? { targetBranch: input.targetBranch }
                 : {}),
@@ -109,37 +115,6 @@ export const repositoryIngestionOrchestrator = defineWorkflow(
                   repositoryId: input.repositoryId,
                   error: normalized,
                 }),
-              ),
-          )
-
-          await step.run(
-            {
-              name: "enqueue-pending-follow-up",
-              retryPolicy: {
-                maximumAttempts: 5,
-                initialInterval: "30s",
-                backoffCoefficient: 2,
-                maximumInterval: "5m",
-              },
-            },
-            () =>
-              enqueueFollowUpIfTipAhead(
-                {
-                  orgId: input.orgId,
-                  repositoryId: input.repositoryId,
-                  pendingOnly: true,
-                  targetBranch: input.targetBranch,
-                  githubConnectionId: input.githubConnectionId,
-                },
-                {
-                  error: (followUpError) => {
-                    getLogger().error(followUpError, {
-                      step: "repository-ingestion-orchestrator.follow-up",
-                      repositoryId: input.repositoryId,
-                      orgId: input.orgId,
-                    })
-                  },
-                },
               ),
           )
 

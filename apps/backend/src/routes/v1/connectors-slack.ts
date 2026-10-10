@@ -17,7 +17,6 @@ import {
 } from "../../models/slack-connector.js"
 import { getLogger } from "../../observability/logger.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
-import { enqueueGithubPrMirrorEnsureForOrg } from "../../openworkflow/workflows/github-ensure-pr-mirror.js"
 import {
   assertSlackOAuthConfigured,
   botTokenFromConnection,
@@ -407,7 +406,7 @@ async function resolveInstalledSlack(
   return { connection: resolved.connection }
 }
 
-export const slackConnectorRoutes = new OpenAPIHono<AppEnv>().openapi(
+const slackOAuthStartRoutes = new OpenAPIHono<AppEnv>().openapi(
   getOAuthStartRoute,
   async (c) => {
     if (!c.get("user") || !c.get("session")) {
@@ -561,7 +560,7 @@ export const slackOAuthCallbackRoutes = new OpenAPIHono<AppEnv>().openapi(
   },
 )
 
-slackConnectorRoutes
+export const slackConnectorRoutes = slackOAuthStartRoutes
   .openapi(getStatusRoute, async (c) => {
     if (!c.get("user") || !c.get("session")) {
       return c.json({ error: "Unauthorized" }, 401)
@@ -679,7 +678,6 @@ slackConnectorRoutes
           branch: body.branch,
         }),
       )
-      await enqueueGithubPrMirrorEnsureForOrg(orgId)
       if (target.repositoryIngestion) {
         await enqueueRepositoryIngestionWorkflow(
           {

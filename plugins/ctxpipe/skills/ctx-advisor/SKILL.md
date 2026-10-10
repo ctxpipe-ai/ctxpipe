@@ -25,7 +25,7 @@ against that context.
 
 ## How to prompt
 
-Include the task, any user preference, and the repo or subsystem involved. Ask the tool to separate verified evidence from inference.
+Include the task, any user preference, and the repo or subsystem involved. Ask the tool to separate verified evidence from inference. Pass the same `conversationId` and `currentProjectName` on later calls in the same session so the thread continues.
 
 Example:
 

@@ -4,6 +4,7 @@ import {
   SimpleSpanProcessor,
 } from "@opentelemetry/sdk-trace-base"
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
+import { initLogger } from "evlog"
 import { type EvlogVariables, evlog } from "evlog/hono"
 import { Hono } from "hono"
 import { contextStorage } from "hono/context-storage"
@@ -21,6 +22,14 @@ const provider = new NodeTracerProvider({
 })
 
 beforeAll(() => {
+  // setup-evlog uses enabled:false, which makes evlog/hono skip attaching
+  // c.var.log and skip enrich. These tests need the real request logger.
+  initLogger({
+    enabled: true,
+    pretty: false,
+    env: { service: "ctxpipe-backend-test" },
+    drain: async () => {},
+  })
   provider.register()
 })
 
@@ -29,6 +38,10 @@ beforeEach(() => {
 })
 
 afterAll(async () => {
+  initLogger({
+    enabled: false,
+    env: { service: "ctxpipe-backend-test" },
+  })
   await provider.shutdown()
 })
 

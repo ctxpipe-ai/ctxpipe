@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { Spinner } from "@/components/ui/spinner"
 import { TextField } from "@/components/ui/TextField"
+import { pollWhileOk } from "@/lib/api-result"
 import { useConfluenceForgeRuntime } from "@/providers/ConfluenceForgeRuntimeContext"
 import {
   atlassianConnectorKeys,
@@ -79,6 +80,8 @@ export function InstallForgeStep({
       Boolean(atlassianConnectionId) && caps.isSuccess && !hasHostedInstall,
     staleTime: 0,
     refetchInterval: (query) => {
+      const interval = pollWhileOk(PROVISION_POLL_MS)(query)
+      if (interval === false) return false
       const ps = query.state.data?.provisionStatus
       const running = ps === "running"
       const idleWaiting =
@@ -86,7 +89,7 @@ export function InstallForgeStep({
       const needsPoll = provisionFlowActive || running || idleWaiting
       if (!needsPoll) return false
       if (ps === "succeeded" || ps === "failed") return false
-      return PROVISION_POLL_MS
+      return interval
     },
   })
 
@@ -290,7 +293,7 @@ export function InstallForgeStep({
       </div>
 
       {capabilitiesLoading ? (
-        <div className="flex items-center gap-3 rounded-none border border-border px-3 py-3">
+        <div className="flex items-center gap-3 rounded-md border border-border px-3 py-3">
           <Spinner className="shrink-0 text-muted-foreground" />
           <p className="text-sm text-muted-foreground">
             Loading install options…
@@ -332,7 +335,7 @@ export function InstallForgeStep({
           <>
             <Button
               variant="primary"
-              className="rounded-none"
+              className="rounded-md"
               isPending={installIntentMutation.isPending}
               isDisabled={installIntentMutation.isPending}
               onPress={async () => {
@@ -372,7 +375,7 @@ export function InstallForgeStep({
               description={
                 <>
                   Hostname of your Confluence site, usually{" "}
-                  <code className="rounded-none bg-muted px-1 font-mono text-xs text-foreground">
+                  <code className="rounded-md bg-muted px-1 font-mono text-xs text-foreground">
                     &lt;sitename&gt;.atlassian.net
                   </code>
                   .
@@ -418,7 +421,7 @@ export function InstallForgeStep({
               isDisabled={formLocked}
             />
             {isProvisioningBusy ? (
-              <div className="mt-6 flex items-start gap-3 rounded-none border border-border p-3">
+              <div className="mt-6 flex items-start gap-3 rounded-md border border-border p-3">
                 <Spinner className="mt-0.5 shrink-0 text-muted-foreground" />
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-foreground">
@@ -435,7 +438,7 @@ export function InstallForgeStep({
                 <Button
                   type="submit"
                   variant="primary"
-                  className="rounded-none"
+                  className="rounded-md"
                   isDisabled={!siteTrimmed || !tokenTrimmed || !emailTrimmed}
                 >
                   {showProvisionError ? "Try again" : "Start provisioning"}

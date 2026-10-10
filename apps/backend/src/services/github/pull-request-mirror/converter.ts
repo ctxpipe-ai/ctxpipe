@@ -8,8 +8,6 @@ import type {
 } from "./types.js"
 import { GITHUB_PR_FILE_STATUSES } from "./types.js"
 
-export const GITHUB_PR_MIRROR_ROOT = "github"
-export const GITHUB_PR_CONFIG_PATH = "github/config.yaml"
 export const GITHUB_PR_PULLS_PREFIX = "github/pulls/"
 
 export function githubPullRequestMarkdownPath(
@@ -22,14 +20,6 @@ export function githubPullRequestMarkdownPath(
     throw new Error(`Invalid repository name "${repository}"`)
   }
   return `${GITHUB_PR_PULLS_PREFIX}${owner}/${repo}/${number}--${id}.md`
-}
-
-export function isGithubPullRequestMirrorPath(path: string): boolean {
-  const normalised = path.replace(/\\/g, "/")
-  return (
-    normalised === GITHUB_PR_CONFIG_PATH ||
-    normalised.startsWith(GITHUB_PR_PULLS_PREFIX)
-  )
 }
 
 function frontmatter(metadata: Record<string, unknown>): string {

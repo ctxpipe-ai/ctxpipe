@@ -4,10 +4,12 @@ import { parseError } from "evlog"
 import { useEffect, useMemo } from "react"
 import { toast } from "sonner"
 import { AppShell } from "@/components/AppShell"
+import { PageBodySkeleton } from "@/components/ui/Skeleton"
 import { Spinner } from "@/components/ui/spinner"
 import { GithubNotLinkedNotice } from "@/features/connectors/components/GithubNotLinkedNotice"
 import { resolveGithubSetupOrganization } from "@/features/connectors/githubConnectFlow"
 import { client } from "@/lib/api"
+import { ApiError, apiFetch, readApiJson } from "@/lib/api-result"
 import { useListOrganizations } from "@/lib/auth-client"
 import {
   consumeGithubSetupOrgHint,
@@ -170,10 +172,9 @@ function ConnectGithubView({
           ...(connectionId ? { connectionId } : {}),
         },
       })
-
-      if (!res.ok) {
-        throw { data: await res.json(), status: res.status }
-      }
+      await readApiJson(res, {
+        message: "Failed to register GitHub installation",
+      })
       return orgSlug
     },
     onSuccess: (orgSlug) => {
@@ -183,17 +184,17 @@ function ConnectGithubView({
         // ignore
       }
       navigate({
-        to: "/$orgSlug/repositories/github/setup",
+        to: "/$orgSlug/github/setup",
         params: { orgSlug },
       })
     },
     onError: (err) => {
-      const parsedError = parseError(err)
-      if (parsedError?.why === "github_not_linked") {
+      const why = err instanceof ApiError ? err.body.why : parseError(err)?.why
+      if (why === "github_not_linked") {
         return
       }
 
-      toast.error(parsedError.message)
+      toast.error(err instanceof Error ? err.message : "Request failed")
     },
   })
 
@@ -203,10 +204,11 @@ function ConnectGithubView({
     mutate(selectedOrganizationSlug)
   }, [mutate, selectedOrganizationSlug, isIdle])
 
-  const parsedError = parseError(error)
+  const parsedErrorWhy =
+    error instanceof ApiError ? error.body.why : parseError(error)?.why
   const { data: authConfig } = useGetAuthConfig()
 
-  if (parsedError?.why === "github_not_linked") {
+  if (parsedErrorWhy === "github_not_linked") {
     return (
       <AppShell>
         <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
@@ -217,7 +219,9 @@ function ConnectGithubView({
           </header>
           <GithubNotLinkedNotice
             githubSignInEnabled={
-              authConfig?.providers?.includes("github") ?? true
+              (
+                authConfig as { providers?: string[] } | undefined
+              )?.providers?.includes("github") ?? true
             }
             orgSlug={selectedOrganizationSlug}
           />
@@ -286,16 +290,16 @@ function DirectSetupPage() {
   const { data: existingOrgSlug, isPending: existingOrgPending } = useQuery({
     queryKey: ["github-installation-org-lookup", search.installation_id],
     queryFn: async () => {
-      const res = await fetch(
+      const res = await apiFetch(
         `/api/v1/me/github/installations/${search.installation_id}/organization`,
         { credentials: "include" },
       )
-      if (res.status === 404) return null
-      if (!res.ok) {
-        throw new Error("Failed to look up installation organization")
-      }
-      const json = (await res.json()) as { orgSlug: string }
-      return json.orgSlug
+      const json = await readApiJson<{ orgSlug: string } | null>(res, {
+        emptyOn: [404],
+        empty: null,
+        message: "Failed to look up installation organization",
+      })
+      return json?.orgSlug ?? null
     },
     enabled: !!search.installation_id,
   })
@@ -316,12 +320,8 @@ function DirectSetupPage() {
             <p className="mt-3 text-sm text-zinc-400">
               Checking your GitHub App installation…
             </p>
-
-            <div className="mt-8 max-w-md">
-              <p className="flex items-center gap-2 text-sm text-zinc-300">
-                <Spinner className="text-zinc-400" />
-                Loading…
-              </p>
+            <div className="mt-8">
+              <PageBodySkeleton label="Loading GitHub setup" />
             </div>
           </section>
         </main>
@@ -340,7 +340,7 @@ function DirectSetupPage() {
   if (organization.kind === "existing") {
     return (
       <Navigate
-        to="/$orgSlug/repositories/github/setup"
+        to="/$orgSlug/github/setup"
         params={{ orgSlug: organization.orgSlug }}
         replace
       />

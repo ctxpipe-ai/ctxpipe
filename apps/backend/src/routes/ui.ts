@@ -2,8 +2,76 @@ import type { Context, Hono } from "hono"
 import { proxy } from "hono/proxy"
 import type { AppEnv } from "../app/env.js"
 import type { Env } from "../config/env.js"
+import { getLogger, log } from "../observability/logger.js"
 
 type UiProxyClientMessage = string | ArrayBuffer | Uint8Array
+
+export const UI_PROXY_TIMEOUT_MS = 15_000
+
+export function isUiProxyAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError"
+}
+
+export type UiProxyOriginTrust = {
+  publicOrigin: string
+  allowedOrigins?: string
+}
+
+export async function proxyUiRequest(
+  request: Request,
+  uiProxyUrl: string,
+  timeoutMs = UI_PROXY_TIMEOUT_MS,
+  originTrust: UiProxyOriginTrust,
+): Promise<Response> {
+  const sourceUrl = new URL(request.url)
+  const upstreamUrl = new URL(
+    `${sourceUrl.pathname}${sourceUrl.search}`,
+    uiProxyUrl,
+  )
+  const headers = uiProxyUpstreamHeaders(
+    request.headers,
+    upstreamUrl.host,
+    originTrust,
+  )
+  const timeout = AbortSignal.timeout(timeoutMs)
+  const signal =
+    typeof AbortSignal.any === "function"
+      ? AbortSignal.any([request.signal, timeout])
+      : timeout
+  try {
+    return await proxy(upstreamUrl, {
+      raw: request,
+      headers: Object.fromEntries(headers),
+      redirect: "follow",
+      signal,
+    })
+  } catch (error) {
+    const timedOut =
+      isUiProxyAbortError(error) || timeout.aborted || request.signal.aborted
+    // UI proxy requests have no server span, so the wide event carries this.
+    const uiProxy = {
+      outcome: timedOut ? "timeout" : "upstream_error",
+      timeoutMs,
+      error: error instanceof Error ? error.message : String(error),
+    }
+    const requestLog = tryGetLogger()
+    if (requestLog) requestLog.warn("UI proxy request failed", { uiProxy })
+    else log.warn({ message: "UI proxy request failed", uiProxy })
+    return new Response(timedOut ? "Gateway Timeout" : "Bad Gateway", {
+      status: timedOut ? 504 : 502,
+      headers: { "cache-control": "no-store" },
+    })
+  }
+}
+
+/** A missing logger must not turn a 502 or 504 into a 500. */
+function tryGetLogger() {
+  try {
+    return getLogger()
+  } catch {
+    return undefined
+  }
+}
 
 export type UiProxyWebSocketData = {
   upstream: WebSocket
@@ -27,52 +95,77 @@ type UiProxyServerSocket = {
 const VITE_WS_PROTOCOLS = new Set(["vite-hmr", "vite-ping"])
 
 /**
- * The UI service is private. Tell it the host the browser used so `/.otel`
- * can check Origin against the public site, not the internal UI host.
- * `X-Forwarded-Host` is taken from this request's URL, not from a client
- * supplied value.
+ * The UI service is private. Tell it the public origin the browser used so
+ * `/.otel` can check Origin against the site, not the TLS-terminated hop
+ * (`http://…` behind Railway) or a client-supplied forwarded host.
  */
 export function uiProxyUpstreamHeaders(
-  sourceUrl: URL,
   incoming: Headers,
   upstreamHost: string,
+  originTrust: UiProxyOriginTrust,
 ): Headers {
   const headers = new Headers(incoming)
-  const forwardedProtoHeader = headers
-    .get("x-forwarded-proto")
-    ?.split(",")[0]
-    ?.trim()
-    .toLowerCase()
-  const proto =
-    sourceUrl.protocol === "https:" || forwardedProtoHeader === "https"
-      ? "https"
-      : "http"
-  headers.set("x-forwarded-host", sourceUrl.host)
-  headers.set("x-forwarded-proto", proto)
+  const publicOrigin = resolvePublicForwardedOrigin(incoming, originTrust)
+  headers.set("x-forwarded-host", publicOrigin.host)
+  headers.set("x-forwarded-proto", publicOrigin.proto)
   headers.set("host", upstreamHost)
   return headers
 }
 
-async function proxyUiRequest(c: Context<AppEnv>, env: Env): Promise<Response> {
-  const sourceUrl = new URL(c.req.url)
-  const upstreamUrl = new URL(
-    `${sourceUrl.pathname}${sourceUrl.search}`,
-    env.UI_PROXY_URL,
-  )
-  const headers = uiProxyUpstreamHeaders(
-    sourceUrl,
-    c.req.raw.headers,
-    upstreamUrl.host,
-  )
-  return proxy(upstreamUrl, {
-    raw: c.req.raw,
-    headers: Object.fromEntries(headers),
-    redirect: "follow",
-  })
+function parseHttpOrigin(value: string): URL | null {
+  try {
+    const url = new URL(value)
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null
+    return url
+  } catch {
+    return null
+  }
+}
+
+function trustedOrigins(originTrust: UiProxyOriginTrust): Set<string> {
+  const trusted = new Set<string>()
+  const configured = parseHttpOrigin(originTrust.publicOrigin)
+  if (configured) trusted.add(configured.origin)
+  for (const part of (originTrust.allowedOrigins ?? "").split(",")) {
+    const allowed = parseHttpOrigin(part.trim())
+    if (allowed) trusted.add(allowed.origin)
+  }
+  return trusted
+}
+
+function resolvePublicForwardedOrigin(
+  incoming: Headers,
+  originTrust: UiProxyOriginTrust,
+): { host: string; proto: "http" | "https" } {
+  const trusted = trustedOrigins(originTrust)
+  const originHeader = incoming.get("origin")
+  if (originHeader && trusted.has(originHeader)) {
+    const origin = new URL(originHeader)
+    return {
+      host: origin.host,
+      proto: origin.protocol === "https:" ? "https" : "http",
+    }
+  }
+  const configured = parseHttpOrigin(originTrust.publicOrigin)
+  if (!configured) throw new Error("AUTH_BASE_URL must be an HTTP origin")
+  return {
+    host: configured.host,
+    proto: configured.protocol === "https:" ? "https" : "http",
+  }
 }
 
 export function registerUiRoutes(app: Hono<AppEnv>, env: Env) {
-  const handler = (c: Context<AppEnv>) => proxyUiRequest(c, env)
+  const originTrust: UiProxyOriginTrust = {
+    publicOrigin: env.AUTH_BASE_URL,
+    allowedOrigins: env.AUTH_ALLOWED_ORIGINS,
+  }
+  const handler = (c: Context<AppEnv>) =>
+    proxyUiRequest(
+      c.req.raw,
+      env.UI_PROXY_URL,
+      UI_PROXY_TIMEOUT_MS,
+      originTrust,
+    )
   // Registered before the catch-all so Hono reports `/.otel/v1/:signal`.
   app.all("/.otel/v1/:signal", handler)
   app.all("*", handler)

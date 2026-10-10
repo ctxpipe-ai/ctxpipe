@@ -12,6 +12,7 @@ import {
   patchGithubDraftConnection,
 } from "@/features/connectors/queries/github-connector"
 import { orgConnectionsKeys } from "@/features/connectors/queries/org-connections"
+import { apiFetch } from "@/lib/api-result"
 import { githubAppInstallUrl } from "@/lib/github-app-url"
 import { generateGithubWebhookSecret } from "@/lib/github-webhook-secret"
 import {
@@ -199,7 +200,7 @@ export function GithubSelfHostedWizardModal({
         const saved = credentialsSavedRef.current
         if (id != null && !saved) {
           void (async () => {
-            await fetch(
+            await apiFetch(
               `/${orgSlug}/api/v1/github/installation?${new URLSearchParams({ connectionId: id })}`,
               { method: "DELETE", credentials: "include" },
             )

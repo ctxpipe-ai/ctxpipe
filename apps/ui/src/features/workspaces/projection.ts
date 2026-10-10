@@ -1,0 +1,77 @@
+import type { WorkspaceStorePhase } from "./types"
+
+export type WorkspaceHydrateView =
+  | "waiting_for_tip"
+  | "hydrating"
+  | "failed"
+  | "ready"
+
+export function workspaceProjectionReady(input: {
+  hydrateStatus: string
+  activeProjectionSha: string | null
+  migrationExportSha?: string | null
+  writeStatus?: string | null
+}): boolean {
+  void input.hydrateStatus
+  void input.migrationExportSha
+  void input.writeStatus
+  return Boolean(input.activeProjectionSha)
+}
+
+export function workspaceHydrateView(input: {
+  hydrateStatus: string
+  desiredSha?: string | null
+  hydrateError?: string | null
+  activeProjectionSha?: string | null
+}): WorkspaceHydrateView {
+  if (input.hydrateStatus === "failed") return "failed"
+  if (input.hydrateStatus !== "ready" && input.hydrateError) return "failed"
+  if (input.hydrateStatus === "ready") {
+    if (
+      input.desiredSha &&
+      input.activeProjectionSha &&
+      input.desiredSha !== input.activeProjectionSha
+    ) {
+      return "hydrating"
+    }
+    return "ready"
+  }
+  if (!input.desiredSha) return "waiting_for_tip"
+  return "hydrating"
+}
+
+export function workspaceHydrateInFlight(input: {
+  hydrateStatus: string
+  desiredSha?: string | null
+  hydrateError?: string | null
+  activeProjectionSha?: string | null
+}): boolean {
+  const view = workspaceHydrateView(input)
+  return view === "waiting_for_tip" || view === "hydrating"
+}
+
+export function workspacePrepareNeedsPoll(input: {
+  hydrateStatus: string
+  desiredSha?: string | null
+  hydrateError?: string | null
+  activeProjectionSha?: string | null
+  migrationExportSha?: string | null
+  writeStatus?: string | null
+  hydratePhases?: { graph: WorkspaceStorePhase }
+}): boolean {
+  if (
+    workspaceProjectionReady({
+      hydrateStatus: input.hydrateStatus,
+      activeProjectionSha: input.activeProjectionSha ?? null,
+      migrationExportSha: input.migrationExportSha,
+      writeStatus: input.writeStatus,
+    })
+  ) {
+    return (
+      workspaceHydrateInFlight(input) ||
+      input.writeStatus === "unknown" ||
+      input.hydratePhases?.graph.kind === "pending"
+    )
+  }
+  return workspaceHydrateView(input) !== "failed"
+}

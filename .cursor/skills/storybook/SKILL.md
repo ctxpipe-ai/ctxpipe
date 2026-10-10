@@ -30,15 +30,17 @@ When you add a **reusable component** or a **new page/screen** (a route that rep
 ## Colocation and naming
 
 - **Component stories**: colocate with the component; `title` uses **`Components/...`** (or **`App/...`** for app shell) — see existing stories under `src/components/` and feature folders.
-- **Full-page / route stories**: `title` under **`Pages/...`**, e.g. `Pages/Connections` for a connectors page story. See **`entryPageInnerDecorators`**, `parameters.storyRoute`, and **`layout: "fullscreen"`** as in [ConfluenceConnectionCard.stories.tsx](../../../apps/ui/src/features/connectors/components/ConfluenceConnectionCard.stories.tsx).
+- **Full-page / route stories**: `title` under **`Pages/...`**, e.g. `Pages/Connections` for a connectors page story. Org product pages (Home, Connectors, Workspace, new workspace) use **`orgPageDecorators`** (`AppShell` + `entryPageInnerDecorators`) so the shell matches production `/$orgSlug`. Isolated feature stories keep **`entryPageInnerDecorators`**. See `parameters.storyRoute` and **`layout: "fullscreen"`**.
 - **Route file naming**: use **`-` prefix** for story files next to routes (e.g. `-connectors.stories.tsx`) so they are not picked up as route modules.
-- **Story export names (CSF)**: **Do not** name a story export `Default`. Each export should describe the **visible state or scenario** (e.g. `Empty`, `Loading`, `WelcomeAnimation`, `ValidationError`, `Installed`). If you need a particular story first in the sidebar, use **`parameters` / story sort** (or Storybook’s ordering options)—not a `Default` name.
+- **Story export names (CSF)**: **Do not** name a story export `Default`. Each export should describe the **visible state or scenario** (e.g. `Empty`, `Loading`, `WelcomeAnimation`, `ValidationError`, `Installed`). If the surface fetches, export **`Loading`** (or `Checking` / `Hydrating` when that is the real wait). If you need a particular story first in the sidebar, use **`parameters` / story sort** (or Storybook’s ordering options)—not a `Default` name.
 
 ## Render real components; mock data, not components
 
 - **Do not** replace production components with “story-only” fakes. Stories should import and render the **same** components the app uses so visuals and types stay honest.
-- **Do** use **MSW** for API, auth-adjacent, and other network boundaries. The addon is **`msw-storybook-addon`**; preview wires **`mswLoader`** and default handlers. Project defaults live in [apps/ui/.storybook/preview.tsx](../../../apps/ui/.storybook/preview.tsx) (auth/session org handlers from [apps/ui/src/mocks/handlers](../../../apps/ui/src/mocks/handlers)).
-- **Per-story API behavior**: set **`parameters.msw.handlers.page`** (array of `http.*` handlers) in that story, matching patterns in existing connector and page stories. Use **`delay("infinite")`** for loading states when you need a hanging request.
+- **Do** use **MSW** for API, auth-adjacent, and other network boundaries. The addon is **`msw-storybook-addon`**; preview wires **`mswLoader`** and default handlers. Project defaults live in [apps/ui/.storybook/preview.tsx](../../../apps/ui/.storybook/preview.tsx) (auth/session org handlers from [apps/ui/src/mocks/handlers](../../../apps/ui/src/mocks/handlers)). MSW paints chrome; it is not _proof_ that a server listing is correct. See [tdd/mocking.md](../tdd/mocking.md).
+- **Per-story API behavior**: set **`parameters.msw.handlers.page`** (array of `http.*` handlers) in that story, matching patterns in existing connector and page stories. Use **`delay("infinite")`** for loading states when you need a hanging request. The preview's **`defaults`** handlers (signed-in session, org list) take precedence over a story's `page` handlers for the same request: the addon flattens `Object.values(handlers)` in key order into one `worker.use(...)` call, and the first matching handler wins. To change session or org state, override **`parameters.msw.handlers.defaults`** in the story.
+- **In-page nav:** a delayed region (conversation, blob) must skeleton **only** that region. Sibling chrome (files pane, `AppShell`) stays populated. Play functions that click compose ↔ thread should assert the sibling pane is still there and the page is not `"Loading workspace"`.
+- **Org page enter:** delayed Home / Connectors / Workspace detail must skeleton **only the main column**. SideNav stays (assert `navigation` named `Main navigation`). Do not remount `AppShell` inside the story component.
 - **Shared MSW**: put reusable handlers in **`src/mocks/handlers`** and import them in stories **only** when the same request contract is used across **multiple** story files. Otherwise keep handlers **inline** in the story for clarity.
 - **Handlers**: use **`http.get` / `http.post`**, **`HttpResponse.json`**, and path/query checks consistent with the real API (see existing stories for org-scoped paths like `/:orgSlug/api/...`).
 
@@ -49,12 +51,32 @@ When you add a **reusable component** or a **new page/screen** (a route that rep
 
 ## Testing in Storybook
 
-Vitest is used for CI-executed unit and contract tests. Storybook `play()` +
-MSW is used for visual interaction scenarios, but this app does not currently
-add **@storybook/addon-vitest**, so those plays are not CI regression coverage.
-The MCP’s **`run-story-tests`** tool applies when that integration exists.
-Until then, keep security and request-contract assertions in focused Vitest
-tests and use **`@storybook/addon-a11y`** for manual Storybook verification.
+Storybook interaction tests in its Playwright-powered browser are the primary UI
+component and page behavior tests. Put scenarios in colocated stories and drive
+the real production surface through the story `play` function. Use Storybook's
+portable/browser test facilities and `run-story-tests` when available.
+
+- Mock only external network boundaries with MSW. Render the real component,
+  router, Query client, hooks, transport binding, and user controls.
+- Prefer accessible queries and real user interactions. Assert visible behavior,
+  focus, navigation, streaming transitions, cleanup, and request counts rather
+  than implementation calls.
+- Do not add jsdom or happy-dom Vitest component tests. Keep Vitest for pure,
+  non-DOM functions and state invariants.
+- Use direct Playwright for integrated product journeys that need the running
+  backend, database, sandbox/OpenCode, or native git outside a Storybook story.
+- A story that only paints a state is visual coverage, not an interaction test;
+  critical behavior needs a `play` function with assertions.
+
+Required workspace recovery plays carry an inline `tags: ["workspace-golden"]`
+array. CI job **Storybook Playwright golden journey** runs
+`node scripts/ci/storybook-golden.mjs`, which builds Storybook and executes
+those plays in Chromium by opening each story iframe. Do not add a
+parallel jsdom component-test stack.
+
+Keep security and request-contract assertions in focused Vitest tests. Use
+**`@storybook/addon-a11y`** for Storybook accessibility verification. The MCP
+**`run-story-tests`** tool applies when that integration exists.
 
 ## Quick reference (commands)
 
@@ -62,6 +84,7 @@ tests and use **`@storybook/addon-a11y`** for manual Storybook verification.
 |--------|--------|
 | Start Storybook | `pnpm --filter @ctxpipe/ui storybook` |
 | Build static | `pnpm --filter @ctxpipe/ui build-storybook` |
+| Golden plays (uses `STORYBOOK_URL` if set) | `pnpm test:storybook-golden` |
 
 ## Related docs in-repo
 

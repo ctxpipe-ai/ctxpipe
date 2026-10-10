@@ -19,6 +19,7 @@ export const ATTRIBUTION_KEYS = [
   "ctxpipe.mcp.tool",
   "ctxpipe.conversation.id",
   "ctxpipe.repository.id",
+  "ctxpipe.workspace.id",
   "ctxpipe.connection.id",
 ] as const
 

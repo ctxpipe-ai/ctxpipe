@@ -125,9 +125,6 @@ describe("connector-only partial diffs", () => {
     targetHash: "h",
     extractedObjects: [],
     extractedClaims: [],
-    objectIds: [],
-    touchedObjectIds: [],
-    claimsForProjection: [],
   }
 
   it("detects diffs made only of connector warehouse paths", () => {

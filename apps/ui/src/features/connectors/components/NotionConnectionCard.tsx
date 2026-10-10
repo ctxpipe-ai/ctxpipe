@@ -140,7 +140,7 @@ export function NotionConnectionCard({
         (status.selectedResourceCount ?? 0) > 0 ? (
           <p className="text-xs text-muted-foreground">
             Merge the open pull request for{" "}
-            <code className="rounded-none bg-muted px-1 py-0.5 text-[11px]">
+            <code className="rounded-md bg-muted px-1 py-0.5 text-[11px]">
               notion/config.yaml
             </code>{" "}
             to enable syncing.

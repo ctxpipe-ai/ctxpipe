@@ -2,9 +2,12 @@
 # Copy docker-compose.env.example → .env (Compose loads it from this directory).
 #
 # Profiles:
-#   infra  — Postgres, FalkorDB, contributor OTEL collector (host dev: pnpm dev:infra)
+#   infra  — Postgres, FalkorDB (host ports via infra-host-ports), contributor
+#            OTEL collector (host dev: pnpm dev:infra)
 #   deploy — App stack (pnpm start): postgres + falkordb + apps. No collector.
 #            Set OTEL_EXPORTER_OTLP_* in .env to export to your own endpoint.
+#            Workspace chat sandboxes run in the `dind` Docker-in-Docker
+#            service on its own `sandbox` network (see the self-hosting docs).
 #
 # Local Zoekt + codesearch API: use `pnpm dev` — Docker image runs start.sh (zoekt-webserver + Bun) with a random host port.
 
@@ -15,6 +18,43 @@ x-otel-env: &otel-env
   OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
   OTEL_RESOURCE_ATTRIBUTES: ${OTEL_RESOURCE_ATTRIBUTES:-}
 
+# The LLM provider for chat, the MCP and ingestion. Empty values are unset.
+x-model-env: &model-env
+  MODEL_PROVIDER: ${MODEL_PROVIDER:-}
+  MODEL_PROVIDER_API_KEY: ${MODEL_PROVIDER_API_KEY:-}
+  MODEL_PROVIDER_URL: ${MODEL_PROVIDER_URL:-}
+  MODEL_FAST_NAME: ${MODEL_FAST_NAME:-}
+  MODEL_MEDIUM_NAME: ${MODEL_MEDIUM_NAME:-}
+  MODEL_HIGH_NAME: ${MODEL_HIGH_NAME:-}
+  MODEL_EMBEDDING_NAME: ${MODEL_EMBEDDING_NAME:-}
+  MODEL_BEDROCK_AWS_REGION: ${MODEL_BEDROCK_AWS_REGION:-}
+
+# The DinD daemon over mutual TLS; the client certificates come from `dind`.
+x-sandbox-docker-env: &sandbox-docker-env
+  SANDBOX_PROVIDER: docker
+  SANDBOX_CHAT_IMAGE: ctxpipe-chat-sandbox:local
+  DOCKER_HOST: tcp://dind:2376
+  DOCKER_TLS_VERIFY: "1"
+  DOCKER_CERT_PATH: /certs/client
+
+# Agent Vault adds the credentials of chat sandboxes in flight. The backend
+# and the worker log in as its owner with a password the deploy generates.
+x-agent-vault-env: &agent-vault-env
+  AGENT_VAULT_ADDR: http://agent-vault:14321
+  AGENT_VAULT_OWNER_PASSWORD_FILE: /run/agent-vault/owner-password
+
+x-agent-vault-image: &agent-vault-image infisical/agent-vault:latest
+
+# Rate limits stay on (the login limit guards the owner account). The proxy
+# tier is raised: all sandboxes of one turn share one vault and fan out.
+x-agent-vault-limits: &agent-vault-limits
+  AGENT_VAULT_RATELIMIT_PROXY_RATE: "200"
+  AGENT_VAULT_RATELIMIT_PROXY_BURST: "2000"
+  AGENT_VAULT_RATELIMIT_PROXY_CONCURRENCY: "256"
+  AGENT_VAULT_TELEMETRY: "false"
+
+x-dind-image: &dind-image docker:29.8.2-dind@sha256:7dcdfc4a20246236f558175182ccace1eb15a41bd3eb119dd2284f393498b7c1
+
 services:
   postgres:
     profiles: [infra, deploy]
@@ -24,8 +64,8 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-ctxpipe}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ctxpipe}
       POSTGRES_DB: ${POSTGRES_DB:-ctxpipe}
-    ports:
-      - "${CTXPIPE_POSTGRES_HOST_PORT:-5433}:5432"
+    # Never published: Docker routes to a container's published ports from
+    # other networks, chat sandboxes included. Host dev uses `infra-host-ports`.
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER"]
       interval: 10s
@@ -38,10 +78,29 @@ services:
     restart: unless-stopped
     environment:
       FALKORDB_ARGS: "BOLT_PORT 7687"
+    # Never published, like postgres.
+
+  # Host dev only: Postgres and FalkorDB on host ports, forwarded so the data
+  # stores themselves stay unpublished in every profile.
+  infra-host-ports:
+    profiles: [infra]
+    image: alpine/socat:latest@sha256:82ad20f6f6e29b91ff33b6662d24063522b1378f08fd8569cd3ab412cac13f50
+    restart: unless-stopped
+    init: true
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        socat TCP-LISTEN:5432,fork,reuseaddr TCP:postgres:5432 &
+        socat TCP-LISTEN:6379,fork,reuseaddr TCP:falkordb:6379 &
+        socat TCP-LISTEN:7687,fork,reuseaddr TCP:falkordb:7687 &
+        socat TCP-LISTEN:3000,fork,reuseaddr TCP:falkordb:3000 &
+        wait
     ports:
+      - "${CTXPIPE_POSTGRES_HOST_PORT:-5433}:5432"
       - "${CTXPIPE_FALKOR_REDIS_HOST_PORT:-6379}:6379"
       - "${CTXPIPE_FALKOR_BOLT_HOST_PORT:-7687}:7687"
       - "${CTXPIPE_FALKOR_ADMIN_HOST_PORT:-3003}:3000"
+    depends_on: [postgres, falkordb]
 
   otel-collector:
     profiles: [infra]
@@ -53,6 +112,86 @@ services:
     ports:
       - "${CTXPIPE_OTEL_COLLECTOR_HOST_PORT:-4318}:4318"
 
+  # Host dev only, on a trusted machine: Agent Vault for sandboxes on the
+  # host's Docker daemon. Its API is published on 127.0.0.1, but on Docker
+  # Desktop any local container reaches it at host.docker.internal, and so
+  # can the proxy (192.168.65.254 is on the allowlist). The owner password is
+  # generated and the login limit is on. On a fresh volume a local container
+  # could register the owner first; the backend then fails closed: remove the
+  # `agent_vault_dev` volume to recover. Sandboxes reach the proxy at
+  # host.docker.internal on the port it listens on; it may dial only the
+  # Docker host (the backend). Host dev has no forced egress; `deploy` does.
+  agent-vault-dev:
+    profiles: [infra]
+    image: *agent-vault-image
+    restart: unless-stopped
+    command:
+      - server
+      - --host
+      - 0.0.0.0
+      - --port
+      - "14321"
+      - --mitm-port
+      - "${CTXPIPE_AGENT_VAULT_PROXY_HOST_PORT:-14322}"
+    environment:
+      <<: *agent-vault-limits
+      AGENT_VAULT_NETWORK_ALLOWLIST: 192.168.65.254,172.17.0.1
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    ports:
+      - "127.0.0.1:${CTXPIPE_AGENT_VAULT_API_HOST_PORT:-14321}:14321"
+      - "${CTXPIPE_AGENT_VAULT_PROXY_HOST_PORT:-14322}:${CTXPIPE_AGENT_VAULT_PROXY_HOST_PORT:-14322}"
+    volumes:
+      - agent_vault_dev:/data
+
+  # Generates the Agent Vault passwords once: the master password on a volume
+  # only Agent Vault mounts, the owner password on one only the backend and
+  # the worker mount.
+  agent-vault-secrets:
+    profiles: [deploy]
+    image: *agent-vault-image
+    restart: "no"
+    user: "0:0"
+    entrypoint: ["sh", "-ec"]
+    command:
+      - |
+        for file in /master/master-password /owner/owner-password; do
+          [ -s "$$file" ] && continue
+          head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' > "$$file.tmp"
+          mv "$$file.tmp" "$$file"
+          chmod 0444 "$$file"
+        done
+    volumes:
+      - agent_vault_master:/master
+      - agent_vault_owner:/owner
+
+  # Adds each credential to sandbox requests (ADR-049). Sandboxes reach only
+  # its proxy port (scripts/sandbox-dind/entrypoint.sh), and the proxy may
+  # dial private addresses only at the backend's fixed `sandbox` address.
+  # Other HTTP(S) hosts are forwarded, so the internet stays open.
+  agent-vault:
+    profiles: [deploy]
+    image: *agent-vault-image
+    restart: unless-stopped
+    entrypoint: ["sh", "-ec"]
+    command:
+      - |
+        AGENT_VAULT_MASTER_PASSWORD="$$(cat /run/agent-vault-master/master-password)"
+        export AGENT_VAULT_MASTER_PASSWORD
+        exec agent-vault server --host 0.0.0.0 --port 14321
+    environment:
+      <<: *agent-vault-limits
+      # Only the backend: not Agent Vault's own address (its API), not `dind`.
+      AGENT_VAULT_NETWORK_ALLOWLIST: 172.30.99.10
+    volumes:
+      - agent_vault_data:/data
+      - agent_vault_master:/run/agent-vault-master:ro
+    networks:
+      sandbox:
+        ipv4_address: 172.30.99.11
+    depends_on:
+      agent-vault-secrets:
+        condition: service_completed_successfully
+
   migrate:
     profiles: [deploy]
     build:
@@ -61,9 +200,73 @@ services:
     restart: "no"
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-ctxpipe}:${POSTGRES_PASSWORD:-ctxpipe}@postgres:5432/${POSTGRES_DB:-ctxpipe}
+      DATABASE_APP_PASSWORD: ${POSTGRES_PASSWORD:-ctxpipe}
+      # The backend modules migrate imports parse the app env, which needs it.
+      AUTH_SECRET: ${AUTH_SECRET:-}
     command: ["bun", "run", "apps/backend/src/db/migrate.ts"]
     depends_on:
       postgres:
+        condition: service_healthy
+
+  # Docker daemon for Workspace chat sandboxes (stock docker:dind). Only this
+  # container is privileged; sandboxes are not, and the host Docker socket is
+  # never mounted. It sits only on the `sandbox` network with backend and
+  # worker. Sandboxes reach only Agent Vault's proxy (HTTP and HTTPS to the
+  # internet and the backend, with credentials added outside the sandbox);
+  # scripts/sandbox-dind/entrypoint.sh blocks everything else.
+  dind:
+    profiles: [deploy]
+    image: *dind-image
+    restart: unless-stopped
+    privileged: true
+    # The image's own cgroup-nesting wrapper, then the metadata block and
+    # sandbox cgroup caps in scripts/sandbox-dind/entrypoint.sh, then the stock entrypoint.
+    entrypoint: ["dind", "sh", "/sandbox-dind/entrypoint.sh"]
+    environment:
+      DOCKER_TLS_CERTDIR: /certs
+      DOCKER_TLS_SAN: DNS:dind
+      # Sandboxes reach only this address (Agent Vault's proxy).
+      CTXPIPE_SANDBOX_PROXY: 172.30.99.11:14322
+    configs:
+      - source: sandbox-dind-entrypoint
+        target: /sandbox-dind/entrypoint.sh
+      - source: sandbox-dind-daemon
+        target: /etc/docker/daemon.json
+    volumes:
+      - sandbox_docker:/var/lib/docker
+      - sandbox_ca:/certs/ca
+      - sandbox_client_certs:/certs/client
+    networks: [sandbox]
+    healthcheck:
+      test: ["CMD", "docker", "--host", "unix:///var/run/docker.sock", "info"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  # Builds the chat image inside DinD from this checkout, like the other
+  # deploy images. Cached after the first run; a changed Dockerfile gives a
+  # new image ID, and new sandboxes use it. Nothing waits for it: until it
+  # exists, chat answers 503 and the rest of the app works. The build uses
+  # the DinD host network: the DinD rules block the sandbox bridges, so a
+  # build step on a bridge cannot download packages.
+  chat-sandbox-image:
+    profiles: [deploy]
+    image: *dind-image
+    restart: "no"
+    entrypoint: ["sh", "-ec"]
+    command:
+      - |
+        docker build --network host --tag "$$SANDBOX_CHAT_IMAGE" /context
+        docker image inspect --format '{{.Id}}' "$$SANDBOX_CHAT_IMAGE"
+    environment:
+      <<: *sandbox-docker-env
+    volumes:
+      - ./scripts/chat-sandbox:/context:ro
+      - sandbox_client_certs:/certs/client:ro
+    networks: [sandbox]
+    depends_on:
+      dind:
         condition: service_healthy
 
   backend:
@@ -74,7 +277,7 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgresql://${POSTGRES_USER:-ctxpipe}:${POSTGRES_PASSWORD:-ctxpipe}@postgres:5432/${POSTGRES_DB:-ctxpipe}
+      DATABASE_URL: postgresql://ctxpipe_app:${POSTGRES_PASSWORD:-ctxpipe}@postgres:5432/${POSTGRES_DB:-ctxpipe}
       GRAPH_DB_URI: redis://falkordb:6379
       UI_PROXY_URL: http://ui:3002
       CODESEARCH_URL: http://codesearch:3001
@@ -82,8 +285,11 @@ services:
       AUTH_SECRET: ${AUTH_SECRET:-}
       AUTH_BASE_URL: ${AUTH_BASE_URL:-http://localhost:3000}
       AUTH_ALLOWED_ORIGINS: ${AUTH_ALLOWED_ORIGINS:-}
-      # Empty values are unset: no export, logs on stdout.
-      <<: *otel-env
+      # Sandboxes call back through Agent Vault, whose rules take host names:
+      # the backend's alias on the `sandbox` network. Empty OTEL values are
+      # unset: no export.
+      SANDBOX_CALLBACK_HOST: ${SANDBOX_CALLBACK_HOST:-backend.sandbox.ctxpipe.internal}
+      <<: [*otel-env, *model-env, *sandbox-docker-env, *agent-vault-env]
       OTEL_SERVICE_NAME: backend
       CONFLUENCE_FORGE_INSTALL_URL: ${CONFLUENCE_FORGE_INSTALL_URL:-}
       SLACK_CLIENT_ID: ${SLACK_CLIENT_ID:-}
@@ -104,6 +310,17 @@ services:
       PAGERDUTY_REDIRECT_URI: ${PAGERDUTY_REDIRECT_URI:-}
     ports:
       - "${CTXPIPE_BACKEND_HOST_PORT:-3000}:3000"
+    volumes:
+      - sandbox_client_certs:/certs/client:ro
+      - agent_vault_owner:/run/agent-vault:ro
+    networks:
+      default:
+      sandbox:
+        # Fixed: Agent Vault may dial only this private address.
+        ipv4_address: 172.30.99.10
+        aliases: [backend.sandbox.ctxpipe.internal]
+    # Not `dind`, `chat-sandbox-image` or `agent-vault`: without them only
+    # chat fails (503).
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -122,7 +339,7 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgresql://${POSTGRES_USER:-ctxpipe}:${POSTGRES_PASSWORD:-ctxpipe}@postgres:5432/${POSTGRES_DB:-ctxpipe}
+      DATABASE_URL: postgresql://ctxpipe_app:${POSTGRES_PASSWORD:-ctxpipe}@postgres:5432/${POSTGRES_DB:-ctxpipe}
       GRAPH_DB_URI: redis://falkordb:6379
       # Required to decrypt connection secrets (Slack bot tokens, GitHub App keys).
       AUTH_SECRET: ${AUTH_SECRET:-}
@@ -131,7 +348,9 @@ services:
       SLACK_CLIENT_ID: ${SLACK_CLIENT_ID:-}
       SLACK_CLIENT_SECRET: ${SLACK_CLIENT_SECRET:-}
       SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET:-}
-      <<: *otel-env
+      # The worker removes idle sandboxes through the same daemon, and builds
+      # Workspace bases through Agent Vault.
+      <<: [*otel-env, *model-env, *sandbox-docker-env, *agent-vault-env]
       OTEL_SERVICE_NAME: openworkflow
       OPENWORKFLOW_CONCURRENCY: "6"
       CODESEARCH_INDEXER_CONCURRENCY: "1"
@@ -144,6 +363,10 @@ services:
       PAGERDUTY_CLIENT_ID: ${PAGERDUTY_CLIENT_ID:-}
       PAGERDUTY_CLIENT_SECRET: ${PAGERDUTY_CLIENT_SECRET:-}
       PAGERDUTY_REDIRECT_URI: ${PAGERDUTY_REDIRECT_URI:-}
+    volumes:
+      - sandbox_client_certs:/certs/client:ro
+      - agent_vault_owner:/run/agent-vault:ro
+    networks: [default, sandbox]
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -164,6 +387,8 @@ services:
       NODE_ENV: production
       PORT: "3002"
       HOST: "0.0.0.0"
+      AUTH_BASE_URL: ${AUTH_BASE_URL:-http://localhost:3000}
+      AUTH_ALLOWED_ORIGINS: ${AUTH_ALLOWED_ORIGINS:-}
       <<: *otel-env
       OTEL_SERVICE_NAME: ui
       CONFLUENCE_FORGE_INSTALL_URL: ${CONFLUENCE_FORGE_INSTALL_URL:-}
@@ -178,7 +403,7 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgresql://${POSTGRES_USER:-ctxpipe}:${POSTGRES_PASSWORD:-ctxpipe}@postgres:5432/${POSTGRES_DB:-ctxpipe}
+      DATABASE_URL: postgresql://ctxpipe_app:${POSTGRES_PASSWORD:-ctxpipe}@postgres:5432/${POSTGRES_DB:-ctxpipe}
       AUTH_SECRET: ${AUTH_SECRET:-}
       ZOEKT_WEBSERVER_URL: http://127.0.0.1:6070
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
@@ -198,6 +423,36 @@ services:
       postgres:
         condition: service_healthy
 
+networks:
+  # DinD, backend, and worker only: sandbox traffic leaves through `dind`
+  # onto this network, so it reaches nothing else in the stack.
+  # A fixed subnet, so Agent Vault's allowlist and the DinD rules name exact
+  # addresses. If it overlaps a network of the host, change every 172.30.99.x
+  # address in this file. Other containers get addresses from the upper half.
+  sandbox:
+    ipam:
+      config:
+        - subnet: 172.30.99.0/24
+          ip_range: 172.30.99.128/25
+
+configs:
+  sandbox-dind-entrypoint:
+    file: ./scripts/sandbox-dind/entrypoint.sh
+  sandbox-dind-daemon:
+    file: ./scripts/sandbox-dind/daemon.json
+
 volumes:
+  # Sandbox containers and images. Disposable: conversations keep their work
+  # in git, and the chat image is rebuilt by `chat-sandbox-image`.
+  sandbox_docker:
+  # DinD's TLS CA, kept so restarts keep the client certificates valid.
+  sandbox_ca:
+  sandbox_client_certs:
   zoekt_index_deploy:
   repo_cache:
+  # Agent Vault's SQLite store (run vaults are deleted when runs end) and the
+  # generated passwords (master: Agent Vault only; owner: backend and worker).
+  agent_vault_data:
+  agent_vault_master:
+  agent_vault_owner:
+  agent_vault_dev:

@@ -17,17 +17,33 @@ import {
   users,
   verifications,
 } from "./schema/auth.js"
+import {
+  chatInterrupts,
+  chatMetadata,
+  chatRuns,
+  chatThreads,
+} from "./schema/chat-persistence.js"
 import { claimEvidence } from "./schema/claim_evidence.js"
 import { claims } from "./schema/claims.js"
 import { confluenceSpaces } from "./schema/confluenceSpaces.js"
 import { confluenceSyncTargets } from "./schema/confluenceSyncTargets.js"
-import { connections } from "./schema/connections.js"
-import { conversations } from "./schema/conversations.js"
+import { connectionDirectory, connections } from "./schema/connections.js"
+import { conversationMessages, conversations } from "./schema/conversations.js"
 import { objects } from "./schema/objects.js"
 import { orgOnboarding } from "./schema/org_onboarding.js"
 import { pendingAccounts } from "./schema/pending_accounts.js"
 import { repositories } from "./schema/repositories.js"
 import { repositoryCheckouts } from "./schema/repository_checkouts.js"
+import {
+  orgMemberPreferences,
+  workspaceCommitProjections,
+  workspaceKnowledgeUnits,
+  workspaceLinkedRepositories,
+  workspaceRepositoryCommits,
+  workspaceSandboxInstances,
+  workspaces,
+  workspaceWriteJobs,
+} from "./schema/workspaces.js"
 
 const schema = {
   users,
@@ -49,14 +65,28 @@ const schema = {
   repositories,
   repositoryCheckouts,
   connections,
+  connectionDirectory,
   confluenceSpaces,
   confluenceSyncTargets,
   conversations,
+  conversationMessages,
+  chatThreads,
+  chatRuns,
+  chatInterrupts,
+  chatMetadata,
   claims,
   claimEvidence,
   objects,
   orgOnboarding,
   pendingAccounts,
+  workspaces,
+  workspaceLinkedRepositories,
+  workspaceKnowledgeUnits,
+  orgMemberPreferences,
+  workspaceWriteJobs,
+  workspaceSandboxInstances,
+  workspaceRepositoryCommits,
+  workspaceCommitProjections,
 } as const
 
 const relations = defineRelations(schema)

@@ -107,6 +107,7 @@ export async function maybeEnqueueConfluenceSyncOnConfigPush(input: {
     if (!configPathTouched) continue
 
     const targets = await listConfluenceSyncTargetsWithRepoByRepositoryId(
+      installationRow.orgId,
       repositoryRow.id,
     )
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
-import { parseEnv } from "../config/env.js"
 import type { Env } from "../config/env.js"
+import { parseEnv } from "../config/env.js"
 import {
   decodeLinearOauthClientSecret,
   decodeLinearWebhookSecret,

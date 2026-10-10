@@ -1,4 +1,5 @@
 import { SpanKind, trace } from "@opentelemetry/api"
+import { defineWorkflow as defineRawWorkflow } from "openworkflow"
 import { afterAll, expect, it } from "vitest"
 import { z } from "zod"
 import { describeWithDatabase } from "../../test/db.js"
@@ -11,6 +12,14 @@ const enqueueProbe = defineWorkflow(
   {
     name: "observability-enqueue-probe",
     schema: z.object({ orgId: z.string() }),
+  },
+  async () => "ok",
+)
+
+const rawStrictProbe = defineRawWorkflow(
+  {
+    name: "observability-enqueue-raw-strict-probe",
+    schema: z.object({ orgId: z.string() }).strict(),
   },
   async () => "ok",
 )
@@ -63,6 +72,21 @@ describeWithDatabase("runWorkflowWithWorkerWake", () => {
       "openworkflow.workflow.name": "observability-enqueue-probe",
       "openworkflow.run.id": handle.workflowRun.id,
     })
+    await handle.cancel()
+  })
+
+  it("enqueues a raw strict-schema workflow while a request span is active", async () => {
+    const { runWorkflowWithWorkerWake } = await import("./client.js")
+    const handle = await trace
+      .getTracer("ctxpipe-backend")
+      .startActiveSpan("POST /hydrate", async (request) => {
+        const queued = await runWorkflowWithWorkerWake(rawStrictProbe.spec, {
+          orgId: "org_1",
+        })
+        request.end()
+        return queued
+      })
+    expect(handle.workflowRun.input).toEqual({ orgId: "org_1" })
     await handle.cancel()
   })
 })

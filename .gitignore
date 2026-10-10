@@ -20,6 +20,7 @@ core
 .ai/memory/progress.md
 .turbo
 .mcpjam/
+.ci-results/
 dist/
 *.tgz
 examples/**/cdk.out

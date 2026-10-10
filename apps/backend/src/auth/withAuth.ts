@@ -9,7 +9,7 @@ import {
   jwtVerify,
 } from "jose"
 import type { AppEnv } from "../app/env.js"
-import { getSystemDb, withOrgDbContext } from "../db/client.js"
+import { getSystemDb } from "../db/client.js"
 import {
   members,
   oauthAccessTokens,
@@ -250,6 +250,24 @@ async function resolveOpaqueAccessToken(token: string): Promise<{
     : null
 }
 
+async function resolveSessionToken(
+  token: string,
+): Promise<{ session: AuthSession; user: AuthUser } | null> {
+  const db = getSystemDb()
+  const rows = await db
+    .select({ session: sessions, user: users })
+    .from(sessions)
+    .innerJoin(users, eq(sessions.userId, users.id))
+    .where(eq(sessions.token, token))
+    .limit(1)
+  const row = rows[0]
+  if (!row) return null
+  if (row.session.expiresAt && row.session.expiresAt.getTime() <= Date.now()) {
+    return null
+  }
+  return row
+}
+
 export const withCookieAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   if (c.get("user") || c.get("session") || c.get("orgApiKey")) return next()
   const started = performance.now()
@@ -422,16 +440,24 @@ async function authenticateBearer(
   // Better Auth's oauthProvider only issues JWT access tokens when the client
   // sends the RFC 8707 `resource` parameter (`index.mjs:411`). MCP clients like
   // CodeRabbit omit it, so we get an opaque random string instead. JWTs have
-  // three `.`-separated base64url segments; anything else is opaque OAuth
-  // first, then (on MCP only) a personal/org API key.
+  // three `.`-separated base64url segments; anything else is opaque OAuth,
+  // then a Better Auth session token, then (on MCP only) a personal/org API key.
   if (accessToken.split(".").length !== 3) {
-    const resolved = await resolveOpaqueAccessToken(accessToken)
-    if (resolved) {
+    const opaque = await resolveOpaqueAccessToken(accessToken)
+    if (opaque) {
       c.set("personalApiKeyId", null)
-      c.set("session", resolved.session)
-      c.set("user", resolved.user)
-      c.set("oauthOrganizationId", resolved.oauthOrganizationId)
-      c.set("oauthClientId", resolved.oauthClientId)
+      c.set("session", opaque.session)
+      c.set("user", opaque.user)
+      c.set("oauthOrganizationId", opaque.oauthOrganizationId)
+      c.set("oauthClientId", opaque.oauthClientId)
+      applyPrincipalAttribution(c)
+      return next()
+    }
+    const sessionResolved = await resolveSessionToken(accessToken)
+    if (sessionResolved) {
+      c.set("personalApiKeyId", null)
+      c.set("session", sessionResolved.session)
+      c.set("user", sessionResolved.user)
       applyPrincipalAttribution(c)
       return next()
     }
@@ -790,15 +816,10 @@ export const withNetworkOrgContext: MiddlewareHandler<AppEnv> = async (
     "ctxpipe.org.id": resolved.id,
     "ctxpipe.org.slug": resolved.slug,
   })
-  return withOrgIdContext(
-    { id: resolved.id, slug: resolved.slug },
-    async () => {
-      // MCP tools/call can run the advisor graph for tens of seconds. Holding the
-      // request-wide org transaction across that wait lets Neon/Postgres kill the
-      // idle-in-transaction connection ("Connection terminated unexpectedly").
-      if (isMcpRequestPath(c.req.path)) return next()
-      return withOrgDbContext(resolved.id, async () => next())
-    },
+  // Short org SQL only. Do not hold a request-wide transaction across HTTP,
+  // MCP, or sandbox I/O — those gateways call `assertNotInOrgDbContext()`.
+  return withOrgIdContext({ id: resolved.id, slug: resolved.slug }, () =>
+    next(),
   )
 }
 

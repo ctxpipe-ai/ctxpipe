@@ -10,6 +10,7 @@ import { useEffect, useRef, useState } from "react"
 import { Button } from "@/components/ui/Button"
 import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
+import { pollWhileOk } from "@/lib/api-result"
 import {
   getConfluenceCardCurrentIndex,
   getConfluenceCardStepDefs,
@@ -93,15 +94,18 @@ export function ConfluenceSetupWizard({
     refetchOnWindowFocus: "always",
     refetchIntervalInBackground: true,
     refetchInterval: (query) => {
+      if (query.state.status === "error") return false
       const data = query.state.data as AtlassianConnectorStatus | undefined
       if (!isOpen) return false
-      if (waitForInstall && data && !data.isInstalled) return 3000
+      if (waitForInstall && data && !data.isInstalled) {
+        return pollWhileOk(3000)(query)
+      }
       if (
         data?.setupPhase === "awaiting_merge" ||
         data?.setupPhase === "initial_sync" ||
         data?.pendingConfigPrCreating
       ) {
-        return 2000
+        return pollWhileOk(2000)(query)
       }
       return false
     },
@@ -213,7 +217,7 @@ export function ConfluenceSetupWizard({
           </div>
           <Button
             variant="secondary"
-            className="rounded-none"
+            className="rounded-md"
             onPress={() => onOpenChange(false)}
           >
             Close
@@ -251,7 +255,7 @@ export function ConfluenceSetupWizard({
             <p className="text-destructive">Could not load connector status.</p>
             <Button
               variant="secondary"
-              className="rounded-none"
+              className="rounded-md"
               onPress={() => void refetchStatus()}
             >
               Retry

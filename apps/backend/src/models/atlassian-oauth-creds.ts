@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm"
 import { parseEnv } from "../config/env.js"
-import { getSystemDb } from "../db/client.js"
+import { getOrgDb, withOrgDbContext } from "../db/client.js"
 import { CONNECTION_TYPE_FORGE, connections } from "../db/schema/connections.js"
 import { tryParseForgeConnectionConfig } from "../lib/connection-config.js"
 
@@ -39,27 +39,28 @@ export async function getAtlassianOauthCredsForForgeConnection(
   orgId: string,
   connectionId: string,
 ): Promise<AtlassianOauthCreds | undefined> {
-  const db = getSystemDb()
-  const [row] = await db
-    .select()
-    .from(connections)
-    .where(
-      and(
-        eq(connections.id, connectionId),
-        eq(connections.orgId, orgId),
-        eq(connections.type, CONNECTION_TYPE_FORGE),
-      ),
-    )
-    .limit(1)
-  if (!row) return undefined
-  const config = tryParseForgeConnectionConfig(row.config)
-  if(config?.atlassianOAuthClientId && config?.atlassianOAuthClientSecret) {
-    return {
-      clientId: config.atlassianOAuthClientId,
-      clientSecret: config.atlassianOAuthClientSecret,
+  return withOrgDbContext(orgId, async () => {
+    const [row] = await getOrgDb()
+      .select()
+      .from(connections)
+      .where(
+        and(
+          eq(connections.id, connectionId),
+          eq(connections.orgId, orgId),
+          eq(connections.type, CONNECTION_TYPE_FORGE),
+        ),
+      )
+      .limit(1)
+    if (!row) return undefined
+    const config = tryParseForgeConnectionConfig(row.config)
+    if (config?.atlassianOAuthClientId && config?.atlassianOAuthClientSecret) {
+      return {
+        clientId: config.atlassianOAuthClientId,
+        clientSecret: config.atlassianOAuthClientSecret,
+      }
     }
-  }
-  return getAtlassianGlobalEnvOauthCredsIfAllowed()
+    return getAtlassianGlobalEnvOauthCredsIfAllowed()
+  })
 }
 
 export function forgeConnectionHasAtlassianOauthCredsInConfig(

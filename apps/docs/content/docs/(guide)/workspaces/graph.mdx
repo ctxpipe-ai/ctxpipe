@@ -1,0 +1,47 @@
+---
+title: Knowledge graph
+description: Explore the units and relationships ctx| built from a Workspace's files.
+---
+
+The **Graph** tab shows the knowledge graph for the current Workspace. Every
+node is a knowledge file, and every edge comes from a link or a claim in those
+files (see [Knowledge files](/docs/workspaces/knowledge-files)). The graph
+appears after the Workspace's first successful index.
+
+Because the graph is built from files, you fix it by fixing files: correct a
+claim, add a link, or set `kind`, then push. The graph updates when the
+Workspace re-indexes.
+
+## Read the graph
+
+- Nodes are colored by `kind` and sized by how connected they are.
+- Edges are links (`LINKS_TO`) and claims (`DEPENDS_ON`, `PART_OF`, `OWNS`,
+  and so on).
+- The activity timeline groups relationships by when they became valid. Drag
+  across it to filter the graph to a time range.
+
+Use the canvas controls to zoom, reset the view, pause or play the layout,
+lasso-select a group of nodes, or capture a screenshot.
+
+## Inspect a node
+
+Click a node to open its details:
+
+- **Path**: the file behind the node. **Go to definition** opens it in the
+  **Files** tab; **Copy path** copies it.
+- **Summary**, **Connections**, and **Strongest connections**.
+- **Predicates** and **Neighbour kinds**: what kinds of relationships and
+  nodes surround it.
+- **Activity**: when its relationships were valid.
+
+A node with few or no connections is often a stub or a stale unit worth
+reviewing.
+
+Lasso-select several nodes to see a summary of the selection: node and edge
+counts, kinds, and predicates.
+
+## Treat the graph as a guide
+
+The graph shows what the files claim. Confidence and dates help you decide
+where to look, but they are not proof. Before acting on an important
+relationship, open the file and the source it points to.

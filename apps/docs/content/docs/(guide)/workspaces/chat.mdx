@@ -1,0 +1,143 @@
+---
+title: Workspace chat
+description: Ask questions about a Workspace and change its files in a conversation, then open a pull request.
+---
+
+Workspace chat is a coding agent that works on one Workspace. It answers
+questions using the Workspace's knowledge files, knowledge graph, and linked
+code, and it can edit the workspace repository for you.
+
+## Start a conversation
+
+Open a Workspace and type in the composer (**Ask about this Workspace…**).
+Your first message creates the conversation and gives it its own URL. The
+sidebar keeps your five most recent conversations under each Workspace.
+
+Good first questions:
+
+```text
+I am new here. What are the main services, and which files should I read first?
+```
+
+```text
+Which services depend on the billing events stream, and where is that implemented?
+```
+
+```text
+Before we change authentication, which decisions and standards apply?
+```
+
+## How chat finds answers
+
+Each answer can draw on:
+
+- **knowledge files** in the workspace repository, including mirrored
+  connector content;
+- the **knowledge graph** built from links and claims in those files;
+- **code search** across the Workspace's
+  [linked repositories](/docs/workspaces/linked-repositories);
+- earlier messages in the same conversation.
+
+Chat only sees this Workspace. Other Workspaces in your organization are not
+searched.
+
+## Change files
+
+Ask the agent to write or update knowledge, for example:
+
+```text
+Write a knowledge unit for the checkout service from what you found, and link it to the payments service.
+```
+
+While the agent works:
+
+- the **Files** tab shows the workspace repository as this conversation sees
+  it. You can also edit, create, and rename files there yourself;
+- the **Diff** tab shows everything the conversation has changed.
+
+Each conversation works on its own branch, `ctxpipe/chat/<conversation>/<n>`,
+and never pushes to the default branch. The agent commits its work with a
+message when it finishes a task, and pushes the branch to GitHub when you ask
+it to or when the work is ready for you to see there.
+
+## Publish with a pull request
+
+The conversation header offers:
+
+- **Sync** (the cloud-upload icon), when the sandbox has changes that GitHub
+  does not have yet. It commits all uncommitted changes in the sandbox (your Files edits
+  and the agent's). Then it pushes all commits to the conversation's branch;
+- **Create PR**, which opens a pull request from the conversation's branch to
+  the default branch, keeping the agent's commits;
+- **Show PR**, which opens that pull request while it is open. Commits that
+  you push later are added to it.
+
+Review and merge the pull request like any other. Once it is merged, the
+Workspace re-indexes the new commit. After the merge, the next message
+continues on a fresh branch (`…/<n+1>`) from the new default commit. Work
+that is not in the merged pull request moves to that branch. A pull request
+that is closed without a merge keeps its branch: choose **Create PR** again to
+open a new pull request from it. If someone else pushes to the conversation's
+branch, ctx| does not overwrite their commits: ask the agent to rebase onto
+their commits before you push again.
+
+If the default branch moves while a conversation is open, ctx| brings the
+conversation's branch up to date before the next message. If that update
+conflicts, the conversation shows **Branch needs a rebase**; keep chatting and
+the agent resolves the conflict before you publish.
+
+## Where the agent runs
+
+Each conversation runs in its own isolated sandbox with a copy of the
+workspace repository. The first message in a conversation may take a little
+longer while the sandbox starts (**Setting up sandbox**); later messages reuse
+it.
+
+On hosted ctx|, each conversation gets its own
+[Vercel Sandbox](https://vercel.com/docs/vercel-sandbox) microVM, never shared
+with another conversation or organization:
+
+- **Your files are saved.** When a conversation goes idle, its sandbox stops
+  and saves its files. Your next message resumes it with the files where the
+  agent left them. Saved files are deleted 29 days after the conversation was
+  last used. Before that, commits not yet on GitHub are pushed to the
+  conversation's branch. If someone else pushed to that branch, the commits
+  go to a fresh branch. The pull request stays with the old branch, so choose
+  **Create PR** to open one from the fresh branch. If the push fails, ctx|
+  keeps the sandbox and tries again later. Files nobody committed are deleted
+  with the sandbox.
+- **The agent can use the internet.** It can read documentation and install
+  packages, as on a developer machine.
+- **No credential is inside the sandbox.** The sandbox's firewall is outside
+  the sandbox. It adds each credential to a request on the way out, so the
+  agent never sees the credentials.
+  - Read access to the workspace repository is added to GitHub requests. The
+    GitHub token is short-lived. It is replaced regularly and revoked when
+    the sandbox stops.
+  - Access to the model and to the Workspace tools is added to ctx| requests
+    only while a message is in progress. It is removed when the reply ends.
+
+The sandbox never holds a credential that can push to your default branch.
+Model calls, Workspace tools, and pushes to the conversation's branch go
+through ctx|, scoped to that conversation.
+
+## Know the limits
+
+Chat combines retrieved files, graph claims, and code search. It can still
+miss a file, read an index that is a few minutes behind, or state a
+relationship too strongly. For consequential answers:
+
+- ask which files support the answer;
+- ask what is verified and what is inferred;
+- check the Workspace's indexing status in **Settings**;
+- read the current code before making a risky change.
+
+Anyone who can read a Workspace's repository can read what connectors mirrored
+into it, so the repository's access settings are part of who can see
+captured Slack threads and mirrored Linear, Notion, or Confluence content.
+
+## Chat from your coding agent
+
+Coding agents reach the same context through [ctx| MCP](/docs/mcp/mcp-docs).
+Today `ctx_advisor` asks your organization's first Workspace. Conversations
+started over MCP do not appear in the sidebar.

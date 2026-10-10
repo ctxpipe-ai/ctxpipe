@@ -1,9 +1,9 @@
-import { IconLoader2 } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
+import { SkeletonRow } from "@/components/ui/Skeleton"
 import {
   atlassianConnectorKeys,
   fetchAtlassianConnectorConfig,
@@ -96,7 +96,7 @@ export function EditScopeModal({
 
   return (
     <div
-      className={`flex min-h-0 min-w-0 w-full max-w-full flex-col rounded-none ${
+      className={`flex min-h-0 min-w-0 w-full max-w-full flex-col rounded-md ${
         embedded
           ? "h-[min(520px,calc(var(--visual-viewport-height)*0.62))]"
           : "h-[min(660px,calc(var(--visual-viewport-height)*0.88))]"
@@ -121,9 +121,13 @@ export function EditScopeModal({
         }`}
       >
         {isLoadingScope ? (
-          <div className="flex items-center gap-2 pt-4 text-sm text-muted-foreground">
-            <IconLoader2 className="h-4 w-4 animate-spin" />
-            Loading saved scope...
+          <div className="space-y-0.5 pt-4" aria-busy>
+            <span className="sr-only">Loading saved scope</span>
+            <SkeletonRow />
+            <SkeletonRow className="pl-4" />
+            <SkeletonRow className="pl-4" />
+            <SkeletonRow />
+            <SkeletonRow className="pl-4" />
           </div>
         ) : scopeLoadError ? (
           <p className="pt-4 text-sm text-destructive">
@@ -138,6 +142,12 @@ export function EditScopeModal({
               <Link
                 to="/$orgSlug/connectors"
                 params={{ orgSlug }}
+                search={{
+                  error: undefined,
+                  error_description: undefined,
+                  pendingAccountClaim: undefined,
+                  notionConnectionId: undefined,
+                }}
                 className="text-teal-500 underline-offset-2 hover:underline"
               >
                 Connectors
@@ -166,7 +176,7 @@ export function EditScopeModal({
           <Button
             type="button"
             variant="secondary"
-            className="rounded-none"
+            className="rounded-md"
             onPress={onClose}
             isDisabled={scopeMutation.isPending}
           >
@@ -175,7 +185,7 @@ export function EditScopeModal({
           <Button
             type="button"
             variant="primary"
-            className="rounded-none"
+            className="rounded-md"
             isPending={scopeMutation.isPending}
             isDisabled={scopeLoadError || savedScope === null || isLoadingScope}
             onPress={() => {

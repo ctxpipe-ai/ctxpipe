@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { createRequire } from "node:module"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -46,12 +47,31 @@ const config = defineConfig({
       },
     },
   },
+  test: {
+    server: {
+      deps: {
+        // Load React Aria and React Query through Vite, as the app code is, so
+        // a jsdom test renders them with the same React copy as react-dom.
+        inline: [
+          /react-aria/,
+          /react-stately/,
+          /@internationalized\//,
+          /@tanstack\/react-query/,
+        ],
+      },
+    },
+  },
   plugins: [
     devtools(),
     tsconfigPaths({ projects: ["./tsconfig.json"] }),
     tailwindcss(),
     tanstackStart(),
-    nitroV2Plugin({ preset: "bun" }),
+    nitroV2Plugin({
+      preset: "bun",
+      alias: {
+        "@/cosmograph/style.module.css": cosmographStyleAlias,
+      },
+    }),
     motionwind(),
     viteReact(),
   ],

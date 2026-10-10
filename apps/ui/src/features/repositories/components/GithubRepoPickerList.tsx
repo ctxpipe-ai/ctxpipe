@@ -1,6 +1,10 @@
 import { useVirtualizer } from "@tanstack/react-virtual"
 import { useRef } from "react"
+import { RadioGroup as RACRadioGroup } from "react-aria-components"
 import { Checkbox } from "@/components/ui/Checkbox"
+import { Radio } from "@/components/ui/RadioGroup"
+import { SkeletonRow } from "@/components/ui/Skeleton"
+import { cn } from "@/lib/utils"
 import type { GithubRepoItem } from "../githubRepoSelection"
 
 const ROW_SIZE_PX = 40
@@ -9,10 +13,15 @@ export function GithubRepoPickerList({
   repos,
   selectedIds,
   onToggle,
+  selectionMode = "multiple",
+  className,
 }: {
   repos: readonly GithubRepoItem[]
   selectedIds: ReadonlySet<number>
   onToggle: (id: number, selected: boolean) => void
+  /** `single` renders radios in one group; `multiple` renders checkboxes. */
+  selectionMode?: "single" | "multiple"
+  className?: string
 }) {
   const parentRef = useRef<HTMLDivElement>(null)
   const virtualizer = useVirtualizer({
@@ -23,46 +32,102 @@ export function GithubRepoPickerList({
     getItemKey: (index) => repos[index]?.id ?? index,
   })
 
-  return (
-    <div
-      ref={parentRef}
-      className="max-h-96 overflow-auto rounded-none border border-white/[0.06] bg-card/40 [overflow-anchor:none]"
+  const list = (
+    <ul
+      aria-label="Repositories"
+      className="relative m-0 w-full list-none p-0"
+      style={{ height: virtualizer.getTotalSize() }}
     >
-      <ul
-        aria-label="Repositories"
-        className="relative m-0 w-full list-none p-0"
-        style={{ height: virtualizer.getTotalSize() }}
-      >
-        {virtualizer.getVirtualItems().map((virtualRow) => {
-          const repo = repos[virtualRow.index]
-          if (!repo) return null
-          const isSelected = selectedIds.has(repo.id)
-          return (
-            <li
-              key={virtualRow.key}
-              className={`absolute top-0 left-0 w-full overflow-hidden ${
-                virtualRow.index === 0 ? "" : "border-t border-white/[0.06]"
-              }`}
-              style={{
-                height: ROW_SIZE_PX,
-                transform: `translateY(${virtualRow.start}px)`,
-              }}
-            >
+      {virtualizer.getVirtualItems().map((virtualRow) => {
+        const repo = repos[virtualRow.index]
+        if (!repo) return null
+        const isSelected = selectedIds.has(repo.id)
+        const rowClassName = `h-full w-full px-3 ${
+          isSelected
+            ? "bg-zinc-700/30 hover:bg-zinc-700/40"
+            : "hover:bg-zinc-700/60"
+        }`
+        return (
+          <li
+            key={virtualRow.key}
+            className={`absolute top-0 left-0 w-full overflow-hidden ${
+              virtualRow.index === 0 ? "" : "border-t border-white/[0.06]"
+            }`}
+            style={{
+              height: ROW_SIZE_PX,
+              transform: `translateY(${virtualRow.start}px)`,
+            }}
+          >
+            {selectionMode === "single" ? (
+              <Radio value={String(repo.id)} className={rowClassName}>
+                <span className="min-w-0 truncate">{repo.full_name}</span>
+              </Radio>
+            ) : (
               <Checkbox
                 isSelected={isSelected}
                 onChange={(selected) => onToggle(repo.id, selected)}
-                className={`h-full w-full rounded-none px-3 ${
-                  isSelected
-                    ? "bg-zinc-700/30 hover:bg-zinc-700/40"
-                    : "hover:bg-zinc-700/60"
-                }`}
+                className={`rounded-md ${rowClassName}`}
               >
                 <span className="min-w-0 truncate">{repo.full_name}</span>
               </Checkbox>
-            </li>
-          )
-        })}
-      </ul>
+            )}
+          </li>
+        )
+      })}
+    </ul>
+  )
+  const selectedValue = selectedIds.size ? String([...selectedIds][0]) : null
+
+  return (
+    <div
+      ref={parentRef}
+      className={cn(
+        "max-h-96 overflow-auto rounded-md border border-white/[0.06] bg-card/40 [overflow-anchor:none]",
+        className,
+      )}
+    >
+      {selectionMode === "single" ? (
+        <RACRadioGroup
+          aria-label="Repositories"
+          value={selectedValue}
+          onChange={(value) => onToggle(Number(value), true)}
+          className="contents"
+        >
+          {list}
+        </RACRadioGroup>
+      ) : (
+        list
+      )}
+    </div>
+  )
+}
+
+export function GithubRepoPickerSkeleton({
+  rows = 6,
+  className,
+}: {
+  rows?: number
+  className?: string
+}) {
+  const keys = ["one", "two", "three", "four", "five", "six", "seven", "eight"]
+  return (
+    <div
+      className={cn(
+        "max-h-96 overflow-hidden rounded-md border border-white/[0.06] bg-card/40",
+        className,
+      )}
+      aria-busy
+    >
+      <span className="sr-only">Loading repositories</span>
+      {keys.slice(0, rows).map((id, index) => (
+        <SkeletonRow
+          key={id}
+          className={cn(
+            "h-10 px-3",
+            index > 0 && "border-t border-white/[0.06]",
+          )}
+        />
+      ))}
     </div>
   )
 }

@@ -6,18 +6,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 
-const { useQueriesMock, useQueryMock } = vi.hoisted(() => ({
-  useQueriesMock: vi.fn(),
+const { useQueryMock } = vi.hoisted(() => ({
   useQueryMock: vi.fn(),
 }))
 
 vi.mock("@tanstack/react-query", () => ({
+  queryOptions: (options: unknown) => options,
   useMutation: () => ({
     isPending: false,
     mutate: vi.fn(),
     mutateAsync: vi.fn(),
   }),
-  useQueries: useQueriesMock,
   useQuery: useQueryMock,
   useQueryClient: () => ({
     invalidateQueries: vi.fn(),
@@ -95,12 +94,6 @@ vi.mock("../queries/pagerduty-connector", () => ({
   searchPagerdutyServices: vi.fn(),
 }))
 
-vi.mock("./ConnectorContextRepositoryGuidance", () => ({
-  CONNECTOR_CONTEXT_REPOSITORY_NAME: "ctxpipe-context",
-  ConnectorContextRepositoryGuidance: () => null,
-  getConnectorContextRepositoryCreateUrl: () => "https://github.com/new",
-}))
-
 vi.mock("./ConnectorSetupStepper", () => ({
   ConnectorSetupStepper: () => null,
 }))
@@ -119,8 +112,6 @@ describe("PagerdutySetupDialog", () => {
   let root: Root | null = null
 
   beforeEach(() => {
-    useQueriesMock.mockReset()
-    useQueriesMock.mockReturnValue([])
     useQueryMock.mockReset()
     useQueryMock.mockReturnValue({
       data: undefined,
@@ -234,23 +225,14 @@ describe("PagerdutySetupDialog", () => {
         ?.enabled,
     ).toBe(false)
     expect(
-      queryOptions.find(({ queryKey }) => queryKey[0] === "repositories")
-        ?.enabled,
-    ).toBe(false)
-    expect(
       queryOptions.find(({ queryKey }) => queryKey[0] === "suggestion")
         ?.enabled,
     ).toBe(false)
     expect(
-      queryOptions.find(({ queryKey }) => queryKey[0] === "github-repos")
-        ?.enabled,
+      queryOptions.some(
+        ({ queryKey }) =>
+          queryKey[0] === "repositories" || queryKey[0] === "github-repos",
+      ),
     ).toBe(false)
-    expect(
-      (
-        useQueriesMock.mock.calls[0]?.[0] as {
-          queries: Array<{ enabled?: boolean }>
-        }
-      ).queries.every(({ enabled }) => enabled === false),
-    ).toBe(true)
   })
 })

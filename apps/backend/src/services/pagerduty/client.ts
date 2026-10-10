@@ -4,15 +4,15 @@ import type {
   PagerdutyOAuthAppCreds,
   PagerdutyRegion,
 } from "../../lib/connection-config.js"
-import {
-  PAGERDUTY_INCIDENT_LOOKBACK_DAYS,
-  PAGERDUTY_MAX_INCIDENTS_PER_SERVICE,
-} from "./limits.js"
 import type {
   PagerdutyAlertForMirror,
   PagerdutyIncidentForMirror,
   PagerdutyNoteForMirror,
 } from "./converter.js"
+import {
+  PAGERDUTY_INCIDENT_LOOKBACK_DAYS,
+  PAGERDUTY_MAX_INCIDENTS_PER_SERVICE,
+} from "./limits.js"
 
 export const PAGERDUTY_OAUTH_SCOPES = [
   "incidents.read",
@@ -112,7 +112,6 @@ type TokenResponse = {
 }
 
 async function exchangePagerdutyToken(
-  env: Env,
   creds: PagerdutyOAuthAppCreds,
   body: URLSearchParams,
 ): Promise<TokenResponse> {
@@ -155,7 +154,7 @@ export async function exchangePagerdutyOAuthCode(input: {
     redirect_uri: pagerdutyRedirectUri(input.env),
     code_verifier: input.codeVerifier,
   })
-  const token = await exchangePagerdutyToken(input.env, input.creds, body)
+  const token = await exchangePagerdutyToken(input.creds, body)
   return {
     accessToken: token.access_token,
     refreshToken: token.refresh_token ?? null,
@@ -176,7 +175,7 @@ export async function refreshPagerdutyOAuthToken(input: {
     grant_type: "refresh_token",
     refresh_token: input.refreshToken,
   })
-  const token = await exchangePagerdutyToken(input.env, input.creds, body)
+  const token = await exchangePagerdutyToken(input.creds, body)
   return {
     accessToken: token.access_token,
     refreshToken: token.refresh_token ?? input.refreshToken,
@@ -472,8 +471,7 @@ function mapIncident(
         : typeof raw.summary === "string"
           ? raw.summary
           : "Incident",
-    htmlUrl:
-      typeof raw.html_url === "string" ? raw.html_url : "",
+    htmlUrl: typeof raw.html_url === "string" ? raw.html_url : "",
     status: typeof raw.status === "string" ? raw.status : "unknown",
     urgency: typeof raw.urgency === "string" ? raw.urgency : null,
     priority: referenceName(raw.priority),
@@ -571,7 +569,10 @@ async function listPagerdutyIncidentAlerts(input: {
   region: PagerdutyRegion
   incidentId: string
 }): Promise<PagerdutyAlertForMirror[]> {
-  const search = new URLSearchParams({ limit: "100", sort_by: "created_at:asc" })
+  const search = new URLSearchParams({
+    limit: "100",
+    sort_by: "created_at:asc",
+  })
   const response = await pagerdutyFetch({
     region: input.region,
     accessToken: input.accessToken,
@@ -655,7 +656,9 @@ export async function createPagerdutyWebhookSubscription(input: {
   const id = body.webhook_subscription?.id
   const secret = body.webhook_subscription?.delivery_method?.secret
   if (!id || !secret) {
-    throw new Error("PagerDuty webhook subscription did not return an id/secret")
+    throw new Error(
+      "PagerDuty webhook subscription did not return an id/secret",
+    )
   }
   return { id, secret }
 }

@@ -33,6 +33,122 @@ describe("defineObservedWorkflow", () => {
     ).toBe(false)
   })
 
+  it("keeps a strict refined schema valid when enqueue adds telemetry", async () => {
+    const workflow = defineWorkflow(
+      {
+        name: "workspace-hydrate-strict",
+        schema: z
+          .object({
+            orgId: z.string(),
+            workspaceId: z.string(),
+          })
+          .strict()
+          .refine((input) => input.workspaceId.startsWith("ws_"), "workspace"),
+      },
+      async ({ input }) => ({
+        workspaceId: input.workspaceId,
+        attribution: readAttribution(),
+      }),
+    )
+    await expect(
+      workflow.fn({
+        input: {
+          orgId: "org_1",
+          workspaceId: "ws_1",
+          telemetry: { "request.id": "req_1" },
+        },
+        step: {} as never,
+        version: null,
+        run: {} as never,
+      }),
+    ).resolves.toMatchObject({
+      workspaceId: "ws_1",
+      attribution: {
+        "ctxpipe.workspace.id": "ws_1",
+        "request.id": "req_1",
+      },
+    })
+  })
+
+  it("lets a body re-parse its strict input schema when enqueue added telemetry", async () => {
+    // Workspace write workflows (link-unlink, extract-ingest, bootstrap, …) parse
+    // `queuedInput` with their own strict schema as their first line.
+    const schema = z
+      .object({ orgId: z.string(), workspaceId: z.string() })
+      .strict()
+    const workflow = defineWorkflow(
+      { name: "workspace-write-link-unlink-strict", schema },
+      async ({ input }) => ({
+        input: schema.parse(input),
+        attribution: readAttribution(),
+      }),
+    )
+    await expect(
+      workflow.fn({
+        input: {
+          orgId: "org_1",
+          workspaceId: "ws_1",
+          telemetry: { "request.id": "req_1" },
+        },
+        step: {} as never,
+        version: null,
+        run: {} as never,
+      }),
+    ).resolves.toMatchObject({
+      input: { orgId: "org_1", workspaceId: "ws_1" },
+      attribution: { "request.id": "req_1" },
+    })
+  })
+
+  it("accepts enqueue telemetry on a union schema and still rejects invalid input", async () => {
+    const workflow = defineWorkflow(
+      {
+        name: "workspace-bootstrap-union",
+        schema: z.union([
+          z.object({ orgId: z.string(), workspaceId: z.string() }).strict(),
+          z.object({ orgId: z.string(), unborn: z.literal(true) }).strict(),
+        ]),
+      },
+      async () => readAttribution(),
+    )
+    const validate = (value: unknown) =>
+      workflow.spec.schema?.["~standard"].validate(value)
+
+    expect(
+      await validate({
+        orgId: "org_1",
+        workspaceId: "ws_1",
+        telemetry: { "request.id": "req_1" },
+      }),
+    ).toMatchObject({
+      value: {
+        orgId: "org_1",
+        workspaceId: "ws_1",
+        telemetry: { "request.id": "req_1" },
+      },
+    })
+    expect(
+      await validate({ orgId: "org_1", workspaceId: "ws_1", extra: true }),
+    ).toMatchObject({ issues: expect.any(Array) })
+    await expect(
+      workflow.fn({
+        input: {
+          orgId: "org_1",
+          workspaceId: "ws_1",
+          telemetry: { "request.id": "req_1" },
+        },
+        step: {} as never,
+        version: null,
+        run: {} as never,
+      }),
+    ).resolves.toMatchObject({
+      "ctxpipe.actor.type": "job",
+      "ctxpipe.org.id": "org_1",
+      "ctxpipe.workspace.id": "ws_1",
+      "request.id": "req_1",
+    })
+  })
+
   it("gives a child run the parent attribution and a link to the parent span", async () => {
     const child = defineWorkflow(
       {

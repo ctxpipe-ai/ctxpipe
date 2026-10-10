@@ -26,7 +26,8 @@ keep a running instance healthy and to diagnose component-level failures.
 ## Migrations
 
 The Compose `deploy` profile starts a `migrate` service before backend, worker,
-UI, and codesearch. It runs:
+UI, and codesearch. Migrate uses the owner URL and provisions `ctxpipe_app`.
+App processes use the app-role `DATABASE_URL`. The migrate container runs:
 
 ```bash
 bun run apps/backend/src/db/migrate.ts
@@ -76,7 +77,96 @@ changes.
 | `zoekt_index_deploy` | Optional but recommended for large deployments. Rebuildable by reindexing. |
 | Secrets | Export from your secret manager or platform. Keep historical values needed for rollback. |
 
+## Chat sandbox host (AWS)
+
+`@ctxpipe/aws-cdk` runs Workspace chat sandboxes on one EC2 Docker host (see
+[AWS: Chat sandbox host](/docs/self-hosting/deployment/aws#chat-sandbox-host)).
+It holds no data you need to back up: a replaced host starts empty and
+conversations continue from their git branch.
+
+Find the instance from the `SandboxHostAutoScalingGroupName` stack output and
+open a shell with Session Manager (no SSH key or open port is needed):
+
+```bash
+aws ssm start-session --target <instance-id>
+```
+
+| Check | Command on the host | Expected result |
+|---|---|---|
+| Docker is up | `sudo systemctl is-active docker` | `active` |
+| Docker volume | `df -h /var/lib/docker` | Below 80% used. The disk alarm fires at 80%. |
+| What uses the disk | `sudo docker system df` | Images, containers, and build cache sizes |
+| Sandboxes | `sudo docker ps -a` | One container per recent conversation; stopped ones are idle sandboxes |
+| Memory cap | `systemctl status ctxpipe-sandboxes.slice` | Memory in use stays below the slice limit (85% of host memory) |
+| Chat image | `sudo docker image ls ghcr.io/ctxpipe-ai/chat-sandbox` | The tag the backend's `SANDBOX_CHAT_IMAGE` names, after the first chat of a release |
+| Boot log | `sudo tail -n 100 /var/log/cloud-init-output.log` | Ends with the CloudFormation success signal |
+
+Sandboxes stop after 5 minutes idle and are removed 30 days after last use;
+an organization runs at most 50 at once. If the volume still fills, check
+`docker system df` for what grows, then raise
+`sandboxHost.dockerVolumeSizeGiB` and run `cdk deploy`; the new size replaces
+the host. Do not run `docker system prune` while conversations are active: it
+deletes stopped sandboxes that conversations would resume.
+
+## Chat sandboxes (Docker Compose)
+
+The Compose deploy profile runs Workspace chat sandboxes inside the `dind`
+service (see [Docker: Chat sandboxes](/docs/self-hosting/deployment/docker#chat-sandboxes)).
+Its `sandbox_docker` volume holds no data you need to back up. Run these from
+the repository root:
+
+| Check | Command | Expected result |
+|---|---|---|
+| Daemon is up | `docker compose --profile deploy ps dind` | `healthy` |
+| Chat image | `docker compose --profile deploy logs chat-sandbox-image` | Ends with the image ID (`sha256:…`) |
+| Sandbox disk | `docker compose exec dind df -h /var/lib/docker` | Room left on the host disk that holds the Docker volumes |
+| What uses the disk | `docker compose exec dind docker system df` | Images, containers, and build cache sizes |
+| Sandboxes | `docker compose exec dind docker ps -a` | One container per recent conversation; stopped ones are idle sandboxes |
+| Memory cap | `docker compose exec dind cat /sys/fs/cgroup/ctxpipe-sandboxes/memory.current /sys/fs/cgroup/ctxpipe-sandboxes/memory.max` | Memory in use stays below the cap. Missing on hosts without cgroup v2 (`dind` logs a warning). |
+| Metadata block | `docker compose exec dind iptables -t raw -S PREROUTING` | Includes `-d 169.254.169.254/32 -j DROP` |
+| No published data stores | `docker port $(docker compose ps -q postgres falkordb)` | Prints nothing |
+| No host socket | `docker inspect --format '{{range .Mounts}}{{.Source}} {{end}}' $(docker compose ps -q backend worker)` | No `/var/run/docker.sock` |
+
+Sandboxes stop and are removed on the same schedule as on AWS. To free disk
+without touching sandboxes, remove superseded chat images and build cache:
+
+```bash
+docker compose exec dind docker image prune -f
+docker compose exec dind docker builder prune -f
+```
+
+`docker image prune` keeps every image a container still uses. Do not run
+`docker system prune` or `docker container prune` inside `dind` while
+conversations are active: they delete stopped sandboxes that conversations
+would resume.
+
 ## Recovery runbooks
+
+### Workspace chat fails to start on Docker Compose
+
+- A 503 saying the Docker daemon is not reachable means `dind` is down:
+  confirm it is healthy (`docker compose --profile deploy ps -a`) and check
+  `docker compose logs dind`.
+- A 503 saying the chat sandbox image is missing means `chat-sandbox-image`
+  has not finished or failed (for example a package mirror was unreachable,
+  or the `sandbox_docker` volume was removed). Check its logs and rerun it:
+  `docker compose --profile deploy up -d chat-sandbox-image`.
+- Check backend logs for Docker TLS errors. After the `sandbox_ca` volume is
+  removed, restart `backend` and `worker` so they read the new certificates.
+- `dind` needs a privileged container. On a host that refuses one, see the
+  last-resort option in [Docker: Chat sandboxes](/docs/self-hosting/deployment/docker#chat-sandboxes).
+
+### Workspace chat fails to start on AWS
+
+- Confirm the sandbox host instance is `InService` in its Auto Scaling group.
+- Check backend logs for Docker connection or TLS errors. Backend and worker
+  reach the host at `sandbox-host.ctxpipe.local:2376`; the host registers that
+  name when it finishes booting.
+- If the backend reports that the chat sandbox image is missing, the host
+  could not pull `ghcr.io/ctxpipe-ai/chat-sandbox`. Check the host's outbound
+  access to `ghcr.io` through NAT.
+- Terminate the instance to get a fresh host. The Auto Scaling group replaces
+  it in a few minutes and reuses the stored TLS certificates.
 
 ### App loads but sign-in fails
 

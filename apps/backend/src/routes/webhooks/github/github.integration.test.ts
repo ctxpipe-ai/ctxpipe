@@ -2,7 +2,6 @@ import { generateKeyPairSync } from "node:crypto"
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { Webhooks } from "@octokit/webhooks"
 import { evlog } from "evlog/hono"
-import { contextStorage } from "hono/context-storage"
 import { HttpResponse, http } from "msw"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import {
@@ -22,6 +21,10 @@ import {
   registerInstallationOnConnection,
 } from "../../../models/github-installation.js"
 import { backendOtelMiddleware } from "../../../observability/http.js"
+import {
+  contextStorage,
+  withTestRequestLogger,
+} from "../../../test/hono-test-logger.js"
 import { registerGithubWebhookRoute } from "./github.js"
 
 const installationId = 626_262
@@ -75,6 +78,7 @@ describe("GitHub webhooks reach only the connections they belong to (Postgres)",
     app.use(contextStorage())
     app.use("*", backendOtelMiddleware())
     app.use(evlog())
+    app.use(withTestRequestLogger)
     app.use("*", async (c, next) => {
       c.set("env", env)
       await next()

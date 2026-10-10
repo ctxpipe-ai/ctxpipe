@@ -1,0 +1,11 @@
+{
+  "title": "Workspaces",
+  "pages": [
+    "index",
+    "create-workspace",
+    "knowledge-files",
+    "linked-repositories",
+    "chat",
+    "graph"
+  ]
+}

@@ -60,7 +60,7 @@ describe("Notion connector API helpers", () => {
 
     expect(fetch).toHaveBeenCalledWith(
       "/acme/api/v1/connectors/notion/retry?connectionId=con_notion",
-      { method: "POST", credentials: "include" },
+      expect.objectContaining({ method: "POST", credentials: "include" }),
     )
   })
 
@@ -78,12 +78,12 @@ describe("Notion connector API helpers", () => {
 
     expect(fetch).toHaveBeenCalledWith(
       "/acme/api/v1/connectors/notion/retry-config?connectionId=con_notion",
-      {
+      expect.objectContaining({
         method: "POST",
         credentials: "include",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ resources }),
-      },
+      }),
     )
   })
 })

@@ -1,129 +1,126 @@
 ---
 title: Hosted quickstart
-description: Connect a repository, check its context, and configure an MCP client.
+description: Create an account, connect GitHub, create a Workspace, and configure an MCP client.
 ---
 
-Use this guide to connect one repository to hosted ctx| and make its context
-available to an AI coding agent.
+Use this guide to set up hosted ctx| with one Workspace and make it available
+to an AI coding agent.
 
 ## Before you start
 
 You need:
 
-- access to a ctx| organization,
-- permission to install or request the ctx| GitHub App,
-- a GitHub repository you want ctx| to index,
-- and Cursor, Claude Code, Codex, OpenCode, or VS Code/Copilot with MCP support.
+- permission to install or request the ctx| GitHub App on your GitHub account
+  or organization;
+- a GitHub repository for the Workspace's knowledge. An empty repository is
+  fine, and you can create one during setup;
+- optionally, code repositories to link;
+- Cursor, Claude Code, Codex, OpenCode, or VS Code/Copilot with MCP support.
 
 <Callout type="info" title="Self-hosting?">
   This page covers the hosted product. Start with the
-  [self-hosting quickstart](/docs/self-hosting/quickstart) if your team operates
+  [self-hosting quickstart](/docs/self-hosting/quickstart) if your team runs
   its own deployment.
 </Callout>
 
-## 1. Connect one repository
+## 1. Sign up and connect GitHub
 
 <Steps>
   <Step>
+    ### Create your organization
+
+    Sign up at [app.ctxpipe.ai](https://app.ctxpipe.ai). Onboarding asks you to
+    create an organization, or join your team's if your email domain is
+    verified.
+  </Step>
+
+  <Step>
     ### Install the GitHub App
 
-    Open **Connectors**, choose **Add connection**, then select **GitHub**.
-    Install or authorize the ctx| GitHub App for the GitHub account or
-    organization that owns your repository.
-  </Step>
-
-  <Step>
-    ### Select a repository
-
-    Open **Repositories** and choose **Select repositories** from the empty state
-    or repository actions menu. Select a repository and save the change.
-
-    If a repository is marked **pending indexing**, choose **Index now**.
-  </Step>
-
-  <Step>
-    ### Wait for indexing
-
-    After indexing starts, the repository moves from **queued** to **indexing**
-    and then **indexed**. A repository may instead finish as **complete with
-    issues** when some indexing output is unavailable.
-
-    Chat becomes available after the first repository finishes indexing.
+    On the GitHub step, install or authorize the ctx| GitHub App for the
+    account or organization that owns your repositories. Give it access to the
+    repository you want to use for knowledge, and to any code repositories you
+    want to link.
   </Step>
 </Steps>
 
-<ImageSlot
-  title="Git sources"
-  src="/repositories.png"
-  alt="Git sources page showing indexed repositories"
-  description="The repository inventory shows what currently contributes to your organization context."
-/>
+## 2. Create a Workspace
 
-## 2. Test the context in Chat
+Choose **Create workspace**, then pick the workspace repository:
 
-Open **Chat** and ask a question about the indexed repository. Ask for supporting
-file paths so you can inspect the source behind the answer:
+- **Select GitHub** to use an existing repository;
+- **Create on GitHub** to create a new one, then select it;
+- **Paste URL** for any other git URL (read-only).
+
+ctx| adds `AGENTS.md` and a knowledge skill if they are missing and starts
+indexing. See [Create a Workspace](/docs/workspaces/create-workspace).
+
+## 3. Link code repositories
+
+In the Workspace, open **Settings**, then **Add repositories** under **Linked
+repositories**. Each repository moves from **Pending** to **Indexing** to
+**Indexed**. See [Linked repositories](/docs/workspaces/linked-repositories).
+
+## 4. Ask in Workspace chat
+
+Type a question in the Workspace and ask for the files behind the answer:
 
 ```text
-What are the main services in this repository, and which files support that answer?
+What are the main services here, and which files support that answer?
 ```
 
 ```text
-Before changing authentication, what architecture decisions and standards should an engineer read?
+Before changing authentication, which decisions and standards should an engineer read?
 ```
 
-A useful answer should identify relevant files and distinguish source-backed
-facts from recommendations. Check those files before acting on a consequential
-answer.
+A useful answer names relevant files and separates facts from
+recommendations. See [Workspace chat](/docs/workspaces/chat).
 
-## 3. Install ctx| MCP
+## 5. Install ctx| MCP
 
-Run the interactive installer from a repository:
+Onboarding shows MCP setup, including a flow that opens pull requests adding
+ctx| to your repositories' agent config. To set up your own machine, run this
+from a repository:
 
 ```bash
 npx ctxpipe init
 ```
 
-The installer signs you in, asks which ctx| organization and clients to
-configure, and writes configuration for the repository, your user profile, or
-both. It can also initialize local Markdown memory. Your MCP client will ask you
-to authorize ctx| the first time it connects.
+The installer signs you in, asks which organization and clients to configure,
+and writes configuration for the repository, your user profile, or both. Your
+MCP client asks you to authorize ctx| the first time it connects.
 
-Then give the agent a concrete discovery task:
+Then give the agent a concrete task:
 
 ```text
 Use ctx_advisor before planning this change. Find the relevant standards,
-decisions, and source areas, and label anything that still needs code verification.
+decisions, and source areas, and say what still needs checking in code.
 ```
 
-See [Remote MCP](/docs/mcp/mcp-docs) for team pull requests, non-interactive CLI
-flags, and manual client configuration.
+See [Remote MCP](/docs/mcp/mcp-docs) for team pull requests, non-interactive
+flags, and manual configuration.
 
-## 4. Connect additional sources
+## 6. Connect more sources
 
-Connect other sources when their content should be available through the same
-search and MCP context:
+From **Connectors**, add the tools whose content should live in the Workspace:
 
-- **Linear, Notion, and Confluence** propose selected scope through a
-  configuration pull request, then mirror content into the bound GitHub
-  repository.
-- **Slack** captures an existing thread when someone mentions the ctx| bot
-  inside that thread. It does not mirror channels or search the workspace.
+- **Linear, Notion, Confluence, and PagerDuty** propose their scope as a
+  configuration pull request, then mirror the selected content into the
+  Workspace.
+- **Slack** captures an existing thread when someone mentions the ctx| bot in
+  it.
 
-A dedicated [context repository](/docs/connections/context-repository) is
-recommended when those sources should share a Git-backed audit trail, but it is
-not required.
+See [Connections](/docs/connections).
 
 ## Setup is complete when
 
-- the repository is indexed,
-- Chat can answer a repository question and cite useful source paths,
-- your MCP client can call `ctx_advisor`,
-- and the agent can identify the repository context relevant to a task.
+- the Workspace's index is ready and its linked repositories are indexed;
+- Workspace chat answers a question and cites useful files;
+- your MCP client can call `ctx_advisor`.
 
 <Cards>
-  <Card title="How ctx| works" href="/docs/getting-started/how-it-works" description="Understand the full source-to-agent flow." />
-  <Card title="Manage repositories" href="/docs/git-repositories/manage-repositories" description="Control scope, status, retries, and removal." />
-  <Card title="Source connectors" href="/docs/connections/source-connectors" description="Compare Git sources, scoped mirrors, and intent capture." />
-  <Card title="Data and privacy" href="/docs/resources/data-processing" description="Understand hosted processing, providers, and control boundaries." />
+  <Card title="How ctx| works" href="/docs/getting-started/how-it-works" description="The full source-to-answer flow." />
+  <Card title="Knowledge files" href="/docs/workspaces/knowledge-files" description="Write knowledge ctx| can use." />
+  <Card title="Source connectors" href="/docs/connections/source-connectors" description="Bring in docs, issues, and conversations." />
+  <Card title="Data and privacy" href="/docs/resources/data-processing" description="Hosted processing, providers, and control boundaries." />
 </Cards>

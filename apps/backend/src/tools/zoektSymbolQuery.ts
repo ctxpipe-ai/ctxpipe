@@ -77,7 +77,10 @@ export function languageZoektClause(language: string): string {
 }
 
 /** Symbol definition search: Zoekt sym: index (requires ctags at index time). */
-export function buildSymbolDefinitionQuery(symbol: string, language: string): string {
+export function buildSymbolDefinitionQuery(
+  symbol: string,
+  language: string,
+): string {
   const trimmed = symbol.trim()
   if (!trimmed) {
     throw new Error("symbol must be non-empty")
@@ -92,7 +95,10 @@ export function buildSymbolDefinitionQuery(symbol: string, language: string): st
 /**
  * Heuristic references: word-boundary content regexp (not compiler-accurate refs).
  */
-export function buildSymbolReferencesQuery(symbol: string, language: string): string {
+export function buildSymbolReferencesQuery(
+  symbol: string,
+  language: string,
+): string {
   const trimmed = symbol.trim()
   if (!trimmed) {
     throw new Error("symbol must be non-empty")

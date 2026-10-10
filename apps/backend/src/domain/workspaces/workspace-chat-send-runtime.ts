@@ -1,0 +1,56 @@
+import {
+  ensureConversation,
+  touchConversationLastMessage,
+} from "../../models/conversations.js"
+import { getWorkspaceById } from "../../models/workspaces.js"
+import type { TanstackWorkspaceChatInput } from "./tanstack-workspace-chat.js"
+import { resolveWorkspaceChatTurnRuntime } from "./workspace-chat-turn-runtime.js"
+
+export async function resolveWorkspaceChatSendRuntime(input: {
+  conversationId: string
+  workspaceId: string
+  source?: string
+}): Promise<Partial<TanstackWorkspaceChatInput>> {
+  const conversation = await ensureConversation({
+    id: input.conversationId,
+    source: input.source,
+    workspaceId: input.workspaceId,
+  })
+  const workspace = conversation.workspaceId
+    ? await getWorkspaceById(conversation.workspaceId)
+    : null
+  const runtime = await resolveWorkspaceChatTurnRuntime({
+    conversation,
+    workspace: workspace
+      ? {
+          id: workspace.id,
+          orgId: workspace.orgId,
+          workspaceRepositoryUrl: workspace.workspaceRepositoryUrl,
+          githubConnectionId: workspace.githubConnectionId ?? null,
+          writeStatus: workspace.writeStatus,
+          desiredSha: workspace.desiredSha,
+          desiredDefaultBranch: workspace.desiredDefaultBranch,
+          readOnlyReason: workspace.readOnlyReason,
+          desiredGeneration: workspace.desiredGeneration,
+        }
+      : null,
+  })
+  return {
+    orgId: runtime.orgId,
+    workspaceId: runtime.workspaceId ?? input.workspaceId,
+    desiredUrl: runtime.desiredUrl ?? "",
+    desiredSha: runtime.desiredSha,
+    desiredGeneration: runtime.desiredGeneration,
+    writeStatus: runtime.writeStatus,
+    defaultBranch: runtime.defaultBranch,
+    lastBranch: runtime.lastBranch,
+    ref: runtime.cloneRef || runtime.desiredSha || "HEAD",
+    githubConnectionId: runtime.githubConnectionId,
+  }
+}
+
+export async function persistWorkspaceChatUserTurnListed(
+  conversationId: string,
+): Promise<void> {
+  await touchConversationLastMessage(conversationId)
+}

@@ -4,6 +4,9 @@ import { z } from "zod"
 import type { AppEnv } from "../../../app/env.js"
 import type { Env } from "../../../config/env.js"
 import { withOrgDbContext } from "../../../db/client.js"
+import { ensureOrgRepositoryAndIngest } from "../../../domain/workspaces/ensure-org-repository.js"
+import { isDefaultBranchPush } from "../../../domain/workspaces/tip-resolve.js"
+import { rebindUnboundWorkspaces } from "../../../domain/workspaces/workspace-lifecycle.js"
 import { parseGithubConnectionStored } from "../../../lib/connection-config.js"
 import { githubRowHasAppCredentials } from "../../../models/connection-rows.js"
 import {
@@ -14,16 +17,14 @@ import {
   registerInstallationOnConnection,
 } from "../../../models/github-installation.js"
 import { findRepositoryByGithubInstallation } from "../../../models/repositories.js"
-import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../../openworkflow/enqueue-repository-ingestion.js"
-import { syncGithubRepositories } from "../../../openworkflow/workflows/sync-github-repositories.js"
+import { enqueueWorkspaceTipCheck } from "../../../openworkflow/enqueue-workspace-tip-check.js"
 import { noteResolvedWebhookConnections } from "../attribution.js"
 import { maybeEnqueueConfluenceSyncOnConfigPush } from "./github-confluence-push.js"
 import { maybeActivateLinearSyncOnConfigPush } from "./github-linear-push.js"
 import { maybeEnqueueNotionSyncOnConfigPush } from "./github-notion-push.js"
 import { maybeActivatePagerdutySyncOnConfigPush } from "./github-pagerduty-push.js"
 import { maybeEnqueueGithubPrMirror } from "./github-pr-mirror-events.js"
-import { maybeActivateGithubPrMirrorOnConfigPush } from "./github-pr-mirror-push.js"
 
 const pushPayloadSchema = z.object({
   ref: z.string(),
@@ -43,15 +44,6 @@ const pushPayloadSchema = z.object({
       }),
     )
     .optional(),
-})
-
-const repositoryCreatedSchema = z.object({
-  action: z.literal("created"),
-  repository: z.object({
-    full_name: z.string(),
-    clone_url: z.string(),
-  }),
-  installation: z.object({ id: z.number() }),
 })
 
 type GithubWebhookContext = {
@@ -120,6 +112,12 @@ async function registerInstallationFromConnectionWebhook(
     connectionId,
     installationId,
     env: ctx.env,
+  })
+  await rebindUnboundWorkspaces({
+    orgId: row.orgId,
+    connectionId,
+    env: ctx.env,
+    log: ctx.log,
   })
 }
 
@@ -231,19 +229,16 @@ async function processPushEvent(
     after,
     log: ctx.log,
   })
-  await maybeActivateGithubPrMirrorOnConfigPush({
-    installationId: installation.id,
+  const onDefaultBranch = isDefaultBranchPush(ref, defaultBranch)
+  const installationRows = await listInstallationsByGithubInstallationId(
+    installation.id,
     githubConnectionId,
-    repoFullName: repo.full_name,
-    ref,
-    commits,
-    before,
-    after,
-  })
-
-  if (ref !== `refs/heads/${defaultBranch}`) {
-    return
+  )
+  for (const installationRow of installationRows) {
+    await enqueueWorkspaceTipCheck(installationRow.orgId, ctx.log)
   }
+
+  if (!onDefaultBranch) return
 
   await enqueueIngestionForInstallationRepos(
     installation.id,
@@ -253,9 +248,17 @@ async function processPushEvent(
   )
 }
 
+const repositoryCreatedSchema = z.object({
+  repository: z.object({
+    full_name: z.string(),
+    clone_url: z.string(),
+  }),
+  installation: z.object({ id: z.number() }),
+})
+
 async function processRepositoryEvent(
   payload: unknown,
-  { log }: GithubWebhookContext,
+  ctx: GithubWebhookContext,
   githubConnectionId?: string,
 ) {
   const parsed = repositoryCreatedSchema.safeParse(payload)
@@ -279,12 +282,15 @@ async function processRepositoryEvent(
       continue
     }
 
-    void runWorkflowWithWorkerWake(syncGithubRepositories.spec, {
+    await ensureOrgRepositoryAndIngest({
       orgId: installationRow.orgId,
+      gitUrl: repo.clone_url,
       githubConnectionId: installationRow.id,
-      reposToSync: [{ name: repo.full_name, gitUrl: repo.clone_url }],
-    }).catch((err: unknown) => {
-      log.error(err instanceof Error ? err : new Error(String(err)))
+      log: {
+        error: (err) => {
+          ctx.log.error(err)
+        },
+      },
     })
   }
 }
