@@ -39,3 +39,10 @@ This is configuration, not code. The backend shows the hosted OAuth path only wh
 - `ConnectorListItem` owns one remove dialog and the menu. A draft row shows **Remove** and the step action (`actionLabel`) on the row, and the panel does not show the action again. The labels are `Remove <name> setup` and `<action> for <name>`.
 - In a container narrower than `2xl`, the status and the actions go to a second line.
 - New plays: a live Confluence row for a member with no Atlassian link, an uninstalled Forge row, a revoked Linear row, a revoked Slack row, a Slack draft, a list-item draft, and a 375 px list item. The Notion, Linear, and PagerDuty draft plays confirm the remove, see the `DELETE`, and see the status read again.
+
+## Review round 2
+
+- `resolveConnectorHealth` takes `installationStatus`. A `revoked` or `uninstalled` row shows **Needs reconnect** in every phase, on every card. This also fixes a revoked live PagerDuty row that showed **Connected**.
+- Confluence health comes from the setup phase of the connection (`live`), not from the step index of the member. A member with no Atlassian link sees a hint in the row panel and the **Link Atlassian account** action.
+- No status API returns a field that tells a draft that the server reset from a new draft. Only the Confluence config returns `lastSyncedAt`, per space. So a reset row keeps the pending look, and the remove dialog of a draft now says that it deletes the connection and its access grant.
+- New plays: revoked live PagerDuty, revoked draft Linear, reset Linear draft, and a live Confluence row for a member with no link (Connected plus the hint). The Confluence, Notion, and Slack story metas now have `args`; the UI `tsc` count is 174 (the PR head has 189).
