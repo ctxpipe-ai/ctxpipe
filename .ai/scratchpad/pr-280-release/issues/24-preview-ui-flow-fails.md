@@ -63,3 +63,10 @@ Not fixed. The #418 did not occur again locally. Evidence:
 - If an SSR backend call takes more than 10 s, the UI server (Bun, default `idleTimeout` 10 s) closes the connection with no response. Through the backend proxy, the browser then gets the download that RES-3 shows. Ticket 26 owns this.
 
 Next step: run GRAPH-3 again after ticket 26 merges. If #418 occurs again, capture the non-minified message with a dev UI build, or capture the dehydrated router state of the failed document.
+
+## Review round 1
+
+- WS-5: the PATCH route now schedules the rename (with the Workspace id) before it changes the slug. If the rename cannot be scheduled, the route returns 409 and changes nothing. The route refuses a rename and a relink in one request (409), and it checks the new slug before the rename. A write probe failure keeps the rename as a paused job, so the slug may move. Proof: three contract tests in `write-ops-native.contract.test.ts`. The new tests pass two times on the worktree database. On the shared `ctxpipe` database, other workers can take the jobs of these tests, so the results change from run to run.
+- No shared write-rule helper: the route no longer has its own check. The enqueue step is the only place that has the rule.
+- ONB-4 and AUTH-5: `refetch` does not reject, so the finish paths and `$orgSlug.setup` now use `refetchSessionOnboardingComplete`. They navigate only when the session atom shows onboarding complete. Otherwise they stay and show an error. The plays follow the navigation to the real `/` page: `JoinerFinishLandsInApp`, `CreatorFinishLandsInApp` and `JoinerFinishStaysWhenSessionIsStale`. The code before the fix fails the landing play. The refetch-only fix fails the stale-session play.
+- The creator play creates the organization through the auth client as setup. When the play went through the create slide, Storybook removed the page after the slide change. The cause was not found. The create slide has its own play.
