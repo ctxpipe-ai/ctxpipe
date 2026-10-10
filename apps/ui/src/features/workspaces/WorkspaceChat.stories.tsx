@@ -693,11 +693,12 @@ export const FirstTurnStreamsLive: Story = {
         await canvas.findByPlaceholderText(/ask about this workspace/i),
         "Where is the billing service?",
       )
-      // Record the order in which each step of the turn first shows.
+      // Record the order in which each step of the turn first shows. While
+      // the agent thinks, a working verb shows, then the reasoning heading.
       const steps = [
         "Setting up sandbox",
-        "Thinking…",
-        "Looking for the billing service.",
+        "Contextualizing…",
+        "Finding billing",
         "Used 1 tool",
         firstTurnAnswer,
       ]
