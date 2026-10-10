@@ -86,10 +86,13 @@ export const NotFound: Story = {
   },
 }
 
-let oldSlugTouches = 0
+const failedTouch = { count: 0, rejections: [] as unknown[] }
 
-/** A slug rename leaves the old URL. Its last-used touch returns 404. */
-export const OldSlugNotFound: Story = {
+/**
+ * The last-used touch fails with 404, as it can for an old slug just after a
+ * slug rename. The page stays, and the failure is not an uncaught error.
+ */
+export const FailedTouchIsCaught: Story = {
   tags: ["workspace-golden"],
   parameters: {
     storyRoute: workspaceRoute(),
@@ -97,36 +100,27 @@ export const OldSlugNotFound: Story = {
       handlers: {
         page: [
           http.post(/\/api\/v1\/workspaces\/[^/]+\/touch$/, () => {
-            oldSlugTouches += 1
+            failedTouch.count += 1
             return HttpResponse.json({ error: "Not found" }, { status: 404 })
           }),
-          ...workspaceShellHandlers({ detail: null }),
+          ...workspaceShellHandlers(),
         ],
       },
     },
   },
   beforeEach: () => {
-    oldSlugTouches = 0
-    const rejections: unknown[] = []
+    failedTouch.count = 0
+    failedTouch.rejections = []
     const onRejection = (event: PromiseRejectionEvent) => {
-      rejections.push(event.reason)
+      failedTouch.rejections.push(event.reason)
     }
     window.addEventListener("unhandledrejection", onRejection)
-    ;(window as { __oldSlugRejections?: unknown[] }).__oldSlugRejections =
-      rejections
     return () => window.removeEventListener("unhandledrejection", onRejection)
   },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await expect(
-      await canvas.findByRole("heading", { name: "Workspace not found" }),
-    ).toBeVisible()
-    // An unknown slug sends no touch. A touch that still fails is caught.
+  play: async () => {
+    await waitFor(() => expect(failedTouch.count).toBeGreaterThan(0))
     await new Promise((resolve) => setTimeout(resolve, 300))
-    expect(oldSlugTouches).toBe(0)
-    expect(
-      (window as { __oldSlugRejections?: unknown[] }).__oldSlugRejections,
-    ).toEqual([])
+    expect(failedTouch.rejections).toEqual([])
   },
 }
 

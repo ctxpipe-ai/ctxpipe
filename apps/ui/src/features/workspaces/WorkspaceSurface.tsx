@@ -243,9 +243,7 @@ function WorkspaceSurfaceReady(props: {
     },
   })
 
-  const workspaceFound = workspace !== null
   useEffect(() => {
-    if (!workspaceFound) return
     // The touch only records the last-used Workspace. After a slug rename the
     // old slug can answer 404, and that must not become an uncaught error.
     touchWorkspace(orgSlug, workspaceSlug).then(
@@ -256,7 +254,7 @@ function WorkspaceSurfaceReady(props: {
       },
       () => {},
     )
-  }, [orgSlug, workspaceSlug, workspaceFound, queryClient])
+  }, [orgSlug, workspaceSlug, queryClient])
 
   if (workspace === null) {
     return (

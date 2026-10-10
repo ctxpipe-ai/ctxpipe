@@ -23,7 +23,7 @@ export const requiredStories = [
   "PrepareWaitingForTip",
   "PrepareFailed",
   "PreparePendingWithError",
-  "OldSlugNotFound",
+  "FailedTouchIsCaught",
 ]
 
 export function isGoldenPlaySuccess(phase) {

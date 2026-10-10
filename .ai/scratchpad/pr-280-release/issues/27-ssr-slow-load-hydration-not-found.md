@@ -42,11 +42,11 @@ The preview-env re-run on pr-280 (run [20261010-124612](../preview-env-runs/2026
    - Cost: one new TCP and TLS handshake for each server-render fetch.
    - Follow-up, not done now: server-render calls could use the Railway private domain. That avoids the edge and keeps the pool, but it needs a new operator environment variable, and we avoid those.
 2. `apps/backend/src/routes/ui.ts`: the UI proxy uses `redirect: "manual"`. The browser follows the redirect.
-3. `WorkspaceSurface`: send the touch only when the Workspace exists, and ignore a failed touch. The touch only records the last-used Workspace.
+3. `WorkspaceSurface`: ignore a failed touch. The touch only records the last-used Workspace. This also covers the rename race, where the old slug is still in the cache.
 
 ## Proof
 
 - `apps/ui/src/lib/api-result.test.ts` "apiFetch under Bun": a Bun subprocess drops a pooled socket with no FIN. Before the fix the second `apiFetch` timed out. After the fix it succeeds.
 - `apps/backend/src/routes/ui.test.ts` "passes a server-render redirect to the browser": before 200, after 307 with `Location: /.auth/sign-in`.
-- Story `Pages/Workspaces/OldSlugNotFound` (golden): the touch returns 404, and the play asserts **Workspace not found** and no unhandled rejection.
+- Story `Pages/Workspaces/FailedTouchIsCaught` (golden): a found Workspace whose touch returns 404. The play asserts that the touch was sent and that no unhandled rejection occurred. Without the rejection handler the play failed with `ApiError: Not found`.
 - After deploy: check on pr-280 that no document load waits 10 s.
