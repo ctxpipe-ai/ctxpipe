@@ -25,6 +25,12 @@ export const users = pgTable("users", {
     .notNull(),
   twoFactorEnabled: boolean("two_factor_enabled").default(false),
   onboardingCompletedAt: timestamp("onboarding_completed_at"),
+  /** First MCP request from this user's agent (OAuth or personal API key). */
+  firstMcpCallAt: timestamp("first_mcp_call_at"),
+  /** `clientInfo.name` from the agent's `initialize`, e.g. `claude-code`. */
+  firstMcpClient: text("first_mcp_client"),
+  /** Name of the first `tools/call`, e.g. `ctx_advisor`. */
+  firstMcpTool: text("first_mcp_tool"),
 })
 
 export const sessions = pgTable(

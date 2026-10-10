@@ -70,6 +70,9 @@ vi.mock("../../models/connection-rows.js", async (importOriginal) => {
 const resolveGithubPrMirrorRepositoryMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue("repo_ctx"),
 )
+const getGithubPrMirrorBindingMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue(null),
+)
 const bindGithubPrMirrorMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue(undefined),
 )
@@ -80,6 +83,7 @@ const enqueueGithubPrMirrorEnsureForOrgMock = vi.hoisted(() =>
 vi.mock("../../models/github-pr-mirror.js", () => ({
   resolveGithubPrMirrorRepository: resolveGithubPrMirrorRepositoryMock,
   bindGithubPrMirror: bindGithubPrMirrorMock,
+  getGithubPrMirrorBinding: getGithubPrMirrorBindingMock,
 }))
 
 vi.mock("../../openworkflow/workflows/github-ensure-pr-mirror.js", () => ({
@@ -657,6 +661,24 @@ describe("GET /github/installation/setup", () => {
           gitUrl: "https://github.com/acme/linked.git",
         },
       ],
+      contextRepository: null,
+    })
+  })
+
+  it("returns the bound context repository so onboarding can finish the step", async () => {
+    getGithubPrMirrorBindingMock.mockResolvedValueOnce({
+      repositoryName: "acme/team-context",
+    })
+    const app = createApp()
+    const res = await app.request("/github/installation/setup")
+
+    expect(res.status).toBe(200)
+    expect(getGithubPrMirrorBindingMock).toHaveBeenCalledWith(
+      "org_1",
+      "con_github",
+    )
+    expect(await res.json()).toMatchObject({
+      contextRepository: "acme/team-context",
     })
   })
 })

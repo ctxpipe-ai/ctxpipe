@@ -1,8 +1,10 @@
 import { AuthQueryProvider } from "@daveyplate/better-auth-tanstack"
+import type { AuthHooks } from "@daveyplate/better-auth-ui"
 import { AuthUIProviderTanstack } from "@daveyplate/better-auth-ui/tanstack"
+import { useQuery } from "@tanstack/react-query"
 import { Link, useRouter } from "@tanstack/react-router"
 import { type ComponentProps, type FC, useEffect, useRef } from "react"
-import { authClient } from "@/lib/auth-client"
+import { authClient, useSession } from "@/lib/auth-client"
 import { useAuthEvlogIdentity } from "@/lib/useAuthEvlogIdentity"
 import { useGetAuthConfig } from "@/lib/useGetAuthConfig"
 
@@ -32,6 +34,42 @@ function AuthLinkFallback({
 }: ComponentProps<"a"> & { href: string }) {
   return <a href={href} {...props} />
 }
+
+type UserInvitations = NonNullable<
+  ReturnType<AuthHooks["useListUserInvitations"]>["data"]
+>
+
+/**
+ * Better Auth refuses to list invitations for an unverified email whatever
+ * `requireEmailVerificationOnInvitation` says, and email/password sign-ups
+ * are not verified here. The account page's pending-invitations card then
+ * showed that refusal as an error. Unverified users get an empty list
+ * instead; they still accept an invitation from its link.
+ */
+function useListUserInvitations(): ReturnType<
+  AuthHooks["useListUserInvitations"]
+> {
+  const { data: session } = useSession()
+  const verified = session?.user.emailVerified === true
+  const query = useQuery({
+    queryKey: ["auth", "list-user-invitations", session?.user.id],
+    queryFn: async () =>
+      (await authClient.$fetch("/organization/list-user-invitations", {
+        throw: true,
+      })) as UserInvitations,
+    enabled: verified,
+  })
+  return {
+    data: verified ? query.data : [],
+    isPending: verified && query.isPending,
+    isRefetching: query.isRefetching,
+    refetch: async () => {
+      await query.refetch()
+    },
+  }
+}
+
+const authHooks = { useListUserInvitations }
 
 export const AuthProvider: FC<React.PropsWithChildren> = ({ children }) => {
   useAuthEvlogIdentity()
@@ -100,6 +138,7 @@ export const AuthProvider: FC<React.PropsWithChildren> = ({ children }) => {
       <AuthUIProviderTanstack
         basePath="/.auth"
         authClient={authClient}
+        hooks={authHooks}
         apiKey
         emailVerification
         social={{ providers: config?.providers ?? [] }}

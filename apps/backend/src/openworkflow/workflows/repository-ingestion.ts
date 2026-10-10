@@ -22,6 +22,10 @@ import type {
 } from "../../graphs/codeIngestionGraph/schemas.js"
 import { withIngestAgentContext } from "../../graphs/codeIngestionGraph/withIngestAgentContext.js"
 import {
+  clearIngestionPreview,
+  recordIngestionPreview,
+} from "../../models/ingestion-preview.js"
+import {
   markRepositoryIndexingReady,
   markRepositoryIndexingReadyWithIssues,
   markRepositoryIndexingRunning,
@@ -453,6 +457,32 @@ export const repositoryIngestion = defineWorkflow(
               )
             }
 
+            // Onboarding's provisional graph. Best effort: a failed write only
+            // costs the preview, never the run. Called inside steps, so replays
+            // do not repeat them.
+            const previewRepository = {
+              orgId: baseIngestState.orgId,
+              repositoryId: input.repositoryId,
+            }
+            const bestEffort = (event: string, write: () => Promise<void>) =>
+              write().catch((error) => {
+                getLogger().warn(event, {
+                  error: error instanceof Error ? error.message : String(error),
+                })
+              })
+            const recordPreview = (part: Partial<CodeIngestionState>) =>
+              bestEffort("ingestion_preview_record_failed", () =>
+                recordIngestionPreview({
+                  ...previewRepository,
+                  objects: part.extractedObjects ?? [],
+                  claims: part.extractedClaims ?? [],
+                }),
+              )
+            const clearPreview = () =>
+              bestEffort("ingestion_preview_clear_failed", () =>
+                clearIngestionPreview(previewRepository),
+              )
+
             const extractResult = await runWithLangfuseContext(
               langfuseAttrs,
               async () => {
@@ -464,7 +494,10 @@ export const repositoryIngestion = defineWorkflow(
                         "repository-ingestion.identify-roots",
                         null,
                         null,
-                        () => identifyRoots(baseIngestState),
+                        async () => {
+                          await clearPreview()
+                          return identifyRoots(baseIngestState)
+                        },
                       ),
                     ),
                 )
@@ -493,7 +526,14 @@ export const repositoryIngestion = defineWorkflow(
                             "repository-ingestion.extract-kind",
                             rootId,
                             root,
-                            () => runExtractKindForRoot(baseIngestState, root),
+                            async () => {
+                              const kind = await runExtractKindForRoot(
+                                baseIngestState,
+                                root,
+                              )
+                              await recordPreview(kind)
+                              return kind
+                            },
                           ),
                         ),
                     )
@@ -518,6 +558,7 @@ export const repositoryIngestion = defineWorkflow(
                                 baseIngestState,
                                 root,
                                 kindPartial,
+                                recordPreview,
                               ),
                           ),
                         ),
@@ -577,7 +618,13 @@ export const repositoryIngestion = defineWorkflow(
 
                 await step.run(
                   { name: "project", retryPolicy: extractRetryPolicy },
-                  () => wls("project", () => project(afterDedupState)),
+                  () =>
+                    wls("project", async () => {
+                      const projected = await project(afterDedupState)
+                      // The real graph has it now.
+                      await clearPreview()
+                      return projected
+                    }),
                 )
 
                 await step.run(

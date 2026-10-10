@@ -368,6 +368,147 @@
   animation-delay: 240ms;
 }
 
+/* Onboarding picture: faint grid like the ctxpipe.ai diagram; only the current beat moves. */
+.onb-diagram-grid::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(202, 202, 215, 0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(202, 202, 215, 0.02) 1px, transparent 1px);
+  background-size: 30px 30px;
+  mask-image: radial-gradient(92% 75%, #000, transparent 92%);
+}
+
+/* Opening a tall step adds a scrollbar; reserve its space so the page does
+   not shift sideways between steps. */
+html:has(.onb-page-in) {
+  scrollbar-gutter: stable;
+}
+
+/* A step's body fades in when it opens rather than appearing at once. */
+.onb-step-body {
+  animation: onb-page-in 200ms ease-out backwards;
+}
+
+/* Sign-in hands over to onboarding with a fade. `backwards` only holds the
+   start frame, so the completing fade-out on the same element still runs. */
+.onb-page-in {
+  animation: onb-page-in 500ms ease-out backwards;
+}
+
+@keyframes onb-page-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Noise texture from the ctxpipe.ai "The solution" cards. */
+.onb-noise {
+  position: relative;
+  isolation: isolate;
+}
+
+.onb-noise::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0.75;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.22'/%3E%3C/svg%3E");
+}
+
+/* The one area the current step edits: the cards' hover glow. */
+.onb-active {
+  box-shadow:
+    0 0 0 1px rgba(64, 224, 208, 0.25),
+    0 0 16px rgba(45, 212, 191, 0.2),
+    0 0 40px -12px rgba(64, 224, 208, 0.12),
+    inset 0 0 24px -12px rgba(94, 234, 212, 0.06);
+}
+
+/* Every colour in the picture crossfades together when the step changes.
+   Text used to swap instantly while borders and glows faded, which read as
+   a blink. :where keeps this below each element's own transition class. */
+.onb-diagram-grid :where(*) {
+  transition-property: color, background-color, border-color, box-shadow;
+  transition-duration: 500ms;
+  transition-timing-function: ease-out;
+}
+
+/* A count that just grew flashes teal and settles back. */
+.onb-count-pulse {
+  color: var(--color-zinc-200);
+  animation: onb-count-pulse 1.4s ease-out;
+}
+
+@keyframes onb-count-pulse {
+  0%,
+  30% {
+    color: #40e0d0;
+    text-shadow: 0 0 8px rgba(64, 224, 208, 0.6);
+  }
+  100% {
+    color: var(--color-zinc-200);
+    text-shadow: none;
+  }
+}
+
+/* Bouncing line: GitHub is handing over the repository list. */
+.onb-line-loader {
+  position: relative;
+  display: block;
+  height: 1px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.onb-line-loader::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  width: 30%;
+  background: linear-gradient(90deg, transparent, #40e0d0, transparent);
+  animation: onb-line-bounce 1.4s ease-in-out infinite alternate;
+}
+
+@keyframes onb-line-bounce {
+  from {
+    left: -30%;
+  }
+  to {
+    left: 100%;
+  }
+}
+
+.onb-wire-flow {
+  stroke-dasharray: 4 5;
+  animation: onb-wire-flow 1s linear infinite;
+}
+
+@keyframes onb-wire-flow {
+  to {
+    stroke-dashoffset: -18;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onb-page-in,
+  .onb-step-body,
+  .onb-wire-flow,
+  .onb-line-loader::after,
+  .onb-count-pulse {
+    animation: none;
+  }
+
+  .onb-diagram-grid :where(*) {
+    transition: none;
+  }
+}
+
 .hero-gradient {
   position: relative;
 }

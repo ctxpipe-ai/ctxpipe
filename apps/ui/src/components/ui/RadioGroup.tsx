@@ -32,7 +32,7 @@ export function RadioGroup(props: RadioGroupProps) {
 
 const styles = tv({
   extend: focusRing,
-  base: 'w-4.5 h-4.5 box-border rounded-full border bg-white dark:bg-neutral-900 transition-all',
+  base: 'w-4.5 h-4.5 shrink-0 box-border rounded-full border bg-white dark:bg-neutral-900 transition-all',
   variants: {
     isSelected: {
       false: 'border-neutral-400 dark:border-neutral-400 group-pressed:border-neutral-500 dark:group-pressed:border-neutral-300',
