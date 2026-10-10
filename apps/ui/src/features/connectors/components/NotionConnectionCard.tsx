@@ -59,7 +59,11 @@ export function NotionConnectionCard({
   const removeMutation = useMutation({
     mutationFn: () => deleteNotionConnector(orgSlug, connectionId),
     onSuccess: async () => {
-      toast.success("Notion connector removed.")
+      toast.success(
+        health === "setup_pending"
+          ? "Notion setup removed."
+          : "Notion connector removed.",
+      )
       await Promise.all([
         queryClient.invalidateQueries({
           queryKey: notionConnectorKeys.status(orgSlug, connectionId),
@@ -92,6 +96,10 @@ export function NotionConnectionCard({
           <IconBrandNotion className="size-5 text-foreground" aria-hidden />
         }
         health={health}
+        pendingSetup={{
+          onContinue: () => onOpenSetup(false),
+          onRemove: () => setRemoveOpen(true),
+        }}
         menu={
           <ConnectorRemoveMenu
             ariaLabel="Notion connector actions"
@@ -150,15 +158,21 @@ export function NotionConnectionCard({
 
       <Modal isOpen={removeOpen} onOpenChange={setRemoveOpen} isDismissable>
         <AlertDialog
-          title="Remove Notion connector?"
+          title={
+            health === "setup_pending"
+              ? "Remove this Notion setup?"
+              : "Remove Notion connector?"
+          }
           variant="destructive"
-          actionLabel="Remove connector"
+          actionLabel={
+            health === "setup_pending" ? "Remove setup" : "Remove connector"
+          }
           cancelLabel="Cancel"
           onAction={() => removeMutation.mutate()}
         >
-          This removes the Notion connection, selected scope, and sync target
-          for this organisation. Existing mirrored files in GitHub are left in
-          place.
+          {health === "setup_pending"
+            ? "This deletes the setup that is not finished, with its saved steps. To connect Notion later, start again from Add connection."
+            : "This removes the Notion connection, selected scope, and sync target for this organization. Existing mirrored files in GitHub are left in place."}
         </AlertDialog>
       </Modal>
     </>

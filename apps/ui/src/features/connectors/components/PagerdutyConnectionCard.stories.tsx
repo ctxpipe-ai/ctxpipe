@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import type { ReactNode } from "react"
+import { expect, fn, screen, userEvent, waitFor, within } from "storybook/test"
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
 import { PagerdutyConnectionCard } from "./PagerdutyConnectionCard"
@@ -68,12 +69,14 @@ type Story = StoryObj<typeof meta>
 
 const shell = (story: ReactNode) => <div className="max-w-xl p-6">{story}</div>
 
+const onOpenSetup = fn()
+
 function card() {
   return (
     <PagerdutyConnectionCard
       orgSlug={orgSlug}
       connectionId={connectionId}
-      onOpenSetup={() => {}}
+      onOpenSetup={onOpenSetup}
     />
   )
 }
@@ -126,7 +129,7 @@ export const CouldntLoad: Story = {
   },
 }
 
-export const NotYetConnected: Story = {
+export const PendingSetup: Story = {
   render: () => shell(card()),
   parameters: {
     msw: {
@@ -149,6 +152,23 @@ export const NotYetConnected: Story = {
         ],
       },
     },
+  },
+  play: async ({ canvasElement }) => {
+    onOpenSetup.mockClear()
+    const canvas = within(canvasElement)
+    await canvas.findByText("Setup not finished")
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Continue setup" }),
+    )
+    expect(onOpenSetup).toHaveBeenCalledWith(false)
+    await userEvent.click(canvas.getByRole("button", { name: "Remove" }))
+    const dialog = await screen.findByRole("alertdialog")
+    await within(dialog).findByText("Remove this PagerDuty setup?")
+    await waitFor(() =>
+      expect(
+        within(dialog).getByRole("button", { name: "Remove setup" }),
+      ).toBeVisible(),
+    )
   },
 }
 

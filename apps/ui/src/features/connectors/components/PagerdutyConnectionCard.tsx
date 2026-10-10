@@ -53,7 +53,11 @@ export function PagerdutyConnectionCard({
   const removeMutation = useMutation({
     mutationFn: () => deletePagerdutyConnector(orgSlug, connectionId),
     onSuccess: async () => {
-      toast.success("PagerDuty connector removed.")
+      toast.success(
+        health === "setup_pending"
+          ? "PagerDuty setup removed."
+          : "PagerDuty connector removed.",
+      )
       await Promise.all([
         queryClient.invalidateQueries({
           queryKey: pagerdutyConnectorKeys.status(orgSlug, connectionId),
@@ -84,6 +88,10 @@ export function PagerdutyConnectionCard({
         name="PagerDuty"
         icon={<PagerdutyMark className="size-5 text-foreground" />}
         health={health}
+        pendingSetup={{
+          onContinue: () => onOpenSetup(false),
+          onRemove: () => setRemoveOpen(true),
+        }}
         menu={
           <ConnectorRemoveMenu
             ariaLabel="PagerDuty connector actions"
@@ -151,14 +159,21 @@ export function PagerdutyConnectionCard({
 
       <Modal isOpen={removeOpen} onOpenChange={setRemoveOpen} isDismissable>
         <AlertDialog
-          title="Remove PagerDuty connector?"
+          title={
+            health === "setup_pending"
+              ? "Remove this PagerDuty setup?"
+              : "Remove PagerDuty connector?"
+          }
           variant="destructive"
-          actionLabel="Remove connector"
+          actionLabel={
+            health === "setup_pending" ? "Remove setup" : "Remove connector"
+          }
           cancelLabel="Cancel"
           onAction={() => removeMutation.mutate()}
         >
-          This removes the PagerDuty connection and sync target for this
-          organisation. Existing mirrored files in GitHub are left in place.
+          {health === "setup_pending"
+            ? "This deletes the setup that is not finished, with its saved steps. To connect PagerDuty later, start again from Add connection."
+            : "This removes the PagerDuty connection and sync target for this organization. Existing mirrored files in GitHub are left in place."}
         </AlertDialog>
       </Modal>
     </>

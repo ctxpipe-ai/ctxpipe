@@ -60,7 +60,11 @@ export function LinearConnectionCard({
   const removeMutation = useMutation({
     mutationFn: () => deleteLinearConnector(orgSlug, connectionId),
     onSuccess: async () => {
-      toast.success("Linear connector removed.")
+      toast.success(
+        health === "setup_pending"
+          ? "Linear setup removed."
+          : "Linear connector removed.",
+      )
       await Promise.all([
         queryClient.invalidateQueries({
           queryKey: orgConnectionsKeys.list(orgSlug),
@@ -94,6 +98,10 @@ export function LinearConnectionCard({
         name="Linear"
         icon={<LinearMark className="size-5 text-foreground" />}
         health={health}
+        pendingSetup={{
+          onContinue: () => onOpenWizard(false),
+          onRemove: () => setRemoveOpen(true),
+        }}
         menu={
           <ConnectorRemoveMenu
             ariaLabel="Linear connector actions"
@@ -158,15 +166,21 @@ export function LinearConnectionCard({
       </ConnectorListItem>
       <Modal isOpen={removeOpen} onOpenChange={setRemoveOpen} isDismissable>
         <AlertDialog
-          title="Remove Linear connector?"
+          title={
+            health === "setup_pending"
+              ? "Remove this Linear setup?"
+              : "Remove Linear connector?"
+          }
           variant="destructive"
-          actionLabel="Remove connector"
+          actionLabel={
+            health === "setup_pending" ? "Remove setup" : "Remove connector"
+          }
           cancelLabel="Cancel"
           onAction={() => removeMutation.mutate()}
         >
-          This removes the Linear authorisation and repository binding from the
-          connection. Scope configuration and mirrored files already committed
-          to Git are not deleted.
+          {health === "setup_pending"
+            ? "This deletes the setup that is not finished, with its saved steps. To connect Linear later, start again from Add connection."
+            : "This removes the Linear authorization and repository binding from the connection. Scope configuration and mirrored files already committed to Git are not deleted."}
         </AlertDialog>
       </Modal>
     </>

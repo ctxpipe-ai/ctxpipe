@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
+import { expect, fn, screen, userEvent, waitFor, within } from "storybook/test"
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
 import type { LinearConnectorStatus } from "../queries/linear-connector"
@@ -31,6 +32,8 @@ function statusHandler(status: LinearConnectorStatus) {
   )
 }
 
+const onOpenWizard = fn()
+
 const meta = {
   title: "Components/Connections/Linear/ConnectionCard",
   component: LinearConnectionCard,
@@ -45,7 +48,7 @@ const meta = {
   args: {
     orgSlug,
     connectionId,
-    onOpenWizard: () => {},
+    onOpenWizard,
   },
   parameters: {
     layout: "centered",
@@ -90,7 +93,7 @@ export const CouldntLoad: Story = {
   },
 }
 
-export const NotYetConnected: Story = {
+export const PendingSetup: Story = {
   parameters: {
     msw: {
       handlers: {
@@ -109,6 +112,23 @@ export const NotYetConnected: Story = {
         ],
       },
     },
+  },
+  play: async ({ canvasElement }) => {
+    onOpenWizard.mockClear()
+    const canvas = within(canvasElement)
+    await canvas.findByText("Setup not finished")
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Continue setup" }),
+    )
+    expect(onOpenWizard).toHaveBeenCalledWith(false)
+    await userEvent.click(canvas.getByRole("button", { name: "Remove" }))
+    const dialog = await screen.findByRole("alertdialog")
+    await within(dialog).findByText("Remove this Linear setup?")
+    await waitFor(() =>
+      expect(
+        within(dialog).getByRole("button", { name: "Remove setup" }),
+      ).toBeVisible(),
+    )
   },
 }
 
