@@ -37,6 +37,12 @@ jobs:
       CODESEARCH_IMAGE: ghcr.io/ctxpipe-ai/codesearch:pr-${{ inputs.pr_number }}-${{ inputs.head_sha }}
       OBSERVABILITY_OTLP_HEADERS: ${{ secrets.OBSERVABILITY_OTLP_HEADERS }}
       VERCEL_ACCESS_TOKEN: ${{ secrets.VERCEL_ACCESS_TOKEN }}
+      GH_APP_ID: ${{ secrets.GH_APP_ID }}
+      GH_APP_SLUG: ${{ secrets.GH_APP_SLUG }}
+      GH_CLIENT_ID: ${{ secrets.GH_CLIENT_ID }}
+      GH_CLIENT_SECRET: ${{ secrets.GH_CLIENT_SECRET }}
+      GH_PRIVATE_KEY: ${{ secrets.GH_PRIVATE_KEY }}
+      GH_WEBHOOK_SECRET: ${{ secrets.GH_WEBHOOK_SECRET }}
     steps:
       - uses: actions/checkout@v4
 
@@ -71,6 +77,8 @@ jobs:
           source "${GITHUB_WORKSPACE}/scripts/preview-otel-vars.sh"
           # shellcheck disable=SC1091
           source "${GITHUB_WORKSPACE}/scripts/preview-sandbox-vars.sh"
+          # shellcheck disable=SC1091
+          source "${GITHUB_WORKSPACE}/scripts/preview-github-app-vars.sh"
 
           update_ui() {
             railway_graphql \
@@ -156,6 +164,7 @@ jobs:
 
           sync_preview_otel_variables
           sync_preview_sandbox_variables
+          sync_preview_github_app_variables
 
           update_img "$BACKEND_SERVICE_ID" "$BACKEND_IMAGE"
           deploy "$BACKEND_SERVICE_ID"
