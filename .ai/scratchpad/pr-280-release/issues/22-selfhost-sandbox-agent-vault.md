@@ -1,6 +1,6 @@
 # Self-host (Docker) sandboxes hold no credential, through Agent Vault
 
-Status: review: Compose deploy passed end to end; AWS deploy waits for an AWS login
+Status: review: Compose deploy passed end to end without codesearch; push credential injection not tested end to end (the contract test covers it); AWS deploy waits for an AWS login
 Priority: P0
 Owner: claude
 Blocked by: none
@@ -41,7 +41,7 @@ The user approved this decision: no credential of ours is ever inside a chat san
   - Pass: no model key or GitHub token in the sandbox: a scan of each process environment, each command line and the files outside `/usr` found no model key and no GitHub token pattern. `GH_TOKEN` and the OpenCode `apiKey` hold the placeholder.
   - Pass: with Agent Vault stopped, `prepare` answers 503 with the clear error and no sandbox starts. The streamed turn answers HTTP 200 with a `RUN_ERROR` event that holds the same error (the stream starts first). After a restart of Agent Vault, `prepare` answers 204.
   - Push credential: not run in Compose (no GitHub App). `agent-vault-native.contract.test.ts` passed again (Git push, HTTP and `gh` get the credential through a real Agent Vault).
-  - Fixes: the UI image build ran out of Node heap on an 8 GB Docker VM; the model provider settings did not reach the backend and the worker; the chat image build in DinD could not download, because the DinD rules block the bridge (now `--network host`, with a contract test step).
+  - Fixes: the UI image build ran out of Node heap on an 8 GB Docker VM; the model provider settings did not reach the backend and the worker; the chat image build in DinD could not download, because the DinD rules block the bridge (now `--network host`, with a contract test step). Review round 1: empty model settings are unset in the model provider, Compose passes every model setting, and the DinD entrypoint blocks instance metadata for the host-network build.
 
 ## Open
 
