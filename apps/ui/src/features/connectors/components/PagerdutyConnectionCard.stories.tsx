@@ -1,8 +1,13 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import type { ReactNode } from "react"
+import { expect, fn, within } from "storybook/test"
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
+import {
+  pendingSetupHandlers,
+  playPendingSetup,
+} from "../mocks/pending-setup-stories"
 import { PagerdutyConnectionCard } from "./PagerdutyConnectionCard"
 
 const orgSlug = "acme"
@@ -68,12 +73,14 @@ type Story = StoryObj<typeof meta>
 
 const shell = (story: ReactNode) => <div className="max-w-xl p-6">{story}</div>
 
+const onOpenSetup = fn()
+
 function card() {
   return (
     <PagerdutyConnectionCard
       orgSlug={orgSlug}
       connectionId={connectionId}
-      onOpenSetup={() => {}}
+      onOpenSetup={onOpenSetup}
     />
   )
 }
@@ -126,12 +133,21 @@ export const CouldntLoad: Story = {
   },
 }
 
-export const NotYetConnected: Story = {
+const statusReads = fn()
+const deleted = fn()
+
+export const PendingSetup: Story = {
   render: () => shell(card()),
   parameters: {
     msw: {
       handlers: {
         page: [
+          ...pendingSetupHandlers({
+            orgSlug,
+            provider: "pagerduty",
+            statusReads,
+            deleted,
+          }),
           pagerdutyStatus({
             isInstalled: false,
             installationStatus: null,
@@ -149,6 +165,39 @@ export const NotYetConnected: Story = {
         ],
       },
     },
+  },
+  play: ({ canvasElement }) =>
+    playPendingSetup({
+      canvasElement,
+      name: "PagerDuty",
+      onOpen: onOpenSetup,
+      statusReads,
+      deleted,
+    }),
+}
+
+export const RevokedLive: Story = {
+  render: () => shell(card()),
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          pagerdutyStatus({
+            ...statusComplete,
+            isInstalled: false,
+            installationStatus: "revoked",
+          }),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("Needs reconnect")
+    expect(canvas.queryByText("Connected")).toBeNull()
+    expect(
+      canvas.getByRole("button", { name: "PagerDuty connector actions" }),
+    ).toBeVisible()
   },
 }
 

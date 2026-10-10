@@ -1,7 +1,12 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
+import { expect, fn, screen, userEvent, within } from "storybook/test"
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
+import {
+  pendingSetupHandlers,
+  playPendingSetup,
+} from "../mocks/pending-setup-stories"
 import type { LinearConnectorStatus } from "../queries/linear-connector"
 import { LinearConnectionCard } from "./LinearConnectionCard"
 
@@ -31,6 +36,8 @@ function statusHandler(status: LinearConnectorStatus) {
   )
 }
 
+const onOpenWizard = fn()
+
 const meta = {
   title: "Components/Connections/Linear/ConnectionCard",
   component: LinearConnectionCard,
@@ -45,7 +52,7 @@ const meta = {
   args: {
     orgSlug,
     connectionId,
-    onOpenWizard: () => {},
+    onOpenWizard,
   },
   parameters: {
     layout: "centered",
@@ -90,11 +97,20 @@ export const CouldntLoad: Story = {
   },
 }
 
-export const NotYetConnected: Story = {
+const statusReads = fn()
+const deleted = fn()
+
+export const PendingSetup: Story = {
   parameters: {
     msw: {
       handlers: {
         page: [
+          ...pendingSetupHandlers({
+            orgSlug,
+            provider: "linear",
+            statusReads,
+            deleted,
+          }),
           statusHandler({
             isInstalled: false,
             installationStatus: null,
@@ -110,11 +126,103 @@ export const NotYetConnected: Story = {
       },
     },
   },
+  play: ({ canvasElement }) =>
+    playPendingSetup({
+      canvasElement,
+      name: "Linear",
+      onOpen: onOpenWizard,
+      statusReads,
+      deleted,
+    }),
 }
 
 export const Connected: Story = {
   parameters: {
     msw: { handlers: { page: [statusHandler(connected)] } },
+  },
+}
+
+export const Revoked: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          statusHandler({
+            ...connected,
+            isInstalled: false,
+            installationStatus: "revoked",
+          }),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("Needs reconnect")
+    expect(canvas.queryByText("Setup not finished")).toBeNull()
+    expect(canvas.queryByRole("button", { name: /^Remove/ })).toBeNull()
+    expect(
+      canvas.getByRole("button", { name: "Linear connector actions" }),
+    ).toBeVisible()
+  },
+}
+
+export const RevokedDraft: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          statusHandler({
+            isInstalled: false,
+            installationStatus: "revoked",
+            workspaceName: "Acme Product",
+            isGithubLinked: true,
+            selectedScopeCount: 0,
+            setupPhase: "draft",
+            pendingConfigPullUrl: null,
+            pendingConfigPrCreating: false,
+            syncTarget: null,
+          }),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("Needs reconnect")
+    expect(canvas.queryByText("Setup not finished")).toBeNull()
+    expect(canvas.queryByRole("button", { name: /^Remove/ })).toBeNull()
+    expect(
+      canvas.getByRole("button", { name: "Linear connector actions" }),
+    ).toBeVisible()
+  },
+}
+
+/** The server set a working row back to draft; it still holds the grant. */
+export const ResetToDraft: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          statusHandler({
+            ...connected,
+            setupPhase: "draft",
+            syncTarget: null,
+          }),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("Setup not finished")
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Remove Linear setup" }),
+    )
+    const dialog = await screen.findByRole("alertdialog")
+    await within(dialog).findByText(
+      /deletes the Linear connection and its access grant/,
+    )
   },
 }
 

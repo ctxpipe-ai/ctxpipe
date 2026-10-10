@@ -2,10 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { useState } from "react"
 import { toast } from "sonner"
-import { AlertDialog } from "@/components/ui/AlertDialog"
-import { Modal } from "@/components/ui/Modal"
 import {
   getConfluenceCardCurrentIndex,
   getConfluenceCardPrimaryCta,
@@ -25,7 +22,6 @@ import { orgConnectionsKeys } from "../queries/org-connections"
 import { ConfluenceMark } from "./ConfluenceMark"
 import {
   ConnectorListItem,
-  ConnectorRemoveMenu,
   formatSyncRepositoryLine,
 } from "./ConnectorListItem"
 
@@ -44,7 +40,6 @@ export function ConfluenceConnectionCard({
 }: ConfluenceConnectionCardProps) {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
-  const [removeOpen, setRemoveOpen] = useState(false)
 
   const {
     data: status,
@@ -80,7 +75,6 @@ export function ConfluenceConnectionCard({
       await queryClient.invalidateQueries({
         queryKey: orgConnectionsKeys.list(orgSlug),
       })
-      setRemoveOpen(false)
     },
     onError: (e: Error) => toast.error(e.message),
   })
@@ -90,85 +84,70 @@ export function ConfluenceConnectionCard({
     ? getConfluenceCardCurrentIndex(status, oauthForCard)
     : 0
   const primary = getConfluenceCardPrimaryCta(currentIndex, stepDefs)
-  const complete = status ? currentIndex >= stepDefs.length : false
+  const live = status?.setupPhase === "live"
   const health = resolveConnectorHealth({
+    installationStatus: status?.installationStatus,
     statusError: isError,
     checking: isPending || !status || oauthPending,
     setupPhase: status?.setupPhase,
-    connected: complete,
+    connected: live,
+    draft: status?.setupPhase === "draft",
   })
 
   return (
-    <>
-      <ConnectorListItem
-        name="Atlassian Confluence"
-        icon={
-          <ConfluenceMark
-            className="size-5 text-foreground"
-            variant="outline"
-          />
-        }
-        health={health}
-        menu={
-          <ConnectorRemoveMenu
-            ariaLabel="Confluence connector actions"
-            onRemove={() => setRemoveOpen(true)}
-          />
-        }
-        workspace={status?.isLinked ? "Atlassian" : "—"}
-        scope={
-          status ? formatSelectedItemCount(status.selectedSpaceCount) : "—"
-        }
-        syncRepository={formatSyncRepositoryLine(status?.syncTarget ?? null)}
-        actionLabel={
-          isError
-            ? "Retry"
-            : isPending || oauthPending
-              ? undefined
-              : primary.label
-        }
-        onAction={
-          isError
-            ? () => void refetch()
-            : isPending || oauthPending
-              ? undefined
-              : () => {
-                  if (primary.kind === "open_wizard") onOpenWizard()
-                  else if (primary.kind === "navigate_repositories") {
-                    void navigate({
-                      to: "/$orgSlug/connectors",
-                      params: { orgSlug },
-                      search: {
-                        error: undefined,
-                        error_description: undefined,
-                        pendingAccountClaim: undefined,
-                        notionConnectionId: undefined,
-                      },
-                    })
-                  } else onOpenScope()
-                }
-        }
-      >
-        {isError ? (
-          <p className="text-sm text-muted-foreground">
-            Status request failed. Retry, or open setup if this persists.
-          </p>
-        ) : null}
-      </ConnectorListItem>
-
-      <Modal isOpen={removeOpen} onOpenChange={setRemoveOpen} isDismissable>
-        <AlertDialog
-          title="Remove Confluence connector?"
-          variant="destructive"
-          actionLabel="Remove connector"
-          cancelLabel="Cancel"
-          onAction={() => removeMutation.mutate()}
-        >
-          This removes the Forge installation and Confluence scope for this
-          organisation. Your Atlassian account may stay linked to your user
-          profile.
-        </AlertDialog>
-      </Modal>
-    </>
+    <ConnectorListItem
+      name="Atlassian Confluence"
+      icon={
+        <ConfluenceMark className="size-5 text-foreground" variant="outline" />
+      }
+      health={health}
+      remove={{
+        description:
+          "This removes the Forge installation and Confluence scope for this organization. Your Atlassian account may stay linked to your user profile.",
+        onConfirm: () => removeMutation.mutate(),
+      }}
+      workspace={status?.isLinked ? "Atlassian" : "—"}
+      scope={status ? formatSelectedItemCount(status.selectedSpaceCount) : "—"}
+      syncRepository={formatSyncRepositoryLine(status?.syncTarget ?? null)}
+      actionLabel={
+        isError
+          ? "Retry"
+          : isPending || oauthPending
+            ? undefined
+            : primary.label
+      }
+      onAction={
+        isError
+          ? () => void refetch()
+          : isPending || oauthPending
+            ? undefined
+            : () => {
+                if (primary.kind === "open_wizard") onOpenWizard()
+                else if (primary.kind === "navigate_repositories") {
+                  void navigate({
+                    to: "/$orgSlug/connectors",
+                    params: { orgSlug },
+                    search: {
+                      error: undefined,
+                      error_description: undefined,
+                      pendingAccountClaim: undefined,
+                      notionConnectionId: undefined,
+                    },
+                  })
+                } else onOpenScope()
+              }
+      }
+    >
+      {live && !status?.isLinked ? (
+        <p className="text-sm text-muted-foreground">
+          Link your Atlassian account to change the scope of this connection.
+        </p>
+      ) : null}
+      {isError ? (
+        <p className="text-sm text-muted-foreground">
+          Status request failed. Retry, or open setup if this persists.
+        </p>
+      ) : null}
+    </ConnectorListItem>
   )
 }

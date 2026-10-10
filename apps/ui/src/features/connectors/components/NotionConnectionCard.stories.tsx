@@ -1,9 +1,14 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import type { ReactNode } from "react"
+import { fn } from "storybook/test"
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
 import { notionOauthAppHandler } from "../mocks/notion-oauth-app-msw"
+import {
+  pendingSetupHandlers,
+  playPendingSetup,
+} from "../mocks/pending-setup-stories"
 import { NotionConnectionCard } from "./NotionConnectionCard"
 
 const orgSlug = "acme"
@@ -40,6 +45,7 @@ function notionStatus(status: object) {
 const meta = {
   title: "Components/Connections/NotionCard",
   component: NotionConnectionCard,
+  args: { orgSlug, connectionId, onOpenSetup: () => {} },
   decorators: entryPageInnerDecorators,
   parameters: {
     layout: "fullscreen",
@@ -56,12 +62,14 @@ type Story = StoryObj<typeof meta>
 
 const shell = (story: ReactNode) => <div className="max-w-xl p-6">{story}</div>
 
+const onOpenSetup = fn()
+
 function card() {
   return (
     <NotionConnectionCard
       orgSlug={orgSlug}
       connectionId={connectionId}
-      onOpenSetup={() => {}}
+      onOpenSetup={onOpenSetup}
     />
   )
 }
@@ -114,12 +122,21 @@ export const CouldntLoad: Story = {
   },
 }
 
-export const NotYetConnected: Story = {
+const statusReads = fn()
+const deleted = fn()
+
+export const PendingSetup: Story = {
   render: () => shell(card()),
   parameters: {
     msw: {
       handlers: {
         page: [
+          ...pendingSetupHandlers({
+            orgSlug,
+            provider: "notion",
+            statusReads,
+            deleted,
+          }),
           notionStatus({
             isInstalled: false,
             installationStatus: null,
@@ -142,6 +159,14 @@ export const NotYetConnected: Story = {
       },
     },
   },
+  play: ({ canvasElement }) =>
+    playPendingSetup({
+      canvasElement,
+      name: "Notion",
+      onOpen: onOpenSetup,
+      statusReads,
+      deleted,
+    }),
 }
 
 export const SyncFailed: Story = {

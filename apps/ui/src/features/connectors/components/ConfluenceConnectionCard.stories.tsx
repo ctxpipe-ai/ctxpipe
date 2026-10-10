@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
+import { expect, fn, screen, userEvent, waitFor, within } from "storybook/test"
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
 import { ConfluenceConnectionCard } from "./ConfluenceConnectionCard"
@@ -80,6 +81,7 @@ const orgAtlassianOauthHandler = http.get(
 const meta = {
   title: "Components/Connections/Atlassian/ConnectionCard",
   component: ConfluenceConnectionCard,
+  args: cardProps,
   decorators: [
     (Story) => (
       <div className="w-full max-w-xl">
@@ -110,6 +112,78 @@ export const Connected: Story = {
       },
     },
   },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("Connected")
+    expect(canvas.queryByText("Setup not finished")).toBeNull()
+    expect(canvas.queryByRole("button", { name: /^Remove/ })).toBeNull()
+    expect(
+      canvas.getByRole("button", {
+        name: "Atlassian Confluence connector actions",
+      }),
+    ).toBeVisible()
+  },
+}
+
+/** A live row is not a draft, also when this member has no Atlassian link. */
+async function expectLiveRowNotPending(canvasElement: HTMLElement) {
+  const canvas = within(canvasElement)
+  await canvas.findByText("Needs reconnect")
+  expect(canvas.queryByText("Setup not finished")).toBeNull()
+  expect(canvas.queryByRole("button", { name: /^Remove/ })).toBeNull()
+  expect(
+    canvas.getByRole("button", {
+      name: "Atlassian Confluence connector actions",
+    }),
+  ).toBeVisible()
+}
+
+export const LiveViewerWithoutAtlassianLink: Story = {
+  render: () => <ConfluenceConnectionCard {...cardProps} />,
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          atlassianStatus({ ...statusComplete, isLinked: false }),
+          orgAtlassianOauthHandler,
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("Connected")
+    expect(canvas.queryByText("Needs reconnect")).toBeNull()
+    expect(canvas.queryByRole("button", { name: /^Remove/ })).toBeNull()
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Expand Atlassian Confluence" }),
+    )
+    await canvas.findByText(
+      "Link your Atlassian account to change the scope of this connection.",
+    )
+    expect(
+      canvas.getByRole("button", { name: "Link Atlassian account" }),
+    ).toBeVisible()
+  },
+}
+
+export const LiveForgeUninstalled: Story = {
+  render: () => <ConfluenceConnectionCard {...cardProps} />,
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          atlassianStatus({
+            ...statusComplete,
+            isInstalled: false,
+            installationStatus: "uninstalled",
+          }),
+          orgAtlassianOauthHandler,
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => expectLiveRowNotPending(canvasElement),
 }
 
 export const Checking: Story = {
@@ -159,14 +233,84 @@ export const CouldntLoad: Story = {
   },
 }
 
-export const NotYetConnected: Story = {
-  render: () => <ConfluenceConnectionCard {...cardProps} />,
+const onOpenWizard = fn()
+const deletePendingSetup = fn()
+
+export const PendingSetup: Story = {
+  render: () => (
+    <ConfluenceConnectionCard {...cardProps} onOpenWizard={onOpenWizard} />
+  ),
   parameters: {
     msw: {
       handlers: {
         page: [atlassianStatus(statusNotLinked), orgAtlassianOauthHandler],
       },
     },
+  },
+  play: async ({ canvasElement }) => {
+    onOpenWizard.mockClear()
+    const canvas = within(canvasElement)
+    await canvas.findByText("Setup not finished")
+    expect(canvas.queryByText("Connected")).toBeNull()
+    expect(
+      canvas.getByRole("button", { name: "Remove Atlassian Confluence setup" }),
+    ).toBeVisible()
+    const resume = canvas.getByRole("button", {
+      name: "Link Atlassian account for Atlassian Confluence",
+    })
+    expect(resume).toBeVisible()
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Expand Atlassian Confluence" }),
+    )
+    await canvas.findByText("Workspace")
+    expect(
+      canvas.getAllByRole("button", { name: /Link Atlassian account/ }),
+    ).toHaveLength(1)
+    await userEvent.click(resume)
+    expect(onOpenWizard).toHaveBeenCalledTimes(1)
+  },
+}
+
+export const RemovePendingSetup: Story = {
+  render: () => <ConfluenceConnectionCard {...cardProps} />,
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          atlassianStatus(statusNotLinked),
+          orgAtlassianOauthHandler,
+          http.delete(
+            ({ request }) => {
+              const u = new URL(request.url)
+              return (
+                u.pathname.endsWith("/api/v1/connectors/atlassian") &&
+                u.searchParams.get("connectionId") === connectionId
+              )
+            },
+            () => {
+              deletePendingSetup()
+              return new HttpResponse(null, { status: 204 })
+            },
+          ),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    deletePendingSetup.mockClear()
+    const canvas = within(canvasElement)
+    await userEvent.click(
+      await canvas.findByRole("button", {
+        name: "Remove Atlassian Confluence setup",
+      }),
+    )
+    const dialog = await screen.findByRole("alertdialog")
+    await within(dialog).findByText("Remove this Atlassian Confluence setup?")
+    expect(deletePendingSetup).not.toHaveBeenCalled()
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Remove setup" }),
+    )
+    await waitFor(() => expect(deletePendingSetup).toHaveBeenCalledTimes(1))
   },
 }
 

@@ -3,10 +3,7 @@
 import { IconBrandGithub } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { useState } from "react"
 import { toast } from "sonner"
-import { AlertDialog } from "@/components/ui/AlertDialog"
-import { Modal } from "@/components/ui/Modal"
 import {
   githubConnectorKeys,
   githubInstallationIsLinked,
@@ -14,11 +11,7 @@ import {
 import { apiFetch, readApiJson } from "@/lib/api-result"
 import { resolveConnectorHealth } from "../connectorHealth"
 import { orgConnectionsKeys } from "../queries/org-connections"
-import {
-  ConnectorListItem,
-  ConnectorRemoveMenu,
-  connectorDash,
-} from "./ConnectorListItem"
+import { ConnectorListItem, connectorDash } from "./ConnectorListItem"
 
 type GithubConnectionCardProps = {
   orgSlug: string
@@ -43,7 +36,6 @@ export function GithubConnectionCard({
 }: GithubConnectionCardProps) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const [removeOpen, setRemoveOpen] = useState(false)
   const {
     data: installation,
     isPending,
@@ -90,7 +82,6 @@ export function GithubConnectionCard({
       await queryClient.invalidateQueries({
         queryKey: orgConnectionsKeys.list(orgSlug),
       })
-      setRemoveOpen(false)
     },
     onError: (e: Error) => toast.error(e.message),
   })
@@ -100,77 +91,59 @@ export function GithubConnectionCard({
     statusError: isError,
     checking: isPending,
     connected: linked,
+    draft: !linked,
   })
 
   return (
-    <>
-      <ConnectorListItem
-        id={`connector-github-${connectionId}`}
-        name="GitHub"
-        icon={
-          <IconBrandGithub className="size-5 text-foreground" aria-hidden />
-        }
-        health={health}
-        menu={
-          <ConnectorRemoveMenu
-            ariaLabel="GitHub connector actions"
-            onRemove={() => setRemoveOpen(true)}
-          />
-        }
-        workspace={connectorDash(installation?.accountSlug)}
-        scope="GitHub App"
-        syncRepository="—"
-        actionLabel={
-          isError
-            ? "Retry"
-            : isPending
-              ? undefined
-              : !linked
-                ? "Complete GitHub install"
-                : "Link to a workspace"
-        }
-        onAction={
-          isError
-            ? () => void refetch()
-            : isPending
-              ? undefined
-              : () => {
-                  if (!linked) {
-                    void navigate({
-                      to: "/$orgSlug/github/setup",
-                      params: { orgSlug },
-                      search: { returnTo: "connectors" },
-                    })
-                    return
-                  }
+    <ConnectorListItem
+      id={`connector-github-${connectionId}`}
+      name="GitHub"
+      icon={<IconBrandGithub className="size-5 text-foreground" aria-hidden />}
+      health={health}
+      remove={{
+        description:
+          "This unlinks the GitHub App installation from ctxpipe. Existing repositories stay in ctxpipe, but they will no longer be managed by this connector. The GitHub App remains installed in GitHub.",
+        onConfirm: () => removeMutation.mutate(),
+      }}
+      workspace={connectorDash(installation?.accountSlug)}
+      scope="GitHub App"
+      syncRepository="—"
+      actionLabel={
+        isError
+          ? "Retry"
+          : isPending
+            ? undefined
+            : !linked
+              ? "Complete GitHub install"
+              : "Link to a workspace"
+      }
+      onAction={
+        isError
+          ? () => void refetch()
+          : isPending
+            ? undefined
+            : () => {
+                if (!linked) {
                   void navigate({
                     to: "/$orgSlug/github/setup",
                     params: { orgSlug },
                     search: { returnTo: "connectors" },
                   })
+                  return
                 }
-        }
-      >
-        {isError ? (
-          <p className="text-sm text-muted-foreground">
-            Status request failed. Retry, or open setup if this persists.
-          </p>
-        ) : null}
-      </ConnectorListItem>
-
-      <Modal isOpen={removeOpen} onOpenChange={setRemoveOpen} isDismissable>
-        <AlertDialog
-          title="Remove GitHub connector?"
-          variant="destructive"
-          actionLabel="Remove connector"
-          cancelLabel="Cancel"
-          onAction={() => removeMutation.mutate()}
-        >
-          This unlinks the GitHub App installation from ctxpipe. Existing
-          repositories stay in ctxpipe, but they will no longer be managed by
-          this connector. The GitHub App remains installed in GitHub.
-        </AlertDialog>
-      </Modal>
-    </>
+                void navigate({
+                  to: "/$orgSlug/github/setup",
+                  params: { orgSlug },
+                  search: { returnTo: "connectors" },
+                })
+              }
+      }
+    >
+      {isError ? (
+        <p className="text-sm text-muted-foreground">
+          Status request failed. Retry, or open setup if this persists.
+        </p>
+      ) : null}
+    </ConnectorListItem>
   )
 }
