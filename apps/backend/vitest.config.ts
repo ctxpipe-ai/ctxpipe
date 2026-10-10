@@ -7,10 +7,7 @@ export default defineConfig({
     // Keep file-owned workers from claiming another fixture's commands.
     fileParallelism: false,
     include: ["src/**/*.test.ts"],
-    setupFiles: [
-      "src/test/setup-evlog.ts",
-      "src/test/setup-openworkflow-namespace.ts",
-    ],
+    setupFiles: ["src/test/setup-evlog.ts"],
     server: { deps: { inline: ["zod"] } },
     coverage: {
       provider: "v8",

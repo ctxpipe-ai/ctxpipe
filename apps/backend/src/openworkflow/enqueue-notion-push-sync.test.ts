@@ -14,7 +14,6 @@ import {
   enqueueConnectorContentSync,
 } from "./enqueue-connector-content-sync.js"
 import { enqueueNotionFullSyncAfterConfigPush } from "./enqueue-notion-push-sync.js"
-import { openWorkflowNamespaceId } from "./namespace.js"
 
 it.each([false, true])(
   "accepts a durable Notion activation (canceled before activation: %s)",
@@ -56,7 +55,6 @@ it.each([false, true])(
         await upsertConnectionDirectory(connection)
         const backend = await BackendPostgres.connect(f.databaseUrl, {
           runMigrations: false,
-          namespaceId: openWorkflowNamespaceId(),
         })
         try {
           const input = {

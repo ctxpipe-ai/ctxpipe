@@ -7,7 +7,6 @@ import {
   connectorContentBindingSchema,
   prepareConnectorSync,
 } from "../models/connector-content-sync.js"
-import { openWorkflowNamespaceId } from "../openworkflow/namespace.js"
 
 const legacyInput = z.object({
   orgId: z.string().min(1),
@@ -42,7 +41,7 @@ export async function previewConnectorContentAdmissions(
     `
     select distinct on (owner.input->>'connectionId') owner.id, owner.workflow_name, owner.input
     from openworkflow.workflow_runs owner
-    where owner.namespace_id = $3 and owner.version is null
+    where owner.namespace_id = 'default' and owner.version is null
       and owner.input->>'orgId' = $1 and owner.input->>'connectionId' = any($2::text[])
       and owner.workflow_name in ('linear-sync-config', 'notion-sync-config', 'confluence-sync-config')
       and not (owner.input ? 'contentSyncBinding')
@@ -58,7 +57,7 @@ export async function previewConnectorContentAdmissions(
       )
     order by owner.input->>'connectionId', owner.created_at desc, owner.id desc
   `,
-    [scope.orgId, scope.connectionIds, openWorkflowNamespaceId()],
+    [scope.orgId, scope.connectionIds],
   )
   const plans = []
   for (const owner of candidates.rows) {

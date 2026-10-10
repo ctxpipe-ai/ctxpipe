@@ -10,7 +10,6 @@ import { withNativeHydrationFixture } from "../test/native-hydration-fixture.js"
 import { withLostNativeWorkflowInsertAck } from "../test/native-workflow-ack-loss.js"
 import { withCanceledNativeInsert } from "../test/native-workflow-insert-failure.js"
 import { enqueueWriteJob } from "./enqueue-workspace-write-commit.js"
-import { openWorkflowNamespaceId } from "./namespace.js"
 import { workspaceFileEdit } from "./workflows/workspace-file-edit.js"
 
 it.each([
@@ -62,7 +61,6 @@ it.each([
           expect(result.result).toEqual({ started: true })
         const backend = await BackendPostgres.connect(f.databaseUrl, {
           runMigrations: false,
-          namespaceId: openWorkflowNamespaceId(),
         })
         const runner = new OpenWorkflow({ backend })
         runner.implementWorkflow(workspaceFileEdit.spec, workspaceFileEdit.fn)
@@ -164,7 +162,6 @@ it.each(["wrong workflow", "wrong version"] as const)(
         const jobId = `wjob_${f.id}_identity`
         const backend = await BackendPostgres.connect(f.databaseUrl, {
           runMigrations: false,
-          namespaceId: openWorkflowNamespaceId(),
         })
         const runner = new OpenWorkflow({ backend })
         const unrelated = defineWorkflow(

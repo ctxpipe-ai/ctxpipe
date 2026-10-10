@@ -1,7 +1,6 @@
 import { expect, it } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { reconcileWorkspaceWriteJob } from "../../models/workspace-write-jobs.js"
-import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { workspaceOpsFolderMap } from "../../openworkflow/workflows/workspace-ops-folder-map.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 
@@ -17,7 +16,7 @@ it.each([
   async (_name, body) => {
     await withNativeHydrationFixture(
       {
-        namespaceId: openWorkflowNamespaceId(),
+        namespaceId: "default",
         github: true,
         githubWriteView: "writable",
         writeStatus: "writable",

@@ -21,7 +21,6 @@ import { graphFindSymbolTool } from "../../tools/codegraphTools.js"
 import { getFileTool } from "../../tools/getFile.js"
 import { searchTool } from "../../tools/search.js"
 import { enqueueRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
-import { openWorkflowNamespaceId } from "../namespace.js"
 import { repositoryIndex } from "./repository-index.js"
 import { repositoryIngestion } from "./repository-ingestion.js"
 import { repositoryIngestionOrchestrator } from "./repository-ingestion-orchestrator.js"
@@ -227,7 +226,6 @@ it(
       )
       const backend = await BackendPostgres.connect(f.databaseUrl, {
         runMigrations: false,
-        namespaceId: openWorkflowNamespaceId(),
       })
       const runner = new OpenWorkflow({ backend })
       runner.implementWorkflow(
