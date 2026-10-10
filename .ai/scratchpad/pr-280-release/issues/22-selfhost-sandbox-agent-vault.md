@@ -1,11 +1,11 @@
 # Self-host (Docker) sandboxes hold no credential, through Agent Vault
 
-Status: in progress (Compose and AWS end-to-end run)
+Status: in progress: Compose deploy passed end to end without codesearch; push credential injection not tested end to end (the contract test covers it); AWS deploy waits for an AWS login
 Priority: P0
 Owner: claude
 Blocked by: none
 Created: 2026-10-08
-Updated: 2026-10-08
+Updated: 2026-10-10
 
 ## Context
 
@@ -35,8 +35,16 @@ The user approved this decision: no credential of ours is ever inside a chat san
 
 - Review fixes (three axes): one rule list for the firewall and Agent Vault (exact paths), one placeholder, no test-only branches in the chat path, owner registration only without an owner, login rate limit kept, split password volumes, host-dev API on 127.0.0.1 with a generated owner password, CDK allowlist of the backend subnets and no self-reach, deploy-set callback DNS suffix, IPv6 block in DinD, vault sweep once per window. New proof: `gh` through Agent Vault, a `..` path keeps the placeholder, the proxy cannot reach the management API, a tool-bridge turn in the Docker prepare test.
 
+- Compose end to end (2026-10-10), deploy profile from a clean project with its own name and ports, without `codesearch` (the Docker disk was full): registration, an organization, a Workspace from a pasted public repository URL (read-only, because a self-host GitHub App needs a public HTTPS URL), and chat turns with the bash tool.
+  - Pass: a tool call ran in the sandbox; the model calls went through Agent Vault; `curl https://example.com` and `curl http://example.com` gave 200; `git ls-remote` on a public repository worked.
+  - Pass: direct TCP from the sandbox (ports 22, 53, 80 and 443) is blocked.
+  - Pass: no model key or GitHub token in the sandbox: a scan of each process environment, each command line and the files outside `/usr` found no model key and no GitHub token pattern. `GH_TOKEN` and the OpenCode `apiKey` hold the placeholder.
+  - Pass: with Agent Vault stopped, `prepare` answers 503 with the clear error and no sandbox starts. The streamed turn answers HTTP 200 with a `RUN_ERROR` event that holds the same error (the stream starts first). After a restart of Agent Vault, `prepare` answers 204.
+  - Push credential: not run in Compose (no GitHub App). `agent-vault-native.contract.test.ts` passed again (Git push, HTTP and `gh` get the credential through a real Agent Vault).
+  - Fixes: the UI image build ran out of Node heap on an 8 GB Docker VM; the model provider settings did not reach the backend and the worker; the chat image build in DinD could not download, because the DinD rules block the bridge (now `--network host`, with a contract test step). Review round 1: empty model settings are unset in the model provider, Compose passes every model setting, and the DinD entrypoint blocks instance metadata for the host-network build.
+
 ## Open
 
-- Run `pnpm start` and a real AWS deploy end to end (not run).
+- Run a real AWS deploy end to end: waits for an AWS login (`ctxpipe-sandbox` SSO session expired).
 - The two HTTPS-fixture Docker tests in `workspace-chat-prepare-native.contract.test.ts` need Linux `host-gateway` (CI); they do not run on Docker Desktop.
 - Node `fetch` to a plain `http://` site fails through the proxy (HTTPS works).

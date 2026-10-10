@@ -18,6 +18,17 @@ x-otel-env: &otel-env
   OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
   OTEL_RESOURCE_ATTRIBUTES: ${OTEL_RESOURCE_ATTRIBUTES:-}
 
+# The LLM provider for chat, the MCP and ingestion. Empty values are unset.
+x-model-env: &model-env
+  MODEL_PROVIDER: ${MODEL_PROVIDER:-}
+  MODEL_PROVIDER_API_KEY: ${MODEL_PROVIDER_API_KEY:-}
+  MODEL_PROVIDER_URL: ${MODEL_PROVIDER_URL:-}
+  MODEL_FAST_NAME: ${MODEL_FAST_NAME:-}
+  MODEL_MEDIUM_NAME: ${MODEL_MEDIUM_NAME:-}
+  MODEL_HIGH_NAME: ${MODEL_HIGH_NAME:-}
+  MODEL_EMBEDDING_NAME: ${MODEL_EMBEDDING_NAME:-}
+  MODEL_BEDROCK_AWS_REGION: ${MODEL_BEDROCK_AWS_REGION:-}
+
 # The DinD daemon over mutual TLS; the client certificates come from `dind`.
 x-sandbox-docker-env: &sandbox-docker-env
   SANDBOX_PROVIDER: docker
@@ -236,7 +247,9 @@ services:
   # Builds the chat image inside DinD from this checkout, like the other
   # deploy images. Cached after the first run; a changed Dockerfile gives a
   # new image ID, and new sandboxes use it. Nothing waits for it: until it
-  # exists, chat answers 503 and the rest of the app works.
+  # exists, chat answers 503 and the rest of the app works. The build uses
+  # the DinD host network: the DinD rules block the sandbox bridges, so a
+  # build step on a bridge cannot download packages.
   chat-sandbox-image:
     profiles: [deploy]
     image: *dind-image
@@ -244,7 +257,7 @@ services:
     entrypoint: ["sh", "-ec"]
     command:
       - |
-        docker build --tag "$$SANDBOX_CHAT_IMAGE" /context
+        docker build --network host --tag "$$SANDBOX_CHAT_IMAGE" /context
         docker image inspect --format '{{.Id}}' "$$SANDBOX_CHAT_IMAGE"
     environment:
       <<: *sandbox-docker-env
@@ -276,7 +289,7 @@ services:
       # the backend's alias on the `sandbox` network. Empty OTEL values are
       # unset: no export.
       SANDBOX_CALLBACK_HOST: ${SANDBOX_CALLBACK_HOST:-backend.sandbox.ctxpipe.internal}
-      <<: [*otel-env, *sandbox-docker-env, *agent-vault-env]
+      <<: [*otel-env, *model-env, *sandbox-docker-env, *agent-vault-env]
       OTEL_SERVICE_NAME: backend
       CONFLUENCE_FORGE_INSTALL_URL: ${CONFLUENCE_FORGE_INSTALL_URL:-}
       SLACK_CLIENT_ID: ${SLACK_CLIENT_ID:-}
@@ -337,7 +350,7 @@ services:
       SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET:-}
       # The worker removes idle sandboxes through the same daemon, and builds
       # Workspace bases through Agent Vault.
-      <<: [*otel-env, *sandbox-docker-env, *agent-vault-env]
+      <<: [*otel-env, *model-env, *sandbox-docker-env, *agent-vault-env]
       OTEL_SERVICE_NAME: openworkflow
       OPENWORKFLOW_CONCURRENCY: "6"
       CODESEARCH_INDEXER_CONCURRENCY: "1"

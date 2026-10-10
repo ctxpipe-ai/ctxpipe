@@ -71,6 +71,30 @@ it(
             "-q",
             "curlimages/curl:8.17.0",
           )
+          // Compose builds the chat image inside DinD. A build step on a
+          // sandbox bridge is blocked; on the DinD host network it downloads.
+          const build = (network: string) =>
+            exec("docker", [
+              "exec",
+              name,
+              "sh",
+              "-c",
+              `printf 'FROM curlimages/curl:8.17.0\\nRUN curl -sS -m 10 -o /dev/null https://example.com\\n' | docker build -q --network ${network} -`,
+            ])
+          // curl exit codes: 6 no DNS, 7 no connection, 28 timeout.
+          await expect(build("default")).rejects.toThrow(
+            /did not complete successfully: exit code: (6|7|28)\b/,
+          )
+          await build("host")
+          // The host network is DinD's own: instance metadata stays blocked.
+          const rules = await docker(
+            "exec",
+            name,
+            "sh",
+            "-c",
+            "iptables-save -t raw 2>/dev/null; /usr/local/sbin/.iptables-legacy/iptables-save -t raw 2>/dev/null; true",
+          )
+          expect(rules).toContain("-A OUTPUT -d 169.254.169.254/32 -j DROP")
           const vault = await openRunVault({
             access: fixture.access,
             runKey: `egress:${randomUUID()}`,

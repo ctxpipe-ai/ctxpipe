@@ -9,9 +9,14 @@ set -eu
 # and the kernel applies it whichever iptables backend dockerd then picks; an
 # nf_tables rule does not make the stock entrypoint switch to legacy. Fails
 # closed: dockerd cannot run where neither backend works.
+# OUTPUT covers DinD's own network, where the chat image build runs
+# (`--network host` in docker-compose.yml).
 block_metadata() {
-  "$1" -t raw -C PREROUTING -d 169.254.169.254/32 -j DROP 2>/dev/null ||
-    "$1" -t raw -I PREROUTING -d 169.254.169.254/32 -j DROP 2>/dev/null
+  for chain in PREROUTING OUTPUT; do
+    "$1" -t raw -C "$chain" -d 169.254.169.254/32 -j DROP 2>/dev/null ||
+      "$1" -t raw -I "$chain" -d 169.254.169.254/32 -j DROP 2>/dev/null ||
+      return 1
+  done
 }
 block_metadata iptables ||
   block_metadata /usr/local/sbin/.iptables-legacy/iptables || {
