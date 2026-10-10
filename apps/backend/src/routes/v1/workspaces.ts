@@ -16,7 +16,10 @@ import {
   renameWorkspaceLifecycle,
 } from "../../domain/workspaces/workspace-lifecycle.js"
 import { withDestroyedWorkspaceSandboxes } from "../../domain/workspaces/workspace-sandbox-cleanup.js"
-import { WORKSPACE_WRITE_STATUSES } from "../../domain/workspaces/write-status.js"
+import {
+  githubRepoFullNameFromWorkspaceUrl,
+  WORKSPACE_WRITE_STATUSES,
+} from "../../domain/workspaces/write-status.js"
 import {
   deleteWorkspace,
   getMigrationExportSha,
@@ -447,6 +450,23 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
       body.workspaceRepositoryUrl !== undefined ||
       body.githubConnectionId !== undefined ||
       body.source !== undefined
+    const displayName = body.displayName?.trim()
+    const renamed = Boolean(displayName) && displayName !== current.displayName
+    // The name lives in AGENTS.md. Refuse a rename that cannot be written
+    // before the slug changes, so that the request does not half-apply.
+    if (
+      renamed &&
+      !bindingSubmitted &&
+      (!githubRepoFullNameFromWorkspaceUrl(current.workspaceRepositoryUrl) ||
+        !current.githubConnectionId)
+    )
+      return c.json(
+        {
+          error:
+            "The display name is stored in the Workspace repository. Connect the repository through GitHub to rename this Workspace.",
+        },
+        409,
+      )
     const persistConnection =
       body.githubConnectionId !== undefined || body.source === "select"
     const { workspace: updated } = await relinkWorkspaceLifecycle({
@@ -462,11 +482,11 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
       log: c.get("log"),
     })
     if (!updated) return c.json({ error: "Not found" }, 404)
-    if (body.displayName) {
+    if (renamed && displayName) {
       await renameWorkspaceLifecycle({
         orgId: updated.orgId,
         workspaceId: updated.id,
-        displayName: body.displayName,
+        displayName,
         log: c.get("log"),
       })
     }
