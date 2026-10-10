@@ -67,7 +67,7 @@ for name in GH_APP_ID GH_APP_SLUG GH_CLIENT_ID GH_CLIENT_SECRET GH_PRIVATE_KEY G
   if out="$(export "$name="; run_sync "$tmp/empty-$name" 2>&1)"; then
     fail "sync should fail when $name is empty"
   fi
-  printf '%s' "$out" | grep -Fq "PREVIEW_$name" || fail "the error should name the secret PREVIEW_$name: $out"
+  printf '%s' "$out" | grep -Fq "$name" || fail "the error should name $name: $out"
   [[ ! -s "$tmp/empty-$name/upserts" ]] || fail "nothing should be written when $name is empty"
 done
 

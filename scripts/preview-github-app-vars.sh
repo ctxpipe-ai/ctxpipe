@@ -3,12 +3,11 @@
 # A preview runs branch code that nobody has reviewed, so it must never hold
 # the production GitHub App credentials that `environment new --duplicate
 # production` copies. The job runs in the GitHub environment Preview. Its
-# secrets PREVIEW_GH_* belong to the preview App and reach this script as GH_*.
-# GitHub rejects secret names that start with GITHUB_. The prefix PREVIEW_ keeps
-# them apart from the production repository secrets, such as GH_CLIENT_SECRET.
-# A missing environment secret would otherwise silently take that value. An
-# empty secret fails the deploy, because the preview would otherwise keep the
-# production App.
+# secrets GH_* belong to the preview App (GitHub rejects secret names that
+# start with GITHUB_). Every environment uses the same names. A missing Preview
+# secret falls back to a repository secret with the same name, if one exists.
+# An empty secret fails the deploy, because the preview would otherwise keep
+# the production App.
 set -euo pipefail
 # shellcheck source=scripts/preview-service-vars.sh
 source "$(dirname "${BASH_SOURCE[0]}")/preview-service-vars.sh"
@@ -28,7 +27,7 @@ preview_github_app_vars_json() {
 check_preview_github_app_secrets() {
   local missing
   missing="$(preview_github_app_vars_json \
-    | jq -r '[to_entries[] | select((.value // "") == "") | .key | sub("^GITHUB_"; "PREVIEW_GH_")] | join(" ")')"
+    | jq -r '[to_entries[] | select((.value // "") == "") | .key | sub("^GITHUB_"; "GH_")] | join(" ")')"
   if [[ -n "$missing" ]]; then
     echo "preview-github-app-vars: these Preview environment secrets are empty: $missing." >&2
     echo "preview-github-app-vars: a preview must not keep the production GitHub App; set the preview App secrets." >&2
