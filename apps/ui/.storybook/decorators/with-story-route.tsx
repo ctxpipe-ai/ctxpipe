@@ -17,7 +17,7 @@ function storyRouteStub() {
 export type StoryRouteParams =
   | { pattern: "flat"; path: string }
   | { pattern: "orgIndex"; orgSlug: string }
-  | { pattern: "orgConnectors"; orgSlug: string }
+  | { pattern: "orgConnectors"; orgSlug: string; search?: string }
   | { pattern: "orgRepositories"; orgSlug: string }
   | { pattern: "orgWorkspaceNew"; orgSlug: string }
   | {
@@ -193,7 +193,7 @@ function createStoryRouter(
       : ""
   const initialPath =
     spec.pattern === "orgConnectors"
-      ? `/${spec.orgSlug}/connectors`
+      ? `/${spec.orgSlug}/connectors${spec.search ?? ""}`
       : spec.pattern === "orgRepositories"
         ? `/${spec.orgSlug}/repositories`
         : spec.pattern === "orgWorkspaceNew"
