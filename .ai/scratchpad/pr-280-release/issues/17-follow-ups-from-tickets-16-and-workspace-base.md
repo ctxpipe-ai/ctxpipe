@@ -31,5 +31,20 @@ Two small gaps stayed open when ticket 16 and the Workspace base work merged int
 
 ## Resolution
 
-See the commits on branch `t17-follow-ups` (base f6fa4c48).
+Commits on branch `t17-follow-ups` (base f6fa4c48):
+
+- 8817e770: items 4, 5 and 6 (codesearch).
+- 3d399502: item 2.
+- e85e2ab8, 2ceac4d6, 1c8adbb3: the per-file namespace attempt and its revert.
+- 06d65c28: item 3.
+- c7012708: item 1.
+
+Proof (own database, `ctxpipe_app` role):
+
+- Item 1: the new race test fails before the fix ("Workspace write binding is unavailable") and passes after it. The rebind contract passes 5 of 5 runs. The write workflow, write pause, unborn bootstrap and write ops contracts pass 35 of 35 tests.
+- Item 3: the owner contract passes 5 of 5 runs. After the base, sandbox lifecycle and write workflow contracts, no open run stays in "default".
+- Items 4 to 6: `pnpm --filter @ctxpipe/codesearch test:vitest` passes 349 of 349 tests. One file, `warmup.integration`, cannot load on this machine because Zoekt is not installed.
+- `pnpm lint` and `pnpm test:policy` pass.
+
+Open risk: the CI time of the cleanup is estimated (about 13 ms for each file), not measured in CI.
 
