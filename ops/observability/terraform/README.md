@@ -24,7 +24,7 @@ Buckets `langfuse-events` and `clickhouse-cold` (region `iad`) are created outsi
 
 Supported path: [`.github/workflows/observability.yaml`](../../../.github/workflows/observability.yaml). A same-repo pull request plans only (GitHub Environment `terraform-plan`, `-lock=false`) and updates a comment headed `## Observability Terraform Plan`. Push to `main` and `workflow_dispatch` on `main` plan, refuse deletes, and apply (environment `observability`, concurrency group `observability-apply`, not cancelled when a newer run is queued). The workflow uses existing `RAILWAY_TOKEN`, `R2_ACCESS_KEY_ID`, and `R2_SECRET_ACCESS_KEY`. The state key `observability/terraform.tfstate` is in [`backend.tf`](./backend.tf).
 
-After a successful apply the workflow pins region `us-east4-eqdc4a`. Provider 0.6.1 ignores regions on update (issue #77). The same command, from the repo root:
+After a successful apply the workflow pins region `us-east4-eqdc4a`. Provider 0.6.1 ignores regions on update (issue #77). The pin walks every service in the project and skips one that has no instance in production, such as a Railway Function that is only staged. The same command, from the repo root:
 
 ```bash
 RAILWAY_PROJECT_ID=305aa114-c6f3-4aca-b883-0faa9c331aa2 \
