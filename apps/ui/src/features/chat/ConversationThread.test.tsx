@@ -26,7 +26,7 @@ const user: ChatMessage = {
 }
 
 describe("ConversationThread activity chrome", () => {
-  it("keeps Thinking… as the live title until a reasoning heading arrives", () => {
+  it("keeps a working verb as the live title and hides the reasoning text", () => {
     const html = renderThread(
       [
         user,
@@ -45,11 +45,11 @@ describe("ConversationThread activity chrome", () => {
     )
     expect(html).toContain("Reasoning")
     expect(html).toContain("data-reasoning-title")
-    expect(html).toContain("Thinking…")
-    expect(html).toContain("inspect the repository structure")
+    expect(html).toMatch(/data-reasoning-title="true"[^>]*>Contextualizing…</)
+    expect(html).not.toContain("inspect the repository structure")
   })
 
-  it("uses the latest reasoning heading as the live title", () => {
+  it("shows the latest reasoning heading under the working verb", () => {
     const html = renderThread(
       [
         user,
@@ -68,12 +68,10 @@ describe("ConversationThread activity chrome", () => {
       "streaming",
     )
     expect(html).toContain('data-reasoning-title="true"')
-    expect(html).toMatch(
-      /data-reasoning-title="true"[^>]*>Consolidating documents</,
-    )
-    expect(html).toContain("Inspecting documentation steps")
-    expect(html).toContain("Editing docker.md next.")
-    expect(html).not.toMatch(/data-reasoning-title="true"[^>]*>Thinking/)
+    expect(html).toMatch(/data-reasoning-title="true"[^>]*>Contextualizing…</)
+    expect(html).toContain("Consolidating documents")
+    expect(html).not.toContain("Inspecting documentation steps")
+    expect(html).not.toContain("Editing docker.md next.")
   })
 
   it("uses icons on live tool chips and a pulsing dot only on reasoning", () => {
@@ -103,7 +101,7 @@ describe("ConversationThread activity chrome", () => {
     expect(html).toContain("data-reasoning-title")
   })
 
-  it("shows a live tool counter and hides Thinking…", () => {
+  it("shows a live tool counter and hides the working verb", () => {
     const html = renderThread(
       [
         user,
@@ -123,7 +121,7 @@ describe("ConversationThread activity chrome", () => {
     expect(html).toContain('aria-expanded="false"')
     expect(html).not.toContain("hybrid_search")
     expect(html).not.toContain("get_file")
-    expect(html).not.toContain("Thinking…")
+    expect(html).not.toContain("Contextualizing…")
   })
 
   it("collapses reasoning after reply text starts", () => {
@@ -145,7 +143,7 @@ describe("ConversationThread activity chrome", () => {
     expect(html).toContain("Reasoning")
     expect(html).not.toContain("inspect the repository")
     expect(html).toContain("This is a TypeScript monorepo.")
-    expect(html).not.toContain("Thinking…")
+    expect(html).not.toContain("Contextualizing…")
   })
 
   it("titles collapsed reasoning with its heading as plain text", () => {
@@ -226,15 +224,16 @@ describe("ConversationThread activity chrome", () => {
     expect(html).not.toContain("2026")
   })
 
-  it("shows Thinking… only before activity arrives", () => {
+  it("shows a working verb only before activity arrives", () => {
     const html = renderThread([user], "submitted")
-    expect(html).toContain("Thinking…")
+    expect(html).toContain('aria-label="Working"')
+    expect(html).toContain("Contextualizing…")
   })
 
-  it("shows Setting up sandbox before Thinking… while the sandbox starts", () => {
+  it("shows Setting up sandbox before the working verb while the sandbox starts", () => {
     const html = renderThread([user], "submitted", "Setting up sandbox")
     expect(html).toContain("Setting up sandbox")
-    expect(html).not.toContain("Thinking…")
+    expect(html).not.toContain("Contextualizing…")
   })
 
   it("hides setup and thinking wait copy once tools arrive", () => {
@@ -252,10 +251,10 @@ describe("ConversationThread activity chrome", () => {
     )
     expect(html).toContain("Read 1 file")
     expect(html).not.toContain("Setting up sandbox")
-    expect(html).not.toContain("Thinking…")
+    expect(html).not.toContain("Contextualizing…")
   })
 
-  it("hides Thinking… when activity exists while status is still submitted", () => {
+  it("hides the working verb when activity exists while status is still submitted", () => {
     const html = renderThread(
       [
         user,
@@ -273,7 +272,7 @@ describe("ConversationThread activity chrome", () => {
       "submitted",
     )
     expect(html).toContain("Reasoning")
-    expect(html).not.toContain("Thinking…")
+    expect(html).not.toContain("Contextualizing…")
   })
 
   it("renders reasoning and tools from AG-UI chunks before reply text", () => {
@@ -432,7 +431,7 @@ describe("ConversationThread earlier thinking blocks", () => {
     processor.processChunk({
       type: EventType.REASONING_MESSAGE_CONTENT,
       messageId: "reason_2",
-      delta: "Second idea about invoices.",
+      delta: "**Comparing invoices**\n\nSecond idea about invoices.",
       timestamp: Date.now(),
     })
 
@@ -442,7 +441,8 @@ describe("ConversationThread earlier thinking blocks", () => {
     )
     expect(html).toContain('aria-label="Thought"')
     const live = html.slice(html.indexOf('role="status"'))
-    expect(live).toContain("Second idea about invoices.")
+    expect(live).toContain("Comparing invoices")
+    expect(live).not.toContain("Second idea about invoices.")
     expect(html).not.toContain("First idea about the ledger.")
   })
 
@@ -516,7 +516,7 @@ describe("ConversationThread earlier thinking blocks", () => {
     const live = html.slice(html.indexOf('role="status"'))
     expect(live).toContain('aria-label="Reasoning"')
     expect(live).toContain("Checking payments")
-    expect(live).toContain("Third idea about payments.")
+    expect(live).not.toContain("Third idea about payments.")
     expect(html).not.toContain("First idea about the ledger.")
     expect(html).not.toContain("Second idea about invoices.")
   })
