@@ -18,6 +18,12 @@ x-otel-env: &otel-env
   OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
   OTEL_RESOURCE_ATTRIBUTES: ${OTEL_RESOURCE_ATTRIBUTES:-}
 
+# The LLM provider for chat, the MCP and ingestion. Empty values are unset.
+x-model-env: &model-env
+  MODEL_PROVIDER: ${MODEL_PROVIDER:-}
+  MODEL_PROVIDER_API_KEY: ${MODEL_PROVIDER_API_KEY:-}
+  MODEL_PROVIDER_URL: ${MODEL_PROVIDER_URL:-}
+
 # The DinD daemon over mutual TLS; the client certificates come from `dind`.
 x-sandbox-docker-env: &sandbox-docker-env
   SANDBOX_PROVIDER: docker
@@ -276,7 +282,7 @@ services:
       # the backend's alias on the `sandbox` network. Empty OTEL values are
       # unset: no export.
       SANDBOX_CALLBACK_HOST: ${SANDBOX_CALLBACK_HOST:-backend.sandbox.ctxpipe.internal}
-      <<: [*otel-env, *sandbox-docker-env, *agent-vault-env]
+      <<: [*otel-env, *model-env, *sandbox-docker-env, *agent-vault-env]
       OTEL_SERVICE_NAME: backend
       CONFLUENCE_FORGE_INSTALL_URL: ${CONFLUENCE_FORGE_INSTALL_URL:-}
       SLACK_CLIENT_ID: ${SLACK_CLIENT_ID:-}
@@ -337,7 +343,7 @@ services:
       SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET:-}
       # The worker removes idle sandboxes through the same daemon, and builds
       # Workspace bases through Agent Vault.
-      <<: [*otel-env, *sandbox-docker-env, *agent-vault-env]
+      <<: [*otel-env, *model-env, *sandbox-docker-env, *agent-vault-env]
       OTEL_SERVICE_NAME: openworkflow
       OPENWORKFLOW_CONCURRENCY: "6"
       CODESEARCH_INDEXER_CONCURRENCY: "1"
