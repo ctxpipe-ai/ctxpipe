@@ -1,50 +1,14 @@
 // @vitest-environment jsdom
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
-import { act, type ReactNode } from "react"
+import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
-import {
-  afterAll,
-  afterEach,
-  beforeAll,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest"
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import { LinkAtlassianStep } from "./LinkAtlassianStep"
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
-
-// The deployment uses one Atlassian OAuth app, so the step links the account
-// through Better Auth.
-vi.mock("@tanstack/react-query", () => ({
-  useQuery: () => ({
-    data: {
-      globalAtlassianOAuthConfigured: true,
-      oauthAppSaved: false,
-      atlassianOAuthClientId: null,
-    },
-    isPending: false,
-    isError: false,
-  }),
-}))
-
-// React Aria loads a second React copy under jsdom here; render a plain button.
-vi.mock("@/components/ui/Button", () => ({
-  Button: ({
-    children,
-    onPress,
-  }: {
-    children?: ReactNode
-    onPress?: () => void
-  }) => (
-    <button type="button" onClick={onPress}>
-      {children}
-    </button>
-  ),
-}))
 
 const server = setupServer()
 let root: Root | undefined
@@ -82,10 +46,23 @@ describe("LinkAtlassianStep", () => {
     )
     let linkBody: { provider?: string; callbackURL?: string } | undefined
     server.use(
+      // The deployment uses one Atlassian OAuth app, so the step links the
+      // account through Better Auth.
+      http.get("*/acme/api/v1/org/atlassian-oauth", () =>
+        HttpResponse.json({
+          globalAtlassianOAuthConfigured: true,
+          oauthAppSaved: false,
+          atlassianOAuthClientId: null,
+        }),
+      ),
       http.post("*/.auth/api/v1/auth/link-social", async ({ request }) => {
         linkBody = (await request.json()) as typeof linkBody
         return HttpResponse.json({ url: "", redirect: false })
       }),
+      // Better Auth reads the session again after the link call.
+      http.get("*/.auth/api/v1/auth/get-session", () =>
+        HttpResponse.json(null),
+      ),
     )
 
     container = document.createElement("div")
@@ -93,7 +70,12 @@ describe("LinkAtlassianStep", () => {
     root = createRoot(container)
     act(() =>
       root?.render(
-        <LinkAtlassianStep orgSlug="acme" atlassianConnectionId="con_forge1" />,
+        <QueryClientProvider client={new QueryClient()}>
+          <LinkAtlassianStep
+            orgSlug="acme"
+            atlassianConnectionId="con_forge1"
+          />
+        </QueryClientProvider>,
       ),
     )
 
