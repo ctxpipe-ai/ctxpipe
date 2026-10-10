@@ -167,6 +167,23 @@ function isTokenlessNotionDraft(config: NotionConnectionConfig): boolean {
   )
 }
 
+/**
+ * True for a draft that only the setup first screen created: no linked
+ * workspace and no saved OAuth app, webhook, or sync binding.
+ */
+export function isEmptyNotionSetupDraft(
+  config: NotionConnectionConfig,
+): boolean {
+  return (
+    isTokenlessNotionDraft(config) &&
+    !config.workspaceId &&
+    !config.oauthClientId &&
+    !config.oauthClientSecretEnc &&
+    !config.webhookSecretEnc &&
+    !config.repositoryId
+  )
+}
+
 async function migrateLegacyNotionTokensOnRead(
   db: Db,
   row: ConnectionRow,

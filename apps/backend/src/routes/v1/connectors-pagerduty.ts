@@ -1333,12 +1333,10 @@ export const pagerdutyOauthCallbackRoutes = new OpenAPIHono<AppEnv>().openapi(
 
     try {
       const draft = state.connectionId
-        ? await withOrgDbContext(state.orgId, () =>
-            getPagerdutyConnectionByConnectionId(
-              state.orgId,
-              state.connectionId ?? "",
-              c.var.env,
-            ),
+        ? await getPagerdutyConnectionByConnectionId(
+            state.orgId,
+            state.connectionId ?? "",
+            c.var.env,
           )
         : undefined
       if (state.connectionId && !draft) {

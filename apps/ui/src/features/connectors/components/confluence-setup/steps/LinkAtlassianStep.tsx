@@ -15,6 +15,19 @@ import {
 } from "../../../queries/atlassian-connector"
 import { AtlassianOauthAppSavedSection } from "../../AtlassianOauthAppSavedSection"
 
+/**
+ * The account link leaves the page. The connectors page reads
+ * `atlassianConnectionId` and opens the wizard again for this connection.
+ */
+function atlassianLinkReturnPath(
+  href: string,
+  atlassianConnectionId: string,
+): string {
+  const back = new URL(href)
+  back.searchParams.set("atlassianConnectionId", atlassianConnectionId)
+  return `${back.pathname}${back.search}`
+}
+
 type LinkAtlassianStepProps = {
   orgSlug: string
   atlassianConnectionId: string
@@ -33,6 +46,9 @@ export function LinkAtlassianStep({
   })
 
   const useGlobalOauth = meta.data?.globalAtlassianOAuthConfigured === true
+
+  const returnPath = () =>
+    atlassianLinkReturnPath(window.location.href, atlassianConnectionId)
 
   return (
     <div className="space-y-4">
@@ -77,7 +93,7 @@ export function LinkAtlassianStep({
             onPress={async () => {
               await authClient.linkSocial({
                 provider: "atlassian",
-                callbackURL: window.location.pathname,
+                callbackURL: returnPath(),
               })
             }}
           >
@@ -105,7 +121,7 @@ export function LinkAtlassianStep({
             variant="primary"
             className="rounded-md"
             onPress={() => {
-              const returnTo = `${window.location.pathname}${window.location.search}`
+              const returnTo = returnPath()
               const u = new URL(
                 `/${orgSlug}/api/v1/org/atlassian-oauth/authorize`,
                 window.location.origin,

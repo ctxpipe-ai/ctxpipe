@@ -15,6 +15,7 @@ import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
 import {
   decodeLinearWebhookSecret,
   encodeLinearOauthAppSecretsForDb,
+  type LinearConnectionConfigStored,
   type LinearSetupPhase,
   linearOauthAppSavedInConfig,
   parseLinearConnectionStored,
@@ -262,6 +263,24 @@ export async function resolveLinearConnectionForOrgDetailed(
   return { status: "ambiguous" }
 }
 
+/**
+ * True for a draft that only the setup first screen created: no linked
+ * workspace and no saved OAuth app, webhook, or sync binding.
+ */
+export function isEmptyLinearSetupDraft(
+  config: LinearConnectionConfigStored,
+): boolean {
+  return (
+    config.setupPhase === "draft" &&
+    !config.workspaceId &&
+    !config.accessTokenEnc &&
+    !config.oauthClientId &&
+    !config.oauthClientSecretEnc &&
+    !config.webhookSecretEnc &&
+    !config.repositoryId
+  )
+}
+
 export type UpsertLinearDraftResult =
   | { status: "ok"; connection: LinearConnection }
   | { status: "ambiguous" }
@@ -271,8 +290,7 @@ export async function upsertLinearDraftConnection(input: {
   env: Env
   ownerUserId: string
 }): Promise<UpsertLinearDraftResult> {
-  const db = getOrgDb()
-  return db.transaction(async (tx) => {
+  return withOrgDbContext(input.orgId, async (tx) => {
     const rows = await tx
       .select()
       .from(connections)

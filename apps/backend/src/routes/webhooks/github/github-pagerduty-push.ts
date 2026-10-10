@@ -118,12 +118,10 @@ export async function maybeActivatePagerdutySyncOnConfigPush(input: {
         continue
       }
 
-      const connection = await withOrgDbContext(target.orgId, () =>
-        getPagerdutyConnectionByConnectionId(
-          target.orgId,
-          target.connectionId,
-          env,
-        ),
+      const connection = await getPagerdutyConnectionByConnectionId(
+        target.orgId,
+        target.connectionId,
+        env,
       )
       if (!connection || connection.accountId !== config.accountId) {
         input.log.error(

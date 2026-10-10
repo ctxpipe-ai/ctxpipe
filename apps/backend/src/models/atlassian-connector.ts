@@ -396,6 +396,8 @@ export async function upsertPendingForgeInstallation(input: {
       )
       .orderBy(desc(connections.updatedAt))
       .limit(1)
+    // Reuse the draft as it is: it can hold a saved OAuth app or site host.
+    if (existing) return existing
 
     const pendingConfig = forgeShapeToConfig({
       cloudId: null,
@@ -418,17 +420,6 @@ export async function upsertPendingForgeInstallation(input: {
       lastProvisionAt: null,
       atlassianOAuthClientId: null,
     })
-
-    if (existing) {
-      const [updated] = await db
-        .update(connections)
-        .set({ config: pendingConfig, updatedAt: new Date() })
-        .where(eq(connections.id, existing.id))
-        .returning()
-      if (!updated)
-        throw new Error("Failed to upsert pending forge installation")
-      return updated
-    }
 
     const id = generateObjectId("con")
     const [created] = await db

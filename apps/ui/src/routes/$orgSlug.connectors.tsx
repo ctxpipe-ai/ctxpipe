@@ -64,6 +64,11 @@ export const Route = createFileRoute("/$orgSlug/connectors")({
       typeof search.notionConnectionId === "string"
         ? search.notionConnectionId
         : undefined,
+    // Optional, so links to this page need not name it: only the Atlassian
+    // account-link return path sets it.
+    ...(typeof search.atlassianConnectionId === "string" && {
+      atlassianConnectionId: search.atlassianConnectionId,
+    }),
   }),
   component: ConnectorsPage,
 })
@@ -174,6 +179,26 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
       replace: true,
     })
   }, [search.notionConnectionId, navigate, orgSlug])
+
+  // The Atlassian account link leaves the page; its return path names the
+  // connection, so the wizard opens again on the next step.
+  useEffect(() => {
+    if (!search.atlassianConnectionId) return
+    setWizardAtlassianConnectionId(search.atlassianConnectionId)
+    setWizardOpen(true)
+    void navigate({
+      to: "/$orgSlug/connectors",
+      params: { orgSlug },
+      search: (prev) => ({
+        error: prev.error,
+        error_description: prev.error_description,
+        pendingAccountClaim: prev.pendingAccountClaim,
+        notionConnectionId: prev.notionConnectionId,
+        atlassianConnectionId: undefined,
+      }),
+      replace: true,
+    })
+  }, [search.atlassianConnectionId, navigate, orgSlug])
 
   useEffect(() => {
     if (search.error == null) return
