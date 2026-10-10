@@ -55,7 +55,7 @@ export const Expanded: Story = {
 export const NotYetConnected: Story = {
   args: {
     ...shared,
-    health: "not_connected",
+    health: "setup_pending",
     workspace: "—",
     scope: "0 selected items",
     actionLabel: "Continue setup",

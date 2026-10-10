@@ -15,7 +15,7 @@ const TONE: Record<
     dot: "bg-zinc-500",
     pulse: true,
   },
-  not_connected: {
+  setup_pending: {
     text: "text-muted-foreground",
     dot: "bg-zinc-500",
     pulse: false,

@@ -1,6 +1,6 @@
 export type ConnectorHealth =
   | "checking"
-  | "not_connected"
+  | "setup_pending"
   | "syncing"
   | "connected"
   | "couldnt_load"
@@ -11,8 +11,8 @@ export function connectorHealthLabel(health: ConnectorHealth): string {
   switch (health) {
     case "checking":
       return "Checking"
-    case "not_connected":
-      return "Not yet connected"
+    case "setup_pending":
+      return "Setup not finished"
     case "syncing":
       return "Syncing"
     case "connected":
@@ -41,5 +41,5 @@ export function resolveConnectorHealth(input: {
   if (input.setupPhase === "sync_failed") return "sync_failed"
   if (input.setupPhase === "config_failed") return "config_failed"
   if (input.setupPhase === "initial_sync") return "syncing"
-  return input.connected ? "connected" : "not_connected"
+  return input.connected ? "connected" : "setup_pending"
 }

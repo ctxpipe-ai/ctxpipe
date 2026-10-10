@@ -8,7 +8,7 @@ import {
 describe("connectorHealthLabel", () => {
   it("names the operator-facing states", () => {
     expect(connectorHealthLabel("checking")).toBe("Checking")
-    expect(connectorHealthLabel("not_connected")).toBe("Not yet connected")
+    expect(connectorHealthLabel("setup_pending")).toBe("Setup not finished")
     expect(connectorHealthLabel("syncing")).toBe("Syncing")
     expect(connectorHealthLabel("connected")).toBe("Connected")
     expect(connectorHealthLabel("couldnt_load")).toBe("Couldn't load")
@@ -78,7 +78,7 @@ describe("resolveConnectorHealth", () => {
         setupPhase: "draft",
         connected: false,
       }),
-    ).toBe("not_connected")
+    ).toBe("setup_pending")
     expect(
       resolveConnectorHealth({
         statusError: false,

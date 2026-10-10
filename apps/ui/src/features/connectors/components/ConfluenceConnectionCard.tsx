@@ -70,7 +70,11 @@ export function ConfluenceConnectionCard({
   const removeMutation = useMutation({
     mutationFn: () => deleteAtlassianConnector(orgSlug, connectionId),
     onSuccess: async () => {
-      toast.success("Confluence connector removed.")
+      toast.success(
+        health === "setup_pending"
+          ? "Confluence setup removed."
+          : "Confluence connector removed.",
+      )
       await queryClient.invalidateQueries({
         queryKey: atlassianConnectorKeys.status(orgSlug, connectionId),
       })
@@ -109,6 +113,10 @@ export function ConfluenceConnectionCard({
           />
         }
         health={health}
+        pendingSetup={{
+          onContinue: onOpenWizard,
+          onRemove: () => setRemoveOpen(true),
+        }}
         menu={
           <ConnectorRemoveMenu
             ariaLabel="Confluence connector actions"
@@ -158,15 +166,21 @@ export function ConfluenceConnectionCard({
 
       <Modal isOpen={removeOpen} onOpenChange={setRemoveOpen} isDismissable>
         <AlertDialog
-          title="Remove Confluence connector?"
+          title={
+            health === "setup_pending"
+              ? "Remove this Confluence setup?"
+              : "Remove Confluence connector?"
+          }
           variant="destructive"
-          actionLabel="Remove connector"
+          actionLabel={
+            health === "setup_pending" ? "Remove setup" : "Remove connector"
+          }
           cancelLabel="Cancel"
           onAction={() => removeMutation.mutate()}
         >
-          This removes the Forge installation and Confluence scope for this
-          organisation. Your Atlassian account may stay linked to your user
-          profile.
+          {health === "setup_pending"
+            ? "This deletes the setup that is not finished, with its saved steps. To connect Confluence later, start again from Add connection."
+            : "This removes the Forge installation and Confluence scope for this organization. Your Atlassian account may stay linked to your user profile."}
         </AlertDialog>
       </Modal>
     </>

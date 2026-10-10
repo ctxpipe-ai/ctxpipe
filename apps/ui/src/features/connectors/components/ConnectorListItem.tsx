@@ -75,6 +75,7 @@ export function ConnectorListItem({
   syncRepository,
   actionLabel,
   onAction,
+  pendingSetup,
   defaultExpanded = false,
   children,
 }: {
@@ -88,6 +89,12 @@ export function ConnectorListItem({
   syncRepository: ReactNode
   actionLabel?: string
   onAction?: () => void
+  /**
+   * Actions for a setup that is not finished. When the health is
+   * `setup_pending`, the row shows them in place of the menu, so the user
+   * can see that the row is a draft and not a connection.
+   */
+  pendingSetup?: { onContinue: () => void; onRemove: () => void }
   defaultExpanded?: boolean
   children?: ReactNode
 }) {
@@ -103,7 +110,18 @@ export function ConnectorListItem({
           {name}
         </p>
         <ConnectorHealthIndicator health={health} />
-        {menu}
+        {pendingSetup && health === "setup_pending" ? (
+          <>
+            <Button variant="quiet" onPress={pendingSetup.onRemove}>
+              Remove
+            </Button>
+            <Button variant="secondary" onPress={pendingSetup.onContinue}>
+              Continue setup
+            </Button>
+          </>
+        ) : (
+          menu
+        )}
         <ExpandTrigger name={name} />
       </div>
       <DisclosurePanel>
