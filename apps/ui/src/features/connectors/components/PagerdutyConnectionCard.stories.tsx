@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import type { ReactNode } from "react"
-import { fn } from "storybook/test"
+import { expect, fn, within } from "storybook/test"
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
 import {
@@ -174,6 +174,31 @@ export const PendingSetup: Story = {
       statusReads,
       deleted,
     }),
+}
+
+export const RevokedLive: Story = {
+  render: () => shell(card()),
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          pagerdutyStatus({
+            ...statusComplete,
+            isInstalled: false,
+            installationStatus: "revoked",
+          }),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("Needs reconnect")
+    expect(canvas.queryByText("Connected")).toBeNull()
+    expect(
+      canvas.getByRole("button", { name: "PagerDuty connector actions" }),
+    ).toBeVisible()
+  },
 }
 
 export const SyncFailed: Story = {

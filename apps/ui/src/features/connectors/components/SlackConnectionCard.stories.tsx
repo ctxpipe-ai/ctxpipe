@@ -26,6 +26,7 @@ const statusLive = {
 const meta = {
   title: "Components/Connections/Slack/ConnectionCard",
   component: SlackConnectionCard,
+  args: { orgSlug, connectionId },
   decorators: entryPageInnerDecorators,
   parameters: {
     layout: "fullscreen",

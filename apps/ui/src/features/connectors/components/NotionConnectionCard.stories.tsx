@@ -45,6 +45,7 @@ function notionStatus(status: object) {
 const meta = {
   title: "Components/Connections/NotionCard",
   component: NotionConnectionCard,
+  args: { orgSlug, connectionId, onOpenSetup: () => {} },
   decorators: entryPageInnerDecorators,
   parameters: {
     layout: "fullscreen",

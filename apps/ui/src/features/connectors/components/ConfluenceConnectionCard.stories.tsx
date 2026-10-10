@@ -81,6 +81,7 @@ const orgAtlassianOauthHandler = http.get(
 const meta = {
   title: "Components/Connections/Atlassian/ConnectionCard",
   component: ConfluenceConnectionCard,
+  args: cardProps,
   decorators: [
     (Story) => (
       <div className="w-full max-w-xl">
@@ -149,7 +150,21 @@ export const LiveViewerWithoutAtlassianLink: Story = {
       },
     },
   },
-  play: async ({ canvasElement }) => expectLiveRowNotPending(canvasElement),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("Connected")
+    expect(canvas.queryByText("Needs reconnect")).toBeNull()
+    expect(canvas.queryByRole("button", { name: /^Remove/ })).toBeNull()
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Expand Atlassian Confluence" }),
+    )
+    await canvas.findByText(
+      "Link your Atlassian account to change the scope of this connection.",
+    )
+    expect(
+      canvas.getByRole("button", { name: "Link Atlassian account" }),
+    ).toBeVisible()
+  },
 }
 
 export const LiveForgeUninstalled: Story = {

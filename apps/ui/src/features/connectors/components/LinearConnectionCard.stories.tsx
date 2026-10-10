@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
-import { expect, fn, within } from "storybook/test"
+import { expect, fn, screen, userEvent, within } from "storybook/test"
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
 import {
@@ -164,6 +164,65 @@ export const Revoked: Story = {
     expect(
       canvas.getByRole("button", { name: "Linear connector actions" }),
     ).toBeVisible()
+  },
+}
+
+export const RevokedDraft: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          statusHandler({
+            isInstalled: false,
+            installationStatus: "revoked",
+            workspaceName: "Acme Product",
+            isGithubLinked: true,
+            selectedScopeCount: 0,
+            setupPhase: "draft",
+            pendingConfigPullUrl: null,
+            pendingConfigPrCreating: false,
+            syncTarget: null,
+          }),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("Needs reconnect")
+    expect(canvas.queryByText("Setup not finished")).toBeNull()
+    expect(canvas.queryByRole("button", { name: /^Remove/ })).toBeNull()
+    expect(
+      canvas.getByRole("button", { name: "Linear connector actions" }),
+    ).toBeVisible()
+  },
+}
+
+/** The server set a working row back to draft; it still holds the grant. */
+export const ResetToDraft: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          statusHandler({
+            ...connected,
+            setupPhase: "draft",
+            syncTarget: null,
+          }),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("Setup not finished")
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Remove Linear setup" }),
+    )
+    const dialog = await screen.findByRole("alertdialog")
+    await within(dialog).findByText(
+      /deletes the Linear connection and its access grant/,
+    )
   },
 }
 
