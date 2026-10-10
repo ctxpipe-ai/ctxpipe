@@ -10,6 +10,7 @@ import { connections } from "../../db/schema/connections.js"
 import { encodeNotionTokensForDb } from "../../lib/connection-config.js"
 import { upsertConnectionDirectory } from "../../models/connection-directory.js"
 import { getNotionBindingWithRepoByConnectionId } from "../../models/notion-connector.js"
+import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { notionSyncContent } from "../../openworkflow/workflows/notion-sync-content.js"
 import { notionSyncEntity } from "../../openworkflow/workflows/notion-sync-entity.js"
 import { workspaceConnectorMirror } from "../../openworkflow/workflows/workspace-connector-mirror.js"
@@ -23,7 +24,7 @@ it.each(["entity", "full", "rebind"] as const)(
     const config = "version: 1\nsource: notion\nresources: []\n"
     await withNativeHydrationFixture(
       {
-        namespaceId: "default",
+        namespaceId: openWorkflowNamespaceId(),
         github: true,
         githubWriteView: "writable",
         writeStatus: "writable",

@@ -9,6 +9,7 @@ import { confluenceSyncTargets } from "../../db/schema/confluenceSyncTargets.js"
 import { connections } from "../../db/schema/connections.js"
 import { getConfluenceSyncTargetWithRepoByConnectionId } from "../../models/confluence-sync-target.js"
 import { upsertConnectionDirectory } from "../../models/connection-directory.js"
+import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { confluenceSyncContent } from "../../openworkflow/workflows/confluence-sync-content.js"
 import { confluenceSyncSpace } from "../../openworkflow/workflows/confluence-sync-space.js"
 import { workspaceConnectorMirror } from "../../openworkflow/workflows/workspace-connector-mirror.js"
@@ -25,7 +26,7 @@ it.each(["full", "space", "failed", "rebind"] as const)(
         : "version: 1\nsource: confluence\nspaces: []\n"
     await withNativeHydrationFixture(
       {
-        namespaceId: "default",
+        namespaceId: openWorkflowNamespaceId(),
         github: true,
         githubWriteView: "writable",
         writeStatus: "writable",

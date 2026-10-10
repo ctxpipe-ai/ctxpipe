@@ -17,6 +17,7 @@ import { withOrgIdContext } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { workspaces } from "../../db/schema/workspaces.js"
 import { getWriteJobCommitSha } from "../../models/workspace-write-jobs.js"
+import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { workspaceBootstrap } from "../../openworkflow/workflows/workspace-bootstrap.js"
 import { workspaceSemanticMerge } from "../../openworkflow/workflows/workspace-semantic-merge.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
@@ -39,7 +40,7 @@ it.each([
         writeStatus: "writable",
         ...(resourceBoundary
           ? {
-              namespaceId: "default",
+              namespaceId: openWorkflowNamespaceId(),
               files: [{ path: "notes.md", body: "# Owners\nAlice\n" }],
             }
           : {}),
@@ -171,7 +172,7 @@ const { initDb } = await import(${JSON.stringify(new URL("../../db/client.ts", i
 const { workspaceBootstrap } = await import(${JSON.stringify(new URL("../../openworkflow/workflows/workspace-bootstrap.ts", import.meta.url).href)});
 const { workspaceSemanticMerge } = await import(${JSON.stringify(new URL("../../openworkflow/workflows/workspace-semantic-merge.ts", import.meta.url).href)});
 initDb(process.env.DATABASE_URL);
-const backend = await BackendPostgres.connect(process.env.DATABASE_URL, { namespaceId: ${JSON.stringify(resourceBoundary ? "default" : f.id)}, runMigrations: false });
+const backend = await BackendPostgres.connect(process.env.DATABASE_URL, { namespaceId: ${JSON.stringify(resourceBoundary ? openWorkflowNamespaceId() : f.id)}, runMigrations: false });
 const runner = new OpenWorkflow({ backend });
 runner.implementWorkflow(workspaceBootstrap.spec, workspaceBootstrap.fn);
 runner.implementWorkflow(workspaceSemanticMerge.spec, workspaceSemanticMerge.fn);
