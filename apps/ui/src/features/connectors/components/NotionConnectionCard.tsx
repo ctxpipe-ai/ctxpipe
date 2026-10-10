@@ -72,6 +72,7 @@ export function NotionConnectionCard({
   const failureAction = status ? getNotionFailureAction(status) : null
   const live = status?.setupPhase === "live"
   const health = resolveConnectorHealth({
+    installationStatus: status?.installationStatus,
     statusError: isError,
     checking: isPending || !status,
     setupPhase: status?.setupPhase,
@@ -80,67 +81,63 @@ export function NotionConnectionCard({
   })
 
   return (
-    <>
-      <ConnectorListItem
-        name="Notion"
-        icon={
-          <IconBrandNotion className="size-5 text-foreground" aria-hidden />
-        }
-        health={health}
-        remove={{
-          description:
-            "This removes the Notion connection, selected scope, and sync target for this organization. Existing mirrored files in GitHub are left in place.",
-          onConfirm: () => removeMutation.mutate(),
-        }}
-        workspace={connectorDash(status?.workspaceName)}
-        scope={
-          status?.selectedResourceCount != null
-            ? formatSelectedItemCount(status.selectedResourceCount)
-            : live
-              ? "Configured"
-              : "—"
-        }
-        syncRepository={formatSyncRepositoryLine(status?.syncTarget ?? null)}
-        actionLabel={
-          isError
-            ? "Retry"
-            : status
-              ? getNotionCardCtaLabel(status, oauthAppQuery.data)
-              : undefined
-        }
-        onAction={
-          isError
-            ? () => void refetch()
-            : status
-              ? () => onOpenSetup(live)
-              : undefined
-        }
-      >
-        {failureAction ? (
-          <p className="text-sm text-muted-foreground">
-            {failureAction === "retry_content"
-              ? "Content mirror failed. Open setup to retry."
-              : "Configuration pull request failed. Open setup to retry."}
-          </p>
-        ) : null}
-        {isError ? (
-          <p className="text-sm text-muted-foreground">
-            Status request failed. Retry, or open setup if this persists.
-          </p>
-        ) : null}
-        {!failureAction &&
-        status &&
-        status.setupPhase !== "live" &&
-        (status.selectedResourceCount ?? 0) > 0 ? (
-          <p className="text-xs text-muted-foreground">
-            Merge the open pull request for{" "}
-            <code className="rounded-md bg-muted px-1 py-0.5 text-[11px]">
-              notion/config.yaml
-            </code>{" "}
-            to enable syncing.
-          </p>
-        ) : null}
-      </ConnectorListItem>
-    </>
+    <ConnectorListItem
+      name="Notion"
+      icon={<IconBrandNotion className="size-5 text-foreground" aria-hidden />}
+      health={health}
+      remove={{
+        description:
+          "This removes the Notion connection, selected scope, and sync target for this organization. Existing mirrored files in GitHub are left in place.",
+        onConfirm: () => removeMutation.mutate(),
+      }}
+      workspace={connectorDash(status?.workspaceName)}
+      scope={
+        status?.selectedResourceCount != null
+          ? formatSelectedItemCount(status.selectedResourceCount)
+          : live
+            ? "Configured"
+            : "—"
+      }
+      syncRepository={formatSyncRepositoryLine(status?.syncTarget ?? null)}
+      actionLabel={
+        isError
+          ? "Retry"
+          : status
+            ? getNotionCardCtaLabel(status, oauthAppQuery.data)
+            : undefined
+      }
+      onAction={
+        isError
+          ? () => void refetch()
+          : status
+            ? () => onOpenSetup(live)
+            : undefined
+      }
+    >
+      {failureAction ? (
+        <p className="text-sm text-muted-foreground">
+          {failureAction === "retry_content"
+            ? "Content mirror failed. Open setup to retry."
+            : "Configuration pull request failed. Open setup to retry."}
+        </p>
+      ) : null}
+      {isError ? (
+        <p className="text-sm text-muted-foreground">
+          Status request failed. Retry, or open setup if this persists.
+        </p>
+      ) : null}
+      {!failureAction &&
+      status &&
+      status.setupPhase !== "live" &&
+      (status.selectedResourceCount ?? 0) > 0 ? (
+        <p className="text-xs text-muted-foreground">
+          Merge the open pull request for{" "}
+          <code className="rounded-md bg-muted px-1 py-0.5 text-[11px]">
+            notion/config.yaml
+          </code>{" "}
+          to enable syncing.
+        </p>
+      ) : null}
+    </ConnectorListItem>
   )
 }

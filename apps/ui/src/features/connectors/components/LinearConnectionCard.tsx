@@ -76,6 +76,7 @@ export function LinearConnectionCard({
     : false
   const primary = status ? getLinearCardPrimaryCta(status, oauthMeta) : null
   const health = resolveConnectorHealth({
+    installationStatus: status?.installationStatus,
     statusError: statusQuery.isError,
     checking: statusQuery.isPending || !status,
     setupPhase: status?.setupPhase,
@@ -84,72 +85,70 @@ export function LinearConnectionCard({
   })
 
   return (
-    <>
-      <ConnectorListItem
-        name="Linear"
-        icon={<LinearMark className="size-5 text-foreground" />}
-        health={health}
-        remove={{
-          description:
-            "This removes the Linear authorization and repository binding from the connection. Scope configuration and mirrored files already committed to Git are not deleted.",
-          onConfirm: () => removeMutation.mutate(),
-        }}
-        workspace={connectorDash(status?.workspaceName)}
-        scope={
-          status?.selectedScopeCount != null
-            ? formatSelectedItemCount(status.selectedScopeCount)
-            : status?.setupPhase === "live"
-              ? "Configured"
-              : "—"
-        }
-        syncRepository={formatSyncRepositoryLine(status?.syncTarget ?? null)}
-        actionLabel={
-          statusQuery.isError ? "Retry" : primary ? primary.label : undefined
-        }
-        onAction={
-          statusQuery.isError
-            ? () => void statusQuery.refetch()
-            : primary
-              ? () => {
-                  if (primary.kind === "navigate_repositories") {
-                    void navigate({
-                      to: "/$orgSlug/connectors",
-                      params: { orgSlug },
-                      search: {
-                        error: undefined,
-                        error_description: undefined,
-                        pendingAccountClaim: undefined,
-                        notionConnectionId: undefined,
-                      },
-                    })
-                  } else {
-                    onOpenWizard(primary.kind === "manage_scope")
-                  }
+    <ConnectorListItem
+      name="Linear"
+      icon={<LinearMark className="size-5 text-foreground" />}
+      health={health}
+      remove={{
+        description:
+          "This removes the Linear authorization and repository binding from the connection. Scope configuration and mirrored files already committed to Git are not deleted.",
+        onConfirm: () => removeMutation.mutate(),
+      }}
+      workspace={connectorDash(status?.workspaceName)}
+      scope={
+        status?.selectedScopeCount != null
+          ? formatSelectedItemCount(status.selectedScopeCount)
+          : status?.setupPhase === "live"
+            ? "Configured"
+            : "—"
+      }
+      syncRepository={formatSyncRepositoryLine(status?.syncTarget ?? null)}
+      actionLabel={
+        statusQuery.isError ? "Retry" : primary ? primary.label : undefined
+      }
+      onAction={
+        statusQuery.isError
+          ? () => void statusQuery.refetch()
+          : primary
+            ? () => {
+                if (primary.kind === "navigate_repositories") {
+                  void navigate({
+                    to: "/$orgSlug/connectors",
+                    params: { orgSlug },
+                    search: {
+                      error: undefined,
+                      error_description: undefined,
+                      pendingAccountClaim: undefined,
+                      notionConnectionId: undefined,
+                    },
+                  })
+                } else {
+                  onOpenWizard(primary.kind === "manage_scope")
                 }
-              : undefined
-        }
-      >
-        {status?.setupPhase === "initial_sync" ? (
-          <p className="text-sm text-muted-foreground">
-            Mirroring Linear content to Git.
-          </p>
-        ) : null}
-        {status?.setupPhase === "sync_failed" ? (
-          <p className="text-sm text-muted-foreground">
-            Content mirror failed. Open setup to retry.
-          </p>
-        ) : null}
-        {status?.setupPhase === "config_failed" ? (
-          <p className="text-sm text-muted-foreground">
-            Configuration pull request failed. Open setup to retry.
-          </p>
-        ) : null}
-        {statusQuery.isError ? (
-          <p className="text-sm text-muted-foreground">
-            Status request failed. Retry, or open setup if this persists.
-          </p>
-        ) : null}
-      </ConnectorListItem>
-    </>
+              }
+            : undefined
+      }
+    >
+      {status?.setupPhase === "initial_sync" ? (
+        <p className="text-sm text-muted-foreground">
+          Mirroring Linear content to Git.
+        </p>
+      ) : null}
+      {status?.setupPhase === "sync_failed" ? (
+        <p className="text-sm text-muted-foreground">
+          Content mirror failed. Open setup to retry.
+        </p>
+      ) : null}
+      {status?.setupPhase === "config_failed" ? (
+        <p className="text-sm text-muted-foreground">
+          Configuration pull request failed. Open setup to retry.
+        </p>
+      ) : null}
+      {statusQuery.isError ? (
+        <p className="text-sm text-muted-foreground">
+          Status request failed. Retry, or open setup if this persists.
+        </p>
+      ) : null}
+    </ConnectorListItem>
   )
 }

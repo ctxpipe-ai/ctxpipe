@@ -84,71 +84,70 @@ export function ConfluenceConnectionCard({
     ? getConfluenceCardCurrentIndex(status, oauthForCard)
     : 0
   const primary = getConfluenceCardPrimaryCta(currentIndex, stepDefs)
-  const complete = status ? currentIndex >= stepDefs.length : false
+  const live = status?.setupPhase === "live"
   const health = resolveConnectorHealth({
+    installationStatus: status?.installationStatus,
     statusError: isError,
     checking: isPending || !status || oauthPending,
     setupPhase: status?.setupPhase,
-    connected: complete,
+    connected: live,
     draft: status?.setupPhase === "draft",
   })
 
   return (
-    <>
-      <ConnectorListItem
-        name="Atlassian Confluence"
-        icon={
-          <ConfluenceMark
-            className="size-5 text-foreground"
-            variant="outline"
-          />
-        }
-        health={health}
-        remove={{
-          description:
-            "This removes the Forge installation and Confluence scope for this organization. Your Atlassian account may stay linked to your user profile.",
-          onConfirm: () => removeMutation.mutate(),
-        }}
-        workspace={status?.isLinked ? "Atlassian" : "—"}
-        scope={
-          status ? formatSelectedItemCount(status.selectedSpaceCount) : "—"
-        }
-        syncRepository={formatSyncRepositoryLine(status?.syncTarget ?? null)}
-        actionLabel={
-          isError
-            ? "Retry"
-            : isPending || oauthPending
-              ? undefined
-              : primary.label
-        }
-        onAction={
-          isError
-            ? () => void refetch()
-            : isPending || oauthPending
-              ? undefined
-              : () => {
-                  if (primary.kind === "open_wizard") onOpenWizard()
-                  else if (primary.kind === "navigate_repositories") {
-                    void navigate({
-                      to: "/$orgSlug/connectors",
-                      params: { orgSlug },
-                      search: {
-                        error: undefined,
-                        error_description: undefined,
-                        pendingAccountClaim: undefined,
-                        notionConnectionId: undefined,
-                      },
-                    })
-                  } else onOpenScope()
-                }
-        }
-      >
-        {isError ? (
-          <p className="text-sm text-muted-foreground">
-            Status request failed. Retry, or open setup if this persists.
-          </p>
-        ) : null}
-      </ConnectorListItem>
-    </>
+    <ConnectorListItem
+      name="Atlassian Confluence"
+      icon={
+        <ConfluenceMark className="size-5 text-foreground" variant="outline" />
+      }
+      health={health}
+      remove={{
+        description:
+          "This removes the Forge installation and Confluence scope for this organization. Your Atlassian account may stay linked to your user profile.",
+        onConfirm: () => removeMutation.mutate(),
+      }}
+      workspace={status?.isLinked ? "Atlassian" : "—"}
+      scope={status ? formatSelectedItemCount(status.selectedSpaceCount) : "—"}
+      syncRepository={formatSyncRepositoryLine(status?.syncTarget ?? null)}
+      actionLabel={
+        isError
+          ? "Retry"
+          : isPending || oauthPending
+            ? undefined
+            : primary.label
+      }
+      onAction={
+        isError
+          ? () => void refetch()
+          : isPending || oauthPending
+            ? undefined
+            : () => {
+                if (primary.kind === "open_wizard") onOpenWizard()
+                else if (primary.kind === "navigate_repositories") {
+                  void navigate({
+                    to: "/$orgSlug/connectors",
+                    params: { orgSlug },
+                    search: {
+                      error: undefined,
+                      error_description: undefined,
+                      pendingAccountClaim: undefined,
+                      notionConnectionId: undefined,
+                    },
+                  })
+                } else onOpenScope()
+              }
+      }
+    >
+      {live && !status?.isLinked ? (
+        <p className="text-sm text-muted-foreground">
+          Link your Atlassian account to change the scope of this connection.
+        </p>
+      ) : null}
+      {isError ? (
+        <p className="text-sm text-muted-foreground">
+          Status request failed. Retry, or open setup if this persists.
+        </p>
+      ) : null}
+    </ConnectorListItem>
   )
 }

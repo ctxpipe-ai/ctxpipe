@@ -95,59 +95,55 @@ export function GithubConnectionCard({
   })
 
   return (
-    <>
-      <ConnectorListItem
-        id={`connector-github-${connectionId}`}
-        name="GitHub"
-        icon={
-          <IconBrandGithub className="size-5 text-foreground" aria-hidden />
-        }
-        health={health}
-        remove={{
-          description:
-            "This unlinks the GitHub App installation from ctxpipe. Existing repositories stay in ctxpipe, but they will no longer be managed by this connector. The GitHub App remains installed in GitHub.",
-          onConfirm: () => removeMutation.mutate(),
-        }}
-        workspace={connectorDash(installation?.accountSlug)}
-        scope="GitHub App"
-        syncRepository="—"
-        actionLabel={
-          isError
-            ? "Retry"
-            : isPending
-              ? undefined
-              : !linked
-                ? "Complete GitHub install"
-                : "Link to a workspace"
-        }
-        onAction={
-          isError
-            ? () => void refetch()
-            : isPending
-              ? undefined
-              : () => {
-                  if (!linked) {
-                    void navigate({
-                      to: "/$orgSlug/github/setup",
-                      params: { orgSlug },
-                      search: { returnTo: "connectors" },
-                    })
-                    return
-                  }
+    <ConnectorListItem
+      id={`connector-github-${connectionId}`}
+      name="GitHub"
+      icon={<IconBrandGithub className="size-5 text-foreground" aria-hidden />}
+      health={health}
+      remove={{
+        description:
+          "This unlinks the GitHub App installation from ctxpipe. Existing repositories stay in ctxpipe, but they will no longer be managed by this connector. The GitHub App remains installed in GitHub.",
+        onConfirm: () => removeMutation.mutate(),
+      }}
+      workspace={connectorDash(installation?.accountSlug)}
+      scope="GitHub App"
+      syncRepository="—"
+      actionLabel={
+        isError
+          ? "Retry"
+          : isPending
+            ? undefined
+            : !linked
+              ? "Complete GitHub install"
+              : "Link to a workspace"
+      }
+      onAction={
+        isError
+          ? () => void refetch()
+          : isPending
+            ? undefined
+            : () => {
+                if (!linked) {
                   void navigate({
                     to: "/$orgSlug/github/setup",
                     params: { orgSlug },
                     search: { returnTo: "connectors" },
                   })
+                  return
                 }
-        }
-      >
-        {isError ? (
-          <p className="text-sm text-muted-foreground">
-            Status request failed. Retry, or open setup if this persists.
-          </p>
-        ) : null}
-      </ConnectorListItem>
-    </>
+                void navigate({
+                  to: "/$orgSlug/github/setup",
+                  params: { orgSlug },
+                  search: { returnTo: "connectors" },
+                })
+              }
+      }
+    >
+      {isError ? (
+        <p className="text-sm text-muted-foreground">
+          Status request failed. Retry, or open setup if this persists.
+        </p>
+      ) : null}
+    </ConnectorListItem>
   )
 }

@@ -63,11 +63,11 @@ export function SlackConnectionCard({
 
   const live = Boolean(status?.isInstalled && status.setupPhase === "live")
   const health = resolveConnectorHealth({
+    installationStatus: status?.installationStatus,
     statusError: isError,
     checking: isPending || !status,
     connected: Boolean(live),
-    draft:
-      status?.setupPhase === "draft" && status.installationStatus !== "revoked",
+    draft: status?.setupPhase === "draft",
   })
 
   return (

@@ -114,4 +114,28 @@ describe("resolveConnectorHealth", () => {
       "setup_pending",
     )
   })
+
+  it("shows reconnect for a revoked or uninstalled row in any phase", () => {
+    const base = { statusError: false, checking: false }
+    for (const installationStatus of ["revoked", "uninstalled"]) {
+      expect(
+        resolveConnectorHealth({
+          ...base,
+          installationStatus,
+          setupPhase: "live",
+          connected: true,
+          draft: false,
+        }),
+      ).toBe("reconnect")
+      expect(
+        resolveConnectorHealth({
+          ...base,
+          installationStatus,
+          setupPhase: "draft",
+          connected: false,
+          draft: true,
+        }),
+      ).toBe("reconnect")
+    }
+  })
 })

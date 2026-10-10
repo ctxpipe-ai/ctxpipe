@@ -93,7 +93,7 @@ function ConnectorRemoveDialog({
         onAction={onConfirm}
       >
         {pending
-          ? `This deletes the setup that is not finished, with its saved steps. To connect ${name} later, start again from Add connection.`
+          ? `This deletes the ${name} connection and its access grant, with its saved setup. Files already committed to Git stay in place.`
           : description}
       </AlertDialog>
     </Modal>
