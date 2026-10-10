@@ -1,18 +1,18 @@
 import { delay, HttpResponse, http } from "msw"
-import { setupServer } from "msw/node"
-import {
-  afterAll,
-  afterEach,
-  beforeAll,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
+import { useMswServer } from "../../../../test/msw.js"
 import { withOrgIdContext } from "../../../auth/withAuth.js"
 import { withTestLogger } from "../../../test/with-test-logger.js"
-import type { CodeIngestionState } from "../schemas.js"
-import { extractInstructionUnits } from "./extractInstructionUnits.js"
+import type {
+  CodeIngestionState,
+  ExtractedClaim,
+  ExtractedObject,
+} from "../schemas.js"
+import {
+  deriveSharedRepoRootSkills,
+  extractInstructionUnits,
+  repoRootInstructionOwner,
+} from "./extractInstructionUnits.js"
 
 const CODESEARCH = "https://codesearch.instruction-calls.test"
 const MODEL = "https://model.instruction-calls.test/v1"
@@ -30,7 +30,8 @@ const fetchedPaths: string[] = []
 let inFlight = 0
 let maxInFlight = 0
 
-const server = setupServer(
+// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
+useMswServer(
   http.post(`${CODESEARCH}/:repositoryId/glob`, () =>
     HttpResponse.json({
       entries: Object.keys(files).map((path) => ({ path, type: "file" })),
@@ -111,8 +112,6 @@ const server = setupServer(
   }),
 )
 
-beforeAll(() => server.listen({ onUnhandledRequest: "error" }))
-afterAll(() => server.close())
 afterEach(() => {
   requestedPaths.length = 0
   fetchedPaths.length = 0
@@ -133,14 +132,16 @@ function stubEnv() {
 
 function rootState(
   root: string,
-  extractionRoots: string[],
+  ownsRepoRootInstructions?: boolean,
 ): CodeIngestionState {
   return {
     repositoryId: "repo_calls",
     orgId: "org_calls",
     targetHash: "abc123",
     roots: [root],
-    extractionRoots,
+    ...(ownsRepoRootInstructions === undefined
+      ? {}
+      : { ownsRepoRootInstructions }),
     extractedObjects: [],
     extractedClaims: [],
   }
@@ -161,8 +162,10 @@ describe("extractInstructionUnits model calls", () => {
     async () => {
       stubEnv()
       const roots = ["packages/beta", "packages/alpha"]
+      const owner = repoRootInstructionOwner(roots)
       const outputs = []
-      for (const root of roots) outputs.push(await run(rootState(root, roots)))
+      for (const root of roots)
+        outputs.push(await run(rootState(root, root === owner)))
 
       expect([...requestedPaths].sort()).toEqual([
         ".agents/skills/release/SKILL.md",
@@ -192,13 +195,11 @@ describe("extractInstructionUnits model calls", () => {
   )
 
   it(
-    "keeps repo-root files in a single-root run without the run's root list",
+    "keeps repo-root files in a single-root run that has no owner flag",
     { timeout: 30_000 },
     async () => {
       stubEnv()
-      const state = rootState("packages/alpha", [])
-      delete state.extractionRoots
-      await run(state)
+      await run(rootState("packages/alpha"))
       expect(requestedPaths).toContain("AGENTS.md")
     },
   )
@@ -208,7 +209,7 @@ describe("extractInstructionUnits model calls", () => {
     { timeout: 30_000 },
     async () => {
       stubEnv()
-      const output = await run(rootState("./", ["./"]))
+      const output = await run(rootState("./", true))
       expect(maxInFlight).toBeGreaterThan(1)
       expect(maxInFlight).toBeLessThanOrEqual(4)
       const order = (output.extractedObjects ?? [])
@@ -221,6 +222,81 @@ describe("extractInstructionUnits model calls", () => {
         "packages/beta/AGENTS.md",
         "CONTRIBUTING.md",
       ])
+    },
+  )
+
+  it(
+    "keeps the Skills of each package root with the repo-root units",
+    { timeout: 30_000 },
+    async () => {
+      stubEnv()
+      const roots = ["packages/beta", "packages/alpha"]
+      const skillsOf = (
+        objects: ExtractedObject[],
+        claims: ExtractedClaim[],
+      ) => ({
+        skills: objects
+          .filter((object) => object.kind === "Skill")
+          .map((object) => object.deduplicationKey)
+          .sort(),
+        members: claims
+          .filter((claim) => claim.predicate === "MEMBER_OF_PRIMARY")
+          .map((claim) => claim.sourceId)
+          .sort(),
+      })
+      const unique = <T>(items: T[]) => [...new Set(items)]
+
+      // Before: each package root read the repo-root files itself.
+      const before = {
+        objects: [] as ExtractedObject[],
+        claims: [] as ExtractedClaim[],
+      }
+      for (const root of roots) {
+        const output = await run(rootState(root, true))
+        before.objects.push(...(output.extractedObjects ?? []))
+        before.claims.push(...(output.extractedClaims ?? []))
+      }
+
+      const owner = repoRootInstructionOwner(roots)
+      const after = {
+        objects: [] as ExtractedObject[],
+        claims: [] as ExtractedClaim[],
+      }
+      for (const root of roots) {
+        const output = await run(rootState(root, root === owner))
+        after.objects.push(...(output.extractedObjects ?? []))
+        after.claims.push(...(output.extractedClaims ?? []))
+      }
+      const shared = deriveSharedRepoRootSkills({
+        repositoryId: "repo_calls",
+        targetHash: "abc123",
+        roots,
+        capture: {
+          extractedObjects: after.objects,
+          extractedClaims: after.claims,
+        },
+      })
+      after.objects.push(...shared.objects)
+      after.claims.push(...shared.claims)
+
+      const expected = skillsOf(before.objects, before.claims)
+      const actual = skillsOf(after.objects, after.claims)
+      expect(expected.skills.length).toBeGreaterThanOrEqual(2)
+      expect(unique(actual.skills)).toEqual(unique(expected.skills))
+      expect(unique(actual.members)).toEqual(unique(expected.members))
+      // The Skill of packages/beta has the repo-root units and the beta unit.
+      const bSkill = after.claims.filter(
+        (claim) =>
+          claim.predicate === "MEMBER_OF_PRIMARY" &&
+          after.claims.some(
+            (other) =>
+              other.objectRef === claim.objectRef &&
+              other.subjectRef.includes(":packages/beta:"),
+          ),
+      )
+      expect(bSkill.some((claim) => claim.subjectRef.includes(":./:"))).toBe(
+        true,
+      )
     },
   )
 })

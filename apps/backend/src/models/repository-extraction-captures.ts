@@ -44,6 +44,20 @@ function matches(key: ExtractionCaptureKey) {
   )
 }
 
+const REPO_ROOT_ROW_SUFFIX = "#repo-root"
+
+/**
+ * Row name of a root. The root that reads the repo-root instruction files has
+ * a row name of its own. Thus a run with a different root set cannot reuse
+ * that row for a root that must skip those files.
+ */
+export function captureRowRoot(
+  root: string,
+  ownsRepoRootInstructions: boolean,
+): string {
+  return ownsRepoRootInstructions ? `${root}${REPO_ROOT_ROW_SUFFIX}` : root
+}
+
 /** Replace the stored capture of one root, with the number of files its extractors skipped. */
 export async function storeRootCapture(
   key: ExtractionCaptureKey,
@@ -106,8 +120,10 @@ export async function storedRootCapture(
 }
 
 /**
- * All stored values of the roots, in root order. A root without a row, or a
- * row that does not parse, is an error.
+ * All stored values of the roots (row names), in root order. A root without a
+ * row, or a row that does not parse, is an error. A run that started before
+ * the `#repo-root` row name stored that root under its plain name, so the
+ * loader also reads the plain name.
  */
 export async function loadExtractionCapture(
   key: ExtractionCaptureKey,
@@ -121,14 +137,21 @@ export async function loadExtractionCapture(
         claims: captures.claims,
       })
       .from(captures)
-      .where(and(matches(key), inArray(captures.root, roots))),
+      .where(
+        and(
+          matches(key),
+          inArray(captures.root, [...roots, ...roots.map(plainRowRoot)]),
+        ),
+      ),
   )
   const capture: ExtractedCapture = {
     extractedObjects: [],
     extractedClaims: [],
   }
   for (const root of roots) {
-    const row = rows.find((candidate) => candidate.root === root)
+    const row =
+      rows.find((candidate) => candidate.root === root) ??
+      rows.find((candidate) => candidate.root === plainRowRoot(root))
     if (!row) throw new Error(`Extraction capture is missing for root ${root}`)
     const objects = storedObjectsSchema.safeParse(row.objects)
     const claims = storedClaimsSchema.safeParse(row.claims)
@@ -140,6 +163,12 @@ export async function loadExtractionCapture(
     capture.extractedClaims.push(...claims.data)
   }
   return capture
+}
+
+function plainRowRoot(root: string): string {
+  return root.endsWith(REPO_ROOT_ROW_SUFFIX)
+    ? root.slice(0, -REPO_ROOT_ROW_SUFFIX.length)
+    : root
 }
 
 /** Delete one key's capture, so the next run extracts it again. */

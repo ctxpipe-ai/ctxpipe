@@ -8,6 +8,7 @@ import { repositories } from "../db/schema/repositories.js"
 import { repositoryExtractionCaptures as captures } from "../db/schema/repository_extraction_captures.js"
 import type { ExtractedCapture } from "../graphs/codeIngestionGraph/schemas.js"
 import {
+  captureRowRoot,
   deleteExtractionCapture,
   deleteRepositoryExtractionCaptures,
   type ExtractionCaptureKey,
@@ -106,6 +107,24 @@ describe("repository extraction captures (Postgres)", () => {
     await storeRootCapture(partial, "web", capture, 0)
     expect(await storedRootCapture(full, "web")).toBeNull()
     expect(await loadExtractionCapture(full, ["billing"])).toEqual(capture)
+  })
+
+  it("keeps the row of the root that reads the repo-root files apart", async () => {
+    await deleteRepositoryExtractionCaptures(full, new Date())
+    expect(captureRowRoot("billing", false)).toBe("billing")
+    await storeRootCapture(full, "billing", capture, 0)
+    // A plain row may lack the repo-root files, so the owner does not reuse it.
+    expect(
+      await storedRootCapture(full, captureRowRoot("billing", true)),
+    ).toBeNull()
+  })
+
+  it("loads the plain row of a run that started before the owner row name", async () => {
+    await deleteRepositoryExtractionCaptures(full, new Date())
+    await storeRootCapture(full, "billing", capture, 0)
+    expect(
+      await loadExtractionCapture(full, [captureRowRoot("billing", true)]),
+    ).toEqual(capture)
   })
 
   it("does not reuse a root whose extractor skipped files", async () => {

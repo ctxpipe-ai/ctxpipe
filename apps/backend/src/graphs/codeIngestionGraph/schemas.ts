@@ -92,8 +92,11 @@ export const CodeIngestionStateSchema = z.object({
    */
   extractionSkippedFiles: z.number().int().nonnegative().optional(),
   roots: z.array(z.string()).optional(),
-  /** Every root of the run, when the graph extracts one root at a time. */
-  extractionRoots: z.array(z.string()).optional(),
+  /**
+   * False when a run extracts one root at a time and another root reads the
+   * repo-root instruction files (`repoRootInstructionOwner`).
+   */
+  ownsRepoRootInstructions: z.boolean().optional(),
   extractedObjects: z.array(ExtractedObjectSchema).default([]),
   extractedClaims: z.array(ExtractedClaimSchema).default([]),
 })
