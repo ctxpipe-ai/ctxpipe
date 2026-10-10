@@ -1,4 +1,6 @@
 import { Hono } from "hono"
+import { HttpResponse, http } from "msw"
+import { setupServer } from "msw/node"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../app/env.js"
 
@@ -163,5 +165,57 @@ describe("auth metadata routes", () => {
     })
 
     expect(response.status).not.toBe(404)
+  })
+})
+
+describe("auth handler with the Better Auth infra plugin", () => {
+  const identifyLookups: string[] = []
+  const server = setupServer(
+    http.get("https://kv.better-auth.com/identify/:requestId", ({ params }) => {
+      identifyLookups.push(String(params.requestId))
+      return new HttpResponse(null, { status: 404 })
+    }),
+    http.all("https://kv.better-auth.com/*", () =>
+      HttpResponse.json(null, { status: 404 }),
+    ),
+    http.all("https://dash.better-auth.com/*", () => HttpResponse.json({})),
+  )
+
+  beforeEach(() => {
+    process.env.DATABASE_URL = "postgres://localhost:5432/ctxpipe"
+    process.env.UI_PROXY_URL = "http://ui:3002"
+    process.env.AUTH_SECRET = "abcdefghijklmnopqrstuvwxyz123456"
+    process.env.AUTH_BASE_URL = "https://backend.example.com"
+    process.env.AUTH_ISSUER = "https://auth.example.com"
+    vi.stubEnv("BETTER_AUTH_API_KEY", "test-infra-key")
+    vi.resetModules()
+    identifyLookups.length = 0
+    server.listen({ onUnhandledRequest: "bypass" })
+  })
+
+  afterEach(() => {
+    server.close()
+    vi.unstubAllEnvs()
+    process.env.DATABASE_URL = previousEnv.DATABASE_URL
+    process.env.UI_PROXY_URL = previousEnv.UI_PROXY_URL
+    process.env.AUTH_SECRET = previousEnv.AUTH_SECRET
+    process.env.AUTH_BASE_URL = previousEnv.AUTH_BASE_URL
+    process.env.AUTH_ISSUER = previousEnv.AUTH_ISSUER
+  })
+
+  // The edge proxy adds X-Request-Id to each request. The infra plugin reads it
+  // as a browser identify id and waits about 1 s on 404 retries per auth POST.
+  it("does not look up the edge request id as a browser identification", async () => {
+    const app = await createTestApp()
+    await app.request("/.auth/api/v1/auth/sign-out", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-request-id": "edge-request-id",
+      },
+      body: "{}",
+    })
+
+    expect(identifyLookups).toEqual([])
   })
 })
