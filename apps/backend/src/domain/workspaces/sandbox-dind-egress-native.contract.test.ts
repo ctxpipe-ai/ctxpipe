@@ -71,6 +71,21 @@ it(
             "-q",
             "curlimages/curl:8.17.0",
           )
+          // Compose builds the chat image inside DinD. A build step on a
+          // sandbox bridge is blocked; on the DinD host network it downloads.
+          const build = (network: string) =>
+            exec("docker", [
+              "exec",
+              name,
+              "sh",
+              "-c",
+              `printf 'FROM curlimages/curl:8.17.0\\nRUN curl -sSf -m 10 -o /dev/null https://example.com\\n' | docker build --no-cache -q --network ${network} -`,
+            ]).then(
+              () => "built",
+              () => "failed",
+            )
+          expect(await build("default")).toBe("failed")
+          expect(await build("host")).toBe("built")
           const vault = await openRunVault({
             access: fixture.access,
             runKey: `egress:${randomUUID()}`,

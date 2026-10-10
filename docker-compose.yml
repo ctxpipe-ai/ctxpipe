@@ -242,7 +242,9 @@ services:
   # Builds the chat image inside DinD from this checkout, like the other
   # deploy images. Cached after the first run; a changed Dockerfile gives a
   # new image ID, and new sandboxes use it. Nothing waits for it: until it
-  # exists, chat answers 503 and the rest of the app works.
+  # exists, chat answers 503 and the rest of the app works. The build uses
+  # the DinD host network: the DinD rules block the sandbox bridges, so a
+  # build step on a bridge cannot download packages.
   chat-sandbox-image:
     profiles: [deploy]
     image: *dind-image
@@ -250,7 +252,7 @@ services:
     entrypoint: ["sh", "-ec"]
     command:
       - |
-        docker build --tag "$$SANDBOX_CHAT_IMAGE" /context
+        docker build --network host --tag "$$SANDBOX_CHAT_IMAGE" /context
         docker image inspect --format '{{.Id}}' "$$SANDBOX_CHAT_IMAGE"
     environment:
       <<: *sandbox-docker-env
