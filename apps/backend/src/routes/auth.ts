@@ -127,14 +127,6 @@ export function registerAuthRoutes(app: Hono<AppEnv>) {
 
   app.on(["GET", "POST"], "/.auth/api/v1/auth/*", async (c) => {
     const prepared = await prepareBetterAuthRequest(c.req.raw, c.var.env)
-    // The infra plugin reads X-Request-Id as a browser identify id. Our UI
-    // registers none, and the edge proxy sets this header on each request, so
-    // each auth POST waited about 1 s on 404 retries to the identify store.
-    if (prepared.request.headers.has("x-request-id")) {
-      const headers = new Headers(prepared.request.headers)
-      headers.delete("x-request-id")
-      prepared.request = new Request(prepared.request, { headers })
-    }
     const isOAuthConsent = c.req.path.endsWith("/oauth2/consent")
     const submittedOrganizationId =
       c.req.header("x-ctxpipe-oauth-organization")?.trim() || null
