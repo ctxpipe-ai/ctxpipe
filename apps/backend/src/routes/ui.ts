@@ -2,6 +2,7 @@ import type { Context, Hono } from "hono"
 import { proxy } from "hono/proxy"
 import type { AppEnv } from "../app/env.js"
 import type { Env } from "../config/env.js"
+import { getLogger } from "../observability/logger.js"
 
 type UiProxyClientMessage = string | ArrayBuffer | Uint8Array
 
@@ -45,15 +46,65 @@ export async function proxyUiRequest(
       signal,
     })
   } catch (error) {
-    if (
-      isUiProxyAbortError(error) ||
-      timeout.aborted ||
-      request.signal.aborted
-    ) {
-      return new Response("Gateway Timeout", { status: 504 })
-    }
-    return new Response("Bad Gateway", { status: 502 })
+    const timedOut =
+      isUiProxyAbortError(error) || timeout.aborted || request.signal.aborted
+    getLogger().warn("UI proxy request failed", {
+      uiProxy: {
+        outcome: timedOut ? "timeout" : "upstream_error",
+        path: sourceUrl.pathname,
+        timeoutMs,
+        error: error instanceof Error ? error.message : String(error),
+      },
+    })
+    return uiProxyFailureResponse(request, timedOut ? 504 : 502)
   }
+}
+
+/**
+ * Give a failed proxy hop an explicit content type. A browser can save a
+ * document response with no usable type as a file download.
+ */
+function uiProxyFailureResponse(request: Request, status: 502 | 504) {
+  const headers = { "cache-control": "no-store" }
+  const message =
+    status === 504
+      ? "The UI service did not answer in time."
+      : "The UI service did not answer."
+  if (!(request.headers.get("accept") ?? "").includes("text/html")) {
+    return Response.json(
+      { error: status === 504 ? "ui_timeout" : "ui_unavailable", message },
+      {
+        status,
+        headers: {
+          ...headers,
+          "content-type": "application/json; charset=utf-8",
+        },
+      },
+    )
+  }
+  const requestId = escapeHtml(request.headers.get("x-request-id") ?? "")
+  const body = `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>ctx| is not available</title></head>
+<body>
+<h1>The page did not load</h1>
+<p>${message} Reload the page to try again.</p>
+${requestId ? `<p>Request id: <code>${requestId}</code></p>` : ""}
+</body>
+</html>
+`
+  return new Response(body, {
+    status,
+    headers: { ...headers, "content-type": "text/html; charset=utf-8" },
+  })
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
 }
 
 export type UiProxyWebSocketData = {
