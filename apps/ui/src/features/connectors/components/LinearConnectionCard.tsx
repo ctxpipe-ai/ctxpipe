@@ -2,10 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { useState } from "react"
 import { toast } from "sonner"
-import { AlertDialog } from "@/components/ui/AlertDialog"
-import { Modal } from "@/components/ui/Modal"
 import {
   formatSelectedItemCount,
   resolveConnectorHealth,
@@ -25,7 +22,6 @@ import {
 import { orgConnectionsKeys } from "../queries/org-connections"
 import {
   ConnectorListItem,
-  ConnectorRemoveMenu,
   connectorDash,
   formatSyncRepositoryLine,
 } from "./ConnectorListItem"
@@ -44,7 +40,6 @@ export function LinearConnectionCard({
 }: LinearConnectionCardProps) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const [removeOpen, setRemoveOpen] = useState(false)
   const statusQuery = useQuery({
     queryKey: linearConnectorKeys.status(orgSlug, connectionId),
     queryFn: () => fetchLinearConnectorStatus(orgSlug, connectionId),
@@ -60,11 +55,7 @@ export function LinearConnectionCard({
   const removeMutation = useMutation({
     mutationFn: () => deleteLinearConnector(orgSlug, connectionId),
     onSuccess: async () => {
-      toast.success(
-        health === "setup_pending"
-          ? "Linear setup removed."
-          : "Linear connector removed.",
-      )
+      toast.success("Linear connector removed.")
       await Promise.all([
         queryClient.invalidateQueries({
           queryKey: orgConnectionsKeys.list(orgSlug),
@@ -73,7 +64,6 @@ export function LinearConnectionCard({
           queryKey: linearConnectorKeys.allStatusForOrg(orgSlug),
         }),
       ])
-      setRemoveOpen(false)
     },
     onError: (error: Error) => toast.error(error.message),
   })
@@ -90,6 +80,7 @@ export function LinearConnectionCard({
     checking: statusQuery.isPending || !status,
     setupPhase: status?.setupPhase,
     connected: complete,
+    draft: status?.setupPhase === "draft",
   })
 
   return (
@@ -98,16 +89,11 @@ export function LinearConnectionCard({
         name="Linear"
         icon={<LinearMark className="size-5 text-foreground" />}
         health={health}
-        pendingSetup={{
-          onContinue: () => onOpenWizard(false),
-          onRemove: () => setRemoveOpen(true),
+        remove={{
+          description:
+            "This removes the Linear authorization and repository binding from the connection. Scope configuration and mirrored files already committed to Git are not deleted.",
+          onConfirm: () => removeMutation.mutate(),
         }}
-        menu={
-          <ConnectorRemoveMenu
-            ariaLabel="Linear connector actions"
-            onRemove={() => setRemoveOpen(true)}
-          />
-        }
         workspace={connectorDash(status?.workspaceName)}
         scope={
           status?.selectedScopeCount != null
@@ -164,25 +150,6 @@ export function LinearConnectionCard({
           </p>
         ) : null}
       </ConnectorListItem>
-      <Modal isOpen={removeOpen} onOpenChange={setRemoveOpen} isDismissable>
-        <AlertDialog
-          title={
-            health === "setup_pending"
-              ? "Remove this Linear setup?"
-              : "Remove Linear connector?"
-          }
-          variant="destructive"
-          actionLabel={
-            health === "setup_pending" ? "Remove setup" : "Remove connector"
-          }
-          cancelLabel="Cancel"
-          onAction={() => removeMutation.mutate()}
-        >
-          {health === "setup_pending"
-            ? "This deletes the setup that is not finished, with its saved steps. To connect Linear later, start again from Add connection."
-            : "This removes the Linear authorization and repository binding from the connection. Scope configuration and mirrored files already committed to Git are not deleted."}
-        </AlertDialog>
-      </Modal>
     </>
   )
 }

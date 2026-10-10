@@ -2,10 +2,7 @@
 
 import { IconBrandNotion } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useState } from "react"
 import { toast } from "sonner"
-import { AlertDialog } from "@/components/ui/AlertDialog"
-import { Modal } from "@/components/ui/Modal"
 import {
   formatSelectedItemCount,
   resolveConnectorHealth,
@@ -23,7 +20,6 @@ import {
 import { orgConnectionsKeys } from "../queries/org-connections"
 import {
   ConnectorListItem,
-  ConnectorRemoveMenu,
   connectorDash,
   formatSyncRepositoryLine,
 } from "./ConnectorListItem"
@@ -40,7 +36,6 @@ export function NotionConnectionCard({
   onOpenSetup,
 }: NotionConnectionCardProps) {
   const queryClient = useQueryClient()
-  const [removeOpen, setRemoveOpen] = useState(false)
   const {
     data: status,
     isPending,
@@ -59,11 +54,7 @@ export function NotionConnectionCard({
   const removeMutation = useMutation({
     mutationFn: () => deleteNotionConnector(orgSlug, connectionId),
     onSuccess: async () => {
-      toast.success(
-        health === "setup_pending"
-          ? "Notion setup removed."
-          : "Notion connector removed.",
-      )
+      toast.success("Notion connector removed.")
       await Promise.all([
         queryClient.invalidateQueries({
           queryKey: notionConnectorKeys.status(orgSlug, connectionId),
@@ -75,7 +66,6 @@ export function NotionConnectionCard({
           queryKey: orgConnectionsKeys.list(orgSlug),
         }),
       ])
-      setRemoveOpen(false)
     },
     onError: (e: Error) => toast.error(e.message),
   })
@@ -86,6 +76,7 @@ export function NotionConnectionCard({
     checking: isPending || !status,
     setupPhase: status?.setupPhase,
     connected: live,
+    draft: status?.setupPhase === "draft",
   })
 
   return (
@@ -96,16 +87,11 @@ export function NotionConnectionCard({
           <IconBrandNotion className="size-5 text-foreground" aria-hidden />
         }
         health={health}
-        pendingSetup={{
-          onContinue: () => onOpenSetup(false),
-          onRemove: () => setRemoveOpen(true),
+        remove={{
+          description:
+            "This removes the Notion connection, selected scope, and sync target for this organization. Existing mirrored files in GitHub are left in place.",
+          onConfirm: () => removeMutation.mutate(),
         }}
-        menu={
-          <ConnectorRemoveMenu
-            ariaLabel="Notion connector actions"
-            onRemove={() => setRemoveOpen(true)}
-          />
-        }
         workspace={connectorDash(status?.workspaceName)}
         scope={
           status?.selectedResourceCount != null
@@ -155,26 +141,6 @@ export function NotionConnectionCard({
           </p>
         ) : null}
       </ConnectorListItem>
-
-      <Modal isOpen={removeOpen} onOpenChange={setRemoveOpen} isDismissable>
-        <AlertDialog
-          title={
-            health === "setup_pending"
-              ? "Remove this Notion setup?"
-              : "Remove Notion connector?"
-          }
-          variant="destructive"
-          actionLabel={
-            health === "setup_pending" ? "Remove setup" : "Remove connector"
-          }
-          cancelLabel="Cancel"
-          onAction={() => removeMutation.mutate()}
-        >
-          {health === "setup_pending"
-            ? "This deletes the setup that is not finished, with its saved steps. To connect Notion later, start again from Add connection."
-            : "This removes the Notion connection, selected scope, and sync target for this organization. Existing mirrored files in GitHub are left in place."}
-        </AlertDialog>
-      </Modal>
     </>
   )
 }

@@ -1,6 +1,8 @@
 export type ConnectorHealth =
   | "checking"
   | "setup_pending"
+  | "awaiting_merge"
+  | "reconnect"
   | "syncing"
   | "connected"
   | "couldnt_load"
@@ -13,6 +15,10 @@ export function connectorHealthLabel(health: ConnectorHealth): string {
       return "Checking"
     case "setup_pending":
       return "Setup not finished"
+    case "awaiting_merge":
+      return "Awaiting merge"
+    case "reconnect":
+      return "Needs reconnect"
     case "syncing":
       return "Syncing"
     case "connected":
@@ -30,16 +36,25 @@ export function formatSelectedItemCount(count: number): string {
   return `${count} selected item${count === 1 ? "" : "s"}`
 }
 
+/**
+ * `draft` comes from the server: the row never finished setup. A row that is
+ * not a draft and not connected (revoked, uninstalled, or not linked for this
+ * member) needs a reconnect, not a new setup.
+ */
 export function resolveConnectorHealth(input: {
   statusError: boolean
   checking: boolean
   setupPhase?: string
   connected: boolean
+  draft: boolean
 }): ConnectorHealth {
   if (input.statusError) return "couldnt_load"
   if (input.checking) return "checking"
   if (input.setupPhase === "sync_failed") return "sync_failed"
   if (input.setupPhase === "config_failed") return "config_failed"
   if (input.setupPhase === "initial_sync") return "syncing"
-  return input.connected ? "connected" : "setup_pending"
+  if (input.connected) return "connected"
+  if (input.draft) return "setup_pending"
+  if (input.setupPhase === "awaiting_merge") return "awaiting_merge"
+  return "reconnect"
 }

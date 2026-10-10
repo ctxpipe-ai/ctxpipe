@@ -2,10 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { useState } from "react"
 import { toast } from "sonner"
-import { AlertDialog } from "@/components/ui/AlertDialog"
-import { Modal } from "@/components/ui/Modal"
 import {
   getConfluenceCardCurrentIndex,
   getConfluenceCardPrimaryCta,
@@ -25,7 +22,6 @@ import { orgConnectionsKeys } from "../queries/org-connections"
 import { ConfluenceMark } from "./ConfluenceMark"
 import {
   ConnectorListItem,
-  ConnectorRemoveMenu,
   formatSyncRepositoryLine,
 } from "./ConnectorListItem"
 
@@ -44,7 +40,6 @@ export function ConfluenceConnectionCard({
 }: ConfluenceConnectionCardProps) {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
-  const [removeOpen, setRemoveOpen] = useState(false)
 
   const {
     data: status,
@@ -70,11 +65,7 @@ export function ConfluenceConnectionCard({
   const removeMutation = useMutation({
     mutationFn: () => deleteAtlassianConnector(orgSlug, connectionId),
     onSuccess: async () => {
-      toast.success(
-        health === "setup_pending"
-          ? "Confluence setup removed."
-          : "Confluence connector removed.",
-      )
+      toast.success("Confluence connector removed.")
       await queryClient.invalidateQueries({
         queryKey: atlassianConnectorKeys.status(orgSlug, connectionId),
       })
@@ -84,7 +75,6 @@ export function ConfluenceConnectionCard({
       await queryClient.invalidateQueries({
         queryKey: orgConnectionsKeys.list(orgSlug),
       })
-      setRemoveOpen(false)
     },
     onError: (e: Error) => toast.error(e.message),
   })
@@ -100,6 +90,7 @@ export function ConfluenceConnectionCard({
     checking: isPending || !status || oauthPending,
     setupPhase: status?.setupPhase,
     connected: complete,
+    draft: status?.setupPhase === "draft",
   })
 
   return (
@@ -113,16 +104,11 @@ export function ConfluenceConnectionCard({
           />
         }
         health={health}
-        pendingSetup={{
-          onContinue: onOpenWizard,
-          onRemove: () => setRemoveOpen(true),
+        remove={{
+          description:
+            "This removes the Forge installation and Confluence scope for this organization. Your Atlassian account may stay linked to your user profile.",
+          onConfirm: () => removeMutation.mutate(),
         }}
-        menu={
-          <ConnectorRemoveMenu
-            ariaLabel="Confluence connector actions"
-            onRemove={() => setRemoveOpen(true)}
-          />
-        }
         workspace={status?.isLinked ? "Atlassian" : "—"}
         scope={
           status ? formatSelectedItemCount(status.selectedSpaceCount) : "—"
@@ -163,26 +149,6 @@ export function ConfluenceConnectionCard({
           </p>
         ) : null}
       </ConnectorListItem>
-
-      <Modal isOpen={removeOpen} onOpenChange={setRemoveOpen} isDismissable>
-        <AlertDialog
-          title={
-            health === "setup_pending"
-              ? "Remove this Confluence setup?"
-              : "Remove Confluence connector?"
-          }
-          variant="destructive"
-          actionLabel={
-            health === "setup_pending" ? "Remove setup" : "Remove connector"
-          }
-          cancelLabel="Cancel"
-          onAction={() => removeMutation.mutate()}
-        >
-          {health === "setup_pending"
-            ? "This deletes the setup that is not finished, with its saved steps. To connect Confluence later, start again from Add connection."
-            : "This removes the Forge installation and Confluence scope for this organization. Your Atlassian account may stay linked to your user profile."}
-        </AlertDialog>
-      </Modal>
     </>
   )
 }

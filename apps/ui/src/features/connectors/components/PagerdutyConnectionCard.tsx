@@ -1,10 +1,7 @@
 "use client"
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useState } from "react"
 import { toast } from "sonner"
-import { AlertDialog } from "@/components/ui/AlertDialog"
-import { Modal } from "@/components/ui/Modal"
 import {
   formatSelectedItemCount,
   resolveConnectorHealth,
@@ -21,7 +18,6 @@ import {
 } from "../queries/pagerduty-connector"
 import {
   ConnectorListItem,
-  ConnectorRemoveMenu,
   connectorDash,
   formatSyncRepositoryLine,
 } from "./ConnectorListItem"
@@ -39,7 +35,6 @@ export function PagerdutyConnectionCard({
   onOpenSetup,
 }: PagerdutyConnectionCardProps) {
   const queryClient = useQueryClient()
-  const [removeOpen, setRemoveOpen] = useState(false)
   const {
     data: status,
     isPending,
@@ -53,11 +48,7 @@ export function PagerdutyConnectionCard({
   const removeMutation = useMutation({
     mutationFn: () => deletePagerdutyConnector(orgSlug, connectionId),
     onSuccess: async () => {
-      toast.success(
-        health === "setup_pending"
-          ? "PagerDuty setup removed."
-          : "PagerDuty connector removed.",
-      )
+      toast.success("PagerDuty connector removed.")
       await Promise.all([
         queryClient.invalidateQueries({
           queryKey: pagerdutyConnectorKeys.status(orgSlug, connectionId),
@@ -69,7 +60,6 @@ export function PagerdutyConnectionCard({
           queryKey: orgConnectionsKeys.list(orgSlug),
         }),
       ])
-      setRemoveOpen(false)
     },
     onError: (error: Error) => toast.error(error.message),
   })
@@ -80,6 +70,7 @@ export function PagerdutyConnectionCard({
     checking: isPending || !status,
     setupPhase: status?.setupPhase,
     connected: live,
+    draft: status?.setupPhase === "draft",
   })
 
   return (
@@ -88,16 +79,11 @@ export function PagerdutyConnectionCard({
         name="PagerDuty"
         icon={<PagerdutyMark className="size-5 text-foreground" />}
         health={health}
-        pendingSetup={{
-          onContinue: () => onOpenSetup(false),
-          onRemove: () => setRemoveOpen(true),
+        remove={{
+          description:
+            "This removes the PagerDuty connection and sync target for this organization. Existing mirrored files in GitHub are left in place.",
+          onConfirm: () => removeMutation.mutate(),
         }}
-        menu={
-          <ConnectorRemoveMenu
-            ariaLabel="PagerDuty connector actions"
-            onRemove={() => setRemoveOpen(true)}
-          />
-        }
         workspace={connectorDash(status?.accountName)}
         scope={
           status?.selectedServiceCount != null
@@ -156,26 +142,6 @@ export function PagerdutyConnectionCard({
           </p>
         ) : null}
       </ConnectorListItem>
-
-      <Modal isOpen={removeOpen} onOpenChange={setRemoveOpen} isDismissable>
-        <AlertDialog
-          title={
-            health === "setup_pending"
-              ? "Remove this PagerDuty setup?"
-              : "Remove PagerDuty connector?"
-          }
-          variant="destructive"
-          actionLabel={
-            health === "setup_pending" ? "Remove setup" : "Remove connector"
-          }
-          cancelLabel="Cancel"
-          onAction={() => removeMutation.mutate()}
-        >
-          {health === "setup_pending"
-            ? "This deletes the setup that is not finished, with its saved steps. To connect PagerDuty later, start again from Add connection."
-            : "This removes the PagerDuty connection and sync target for this organization. Existing mirrored files in GitHub are left in place."}
-        </AlertDialog>
-      </Modal>
     </>
   )
 }

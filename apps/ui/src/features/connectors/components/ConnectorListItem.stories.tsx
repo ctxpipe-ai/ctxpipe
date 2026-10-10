@@ -103,9 +103,16 @@ export const PendingSetupNarrow: Story = {
     const remove = canvas.getByRole("button", {
       name: "Remove Atlassian Confluence setup",
     })
-    expect(remove.getBoundingClientRect().top).toBeGreaterThan(
-      name.getBoundingClientRect().bottom,
-    )
+    const nameBox = name.getBoundingClientRect()
+    expect(remove.getBoundingClientRect().top).toBeGreaterThan(nameBox.bottom)
+    const expand = canvas.getByRole("button", {
+      name: "Expand Atlassian Confluence",
+    })
+    expect(expand.getBoundingClientRect().top).toBeLessThan(nameBox.bottom)
+    const action = canvas.getByRole("button", {
+      name: "Link Atlassian account for Atlassian Confluence",
+    })
+    expect(action.scrollHeight).toBeLessThanOrEqual(action.clientHeight)
   },
 }
 

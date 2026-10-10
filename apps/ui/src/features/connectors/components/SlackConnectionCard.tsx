@@ -4,8 +4,6 @@ import { IconBrandSlack } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 import { toast } from "sonner"
-import { AlertDialog } from "@/components/ui/AlertDialog"
-import { Modal } from "@/components/ui/Modal"
 import { resolveConnectorHealth } from "../connectorHealth"
 import { orgConnectionsKeys } from "../queries/org-connections"
 import {
@@ -16,7 +14,6 @@ import {
 import { formatSlackBotMention } from "../slack-setup-model"
 import {
   ConnectorListItem,
-  ConnectorRemoveMenu,
   connectorDash,
   formatSyncRepositoryLine,
 } from "./ConnectorListItem"
@@ -33,7 +30,6 @@ export function SlackConnectionCard({
 }: SlackConnectionCardProps) {
   const queryClient = useQueryClient()
   const [setupOpen, setSetupOpen] = useState(false)
-  const [removeOpen, setRemoveOpen] = useState(false)
 
   const {
     data: status,
@@ -50,7 +46,6 @@ export function SlackConnectionCard({
     onSuccess: async () => {
       toast.success("Slack connector removed.")
       setSetupOpen(false)
-      setRemoveOpen(false)
       await queryClient.cancelQueries({
         queryKey: slackConnectorKeys.status(orgSlug, connectionId),
       })
@@ -71,6 +66,8 @@ export function SlackConnectionCard({
     statusError: isError,
     checking: isPending || !status,
     connected: Boolean(live),
+    draft:
+      status?.setupPhase === "draft" && status.installationStatus !== "revoked",
   })
 
   return (
@@ -79,12 +76,11 @@ export function SlackConnectionCard({
         name="Slack"
         icon={<IconBrandSlack className="size-5 text-foreground" aria-hidden />}
         health={health}
-        menu={
-          <ConnectorRemoveMenu
-            ariaLabel="Slack connector actions"
-            onRemove={() => setRemoveOpen(true)}
-          />
-        }
+        remove={{
+          description:
+            "This deletes the Slack connection and context repository binding. Captured content already committed to Git is not deleted automatically.",
+          onConfirm: () => removeMutation.mutate(),
+        }}
         workspace={connectorDash(status?.teamName)}
         scope="—"
         syncRepository={formatSyncRepositoryLine(status?.syncTarget ?? null)}
@@ -133,20 +129,6 @@ export function SlackConnectionCard({
         isOpen={setupOpen}
         onOpenChange={setSetupOpen}
       />
-
-      <Modal isOpen={removeOpen} onOpenChange={setRemoveOpen} isDismissable>
-        <AlertDialog
-          title="Remove Slack connector?"
-          variant="destructive"
-          actionLabel="Remove connector"
-          cancelLabel="Cancel"
-          onAction={() => removeMutation.mutate()}
-        >
-          This deletes the Slack connection and context repository binding.
-          Captured content already committed to Git is not deleted
-          automatically.
-        </AlertDialog>
-      </Modal>
     </>
   )
 }

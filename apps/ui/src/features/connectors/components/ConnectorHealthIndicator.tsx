@@ -20,6 +20,16 @@ const TONE: Record<
     dot: "bg-zinc-500",
     pulse: false,
   },
+  awaiting_merge: {
+    text: "text-muted-foreground",
+    dot: "bg-zinc-500",
+    pulse: false,
+  },
+  reconnect: {
+    text: "text-amber-400",
+    dot: "bg-amber-400",
+    pulse: false,
+  },
   syncing: {
     text: "text-muted-foreground",
     dot: "bg-zinc-500",
