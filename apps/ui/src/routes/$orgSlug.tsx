@@ -11,6 +11,7 @@ import { OrgGateError } from "@/features/org/OrgGateError"
 import { isWorkspaceConversationDocument } from "@/features/workspaces/ensure-route-data"
 import { workspaceListOptions } from "@/features/workspaces/queries"
 import { orgGateOptions, peekOrgGate } from "@/lib/org-gate"
+import { useHyperDxScreenError } from "@/providers/HyperDxProvider"
 
 export const Route = createFileRoute("/$orgSlug")({
   shouldReload: ({ cause }) => cause === "enter",
@@ -75,6 +76,7 @@ function OrgScopedLayout() {
     from: "/$orgSlug/setup",
     shouldThrow: false,
   })
+  useHyperDxScreenError(orgAccessDenied ? "org_access_denied" : null)
 
   if (orgAccessDenied) {
     return (

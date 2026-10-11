@@ -214,6 +214,7 @@ export const CleanNoPublishActions: Story = {
 
 /** Sync runs: the button is busy and disabled. */
 export const Pushing: Story = {
+  tags: ["workspace-golden"],
   args: {
     ...DirtyCommitPush.args,
     publish: {
@@ -238,6 +239,8 @@ export const Pushing: Story = {
     })
     expect(sync).toBeDisabled()
     expect(sync).toHaveAttribute("data-pending", "true")
+    // Pending is not the dimmed disabled look.
+    expect(getComputedStyle(sync).opacity).toBe("1")
   },
 }
 
@@ -261,7 +264,12 @@ export const CreatingPr: Story = {
   },
 }
 
+/**
+ * Show PR has the pull request icon, and an external-link badge at its top
+ * right. Its name tells that it opens in a new tab.
+ */
 export const ShowPr: Story = {
+  tags: ["workspace-golden"],
   args: {
     title: "Repo layout",
     branch: {
@@ -287,13 +295,41 @@ export const ShowPr: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
+    const showPr = await canvas.findByRole(
+      "link",
+      { name: "Show PR (opens in a new tab)" },
+      { timeout: 15_000 },
+    )
     expect(
       canvas.queryByRole("button", { name: syncName }),
     ).not.toBeInTheDocument()
     expect(
       canvas.queryByRole("button", { name: "Create PR" }),
     ).not.toBeInTheDocument()
-    expect(canvas.getByRole("link", { name: "Show PR" })).toBeVisible()
+    expect(showPr).toBeVisible()
+    expect(showPr).toHaveAttribute("target", "_blank")
+    expect(
+      showPr.querySelector("svg.tabler-icon-git-pull-request"),
+    ).not.toBeNull()
+    const badge = showPr.querySelector("svg.tabler-icon-external-link")
+    expect(badge).not.toBeNull()
+    const link = showPr.getBoundingClientRect()
+    const mark = badge?.getBoundingClientRect()
+    // The badge is small and sits in the top right corner of the link.
+    expect(mark?.width).toBeGreaterThanOrEqual(10)
+    expect(mark?.width).toBeLessThanOrEqual(12)
+    expect((mark?.top ?? 0) - link.top).toBeLessThan(link.height / 3)
+    expect(link.right - (mark?.right ?? 0)).toBeLessThan(link.width / 6)
+    // The badge does not overlap the text.
+    const textNode = [...showPr.childNodes].find(
+      (n) =>
+        n.nodeType === Node.TEXT_NODE && n.textContent?.includes("Show PR"),
+    )
+    const range = document.createRange()
+    range.selectNodeContents(textNode as Node)
+    expect(range.getBoundingClientRect().right).toBeLessThanOrEqual(
+      mark?.left ?? 0,
+    )
   },
 }
 
@@ -327,10 +363,9 @@ export const CommitPushWithOpenPr: Story = {
     const commitPush = await canvas.findByRole("button", {
       name: syncName,
     })
-    expect(canvas.getByRole("link", { name: "Show PR" })).toHaveAttribute(
-      "href",
-      "https://github.com/acme/docs/pull/41",
-    )
+    expect(
+      canvas.getByRole("link", { name: "Show PR (opens in a new tab)" }),
+    ).toHaveAttribute("href", "https://github.com/acme/docs/pull/41")
     expect(
       canvas.queryByRole("button", { name: "Create PR" }),
     ).not.toBeInTheDocument()

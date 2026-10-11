@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { SkeletonRegion, SkeletonSuspense } from "@/components/ui/Skeleton"
 import { pollWhileOk } from "@/lib/api-result"
+import { useHyperDxScreenError } from "@/providers/HyperDxProvider"
 import {
   closeFileTab,
   type FileTabSession,
@@ -261,6 +262,7 @@ function WorkspaceSurfaceReady(props: {
       () => {},
     )
   }, [orgSlug, workspaceSlug, queryClient])
+  useHyperDxScreenError(workspace === null ? "workspace_not_found" : null)
 
   if (workspace === null) {
     return (

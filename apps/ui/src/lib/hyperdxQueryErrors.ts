@@ -36,6 +36,10 @@ function recordUiException(
   if (error && typeof error === "object") {
     const status = httpStatus(error)
     if (status) attributes["ctxpipe.ui.http_status"] = status
+    const requestId = (error as { requestId?: unknown }).requestId
+    if (typeof requestId === "string" && requestId) {
+      attributes["request.id"] = requestId
+    }
   }
   // Before init the SDK drops this. Recording without identity is acceptable.
   HyperDX.recordException(error, attributes)

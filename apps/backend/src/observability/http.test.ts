@@ -156,6 +156,40 @@ describe("backendOtelMiddleware", () => {
     ])
   })
 
+  it("traces a page document on the UI catch-all and gives the browser its traceparent", async () => {
+    const app = createApp()
+    const tracer = trace.getTracer("test")
+    app.all("*", () => {
+      // Stands in for the DB query a server render can make on the backend.
+      tracer.startSpan("SELECT sessions").end()
+      // The UI proxy returns its own Response, not one built through `c`.
+      return new Response("page", { headers: { "content-type": "text/html" } })
+    })
+
+    const res = await app.request("http://backend.test/onboarding", {
+      headers: {
+        "x-request-id": "doc_1",
+        "sec-fetch-dest": "document",
+        accept: "text/html,application/xhtml+xml",
+      },
+    })
+
+    expect(res.status).toBe(200)
+    const span = serverSpans()[0]
+    expect(span?.attributes).toMatchObject({
+      "url.path": "/onboarding",
+      "request.id": "doc_1",
+    })
+    const { traceId, spanId } = span?.spanContext() ?? {}
+    const child = exporter
+      .getFinishedSpans()
+      .find((s) => s.name === "SELECT sessions")
+    expect(child?.parentSpanContext?.spanId).toBe(spanId)
+    expect(res.headers.get("server-timing")).toBe(
+      `traceparent;desc="00-${traceId}-${spanId}-01"`,
+    )
+  })
+
   it("strips the query string from url attributes", async () => {
     const app = createApp()
     app.get("/.status", (c) => c.text("ok"))

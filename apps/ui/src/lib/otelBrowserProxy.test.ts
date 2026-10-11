@@ -304,6 +304,49 @@ describe("POST /.otel/v1/$signal", () => {
     )
   })
 
+  it("keeps console warn spans and drops console log, info and debug spans", async () => {
+    const consoleSpan = (type: string, level = type) => ({
+      name: `console.${type}`,
+      attributes: [
+        { key: "component", value: { stringValue: "console" } },
+        { key: "level", value: { stringValue: level } },
+      ],
+    })
+    const response = await postSignal(
+      "traces",
+      sameOriginRequest("https://app.example/.otel/v1/traces", {
+        body: JSON.stringify({
+          resourceSpans: [
+            {
+              scopeSpans: [
+                {
+                  scope: { name: "console" },
+                  spans: [
+                    consoleSpan("info"),
+                    consoleSpan("debug"),
+                    // `console.log({ level: "warn" })` overwrites the attribute.
+                    consoleSpan("log", "warn"),
+                    consoleSpan("warn"),
+                    { name: "documentLoad", attributes: [] },
+                  ],
+                },
+              ],
+            },
+          ],
+        }),
+      }),
+    )
+    expect(response.status).toBe(200)
+    const body = captured?.body as {
+      resourceSpans: Array<{
+        scopeSpans: Array<{ spans: Array<{ name: string }> }>
+      }>
+    }
+    expect(
+      body.resourceSpans[0]?.scopeSpans[0]?.spans.map((span) => span.name),
+    ).toEqual(["console.warn", "documentLoad"])
+  })
+
   it("posts logs to OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", async () => {
     vi.stubEnv(
       "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
@@ -323,6 +366,34 @@ describe("POST /.otel/v1/$signal", () => {
       proxiedUiRequest({ body: "{}" }),
     )
     expect(response.status).toBe(200)
+    expect(upstreamPosts).toBe(1)
+  })
+
+  it("admits the public origin only from AUTH_ALLOWED_ORIGINS when AUTH_BASE_URL is the private backend", async () => {
+    // Production Terraform sets the UI AUTH_BASE_URL to the private backend.
+    vi.stubEnv("AUTH_BASE_URL", "http://backend.railway.internal:8080")
+    const fromPublicSite = () =>
+      new Request("http://ui.railway.internal:3002/.otel/v1/traces", {
+        method: "POST",
+        headers: {
+          origin: "https://app.example",
+          "content-type": "application/json",
+          "content-length": "2",
+        },
+        body: "{}",
+      })
+
+    vi.stubEnv("AUTH_ALLOWED_ORIGINS", "")
+    const privateOnly = await postSignal("traces", fromPublicSite())
+    expect(privateOnly.status).toBe(403)
+    expect(upstreamPosts).toBe(0)
+
+    vi.stubEnv(
+      "AUTH_ALLOWED_ORIGINS",
+      "https://app.example,https://backend.up.railway.app",
+    )
+    const withPublic = await postSignal("traces", fromPublicSite())
+    expect(withPublic.status).toBe(200)
     expect(upstreamPosts).toBe(1)
   })
 
