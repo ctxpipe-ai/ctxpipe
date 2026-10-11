@@ -1,14 +1,13 @@
 import { describe, expect, it } from "vitest"
 import {
-  collapsedToolSummary,
+  activityChips,
+  activityLog,
   groupAssistantTurns,
-  latestReasoningHeading,
-  normalizeReasoningMarkdown,
-  summarizeToolCalls,
+  splitThoughts,
   toolBucket,
   toolBucketCounts,
+  toolCallAction,
   toolCallDetail,
-  toolCallFallbackLabel,
 } from "./conversation-thread-utils"
 
 describe("conversation thread tool summary", () => {
@@ -22,39 +21,43 @@ describe("conversation thread tool summary", () => {
     expect(toolBucket("graph_get_callers")).toBe("tool")
   })
 
-  it("prefers path and query details over raw names", () => {
+  it("finds the main argument in the input or the raw arguments", () => {
     expect(
       toolCallDetail({
-        name: "read",
         input: { filePath: "apps/ui/src/features/chat/ConversationThread.tsx" },
       }),
     ).toBe("apps/ui/src/features/chat/ConversationThread.tsx")
     expect(
-      toolCallDetail({
-        name: "glob",
-        arguments: JSON.stringify({ pattern: "**/*.md" }),
-      }),
+      toolCallDetail({ arguments: JSON.stringify({ pattern: "**/*.md" }) }),
     ).toBe("**/*.md")
     expect(
-      toolCallDetail({
-        name: "hybrid_search",
-        input: { query: "where is login documented" },
-      }),
+      toolCallDetail({ input: { query: "where is login documented" } }),
     ).toBe("where is login documented")
-    expect(toolCallDetail({ name: "read" })).toBe("Read file")
-    expect(toolCallDetail({ name: "glob" })).toBe("Search files")
-    expect(toolCallFallbackLabel("read")).toBe("Read file")
-    expect(toolCallFallbackLabel("glob")).toBe("Search files")
+    expect(toolCallDetail({})).toBeNull()
+    expect(toolCallDetail({ arguments: "{not json" })).toBeNull()
   })
 
-  it("groups unique calls into collapsed chips", () => {
-    const tools = summarizeToolCalls([
+  it("names the action of known tools and keeps the name of other tools", () => {
+    expect(toolCallAction("read")).toBe("Read file")
+    expect(toolCallAction("glob")).toBe("Search")
+    expect(toolCallAction("bash")).toBe("Run command")
+    expect(toolCallAction("edit")).toBe("Edit file")
+    expect(toolCallAction("graph_get_callers")).toBe("graph_get_callers")
+  })
+
+  it("counts unique calls and thoughts on the counters line", () => {
+    const entries = activityLog([
+      {
+        type: "thinking",
+        content: "**Reading**\n\nFirst.\n**Comparing**\n\nSecond.",
+      },
       {
         type: "tool-call",
         id: "tc_1",
         name: "read",
         input: { path: "knowledge/billing/ledger.md" },
       },
+      { type: "tool-call", id: "tc_1", name: "read" },
       {
         type: "tool-call",
         id: "tc_2",
@@ -74,17 +77,22 @@ describe("conversation thread tool summary", () => {
         input: { command: "ls" },
       },
     ])
-    expect(toolBucketCounts(tools)).toEqual({
-      reads: 1,
-      searches: 2,
-      tools: 1,
-    })
-    expect(collapsedToolSummary(toolBucketCounts(tools))).toEqual([
-      "Read 1 file",
-      "2 searches",
-      "Used 1 tool",
-    ])
-    expect(tools.map((tool) => tool.detail)).toEqual([
+    const tools = entries.flatMap((entry) =>
+      entry.kind === "tool" ? [entry.tool] : [],
+    )
+    expect(toolBucketCounts(tools)).toEqual({ reads: 1, searches: 2, tools: 1 })
+    expect(
+      activityChips({ ...toolBucketCounts(tools), thoughts: 2 }).map(
+        (chip) => chip.label,
+      ),
+    ).toEqual(["Read 1 file", "2 searches", "Used 1 tool", "2 thoughts"])
+    expect(
+      entries.map((entry) =>
+        entry.kind === "tool" ? entry.tool.detail : entry.thought.title,
+      ),
+    ).toEqual([
+      "Reading",
+      "Comparing",
       "knowledge/billing/ledger.md",
       "knowledge/**/*.md",
       "billing",
@@ -93,36 +101,35 @@ describe("conversation thread tool summary", () => {
   })
 })
 
-describe("reasoning markdown", () => {
-  it("puts a heading-only line on its own block", () => {
+describe("splitThoughts", () => {
+  it("starts a thought at each bold or ATX heading", () => {
     expect(
-      normalizeReasoningMarkdown(
-        "**Inspecting documentation steps**\n\nI should move forward carefully.\n**Implementing document updates**\n\nNext I will edit docker.md.",
+      splitThoughts(
+        "**Inspecting documentation steps**\n\nI should move forward carefully.**Implementing document updates**\nNext I will edit docker.md.\n## Checking",
       ),
-    ).toBe(
-      "**Inspecting documentation steps**\n\nI should move forward carefully.\n\n**Implementing document updates**\n\nNext I will edit docker.md.",
-    )
-    expect(
-      normalizeReasoningMarkdown(
-        "I should move forward carefully.**Implementing document updates**\nNext I will edit docker.md.",
-      ),
-    ).toBe(
-      "I should move forward carefully.\n\n**Implementing document updates**\n\nNext I will edit docker.md.",
-    )
+    ).toEqual([
+      {
+        title: "Inspecting documentation steps",
+        hasHeading: true,
+        body: "I should move forward carefully.",
+      },
+      {
+        title: "Implementing document updates",
+        hasHeading: true,
+        body: "Next I will edit docker.md.",
+      },
+      { title: "Checking", hasHeading: true, body: "" },
+    ])
   })
 
-  it("returns the latest bold or ATX heading", () => {
-    expect(latestReasoningHeading("I'll inspect the repository.")).toBeNull()
-    expect(
-      latestReasoningHeading(
-        "**Inspecting documentation steps**\n\nFirst.\n**Consolidating documents**\n\nSecond.",
-      ),
-    ).toBe("Consolidating documents")
-    expect(
-      latestReasoningHeading(
-        "# Inspecting\n\nBody\n## Consolidating documents",
-      ),
-    ).toBe("Consolidating documents")
+  it("titles a thought without a heading with its short first line", () => {
+    const long = `${"word ".repeat(30)}end`
+    const [thought] = splitThoughts(`${long}\nMore text.`)
+    expect(thought?.hasHeading).toBe(false)
+    expect(thought?.title.length).toBeLessThanOrEqual(80)
+    expect(thought?.title.endsWith("…")).toBe(true)
+    expect(thought?.body).toBe(`${long}\nMore text.`)
+    expect(splitThoughts("  \n ")).toEqual([])
   })
 })
 

@@ -49,7 +49,7 @@ export function workspaceChatHasAssistantText(
 
 export type SandboxPhase = "idle" | "starting" | "ready"
 
-/** Null lets the thread show its rotating working verbs. */
+/** Null lets the thread show the current thought or "Thinking". */
 export function workspaceChatWaitLabel(phase: SandboxPhase): string | null {
   return phase === "starting" ? "Setting up sandbox" : null
 }

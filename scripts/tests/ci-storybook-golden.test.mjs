@@ -67,7 +67,10 @@ const required = [
     "apps/ui/src/features/workspaces/WorkspaceSurface.stories.tsx",
     "StableRequestBudget",
   ],
-  ["apps/ui/src/features/chat/ConversationThread.stories.tsx", "ChatProgressDone"],
+  [
+    "apps/ui/src/features/chat/ConversationThread.stories.tsx",
+    "ChatProgressDone",
+  ],
   [
     "apps/ui/src/features/chat/ConversationThread.stories.tsx",
     "ChatProgressLogExpanded",
