@@ -19,6 +19,7 @@ import {
 import { parseNotionConfigYamlContent } from "../../services/notion/config-yaml.js"
 import { loadNotionConnection } from "../../services/notion/connection-load.js"
 import { captureNotionContent } from "../../services/notion/sync.js"
+import { isNotionBindingHandedOver } from "../../services/notion/workspace-source-migration.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { runRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
 import { parsedNotionRepoScopeSchema } from "../notion-scope-repo-schema.js"
@@ -61,6 +62,30 @@ export const notionSyncContent = defineWorkflow(
             failures: [],
           }
         const env = parseEnv(process.env)
+        // ADR-050: once Workspace sources own the repository, only they write it.
+        if (
+          await step.run(
+            { name: "check-workspace-sources-handover" },
+            async () => {
+              const binding = await getNotionBindingWithRepoByConnectionId(
+                input.orgId,
+                input.connectionId,
+              )
+              return binding
+                ? isNotionBindingHandedOver({
+                    orgId: input.orgId,
+                    repositoryGitUrl: binding.repositoryGitUrl,
+                  })
+                : false
+            },
+          )
+        )
+          return {
+            status: "superseded" as const,
+            written: 0,
+            deleted: 0,
+            failures: [],
+          }
         const context = await step.run(
           { name: "capture-notion-target" },
           async () => {

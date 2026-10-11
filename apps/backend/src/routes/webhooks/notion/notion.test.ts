@@ -41,6 +41,7 @@ vi.mock("../../../openworkflow/workflows/notion-sync-entity.js", () => ({
 import { parseNotionConnectionConfig } from "../../../lib/connection-config.js"
 import { encryptConnectionSecret } from "../../../lib/connection-secrets.js"
 import type { NotionConnection } from "../../../models/notion-connector.js"
+import { workspaceSourcesSync } from "../../../openworkflow/workflows/workspace-sources-sync.js"
 import { registerNotionWebhookRoute } from "./notion.js"
 
 const envBase = {
@@ -247,6 +248,17 @@ describe("Notion webhook", () => {
       },
       { idempotencyKey: "notion:con_1:event_1" },
     )
+    expect(runWorkflowMock).toHaveBeenCalledWith(
+      workspaceSourcesSync.spec,
+      {
+        kind: "connection",
+        orgId: "org_1",
+        connectionId: "con_1",
+        provider: "notion",
+        event: { entityType: "page", externalId: "page_1", action: "upsert" },
+      },
+      { idempotencyKey: "workspace-sources:con_1:event_1" },
+    )
   })
 
   it("verifies a signed event with a row webhook secret when env is empty", async () => {
@@ -314,7 +326,10 @@ describe("Notion webhook", () => {
     )
 
     expect(response.status).toBe(200)
-    expect(runWorkflowMock).toHaveBeenCalledTimes(1)
+    // The legacy entity sync and the Workspace sources sync, org B only.
+    expect(runWorkflowMock).toHaveBeenCalledTimes(2)
+    for (const [, input] of runWorkflowMock.mock.calls)
+      expect(input).toMatchObject({ orgId: "org_b" })
     expect(runWorkflowMock).toHaveBeenCalledWith(
       { name: "notion-sync-entity" },
       expect.objectContaining({
@@ -457,7 +472,7 @@ describe("Notion webhook", () => {
     expect(runWorkflowMock).not.toHaveBeenCalled()
   })
 
-  it("skips connections that are not live using connections.config binding", async () => {
+  it("sends a connection without a live legacy binding only to Workspace sources", async () => {
     connectionsMock.mockResolvedValue([
       candidate({ setupPhase: "awaiting_merge" }),
     ])
@@ -473,8 +488,13 @@ describe("Notion webhook", () => {
       body,
     })
 
-    expect(response.status).toBe(204)
-    expect(runWorkflowMock).not.toHaveBeenCalled()
+    expect(response.status).toBe(200)
+    expect(runWorkflowMock).toHaveBeenCalledTimes(1)
+    expect(runWorkflowMock).toHaveBeenCalledWith(
+      workspaceSourcesSync.spec,
+      expect.objectContaining({ connectionId: "con_1", provider: "notion" }),
+      undefined,
+    )
   })
 
   it("enqueues one job per org when one integration is connected twice", async () => {
@@ -498,7 +518,8 @@ describe("Notion webhook", () => {
     )
 
     expect(response.status).toBe(200)
-    expect(runWorkflowMock).toHaveBeenCalledTimes(2)
+    // One legacy entity sync and one Workspace sources sync for each org.
+    expect(runWorkflowMock).toHaveBeenCalledTimes(4)
     expect(runWorkflowMock).toHaveBeenCalledWith(
       { name: "notion-sync-entity" },
       expect.objectContaining({ orgId: "org_a", connectionId: "con_a" }),

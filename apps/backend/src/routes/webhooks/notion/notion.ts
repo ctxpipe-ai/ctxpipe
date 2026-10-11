@@ -2,6 +2,7 @@ import type { OpenAPIHono } from "@hono/zod-openapi"
 import type { Context } from "hono"
 import { z } from "zod"
 import type { AppEnv } from "../../../app/env.js"
+import { enqueueConnectionSourcesSync } from "../../../domain/workspace-sources/enqueue.js"
 import { parseNotionConnectionConfig } from "../../../lib/connection-config.js"
 import { decryptConnectionSecret } from "../../../lib/connection-secrets.js"
 import {
@@ -19,6 +20,7 @@ import { getLogger } from "../../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
 import { notionSyncEntity } from "../../../openworkflow/workflows/notion-sync-entity.js"
 import type { NotionEntityChange } from "../../../services/notion/incremental.js"
+import type { NotionSourceEvent } from "../../../services/notion/workspace-source-adapter.js"
 import { noteResolvedWebhookConnections } from "../attribution.js"
 
 const notionWebhookPayloadSchema = z.object({
@@ -218,11 +220,20 @@ async function handleNotionWebhook(c: Context<AppEnv>) {
       connection.enabled &&
       connection.setupPhase === "live",
   )
-  if (liveConnections.length === 0) return c.body(null, 204)
 
   try {
-    await Promise.all(
-      liveConnections.map((connection) =>
+    await Promise.all([
+      // ADR-050: Workspace sources sync once for each connection.
+      ...connections.map((connection) =>
+        enqueueConnectionSourcesSync({
+          orgId: connection.orgId,
+          connectionId: connection.id,
+          provider: "notion",
+          event: entityTarget satisfies NotionSourceEvent,
+          dedupeKey: parsed.data.id,
+        }),
+      ),
+      ...liveConnections.map((connection) =>
         enqueueNotionEntitySync({
           orgId: connection.orgId,
           connectionId: connection.id,
@@ -230,7 +241,7 @@ async function handleNotionWebhook(c: Context<AppEnv>) {
           eventId: parsed.data.id,
         }),
       ),
-    )
+    ])
   } catch (error) {
     getLogger().error(
       error instanceof Error ? error : new Error(String(error)),

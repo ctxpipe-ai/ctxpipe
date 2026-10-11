@@ -1,5 +1,6 @@
 import type { Env } from "../../config/env.js"
 import { confluenceSourceMigrationHook } from "../../services/confluence/workspace-source-migration.js"
+import { notionSourceMigrationHook } from "../../services/notion/workspace-source-migration.js"
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../workspaces/write-status.js"
 import type { SourceChange } from "./edit.js"
@@ -47,6 +48,7 @@ export const SOURCE_MIGRATION_HOOKS: Partial<
   Record<SourceProvider, SourceMigrationHook>
 > = {
   confluence: confluenceSourceMigrationHook,
+  notion: notionSourceMigrationHook,
 }
 
 export type MigrationWorkspace = {

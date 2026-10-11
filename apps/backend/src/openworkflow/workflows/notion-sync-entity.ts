@@ -11,6 +11,7 @@ import {
 import { parseNotionConfigYamlContent } from "../../services/notion/config-yaml.js"
 import { loadNotionConnection } from "../../services/notion/connection-load.js"
 import { captureNotionIncrementalContent } from "../../services/notion/sync.js"
+import { isNotionBindingHandedOver } from "../../services/notion/workspace-source-migration.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { runRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
 import { workspaceConnectorMirror } from "./workspace-connector-mirror.js"
@@ -56,6 +57,14 @@ export const notionSyncEntity = defineWorkflow(
             ) {
               return null
             }
+            // ADR-050: once Workspace sources own the repository, only they write it.
+            if (
+              await isNotionBindingHandedOver({
+                orgId: input.orgId,
+                repositoryGitUrl: binding.repositoryGitUrl,
+              })
+            )
+              return null
             const captured = await captureConnectorMirrorTarget({
               orgId: input.orgId,
               env,
