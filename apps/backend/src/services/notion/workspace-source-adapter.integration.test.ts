@@ -1,16 +1,26 @@
 import { createHash } from "node:crypto"
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest"
 import { parseEnv } from "../../config/env.js"
 import {
   syncConnectionSources,
   type WorkspaceSliceWrite,
 } from "../../domain/workspace-sources/sync.js"
+import { encryptConnectionSecret } from "../../lib/connection-secrets.js"
 import {
   listWorkspaceSourceRows,
   replaceWorkspaceSourceRows,
 } from "../../models/workspace-sources.js"
+import { createLogger, withLogger } from "../../observability/logger.js"
 import { seedSourcesOrg } from "../../test/workspace-sources-fixture.js"
 import { loadNotionStoredConfig } from "./connection-load.js"
 import {
@@ -36,6 +46,8 @@ const notion = {
   parents: new Map<string, string>([[SETUP, HANDBOOK]]),
   children: new Map<string, string[]>([[HANDBOOK, [SETUP]]]),
   failing: new Map<string, number>(),
+  /** Notion refuses the access token (a revoked install). */
+  unauthorized: false,
   reads: [] as string[],
 }
 
@@ -57,6 +69,8 @@ const page = (pageId: string) => ({
 })
 
 const failure = (key: string) => {
+  if (notion.unauthorized)
+    return HttpResponse.json({ code: "unauthorized" }, { status: 401 })
   const status = notion.failing.get(key)
   return status
     ? HttpResponse.json({ message: "failed" }, { status })
@@ -70,8 +84,13 @@ const server = setupServer(
     notion.reads.push(`page:${pageId}`)
     return failure(pageId) ?? HttpResponse.json(page(pageId))
   }),
+  http.post(`${api}/oauth/token`, () =>
+    HttpResponse.json({ error: "invalid_grant" }, { status: 400 }),
+  ),
   http.get(`${api}/blocks/:blockId/children`, ({ params }) => {
     const blockId = String(params.blockId)
+    const failed = failure(blockId)
+    if (failed) return failed
     return HttpResponse.json({
       results: [
         {
@@ -155,17 +174,19 @@ async function sync(
   } = {},
 ) {
   const writes: WorkspaceSliceWrite[] = []
-  await syncConnectionSources({
-    orgId: seed.orgId,
-    connectionId,
-    env,
-    adapter: notionSourceAdapter,
-    event: extra.event,
-    readExisting: extra.blobs ? async () => extra.blobs ?? [] : undefined,
-    write: async (write) => {
-      writes.push(write)
-    },
-  })
+  await withLogger(createLogger({ test: "notion-sources" }), () =>
+    syncConnectionSources({
+      orgId: seed.orgId,
+      connectionId,
+      env,
+      adapter: notionSourceAdapter,
+      event: extra.event,
+      readExisting: extra.blobs ? async () => extra.blobs ?? [] : undefined,
+      write: async (write) => {
+        writes.push(write)
+      },
+    }),
+  )
   return new Map(writes.map((write) => [write.workspaceId, write]))
 }
 
@@ -185,6 +206,8 @@ describe("Notion source adapter (Postgres + msw)", () => {
     env = parseEnv(process.env)
   })
   afterEach(() => {
+    vi.useRealTimers()
+    notion.unauthorized = false
     notion.reads.length = 0
     notion.failing.clear()
     notion.titles.set(HANDBOOK, "Handbook")
@@ -293,7 +316,9 @@ describe("Notion source adapter (Postgres + msw)", () => {
     ).toEqual({})
 
     notion.failing.set(GONE, 404)
+    vi.useFakeTimers({ toFake: ["Date"] })
     for (let cycle = 1; cycle <= NOTION_SYNC_MAX_TRIES; cycle += 1) {
+      vi.setSystemTime(new Date(Date.UTC(2026, 9, 12, cycle * 2)))
       writes = await sync(connection)
       // The other roots and Workspaces still sync.
       expect(paths(writes.get(docs))).toHaveLength(2)
@@ -316,6 +341,105 @@ describe("Notion source adapter (Postgres + msw)", () => {
       workspaceId: docs,
     })
     expect(docsRow?.status).toBe("ok")
+  })
+
+  it("counts a burst of failing syncs in one hour one time", async () => {
+    const connection = await seed.addConnection("notion", installed)
+    const gone = await addSource(connection, "notion-burst", {
+      pages: [{ id: GONE, title: "Gone" }],
+    })
+    notion.failing.set(GONE, 404)
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(new Date(Date.UTC(2026, 9, 12, 9)))
+    for (let sync_ = 0; sync_ < NOTION_SYNC_MAX_TRIES + 1; sync_ += 1)
+      await sync(connection, {
+        event: { entityType: "page", externalId: GONE, action: "upsert" },
+        blobs: [],
+      })
+    const stored = await loadNotionStoredConfig(seed.orgId, connection)
+    expect(stored?.sourceSync?.failures[`page:${GONE}`]?.tries).toBe(1)
+    const [row] = await listWorkspaceSourceRows({
+      orgId: seed.orgId,
+      workspaceId: gone,
+    })
+    expect(row?.status).toBe("ok")
+  })
+
+  it("skips an unreadable child page, keeps its files, and does not blame the root", async () => {
+    const connection = await seed.addConnection("notion", installed)
+    const docs = await addSource(connection, "notion-child", {
+      pages: [{ id: HANDBOOK, title: "Handbook" }],
+    })
+    notion.failing.set(SETUP, 403)
+    const child = `notion/pages/handbook--${HANDBOOK}/setup--${SETUP}/index.md`
+
+    const writes = await sync(connection, {
+      blobs: [{ path: child, sha: blobSha("old setup") }],
+    })
+
+    const write = writes.get(docs)
+    expect(paths(write)).toEqual([
+      `notion/pages/handbook--${HANDBOOK}/index.md`,
+    ])
+    expect(write?.deletePaths ?? []).not.toContain(child)
+    expect(write?.keepPrefixes).toContain(child)
+    expect(
+      (await loadNotionStoredConfig(seed.orgId, connection))?.sourceSync
+        ?.failures,
+    ).toEqual({})
+  })
+
+  it("marks the connection revoked when Notion refuses its token", async () => {
+    const connection = await seed.addConnection("notion", installed)
+    const docs = await addSource(connection, "notion-revoked", {
+      pages: [{ id: HANDBOOK, title: "Handbook" }],
+    })
+    notion.unauthorized = true
+
+    const writes = await sync(connection)
+
+    expect(writes.has(docs)).toBe(false)
+    expect((await loadNotionStoredConfig(seed.orgId, connection))?.status).toBe(
+      "revoked",
+    )
+    const scope = { pages: [{ id: HANDBOOK, title: "Handbook" }] }
+    expect(
+      await notionSourceAdapter.syncStatus?.({
+        orgId: seed.orgId,
+        connectionId: connection,
+        scope,
+      }),
+    ).toEqual({
+      status: "out_of_access",
+      detail: expect.stringMatching(/Reconnect Notion/),
+    })
+    expect(
+      await notionSourceAdapter.checkAccess?.({
+        orgId: seed.orgId,
+        connectionId: connection,
+        scope,
+        env,
+      }),
+    ).toMatch(/Reconnect Notion/)
+  })
+
+  it("marks the connection revoked when the token refresh fails", async () => {
+    const connection = await seed.addConnection("notion", {
+      ...installed,
+      refreshToken: "fixture-refresh-token",
+      oauthClientId: "fixture-client-id",
+      oauthClientSecretEnc: encryptConnectionSecret("fixture-secret", env),
+    })
+    await addSource(connection, "notion-refresh", {
+      pages: [{ id: HANDBOOK, title: "Handbook" }],
+    })
+    notion.unauthorized = true
+
+    await sync(connection)
+
+    expect((await loadNotionStoredConfig(seed.orgId, connection))?.status).toBe(
+      "revoked",
+    )
   })
 
   it("syncs only the roots that a webhook event touches", async () => {

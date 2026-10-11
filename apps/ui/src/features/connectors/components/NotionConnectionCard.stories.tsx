@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import type { ReactNode } from "react"
-import { expect, fn, within } from "storybook/test"
+import { expect, fn, userEvent, within } from "storybook/test"
 import {
   connectionUsageHandler,
   connectionUsageItem,
@@ -214,5 +214,40 @@ export const ConnectedWithoutSyncRepository: Story = {
         name: /Set up|Connect Notion|Manage scope/,
       }),
     ).toBeNull()
+  },
+}
+
+export const RevokedNeedsReconnect: Story = {
+  name: "Revoked, needs reconnect",
+  render: () => shell(card()),
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          notionStatus({
+            ...statusComplete,
+            isInstalled: false,
+            installationStatus: "revoked",
+          }),
+          notionOauthAppHandler({
+            orgSlug,
+            connectionId,
+            oauthAppSaved: false,
+            globalNotionOAuthConfigured: true,
+          }),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement.ownerDocument.body)
+    await expect(await canvas.findByText("Needs reconnect")).toBeInTheDocument()
+    onOpenSetup.mockClear()
+    const [connect] = await canvas.findAllByRole("button", {
+      name: /^Connect Notion/,
+    })
+    if (!connect) throw new Error("No Connect Notion action")
+    await userEvent.click(connect)
+    await expect(onOpenSetup).toHaveBeenCalledTimes(1)
   },
 }

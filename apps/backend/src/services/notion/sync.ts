@@ -62,6 +62,7 @@ import {
   listBlocksDeep,
   listNotionPageTree,
   type NotionPageTreeEntry,
+  type NotionUnreadableHandler,
 } from "./page-tree.js"
 
 export { getNotionChildPageIds } from "./page-tree.js"
@@ -230,6 +231,8 @@ export async function captureNotionContent(input: {
   existingBlobs?: ReadonlyArray<{ path: string; sha: string }>
   /** Name each root page folder with the config title (Workspace sources). */
   rootTitlesFromConfig?: boolean
+  /** Skip unreadable child pages, rows, and blocks of a root and report them. */
+  onUnreadable?: NotionUnreadableHandler
 }): Promise<NotionSyncResult> {
   const uniqueResources = new Map<
     string,
@@ -303,12 +306,25 @@ export async function captureNotionContent(input: {
           >()
           for (const row of rows) {
             if (selectedPageIds.has(notionIdKey(row.id))) continue
-            const blocks = await listBlocksDeep({
-              env: input.env,
-              connection: input.notionConnection,
-              blockId: row.id,
-              onTokenRefresh,
-            })
+            let blocks: NotionBlock[]
+            try {
+              blocks = await listBlocksDeep({
+                env: input.env,
+                connection: input.notionConnection,
+                blockId: row.id,
+                onTokenRefresh,
+                onUnreadable: input.onUnreadable,
+              })
+            } catch (error) {
+              if (
+                !input.onUnreadable ||
+                !(error instanceof NotionApiError) ||
+                (error.status !== 403 && error.status !== 404)
+              )
+                throw error
+              input.onUnreadable(row.id, error)
+              continue
+            }
             rowsWithBlocks.push({ page: row, blocks })
             capturedAssetsByPageId.set(
               row.id,
@@ -340,6 +356,7 @@ export async function captureNotionContent(input: {
           rootPageId: resource.externalId,
           skipPageIds: selectedPageIds,
           rootTitle: input.rootTitlesFromConfig ? resource.title : undefined,
+          onUnreadable: input.onUnreadable,
           onTokenRefresh,
           onEntry: async (entry) => {
             capturedAssetsByPageId.set(

@@ -12,10 +12,12 @@ import type {
 } from "../../domain/workspace-sources/adapter.js"
 import type { NotionSourceScope } from "../../domain/workspace-sources/providers/notion.js"
 import type { NotionSourceSync } from "../../lib/connection-config.js"
+import { saveConnectionSourceSync } from "../../models/connection-source-sync.js"
 import type { NotionConnection } from "../../models/notion-connector.js"
-import { log } from "../../observability/logger.js"
+import { getLogger } from "../../observability/logger.js"
 import type { GitFileChange } from "../git/file-change.js"
 import {
+  isNotionAuthFailure,
   NotionApiError,
   retrieveNotionDataSource,
   retrieveNotionPage,
@@ -76,17 +78,46 @@ function rootLabel(root: NotionRoot): string {
   return `Notion ${root.kind} "${root.title}" (${root.id})`
 }
 
-async function readyConnection(
+/** The text that a source of a revoked Notion connection shows. */
+const RECONNECT_DETAIL =
+  "Notion does not accept the ctx| access any more. Reconnect Notion on the Connectors page."
+
+/** The connection, or why it cannot sync now. */
+async function loadConnectionState(
   orgId: string,
   connectionId: string,
   env: Env,
-): Promise<NotionConnection | null> {
+): Promise<
+  | { ready: true; connection: NotionConnection }
+  | { ready: false; revoked: boolean }
+> {
   const connection = await withOrgDbContext(orgId, () =>
     loadNotionConnection(orgId, connectionId, env),
   )
-  return connection?.accessToken && connection.status === "installed"
-    ? connection
-    : null
+  if (connection?.accessToken && connection.status === "installed")
+    return { ready: true, connection }
+  return { ready: false, revoked: connection?.status === "revoked" }
+}
+
+/**
+ * Mark the connection revoked after Notion refused its token (or the token
+ * refresh), so the card asks for a reconnect. A new OAuth connect sets it
+ * back to installed.
+ */
+async function markRevoked(orgId: string, connectionId: string) {
+  await withOrgDbContext(orgId, (db) =>
+    db
+      .update(connections)
+      .set({
+        config: sql`jsonb_set(${connections.config}, '{status}', '"revoked"'::jsonb)`,
+      })
+      .where(
+        and(
+          eq(connections.id, connectionId),
+          eq(connections.type, CONNECTION_TYPE_NOTION),
+        ),
+      ),
+  )
 }
 
 async function loadSourceSync(
@@ -99,26 +130,8 @@ async function loadSourceSync(
   return stored?.sourceSync ?? { failures: {} }
 }
 
-/** Write only `config.sourceSync`, so a token refresh in parallel stays. */
-async function saveSourceSync(input: {
-  orgId: string
-  connectionId: string
-  sourceSync: NotionSourceSync
-}): Promise<void> {
-  await withOrgDbContext(input.orgId, (db) =>
-    db
-      .update(connections)
-      .set({
-        config: sql`jsonb_set(${connections.config}, '{sourceSync}', ${JSON.stringify(input.sourceSync)}::jsonb)`,
-      })
-      .where(
-        and(
-          eq(connections.id, input.connectionId),
-          eq(connections.type, CONNECTION_TYPE_NOTION),
-        ),
-      ),
-  )
-}
+/** Count a failure at most one time in this window (a burst of webhooks). */
+const FAILURE_COUNT_WINDOW_MS = 60 * 60 * 1000
 
 /**
  * The roots that a webhook event can change: the roots whose files hold the
@@ -192,19 +205,23 @@ export const notionSourceAdapter: SourceAdapter<NotionSourceScope> = {
   provider: "notion",
   managedPaths: (scope) => rootsOf(scope).map(rootPath),
   async fetch({ orgId, connectionId, scopes, env, event, existing }) {
-    const connection = await readyConnection(orgId, connectionId, env)
-    if (!connection)
-      throw new Error("The Notion connection is not ready for sync")
-    const onTokenRefresh = createNotionTokenRefreshHandler({
-      orgId,
-      connectionId,
-      env,
-    })
     const roots = [
       ...new Map(
         scopes.flatMap(rootsOf).map((root) => [rootPath(root), root] as const),
       ).values(),
     ]
+    const state = await loadConnectionState(orgId, connectionId, env)
+    // A revoked connection keeps every file until a reconnect.
+    if (!state.ready && state.revoked)
+      return { files: [], keepPaths: roots.map(rootPath) }
+    if (!state.ready)
+      throw new Error("The Notion connection is not ready for sync")
+    const { connection } = state
+    const onTokenRefresh = createNotionTokenRefreshHandler({
+      orgId,
+      connectionId,
+      env,
+    })
     const parsedEvent = notionSourceEventSchema.safeParse(event)
     const affected = parsedEvent.success
       ? await rootsForEvent({
@@ -226,10 +243,13 @@ export const notionSourceAdapter: SourceAdapter<NotionSourceScope> = {
       keepPaths: [],
       unreachable: [],
     }
+    const existingPaths = (existing ?? []).map((file) => file.path)
+    const now = new Date()
+    let revoked = false
     for (const root of roots) {
       const prefix = rootPath(root)
       const key = failureKey(root)
-      if (affected && !affected.has(key)) {
+      if (revoked || (affected && !affected.has(key))) {
         result.keepPaths.push(prefix)
         continue
       }
@@ -249,6 +269,19 @@ export const notionSourceAdapter: SourceAdapter<NotionSourceScope> = {
         existingPaths: blobs.map((file) => file.path),
         existingBlobs: existing ? blobs : undefined,
         rootTitlesFromConfig: true,
+        // A child page, row, or block that ctx| cannot read keeps its files.
+        onUnreadable: (id, error) => {
+          result.keepPaths.push(
+            ...managedNotionPagePathsForSubtree(existingPaths, id),
+          )
+          getLogger().warn("Notion source skipped an unreadable child", {
+            step: "notion.sources.unreadable",
+            connectionId,
+            root: root.id,
+            id,
+            status: error.status,
+          })
+        },
       })
       const [error] = captured.errors
       if (!error) {
@@ -258,19 +291,36 @@ export const notionSourceAdapter: SourceAdapter<NotionSourceScope> = {
         continue
       }
       result.keepPaths.push(prefix)
+      if (error.status === 401) {
+        revoked = true
+        await markRevoked(orgId, connectionId)
+        getLogger().warn(
+          "Notion refused the token; the connection is revoked",
+          {
+            step: "notion.sources.revoked",
+            connectionId,
+          },
+        )
+        continue
+      }
       if (!error.status || !PERMANENT_STATUSES.has(error.status)) {
         // A provider outage: keep the last good copy, and do not count it.
-        log.warn({
+        getLogger().warn("Notion source root capture failed", {
           step: "notion.sources.capture",
-          message: "Notion source root capture failed",
           connectionId,
           error: error.message,
         })
         continue
       }
-      const tries = (failures[key]?.tries ?? 0) + 1
+      const previous = failures[key]
+      if (
+        previous?.countedAt &&
+        now.getTime() - Date.parse(previous.countedAt) < FAILURE_COUNT_WINDOW_MS
+      )
+        continue
+      const tries = (previous?.tries ?? 0) + 1
       const detail = `${rootLabel(root)} failed ${tries} syncs: ctx| cannot read it (${error.status}). Share it with the ctx| integration in Notion, or remove it from the source.`
-      failures[key] = { tries, detail }
+      failures[key] = { tries, detail, countedAt: now.toISOString() }
       if (tries >= NOTION_SYNC_MAX_TRIES)
         result.unreachable.push({
           path: prefix,
@@ -280,7 +330,8 @@ export const notionSourceAdapter: SourceAdapter<NotionSourceScope> = {
     }
     // A full sync sees every root, so it drops the counts of removed roots.
     const current = new Set(roots.map(failureKey))
-    await saveSourceSync({
+    await saveConnectionSourceSync({
+      type: "notion",
       orgId,
       connectionId,
       sourceSync: {
@@ -303,8 +354,12 @@ export const notionSourceAdapter: SourceAdapter<NotionSourceScope> = {
         }
   },
   async checkAccess({ orgId, connectionId, scope, env }) {
-    const connection = await readyConnection(orgId, connectionId, env)
-    if (!connection) return "The Notion connection is not ready"
+    const state = await loadConnectionState(orgId, connectionId, env)
+    if (!state.ready)
+      return state.revoked
+        ? RECONNECT_DETAIL
+        : "The Notion connection is not ready"
+    const { connection } = state
     const onTokenRefresh = createNotionTokenRefreshHandler({
       orgId,
       connectionId,
@@ -329,6 +384,10 @@ export const notionSourceAdapter: SourceAdapter<NotionSourceScope> = {
             onTokenRefresh,
           })
       } catch (error) {
+        if (isNotionAuthFailure(error)) {
+          await markRevoked(orgId, connectionId)
+          return RECONNECT_DETAIL
+        }
         if (
           error instanceof NotionApiError &&
           PERMANENT_STATUSES.has(error.status)
@@ -345,6 +404,14 @@ export const notionSourceAdapter: SourceAdapter<NotionSourceScope> = {
       }
     }
     return problems.length ? problems.join("; ") : null
+  },
+  async syncStatus({ orgId, connectionId }) {
+    const stored = await withOrgDbContext(orgId, () =>
+      loadNotionStoredConfig(orgId, connectionId),
+    )
+    return stored?.status === "revoked"
+      ? { status: "out_of_access" as const, detail: RECONNECT_DETAIL }
+      : null
   },
   matchesEvent: ({ event, scope }) => {
     const parsed = notionSourceEventSchema.safeParse(event)
