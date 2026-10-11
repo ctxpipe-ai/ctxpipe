@@ -1,6 +1,7 @@
 "use client"
 
 import { AnimatedBackground } from "@/components/AnimatedBackground"
+import { ignoreRepeatClick } from "./ignoreRepeatClick"
 
 type OnboardingPageShellProps = {
   showDotNav: boolean
@@ -64,7 +65,9 @@ export function OnboardingPageShell({
 
       <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-4xl items-center justify-center px-6 pb-24 pt-16 text-center">
         <section className="w-full max-w-3xl">
-          <div className="mx-auto max-w-3xl">{children}</div>
+          <div className="mx-auto max-w-3xl" onClickCapture={ignoreRepeatClick}>
+            {children}
+          </div>
         </section>
       </div>
 

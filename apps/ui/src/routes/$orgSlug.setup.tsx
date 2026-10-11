@@ -3,6 +3,7 @@ import { createFileRoute, Navigate, useRouter } from "@tanstack/react-router"
 import { useId, useState } from "react"
 import { toast } from "sonner"
 import { AnimatedBackground } from "@/components/AnimatedBackground"
+import { ignoreRepeatClick } from "@/components/onboarding/ignoreRepeatClick"
 import { Button } from "@/components/ui/Button"
 import { Dialog } from "@/components/ui/Dialog"
 import { Modal } from "@/components/ui/Modal"
@@ -202,139 +203,137 @@ function OrgSetupPage() {
 
       <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-4xl items-center justify-center px-6 py-16 text-center">
         <section className="w-full max-w-3xl">
-          <div className="mx-auto max-w-3xl">
-            <div key={carouselPage}>
-              <h2 className="mb-4 text-3xl font-semibold text-zinc-100 sm:text-4xl">
-                {pages[carouselPage]?.title}
-              </h2>
+          <div className="mx-auto max-w-3xl" onClickCapture={ignoreRepeatClick}>
+            <h2 className="mb-4 text-3xl font-semibold text-zinc-100 sm:text-4xl">
+              {pages[carouselPage]?.title}
+            </h2>
 
-              {/* Connect GitHub slide */}
-              {carouselPage === 0 && (
-                <div className="mx-auto mb-14 flex min-h-[280px] max-w-3xl flex-col">
-                  <p className="mx-auto mb-3 text-balance text-zinc-300">
+            {/* Connect GitHub slide */}
+            {carouselPage === 0 && (
+              <div className="mx-auto mb-14 flex min-h-[280px] max-w-3xl flex-col">
+                <p className="mx-auto mb-3 text-balance text-zinc-300">
+                  {isSyncing
+                    ? "Finalizing your GitHub connection..."
+                    : hasGithubInstallation
+                      ? "GitHub is connected. Continue onboarding, or link repositories from a workspace."
+                      : "Connect the GitHub App. Then create a workspace or add repositories to one you already have."}
+                </p>
+                <p className="mx-auto min-h-5 text-xs text-zinc-400">
+                  {githubSetupError ? githubSetupError : "\u00A0"}
+                </p>
+                <div className="mt-auto flex flex-col items-center gap-8">
+                  <button
+                    type="button"
+                    disabled={githubButtonBusy}
+                    className={`inline-flex h-11 items-center justify-center rounded-md border border-border px-6 text-sm font-medium transition-colors ${
+                      githubButtonBusy
+                        ? "cursor-not-allowed bg-zinc-100/80 text-zinc-700"
+                        : "bg-zinc-100 text-zinc-950 hover:bg-zinc-200"
+                    }`}
+                    onClick={handleConnectGitHub}
+                  >
                     {isSyncing
-                      ? "Finalizing your GitHub connection..."
-                      : hasGithubInstallation
-                        ? "GitHub is connected. Continue onboarding, or link repositories from a workspace."
-                        : "Connect the GitHub App. Then create a workspace or add repositories to one you already have."}
-                  </p>
-                  <p className="mx-auto min-h-5 text-xs text-zinc-400">
-                    {githubSetupError ? githubSetupError : "\u00A0"}
-                  </p>
-                  <div className="mt-auto flex flex-col items-center gap-8">
+                      ? "Finalizing connection..."
+                      : installationPending
+                        ? "Checking..."
+                        : hasGithubInstallation
+                          ? "Manage GitHub App"
+                          : "Connect GitHub"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isSyncing}
+                    className="text-sm text-zinc-500 underline decoration-zinc-700 underline-offset-4 transition-colors hover:text-zinc-300 disabled:cursor-not-allowed disabled:opacity-50"
+                    onClick={() => setCarouselPage(1)}
+                  >
+                    I&apos;ll do this later
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Invite team slide */}
+            {carouselPage === 1 && (
+              <div className="mx-auto mb-10 max-w-3xl">
+                <p className="mx-auto mb-4 text-zinc-300">
+                  ctx| is designed for your whole team and their agents. Invite
+                  some co-workers to test it out with.
+                </p>
+                <div className="mx-auto max-w-3xl rounded-md border border-border bg-zinc-950/70 p-6 text-left">
+                  <label
+                    className="mb-2 block text-sm text-zinc-200"
+                    htmlFor={inviteEmailsFieldId}
+                  >
+                    Email
+                  </label>
+                  <input
+                    id={inviteEmailsFieldId}
+                    type="text"
+                    value={inviteEmails}
+                    onChange={(e) => setInviteEmails(e.target.value)}
+                    placeholder="email@example.com, email2@example.com..."
+                    className="mb-4 h-11 w-full rounded-md border border-border bg-zinc-950 px-3 text-sm text-zinc-100 outline-none focus:border-teal-400/60"
+                  />
+                  {inviteError && (
+                    <p className="mb-4 text-xs text-red-400">{inviteError}</p>
+                  )}
+                  <div className="flex justify-end">
                     <button
                       type="button"
-                      disabled={githubButtonBusy}
-                      className={`inline-flex h-11 items-center justify-center rounded-md border border-border px-6 text-sm font-medium transition-colors ${
-                        githubButtonBusy
-                          ? "cursor-not-allowed bg-zinc-100/80 text-zinc-700"
-                          : "bg-zinc-100 text-zinc-950 hover:bg-zinc-200"
-                      }`}
-                      onClick={handleConnectGitHub}
+                      disabled={inviteSubmitting || inviteSent}
+                      className="inline-flex h-10 items-center justify-center rounded-md border border-border bg-zinc-100 px-5 text-sm font-medium text-zinc-950 transition-colors hover:bg-zinc-200"
+                      onClick={handleSendInvites}
                     >
-                      {isSyncing
-                        ? "Finalizing connection..."
-                        : installationPending
-                          ? "Checking..."
-                          : hasGithubInstallation
-                            ? "Manage GitHub App"
-                            : "Connect GitHub"}
+                      {inviteSent
+                        ? "Invites sent"
+                        : inviteSubmitting
+                          ? "Sending invites..."
+                          : "Send invites"}
                     </button>
+                  </div>
+                </div>
+                {inviteSent && (
+                  <div className="mx-auto mt-4 max-w-3xl rounded-md border border-teal-400/40 bg-teal-400/10 px-4 py-3 text-sm text-teal-200">
+                    Invites sent to your team
+                  </div>
+                )}
+                <div className="mt-8 flex flex-col items-center gap-8">
+                  {inviteSent ? (
                     <button
                       type="button"
-                      disabled={isSyncing}
-                      className="text-sm text-zinc-500 underline decoration-zinc-700 underline-offset-4 transition-colors hover:text-zinc-300 disabled:cursor-not-allowed disabled:opacity-50"
-                      onClick={() => setCarouselPage(1)}
+                      className="inline-flex h-11 items-center justify-center rounded-md border border-border bg-zinc-100 px-6 text-sm font-medium text-zinc-950 transition-colors hover:bg-zinc-200"
+                      onClick={completeSetup}
+                    >
+                      Continue
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="text-sm text-zinc-500 underline decoration-zinc-700 underline-offset-4 transition-colors hover:text-zinc-300"
+                      onClick={completeSetup}
                     >
                       I&apos;ll do this later
                     </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Invite team slide */}
-              {carouselPage === 1 && (
-                <div className="mx-auto mb-10 max-w-3xl">
-                  <p className="mx-auto mb-4 text-zinc-300">
-                    ctx| is designed for your whole team and their agents.
-                    Invite some co-workers to test it out with.
-                  </p>
-                  <div className="mx-auto max-w-3xl rounded-md border border-border bg-zinc-950/70 p-6 text-left">
-                    <label
-                      className="mb-2 block text-sm text-zinc-200"
-                      htmlFor={inviteEmailsFieldId}
-                    >
-                      Email
-                    </label>
-                    <input
-                      id={inviteEmailsFieldId}
-                      type="text"
-                      value={inviteEmails}
-                      onChange={(e) => setInviteEmails(e.target.value)}
-                      placeholder="email@example.com, email2@example.com..."
-                      className="mb-4 h-11 w-full rounded-md border border-border bg-zinc-950 px-3 text-sm text-zinc-100 outline-none focus:border-teal-400/60"
-                    />
-                    {inviteError && (
-                      <p className="mb-4 text-xs text-red-400">{inviteError}</p>
-                    )}
-                    <div className="flex justify-end">
-                      <button
-                        type="button"
-                        disabled={inviteSubmitting || inviteSent}
-                        className="inline-flex h-10 items-center justify-center rounded-md border border-border bg-zinc-100 px-5 text-sm font-medium text-zinc-950 transition-colors hover:bg-zinc-200"
-                        onClick={handleSendInvites}
-                      >
-                        {inviteSent
-                          ? "Invites sent"
-                          : inviteSubmitting
-                            ? "Sending invites..."
-                            : "Send invites"}
-                      </button>
-                    </div>
-                  </div>
-                  {inviteSent && (
-                    <div className="mx-auto mt-4 max-w-3xl rounded-md border border-teal-400/40 bg-teal-400/10 px-4 py-3 text-sm text-teal-200">
-                      Invites sent to your team
-                    </div>
                   )}
-                  <div className="mt-8 flex flex-col items-center gap-8">
-                    {inviteSent ? (
-                      <button
-                        type="button"
-                        className="inline-flex h-11 items-center justify-center rounded-md border border-border bg-zinc-100 px-6 text-sm font-medium text-zinc-950 transition-colors hover:bg-zinc-200"
-                        onClick={completeSetup}
-                      >
-                        Continue
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        className="text-sm text-zinc-500 underline decoration-zinc-700 underline-offset-4 transition-colors hover:text-zinc-300"
-                        onClick={completeSetup}
-                      >
-                        I&apos;ll do this later
-                      </button>
-                    )}
-                  </div>
                 </div>
-              )}
-
-              {/* Dots */}
-              <div className="mt-48 flex items-center justify-center gap-1.5">
-                {pages.map((page, index) => (
-                  <button
-                    key={page.title}
-                    type="button"
-                    aria-label={`Go to page ${index + 1}`}
-                    className={`h-1.5 w-1.5 rounded-full transition-[background-color,scale] ${
-                      index === carouselPage
-                        ? "scale-110 bg-teal-400"
-                        : "bg-zinc-600 hover:bg-zinc-500"
-                    }`}
-                    onClick={() => setCarouselPage(index)}
-                  />
-                ))}
               </div>
+            )}
+
+            {/* Dots */}
+            <div className="mt-48 flex items-center justify-center gap-1.5">
+              {pages.map((page, index) => (
+                <button
+                  key={page.title}
+                  type="button"
+                  aria-label={`Go to page ${index + 1}`}
+                  className={`h-1.5 w-1.5 rounded-full transition-[background-color,scale] ${
+                    index === carouselPage
+                      ? "scale-110 bg-teal-400"
+                      : "bg-zinc-600 hover:bg-zinc-500"
+                  }`}
+                  onClick={() => setCarouselPage(index)}
+                />
+              ))}
             </div>
           </div>
         </section>
