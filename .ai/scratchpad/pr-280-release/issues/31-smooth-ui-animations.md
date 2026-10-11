@@ -64,7 +64,7 @@ Team lead defaults, to apply unless the evidence shows a problem:
 
 **Made faster (small elements), now 100 ms.**
 - Global: Tailwind `--default-transition-duration: 100ms` (was 150 ms). This covers each bare `transition` and `transition-colors` (about 90 call sites).
-- `duration-200` / `duration-150` → `duration-100` (25 sites): chevrons (Disclosure, Tree, ConnectorListItem, SpacePageTree ×3), Switch track and thumb, copy-button icons and colors (CopyableBlock, OrgAtlassianOauthPanel, LinearOauthAppPanel), repository node colors (RepositoryCard, PendingGitSourceRow), Popover enter / exit, Modal overlay and dialog enter / exit.
+- `duration-200` / `duration-150` → `duration-100` (26 sites): chevrons (Disclosure, Tree, ConnectorListItem, SpacePageTree ×3), Switch track and thumb, copy-button icons and colors (CopyableBlock, OrgAtlassianOauthPanel, LinearOauthAppPanel), repository node colors (RepositoryCard, PendingGitSourceRow), Popover enter / exit, Modal overlay and dialog enter / exit.
 - Tooltip enter / exit: tw-animate default 150 ms → `duration-100`.
 - Workspace nav row folder / caret swap: `transition-all` 150 ms → `transition-[opacity,scale]` 100 ms.
 - `transition-all` → exact property: RadioGroup, SideNavLogo (`transition-colors`); onboarding and setup carousel dots (`transition-[background-color,scale]`).
@@ -76,6 +76,8 @@ Team lead defaults, to apply unless the evidence shows a problem:
 **Not changed, for the team lead.** The knowledge graph camera moves (`fitView` 300–700 ms, zoom buttons 180 ms) are canvas camera animations in Cosmograph, not CSS. They help the user follow a node. Decide if they must also drop to 150 ms or less.
 
 **Reduced motion.** New global rule in `styles.css`: under `prefers-reduced-motion: reduce`, all transitions and animations end at once, and view transitions do not run.
+
+**Proof (2026-10-11).** UI vitest: 79 files, 434 tests pass. 8 more files that ask for `@vitest-environment jsdom` do not start, because `jsdom` is not a dependency of `apps/ui` on the base either. Storybook golden (static build): 25 of 25 pass. `node --test scripts/tests/ci-ui-motion.test.mjs`: 5 of 5 pass. The changed `HideShowMaximize` and onboarding shell stories are not golden-tagged, so they did not run; the static build compiles them.
 
 **Guard.** `scripts/ci/check-ui-motion.mjs` runs in CI. It fails on a duration above 150 ms or `transition-all` in `apps/ui/src` (53 findings on the base tree, 0 now).
 
