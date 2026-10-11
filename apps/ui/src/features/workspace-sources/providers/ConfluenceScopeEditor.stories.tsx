@@ -58,9 +58,11 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const SelectAllPagesOfASpace: Story = {
+  tags: ["workspace-golden"],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await expect(canvas.getByText("Not ready")).toBeVisible()
+    // The auth decorator renders the story after the session loads.
+    await expect(await canvas.findByText("Not ready")).toBeVisible()
     await expect(canvas.getByText(/Select at least one space/)).toBeVisible()
     await userEvent.click(
       await canvas.findByRole("checkbox", { name: /Engineering/ }),
@@ -73,6 +75,7 @@ export const SelectAllPagesOfASpace: Story = {
 }
 
 export const EditsASavedPageList: Story = {
+  tags: ["workspace-golden"],
   args: {
     label: "Docs",
     initialScope: { spaces: [{ key: "OPS", pages: ["101"] }] },
@@ -80,7 +83,7 @@ export const EditsASavedPageList: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await expect(
-      canvas.getByRole("region", { name: "Spaces and pages for Docs" }),
+      await canvas.findByRole("region", { name: "Spaces and pages for Docs" }),
     ).toBeVisible()
     const operations = await canvas.findByRole("checkbox", {
       name: /Operations/,

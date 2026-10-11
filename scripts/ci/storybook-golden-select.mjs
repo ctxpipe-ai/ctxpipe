@@ -76,6 +76,8 @@ export const requiredStories = [
   "DirectCommitQueued",
   "PickerShowsConnectionNames",
   "ChooseWorkspacesMulti",
+  "SelectAllPagesOfASpace",
+  "EditsASavedPageList",
 ]
 
 export function isGoldenPlaySuccess(phase) {
