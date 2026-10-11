@@ -1,3 +1,4 @@
+import { createServer } from "node:http"
 import { eq } from "drizzle-orm"
 import { BackendPostgres } from "openworkflow/postgres"
 import { expect, it } from "vitest"
@@ -135,5 +136,57 @@ it(
         })
       },
     )
+  },
+)
+
+it(
+  "cron records no access to a repository that needs credentials instead of failing the run",
+  { timeout: 60_000 },
+  async () => {
+    const server = createServer((_req, res) => {
+      res.writeHead(401, { "www-authenticate": 'Basic realm="fixture"' })
+      res.end()
+    })
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+    const address = server.address()
+    if (!address || typeof address === "string")
+      throw new Error("Missing fixture address")
+    try {
+      await withNativeHydrationFixture({}, async (f) => {
+        await f.publish()
+        await withOrgDbContext(f.org.id, (db) =>
+          db
+            .update(workspaces)
+            .set({
+              workspaceRepositoryUrl: `http://127.0.0.1:${address.port}/private.git`,
+            })
+            .where(eq(workspaces.id, f.workspaceId)),
+        )
+        const handle = await f.runner.runWorkflow(workspaceTipCheck.spec, {
+          orgId: f.org.id,
+        })
+        expect(await handle.result({ timeoutMs: 30_000 })).toEqual({
+          updated: 0,
+          linkedUpdated: 0,
+        })
+        const [row] = await withOrgDbContext(f.org.id, (db) =>
+          db
+            .select({
+              hydrateStatus: workspaces.hydrateStatus,
+              hydrateError: workspaces.hydrateError,
+            })
+            .from(workspaces)
+            .where(eq(workspaces.id, f.workspaceId)),
+        )
+        expect(row).toEqual({
+          hydrateStatus: "failed",
+          hydrateError: expect.stringContaining("no access"),
+        })
+      })
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      )
+    }
   },
 )

@@ -36,6 +36,16 @@ export type GitShaFile =
   | { kind: "missing" }
   | { kind: "bytes"; bytes: Uint8Array }
 
+/** The remote refused the read credential, or the read needs one and has none. */
+export class GitRemoteAccessError extends Error {
+  constructor() {
+    super(
+      "ctx| has no access to this repository. Add the repository to the GitHub App installation, then refresh.",
+    )
+    this.name = "GitRemoteAccessError"
+  }
+}
+
 /** Resolve a branch once; subsequent reads fetch the returned immutable SHA. */
 export async function resolveGitRemoteTip(input: {
   url: string
@@ -47,7 +57,16 @@ export async function resolveGitRemoteTip(input: {
   const { stdout } = await gitExec(
     ["ls-remote", "--symref", "--", input.url, ref],
     { timeout: 60_000, env: gitRemoteEnvironment(input) },
-  )
+  ).catch((error: unknown) => {
+    const stderr = String((error as { stderr?: unknown }).stderr ?? "")
+    if (
+      /could not read (?:Username|Password)|Authentication failed|Repository not found|returned error: 40[134]/i.test(
+        stderr,
+      )
+    )
+      throw new GitRemoteAccessError()
+    throw error
+  })
   const lines = stdout.toString("utf8").trim().split("\n")
   const sha = lines
     .map((line) => line.split("\t"))
@@ -70,7 +89,7 @@ export function gitRemoteEnvironment(input: {
   url: string
   token?: string
 }): NodeJS.ProcessEnv {
-  const env = { ...process.env, GIT_TERMINAL_PROMPT: "0" }
+  const env = { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_ASKPASS: "" }
   const remote = URL.canParse(input.url) ? new URL(input.url) : null
   if (
     remote?.password ||

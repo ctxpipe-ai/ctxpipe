@@ -29,6 +29,7 @@ import {
   reconcileDestWorkspaceAssignment,
 } from "../../models/workspaces.js"
 import { getGithubRepoWriteView } from "../../routes/webhooks/github/github-workspace-tip.js"
+import { GitRemoteAccessError } from "../../services/git/clone-tree.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { enqueueWorkspaceCommitProjection } from "../enqueue-workspace-commit-projection.js"
 import { enqueueWorkspaceHydrate } from "../enqueue-workspace-hydrate.js"
@@ -38,6 +39,12 @@ import {
   enqueueWorkspaceWriteCommit,
 } from "../enqueue-workspace-write-commit.js"
 import { scheduleConversationSandboxSweep } from "./conversation-sandbox-sweep.js"
+
+/** The resolver already recorded the no-access failure on the Workspace. */
+function skipWithoutAccess(error: unknown): null {
+  if (error instanceof GitRemoteAccessError) return null
+  throw error
+}
 
 const workspaceTipCheckInputSchema = z.object({
   orgId: z.string().min(1),
@@ -114,7 +121,7 @@ export const workspaceTipCheck = defineWorkflow(
           workspaceId: workspace.id,
           env,
           refresh: true,
-        })
+        }).catch(skipWithoutAccess)
         if (
           resolved &&
           (resolved.revision.sha !== workspace.desiredSha ||
@@ -191,7 +198,7 @@ export const workspaceTipCheck = defineWorkflow(
           orgId: input.orgId,
           linkId: row.id,
           env,
-        })
+        }).catch(skipWithoutAccess)
         if (!resolved?.changed) continue
         linkedUpdated += 1
         await enqueueWorkspaceIndex(

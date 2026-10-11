@@ -1,6 +1,6 @@
 # workspace-tip-check fails on a private repository: git ls-remote runs without credentials
 
-Status: ready-for-agent
+Status: ready-for-human
 Priority: P2
 Owner: unassigned
 Blocked by: none
@@ -36,3 +36,11 @@ Likely cause: `apps/backend/src/services/git/clone-tree.ts` (the `--symref` call
 ## Comments
 
 ## Resolution
+
+The token path was already correct: `resolveGitRemoteTip` sends the installation token in an `http.<remote>.extraHeader` set through `GIT_CONFIG_*` environment variables (not argv, not the URL), and it sets `GIT_TERMINAL_PROMPT=0`. The token is `undefined` only when the Workspace (or the linked repository) has no GitHub connection. That policy is deliberate: a read credential comes only from the remote's explicit connection. So the failed run is a true "no access" case, and the fix ends it cleanly:
+
+- `services/git/clone-tree.ts`: an `ls-remote` that fails on credentials (no username, authentication failed, repository not found, HTTP 401/403/404) now throws `GitRemoteAccessError` with a fixed, token-free message ("ctx| has no access to this repository. Add the repository to the GitHub App installation, then refresh."). It does not carry the Git stderr. `GIT_ASKPASS` is now empty, so a host askpass program cannot prompt.
+- `workflows/workspace-tip-check.ts`: the tip check skips a Workspace or a linked repository with that error and continues with the others. `resolveWorkspaceReadRevision` already records the message as `hydrateStatus: failed` / `hydrateError`, which the UI shows as "Prepare failed" with that text.
+- Tests: `clone-tree.test.ts` runs against a local HTTP Git remote that answers 401 (no token and a refused token) and checks that the error message, stack and fields hold neither the token nor its Basic encoding. `workspace-tip-check.contract.test.ts` runs the real workflow against that remote and checks that the run completes and the Workspace records "no access". Both failed before the fix.
+
+Open: the acceptance check on a preview with a private repository and access is not done here. If that Workspace has no `githubConnectionId`, connecting GitHub binds it (`bindUnboundWorkspace`).
