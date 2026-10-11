@@ -144,7 +144,7 @@ export function WorkspaceNavRow(props: {
         <span className="relative size-4">
           <IconFolder
             className={[
-              "absolute inset-0 size-4 transition-[opacity,scale] duration-100 ease-out",
+              "absolute inset-0 size-4 transition-[opacity,scale] ease-out",
               showCaret ? "scale-75 opacity-0" : "scale-100 opacity-100",
             ].join(" ")}
             stroke={1.4}
@@ -152,7 +152,7 @@ export function WorkspaceNavRow(props: {
           />
           <span
             className={[
-              "absolute inset-0 transition-[opacity,scale] duration-100 ease-out",
+              "absolute inset-0 transition-[opacity,scale] ease-out",
               showCaret ? "scale-100 opacity-100" : "scale-75 opacity-0",
             ].join(" ")}
             aria-hidden

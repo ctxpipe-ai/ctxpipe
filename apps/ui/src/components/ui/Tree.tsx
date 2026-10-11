@@ -52,7 +52,7 @@ const expandButton = tv({
 })
 
 const chevron = tv({
-  base: "w-4.5 h-4.5 text-neutral-500 dark:text-neutral-400 transition-transform duration-100 ease-in-out",
+  base: "w-4.5 h-4.5 text-neutral-500 dark:text-neutral-400 transition-transform ease-in-out",
   variants: {
     isExpanded: {
       true: "transform rotate-90",

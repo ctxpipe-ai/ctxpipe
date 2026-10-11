@@ -203,10 +203,6 @@ export function OnboardingPageContent({
   const transitionToApp = (navigate: () => void) => {
     if (completing) return
     setCompleting(true)
-    sessionStorage.setItem(
-      "ctxpipe:onboarding-transition-pending-at",
-      String(Date.now()),
-    )
     navigate()
   }
 

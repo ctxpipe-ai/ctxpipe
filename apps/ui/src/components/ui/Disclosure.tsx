@@ -22,7 +22,7 @@ const disclosure = tv({
 })
 
 const chevron = tv({
-  base: "w-4 h-4 text-muted-foreground transition-transform duration-100 ease-in-out",
+  base: "w-4 h-4 text-muted-foreground transition-transform ease-in-out",
   variants: {
     isExpanded: {
       true: "transform rotate-90",

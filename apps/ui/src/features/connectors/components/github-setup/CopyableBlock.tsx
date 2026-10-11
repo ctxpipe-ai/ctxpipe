@@ -101,8 +101,8 @@ export function CopyableBlock({
             size="icon-sm"
             className={
               copyState === "copied"
-                ? "h-full min-h-10 w-11 shrink-0 rounded-md px-0 text-emerald-600 transition-colors duration-100 hover:bg-emerald-500/10 hover:text-emerald-600 dark:text-emerald-400 dark:hover:text-emerald-400"
-                : "h-full min-h-10 w-11 shrink-0 rounded-md px-0 text-primary transition-colors duration-100 hover:bg-primary/10 hover:text-primary pressed:bg-primary/15"
+                ? "h-full min-h-10 w-11 shrink-0 rounded-md px-0 text-emerald-600 transition-colors hover:bg-emerald-500/10 hover:text-emerald-600 dark:text-emerald-400 dark:hover:text-emerald-400"
+                : "h-full min-h-10 w-11 shrink-0 rounded-md px-0 text-primary transition-colors hover:bg-primary/10 hover:text-primary pressed:bg-primary/15"
             }
             aria-label={
               copyState === "copied" ? copiedAriaLabel : copyAriaLabel
@@ -112,12 +112,12 @@ export function CopyableBlock({
           >
             {copyState === "copied" ? (
               <IconCheck
-                className="h-4 w-4 transition-opacity duration-100"
+                className="h-4 w-4 transition-opacity"
                 aria-hidden
               />
             ) : (
               <IconCopy
-                className="h-4 w-4 transition-opacity duration-100"
+                className="h-4 w-4 transition-opacity"
                 aria-hidden
               />
             )}
