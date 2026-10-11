@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
-import { expect, userEvent, within } from "storybook/test"
+import { expect, userEvent, waitFor, within } from "storybook/test"
 import { confluenceTreeHandlers } from "@/mocks/confluence-handlers"
 import { workspaceListHandler } from "@/mocks/workspace-handlers"
 import { workspaceSourceChangeHandlers } from "@/mocks/workspace-sources-handlers"
@@ -390,12 +390,14 @@ export const ReplacedSetup: Story = {
   },
   play: async ({ canvasElement }) => {
     const body = within(canvasElement.ownerDocument.body)
-    await expect(await body.findByText(/This setup was replaced/)).toBeVisible()
+    const notice = await body.findByText(/This setup was replaced/)
+    // The modal fades in; wait until the notice is visible.
+    await waitFor(() => expect(notice).toBeVisible())
     await expect(
       body.getByRole("link", { name: "configuration pull request" }),
     ).toHaveAttribute("href", "https://github.com/acme/wiki/pull/12")
     await expect(
-      body.getByRole("checkbox", { name: docsWorkspace.displayName }),
+      await body.findByRole("checkbox", { name: docsWorkspace.displayName }),
     ).toBeVisible()
   },
 }
