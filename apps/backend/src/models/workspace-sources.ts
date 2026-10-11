@@ -113,6 +113,7 @@ export async function listConnectionSourceRows(input: {
         source: workspaceSources,
         workspaceSlug: workspaces.slug,
         workspaceName: workspaces.displayName,
+        workspaceRepositoryUrl: workspaces.workspaceRepositoryUrl,
       })
       .from(workspaceSources)
       .innerJoin(workspaces, eq(workspaces.id, workspaceSources.workspaceId))
@@ -123,5 +124,28 @@ export async function listConnectionSourceRows(input: {
         ),
       )
       .orderBy(workspaces.slug, workspaceSources.sourceKey),
+  )
+}
+
+/**
+ * Set the status of one source row when the sync finds its scope out of
+ * reach for good. The next projection of the Workspace computes the status
+ * again from the file and the provider.
+ */
+export async function setWorkspaceSourceStatus(input: {
+  orgId: string
+  id: string
+  status: WorkspaceSourceRow["status"]
+  statusDetail: string
+}): Promise<void> {
+  await withOrgDbContext(input.orgId, (db) =>
+    db
+      .update(workspaceSources)
+      .set({
+        status: input.status,
+        statusDetail: input.statusDetail,
+        updatedAt: new Date(),
+      })
+      .where(eq(workspaceSources.id, input.id)),
   )
 }

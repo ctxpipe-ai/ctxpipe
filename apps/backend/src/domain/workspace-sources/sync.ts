@@ -2,9 +2,10 @@ import type { Env } from "../../config/env.js"
 import {
   listConnectionSourceRows,
   listWorkspaceSourceRows,
+  setWorkspaceSourceStatus,
 } from "../../models/workspace-sources.js"
 import type { GitFileChange } from "../../services/git/file-change.js"
-import type { SourceAdapter } from "./adapter.js"
+import type { SourceAdapter, SourceFetchResult } from "./adapter.js"
 import type { SourceProvider } from "./sources-file.js"
 
 /**
@@ -20,6 +21,11 @@ export type WorkspaceSliceWrite = {
   files: GitFileChange[]
   ownedPrefixes: string[]
   keepPrefixes: string[]
+  /**
+   * A patch: delete only these paths and keep each other file. Without it,
+   * the owned paths get exactly `files`.
+   */
+  deletePaths?: string[]
   /**
    * The Workspace revision of the source rows that planned this write. The
    * writer drops the write when the sources file changed after it.
@@ -64,6 +70,10 @@ export async function syncConnectionSources(input: {
   adapter: SourceAdapter
   write: SliceWriter
   event?: unknown
+  /** The blobs of one Workspace now, so that the adapter can skip unchanged files. */
+  readExisting?: (
+    workspaceId: string,
+  ) => Promise<ReadonlyArray<{ path: string; sha: string }>>
 }): Promise<{ fetchedScopes: number; workspaces: string[] }> {
   const { adapter } = input
   const rows = (
@@ -110,46 +120,120 @@ export async function syncConnectionSources(input: {
     connectionId: input.connectionId,
     scopes,
     env: input.env,
+    event: input.event,
+    existing: input.readExisting
+      ? await readExistingManaged(byWorkspace, input.readExisting)
+      : undefined,
   }
   // With `fetchEach`, a Workspace gets only the files of its own scopes, and
   // a failed scope (null) skips the write of each Workspace that has it.
-  const filesOf: (scopeKeys: Set<string>) => GitFileChange[] | null =
-    adapter.fetchEach
-      ? await adapter.fetchEach(fetchInput).then((each) => {
-          const byKey = new Map(
-            [...scopesByKey.keys()].map((key, index) => [key, each[index]]),
-          )
-          return (scopeKeys) => {
-            const lists = [...scopeKeys].map((key) => byKey.get(key))
-            if (lists.some((list) => !list)) return null
-            return [
-              ...new Map(
-                lists
-                  .flatMap((list) => list ?? [])
-                  .map((file) => [file.path, file]),
-              ).values(),
-            ]
-          }
+  let result: SourceFetchResult = { files: [] }
+  let filesOf: (scopeKeys: Set<string>) => GitFileChange[] | null
+  if (adapter.fetchEach) {
+    const each = await adapter.fetchEach(fetchInput)
+    const byKey = new Map(
+      [...scopesByKey.keys()].map((key, index) => [key, each[index]]),
+    )
+    filesOf = (scopeKeys) => {
+      const lists = [...scopeKeys].map((key) => byKey.get(key))
+      if (lists.some((list) => !list)) return null
+      return [
+        ...new Map(
+          lists.flatMap((list) => list ?? []).map((file) => [file.path, file]),
+        ).values(),
+      ]
+    }
+  } else {
+    const fetched = await adapter.fetch(fetchInput)
+    result = Array.isArray(fetched) ? { files: fetched } : fetched
+    filesOf = () => result.files
+  }
+  const unreachable = result.unreachable ?? []
+  for (const lost of unreachable)
+    for (const row of rows)
+      if (adapter.managedPaths(row.scope).includes(lost.path))
+        await setWorkspaceSourceStatus({
+          orgId: input.orgId,
+          id: row.id,
+          status: lost.status,
+          statusDetail: lost.detail,
         })
-      : await adapter.fetch(fetchInput).then((fetched) => () => fetched)
+  const kept = [
+    ...(result.keepPaths ?? []),
+    ...unreachable.map((lost) => lost.path),
+  ]
   const written: string[] = []
   for (const [workspaceId, entry] of byWorkspace) {
-    const files = filesOf(entry.scopeKeys)
-    if (!files) continue
+    const scopeFiles = filesOf(entry.scopeKeys)
+    if (!scopeFiles) continue
     const ownedPrefixes = [...entry.prefixes].sort()
+    const keepPrefixes = kept
+      .filter((path) => underAny(path, ownedPrefixes))
+      .sort()
+    const files = scopeFiles.filter((file) =>
+      underAny(file.path, ownedPrefixes),
+    )
+    const deletePaths = result.deletePaths?.filter(
+      (path) => underAny(path, ownedPrefixes) && !underAny(path, keepPrefixes),
+    )
+    const allKept = ownedPrefixes.every((prefix) =>
+      keepPrefixes.includes(prefix),
+    )
+    if (allKept && !files.length) continue
+    if (deletePaths && !files.length && !deletePaths.length) continue
     await input.write({
       orgId: input.orgId,
       workspaceId,
       provider: adapter.provider,
       connectionId: input.connectionId,
-      files: files.filter((file) => underAny(file.path, ownedPrefixes)),
+      files,
       ownedPrefixes,
-      keepPrefixes: [],
+      keepPrefixes,
+      ...(deletePaths ? { deletePaths } : {}),
       sourcesRevision: entry.revision,
     })
     written.push(workspaceId)
   }
   return { fetchedScopes: scopes.length, workspaces: written }
+}
+
+/**
+ * The managed files of the Workspaces. A path has its sha only when each
+ * Workspace that owns the path has the same blob there.
+ */
+async function readExistingManaged(
+  byWorkspace: ReadonlyMap<string, { prefixes: Set<string> }>,
+  read: (
+    workspaceId: string,
+  ) => Promise<ReadonlyArray<{ path: string; sha: string }>>,
+): Promise<Array<{ path: string; sha: string | null }>> {
+  const shas = new Map<string, string | null>()
+  const owners = new Map<string, number>()
+  const seen = new Map<string, number>()
+  const trees: Array<{ prefixes: string[]; blobs: Map<string, string> }> = []
+  for (const [workspaceId, entry] of byWorkspace) {
+    const prefixes = [...entry.prefixes]
+    const blobs = new Map(
+      (await read(workspaceId))
+        .filter((blob) => underAny(blob.path, prefixes))
+        .map((blob) => [blob.path, blob.sha]),
+    )
+    trees.push({ prefixes, blobs })
+    for (const [path, sha] of blobs) {
+      seen.set(path, (seen.get(path) ?? 0) + 1)
+      const before = shas.get(path)
+      shas.set(path, before === undefined || before === sha ? sha : null)
+    }
+  }
+  for (const path of shas.keys())
+    owners.set(
+      path,
+      trees.filter((tree) => underAny(path, tree.prefixes)).length,
+    )
+  return [...shas].map(([path, sha]) => ({
+    path,
+    sha: seen.get(path) === owners.get(path) ? sha : null,
+  }))
 }
 
 /**
