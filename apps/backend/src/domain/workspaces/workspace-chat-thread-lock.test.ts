@@ -80,10 +80,17 @@ const firstAnswers: Record<string, Chunk[]> = {
 /** The model is the environment: each turn sends the next list of chunks. */
 class ScriptedModel extends BaseTextAdapter<string, never, [], never> {
   readonly name = "scripted"
+  /** The role of the last message that each model call received. */
+  readonly lastRoles: Array<string | undefined> = []
   constructor(private readonly turns: Chunk[][]) {
     super({}, "scripted/model")
   }
-  async *chatStream(options: { runId?: string; threadId?: string }) {
+  async *chatStream(options: {
+    runId?: string
+    threadId?: string
+    messages?: ReadonlyArray<{ role: string }>
+  }) {
+    this.lastRoles.push(options.messages?.at(-1)?.role)
     const run = { runId: options.runId, threadId: options.threadId }
     const timestamp = Date.now()
     yield { type: "RUN_STARTED", ...run, timestamp } as never
@@ -184,21 +191,25 @@ for (const [name, answer] of Object.entries(firstAnswers)) {
 it("stores only the browser's questions after the engine runs a tool", async () => {
   // Each answer ends a model call on a tool result, so OpenCode needs its
   // prompt copied after it. That copy is not a question.
-  const { browser, errors, persistence } = conversation(
-    new ScriptedModel([
-      engineTool("t1"),
-      text("p1", "Found"),
-      engineTool("t2"),
-      text("p2", "Found again"),
-    ]),
-  )
+  const model = new ScriptedModel([
+    engineTool("t1"),
+    text("p1", "Found"),
+    engineTool("t2"),
+    text("p2", "Found again"),
+  ])
+  const { browser, errors, persistence } = conversation(model)
   await browser.sendMessage("First question")
   await browser.sendMessage("Second question")
   await browser.sendMessage("Third question")
   expect(errors).toEqual([])
+  // OpenCode still gets the prompt last after each tool result.
+  expect(model.lastRoles).toEqual(Array(5).fill("user"))
   const questionIds = (
     messages: ReadonlyArray<{ role: string; id?: string }>,
-  ) => messages.filter((message) => message.role === "user").map((m) => m.id)
+  ) =>
+    messages
+      .filter((message) => message.role === "user")
+      .map((message) => message.id)
   expect(
     questionIds(await persistence.stores.messages.loadThread("thread")),
   ).toEqual(questionIds(browser.getMessages()))

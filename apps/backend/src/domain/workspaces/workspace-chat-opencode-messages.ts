@@ -52,14 +52,18 @@ export function messagesForOpenCodeChat<
 }
 
 /**
- * After the engine runs a tool, the list ends on the tool result and the copy
- * of the prompt is not a question. Only the adapter reads `providerMessages`;
- * the run and the stored transcript keep `messages` without the copy.
+ * At init, the prompt is the question of the turn. It goes into the run's
+ * messages, because an MCP call sends no history and the transcript must keep
+ * its question. After the engine runs a tool, the list ends on the tool
+ * result. Then the copy of the prompt is not a question. Only the adapter
+ * reads `providerMessages`, so the stored transcript does not get the copy.
  */
 export function openCodeTrailingUserMiddleware(prompt: string) {
   return defineChatMiddleware({
     name: "opencode-trailing-user",
-    onConfig(_ctx, config) {
+    onConfig(ctx, config) {
+      if (ctx.phase === "init")
+        return { messages: messagesForOpenCodeChat(config.messages, prompt) }
       return {
         providerMessages: messagesForOpenCodeChat(
           config.providerMessages ?? config.messages,

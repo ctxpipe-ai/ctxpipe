@@ -37,7 +37,7 @@ On the pr-280 preview, the first two questions of a conversation streamed. Both 
 
 ### Cause
 
-`openCodeTrailingUserMiddleware` runs before each model call. When the engine runs a `tanstack_*` tool, the list ends on the tool result. Then `messagesForOpenCodeChat` adds `{ role: "user", content: <prompt> }` with no id, because OpenCode reads the prompt only from a last user message. The middleware returned this list as `messages`. The engine puts `messages` on the run, and persistence saves the run's messages. Thus the stored transcript got a copy of the question with no id, after the tool result.
+`openCodeTrailingUserMiddleware` runs before each model call. When the engine runs a `tanstack_*` tool, the list ends on the tool result. Then `messagesForOpenCodeChat` adds `{ role: "user", content: <prompt> }` with no id, because OpenCode reads the prompt only from a last user message. The middleware returned this list as `messages`. The engine puts `messages` on the run, and persistence saves the run's messages. Because of this, the stored transcript has a copy of the question with no id, after the tool result.
 
 The lock reads that copy as a third stored question with the id `""`. The browser's third send has a real id in that slot, so the lock rejects it. The second send passes because the copy is written during the second turn, after the lock accepted it. A reload does not help: the copy stays in the stored transcript.
 
@@ -45,8 +45,8 @@ The resolution above did not find this. Its scripted model never ends a model ca
 
 ### Resolution
 
-- `openCodeTrailingUserMiddleware` returns the list as `providerMessages`. Only the adapter reads `providerMessages`. The run and the stored transcript keep `messages` without the copy.
-- Proof at the lock seam: `workspace-chat-thread-lock.test.ts` now uses the production middleware order, with `openCodeTrailingUserMiddleware` last, and a tool that the engine runs. "stores only the browser's questions after the engine runs a tool" sends three questions. Before the fix it failed with `ConversationChangedError`. After the fix the stored question ids are the browser's question ids.
+- At init, `openCodeTrailingUserMiddleware` still returns the list as `messages`. At init the prompt is the question of the turn. An MCP `ctx_advisor` call sends no history, so this is the only place where its question goes into the transcript. `ctx-advisor-thread-replay.integration.test.ts` fails without it.
+- Before each later model call, the middleware returns the list as `providerMessages`. Only the adapter reads `providerMessages`. The run and the stored transcript keep `messages` without the copy.
+- Proof at the lock seam: `workspace-chat-thread-lock.test.ts` now uses the production middleware order, with `openCodeTrailingUserMiddleware` last, and a tool that the engine runs. "stores only the browser's questions after the engine runs a tool" sends three questions. Before the fix it failed with `ConversationChangedError`. After the fix the stored question ids are the browser's question ids, and each model call gets a user message last.
 - The native OpenCode contract tests pass with real OpenCode. Three WebSocket tests in `workspace-chat-native.contract.test.ts` fail on this machine with and without the change (`"" cannot be parsed as a URL` in the Bun client). CI is the check for them.
 - A conversation that already has a stored copy stays blocked, because the copy is in its transcript. Start a new conversation. `main` does not have this middleware, so production transcripts do not have the copy.
-
