@@ -784,7 +784,11 @@ function WorkspaceFilesPaneContent(props: {
               size="icon-sm"
               aria-label="Show tree"
               onPress={props.onToggleTree}
-              className={FILES_HEADER_ICON_BUTTON_CLASS}
+              // Hide tree mounts this button. It fades in, so the user sees where the tree went.
+              className={cn(
+                FILES_HEADER_ICON_BUTTON_CLASS,
+                "animate-in fade-in duration-100 ease-out",
+              )}
             >
               <IconLayoutSidebarLeftExpand
                 className="size-4"

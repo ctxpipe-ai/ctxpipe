@@ -11,6 +11,10 @@ import { InMemoryLockStore } from "@tanstack/ai/locks"
 import { ChatClient, stream } from "@tanstack/ai-client"
 import { memoryPersistence, withPersistence } from "@tanstack/ai-persistence"
 import { expect, it } from "vitest"
+import {
+  openCodeExtractableUserText,
+  openCodeTrailingUserMiddleware,
+} from "./workspace-chat-opencode-messages.js"
 import { workspaceChatThreadLock } from "./workspace-chat-thread-lock.js"
 
 const STALE = "Conversation changed during another send; reload before retrying"
@@ -32,6 +36,12 @@ const tool = (name: string, input: unknown, result: Chunk): Chunk[] => [
   },
   { type: "TOOL_CALL_END", toolCallId: "c1", toolCallName: name, input },
   { type: "TOOL_CALL_RESULT", toolCallId: "c1", messageId: "g1", ...result },
+]
+// A `tanstack_*` tool: the engine runs it and asks the model again.
+const engineTool = (id: string): Chunk[] => [
+  { type: "TOOL_CALL_START", toolCallId: id, toolCallName: "lookup" },
+  { type: "TOOL_CALL_ARGS", toolCallId: id, delta: "{}", args: "{}" },
+  { type: "TOOL_CALL_END", toolCallId: id, toolCallName: "lookup", input: {} },
 ]
 const firstAnswers: Record<string, Chunk[]> = {
   "text only": text("p1", "Hello"),
@@ -70,10 +80,17 @@ const firstAnswers: Record<string, Chunk[]> = {
 /** The model is the environment: each turn sends the next list of chunks. */
 class ScriptedModel extends BaseTextAdapter<string, never, [], never> {
   readonly name = "scripted"
+  /** The role of the last message that each model call received. */
+  readonly lastRoles: Array<string | undefined> = []
   constructor(private readonly turns: Chunk[][]) {
     super({}, "scripted/model")
   }
-  async *chatStream(options: { runId?: string; threadId?: string }) {
+  async *chatStream(options: {
+    runId?: string
+    threadId?: string
+    messages?: ReadonlyArray<{ role: string }>
+  }) {
+    this.lastRoles.push(options.messages?.at(-1)?.role)
     const run = { runId: options.runId, threadId: options.threadId }
     const timestamp = Date.now()
     yield { type: "RUN_STARTED", ...run, timestamp } as never
@@ -84,7 +101,8 @@ class ScriptedModel extends BaseTextAdapter<string, never, [], never> {
     yield {
       type: "RUN_FINISHED",
       ...run,
-      finishReason: "stop",
+      finishReason:
+        body.at(-1)?.type === "TOOL_CALL_END" ? "tool_calls" : "stop",
       timestamp,
     } as never
   }
@@ -93,7 +111,7 @@ class ScriptedModel extends BaseTextAdapter<string, never, [], never> {
   }
 }
 
-/** One conversation: the backend chat with the lock and persistence. */
+/** One conversation: the backend chat with the production middleware order. */
 function conversation(model: ScriptedModel) {
   const persistence = memoryPersistence()
   const locks = new InMemoryLockStore()
@@ -116,18 +134,31 @@ function conversation(model: ScriptedModel) {
         }),
       ),
     )
+    const history = params.messages as ModelMessage[]
+    const prompt = openCodeExtractableUserText(
+      history.findLast((message) => message.role === "user") ?? {},
+    )
     try {
       for await (const chunk of chat({
         adapter: model,
         threadId: "thread",
         runId: params.runId,
-        messages: params.messages as ModelMessage[],
+        messages: history,
+        tools: [
+          {
+            name: "lookup",
+            description: "Look up a fact",
+            inputSchema: { type: "object", properties: {} },
+            execute: async () => "found",
+          },
+        ],
         middleware: [
           workspaceChatThreadLock({
             locks,
             loadThread: (id) => persistence.stores.messages.loadThread(id),
           }),
           withPersistence(persistence, { snapshotStreaming: true }),
+          openCodeTrailingUserMiddleware(prompt),
         ],
       }) as AsyncIterable<StreamChunk>) {
         if (chunk.type === "RUN_ERROR") errors.push(chunk.message)
@@ -143,7 +174,7 @@ function conversation(model: ScriptedModel) {
       send(uiMessagesToWire(messages as UIMessage[])),
     ),
   })
-  return { browser, send, errors }
+  return { browser, send, errors, persistence }
 }
 
 for (const [name, answer] of Object.entries(firstAnswers)) {
@@ -156,6 +187,33 @@ for (const [name, answer] of Object.entries(firstAnswers)) {
     expect(browser.getMessages().at(-1)?.role).toBe("assistant")
   })
 }
+
+it("stores only the browser's questions after the engine runs a tool", async () => {
+  // Each answer ends a model call on a tool result, so OpenCode needs its
+  // prompt copied after it. That copy is not a question.
+  const model = new ScriptedModel([
+    engineTool("t1"),
+    text("p1", "Found"),
+    engineTool("t2"),
+    text("p2", "Found again"),
+  ])
+  const { browser, errors, persistence } = conversation(model)
+  await browser.sendMessage("First question")
+  await browser.sendMessage("Second question")
+  await browser.sendMessage("Third question")
+  expect(errors).toEqual([])
+  // OpenCode still gets the prompt last after each tool result.
+  expect(model.lastRoles).toEqual(Array(5).fill("user"))
+  const questionIds = (
+    messages: ReadonlyArray<{ role: string; id?: string }>,
+  ) =>
+    messages
+      .filter((message) => message.role === "user")
+      .map((message) => message.id)
+  expect(
+    questionIds(await persistence.stores.messages.loadThread("thread")),
+  ).toEqual(questionIds(browser.getMessages()))
+})
 
 it("rejects a send whose history does not hold the stored questions", async () => {
   const { browser, send, errors } = conversation(new ScriptedModel([]))

@@ -290,7 +290,7 @@ export const Triggers: Story = {
   },
 }
 
-/** Hide, show, and maximize: the pane and the chat column change state at once, with no motion. */
+/** Hide, show, and maximize: the pane and the chat column change state at once. Only the small control that reverses the action fades in. */
 export const HideShowMaximize: Story = {
   parameters: {
     msw: {
@@ -474,6 +474,49 @@ export const ReadOnly: Story = {
   },
 }
 
+const manyFileTabs = [
+  ...Array.from(
+    { length: 14 },
+    (_, index) => `knowledge/notes/meeting-notes-${index + 1}.md`,
+  ),
+  ledgerPath,
+]
+
+/** Many file tabs: the selected tab at the end of the strip scrolls into view. */
+export const SelectedTabInView: Story = {
+  tags: ["workspace-golden"],
+  args: {
+    pane: { kind: "file", path: ledgerPath },
+    fileTabs: manyFileTabs,
+    previewPath: null,
+  },
+  parameters: {
+    storyRoute: {
+      pattern: "orgWorkspace",
+      orgSlug: "acme",
+      workspaceSlug: "docs",
+      pane: serializePane({ kind: "file", path: ledgerPath }),
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: gitFilesHandlers,
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const tab = await canvas.findByRole("tab", { name: "ledger.md" })
+    await expect(tab).toHaveAttribute("aria-selected", "true")
+    const strip = tab.closest('[role="tablist"]') as HTMLElement
+    await waitFor(() => {
+      expect(strip.scrollWidth).toBeGreaterThan(strip.clientWidth)
+      expect(tab.getBoundingClientRect().right).toBeLessThanOrEqual(
+        strip.getBoundingClientRect().right + 1,
+      )
+    })
+  },
+}
+
 export const TreeCollapsed: Story = {
   args: {
     pane: { kind: "file", path: ledgerPath },
@@ -616,7 +659,10 @@ export const GraphPhaseFailed: Story = {
         "Could not build the graph. It builds again automatically.",
       ),
     ).toBeVisible()
-    expect(canvas.getByRole("tab", { name: "Graph" })).toBeVisible()
+    // The tab fades in for 100 ms when the pane mounts.
+    await waitFor(() =>
+      expect(canvas.getByRole("tab", { name: "Graph" })).toBeVisible(),
+    )
   },
 }
 

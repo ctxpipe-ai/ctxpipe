@@ -156,6 +156,12 @@ export const DiffPaneExpandedFile: Story = {
       name: /ADR-021-decision\.md, Modified/,
     })
     await expect(focused).toHaveAttribute("aria-expanded", "true")
+    // The focused row is highlighted, so the user sees which file the Diff opened on.
+    await expect(focused.parentElement).toHaveClass("bg-zinc-800")
+    const other = canvas.getByRole("button", {
+      name: /ADR-001-decision\.md, /,
+    })
+    await expect(other.parentElement).not.toHaveClass("bg-zinc-800")
     // The focused row scrolls into view inside the list.
     await waitFor(() => {
       const list = focused.closest(".overflow-auto") as HTMLElement
