@@ -108,10 +108,11 @@ export async function getConversationSandboxBinding(
 }
 
 /**
- * The sandbox of a turn that runs now, for a Files read. The turn holds the
- * conversation lock and owns the sandbox setup, so this attach changes
- * nothing: no setup, no secrets, no firewall or token change, and no update
- * of the sandbox record. Null when the conversation has no sandbox.
+ * The running sandbox of a conversation whose lock another holder has (a
+ * turn, the idle sweep, a publish), for a Files read. This attach changes
+ * nothing: it does no setup, sets no secrets, changes no firewall or token,
+ * updates no sandbox record, and never starts or resumes a sandbox. Null when
+ * no live sandbox runs.
  */
 export async function attachTurnSandboxForRead(input: {
   orgId: string
@@ -122,9 +123,10 @@ export async function attachTurnSandboxForRead(input: {
     conversationId: input.conversationId,
     kind: "chat",
   })
-  // The turn's own ensure gave its row the latest heartbeat.
+  // The lock holder can be the idle sweep: a stopped row is not read. The
+  // turn's own ensure gave its row the latest heartbeat.
   const row = rows
-    .filter((item) => item.state !== "destroy_failed" && item.providerSandboxId)
+    .filter((item) => item.state === "live" && item.providerSandboxId)
     .sort(
       (a, b) => b.lastHeartbeatAt.getTime() - a.lastHeartbeatAt.getTime(),
     )[0]
@@ -137,6 +139,8 @@ export async function attachTurnSandboxForRead(input: {
             orgId: input.orgId,
             provider: row.provider,
             providerSandboxId: row.providerSandboxId,
+            onlyRunning: true,
+            signal: input.signal,
           })
         : null
   return sandbox ? adaptTanstackHandle(sandbox, input.signal) : null

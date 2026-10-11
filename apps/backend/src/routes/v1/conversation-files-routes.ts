@@ -551,8 +551,9 @@ const readWithoutWait = createMiddleware<ConversationFileEnv>(
   },
 )
 /**
- * A file read does not wait for a turn either: when a turn holds the lock, it
- * reads from the turn's sandbox with a plain attach that changes nothing.
+ * A file read does not wait for a turn either: when another holder has the
+ * lock, it reads from the running sandbox with a plain attach that changes
+ * nothing, or answers 409 `turn_running` when no sandbox runs.
  */
 const readDuringTurn = createMiddleware<ConversationFileEnv>(
   async (c, next) => {
@@ -653,7 +654,9 @@ export const conversationFileRoutes = fileRoutes
         conversationId,
         signal: c.get("sandboxAbortSignal"),
       })
-      if (!attached) return c.json({ error: "missing_sandbox" }, 409)
+      // Nothing runs to read (the idle sweep may hold the lock): the pane
+      // polls again.
+      if (!attached) return c.json({ error: "turn_running" }, 409)
       handle = attached
     } else {
       const ready = await readySandboxHandle({ ...loaded, existingOnly: true })

@@ -43,9 +43,7 @@ it(
         })
       const running = await attach(true)
       expect(running).not.toBeNull()
-      expect((await running?.process.exec("echo ok"))?.stdout.trim()).toBe(
-        "ok",
-      )
+      expect((await running?.process.exec("echo ok"))?.stdout.trim()).toBe("ok")
       await container.stop({ t: 0 })
       expect(await attach(true)).toBeNull()
       expect((await container.inspect()).State.Running).toBe(false)

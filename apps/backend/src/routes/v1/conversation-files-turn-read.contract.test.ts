@@ -141,7 +141,10 @@ it(
                   .update(workspaceSandboxInstances)
                   .set({ state })
                   .where(
-                    eq(workspaceSandboxInstances.conversationId, conversationId),
+                    eq(
+                      workspaceSandboxInstances.conversationId,
+                      conversationId,
+                    ),
                   ),
               )
             await setState("stopped")
