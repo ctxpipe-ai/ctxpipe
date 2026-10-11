@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
-import { expect, fn, screen, userEvent, within } from "storybook/test"
+import { expect, fn, within } from "storybook/test"
 import {
   connectionUsageHandler,
   connectionUsageItem,
@@ -147,6 +147,7 @@ export const PendingSetup: Story = {
       canvasElement,
       name: "Linear",
       onOpen: onOpenWizard,
+      openArgs: [],
       statusReads,
       deleted,
     }),

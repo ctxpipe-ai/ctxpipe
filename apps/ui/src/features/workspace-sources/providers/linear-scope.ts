@@ -24,7 +24,7 @@ export function linearChecklistItems(
   available: readonly LinearScope[],
   selection: readonly string[],
 ): LinearChecklistItem[] {
-  const items: LinearChecklistItem[] = available.flatMap((item) =>
+  const items = available.flatMap((item): LinearChecklistItem[] =>
     item.type === "team" && item.teamKey
       ? [
           {

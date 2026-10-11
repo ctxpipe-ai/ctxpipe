@@ -102,7 +102,7 @@ export function LinearConnectionCard({
         statusQuery.isError
           ? () => void statusQuery.refetch()
           : primary
-            ? onOpenWizard
+            ? () => onOpenWizard()
             : undefined
       }
     >
