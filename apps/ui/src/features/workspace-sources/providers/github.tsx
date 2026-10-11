@@ -9,9 +9,8 @@ import {
   GithubRepoPickerSkeleton,
 } from "@/features/repositories/components/GithubRepoPickerList"
 import {
-  collectInstallationRepoPages,
-  fetchGithubInstallationReposPage,
   type GithubRepoItem,
+  githubInstallationReposOptions,
   sortGithubRepos,
 } from "@/features/repositories/githubRepoSelection"
 import type {
@@ -38,13 +37,9 @@ export function GithubScopeEditor(props: SourceScopeEditorProps) {
   )
   const [searchQuery, setSearchQuery] = useState("")
 
-  const reposQuery = useQuery({
-    queryKey: ["github-installation-repos", orgSlug, [connectionId]],
-    queryFn: () =>
-      collectInstallationRepoPages((page) =>
-        fetchGithubInstallationReposPage(orgSlug, page, connectionId),
-      ),
-  })
+  const reposQuery = useQuery(
+    githubInstallationReposOptions(orgSlug, [connectionId]),
+  )
 
   const repos = useMemo(() => {
     const listed = sortGithubRepos(

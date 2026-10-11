@@ -365,6 +365,89 @@ export const EditSendsChange: Story = {
   },
 }
 
+const unlinkCalls: ChangeCall[] = []
+
+/**
+ * The last repository of a GitHub source goes: the source goes, and a
+ * repositories file that links the same repository goes too.
+ */
+export const UnlinkLastRepositoryRemovesEveryLink: Story = {
+  args: {
+    linkedRepositories: [
+      {
+        id: "lnk_api",
+        workspaceId: "ws_story1",
+        gitUrl: "https://github.com/acme/api",
+        desiredRef: null,
+        desiredSha: "abc",
+        indexedSha: "abc",
+        createdAt: "2026-10-01T10:00:00.000Z",
+      },
+    ],
+  },
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceSourcesHandler(
+            workspaceSourceList({
+              items: [
+                {
+                  ...githubSource,
+                  scope: { repositories: ["acme/api"] },
+                  scopeSummary: "1 linked repository",
+                },
+              ],
+            }),
+          ),
+          connected,
+          ...workspaceSourceChangeHandlers(unlinkCalls),
+          http.delete(
+            "*/api/v1/workspaces/:workspaceSlug/linked-repositories/:linkedId",
+            ({ request }) => {
+              unlinkCalls.push({
+                method: "DELETE",
+                path: new URL(request.url).pathname,
+                body: null,
+              })
+              return HttpResponse.json(
+                {
+                  queued: true,
+                  action: "unlink",
+                  gitUrl: "https://github.com/acme/api",
+                },
+                { status: 202 },
+              )
+            },
+          ),
+        ],
+      },
+    },
+  },
+  beforeEach: () => {
+    unlinkCalls.length = 0
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Unlink acme/api" }),
+    )
+    await waitFor(() => expect(unlinkCalls).toHaveLength(2))
+    await expect(unlinkCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          method: "DELETE",
+          path: "/acme/api/v1/workspaces/docs/linked-repositories/lnk_api",
+        }),
+        expect.objectContaining({
+          method: "DELETE",
+          path: "/acme/api/v1/workspaces/docs/sources/product-repos",
+        }),
+      ]),
+    )
+  },
+}
+
 export const LegacyLinkedRepositoryShows: Story = {
   args: {
     linkedRepositories: [

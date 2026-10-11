@@ -7,6 +7,7 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
 import { Dialog } from "@/components/ui/Dialog"
 import { InlineLoader } from "@/components/ui/InlineLoader"
+import { Link } from "@/components/ui/Link"
 import { Modal } from "@/components/ui/Modal"
 import { SearchField } from "@/components/ui/SearchField"
 import { GithubRepoPickerList } from "@/features/repositories/components/GithubRepoPickerList"
@@ -16,10 +17,9 @@ import {
   githubWebUrl,
 } from "@/features/repositories/github-web-url"
 import {
-  collectInstallationRepoPages,
-  fetchGithubInstallationReposPage,
   type GithubRepoItem,
   type GithubRepoSort,
+  githubInstallationReposOptions,
   sortGithubRepos,
 } from "@/features/repositories/githubRepoSelection"
 import { gitSourceMatchesQuery } from "@/features/repositories/gitSourcesFilter"
@@ -173,11 +173,11 @@ export function GithubSourceRepositories(props: {
   const unlinkMutation = useMutation({
     mutationFn: async (row: RepositoryRow) => {
       const { source, linked } = row
-      if (!source) {
-        if (linked)
-          await unlinkWorkspaceRepository(orgSlug, workspaceSlug, linked.id)
-        return null
-      }
+      // A repositories/*.md file can link the repository too. Its unlink
+      // deletes that file, and does nothing when no file links it.
+      if (linked)
+        await unlinkWorkspaceRepository(orgSlug, workspaceSlug, linked.id)
+      if (!source) return null
       const delivery: SourceDelivery = directCommitAllowed
         ? "commit"
         : "pull_request"
@@ -261,14 +261,15 @@ export function GithubSourceRepositories(props: {
                     </span>
                     <div className="min-w-0 flex-1">
                       {webUrl ? (
-                        <a
+                        <Link
                           href={webUrl}
                           target="_blank"
                           rel="noreferrer"
-                          className="block truncate text-sm text-foreground hover:text-teal-300"
+                          variant="secondary"
+                          className="block truncate text-sm text-foreground no-underline hover:text-teal-300"
                         >
                           {row.title}
-                        </a>
+                        </Link>
                       ) : (
                         <p className="truncate text-sm text-foreground">
                           {row.title}
@@ -357,32 +358,21 @@ function AddGithubRepositoriesModal(props: {
 
   const connectionIds = connections.map((connection) => connection.id)
   const reposQuery = useQuery({
-    queryKey: ["github-installation-repos", orgSlug, connectionIds],
-    queryFn: async () => {
-      const pages = await Promise.all(
-        connectionIds.map(async (connectionId) => {
-          const collected = await collectInstallationRepoPages((page) =>
-            fetchGithubInstallationReposPage(orgSlug, page, connectionId),
-          )
-          return collected.repositories.map((repo) => ({
-            ...repo,
-            githubConnectionId: connectionId,
-          }))
-        }),
-      )
-      // Each connection numbers its own rows; give each row a unique id.
-      return pages.flat().map((repo, index) => ({ ...repo, id: index + 1 }))
-    },
+    ...githubInstallationReposOptions(orgSlug, connectionIds),
     enabled: isOpen && connectionIds.length > 0,
   })
 
   const eligibleRepos = useMemo(
     () =>
       eligibleInstallationRepos({
-        repositories: reposQuery.data ?? [],
+        // Two connections can list the same repository: give each row its
+        // own id for the selection.
+        repositories: (reposQuery.data?.repositories ?? []).map(
+          (repo, index) => ({ ...repo, id: index + 1 }),
+        ),
         takenUrls,
       }),
-    [reposQuery.data, takenUrls],
+    [reposQuery.data?.repositories, takenUrls],
   )
   const filteredRepos = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()
