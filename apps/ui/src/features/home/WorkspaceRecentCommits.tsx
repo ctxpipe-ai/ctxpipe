@@ -8,11 +8,12 @@ import { cn } from "@/lib/utils"
 
 export function WorkspaceRecentCommits(props: {
   commits: readonly WorkspaceActivityCommit[]
+  emptyText?: string
 }) {
   if (props.commits.length === 0) {
     return (
       <p className="text-sm text-muted-foreground">
-        No commits on the default branch yet.
+        {props.emptyText ?? "No commits on the default branch yet."}
       </p>
     )
   }

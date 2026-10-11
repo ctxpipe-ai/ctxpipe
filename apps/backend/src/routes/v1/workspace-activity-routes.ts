@@ -36,16 +36,28 @@ const WorkspaceActivityResponseSchema = z
   })
   .openapi("WorkspaceActivityResponse")
 
+const WorkspaceActivityQuerySchema = z.object({
+  /** One UTC day (`YYYY-MM-DD`). `recent` then holds the commits of that day. */
+  date: z.iso.date().optional(),
+})
+
 const getWorkspaceActivityRoute = createRoute({
   method: "get",
   path: "/{workspaceSlug}/activity",
-  request: { params: WorkspaceSlugParamsSchema },
+  request: {
+    params: WorkspaceSlugParamsSchema,
+    query: WorkspaceActivityQuerySchema,
+  },
   responses: {
     200: {
       content: {
         "application/json": { schema: WorkspaceActivityResponseSchema },
       },
-      description: "Workspace repository commit heatmap and recent commits",
+      description:
+        "Workspace repository commit heatmap and recent commits. With `date`, `recent` holds the commits of that UTC day.",
+    },
+    400: {
+      description: "Invalid query parameter",
     },
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -65,13 +77,18 @@ export const workspaceActivityRoutes = new OpenAPIHono<AppEnv>().openapi(
       return c.json({ error: "Unauthorized" }, 401)
     }
     const { workspaceSlug } = workspaceSlugParams(c)
+    const { date } = c.req.valid("query")
     const workspace = await getWorkspaceBySlug(workspaceSlug)
     if (!workspace) return c.json({ error: "Not found" }, 404)
 
     const [projection, countsByDate, recent] = await Promise.all([
       getWorkspaceCommitProjection(workspace.id),
       listWorkspaceCommitDayCounts(workspace.id),
-      listWorkspaceRepositoryCommits({ workspaceId: workspace.id, limit: 5 }),
+      listWorkspaceRepositoryCommits({
+        workspaceId: workspace.id,
+        date,
+        limit: date ? 50 : 5,
+      }),
     ])
     const status: "pending" | "ready" | "failed" =
       projection?.backfillStatus === "ready" ||

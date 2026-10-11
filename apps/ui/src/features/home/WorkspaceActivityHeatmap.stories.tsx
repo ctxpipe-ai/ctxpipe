@@ -38,6 +38,14 @@ export const Populated: Story = {
   },
 }
 
+/** The selected day has a light outline. */
+export const DaySelected: Story = {
+  args: {
+    days: docsWorkspaceActivity.days,
+    selectedDate: "2026-08-22",
+  },
+}
+
 export const NoHistory: Story = {
   args: {
     days: emptyWorkspaceActivity.days,

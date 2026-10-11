@@ -100,14 +100,18 @@ export function calendarMonthTicks(cells: readonly CalendarCell[]): {
   return { values: [...labels.keys()], labels }
 }
 
-export function formatCommitTooltip(count: number, date: string): string {
-  const formatted = new Intl.DateTimeFormat("en-US", {
+/** `2026-08-22` → `Aug 22, 2026` (the UTC day). */
+export function formatCalendarDate(date: string): string {
+  return new Intl.DateTimeFormat("en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",
     timeZone: "UTC",
   }).format(parseUtcDate(date))
-  return `${count} ${count === 1 ? "commit" : "commits"} on ${formatted}`
+}
+
+export function formatCommitTooltip(count: number, date: string): string {
+  return `${count} ${count === 1 ? "commit" : "commits"} on ${formatCalendarDate(date)}`
 }
 
 export function calendarAriaLabel(cells: readonly CalendarCell[]): string {

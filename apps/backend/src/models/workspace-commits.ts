@@ -1,4 +1,4 @@
-import { and, desc, eq, lt, sql } from "drizzle-orm"
+import { and, desc, eq, gte, lt, sql } from "drizzle-orm"
 import { requireCurrentOrgId } from "../auth/context.js"
 import { getOrgDb } from "../db/client.js"
 import {
@@ -34,13 +34,19 @@ export async function getWorkspaceCommitProjection(
   })
 }
 
+/**
+ * The latest commits first. `date` (`YYYY-MM-DD`) keeps only the commits of
+ * that UTC day, the same day boundary as `listWorkspaceCommitDayCounts`.
+ */
 export async function listWorkspaceRepositoryCommits(input: {
   workspaceId: string
+  date?: string
   limit?: number
 }): Promise<ProjectedCommit[]> {
   return orgSql(async () => {
     const orgId = requireCurrentOrgId()
     const db = getOrgDb()
+    const dayStart = input.date ? new Date(`${input.date}T00:00:00.000Z`) : null
     const rows = await db
       .select()
       .from(workspaceRepositoryCommits)
@@ -48,6 +54,15 @@ export async function listWorkspaceRepositoryCommits(input: {
         and(
           eq(workspaceRepositoryCommits.orgId, orgId),
           eq(workspaceRepositoryCommits.workspaceId, input.workspaceId),
+          dayStart
+            ? gte(workspaceRepositoryCommits.committedAt, dayStart)
+            : undefined,
+          dayStart
+            ? lt(
+                workspaceRepositoryCommits.committedAt,
+                new Date(dayStart.getTime() + 86_400_000),
+              )
+            : undefined,
         ),
       )
       .orderBy(desc(workspaceRepositoryCommits.committedAt))
