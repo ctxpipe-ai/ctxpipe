@@ -596,10 +596,13 @@ export const PickerShowsConnectionNames: Story = {
     const dialog = within(await within(document.body).findByRole("dialog"))
     await userEvent.click(dialog.getByRole("button", { name: /Connection/ }))
     const listbox = within(await within(document.body).findByRole("listbox"))
-    await expect(listbox.getByRole("option", { name: "acme-gh" })).toBeVisible()
+    // The popover animates in, so check the options exist, not visibility.
     await expect(
-      listbox.getByRole("option", { name: "acme-labs" }),
-    ).toBeVisible()
+      await listbox.findByRole("option", { name: "acme-gh" }),
+    ).toBeInTheDocument()
+    await expect(
+      await listbox.findByRole("option", { name: "acme-labs" }),
+    ).toBeInTheDocument()
     await expect(listbox.queryByText("con_gh1")).toBeNull()
   },
 }
