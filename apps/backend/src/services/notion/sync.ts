@@ -34,7 +34,11 @@ import type {
   NotionPage,
   NotionTokenRefreshHandler,
 } from "./client.js"
-import { queryNotionDatabase, refreshNotionOAuthToken } from "./client.js"
+import {
+  NotionApiError,
+  queryNotionDatabase,
+  refreshNotionOAuthToken,
+} from "./client.js"
 import { NOTION_CONFIG_PATH } from "./config-from-repo.js"
 import type { ParsedNotionRepoConfig } from "./config-yaml.js"
 import {
@@ -62,7 +66,7 @@ import {
 
 export { getNotionChildPageIds } from "./page-tree.js"
 
-function createNotionTokenRefreshHandler(input: {
+export function createNotionTokenRefreshHandler(input: {
   orgId: string
   connectionId: string
   env: Env
@@ -100,7 +104,8 @@ export type NotionSyncResult = {
   resourcesFailed: number
   files: Array<{ path: string; content: string }>
   deletePaths: string[]
-  errors: Array<{ externalId: string; message: string }>
+  /** `status` is the HTTP status of a Notion API failure. */
+  errors: Array<{ externalId: string; message: string; status?: number }>
 }
 
 async function resolveRepoContextForBinding(
@@ -223,6 +228,8 @@ export async function captureNotionContent(input: {
   config: ParsedNotionRepoConfig
   existingPaths: string[]
   existingBlobs?: ReadonlyArray<{ path: string; sha: string }>
+  /** Name each root page folder with the config title (Workspace sources). */
+  rootTitlesFromConfig?: boolean
 }): Promise<NotionSyncResult> {
   const uniqueResources = new Map<
     string,
@@ -275,7 +282,7 @@ export async function captureNotionContent(input: {
     rows: Array<{ page: NotionPage; blocks: NotionBlock[] }>
     capturedAssetsByPageId: Map<string, NotionEntityAssetCapture>
   }> = []
-  const errors: Array<{ externalId: string; message: string }> = []
+  const errors: NotionSyncResult["errors"] = []
   let resourcesProcessed = 0
   let resourcesFailed = 0
 
@@ -332,6 +339,7 @@ export async function captureNotionContent(input: {
           connection: input.notionConnection,
           rootPageId: resource.externalId,
           skipPageIds: selectedPageIds,
+          rootTitle: input.rootTitlesFromConfig ? resource.title : undefined,
           onTokenRefresh,
           onEntry: async (entry) => {
             capturedAssetsByPageId.set(
@@ -340,6 +348,7 @@ export async function captureNotionContent(input: {
                 markdownPath: getNotionPagePath({
                   page: entry.page,
                   ancestors: entry.ancestors,
+                  title: entry.pathTitle,
                 }),
                 page: entry.page,
                 blocks: entry.blocks,
@@ -362,6 +371,7 @@ export async function captureNotionContent(input: {
         externalId: resource.externalId,
         message:
           error instanceof Error ? error.message : "Unknown Notion sync error",
+        ...(error instanceof NotionApiError ? { status: error.status } : {}),
       })
     }
   }
@@ -374,6 +384,7 @@ export async function captureNotionContent(input: {
         getNotionPagePath({
           page: entry.page,
           ancestors: entry.ancestors,
+          title: entry.pathTitle,
         }),
       )
     }

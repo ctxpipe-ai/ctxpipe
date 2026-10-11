@@ -9,7 +9,7 @@ import { getNotionPageTitle } from "./client.js"
 
 const MANAGED_ROOT = "notion"
 
-function titleSlug(title: string): string {
+export function titleSlug(title: string): string {
   const s = slugify(title, { lowercase: true })
   return s.length > 0 ? s : "untitled"
 }
@@ -17,8 +17,10 @@ function titleSlug(title: string): string {
 export function getNotionPagePath(input: {
   page: NotionPage
   ancestors?: Array<{ id: string; title: string }>
+  /** Name the folder with this title, not the page title. */
+  title?: string
 }): string {
-  const title = getNotionPageTitle(input.page)
+  const title = input.title ?? getNotionPageTitle(input.page)
   const segments = [
     ...(input.ancestors ?? []).map(
       (ancestor) => `${titleSlug(ancestor.title)}--${ancestor.id}`,

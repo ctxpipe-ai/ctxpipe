@@ -16,6 +16,8 @@ export type NotionPageTreeEntry = {
   page: NotionPage
   blocks: NotionBlock[]
   ancestors: Array<{ id: string; title: string }>
+  /** The folder title of the root entry when `rootTitle` is set. */
+  pathTitle?: string
 }
 
 export async function listBlocksDeep(input: {
@@ -65,6 +67,8 @@ export async function listNotionPageTree(input: {
   onTokenRefresh: NotionTokenRefresh
   onEntry?: (entry: NotionPageTreeEntry) => Promise<void>
   skipPageIds?: ReadonlySet<string>
+  /** Name the root folder with this title, not the root page title. */
+  rootTitle?: string
 }): Promise<NotionPageTreeEntry[]> {
   const entries: NotionPageTreeEntry[] = []
   const seen = new Set<string>()
@@ -93,12 +97,18 @@ export async function listNotionPageTree(input: {
       blockId: pageId,
       onTokenRefresh: input.onTokenRefresh,
     })
-    const entry = { page, blocks, ancestors }
+    const pathTitle = pageKey === rootPageKey ? input.rootTitle : undefined
+    const entry = {
+      page,
+      blocks,
+      ancestors,
+      ...(pathTitle ? { pathTitle } : {}),
+    }
     entries.push(entry)
     await input.onEntry?.(entry)
     const nextAncestors = [
       ...ancestors,
-      { id: page.id, title: getNotionPageTitle(page) },
+      { id: page.id, title: pathTitle ?? getNotionPageTitle(page) },
     ]
     for (const childPageId of getNotionChildPageIds(blocks)) {
       await visit(childPageId, nextAncestors)

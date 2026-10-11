@@ -3,6 +3,14 @@ import { assertNotInOrgDbContext } from "../../db/client.js"
 import type { NotionConnection } from "../../models/notion-connector.js"
 
 const NOTION_API_BASE = "https://api.notion.com/v1"
+
+/** A Notion API response that is not OK. `status` is the HTTP status. */
+export class NotionApiError extends Error {
+  constructor(readonly status: number) {
+    super(`Notion API request failed (${status})`)
+    this.name = "NotionApiError"
+  }
+}
 const NOTION_VERSION = "2026-03-11"
 
 type NotionParent =
@@ -193,7 +201,7 @@ async function fetchNotion<T>(
     res = await request(input.connection.accessToken)
   }
   if (!res.ok) {
-    throw new Error(`Notion API request failed (${res.status})`)
+    throw new NotionApiError(res.status)
   }
   return (await res.json()) as T
 }
@@ -321,6 +329,23 @@ export async function retrieveNotionPage(input: {
       onTokenRefresh: input.onTokenRefresh,
     },
     `/pages/${encodeURIComponent(input.pageId)}`,
+  )
+}
+
+/** Read one data source (a database), to check that ctx| can reach it. */
+export async function retrieveNotionDataSource(input: {
+  env: Env
+  connection: NotionConnection
+  dataSourceId: string
+  onTokenRefresh?: NotionTokenRefreshHandler
+}): Promise<{ id: string }> {
+  return fetchNotion<{ id: string }>(
+    {
+      env: input.env,
+      connection: input.connection,
+      onTokenRefresh: input.onTokenRefresh,
+    },
+    `/data_sources/${encodeURIComponent(input.dataSourceId)}`,
   )
 }
 

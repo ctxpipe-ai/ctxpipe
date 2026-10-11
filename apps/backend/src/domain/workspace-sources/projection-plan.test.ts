@@ -37,6 +37,7 @@ sources:
   - id: gone
     provider: notion
     connection: con_missing1
+    pages: [{ id: 1a2b3c4d-0000-4000-8000-000000000001, title: Gone }]
   - id: no-provider
     connection: con_linear1
   - provider: slack

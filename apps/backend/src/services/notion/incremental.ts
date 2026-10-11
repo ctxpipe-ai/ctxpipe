@@ -136,7 +136,7 @@ function resourceMaps(config: ParsedNotionRepoConfig): {
   return { pages, databases }
 }
 
-function parentDatabaseLikeId(page: NotionPage): string | undefined {
+export function parentDatabaseLikeId(page: NotionPage): string | undefined {
   const parent = page.parent as Record<string, unknown> | undefined
   if (!parent) return undefined
   for (const key of ["data_source_id", "database_id"]) {
@@ -155,7 +155,7 @@ function parentDatabaseLikeId(page: NotionPage): string | undefined {
   return undefined
 }
 
-function parentPageId(page: NotionPage): string | undefined {
+export function parentPageId(page: NotionPage): string | undefined {
   const parent = page.parent as Record<string, unknown> | undefined
   if (!parent || parent.type !== "page_id") return undefined
   const value = parent.page_id

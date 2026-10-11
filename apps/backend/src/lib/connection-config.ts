@@ -348,6 +348,22 @@ export const NOTION_SETUP_PHASES = [
 
 export type NotionSetupPhase = (typeof NOTION_SETUP_PHASES)[number]
 
+/**
+ * The Workspace sources sync state of a Notion connection (ADR-050). It
+ * counts the sync cycles in which a selected root failed, so a root that is
+ * gone for good stops after a bounded number of tries.
+ */
+export const notionSourceSyncSchema = z.object({
+  /** Keyed `page:<id>` or `database:<id>`; `tries` counts sync cycles. */
+  failures: z
+    .record(
+      z.string(),
+      z.object({ tries: z.number().int().positive(), detail: z.string() }),
+    )
+    .default({}),
+})
+export type NotionSourceSync = z.infer<typeof notionSourceSyncSchema>
+
 /** Typed slice of `connections.config` for `type === "notion"`. */
 export const notionConnectionConfigSchema = z
   .object({
@@ -382,6 +398,7 @@ export const notionConnectionConfigSchema = z
     oauthClientSecretEnc: z.string().min(1).optional(),
     /** AES-GCM ciphertext of the Notion webhook verification token. */
     webhookSecretEnc: z.string().min(1).optional(),
+    sourceSync: notionSourceSyncSchema.optional(),
   })
   .transform((c) => ({
     ...c,
