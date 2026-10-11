@@ -16,6 +16,7 @@ import { loadNotionStoredConfig } from "./connection-load.js"
 import {
   createNotionSourceMigrationHook,
   isNotionBindingHandedOver,
+  notionLegacyHandedOver,
 } from "./workspace-source-migration.js"
 
 /** A `notion/config.yaml` as the old Notion settings wrote it. */
@@ -171,7 +172,11 @@ describe("Notion source migration hook (Postgres)", () => {
       accessToken: "fixture-token",
     })
     const handedOver = () =>
-      isNotionBindingHandedOver({ orgId: seed.orgId, repositoryGitUrl: gitUrl })
+      isNotionBindingHandedOver({
+        orgId: seed.orgId,
+        connectionId: connection,
+        repositoryGitUrl: gitUrl,
+      })
     expect(await handedOver()).toBe(false)
 
     const workspaceId = await seed.addWorkspace(
@@ -203,5 +208,56 @@ describe("Notion source migration hook (Postgres)", () => {
     const stored = await loadNotionStoredConfig(seed.orgId, connection)
     expect(stored?.enabled).toBe(false)
     expect(stored?.accessToken).toBe("fixture-token")
+  })
+
+  it("does not hand over for a source of another Notion connection", async () => {
+    const { repositoryId, gitUrl } = await addRepository("notion-other")
+    const legacy = await seed.addConnection("notion", {
+      repositoryId,
+      branch: "main",
+      setupPhase: "live",
+    })
+    const other = await seed.addConnection("notion", { status: "installed" })
+    const workspaceId = await seed.addWorkspace(
+      `notion-other-${seed.suffix}`.slice(0, 40),
+      gitUrl.replace(/\.git$/, ""),
+    )
+    await replaceWorkspaceSourceRows({
+      orgId: seed.orgId,
+      workspaceId,
+      revision: "b".repeat(40),
+      rows: [
+        {
+          sourceKey: "other-notes",
+          provider: "notion",
+          connectionId: other,
+          scope: { pages: [{ id: HANDBOOK, title: "Handbook" }] },
+          status: "ok",
+          statusDetail: null,
+        },
+      ],
+    })
+    expect(
+      await isNotionBindingHandedOver({
+        orgId: seed.orgId,
+        connectionId: legacy,
+        repositoryGitUrl: gitUrl,
+      }),
+    ).toBe(false)
+  })
+
+  it("lets the legacy sync run when the handover lookup fails", async () => {
+    expect(
+      await notionLegacyHandedOver(
+        {
+          orgId: seed.orgId,
+          connectionId: "con_any",
+          repositoryGitUrl: "https://github.com/acme/any.git",
+        },
+        async () => {
+          throw new Error("database is down")
+        },
+      ),
+    ).toBe(false)
   })
 })

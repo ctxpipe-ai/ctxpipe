@@ -19,7 +19,7 @@ import {
 import { parseNotionConfigYamlContent } from "../../services/notion/config-yaml.js"
 import { loadNotionConnection } from "../../services/notion/connection-load.js"
 import { captureNotionContent } from "../../services/notion/sync.js"
-import { isNotionBindingHandedOver } from "../../services/notion/workspace-source-migration.js"
+import { notionLegacyHandedOver } from "../../services/notion/workspace-source-migration.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { runRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
 import { parsedNotionRepoScopeSchema } from "../notion-scope-repo-schema.js"
@@ -72,8 +72,9 @@ export const notionSyncContent = defineWorkflow(
                 input.connectionId,
               )
               return binding
-                ? isNotionBindingHandedOver({
+                ? notionLegacyHandedOver({
                     orgId: input.orgId,
+                    connectionId: input.connectionId,
                     repositoryGitUrl: binding.repositoryGitUrl,
                   })
                 : false

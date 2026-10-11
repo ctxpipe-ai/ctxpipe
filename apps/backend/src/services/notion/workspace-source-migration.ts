@@ -19,6 +19,7 @@ import {
 } from "../../domain/workspace-sources/providers/notion.js"
 import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
 import { parseNotionConnectionConfig } from "../../lib/connection-config.js"
+import { log } from "../../observability/logger.js"
 import { loadNotionScopeFromRepo } from "./config-from-repo.js"
 import type { ParsedNotionRepoConfig } from "./config-yaml.js"
 
@@ -49,15 +50,20 @@ export function notionScopeFromLegacyConfig(
       }
 }
 
-/**
- * True when a Workspace on this repository has an `ok` Notion source
- * (ADR-050). Then only the Workspace sources sync writes `notion/`, and the
- * legacy binding of the repository must not write.
- */
-export async function isNotionBindingHandedOver(input: {
+type HandoverInput = {
   orgId: string
+  connectionId: string
   repositoryGitUrl: string
-}): Promise<boolean> {
+}
+
+/**
+ * True when a Workspace on this repository has an `ok` source of the same
+ * Notion connection (ADR-050). Then only the Workspace sources sync writes
+ * `notion/`, and the legacy binding of the repository must not write.
+ */
+export async function isNotionBindingHandedOver(
+  input: HandoverInput,
+): Promise<boolean> {
   const target = normalizeWorkspaceRepositoryUrl(input.repositoryGitUrl)
   const rows = await withOrgDbContext(input.orgId, (db) =>
     db
@@ -68,11 +74,32 @@ export async function isNotionBindingHandedOver(input: {
         and(
           eq(workspaceSources.orgId, input.orgId),
           eq(workspaceSources.provider, "notion"),
+          eq(workspaceSources.connectionId, input.connectionId),
           eq(workspaceSources.status, "ok"),
         ),
       ),
   )
   return rows.some((row) => normalizeWorkspaceRepositoryUrl(row.url) === target)
+}
+
+/**
+ * The legacy sync gate. A failed lookup logs a warning and lets the legacy
+ * sync run, so a database problem never stops the mirror.
+ */
+export async function notionLegacyHandedOver(
+  input: HandoverInput,
+  check: (input: HandoverInput) => Promise<boolean> = isNotionBindingHandedOver,
+): Promise<boolean> {
+  try {
+    return await check(input)
+  } catch (error) {
+    log.warn({
+      step: "notion.legacy.handover_check",
+      connectionId: input.connectionId,
+      message: error instanceof Error ? error.message : String(error),
+    })
+    return false
+  }
 }
 
 /** Turn off the legacy binding of a connection (migration `--apply`). */
