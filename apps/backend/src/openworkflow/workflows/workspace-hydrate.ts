@@ -2,6 +2,7 @@ import { z } from "zod"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
+import { projectWorkspaceSources } from "../../domain/workspace-sources/project.js"
 import { embedHydrateUnits } from "../../domain/workspaces/derived-stores.js"
 import { projectWorkspaceGraph } from "../../domain/workspaces/graph-projection.js"
 import {
@@ -341,6 +342,26 @@ export const workspaceHydrate = defineWorkflow(
                   skipped: parsed.skipped.length,
                 }
               }
+            }
+
+            if (activated && pending.postgres) {
+              await step.run(
+                { name: "project-workspace-sources" },
+                async () => {
+                  await projectWorkspaceSources({
+                    orgId: input.orgId,
+                    revision,
+                    env,
+                    token:
+                      token ??
+                      (await resolveRepositoryReadCredential({
+                        orgId: input.orgId,
+                        env,
+                        remote: revision.remote,
+                      })),
+                  })
+                },
+              )
             }
 
             if (activated && pending.graph) {
