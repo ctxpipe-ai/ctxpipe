@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto"
+import { localProcessSandbox } from "@tanstack/ai-sandbox-local-process"
+import { isRunningSandboxProvider } from "../../models/workspace-sandboxes.js"
 import { listSandboxInstances } from "../../models/workspaces.js"
 import { conversationSessionBranch } from "./chat-lifecycle.js"
 import {
@@ -8,8 +10,10 @@ import {
   explorerGitStatusFromPorcelain,
   withExplorerGitLineCounts,
 } from "./git-explorer.js"
+import { adaptTanstackHandle } from "./job-sandbox.js"
 import type { JobSandboxHandle } from "./job-worktree.js"
 import { sameWorkspaceBinding, type WorkspaceRevision } from "./revision.js"
+import { attachProviderSandbox } from "./sandbox-provider.js"
 
 export { conversationSessionBranch }
 
@@ -101,6 +105,41 @@ export async function getConversationSandboxBinding(
         desiredSha: revision.sha,
       }
     : null
+}
+
+/**
+ * The sandbox of a turn that runs now, for a Files read. The turn holds the
+ * conversation lock and owns the sandbox setup, so this attach changes
+ * nothing: no setup, no secrets, no firewall or token change, and no update
+ * of the sandbox record. Null when the conversation has no sandbox.
+ */
+export async function attachTurnSandboxForRead(input: {
+  orgId: string
+  conversationId: string
+  signal?: AbortSignal
+}): Promise<JobSandboxHandle | null> {
+  const rows = await listSandboxInstances({
+    conversationId: input.conversationId,
+    kind: "chat",
+  })
+  // The turn's own ensure gave its row the latest heartbeat.
+  const row = rows
+    .filter((item) => item.state !== "destroy_failed" && item.providerSandboxId)
+    .sort(
+      (a, b) => b.lastHeartbeatAt.getTime() - a.lastHeartbeatAt.getTime(),
+    )[0]
+  if (!row?.providerSandboxId) return null
+  const sandbox =
+    row.provider === "local-process"
+      ? await localProcessSandbox().resume({ id: row.providerSandboxId })
+      : isRunningSandboxProvider(row.provider)
+        ? await attachProviderSandbox({
+            orgId: input.orgId,
+            provider: row.provider,
+            providerSandboxId: row.providerSandboxId,
+          })
+        : null
+  return sandbox ? adaptTanstackHandle(sandbox, input.signal) : null
 }
 
 async function execGit(

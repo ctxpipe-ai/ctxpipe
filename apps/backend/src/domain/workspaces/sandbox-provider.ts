@@ -221,9 +221,9 @@ export async function destroyDetachedProviderSandbox(input: {
 }
 
 /**
- * A command handle on a conversation sandbox outside any chat run, started if
- * it was stopped: the sweep's last push before it deletes the sandbox. Null
- * when the sandbox is gone.
+ * A command handle on a conversation sandbox outside the chat run's setup,
+ * started if it was stopped: the sweep's last push before it deletes the
+ * sandbox, and a Files read while a turn runs. Null when the sandbox is gone.
  */
 export async function attachProviderSandbox(input: {
   orgId: string
