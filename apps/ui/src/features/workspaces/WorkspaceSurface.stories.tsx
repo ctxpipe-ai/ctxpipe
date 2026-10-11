@@ -576,6 +576,78 @@ export const SingleCreatePrPaneClosed: Story = {
   },
 }
 
+/**
+ * With the tools pane closed and the branch changed, the Diff trigger shows
+ * beside Files, Graph and Settings, with the same style and the file-diff icon.
+ */
+export const DiffTriggerPaneClosed: Story = {
+  tags: ["workspace-golden"],
+  args: { conversationId: "conv_1" },
+  parameters: {
+    storyRoute: workspaceRoute({ conversationId: "conv_1" }),
+    msw: {
+      handlers: {
+        page: [...workspaceShellHandlers(), conversationGitDiffHandler()],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const page = within(canvasElement.ownerDocument.body)
+    const diff = await page.findByRole(
+      "button",
+      { name: "Diff" },
+      { timeout: 15_000 },
+    )
+    const files = page.getByRole("button", { name: "Files" })
+    expect(diff).toBeVisible()
+    expect(diff.parentElement).toBe(files.parentElement)
+    expect(diff.className).toBe(files.className)
+    expect(getComputedStyle(diff).borderTopWidth).toBe("0px")
+    expect(diff.querySelector("svg.tabler-icon-file-diff")).not.toBeNull()
+    await userEvent.click(diff)
+    expect(
+      await page.findByRole("tab", { name: "Diff", selected: true }),
+    ).toBeVisible()
+  },
+}
+
+/**
+ * The Diff tab uses the file-diff icon. When it is active, the top-left
+ * corner of the pane card is round, as it is when Graph is active.
+ */
+export const DiffTabRoundedCorner: Story = {
+  tags: ["workspace-golden"],
+  args: { conversationId: "conv_1", paneParam: "diff" },
+  parameters: {
+    storyRoute: workspaceRoute({ conversationId: "conv_1", pane: "diff" }),
+    msw: {
+      handlers: {
+        page: [...workspaceShellHandlers(), conversationGitDiffHandler()],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const page = within(canvasElement.ownerDocument.body)
+    const diff = await page.findByRole(
+      "tab",
+      { name: "Diff", selected: true },
+      { timeout: 15_000 },
+    )
+    expect(diff.querySelector("svg.tabler-icon-file-diff")).not.toBeNull()
+    const radius = () =>
+      getComputedStyle(page.getByRole("tabpanel")).borderTopLeftRadius
+    const diffRadius = radius()
+    await userEvent.click(page.getByRole("tab", { name: "Graph" }))
+    await page.findByRole("tab", { name: "Graph", selected: true })
+    const graphRadius = radius()
+    expect(graphRadius).not.toBe("0px")
+    expect(diffRadius).toBe(graphRadius)
+    // Files leads the strip, so its join stays square.
+    await userEvent.click(page.getByRole("tab", { name: "Files" }))
+    await waitFor(() => expect(radius()).toBe("0px"))
+  },
+}
+
 /** The names of the visible publish actions in one header. */
 const publishActionNames = (root: HTMLElement) =>
   within(root)
