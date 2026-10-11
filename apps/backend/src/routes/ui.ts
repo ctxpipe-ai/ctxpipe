@@ -114,6 +114,8 @@ export function uiProxyUpstreamHeaders(
   headers.set("host", upstreamHost)
   // A page document has a server span. The UI server forwards this
   // traceparent on its server-render calls, so they join the same trace.
+  // Only the span's own trace state goes on, not one the client sent.
+  headers.delete("tracestate")
   propagation.inject(context.active(), headers, {
     set: (carrier, key, value) => carrier.set(key, value),
   })

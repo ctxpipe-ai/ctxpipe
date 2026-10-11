@@ -292,8 +292,8 @@ describe("uiProxyUpstreamHeaders", () => {
       const headers = context.with(trace.setSpan(context.active(), span), () =>
         uiProxyUpstreamHeaders(
           new Headers({
-            traceparent:
-              "00-11111111111111111111111111111111-2222222222222222-01",
+            traceparent: "not-a-traceparent",
+            tracestate: "client=junk",
           }),
           "ui.railway.internal:3002",
           { publicOrigin: "https://backend-pr-343.up.railway.app" },
@@ -302,6 +302,7 @@ describe("uiProxyUpstreamHeaders", () => {
       span.end()
       const { traceId, spanId } = span.spanContext()
       expect(headers.get("traceparent")).toBe(`00-${traceId}-${spanId}-01`)
+      expect(headers.get("tracestate")).toBeNull()
     } finally {
       await provider.shutdown()
       trace.disable()

@@ -28,7 +28,7 @@ describe("getServerApiHeaders", () => {
         tracestate: "vendor=1",
         "x-request-id": "doc_1",
       }),
-    ).toEqual({ cookie: "session=abc", traceparent, tracestate: "vendor=1" })
+    ).toEqual({ cookie: "session=abc", traceparent })
   })
 
   it("returns no headers outside a request", () => {

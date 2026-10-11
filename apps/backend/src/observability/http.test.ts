@@ -159,10 +159,11 @@ describe("backendOtelMiddleware", () => {
   it("traces a page document on the UI catch-all and gives the browser its traceparent", async () => {
     const app = createApp()
     const tracer = trace.getTracer("test")
-    app.all("*", (c) => {
+    app.all("*", () => {
       // Stands in for the DB query a server render can make on the backend.
       tracer.startSpan("SELECT sessions").end()
-      return c.text("page")
+      // The UI proxy returns its own Response, not one built through `c`.
+      return new Response("page", { headers: { "content-type": "text/html" } })
     })
 
     const res = await app.request("http://backend.test/onboarding", {

@@ -70,17 +70,18 @@ export function backendOtelMiddleware(): MiddlewareHandler {
         span?.setAttribute("request.id", requestId)
         const userAgent = c.req.header("user-agent")
         if (userAgent) span?.setAttribute("user_agent.original", userAgent)
-        if (uiProxy && span) {
-          // The HyperDX browser document-load span links to this span.
-          const { traceId, spanId, traceFlags } = span.spanContext()
-          const flags = traceFlags.toString(16).padStart(2, "0")
-          c.header(
-            "server-timing",
-            `traceparent;desc="00-${traceId}-${spanId}-${flags}"`,
-          )
-        }
         try {
           await next()
+          if (uiProxy && span) {
+            // The HyperDX browser document-load span links to this span. Set
+            // it on the final response: the UI proxy returns its own Response.
+            const { traceId, spanId, traceFlags } = span.spanContext()
+            const flags = traceFlags.toString(16).padStart(2, "0")
+            c.res.headers.set(
+              "server-timing",
+              `traceparent;desc="00-${traceId}-${spanId}-${flags}"`,
+            )
+          }
         } finally {
           if (span) copyAttributionToSpan(span, context.active())
         }
