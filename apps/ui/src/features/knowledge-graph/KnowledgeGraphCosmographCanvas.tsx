@@ -156,6 +156,8 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
   const [isSettled, setIsSettled] = useState(false)
   const [isSimulationRunning, setIsSimulationRunning] = useState(false)
   const [isLassoActive, setIsLassoActive] = useState(false)
+  const [isTimelineReady, setIsTimelineReady] = useState(false)
+  const [isTimelinePlaying, setIsTimelinePlaying] = useState(false)
   const [prepStage, setPrepStage] = useState<"idle" | "preparing" | "error">(
     "idle",
   )
@@ -241,6 +243,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
     isLassoActiveRef.current = false
     setIsLassoActive(false)
     cosmographRef.current?.unselectAllPoints?.()
+    timelineRef.current?.pauseAnimation?.()
     timelineRef.current?.setSelection?.()
     if (!manualSimulationControlRef.current) {
       cosmographRef.current?.pause?.()
@@ -280,12 +283,45 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
 
   const handleTimelineAnimationPause = useCallback(
     (_isAnimationRunning: boolean, selection: TimelineSelection) => {
+      // The timeline also pauses when its data loads. Before that, a new
+      // selection is lost when the data arrives, so play waits for it.
+      setIsTimelineReady(true)
+      setIsTimelinePlaying(false)
       if (!selection) {
         onSelectionChangeRef.current(null)
       }
     },
     [],
   )
+
+  const observedRange = useMemo(() => {
+    let from = Number.POSITIVE_INFINITY
+    let to = Number.NEGATIVE_INFINITY
+    for (const link of links) {
+      const at = link.lastObservedAtMs
+      if (at == null || !Number.isFinite(at)) continue
+      from = Math.min(from, at)
+      to = Math.max(to, at)
+    }
+    return from < to ? { from, to } : null
+  }, [links])
+
+  // Cosmograph's own play control does nothing until the user brushes a
+  // range. With no range, start from the first tenth of the history, then
+  // let the timeline move that window to the end.
+  const toggleTimelinePlayback = useCallback(() => {
+    const timeline = timelineRef.current
+    if (!timeline || !observedRange) return
+    if (timeline.getIsAnimationRunning()) {
+      timeline.pauseAnimation()
+      return
+    }
+    if (!timeline.getCurrentSelection()) {
+      const { from, to } = observedRange
+      timeline.setSelection([from, from + (to - from) / 10])
+    }
+    timeline.playAnimation()
+  }, [observedRange])
 
   const emitLassoSelection = useCallback((selectedIndices: number[]) => {
     if (!isLassoActiveRef.current) return
@@ -453,6 +489,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
     isLassoActiveRef.current = false
     setIsLassoActive(false)
     setIsSettled(false)
+    setIsTimelineReady(false)
     setPrepStage("preparing")
     setPrepError(null)
     pointIdsRef.current = points.map((p) => p.id)
@@ -830,11 +867,27 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
               <LegendDock />
               <div className="pointer-events-auto">
                 <StockPanel className="px-2 py-1">
-                  <NativeObservationTimeline
-                    ref={timelineRef}
-                    onAnimationPause={handleTimelineAnimationPause}
-                    onSelectionChange={handleTimelineSelection}
-                  />
+                  <div className="flex items-center gap-1">
+                    {observedRange ? (
+                      <GraphControlButton
+                        isDisabled={!isTimelineReady}
+                        label={
+                          isTimelinePlaying ? "Pause history" : "Play history"
+                        }
+                        onClick={toggleTimelinePlayback}
+                      >
+                        {isTimelinePlaying ? <PauseIcon /> : <PlayIcon />}
+                      </GraphControlButton>
+                    ) : null}
+                    <div className="min-w-0 flex-1">
+                      <NativeObservationTimeline
+                        ref={timelineRef}
+                        onAnimationPlay={() => setIsTimelinePlaying(true)}
+                        onAnimationPause={handleTimelineAnimationPause}
+                        onSelectionChange={handleTimelineSelection}
+                      />
+                    </div>
+                  </div>
                   {footerMetadata ? (
                     <div className="mt-1 border-t border-border pt-1 text-xs text-muted-foreground">
                       {footerMetadata}
@@ -997,6 +1050,7 @@ function LegendDock() {
 const NativeObservationTimeline = forwardRef<
   CosmographTimelineRef,
   {
+    onAnimationPlay: () => void
     onAnimationPause: (
       isAnimationRunning: boolean,
       selection: TimelineSelection,
@@ -1004,7 +1058,7 @@ const NativeObservationTimeline = forwardRef<
     onSelectionChange: (selection: TimelineSelection) => void
   }
 >(function NativeObservationTimeline(
-  { onAnimationPause, onSelectionChange },
+  { onAnimationPlay, onAnimationPause, onSelectionChange },
   ref,
 ) {
   const timelineStyle = {
@@ -1041,9 +1095,11 @@ const NativeObservationTimeline = forwardRef<
         selectionPadding={2}
         selectionRadius={0}
         highlightSelectedData={false}
-        showAnimationControls
+        // The canvas renders its own play button. Each animation tick already
+        // calls `onSelection`, so `onAnimationTick` is not used.
+        showAnimationControls={false}
         onSelection={onSelectionChange}
-        onAnimationTick={onSelectionChange}
+        onAnimationPlay={onAnimationPlay}
         onAnimationPause={onAnimationPause}
         formatter={(value) =>
           new Date(value).toLocaleDateString(undefined, {
@@ -1078,11 +1134,13 @@ function StockPanel({
 function GraphControlButton({
   active = false,
   children,
+  isDisabled,
   label,
   onClick,
 }: {
   active?: boolean
   children: ReactNode
+  isDisabled?: boolean
   label: string
   onClick: () => void
 }) {
@@ -1092,6 +1150,7 @@ function GraphControlButton({
       size="icon-sm"
       aria-label={label}
       aria-pressed={active}
+      isDisabled={isDisabled}
       onPress={onClick}
       className={active ? "bg-teal-400/10 text-teal-200" : undefined}
     >
