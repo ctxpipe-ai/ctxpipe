@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { parseSourceEntry } from "../sources-file.js"
-import { linearSourceScope } from "./linear.js"
+import { linearSourceScope, summarizeLinearScope } from "./linear.js"
 
 const team = { id: "9c1d2e3f-team", key: "ENG", name: "Engineering" }
 const project = { id: "4a5b6c7d-project", name: "Launch" }
@@ -61,17 +61,17 @@ describe("Linear source scope", () => {
   })
 
   it("summarizes teams and projects", () => {
-    expect(linearSourceScope.summarize({ teams: [team], projects: [] })).toBe(
+    expect(summarizeLinearScope({ teams: [team], projects: [] })).toBe(
       "1 Linear team",
     )
     expect(
-      linearSourceScope.summarize({
+      summarizeLinearScope({
         teams: [team, { ...team, id: "t2", key: "OPS" }],
         projects: [project],
       }),
     ).toBe("2 Linear teams · 1 project")
-    expect(
-      linearSourceScope.summarize({ teams: [], projects: [project] }),
-    ).toBe("1 Linear project")
+    expect(summarizeLinearScope({ teams: [], projects: [project] })).toBe(
+      "1 Linear project",
+    )
   })
 })

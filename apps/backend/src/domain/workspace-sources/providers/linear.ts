@@ -31,6 +31,11 @@ export const linearScopeSchema = z
     teams: z.array(linearTeamRef).default([]),
     /** Each project syncs its page and its issues, also from other teams. */
     projects: z.array(linearProjectRef).default([]),
+    /**
+     * "exclude" leaves out Linear customer requests. The default, "limited",
+     * mirrors them as in ADR-022.
+     */
+    customerRequests: z.enum(["exclude", "limited"]).optional(),
   })
   .refine((scope) => scope.teams.length + scope.projects.length > 0, {
     message: "Select at least one team or project",
@@ -57,17 +62,20 @@ function count(n: number, one: string, many: string): string {
  * the Linear connection; it is bound to one Linear workspace (the Linear
  * organization), which is not a ctx| Workspace.
  */
-export const linearSourceScope: SourceScopeDefinition<LinearSourceScope> = {
+export function summarizeLinearScope(scope: LinearSourceScope): string {
+  const projects = scope.projects.length
+  if (!scope.teams.length)
+    return count(projects, "Linear project", "Linear projects")
+  const teams = count(scope.teams.length, "Linear team", "Linear teams")
+  return projects
+    ? `${teams} · ${count(projects, "project", "projects")}`
+    : teams
+}
+
+export const linearSourceScope: SourceScopeDefinition = {
   connectionType: "linear",
   label: "Linear",
-  schema: linearScopeSchema as z.ZodType<LinearSourceScope>,
-  summarize: (scope) => {
-    const projects = scope.projects.length
-    if (!scope.teams.length)
-      return count(projects, "Linear project", "Linear projects")
-    const teams = count(scope.teams.length, "Linear team", "Linear teams")
-    return projects
-      ? `${teams} · ${count(projects, "project", "projects")}`
-      : teams
-  },
+  schema: linearScopeSchema,
+  // The frame calls summarize only with a scope that the schema accepted.
+  summarize: (scope) => summarizeLinearScope(scope as LinearSourceScope),
 }
