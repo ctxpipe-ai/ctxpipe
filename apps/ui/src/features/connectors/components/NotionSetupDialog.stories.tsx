@@ -200,7 +200,7 @@ export const ConnectNotionAfterWebhook: Story = {
     },
   },
   play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
+    const canvas = within(canvasElement.ownerDocument.body)
     const continueButton = await canvas.findByRole("button", {
       name: "Continue",
     })

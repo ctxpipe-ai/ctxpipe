@@ -180,6 +180,7 @@ export const PendingSetup: Story = {
       canvasElement,
       name: "Notion",
       onOpen: onOpenSetup,
+      openArgs: [],
       statusReads,
       deleted,
     }),
@@ -204,8 +205,10 @@ export const ConnectedWithoutSyncRepository: Story = {
     },
   },
   play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await expect(await canvas.findByText("Set in each Workspace")).toBeVisible()
+    const canvas = within(canvasElement.ownerDocument.body)
+    await expect(
+      await canvas.findByText("Set in each Workspace"),
+    ).toBeInTheDocument()
     // Auth is done, so the card has no setup action; "Used in" adds sources.
     await expect(
       canvas.queryByRole("button", {

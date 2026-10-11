@@ -61,8 +61,8 @@ type Story = StoryObj<typeof meta>
 
 export const SelectAPageAndADatabase: Story = {
   play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await expect(canvas.getByText("Not ready")).toBeVisible()
+    const canvas = within(canvasElement.ownerDocument.body)
+    await expect(await canvas.findByText("Not ready")).toBeVisible()
     await expect(
       canvas.getByText("Select at least one page or database."),
     ).toBeVisible()
@@ -89,7 +89,7 @@ export const SearchKeepsTheSelection: Story = {
     initialScope: { pages: [{ id: HANDBOOK, title: "Engineering handbook" }] },
   },
   play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
+    const canvas = within(canvasElement.ownerDocument.body)
     await expect(
       await canvas.findByRole("checkbox", { name: /Engineering handbook/ }),
     ).toBeChecked()
@@ -114,7 +114,7 @@ export const RemoveTheLastRoot: Story = {
     initialScope: { databases: [{ id: INCIDENTS, title: "Incident log" }] },
   },
   play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
+    const canvas = within(canvasElement.ownerDocument.body)
     const selected = await canvas.findByRole("grid", { name: "Selected" })
     await userEvent.click(
       within(selected).getByRole("button", { name: /Remove/ }),
@@ -143,7 +143,7 @@ export const SearchFails: Story = {
     },
   },
   play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
+    const canvas = within(canvasElement.ownerDocument.body)
     await waitFor(() =>
       expect(
         canvas.getByText("Could not search Notion. Try again."),

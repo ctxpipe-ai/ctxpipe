@@ -103,7 +103,11 @@ export function NotionConnectionCard({
       syncRepository={formatSyncRepositoryLine(status?.syncTarget ?? null)}
       actionLabel={isError ? "Retry" : (actionLabel ?? undefined)}
       onAction={
-        isError ? () => void refetch() : actionLabel ? onOpenSetup : undefined
+        isError
+          ? () => void refetch()
+          : actionLabel
+            ? () => onOpenSetup()
+            : undefined
       }
     >
       {isError ? (
