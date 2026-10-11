@@ -56,15 +56,18 @@ import {
 import { originUrlWithoutCredentials } from "./clone-credentials.js"
 import { conversationBranchPushTool } from "./conversation-branch-push.js"
 import {
+  conversationTurnFiles,
+  pruneConversationTurnSnapshots,
+  snapshotConversationTurn,
+  type TurnSnapshot,
+  turnSnapshotKey,
+} from "./conversation-diff.js"
+import {
   SandboxCapacityError,
   withConversationSandboxSlots,
 } from "./conversation-sandbox-lifecycle.js"
 import { checkoutSessionBranch } from "./conversation-session-branch.js"
 import { nameConversationIfUnnamed } from "./conversation-title.js"
-import {
-  conversationTurnFiles,
-  snapshotConversationTurn,
-} from "./conversation-turn-changes.js"
 import { openDockerRunVault } from "./docker-run-vault.js"
 import { hostedSandboxAccess } from "./hosted-sandbox-access.js"
 import { adaptTanstackHandle } from "./job-sandbox.js"
@@ -339,6 +342,26 @@ export async function collectTanstackWorkspaceChatText(
     await input.onError?.()
     throw error
   }
+}
+
+/** Snapshot refs of this many newest turns stay in the sandbox. */
+const KEPT_TURN_SNAPSHOTS = 50
+
+/**
+ * A slow snapshot (a very large work tree) must not hold the turn: after
+ * 10 s the turn gets no changed-files card, and the caller logs a warning.
+ */
+function withTurnSnapshotTimeout<T>(work: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  return Promise.race([
+    work,
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error("The turn snapshot timed out after 10 s")),
+        10_000,
+      )
+    }),
+  ]).finally(() => clearTimeout(timer))
 }
 
 export async function* streamTanstackWorkspaceChat(
@@ -707,7 +730,9 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
   // starts and when it ends. Runs before the conversation lock is released,
   // so a Files read that waits for the lock sees the stored result. A
   // failure is logged and does not fail the turn.
-  let turnStart: { handle: JobSandboxHandle; tree: string } | undefined
+  let turnStart:
+    | { handle: JobSandboxHandle; key: string; snapshot: TurnSnapshot }
+    | undefined
   const recordTurnChanges = async (ctx: {
     runId: string
     messages: ReadonlyArray<{ role: string }>
@@ -716,30 +741,29 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
     turnStart = undefined
     if (!start) return
     try {
-      const endTree = await snapshotConversationTurn(
-        start.handle,
-        ctx.runId,
-        "end",
+      const end = await withTurnSnapshotTimeout(
+        snapshotConversationTurn(start.handle, start.key, "end"),
       )
-      const files = await conversationTurnFiles(
-        start.handle,
-        start.tree,
-        endTree,
+      const files = await withTurnSnapshotTimeout(
+        conversationTurnFiles(start.handle, start.snapshot, end),
       )
-      if (files.length === 0) return
-      await saveConversationTurnChanges({
-        orgId: input.orgId,
-        conversationId: input.conversationId,
-        changes: {
-          runId: ctx.runId,
-          turn: ctx.messages.filter((message) => message.role === "user")
-            .length,
-          startTree: start.tree,
-          endTree,
-          finishedAt: Date.now(),
-          files,
-        },
-      })
+      if (files.length > 0)
+        await saveConversationTurnChanges({
+          orgId: input.orgId,
+          conversationId: input.conversationId,
+          changes: {
+            runId: ctx.runId,
+            turn: ctx.messages.filter((message) => message.role === "user")
+              .length,
+            startTree: start.snapshot.tree,
+            endTree: end.tree,
+            finishedAt: Date.now(),
+            files,
+          },
+        })
+      await withTurnSnapshotTimeout(
+        pruneConversationTurnSnapshots(start.handle, KEPT_TURN_SNAPSHOTS),
+      )
     } catch (error) {
       log.warn({
         step: "workspace-chat-turn-changes",
@@ -906,10 +930,14 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
         requires: [SandboxCapability],
         async setup(ctx) {
           const handle = adaptTanstackHandle(getSandbox(ctx))
+          const key = turnSnapshotKey(ctx.runId, Date.now())
           try {
             turnStart = {
               handle,
-              tree: await snapshotConversationTurn(handle, ctx.runId, "start"),
+              key,
+              snapshot: await withTurnSnapshotTimeout(
+                snapshotConversationTurn(handle, key, "start"),
+              ),
             }
           } catch (error) {
             log.warn({

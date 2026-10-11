@@ -12,9 +12,9 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { DockerHandle } from "@tanstack/ai-sandbox-docker"
 import { describe, expect, it } from "vitest"
+import { conversationBaseDiff } from "./conversation-diff.js"
 import {
   conversationPathIsSafe,
-  conversationSandboxDiff,
   conversationSandboxStatus,
   conversationWorktreeVersion,
   fingerprintConversationWorktree,
@@ -430,7 +430,7 @@ describe("conversation sandbox files", { timeout: 15_000 }, () => {
       expect(status.ahead).toBe(0)
       expect(
         (
-          await conversationSandboxDiff({ handle: job, defaultBranch: "main" })
+          await conversationBaseDiff({ handle: job, defaultBranch: "main" })
         ).map((diff) => diff.path),
       ).toEqual(["agent.md"])
     } finally {
@@ -556,7 +556,7 @@ describe("conversation sandbox files", { timeout: 15_000 }, () => {
           })
           expect({
             diff: (
-              await conversationSandboxDiff({ handle, defaultBranch: "main" })
+              await conversationBaseDiff({ handle, defaultBranch: "main" })
             ).map(({ path, body }) => ({ path, body })),
           }).toEqual({
             diff: expect.arrayContaining([
@@ -584,12 +584,12 @@ describe("conversation sandbox files", { timeout: 15_000 }, () => {
         git("commit", "-q", "-m", "Ignore .env")
         writeFileSync(join(directory, ".env"), "API_KEY=secret\n")
 
-        const diff = await conversationSandboxDiff({
+        const diff = await conversationBaseDiff({
           handle,
           defaultBranch: "main",
         })
 
-        expect(diff.find((file) => file.path === ".env")).toEqual({
+        expect(diff.find((file) => file.path === ".env")).toMatchObject({
           path: ".env",
           oldBody: "API_KEY=committed\n",
           body: null,

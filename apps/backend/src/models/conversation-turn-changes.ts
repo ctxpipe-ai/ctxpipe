@@ -1,13 +1,15 @@
 import { and, eq, like } from "drizzle-orm"
 import { type Db, withOrgDbContext } from "../db/client.js"
 import { chatMetadata } from "../db/schema/chat-persistence.js"
-import type { ConversationTurnFile } from "../domain/workspaces/conversation-turn-changes.js"
+import type { ChangedFile } from "../domain/workspaces/conversation-diff.js"
 
 /**
  * The files one chat turn changed. Rows live in the chat metadata table
  * (namespace below, key `<conversationId>:<runId>`), so no new table is
- * necessary. `turn` is the number of user messages in the thread at the end
- * of the turn: the UI shows the card after the reply to that user message.
+ * necessary. The UI places the card after the last message of the run
+ * (`runId`). A run with no reply message (a failed turn) has no run id on a
+ * message; `turn`, the number of user messages at the end of the turn, then
+ * places the card after that user message.
  */
 export type ConversationTurnChanges = {
   runId: string
@@ -15,7 +17,7 @@ export type ConversationTurnChanges = {
   startTree: string
   endTree: string
   finishedAt: number
-  files: ConversationTurnFile[]
+  files: ChangedFile[]
 }
 
 const NAMESPACE = "ctxpipe.conversation-turn-changes"
