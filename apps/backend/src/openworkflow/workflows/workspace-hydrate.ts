@@ -92,14 +92,36 @@ async function enqueueLaggingIndex(input: {
 }
 
 export const workspaceHydrate = defineWorkflow(
-  { name: "workspace-hydrate", schema: workspaceHydrateInputSchema },
+  {
+    name: "workspace-hydrate",
+    schema: workspaceHydrateInputSchema,
+    // The body reads git outside a step. Retry it like a step.
+    retryPolicy: {
+      initialInterval: "1s",
+      backoffCoefficient: 2,
+      maximumInterval: "100s",
+      maximumAttempts: 10,
+    },
+  },
   async ({ input: queuedInput, step }) => {
     // OpenWorkflow validates enqueue, but persisted pre-upgrade runs reach the worker directly.
-    const input = workspaceHydrateInputSchema.parse({
+    const parsedInput = workspaceHydrateInputSchema.safeParse({
       orgId: queuedInput.orgId,
       workspaceId: queuedInput.workspaceId,
       revision: queuedInput.revision,
     })
+    if (!parsedInput.success) {
+      // A retry cannot repair the input. A failed step without retries ends
+      // the run now, before the workflow retry policy applies.
+      await step.run(
+        { name: "reject-input", retryPolicy: { maximumAttempts: 1 } },
+        () => {
+          throw parsedInput.error
+        },
+      )
+      throw parsedInput.error
+    }
+    const input = parsedInput.data
     return withLogger(
       createLogger({
         workflow: "workspace-hydrate",
@@ -160,31 +182,50 @@ export const workspaceHydrate = defineWorkflow(
                     : null,
               }),
             )
-            const treeFiles = planning.needed
-              ? await step.run({ name: "read-planning-revision" }, async () =>
-                  listMarkdownFilesAtGitSha({
-                    includeIntroducingCommits: true,
-                    extraPaths: [SOURCES_FILE_PATH],
-                    url: revision.remote.url,
-                    sha: revision.sha,
-                    token:
-                      token ??
-                      (await resolveRepositoryReadCredential({
-                        orgId: input.orgId,
-                        env,
-                        remote: revision.remote,
-                      })),
-                  }),
-                )
-              : []
-            const files = treeFiles.filter(
-              (file) => file.path !== SOURCES_FILE_PATH,
-            )
+            // Not a step: OpenWorkflow keeps a step output in one jsonb value
+            // and loads all outputs on each replay. The tree at a fixed SHA
+            // does not change. Read it only when a write plan or the
+            // projection needs it, so a replay after both does not fetch.
+            let tree:
+              | Promise<{
+                  files: Awaited<ReturnType<typeof listMarkdownFilesAtGitSha>>
+                  sourcesFile: string | null
+                }>
+              | undefined
+            const readTree = () => {
+              tree ??= (async () => {
+                const treeFiles = planning.needed
+                  ? await listMarkdownFilesAtGitSha({
+                      includeIntroducingCommits: true,
+                      extraPaths: [SOURCES_FILE_PATH],
+                      url: revision.remote.url,
+                      sha: revision.sha,
+                      token:
+                        token ??
+                        (await resolveRepositoryReadCredential({
+                          orgId: input.orgId,
+                          env,
+                          remote: revision.remote,
+                        })),
+                    })
+                  : []
+                return {
+                  files: treeFiles.filter(
+                    (file) => file.path !== SOURCES_FILE_PATH,
+                  ),
+                  sourcesFile:
+                    treeFiles.find((file) => file.path === SOURCES_FILE_PATH)
+                      ?.content ?? null,
+                }
+              })()
+              return tree
+            }
             const enqueueRemainingWrites = async () => {
               if (!planning.needed) return
               const plan = await step.run(
                 { name: "plan-remaining-writes" },
                 async () => {
+                  const { files } = await readTree()
                   const remaining = planHydrateWrites({
                     revision,
                     displayName: workspace.displayName,
@@ -289,14 +330,15 @@ export const workspaceHydrate = defineWorkflow(
                     .map((connection) => connection.id),
                 )
               : []
+            const { files, sourcesFile } = pending.postgres
+              ? await readTree()
+              : { files: [], sourcesFile: null }
             const parsed = pending.postgres
               ? hydrateKnowledgeTree({
                   workspaceId: workspace.id,
                   workspaceUrl: revision.remote.url,
                   files,
-                  sourcesFile:
-                    treeFiles.find((file) => file.path === SOURCES_FILE_PATH)
-                      ?.content ?? null,
+                  sourcesFile,
                   githubConnectionIds: new Set(githubConnectionIds),
                 })
               : { units: snapshot.units, linked: [], skipped: [] }
@@ -374,9 +416,7 @@ export const workspaceHydrate = defineWorkflow(
                     orgId: input.orgId,
                     workspaceId: workspace.id,
                     revision: revision.sha,
-                    text:
-                      treeFiles.find((file) => file.path === SOURCES_FILE_PATH)
-                        ?.content ?? null,
+                    text: sourcesFile,
                     env,
                   }),
               )

@@ -233,8 +233,8 @@ export async function listMarkdownFilesAtGitSha(input: {
         (entry.path.endsWith(".md") || input.extraPaths?.includes(entry.path)),
     )
     if (entries.length === 0) return []
-    // The caller keeps all blob contents in memory. Keep this limit below the
-    // 256 MiB jsonb limit of the hydrate step output.
+    // The caller keeps all blob contents in memory. This limit bounds that
+    // memory.
     const { stdout } = await gitExec(
       ["-C", dir, "cat-file", "--batch"],
       { timeout: 30_000, maxBuffer: 200 * 1024 * 1024 },
