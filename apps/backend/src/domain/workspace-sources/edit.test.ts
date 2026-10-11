@@ -17,14 +17,14 @@ describe("applySourceFileChange", () => {
       action: "add",
       provider: "slack",
       connectionId: "con_slack1",
-      scope: { channels: ["C1"] },
+      scope: { channels: ["C0123ABCD"] },
     })
     expect(first.sourceKey).toBe("slack")
     const second = applySourceFileChange(first.text, {
       action: "add",
       provider: "slack",
       connectionId: "con_slack1",
-      scope: {},
+      scope: { channels: ["C0456EFGH"] },
     })
     expect(second.sourceKey).toBe("slack-2")
     expect(second.text).toContain("id: slack-2")

@@ -49,7 +49,7 @@ sources:
   - id: support-channels
     provider: slack
     connection: ${slack}
-    channels: [C1, C2]
+    channels: [C0SUP0001, C0SUP0002]
   - id: broken
     provider: jira
     connection: ${slack}
@@ -98,7 +98,7 @@ sources:
         {
           workspaceId,
           workspaceName: "support",
-          stat: "Slack",
+          stat: "2 Slack channels",
           sources: [{ sourceKey: "support-channels", status: "ok" }],
         },
       ],
