@@ -12,6 +12,7 @@ async function headersDuring(
     new Request("http://ui.railway.internal:3002/onboarding", {
       headers: incoming,
     }),
+    {},
   )
   return (await response.json()) as HeadersInit
 }
