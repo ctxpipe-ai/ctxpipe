@@ -25,7 +25,7 @@ While the chat agent works, the conversation shows progress labels. Some of them
 - [x] Every invented label is removed. Each status label that stays maps to a real system state, which is listed in Comments.
 - [x] The counters line has a thoughts counter.
 - [x] At most one thinking block shows outside the log, and it hides when the answer is done.
-- [x] Log entries show file paths, search queries and tool arguments where the data has them. Secrets and tokens are never shown.
+- [x] Log entries show file paths, search queries and tool arguments where the data has them. The backend masks known credential formats before the stream leaves the server and before the transcript is stored.
 - [x] Storybook stories with play tests cover: working with a current thought, working with only a system status, the "Thinking" fallback, done, and an expanded log.
 - [x] UI tests and golden stories pass.
 
@@ -37,8 +37,12 @@ While the chat agent works, the conversation shows progress labels. Some of them
   - "Setting up sandbox": the backend `CUSTOM` event `sandbox-setup` with `phase: "starting"` (`workspaceChatSandboxSetupChunk` in `apps/backend/src/domain/workspaces/workspace-chat-agui.ts`).
   - "Thinking": the fallback while the run is `submitted` or `streaming`.
 - The workspace prepare steps "Fetching repository" and "Reading knowledge" in `WorkspaceHydrateProgress.tsx` stay. They map to the real hydrate views `waiting_for_tip` and hydrating.
-- Log details come from the tool-call `input` or the streamed `arguments` JSON, which already reach the UI: file path, search pattern or query, symbol, or command. No backend change was necessary.
+- Log details come from the tool-call `input` or the streamed `arguments` JSON, which already reach the UI: file path, search pattern or query, symbol, or command.
+- Credentials: the backend masks each chat chunk before it leaves the server (`streamTanstackWorkspaceChat`), and it masks the transcript before it is stored (`saveThread` in `workspace-chat-persistence.ts`). One pure function, `maskCredentials` in `apps/backend/src/domain/workspaces/mask-credentials.ts`, covers GitHub token prefixes, `sk-` keys, `Bearer` values, `Authorization` header values, and user and password parts of URLs. The UI does not mask again.
+- Limits of the mask: it is a pattern match, so an unknown credential format passes. A credential split over two streamed deltas can pass in the stream, but the stored transcript is masked as a whole. Transcripts stored before this change are not masked.
+- Sandbox tokens today: the git commands in the sandbox refer to the clone token by its variable name (`$CTXPIPE_CLONE_TOKEN`), not by its value. Hosted runs get GitHub credentials from the firewall, and `GH_TOKEN` is a placeholder. A tool result can still show the value if the agent prints the environment. The mask applies in all cases.
+- The status line stays until the run ends, also while text streams in the middle of the run. The `ctx-indexing-dot` pulse stops under reduced motion, and the dot stays visible.
 
 ## Resolution
 
-One thought is one heading section of a reasoning text, so one reasoning block with three headings counts as "3 thoughts". The counters line opens one "Activity log" with the thoughts and the tool calls in order. Stories: `WorkingWithThought`, `SettingUpSandbox`, `ThinkingFallback`, `ThinkingFallbackWithTools`, `ChatProgressDone` (golden), `ChatProgressLogExpanded` (golden).
+One thought is one heading section of a reasoning text, so one reasoning block with three headings counts as "3 thoughts". Text before the first heading belongs to the first thought. The counters line opens one "Activity log" with the thoughts and the tool calls in order. Stories: `WorkingWithThought`, `SettingUpSandbox`, `ThinkingFallback`, `ThinkingFallbackWithTools`, `ChatProgressDone` (golden), `ChatProgressLogExpanded` (golden), `InterimTextKeepsStatus`, `NextTurnShowsStatus`.
