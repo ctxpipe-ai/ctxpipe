@@ -1,7 +1,14 @@
-import { z } from "zod"
+import {
+  FeatureNotAccessibleLinearError,
+  ForbiddenLinearError,
+  InvalidInputLinearError,
+} from "@linear/sdk"
 import type { Env } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
-import type { SourceAdapter } from "../../domain/workspace-sources/adapter.js"
+import type {
+  SourceAdapter,
+  SourceFetchResult,
+} from "../../domain/workspace-sources/adapter.js"
 import {
   type LinearSourceScope,
   linearProjects,
@@ -19,11 +26,13 @@ import {
 } from "../../models/linear-oauth-app.js"
 import { log } from "../../observability/logger.js"
 import type { GitFileChange } from "../git/file-change.js"
+import { omitUnchangedLinearFiles } from "./assets.js"
 import {
   discoverLinearScopes,
   type LinearTokenRefreshHandler,
   linearTokenExpiresAt,
   refreshLinearOAuthToken,
+  withLinearClient,
 } from "./client.js"
 import type { ParsedLinearRepoConfig } from "./config-yaml.js"
 import {
@@ -31,6 +40,9 @@ import {
   fetchLinearMirrorPage,
   walkLinearMirrorPages,
 } from "./content.js"
+import { buildLinearIncrementalChanges } from "./incremental.js"
+import { loadProject } from "./read.js"
+import { linearEventMatches, linearSourceEventSchema } from "./source-event.js"
 import { captureLinearContent } from "./sync.js"
 
 /**
@@ -66,13 +78,14 @@ type LinearFetchRoot = {
 /**
  * One mirror walk for each distinct team and project of the union of
  * scopes. `teamIdByKey` maps an upper-case team key to its Linear id. A key
- * that Linear does not know has no root, so its managed files go away.
+ * that Linear does not know has no root; it is in `unknownTeams`.
  */
 export function linearFetchRoots(
   scopes: readonly LinearSourceScope[],
   teamIdByKey: ReadonlyMap<string, string>,
-): LinearFetchRoot[] {
+): { roots: LinearFetchRoot[]; unknownTeams: string[] } {
   const roots = new Map<string, LinearFetchRoot>()
+  const unknownTeams = new Set<string>()
   for (const scope of scopes) {
     const add = (
       id: string,
@@ -91,7 +104,10 @@ export function linearFetchRoots(
     }
     for (const key of linearTeams(scope)) {
       const teamId = teamIdByKey.get(key.toUpperCase())
-      if (!teamId) continue
+      if (!teamId) {
+        unknownTeams.add(key)
+        continue
+      }
       add(
         `team:${teamId}`,
         {
@@ -121,77 +137,7 @@ export function linearFetchRoots(
         linearRootPath({ kind: "project", id }),
       )
   }
-  return [...roots.values()]
-}
-
-/**
- * The part of a Linear webhook that routes it to sources: the team keys and
- * project ids of the changed entity. Empty lists mean "not known", and then
- * every source of the connection syncs.
- */
-export const linearSourceEventSchema = z.object({
-  teamKeys: z.array(z.string()),
-  projectIds: z.array(z.string()),
-})
-export type LinearSourceEvent = z.infer<typeof linearSourceEventSchema>
-
-function record(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {}
-}
-
-function text(value: unknown): string | undefined {
-  return typeof value === "string" && value ? value : undefined
-}
-
-/** `ENG-123` gives `ENG`. */
-function keyOfIdentifier(identifier: unknown): string | undefined {
-  const value = text(identifier)
-  const dash = value?.lastIndexOf("-") ?? -1
-  return value && dash > 0 ? value.slice(0, dash) : undefined
-}
-
-/** Read the team keys and project ids from a verified Linear webhook payload. */
-export function linearSourceEventFromPayload(
-  payload: Record<string, unknown>,
-): LinearSourceEvent {
-  const data = record(payload.data)
-  const issue = record(data.issue)
-  const keys = [
-    payload.type === "Team" ? text(data.key) : undefined,
-    text(record(data.team).key),
-    keyOfIdentifier(data.identifier),
-    text(record(issue.team).key),
-    keyOfIdentifier(issue.identifier),
-  ]
-  const projects = [
-    payload.type === "Project" ? text(data.id) : undefined,
-    text(data.projectId),
-    text(record(data.project).id),
-    text(issue.projectId),
-  ]
-  const present = (items: Array<string | undefined>) => [
-    ...new Set(items.filter((item): item is string => Boolean(item))),
-  ]
-  return {
-    teamKeys: present(keys.map((key) => key?.toUpperCase())),
-    projectIds: present(projects),
-  }
-}
-
-export function linearEventMatches(
-  event: unknown,
-  scope: LinearSourceScope,
-): boolean {
-  const parsed = linearSourceEventSchema.safeParse(event)
-  if (!parsed.success) return true
-  const { teamKeys, projectIds } = parsed.data
-  if (!teamKeys.length && !projectIds.length) return true
-  return (
-    linearTeams(scope).some((key) => teamKeys.includes(key.toUpperCase())) ||
-    linearProjects(scope).some((id) => projectIds.includes(id))
-  )
+  return { roots: [...roots.values()], unknownTeams: [...unknownTeams] }
 }
 
 function tokenRefresher(input: {
@@ -263,9 +209,28 @@ async function linearTeamIdsByKey(input: {
   )
 }
 
+/** Linear refused the entity for good: it does not exist, or the grant cannot read it. */
+export function isPermanentLinearError(error: unknown): boolean {
+  return (
+    error instanceof InvalidInputLinearError ||
+    error instanceof ForbiddenLinearError ||
+    error instanceof FeatureNotAccessibleLinearError ||
+    (error instanceof Error && /entity not found/i.test(error.message))
+  )
+}
+
+function message(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+const missingTeamsDetail = (keys: readonly string[]) =>
+  `The Linear workspace has no team with the key ${keys.join(", ")}`
+
 /**
- * Name the team keys of a scope that the Linear workspace does not have.
- * When Linear cannot answer, the scope counts as in reach.
+ * Name the team keys and project ids of a scope that Linear does not have.
+ * A transient Linear failure does not hide a "not found" that Linear gave
+ * for another item; when Linear gives no answer, the scope counts as in
+ * reach and the sync reports a later failure.
  */
 export async function checkLinearSourceAccess(input: {
   orgId: string
@@ -273,98 +238,287 @@ export async function checkLinearSourceAccess(input: {
   scope: LinearSourceScope
   env: Env
 }): Promise<string | null> {
-  if (!linearTeams(input.scope).length) return null
-  let teamIdByKey: Map<string, string>
+  const problems: string[] = []
+  let connection: LinearConnection
   try {
-    teamIdByKey = await linearTeamIdsByKey({
-      env: input.env,
-      connection: await loadInstalledConnection(input),
-      onTokenRefresh: tokenRefresher(input),
-    })
+    connection = await loadInstalledConnection(input)
   } catch (error) {
-    // A Linear or token failure must not stop the projection. The sync
-    // reports the same failure, and the next projection checks again.
     log.warn({
       step: "linear.source_access_check",
       connectionId: input.connectionId,
-      message: error instanceof Error ? error.message : String(error),
+      message: message(error),
     })
     return null
   }
-  const missing = linearTeams(input.scope).filter(
-    (key) => !teamIdByKey.has(key.toUpperCase()),
+  const onTokenRefresh = tokenRefresher(input)
+  const teams = linearTeams(input.scope)
+  if (teams.length) {
+    try {
+      const teamIdByKey = await linearTeamIdsByKey({
+        env: input.env,
+        connection,
+        onTokenRefresh,
+      })
+      const missing = teams.filter((key) => !teamIdByKey.has(key.toUpperCase()))
+      if (missing.length) problems.push(missingTeamsDetail(missing))
+    } catch (error) {
+      log.warn({
+        step: "linear.source_access_check",
+        connectionId: input.connectionId,
+        message: message(error),
+      })
+    }
+  }
+  const missingProjects: string[] = []
+  for (const id of linearProjects(input.scope)) {
+    try {
+      await withLinearClient(
+        { env: input.env, connection, onTokenRefresh },
+        (client) =>
+          loadProject(client, connection.accessToken ?? "", id, {
+            includeNeeds: false,
+            includeDocuments: false,
+          }),
+      )
+    } catch (error) {
+      if (isPermanentLinearError(error)) missingProjects.push(id)
+      else
+        log.warn({
+          step: "linear.source_access_check",
+          connectionId: input.connectionId,
+          message: message(error),
+        })
+    }
+  }
+  if (missingProjects.length)
+    problems.push(
+      `Linear has no project that this connection can read with the id ${missingProjects.join(", ")}`,
+    )
+  return problems.length ? problems.join("; ") : null
+}
+
+/** The managed files under one root, at the paths that the mirror walk uses. */
+function existingForRoot(
+  root: LinearFetchRoot,
+  existing: ReadonlyArray<{ path: string; sha: string | null }>,
+): { paths: string[]; blobs: Array<{ path: string; sha: string }> } {
+  const shas = new Map<string, string | null>()
+  const counts = new Map<string, number>()
+  for (const prefix of root.paths)
+    for (const file of existing) {
+      if (!file.path.startsWith(prefix)) continue
+      const local = `linear/${file.path.slice(prefix.length)}`
+      counts.set(local, (counts.get(local) ?? 0) + 1)
+      const before = shas.get(local)
+      shas.set(
+        local,
+        before === undefined || before === file.sha ? file.sha : null,
+      )
+    }
+  return {
+    paths: [...shas.keys()],
+    blobs: [...shas].flatMap(([path, sha]) =>
+      sha && counts.get(path) === root.paths.length ? [{ path, sha }] : [],
+    ),
+  }
+}
+
+/** The files of one root, at mirror walk paths. */
+type RootContent = {
+  files: GitFileChange[]
+  deletePaths: string[]
+  /** Some entities failed: write the files, delete nothing. */
+  partial: boolean
+}
+
+const ROOT_ATTEMPTS = 3
+
+async function readRoot(input: {
+  root: LinearFetchRoot
+  config: ParsedLinearRepoConfig
+  connection: () => Promise<LinearConnection>
+  env: Env
+  onTokenRefresh: LinearTokenRefreshHandler
+  event: ReturnType<typeof linearSourceEventSchema.safeParse>["data"]
+  existing: { paths: string[]; blobs: Array<{ path: string; sha: string }> }
+  incremental: boolean
+}): Promise<RootContent> {
+  const { config } = input
+  const existingShaByPath = new Map(
+    input.existing.blobs.map((blob) => [blob.path, blob.sha]),
   )
-  return missing.length
-    ? `The Linear workspace has no team with the key ${missing.join(", ")}`
-    : null
+  if (input.incremental && input.event?.entity) {
+    const changes = await buildLinearIncrementalChanges({
+      env: input.env,
+      connection: await input.connection(),
+      config,
+      entities: [input.event.entity],
+      existingPaths: input.existing.paths,
+      existingShaByPath,
+      onTokenRefresh: input.onTokenRefresh,
+    })
+    return {
+      files: omitUnchangedLinearFiles(changes.files, input.existing.blobs),
+      deletePaths: changes.deletePaths,
+      partial: changes.failures.length > 0,
+    }
+  }
+  const pages = await walkLinearMirrorPages({
+    config,
+    runPage: async (_name, request) =>
+      fetchLinearMirrorPage({
+        env: input.env,
+        connection: await input.connection(),
+        config,
+        onTokenRefresh: input.onTokenRefresh,
+        request,
+      }),
+  })
+  const collected = collectLinearMirrorPages(pages)
+  const captured = await captureLinearContent({
+    env: input.env,
+    connection: await input.connection(),
+    files: collected.files,
+    failures: collected.failures,
+    existingPaths: input.existing.paths,
+    existingBlobs: input.incremental ? input.existing.blobs : undefined,
+    onTokenRefresh: input.onTokenRefresh,
+  })
+  if (captured.status === "failed")
+    throw new Error(
+      `Linear ${input.root.scope.type} ${input.root.scope.externalId} gave no content`,
+    )
+  return {
+    files: captured.files,
+    deletePaths: captured.deletePaths,
+    partial: captured.status === "partial_failed",
+  }
 }
 
 /**
  * Fetch the union of Linear scopes: one mirror walk for each team and each
- * project, with the page cursors of the existing mirror (ADR-022). A failure
- * stops the sync, because the frame deletes each managed file that a fetch
- * does not return.
+ * project, with the page cursors of the existing mirror (ADR-022). Each
+ * root is separate: a root that fails keeps its files and does not stop the
+ * other roots. A root that Linear refuses for good (not found, no access)
+ * is reported as unreachable, so that its sources show the reason. With the
+ * Workspace blobs, the result is a patch: unchanged files are left out, and
+ * a webhook entity uses the incremental mirror.
  */
 export async function fetchLinearSources(input: {
   orgId: string
   connectionId: string
   scopes: readonly LinearSourceScope[]
   env: Env
-}): Promise<GitFileChange[]> {
+  event?: unknown
+  existing?: ReadonlyArray<{ path: string; sha: string | null }>
+}): Promise<SourceFetchResult> {
   const onTokenRefresh = tokenRefresher(input)
   const first = await loadInstalledConnection(input)
   const workspace = linearWorkspaceIdentity(first)
-  const teamIdByKey = input.scopes.some((scope) => linearTeams(scope).length)
-    ? await linearTeamIdsByKey({
+  const event = linearSourceEventSchema.safeParse(input.event).data
+  const incremental = input.existing !== undefined
+  const result: Required<
+    Pick<SourceFetchResult, "files" | "keepPaths" | "unreachable">
+  > & { deletePaths: string[] } = {
+    files: [],
+    keepPaths: [],
+    unreachable: [],
+    deletePaths: [],
+  }
+  const teamKeys = input.scopes.flatMap((scope) => linearTeams(scope))
+  let teamIdByKey = new Map<string, string>()
+  if (teamKeys.length)
+    try {
+      teamIdByKey = await linearTeamIdsByKey({
         env: input.env,
         connection: first,
         onTokenRefresh,
       })
-    : new Map<string, string>()
-  const files: GitFileChange[] = []
-  for (const root of linearFetchRoots(input.scopes, teamIdByKey)) {
+    } catch (error) {
+      // Without the team list, no team root can sync in this cycle.
+      log.warn({
+        step: "linear.source_fetch_teams",
+        connectionId: input.connectionId,
+        message: message(error),
+      })
+      for (const key of teamKeys)
+        result.keepPaths.push(linearRootPath({ kind: "team", key }))
+    }
+  const { roots, unknownTeams } = linearFetchRoots(input.scopes, teamIdByKey)
+  if (teamIdByKey.size)
+    for (const key of unknownTeams)
+      result.unreachable.push({
+        path: linearRootPath({ kind: "team", key }),
+        status: "out_of_access",
+        detail: missingTeamsDetail([key]),
+      })
+  for (const root of roots) {
     const config: ParsedLinearRepoConfig = {
       ...workspace,
       customerRequests: root.customerRequests,
       scopes: [root.scope],
     }
-    const pages = await walkLinearMirrorPages({
-      config,
-      runPage: async (_name, request) =>
-        fetchLinearMirrorPage({
-          env: input.env,
-          connection: await loadInstalledConnection(input),
+    let content: RootContent | undefined
+    for (let attempt = 1; attempt <= ROOT_ATTEMPTS && !content; attempt++) {
+      try {
+        content = await readRoot({
+          root,
           config,
+          connection: () => loadInstalledConnection(input),
+          env: input.env,
           onTokenRefresh,
-          request,
-        }),
-    })
-    const collected = collectLinearMirrorPages(pages)
-    const captured = await captureLinearContent({
-      env: input.env,
-      connection: await loadInstalledConnection(input),
-      files: collected.files,
-      failures: collected.failures,
-      existingPaths: [],
-      onTokenRefresh,
-    })
-    if (captured.status !== "completed")
-      throw new Error(
-        `Linear ${root.scope.type} ${root.scope.externalId} did not sync: ${captured.failures
-          .map((failure) => `${failure.type} ${failure.id}: ${failure.message}`)
-          .join("; ")}`,
-      )
-    for (const file of captured.files) {
-      if (!file.path.startsWith("linear/"))
-        throw new Error(`Linear file ${file.path} is outside linear/`)
-      for (const path of root.paths)
-        files.push({
-          ...file,
-          path: `${path}${file.path.slice("linear/".length)}`,
+          event,
+          existing: existingForRoot(root, input.existing ?? []),
+          incremental,
         })
+        if (content.partial && !incremental && attempt < ROOT_ATTEMPTS)
+          content = undefined
+      } catch (error) {
+        if (isPermanentLinearError(error)) {
+          for (const path of root.paths)
+            result.unreachable.push({
+              path,
+              status: "out_of_access",
+              detail: `Linear refused ${root.scope.type} ${root.scope.teamKey ?? root.scope.externalId}: ${message(error)}`,
+            })
+          break
+        }
+        log.warn({
+          step: "linear.source_fetch_root",
+          connectionId: input.connectionId,
+          root: root.paths.join(","),
+          attempt,
+          message: message(error),
+        })
+      }
+    }
+    // A failed root, or a partial one without a patch, keeps its files.
+    if (!content || (content.partial && !incremental)) {
+      if (!result.unreachable.some((lost) => root.paths.includes(lost.path)))
+        result.keepPaths.push(...root.paths)
+      continue
+    }
+    for (const file of [...content.files, ...content.deletePaths]) {
+      const path = typeof file === "string" ? file : file.path
+      if (!path.startsWith("linear/"))
+        throw new Error(`Linear file ${path} is outside linear/`)
+    }
+    for (const path of root.paths) {
+      const at = (local: string) => `${path}${local.slice("linear/".length)}`
+      result.files.push(
+        ...content.files.map((file) => ({ ...file, path: at(file.path) })),
+      )
+      if (!content.partial)
+        result.deletePaths.push(...content.deletePaths.map(at))
     }
   }
-  return files
+  return incremental
+    ? result
+    : {
+        files: result.files,
+        keepPaths: result.keepPaths,
+        unreachable: result.unreachable,
+      }
 }
 
 export const linearSourceAdapter: SourceAdapter = {
