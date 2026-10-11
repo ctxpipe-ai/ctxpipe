@@ -156,6 +156,15 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
     "idle",
   )
   const [prepError, setPrepError] = useState<string | null>(null)
+  // Cosmograph draws with WebGL 2. Check on the client only, so that the
+  // server render and the first client render agree.
+  const [webglMissing, setWebglMissing] = useState(false)
+  useEffect(() => {
+    const probe = document.createElement("canvas").getContext("webgl2")
+    setWebglMissing(!probe)
+    // Give the probe context back; browsers allow only a few at a time.
+    probe?.getExtension("WEBGL_lose_context")?.loseContext()
+  }, [])
   const hasInitialFitRef = useRef(false)
   const manualSimulationControlRef = useRef(false)
   const initialAutoSettleArmedRef = useRef(false)
@@ -641,6 +650,20 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
     emitLassoSelection,
     handlePolygonSelected,
   ])
+
+  if (webglMissing) {
+    return (
+      <div
+        className="absolute inset-0 flex items-center justify-center px-6"
+        style={{ backgroundColor: PAGE_BG }}
+      >
+        <GraphUnavailable
+          title="This browser cannot show the graph"
+          message="The graph needs WebGL 2. Turn on hardware acceleration in the browser settings, or use a browser that supports WebGL 2."
+        />
+      </div>
+    )
+  }
 
   if (!config) {
     /* Visible state so the user isn't staring at a black screen if
@@ -1223,15 +1246,23 @@ const LAYOUT_PHASES = [
 const PHASE_ROTATION_MS = 2800
 
 function GraphPrepFailed({ message }: { message: string | null }) {
+  return <GraphUnavailable title="Couldn’t prepare graph" message={message} />
+}
+
+function GraphUnavailable({
+  title,
+  message,
+}: {
+  title: string
+  message: string | null
+}) {
   return (
     <div className="flex w-full max-w-sm flex-col items-center gap-3 text-center">
       <span className="ctx-node text-red-300" aria-hidden>
         <IconAlertTriangle className="size-4" aria-hidden />
       </span>
       <div className="w-full space-y-1 rounded-md border border-red-500/40 bg-red-950/35 px-4 py-3 text-left">
-        <p className="text-sm font-medium text-red-50">
-          Couldn’t prepare graph
-        </p>
+        <p className="text-sm font-medium text-red-50">{title}</p>
         {message ? (
           <p className="break-words text-sm text-red-200">{message}</p>
         ) : null}
