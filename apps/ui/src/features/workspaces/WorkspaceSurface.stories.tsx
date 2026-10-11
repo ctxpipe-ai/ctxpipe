@@ -116,7 +116,8 @@ export const SurfaceSkeletonMatches: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    const skeleton = canvas.getByText("Loading workspace").parentElement
+    const skeleton = (await canvas.findByText("Loading workspace"))
+      .parentElement
     const chatBefore = columnBox(skeleton?.children[1])
     const paneBefore = columnBox(skeleton?.children[2])
     await surfaceGate.release()
