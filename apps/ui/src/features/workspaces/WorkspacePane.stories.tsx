@@ -45,6 +45,7 @@ import {
   docsWorkspaceDetail,
   docsWorkspaceGitBlobs,
   docsWorkspaceGitTree,
+  docsWorkspaceGraph,
   readOnlyWorkspaceDetail,
   skippedFilesWorkspaceDetail,
 } from "./workspace-fixtures"
@@ -612,6 +613,66 @@ export const GraphPhaseFailed: Story = {
       ),
     ).toBeVisible()
     expect(canvas.getByRole("tab", { name: "Graph" })).toBeVisible()
+  },
+}
+
+/**
+ * The graph store lost a ready graph: the route answers building, the pane
+ * shows the building state, and the graph opens when a later read has it.
+ */
+export const GraphLostRebuilds: Story = {
+  tags: ["workspace-golden"],
+  args: {
+    pane: { kind: "graph" },
+    workspace: {
+      ...docsWorkspaceDetail,
+      hydratePhases: { graph: { kind: "ready" } },
+    },
+  },
+  beforeEach: () => {
+    graphGets.count = 0
+  },
+  parameters: {
+    storyRoute: graphPaneRoute,
+    msw: {
+      handlers: {
+        page: [
+          http.get(
+            ({ request }) =>
+              /\/api\/v1\/workspaces\/[^/]+\/graph$/.test(
+                new URL(request.url).pathname,
+              ),
+            () => {
+              graphGets.count += 1
+              return graphGets.count === 1
+                ? HttpResponse.json({ building: true }, { status: 202 })
+                : HttpResponse.json(docsWorkspaceGraph)
+            },
+          ),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    expect(
+      await canvas.findByText(
+        "The graph opens when ctx| finishes reading this Workspace.",
+      ),
+    ).toBeVisible()
+    expect(canvas.queryByText("Could not load graph")).toBeNull()
+    await waitFor(
+      () => {
+        expect(
+          canvas.queryByText(
+            "The graph opens when ctx| finishes reading this Workspace.",
+          ),
+        ).toBeNull()
+      },
+      { timeout: 10_000 },
+    )
+    expect(graphGets.count).toBeGreaterThan(1)
+    expect(canvas.queryByText("Could not load graph")).toBeNull()
   },
 }
 

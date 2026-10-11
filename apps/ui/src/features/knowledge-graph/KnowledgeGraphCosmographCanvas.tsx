@@ -155,7 +155,10 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
   // server render and the first client render agree.
   const [webglMissing, setWebglMissing] = useState(false)
   useEffect(() => {
-    setWebglMissing(!document.createElement("canvas").getContext("webgl2"))
+    const probe = document.createElement("canvas").getContext("webgl2")
+    setWebglMissing(!probe)
+    // Give the probe context back; browsers allow only a few at a time.
+    probe?.getExtension("WEBGL_lose_context")?.loseContext()
   }, [])
   const hasInitialFitRef = useRef(false)
   const manualSimulationControlRef = useRef(false)

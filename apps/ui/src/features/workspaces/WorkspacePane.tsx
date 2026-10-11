@@ -42,6 +42,7 @@ import {
   workspaceChatPrepareOptions,
   workspaceGitBlobOptions,
   workspaceGitTreeOptions,
+  workspaceGraphBuilding,
   workspaceGraphOptions,
 } from "./queries"
 import type { WorkspaceDetail, WorkspaceStorePhase } from "./types"
@@ -438,7 +439,7 @@ function WorkspaceGraphPaneBody(props: {
     ...workspaceGraphOptions(props.orgSlug, props.workspace.slug),
     enabled: graphReadable(phase),
   })
-  if (phase === "pending")
+  if (phase === "pending" || workspaceGraphBuilding(query.data))
     return (
       <div className="flex h-full min-h-0 flex-1 items-center justify-center p-6">
         <GraphWaitState
@@ -464,7 +465,7 @@ function WorkspaceGraphPaneBody(props: {
       <WorkspaceGraphPane
         orgSlug={props.orgSlug}
         workspaceSlug={props.workspace.slug}
-        graph={query.data}
+        graph={workspaceGraphBuilding(query.data) ? undefined : query.data}
         pending={query.isPending}
         error={query.error instanceof Error ? query.error : null}
         onOpenSource={props.onOpenSource}

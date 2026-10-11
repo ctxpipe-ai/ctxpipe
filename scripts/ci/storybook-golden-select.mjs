@@ -19,6 +19,7 @@ export const requiredStories = [
   "GraphPhaseFailed",
   "GraphPhaseReadyStoreUnavailable",
   "NoWebGL",
+  "GraphLostRebuilds",
   "TriggersGraphBuilding",
   "PrepareReadingKnowledge",
   "PrepareWaitingForTip",

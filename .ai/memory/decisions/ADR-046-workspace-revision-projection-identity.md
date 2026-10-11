@@ -21,3 +21,7 @@ What "current" meant for a Workspace was spread over loosely coupled fields (des
 - Queued work carries its revision and is fenced by it at activation, so late or stale work cannot publish.
 - Old workflow inputs without a complete revision are rejected and re-enqueued by the tip check.
 - Pre-upgrade active data is labelled `legacy` until the first successful hydrate; it is never relabelled with the current desired identity.
+
+## Revision 2026-10-11: lost derived graph
+
+The graph store can lose the graph of a ready revision, for example when the FalkorDB service is replaced. The graph read finds this when the completion marker or the counts do not match. The read then sets the graph phase back to `pending` with a compare-and-set, and only the caller that wins starts one hydrate run. The read answers "building" and does not build the graph itself. The hydrate run writes the revision graph again from Postgres and removes stale nodes under the revision key first.
