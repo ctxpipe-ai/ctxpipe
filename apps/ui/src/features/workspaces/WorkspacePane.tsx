@@ -632,8 +632,6 @@ export function WorkspacePaneTriggers(props: {
     )
   }
   const graphBuilding = props.workspace.hydratePhases?.graph.kind === "pending"
-  // These stand alone in the chat header, so they need a hairline to read as controls.
-  const triggerClassName = "border border-white/10 text-zinc-200"
   return (
     <TooltipProvider delay={200}>
       <div className={workspaceChromeTabStripClassName}>
@@ -645,7 +643,6 @@ export function WorkspacePaneTriggers(props: {
             prefetch({ kind: "files" })
             props.onOpen({ kind: "files" })
           }}
-          className={triggerClassName}
         />
         <HeaderIcon
           label={graphBuilding ? "Graph, building" : "Graph"}
@@ -656,21 +653,18 @@ export function WorkspacePaneTriggers(props: {
             prefetch({ kind: "graph" })
             props.onOpen({ kind: "graph" })
           }}
-          className={triggerClassName}
         />
         <HeaderIcon
           label="Settings"
           icon={<IconSettings stroke={1.6} aria-hidden />}
           onClick={() => props.onOpen({ kind: "settings" })}
-          className={triggerClassName}
         />
         {props.onExpand ? (
           <HeaderIcon
             label="Show pane"
             icon={<IconLayoutSidebarRightExpand stroke={1.6} aria-hidden />}
             onClick={props.onExpand}
-            className={triggerClassName}
-          />
+            />
         ) : null}
       </div>
     </TooltipProvider>

@@ -615,8 +615,6 @@ export const MaximizedPaneMatchesHeader: Story = {
   play: async ({ canvasElement }) => {
     const document = canvasElement.ownerDocument
     const page = within(document.body)
-    const pane = document.querySelector("aside")
-    if (!pane) throw new Error("The tools pane is missing")
     const header = await waitFor(
       () => {
         const createPr = page.getByRole("button", { name: "Create PR" })
@@ -628,6 +626,8 @@ export const MaximizedPaneMatchesHeader: Story = {
       },
       { timeout: 15_000 },
     )
+    const pane = document.querySelector("aside")
+    if (!pane) throw new Error("The tools pane is missing")
     const headerNames = publishActionNames(header)
     await userEvent.click(page.getByRole("button", { name: "Maximise pane" }))
     await waitFor(() => {
