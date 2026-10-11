@@ -561,7 +561,7 @@ it(
       expect((await s.commitPush()).status).toBe(200)
       // GitHub's answers when the installation lacks Pull requests: write,
       // when it limits the rate, and when the branch adds nothing.
-      let github: "mint" | "create" | "rate" | "empty" = "mint"
+      let github: "mint" | "create" | "rate" | "empty" | "refused" = "mint"
       f.server.use(
         http.post(
           "https://api.github.com/app/installations/123456789/access_tokens",
@@ -583,6 +583,11 @@ it(
             )
           },
         ),
+        // No open PR for the branch, so a 422 is GitHub's refusal.
+        http.get(
+          "https://api.github.com/repos/fixture/hydration-contract/pulls",
+          () => HttpResponse.json([]),
+        ),
         http.post(
           "https://api.github.com/repos/fixture/hydration-contract/pulls",
           () => {
@@ -600,6 +605,20 @@ it(
                     "You have triggered an abuse detection mechanism. Please wait a few minutes before you try again.",
                 },
                 { status: 403, headers: { "retry-after": "0" } },
+              )
+            if (github === "refused")
+              return HttpResponse.json(
+                {
+                  message: "Validation Failed",
+                  errors: [
+                    {
+                      resource: "PullRequest",
+                      code: "custom",
+                      message: "not all refs are readable",
+                    },
+                  ],
+                },
+                { status: 422 },
               )
             if (github === "empty")
               return HttpResponse.json(
@@ -620,7 +639,13 @@ it(
         ),
       )
       const answers: Array<{ status: number; body: unknown }> = []
-      for (const mode of ["mint", "create", "rate", "empty"] as const) {
+      for (const mode of [
+        "mint",
+        "create",
+        "rate",
+        "empty",
+        "refused",
+      ] as const) {
         github = mode
         const response = await s.createPr("Write the notes")
         answers.push({ status: response.status, body: await response.json() })
@@ -630,6 +655,10 @@ it(
         { status: 400, body: { error: "no_pr_access" } },
         { status: 502, body: { error: "github_unavailable" } },
         { status: 400, body: { error: "no_changes" } },
+        {
+          status: 400,
+          body: { error: "pr_refused", message: "not all refs are readable" },
+        },
       ])
       expect(s.pullRequests).toEqual([])
     })

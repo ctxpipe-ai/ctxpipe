@@ -1,4 +1,5 @@
 import type { ConversationPrState } from "@/features/chat/types"
+import { ApiError } from "@/lib/api-result"
 
 export function conversationAllowsEdits(
   writeStatus: string,
@@ -91,6 +92,7 @@ export type PublishErrorCode =
   | "no_changes"
   | "no_write_access"
   | "no_pr_access"
+  | "pr_refused"
   | "stale_url"
   | "stale_generation"
   | "stale_sha"
@@ -139,6 +141,7 @@ const publishErrorMessages: Record<PublishErrorCode, string> = {
   turn_running: "The agent is still working. Try again when the turn ends.",
   pr_merged:
     "The pull request was merged. Send a message to continue on a new branch.",
+  pr_refused: "GitHub refused the pull request.",
   github_unavailable: "GitHub did not answer. Try again.",
   sandbox_capacity: "Too many sandboxes are running. Try again later.",
   sandbox_unavailable: "The sandbox is not available. Try again.",
@@ -150,6 +153,12 @@ export function conversationPublishErrorMessage(
   error: unknown,
 ): string {
   const code = error instanceof Error ? error.message : String(error)
+  if (code === "pr_refused") {
+    const why = error instanceof ApiError ? error.body.message : undefined
+    return why
+      ? `${action} failed. GitHub refused the pull request: ${why.replace(/\.$/, "")}.`
+      : `${action} failed. GitHub refused the pull request.`
+  }
   const reason = Object.hasOwn(publishErrorMessages, code)
     ? publishErrorMessages[code as PublishErrorCode]
     : undefined
