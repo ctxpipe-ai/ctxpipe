@@ -564,6 +564,23 @@ export function applyConversationFileWriteSnapshot(
   })
 }
 
+/** A finished chat turn can change files: reload what the panes show. */
+export function refreshConversationAfterTurn(
+  client: QueryClient,
+  orgSlug: string,
+  conversationId: string,
+) {
+  return Promise.all(
+    [
+      workspaceKeys.conversationGitTree(orgSlug, conversationId),
+      workspaceKeys.conversationGitStatus(orgSlug, conversationId),
+      workspaceKeys.conversationTurnChanges(orgSlug, conversationId),
+      // Without the turn part, the key matches the full diff and each turn diff.
+      workspaceKeys.conversationGitDiff(orgSlug, conversationId).slice(0, 3),
+    ].map((queryKey) => client.invalidateQueries({ queryKey })),
+  )
+}
+
 export async function persistConversationFileMutation(
   orgSlug: string,
   conversationId: string,
