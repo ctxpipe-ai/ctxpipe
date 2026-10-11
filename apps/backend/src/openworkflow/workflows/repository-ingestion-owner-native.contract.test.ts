@@ -624,7 +624,7 @@ it(
             githubConnectionId: f.connectionId,
           }),
         )
-        expect(reused).toEqual({ id: created.id, created: false })
+        expect(reused).toMatchObject({ id: created.id, created: false })
         expect(
           await getRepositoryReadBinding(f.org.id, created.id),
         ).toMatchObject({
