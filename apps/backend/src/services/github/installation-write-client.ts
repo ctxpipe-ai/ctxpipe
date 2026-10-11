@@ -788,7 +788,10 @@ export async function createPullRequestFromBranch(
 > {
   let context: Awaited<ReturnType<typeof getInstallationContext>>
   try {
+    // GitHub reads the base and head branches with this token. Without
+    // Contents it answers 422 "not all refs are readable".
     context = await getInstallationContext(input, {
+      contents: "read",
       pull_requests: "write",
     })
   } catch (error) {
