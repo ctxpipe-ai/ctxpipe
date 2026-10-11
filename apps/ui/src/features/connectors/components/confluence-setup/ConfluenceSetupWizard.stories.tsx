@@ -335,11 +335,14 @@ export const AddToWorkspaces: Story = {
       {
         method: "POST",
         path: `/${orgSlug}/api/v1/workspaces/${docsWorkspace.slug}/sources`,
-        body: expect.objectContaining({
-          provider: "confluence",
-          connectionId: atlassianConnectionId,
-          scope: { spaces: [{ key: "ENG", pages: "all" }] },
-        }),
+        body: {
+          source: {
+            provider: "confluence",
+            connectionId: atlassianConnectionId,
+            scope: { spaces: [{ key: "ENG", pages: "all" }] },
+          },
+          delivery: "pull_request",
+        },
       },
     ])
   },
