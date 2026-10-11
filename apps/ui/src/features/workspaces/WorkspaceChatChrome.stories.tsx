@@ -214,6 +214,7 @@ export const CleanNoPublishActions: Story = {
 
 /** Sync runs: the button is busy and disabled. */
 export const Pushing: Story = {
+  tags: ["workspace-golden"],
   args: {
     ...DirtyCommitPush.args,
     publish: {
@@ -238,6 +239,8 @@ export const Pushing: Story = {
     })
     expect(sync).toBeDisabled()
     expect(sync).toHaveAttribute("data-pending", "true")
+    // Pending is not the dimmed disabled look.
+    expect(getComputedStyle(sync).opacity).toBe("1")
   },
 }
 
@@ -317,6 +320,16 @@ export const ShowPr: Story = {
     expect(mark?.width).toBeLessThanOrEqual(12)
     expect((mark?.top ?? 0) - link.top).toBeLessThan(link.height / 3)
     expect(link.right - (mark?.right ?? 0)).toBeLessThan(link.width / 6)
+    // The badge does not overlap the text.
+    const textNode = [...showPr.childNodes].find(
+      (n) =>
+        n.nodeType === Node.TEXT_NODE && n.textContent?.includes("Show PR"),
+    )
+    const range = document.createRange()
+    range.selectNodeContents(textNode as Node)
+    expect(range.getBoundingClientRect().right).toBeLessThanOrEqual(
+      mark?.left ?? 0,
+    )
   },
 }
 
