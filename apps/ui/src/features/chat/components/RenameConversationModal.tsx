@@ -34,9 +34,7 @@ export function RenameConversationModal({
       onSubmit={handleSubmit}
       className="flex flex-col gap-5 p-6 text-zinc-100"
     >
-      <h2 className="text-lg font-semibold text-zinc-100">
-        Rename conversation
-      </h2>
+      <h2 className="text-lg font-medium text-zinc-100">Rename conversation</h2>
       {error && (
         <p className="text-sm text-red-400" role="alert">
           {error}
@@ -57,19 +55,10 @@ export function RenameConversationModal({
         className="[&_input]:bg-zinc-800 [&_input]:text-zinc-100 [&_input]:rounded-md [&_input]:border [&_input]:border-zinc-700 [&_input]:placeholder:text-zinc-500 [&_label]:text-zinc-300"
       />
       <div className="flex justify-end gap-2 pt-2">
-        <Button
-          variant="quiet"
-          onPress={onClose}
-          type="button"
-          className="!text-zinc-400 hover:!text-teal-500"
-        >
+        <Button variant="quiet" onPress={onClose} type="button">
           Cancel
         </Button>
-        <Button
-          type="submit"
-          isDisabled={isPending || !isValid}
-          className="!bg-teal-500 !text-black hover:!bg-teal-600"
-        >
+        <Button type="submit" isDisabled={isPending || !isValid}>
           {isPending ? "Renaming…" : "Rename"}
         </Button>
       </div>

@@ -142,6 +142,65 @@ export const ConversationReady: Story = {
   },
 }
 
+/** The header title opens the rename dialog; a save sends PATCH and shows the new name. */
+export const RenameConversation: Story = {
+  args: { conversationId: "conv_1" },
+  parameters: {
+    storyRoute: {
+      pattern: "orgWorkspace",
+      orgSlug: "acme",
+      workspaceSlug: "docs",
+      conversationId: "conv_1",
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: [
+          http.patch(
+            ({ request }) =>
+              /\/api\/v1\/conversations\/conv_1$/.test(
+                new URL(request.url).pathname,
+              ),
+            async ({ request }) => {
+              const body = (await request.json()) as { name: string }
+              return HttpResponse.json({
+                ...docsConversationDetail.conversation,
+                name: body.name,
+              })
+            },
+          ),
+          ...workspaceShellHandlers(),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(
+      await canvas.findByRole("button", {
+        name: "Rename conversation: Repo layout",
+      }),
+    )
+    const body = within(canvasElement.ownerDocument.body)
+    const dialog = await body.findByRole("dialog", {
+      name: "Rename conversation",
+    })
+    const input = within(dialog).getByRole("textbox", { name: "Name" })
+    await userEvent.clear(input)
+    await userEvent.type(input, "Billing layout")
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Rename" }),
+    )
+    await waitFor(() => {
+      expect(body.queryByRole("dialog")).not.toBeInTheDocument()
+    })
+    expect(
+      canvas.getByRole("button", {
+        name: "Rename conversation: Billing layout",
+      }),
+    ).toBeInTheDocument()
+  },
+}
+
 function SocketCleanupHarness() {
   const [mounted, setMounted] = useState(false)
   return (

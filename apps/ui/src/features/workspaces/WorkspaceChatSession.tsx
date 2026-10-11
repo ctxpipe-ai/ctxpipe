@@ -21,6 +21,7 @@ import type {
   ConversationListInfiniteData,
   ConversationListItem,
 } from "@/features/chat/types"
+import { ConversationTitleButton } from "./ConversationTitleButton"
 import { ConversationTurnChangesCard } from "./ConversationTurnChangesCard"
 import { placeTurnChanges } from "./conversationDiff"
 import {
@@ -263,7 +264,14 @@ export function WorkspaceChatSession(props: {
   return (
     <WorkspaceChatChrome
       workspace={workspace}
-      title={headerTitle}
+      title={
+        <ConversationTitleButton
+          orgSlug={orgSlug}
+          conversationId={conversationId}
+          name={headerTitle}
+          onRenamed={applyRename}
+        />
+      }
       headerExtra={props.headerExtra}
       branch={
         prepareQuery.isSuccess && gitStatus?.branch

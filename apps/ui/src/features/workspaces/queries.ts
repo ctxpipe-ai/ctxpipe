@@ -1,5 +1,8 @@
 import { type QueryClient, queryOptions } from "@tanstack/react-query"
-import type { ConversationDetail } from "@/features/chat/types"
+import type {
+  ConversationDetail,
+  ConversationListItem,
+} from "@/features/chat/types"
 import { getApiClient } from "@/lib/api"
 import { pollWhileOk, readApiJson } from "@/lib/api-result"
 import {
@@ -106,6 +109,23 @@ export async function fetchConversation(
     emptyOn: [404],
     empty: null,
     message: "Failed to load conversation",
+  })
+}
+
+export async function renameConversation(
+  orgSlug: string,
+  conversationId: string,
+  name: string,
+): Promise<ConversationListItem> {
+  const client = await getApiClient()
+  const res = await client[":orgSlug"].api.v1.conversations[
+    ":conversationId"
+  ].$patch({
+    param: { orgSlug, conversationId },
+    json: { name },
+  })
+  return readApiJson<ConversationListItem>(res, {
+    message: "Failed to rename conversation",
   })
 }
 
