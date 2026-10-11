@@ -4,7 +4,11 @@ import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
 import { type ReactNode, useEffect, useState } from "react"
 import { Button } from "@/components/ui/Button"
 import { Modal } from "@/components/ui/Modal"
-import { Skeleton, useSkeletonHold } from "@/components/ui/Skeleton"
+import {
+  Skeleton,
+  SkeletonRegion,
+  useSkeletonHold,
+} from "@/components/ui/Skeleton"
 import {
   AddConfluenceConnectorButton,
   AddConnectorCatalogDialog,
@@ -74,7 +78,16 @@ export const Route = createFileRoute("/$orgSlug/connectors")({
   component: ConnectorsPage,
 })
 
+/** One skeleton region, so the session skeleton hands over to the list skeleton. */
 function ConnectorsPage() {
+  return (
+    <SkeletonRegion>
+      <ConnectorsPageGate />
+    </SkeletonRegion>
+  )
+}
+
+function ConnectorsPageGate() {
   const { data: session, isPending: sessionPending } = useSession()
   const { orgSlug } = Route.useParams()
 

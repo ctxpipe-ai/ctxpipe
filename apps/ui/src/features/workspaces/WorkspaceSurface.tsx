@@ -9,7 +9,7 @@ import { useSideNavLocation } from "@/components/ShellLayoutContext"
 import { parseSideNavLocation } from "@/components/SideNav/sideNavLocation"
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
-import { SkeletonSuspense } from "@/components/ui/Skeleton"
+import { SkeletonRegion, SkeletonSuspense } from "@/components/ui/Skeleton"
 import { pollWhileOk } from "@/lib/api-result"
 import {
   closeFileTab,
@@ -68,22 +68,24 @@ export function WorkspaceSurface(props: {
       ? nav.conversationId
       : urlConversationId
   return (
-    <WorkspaceQueryErrorBoundary>
-      <SkeletonSuspense
-        fallback={
-          <WorkspaceSurfaceSkeleton
-            paneOpen={landingPane(props.paneParam) != null}
+    <SkeletonRegion>
+      <WorkspaceQueryErrorBoundary>
+        <SkeletonSuspense
+          fallback={
+            <WorkspaceSurfaceSkeleton
+              paneOpen={landingPane(props.paneParam) != null}
+            />
+          }
+        >
+          <WorkspaceSurfaceReady
+            orgSlug={props.orgSlug}
+            workspaceSlug={props.workspaceSlug}
+            conversationId={conversationId}
+            paneParam={props.paneParam}
           />
-        }
-      >
-        <WorkspaceSurfaceReady
-          orgSlug={props.orgSlug}
-          workspaceSlug={props.workspaceSlug}
-          conversationId={conversationId}
-          paneParam={props.paneParam}
-        />
-      </SkeletonSuspense>
-    </WorkspaceQueryErrorBoundary>
+        </SkeletonSuspense>
+      </WorkspaceQueryErrorBoundary>
+    </SkeletonRegion>
   )
 }
 

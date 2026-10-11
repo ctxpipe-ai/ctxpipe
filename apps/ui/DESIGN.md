@@ -121,9 +121,10 @@ Decorative icons: `aria-hidden`, `text-muted-foreground`, intended size (~16–2
 
 All skeletons follow one rule. The rule is in [`Skeleton.tsx`](src/components/ui/Skeleton.tsx).
 
-- **Delay:** a skeleton is not visible for the first `SKELETON_DELAY_MS` (1000 ms). Before that time, the region keeps its final size but stays empty. Thus a fast load shows no skeleton.
+- **Delay:** a skeleton is not visible for the first `SKELETON_DELAY_MS` (1000 ms). Before that time, the region keeps its final size but stays empty. Thus a fast load shows no skeleton. A CSS animation (`ctx-skeleton-wait`) runs the delay, so the delay starts at first paint, also for server HTML.
+- **Hand-over:** wrap a loading region in `SkeletonRegion`. A skeleton that follows another skeleton in the region keeps the first start time, so the region does not go blank between two skeletons.
 - **Minimum time:** when a skeleton is visible, it stays for at least `SKELETON_MIN_MS` (300 ms). Use `useSkeletonHold(isPending)` for a query-driven skeleton. Use `SkeletonSuspense` in place of `Suspense`. Put wait text in a skeleton inside `SkeletonReveal`.
-- **Match:** a skeleton has the same box as the loaded state: the same size, position, spacing, row count and row height. Use the class names of the loaded component. Use `SkeletonText` for a text line, so that the bone row has the line height of the text. Do not change the skeleton for a different skeleton while the same region loads, because the delay starts again.
+- **Match:** a skeleton has the same box as the loaded state: the same size, position, spacing, row count and row height. Use the class names of the loaded component. Use `SkeletonText` for a text line, so that the bone row has the line height of the text. When one skeleton hands over to a different skeleton, put both in one `SkeletonRegion`.
 - **Subtle:** bones are `bg-zinc-800/50` with a `white/5` shimmer. The bone has the `ctx-loading-motion` class, so the reduced-motion rule does not stop the shimmer.
 - **Proof:** a story with a play test shows that the skeleton box and the loaded box have the same size (for example `RecentCommitsSkeletonMatches`).
 

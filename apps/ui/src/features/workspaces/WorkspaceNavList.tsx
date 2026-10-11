@@ -4,7 +4,11 @@ import { useState } from "react"
 import { SideNavRowSkeleton } from "@/components/SideNav/SideNavRowSkeleton"
 import type { SideNavLocation } from "@/components/SideNav/sideNavLocation"
 import { Button } from "@/components/ui/Button"
-import { Skeleton, SkeletonSuspense } from "@/components/ui/Skeleton"
+import {
+  Skeleton,
+  SkeletonRegion,
+  SkeletonSuspense,
+} from "@/components/ui/Skeleton"
 import { isWorkspaceNavOpen } from "./nav"
 import { workspaceListOptions } from "./queries"
 import { WorkspaceCreateModal } from "./WorkspaceCreateModal"
@@ -18,32 +22,36 @@ export function WorkspaceNavList(props: {
   onSelectNav: (next: SideNavLocation) => void
 }) {
   return (
-    <SkeletonSuspense
-      fallback={
-        <>
-          {props.expanded ? (
-            <li className="mx-1.5 mt-2.5 mb-0.5 flex h-8 w-[calc(100%-0.75rem)] items-center pl-2">
-              <p className="text-[10px] font-normal uppercase tracking-tighter text-muted-foreground">
-                Workspaces
-              </p>
+    <SkeletonRegion>
+      <SkeletonSuspense
+        fallback={
+          <>
+            {props.expanded ? (
+              <li className="mx-1.5 mt-2.5 mb-0.5 flex h-8 w-[calc(100%-0.75rem)] items-center pl-2">
+                <p className="text-[10px] font-normal uppercase tracking-tighter text-muted-foreground">
+                  Workspaces
+                </p>
+              </li>
+            ) : null}
+            <li className="w-full">
+              <ul className="space-y-0.5" aria-busy>
+                <li className="sr-only">Loading workspaces</li>
+                {(props.expanded ? [0, 1, 2] : [0]).map((row) => (
+                  <li key={row} className="w-full">
+                    <SideNavRowSkeleton
+                      navExpanded={props.expanded}
+                      gutter={<Skeleton className="size-4" />}
+                    />
+                  </li>
+                ))}
+              </ul>
             </li>
-          ) : null}
-          <li className="sr-only" aria-busy>
-            Loading workspaces
-          </li>
-          {(props.expanded ? [0, 1, 2] : [0]).map((row) => (
-            <li key={row} className="w-full">
-              <SideNavRowSkeleton
-                navExpanded={props.expanded}
-                gutter={<Skeleton className="size-4" />}
-              />
-            </li>
-          ))}
-        </>
-      }
-    >
-      <WorkspaceNavListReady {...props} />
-    </SkeletonSuspense>
+          </>
+        }
+      >
+        <WorkspaceNavListReady {...props} />
+      </SkeletonSuspense>
+    </SkeletonRegion>
   )
 }
 

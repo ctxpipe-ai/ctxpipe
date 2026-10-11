@@ -1,12 +1,14 @@
 import {
   type ComponentProps,
+  type CSSProperties,
+  createContext,
   type ReactNode,
-  type RefObject,
   Suspense,
   use,
+  useContext,
   useEffect,
-  useRef,
   useState,
+  useSyncExternalStore,
 } from "react"
 import { cn } from "@/lib/utils"
 
@@ -19,33 +21,86 @@ import { cn } from "@/lib/utils"
 export const SKELETON_DELAY_MS = 1000
 export const SKELETON_MIN_MS = 300
 
+/** A skeleton that mounts this soon after the last one left continues it. */
+const HAND_OVER_MS = 100
+
 const boneClassName =
-  "ctx-loading-motion relative inline-block overflow-hidden rounded-md bg-zinc-800/50 before:absolute before:inset-0 before:-translate-x-full before:animate-[shimmer_1.5s_ease-in-out_infinite] before:bg-linear-to-r before:from-transparent before:via-white/5 before:to-transparent"
+  "ctx-loading-motion ctx-skeleton-wait relative inline-block overflow-hidden rounded-md bg-zinc-800/50 before:absolute before:inset-0 before:-translate-x-full before:animate-[shimmer_1.5s_ease-in-out_infinite] before:bg-linear-to-r before:from-transparent before:via-white/5 before:to-transparent"
 
-function useDelayElapsed() {
-  const [elapsed, setElapsed] = useState(false)
-  useEffect(() => {
-    const id = setTimeout(() => setElapsed(true), SKELETON_DELAY_MS)
-    return () => clearTimeout(id)
-  }, [])
-  return elapsed
-}
+type Region = { start: number; mounted: number; lastSeen: number }
 
-export function Skeleton({ className, ...props }: ComponentProps<"span">) {
-  const visible = useDelayElapsed()
+const SkeletonRegionContext = createContext<Region | null>(null)
+
+/**
+ * One loading region. A skeleton that follows another skeleton in the region
+ * (in the same commit, or within `HAND_OVER_MS`) keeps the first start time,
+ * so a hand-over does not start the delay again.
+ */
+export function SkeletonRegion(props: { children: ReactNode }) {
+  const [region] = useState<Region>(() => ({
+    start: 0,
+    mounted: 0,
+    lastSeen: Number.NEGATIVE_INFINITY,
+  }))
   return (
-    <span
-      role="presentation"
-      data-skeleton={visible ? "visible" : "waiting"}
-      className={cn(boneClassName, !visible && "invisible", className)}
-      {...props}
-    />
+    <SkeletonRegionContext.Provider value={region}>
+      {props.children}
+    </SkeletonRegionContext.Provider>
   )
 }
 
-/** One loading region: a skeleton that follows another keeps its start time. */
-export function SkeletonRegion(props: { children: ReactNode }) {
-  return props.children
+/**
+ * The wait (ms) before this skeleton shows. CSS runs the wait. Without a
+ * region, or for a new load, it is the full delay.
+ */
+function useSkeletonWait() {
+  const region = useContext(SkeletonRegionContext)
+  const [wait] = useState(() => {
+    if (!region || typeof window === "undefined") return SKELETON_DELAY_MS
+    const now = performance.now()
+    const continues = region.mounted > 0 || now - region.lastSeen < HAND_OVER_MS
+    region.lastSeen = now
+    if (!continues) {
+      region.start = now
+      return SKELETON_DELAY_MS
+    }
+    const left = region.start + SKELETON_DELAY_MS - now
+    // A small difference keeps the server markup during hydration.
+    return left > SKELETON_DELAY_MS - 50
+      ? SKELETON_DELAY_MS
+      : Math.max(0, Math.round(left))
+  })
+  useEffect(() => {
+    if (!region) return
+    region.mounted += 1
+    return () => {
+      region.mounted -= 1
+      region.lastSeen = performance.now()
+    }
+  }, [region])
+  return wait
+}
+
+function waitStyle(wait: number, style?: CSSProperties) {
+  if (wait === SKELETON_DELAY_MS) return style
+  return { ...style, "--skeleton-wait": `${wait}ms` } as CSSProperties
+}
+
+export function Skeleton({
+  className,
+  style,
+  ...props
+}: ComponentProps<"span">) {
+  const wait = useSkeletonWait()
+  return (
+    <span
+      role="presentation"
+      data-skeleton=""
+      className={cn(boneClassName, className)}
+      style={waitStyle(wait, style)}
+      {...props}
+    />
+  )
 }
 
 /**
@@ -56,9 +111,12 @@ export function SkeletonReveal(props: {
   className?: string
   children: ReactNode
 }) {
-  const visible = useDelayElapsed()
+  const wait = useSkeletonWait()
   return (
-    <div className={cn(!visible && "invisible", props.className)}>
+    <div
+      className={cn("ctx-loading-motion ctx-skeleton-wait", props.className)}
+      style={waitStyle(wait)}
+    >
       {props.children}
     </div>
   )
@@ -87,6 +145,35 @@ export function useSkeletonHold(pending: boolean) {
 }
 
 /**
+ * The minimum show time of a `SkeletonSuspense` fallback, as a small store:
+ * the fallback starts it, and the content reads it with
+ * `useSyncExternalStore`.
+ */
+function createHold() {
+  let promise: Promise<void> | null = null
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const listeners = new Set<() => void>()
+  return {
+    subscribe(listener: () => void) {
+      listeners.add(listener)
+      return () => {
+        listeners.delete(listener)
+      }
+    },
+    read: () => promise,
+    start() {
+      promise = new Promise((resolve) => {
+        timer = setTimeout(resolve, SKELETON_MIN_MS)
+      })
+      for (const listener of listeners) listener()
+    },
+    dispose: () => clearTimeout(timer),
+  }
+}
+
+type Hold = ReturnType<typeof createHold>
+
+/**
  * `Suspense` with a skeleton fallback that follows the loading-state rule:
  * when the fallback became visible, the content waits until the fallback has
  * shown for `SKELETON_MIN_MS`.
@@ -95,7 +182,8 @@ export function SkeletonSuspense(props: {
   fallback: ReactNode
   children: ReactNode
 }) {
-  const hold = useRef<Promise<void> | null>(null)
+  const [hold] = useState(createHold)
+  useEffect(() => hold.dispose, [hold])
   return (
     <Suspense
       fallback={
@@ -107,27 +195,23 @@ export function SkeletonSuspense(props: {
   )
 }
 
-function SkeletonFallback(props: {
-  hold: RefObject<Promise<void> | null>
-  children: ReactNode
-}) {
+function SkeletonFallback(props: { hold: Hold; children: ReactNode }) {
   const { hold } = props
+  const wait = useSkeletonWait()
   useEffect(() => {
-    const id = setTimeout(() => {
-      hold.current = new Promise((resolve) =>
-        setTimeout(resolve, SKELETON_MIN_MS),
-      )
-    }, SKELETON_DELAY_MS)
+    const id = setTimeout(hold.start, wait)
     return () => clearTimeout(id)
-  }, [hold])
+  }, [hold, wait])
   return props.children
 }
 
-function SkeletonGate(props: {
-  hold: RefObject<Promise<void> | null>
-  children: ReactNode
-}) {
-  if (props.hold.current) use(props.hold.current)
+function SkeletonGate(props: { hold: Hold; children: ReactNode }) {
+  const pending = useSyncExternalStore(
+    props.hold.subscribe,
+    props.hold.read,
+    () => null,
+  )
+  if (pending) use(pending)
   return props.children
 }
 
@@ -194,6 +278,3 @@ export function PageBodySkeleton(props: { label: string; className?: string }) {
     </div>
   )
 }
-
-/** @deprecated Use `Skeleton`. */
-export const ShimmerPlaceholder = Skeleton

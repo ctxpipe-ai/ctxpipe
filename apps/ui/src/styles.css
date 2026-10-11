@@ -255,6 +255,22 @@
   }
 }
 
+/*
+ * Skeleton delay (DESIGN.md "Loading states"): a bone keeps its box but stays
+ * hidden for --skeleton-wait. CSS starts the wait at first paint, also for
+ * server HTML. The bone is a loader, so reduced motion does not skip the wait.
+ */
+@keyframes ctx-skeleton-wait {
+  from,
+  to {
+    visibility: hidden;
+  }
+}
+
+.ctx-loading-motion.ctx-skeleton-wait {
+  animation: ctx-skeleton-wait var(--skeleton-wait, 1000ms) linear;
+}
+
 @keyframes ctx-indexing-pulse {
   0%,
   100% {

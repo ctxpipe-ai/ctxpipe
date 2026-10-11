@@ -131,7 +131,8 @@ function ConversationSandboxFilesPane(props: {
   const awaitingFirstList =
     !tree || (tree.ready === false && !tree.paths.length)
   const showSkeleton = useSkeletonHold(awaitingFirstList)
-  if (awaitingFirstList || showSkeleton) {
+  // `awaitingFirstList` is also true here; it narrows `tree` for TypeScript.
+  if (showSkeleton || awaitingFirstList) {
     if (
       awaitingFirstList &&
       sandboxTreeQuery.isError &&

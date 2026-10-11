@@ -141,9 +141,13 @@ export const FastLoadSkipsSkeleton: Story = {
   render: () => <HoldDemo />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
+    // The hidden skeleton keeps its box before the click.
+    expect(allHidden(canvasElement)).toBe(true)
     await userEvent.click(
       canvas.getByRole("button", { name: "Finish loading" }),
     )
+    // No minimum hold: the skeleton never showed, so a hook that always
+    // holds fails here.
     expect(canvas.getByText("Loaded")).toBeVisible()
     expect(bones(canvasElement)).toHaveLength(0)
   },
@@ -290,8 +294,6 @@ export const HandOverKeepsDelayStart: Story = {
     await waitFor(() => expect(allVisible(canvasElement)).toBe(true), {
       timeout: SKELETON_DELAY_MS * 2,
     })
-    expect(performance.now() - mountedAt).toBeLessThan(
-      SKELETON_DELAY_MS + 250,
-    )
+    expect(performance.now() - mountedAt).toBeLessThan(SKELETON_DELAY_MS + 250)
   },
 }
