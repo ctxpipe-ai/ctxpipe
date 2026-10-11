@@ -23,6 +23,10 @@ export const workspaceChromeTabClassName = [
   "text-sm font-medium leading-none text-foreground",
 ].join(" ")
 
+/**
+ * Idle tab. The buttons at the top right of the conversation (Sync, Create PR,
+ * Show PR) use it too, so they look the same as the pane triggers.
+ */
 export const workspaceChromeTabIdleClassName = [
   "box-border my-0.5 -translate-y-px inline-flex h-8 shrink-0 cursor-pointer items-center justify-center px-3",
   "rounded-md border-0 bg-transparent",

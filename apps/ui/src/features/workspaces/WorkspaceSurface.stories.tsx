@@ -625,7 +625,7 @@ export const CreatePrMatchesPaneTriggers: Story = {
 const publishActionNames = (root: HTMLElement) =>
   within(root)
     .queryAllByRole("button", { name: /^(Sync|Create PR)/ })
-    .concat(within(root).queryAllByRole("link", { name: "Show PR" }))
+    .concat(within(root).queryAllByRole("link", { name: /^Show PR/ }))
     .filter((element) => !element.closest("[inert]"))
     .map((element) => element.getAttribute("aria-label") ?? element.textContent)
 

@@ -261,7 +261,12 @@ export const CreatingPr: Story = {
   },
 }
 
+/**
+ * Show PR has the pull request icon, and an external-link badge at its top
+ * right. Its name tells that it opens in a new tab.
+ */
 export const ShowPr: Story = {
+  tags: ["workspace-golden"],
   args: {
     title: "Repo layout",
     branch: {
@@ -293,7 +298,23 @@ export const ShowPr: Story = {
     expect(
       canvas.queryByRole("button", { name: "Create PR" }),
     ).not.toBeInTheDocument()
-    expect(canvas.getByRole("link", { name: "Show PR" })).toBeVisible()
+    const showPr = canvas.getByRole("link", {
+      name: "Show PR (opens in a new tab)",
+    })
+    expect(showPr).toBeVisible()
+    expect(showPr).toHaveAttribute("target", "_blank")
+    expect(
+      showPr.querySelector("svg.tabler-icon-git-pull-request"),
+    ).not.toBeNull()
+    const badge = showPr.querySelector("svg.tabler-icon-external-link")
+    expect(badge).not.toBeNull()
+    const link = showPr.getBoundingClientRect()
+    const mark = badge?.getBoundingClientRect()
+    // The badge is small and sits in the top right corner of the link.
+    expect(mark?.width).toBeGreaterThanOrEqual(10)
+    expect(mark?.width).toBeLessThanOrEqual(12)
+    expect((mark?.top ?? 0) - link.top).toBeLessThan(link.height / 3)
+    expect(link.right - (mark?.right ?? 0)).toBeLessThan(link.width / 6)
   },
 }
 
@@ -327,10 +348,9 @@ export const CommitPushWithOpenPr: Story = {
     const commitPush = await canvas.findByRole("button", {
       name: syncName,
     })
-    expect(canvas.getByRole("link", { name: "Show PR" })).toHaveAttribute(
-      "href",
-      "https://github.com/acme/docs/pull/41",
-    )
+    expect(
+      canvas.getByRole("link", { name: "Show PR (opens in a new tab)" }),
+    ).toHaveAttribute("href", "https://github.com/acme/docs/pull/41")
     expect(
       canvas.queryByRole("button", { name: "Create PR" }),
     ).not.toBeInTheDocument()
