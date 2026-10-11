@@ -72,6 +72,7 @@ const required = [
     "LoadingUnderReducedMotion",
   ],
   ["apps/ui/src/routes/-onboarding.stories.tsx", "DoubleClickMovesOneSlide"],
+  [
     "apps/ui/src/features/chat/ConversationThread.stories.tsx",
     "ChatProgressDone",
   ],
