@@ -4,10 +4,10 @@ import {
   useSuspenseQuery,
 } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { type ReactNode, Suspense } from "react"
+import type { ReactNode } from "react"
 import { useSelectNav } from "@/components/ShellLayoutContext"
 import { Button } from "@/components/ui/Button"
-import { Skeleton } from "@/components/ui/Skeleton"
+import { Skeleton, SkeletonSuspense } from "@/components/ui/Skeleton"
 import { chatDraftKey } from "@/features/chat/chat-draft"
 import { ConversationThreadSkeleton } from "@/features/chat/components/ConversationThreadSkeleton"
 import { MessageInputBox } from "@/features/chat/MessageInputBox"
@@ -37,7 +37,7 @@ export function WorkspaceChat(props: {
   }
 
   return (
-    <Suspense
+    <SkeletonSuspense
       fallback={
         <WorkspaceChatResumeFallback
           orgSlug={orgSlug}
@@ -53,7 +53,7 @@ export function WorkspaceChat(props: {
         conversationId={routeConversationId}
         headerExtra={props.headerExtra}
       />
-    </Suspense>
+    </SkeletonSuspense>
   )
 }
 

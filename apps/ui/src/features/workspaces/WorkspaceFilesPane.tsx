@@ -12,19 +12,13 @@ import {
   useSuspenseQuery,
 } from "@tanstack/react-query"
 import { useParams } from "@tanstack/react-router"
-import {
-  Suspense,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Heading } from "react-aria-components"
 import { Button } from "@/components/ui/Button"
 import { Dialog } from "@/components/ui/Dialog"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { Modal } from "@/components/ui/Modal"
+import { SkeletonSuspense } from "@/components/ui/Skeleton"
 import { TextField } from "@/components/ui/TextField"
 import { ApiError } from "@/lib/api-result"
 import { cn } from "@/lib/utils"
@@ -878,7 +872,7 @@ function WorkspaceFilesPaneContent(props: {
               })
             }}
           >
-            <Suspense fallback={<WorkspaceFilePreviewSkeleton />}>
+            <SkeletonSuspense fallback={<WorkspaceFilePreviewSkeleton />}>
               <WorkspaceGitFilePreview
                 orgSlug={props.orgSlug}
                 workspaceSlug={props.workspaceSlug}
@@ -916,7 +910,7 @@ function WorkspaceFilesPaneContent(props: {
                   scheduleAutosave(path)
                 }}
               />
-            </Suspense>
+            </SkeletonSuspense>
           </div>
         ) : (
           <div className="flex min-h-0 flex-1 items-center justify-center p-4">

@@ -17,11 +17,12 @@ import {
 import { ClientOnly } from "@tanstack/react-router"
 import { motion } from "motion/react"
 import type { CSSProperties, ReactNode } from "react"
-import { lazy, Suspense, useEffect, useRef } from "react"
+import { lazy, useEffect, useRef } from "react"
 import { type Key, Tab, TabList, TabPanel, Tabs } from "react-aria-components"
 import { OverlayNavMenuButton } from "@/components/OverlayNavButton"
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
+import { SkeletonSuspense } from "@/components/ui/Skeleton"
 import {
   Tooltip,
   TooltipContent,
@@ -364,7 +365,7 @@ export function WorkspacePane(props: {
         >
           <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
             {pane.kind === "files" || pane.kind === "file" ? (
-              <Suspense fallback={<WorkspaceFilesPaneSkeleton />}>
+              <SkeletonSuspense fallback={<WorkspaceFilesPaneSkeleton />}>
                 <WorkspaceFilesPaneBody
                   orgSlug={props.orgSlug}
                   workspaceSlug={props.workspace.slug}
@@ -386,16 +387,16 @@ export function WorkspacePane(props: {
                   onToggleTree={props.onToggleTree}
                   onCloseActiveFile={props.onCloseActiveFile}
                 />
-              </Suspense>
+              </SkeletonSuspense>
             ) : null}
             {pane.kind === "diff" && props.conversationId ? (
-              <Suspense fallback={<WorkspaceFilesPaneSkeleton />}>
+              <SkeletonSuspense fallback={<WorkspaceFilesPaneSkeleton />}>
                 <WorkspaceConversationDiffPane
                   orgSlug={props.orgSlug}
                   conversationId={props.conversationId}
                   onOpenFile={openFile}
                 />
-              </Suspense>
+              </SkeletonSuspense>
             ) : null}
             {pane.kind === "graph" ? (
               <ClientOnly fallback={<WorkspaceGraphPaneSkeleton />}>
@@ -460,7 +461,7 @@ function WorkspaceGraphPaneBody(props: {
       </div>
     )
   return (
-    <Suspense fallback={<WorkspaceGraphPaneSkeleton />}>
+    <SkeletonSuspense fallback={<WorkspaceGraphPaneSkeleton />}>
       <WorkspaceGraphPane
         orgSlug={props.orgSlug}
         workspaceSlug={props.workspace.slug}
@@ -469,7 +470,7 @@ function WorkspaceGraphPaneBody(props: {
         error={query.error instanceof Error ? query.error : null}
         onOpenSource={props.onOpenSource}
       />
-    </Suspense>
+    </SkeletonSuspense>
   )
 }
 

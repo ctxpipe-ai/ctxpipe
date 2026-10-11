@@ -5,11 +5,12 @@ import {
 } from "@tanstack/react-query"
 import { useNavigate, useRouterState, useSearch } from "@tanstack/react-router"
 import { AnimatePresence } from "motion/react"
-import { Component, type ReactNode, Suspense, useEffect, useState } from "react"
+import { Component, type ReactNode, useEffect, useState } from "react"
 import { useSideNavLocation } from "@/components/ShellLayoutContext"
 import { parseSideNavLocation } from "@/components/SideNav/sideNavLocation"
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
+import { SkeletonSuspense } from "@/components/ui/Skeleton"
 import { pollWhileOk } from "@/lib/api-result"
 import {
   closeFileTab,
@@ -68,14 +69,14 @@ export function WorkspaceSurface(props: {
       : urlConversationId
   return (
     <WorkspaceQueryErrorBoundary>
-      <Suspense fallback={<WorkspaceSurfaceSkeleton />}>
+      <SkeletonSuspense fallback={<WorkspaceSurfaceSkeleton />}>
         <WorkspaceSurfaceReady
           orgSlug={props.orgSlug}
           workspaceSlug={props.workspaceSlug}
           conversationId={conversationId}
           paneParam={props.paneParam}
         />
-      </Suspense>
+      </SkeletonSuspense>
     </WorkspaceQueryErrorBoundary>
   )
 }

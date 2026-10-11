@@ -1,9 +1,9 @@
 import { IconPlus } from "@tabler/icons-react"
 import { useSuspenseQuery } from "@tanstack/react-query"
-import { Suspense, useState } from "react"
+import { useState } from "react"
 import type { SideNavLocation } from "@/components/SideNav/sideNavLocation"
 import { Button } from "@/components/ui/Button"
-import { SkeletonRow } from "@/components/ui/Skeleton"
+import { SkeletonRow, SkeletonSuspense } from "@/components/ui/Skeleton"
 import { isWorkspaceNavOpen } from "./nav"
 import { workspaceListOptions } from "./queries"
 import { WorkspaceCreateModal } from "./WorkspaceCreateModal"
@@ -17,7 +17,7 @@ export function WorkspaceNavList(props: {
   onSelectNav: (next: SideNavLocation) => void
 }) {
   return (
-    <Suspense
+    <SkeletonSuspense
       fallback={
         props.expanded ? (
           <>
@@ -46,7 +46,7 @@ export function WorkspaceNavList(props: {
       }
     >
       <WorkspaceNavListReady {...props} />
-    </Suspense>
+    </SkeletonSuspense>
   )
 }
 

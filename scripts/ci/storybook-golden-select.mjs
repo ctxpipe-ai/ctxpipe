@@ -25,6 +25,10 @@ export const requiredStories = [
   "PreparePendingWithError",
   "FailedTouchIsCaught",
   "OrgGateTryAgainLoads",
+  "WaitsForDelay",
+  "FastLoadSkipsSkeleton",
+  "VisibleSkeletonHoldsMinimum",
+  "SuspenseHoldsMinimum",
 ]
 
 export function isGoldenPlaySuccess(phase) {

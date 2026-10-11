@@ -1,17 +1,113 @@
-import type { ComponentProps } from "react"
+import {
+  type ComponentProps,
+  type ReactNode,
+  type RefObject,
+  Suspense,
+  use,
+  useEffect,
+  useRef,
+  useState,
+} from "react"
 import { cn } from "@/lib/utils"
 
+/**
+ * Loading-state rule for every skeleton (DESIGN.md "Loading states"):
+ * a bone keeps its box but stays invisible for `SKELETON_DELAY_MS`, so a fast
+ * load shows no skeleton. A skeleton that becomes visible stays for at least
+ * `SKELETON_MIN_MS`, so it does not flash.
+ */
+export const SKELETON_DELAY_MS = 1000
+export const SKELETON_MIN_MS = 300
+
 const boneClassName =
-  "relative inline-block overflow-hidden rounded-md bg-zinc-800 before:absolute before:inset-0 before:-translate-x-full before:animate-[shimmer_1.5s_ease-in-out_infinite] before:bg-linear-to-r before:from-transparent before:via-white/10 before:to-transparent"
+  "relative inline-block overflow-hidden rounded-md bg-zinc-800/50 before:absolute before:inset-0 before:-translate-x-full before:animate-[shimmer_1.5s_ease-in-out_infinite] before:bg-linear-to-r before:from-transparent before:via-white/5 before:to-transparent"
+
+function useDelayElapsed() {
+  const [elapsed, setElapsed] = useState(false)
+  useEffect(() => {
+    const id = setTimeout(() => setElapsed(true), SKELETON_DELAY_MS)
+    return () => clearTimeout(id)
+  }, [])
+  return elapsed
+}
 
 export function Skeleton({ className, ...props }: ComponentProps<"span">) {
+  const visible = useDelayElapsed()
   return (
     <span
       role="presentation"
-      className={cn(boneClassName, className)}
+      data-skeleton={visible ? "visible" : "waiting"}
+      className={cn(boneClassName, !visible && "invisible", className)}
       {...props}
     />
   )
+}
+
+/**
+ * Keep a query-driven skeleton up for `SKELETON_MIN_MS` after it became
+ * visible. Use it as `useSkeletonHold(query.isPending) ? <Skeleton… /> : …`.
+ */
+export function useSkeletonHold(pending: boolean) {
+  const [shownAt, setShownAt] = useState<number | null>(null)
+  useEffect(() => {
+    if (pending) {
+      if (shownAt !== null) return
+      const id = setTimeout(() => setShownAt(Date.now()), SKELETON_DELAY_MS)
+      return () => clearTimeout(id)
+    }
+    if (shownAt === null) return
+    const id = setTimeout(
+      () => setShownAt(null),
+      Math.max(0, shownAt + SKELETON_MIN_MS - Date.now()),
+    )
+    return () => clearTimeout(id)
+  }, [pending, shownAt])
+  return pending || shownAt !== null
+}
+
+/**
+ * `Suspense` with a skeleton fallback that follows the loading-state rule:
+ * when the fallback became visible, the content waits until the fallback has
+ * shown for `SKELETON_MIN_MS`.
+ */
+export function SkeletonSuspense(props: {
+  fallback: ReactNode
+  children: ReactNode
+}) {
+  const hold = useRef<Promise<void> | null>(null)
+  return (
+    <Suspense
+      fallback={
+        <SkeletonFallback hold={hold}>{props.fallback}</SkeletonFallback>
+      }
+    >
+      <SkeletonGate hold={hold}>{props.children}</SkeletonGate>
+    </Suspense>
+  )
+}
+
+function SkeletonFallback(props: {
+  hold: RefObject<Promise<void> | null>
+  children: ReactNode
+}) {
+  const { hold } = props
+  useEffect(() => {
+    const id = setTimeout(() => {
+      hold.current = new Promise((resolve) =>
+        setTimeout(resolve, SKELETON_MIN_MS),
+      )
+    }, SKELETON_DELAY_MS)
+    return () => clearTimeout(id)
+  }, [hold])
+  return props.children
+}
+
+function SkeletonGate(props: {
+  hold: RefObject<Promise<void> | null>
+  children: ReactNode
+}) {
+  if (props.hold.current) use(props.hold.current)
+  return props.children
 }
 
 export function SkeletonLine({ className, ...props }: ComponentProps<"span">) {
