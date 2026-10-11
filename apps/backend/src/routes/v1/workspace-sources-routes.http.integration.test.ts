@@ -55,7 +55,9 @@ sources:
     })
     await projectWorkspaceSources({
       orgId: seed.orgId,
-      revision: repo.revision(workspaceId, sha),
+      workspaceId,
+      revision: sha,
+      text: await repo.sourcesText(sha),
       env: parseEnv(process.env),
     })
     const slug = `support-${seed.suffix.replaceAll("_", "-")}`.slice(0, 60)

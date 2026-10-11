@@ -21,10 +21,12 @@ describe("projectWorkspaceSources (Postgres + git)", () => {
     const forge = await seed.addConnection("forge")
     const workspaceId = await seed.addWorkspace("docs")
     const repo = await seed.gitRepository()
-    const project = (sha: string) =>
+    const project = async (sha: string) =>
       projectWorkspaceSources({
         orgId: seed.orgId,
-        revision: repo.revision(workspaceId, sha),
+        workspaceId,
+        revision: sha,
+        text: await repo.sourcesText(sha),
         env,
         adapters: {
           confluence: {

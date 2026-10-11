@@ -3,6 +3,7 @@ import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { projectWorkspaceSources } from "../../domain/workspace-sources/project.js"
+import { SOURCES_FILE_PATH } from "../../domain/workspace-sources/sources-file.js"
 import { embedHydrateUnits } from "../../domain/workspaces/derived-stores.js"
 import { projectWorkspaceGraph } from "../../domain/workspaces/graph-projection.js"
 import {
@@ -158,10 +159,11 @@ export const workspaceHydrate = defineWorkflow(
                     : null,
               }),
             )
-            const files = planning.needed
+            const treeFiles = planning.needed
               ? await step.run({ name: "read-planning-revision" }, async () =>
                   listMarkdownFilesAtGitSha({
                     includeIntroducingCommits: true,
+                    extraPaths: [SOURCES_FILE_PATH],
                     url: revision.remote.url,
                     sha: revision.sha,
                     token:
@@ -174,6 +176,9 @@ export const workspaceHydrate = defineWorkflow(
                   }),
                 )
               : []
+            const files = treeFiles.filter(
+              (file) => file.path !== SOURCES_FILE_PATH,
+            )
             const enqueueRemainingWrites = async () => {
               if (!planning.needed) return
               const plan = await step.run(
@@ -344,21 +349,18 @@ export const workspaceHydrate = defineWorkflow(
               }
             }
 
-            if (activated && pending.postgres) {
+            if (activated && pending.postgres && planning.needed) {
               await step.run(
                 { name: "project-workspace-sources" },
                 async () => {
                   const projected = await projectWorkspaceSources({
                     orgId: input.orgId,
-                    revision,
+                    workspaceId: workspace.id,
+                    revision: revision.sha,
+                    text:
+                      treeFiles.find((file) => file.path === SOURCES_FILE_PATH)
+                        ?.content ?? null,
                     env,
-                    token:
-                      token ??
-                      (await resolveRepositoryReadCredential({
-                        orgId: input.orgId,
-                        env,
-                        remote: revision.remote,
-                      })),
                   })
                   // Import at the admission boundary, like the PR backfill above.
                   const { enqueueSourceProjectionFollowUps } = await import(

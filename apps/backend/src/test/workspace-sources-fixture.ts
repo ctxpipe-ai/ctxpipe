@@ -10,7 +10,8 @@ import { closeDb, getSystemDb, initDb, withOrgDbContext } from "../db/client.js"
 import { organizations } from "../db/schema/auth.js"
 import { type ConnectionType, connections } from "../db/schema/connections.js"
 import { workspaces } from "../db/schema/workspaces.js"
-import type { WorkspaceRevision } from "../domain/workspaces/revision.js"
+import { SOURCES_FILE_PATH } from "../domain/workspace-sources/sources-file.js"
+import { listMarkdownFilesAtGitSha } from "../services/git/clone-tree.js"
 
 const execFileAsync = promisify(execFile)
 const __dirname = fileURLToPath(new URL(".", import.meta.url))
@@ -98,15 +99,17 @@ export async function seedSourcesOrg(name: string) {
           ])
           return stdout.trim()
         },
-        revision(workspaceId: string, sha: string): WorkspaceRevision {
-          return {
-            workspaceId,
-            generation: 1,
-            remote: { url: dir, connectionId: null },
-            defaultBranch: "main",
+        /** Read the sources file at `sha` the way hydrate reads it. */
+        async sourcesText(sha: string): Promise<string | null> {
+          const files = await listMarkdownFilesAtGitSha({
+            url: dir,
             sha,
-            access: "read",
-          }
+            extraPaths: [SOURCES_FILE_PATH],
+          })
+          return (
+            files.find((file) => file.path === SOURCES_FILE_PATH)?.content ??
+            null
+          )
         },
       }
     },
