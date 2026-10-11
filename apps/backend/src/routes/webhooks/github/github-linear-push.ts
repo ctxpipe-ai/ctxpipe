@@ -20,6 +20,7 @@ import {
   LINEAR_CONFIG_PATH,
   loadLinearScopeFromRepo,
 } from "../../../services/linear/config-from-repo.js"
+import { linearLegacySyncRetired } from "../../../services/linear/legacy-retired.js"
 
 const GIT_EMPTY_TREE_SHA = "0000000000000000000000000000000000000000"
 
@@ -137,6 +138,17 @@ export async function maybeActivateLinearSyncOnConfigPush(input: {
         })
         continue
       }
+
+      // ADR-050: a Workspace source that writes into this repository owns
+      // the Linear files now; the legacy full sync would delete them.
+      if (
+        await linearLegacySyncRetired({
+          orgId: target.orgId,
+          connectionId: target.connectionId,
+          syncRepositoryGitUrl: repository.gitUrl,
+        })
+      )
+        continue
 
       try {
         await enqueueConnectorContentSync({

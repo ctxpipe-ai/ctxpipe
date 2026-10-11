@@ -36,6 +36,11 @@ export type SourceMigrationHook = {
     orgId: string
     env: Env
   }): Promise<LegacySourceBinding[]>
+  /**
+   * Optional. Turn off the legacy sync of a connection whose source moved,
+   * so that the legacy mirror does not write the same repository.
+   */
+  disableLegacy?(input: { orgId: string; connectionId: string }): Promise<void>
 }
 
 export const SOURCE_MIGRATION_HOOKS: Partial<

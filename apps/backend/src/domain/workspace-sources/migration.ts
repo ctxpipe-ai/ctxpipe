@@ -8,7 +8,7 @@ import {
   getFileContent,
   listOpenPullRequestsByBranchPrefix,
 } from "../../services/github/installation-write-client.js"
-import { applySourceFileChange } from "./edit.js"
+import { applySourceFileChange, type SourceChange } from "./edit.js"
 import {
   planSourceMigration,
   SOURCE_MIGRATION_HOOKS,
@@ -19,6 +19,26 @@ import { workspaceGithubRepository } from "./repository.js"
 import { SOURCES_FILE_PATH, type SourceProvider } from "./sources-file.js"
 
 const MIGRATION_BRANCH_PREFIX = "ctxpipe/sources/migrate"
+
+/**
+ * After the migration PR of a Workspace exists, turn off the legacy sync of
+ * each connection that moved into it, so that two mirrors do not write the
+ * same repository.
+ */
+export async function disableMovedLegacySyncs(input: {
+  orgId: string
+  hooks: readonly SourceMigrationHook[]
+  changes: readonly SourceChange[]
+}): Promise<void> {
+  for (const change of input.changes) {
+    if (change.action === "remove") continue
+    const hook = input.hooks.find((item) => item.provider === change.provider)
+    await hook?.disableLegacy?.({
+      orgId: input.orgId,
+      connectionId: change.connectionId,
+    })
+  }
+}
 
 /**
  * Migrate the connections of one org to Workspace sources (ADR-050): one PR
@@ -43,6 +63,8 @@ export async function runSourceMigration(input: {
   }
 > {
   const hooks = Object.values(input.hooks ?? SOURCE_MIGRATION_HOOKS)
+  const disableMovedLegacy = (changes: readonly SourceChange[]) =>
+    disableMovedLegacySyncs({ orgId: input.orgId, hooks, changes })
   const bindings = (
     await Promise.all(
       hooks.map((hook) =>
@@ -98,6 +120,7 @@ export async function runSourceMigration(input: {
           pullRequestUrl: open.pullUrl,
           existing: true,
         })
+        await disableMovedLegacy(changes)
         continue
       }
       const pull = await createPullRequestWithFiles({
@@ -114,6 +137,7 @@ export async function runSourceMigration(input: {
         pullRequestUrl: pull.pullUrl,
         existing: false,
       })
+      await disableMovedLegacy(changes)
     } catch (error) {
       failures.push({
         workspaceId,

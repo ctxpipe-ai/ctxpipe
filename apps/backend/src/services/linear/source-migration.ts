@@ -4,6 +4,7 @@ import type {
 } from "../../domain/workspace-sources/migration-plan.js"
 import { linearScopeSchema } from "../../domain/workspace-sources/providers/linear.js"
 import {
+  disableLinearLegacyBinding,
   getLinearBindingWithRepoByConnectionId,
   listLinearConnectionsForOrg,
 } from "../../models/linear-connector.js"
@@ -122,5 +123,8 @@ export const linearSourceMigrationHook: SourceMigrationHook = {
       )
     }
     return bindings
+  },
+  async disableLegacy(input) {
+    await disableLinearLegacyBinding(input)
   },
 }
