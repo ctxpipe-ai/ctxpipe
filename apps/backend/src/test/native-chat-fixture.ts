@@ -48,6 +48,8 @@ export async function withNativeChatFixture<T>(
     listenHost?: string
     /** The text reply; the default is "Native reply completed.". */
     reply?: string
+    /** Sends the text reply in deltas of this many characters. */
+    replyDeltaSize?: number
     /** A tool call to answer instead of the text reply (one per request). */
     toolCall?: (
       request: Record<string, unknown>,
@@ -135,12 +137,20 @@ export async function withNativeChatFixture<T>(
         }
         if (request.stream) {
           res.writeHead(200, { "content-type": "text/event-stream" })
+          const size = options.replyDeltaSize ?? content.length
+          const deltas = Array.from(
+            { length: Math.ceil(content.length / size) },
+            (_, index) => content.slice(index * size, (index + 1) * size),
+          )
           for (const choice of [
-            {
+            ...deltas.map((delta, index) => ({
               index: 0,
-              delta: { role: "assistant", content },
+              delta:
+                index === 0
+                  ? { role: "assistant", content: delta }
+                  : { content: delta },
               finish_reason: null,
-            },
+            })),
             { index: 0, delta: {}, finish_reason: "stop" },
           ])
             res.write(
