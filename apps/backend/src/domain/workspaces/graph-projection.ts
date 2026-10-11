@@ -69,6 +69,16 @@ export async function projectWorkspaceGraph(
           // FalkorDB has no IF NOT EXISTS. A second create gives this error.
           if (!/already indexed/i.test(String(error))) throw error
         })
+    // Write the revision graph clean. A rebuild after a partial or lost graph
+    // must not keep stale nodes, or the read count check never matches.
+    await graph.executeQuery(
+      "MATCH (p:WorkspaceProjection {projectionKey: $projectionKey}) DELETE p",
+      { projectionKey },
+    )
+    await graph.executeQuery(
+      "MATCH (n:WorkspaceKnowledgeUnit {projectionKey: $projectionKey}) DETACH DELETE n",
+      { projectionKey },
+    )
     const nodes = workspaceGraphNodes(snapshot.units)
     if (nodes.length)
       await graph.executeQuery(
@@ -100,15 +110,12 @@ export async function projectWorkspaceGraph(
 }
 
 export class WorkspaceGraphUnavailableError extends Error {
-  override readonly name: string = "WorkspaceGraphUnavailableError"
+  override readonly name = "WorkspaceGraphUnavailableError"
 }
 
 /** The graph phase is ready, but the graph store has no complete graph for that revision. */
-export class WorkspaceGraphMissingError extends WorkspaceGraphUnavailableError {
+export class WorkspaceGraphMissingError extends Error {
   override readonly name = "WorkspaceGraphMissingError"
-  constructor(readonly revision: WorkspaceRevision) {
-    super("Workspace graph projection is unavailable.")
-  }
 }
 
 /** Read one immutable derived graph; missing/corrupt data never becomes an empty Postgres fallback. */
@@ -131,7 +138,10 @@ export async function readWorkspaceGraph(input: {
       { projectionKey },
     )
     const complete = marker.records[0]
-    if (!complete) throw new WorkspaceGraphMissingError(revision)
+    if (!complete)
+      throw new WorkspaceGraphMissingError(
+        "Workspace graph projection is unavailable.",
+      )
     const nodeResult = await graph.executeQuery(
       `MATCH (n:WorkspaceKnowledgeUnit {projectionKey: $projectionKey})
       RETURN n.id AS id, n.kind AS kind, n.name AS name, n.summary AS summary ORDER BY n.id`,
@@ -178,7 +188,9 @@ export async function readWorkspaceGraph(input: {
       nodes.length !== Number(complete.get("nodeCount")) ||
       claims.length !== Number(complete.get("claimCount"))
     )
-      throw new WorkspaceGraphMissingError(revision)
+      throw new WorkspaceGraphMissingError(
+        "Workspace graph projection is unavailable.",
+      )
     return workspaceGraphFromSignals({
       nodes,
       claims,
