@@ -7,6 +7,7 @@ import {
 } from "../../observability/attribution.js"
 import { langfusePropagation } from "../../observability/langfuse.js"
 import { log } from "../../observability/logger.js"
+import { maskCredentialsDeep } from "./mask-credentials.js"
 import type { WorkspaceChatCompletionUsage } from "./workspace-chat-model-proxy.js"
 
 export type WorkspaceChatGenerationRecord = {
@@ -163,8 +164,9 @@ export function markWorkspaceChatFirstShownToken(turnId: string): void {
 /** Langfuse reads these; the ClickHouse pipeline removes them from HyperDX. */
 const MAX_LANGFUSE_CONTENT = 64 * 1024
 
+/** Credentials are masked before the text reaches a span. */
 function langfuseContent(value: unknown): string {
-  const json = JSON.stringify(value)
+  const json = JSON.stringify(maskCredentialsDeep(value))
   return json.length > MAX_LANGFUSE_CONTENT
     ? `${json.slice(0, MAX_LANGFUSE_CONTENT)}…[truncated]`
     : json

@@ -40,7 +40,8 @@ function completionUsage(value: unknown): WorkspaceChatCompletionUsage | null {
   if (!value || typeof value !== "object") return null
   const usage = value as Record<string, unknown>
   const details =
-    usage.prompt_tokens_details && typeof usage.prompt_tokens_details === "object"
+    usage.prompt_tokens_details &&
+    typeof usage.prompt_tokens_details === "object"
       ? (usage.prompt_tokens_details as Record<string, unknown>)
       : {}
   return {
@@ -98,7 +99,9 @@ export function observeWorkspaceChatCompletionStream(): {
   }
 
   function noteLine(line: string): void {
-    const payload = line.startsWith("data:") ? line.slice(5).trim() : line.trim()
+    const payload = line.startsWith("data:")
+      ? line.slice(5).trim()
+      : line.trim()
     if (!payload || payload === "[DONE]") return
     try {
       noteCompletionJson(JSON.parse(payload) as Record<string, unknown>)

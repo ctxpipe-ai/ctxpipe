@@ -1,8 +1,8 @@
 # Langfuse: Workspace chat generations have no model, no token counts, and no prompt or output
 
-Status: ready-for-agent
+Status: ready-for-human
 Priority: P1
-Owner: unassigned
+Owner: agent (obs-llm-traces)
 Blocked by: none
 Created: 2026-10-11
 Updated: 2026-10-11
@@ -47,3 +47,18 @@ Likely cause: `apps/backend/src/domain/workspaces/workspace-chat-otel.ts` sets o
 ## Comments
 
 ## Resolution
+
+Cause: the proxy knew the request model, the messages, and the response `usage`, but `workspace-chat-otel.ts` put only timing and the finish reason on the `generation #N` span. A streamed answer also had no `usage` chunk, because the proxy did not ask for one. A plain JSON answer was not read at all: its only line has no newline, and the observer read only complete lines.
+
+Fix (branch `obs-llm-traces`):
+
+- The proxy sets `stream_options.include_usage=true` on a streamed request. The observer reads `model` and `usage` (`prompt_tokens`, `completion_tokens`, `prompt_tokens_details.cached_tokens`, and the gateway `cost`), and reads the last line when the body ends.
+- The generation span gets `gen_ai.request.model`, `gen_ai.response.model`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `gen_ai.usage.cache_read.input_tokens`, `gen_ai.usage.cost`, and the prompt and answer as `langfuse.observation.input` / `output` (JSON, at most 64 KiB each). The ClickHouse pipeline already removes those two keys from HyperDX.
+- Prompt and answer go through `maskCredentialsDeep` (ticket 32) before they reach the span.
+- The trace name comes from ticket 41: a socket turn is a `workspace-chat` trace.
+- The TanStack `chat <model>` summary span: Langfuse showed `input: 0` because OpenCode reports input tokens without the cached tokens (359 + 6,838 cached), and Langfuse subtracts the cached count from the input count. The summary span and its iteration spans are now `langfuse.observation.type=span`, so the turn does not count the tokens and cost of its generations two times. HyperDX keeps the summary usage.
+
+Test: `workspace-chat-openai.attribution.integration.test.ts` ("records the model, the tokens, the cost, the prompt, and the output of a streamed generation") streams SSE from an msw provider and asserts the upstream `stream_options`, each attribute, and a masked GitHub token in the prompt.
+
+To prove after a deploy: open a chat generation in Langfuse. Expect the model, the tokens, the input, the output, and a cost. Also check that Langfuse shows the TanStack summary as a span with no cost; if it still shows a cost, remove the usage from it in a span processor.
+

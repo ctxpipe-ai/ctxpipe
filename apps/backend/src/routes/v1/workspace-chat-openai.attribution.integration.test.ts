@@ -128,7 +128,10 @@ function serverSpan() {
 }
 
 it("attributes completions HTTP and Langfuse from the verified token, not the URL slug or baggage", async () => {
-  beginWorkspaceChatTurn("conv_1", "conv_1", { orgId: "org_1", orgSlug: "acme" })
+  beginWorkspaceChatTurn("conv_1", "conv_1", {
+    orgId: "org_1",
+    orgSlug: "acme",
+  })
   const res = await appWithRoutes().request(
     "/spoofed-org/api/v1/workspace-chat/openai/v1/chat/completions",
     {
@@ -178,7 +181,10 @@ it("attributes completions HTTP and Langfuse from the verified token, not the UR
 it("records the model, the tokens, the cost, the prompt, and the output of a streamed generation", async () => {
   let upstreamBody: Record<string, unknown> = {}
   const sse = [
-    { model: "openai/gpt-5.6-terra-20260901", choices: [{ delta: { content: "Hel" } }] },
+    {
+      model: "openai/gpt-5.6-terra-20260901",
+      choices: [{ delta: { content: "Hel" } }],
+    },
     { choices: [{ delta: { content: "lo" }, finish_reason: "stop" }] },
     {
       choices: [],
@@ -201,7 +207,10 @@ it("records the model, the tokens, the cost, the prompt, and the output of a str
       })
     }),
   )
-  beginWorkspaceChatTurn("conv_1", "conv_1", { orgId: "org_1", orgSlug: "acme" })
+  beginWorkspaceChatTurn("conv_1", "conv_1", {
+    orgId: "org_1",
+    orgSlug: "acme",
+  })
   const res = await appWithRoutes().request(
     "/acme/api/v1/workspace-chat/openai/v1/chat/completions",
     {
@@ -213,7 +222,10 @@ it("records the model, the tokens, the cost, the prompt, and the output of a str
       body: JSON.stringify({
         model: "anything",
         stream: true,
-        messages: [{ role: "user", content: "Say hello" }],
+        messages: [
+          { role: "user", content: "Say hello" },
+          { role: "tool", content: "token ghp_abcdefghijklmnopqrstuvwxyz0123" },
+        ],
       }),
     },
   )
@@ -235,7 +247,10 @@ it("records the model, the tokens, the cost, the prompt, and the output of a str
   })
   expect(
     JSON.parse(String(generation?.attributes["langfuse.observation.input"])),
-  ).toEqual([{ role: "user", content: "Say hello" }])
+  ).toEqual([
+    { role: "user", content: "Say hello" },
+    { role: "tool", content: "token [masked]" },
+  ])
   expect(
     JSON.parse(String(generation?.attributes["langfuse.observation.output"])),
   ).toEqual({ role: "assistant", content: "Hello" })
