@@ -8,7 +8,7 @@ import {
 import { useMemo } from "react"
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
-import { SkeletonRow } from "@/components/ui/Skeleton"
+import { SkeletonRow, useSkeletonHold } from "@/components/ui/Skeleton"
 import {
   fetchGithubSetupLinkState,
   githubConnectorKeys,
@@ -76,7 +76,11 @@ function GitHubSetupPage() {
   })
   const installationLinked = installationQuery.data === "linked"
 
-  if (sessionPending || (session && installationQuery.isPending)) {
+  const loading = useSkeletonHold(
+    sessionPending || (!!session && installationQuery.isPending),
+  )
+
+  if (loading) {
     return (
       <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
         <header className="mb-8">

@@ -10,7 +10,7 @@ import {
 import type { SideNavLocation } from "@/components/SideNav/sideNavLocation"
 import { Modal } from "@/components/ui/Modal"
 import { SearchField } from "@/components/ui/SearchField"
-import { SkeletonRow } from "@/components/ui/Skeleton"
+import { SkeletonRow, useSkeletonHold } from "@/components/ui/Skeleton"
 import { prefetchWorkspaceRouteData } from "./ensure-route-data"
 import { fetchWorkspaces, workspaceKeys } from "./queries"
 
@@ -109,6 +109,9 @@ export function WorkspaceCommandPalette(props: {
     setQuery("")
   }
 
+  const workspacesLoading = useSkeletonHold(
+    isOpen && workspacesQuery.isPending && !workspacesQuery.data,
+  )
   return (
     <Modal isOpen={isOpen} onOpenChange={onOpenChange} isDismissable>
       <Dialog className="flex max-h-[inherit] flex-col p-3">
@@ -120,7 +123,7 @@ export function WorkspaceCommandPalette(props: {
           onChange={setQuery}
         />
         <ul className="mt-2 max-h-80 overflow-auto">
-          {isOpen && workspacesQuery.isPending && !workspacesQuery.data ? (
+          {workspacesLoading ? (
             <li aria-busy>
               <span className="sr-only">Loading workspaces</span>
               <SkeletonRow />
