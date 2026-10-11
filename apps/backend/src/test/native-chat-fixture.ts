@@ -46,6 +46,8 @@ export async function withNativeChatFixture<T>(
   beforeModelResponse?: () => Promise<void>,
   options: {
     listenHost?: string
+    /** The text reply; the default is "Native reply completed.". */
+    reply?: string
     /** A tool call to answer instead of the text reply (one per request). */
     toolCall?: (
       request: Record<string, unknown>,
@@ -103,7 +105,7 @@ export async function withNativeChatFixture<T>(
         const request = JSON.parse(body.toString()) as Record<string, unknown>
         modelRequests.push(request)
         await beforeModelResponse?.()
-        const content = "Native reply completed."
+        const content = options.reply ?? "Native reply completed."
         const toolCall = options.toolCall?.(request)
         if (toolCall && request.stream) {
           res.writeHead(200, { "content-type": "text/event-stream" })

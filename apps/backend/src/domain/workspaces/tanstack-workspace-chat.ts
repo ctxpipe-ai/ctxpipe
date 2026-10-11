@@ -62,6 +62,7 @@ import { checkoutSessionBranch } from "./conversation-session-branch.js"
 import { nameConversationIfUnnamed } from "./conversation-title.js"
 import { openDockerRunVault } from "./docker-run-vault.js"
 import { hostedSandboxAccess } from "./hosted-sandbox-access.js"
+import { maskCredentialsDeep } from "./mask-credentials.js"
 import { type WorkspaceRevision, workspaceRevisionSchema } from "./revision.js"
 import { recordedRunGitToken, revokeRunGitTokens } from "./run-git-tokens.js"
 import { modelProxyCredentialRules } from "./sandbox-credential-rules.js"
@@ -380,7 +381,8 @@ async function* streamTanstackWorkspaceChatBody(
       typed.type === "TOOL_CALL_START"
     )
       markWorkspaceChatFirstShownToken(turnId)
-    yield typed
+    // Tool arguments, tool output and model text can repeat a credential.
+    yield maskCredentialsDeep(typed)
   }
 }
 

@@ -595,6 +595,70 @@ it(
 )
 
 it(
+  "masks credentials in streamed chunks and in the stored transcript",
+  { timeout: 120_000 },
+  async () => {
+    // A made-up value in the shape of a GitHub token.
+    const token = `ghp_${"Zx9Yw8Vu7T".repeat(4)}`
+    await withNativeChatFixture(
+      async (f) => {
+        const chunks: StreamChunk[] = []
+        for await (const chunk of streamTanstackWorkspaceChat({
+          conversationId: f.conversationId,
+          orgId: f.orgId,
+          orgSlug: f.orgSlug,
+          workspaceId: f.workspaceId,
+          desiredUrl: f.directory,
+          desiredSha: f.sha,
+          defaultBranch: "main",
+          writeStatus: "read_only",
+          prompt: "Print the token",
+          runId: `${f.conversationId}-mask`,
+          messages: [
+            { id: "mask-question", role: "user", content: "Print the token" },
+          ],
+        }))
+          chunks.push(chunk)
+        expect(chunks.filter((chunk) => chunk.type === "RUN_ERROR")).toEqual([])
+        const streamed = JSON.stringify(chunks)
+        expect(streamed).toContain("[masked]")
+        expect(streamed).not.toContain(token)
+        expect(
+          chunks.some(
+            (chunk) =>
+              chunk.type === "TOOL_CALL_ARGS" ||
+              chunk.type === "TOOL_CALL_START",
+          ),
+        ).toBe(true)
+        const stored = JSON.stringify(
+          await workspaceChatPersistence().stores.messages.loadThread(
+            f.conversationId,
+          ),
+        )
+        expect(stored).toContain("[masked]")
+        expect(stored).not.toContain(token)
+      },
+      undefined,
+      {
+        reply: `The token is ${token}.`,
+        toolCall: (request) => {
+          const messages = request.messages as Array<{ role: string }>
+          return messages.some((message) => message.role === "tool")
+            ? undefined
+            : {
+                name: "bash",
+                arguments: JSON.stringify({
+                  command: `echo ${token}`,
+                  description: "Print the token",
+                }),
+              }
+        },
+      },
+    )
+  },
+)
+
+it(
   "rejects a colliding run through HTTP without changing its owning conversation",
   { timeout: 45_000 },
   async () => {
