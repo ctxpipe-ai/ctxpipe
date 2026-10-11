@@ -1,6 +1,6 @@
 # Page document requests have no server span, their logs have no trace id, and the UI server render is not traced
 
-Status: ready-for-agent
+Status: done (needs pr-280 deploy check)
 Priority: P2
 Owner: unassigned
 Blocked by: none
@@ -39,3 +39,17 @@ The backend proxies documents and assets to the UI service. `backendOtelMiddlewa
 ## Comments
 
 ## Resolution
+
+Cause: `backendOtelMiddleware` skipped the server span for every request on the UI catch-all, documents included. The proxy did not send a trace context to the UI service, and the UI server did not forward one on its server-render calls.
+
+Fix (no new dependency, no UI server SDK):
+- `apps/backend/src/observability/http.ts`: a `GET` on the catch-all with `Sec-Fetch-Dest: document` (or, without that header, `Accept: text/html`) gets a server span. Assets and other proxied files stay without a span. The document response has `Server-Timing: traceparent;desc="00-<trace>-<span>-<flags>"`. The HyperDX document-load instrumentation reads it and sets `link.traceId` / `link.spanId` on the browser `documentLoad` span.
+- `apps/backend/src/routes/ui.ts`: `uiProxyUpstreamHeaders` injects the active trace context (`traceparent`) into the request to the UI service.
+- `apps/ui/src/lib/api-headers.server.ts`: `getServerApiHeaders` forwards the incoming `traceparent` and `tracestate` on server-render calls to the backend. The backend server spans of those calls are thus children of the document span. The UI server render itself has no span of its own; its backend calls show it.
+
+Tests (each failed before the fix):
+- `apps/backend/src/observability/http.test.ts` "traces a page document on the UI catch-all and gives the browser its traceparent": span with `request.id`, a child span parented to it (no orphan), and the `Server-Timing` value.
+- `apps/backend/src/routes/ui.test.ts` "passes the document span to the UI server as traceparent".
+- `apps/ui/src/lib/api-headers.server.test.ts`: forwards `traceparent` and `tracestate` inside a real TanStack Start request context.
+
+Open: after a pr-280 deploy, find a document `x-request-id` in HyperDX and check that its trace holds the `GET /*` span and the backend API calls of the server render.

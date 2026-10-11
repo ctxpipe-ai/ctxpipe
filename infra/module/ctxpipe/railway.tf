@@ -212,6 +212,9 @@ resource "railway_service" "ui" {
 resource "railway_variable_collection" "ui_env" {
   environment_id = railway_project.this.default_environment.id
   service_id     = railway_service.ui.id
+  # AUTH_BASE_URL refers to backend.PORT. Write the backend variables first,
+  # so the reference never resolves empty when the UI redeploys.
+  depends_on = [railway_variable_collection.backend_env]
 
   variables = concat([
     {
@@ -233,10 +236,14 @@ resource "railway_variable_collection" "ui_env" {
     },
     {
       # UI SSR must reach the backend (not localhost baked into VITE_PUBLIC_API_URL).
-      # The port is 8080, the target port of the backend service domain. The
-      # backend sets no PORT variable, so `backend.PORT` can resolve empty.
       name  = "AUTH_BASE_URL"
-      value = "http://$${{backend.RAILWAY_PRIVATE_DOMAIN}}:8080"
+      value = "http://$${{backend.RAILWAY_PRIVATE_DOMAIN}}:$${{backend.PORT}}"
+    },
+    {
+      # The browser OTLP relay (`/.otel`) accepts only these origins. The
+      # private AUTH_BASE_URL above is not an origin that a browser uses.
+      name  = "AUTH_ALLOWED_ORIGINS"
+      value = "https://${railway_custom_domain.app.domain},https://$${{backend.RAILWAY_PUBLIC_DOMAIN}}"
     }
   ], local.otel_shared_env)
 }
@@ -288,6 +295,13 @@ resource "railway_variable_collection" "backend_env" {
     {
       name  = "OTEL_SERVICE_NAME"
       value = "backend"
+    },
+    {
+      # The UI reaches the backend over the private network on this port
+      # (ui_env AUTH_BASE_URL). Set it here so it does not depend on the
+      # PORT value that Railway injects at runtime.
+      name  = "PORT"
+      value = "8080"
     },
   ])
 }

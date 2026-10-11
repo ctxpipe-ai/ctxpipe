@@ -14,6 +14,8 @@ export const requiredStories = [
   "SingleCreatePrPaneClosed",
   "DiffTriggerPaneClosed",
   "DiffTabRoundedCorner",
+  "CreatePrMatchesPaneTriggers",
+  "ShowPr",
   "MaximizedPaneMatchesHeader",
   "ConversationSandboxFiles",
   "ConversationMaximizedSync",

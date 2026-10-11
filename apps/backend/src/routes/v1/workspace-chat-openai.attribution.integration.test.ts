@@ -56,7 +56,7 @@ const provider = new NodeTracerProvider({
 })
 
 // biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
-useMswServer(
+const server = useMswServer(
   http.post(`${MODEL_PROVIDER_URL}/chat/completions`, () =>
     HttpResponse.json({
       id: "chatcmpl_ws",
@@ -128,7 +128,10 @@ function serverSpan() {
 }
 
 it("attributes completions HTTP and Langfuse from the verified token, not the URL slug or baggage", async () => {
-  beginWorkspaceChatTurn("conv_1")
+  beginWorkspaceChatTurn("conv_1", "conv_1", {
+    orgId: "org_1",
+    orgSlug: "acme",
+  })
   const res = await appWithRoutes().request(
     "/spoofed-org/api/v1/workspace-chat/openai/v1/chat/completions",
     {
@@ -168,10 +171,89 @@ it("attributes completions HTTP and Langfuse from the verified token, not the UR
   )
   expect(generation?.attributes["langfuse.trace.metadata.orgId"]).toBe("org_1")
   expect(generation?.attributes["langfuse.trace.metadata.orgSlug"]).toBe("acme")
-  expect(generation?.attributes["langfuse.trace.metadata.requestId"]).toBe(
-    "req_ws_chat",
-  )
   expect(generation?.attributes["session.id"]).toBe("conv_1")
+  expect(JSON.stringify(generation?.attributes)).not.toContain("SPOOFED")
+  expect(generation?.links.map((link) => link.context.spanId)).toEqual([
+    span?.spanContext().spanId,
+  ])
+})
+
+it("records the model, the tokens, the cost, the prompt, and the output of a streamed generation", async () => {
+  let upstreamBody: Record<string, unknown> = {}
+  const sse = [
+    {
+      model: "openai/gpt-5.6-terra-20260901",
+      choices: [{ delta: { content: "Hel" } }],
+    },
+    { choices: [{ delta: { content: "lo" }, finish_reason: "stop" }] },
+    {
+      choices: [],
+      usage: {
+        prompt_tokens: 7200,
+        completion_tokens: 40,
+        prompt_tokens_details: { cached_tokens: 6800 },
+        cost: 0.0021,
+      },
+    },
+  ]
+    .map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`)
+    .concat("data: [DONE]\n\n")
+    .join("")
+  server.use(
+    http.post(`${MODEL_PROVIDER_URL}/chat/completions`, async ({ request }) => {
+      upstreamBody = (await request.json()) as Record<string, unknown>
+      return new HttpResponse(sse, {
+        headers: { "content-type": "text/event-stream" },
+      })
+    }),
+  )
+  beginWorkspaceChatTurn("conv_1", "conv_1", {
+    orgId: "org_1",
+    orgSlug: "acme",
+  })
+  const res = await appWithRoutes().request(
+    "/acme/api/v1/workspace-chat/openai/v1/chat/completions",
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${chatToken()}`,
+      },
+      body: JSON.stringify({
+        model: "anything",
+        stream: true,
+        messages: [
+          { role: "user", content: "Say hello" },
+          { role: "tool", content: "token ghp_abcdefghijklmnopqrstuvwxyz0123" },
+        ],
+      }),
+    },
+  )
+  expect(res.status).toBe(200)
+  await res.text()
+
+  expect(upstreamBody.stream_options).toEqual({ include_usage: true })
+  const generation = exporter
+    .getFinishedSpans()
+    .find((item) => item.name === "generation #0")
+  expect(generation?.attributes).toMatchObject({
+    "gen_ai.request.model": "openai/gpt-5.6-terra",
+    "gen_ai.response.model": "openai/gpt-5.6-terra-20260901",
+    "gen_ai.usage.input_tokens": 7200,
+    "gen_ai.usage.output_tokens": 40,
+    "gen_ai.usage.cache_read.input_tokens": 6800,
+    "gen_ai.usage.cost": 0.0021,
+    "gen_ai.response.finish_reasons": "stop",
+  })
+  expect(
+    JSON.parse(String(generation?.attributes["langfuse.observation.input"])),
+  ).toEqual([
+    { role: "user", content: "Say hello" },
+    { role: "tool", content: "token [masked]" },
+  ])
+  expect(
+    JSON.parse(String(generation?.attributes["langfuse.observation.output"])),
+  ).toEqual({ role: "assistant", content: "Hello" })
 })
 
 describeWithDatabase("workspace-chat capability attribution", () => {
@@ -250,7 +332,7 @@ describeWithDatabase("workspace-chat capability attribution", () => {
       purpose: "workspace-chat-model",
     })
 
-    beginWorkspaceChatTurn(conversationId)
+    beginWorkspaceChatTurn(conversationId, conversationId, { orgId, orgSlug })
     const res = await appWithRoutes().request(
       "/spoofed-org/api/v1/workspace-chat/openai/v1/chat/completions",
       {

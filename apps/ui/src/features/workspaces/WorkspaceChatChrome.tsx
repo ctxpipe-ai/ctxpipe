@@ -1,4 +1,8 @@
-import { IconCloudUpload, IconGitPullRequest } from "@tabler/icons-react"
+import {
+  IconCloudUpload,
+  IconExternalLink,
+  IconGitPullRequest,
+} from "@tabler/icons-react"
 import type { ReactElement, ReactNode } from "react"
 import { Link as AriaLink } from "react-aria-components"
 import { OverlayNavMenuButton } from "@/components/OverlayNavButton"
@@ -9,6 +13,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/Tooltip"
+import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
 import type { Workspace } from "./types"
 import {
@@ -16,6 +21,7 @@ import {
   workspaceChromeOuterClassName,
   workspaceChromeOuterFlushClassName,
   workspaceChromeTabClassName,
+  workspaceChromeTabIdleClassName,
   workspaceChromeTabStripClassName,
 } from "./workspaceChrome"
 import { writeStatusLabel } from "./writeStatusLabel"
@@ -161,7 +167,10 @@ export function WorkspaceChatChrome(props: {
                 </span>
               ) : null}
               {publishHasActions && props.publish ? (
-                <ConversationPublishActions publish={props.publish} />
+                <ConversationPublishActions
+                  publish={props.publish}
+                  className={workspaceChromeTabStripClassName}
+                />
               ) : null}
               {props.headerExtra}
             </div>
@@ -175,9 +184,26 @@ export function WorkspaceChatChrome(props: {
 }
 
 /**
- * Sync (commit and push), Create PR, and Show PR. The buttons have no border.
- * `className` lets the tools pane show the actions only when the conversation
- * column is hidden, so the page shows each action once.
+ * Sync and Create PR use the pane triggers' idle tab style. The class wins
+ * over the ghost variant, so it must also set the disabled and pending text.
+ */
+const publishButtonClassName = (state: {
+  isDisabled: boolean
+  isPending: boolean
+}) =>
+  cn(
+    workspaceChromeTabIdleClassName,
+    "gap-1.5 pressed:bg-teal-900/30",
+    state.isDisabled &&
+      "cursor-default hover:bg-transparent hover:text-zinc-400",
+    state.isDisabled && !state.isPending && "opacity-50",
+    state.isPending && "text-transparent hover:text-transparent",
+  )
+
+/**
+ * Sync (commit and push), Create PR, and Show PR. They look the same as the
+ * pane triggers. `className` lets the tools pane show the actions only when
+ * the conversation column is hidden, so the page shows each action once.
  */
 export function ConversationPublishActions(props: {
   publish: ConversationPublishChrome
@@ -189,12 +215,7 @@ export function ConversationPublishActions(props: {
   const showCreatePr = pullRequest.visible && pullRequest.action === "create"
   if (!showCommit && !showPrLink && !showCreatePr) return null
   return (
-    <div
-      className={cn(
-        "mb-px flex h-[37px] shrink-0 items-center gap-1",
-        props.className,
-      )}
-    >
+    <div className={cn("flex shrink-0 items-end gap-0.5", props.className)}>
       {showCommit ? (
         // A span trigger: the tooltip shows on hover also while Sync is disabled.
         <ChromeTooltip
@@ -203,7 +224,6 @@ export function ConversationPublishActions(props: {
         >
           <Button
             variant="ghost"
-            size="default"
             isDisabled={!commitPush.enabled || commitPush.pending}
             isPending={commitPush.pending}
             onPress={commitPush.onPress}
@@ -212,7 +232,7 @@ export function ConversationPublishActions(props: {
                 ? "Syncing: commit and push in progress"
                 : "Sync: commit and push your changes"
             }
-            className="h-8 gap-1.5 px-2 text-xs"
+            className={publishButtonClassName}
           >
             <IconCloudUpload className="size-4" stroke={1.6} aria-hidden />
             {commitPush.pending ? "Syncing…" : "Sync"}
@@ -224,18 +244,29 @@ export function ConversationPublishActions(props: {
           href={pullRequest.href ?? undefined}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex h-8 items-center rounded-md px-2 text-xs text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground"
+          aria-label="Show PR (opens in a new tab)"
+          className={cn(
+            workspaceChromeTabIdleClassName,
+            focusVisibleClassName,
+            "relative gap-1.5 pr-4",
+          )}
         >
+          <IconGitPullRequest className="size-4" stroke={1.6} aria-hidden />
           Show PR
+          <IconExternalLink
+            data-external-badge
+            className="absolute top-1 right-1 size-2.5"
+            stroke={2}
+            aria-hidden
+          />
         </AriaLink>
       ) : showCreatePr ? (
         <Button
           variant="ghost"
-          size="default"
           isDisabled={pullRequest.pending}
           isPending={pullRequest.pending}
           onPress={pullRequest.onPress}
-          className="h-8 gap-1.5 px-2 text-xs"
+          className={publishButtonClassName}
         >
           <IconGitPullRequest className="size-4" stroke={1.6} aria-hidden />
           {pullRequest.pending ? "Creating PR…" : "Create PR"}

@@ -1,5 +1,6 @@
 # ClickStack merge file, loaded last. Confmap replaces arrays: do not redefine otlp/hyperdx, memory_limiter, batch, the clickhouse exporter, the base logs transform, or service.telemetry (base already exposes :8888).
 # Traces pipeline is restated for clickstack-otel-collector:2.39.1 (receiver otlp/hyperdx). Re-check that list when the image tag changes.
+# logs/out-default restates the base processors of 2.39.1 (memory_limiter, transform, batch) and adds the LLM content redaction. Re-check it when the image tag changes.
 # metrics/self scrapes the collector and ClickHouse.
 
 receivers:
@@ -49,6 +50,16 @@ processors:
       - context: spanevent
         statements:
           - 'delete_matching_keys(spanevent.attributes, "^(langfuse\\.observation\\.(input|output)$|gen_ai\\.(prompt|completion|input\\.messages|output\\.messages))")'
+  # Second guard for logs: the backend drops these keys before it logs a
+  # span, but an evlog line holds the event as JSON text, so match the
+  # JSON member and blank its value.
+  transform/redact_llm_log_content:
+    error_mode: ignore
+    log_statements:
+      - context: log
+        statements:
+          - 'replace_pattern(log.body, "\"(langfuse\\.observation\\.(input|output)|gen_ai\\.(prompt|completion|input\\.messages|output\\.messages)[^\"]*)\":\"(?:[^\"\\\\]|\\\\.)*\"", "\"$$1\":\"[redacted]\"")'
+          - 'replace_all_patterns(log.attributes, "value", "\"(langfuse\\.observation\\.(input|output)|gen_ai\\.(prompt|completion|input\\.messages|output\\.messages)[^\"]*)\":\"(?:[^\"\\\\]|\\\\.)*\"", "\"$$1\":\"[redacted]\"")'
   # Error spans stay. Stateless drop; tail sampling would buffer in-flight traces.
   filter/ops_self_noise:
     error_mode: ignore
@@ -78,6 +89,8 @@ service:
       receivers: [otlp/hyperdx]
       processors: [memory_limiter, filter/ops_self_noise, transform/redact_llm_content, batch]
       exporters: [clickhouse]
+    logs/out-default:
+      processors: [memory_limiter, transform, transform/redact_llm_log_content, batch]
     traces/llm:
       receivers: [otlp/hyperdx]
       processors: [filter/llm_only, batch/langfuse]

@@ -6,15 +6,16 @@ export type HyperDxSessionIdentity = {
   teamName: string
 }
 
-export type HyperDxGlobalAttributes = HyperDxSessionIdentity & {
+export type HyperDxGlobalAttributes = {
   "enduser.id": string
   "ctxpipe.org.id": string
   "ctxpipe.org.slug": string
 }
 
 /**
- * `userId` / `teamId` / `teamName` are what HyperDX session search reads.
- * The dotted keys match backend spans so one filter works on browser and API.
+ * One key per concept, the same keys as backend spans, so one filter works on
+ * browser and API. HyperDX session search keys (`userId`, `teamId`,
+ * `teamName`) are not sent: session replay is off, so no session view uses them.
  * Every key is always present. `""` means missing, so one assign replaces the previous bag.
  */
 export function hyperdxGlobalAttributes(input: {
@@ -22,16 +23,10 @@ export function hyperdxGlobalAttributes(input: {
   teamId?: string | null
   teamName?: string | null
 }): HyperDxGlobalAttributes {
-  const userId = input.userId ?? ""
-  const teamId = input.teamId ?? ""
-  const teamName = input.teamName ?? ""
   return {
-    userId,
-    teamId,
-    teamName,
-    "enduser.id": userId,
-    "ctxpipe.org.id": teamId,
-    "ctxpipe.org.slug": teamName,
+    "enduser.id": input.userId ?? "",
+    "ctxpipe.org.id": input.teamId ?? "",
+    "ctxpipe.org.slug": input.teamName ?? "",
   }
 }
 

@@ -1,6 +1,5 @@
 import { randomBytes, randomUUID } from "node:crypto"
 import { createServer } from "node:net"
-import { trace } from "@opentelemetry/api"
 import {
   chat,
   defineChatMiddleware,
@@ -9,7 +8,6 @@ import {
   type StreamChunk,
   type UIMessage,
 } from "@tanstack/ai"
-import { otelMiddleware } from "@tanstack/ai/middlewares/otel"
 import { opencodeText } from "@tanstack/ai-opencode"
 import { withPersistence } from "@tanstack/ai-persistence"
 import {
@@ -141,7 +139,9 @@ import {
 import {
   beginWorkspaceChatTurn,
   finishWorkspaceChatTurn,
+  iterateInWorkspaceChatTurn,
   markWorkspaceChatFirstShownToken,
+  workspaceChatOtelMiddleware,
 } from "./workspace-chat-otel.js"
 import { workspaceChatPersistence } from "./workspace-chat-persistence.js"
 import { updateConversationSandboxRevision } from "./workspace-chat-revision-transition.js"
@@ -175,6 +175,10 @@ export type TanstackWorkspaceChatInput = {
   abortSignal?: AbortSignal
   orgId: string
   orgSlug?: string
+  /** The person who sent the turn; telemetry only. */
+  userId?: string
+  /** The conversation source (`ui`, `mcp`, ...); telemetry only. */
+  source?: string | null
   workspaceId: string
   desiredUrl?: string
   desiredSha?: string | null
@@ -368,10 +372,19 @@ export async function* streamTanstackWorkspaceChat(
   input: TanstackWorkspaceChatInput,
 ): AsyncGenerator<StreamChunk> {
   const turnId = input.runId ?? input.conversationId
-  beginWorkspaceChatTurn(input.conversationId, turnId)
+  const turnContext = beginWorkspaceChatTurn(input.conversationId, turnId, {
+    orgId: input.orgId,
+    orgSlug: input.orgSlug,
+    workspaceId: input.workspaceId,
+    userId: input.userId,
+    source: input.source,
+  })
   enterSandboxLifecycleContext(input.conversationId)
   try {
-    yield* streamTanstackWorkspaceChatBody(input, turnId)
+    yield* iterateInWorkspaceChatTurn(
+      turnContext,
+      streamTanstackWorkspaceChatBody(input, turnId),
+    )
   } catch (error) {
     finishWorkspaceChatTurn(turnId, {
       error: error instanceof Error ? error.message : String(error),
@@ -828,9 +841,7 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
       }),
     ],
     middleware: [
-      otelMiddleware({
-        tracer: trace.getTracer("ctxpipe-workspace-chat"),
-      }),
+      workspaceChatOtelMiddleware(),
       defineChatMiddleware({
         name: "workspace-chat-sandbox-used",
         onFinish: markSandboxUsed,

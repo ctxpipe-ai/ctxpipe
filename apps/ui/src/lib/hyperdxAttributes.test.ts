@@ -11,7 +11,7 @@ import {
 } from "./hyperdxAttributes"
 
 describe("hyperdxGlobalAttributes", () => {
-  it("maps user and org ids and leaves email out", () => {
+  it("maps user and org ids to one key each and leaves email out", () => {
     expect(
       hyperdxGlobalAttributes({
         userId: "user_1",
@@ -19,9 +19,6 @@ describe("hyperdxGlobalAttributes", () => {
         teamName: "acme",
       }),
     ).toEqual({
-      userId: "user_1",
-      teamId: "org_1",
-      teamName: "acme",
       "enduser.id": "user_1",
       "ctxpipe.org.id": "org_1",
       "ctxpipe.org.slug": "acme",
@@ -30,9 +27,6 @@ describe("hyperdxGlobalAttributes", () => {
 
   it("publishes empty strings for missing ids", () => {
     expect(hyperdxGlobalAttributes({})).toEqual({
-      userId: "",
-      teamId: "",
-      teamName: "",
       "enduser.id": "",
       "ctxpipe.org.id": "",
       "ctxpipe.org.slug": "",
@@ -44,9 +38,6 @@ describe("hyperdxGlobalAttributes", () => {
         teamName: "",
       }),
     ).toEqual({
-      userId: "user_1",
-      teamId: "",
-      teamName: "",
       "enduser.id": "user_1",
       "ctxpipe.org.id": "",
       "ctxpipe.org.slug": "",

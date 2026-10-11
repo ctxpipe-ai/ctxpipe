@@ -1,0 +1,23 @@
+[
+  {
+    "modelName": "openai/gpt-6-luna",
+    "matchPattern": "(?i)^(openai/)?(gpt-6-luna)$",
+    "unit": "TOKENS",
+    "inputPrice": 0.0000001,
+    "outputPrice": 0.0000005
+  },
+  {
+    "modelName": "xiaomi/mimo-v2.6-pro",
+    "matchPattern": "(?i)^(xiaomi/)?(mimo-v2.6-pro)$",
+    "unit": "TOKENS",
+    "inputPrice": 0.000000435,
+    "outputPrice": 0.00000087
+  },
+  {
+    "modelName": "openai/text-embedding-3-large",
+    "matchPattern": "(?i)^openai/text-embedding-3-large$",
+    "unit": "TOKENS",
+    "inputPrice": 0.00000013,
+    "outputPrice": 0
+  }
+]
