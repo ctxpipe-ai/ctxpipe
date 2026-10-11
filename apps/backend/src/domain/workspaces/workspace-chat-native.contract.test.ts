@@ -700,6 +700,7 @@ it(
         orgId: f.orgId,
         orgSlug: f.orgSlug,
         workspaceId: f.workspaceId,
+        writeStatus: "read_only",
         prompt: "Fail",
         resolveRuntime: async () => {
           throw new Error(
