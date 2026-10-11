@@ -10,14 +10,12 @@ import {
   persistMigrationExportNoOp,
   reconcileWorkspaceWriteJob,
 } from "../../models/workspace-write-jobs.js"
-import {
-  applyDestWorkspaceLinkPlan,
-  persistOrgFirstWorkspace,
-} from "../../models/workspaces.js"
+import { persistOrgFirstWorkspace } from "../../models/workspaces.js"
 import { enqueueWriteJob } from "../../openworkflow/enqueue-workspace-write-commit.js"
 import { storeTestExtraction } from "../../test/extraction-capture-fixture.js"
 import { seedLegacyExtractionObject } from "../../test/legacy-extraction-fixture.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
+import { insertWorkspaceLinks } from "../../test/workspace-links-fixture.js"
 import { ensureOrgRepositoryForGitUrl } from "./ensure-org-repository.js"
 import type { CapturedExtraction } from "./extraction.js"
 
@@ -88,16 +86,12 @@ it.each(["knowledge/services/billing.md", "knowledge/imported/billing.md"])(
             workspaceId: f.workspaceId,
             sourceRepositoryId: repo.id,
           })
-          await applyDestWorkspaceLinkPlan({
-            firstWorkspaceId: f.workspaceId,
-            firstSourceRepositoryId: repo.id,
-            insertLinks: [
-              {
-                workspaceId: f.workspaceId,
-                gitUrl: "https://github.com/linked/api",
-              },
-            ],
-          })
+          await insertWorkspaceLinks([
+            {
+              workspaceId: f.workspaceId,
+              gitUrl: "https://github.com/linked/api",
+            },
+          ])
           await persistBoundWriteJob({
             id: `wjob_${f.id}_cutover`,
             kind: "migration_export",

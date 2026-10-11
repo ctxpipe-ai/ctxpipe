@@ -24,51 +24,6 @@ describe("dest workspace SQL backfill", () => {
     expect(migrationSql).toContain('DROP TABLE "org_workspace_cutover"')
   })
 
-  it("keeps the exact-row assignment fixture next to the applied SQL", async () => {
-    const { planDestWorkspaceLinks } = await import(
-      "./dest-workspace-assignment.js"
-    )
-    const at = (iso: string) => new Date(iso)
-    const plan = planDestWorkspaceLinks({
-      workspaces: [
-        {
-          id: "ws_docs",
-          workspaceRepositoryUrl: "https://github.com/acme/docs",
-        },
-        {
-          id: "ws_wiki",
-          workspaceRepositoryUrl: "https://github.com/acme/wiki",
-        },
-      ],
-      repositories: [
-        {
-          id: "repo_first",
-          gitUrl: "https://github.com/acme/docs",
-          createdAt: at("2026-01-01T00:00:00.000Z"),
-        },
-        {
-          id: "repo_second",
-          gitUrl: "https://github.com/acme/wiki",
-          createdAt: at("2026-02-01T00:00:00.000Z"),
-        },
-        {
-          id: "repo_app",
-          gitUrl: "https://github.com/acme/app",
-          createdAt: at("2026-03-01T00:00:00.000Z"),
-        },
-      ],
-      connectorTargetRepositoryIds: ["repo_first", "repo_second"],
-      existingLinks: [],
-    })
-    expect(plan).toEqual({
-      firstWorkspaceId: "ws_docs",
-      firstSourceRepositoryId: "repo_first",
-      insertLinks: [
-        { workspaceId: "ws_docs", gitUrl: "https://github.com/acme/app" },
-      ],
-    })
-  })
-
   it("removes the runtime cutover job", () => {
     expect(
       existsSync(

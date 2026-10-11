@@ -25,7 +25,6 @@ import {
   workspaces,
 } from "../db/schema/workspaces.js"
 import { workspaceCheckoutKey } from "../domain/workspaces/derived-stores.js"
-import type { DestWorkspaceLinkPlan } from "../domain/workspaces/dest-workspace-assignment.js"
 import { firstConnectorTarget } from "../domain/workspaces/dest-workspace-first.js"
 import type { HydrateSkip, HydrateUnit } from "../domain/workspaces/hydrate.js"
 import { initialHydratePhases } from "../domain/workspaces/hydrate-phases.js"
@@ -1510,47 +1509,6 @@ export async function persistOrgFirstWorkspace(input: {
         sourceRepositoryId: input.sourceRepositoryId,
       })
       .onConflictDoNothing({ target: orgFirstWorkspaces.orgId })
-  })
-}
-
-export async function listOrgRepositoriesForDestAssignment(): Promise<
-  Array<{ id: string; gitUrl: string; createdAt: Date }>
-> {
-  return orgSql(async () => {
-    const orgId = requireCurrentOrgId()
-    return getOrgDb()
-      .select({
-        id: repositories.id,
-        gitUrl: repositories.gitUrl,
-        createdAt: repositories.createdAt,
-      })
-      .from(repositories)
-      .where(eq(repositories.orgId, orgId))
-  })
-}
-
-export async function applyDestWorkspaceLinkPlan(
-  plan: DestWorkspaceLinkPlan,
-): Promise<void> {
-  return orgSql(async () => {
-    const orgId = requireCurrentOrgId()
-    const db = getOrgDb()
-    for (const link of plan.insertLinks) {
-      await db
-        .insert(workspaceLinkedRepositories)
-        .values({
-          id: generateObjectId("wlr"),
-          orgId,
-          workspaceId: link.workspaceId,
-          gitUrl: link.gitUrl,
-        })
-        .onConflictDoNothing({
-          target: [
-            workspaceLinkedRepositories.workspaceId,
-            workspaceLinkedRepositories.gitUrl,
-          ],
-        })
-    }
   })
 }
 
