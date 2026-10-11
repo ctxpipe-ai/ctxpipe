@@ -327,7 +327,7 @@ function NodeDetailDrawerBody({
         </Button>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-4">
+      <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-4">
         <Section label="Path">
           <div className="flex h-5 items-center gap-1">
             <p
@@ -562,10 +562,8 @@ function Tag({
 
 function Section({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <section className="flex flex-col gap-1">
-      <h3 className="text-xs font-medium leading-none text-muted-foreground">
-        {label}
-      </h3>
+    <section className="flex flex-col gap-2 border-t border-border/60 pt-5 first:border-t-0 first:pt-0">
+      <h3 className="ctx-label">{label}</h3>
       {children}
     </section>
   )
