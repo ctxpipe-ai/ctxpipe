@@ -11,6 +11,7 @@ import {
   restoredSessionBase,
   rotateMergedSessionBranch,
 } from "./conversation-session-branch.js"
+import { SANDBOX_GIT_GUARD } from "./job-sandbox.js"
 import {
   sameWorkspaceBinding,
   sameWorkspaceRevision,
@@ -134,7 +135,7 @@ export async function advanceConversationWorktree(input: {
   const previousRevision = input.from
   const desired = input.to
   const result = await handle.process.exec(
-    `(set -eu
+    `${SANDBOX_GIT_GUARD}(set -eu
 STATE=$(git rev-parse --git-path ctxpipe-revision-transition)
 BRANCH=$(git branch --show-current)
 test -n "$BRANCH"
@@ -145,7 +146,7 @@ if [ "$(git rev-parse --is-shallow-repository)" = true ]; then
   ${SANDBOX_READ_GIT} fetch --unshallow origin
 fi
 # An interrupted/conflicting rebase remains available to the repair turn.
-if [ -d "$(git rev-parse --git-path rebase-merge)" ] || [ -d "$(git rev-parse --git-path rebase-apply)" ] || [ -n "$(git diff --name-only --diff-filter=U)" ]; then exit 42; fi
+if [ -d "$(git rev-parse --git-path rebase-merge)" ] || [ -d "$(git rev-parse --git-path rebase-apply)" ] || [ -n "$(git diff --no-ext-diff --no-textconv --name-only --diff-filter=U)" ]; then exit 42; fi
 STASH=
 REBASE_BASE=$OLD_SHA
 ORIGINAL=$(git rev-parse HEAD)

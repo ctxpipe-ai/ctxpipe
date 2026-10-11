@@ -14,7 +14,7 @@ import {
 } from "./chat-lifecycle.js"
 import { COMMIT_IDENTITY, SANDBOX_READ_GIT } from "./chat-runtime.js"
 import { workspaceAllowsConversationEdits } from "./chat-sandbox-policy.js"
-import { adaptTanstackHandle } from "./job-sandbox.js"
+import { adaptTanstackHandle, SANDBOX_GIT_GUARD } from "./job-sandbox.js"
 import type { JobSandboxHandle } from "./job-worktree.js"
 import type { WorkspaceRevision } from "./revision.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "./write-status.js"
@@ -116,7 +116,7 @@ export async function rotateMergedSessionBranch(input: {
   if (pull?.prState !== "merged" || pull.branch !== branch) return "kept"
   const next = nextConversationSessionBranch(input.conversationId, branch)
   const moved = await input.handle.process.exec(
-    `set -u
+    `${SANDBOX_GIT_GUARD}set -u
 if [ "$(git branch --show-current)" != "$SESSION" ]; then
   # No local session branch: nothing to carry over.
   git rev-parse -q --verify "refs/heads/$SESSION" >/dev/null || exit 4
@@ -204,7 +204,7 @@ async function followRecordedBranch(input: {
     conversationId: input.conversationId,
   })
   const renamed = await input.handle.process.exec(
-    'git branch -M "$FROM" "$RECORDED"',
+    `${SANDBOX_GIT_GUARD}git branch -M "$FROM" "$RECORDED"`,
     { env: { FROM: input.from, RECORDED: recorded } },
   )
   if (renamed.exitCode !== 0)
@@ -217,7 +217,7 @@ async function sandboxContains(
   sha: string,
 ): Promise<boolean> {
   const result = await handle.process.exec(
-    'git cat-file -e "$SHA^{commit}" 2>/dev/null && git merge-base --is-ancestor "$SHA" HEAD',
+    `${SANDBOX_GIT_GUARD}git cat-file -e "$SHA^{commit}" 2>/dev/null && git merge-base --is-ancestor "$SHA" HEAD`,
     { env: { SHA: sha } },
   )
   return result.exitCode === 0
@@ -238,7 +238,7 @@ export async function restoredSessionBase(input: {
 }): Promise<string | null> {
   if (await sandboxContains(input.handle, input.recorded)) return null
   const result = await input.handle.process.exec(
-    `set -u
+    `${SANDBOX_GIT_GUARD}set -u
 B=$(git branch --show-current)
 [ -n "$B" ] || exit 1
 git cat-file -e "$NEW_SHA^{commit}" 2>/dev/null || ${SANDBOX_READ_GIT} fetch -q --depth 1 origin "$NEW_SHA" || exit 1
