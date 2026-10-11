@@ -2,39 +2,39 @@ import { describe, expect, it } from "vitest"
 import { parseSourceEntry } from "../sources-file.js"
 import { linearSourceScope, summarizeLinearScope } from "./linear.js"
 
-const team = { id: "9c1d2e3f-team", key: "ENG", name: "Engineering" }
-const project = { id: "4a5b6c7d-project", name: "Launch" }
+const project = "4a5b6c7d-0000-4000-8000-000000000001"
 
 describe("Linear source scope", () => {
-  it("accepts teams with optional projects from a sources.yaml entry", () => {
-    const parsed = parseSourceEntry({
-      id: "eng-issues",
-      provider: "linear",
-      connection: "con_linear1",
-      teams: [team],
-      projects: [project],
-    })
-    expect(parsed).toEqual({
+  it("accepts team keys with optional project ids from a sources.yaml entry", () => {
+    expect(
+      parseSourceEntry({
+        id: "eng-issues",
+        provider: "linear",
+        connection: "con_linear1",
+        teams: ["ENG"],
+        projects: [project],
+        customerRequests: "exclude",
+      }),
+    ).toEqual({
       ok: true,
       entry: {
         key: "eng-issues",
         provider: "linear",
         connectionId: "con_linear1",
-        scope: { teams: [team], projects: [project] },
+        scope: {
+          teams: ["ENG"],
+          projects: [project],
+          customerRequests: "exclude",
+        },
       },
     })
   })
 
-  it("defaults projects to an empty list", () => {
-    expect(linearSourceScope.schema.parse({ teams: [team] })).toEqual({
-      teams: [team],
-      projects: [],
+  it("accepts teams alone or projects alone, and keeps the entry as written", () => {
+    expect(linearSourceScope.schema.parse({ teams: ["ENG"] })).toEqual({
+      teams: ["ENG"],
     })
-  })
-
-  it("accepts projects without teams", () => {
     expect(linearSourceScope.schema.parse({ projects: [project] })).toEqual({
-      teams: [],
       projects: [project],
     })
   })
@@ -43,34 +43,27 @@ describe("Linear source scope", () => {
     expect(linearSourceScope.schema.safeParse({}).success).toBe(false)
   })
 
-  it("refuses a team key or id that is not a safe path segment", () => {
+  it("refuses a team key or project id that is not a safe path segment", () => {
     for (const bad of [
-      { ...team, key: "../x" },
-      { ...team, key: "" },
-      { ...team, id: "a/b" },
+      { teams: ["../x"] },
+      { teams: [""] },
+      { projects: ["a/b"] },
     ])
-      expect(linearSourceScope.schema.safeParse({ teams: [bad] }).success).toBe(
-        false,
-      )
+      expect(linearSourceScope.schema.safeParse(bad).success).toBe(false)
   })
 
-  it("refuses the same team twice", () => {
+  it("refuses the same team twice, in any letter case", () => {
     expect(
-      linearSourceScope.schema.safeParse({ teams: [team, team] }).success,
+      linearSourceScope.schema.safeParse({ teams: ["ENG", "eng"] }).success,
     ).toBe(false)
   })
 
   it("summarizes teams and projects", () => {
-    expect(summarizeLinearScope({ teams: [team], projects: [] })).toBe(
-      "1 Linear team",
-    )
+    expect(summarizeLinearScope({ teams: ["ENG"] })).toBe("1 Linear team")
     expect(
-      summarizeLinearScope({
-        teams: [team, { ...team, id: "t2", key: "OPS" }],
-        projects: [project],
-      }),
+      summarizeLinearScope({ teams: ["ENG", "OPS"], projects: [project] }),
     ).toBe("2 Linear teams · 1 project")
-    expect(summarizeLinearScope({ teams: [], projects: [project] })).toBe(
+    expect(summarizeLinearScope({ projects: [project] })).toBe(
       "1 Linear project",
     )
   })

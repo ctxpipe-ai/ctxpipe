@@ -75,8 +75,6 @@ const row = (sourceKey: string, scope: Record<string, unknown>) => ({
   statusDetail: null,
 })
 
-const eng = { id: "team-eng", key: "ENG", name: "Engineering" }
-const ops = { id: "team-ops", key: "OPS", name: "Operations" }
 
 describe("Linear source adapter on the sync frame (Postgres, msw)", () => {
   let docsWorkspace: string
@@ -102,13 +100,13 @@ describe("Linear source adapter on the sync frame (Postgres, msw)", () => {
       orgId: seed.orgId,
       workspaceId: docsWorkspace,
       revision: "a".repeat(40),
-      rows: [row("issues", { teams: [eng], projects: [] })],
+      rows: [row("issues", { teams: ["ENG"], projects: [] })],
     })
     await replaceWorkspaceSourceRows({
       orgId: seed.orgId,
       workspaceId: engWorkspace,
       revision: "b".repeat(40),
-      rows: [row("eng-issues", { teams: [eng], projects: [] })],
+      rows: [row("eng-issues", { teams: ["eng"], projects: [] })],
     })
     await replaceWorkspaceSourceRows({
       orgId: seed.orgId,
@@ -116,8 +114,9 @@ describe("Linear source adapter on the sync frame (Postgres, msw)", () => {
       revision: "c".repeat(40),
       rows: [
         row("ops-issues", {
-          teams: [ops],
-          projects: [{ id: "project-launch", name: "Launch" }],
+          teams: ["OPS", "GONE"],
+          projects: ["project-launch"],
+          customerRequests: "exclude",
         }),
       ],
     })
@@ -131,6 +130,15 @@ describe("Linear source adapter on the sync frame (Postgres, msw)", () => {
     calls.length = 0
     installLinearGraphql(server, calls, (call) => {
       const id = String(call.variables.id ?? "")
+      if (call.name === "DiscoverScopes")
+        return {
+          teams: emptyLinearPage(
+            Object.entries(teams).map(([teamId, team]) => ({
+              id: teamId,
+              ...team,
+            })),
+          ),
+        }
       if (call.name === "TeamRecord") return { team: teamRecord(id) }
       if (call.name.startsWith("TeamIssues"))
         return {
@@ -191,21 +199,28 @@ describe("Linear source adapter on the sync frame (Postgres, msw)", () => {
     const paths = (workspaceId: string) =>
       (byWorkspace.get(workspaceId)?.files ?? []).map((file) => file.path)
 
-    for (const workspaceId of [docsWorkspace, engWorkspace]) {
+    // The same team under two spellings of its key: one walk, two roots.
+    for (const [workspaceId, key] of [
+      [docsWorkspace, "ENG"],
+      [engWorkspace, "eng"],
+    ] as const) {
       expect(byWorkspace.get(workspaceId)?.ownedPrefixes).toEqual([
-        "linear/teams/ENG/",
+        `linear/teams/${key}/`,
       ])
       expect(paths(workspaceId)).toContain(
-        "linear/teams/ENG/issues/eng-1--issue-team-eng.md",
+        `linear/teams/${key}/issues/eng-1--issue-team-eng.md`,
       )
       expect(
         paths(workspaceId).every((path) =>
-          path.startsWith("linear/teams/ENG/"),
+          path.startsWith(`linear/teams/${key}/`),
         ),
       ).toBe(true)
     }
+    // GONE is not a team of the Linear workspace: it owns its path, but
+    // gets no files, so a removed team's files go away.
     expect(byWorkspace.get(opsWorkspace)?.ownedPrefixes).toEqual([
       "linear/projects/project-launch/",
+      "linear/teams/GONE/",
       "linear/teams/OPS/",
     ])
     expect(paths(opsWorkspace)).toEqual(
@@ -215,6 +230,32 @@ describe("Linear source adapter on the sync frame (Postgres, msw)", () => {
       ]),
     )
     expect(paths(opsWorkspace).some((path) => path.includes("ENG"))).toBe(false)
+    // The ops source excludes customer requests, so its walk does not ask.
+    expect(
+      calls.some(
+        (call) =>
+          call.name.endsWith("WithNeeds") && call.variables.id === "team-ops",
+      ),
+    ).toBe(false)
+  })
+
+  it("names a team key that the Linear workspace does not have", async () => {
+    await expect(
+      linearSourceAdapter.checkAccess?.({
+        orgId: seed.orgId,
+        connectionId: linear,
+        env: env(),
+        scope: { teams: ["OPS", "GONE"], projects: [] },
+      }),
+    ).resolves.toBe("The Linear workspace has no team with the key GONE")
+    await expect(
+      linearSourceAdapter.checkAccess?.({
+        orgId: seed.orgId,
+        connectionId: linear,
+        env: env(),
+        scope: { teams: ["ops"], projects: [] },
+      }),
+    ).resolves.toBeNull()
   })
 
   it("syncs only the sources that a webhook event touches", async () => {
@@ -227,7 +268,7 @@ describe("Linear source adapter on the sync frame (Postgres, msw)", () => {
       event: linearSourceEventFromPayload({
         type: "Issue",
         action: "update",
-        data: { id: "issue-x", teamId: "team-ops" },
+        data: { id: "issue-x", identifier: "OPS-12", teamId: "team-ops" },
       }),
       write: async (write) => {
         writes.push(write)
