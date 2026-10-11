@@ -10,8 +10,8 @@ import { BackendPostgres } from "openworkflow/postgres"
 import { describe, expect, it } from "vitest"
 import { withOrgDbContext } from "../../db/client.js"
 import { workspaces, workspaceWriteJobs } from "../../db/schema/workspaces.js"
-import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { WRITE_STATUS_REASONS } from "../../domain/workspaces/write-status.js"
+import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { workspaceTipCheck } from "./workspace-tip-check.js"
 
 it(
