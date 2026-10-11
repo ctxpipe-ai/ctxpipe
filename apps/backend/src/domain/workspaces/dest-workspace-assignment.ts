@@ -22,12 +22,13 @@ export type DestWorkspaceLinkPlan = {
   firstWorkspaceId: string | null
   firstSourceRepositoryId: string | null
   insertLinks: Array<{ workspaceId: string; gitUrl: string }>
-  deleteLinkIds: string[]
 }
 
 /**
- * Non-target ingested repos link only to the first connector-target Workspace.
- * Sibling Workspace repositories are not auto-linked.
+ * One-time migration plan: a non-target ingested repository that no Workspace
+ * links yet is linked to the first connector-target Workspace. Sibling
+ * Workspace repositories are not auto-linked. The plan never removes a link:
+ * after the migration, hydrate of each Workspace owns its links.
  */
 export function planDestWorkspaceLinks(input: {
   workspaces: readonly DestWorkspaceRow[]
@@ -57,40 +58,28 @@ export function planDestWorkspaceLinks(input: {
   const targetUrls = new Set(
     targetRepos.map((repo) => normalize(repo.gitUrl)).filter(Boolean),
   )
-  const nonTargetUrls = [
-    ...new Set(
-      input.repositories
-        .map((repo) => normalize(repo.gitUrl))
-        .filter(
-          (url) => url && !workspaceUrls.has(url) && !targetUrls.has(url),
-        ),
-    ),
-  ]
-  const wanted = new Set(
-    firstWorkspaceId
-      ? nonTargetUrls.map((gitUrl) => `${firstWorkspaceId}\0${gitUrl}`)
-      : [],
+  const linkedUrls = new Set(
+    input.existingLinks.map((link) => normalize(link.gitUrl)),
   )
-  const deleteLinkIds: string[] = []
-  const existingKeys = new Set<string>()
-  for (const link of input.existingLinks) {
-    const gitUrl = normalize(link.gitUrl)
-    const key = `${link.workspaceId}\0${gitUrl}`
-    existingKeys.add(key)
-    if (!wanted.has(key)) deleteLinkIds.push(link.id)
-  }
   const insertLinks =
     firstWorkspaceId == null
       ? []
-      : nonTargetUrls
-          .filter(
-            (gitUrl) => !existingKeys.has(`${firstWorkspaceId}\0${gitUrl}`),
-          )
-          .map((gitUrl) => ({ workspaceId: firstWorkspaceId, gitUrl }))
+      : [
+          ...new Set(
+            input.repositories
+              .map((repo) => normalize(repo.gitUrl))
+              .filter(
+                (url) =>
+                  url &&
+                  !workspaceUrls.has(url) &&
+                  !targetUrls.has(url) &&
+                  !linkedUrls.has(url),
+              ),
+          ),
+        ].map((gitUrl) => ({ workspaceId: firstWorkspaceId, gitUrl }))
   return {
     firstWorkspaceId,
     firstSourceRepositoryId,
     insertLinks,
-    deleteLinkIds,
   }
 }

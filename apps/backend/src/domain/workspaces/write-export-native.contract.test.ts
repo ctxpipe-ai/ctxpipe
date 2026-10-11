@@ -51,7 +51,6 @@ it(
           await applyDestWorkspaceLinkPlan({
             firstWorkspaceId: f.workspaceId,
             firstSourceRepositoryId: repository.id,
-            deleteLinkIds: [],
             insertLinks: [
               { workspaceId: f.workspaceId, gitUrl: "not-a-git-url" },
               {
@@ -534,7 +533,6 @@ it(
           await applyDestWorkspaceLinkPlan({
             firstWorkspaceId: f.workspaceId,
             firstSourceRepositoryId: repo.id,
-            deleteLinkIds: [],
             insertLinks: [
               {
                 workspaceId: f.workspaceId,

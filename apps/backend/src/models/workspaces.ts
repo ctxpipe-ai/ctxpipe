@@ -1536,16 +1536,6 @@ export async function applyDestWorkspaceLinkPlan(
   return orgSql(async () => {
     const orgId = requireCurrentOrgId()
     const db = getOrgDb()
-    if (plan.deleteLinkIds.length > 0) {
-      await db
-        .delete(workspaceLinkedRepositories)
-        .where(
-          and(
-            eq(workspaceLinkedRepositories.orgId, orgId),
-            inArray(workspaceLinkedRepositories.id, plan.deleteLinkIds),
-          ),
-        )
-    }
     for (const link of plan.insertLinks) {
       await db
         .insert(workspaceLinkedRepositories)
@@ -1565,70 +1555,63 @@ export async function applyDestWorkspaceLinkPlan(
   })
 }
 
-export async function reconcileDestWorkspaceAssignment(orgId: string): Promise<{
-  firstWorkspaceId: string | null
-  firstSourceRepositoryId: string | null
-}> {
+/**
+ * One-time dest-Workspace migration for an org: persist the first Workspace
+ * and link each unlinked non-target repository to it. It does nothing once
+ * the org has a first Workspace, and it never deletes a link.
+ */
+export async function backfillDestWorkspaceAssignment(
+  orgId: string,
+): Promise<void> {
   return orgSql(async () => {
-    const [workspaceRows, repositoryRows, existingLinks, persistedFirst] =
-      await Promise.all([
-        getOrgDb()
-          .select({
-            id: workspaces.id,
-            workspaceRepositoryUrl: workspaces.workspaceRepositoryUrl,
-          })
-          .from(workspaces)
-          .where(eq(workspaces.orgId, orgId)),
-        getOrgDb()
-          .select({
-            id: repositories.id,
-            gitUrl: repositories.gitUrl,
-            createdAt: repositories.createdAt,
-          })
-          .from(repositories)
-          .where(eq(repositories.orgId, orgId)),
-        getOrgDb()
-          .select({
-            id: workspaceLinkedRepositories.id,
-            workspaceId: workspaceLinkedRepositories.workspaceId,
-            gitUrl: workspaceLinkedRepositories.gitUrl,
-          })
-          .from(workspaceLinkedRepositories)
-          .where(eq(workspaceLinkedRepositories.orgId, orgId)),
-        getOrgDb()
-          .select({
-            workspaceId: orgFirstWorkspaces.workspaceId,
-            sourceRepositoryId: orgFirstWorkspaces.sourceRepositoryId,
-          })
-          .from(orgFirstWorkspaces)
-          .where(eq(orgFirstWorkspaces.orgId, orgId))
-          .limit(1),
-      ])
-    const connectorTargetRepositoryIds = repositoryRows
-      .filter((repo) =>
-        workspaceRows.some((row) => row.workspaceRepositoryUrl === repo.gitUrl),
-      )
-      .map((repo) => repo.id)
+    if (await getOrgFirstWorkspace(orgId)) return
+    const [workspaceRows, repositoryRows, existingLinks] = await Promise.all([
+      getOrgDb()
+        .select({
+          id: workspaces.id,
+          workspaceRepositoryUrl: workspaces.workspaceRepositoryUrl,
+        })
+        .from(workspaces)
+        .where(eq(workspaces.orgId, orgId)),
+      getOrgDb()
+        .select({
+          id: repositories.id,
+          gitUrl: repositories.gitUrl,
+          createdAt: repositories.createdAt,
+        })
+        .from(repositories)
+        .where(eq(repositories.orgId, orgId)),
+      getOrgDb()
+        .select({
+          id: workspaceLinkedRepositories.id,
+          workspaceId: workspaceLinkedRepositories.workspaceId,
+          gitUrl: workspaceLinkedRepositories.gitUrl,
+        })
+        .from(workspaceLinkedRepositories)
+        .where(eq(workspaceLinkedRepositories.orgId, orgId)),
+    ])
+    const workspaceUrls = new Set(
+      workspaceRows.map((row) =>
+        normalizeWorkspaceRepositoryUrl(row.workspaceRepositoryUrl),
+      ),
+    )
     const plan = planDestWorkspaceLinks({
       workspaces: workspaceRows,
       repositories: repositoryRows,
-      connectorTargetRepositoryIds,
+      connectorTargetRepositoryIds: repositoryRows
+        .filter((repo) =>
+          workspaceUrls.has(normalizeWorkspaceRepositoryUrl(repo.gitUrl)),
+        )
+        .map((repo) => repo.id),
       existingLinks,
     })
-    if (plan.firstWorkspaceId && plan.firstSourceRepositoryId) {
-      await persistOrgFirstWorkspace({
-        orgId,
-        workspaceId: plan.firstWorkspaceId,
-        sourceRepositoryId: plan.firstSourceRepositoryId,
-      })
-    }
+    if (!plan.firstWorkspaceId || !plan.firstSourceRepositoryId) return
+    await persistOrgFirstWorkspace({
+      orgId,
+      workspaceId: plan.firstWorkspaceId,
+      sourceRepositoryId: plan.firstSourceRepositoryId,
+    })
     await applyDestWorkspaceLinkPlan(plan)
-    const first = persistedFirst[0]
-    return {
-      firstWorkspaceId: first?.workspaceId ?? plan.firstWorkspaceId,
-      firstSourceRepositoryId:
-        first?.sourceRepositoryId ?? plan.firstSourceRepositoryId,
-    }
   })
 }
 

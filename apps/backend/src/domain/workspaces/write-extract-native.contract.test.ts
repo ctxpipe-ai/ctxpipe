@@ -97,7 +97,6 @@ it.each(["knowledge/services/billing.md", "knowledge/imported/billing.md"])(
                 gitUrl: "https://github.com/linked/api",
               },
             ],
-            deleteLinkIds: [],
           })
           await persistBoundWriteJob({
             id: `wjob_${f.id}_cutover`,

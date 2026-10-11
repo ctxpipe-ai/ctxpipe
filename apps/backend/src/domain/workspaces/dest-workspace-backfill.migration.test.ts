@@ -58,13 +58,7 @@ describe("dest workspace SQL backfill", () => {
         },
       ],
       connectorTargetRepositoryIds: ["repo_first", "repo_second"],
-      existingLinks: [
-        {
-          id: "wlr_cross",
-          workspaceId: "ws_wiki",
-          gitUrl: "https://github.com/acme/app",
-        },
-      ],
+      existingLinks: [],
     })
     expect(plan).toEqual({
       firstWorkspaceId: "ws_docs",
@@ -72,7 +66,6 @@ describe("dest workspace SQL backfill", () => {
       insertLinks: [
         { workspaceId: "ws_docs", gitUrl: "https://github.com/acme/app" },
       ],
-      deleteLinkIds: ["wlr_cross"],
     })
   })
 

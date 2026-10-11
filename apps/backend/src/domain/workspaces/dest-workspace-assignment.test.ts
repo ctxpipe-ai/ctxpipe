@@ -4,7 +4,7 @@ import { planDestWorkspaceLinks } from "./dest-workspace-assignment.js"
 const at = (iso: string) => new Date(iso)
 
 describe("planDestWorkspaceLinks", () => {
-  it("links only non-target repos to the first connector-target Workspace", () => {
+  it("never removes a link and skips a repository that a Workspace already links", () => {
     const firstTarget = {
       id: "repo_first",
       gitUrl: "https://github.com/acme/docs",
@@ -54,7 +54,6 @@ describe("planDestWorkspaceLinks", () => {
       firstWorkspaceId: "ws_docs",
       firstSourceRepositoryId: "repo_first",
       insertLinks: [],
-      deleteLinkIds: ["wlr_wrong_ws", "wlr_sibling"],
     })
   })
 
@@ -89,6 +88,5 @@ describe("planDestWorkspaceLinks", () => {
     expect(plan.insertLinks).toEqual([
       { workspaceId: "ws_a", gitUrl: "https://github.com/acme/lib" },
     ])
-    expect(plan.deleteLinkIds).toEqual([])
   })
 })
