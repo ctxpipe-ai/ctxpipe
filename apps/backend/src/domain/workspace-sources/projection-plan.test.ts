@@ -33,6 +33,7 @@ sources:
   - id: eng-docs
     provider: confluence
     connection: con_linear1
+    spaces: [{ key: ENG, pages: all }]
   - id: gone
     provider: notion
     connection: con_missing1
@@ -73,7 +74,7 @@ sources:
 
   it("marks an entry out of the connection's reach as out_of_access", async () => {
     const [row] = await planSourceRows({
-      text: "version: 1\nsources:\n  - {id: docs, provider: confluence, connection: con_forge1}\n",
+      text: "version: 1\nsources:\n  - {id: docs, provider: confluence, connection: con_forge1, spaces: [{key: ENG, pages: all}]}\n",
       connections,
       checkAccess: async () => "Space ENG is not in this site",
     })

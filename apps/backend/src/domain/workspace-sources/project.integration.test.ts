@@ -34,7 +34,7 @@ describe("projectWorkspaceSources (Postgres + git)", () => {
             managedPaths: () => ["confluence/"],
             fetch: async () => [],
             checkAccess: async ({ scope }) =>
-              scope.spaces ? null : "Pick at least one space",
+              "Space ENG is not in this site",
           },
         },
       })
@@ -55,6 +55,7 @@ sources:
   - id: eng-docs
     provider: confluence
     connection: ${forge}
+    spaces: [{ key: ENG, pages: all }]
   - id: wrong
     provider: notion
     connection: ${slack}
