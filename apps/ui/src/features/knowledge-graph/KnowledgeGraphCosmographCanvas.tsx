@@ -834,10 +834,8 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
 
             <div
               className={cn(
-                "absolute left-16 right-2 top-2 z-10 flex h-10 justify-center transition-opacity",
-                drawerOpen
-                  ? "pointer-events-none opacity-40"
-                  : "pointer-events-auto",
+                "pointer-events-auto absolute left-16 right-2 top-2 z-10 flex h-10 justify-center transition-opacity",
+                drawerOpen && "opacity-40",
               )}
               inert={drawerOpen}
             >
