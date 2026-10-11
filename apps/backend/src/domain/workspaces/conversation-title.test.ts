@@ -77,4 +77,13 @@ describe("conversationTitleFromModel", () => {
   it("falls back to Conversation when both texts are empty", () => {
     expect(conversationTitleFromModel("  \n ", "  ")).toBe("Conversation")
   })
+
+  it("masks a credential in the first user message", () => {
+    const title = conversationTitleFromModel(
+      "",
+      "Use ghp_abcdefghijklmnopqrstuvwxyz0123456789 to clone it",
+    )
+    expect(title).not.toContain("ghp_abcdefghijklmnopqrstuvwxyz0123456789")
+    expect(title).toContain("[masked]")
+  })
 })

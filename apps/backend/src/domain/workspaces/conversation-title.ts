@@ -3,6 +3,7 @@ import {
   updateConversation,
 } from "../../models/conversations.js"
 import { getModel } from "../../retrieval/services/modelProvider.js"
+import { maskCredentials } from "./mask-credentials.js"
 
 const titlePrompt =
   `Generate a short 2-5 word title for a chat conversation. Reply with ONLY the title, no quotes or punctuation.
@@ -34,8 +35,9 @@ const maxTitleLength = 72
 
 /**
  * One line of plain text for a title: the first line that is not empty,
- * without a heading mark, a "Title:" label, quotes or a trailing period, and
- * cut at a word to at most 72 characters. Empty when nothing is left.
+ * with credentials masked, without a heading mark, a "Title:" label, quotes or
+ * a trailing period, and cut at a word to at most 72 characters. Empty when
+ * nothing is left.
  */
 export function cleanTitle(text: string): string {
   const line =
@@ -43,18 +45,11 @@ export function cleanTitle(text: string): string {
       .split(/\r?\n/)
       .map((item) => item.trim())
       .find(Boolean) ?? ""
-  let title = line
+  const title = maskCredentials(line)
     .replace(/^#+\s*/, "")
     .replace(/^title\s*:\s*/i, "")
     .replace(/\s+/g, " ")
-  let previous = ""
-  while (previous !== title) {
-    previous = title
-    title = title
-      .replace(/^["'`*_“”‘’]+|["'`*_“”‘’]+$/g, "")
-      .replace(/[.,;:]+$/, "")
-      .trim()
-  }
+    .replace(/^[\s"'`*_“”‘’]+|[\s"'`*_“”‘’.,;:]+$/g, "")
   if (title.length <= maxTitleLength) return title
   const cut = title.slice(0, maxTitleLength + 1)
   const space = cut.lastIndexOf(" ")

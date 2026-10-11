@@ -44,6 +44,14 @@ describe("pullRequestTitle", () => {
     ).toBe("Update referral-bonus.md and 2 other files")
   })
 
+  it("masks a credential in the conversation name", () => {
+    const title = pullRequestTitle(
+      "Clone with ghp_abcdefghijklmnopqrstuvwxyz0123456789",
+      changes,
+    )
+    expect(title).not.toContain("ghp_abcdefghijklmnopqrstuvwxyz0123456789")
+  })
+
   it("falls back to a fixed title without a name or files", () => {
     expect(pullRequestTitle("  ", { commits: [], files: [] })).toBe(
       "Changes from ctx|",
