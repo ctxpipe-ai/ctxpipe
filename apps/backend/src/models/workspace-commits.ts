@@ -4,6 +4,7 @@ import { getOrgDb } from "../db/client.js"
 import {
   workspaceCommitProjections,
   workspaceRepositoryCommits,
+  workspaces,
 } from "../db/schema/workspaces.js"
 import {
   type ProjectedCommit,
@@ -34,26 +35,43 @@ export async function getWorkspaceCommitProjection(
   })
 }
 
+export type WorkspaceActivityCommitRecord = ProjectedCommit & {
+  workspaceSlug: string
+  workspaceName: string
+}
+
 /**
- * The latest commits first. `date` (`YYYY-MM-DD`) keeps only the commits of
- * that UTC day, the same day boundary as `listWorkspaceCommitDayCounts`.
+ * The latest commits first, of one workspace or (no `workspaceId`) of every
+ * workspace in the org. `date` (`YYYY-MM-DD`) keeps only the commits of that
+ * UTC day, the same day boundary as `listWorkspaceCommitDayCounts`.
  */
 export async function listWorkspaceRepositoryCommits(input: {
-  workspaceId: string
+  workspaceId?: string
   date?: string
   limit?: number
-}): Promise<ProjectedCommit[]> {
+}): Promise<WorkspaceActivityCommitRecord[]> {
   return orgSql(async () => {
     const orgId = requireCurrentOrgId()
     const db = getOrgDb()
     const dayStart = input.date ? new Date(`${input.date}T00:00:00.000Z`) : null
     const rows = await db
-      .select()
+      .select({
+        commit: workspaceRepositoryCommits,
+        workspaceSlug: workspaces.slug,
+        workspaceName: workspaces.displayName,
+      })
       .from(workspaceRepositoryCommits)
+      .innerJoin(
+        workspaces,
+        eq(workspaces.id, workspaceRepositoryCommits.workspaceId),
+      )
       .where(
         and(
           eq(workspaceRepositoryCommits.orgId, orgId),
-          eq(workspaceRepositoryCommits.workspaceId, input.workspaceId),
+          eq(workspaces.orgId, orgId),
+          input.workspaceId
+            ? eq(workspaceRepositoryCommits.workspaceId, input.workspaceId)
+            : undefined,
           dayStart
             ? gte(workspaceRepositoryCommits.committedAt, dayStart)
             : undefined,
@@ -65,20 +83,26 @@ export async function listWorkspaceRepositoryCommits(input: {
             : undefined,
         ),
       )
-      .orderBy(desc(workspaceRepositoryCommits.committedAt))
+      .orderBy(
+        desc(workspaceRepositoryCommits.committedAt),
+        workspaceRepositoryCommits.sha,
+      )
       .limit(input.limit ?? 5)
-    return rows.map((row) => ({
-      sha: row.sha,
-      committedAt: row.committedAt,
-      authorName: row.authorName,
-      subject: row.subject,
-      htmlUrl: row.htmlUrl,
+    return rows.map(({ commit, workspaceSlug, workspaceName }) => ({
+      sha: commit.sha,
+      committedAt: commit.committedAt,
+      authorName: commit.authorName,
+      subject: commit.subject,
+      htmlUrl: commit.htmlUrl,
+      workspaceSlug,
+      workspaceName,
     }))
   })
 }
 
+/** Commits per UTC day, of one workspace or (no `workspaceId`) of the org. */
 export async function listWorkspaceCommitDayCounts(
-  workspaceId: string,
+  workspaceId?: string,
 ): Promise<Map<string, number>> {
   return orgSql(async () => {
     const orgId = requireCurrentOrgId()
@@ -92,7 +116,9 @@ export async function listWorkspaceCommitDayCounts(
       .where(
         and(
           eq(workspaceRepositoryCommits.orgId, orgId),
-          eq(workspaceRepositoryCommits.workspaceId, workspaceId),
+          workspaceId
+            ? eq(workspaceRepositoryCommits.workspaceId, workspaceId)
+            : undefined,
         ),
       )
       .groupBy(
@@ -103,6 +129,37 @@ export async function listWorkspaceCommitDayCounts(
         (row) => [row.day, Number(row.count)] satisfies [string, number],
       ),
     )
+  })
+}
+
+/** Every workspace in the org with its commit projection (null: none yet). */
+export async function listOrgWorkspaceCommitProjections(): Promise<
+  {
+    workspace: Pick<
+      typeof workspaces.$inferSelect,
+      "id" | "orgId" | "desiredSha"
+    >
+    projection: WorkspaceCommitProjectionRecord | null
+  }[]
+> {
+  return orgSql(async () => {
+    const orgId = requireCurrentOrgId()
+    const db = getOrgDb()
+    return db
+      .select({
+        workspace: {
+          id: workspaces.id,
+          orgId: workspaces.orgId,
+          desiredSha: workspaces.desiredSha,
+        },
+        projection: workspaceCommitProjections,
+      })
+      .from(workspaces)
+      .leftJoin(
+        workspaceCommitProjections,
+        eq(workspaceCommitProjections.workspaceId, workspaces.id),
+      )
+      .where(eq(workspaces.orgId, orgId))
   })
 }
 

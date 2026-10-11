@@ -77,6 +77,8 @@ it(
             authorName: "Ada",
             committedAt: COMMIT.date,
             htmlUrl: COMMIT.htmlUrl,
+            workspaceSlug: "knowledge",
+            workspaceName: expect.any(String),
           },
         ])
         expect(

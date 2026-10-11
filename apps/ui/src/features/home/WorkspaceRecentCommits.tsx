@@ -9,6 +9,8 @@ import { cn } from "@/lib/utils"
 export function WorkspaceRecentCommits(props: {
   commits: readonly WorkspaceActivityCommit[]
   emptyText?: string
+  /** Show the workspace of each commit (the activity of all workspaces). */
+  showWorkspace?: boolean
 }) {
   if (props.commits.length === 0) {
     return (
@@ -22,19 +24,31 @@ export function WorkspaceRecentCommits(props: {
     <ul className="list-none p-0">
       {props.commits.map((commit) => (
         <li
-          key={commit.sha}
+          key={`${commit.workspaceSlug}/${commit.sha}`}
           className="border-b border-white/[0.06] py-3 last:border-b-0"
         >
-          <CommitRow commit={commit} />
+          <CommitRow commit={commit} showWorkspace={props.showWorkspace} />
         </li>
       ))}
     </ul>
   )
 }
 
-function CommitRow({ commit }: { commit: WorkspaceActivityCommit }) {
+function CommitRow({
+  commit,
+  showWorkspace,
+}: {
+  commit: WorkspaceActivityCommit
+  showWorkspace?: boolean
+}) {
   const shortSha = commit.sha.slice(0, 7)
-  const meta = `${commit.authorName} · ${formatDate(commit.committedAt)}`
+  const meta = [
+    showWorkspace ? commit.workspaceName : null,
+    commit.authorName,
+    formatDate(commit.committedAt),
+  ]
+    .filter(Boolean)
+    .join(" · ")
   const subject = commit.htmlUrl ? (
     <AriaLink
       href={commit.htmlUrl}

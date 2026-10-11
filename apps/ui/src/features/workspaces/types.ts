@@ -66,6 +66,8 @@ export type WorkspaceActivityCommit = {
   authorName: string
   committedAt: string
   htmlUrl: string | null
+  workspaceSlug: string
+  workspaceName: string
 }
 
 export type WorkspaceActivityResponse = {

@@ -9,27 +9,60 @@ import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-p
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { WorkspaceActivity } from "./WorkspaceActivity"
 
-/** The `date` query of each activity request, in order (`null`: no date). */
+/** The `date` query of each workspace activity request (`null`: no date). */
 const activityDates: (string | null)[] = []
+/** The `date` query of each org activity request (`null`: no date). */
+const orgActivityDates: (string | null)[] = []
 
-/** One commit on Aug 22. Every other day has no commits. */
-const activityByDayHandler = http.get(
-  ({ request }) =>
-    /\/api\/v1\/workspaces\/[^/]+\/activity$/.test(
-      new URL(request.url).pathname,
-    ),
-  ({ request }) => {
-    const date = new URL(request.url).searchParams.get("date")
-    activityDates.push(date)
-    if (date === null) return HttpResponse.json(docsWorkspaceActivity)
-    return HttpResponse.json({
-      ...docsWorkspaceActivity,
-      recent: docsWorkspaceActivityRecent.filter((commit) =>
-        commit.committedAt.startsWith(date),
+const handbookCommit = {
+  sha: "f00ba47777",
+  subject: "Add release checklist",
+  authorName: "Lin",
+  committedAt: "2026-08-22T15:00:00.000Z",
+  htmlUrl: null,
+  workspaceSlug: "handbook",
+  workspaceName: "Handbook",
+}
+
+function activityResponse(
+  date: string | null,
+  recent: typeof docsWorkspaceActivityRecent,
+) {
+  if (date === null)
+    return HttpResponse.json({ ...docsWorkspaceActivity, recent })
+  return HttpResponse.json({
+    ...docsWorkspaceActivity,
+    recent: recent.filter((commit) => commit.committedAt.startsWith(date)),
+  })
+}
+
+/** Docs has one commit on Aug 22. The org adds one Handbook commit that day. */
+const activityByDayHandlers = [
+  http.get(
+    ({ request }) =>
+      /\/api\/v1\/workspaces\/[^/]+\/activity$/.test(
+        new URL(request.url).pathname,
       ),
-    })
-  },
-)
+    ({ request }) => {
+      const date = new URL(request.url).searchParams.get("date")
+      activityDates.push(date)
+      return activityResponse(date, docsWorkspaceActivityRecent)
+    },
+  ),
+  http.get(
+    ({ request }) => /\/api\/v1\/activity$/.test(new URL(request.url).pathname),
+    ({ request }) => {
+      const date = new URL(request.url).searchParams.get("date")
+      orgActivityDates.push(date)
+      return activityResponse(
+        date,
+        [handbookCommit, ...docsWorkspaceActivityRecent].sort((a, b) =>
+          b.committedAt.localeCompare(a.committedAt),
+        ),
+      )
+    },
+  ),
+]
 
 const meta = {
   title: "Components/Home/Activity",
@@ -48,7 +81,7 @@ const meta = {
       pattern: "orgIndex",
       orgSlug: "acme",
     } satisfies StoryRouteParams,
-    msw: { handlers: { page: [activityByDayHandler] } },
+    msw: { handlers: { page: activityByDayHandlers } },
   },
   args: {
     orgSlug: "acme",
@@ -56,6 +89,7 @@ const meta = {
   },
   beforeEach: () => {
     activityDates.length = 0
+    orgActivityDates.length = 0
   },
 } satisfies Meta<typeof WorkspaceActivity>
 
@@ -142,5 +176,56 @@ export const KeyboardSelectsEmptyDay: Story = {
     expect(dated).toHaveLength(1)
     expect(dated[0]).toMatch(/^\d{4}-\d{2}-\d{2}$/)
     expect(canvas.getByRole("button", { name: "Reset view" })).toBeVisible()
+  },
+}
+
+/**
+ * The filter starts on the composer's workspace. All workspaces shows the
+ * commits of the org, each with its workspace, and a day filters them too.
+ */
+export const AllWorkspaces: Story = {
+  args: {
+    workspaces: [
+      { slug: "docs", displayName: "Docs" },
+      { slug: "handbook", displayName: "Handbook" },
+    ],
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const page = within(canvasElement.ownerDocument.body)
+    expect(
+      await canvas.findByText("Document billing ledger rules"),
+    ).toBeVisible()
+    const filter = canvas.getByRole("button", {
+      name: "Show activity for: Docs",
+    })
+    expect(orgActivityDates).toEqual([])
+    expect(canvas.queryByText(/^Docs · /)).not.toBeInTheDocument()
+
+    await userEvent.click(filter)
+    await userEvent.click(
+      await page.findByRole("menuitemradio", { name: "All workspaces" }),
+    )
+
+    expect(
+      await canvas.findByRole("button", {
+        name: "Show activity for: All workspaces",
+      }),
+    ).toBeVisible()
+    expect(await canvas.findByText("Add release checklist")).toBeVisible()
+    expect(canvas.getByText(/^Handbook · Lin · /)).toBeVisible()
+    expect(canvas.getAllByText(/^Docs · Ada · /)[0]).toBeVisible()
+    expect(orgActivityDates).toContain(null)
+
+    clickDay(canvasElement, "2026-08-22")
+
+    expect(await canvas.findByText("Aug 22, 2026")).toBeVisible()
+    await waitFor(() => expect(orgActivityDates).toContain("2026-08-22"))
+    expect(await canvas.findByText("Add release checklist")).toBeVisible()
+    expect(canvas.getByText("Add on-call severity notes")).toBeVisible()
+    expect(
+      canvas.queryByText("Document billing ledger rules"),
+    ).not.toBeInTheDocument()
+    expect(activityDates).not.toContain("2026-08-22")
   },
 }

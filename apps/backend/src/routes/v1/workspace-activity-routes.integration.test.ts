@@ -11,7 +11,10 @@ import {
   upsertWorkspaceCommitProjection,
 } from "../../models/workspace-commits.js"
 import { workspaceHttpApp } from "../../test/workspace-http-fixture.js"
-import { workspaceActivityRoutes } from "./workspace-activity-routes.js"
+import {
+  orgActivityRoutes,
+  workspaceActivityRoutes,
+} from "./workspace-activity-routes.js"
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url))
 config({ path: resolve(__dirname, "../../../.env.local"), quiet: true })
@@ -23,6 +26,20 @@ const org = {
   name: "Activity",
 }
 const workspace = { id: `ws_activity_${suffix}`, slug: `docs-${suffix}` }
+const wiki = { id: `ws_activity_wiki_${suffix}`, slug: `wiki-${suffix}` }
+const otherOrg = {
+  id: `org_test_activity_other_${suffix}`,
+  slug: `activity-other-${suffix}`,
+  name: "Other",
+}
+const otherWorkspace = {
+  id: `ws_activity_other_${suffix}`,
+  slug: `docs-${suffix}`,
+}
+const unprojected = {
+  id: `ws_activity_unprojected_${suffix}`,
+  slug: `new-${suffix}`,
+}
 
 // Days in the heatmap window: `day` is three UTC days before today.
 const DAY_MS = 86_400_000
@@ -43,6 +60,7 @@ function commit(sha: string, offsetMs: number) {
 async function seedWorkspace(
   target: typeof org,
   row: { id: string; slug: string },
+  options: { projected: boolean } = { projected: true },
 ) {
   await withOrgDbContext(target.id, (db) =>
     db.insert(workspaces).values({
@@ -53,6 +71,7 @@ async function seedWorkspace(
       workspaceRepositoryUrl: `https://github.com/example/${row.slug}.git`,
     }),
   )
+  if (!options.projected) return
   // A ready projection with no desired SHA is fresh, so the read enqueues nothing.
   await withOrgIdContext(target, () =>
     upsertWorkspaceCommitProjection({
@@ -81,11 +100,32 @@ describe("workspace activity routes (Postgres)", () => {
         ],
       }),
     )
+    await seedWorkspace(org, wiki)
+    await withOrgIdContext(org, () =>
+      insertWorkspaceRepositoryCommits({
+        workspaceId: wiki.id,
+        commits: [commit("g", 12 * 3_600_000)],
+      }),
+    )
+    await seedWorkspace(otherOrg, otherWorkspace)
+    await withOrgIdContext(otherOrg, () =>
+      insertWorkspaceRepositoryCommits({
+        workspaceId: otherWorkspace.id,
+        commits: [commit("x", 11 * 3_600_000)],
+      }),
+    )
   })
 
   afterAll(async () => {
     await withOrgDbContext(org.id, (db) =>
-      db.delete(workspaces).where(inArray(workspaces.id, [workspace.id])),
+      db
+        .delete(workspaces)
+        .where(inArray(workspaces.id, [workspace.id, wiki.id])),
+    )
+    await withOrgDbContext(otherOrg.id, (db) =>
+      db
+        .delete(workspaces)
+        .where(inArray(workspaces.id, [otherWorkspace.id, unprojected.id])),
     )
     await closeDb()
   })
@@ -134,5 +174,68 @@ describe("workspace activity routes (Postgres)", () => {
       )
       expect(res.status).toBe(400)
     }
+  })
+
+  it("reads the commits of every workspace in the org, with the workspace of each", async () => {
+    // The fixture mounts the routes under `/workspaces`.
+    const app = workspaceHttpApp(org, orgActivityRoutes)
+    const res = await app.request("/workspaces")
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.status).toBe("ready")
+    expect(
+      body.recent.map(
+        (row: { subject: string; workspaceSlug: string }) =>
+          `${row.workspaceSlug}/${row.subject}`,
+      ),
+    ).toEqual([
+      `${workspace.slug}/Commit f`,
+      `${workspace.slug}/Commit e`,
+      `${workspace.slug}/Commit d`,
+      `${wiki.slug}/Commit g`,
+      `${workspace.slug}/Commit c`,
+    ])
+    expect(body.recent[3]).toMatchObject({ workspaceName: wiki.slug })
+
+    const dayRes = await app.request(`/workspaces?date=${day}`)
+    const dayBody = await dayRes.json()
+    expect(
+      dayBody.recent.map((row: { subject: string }) => row.subject),
+    ).toEqual(["Commit d", "Commit g", "Commit c", "Commit b"])
+    expect(
+      dayBody.days.find((row: { date: string }) => row.date === day)?.count,
+    ).toBe(4)
+
+    expect((await app.request("/workspaces?date=today")).status).toBe(400)
+  })
+
+  it("never shows the commits of another org", async () => {
+    const app = workspaceHttpApp(otherOrg, orgActivityRoutes)
+    const body = await (await app.request(`/workspaces?date=${day}`)).json()
+    expect(body.recent.map((row: { subject: string }) => row.subject)).toEqual([
+      "Commit x",
+    ])
+    expect(
+      body.days.find((row: { date: string }) => row.date === day)?.count,
+    ).toBe(1)
+
+    // The other org's workspace with the same slug does not leak either.
+    const scoped = workspaceHttpApp(otherOrg, workspaceActivityRoutes)
+    const scopedBody = await (
+      await scoped.request(`/workspaces/${otherWorkspace.slug}/activity`)
+    ).json()
+    expect(
+      scopedBody.recent.map((row: { subject: string }) => row.subject),
+    ).toEqual(["Commit x"])
+  })
+
+  it("is pending while a workspace in the org has no projection", async () => {
+    await seedWorkspace(otherOrg, unprojected, { projected: false })
+    const app = workspaceHttpApp(otherOrg, orgActivityRoutes)
+    const body = await (await app.request("/workspaces")).json()
+    expect(body.status).toBe("pending")
+    expect(body.recent.map((row: { subject: string }) => row.subject)).toEqual([
+      "Commit x",
+    ])
   })
 })

@@ -1,9 +1,15 @@
+import { IconChevronDown } from "@tabler/icons-react"
 import { useQuery } from "@tanstack/react-query"
-import { useState } from "react"
+import { type ReactNode, useState } from "react"
+import { Button as RACButton } from "react-aria-components"
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
+import { Menu, MenuItem, MenuTrigger } from "@/components/ui/Menu"
 import { useSkeletonHold } from "@/components/ui/Skeleton"
-import { workspaceActivityOptions } from "@/features/workspaces/queries"
+import { activityOptions } from "@/features/workspaces/queries"
+import type { Workspace } from "@/features/workspaces/types"
+import { focusVisibleClassName } from "@/lib/focus-styles"
+import { cn } from "@/lib/utils"
 import { formatCalendarDate } from "./calendar-days"
 import {
   WorkspaceActivityHeatmap,
@@ -17,29 +23,39 @@ import {
 const sectionHeadingClassName =
   "text-xs font-medium uppercase tracking-normal text-teal-400"
 
-/** `workspaceSlug: null` keeps the skeleton while the caller still loads. */
+/** The activity scope of every workspace. A workspace slug cannot have `*`. */
+const ALL_WORKSPACES = "*"
+
+/** The workspace slug of a scope for `activityOptions` (`null`: all). */
+function scopeSlug(scope: string | null): string | null {
+  return scope === ALL_WORKSPACES ? null : (scope ?? "")
+}
+
+/**
+ * `workspaceSlug: null` keeps the skeleton while the caller still loads. The
+ * activity follows `workspaceSlug` until the user picks a scope in the filter.
+ */
 export function WorkspaceActivity(props: {
   orgSlug: string
   workspaceSlug: string | null
+  workspaces?: readonly Pick<Workspace, "slug" | "displayName">[]
 }) {
+  const workspaces = props.workspaces ?? []
+  const [scopeChoice, setScopeChoice] = useState<string | null>(null)
+  const scope = scopeChoice ?? props.workspaceSlug
   const query = useQuery({
-    ...workspaceActivityOptions(props.orgSlug, props.workspaceSlug ?? ""),
-    enabled: props.workspaceSlug !== null,
+    ...activityOptions(props.orgSlug, scopeSlug(scope), null),
+    enabled: scope !== null,
   })
-  // Keep the workspace with the day, so a day of another workspace never applies.
+  // Keep the scope with the day, so a day of another scope never applies.
   const [selection, setSelection] = useState<{
-    workspaceSlug: string | null
+    scope: string | null
     date: string
   } | null>(null)
-  const selectedDate =
-    selection?.workspaceSlug === props.workspaceSlug ? selection.date : null
+  const selectedDate = selection?.scope === scope ? selection.date : null
   const dayQuery = useQuery({
-    ...workspaceActivityOptions(
-      props.orgSlug,
-      props.workspaceSlug ?? "",
-      selectedDate,
-    ),
-    enabled: props.workspaceSlug !== null && selectedDate !== null,
+    ...activityOptions(props.orgSlug, scopeSlug(scope), selectedDate),
+    enabled: scope !== null && selectedDate !== null,
   })
 
   const loading = useSkeletonHold(
@@ -49,43 +65,51 @@ export function WorkspaceActivity(props: {
     selectedDate !== null && dayQuery.isPending,
   )
 
-  if (loading) {
-    return <WorkspaceActivityLoading />
-  }
+  const activityHeader = (
+    <div className="flex items-center justify-between gap-4">
+      <p className={sectionHeadingClassName}>Activity</p>
+      {workspaces.length > 1 ? (
+        <ActivityScopeMenu
+          workspaces={workspaces}
+          scope={scope}
+          onScopeChange={setScopeChoice}
+        />
+      ) : null}
+    </div>
+  )
 
-  if (query.isError) {
-    return (
-      <WorkspaceActivityError
-        onRetry={() => {
-          void query.refetch()
-        }}
-      />
-    )
+  if (loading) {
+    return <WorkspaceActivityLoading header={activityHeader} />
   }
 
   const data = query.data
-  if (!data) return <WorkspaceActivityLoading />
-
-  if (data.status === "failed") {
+  if (query.isError || data?.status === "failed") {
     return (
-      <WorkspaceActivityError
-        onRetry={() => {
-          void query.refetch()
-        }}
-      />
+      <section>
+        {activityHeader}
+        <div className="mt-3">
+          <WorkspaceActivityError
+            onRetry={() => {
+              void query.refetch()
+            }}
+          />
+        </div>
+      </section>
     )
   }
+  if (!data) return <WorkspaceActivityLoading header={activityHeader} />
 
+  const showWorkspace = scope === ALL_WORKSPACES
   return (
     <>
       <section>
-        <p className={sectionHeadingClassName}>Activity</p>
+        {activityHeader}
         <div className="mt-3">
           <WorkspaceActivityHeatmap
             days={data.days}
             selectedDate={selectedDate}
             onSelectDate={(date) => {
-              setSelection({ workspaceSlug: props.workspaceSlug, date })
+              setSelection({ scope, date })
             }}
           />
         </div>
@@ -107,7 +131,10 @@ export function WorkspaceActivity(props: {
         </div>
         <div className="mt-3">
           {selectedDate === null ? (
-            <WorkspaceRecentCommits commits={data.recent} />
+            <WorkspaceRecentCommits
+              commits={data.recent}
+              showWorkspace={showWorkspace}
+            />
           ) : dayLoading ? (
             <WorkspaceRecentCommitsSkeleton />
           ) : dayQuery.isError ? (
@@ -119,6 +146,7 @@ export function WorkspaceActivity(props: {
           ) : (
             <WorkspaceRecentCommits
               commits={dayQuery.data?.recent ?? []}
+              showWorkspace={showWorkspace}
               emptyText="No commits on this day."
             />
           )}
@@ -128,11 +156,67 @@ export function WorkspaceActivity(props: {
   )
 }
 
-function WorkspaceActivityLoading() {
+/** A quiet menu like the composer's workspace picker. It sets only the activity scope. */
+function ActivityScopeMenu(props: {
+  workspaces: readonly Pick<Workspace, "slug" | "displayName">[]
+  scope: string | null
+  onScopeChange: (scope: string) => void
+}) {
+  const label =
+    props.scope === ALL_WORKSPACES
+      ? "All workspaces"
+      : (props.workspaces.find((workspace) => workspace.slug === props.scope)
+          ?.displayName ?? "Workspace")
+  return (
+    <MenuTrigger
+      placement="bottom end"
+      popoverClassName="overflow-hidden rounded-md border-zinc-800 bg-zinc-900"
+    >
+      <RACButton
+        className={cn(
+          "-my-1 inline-flex items-center gap-1 rounded-md bg-transparent px-0 py-1 text-sm text-muted-foreground",
+          "hover:text-foreground",
+          focusVisibleClassName,
+        )}
+        aria-label={`Show activity for: ${label}`}
+      >
+        {label}
+        <IconChevronDown aria-hidden className="size-4" />
+      </RACButton>
+      <Menu
+        aria-label="Activity scope"
+        className="rounded-md"
+        selectionMode="single"
+        selectedKeys={props.scope === null ? [] : [props.scope]}
+        onAction={(key) => props.onScopeChange(String(key))}
+      >
+        <MenuItem
+          id={ALL_WORKSPACES}
+          textValue="All workspaces"
+          className="rounded-md"
+        >
+          All workspaces
+        </MenuItem>
+        {props.workspaces.map((workspace) => (
+          <MenuItem
+            key={workspace.slug}
+            id={workspace.slug}
+            textValue={workspace.displayName}
+            className="rounded-md"
+          >
+            {workspace.displayName}
+          </MenuItem>
+        ))}
+      </Menu>
+    </MenuTrigger>
+  )
+}
+
+function WorkspaceActivityLoading(props: { header: ReactNode }) {
   return (
     <>
       <section>
-        <p className={sectionHeadingClassName}>Activity</p>
+        {props.header}
         <div className="mt-3">
           <WorkspaceActivityHeatmapSkeleton />
         </div>

@@ -67,6 +67,7 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
             <WorkspaceActivity
               orgSlug={orgSlug}
               workspaceSlug={sessionPending ? null : (selected?.slug ?? null)}
+              workspaces={workspaces}
             />
           ) : (
             <Button
