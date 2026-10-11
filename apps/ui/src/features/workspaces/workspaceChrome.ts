@@ -63,16 +63,16 @@ export const workspaceChromeCardPaneClassName = [
 ].join(" ")
 
 /**
- * Conversation column beside the tools pane. Maximise collapses it with a
- * flex-grow transition instead of `hidden`, so the pane widens smoothly;
- * the caller also sets `inert` while it is collapsed.
+ * Conversation column beside the tools pane. Maximize collapses it at once,
+ * with no transition (large layout does not animate; see DESIGN.md Motion).
+ * The caller also sets `inert` while it is collapsed.
  */
 export function workspaceChatColumnClassName(input: {
   maximized: boolean
   paneOpen: boolean
 }): string {
   return [
-    "flex h-full min-h-0 min-w-0 flex-1 transition-[flex-grow,opacity] duration-200 ease-out",
+    "flex h-full min-h-0 min-w-0 flex-1",
     input.maximized
       ? "grow-0 overflow-hidden opacity-0"
       : input.paneOpen

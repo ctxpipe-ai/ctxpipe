@@ -35,7 +35,7 @@ export function OnboardingWelcomeSlide({
   return (
     <>
       <h1
-        className="onb-in-1 mb-6 text-6xl text-zinc-100 sm:text-7xl"
+        className="mb-6 text-6xl text-zinc-100 sm:text-7xl"
         style={{ fontFamily: "var(--font-geist-pixel-square)" }}
       >
         {"ctx|"
@@ -52,7 +52,7 @@ export function OnboardingWelcomeSlide({
           ))}
       </h1>
       <p
-        className={`onb-in-2 mx-auto max-w-2xl text-balance text-zinc-300 transition-opacity duration-700 ${
+        className={`mx-auto max-w-2xl text-balance text-zinc-300 ${
           showDetails ? "opacity-100" : "opacity-0"
         }`}
       >
@@ -60,10 +60,8 @@ export function OnboardingWelcomeSlide({
         for engineering orgs, and their humans, too.
       </p>
       <div
-        className={`onb-in-3 mt-8 transition-all duration-700 ${
-          showDetails
-            ? "translate-y-0 opacity-100"
-            : "pointer-events-none translate-y-2 opacity-0"
+        className={`mt-8 ${
+          showDetails ? "opacity-100" : "pointer-events-none opacity-0"
         }`}
       >
         <button

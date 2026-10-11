@@ -35,8 +35,6 @@ type Story = StoryObj<typeof meta>
 
 export const DotNavHidden: Story = {
   args: {
-    completing: false,
-    transitioning: false,
     showDotNav: false,
     sceneFailed: false,
   },
@@ -49,8 +47,6 @@ export const DotNavHidden: Story = {
 
 export const DotNavVisible: Story = {
   args: {
-    completing: false,
-    transitioning: false,
     showDotNav: true,
     sceneFailed: false,
   },
@@ -58,8 +54,6 @@ export const DotNavVisible: Story = {
 
 export const RepositoryIndexingStatus: Story = {
   args: {
-    completing: false,
-    transitioning: false,
     showDotNav: true,
     sceneFailed: false,
     statusIndicator: (
@@ -71,28 +65,8 @@ export const RepositoryIndexingStatus: Story = {
   },
 }
 
-export const Transitioning: Story = {
-  args: {
-    completing: false,
-    transitioning: true,
-    showDotNav: true,
-    sceneFailed: false,
-  },
-}
-
-export const Completing: Story = {
-  args: {
-    completing: true,
-    transitioning: false,
-    showDotNav: true,
-    sceneFailed: false,
-  },
-}
-
 export const SceneFailed: Story = {
   args: {
-    completing: false,
-    transitioning: false,
     showDotNav: true,
     sceneFailed: true,
   },
@@ -100,8 +74,6 @@ export const SceneFailed: Story = {
 
 export const CarouselDotsInteraction: Story = {
   args: {
-    completing: false,
-    transitioning: false,
     showDotNav: true,
     sceneFailed: false,
     slideCount: 3,

@@ -85,13 +85,9 @@ export function SideNav() {
           "w-[var(--side-nav-expanded-width)] md:w-[var(--side-nav-rail-width)]",
           // Burger overlay (< md)
           "fixed inset-y-0 left-0 z-50 bg-zinc-950 shadow-xl",
-          "transition-transform duration-200 ease-out motion-reduce:transition-none",
           navOpen ? "translate-x-0" : "-translate-x-full",
           // Rail (≥ md) — always on-screen, in normal flow
           "md:sticky md:top-0 md:z-20 md:translate-x-0 md:bg-transparent md:shadow-none",
-          isResizing
-            ? ""
-            : "md:transition-[width] md:duration-200 md:ease-out motion-reduce:md:transition-none",
         )}
         style={
           {
@@ -195,7 +191,7 @@ export function SideNav() {
                 <kbd
                   className={[
                     sideNavTrailingSlotClassName,
-                    "font-mono text-xs leading-none text-zinc-500 transition-opacity duration-200 ease-out motion-reduce:transition-none",
+                    "font-mono text-xs leading-none text-zinc-500",
                     expanded
                       ? "opacity-100"
                       : "w-0 overflow-hidden opacity-0 max-md:w-auto max-md:opacity-100",

@@ -1,10 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 
 export function useOnboardingCarousel(slideCount: number) {
   const [currentSlide, setCurrentSlide] = useState(0)
-  const [slideKey, setSlideKey] = useState(0)
-  const [transitioning, setTransitioning] = useState(false)
-  const transitionTimerRef = useRef<number | null>(null)
 
   useEffect(() => {
     setCurrentSlide((s) =>
@@ -12,36 +9,13 @@ export function useOnboardingCarousel(slideCount: number) {
     )
   }, [slideCount])
 
-  useEffect(() => {
-    return () => {
-      if (transitionTimerRef.current !== null) {
-        window.clearTimeout(transitionTimerRef.current)
-      }
-    }
-  }, [])
-
   const goToSlide = useCallback(
     (next: number) => {
-      if (
-        next === currentSlide ||
-        transitioning ||
-        next < 0 ||
-        next >= slideCount
-      )
-        return
-      setTransitioning(true)
-      if (transitionTimerRef.current !== null) {
-        window.clearTimeout(transitionTimerRef.current)
-      }
-      transitionTimerRef.current = window.setTimeout(() => {
-        setCurrentSlide(next)
-        setSlideKey((k) => k + 1)
-        window.requestAnimationFrame(() => setTransitioning(false))
-        transitionTimerRef.current = null
-      }, 180)
+      if (next < 0 || next >= slideCount) return
+      setCurrentSlide(next)
     },
-    [currentSlide, transitioning, slideCount],
+    [slideCount],
   )
 
-  return { currentSlide, slideKey, transitioning, goToSlide }
+  return { currentSlide, goToSlide }
 }
