@@ -1,6 +1,10 @@
 import { getRequestHeader } from "@tanstack/react-start/server"
 
-/** Forward auth cookies from the incoming SSR request to backend API calls. */
+/**
+ * Forward auth cookies and the trace context from the incoming SSR request to
+ * backend API calls. The backend proxy span of the page is the parent, so the
+ * server-render calls join the page trace.
+ */
 export function getServerApiHeaders(): HeadersInit {
   try {
     const headers: Record<string, string> = {}
@@ -8,6 +12,10 @@ export function getServerApiHeaders(): HeadersInit {
     if (cookie) headers.cookie = cookie
     const authorization = getRequestHeader("authorization")
     if (authorization) headers.authorization = authorization
+    const traceparent = getRequestHeader("traceparent")
+    if (traceparent) headers.traceparent = traceparent
+    const tracestate = getRequestHeader("tracestate")
+    if (tracestate) headers.tracestate = tracestate
     return headers
   } catch {
     // Vitest / non-request contexts have no Start AsyncLocalStorage event.

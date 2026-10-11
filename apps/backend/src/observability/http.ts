@@ -23,6 +23,18 @@ export function isUiProxyRequest(c: Context): boolean {
   return responder?.path === "/*" || responder?.path === "*"
 }
 
+/**
+ * A page load through the UI catch-all. It gets a server span so that its log
+ * has a trace id and the server render joins one trace. Assets and other
+ * proxied files stay without a span to limit volume.
+ */
+function isPageDocumentRequest(c: Context): boolean {
+  if (c.req.method !== "GET") return false
+  const dest = c.req.header("sec-fetch-dest")
+  if (dest) return dest === "document"
+  return c.req.header("accept")?.includes("text/html") ?? false
+}
+
 function ensureRequestId(c: Context): string {
   const incoming = c.req.header("x-request-id")?.trim()
   const id =
@@ -44,9 +56,10 @@ export function backendOtelMiddleware(): MiddlewareHandler {
     const { context: traced, bag } = contextWithAttributionBag(context.active())
     bag.set("request.id", requestId)
     const uiProxy = isUiProxyRequest(c)
+    const untraced = uiProxy && !isPageDocumentRequest(c)
 
     await context.with(traced, async () => {
-      if (uiProxy) {
+      if (untraced) {
         await next()
         return
       }
@@ -57,6 +70,15 @@ export function backendOtelMiddleware(): MiddlewareHandler {
         span?.setAttribute("request.id", requestId)
         const userAgent = c.req.header("user-agent")
         if (userAgent) span?.setAttribute("user_agent.original", userAgent)
+        if (uiProxy && span) {
+          // The HyperDX browser document-load span links to this span.
+          const { traceId, spanId, traceFlags } = span.spanContext()
+          const flags = traceFlags.toString(16).padStart(2, "0")
+          c.header(
+            "server-timing",
+            `traceparent;desc="00-${traceId}-${spanId}-${flags}"`,
+          )
+        }
         try {
           await next()
         } finally {
@@ -65,7 +87,7 @@ export function backendOtelMiddleware(): MiddlewareHandler {
       })
     })
 
-    if (!uiProxy && isRailwayPrEnvironment()) {
+    if (!untraced && isRailwayPrEnvironment()) {
       setTimeout(() => {
         void forceFlushOtel()
       }, 0)

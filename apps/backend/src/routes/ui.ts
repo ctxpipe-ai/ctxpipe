@@ -1,3 +1,4 @@
+import { context, propagation } from "@opentelemetry/api"
 import type { Context, Hono } from "hono"
 import { proxy } from "hono/proxy"
 import type { AppEnv } from "../app/env.js"
@@ -111,6 +112,11 @@ export function uiProxyUpstreamHeaders(
   headers.set("x-forwarded-host", publicOrigin.host)
   headers.set("x-forwarded-proto", publicOrigin.proto)
   headers.set("host", upstreamHost)
+  // A page document has a server span. The UI server forwards this
+  // traceparent on its server-render calls, so they join the same trace.
+  propagation.inject(context.active(), headers, {
+    set: (carrier, key, value) => carrier.set(key, value),
+  })
   return headers
 }
 
