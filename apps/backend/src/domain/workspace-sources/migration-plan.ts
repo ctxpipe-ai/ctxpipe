@@ -1,4 +1,5 @@
 import type { Env } from "../../config/env.js"
+import { confluenceSourceMigrationHook } from "../../services/confluence/workspace-source-migration.js"
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../workspaces/write-status.js"
 import type { SourceChange } from "./edit.js"
@@ -39,7 +40,9 @@ export type SourceMigrationHook = {
 
 export const SOURCE_MIGRATION_HOOKS: Partial<
   Record<SourceProvider, SourceMigrationHook>
-> = {}
+> = {
+  confluence: confluenceSourceMigrationHook,
+}
 
 export type MigrationWorkspace = {
   id: string

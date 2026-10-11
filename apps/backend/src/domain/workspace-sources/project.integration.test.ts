@@ -33,8 +33,7 @@ describe("projectWorkspaceSources (Postgres + git)", () => {
             provider: "confluence",
             managedPaths: () => ["confluence/"],
             fetch: async () => [],
-            checkAccess: async ({ scope }) =>
-              "Space ENG is not in this site",
+            checkAccess: async ({ scope }) => "Space ENG is not in this site",
           },
         },
       })

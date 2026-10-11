@@ -25,7 +25,10 @@ describe("Confluence source scope", () => {
     ["no spaces", { spaces: [] }],
     ["a missing pages value", { spaces: [{ key: "ENG" }] }],
     ["an empty page list", { spaces: [{ key: "ENG", pages: [] }] }],
-    ["a page id that is not a number", { spaces: [{ key: "ENG", pages: ["x"] }] }],
+    [
+      "a page id that is not a number",
+      { spaces: [{ key: "ENG", pages: ["x"] }] },
+    ],
     ["a space key with a slash", { spaces: [{ key: "EN/G", pages: "all" }] }],
     [
       "a space two times",
