@@ -27,8 +27,8 @@ A user in a Workspace on a writable GitHub repository can complete each step, an
 ## Acceptance criteria
 
 - [ ] The full flow passes on pr-280 two times in a row, in new conversations, with evidence: screenshots, the GitHub PR URL in a test repository, and trace ids.
-- [ ] Each defect found has a failing test first and a fix, as the tdd skill says.
-- [ ] Ticket 20 Open items are resolved or moved here.
+- [x] Each defect found has a failing test first and a fix, as the tdd skill says.
+- [x] Ticket 20 Open items are resolved or moved here.
 
 ## Comments
 
@@ -42,6 +42,19 @@ A user in a Workspace on a writable GitHub repository can complete each step, an
   6. **Failure messages: partial.** Sync and the Files panel show an error. The Create PR toast blames GitHub availability for a refusal; see follow-ups.
 - Other observations: a full page reload signed the session out and lost the conversation path (ticket 29 targets this). A new Workspace reports `hydrateStatus: ready` while ctx| still pushes knowledge commits to `main` for about 2 minutes, so the first conversation starts behind and shows **Branch needs a rebase** for a short time. The `migration_export` commit in the new repository copied knowledge from another repository of the org (`knowledge/apis/*` from a demo app); the team lead should check if that is intended.
 - Ticket 20 Open items: the GitHub App configuration item is resolved (pr-280 uses the preview App). The "confirm cause 2" item now has its evidence: the refusal is defect 3, not a missing permission.
+
+- 2026-10-11 (claude): **acceptance run on pr-280** after the ticket 30 deploy (`0d3b9e9b`, then the ticket 34 deploy `1e47aa1b`). Driver: headless Playwright as the team's test org. Test repository: private `ctxpipe-ai/pe-pr-flow-20261011-043621` (from `preview-env-seed-knowledge`), a new Workspace, `main` left to settle for 2 minutes after hydrate. Each run starts in a new conversation. Screenshots: `/tmp/preview-env/t30/r{1,2,3}-*.png` on the agent host.
+  - **Run 1: PASS (steps 1 to 5).** (1) The agent wrote `referral-bonus-1.md`, linked it, committed `docs: add referral bonus knowledge` and pushed it itself (no identity error). The Files panel **New file** at the root saved (the root-file fix works). (2) The tree marks the new file `A` and `knowledge/` changed; Diff lists exactly the 3 own files. (3) Sync took 6 s; the branch has the agent commit and the Sync commit. (4) Create PR took 4 s and showed **Show PR**: [PR 1](https://github.com/ctxpipe-ai/pe-pr-flow-20261011-043621/pull/1), base `main`, title "Add Referral Bonus Documentation", body empty. (5) A follow-up turn committed and pushed to the same branch; PR 1 got the third commit, and no second PR opened. Traces: push `6625bae2f00d2d8c2581747dec1816d9`, pull request `fac3526f06212730b9e1be67e8d00c97`. (The run script sent "undefined" in the run number of two names; that is a script error.)
+  - **Run 2: interrupted by a deploy.** Steps 1 to 4 passed ([PR 2](https://github.com/ctxpipe-ai/pe-pr-flow-20261011-043621/pull/2); traces `b0fae6eab593730c83befac843cdcf22`, `33c2bfe63234ff159866e3a42b165d25`). Step 5 failed with "Database not initialized" while PR Deploy `4df6268a` restarted pr-280 (04:50 to 04:54 UTC). Restarted as run 3.
+  - **Run 3: PASS (steps 1 to 5).** Same results as run 1: agent commit and push, Files panel save, 3 own files in Diff, Sync 6 s, [PR 3](https://github.com/ctxpipe-ai/pe-pr-flow-20261011-043621/pull/3) in 4 s with 3 commits after the follow-up turn on the same branch. Traces: push `e531b6fd1169b2ad07b7070ef3e97192`, pull request `a8897060ee6972a980ddf31728b899bf`.
+  - **Step 6:** no failure occurred in runs 1 and 3, so no live message was seen. The first run's toasts and the `pr_refused` and UI tests cover it.
+  - **Gaps found (not fixed in this pass):**
+    1. Run 2's PR title is the agent's first sentence with a line break ("I'll inspect the repository, … \n\nRe"). Cause: `nameConversationIfUnnamed` (`conversation-title.ts`) accepts the title model's reply as it is, only trimmed and cut to 100 characters, so a model that answers with a sentence names the conversation, and Create PR uses that name as the title and the Sync commit subject. Fix: keep the first line, limit the words, else use the fallback.
+    2. Every PR body is empty. The route passes `body ?? ""` and the UI sends no body. The Scope asks for a sensible body.
+    3. In runs 1 and 2, keystrokes typed into a new file in the Files panel were lost: run 1 saved only the end of the text, run 2 saved only "#" and then showed a diff view ("No newline at end of file") with the dirty dot. Run 3 saved all of the text. To check: the editor may remount, or reload the saved body, after the first autosave of a new file.
+    4. After run 1's follow-up turn, the open Diff pane still listed 3 files; the status API listed the 4th file (`referral-bonus-undefined.md`). The ticket 34 changed-files card showed the right 2 files for turn 1.
+  - Test PRs 1, 2, and 3 are closed.
+  - Acceptance box 1 stays open: runs 1 and 3 pass steps 1 to 5 in a row, but step 4 asks for a sensible body (gap 2), and run 2 showed a bad title (gap 1). Close it after those two are fixed and one more run passes.
 
 ## Resolution
 

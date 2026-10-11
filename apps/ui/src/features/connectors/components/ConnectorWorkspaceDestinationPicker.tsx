@@ -2,9 +2,9 @@ import { useQuery } from "@tanstack/react-query"
 import { ComboBox, ComboBoxItem } from "@/components/ui/ComboBox"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { InlineLoader } from "@/components/ui/InlineLoader"
+import { githubRepoFullNameFromGitUrl } from "@/features/repositories/github-web-url"
 import { workspaceListOptions } from "@/features/workspaces/queries"
 import type { Workspace } from "@/features/workspaces/types"
-import { githubRepoFullNameFromGitUrl } from "@/features/repositories/github-web-url"
 
 export type WorkspaceDestination = {
   workspace: Workspace
@@ -15,7 +15,10 @@ export type WorkspaceDestination = {
 }
 
 export function normalizeWorkspaceGitUrl(gitUrl: string): string {
-  return gitUrl.trim().replace(/\.git$/i, "").toLowerCase()
+  return gitUrl
+    .trim()
+    .replace(/\.git$/i, "")
+    .toLowerCase()
 }
 
 export function destinationFromWorkspace(

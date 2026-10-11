@@ -15,6 +15,7 @@ import type {
   ConversationGitTreeResponse,
   ConversationPullRequestResponse,
   ConversationPushResponse,
+  ConversationTurnChangesResponse,
   Workspace,
   WorkspaceActivityResponse,
   WorkspaceDetail,
@@ -64,8 +65,13 @@ export const workspaceKeys = {
   ) => ["conversation-git-blob", orgSlug, conversationId, path] as const,
   conversationGitStatus: (orgSlug: string, conversationId: string) =>
     ["conversation-git-status", orgSlug, conversationId] as const,
-  conversationGitDiff: (orgSlug: string, conversationId: string) =>
-    ["conversation-git-diff", orgSlug, conversationId] as const,
+  conversationGitDiff: (
+    orgSlug: string,
+    conversationId: string,
+    turn?: string,
+  ) => ["conversation-git-diff", orgSlug, conversationId, turn ?? ""] as const,
+  conversationTurnChanges: (orgSlug: string, conversationId: string) =>
+    ["conversation-turn-changes", orgSlug, conversationId] as const,
   conversationPullRequest: (orgSlug: string, conversationId: string) =>
     ["conversation-pull-request", orgSlug, conversationId] as const,
 }
@@ -445,13 +451,17 @@ export async function fetchConversationGitStatus(
 export async function fetchConversationGitDiff(
   orgSlug: string,
   conversationId: string,
+  turn?: string,
 ): Promise<ConversationGitDiffResponse> {
   const client = await getApiClient()
   const res = await client[":orgSlug"].api.v1.conversations[
     ":conversationId"
   ].files.diff.$get({
     param: { orgSlug, conversationId },
+    query: turn ? { turn } : {},
   })
+  // A rebuilt sandbox no longer has the turn's snapshots.
+  if (res.status === 410) return { items: [], gone: true }
   return readApiJson(res, { message: "Failed to load conversation diff" })
 }
 
@@ -744,10 +754,35 @@ export function conversationGitStatusOptions(
 export function conversationGitDiffOptions(
   orgSlug: string,
   conversationId: string,
+  turn?: string,
 ) {
   return queryOptions({
-    queryKey: workspaceKeys.conversationGitDiff(orgSlug, conversationId),
-    queryFn: () => fetchConversationGitDiff(orgSlug, conversationId),
+    queryKey: workspaceKeys.conversationGitDiff(orgSlug, conversationId, turn),
+    queryFn: () => fetchConversationGitDiff(orgSlug, conversationId, turn),
+  })
+}
+
+export async function fetchConversationTurnChanges(
+  orgSlug: string,
+  conversationId: string,
+): Promise<ConversationTurnChangesResponse> {
+  const client = await getApiClient()
+  const res = await client[":orgSlug"].api.v1.conversations[
+    ":conversationId"
+  ].turns.$get({
+    param: { orgSlug, conversationId },
+  })
+  return readApiJson(res, { message: "Failed to load the turn changes" })
+}
+
+/** The files each turn changed. A finished turn invalidates this query. */
+export function conversationTurnChangesOptions(
+  orgSlug: string,
+  conversationId: string,
+) {
+  return queryOptions({
+    queryKey: workspaceKeys.conversationTurnChanges(orgSlug, conversationId),
+    queryFn: () => fetchConversationTurnChanges(orgSlug, conversationId),
   })
 }
 

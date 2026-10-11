@@ -21,6 +21,8 @@ export type ChatMessage = {
     arguments?: string
   }>
   createdAt?: Date
+  /** Message metadata; persistence puts the run id under `tanstack.run.id`. */
+  metadata?: unknown
 }
 
 export type PageInfo = {

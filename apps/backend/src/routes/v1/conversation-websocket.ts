@@ -7,7 +7,6 @@ import { members, organizations } from "../../db/schema/auth.js"
 import {
   type ConversationChatRequest,
   parseConversationChatRequest,
-  withLangfuseTurnContext,
 } from "../../domain/conversations/transport.js"
 import { stoppingSandboxWhenDone } from "../../domain/workspaces/conversation-sandbox-lifecycle.js"
 import {
@@ -199,40 +198,34 @@ async function* streamWorkspaceChatSocketTurn(input: {
     yield workspaceChatRunError("workspace_required")
     return
   }
-  const stream = withLangfuseTurnContext(
-    {
-      sessionId: input.conversationId,
-      userId: input.userId,
-      source: parsed.source,
-    },
-    () =>
-      streamTanstackWorkspaceChat({
+  const stream = streamTanstackWorkspaceChat({
+    conversationId: input.conversationId,
+    prompt: parsed.prompt,
+    messages: parsed.messages,
+    threadId: parsed.threadId ?? input.conversationId,
+    runId: parsed.runId ?? input.runId,
+    abortSignal: input.signal,
+    orgId: input.orgId,
+    orgSlug: input.orgSlug,
+    userId: input.userId,
+    source: parsed.source,
+    workspaceId: parsed.workspaceId,
+    writeStatus: "read_only",
+    resolveRuntime: () =>
+      resolveWorkspaceChatSendRuntime({
         conversationId: input.conversationId,
-        prompt: parsed.prompt,
-        messages: parsed.messages,
-        threadId: parsed.threadId ?? input.conversationId,
-        runId: parsed.runId ?? input.runId,
-        abortSignal: input.signal,
-        orgId: input.orgId,
-        orgSlug: input.orgSlug,
         workspaceId: parsed.workspaceId,
-        writeStatus: "read_only",
-        resolveRuntime: () =>
-          resolveWorkspaceChatSendRuntime({
-            conversationId: input.conversationId,
-            workspaceId: parsed.workspaceId,
-            source: parsed.source,
-          }),
-        onUserPersist: () =>
-          persistWorkspaceChatUserTurnListed(input.conversationId),
-        onError: async () => {
-          if (!(await conversationHasStoredTurns(input.conversationId))) {
-            await discardUnstartedConversation(input.conversationId)
-          }
-        },
+        source: parsed.source,
       }),
-  )
-  yield* withAuthContextStream(
+    onUserPersist: () =>
+      persistWorkspaceChatUserTurnListed(input.conversationId),
+    onError: async () => {
+      if (!(await conversationHasStoredTurns(input.conversationId))) {
+        await discardUnstartedConversation(input.conversationId)
+      }
+    },
+  })
+  yield* withSocketTurnContext(
     { id: input.orgId, slug: input.orgSlug },
     input.userId,
     input.conversationId,
@@ -246,7 +239,11 @@ async function* streamWorkspaceChatSocketTurn(input: {
   )
 }
 
-async function* withAuthContextStream<T>(
+/**
+ * Run each step of a socket turn in the auth and logger context. The turn
+ * attribution comes from `beginWorkspaceChatTurn`.
+ */
+async function* withSocketTurnContext<T>(
   org: { id: string; slug: string },
   userId: string,
   conversationId: string,

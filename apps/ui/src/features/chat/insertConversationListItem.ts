@@ -23,14 +23,18 @@ export function insertConversationListItem(
       pageParams: [undefined],
     }
   }
-  if (current.pages.some((page) => page.items.some((row) => row.id === item.id))) {
+  if (
+    current.pages.some((page) => page.items.some((row) => row.id === item.id))
+  ) {
     return current
   }
   const [first, ...rest] = current.pages
   if (!first) {
     return {
       ...current,
-      pages: [{ items: [item], pageInfo: { hasNextPage: false, endCursor: item.id } }],
+      pages: [
+        { items: [item], pageInfo: { hasNextPage: false, endCursor: item.id } },
+      ],
     }
   }
   return {

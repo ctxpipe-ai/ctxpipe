@@ -31,7 +31,7 @@ export function splitGitNulPaths(stdout: string): string[] {
  * local default branch can stay behind. An older sandbox without that ref
  * uses the local default branch.
  */
-const CONVERSATION_BASE =
+export const CONVERSATION_BASE =
   '$(git rev-parse -q --verify refs/remotes/ctxpipe/base || printf %s "refs/heads/$CTXPIPE_DEFAULT_BRANCH")'
 
 export const UNPUSHED_COMMITS_COMMAND =
@@ -64,7 +64,7 @@ export function isConversationSandboxHarnessPath(path: string): boolean {
   return false
 }
 
-function isConversationSandboxListedPath(path: string): boolean {
+export function isConversationSandboxListedPath(path: string): boolean {
   return conversationPathIsSafe(path) && !isConversationSandboxHarnessPath(path)
 }
 
@@ -394,64 +394,6 @@ export async function conversationSandboxStatus(input: {
     behind,
     items,
   }
-}
-
-export type ConversationFileDiff = {
-  path: string
-  oldBody: string | null
-  body: string | null
-}
-
-export async function conversationSandboxDiff(input: {
-  handle: JobSandboxHandle
-  defaultBranch: string
-}): Promise<ConversationFileDiff[]> {
-  const [committed, unstaged, untracked, listed] = await Promise.all([
-    execGitOk(
-      input.handle.exec,
-      `git diff --name-only -z "${CONVERSATION_BASE}...HEAD"`,
-      { CTXPIPE_DEFAULT_BRANCH: input.defaultBranch },
-    ),
-    execGitOk(input.handle.exec, "git diff --name-only -z HEAD"),
-    execGitOk(input.handle.exec, "git ls-files --others --exclude-standard -z"),
-    execGitOk(input.handle.exec, LIST_TREE_FILES_COMMAND),
-  ])
-  // A diff can name a path that git now ignores and does not track, such as
-  // a local .env. Read the current body only of a path that the tree lists.
-  const treePaths = new Set(splitGitNulPaths(listed))
-  const paths = new Set<string>()
-  for (const path of [
-    ...splitGitNulPaths(committed),
-    ...splitGitNulPaths(unstaged),
-    ...splitGitNulPaths(untracked),
-  ]) {
-    if (isConversationSandboxListedPath(path)) paths.add(path)
-  }
-  const diffs: ConversationFileDiff[] = []
-  for (const path of [...paths].sort()) {
-    const oldResult = await execGit(
-      input.handle.exec,
-      `git show "${CONVERSATION_BASE}:$CTXPIPE_FILE_PATH"`,
-      {
-        CTXPIPE_DEFAULT_BRANCH: input.defaultBranch,
-        CTXPIPE_FILE_PATH: path,
-      },
-    )
-    const oldBody = oldResult.exitCode === 0 ? oldResult.stdout : null
-    const current = treePaths.has(path)
-      ? await readSandboxFileIfListed(
-          input.handle,
-          path,
-          "printf '%s\\0' \"$CTXPIPE_FILE_PATH\"",
-        )
-      : null
-    diffs.push({
-      path,
-      oldBody,
-      body: current?.binary ? null : (current?.body ?? null),
-    })
-  }
-  return diffs
 }
 
 export function sanitizeGitRemoteError(text: string, token: string): string {

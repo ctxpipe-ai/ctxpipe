@@ -1,10 +1,8 @@
 import {
   chatParamsFromRequestBody,
   modelMessagesToUIMessages,
-  type StreamChunk,
 } from "@tanstack/ai"
 import { loadConversationTurns } from "../../models/conversation-messages.js"
-import { runWithLangfuseContext } from "../../observability/langfuse.js"
 import { log } from "../../observability/logger.js"
 import { stoppingSandboxWhenDone } from "../workspaces/conversation-sandbox-lifecycle.js"
 import {
@@ -98,6 +96,8 @@ function toChatInput(input: StreamInput): TanstackWorkspaceChatInput | null {
     runId: input.runId,
     orgId,
     orgSlug: input.orgSlug?.trim() || undefined,
+    userId: input.userId,
+    source: input.source,
     workspaceId,
     desiredUrl,
     desiredSha: input.desiredSha ?? null,
@@ -114,41 +114,6 @@ function toChatInput(input: StreamInput): TanstackWorkspaceChatInput | null {
   }
 }
 
-/**
- * Run each step of a chat turn's stream in the conversation's Langfuse
- * context, so the turn's traces carry its session, user, and source tag.
- */
-export function withLangfuseTurnContext(
-  attrs: { sessionId: string; userId?: string; source?: string | null },
-  open: () => AsyncIterable<StreamChunk>,
-): AsyncIterable<StreamChunk> {
-  const context = {
-    sessionId: attrs.sessionId,
-    ...(attrs.userId ? { userId: attrs.userId } : {}),
-    tags: attrs.source ? [attrs.source] : undefined,
-  }
-  return {
-    [Symbol.asyncIterator]() {
-      let iterator: AsyncIterator<StreamChunk> | undefined
-      return {
-        next() {
-          return runWithLangfuseContext(context, () => {
-            iterator ??= open()[Symbol.asyncIterator]()
-            return iterator.next()
-          })
-        },
-        return(value) {
-          return runWithLangfuseContext(context, () =>
-            iterator?.return
-              ? iterator.return(value)
-              : Promise.resolve({ done: true as const, value: undefined }),
-          )
-        },
-      }
-    },
-  }
-}
-
 export function workspaceChatStreamResponse(
   input: StreamInput,
   request?: Request,
@@ -159,14 +124,7 @@ export function workspaceChatStreamResponse(
   }
   const format =
     input.wireFormat ?? (request ? workspaceChatWireFormat(request) : "sse")
-  const stream = withLangfuseTurnContext(
-    {
-      sessionId: input.conversationId,
-      userId: input.userId,
-      source: input.source,
-    },
-    () => streamTanstackWorkspaceChat(chatInput),
-  )
+  const stream = streamTanstackWorkspaceChat(chatInput)
   return workspaceChatHttpResponse(
     // Only the UI is a person watching; any other caller frees its slot.
     input.source === "ui"

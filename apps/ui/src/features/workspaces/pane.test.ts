@@ -16,6 +16,23 @@ describe("parsePane", () => {
     })
   })
 
+  it("round-trips a diff pane that focuses a file of one turn", () => {
+    const pane = {
+      kind: "diff" as const,
+      turn: "run_1",
+      path: "notes/a b&c.md",
+    }
+    const raw = serializePane(pane)
+    expect(raw.startsWith("diff:")).toBe(true)
+    expect(parsePane(raw)).toEqual(pane)
+    expect(parsePane(serializePane({ kind: "diff", path: "x.md" }))).toEqual({
+      kind: "diff",
+      path: "x.md",
+    })
+    expect(serializePane({ kind: "diff" })).toBe("diff")
+    expect(parsePane("diff:")).toEqual({ kind: "diff" })
+  })
+
   it("keeps unknown ids", () => {
     expect(parsePane("jobs")).toEqual({ kind: "unknown", id: "jobs" })
     expect(visiblePane(parsePane("jobs"))).toBeNull()

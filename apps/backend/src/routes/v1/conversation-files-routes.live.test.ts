@@ -210,7 +210,9 @@ it(
       const diff = await app().request(`${base}/diff`)
       expect(diff.status).toBe(200)
       expect(await diff.json()).toMatchObject({
-        items: expect.arrayContaining([{ path, oldBody, body: currentBody }]),
+        items: expect.arrayContaining([
+          expect.objectContaining({ path, oldBody, body: currentBody }),
+        ]),
       })
       const tree = await app().request(`${base}/tree`)
       expect(tree.status).toBe(200)

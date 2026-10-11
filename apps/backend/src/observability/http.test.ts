@@ -321,4 +321,46 @@ describe("backendOtelMiddleware", () => {
     expect(res.status).toBe(200)
     expect(enrichTraceId).toBe(serverSpans()[0]?.spanContext().traceId)
   })
+
+  it("covers a streamed response with a child span that ends with the stream", async () => {
+    const app = createApp()
+    app.post("/mcp", () => {
+      const encoder = new TextEncoder()
+      const body = new ReadableStream<Uint8Array>({
+        async start(controller) {
+          controller.enqueue(encoder.encode("data: one\n\n"))
+          await new Promise((resolve) => setTimeout(resolve, 60))
+          controller.enqueue(encoder.encode("data: two\n\n"))
+          controller.close()
+        },
+      })
+      return new Response(body, {
+        headers: { "content-type": "text/event-stream" },
+      })
+    })
+
+    const res = await app.request("/mcp", { method: "POST" })
+    expect(await res.text()).toBe("data: one\n\ndata: two\n\n")
+
+    const [server] = serverSpans()
+    const stream = exporter
+      .getFinishedSpans()
+      .find((span) => span.name === "http.response.stream")
+    expect(stream?.parentSpanContext?.spanId).toBe(server?.spanContext().spanId)
+    expect(stream?.status.code).toBe(SpanStatusCode.UNSET)
+    const durationMs = (span: typeof stream) =>
+      (span?.duration[0] ?? 0) * 1000 + (span?.duration[1] ?? 0) / 1e6
+    expect(durationMs(stream)).toBeGreaterThanOrEqual(50)
+  })
+
+  it("adds no stream span to a JSON response", async () => {
+    const app = createApp()
+    app.get("/plain", (c) => c.json({ ok: true }))
+    await (await app.request("/plain")).json()
+    expect(
+      exporter
+        .getFinishedSpans()
+        .some((span) => span.name === "http.response.stream"),
+    ).toBe(false)
+  })
 })

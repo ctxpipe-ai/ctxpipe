@@ -102,7 +102,8 @@ export function WorkspacePane(props: {
   const [pane, setPane] = useUrgentValue(props.pane, urlPaneKey)
   const activeFile = pane.kind === "file" ? pane.path : null
   const filesTabActive = pane.kind === "files" || pane.kind === "diff"
-  const selectedKey = serializePane(pane)
+  // Every Diff pane variant (one turn, one focused file) is the Diff tab.
+  const selectedKey = pane.kind === "diff" ? "diff" : serializePane(pane)
   const paneWidthLocked = props.width != null
   const graphBuilding = props.workspace.hydratePhases?.graph.kind === "pending"
 
@@ -254,6 +255,7 @@ export function WorkspacePane(props: {
               />
               {props.conversationId ? (
                 <ConversationDiffTab
+                  selected={pane.kind === "diff"}
                   orgSlug={props.orgSlug}
                   conversationId={props.conversationId}
                   workspaceId={props.workspace.id}
@@ -394,7 +396,9 @@ export function WorkspacePane(props: {
                 <WorkspaceConversationDiffPane
                   orgSlug={props.orgSlug}
                   conversationId={props.conversationId}
-                  onOpenFile={openFile}
+                  turn={pane.turn}
+                  focusPath={pane.path}
+                  onShowAll={() => selectPane({ kind: "diff" })}
                 />
               </SkeletonSuspense>
             ) : null}
@@ -509,7 +513,7 @@ function prefetchWorkspacePane(
     }
   } else if (pane.kind === "diff" && conversationId) {
     void queryClient.prefetchQuery(
-      conversationGitDiffOptions(orgSlug, conversationId),
+      conversationGitDiffOptions(orgSlug, conversationId, pane.turn),
     )
   } else if (
     pane.kind === "graph" &&
@@ -522,6 +526,8 @@ function prefetchWorkspacePane(
 }
 
 function ConversationDiffTab(props: {
+  /** Keep the tab while it is open, also when the status has no changes. */
+  selected: boolean
   orgSlug: string
   conversationId: string
   workspaceId: string
@@ -538,7 +544,7 @@ function ConversationDiffTab(props: {
     ...conversationGitStatusOptions(props.orgSlug, props.conversationId),
     enabled: prepareQuery.isSuccess,
   })
-  if (!statusQuery.data?.differsFromDefault) return null
+  if (!props.selected && !statusQuery.data?.differsFromDefault) return null
   return (
     <PaneIconTab
       id="diff"

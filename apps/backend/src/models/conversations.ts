@@ -27,6 +27,7 @@ import {
   encodeCursor,
   type PageInfo,
 } from "../lib/pagination.js"
+import { deleteConversationTurnChanges } from "./conversation-turn-changes.js"
 
 function orgSql<T>(fn: () => Promise<T>): Promise<T> {
   return withAmbientOrgDb(fn)
@@ -623,6 +624,7 @@ export async function deleteConversation(
         ),
       )
       .returning({ id: conversations.id })
+    if (deleted) await deleteConversationTurnChanges(db, conversationId)
     return deleted != null
   })
 }

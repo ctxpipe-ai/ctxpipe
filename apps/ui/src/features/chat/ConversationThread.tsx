@@ -1,5 +1,11 @@
 import { IconBrain, IconFile, IconSearch, IconTool } from "@tabler/icons-react"
-import { type ReactElement, useId, useState } from "react"
+import {
+  Fragment,
+  type ReactElement,
+  type ReactNode,
+  useId,
+  useState,
+} from "react"
 import { Button as AriaButton } from "react-aria-components"
 import {
   Conversation,
@@ -255,6 +261,11 @@ export function ConversationThread(props: {
   /** A real system state, such as "Setting up sandbox"; null shows "Thinking" or the current thought. */
   waitLabel?: string | null
   contentClassName?: string
+  /**
+   * Content after the shown message with this id, when the message is not
+   * live (for example, the files a turn changed).
+   */
+  renderAfterMessage?: (messageId: string) => ReactNode
 }) {
   const { messages, error, status, waitLabel, contentClassName } = props
   const turns = groupAssistantTurns(messages)
@@ -286,27 +297,35 @@ export function ConversationThread(props: {
                     })
                   : renderUserParts(message)
 
-              if (renderedParts.length === 0) return null
-
               const isUser = message.role === "user"
+              const after = working
+                ? null
+                : props.renderAfterMessage?.(message.id)
+              if (renderedParts.length === 0 && !after) return null
 
               return (
-                <div
-                  key={message.id}
-                  className={cn(
-                    "flex w-full",
-                    isUser ? "justify-end" : "justify-start",
-                  )}
-                >
-                  <Message
-                    from={message.role}
-                    className={isUser ? "max-w-md" : undefined}
-                  >
-                    <MessageContent className={isUser ? undefined : "gap-5"}>
-                      {renderedParts}
-                    </MessageContent>
-                  </Message>
-                </div>
+                <Fragment key={message.id}>
+                  {renderedParts.length > 0 ? (
+                    <div
+                      className={cn(
+                        "flex w-full",
+                        isUser ? "justify-end" : "justify-start",
+                      )}
+                    >
+                      <Message
+                        from={message.role}
+                        className={isUser ? "max-w-md" : undefined}
+                      >
+                        <MessageContent
+                          className={isUser ? undefined : "gap-5"}
+                        >
+                          {renderedParts}
+                        </MessageContent>
+                      </Message>
+                    </div>
+                  ) : null}
+                  {after ? <div className="flex w-full">{after}</div> : null}
+                </Fragment>
               )
             })}
             {showPulsatingLoader && (
