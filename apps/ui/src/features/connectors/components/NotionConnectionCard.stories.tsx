@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import type { ReactNode } from "react"
-import { fn } from "storybook/test"
+import { expect, fn, within } from "storybook/test"
 import {
   connectionUsageHandler,
   connectionUsageItem,
@@ -185,26 +185,32 @@ export const PendingSetup: Story = {
     }),
 }
 
-export const SyncFailed: Story = {
-  render: () => shell(card()),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [notionStatus({ ...statusComplete, setupPhase: "sync_failed" })],
-      },
-    },
-  },
-}
-
-export const ConfigurationPullRequestFailed: Story = {
+export const ConnectedWithoutSyncRepository: Story = {
+  name: "Connected, scope set in each Workspace",
   render: () => shell(card()),
   parameters: {
     msw: {
       handlers: {
         page: [
-          notionStatus({ ...statusComplete, setupPhase: "config_failed" }),
+          notionStatus({
+            ...statusComplete,
+            setupPhase: "draft",
+            isGithubLinked: false,
+            syncTargetConfigured: false,
+            syncTarget: null,
+          }),
         ],
       },
     },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(await canvas.findByText("Set in each Workspace")).toBeVisible()
+    // Auth is done, so the card has no setup action; "Used in" adds sources.
+    await expect(
+      canvas.queryByRole("button", {
+        name: /Set up|Connect Notion|Manage scope/,
+      }),
+    ).toBeNull()
   },
 }

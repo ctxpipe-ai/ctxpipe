@@ -8,10 +8,7 @@ import {
   formatSelectedItemCount,
   resolveConnectorHealth,
 } from "../connectorHealth"
-import {
-  getNotionCardCtaLabel,
-  getNotionFailureAction,
-} from "../notion-setup-model"
+import { getNotionCardCtaLabel } from "../notion-setup-model"
 import {
   deleteNotionConnector,
   fetchNotionConnectorStatus,
@@ -28,7 +25,7 @@ import {
 type NotionConnectionCardProps = {
   orgSlug: string
   connectionId: string
-  onOpenSetup: (manageScope: boolean) => void
+  onOpenSetup: () => void
 }
 
 export function NotionConnectionCard({
@@ -49,7 +46,7 @@ export function NotionConnectionCard({
   const oauthAppQuery = useQuery({
     queryKey: notionConnectorKeys.oauthApp(orgSlug, connectionId),
     queryFn: () => fetchNotionOauthApp(orgSlug, connectionId),
-    enabled: status?.setupPhase === "draft",
+    enabled: status ? !status.isInstalled : false,
   })
 
   const removeMutation = useMutation({
@@ -61,25 +58,24 @@ export function NotionConnectionCard({
           queryKey: notionConnectorKeys.status(orgSlug, connectionId),
         }),
         queryClient.invalidateQueries({
-          queryKey: notionConnectorKeys.config(orgSlug, connectionId),
-        }),
-        queryClient.invalidateQueries({
           queryKey: orgConnectionsKeys.list(orgSlug),
         }),
       ])
     },
     onError: (e: Error) => toast.error(e.message),
   })
-  const failureAction = status ? getNotionFailureAction(status) : null
-  const live = status?.setupPhase === "live"
+  // A connection holds auth only (ADR-050): it is connected once installed.
   const health = resolveConnectorHealth({
     installationStatus: status?.installationStatus,
     statusError: isError,
     checking: isPending || !status,
     setupPhase: status?.setupPhase,
-    connected: live,
-    draft: status?.setupPhase === "draft",
+    connected: Boolean(status?.isInstalled),
+    draft: !status?.isInstalled,
   })
+  const actionLabel = status
+    ? getNotionCardCtaLabel(status, oauthAppQuery.data)
+    : null
 
   return (
     <ConnectorListItem
@@ -95,55 +91,24 @@ export function NotionConnectionCard({
       health={health}
       remove={{
         description:
-          "This removes the Notion connection, selected scope, and sync target for this organization. Existing mirrored files in GitHub are left in place.",
+          "This removes the Notion connection for this organization. The Workspace sources that use it stop syncing. Existing mirrored files in GitHub stay in place.",
         onConfirm: () => removeMutation.mutate(),
       }}
       workspace={connectorDash(status?.workspaceName)}
       scope={
-        status?.selectedResourceCount != null
+        status?.syncTarget && status.selectedResourceCount != null
           ? formatSelectedItemCount(status.selectedResourceCount)
-          : live
-            ? "Configured"
-            : "—"
+          : "Set in each Workspace"
       }
       syncRepository={formatSyncRepositoryLine(status?.syncTarget ?? null)}
-      actionLabel={
-        isError
-          ? "Retry"
-          : status
-            ? getNotionCardCtaLabel(status, oauthAppQuery.data)
-            : undefined
-      }
+      actionLabel={isError ? "Retry" : (actionLabel ?? undefined)}
       onAction={
-        isError
-          ? () => void refetch()
-          : status
-            ? () => onOpenSetup(live)
-            : undefined
+        isError ? () => void refetch() : actionLabel ? onOpenSetup : undefined
       }
     >
-      {failureAction ? (
-        <p className="text-sm text-muted-foreground">
-          {failureAction === "retry_content"
-            ? "Content mirror failed. Open setup to retry."
-            : "Configuration pull request failed. Open setup to retry."}
-        </p>
-      ) : null}
       {isError ? (
         <p className="text-sm text-muted-foreground">
           Status request failed. Retry, or open setup if this persists.
-        </p>
-      ) : null}
-      {!failureAction &&
-      status &&
-      status.setupPhase !== "live" &&
-      (status.selectedResourceCount ?? 0) > 0 ? (
-        <p className="text-xs text-muted-foreground">
-          Merge the open pull request for{" "}
-          <code className="rounded-md bg-muted px-1 py-0.5 text-[11px]">
-            notion/config.yaml
-          </code>{" "}
-          to enable syncing.
         </p>
       ) : null}
     </ConnectorListItem>
