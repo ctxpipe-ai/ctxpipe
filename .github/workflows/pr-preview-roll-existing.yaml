@@ -138,9 +138,9 @@ jobs:
 
           # Bind UI + SSR API origin: the backend private domain, as in
           # pr-deploy.yaml, on port 8080 (the backend PORT that Terraform sets
-          # in production). AUTH_ALLOWED_ORIGINS gives the UI browser OTEL proxy the
-          # public origin. `dollar` keeps GitHub Actions from reading the
-          # Railway reference as an expression.
+          # in production). AUTH_ALLOWED_ORIGINS gives the UI browser OTEL
+          # proxy the public origin. `dollar` keeps GitHub Actions from reading
+          # the Railway reference as an expression.
           dollar='$'
           railway_graphql \
             'mutation variableCollectionUpsert($input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: $input) }' \

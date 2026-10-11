@@ -212,6 +212,9 @@ resource "railway_service" "ui" {
 resource "railway_variable_collection" "ui_env" {
   environment_id = railway_project.this.default_environment.id
   service_id     = railway_service.ui.id
+  # AUTH_BASE_URL refers to backend.PORT. Write the backend variables first,
+  # so the reference never resolves empty when the UI redeploys.
+  depends_on = [railway_variable_collection.backend_env]
 
   variables = concat([
     {
