@@ -330,7 +330,7 @@ describe("conversation sandbox files", { timeout: 15_000 }, () => {
     )
   })
 
-  it("saves a new and an existing file at the root of a Docker sandbox", async () => {
+  it("saves root, existing, and dash-named files in a Docker sandbox", async () => {
     const directory = mkdtempSync(join(tmpdir(), "ctxpipe-docker-write-"))
     try {
       writeFileSync(join(directory, "notes.md"), "old\n")
@@ -361,6 +361,13 @@ describe("conversation sandbox files", { timeout: 15_000 }, () => {
         "# FAQ\n",
       )
       expect(readFileSync(join(directory, "notes.md"), "utf8")).toBe("new\n")
+      // A leading dash is not an option to mkdir.
+      await writeConversationSandboxFile({
+        handle,
+        path: "-docs/a.md",
+        body: "dash\n",
+      })
+      expect(readFileSync(join(directory, "-docs/a.md"), "utf8")).toBe("dash\n")
     } finally {
       rmSync(directory, { recursive: true, force: true })
     }

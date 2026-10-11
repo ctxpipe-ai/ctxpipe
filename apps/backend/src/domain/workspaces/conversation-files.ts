@@ -253,13 +253,11 @@ export async function writeConversationSandboxFile(input: {
     throw new Error(`Unsafe path: ${input.path}`)
   }
   const parent = input.path.split("/").slice(0, -1).join("/")
-  if (parent) await input.handle.fs.mkdir(parent)
-  // The Docker handle runs `mkdir -p` on the part before the last "/". A
-  // root file has none, so the handle made a directory with the file's name.
-  await input.handle.fs.write(
-    parent ? input.path : `./${input.path}`,
-    input.body,
-  )
+  // The Docker and Vercel handles build `mkdir -p` and the write from the
+  // path: without a slash before the name, `mkdir -p` makes a directory with
+  // the file's name, and a leading "-" reads as an option. "./" stops both.
+  if (parent) await input.handle.fs.mkdir(`./${parent}`)
+  await input.handle.fs.write(`./${input.path}`, input.body)
 }
 
 export async function removeConversationSandboxPath(input: {
