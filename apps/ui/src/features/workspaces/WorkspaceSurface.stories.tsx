@@ -94,6 +94,7 @@ const columnBox = (column: Element | null | undefined) => {
  */
 export const SurfaceSkeletonMatches: Story = {
   tags: ["workspace-golden"],
+  args: { paneParam: "files" },
   parameters: {
     storyRoute: workspaceRoute({ pane: "files" }),
     msw: {
