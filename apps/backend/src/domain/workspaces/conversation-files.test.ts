@@ -10,6 +10,7 @@ import {
 } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { DockerHandle } from "@tanstack/ai-sandbox-docker"
 import { describe, expect, it } from "vitest"
 import {
   conversationPathIsSafe,
@@ -21,9 +22,13 @@ import {
   readConversationSandboxFile,
   sanitizeGitRemoteError,
   splitGitNulPaths,
+  writeConversationSandboxFile,
 } from "./conversation-files.js"
 import { switchToSessionBranch } from "./conversation-session-branch.js"
+import { adaptTanstackHandle } from "./job-sandbox.js"
 import type { JobSandboxHandle } from "./job-worktree.js"
+import type { WorkspaceRevision } from "./revision.js"
+import { advanceConversationWorktree } from "./workspace-chat-revision-transition.js"
 
 function realHandle(directory: string): JobSandboxHandle {
   return {
@@ -323,6 +328,114 @@ describe("conversation sandbox files", { timeout: 15_000 }, () => {
         expect(await changes()).toEqual([])
       },
     )
+  })
+
+  it("saves root, existing, and dash-named files in a Docker sandbox", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "ctxpipe-docker-write-"))
+    try {
+      writeFileSync(join(directory, "notes.md"), "old\n")
+      // The Docker handle's own file writes, with the container's shell
+      // replaced by a local shell in the same working directory.
+      const docker = new DockerHandle({
+        container: { id: "fixture" },
+        workdir: "/workspace",
+      } as unknown as ConstructorParameters<typeof DockerHandle>[0])
+      const shell = realHandle(directory)
+      Object.assign(docker, {
+        exec: (command: string) => shell.exec(command),
+      })
+      const handle = adaptTanstackHandle(
+        docker as unknown as Parameters<typeof adaptTanstackHandle>[0],
+      )
+      await writeConversationSandboxFile({
+        handle,
+        path: "referral-faq.md",
+        body: "# FAQ\n",
+      })
+      await writeConversationSandboxFile({
+        handle,
+        path: "notes.md",
+        body: "new\n",
+      })
+      expect(readFileSync(join(directory, "referral-faq.md"), "utf8")).toBe(
+        "# FAQ\n",
+      )
+      expect(readFileSync(join(directory, "notes.md"), "utf8")).toBe("new\n")
+      // A leading dash is not an option to mkdir.
+      await writeConversationSandboxFile({
+        handle,
+        path: "-docs/a.md",
+        body: "dash\n",
+      })
+      expect(readFileSync(join(directory, "-docs/a.md"), "utf8")).toBe("dash\n")
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it("lists only the conversation's own changes after the Workspace moves on", async () => {
+    const root = mkdtempSync(join(tmpdir(), "ctxpipe-conversation-advance-"))
+    const upstream = join(root, "upstream")
+    const sandbox = join(root, "sandbox")
+    const git = (cwd: string, ...args: string[]) =>
+      execFileSync(
+        "git",
+        ["-c", "user.name=Fixture", "-c", "user.email=f@example.test", ...args],
+        { cwd, encoding: "utf8" },
+      ).trim()
+    try {
+      mkdirSync(upstream)
+      git(upstream, "init", "-q", "-b", "main")
+      writeFileSync(join(upstream, "AGENTS.md"), "# Agents\n")
+      git(upstream, "add", ".")
+      git(upstream, "commit", "-q", "-m", "Initial")
+      const oldSha = git(upstream, "rev-parse", "HEAD")
+      git(root, "clone", "-q", upstream, sandbox)
+      git(sandbox, "checkout", "-q", "-b", "ctxpipe/session")
+      writeFileSync(join(sandbox, "agent.md"), "the agent's file\n")
+      // ctx| pushes to the default branch after the conversation starts.
+      writeFileSync(join(upstream, "AGENTS.md"), "# Agents\nmore\n")
+      writeFileSync(join(upstream, "imported.md"), "imported\n")
+      git(upstream, "add", ".")
+      git(upstream, "commit", "-q", "-m", "Knowledge update")
+      const newSha = git(upstream, "rev-parse", "HEAD")
+      const job = realHandle(sandbox)
+      const revision = {
+        workspaceId: "ws_fixture",
+        generation: 1,
+        remote: { url: upstream, connectionId: null },
+        defaultBranch: "main",
+        sha: oldSha,
+        access: "publish-session",
+      } satisfies WorkspaceRevision
+      expect(
+        await advanceConversationWorktree({
+          handle: { process: { exec: job.exec } } as unknown as Parameters<
+            typeof advanceConversationWorktree
+          >[0]["handle"],
+          from: revision,
+          to: { ...revision, sha: newSha },
+        }),
+      ).toBe("moved")
+      expect(git(sandbox, "rev-parse", "HEAD")).toBe(newSha)
+
+      const status = await conversationSandboxStatus({
+        handle: job,
+        defaultBranch: "main",
+        sessionBranch: "ctxpipe/session",
+      })
+      expect(status.items.map((item) => `${item.status} ${item.path}`)).toEqual(
+        ["added agent.md"],
+      )
+      expect(status.ahead).toBe(0)
+      expect(
+        (
+          await conversationSandboxDiff({ handle: job, defaultBranch: "main" })
+        ).map((diff) => diff.path),
+      ).toEqual(["agent.md"])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 
   it("reconciles uncommitted work with the base branch", async () => {

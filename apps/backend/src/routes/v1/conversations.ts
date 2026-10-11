@@ -556,8 +556,14 @@ const postConversationPullRequestRoute = createRoute({
     },
     ...publishErrorResponses,
     400: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: `${publishNotPublishable}; no_pr_access (the GitHub App cannot open pull requests: it needs the Pull requests: Read and write permission)`,
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema.extend({
+            message: z.string().optional(),
+          }).openapi("ConversationPullRequestErrorResponse"),
+        },
+      },
+      description: `${publishNotPublishable}; no_pr_access (the GitHub App cannot open pull requests: it needs the Pull requests: Read and write permission); pr_refused (GitHub refused the pull request; message has GitHub's reason)`,
     },
     409: publishConflictResponse(
       "turn_running (a turn runs in the conversation), missing_sandbox, rebase_in_progress, session_moved (the branch on GitHub has commits ctx| did not push; ask the agent to fetch and rebase), pr_merged (the branch's PR was merged; send a message to continue on a fresh branch) or stale_binding (the Workspace was relinked)",
@@ -568,6 +574,8 @@ const postConversationPullRequestRoute = createRoute({
 type PublishError = {
   status: 400 | 409 | 429 | 502 | 503
   error: PublishErrorCode
+  /** GitHub's reason, for pr_refused. */
+  message?: string
 }
 
 /** Every error a publish route answers; the OpenAPI responses list them. */
@@ -578,6 +586,7 @@ type PublishErrorCode =
   | "pr_merged"
   | "github_unavailable"
   | "no_pr_access"
+  | "pr_refused"
   | "workspace_required"
   | "sandbox_capacity"
   | "sandbox_unavailable"
@@ -762,6 +771,12 @@ async function createConversationPullRequest(input: {
         githubStatus: created.githubStatus,
         githubMessage: created.githubMessage,
       })
+      if (created.refused === "pr_refused")
+        return {
+          status: 400,
+          error: "pr_refused",
+          message: created.githubMessage,
+        }
       return created.refused === "no_pr_access"
         ? { status: 400, error: "no_pr_access" }
         : publishError("no_changes")
@@ -1331,6 +1346,11 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       },
     })
     if ("error" in outcome)
-      return c.json({ error: outcome.error }, outcome.status)
+      return c.json(
+        "message" in outcome && outcome.message
+          ? { error: outcome.error, message: outcome.message }
+          : { error: outcome.error },
+        outcome.status,
+      )
     return c.json(outcome.pullRequest, 200)
   })

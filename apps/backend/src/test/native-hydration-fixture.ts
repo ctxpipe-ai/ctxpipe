@@ -247,6 +247,26 @@ async function createNativeHydrationFixture(
             { message: "Unexpected pull request" },
             { status: 400 },
           )
+        // GitHub reads both branches with the caller's token. A token without
+        // Contents permission cannot read them.
+        if (
+          request.headers
+            .get("authorization")
+            ?.includes("fixture-only-github-no-contents-token")
+        )
+          return HttpResponse.json(
+            {
+              message: "Validation Failed",
+              errors: [
+                {
+                  resource: "PullRequest",
+                  code: "custom",
+                  message: "not all refs are readable",
+                },
+              ],
+            },
+            { status: 422 },
+          )
         await options.onGithubPullRequest(await request.json())
         return HttpResponse.json(
           {
@@ -271,6 +291,9 @@ async function createNativeHydrationFixture(
         if (requestBody.permissions?.pull_requests === "write")
           await options.onGithubPrCredential?.()
         const writing = requestBody.permissions?.contents === "write"
+        // GitHub grants only the permissions the request names.
+        const reading =
+          !requestBody.permissions || Boolean(requestBody.permissions.contents)
         if (writing) await beforeWriteCredential?.()
         if (failGithubTokens)
           return HttpResponse.json(
@@ -281,10 +304,12 @@ async function createNativeHydrationFixture(
           {
             token: writing
               ? "fixture-only-github-write-token"
-              : "fixture-only-github-read-token",
+              : reading
+                ? "fixture-only-github-read-token"
+                : "fixture-only-github-no-contents-token",
             expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
             permissions: {
-              contents: writing ? "write" : "read",
+              ...(reading ? { contents: writing ? "write" : "read" } : {}),
               metadata: "read",
             },
             ...(Array.isArray(requestBody.repositories)
