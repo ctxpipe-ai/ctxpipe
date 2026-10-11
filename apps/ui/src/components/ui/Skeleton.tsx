@@ -7,6 +7,7 @@ import {
   use,
   useContext,
   useEffect,
+  useLayoutEffect,
   useState,
   useSyncExternalStore,
 } from "react"
@@ -198,7 +199,9 @@ export function SkeletonSuspense(props: {
 function SkeletonFallback(props: { hold: Hold; children: ReactNode }) {
   const { hold } = props
   const wait = useSkeletonWait()
-  useEffect(() => {
+  // A layout effect runs before paint, and CSS starts the wait at paint, so
+  // the hold starts no later than the skeleton shows.
+  useLayoutEffect(() => {
     const id = setTimeout(hold.start, wait)
     return () => clearTimeout(id)
   }, [hold, wait])
