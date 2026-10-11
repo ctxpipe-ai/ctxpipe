@@ -1,5 +1,11 @@
 import { IconBrain, IconFile, IconSearch, IconTool } from "@tabler/icons-react"
-import { type ReactElement, type ReactNode, useId, useState } from "react"
+import {
+  Fragment,
+  type ReactElement,
+  type ReactNode,
+  useId,
+  useState,
+} from "react"
 import { Button as AriaButton } from "react-aria-components"
 import {
   Conversation,
@@ -256,14 +262,13 @@ export function ConversationThread(props: {
   waitLabel?: string | null
   contentClassName?: string
   /**
-   * Content after the reply to the user message with this 1-based number,
-   * shown when the reply is done (for example, the files the turn changed).
+   * Content after the shown message with this id, when the message is not
+   * live (for example, the files a turn changed).
    */
-  renderAfterTurn?: (userTurn: number) => ReactNode
+  renderAfterMessage?: (messageId: string) => ReactNode
 }) {
   const { messages, error, status, waitLabel, contentClassName } = props
   const turns = groupAssistantTurns(messages)
-  let userTurn = 0
   const lastMessage = turns[turns.length - 1]
   const lastAssistantHasVisibleActivity =
     lastMessage?.role === "assistant"
@@ -293,32 +298,34 @@ export function ConversationThread(props: {
                   : renderUserParts(message)
 
               const isUser = message.role === "user"
-              if (isUser) userTurn += 1
-              if (renderedParts.length === 0) return null
-
-              const afterTurn =
-                !isUser && !working && userTurn > 0
-                  ? props.renderAfterTurn?.(userTurn)
-                  : null
+              const after = working
+                ? null
+                : props.renderAfterMessage?.(message.id)
+              if (renderedParts.length === 0 && !after) return null
 
               return (
-                <div
-                  key={message.id}
-                  className={cn(
-                    "flex w-full",
-                    isUser ? "justify-end" : "justify-start",
-                  )}
-                >
-                  <Message
-                    from={message.role}
-                    className={isUser ? "max-w-md" : undefined}
-                  >
-                    <MessageContent className={isUser ? undefined : "gap-5"}>
-                      {renderedParts}
-                      {afterTurn}
-                    </MessageContent>
-                  </Message>
-                </div>
+                <Fragment key={message.id}>
+                  {renderedParts.length > 0 ? (
+                    <div
+                      className={cn(
+                        "flex w-full",
+                        isUser ? "justify-end" : "justify-start",
+                      )}
+                    >
+                      <Message
+                        from={message.role}
+                        className={isUser ? "max-w-md" : undefined}
+                      >
+                        <MessageContent
+                          className={isUser ? undefined : "gap-5"}
+                        >
+                          {renderedParts}
+                        </MessageContent>
+                      </Message>
+                    </div>
+                  ) : null}
+                  {after ? <div className="flex w-full">{after}</div> : null}
+                </Fragment>
               )
             })}
             {showPulsatingLoader && (

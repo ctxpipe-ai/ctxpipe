@@ -149,11 +149,17 @@ export const TurnCardOpensDiff: Story = {
                 items: [
                   {
                     path: "apps/ui/src/Diff.tsx",
+                    status: "modified",
+                    additions: 2,
+                    deletions: 1,
                     oldBody: "a\nb\n",
                     body: "a\nB\nc\n",
                   },
                   {
                     path: "apps/ui/src/pane.ts",
+                    status: "modified",
+                    additions: 1,
+                    deletions: 1,
                     oldBody: "x\n",
                     body: "y\n",
                   },

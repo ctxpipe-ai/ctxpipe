@@ -1,29 +1,61 @@
 import { describe, expect, it } from "vitest"
 import {
-  conversationDiffFiles,
   formatLineCount,
   groupChangedFilesByFolder,
+  placeTurnChanges,
 } from "./conversationDiff"
 
-describe("conversationDiffFiles", () => {
-  it("gives each file a status and its added and removed line counts", () => {
-    const files = conversationDiffFiles([
-      { path: "new.md", oldBody: null, body: "a\nb\n" },
-      { path: "gone.md", oldBody: "x\ny\nz\n", body: null },
-      { path: "edit.md", oldBody: "one\ntwo\n", body: "one\n2\nthree\n" },
-    ])
+describe("placeTurnChanges", () => {
+  const user = (id: string) => ({ id, role: "user" as const, parts: [] })
+  const reply = (id: string, runId?: string) => ({
+    id,
+    role: "assistant" as const,
+    parts: [],
+    ...(runId ? { metadata: { tanstack: { run: { id: runId } } } } : {}),
+  })
+  const record = (runId: string, turn: number) => ({
+    runId,
+    turn,
+    files: [
+      { path: "a.md", status: "modified" as const, additions: 1, deletions: 0 },
+    ],
+  })
+
+  it("puts each card after the last message of its run, also with the same user count", () => {
+    const placed = placeTurnChanges(
+      [
+        user("u1"),
+        reply("a1", "run_1"),
+        reply("a1b", "run_2"),
+        user("u2"),
+        reply("a2", "run_3"),
+      ],
+      [record("run_1", 1), record("run_2", 1), record("run_3", 2)],
+    )
+    // a1 and a1b are one shown reply (the thread groups them), so both
+    // cards go after it, in run order.
     expect(
-      files.map(({ path, status, additions, deletions }) => ({
-        path,
-        status,
-        additions,
-        deletions,
-      })),
+      [...placed].map(([id, items]) => [id, items.map((item) => item.runId)]),
     ).toEqual([
-      { path: "new.md", status: "added", additions: 2, deletions: 0 },
-      { path: "gone.md", status: "deleted", additions: 0, deletions: 3 },
-      { path: "edit.md", status: "modified", additions: 2, deletions: 1 },
+      ["a1", ["run_1", "run_2"]],
+      ["a2", ["run_3"]],
     ])
+  })
+
+  it("puts the card of a failed turn with no reply after its user message", () => {
+    const placed = placeTurnChanges(
+      [user("u1"), reply("a1", "run_1"), user("u2"), user("u3")],
+      [record("run_failed", 2)],
+    )
+    expect([...placed.keys()]).toEqual(["u2"])
+  })
+
+  it("puts the card of a live turn, whose reply has no run id yet, after that reply", () => {
+    const placed = placeTurnChanges(
+      [user("u1"), reply("a1")],
+      [record("run_live", 1)],
+    )
+    expect([...placed.keys()]).toEqual(["a1"])
   })
 })
 

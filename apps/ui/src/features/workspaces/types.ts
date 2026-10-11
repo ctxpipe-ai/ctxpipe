@@ -145,8 +145,19 @@ export type ConversationGitStatusResponse = {
   worktreeVersion?: string
 }
 
-export type ConversationGitDiffItem = {
+/** One changed file, as the backend's git diff gives it. */
+export type ChangedFile = {
   path: string
+  /** The path before a rename. */
+  oldPath?: string
+  status: "added" | "modified" | "deleted" | "renamed"
+  additions: number
+  deletions: number
+  /** Why the file has no bodies; the UI shows this in place of a diff. */
+  omitted?: "binary" | "too_large" | "not_a_file"
+}
+
+export type ConversationGitDiffItem = ChangedFile & {
   oldBody: string | null
   body: string | null
 }
@@ -155,20 +166,18 @@ export type ConversationGitDiffResponse = {
   /** The branch the diff compares against. */
   base?: string
   items: ConversationGitDiffItem[]
-}
-
-export type ConversationTurnFile = {
-  path: string
-  status: "added" | "modified" | "deleted"
-  additions: number
-  deletions: number
+  /** The turn's snapshots are no longer in the sandbox (410). */
+  gone?: boolean
 }
 
 export type ConversationTurnChanges = {
   runId: string
-  /** The number of user messages in the thread when the turn ended. */
+  /**
+   * The number of user messages in the thread when the turn ended. It places
+   * the card only when no message carries the run id (a failed turn).
+   */
   turn: number
-  files: ConversationTurnFile[]
+  files: ChangedFile[]
 }
 
 export type ConversationTurnChangesResponse = {

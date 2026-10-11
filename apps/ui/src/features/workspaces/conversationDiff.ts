@@ -1,53 +1,5 @@
-import { type FileDiffMetadata, parseDiffFromFile } from "@pierre/diffs"
-import type { ConversationGitDiffItem } from "./types"
-
-export type ChangedFileStatus = "added" | "modified" | "deleted"
-
-export type ChangedFile = {
-  path: string
-  status: ChangedFileStatus
-  additions: number
-  deletions: number
-}
-
-export type ConversationDiffFile = ChangedFile & { diff: FileDiffMetadata }
-
-/** Parses each before and after body once, for the rows and their diffs. */
-export function conversationDiffFiles(
-  items: ConversationGitDiffItem[],
-): ConversationDiffFile[] {
-  return items.map((item) => {
-    const status: ChangedFileStatus =
-      item.oldBody == null
-        ? "added"
-        : item.body == null
-          ? "deleted"
-          : "modified"
-    const diff = parseDiffFromFile(
-      item.oldBody == null
-        ? null
-        : {
-            name: item.path,
-            contents: item.oldBody,
-            cacheKey: `old:${item.path}`,
-          },
-      item.body == null
-        ? null
-        : {
-            name: item.path,
-            contents: item.body,
-            cacheKey: `new:${item.path}`,
-          },
-    )
-    let additions = 0
-    let deletions = 0
-    for (const hunk of diff.hunks) {
-      additions += hunk.additionLines
-      deletions += hunk.deletionLines
-    }
-    return { path: item.path, status, additions, deletions, diff }
-  })
-}
+import type { ChatMessage } from "@/features/chat/types"
+import type { ChangedFile, ConversationTurnChanges } from "./types"
 
 export type ChangedFolder = {
   folder: string
@@ -82,4 +34,47 @@ export function formatLineCount(count: number): string {
   if (count < 1_000) return String(count)
   const thousands = count / 1_000
   return `${thousands < 10 ? thousands.toFixed(1) : Math.round(thousands)}k`
+}
+
+/** The run id that persistence puts on each reply message of a run. */
+function messageRunId(message: ChatMessage): string | undefined {
+  const tanstack = (message.metadata as { tanstack?: unknown } | undefined)
+    ?.tanstack as { run?: { id?: unknown }; runId?: unknown } | undefined
+  const id = tanstack?.run?.id ?? tanstack?.runId
+  return typeof id === "string" && id ? id : undefined
+}
+
+/**
+ * Places each turn's card after the last shown message of its run. The keys
+ * are the ids the thread shows (it joins replies that follow each other into
+ * the first one). A run with no message that carries its id (a failed turn,
+ * or a reply that is still live) goes after the last message of its user
+ * turn.
+ */
+export function placeTurnChanges(
+  messages: ChatMessage[],
+  records: ConversationTurnChanges[],
+): Map<string, ConversationTurnChanges[]> {
+  const lastForRun = new Map<string, string>()
+  const lastForUserTurn = new Map<number, string>()
+  let shownId: string | undefined
+  let previousRole: ChatMessage["role"] | undefined
+  let userTurn = 0
+  for (const message of messages) {
+    const joined = message.role === "assistant" && previousRole === "assistant"
+    if (!joined) shownId = message.id
+    previousRole = message.role
+    if (message.role === "user") userTurn += 1
+    if (!shownId) continue
+    const runId = messageRunId(message)
+    if (runId) lastForRun.set(runId, shownId)
+    if (userTurn > 0) lastForUserTurn.set(userTurn, shownId)
+  }
+  const placed = new Map<string, ConversationTurnChanges[]>()
+  for (const record of records) {
+    const id = lastForRun.get(record.runId) ?? lastForUserTurn.get(record.turn)
+    if (!id) continue
+    placed.set(id, [...(placed.get(id) ?? []), record])
+  }
+  return placed
 }

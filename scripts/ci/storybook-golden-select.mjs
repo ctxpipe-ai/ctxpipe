@@ -40,6 +40,8 @@ export const requiredStories = [
   "DiffPaneManyFiles",
   "DiffPaneExpandedFile",
   "DiffPaneLongPaths",
+  "DiffPaneRenamedAndOmitted",
+  "DiffPaneTurnGone",
   "TurnCardCollapsed",
   "TurnCardExpanded",
   "TurnCardOpensDiff",

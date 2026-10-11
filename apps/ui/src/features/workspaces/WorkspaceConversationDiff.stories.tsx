@@ -15,10 +15,29 @@ const manyFiles: ConversationGitDiffItem[] = Array.from(
   { length: 24 },
   (_, index) => {
     const path = `knowledge/decisions/ADR-${String(index + 1).padStart(3, "0")}-decision.md`
-    if (index % 6 === 0) return { path, oldBody: null, body: lines(5, "New") }
-    if (index % 6 === 1) return { path, oldBody: lines(3, "Old"), body: null }
+    if (index % 6 === 0)
+      return {
+        path,
+        status: "added",
+        additions: 5,
+        deletions: 0,
+        oldBody: null,
+        body: lines(5, "New"),
+      }
+    if (index % 6 === 1)
+      return {
+        path,
+        status: "deleted",
+        additions: 0,
+        deletions: 3,
+        oldBody: lines(3, "Old"),
+        body: null,
+      }
     return {
       path,
+      status: "modified",
+      additions: 1,
+      deletions: 2,
       oldBody: `${lines(20, "Line")}\n`,
       body: `${lines(18, "Line")}\nChanged line\n`,
     }
@@ -171,8 +190,22 @@ export const DiffPaneLongPaths: Story = {
       handlers: {
         page: [
           conversationGitDiffHandler([
-            { path: longPath, oldBody: "a\n", body: "a\nb\n" },
-            { path: "README.md", oldBody: "x\n", body: "y\n" },
+            {
+              path: longPath,
+              status: "modified",
+              additions: 1,
+              deletions: 0,
+              oldBody: "a\n",
+              body: "a\nb\n",
+            },
+            {
+              path: "README.md",
+              status: "modified",
+              additions: 1,
+              deletions: 1,
+              oldBody: "x\n",
+              body: "y\n",
+            },
           ]),
         ],
       },
@@ -201,5 +234,93 @@ export const DiffPaneLongPaths: Story = {
     await expect(
       canvas.getByRole("button", { name: "Path copied" }),
     ).toBeVisible()
+  },
+}
+
+export const DiffPaneRenamedAndOmitted: Story = {
+  tags: ["workspace-golden"],
+  args: { conversationId: "conv_diff_omitted" },
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          conversationGitDiffHandler([
+            {
+              path: "docs/moved.md",
+              oldPath: "docs/old.md",
+              status: "renamed",
+              additions: 0,
+              deletions: 0,
+              oldBody: "same\n",
+              body: "same\n",
+            },
+            {
+              path: "assets/logo.png",
+              status: "modified",
+              additions: 0,
+              deletions: 0,
+              omitted: "binary",
+              oldBody: null,
+              body: null,
+            },
+            {
+              path: "data/dump.sql",
+              status: "added",
+              additions: 40_000,
+              deletions: 0,
+              omitted: "too_large",
+              oldBody: null,
+              body: null,
+            },
+          ]),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(
+      await canvas.findByRole("button", {
+        name: "docs/moved.md, Renamed from docs/old.md",
+      }),
+    ).toBeVisible()
+    // A binary file is modified, not deleted, and shows no diff.
+    const binary = canvas.getByRole("button", {
+      name: "assets/logo.png, Modified",
+    })
+    await userEvent.click(binary)
+    await expect(await canvas.findByText("Binary file")).toBeVisible()
+    await userEvent.click(
+      canvas.getByRole("button", { name: "data/dump.sql, Added" }),
+    )
+    await expect(
+      await canvas.findByText("File too large to show"),
+    ).toBeVisible()
+    await expect(
+      canvas.getByText("Total: 40000 added, 0 removed"),
+    ).toBeInTheDocument()
+  },
+}
+
+export const DiffPaneTurnGone: Story = {
+  tags: ["workspace-golden"],
+  args: { conversationId: "conv_diff_gone", turn: "run_gone" },
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          http.get(/\/conversations\/conv_diff_gone\/files\/diff$/, () =>
+            HttpResponse.json({ error: "turn_snapshot_gone" }, { status: 410 }),
+          ),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(
+      await canvas.findByText("This turn's diff is no longer available."),
+    ).toBeVisible()
+    await expect(canvas.queryByRole("toolbar")).not.toBeInTheDocument()
   },
 }

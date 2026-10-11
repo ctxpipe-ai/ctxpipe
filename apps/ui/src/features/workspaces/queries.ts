@@ -460,6 +460,8 @@ export async function fetchConversationGitDiff(
     param: { orgSlug, conversationId },
     query: turn ? { turn } : {},
   })
+  // A rebuilt sandbox no longer has the turn's snapshots.
+  if (res.status === 410) return { items: [], gone: true }
   return readApiJson(res, { message: "Failed to load conversation diff" })
 }
 
@@ -763,44 +765,24 @@ export function conversationGitDiffOptions(
 export async function fetchConversationTurnChanges(
   orgSlug: string,
   conversationId: string,
-): Promise<ConversationTurnChangesResponse | ConversationFilesBlocked> {
+): Promise<ConversationTurnChangesResponse> {
   const client = await getApiClient()
   const res = await client[":orgSlug"].api.v1.conversations[
     ":conversationId"
-  ].files.turns.$get({
+  ].turns.$get({
     param: { orgSlug, conversationId },
   })
-  if (res.status === 409) return readConversationFilesBlocked(res)
   return readApiJson(res, { message: "Failed to load the turn changes" })
 }
 
-/**
- * The files each turn changed. While a turn runs the route answers busy, and
- * the query keeps its last data and asks again, so a finished turn shows its
- * card when the backend has stored it.
- */
+/** The files each turn changed. A finished turn invalidates this query. */
 export function conversationTurnChangesOptions(
   orgSlug: string,
   conversationId: string,
 ) {
-  return queryOptions<
-    PolledFiles<ConversationTurnChangesResponse>,
-    Error,
-    PolledFiles<ConversationTurnChangesResponse>,
-    ReturnType<typeof workspaceKeys.conversationTurnChanges>
-  >({
+  return queryOptions({
     queryKey: workspaceKeys.conversationTurnChanges(orgSlug, conversationId),
-    queryFn: async ({ client }) => {
-      const result = await fetchConversationTurnChanges(orgSlug, conversationId)
-      if ("blocked" in result) {
-        const cached = client.getQueryData<ConversationTurnChangesResponse>(
-          workspaceKeys.conversationTurnChanges(orgSlug, conversationId),
-        )
-        return { ...(cached ?? { items: [] }), busy: true }
-      }
-      return result
-    },
-    refetchInterval: (query) => (query.state.data?.busy ? 2000 : false),
+    queryFn: () => fetchConversationTurnChanges(orgSlug, conversationId),
   })
 }
 

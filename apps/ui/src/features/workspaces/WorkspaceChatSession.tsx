@@ -22,6 +22,7 @@ import type {
   ConversationListItem,
 } from "@/features/chat/types"
 import { ConversationTurnChangesCard } from "./ConversationTurnChangesCard"
+import { placeTurnChanges } from "./conversationDiff"
 import {
   conversationAllowsEdits,
   conversationBranchShortName,
@@ -232,6 +233,15 @@ export function WorkspaceChatSession(props: {
     },
   })
 
+  const turnCards = useMemo(
+    () =>
+      placeTurnChanges(
+        messages as ChatMessage[],
+        turnChanges.data?.items ?? [],
+      ),
+    [messages, turnChanges.data],
+  )
+
   const handleSendMessage = async (
     params: { text: string },
     phase: SandboxPhase = "idle",
@@ -309,13 +319,10 @@ export function WorkspaceChatSession(props: {
         error={error ?? sendError}
         status={status}
         waitLabel={workspaceChatWaitLabel(sandboxPhase)}
-        renderAfterTurn={(userTurn) => {
-          const changes = turnChanges.data?.items.find(
-            (item) => item.turn === userTurn,
-          )
-          if (!changes || changes.files.length === 0) return null
-          return (
+        renderAfterMessage={(messageId) =>
+          turnCards.get(messageId)?.map((changes) => (
             <ConversationTurnChangesCard
+              key={changes.runId}
               changes={changes}
               onOpenDiff={(path) =>
                 props.onOpenPane?.({
@@ -325,8 +332,8 @@ export function WorkspaceChatSession(props: {
                 })
               }
             />
-          )
-        }}
+          ))
+        }
       />
       <MessageInputBox
         layout="thread"

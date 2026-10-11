@@ -367,6 +367,9 @@ export function conversationGitDiffHandler(
   items: ConversationGitDiffResponse["items"] = [
     {
       path: "knowledge/billing/ledger.md",
+      status: "modified",
+      additions: 2,
+      deletions: 0,
       oldBody: docsWorkspaceGitBlobs["knowledge/billing/ledger.md"] ?? "",
       body: `${docsWorkspaceGitBlobs["knowledge/billing/ledger.md"] ?? ""}\nQueued sandbox edit.\n`,
     },

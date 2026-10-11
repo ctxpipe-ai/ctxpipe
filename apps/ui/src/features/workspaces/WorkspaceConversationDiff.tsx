@@ -1,3 +1,4 @@
+import { parseDiffFromFile } from "@pierre/diffs"
 import { FileDiff } from "@pierre/diffs/react"
 import {
   IconChevronRight,
@@ -7,6 +8,7 @@ import {
   IconLayoutRows,
   IconRefresh,
   IconSelector,
+  IconSquareArrowRight,
   IconSquareDot,
   IconSquareMinus,
   IconSquarePlus,
@@ -16,27 +18,20 @@ import { useSuspenseQuery } from "@tanstack/react-query"
 import { type ReactNode, useCallback, useMemo, useState } from "react"
 import {
   Button as AriaButton,
+  ToggleButton as AriaToggleButton,
   Disclosure,
   DisclosureGroup,
   DisclosurePanel,
   type Key,
-} from "react-aria-components"
-import {
   Tooltip,
-  TooltipContent,
-  TooltipProvider,
   TooltipTrigger,
-} from "@/components/ui/Tooltip"
+} from "react-aria-components"
+import { Toolbar } from "@/components/ui/Toolbar"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
-import {
-  type ChangedFileStatus,
-  type ConversationDiffFile,
-  conversationDiffFiles,
-  formatLineCount,
-} from "./conversationDiff"
+import { formatLineCount } from "./conversationDiff"
 import { conversationGitDiffOptions } from "./queries"
-import type { ConversationGitDiffItem } from "./types"
+import type { ChangedFile, ConversationGitDiffItem } from "./types"
 
 export function WorkspaceConversationDiffPane(props: {
   orgSlug: string
@@ -51,6 +46,27 @@ export function WorkspaceConversationDiffPane(props: {
   const query = useSuspenseQuery(
     conversationGitDiffOptions(props.orgSlug, props.conversationId, props.turn),
   )
+  const showAll = props.onShowAll ? (
+    <AriaButton
+      onPress={props.onShowAll}
+      className={cn(
+        "h-7 cursor-default rounded-md px-2 text-xs text-muted-foreground outline-0 hover:bg-foreground/[0.06] hover:text-foreground",
+        focusVisibleClassName,
+      )}
+    >
+      Show all changes
+    </AriaButton>
+  ) : null
+  if (query.data.gone) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
+        <p className="text-sm text-muted-foreground">
+          This turn's diff is no longer available.
+        </p>
+        {showAll}
+      </div>
+    )
+  }
   return (
     <ConversationDiffList
       // A new focus file resets which rows are open.
@@ -66,17 +82,7 @@ export function WorkspaceConversationDiffPane(props: {
             <span className="px-1 text-xs font-medium text-foreground">
               One turn
             </span>
-            {props.onShowAll ? (
-              <AriaButton
-                onPress={props.onShowAll}
-                className={cn(
-                  "h-7 cursor-default rounded-md px-2 text-xs text-muted-foreground outline-0 hover:bg-foreground/[0.06] hover:text-foreground",
-                  focusVisibleClassName,
-                )}
-              >
-                Show all changes
-              </AriaButton>
-            ) : null}
+            {showAll}
           </>
         ) : null
       }
@@ -93,7 +99,7 @@ export function ConversationDiffList(props: {
   /** Extra header content before the base, such as a scope label. */
   scope?: ReactNode
 }) {
-  const files = useMemo(() => conversationDiffFiles(props.items), [props.items])
+  const files = props.items
   const [expanded, setExpanded] = useState<Set<Key>>(
     () => new Set(props.focusPath ? [props.focusPath] : []),
   )
@@ -118,67 +124,54 @@ export function ConversationDiffList(props: {
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col">
-      <TooltipProvider delay={200}>
-        <div
-          role="toolbar"
-          aria-label="Diff options"
-          className="flex h-10 shrink-0 items-center gap-1 border-b border-white/[0.06] px-2"
+      <Toolbar
+        aria-label="Diff options"
+        className="h-10 shrink-0 flex-nowrap gap-1 border-b border-white/[0.06] px-2"
+      >
+        {props.scope}
+        {props.base ? (
+          <span className="flex min-w-0 items-center gap-1 px-1 font-mono text-xs text-muted-foreground">
+            <IconGitBranch className="size-3.5 shrink-0" aria-hidden />
+            <span className="truncate">{props.base}</span>
+          </span>
+        ) : null}
+        <LineCounts
+          additions={additions}
+          deletions={deletions}
+          label="Total"
+          className="px-1"
+        />
+        <span className="flex-1" />
+        <ToolbarButton
+          label={props.refreshing ? "Refreshing" : "Refresh"}
+          onPress={props.onRefresh}
         >
-          {props.scope}
-          {props.base ? (
-            <span className="flex min-w-0 items-center gap-1 px-1 font-mono text-xs text-muted-foreground">
-              <IconGitBranch className="size-3.5 shrink-0" aria-hidden />
-              <span className="truncate">{props.base}</span>
-            </span>
-          ) : null}
-          <LineCounts
-            additions={additions}
-            deletions={deletions}
-            label="Total"
-            className="px-1"
+          <IconRefresh
+            className={cn("size-4", props.refreshing && "animate-spin")}
+            aria-hidden
           />
-          <span className="flex-1" />
-          <ToolbarButton
-            label={props.refreshing ? "Refreshing" : "Refresh"}
-            onPress={props.onRefresh}
-            icon={
-              <IconRefresh
-                className={cn("size-4", props.refreshing && "animate-spin")}
-                aria-hidden
-              />
-            }
-          />
-          <ToolbarButton
-            label={allExpanded ? "Collapse all" : "Expand all"}
-            onPress={() =>
-              setExpanded(
-                allExpanded
-                  ? new Set()
-                  : new Set(files.map((file) => file.path)),
-              )
-            }
-            icon={<IconSelector className="size-4" aria-hidden />}
-          />
-          <ToolbarButton
-            label="Split view"
-            pressed={split}
-            onPress={() => setSplit(!split)}
-            icon={
-              split ? (
-                <IconLayoutColumns className="size-4" aria-hidden />
-              ) : (
-                <IconLayoutRows className="size-4" aria-hidden />
-              )
-            }
-          />
-          <ToolbarButton
-            label="Wrap lines"
-            pressed={wrap}
-            onPress={() => setWrap(!wrap)}
-            icon={<IconTextWrap className="size-4" aria-hidden />}
-          />
-        </div>
-      </TooltipProvider>
+        </ToolbarButton>
+        <ToolbarButton
+          label={allExpanded ? "Collapse all" : "Expand all"}
+          onPress={() =>
+            setExpanded(
+              allExpanded ? new Set() : new Set(files.map((file) => file.path)),
+            )
+          }
+        >
+          <IconSelector className="size-4" aria-hidden />
+        </ToolbarButton>
+        <ToolbarToggle label="Split view" selected={split} onChange={setSplit}>
+          {split ? (
+            <IconLayoutColumns className="size-4" aria-hidden />
+          ) : (
+            <IconLayoutRows className="size-4" aria-hidden />
+          )}
+        </ToolbarToggle>
+        <ToolbarToggle label="Wrap lines" selected={wrap} onChange={setWrap}>
+          <IconTextWrap className="size-4" aria-hidden />
+        </ToolbarToggle>
+      </Toolbar>
       <DisclosureGroup
         aria-label="Changed files"
         allowsMultipleExpanded
@@ -201,13 +194,22 @@ export function ConversationDiffList(props: {
   )
 }
 
-const STATUS_LABEL: Record<ChangedFileStatus, string> = {
+const STATUS_LABEL: Record<ChangedFile["status"], string> = {
   added: "Added",
   modified: "Modified",
   deleted: "Deleted",
+  renamed: "Renamed",
 }
 
-export function ChangedFileStatusIcon(props: { status: ChangedFileStatus }) {
+const OMITTED_LABEL: Record<NonNullable<ChangedFile["omitted"]>, string> = {
+  binary: "Binary file",
+  too_large: "File too large to show",
+  not_a_file: "Not a regular file",
+}
+
+export function ChangedFileStatusIcon(props: {
+  status: ChangedFile["status"]
+}) {
   const className = "size-4 shrink-0"
   if (props.status === "added")
     return (
@@ -220,9 +222,23 @@ export function ChangedFileStatusIcon(props: { status: ChangedFileStatus }) {
     return (
       <IconSquareMinus className={cn(className, "text-red-400")} aria-hidden />
     )
+  if (props.status === "renamed")
+    return (
+      <IconSquareArrowRight
+        className={cn(className, "text-teal-400")}
+        aria-hidden
+      />
+    )
   return (
     <IconSquareDot className={cn(className, "text-amber-400")} aria-hidden />
   )
+}
+
+export function changedFileLabel(file: ChangedFile): string {
+  const status = file.oldPath
+    ? `${STATUS_LABEL[file.status]} from ${file.oldPath}`
+    : STATUS_LABEL[file.status]
+  return `${file.path}, ${status}`
 }
 
 export function LineCounts(props: {
@@ -266,7 +282,7 @@ export function TailTruncatedPath(props: { path: string; className?: string }) {
 }
 
 function ConversationDiffRow(props: {
-  file: ConversationDiffFile
+  file: ConversationGitDiffItem
   expanded: boolean
   focused: boolean
   split: boolean
@@ -288,7 +304,7 @@ function ConversationDiffRow(props: {
       >
         <AriaButton
           slot="trigger"
-          aria-label={`${file.path}, ${STATUS_LABEL[file.status]}`}
+          aria-label={changedFileLabel(file)}
           className={cn(
             "flex h-7 min-w-0 flex-1 cursor-default items-center gap-2 rounded-md px-1 text-left text-xs text-foreground outline-0",
             focusVisibleClassName,
@@ -325,53 +341,125 @@ function ConversationDiffRow(props: {
       </div>
       <DisclosurePanel className="px-1 pb-2">
         {props.expanded ? (
-          <div className="overflow-hidden rounded-md border border-white/[0.06]">
-            <FileDiff
-              fileDiff={file.diff}
-              options={{
-                theme: { dark: "pierre-dark", light: "pierre-light" },
-                disableFileHeader: true,
-                diffStyle: props.split ? "split" : "unified",
-                overflow: props.wrap ? "wrap" : "scroll",
-              }}
-              disableWorkerPool
-              className="block"
+          file.omitted ? (
+            <p className="rounded-md border border-white/[0.06] px-3 py-2 text-xs text-muted-foreground">
+              {OMITTED_LABEL[file.omitted]}
+            </p>
+          ) : (
+            <ConversationFileDiff
+              file={file}
+              split={props.split}
+              wrap={props.wrap}
             />
-          </div>
+          )
         ) : null}
       </DisclosurePanel>
     </Disclosure>
   )
 }
 
+/** Parses the bodies only when the row is open. */
+function ConversationFileDiff(props: {
+  file: ConversationGitDiffItem
+  split: boolean
+  wrap: boolean
+}) {
+  const { file } = props
+  const fileDiff = useMemo(
+    () =>
+      parseDiffFromFile(
+        file.oldBody == null
+          ? null
+          : {
+              name: file.oldPath ?? file.path,
+              contents: file.oldBody,
+              cacheKey: `old:${file.path}`,
+            },
+        file.body == null
+          ? null
+          : {
+              name: file.path,
+              contents: file.body,
+              cacheKey: `new:${file.path}`,
+            },
+      ),
+    [file],
+  )
+  return (
+    <div className="overflow-hidden rounded-md border border-white/[0.06]">
+      <FileDiff
+        fileDiff={fileDiff}
+        options={{
+          theme: { dark: "pierre-dark", light: "pierre-light" },
+          disableFileHeader: true,
+          diffStyle: props.split ? "split" : "unified",
+          overflow: props.wrap ? "wrap" : "scroll",
+        }}
+        disableWorkerPool
+        className="block"
+      />
+    </div>
+  )
+}
+
+const toolbarControlClassName = cn(
+  "inline-flex size-7 shrink-0 cursor-default items-center justify-center rounded-md text-muted-foreground outline-0 transition-colors hover:bg-foreground/[0.06] hover:text-foreground",
+  focusVisibleClassName,
+)
+
+function ToolbarTooltip(props: { label: string }) {
+  return (
+    <Tooltip
+      placement="bottom"
+      offset={6}
+      className="rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-100 shadow-md"
+    >
+      {props.label}
+    </Tooltip>
+  )
+}
+
 function ToolbarButton(props: {
   label: string
-  icon: ReactNode
   onPress: () => void
-  pressed?: boolean
+  children: ReactNode
 }) {
   return (
-    <Tooltip>
-      <TooltipTrigger
+    <TooltipTrigger delay={200}>
+      <AriaButton
         aria-label={props.label}
-        aria-pressed={props.pressed}
-        onClick={props.onPress}
-        className={cn(
-          "inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground",
-          props.pressed && "bg-foreground/[0.08] text-foreground",
-          focusVisibleClassName,
-        )}
+        onPress={props.onPress}
+        className={toolbarControlClassName}
       >
-        {props.icon}
-      </TooltipTrigger>
-      <TooltipContent
-        side="bottom"
-        sideOffset={6}
-        className="border-0 bg-zinc-800 text-zinc-100 shadow-md"
-        arrowClassName="bg-zinc-800 fill-zinc-800"
+        {props.children}
+      </AriaButton>
+      <ToolbarTooltip label={props.label} />
+    </TooltipTrigger>
+  )
+}
+
+function ToolbarToggle(props: {
+  label: string
+  selected: boolean
+  onChange: (selected: boolean) => void
+  children: ReactNode
+}) {
+  return (
+    <TooltipTrigger delay={200}>
+      <AriaToggleButton
+        aria-label={props.label}
+        isSelected={props.selected}
+        onChange={props.onChange}
+        className={({ isSelected }) =>
+          cn(
+            toolbarControlClassName,
+            isSelected && "bg-foreground/[0.08] text-foreground",
+          )
+        }
       >
-        {props.label}
-      </TooltipContent>
-    </Tooltip>
+        {props.children}
+      </AriaToggleButton>
+      <ToolbarTooltip label={props.label} />
+    </TooltipTrigger>
   )
 }
