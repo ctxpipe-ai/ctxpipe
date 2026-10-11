@@ -58,3 +58,5 @@ Open: the embedding trace (`openai/text-embedding-3-large`, only `env:`) runs wh
 
 To prove after a deploy: no Langfuse trace from a preview chat, MCP call, or ingestion run lacks `org:`, and no `tool <name>` span is a root in HyperDX.
 
+
+Review round 1: `beginWorkspaceChatTurn` now builds the one turn context: the attribution (with the sender, for the socket) and the Langfuse attributes (session, user, source tag, org tag, trace name). The Langfuse turn wrapper in `transport.ts` and the attribution bag in the socket wrapper are gone. The socket keeps its auth and logger wrapper, which is not telemetry. The org slug lookup for jobs moved into `restoreJobTelemetry`. It reads a slug once per org and process, uses the enqueue telemetry slug when that is present, and logs a warning when the read fails.

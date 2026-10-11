@@ -64,3 +64,10 @@ To prove after a deploy: open a chat generation in Langfuse. Expect the model, t
 
 
 Review round 1 (security): the evlog span exporter logged all the attributes of each `generation #` span, so the prompt and output went to stdout and to HyperDX `otel_logs`. The exporter now drops the keys that match `LLM_CONTENT_KEY`, which is the same pattern as the collector trace rule (a test reads `config.yaml` to keep the two the same). The collector `logs/out-default` pipeline also blanks those JSON members (`transform/redact_llm_log_content`), as a second guard. I ran that rule in `clickstack-otel-collector:2.39.1` with a sample evlog line. The collector change needs an image build and a deploy of the observability project.
+
+Review round 1, other items:
+
+- Each span of a turn now carries `langfuse.trace.name=workspace-chat` through `propagateAttributes`, because the collector `filter/llm_only` sends only `gen_ai` spans to Langfuse and drops the turn root.
+- The Langfuse input keeps the newest whole messages, as valid JSON, at most 64 KiB. One message or answer that is still too long keeps the end of its text.
+- The proxy no longer wraps its work in `runWithLangfuseContext`: the generation spans start under the turn context, so that wrapper added nothing.
+- Not done: the Bedrock path (`MODEL_PROVIDER=bedrock`) does not feed the observer. Its answer is the AWS event stream converted in `bedrockOpenAiProxy.ts`, with no test seam today, so a generation on Bedrock has the model and the prompt but no tokens, cost, or output. This needs a Bedrock msw fixture first.
