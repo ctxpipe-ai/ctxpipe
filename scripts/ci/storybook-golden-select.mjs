@@ -20,6 +20,7 @@ export const requiredStories = [
   "CreatePrMatchesPaneTriggers",
   "ShowPr",
   "MaximizedPaneMatchesHeader",
+  "SelectedTabInView",
   "ConversationSandboxFiles",
   "ConversationMaximizedSync",
   "StableRequestBudget",

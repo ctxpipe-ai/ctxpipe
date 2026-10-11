@@ -193,7 +193,7 @@ const publishButtonClassName = (state: {
 }) =>
   cn(
     workspaceChromeTabIdleClassName,
-    "gap-1.5 pressed:bg-teal-900/30",
+    "gap-1.5 text-xs font-normal pressed:bg-teal-900/30",
     state.isDisabled &&
       "cursor-default hover:bg-transparent hover:text-zinc-400",
     state.isDisabled && !state.isPending && "opacity-50",
@@ -248,7 +248,7 @@ export function ConversationPublishActions(props: {
           className={cn(
             workspaceChromeTabIdleClassName,
             focusVisibleClassName,
-            "relative gap-1.5 pr-4",
+            "relative gap-1.5 pr-4 text-xs font-normal",
           )}
         >
           <IconGitPullRequest className="size-4" stroke={1.6} aria-hidden />
