@@ -1,6 +1,9 @@
 import type { Env } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
-import { getConfluenceSyncTargetWithRepoByConnectionId } from "../../models/confluence-sync-target.js"
+import {
+  getConfluenceSyncTargetWithRepoByConnectionId,
+  isConfluenceTargetHandedOver,
+} from "../../models/confluence-sync-target.js"
 import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
 import { confluenceSyncSpace } from "../../openworkflow/workflows/confluence-sync-space.js"
 import { loadConfluenceScopeFromRepo } from "./config-from-repo.js"
@@ -19,6 +22,14 @@ export async function handleForgeConfluenceContentEvent(input: {
     input.connectionId,
   )
   if (!target?.enabled) return "skipped"
+  // ADR-050: once Workspace sources own the repository, only they write it.
+  if (
+    await isConfluenceTargetHandedOver({
+      orgId: input.orgId,
+      repositoryGitUrl: target.repositoryGitUrl,
+    })
+  )
+    return "skipped"
 
   if (
     target.setupPhase === "awaiting_merge" ||

@@ -12,6 +12,7 @@ import type {
   SourceMigrationHook,
 } from "../../domain/workspace-sources/migration-plan.js"
 import { confluenceSourceScopeSchema } from "../../domain/workspace-sources/providers/confluence.js"
+import { disableConfluenceSyncTarget } from "../../models/confluence-sync-target.js"
 
 /**
  * ADR-050 migration: the merged Confluence scope of each Forge connection
@@ -20,6 +21,7 @@ import { confluenceSourceScopeSchema } from "../../domain/workspace-sources/prov
  */
 export const confluenceSourceMigrationHook: SourceMigrationHook = {
   provider: "confluence",
+  disableLegacy: disableConfluenceSyncTarget,
   listLegacyBindings: ({ orgId }) =>
     withOrgDbContext(orgId, async (db) => {
       const targets = await db

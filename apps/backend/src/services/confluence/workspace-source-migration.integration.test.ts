@@ -11,6 +11,11 @@ import {
   sourcesFileSchema,
 } from "../../domain/workspace-sources/sources-file.js"
 import { parseSourcesYaml } from "../../domain/workspace-sources/sources-yaml.js"
+import {
+  getConfluenceSyncTargetWithRepoByConnectionId,
+  isConfluenceTargetHandedOver,
+} from "../../models/confluence-sync-target.js"
+import { replaceWorkspaceSourceRows } from "../../models/workspace-sources.js"
 import { seedSourcesOrg } from "../../test/workspace-sources-fixture.js"
 import { confluenceSourceMigrationHook } from "./workspace-source-migration.js"
 
@@ -137,5 +142,66 @@ describe("Confluence source migration hook (Postgres)", () => {
         }),
       },
     ])
+  })
+
+  it("hands a legacy target over to Workspace sources", async () => {
+    const forge = await seed.addConnection("forge", { status: "installed" })
+    const gitUrl = `https://github.com/acme/handover-${seed.suffix}.git`
+    const repositoryId = `repo_handover_${seed.suffix}`
+    await withOrgDbContext(seed.orgId, async (db) => {
+      await db.insert(repositories).values({
+        id: repositoryId,
+        orgId: seed.orgId,
+        name: "handover",
+        gitUrl,
+      })
+      await db.insert(confluenceSyncTargets).values({
+        id: `cst_handover_${seed.suffix}`,
+        orgId: seed.orgId,
+        connectionId: forge,
+        repositoryId,
+        branch: "main",
+        setupPhase: "live",
+      })
+    })
+    const handedOver = () =>
+      isConfluenceTargetHandedOver({
+        orgId: seed.orgId,
+        repositoryGitUrl: gitUrl,
+      })
+    expect(await handedOver()).toBe(false)
+
+    // The Workspace on the same repository gets a Confluence source.
+    const workspaceId = await seed.addWorkspace(
+      `handover-${seed.suffix}`.slice(0, 40),
+      gitUrl.replace(/\.git$/, ""),
+    )
+    await replaceWorkspaceSourceRows({
+      orgId: seed.orgId,
+      workspaceId,
+      revision: "a".repeat(40),
+      rows: [
+        {
+          sourceKey: "eng",
+          provider: "confluence",
+          connectionId: forge,
+          scope: { spaces: [{ key: "ENG", pages: "all" }] },
+          status: "ok",
+          statusDetail: null,
+        },
+      ],
+    })
+    expect(await handedOver()).toBe(true)
+
+    // --apply turns the legacy target off.
+    await confluenceSourceMigrationHook.disableLegacy?.({
+      orgId: seed.orgId,
+      connectionId: forge,
+    })
+    const target = await getConfluenceSyncTargetWithRepoByConnectionId(
+      seed.orgId,
+      forge,
+    )
+    expect(target?.enabled).toBe(false)
   })
 })

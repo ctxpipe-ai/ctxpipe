@@ -36,6 +36,11 @@ export type SourceMigrationHook = {
     orgId: string
     env: Env
   }): Promise<LegacySourceBinding[]>
+  /**
+   * Optional. Turn off the legacy sync of a migrated connection, so only the
+   * Workspace sources sync writes its content (`--apply`).
+   */
+  disableLegacy?(input: { orgId: string; connectionId: string }): Promise<void>
 }
 
 export const SOURCE_MIGRATION_HOOKS: Partial<
