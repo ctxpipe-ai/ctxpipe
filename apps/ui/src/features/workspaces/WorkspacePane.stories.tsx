@@ -784,6 +784,7 @@ export const ConversationWritable: Story = {
 }
 
 export const ConversationSandboxFiles: Story = {
+  tags: ["workspace-golden"],
   args: {
     conversationId: "conv_1",
     pane: { kind: "files" },
@@ -816,16 +817,21 @@ export const ConversationSandboxFiles: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await expectWorkspaceFiles(canvas, /e2e-session-branch-note/)
-    expect(canvas.getByRole("button", { name: "Create PR" })).toBeVisible()
+    // At a wide viewport the conversation header has Create PR, so the pane hides its copy.
+    expect(
+      canvas.queryByRole("button", { name: "Create PR" }),
+    ).not.toBeInTheDocument()
     expect(canvas.queryByText("repositories")).not.toBeInTheDocument()
   },
 }
 
 /**
  * The pane is maximized, so the conversation header is hidden: the pane shows
- * Sync. When the conversation shows beside the pane, only it has Sync.
+ * Sync and Create PR. When the conversation shows beside the pane, only it has
+ * them.
  */
 export const ConversationMaximizedSync: Story = {
+  tags: ["workspace-golden"],
   args: {
     ...ConversationSandboxFiles.args,
     maximized: true,
@@ -838,7 +844,11 @@ export const ConversationMaximizedSync: Story = {
     })
     expect(sync).toBeVisible()
     expect(sync).toHaveTextContent("Sync")
-    expect(canvas.getByRole("button", { name: "Create PR" })).toBeVisible()
+    const createPr = canvas.getByRole("button", { name: "Create PR" })
+    expect(createPr).toBeVisible()
+    expect(
+      createPr.querySelector("svg.tabler-icon-git-pull-request"),
+    ).not.toBeNull()
   },
 }
 
@@ -897,10 +907,12 @@ export const ConversationCleanNoPublish: Story = {
   },
 }
 
+/** Maximized, so the pane header shows the conversation's Create PR. */
 export const ConversationCommittedCreatePr: Story = {
   args: {
     conversationId: "conv_1",
     pane: { kind: "files" },
+    maximized: true,
   },
   parameters: {
     storyRoute: {
@@ -943,10 +955,6 @@ export const ConversationCommittedCreatePr: Story = {
     await waitFor(() => {
       expect(canvas.getByRole("button", { name: "Create PR" })).toBeVisible()
     })
-    // At a wide viewport the conversation header has Sync, so the pane hides its copy.
-    expect(
-      canvas.queryByRole("button", { name: /^Sync/ }),
-    ).not.toBeInTheDocument()
   },
 }
 
@@ -1142,9 +1150,7 @@ export const StableFilesRequestBudget: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    expect(
-      await canvas.findByRole("button", { name: "Create PR" }),
-    ).toBeVisible()
+    await expectWorkspaceFiles(canvas, /AGENTS/)
     await waitFor(() => {
       expect(filesTreeGets.count).toBeGreaterThan(0)
     })
