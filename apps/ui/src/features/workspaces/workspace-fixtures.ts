@@ -737,6 +737,75 @@ export const streamingReasoningAndToolsMessages: ChatMessage[] = [
   },
 ]
 
+const progressThinking =
+  "**Inspecting knowledge units**\n\nThe docker guide is split over five units. I should read the tree and search for the duplicates.\n**Consolidating docker knowledge**\n\nOne file can hold all the content. I must keep the list of sources.\n**Checking the git status**\n\nThe edits are ready. I should check the status before the commit."
+
+const progressParts: ChatMessage["parts"] = [
+  { type: "thinking", content: progressThinking },
+  {
+    type: "tool-call",
+    id: "tc_progress_1",
+    name: "read",
+    input: { filePath: "knowledge/docker/setup.md" },
+  },
+  {
+    type: "tool-call",
+    id: "tc_progress_2",
+    name: "grep",
+    input: { pattern: "docker compose" },
+  },
+  {
+    type: "tool-call",
+    id: "tc_progress_3",
+    name: "hybrid_search",
+    input: { query: "docker knowledge units" },
+  },
+  {
+    type: "tool-call",
+    id: "tc_progress_4",
+    name: "bash",
+    arguments: '{"command":"git status --short"}',
+  },
+]
+
+/** A turn while the agent works: three thoughts and four tool calls, no reply yet. */
+export const progressWorkingMessages: ChatMessage[] = [
+  {
+    id: "msg_progress_live_u1",
+    role: "user",
+    parts: [{ type: "text", content: "Merge the docker knowledge units." }],
+    createdAt: new Date("2026-08-16T09:48:00.000Z"),
+  },
+  {
+    id: "msg_progress_live_a1",
+    role: "assistant",
+    parts: progressParts,
+    createdAt: new Date("2026-08-16T09:48:10.000Z"),
+  },
+]
+
+/** The same turn after the reply. */
+export const progressDoneMessages: ChatMessage[] = [
+  {
+    id: "msg_progress_u1",
+    role: "user",
+    parts: [{ type: "text", content: "Merge the docker knowledge units." }],
+    createdAt: new Date("2026-08-16T09:48:00.000Z"),
+  },
+  {
+    id: "msg_progress_a1",
+    role: "assistant",
+    parts: [
+      ...progressParts,
+      {
+        type: "text",
+        content: "The docker knowledge is now in knowledge/docker/setup.md.",
+      },
+    ],
+    createdAt: new Date("2026-08-16T09:48:30.000Z"),
+  },
+]
+
 export const sourceLinkMessages: ChatMessage[] = [
   {
     id: "msg_src_u1",

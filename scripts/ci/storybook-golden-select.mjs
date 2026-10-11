@@ -24,6 +24,8 @@ export const requiredStories = [
   "PrepareFailed",
   "PreparePendingWithError",
   "FailedTouchIsCaught",
+  "ChatProgressDone",
+  "ChatProgressLogExpanded",
 ]
 
 export function isGoldenPlaySuccess(phase) {
