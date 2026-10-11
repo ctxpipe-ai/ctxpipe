@@ -130,7 +130,7 @@ function ConversationSandboxFilesPane(props: {
   const tree = sandboxTreeQuery.data
   const awaitingFirstList =
     !tree || (tree.ready === false && !tree.paths.length)
-  const showSkeleton = useSkeletonHold(awaitingFirstList)
+  const showSkeleton = useSkeletonHold(awaitingFirstList, "files")
   // `awaitingFirstList` is also true here; it narrows `tree` for TypeScript.
   if (showSkeleton || awaitingFirstList) {
     if (

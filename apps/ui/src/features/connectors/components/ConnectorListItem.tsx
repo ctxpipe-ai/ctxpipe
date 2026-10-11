@@ -13,7 +13,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Modal } from "@/components/ui/Modal"
-import { Skeleton, SkeletonText } from "@/components/ui/Skeleton"
+import { Skeleton, SkeletonChain, SkeletonText } from "@/components/ui/Skeleton"
 import type { ConnectorHealth } from "../connectorHealth"
 import { ConnectorHealthIndicator } from "./ConnectorHealthIndicator"
 
@@ -263,11 +263,13 @@ export function ConnectorListItemSkeleton() {
 
 export function ConnectorListSkeleton() {
   return (
-    <div aria-busy>
-      <span className="sr-only">Loading connectors</span>
-      <ConnectorListItemSkeleton />
-      <ConnectorListItemSkeleton />
-      <ConnectorListItemSkeleton />
-    </div>
+    <SkeletonChain id="connectors">
+      <div aria-busy>
+        <span className="sr-only">Loading connectors</span>
+        <ConnectorListItemSkeleton />
+        <ConnectorListItemSkeleton />
+        <ConnectorListItemSkeleton />
+      </div>
+    </SkeletonChain>
   )
 }

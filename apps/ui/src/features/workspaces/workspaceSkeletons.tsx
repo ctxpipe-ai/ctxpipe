@@ -1,5 +1,6 @@
 import {
   Skeleton,
+  SkeletonChain,
   SkeletonLine,
   SkeletonReveal,
   SkeletonRow,
@@ -37,33 +38,35 @@ export function WorkspaceGraphPaneSkeleton() {
 
 export function WorkspaceFilesPaneSkeleton() {
   return (
-    <div
-      className="grid h-full min-h-0 min-w-0 flex-1 overflow-hidden"
-      style={{ gridTemplateColumns: "minmax(0, 208px) minmax(0,1fr)" }}
-      aria-busy
-    >
-      <div className="flex h-full min-h-0 min-w-0 flex-col border-r border-white/[0.06]">
-        <div className="flex h-8 shrink-0 items-center px-1" />
-        <div className="min-h-0 flex-1 space-y-0.5 overflow-hidden px-1 pb-2">
-          <SkeletonRow className="h-6" />
-          <SkeletonRow className="h-6 pl-4" />
-          <SkeletonRow className="h-6 pl-4" />
-          <SkeletonRow className="h-6" />
-          <SkeletonRow className="h-6 pl-4" />
-          <SkeletonRow className="h-6 pl-8" />
-          <SkeletonRow className="h-6 pl-8" />
-          <SkeletonRow className="h-6" />
+    <SkeletonChain id="files">
+      <div
+        className="grid h-full min-h-0 min-w-0 flex-1 overflow-hidden"
+        style={{ gridTemplateColumns: "minmax(0, 208px) minmax(0,1fr)" }}
+        aria-busy
+      >
+        <div className="flex h-full min-h-0 min-w-0 flex-col border-r border-white/[0.06]">
+          <div className="flex h-8 shrink-0 items-center px-1" />
+          <div className="min-h-0 flex-1 space-y-0.5 overflow-hidden px-1 pb-2">
+            <SkeletonRow className="h-6" />
+            <SkeletonRow className="h-6 pl-4" />
+            <SkeletonRow className="h-6 pl-4" />
+            <SkeletonRow className="h-6" />
+            <SkeletonRow className="h-6 pl-4" />
+            <SkeletonRow className="h-6 pl-8" />
+            <SkeletonRow className="h-6 pl-8" />
+            <SkeletonRow className="h-6" />
+          </div>
         </div>
+        <SkeletonReveal className="flex flex-col items-center justify-center gap-2 p-6 text-center">
+          <p className="text-sm font-medium text-foreground">
+            Loading your files
+          </p>
+          <p className="text-sm text-muted-foreground">
+            The file tree arrives first, then the file you open.
+          </p>
+        </SkeletonReveal>
       </div>
-      <SkeletonReveal className="flex flex-col items-center justify-center gap-2 p-6 text-center">
-        <p className="text-sm font-medium text-foreground">
-          Loading your files
-        </p>
-        <p className="text-sm text-muted-foreground">
-          The file tree arrives first, then the file you open.
-        </p>
-      </SkeletonReveal>
-    </div>
+    </SkeletonChain>
   )
 }
 

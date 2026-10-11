@@ -367,7 +367,10 @@ export function WorkspacePane(props: {
         >
           <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
             {pane.kind === "files" || pane.kind === "file" ? (
-              <SkeletonSuspense fallback={<WorkspaceFilesPaneSkeleton />}>
+              <SkeletonSuspense
+                chain="files"
+                fallback={<WorkspaceFilesPaneSkeleton />}
+              >
                 <WorkspaceFilesPaneBody
                   orgSlug={props.orgSlug}
                   workspaceSlug={props.workspace.slug}
@@ -392,7 +395,10 @@ export function WorkspacePane(props: {
               </SkeletonSuspense>
             ) : null}
             {pane.kind === "diff" && props.conversationId ? (
-              <SkeletonSuspense fallback={<WorkspaceFilesPaneSkeleton />}>
+              <SkeletonSuspense
+                chain="files"
+                fallback={<WorkspaceFilesPaneSkeleton />}
+              >
                 <WorkspaceConversationDiffPane
                   orgSlug={props.orgSlug}
                   conversationId={props.conversationId}

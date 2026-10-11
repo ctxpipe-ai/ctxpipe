@@ -8,6 +8,7 @@ import {
   useContext,
   useEffect,
   useLayoutEffect,
+  useRef,
   useState,
   useSyncExternalStore,
 } from "react"
@@ -24,8 +25,7 @@ export const SKELETON_MIN_MS = 300
 
 /**
  * The hold timers start this much before the CSS wait ends, so timer jitter
- * cannot let a visible skeleton go without its hold. The hold lasts this much
- * longer to match.
+ * cannot let a visible skeleton go without its hold.
  */
 const HOLD_LEAD_MS = 50
 
@@ -35,21 +35,28 @@ const HAND_OVER_MS = 100
 const boneClassName =
   "ctx-loading-motion ctx-skeleton-wait relative inline-block overflow-hidden rounded-md bg-zinc-800/50 before:absolute before:inset-0 before:-translate-x-full before:animate-[shimmer_1.5s_ease-in-out_infinite] before:bg-linear-to-r before:from-transparent before:via-white/5 before:to-transparent"
 
-type Region = { start: number; mounted: number; lastSeen: number }
+/** Skeletons of one thing, where one skeleton hands over to the next. */
+type Chain = { mounted: number; lastSeen: number; visibleAt: number }
 
-const SkeletonRegionContext = createContext<Region | null>(null)
+const SkeletonRegionContext = createContext<Map<string, Chain> | null>(null)
+const SkeletonChainContext = createContext<Chain | null>(null)
+
+function chainIn(region: Map<string, Chain> | null, id: string | undefined) {
+  if (!region || id === undefined) return null
+  let chain = region.get(id)
+  if (!chain) {
+    chain = { mounted: 0, lastSeen: Number.NEGATIVE_INFINITY, visibleAt: 0 }
+    region.set(id, chain)
+  }
+  return chain
+}
 
 /**
- * One loading region. A skeleton that follows another skeleton in the region
- * (in the same commit, or within `HAND_OVER_MS`) keeps the first start time,
- * so a hand-over does not start the delay again.
+ * Holds the hand-over chains of one area. Put it above both the first
+ * skeleton and the skeleton that follows it.
  */
 export function SkeletonRegion(props: { children: ReactNode }) {
-  const [region] = useState<Region>(() => ({
-    start: 0,
-    mounted: 0,
-    lastSeen: Number.NEGATIVE_INFINITY,
-  }))
+  const [region] = useState(() => new Map<string, Chain>())
   return (
     <SkeletonRegionContext.Provider value={region}>
       {props.children}
@@ -57,41 +64,73 @@ export function SkeletonRegion(props: { children: ReactNode }) {
   )
 }
 
-/** One hand-over chain of skeletons of the same thing in a region. */
+/**
+ * Marks a skeleton as one step of the chain `id`. A skeleton that follows
+ * another skeleton of the same chain (in the same commit, or within
+ * `HAND_OVER_MS`) shows when the first one shows, so a hand-over does not
+ * start the delay again. Skeletons of other chains keep their own delay.
+ */
 export function SkeletonChain(props: { id: string; children: ReactNode }) {
-  return props.children
+  const chain = chainIn(useContext(SkeletonRegionContext), props.id)
+  return (
+    <SkeletonChainContext.Provider value={chain}>
+      {props.children}
+    </SkeletonChainContext.Provider>
+  )
+}
+
+/** The time left (ms) on this element's CSS wait, or null if unknown. */
+function cssWaitLeft(element: Element) {
+  if (typeof element.getAnimations !== "function") return null
+  const wait = element
+    .getAnimations()
+    .find(
+      (animation) =>
+        animation instanceof CSSAnimation &&
+        animation.animationName === "ctx-skeleton-wait",
+    )
+  if (!wait) return 0
+  const end = Number(wait.effect?.getComputedTiming().endTime ?? 0)
+  return Math.max(0, end - Number(wait.currentTime ?? 0))
 }
 
 /**
- * The wait (ms) before this skeleton shows. CSS runs the wait. Without a
- * region, or for a new load, it is the full delay.
+ * The wait (ms) before this skeleton shows, and a ref for its element. CSS
+ * runs the wait. Outside a chain, or for a new load, it is the full delay.
+ * The chain takes its show time from the real CSS animation, which starts at
+ * first paint (also for server HTML), not at hydration.
  */
-function useSkeletonWait() {
-  const region = useContext(SkeletonRegionContext)
+function useSkeletonWait<T extends Element>() {
+  const chain = useContext(SkeletonChainContext)
+  const element = useRef<T>(null)
   const [wait] = useState(() => {
-    if (!region || typeof window === "undefined") return SKELETON_DELAY_MS
+    if (!chain || typeof window === "undefined") return SKELETON_DELAY_MS
     const now = performance.now()
-    const continues = region.mounted > 0 || now - region.lastSeen < HAND_OVER_MS
-    region.lastSeen = now
+    const continues = chain.mounted > 0 || now - chain.lastSeen < HAND_OVER_MS
+    chain.lastSeen = now
     if (!continues) {
-      region.start = now
+      chain.visibleAt = now + SKELETON_DELAY_MS
       return SKELETON_DELAY_MS
     }
-    const left = region.start + SKELETON_DELAY_MS - now
+    const left = chain.visibleAt - now
     // A small difference keeps the server markup during hydration.
     return left > SKELETON_DELAY_MS - 50
       ? SKELETON_DELAY_MS
       : Math.max(0, Math.round(left))
   })
-  useEffect(() => {
-    if (!region) return
-    region.mounted += 1
-    return () => {
-      region.mounted -= 1
-      region.lastSeen = performance.now()
+  useLayoutEffect(() => {
+    if (!chain) return
+    chain.mounted += 1
+    const left = element.current ? cssWaitLeft(element.current) : null
+    if (left !== null) {
+      chain.visibleAt = Math.min(chain.visibleAt, performance.now() + left)
     }
-  }, [region])
-  return wait
+    return () => {
+      chain.mounted -= 1
+      chain.lastSeen = performance.now()
+    }
+  }, [chain])
+  return { wait, element }
 }
 
 function waitStyle(wait: number, style?: CSSProperties) {
@@ -104,7 +143,7 @@ export function Skeleton({
   style,
   ...props
 }: ComponentProps<"span">) {
-  const wait = useSkeletonWait()
+  const { wait, element } = useSkeletonWait<HTMLSpanElement>()
   return (
     <span
       role="presentation"
@@ -112,6 +151,7 @@ export function Skeleton({
       className={cn(boneClassName, className)}
       style={waitStyle(wait, style)}
       {...props}
+      ref={element}
     />
   )
 }
@@ -124,9 +164,10 @@ export function SkeletonReveal(props: {
   className?: string
   children: ReactNode
 }) {
-  const wait = useSkeletonWait()
+  const { wait, element } = useSkeletonWait<HTMLDivElement>()
   return (
     <div
+      ref={element}
       className={cn("ctx-loading-motion ctx-skeleton-wait", props.className)}
       style={waitStyle(wait)}
     >
@@ -136,29 +177,48 @@ export function SkeletonReveal(props: {
 }
 
 /**
+ * When the skeleton of `chain` shows (performance time). Read it in a layout
+ * effect: the bones set it in their own layout effects, which run first.
+ */
+function visibleAtOf(chain: Chain | null) {
+  return chain && chain.mounted > 0
+    ? chain.visibleAt
+    : performance.now() + SKELETON_DELAY_MS
+}
+
+/**
  * Keep a query-driven skeleton up for `SKELETON_MIN_MS` after it became
  * visible. Use it as `useSkeletonHold(query.isPending) ? <Skeleton… /> : …`.
+ * Give the `SkeletonChain` id when the skeleton is in a chain, so the hold
+ * starts when the chain shows.
  */
-export function useSkeletonHold(pending: boolean, _chain?: string) {
+export function useSkeletonHold(pending: boolean, chainId?: string) {
+  const chain = chainIn(useContext(SkeletonRegionContext), chainId)
   const [shownAt, setShownAt] = useState<number | null>(null)
   // Before paint, like the CSS wait, so the hold starts no later than the
   // skeleton shows.
   useLayoutEffect(() => {
     if (pending) {
       if (shownAt !== null) return
+      const visibleAt = visibleAtOf(chain)
+      const left = visibleAt - performance.now()
+      if (left <= 0) {
+        setShownAt(visibleAt)
+        return
+      }
       const id = setTimeout(
-        () => setShownAt(Date.now() + HOLD_LEAD_MS),
-        SKELETON_DELAY_MS - HOLD_LEAD_MS,
+        () => setShownAt(visibleAt),
+        Math.max(0, left - HOLD_LEAD_MS),
       )
       return () => clearTimeout(id)
     }
     if (shownAt === null) return
     const id = setTimeout(
       () => setShownAt(null),
-      Math.max(0, shownAt + SKELETON_MIN_MS - Date.now()),
+      Math.max(0, shownAt + SKELETON_MIN_MS - performance.now()),
     )
     return () => clearTimeout(id)
-  }, [pending, shownAt])
+  }, [pending, shownAt, chain])
   return pending || shownAt !== null
 }
 
@@ -179,9 +239,12 @@ function createHold() {
       }
     },
     read: () => promise,
-    start() {
+    start(visibleAt: number) {
       promise = new Promise((resolve) => {
-        timer = setTimeout(resolve, SKELETON_MIN_MS + HOLD_LEAD_MS)
+        timer = setTimeout(
+          resolve,
+          Math.max(0, visibleAt + SKELETON_MIN_MS - performance.now()),
+        )
       })
       for (const listener of listeners) listener()
     },
@@ -194,10 +257,12 @@ type Hold = ReturnType<typeof createHold>
 /**
  * `Suspense` with a skeleton fallback that follows the loading-state rule:
  * when the fallback became visible, the content waits until the fallback has
- * shown for `SKELETON_MIN_MS`.
+ * shown for `SKELETON_MIN_MS`. Give the `SkeletonChain` id when the fallback
+ * is in a chain.
  */
 export function SkeletonSuspense(props: {
   fallback: ReactNode
+  chain?: string
   children: ReactNode
 }) {
   const [hold] = useState(createHold)
@@ -205,7 +270,9 @@ export function SkeletonSuspense(props: {
   return (
     <Suspense
       fallback={
-        <SkeletonFallback hold={hold}>{props.fallback}</SkeletonFallback>
+        <SkeletonFallback hold={hold} chain={props.chain}>
+          {props.fallback}
+        </SkeletonFallback>
       }
     >
       <SkeletonGate hold={hold}>{props.children}</SkeletonGate>
@@ -213,15 +280,23 @@ export function SkeletonSuspense(props: {
   )
 }
 
-function SkeletonFallback(props: { hold: Hold; children: ReactNode }) {
+function SkeletonFallback(props: {
+  hold: Hold
+  chain?: string
+  children: ReactNode
+}) {
   const { hold } = props
-  const wait = useSkeletonWait()
+  const chain = chainIn(useContext(SkeletonRegionContext), props.chain)
   // A layout effect runs before paint, and CSS starts the wait at paint, so
   // the hold starts no later than the skeleton shows.
   useLayoutEffect(() => {
-    const id = setTimeout(hold.start, Math.max(0, wait - HOLD_LEAD_MS))
+    const visibleAt = visibleAtOf(chain)
+    const id = setTimeout(
+      () => hold.start(visibleAt),
+      Math.max(0, visibleAt - performance.now() - HOLD_LEAD_MS),
+    )
     return () => clearTimeout(id)
-  }, [hold, wait])
+  }, [hold, chain])
   return props.children
 }
 

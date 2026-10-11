@@ -151,7 +151,10 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
   })
 
   const items = sortOrgConnectionsForDisplay(connections ?? [])
-  const showPageLoading = useSkeletonHold(connectionsPending && !connections)
+  const showPageLoading = useSkeletonHold(
+    connectionsPending && !connections,
+    "connectors",
+  )
   const showEmptyState = !showPageLoading && items.length === 0
 
   useEffect(() => {
