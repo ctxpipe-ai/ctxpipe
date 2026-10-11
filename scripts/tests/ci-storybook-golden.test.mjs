@@ -71,10 +71,7 @@ const required = [
     "apps/ui/src/components/ui/LoadingIndicators.stories.tsx",
     "LoadingUnderReducedMotion",
   ],
-  [
-    "apps/ui/src/routes/-onboarding.stories.tsx",
-    "DoubleClickMovesOneSlide",
-  ],
+  ["apps/ui/src/routes/-onboarding.stories.tsx", "DoubleClickMovesOneSlide"],
 ]
 
 test("required golden stories carry the workspace-golden tag and a play", () => {

@@ -111,15 +111,9 @@ export function CopyableBlock({
             onPress={() => void handleCopy()}
           >
             {copyState === "copied" ? (
-              <IconCheck
-                className="h-4 w-4 transition-opacity"
-                aria-hidden
-              />
+              <IconCheck className="h-4 w-4 transition-opacity" aria-hidden />
             ) : (
-              <IconCopy
-                className="h-4 w-4 transition-opacity"
-                aria-hidden
-              />
+              <IconCopy className="h-4 w-4 transition-opacity" aria-hidden />
             )}
           </Button>
         </div>

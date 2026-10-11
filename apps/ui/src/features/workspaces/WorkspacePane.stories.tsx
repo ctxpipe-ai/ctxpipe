@@ -160,56 +160,56 @@ function WorkspacePanePlayground(props: ComponentProps<typeof WorkspacePane>) {
           )}
         </div>
       </div>
-        {open ? (
-          <WorkspacePane
-            {...props}
-            pane={pane}
-            width={width}
-            maximized={maximized}
-            fileTabs={fileTabs}
-            previewPath={session.previewPath}
-            onPane={setPane}
-            onClose={() => {
-              setMaximized(false)
-              setOpen(false)
-              props.onClose()
-            }}
-            onToggleMaximize={() => {
-              setMaximized((value) => !value)
-              props.onToggleMaximize()
-            }}
-            onRestoreConversation={() => {
-              setMaximized(false)
-              props.onRestoreConversation()
-            }}
-            onResize={(next) => {
-              setWidth(next)
-              props.onResize(next)
-            }}
-            onPreviewFile={(path) => {
-              openFile(path, false)
-              props.onPreviewFile(path)
-            }}
-            onPinFile={(path) => {
-              openFile(path, true)
-              props.onPinFile(path)
-            }}
-            onCloseFileTab={(path) => {
-              setSession((current) => closeFileTab(current, path))
-              if (pane.kind === "file" && pane.path === path) {
-                setPane({ kind: "files" })
-              }
-              props.onCloseFileTab(path)
-            }}
-            onCloseActiveFile={() => {
-              if (pane.kind === "file") {
-                setSession((current) => closeFileTab(current, pane.path))
-                setPane({ kind: "files" })
-              }
-              props.onCloseActiveFile()
-            }}
-          />
-        ) : null}
+      {open ? (
+        <WorkspacePane
+          {...props}
+          pane={pane}
+          width={width}
+          maximized={maximized}
+          fileTabs={fileTabs}
+          previewPath={session.previewPath}
+          onPane={setPane}
+          onClose={() => {
+            setMaximized(false)
+            setOpen(false)
+            props.onClose()
+          }}
+          onToggleMaximize={() => {
+            setMaximized((value) => !value)
+            props.onToggleMaximize()
+          }}
+          onRestoreConversation={() => {
+            setMaximized(false)
+            props.onRestoreConversation()
+          }}
+          onResize={(next) => {
+            setWidth(next)
+            props.onResize(next)
+          }}
+          onPreviewFile={(path) => {
+            openFile(path, false)
+            props.onPreviewFile(path)
+          }}
+          onPinFile={(path) => {
+            openFile(path, true)
+            props.onPinFile(path)
+          }}
+          onCloseFileTab={(path) => {
+            setSession((current) => closeFileTab(current, path))
+            if (pane.kind === "file" && pane.path === path) {
+              setPane({ kind: "files" })
+            }
+            props.onCloseFileTab(path)
+          }}
+          onCloseActiveFile={() => {
+            if (pane.kind === "file") {
+              setSession((current) => closeFileTab(current, pane.path))
+              setPane({ kind: "files" })
+            }
+            props.onCloseActiveFile()
+          }}
+        />
+      ) : null}
     </>
   )
 }
@@ -278,7 +278,7 @@ export const Triggers: Story = {
   },
 }
 
-/** Hide, show, and maximise: the pane and the chat column change state at once, with no motion. */
+/** Hide, show, and maximize: the pane and the chat column change state at once, with no motion. */
 export const HideShowMaximize: Story = {
   parameters: {
     msw: {

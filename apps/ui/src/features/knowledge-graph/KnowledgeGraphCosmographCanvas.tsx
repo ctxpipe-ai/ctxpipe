@@ -657,9 +657,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
             status="Building view"
           />
         ) : null}
-        {prepStage === "error" ? (
-          <GraphPrepFailed message={prepError} />
-        ) : null}
+        {prepStage === "error" ? <GraphPrepFailed message={prepError} /> : null}
       </div>
     )
   }
@@ -1231,7 +1229,9 @@ function GraphPrepFailed({ message }: { message: string | null }) {
         <IconAlertTriangle className="size-4" aria-hidden />
       </span>
       <div className="w-full space-y-1 rounded-md border border-red-500/40 bg-red-950/35 px-4 py-3 text-left">
-        <p className="text-sm font-medium text-red-50">Couldn’t prepare graph</p>
+        <p className="text-sm font-medium text-red-50">
+          Couldn’t prepare graph
+        </p>
         {message ? (
           <p className="break-words text-sm text-red-200">{message}</p>
         ) : null}

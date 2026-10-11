@@ -63,7 +63,7 @@ export const workspaceChromeCardPaneClassName = [
 ].join(" ")
 
 /**
- * Conversation column beside the tools pane. Maximise collapses it at once,
+ * Conversation column beside the tools pane. Maximize collapses it at once,
  * with no transition (large layout does not animate; see DESIGN.md Motion).
  * The caller also sets `inert` while it is collapsed.
  */
