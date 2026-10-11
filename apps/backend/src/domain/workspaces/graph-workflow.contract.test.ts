@@ -168,19 +168,47 @@ it(
 )
 
 it(
-  "Graph HTTP reports an unavailable derived graph instead of rebuilding it from Postgres",
+  "Graph HTTP rebuilds a lost derived graph from the Postgres projection",
   { timeout: 60_000 },
   async () => {
     await withGraphHydration({}, async (f, graph) => {
       await f.publish()
+      // The graph store lost its data, for example after a FalkorDB service was replaced.
       await graph.delete()
       const response = await workspaceHttpApp(
         f.org,
         workspaceGraphRoutes,
       ).request("/workspaces/knowledge/graph")
-      expect({ status: response.status, body: await response.json() }).toEqual({
-        status: 503,
-        body: { error: "Workspace graph projection is unavailable." },
+      expect({
+        status: response.status,
+        body: (await response.json()) as unknown,
+      }).toMatchObject({
+        status: 200,
+        body: { nodes: [{ name: "document-000" }] },
+      })
+    })
+  },
+)
+
+it(
+  "Graph HTTP reports an unavailable derived graph when the rebuild fails",
+  { timeout: 60_000 },
+  async () => {
+    await withGraphHydration({}, async (f, graph, db) => {
+      await f.publish()
+      await graph.delete()
+      await withGraphWriteDenied(f, db, async () => {
+        const response = await workspaceHttpApp(
+          f.org,
+          workspaceGraphRoutes,
+        ).request("/workspaces/knowledge/graph")
+        expect({
+          status: response.status,
+          body: await response.json(),
+        }).toEqual({
+          status: 503,
+          body: { error: "Workspace graph projection is unavailable." },
+        })
       })
     })
   },
@@ -789,7 +817,7 @@ it(
 )
 
 it(
-  "Graph HTTP rejects incomplete native data even when a completion marker exists",
+  "Graph HTTP rebuilds incomplete native data instead of serving it, even when a completion marker exists",
   { timeout: 60_000 },
   async () => {
     await withGraphHydration({}, async (f, graph) => {
@@ -799,7 +827,13 @@ it(
         f.org,
         workspaceGraphRoutes,
       ).request("/workspaces/knowledge/graph")
-      expect(response.status).toBe(503)
+      expect({
+        status: response.status,
+        body: (await response.json()) as unknown,
+      }).toMatchObject({
+        status: 200,
+        body: { nodes: [{ name: "document-000" }] },
+      })
     })
   },
 )

@@ -100,7 +100,15 @@ export async function projectWorkspaceGraph(
 }
 
 export class WorkspaceGraphUnavailableError extends Error {
-  override readonly name = "WorkspaceGraphUnavailableError"
+  override readonly name: string = "WorkspaceGraphUnavailableError"
+}
+
+/** The graph phase is ready, but the graph store has no complete graph for that revision. */
+export class WorkspaceGraphMissingError extends WorkspaceGraphUnavailableError {
+  override readonly name = "WorkspaceGraphMissingError"
+  constructor(readonly revision: WorkspaceRevision) {
+    super("Workspace graph projection is unavailable.")
+  }
 }
 
 /** Read one immutable derived graph; missing/corrupt data never becomes an empty Postgres fallback. */
@@ -123,10 +131,7 @@ export async function readWorkspaceGraph(input: {
       { projectionKey },
     )
     const complete = marker.records[0]
-    if (!complete)
-      throw new WorkspaceGraphUnavailableError(
-        "Workspace graph projection is unavailable.",
-      )
+    if (!complete) throw new WorkspaceGraphMissingError(revision)
     const nodeResult = await graph.executeQuery(
       `MATCH (n:WorkspaceKnowledgeUnit {projectionKey: $projectionKey})
       RETURN n.id AS id, n.kind AS kind, n.name AS name, n.summary AS summary ORDER BY n.id`,
@@ -173,9 +178,7 @@ export async function readWorkspaceGraph(input: {
       nodes.length !== Number(complete.get("nodeCount")) ||
       claims.length !== Number(complete.get("claimCount"))
     )
-      throw new WorkspaceGraphUnavailableError(
-        "Workspace graph projection is unavailable.",
-      )
+      throw new WorkspaceGraphMissingError(revision)
     return workspaceGraphFromSignals({
       nodes,
       claims,

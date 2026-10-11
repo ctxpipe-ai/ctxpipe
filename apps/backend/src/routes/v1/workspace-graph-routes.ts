@@ -2,7 +2,9 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import { requireCurrentOrgSlug } from "../../auth/context.js"
 import {
+  projectWorkspaceGraph,
   readWorkspaceGraph,
+  WorkspaceGraphMissingError,
   WorkspaceGraphUnavailableError,
 } from "../../domain/workspaces/graph-projection.js"
 import { hydrateUnitsToProjectionClaims } from "../../domain/workspaces/hydrate.js"
@@ -125,14 +127,25 @@ export const workspaceGraphRoutes = new OpenAPIHono<AppEnv>()
       const projection = publishedProjection(
         await getWorkspaceProjection(workspace.id),
       )
-      return c.json(
-        await readWorkspaceGraph({
+      const read = () =>
+        readWorkspaceGraph({
           orgId: workspace.orgId,
           orgSlug: requireCurrentOrgSlug(),
           projection,
-        }),
-        200,
-      )
+        })
+      try {
+        return c.json(await read(), 200)
+      } catch (error) {
+        if (!(error instanceof WorkspaceGraphMissingError)) throw error
+        // The graph store lost the graph of a ready revision, for example after
+        // the graph store was replaced. Build it again from the PostgreSQL projection.
+        getLogger().warn(
+          "Workspace graph is missing from the graph store; rebuilding it",
+          { step: "workspace.graph.rebuild", workspaceId: workspace.id },
+        )
+        if (!(await projectWorkspaceGraph(error.revision))) throw error
+        return c.json(await read(), 200)
+      }
     } catch (error) {
       if (!(error instanceof WorkspaceGraphUnavailableError))
         getLogger().error(
