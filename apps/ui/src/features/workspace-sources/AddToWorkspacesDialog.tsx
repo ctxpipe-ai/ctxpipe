@@ -1,8 +1,6 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query"
 import type { SourceProvider } from "backend/domain/workspace-sources/sources-file"
 import { useState } from "react"
 import { Heading } from "react-aria-components"
-import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
 import { Dialog } from "@/components/ui/Dialog"
 import { Modal } from "@/components/ui/Modal"
@@ -12,8 +10,8 @@ import {
   chooseWorkspacesRequests,
   emptyChooseWorkspaces,
 } from "./choose-workspaces"
-import { createWorkspaceSource, workspaceSourceKeys } from "./queries"
 import { sourceProviderLabel } from "./source-provider-ui"
+import { useAddToWorkspaces } from "./useAddToWorkspaces"
 
 /** "Add to a Workspace" from a connector: the Choose Workspaces step alone. */
 export function AddToWorkspacesDialog(props: {
@@ -24,7 +22,6 @@ export function AddToWorkspacesDialog(props: {
   onOpenChange: (open: boolean) => void
 }) {
   const { orgSlug, connectionId, provider, isOpen, onOpenChange } = props
-  const queryClient = useQueryClient()
   const [value, setValue] = useState<ChooseWorkspacesValue>(
     emptyChooseWorkspaces,
   )
@@ -35,29 +32,10 @@ export function AddToWorkspacesDialog(props: {
     onOpenChange(false)
   }
 
-  const addMutation = useMutation({
-    mutationFn: (list: NonNullable<typeof requests>) =>
-      Promise.all(
-        list.map((request) =>
-          createWorkspaceSource(orgSlug, request.workspaceSlug, request.source),
-        ),
-      ),
-    onSuccess: (results, list) => {
-      void queryClient.invalidateQueries({
-        queryKey: workspaceSourceKeys.usage(orgSlug, connectionId),
-      })
-      for (const request of list)
-        void queryClient.invalidateQueries({
-          queryKey: workspaceSourceKeys.list(orgSlug, request.workspaceSlug),
-        })
-      toast.success(
-        results.some((result) => result.outcome === "pull_request")
-          ? "Pull request opened. The source starts to sync after the merge."
-          : "Source added",
-      )
-      close()
-    },
-    onError: (error: Error) => toast.error(error.message),
+  const addMutation = useAddToWorkspaces({
+    orgSlug,
+    connectionId,
+    onAdded: close,
   })
 
   return (

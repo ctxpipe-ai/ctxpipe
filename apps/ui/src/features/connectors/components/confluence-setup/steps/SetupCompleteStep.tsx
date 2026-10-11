@@ -12,9 +12,9 @@ export function SetupCompleteStep({ onClose }: SetupCompleteStepProps) {
           Confluence is connected
         </h3>
         <p className="mt-2 text-sm text-muted-foreground">
-          Confluence is linked, the Forge app is installed, a sync target is
-          set, and at least one space is in scope. You can close this dialog or
-          manage scope anytime from the connector card.
+          Confluence is linked and the Forge app is installed. Add Confluence to
+          a Workspace from the connector card, or change the spaces of a
+          Workspace in its settings.
         </p>
       </div>
       <Button variant="secondary" className="rounded-md" onPress={onClose}>
