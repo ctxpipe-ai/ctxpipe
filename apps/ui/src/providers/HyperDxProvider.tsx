@@ -11,6 +11,7 @@ import {
 import {
   clearHyperDxGlobalAttributes,
   initHyperDxBrowser,
+  recordHyperDxScreenError,
   setHyperDxGlobalAttributes,
 } from "@/lib/hyperdxBrowser"
 import type { HyperDxRuntimeConfig } from "@/lib/hyperdxRuntimeConfig"
@@ -34,9 +35,12 @@ export const HyperDxProvider: FC<{
   const { data: session, isPending: sessionPending } = useSession()
   const { data: organizations } = useListOrganizations()
 
-  useEffect(() => {
+  // Init in render, not in an effect: child effects and the first auth
+  // fetches run before a provider effect. The call is idempotent and only
+  // patches browser globals, so it does not change the rendered markup.
+  if (typeof window !== "undefined") {
     initHyperDxBrowser({ enabled }, initialIdentity)
-  }, [enabled, initialIdentity])
+  }
 
   useEffect(() => {
     if (!enabled || sessionPending) return
@@ -80,4 +84,16 @@ export const HyperDxProvider: FC<{
   }, [enabled, router])
 
   return children
+}
+
+/** Records one `ui` error span when a screen shows an error state (`screen` set). */
+export function useHyperDxScreenError(screen: string | null): void {
+  const router = useRouter()
+  useEffect(() => {
+    if (!screen) return
+    recordHyperDxScreenError(screen, {
+      route: router.state.matches.at(-1)?.routeId ?? "",
+      path: router.state.location.pathname,
+    })
+  }, [screen, router])
 }

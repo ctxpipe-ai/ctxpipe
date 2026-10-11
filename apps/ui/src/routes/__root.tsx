@@ -12,6 +12,7 @@ import { Toaster } from "sonner"
 import { getConfluenceForgeRuntimeConfig } from "@/lib/confluenceForgeRuntimeConfig"
 import { getHyperDxDocumentContext } from "@/lib/hyperdxRuntimeConfig"
 import { Providers } from "@/providers"
+import { useHyperDxScreenError } from "@/providers/HyperDxProvider"
 import type { RouterContext } from "@/router"
 
 import appCss from "../styles.css?url"
@@ -60,14 +61,19 @@ export const Route = createRootRouteWithContext<RouterContext>()({
   }),
   shellComponent: RootDocument,
   errorComponent: RootErrorComponent,
-  notFoundComponent: () => (
+  notFoundComponent: RootNotFoundComponent,
+})
+
+function RootNotFoundComponent() {
+  useHyperDxScreenError("not_found")
+  return (
     <main className="min-h-screen bg-background text-foreground">
       <div className="mx-auto max-w-3xl px-6 py-16">
         <p className="text-sm text-muted-foreground">Not Found</p>
       </div>
     </main>
-  ),
-})
+  )
+}
 
 function RootErrorComponent({ reset }: ErrorComponentProps) {
   return (

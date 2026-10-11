@@ -1,6 +1,6 @@
 # Browser spans are lost on a full page load, and error pages leave no browser signal
 
-Status: ready-for-agent
+Status: done (needs pr-280 deploy check)
 Priority: P2
 Owner: unassigned
 Blocked by: none
@@ -41,3 +41,18 @@ Likely cause: the browser setup (search `apps/ui/src` for `@hyperdx/browser` ini
 ## Comments
 
 ## Resolution
+
+Cause (from the code; a deploy must confirm it):
+- Flush is not the gap. `@hyperdx/otel-web` 0.20 already flushes on `visibilitychange` (hidden) and `pagehide` (`HyperDXBatchSpanProcessor`), and the OTLP exporter 0.219 sends with `fetch` and `keepalive` up to 64 KiB. The relay accepts that request (same Origin, browser sets Content-Length). No change was made there.
+- `HyperDxProvider` started the SDK in a `useEffect`. React runs child effects and store subscriptions first. Thus the first `get-session` and `organization/list` fetches ran before the fetch instrumentation, and an exception recorded by a child effect before init was dropped by the SDK. A page that the user left soon after hydration had little or nothing to flush.
+- The access-denied and not-found screens recorded nothing, and the access-denied screen makes no failing request.
+
+Fix:
+- `apps/ui/src/providers/HyperDxProvider.tsx`: init the SDK during the first client render (idempotent; it only patches browser globals), before child effects and the first auth fetches.
+- `apps/ui/src/lib/hyperdxBrowser.ts`: `recordHyperDxScreenError` records a `ui` exception span `UI screen: <screen>` with `ctxpipe.ui.source=screen`, `ctxpipe.ui.screen`, `route` (template), and `url.path`. A record before init waits (at most 10) and goes out at init. Init now runs once only.
+- `useHyperDxScreenError` is called by the org access-denied screen (`routes/$orgSlug.tsx`, `org_access_denied`), the Workspace not-found screen (`WorkspaceSurface.tsx`, `workspace_not_found`), and the root not-found screen (`__root.tsx`, `not_found`).
+
+Test: `apps/ui/src/lib/hyperdxBrowser.test.ts` "keeps a screen error recorded before init and sends it at init" (failed before the fix). The render-time init order has no unit test; the deploy check proves it.
+
+Open: on pr-280, open an unknown org slug and leave it at once. Check that its `documentLoad` span and a `UI screen: org_access_denied` span reach HyperDX, and that the first `get-session` fetch of a page load has a browser parent.
+
