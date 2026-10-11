@@ -85,11 +85,11 @@ export const Loading: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText("Loading sources")
-    await expect(canvas.queryByText("No sources yet.")).toBeNull()
+    await expect(canvas.queryByText(/No connectors yet/)).toBeNull()
   },
 }
 
-export const NoSources: Story = {
+export const Empty: Story = {
   parameters: {
     msw: {
       handlers: {
@@ -102,11 +102,15 @@ export const NoSources: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await canvas.findByText(/No sources yet/)
+    await canvas.findByText(/No connectors yet/)
     await expect(
-      canvas.getByRole("link", { name: "Connect a source" }),
+      canvas.getByRole("heading", { level: 2, name: "Connectors" }),
     ).toBeVisible()
+    await expect(
+      canvas.getByRole("link", { name: "Add connection" }),
+    ).toHaveAttribute("href", "/acme/connectors")
     await expect(canvas.queryByText("Connect another source")).toBeNull()
+    await expect(canvas.queryByText(".ctxpipe/sources.yaml")).toBeNull()
   },
 }
 
@@ -121,6 +125,8 @@ export const ConnectedWithoutSources: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByRole("button", { name: "Add repositories" })
+    await expect(canvas.getByText("No sources yet")).toBeVisible()
+    await expect(canvas.getByText("No Linear sources yet")).toBeVisible()
     await expect(
       canvas.getByRole("button", { name: "Add Confluence source" }),
     ).toBeVisible()
@@ -152,6 +158,8 @@ export const SeveralProviders: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText("acme/api")
+    await expect(canvas.getByText("3 sources from 3 connectors")).toBeVisible()
+    await expect(canvas.getByText(".ctxpipe/sources.yaml")).toBeVisible()
     for (const [provider, heading, summary] of [
       ["github", "GitHub", "acme/web"],
       ["confluence", "Confluence", "3 spaces"],
@@ -169,6 +177,133 @@ export const SeveralProviders: Story = {
     await expect(
       canvas.getByRole("link", { name: "Connect another source" }),
     ).toBeVisible()
+  },
+}
+
+export const OneProviderSeveralSources: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceSourcesHandler(
+            workspaceSourceList({
+              items: [
+                linearSource,
+                {
+                  ...linearSource,
+                  sourceKey: "ops-issues",
+                  scopeSummary: "2 teams",
+                },
+                {
+                  ...linearSource,
+                  sourceKey: "labs-issues",
+                  connectionId: "con_li2",
+                  connectionName: "Labs Linear",
+                  scopeSummary: "3 teams",
+                },
+              ],
+            }),
+          ),
+          orgConnectionsHandler([
+            { id: "con_li1", type: "linear" },
+            { id: "con_li2", type: "linear" },
+          ]),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("3 sources from 2 connectors")
+    const section = canvasElement.querySelector<HTMLElement>("#source-linear")
+    if (!section) throw new Error("Missing Linear group")
+    const group = within(section)
+    await expect(group.getByText("3 sources")).toBeVisible()
+    await expect(group.getAllByRole("listitem")).toHaveLength(3)
+    await expect(group.getByText("2 teams")).toBeVisible()
+    await expect(
+      group.getByRole("button", { name: "Edit labs-issues" }),
+    ).toBeVisible()
+    await expect(canvas.getAllByRole("heading", { level: 3 })).toHaveLength(1)
+  },
+}
+
+export const NeedsAttention: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceSourcesHandler(
+            workspaceSourceList({
+              items: [
+                githubSource,
+                linearSource,
+                workspaceSourceFixture({
+                  sourceKey: "old-issues",
+                  provider: "linear",
+                  connectionId: "con_gone",
+                  connectionName: null,
+                  status: "connection_missing",
+                  statusDetail: "The connection con_gone does not exist",
+                  scopeSummary: "2 teams",
+                }),
+              ],
+            }),
+          ),
+          connected,
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("3 sources from 2 connectors · 1 needs attention")
+    const section = canvasElement.querySelector<HTMLElement>("#source-linear")
+    if (!section) throw new Error("Missing Linear group")
+    const group = within(section)
+    await expect(group.getByText("2 sources · 1 needs attention")).toBeVisible()
+    await expect(group.getByText("Connection missing")).toBeVisible()
+    await expect(
+      group.getByText("The connection con_gone does not exist"),
+    ).toBeVisible()
+  },
+}
+
+export const PendingAdd: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceSourcesHandler(
+            workspaceSourceList({
+              pendingChanges: [
+                {
+                  sourceKey: "eng-docs",
+                  provider: "confluence",
+                  action: "add",
+                  pullRequestUrl: "https://github.com/acme/docs/pull/5",
+                  createdAt: "2026-10-10T10:00:00.000Z",
+                },
+              ],
+            }),
+          ),
+          connected,
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("No sources yet · 1 change awaiting merge")
+    const section =
+      canvasElement.querySelector<HTMLElement>("#source-confluence")
+    if (!section) throw new Error("Missing Confluence group")
+    const group = within(section)
+    await expect(group.getByText("1 awaiting merge")).toBeVisible()
+    await expect(group.getByText("New source")).toBeVisible()
+    await expect(
+      group.getByRole("link", { name: "Awaiting merge" }),
+    ).toHaveAttribute("href", "https://github.com/acme/docs/pull/5")
   },
 }
 
@@ -652,7 +787,7 @@ export const LoadFailed: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await canvas.findByText("Could not load the sources of this Workspace.")
+    await canvas.findByText("Could not load the connectors of this Workspace.")
     await expect(canvas.getByRole("button", { name: "Retry" })).toBeVisible()
   },
 }
