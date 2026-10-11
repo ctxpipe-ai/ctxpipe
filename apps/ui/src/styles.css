@@ -353,6 +353,7 @@
     -webkit-text-fill-color: rgb(244 244 245);
     caret-color: rgb(244 244 245);
     box-shadow: 0 0 0 1000px rgb(9 9 11) inset;
+    /* motion-allow: autofill background hack, not visible motion */
     transition: background-color 9999s ease-in-out 0s;
   }
 }
