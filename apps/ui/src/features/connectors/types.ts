@@ -75,11 +75,6 @@ export interface SaveConfluenceSyncTargetInput {
   enabled: boolean
 }
 
-export interface AtlassianConnectorConfig {
-  spaces: ConfluenceScopeRow[]
-  syncTarget: ConfluenceSyncTarget | null
-}
-
 export interface NotionResource {
   externalId: string
   type: "page" | "database"

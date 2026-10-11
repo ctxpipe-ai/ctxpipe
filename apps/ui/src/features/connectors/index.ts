@@ -19,10 +19,8 @@ export { OrgAtlassianOauthPanel } from "./components/OrgAtlassianOauthPanel"
 export { PagerdutyConnectionCard } from "./components/PagerdutyConnectionCard"
 export { PagerdutySetupDialog } from "./components/PagerdutySetupDialog"
 export { SlackConnectionCard } from "./components/SlackConnectionCard"
-export { EditScopeModal } from "./EditScopeModal"
 export { SpacePageTree } from "./SpacePageTree"
 export type {
-  AtlassianConnectorConfig,
   AtlassianConnectorStatus,
   AtlassianConnectorStatusSpacePreview,
   ConfluencePage,

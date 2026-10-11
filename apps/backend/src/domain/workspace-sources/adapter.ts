@@ -1,4 +1,5 @@
 import type { Env } from "../../config/env.js"
+import { confluenceSourceAdapter } from "../../services/confluence/workspace-source-adapter.js"
 import type { GitFileChange } from "../../services/git/file-change.js"
 import type { SourceProvider } from "./sources-file.js"
 
@@ -8,6 +9,13 @@ import type { SourceProvider } from "./sources-file.js"
  * the scopes of all its `ok` sources, then gives each Workspace the fetched
  * files under the `managedPaths` of its own scopes.
  */
+type SourceFetchInput<S> = {
+  orgId: string
+  connectionId: string
+  scopes: readonly S[]
+  env: Env
+}
+
 export type SourceAdapter<
   S extends Record<string, unknown> = Record<string, unknown>,
 > = {
@@ -19,17 +27,6 @@ export type SourceAdapter<
    * them when the scope goes away.
    */
   managedPaths(scope: S): string[]
-  /**
-   * Fetch the content of the union of `scopes` one time. Return files at
-   * Workspace repository paths. A file belongs to each Workspace whose scope
-   * owns its path.
-   */
-  fetch(input: {
-    orgId: string
-    connectionId: string
-    scopes: readonly S[]
-    env: Env
-  }): Promise<GitFileChange[]>
   /** Optional. Tell why a scope is outside the connection's reach, or null. */
   checkAccess?(input: {
     orgId: string
@@ -39,11 +36,45 @@ export type SourceAdapter<
   }): Promise<string | null>
   /** Optional. Whether a provider webhook event touches this scope. Default: yes. */
   matchesEvent?(input: { event: unknown; scope: S }): boolean
-}
+  /**
+   * Optional. A sync problem of an `ok` source, for example a page that
+   * failed too many times. The source list shows it at read time.
+   */
+  syncStatus?(input: {
+    orgId: string
+    connectionId: string
+    scope: S
+  }): Promise<{ status: "invalid" | "out_of_access"; detail: string } | null>
+} & (
+  | {
+      /**
+       * Fetch the content of the union of `scopes` one time. Return files at
+       * Workspace repository paths. A file belongs to each Workspace whose
+       * scope owns its path.
+       */
+      fetch(input: SourceFetchInput<S>): Promise<GitFileChange[]>
+      fetchEach?: never
+    }
+  | {
+      /**
+       * Use this instead of `fetch` when the file layout of a scope depends
+       * on the full scope, not only on its paths (for example, the Confluence
+       * page tree of a page selection). Fetch the union one time and return
+       * the files of each scope, in the order of `scopes`. A Workspace gets
+       * the files of its own scopes. `null` for a scope skips the write of
+       * each Workspace that has it, so its last good copy stays.
+       */
+      fetchEach(
+        input: SourceFetchInput<S>,
+      ): Promise<Array<GitFileChange[] | null>>
+      fetch?: never
+    }
+)
 
 /**
  * The adapters in production. Each provider (phase 2) adds its adapter here.
  * A provider without an adapter keeps its sources projected but not synced.
  */
-export const SOURCE_ADAPTERS: Partial<Record<SourceProvider, SourceAdapter>> =
-  {}
+export const SOURCE_ADAPTERS: Partial<Record<SourceProvider, SourceAdapter>> = {
+  confluence: confluenceSourceAdapter,
+}

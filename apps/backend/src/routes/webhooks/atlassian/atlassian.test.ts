@@ -41,6 +41,7 @@ vi.mock("../../../models/confluence-sync-target.js", () => ({
     getConfluenceSyncTargetByConnectionIdMock,
   getConfluenceSyncTargetWithRepoByConnectionId:
     getConfluenceSyncTargetWithRepoByConnectionIdMock,
+  isConfluenceTargetHandedOver: async () => false,
 }))
 
 vi.mock("../../../services/confluence/config-from-repo.js", () => ({
@@ -53,6 +54,7 @@ vi.mock("../../../openworkflow/client.js", () => ({
 }))
 
 import { confluenceSyncSpace } from "../../../openworkflow/workflows/confluence-sync-space.js"
+import { workspaceSourcesSync } from "../../../openworkflow/workflows/workspace-sources-sync.js"
 import type {
   ForgeInvocationTokenApp,
   ForgeInvocationTokenPayload,
@@ -455,6 +457,17 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
       pageId: "838205441",
       eventType: "avi:confluence:created:page",
     })
+    expect(runWorkflowMock).toHaveBeenCalledWith(workspaceSourcesSync.spec, {
+      kind: "connection",
+      orgId: "org_1",
+      connectionId: "fgi_1",
+      provider: "confluence",
+      event: {
+        spaceKeys: ["SP"],
+        pageId: "838205441",
+        eventType: "avi:confluence:created:page",
+      },
+    })
   })
 
   it.each([
@@ -550,7 +563,17 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
     })
 
     expect(res.status).toBe(204)
-    expect(runWorkflowMock).toHaveBeenCalledTimes(2)
+    expect(runWorkflowMock).toHaveBeenCalledTimes(3)
+    expect(runWorkflowMock).toHaveBeenCalledWith(
+      workspaceSourcesSync.spec,
+      expect.objectContaining({
+        event: {
+          spaceKeys: ["NEW", "OLD"],
+          pageId: undefined,
+          eventType: "avi:confluence:moved:page",
+        },
+      }),
+    )
     expect(runWorkflowMock).toHaveBeenCalledWith(confluenceSyncSpace.spec, {
       orgId: "org_1",
       connectionId: "fgi_1",
