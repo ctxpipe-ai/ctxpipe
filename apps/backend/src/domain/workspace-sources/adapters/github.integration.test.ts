@@ -11,6 +11,7 @@ import { workspaceLinkedRepositories } from "../../../db/schema/workspaces.js"
 import { workspaceHydrate } from "../../../openworkflow/workflows/workspace-hydrate.js"
 import { workspaceTipCheck } from "../../../openworkflow/workflows/workspace-tip-check.js"
 import { withNativeHydrationFixture } from "../../../test/native-hydration-fixture.js"
+import { repositoryKeyFromGitUrl } from "../../workspaces/slug.js"
 
 beforeAll(() => {
   if (!process.env.DATABASE_URL)
@@ -148,12 +149,39 @@ it(
             ]),
           )
 
+          // The tip check keeps links only on the org's first connector
+          // Workspace (dest-workspace-assignment), so the Workspace
+          // repository needs its org repository row, as in production.
+          await withOrgDbContext(f.org.id, (db) =>
+            db.insert(repositories).values({
+              id: `repo_${f.id}_workspace`,
+              orgId: f.org.id,
+              name: "fixture/hydration-contract",
+              gitUrl: f.workspaceUrl,
+              repositoryKey: repositoryKeyFromGitUrl(f.workspaceUrl),
+              githubConnectionId: f.connectionId,
+            }),
+          )
           const tipCheck = await f.runner.runWorkflow(workspaceTipCheck.spec, {
             orgId: f.org.id,
           })
-          expect(await tipCheck.result({ timeoutMs: 30_000 })).toMatchObject({
-            linkedUpdated: 1,
-          })
+          await tipCheck.result({ timeoutMs: 30_000 })
+          const tips = await withOrgDbContext(f.org.id, (db) =>
+            db
+              .select({
+                gitUrl: workspaceLinkedRepositories.gitUrl,
+                desiredSha: workspaceLinkedRepositories.desiredSha,
+              })
+              .from(workspaceLinkedRepositories)
+              .where(
+                eq(workspaceLinkedRepositories.workspaceId, f.workspaceId),
+              ),
+          )
+          // The visible repository reads with the source's connection.
+          expect(
+            tips.find((row) => row.gitUrl.endsWith("/visible-service"))
+              ?.desiredSha,
+          ).toMatch(/^[0-9a-f]{40}$/)
           expect(hiddenReads).toBe(0)
 
           // An admin adds the repository to the installation. Six hours
