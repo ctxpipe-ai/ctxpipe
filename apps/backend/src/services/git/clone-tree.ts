@@ -36,6 +36,32 @@ export type GitShaFile =
   | { kind: "missing" }
   | { kind: "bytes"; bytes: Uint8Array }
 
+export const GIT_REMOTE_ACCESS_MESSAGES = {
+  noCredential:
+    "ctx| has no access to this repository. Connect GitHub to this Workspace, then retry.",
+  denied:
+    "ctx| has no access to this repository. Add the repository to the GitHub App installation, then refresh.",
+} as const
+
+/** The remote refused the read credential, or the read needs one and has none. */
+export class GitRemoteAccessError extends Error {
+  /** 401 or 403 when Git reported it; a write uses it to pause. */
+  readonly status: 401 | 403 | undefined
+  constructor(input: { hasCredential: boolean; stderr: string }) {
+    super(
+      input.hasCredential
+        ? GIT_REMOTE_ACCESS_MESSAGES.denied
+        : GIT_REMOTE_ACCESS_MESSAGES.noCredential,
+    )
+    this.name = "GitRemoteAccessError"
+    this.status = /returned error: 403/.test(input.stderr)
+      ? 403
+      : /returned error: 401|Authentication failed/i.test(input.stderr)
+        ? 401
+        : undefined
+  }
+}
+
 /** Resolve a branch once; subsequent reads fetch the returned immutable SHA. */
 export async function resolveGitRemoteTip(input: {
   url: string
@@ -47,7 +73,19 @@ export async function resolveGitRemoteTip(input: {
   const { stdout } = await gitExec(
     ["ls-remote", "--symref", "--", input.url, ref],
     { timeout: 60_000, env: gitRemoteEnvironment(input) },
-  )
+  ).catch((error: unknown) => {
+    const stderr = String((error as { stderr?: unknown }).stderr ?? "")
+    if (
+      /could not read (?:Username|Password)|Authentication failed|Repository not found|returned error: 40[134]/i.test(
+        stderr,
+      )
+    )
+      throw new GitRemoteAccessError({
+        hasCredential: Boolean(input.token),
+        stderr,
+      })
+    throw error
+  })
   const lines = stdout.toString("utf8").trim().split("\n")
   const sha = lines
     .map((line) => line.split("\t"))
@@ -70,7 +108,7 @@ export function gitRemoteEnvironment(input: {
   url: string
   token?: string
 }): NodeJS.ProcessEnv {
-  const env = { ...process.env, GIT_TERMINAL_PROMPT: "0" }
+  const env = { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_ASKPASS: "" }
   const remote = URL.canParse(input.url) ? new URL(input.url) : null
   if (
     remote?.password ||

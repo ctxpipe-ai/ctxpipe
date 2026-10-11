@@ -1,6 +1,6 @@
 # workspace-tip-check fails on a private repository: git ls-remote runs without credentials
 
-Status: ready-for-agent
+Status: ready-for-human
 Priority: P2
 Owner: unassigned
 Blocked by: none
@@ -36,3 +36,23 @@ Likely cause: `apps/backend/src/services/git/clone-tree.ts` (the `--symref` call
 ## Comments
 
 ## Resolution
+
+The token path was already correct: `resolveGitRemoteTip` sends the installation token in an `http.<remote>.extraHeader` set through `GIT_CONFIG_*` environment variables (not argv, not the URL), and it sets `GIT_TERMINAL_PROMPT=0`. The token is `undefined` only when the Workspace (or the linked repository) has no GitHub connection. That policy is deliberate: a read credential comes only from the remote's explicit connection. So the failed run is a true "no access" case, and the fix ends it cleanly:
+
+- `services/git/clone-tree.ts`: an `ls-remote` that fails on credentials (no username, authentication failed, repository not found, HTTP 401/403/404) now throws `GitRemoteAccessError` with a fixed, token-free message ("ctx| has no access to this repository. Add the repository to the GitHub App installation, then refresh."). It does not carry the Git stderr. `GIT_ASKPASS` is now empty, so a host askpass program cannot prompt.
+- `workflows/workspace-tip-check.ts`: the tip check skips a Workspace or a linked repository with that error and continues with the others. `resolveWorkspaceReadRevision` already records the message as `hydrateStatus: failed` / `hydrateError`, which the UI shows as "Prepare failed" with that text.
+- Tests: `clone-tree.test.ts` runs against a local HTTP Git remote that answers 401 (no token and a refused token) and checks that the error message, stack and fields hold neither the token nor its Basic encoding. `workspace-tip-check.contract.test.ts` runs the real workflow against that remote and checks that the run completes and the Workspace records "no access". Both failed before the fix.
+
+Open: the acceptance check on a preview with a private repository and access is not done here. If that Workspace has no `githubConnectionId`, connecting GitHub binds it (`bindUnboundWorkspace`).
+
+### Review round 1 (2026-10-11)
+
+- Diagnosis checked on `pr-280` (read-only, with the team's test org): every Workspace of that org has a GitHub connection and is ready. The failing reads come from two linked repositories that read `HEAD`; their org repository rows have no GitHub connection, so the read has no token. Their repository cards already show a failed index.
+- The message now matches the case: no token gives "Connect GitHub to this Workspace, then retry."; a refused token gives the installation message.
+- A no-access read now records `hydrateStatus: failed` with that message also on a ready Workspace, logs `workspace_tip_check_no_access` (Workspace id, link id, repository host, HTTP status; no token), and sets the span attributes `ctxpipe.tip_check.no_access_workspaces` and `ctxpipe.tip_check.no_access_linked` instead of a span error.
+- Backoff: the tip check does not read a Workspace in the no-access state again for six hours, and does not enqueue its hydrate. "Try again" (retry-prepare) and a rebind reset `hydrateStatus`, so they end the backoff at once.
+- `GitRemoteAccessError.status` keeps 401 or 403, so a refused read in the write broker still pauses write status.
+- UI: the "Prepare failed" panel links to Connectors when the message is a no-access message (story `PrepareNoAccess`).
+- Open: a linked repository has no column for its own no-access state or backoff. It logs and skips on each run. A visible state and a backoff for it need a schema column, which needs approval.
+
+- 2026-10-11 (team lead): no schema column for a linked-repository "no access" state. Integration setup moves GitHub linked repositories into `workspace_sources`, which already has a status (`out_of_access`). The GitHub provider of integration setup phase 2 records it there. Until then, a linked repository without access logs a warning at each tip check.

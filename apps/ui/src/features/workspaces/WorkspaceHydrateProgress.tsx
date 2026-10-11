@@ -1,4 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { Link } from "@tanstack/react-router"
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { workspaceHydrateView } from "./projection"
@@ -45,6 +46,26 @@ export function WorkspaceHydrateFailedBody(props: {
           }
         >
           {workspace.hydrateError ?? "ctx| could not read this repository."}
+          {workspace.hydrateError?.startsWith(
+            "ctx| has no access to this repository.",
+          ) ? (
+            <>
+              {" "}
+              <Link
+                to="/$orgSlug/connectors"
+                params={{ orgSlug }}
+                search={{
+                  error: undefined,
+                  error_description: undefined,
+                  pendingAccountClaim: undefined,
+                  notionConnectionId: undefined,
+                }}
+                className="text-teal-500 underline-offset-2 hover:underline"
+              >
+                Open Connectors
+              </Link>
+            </>
+          ) : null}
         </InlineAlert>
       </div>
     </div>

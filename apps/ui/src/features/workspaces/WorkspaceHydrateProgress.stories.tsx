@@ -116,3 +116,25 @@ export const PreparePendingWithError: Story = {
     expect(canvas.queryByRole("listitem")).toBeNull()
   },
 }
+
+/** A Workspace that ctx| cannot read links to Connectors to fix the access. */
+export const PrepareNoAccess: Story = {
+  args: {
+    workspace: {
+      ...failedHydrateWorkspace,
+      hydrateError:
+        "ctx| has no access to this repository. Connect GitHub to this Workspace, then retry.",
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    expect(await canvas.findByText("Prepare failed")).toBeVisible()
+    expect(
+      canvas.getByText(/Connect GitHub to this Workspace, then retry/),
+    ).toBeVisible()
+    expect(
+      canvas.getByRole("link", { name: "Open Connectors" }),
+    ).toHaveAttribute("href", `/${orgSlug}/connectors`)
+    expect(canvas.getByRole("button", { name: "Try again" })).toBeVisible()
+  },
+}

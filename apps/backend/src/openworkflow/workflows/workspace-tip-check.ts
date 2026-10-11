@@ -1,3 +1,4 @@
+import { trace } from "@opentelemetry/api"
 import { z } from "zod"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
@@ -28,7 +29,12 @@ import {
   persistWriteStatus,
   reconcileDestWorkspaceAssignment,
 } from "../../models/workspaces.js"
+import { log } from "../../observability/logger.js"
 import { getGithubRepoWriteView } from "../../routes/webhooks/github/github-workspace-tip.js"
+import {
+  GIT_REMOTE_ACCESS_MESSAGES,
+  GitRemoteAccessError,
+} from "../../services/git/clone-tree.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { enqueueWorkspaceCommitProjection } from "../enqueue-workspace-commit-projection.js"
 import { enqueueWorkspaceHydrate } from "../enqueue-workspace-hydrate.js"
@@ -38,6 +44,30 @@ import {
   enqueueWorkspaceWriteCommit,
 } from "../enqueue-workspace-write-commit.js"
 import { scheduleConversationSandboxSweep } from "./conversation-sandbox-sweep.js"
+
+/** A Workspace in the no-access state reads its remote again after this, or after a retry or a reconnect. */
+const NO_ACCESS_RETRY_MS = 6 * 60 * 60 * 1000
+
+function inNoAccessBackoff(
+  workspace: {
+    hydrateStatus: string
+    hydrateError: string | null
+    updatedAt: Date
+  },
+  now: Date,
+): boolean {
+  return (
+    workspace.hydrateStatus === "failed" &&
+    Object.values<string | null>(GIT_REMOTE_ACCESS_MESSAGES).includes(
+      workspace.hydrateError,
+    ) &&
+    now.getTime() - workspace.updatedAt.getTime() < NO_ACCESS_RETRY_MS
+  )
+}
+
+function remoteHost(url: string): string {
+  return URL.canParse(url) ? new URL(url).host : "local"
+}
 
 const workspaceTipCheckInputSchema = z.object({
   orgId: z.string().min(1),
@@ -108,12 +138,39 @@ export const workspaceTipCheck = defineWorkflow(
         resolvedTip: string
         revision: WorkspaceRevision
       }> = []
+      const startedAt = new Date()
+      const noAccess = new Set<string>()
+      let linkedNoAccess = 0
+      const skipWithoutAccess = (
+        error: unknown,
+        target: { workspaceId: string; linkId?: string; url: string },
+      ): void => {
+        if (!(error instanceof GitRemoteAccessError)) throw error
+        log.warn({
+          event: "workspace_tip_check_no_access",
+          workspaceId: target.workspaceId,
+          linkId: target.linkId,
+          repositoryHost: remoteHost(target.url),
+          status: error.status,
+        })
+      }
       for (const workspace of workspaces) {
+        if (inNoAccessBackoff(workspace, startedAt)) {
+          noAccess.add(workspace.id)
+          continue
+        }
         const resolved = await resolveWorkspaceReadRevision({
           orgId: input.orgId,
           workspaceId: workspace.id,
           env,
           refresh: true,
+        }).catch((error: unknown) => {
+          skipWithoutAccess(error, {
+            workspaceId: workspace.id,
+            url: workspace.workspaceRepositoryUrl,
+          })
+          noAccess.add(workspace.id)
+          return null
         })
         if (
           resolved &&
@@ -135,6 +192,7 @@ export const workspaceTipCheck = defineWorkflow(
           ]),
       )
       for (const workspace of workspaces) {
+        if (noAccess.has(workspace.id)) continue
         const writeStatus = writeStatusById.get(workspace.id)
         if (
           writeStatus === "writable" &&
@@ -191,6 +249,14 @@ export const workspaceTipCheck = defineWorkflow(
           orgId: input.orgId,
           linkId: row.id,
           env,
+        }).catch((error: unknown) => {
+          skipWithoutAccess(error, {
+            workspaceId: row.workspaceId,
+            linkId: row.id,
+            url: row.gitUrl,
+          })
+          linkedNoAccess += 1
+          return null
         })
         if (!resolved?.changed) continue
         linkedUpdated += 1
@@ -203,6 +269,11 @@ export const workspaceTipCheck = defineWorkflow(
           quietLog,
         )
       }
+      // A no-access read is an expected state, not a span error.
+      trace.getActiveSpan()?.setAttributes({
+        "ctxpipe.tip_check.no_access_workspaces": noAccess.size,
+        "ctxpipe.tip_check.no_access_linked": linkedNoAccess,
+      })
       const now = new Date()
       // Also restarts the sandbox sweep chain if it was ever lost.
       await scheduleConversationSandboxSweep(input.orgId, now)

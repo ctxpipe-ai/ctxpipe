@@ -307,6 +307,8 @@ export async function getWorkspaceWriteAdmission(workspaceId: string) {
 export async function persistRevisionResolutionFailure(input: {
   expected: WorkspaceWriteProbeBinding
   message: string
+  /** Record it on a ready Workspace too: the next read fails the same way. */
+  noAccess?: boolean
 }): Promise<void> {
   await orgSql(async () => {
     const expected = input.expected
@@ -329,7 +331,7 @@ export async function persistRevisionResolutionFailure(input: {
           sql`${workspaces.githubConnectionId} is not distinct from ${expected.githubConnectionId}`,
           sql`${workspaces.desiredSha} is not distinct from ${expected.desiredSha}`,
           sql`${workspaces.desiredDefaultBranch} is not distinct from ${expected.desiredDefaultBranch ?? null}`,
-          revision
+          revision && !input.noAccess
             ? sql`${workspaces.activeRevision} is distinct from ${JSON.stringify(revision)}::jsonb`
             : undefined,
         ),
@@ -926,6 +928,9 @@ export async function listOrgWorkspaces(
       | "activeProjectionSha"
       | "githubConnectionId"
       | "writeStatus"
+      | "hydrateStatus"
+      | "hydrateError"
+      | "updatedAt"
       | "createdAt"
       | "lastJobAt"
     >
@@ -942,6 +947,9 @@ export async function listOrgWorkspaces(
         activeProjectionSha: workspaces.activeProjectionSha,
         githubConnectionId: workspaces.githubConnectionId,
         writeStatus: workspaces.writeStatus,
+        hydrateStatus: workspaces.hydrateStatus,
+        hydrateError: workspaces.hydrateError,
+        updatedAt: workspaces.updatedAt,
         createdAt: workspaces.createdAt,
         lastJobAt: workspaces.lastJobAt,
       })

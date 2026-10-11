@@ -12,9 +12,11 @@ import {
   resolveWorkspaceRepositoryTip,
 } from "../../routes/webhooks/github/github-workspace-tip.js"
 import {
+  GitRemoteAccessError,
   listMarkdownFilesAtGitSha,
   listPathsAtGitSha,
   readFileAtGitSha,
+  resolveGitRemoteTip,
 } from "./clone-tree.js"
 
 const execFileAsync = promisify(execFile)
@@ -370,6 +372,70 @@ describe("clone-tree", { timeout: 30_000 }, () => {
       )
     } finally {
       process.env.PATH = previousPath
+    }
+  })
+
+  it("ends a tip read of a remote that needs credentials with a no-access error that holds no token", async () => {
+    const token = "fixture-revoked-read-secret"
+    const encoded = Buffer.from(`x-access-token:${token}`).toString("base64")
+    const authorizations: Array<string | undefined> = []
+    const server = createServer((req, res) => {
+      authorizations.push(req.headers.authorization)
+      res.writeHead(401, { "www-authenticate": 'Basic realm="fixture"' })
+      res.end()
+    })
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+    const address = server.address()
+    if (!address || typeof address === "string")
+      throw new Error("Missing fixture address")
+    const url = `http://127.0.0.1:${address.port}/private/repository.git`
+    try {
+      const anonymous = await resolveGitRemoteTip({ url }).catch((e) => e)
+      expect(anonymous).toBeInstanceOf(GitRemoteAccessError)
+      expect(anonymous.message).toBe(
+        "ctx| has no access to this repository. Connect GitHub to this Workspace, then retry.",
+      )
+      const denied = await resolveGitRemoteTip({ url, token }).catch((e) => e)
+      expect(denied).toBeInstanceOf(GitRemoteAccessError)
+      expect(denied.message).toBe(
+        "ctx| has no access to this repository. Add the repository to the GitHub App installation, then refresh.",
+      )
+      expect(authorizations).toContain(`Basic ${encoded}`)
+      const surface = [
+        String(denied),
+        String(denied.stack),
+        JSON.stringify(denied),
+        JSON.stringify(Object.values(denied).map(String)),
+      ].join("\n")
+      expect(surface).not.toContain(token)
+      expect(surface).not.toContain(encoded)
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      )
+    }
+  })
+
+  it("keeps the HTTP status of a refused tip read so a write can pause", async () => {
+    const server = createServer((_req, res) => {
+      res.writeHead(403)
+      res.end()
+    })
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+    const address = server.address()
+    if (!address || typeof address === "string")
+      throw new Error("Missing fixture address")
+    try {
+      const denied = await resolveGitRemoteTip({
+        url: `http://127.0.0.1:${address.port}/private.git`,
+        token: "fixture-forbidden-secret",
+      }).catch((e) => e)
+      expect(denied).toBeInstanceOf(GitRemoteAccessError)
+      expect(denied.status).toBe(403)
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      )
     }
   })
 })
