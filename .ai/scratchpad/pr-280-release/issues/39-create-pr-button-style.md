@@ -42,3 +42,4 @@ Ticket 33 gave Create PR the `git-pull-request` icon and the `ghost` Button vari
 ## Resolution
 
 Done on branch t39-create-pr-button-style. The top-right buttons of the conversation use the idle tab style of the pane triggers. Show PR has the pull request icon and an external-link badge, and its name tells that it opens in a new tab.
+- 2026-10-11, claude: The publish buttons (Sync, Create PR, Show PR) now use `text-xs font-normal` (12 px, weight 400). The pane triggers are unchanged. Height, padding and icon size still match the triggers. The Show PR badge keeps clear of the text. The story `CreatePrMatchesPaneTriggers` asserts the size and weight.

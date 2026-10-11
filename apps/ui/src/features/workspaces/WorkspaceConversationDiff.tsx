@@ -300,7 +300,11 @@ function ConversationDiffRow(props: {
     <Disclosure id={file.path} className="group/row">
       <div
         ref={scrollWhenFocused}
-        className="flex h-8 items-center gap-1 rounded-md px-1 hover:bg-foreground/[0.04]"
+        className={cn(
+          "flex h-8 items-center gap-1 rounded-md px-1",
+          // The Diff opened on this file; the highlight shows which row that is.
+          props.focused ? "bg-zinc-800" : "hover:bg-foreground/[0.04]",
+        )}
       >
         <AriaButton
           slot="trigger"

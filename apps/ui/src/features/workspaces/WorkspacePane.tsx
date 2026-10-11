@@ -245,6 +245,8 @@ export function WorkspacePane(props: {
               className={cn(
                 workspaceChromeTabIdleClassName,
                 "max-w-[min(100%,24rem)]",
+                // Maximize hides the conversation. Its title slides in here, so the user sees where it went.
+                "animate-in fade-in slide-in-from-left-1 duration-100 ease-out",
                 props.maximized ? "flex" : "hidden max-lg:flex",
               )}
             >
@@ -271,10 +273,12 @@ export function WorkspacePane(props: {
                   <Tab
                     key={id}
                     id={id}
+                    ref={selectedKey === id ? scrollTabIntoView : undefined}
                     aria-label={title}
                     className={({ isSelected }) =>
                       cn(
                         "max-w-[12rem] gap-1",
+                        newTabClassName,
                         isSelected
                           ? workspaceChromeTabClassName
                           : workspaceChromeTabIdleClassName,
@@ -325,11 +329,28 @@ export function WorkspacePane(props: {
               <HeaderIcon
                 label={props.maximized ? "Show conversation" : "Maximise pane"}
                 icon={
-                  props.maximized ? (
-                    <IconArrowsDiagonalMinimize stroke={1.6} aria-hidden />
-                  ) : (
-                    <IconArrowsDiagonal2 stroke={1.6} aria-hidden />
-                  )
+                  <span className="relative size-4">
+                    <IconArrowsDiagonal2
+                      className={cn(
+                        "absolute inset-0 transition-[opacity,scale] ease-out",
+                        props.maximized
+                          ? "scale-75 opacity-0"
+                          : "scale-100 opacity-100",
+                      )}
+                      stroke={1.6}
+                      aria-hidden
+                    />
+                    <IconArrowsDiagonalMinimize
+                      className={cn(
+                        "absolute inset-0 transition-[opacity,scale] ease-out",
+                        props.maximized
+                          ? "scale-100 opacity-100"
+                          : "scale-75 opacity-0",
+                      )}
+                      stroke={1.6}
+                      aria-hidden
+                    />
+                  </span>
                 }
                 onClick={props.onToggleMaximize}
                 className="hidden lg:inline-flex"
@@ -587,6 +608,18 @@ function usePaneToolTabs(props: {
   return tabs
 }
 
+/**
+ * A tab fades in when it mounts: all tabs when the pane opens, and one tab
+ * when it joins the strip (Diff, a pinned file). The class stays when the tab
+ * is selected, so the fade does not run again.
+ */
+const newTabClassName = "animate-in fade-in duration-100 ease-out"
+
+/** The selected file tab gets this ref, so a new tab scrolls into the strip. */
+function scrollTabIntoView(node: HTMLDivElement | null) {
+  node?.scrollIntoView({ block: "nearest", inline: "nearest" })
+}
+
 function PaneIconTab(props: {
   id: string
   label: string
@@ -600,7 +633,11 @@ function PaneIconTab(props: {
       aria-label={props.label}
       onHoverStart={props.onIntent}
       className={({ isSelected }) =>
-        cn(workspaceChromeIconTabClassName(isSelected), focusVisibleClassName)
+        cn(
+          workspaceChromeIconTabClassName(isSelected),
+          newTabClassName,
+          focusVisibleClassName,
+        )
       }
     >
       <PaneIcon title={props.label} icon={props.icon} busy={props.busy} />
@@ -650,7 +687,13 @@ export function WorkspacePaneTriggers(props: {
   })
   return (
     <TooltipProvider delay={200}>
-      <div className={workspaceChromeTabStripClassName}>
+      {/* Hide pane mounts the triggers. They fade in, so the user sees where the pane went. */}
+      <div
+        className={cn(
+          workspaceChromeTabStripClassName,
+          "animate-in fade-in duration-100 ease-out",
+        )}
+      >
         {toolTabs.map((tab) => (
           <HeaderIcon
             key={tab.id}
