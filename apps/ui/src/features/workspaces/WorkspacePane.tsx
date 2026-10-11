@@ -2,8 +2,8 @@ import {
   IconAffiliate,
   IconArrowsDiagonal2,
   IconArrowsDiagonalMinimize,
+  IconFileDiff,
   IconFolder,
-  IconGitCompare,
   IconLayoutSidebarRightCollapse,
   IconLayoutSidebarRightExpand,
   IconSettings,
@@ -100,11 +100,18 @@ export function WorkspacePane(props: {
   const urlPaneKey = serializePane(props.pane)
   const [pane, setPane] = useUrgentValue(props.pane, urlPaneKey)
   const activeFile = pane.kind === "file" ? pane.path : null
-  const filesTabActive = pane.kind === "files" || pane.kind === "diff"
   // Every Diff pane variant (one turn, one focused file) is the Diff tab.
   const selectedKey = pane.kind === "diff" ? "diff" : serializePane(pane)
   const paneWidthLocked = props.width != null
-  const graphBuilding = props.workspace.hydratePhases?.graph.kind === "pending"
+  const toolTabs = usePaneToolTabs({
+    orgSlug: props.orgSlug,
+    workspace: props.workspace,
+    conversationId: props.conversationId,
+    diffSelected: pane.kind === "diff",
+  })
+  // The card joins the active tab with a square corner only when that tab
+  // leads the strip. Each other tab keeps the round corner.
+  const leadTabSelected = selectedKey === toolTabs[0]?.id
 
   const prefetchPane = (next: ParsedPane) => {
     prefetchWorkspacePane(
@@ -185,7 +192,7 @@ export function WorkspacePane(props: {
           aria-label="Resize pane"
           className={cn(
             "absolute bottom-[20px] left-[0.5px] z-20 hidden w-3 -translate-x-1/2 cursor-col-resize border-0 bg-transparent p-0 lg:block",
-            filesTabActive ? "top-[16px]" : "top-[calc(16px+37px)]",
+            leadTabSelected ? "top-[16px]" : "top-[calc(16px+37px)]",
             "after:pointer-events-none after:absolute after:inset-y-0 after:left-1/2 after:w-px after:-translate-x-1/2",
             "after:rounded-full after:bg-transparent after:transition-colors",
             "hover:after:bg-white/40 focus-visible:after:bg-white/40",
@@ -246,33 +253,16 @@ export function WorkspacePane(props: {
               ref={fileTabListRef}
               className="flex min-w-0 flex-1 items-end gap-0.5 overflow-x-auto overflow-y-hidden [scrollbar-width:none]"
             >
-              <PaneIconTab
-                id="files"
-                label="Files"
-                icon={<IconFolder stroke={1.6} aria-hidden />}
-                onIntent={() => prefetchPane({ kind: "files" })}
-              />
-              {props.conversationId ? (
-                <ConversationDiffTab
-                  selected={pane.kind === "diff"}
-                  orgSlug={props.orgSlug}
-                  conversationId={props.conversationId}
-                  workspaceId={props.workspace.id}
-                  onIntent={() => prefetchPane({ kind: "diff" })}
+              {toolTabs.map((tab) => (
+                <PaneIconTab
+                  key={tab.id}
+                  id={tab.id}
+                  label={tab.label}
+                  icon={tab.icon}
+                  busy={tab.busy}
+                  onIntent={() => prefetchPane(tab.pane)}
                 />
-              ) : null}
-              <PaneIconTab
-                id="graph"
-                label={graphBuilding ? "Graph, building" : "Graph"}
-                icon={<IconAffiliate stroke={1.6} aria-hidden />}
-                busy={graphBuilding}
-                onIntent={() => prefetchPane({ kind: "graph" })}
-              />
-              <PaneIconTab
-                id="settings"
-                label="Settings"
-                icon={<IconSettings stroke={1.6} aria-hidden />}
-              />
+              ))}
               {props.fileTabs.map((path) => {
                 const title = path.split("/").pop() ?? path
                 const id = filePaneId(path)
@@ -358,9 +348,8 @@ export function WorkspacePane(props: {
           id={selectedKey}
           className={cn(
             workspaceChromeCardPaneClassName,
-            // Square the join only when Files is the first strip item (split
-            // view). Maximised / max-lg put conversation in that slot.
-            filesTabActive && !props.maximized && "lg:rounded-tl-none",
+            // Maximised / max-lg put the conversation title in the lead slot.
+            leadTabSelected && !props.maximized && "lg:rounded-tl-none",
             "flex min-h-0 p-0 outline-0",
           )}
         >
@@ -524,34 +513,71 @@ function prefetchWorkspacePane(
   }
 }
 
-function ConversationDiffTab(props: {
-  /** Keep the tab while it is open, also when the status has no changes. */
-  selected: boolean
+type PaneToolTab = {
+  id: "files" | "diff" | "graph" | "settings"
+  label: string
+  icon: ReactNode
+  busy?: boolean
+  pane: ParsedPane
+}
+
+/**
+ * The tool tabs in strip order. The pane strip and the closed-pane triggers
+ * both show this list, so a new tab shows in both places.
+ */
+function usePaneToolTabs(props: {
   orgSlug: string
-  conversationId: string
-  workspaceId: string
-  onIntent?: () => void
-}) {
+  workspace: WorkspaceDetail
+  conversationId?: string
+  /** Keep the Diff tab while it is open, also when the status has no changes. */
+  diffSelected?: boolean
+}): PaneToolTab[] {
+  const conversationId = props.conversationId ?? ""
   const prepareQuery = useQuery({
     ...workspaceChatPrepareOptions(
       props.orgSlug,
-      props.conversationId,
-      props.workspaceId,
+      conversationId,
+      props.workspace.id,
     ),
+    enabled: conversationId !== "",
   })
   const statusQuery = useQuery({
-    ...conversationGitStatusOptions(props.orgSlug, props.conversationId),
-    enabled: prepareQuery.isSuccess,
+    ...conversationGitStatusOptions(props.orgSlug, conversationId),
+    enabled: conversationId !== "" && prepareQuery.isSuccess,
   })
-  if (!props.selected && !statusQuery.data?.differsFromDefault) return null
-  return (
-    <PaneIconTab
-      id="diff"
-      label="Diff"
-      icon={<IconGitCompare stroke={1.6} aria-hidden />}
-      onIntent={props.onIntent}
-    />
-  )
+  const showDiff =
+    conversationId !== "" &&
+    (props.diffSelected || statusQuery.data?.differsFromDefault === true)
+  const graphBuilding = props.workspace.hydratePhases?.graph.kind === "pending"
+  const tabs: PaneToolTab[] = [
+    {
+      id: "files",
+      label: "Files",
+      icon: <IconFolder stroke={1.6} aria-hidden />,
+      pane: { kind: "files" },
+    },
+    {
+      id: "graph",
+      label: graphBuilding ? "Graph, building" : "Graph",
+      icon: <IconAffiliate stroke={1.6} aria-hidden />,
+      busy: graphBuilding,
+      pane: { kind: "graph" },
+    },
+    {
+      id: "settings",
+      label: "Settings",
+      icon: <IconSettings stroke={1.6} aria-hidden />,
+      pane: { kind: "settings" },
+    },
+  ]
+  if (showDiff)
+    tabs.splice(1, 0, {
+      id: "diff",
+      label: "Diff",
+      icon: <IconFileDiff stroke={1.6} aria-hidden />,
+      pane: { kind: "diff" },
+    })
+  return tabs
 }
 
 function PaneIconTab(props: {
@@ -610,34 +636,27 @@ export function WorkspacePaneTriggers(props: {
       props.conversationId,
     )
   }
-  const graphBuilding = props.workspace.hydratePhases?.graph.kind === "pending"
+  const toolTabs = usePaneToolTabs({
+    orgSlug: props.orgSlug,
+    workspace: props.workspace,
+    conversationId: props.conversationId,
+  })
   return (
     <TooltipProvider delay={200}>
       <div className={workspaceChromeTabStripClassName}>
-        <HeaderIcon
-          label="Files"
-          icon={<IconFolder stroke={1.6} aria-hidden />}
-          onIntent={() => prefetch({ kind: "files" })}
-          onClick={() => {
-            prefetch({ kind: "files" })
-            props.onOpen({ kind: "files" })
-          }}
-        />
-        <HeaderIcon
-          label={graphBuilding ? "Graph, building" : "Graph"}
-          icon={<IconAffiliate stroke={1.6} aria-hidden />}
-          busy={graphBuilding}
-          onIntent={() => prefetch({ kind: "graph" })}
-          onClick={() => {
-            prefetch({ kind: "graph" })
-            props.onOpen({ kind: "graph" })
-          }}
-        />
-        <HeaderIcon
-          label="Settings"
-          icon={<IconSettings stroke={1.6} aria-hidden />}
-          onClick={() => props.onOpen({ kind: "settings" })}
-        />
+        {toolTabs.map((tab) => (
+          <HeaderIcon
+            key={tab.id}
+            label={tab.label}
+            icon={tab.icon}
+            busy={tab.busy}
+            onIntent={() => prefetch(tab.pane)}
+            onClick={() => {
+              prefetch(tab.pane)
+              props.onOpen(tab.pane)
+            }}
+          />
+        ))}
         {props.onExpand ? (
           <HeaderIcon
             label="Show pane"
