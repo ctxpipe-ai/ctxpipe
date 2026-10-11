@@ -1,7 +1,14 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { IconBrandGithub } from "@tabler/icons-react"
 import { expect, userEvent, within } from "storybook/test"
-import { ConnectorListItem } from "./ConnectorListItem"
+import {
+  expectSkeletonMatchesLoaded,
+  SkeletonMatchFrame,
+} from "@/components/ui/skeletonMatchStory"
+import {
+  ConnectorListItem,
+  ConnectorListItemSkeleton,
+} from "./ConnectorListItem"
 
 const meta = {
   title: "Components/Connections/ListItem",
@@ -166,5 +173,24 @@ export const Checking: Story = {
     scope: "—",
     actionLabel: undefined,
     onAction: undefined,
+  },
+}
+
+/** The loading row has the same box as a collapsed connector row. */
+export const ConnectorRowSkeletonMatches: Story = {
+  tags: ["workspace-golden"],
+  args: {
+    ...shared,
+    health: "connected",
+  },
+  render: (args) => (
+    <SkeletonMatchFrame
+      className="w-xl"
+      skeleton={<ConnectorListItemSkeleton />}
+      loaded={<ConnectorListItem {...args} />}
+    />
+  ),
+  play: async ({ canvasElement }) => {
+    await expectSkeletonMatchesLoaded(canvasElement)
   },
 }

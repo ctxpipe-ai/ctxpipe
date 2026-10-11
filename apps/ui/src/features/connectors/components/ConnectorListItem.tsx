@@ -13,6 +13,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Modal } from "@/components/ui/Modal"
+import { Skeleton, SkeletonText } from "@/components/ui/Skeleton"
 import type { ConnectorHealth } from "../connectorHealth"
 import { ConnectorHealthIndicator } from "./ConnectorHealthIndicator"
 
@@ -244,5 +245,29 @@ export function formatSyncRepositoryLine(
       {target.repositoryName}
       <span className="text-muted-foreground"> · branch {target.branch}</span>
     </>
+  )
+}
+
+/** The collapsed `ConnectorListItem` row while the connections load. */
+export function ConnectorListItemSkeleton() {
+  return (
+    <div className="border-b border-white/[0.06]">
+      <div className="flex items-center gap-x-3 px-1 py-3 sm:px-2">
+        <Skeleton className="size-9 shrink-0" />
+        <SkeletonText className="min-w-0 flex-1 text-sm" boneClassName="w-32" />
+        <Skeleton className="size-8 shrink-0" />
+      </div>
+    </div>
+  )
+}
+
+export function ConnectorListSkeleton() {
+  return (
+    <div aria-busy>
+      <span className="sr-only">Loading connectors</span>
+      <ConnectorListItemSkeleton />
+      <ConnectorListItemSkeleton />
+      <ConnectorListItemSkeleton />
+    </div>
   )
 }

@@ -1,10 +1,10 @@
 import { IconPlus } from "@tabler/icons-react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
-import { useEffect, useState } from "react"
+import { type ReactNode, useEffect, useState } from "react"
 import { Button } from "@/components/ui/Button"
 import { Modal } from "@/components/ui/Modal"
-import { SkeletonRow } from "@/components/ui/Skeleton"
+import { Skeleton, useSkeletonHold } from "@/components/ui/Skeleton"
 import {
   AddConfluenceConnectorButton,
   AddConnectorCatalogDialog,
@@ -27,6 +27,7 @@ import {
   SlackConnectionCard,
 } from "@/features/connectors"
 import { AtlassianAccountClaimModalContent } from "@/features/connectors/components/AtlassianAccountClaimModalContent"
+import { ConnectorListSkeleton } from "@/features/connectors/components/ConnectorListItem"
 import { ConnectorsOAuthErrorBanner } from "@/features/connectors/components/ConnectorsOAuthErrorBanner"
 import { GithubSelfHostedWizardModal } from "@/features/connectors/components/GithubSelfHostedWizardModal"
 import { SlackSetupDialog } from "@/features/connectors/components/SlackSetupDialog"
@@ -80,26 +81,10 @@ function ConnectorsPage() {
   if (sessionPending) {
     return (
       <main className="mx-auto box-border flex min-h-full w-full max-w-2xl flex-col p-8 text-foreground">
-        <header className="mb-8">
-          <span className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
-            Connectors
-          </span>
-        </header>
-        <h1 className="text-3xl font-medium tracking-tight text-foreground">
-          Connectors
-        </h1>
-        <div className="mt-12 border-t border-white/[0.06]" aria-busy>
-          <span className="sr-only">Loading connectors</span>
-          <SkeletonRow
-            size="catalog"
-            className="border-b border-white/[0.06]"
-          />
-          <SkeletonRow
-            size="catalog"
-            className="border-b border-white/[0.06]"
-          />
-          <SkeletonRow size="catalog" />
-        </div>
+        <ConnectorsHeader actions={<Skeleton className="size-9" />} />
+        <section className="mt-12 flex min-h-0 flex-col border-t border-white/[0.06]">
+          <ConnectorListSkeleton />
+        </section>
       </main>
     )
   }
@@ -153,7 +138,7 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
   })
 
   const items = sortOrgConnectionsForDisplay(connections ?? [])
-  const showPageLoading = connectionsPending && !connections
+  const showPageLoading = useSkeletonHold(connectionsPending && !connections)
   const showEmptyState = !showPageLoading && items.length === 0
 
   useEffect(() => {
@@ -224,59 +209,29 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
           description={errorBanner.description}
         />
       ) : null}
-      <header className="mb-8">
-        <span className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
-          Connectors
-        </span>
-      </header>
-
-      <section>
-        <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between sm:gap-8">
-          <div className="min-w-0 flex-1">
-            <h1 className="text-3xl font-medium tracking-tight text-foreground">
-              Connectors
-            </h1>
-            <p className="mt-3 leading-relaxed text-muted-foreground">
-              Connect external tools and choose what content ctxpipe should
-              ingest.
-            </p>
-          </div>
-          {!showEmptyState ? (
-            <div className="flex shrink-0 flex-wrap items-center gap-2 sm:pt-1">
-              <Button
-                variant="secondary"
-                size="icon"
-                className="rounded-md"
-                aria-label="Add connection"
-                onPress={() => setCatalogOpen(true)}
-              >
-                <IconPlus className="size-5" aria-hidden />
-              </Button>
-            </div>
-          ) : null}
-        </div>
-      </section>
+      <ConnectorsHeader
+        actions={
+          showEmptyState ? null : (
+            <Button
+              variant="secondary"
+              size="icon"
+              className="rounded-md"
+              aria-label="Add connection"
+              onPress={() => setCatalogOpen(true)}
+            >
+              <IconPlus className="size-5" aria-hidden />
+            </Button>
+          )
+        }
+      />
 
       <section
         className={`mt-12 flex min-h-0 flex-col ${
-          !showPageLoading && !showEmptyState
-            ? "border-t border-white/[0.06]"
-            : ""
+          showEmptyState ? "" : "border-t border-white/[0.06]"
         }`}
       >
         {showPageLoading ? (
-          <div aria-busy>
-            <span className="sr-only">Loading connectors</span>
-            <SkeletonRow
-              size="catalog"
-              className="border-b border-white/[0.06]"
-            />
-            <SkeletonRow
-              size="catalog"
-              className="border-b border-white/[0.06]"
-            />
-            <SkeletonRow size="catalog" />
-          </div>
+          <ConnectorListSkeleton />
         ) : showEmptyState ? (
           <ConnectorsEmptyState onAddConnection={() => setCatalogOpen(true)} />
         ) : (
@@ -623,5 +578,35 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
         }}
       />
     </main>
+  )
+}
+
+function ConnectorsHeader(props: { actions: ReactNode }) {
+  return (
+    <>
+      <header className="mb-8">
+        <span className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
+          Connectors
+        </span>
+      </header>
+      <section>
+        <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between sm:gap-8">
+          <div className="min-w-0 flex-1">
+            <h1 className="text-3xl font-medium tracking-tight text-foreground">
+              Connectors
+            </h1>
+            <p className="mt-3 leading-relaxed text-muted-foreground">
+              Connect external tools and choose what content ctxpipe should
+              ingest.
+            </p>
+          </div>
+          {props.actions ? (
+            <div className="flex shrink-0 flex-wrap items-center gap-2 sm:pt-1">
+              {props.actions}
+            </div>
+          ) : null}
+        </div>
+      </section>
+    </>
   )
 }

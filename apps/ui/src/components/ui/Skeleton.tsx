@@ -110,6 +110,22 @@ function SkeletonGate(props: {
   return props.children
 }
 
+/**
+ * A bone inside one text line box, so the row has the height of the text it
+ * stands in for. Put the text size (for example `text-sm`) in `className` and
+ * the bone width in `boneClassName`.
+ */
+export function SkeletonText(props: {
+  className?: string
+  boneClassName?: string
+}) {
+  return (
+    <span className={cn("flex h-lh items-center", props.className)}>
+      <Skeleton className={cn("h-3 w-2/3", props.boneClassName)} />
+    </span>
+  )
+}
+
 export function SkeletonLine({ className, ...props }: ComponentProps<"span">) {
   return <Skeleton className={cn("h-3 w-2/3", className)} {...props} />
 }

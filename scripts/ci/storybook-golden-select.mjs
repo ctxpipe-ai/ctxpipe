@@ -29,6 +29,10 @@ export const requiredStories = [
   "FastLoadSkipsSkeleton",
   "VisibleSkeletonHoldsMinimum",
   "SuspenseHoldsMinimum",
+  "RecentCommitsSkeletonMatches",
+  "HeatmapSkeletonMatches",
+  "ConnectorRowSkeletonMatches",
+  "ConversationListSkeletonMatches",
 ]
 
 export function isGoldenPlaySuccess(phase) {

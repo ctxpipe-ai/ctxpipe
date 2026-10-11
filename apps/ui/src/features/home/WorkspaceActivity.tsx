@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
+import { useSkeletonHold } from "@/components/ui/Skeleton"
 import { workspaceActivityOptions } from "@/features/workspaces/queries"
 import {
   WorkspaceActivityHeatmap,
@@ -14,15 +15,21 @@ import {
 const sectionHeadingClassName =
   "text-xs font-medium uppercase tracking-normal text-teal-400"
 
+/** `workspaceSlug: null` keeps the skeleton while the caller still loads. */
 export function WorkspaceActivity(props: {
   orgSlug: string
-  workspaceSlug: string
+  workspaceSlug: string | null
 }) {
-  const query = useQuery(
-    workspaceActivityOptions(props.orgSlug, props.workspaceSlug),
+  const query = useQuery({
+    ...workspaceActivityOptions(props.orgSlug, props.workspaceSlug ?? ""),
+    enabled: props.workspaceSlug !== null,
+  })
+
+  const loading = useSkeletonHold(
+    query.isPending || query.data?.status === "pending",
   )
 
-  if (query.isPending || query.data?.status === "pending") {
+  if (loading) {
     return <WorkspaceActivityLoading />
   }
 
@@ -67,7 +74,7 @@ export function WorkspaceActivity(props: {
   )
 }
 
-export function WorkspaceActivityLoading() {
+function WorkspaceActivityLoading() {
   return (
     <>
       <section>

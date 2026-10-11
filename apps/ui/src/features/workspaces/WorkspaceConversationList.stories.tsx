@@ -1,4 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { HttpResponse, http } from "msw"
+import { expect, within } from "storybook/test"
+import {
+  expectBoxUnchanged,
+  responseGate,
+} from "@/components/ui/skeletonMatchStory"
 import {
   conversationsListHandler,
   conversationsListLoadingHandler,
@@ -104,4 +110,47 @@ export const Collapsed: Story = {
       </div>
     ),
   ],
+}
+
+const conversationsGate = responseGate()
+const threeConversations = [0, 1, 2].map((row) => ({
+  ...docsConversations[0],
+  id: `conv_${row + 1}`,
+  name: `Conversation ${row + 1}`,
+}))
+
+/** The loading rows have the same box as three loaded conversations. */
+export const ConversationListSkeletonMatches: Story = {
+  tags: ["workspace-golden"],
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          http.get(
+            ({ request }) =>
+              /\/api\/v1\/conversations$/.test(new URL(request.url).pathname),
+            async () => {
+              await conversationsGate.wait()
+              return HttpResponse.json({
+                items: threeConversations,
+                pageInfo: { hasNextPage: false, endCursor: null },
+              })
+            },
+          ),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const loading = await canvas.findByText("Loading conversations")
+    const list = loading.closest("ul")
+    if (!list) throw new Error("No conversation list")
+    await expectBoxUnchanged(list, async () => {
+      await conversationsGate.release()
+      expect(
+        await canvas.findByRole("link", { name: "Conversation 3" }),
+      ).toBeVisible()
+    })
+  },
 }

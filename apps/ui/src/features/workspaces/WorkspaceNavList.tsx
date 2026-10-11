@@ -1,9 +1,10 @@
 import { IconPlus } from "@tabler/icons-react"
 import { useSuspenseQuery } from "@tanstack/react-query"
 import { useState } from "react"
+import { SideNavRowSkeleton } from "@/components/SideNav/SideNavRowSkeleton"
 import type { SideNavLocation } from "@/components/SideNav/sideNavLocation"
 import { Button } from "@/components/ui/Button"
-import { SkeletonRow, SkeletonSuspense } from "@/components/ui/Skeleton"
+import { Skeleton, SkeletonSuspense } from "@/components/ui/Skeleton"
 import { isWorkspaceNavOpen } from "./nav"
 import { workspaceListOptions } from "./queries"
 import { WorkspaceCreateModal } from "./WorkspaceCreateModal"
@@ -19,30 +20,26 @@ export function WorkspaceNavList(props: {
   return (
     <SkeletonSuspense
       fallback={
-        props.expanded ? (
-          <>
-            <li className="mx-1.5 mt-2.5 mb-0.5 flex h-8 w-[calc(100%-0.75rem)] items-center px-2">
+        <>
+          {props.expanded ? (
+            <li className="mx-1.5 mt-2.5 mb-0.5 flex h-8 w-[calc(100%-0.75rem)] items-center pl-2">
               <p className="text-[10px] font-normal uppercase tracking-tighter text-muted-foreground">
                 Workspaces
               </p>
             </li>
-            <li className="space-y-0.5">
-              <div aria-busy>
-                <span className="sr-only">Loading workspaces</span>
-                <SkeletonRow />
-                <SkeletonRow />
-                <SkeletonRow />
-              </div>
-            </li>
-          </>
-        ) : (
-          <li>
-            <div aria-busy>
-              <span className="sr-only">Loading workspaces</span>
-              <SkeletonRow className="mx-1.5 w-[calc(100%-0.75rem)] px-0" />
-            </div>
+          ) : null}
+          <li className="sr-only" aria-busy>
+            Loading workspaces
           </li>
-        )
+          {(props.expanded ? [0, 1, 2] : [0]).map((row) => (
+            <li key={row} className="w-full">
+              <SideNavRowSkeleton
+                navExpanded={props.expanded}
+                gutter={<Skeleton className="size-4" />}
+              />
+            </li>
+          ))}
+        </>
       }
     >
       <WorkspaceNavListReady {...props} />

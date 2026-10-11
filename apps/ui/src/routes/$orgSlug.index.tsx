@@ -3,10 +3,7 @@ import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
 import { useEffect } from "react"
 import { Button } from "@/components/ui/Button"
 import { HomeComposer } from "@/features/home/HomeComposer"
-import {
-  WorkspaceActivity,
-  WorkspaceActivityLoading,
-} from "@/features/home/WorkspaceActivity"
+import { WorkspaceActivity } from "@/features/home/WorkspaceActivity"
 import { OrgOutletError } from "@/features/org/OrgOutletError"
 import {
   landingWorkspace,
@@ -66,12 +63,10 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
             selected={selected}
             onSelectWorkspace={setSelectedId}
           />
-          {sessionPending || listQuery.isPending ? (
-            <WorkspaceActivityLoading />
-          ) : selected ? (
+          {sessionPending || listQuery.isPending || selected ? (
             <WorkspaceActivity
               orgSlug={orgSlug}
-              workspaceSlug={selected.slug}
+              workspaceSlug={sessionPending ? null : (selected?.slug ?? null)}
             />
           ) : (
             <Button
