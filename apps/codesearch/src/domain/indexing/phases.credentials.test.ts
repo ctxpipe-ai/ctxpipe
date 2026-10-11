@@ -146,7 +146,7 @@ function context(clonePath: string) {
 }
 
 describe("phaseCloneCheckout credentials", () => {
-  it("clones with the token but keeps no token in .git/config", async () => {
+  it("keeps the remote URL plain after a clone", async () => {
     const clonePath = join(root, "clone-fresh")
     const result = await phaseCloneCheckout(context(clonePath), {})
     expect(result.targetHash).toBe(headSha)
@@ -155,7 +155,7 @@ describe("phaseCloneCheckout credentials", () => {
     expect(config).toContain("url = http://github.com/acme/demo.git")
   })
 
-  it("removes a token that an old checkout stored, on the next fetch", async () => {
+  it("sets the plain remote URL on each fetch", async () => {
     const clonePath = join(root, "clone-old")
     await git([
       "clone",
@@ -172,7 +172,7 @@ describe("phaseCloneCheckout credentials", () => {
     expect(config).not.toContain(TOKEN)
   })
 
-  it("keeps the token out of the error when the remote refuses it", async () => {
+  it("keeps the credential out of error messages", async () => {
     const clonePath = join(root, "clone-refused")
     const error = await phaseCloneCheckout(
       { ...context(clonePath), githubToken: `${TOKEN}_wrong` },
