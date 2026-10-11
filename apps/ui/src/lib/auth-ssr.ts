@@ -1,4 +1,4 @@
-import { apiFetch } from "./api-result"
+import { ApiError, apiFetch } from "./api-result"
 import { ssrApiBaseUrl } from "./ssr-api-base"
 
 export type SsrAuthUser = {
@@ -36,35 +36,42 @@ async function authFetchInit(): Promise<RequestInit> {
   return { credentials: "include" }
 }
 
-/** Session for route loaders — works on SSR with forwarded cookies. */
+/**
+ * Session for route loaders — works on SSR with forwarded cookies.
+ * Returns null only when the backend says there is no session. A network
+ * error, a timeout, or a server error throws `ApiError`: the loader must not
+ * send a signed-in user to sign-in because one call failed.
+ */
 export async function fetchSsrSession(): Promise<SsrSession> {
   const init = await authFetchInit()
-  try {
-    const res = await apiFetch(
-      `${authBaseUrl()}/.auth/api/v1/auth/get-session`,
-      init,
-    )
-    if (!res.ok) return null
-    const data = (await res.json()) as SsrSession | null
-    if (!data?.session || !data.user) return null
-    return data
-  } catch {
-    return null
-  }
+  const res = await apiFetch(
+    `${authBaseUrl()}/.auth/api/v1/auth/get-session`,
+    init,
+  )
+  if (res.status === 401) return null
+  if (!res.ok) throw failedAuthCall(res, "Session check failed")
+  const data = (await res.json()) as SsrSession | null
+  if (!data?.session || !data.user) return null
+  return data
 }
 
-/** Org membership list for route loaders. */
+/**
+ * Org membership list for route loaders. Returns [] only for a signed-out
+ * request (401). Other failures throw `ApiError`, so that a failed call does
+ * not send the user to onboarding.
+ */
 export async function fetchSsrOrganizations(): Promise<SsrOrganization[]> {
   const init = await authFetchInit()
-  try {
-    const res = await apiFetch(
-      `${authBaseUrl()}/.auth/api/v1/auth/organization/list`,
-      init,
-    )
-    if (!res.ok) return []
-    const data = (await res.json()) as SsrOrganization[] | null
-    return Array.isArray(data) ? data : []
-  } catch {
-    return []
-  }
+  const res = await apiFetch(
+    `${authBaseUrl()}/.auth/api/v1/auth/organization/list`,
+    init,
+  )
+  if (res.status === 401) return []
+  if (!res.ok) throw failedAuthCall(res, "Organization list failed")
+  const data = (await res.json()) as SsrOrganization[] | null
+  return Array.isArray(data) ? data : []
+}
+
+function failedAuthCall(res: Response, message: string): ApiError {
+  return new ApiError(`${message} (${res.status})`, res.status)
 }
