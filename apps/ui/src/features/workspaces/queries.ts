@@ -659,7 +659,7 @@ export async function fetchConversationPullRequest(
 export async function createConversationPullRequest(
   orgSlug: string,
   conversationId: string,
-  input?: { title?: string; body?: string },
+  input?: { title?: string },
 ): Promise<ConversationPullRequestResponse> {
   const client = await getApiClient()
   const res = await client[":orgSlug"].api.v1.conversations[":conversationId"][

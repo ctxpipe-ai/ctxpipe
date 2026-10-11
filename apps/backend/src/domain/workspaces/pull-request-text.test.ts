@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest"
-import {
-  pullRequestBody,
-  pullRequestTitle,
-  refreshedPullRequestBody,
-} from "./pull-request-text.js"
+import { pullRequestBody, pullRequestTitle } from "./pull-request-text.js"
 
 const changes = {
   commits: [
@@ -60,16 +56,18 @@ describe("pullRequestTitle", () => {
 })
 
 describe("pullRequestBody", () => {
-  it("lists the commit subjects, the changed files and the conversation", () => {
+  it("lists the commit subjects and links the conversation, without files", () => {
     const body = pullRequestBody({
       changes,
       conversationUrl: "https://app.example.com/acme/ws/docs/conv_1",
     })
-    expect(body).toContain("- docs: add referral bonus knowledge\n")
-    expect(body).not.toContain("The page explains the bonus")
-    expect(body).toContain("- `knowledge/rewards/referral-bonus.md` (added)")
-    expect(body).toContain(
-      "[Open the conversation in ctx|](https://app.example.com/acme/ws/docs/conv_1)",
+    expect(body).toBe(
+      [
+        "- docs: add referral bonus knowledge",
+        "- Link the referral page from the loyalty program",
+        "",
+        "[Open the conversation in ctx|](https://app.example.com/acme/ws/docs/conv_1)",
+      ].join("\n"),
     )
   })
 
@@ -81,51 +79,15 @@ describe("pullRequestBody", () => {
       },
       conversationUrl: null,
     })
-    expect(body).not.toContain("ghp_abcdefghijklmnopqrstuvwxyz0123456789")
-    expect(body).toContain("[masked]")
-    expect(body).not.toContain("Open the conversation")
+    expect(body).toBe("- Use [masked] for the clone")
   })
 
-  it("shows at most 50 files", () => {
-    const files = Array.from({ length: 53 }, (_, index) => ({
-      path: `docs/page-${index}.md`,
-      status: "added",
-    }))
-    const body = pullRequestBody({
-      changes: { commits: [], files },
-      conversationUrl: null,
-    })
-    expect(body).toContain("docs/page-49.md")
-    expect(body).not.toContain("docs/page-50.md")
-    expect(body).toContain("- 3 more files")
-  })
-})
-
-describe("refreshedPullRequestBody", () => {
-  const generated = pullRequestBody({ changes, conversationUrl: null })
-
-  it("writes the generated body into an empty body", () => {
-    expect(refreshedPullRequestBody("", generated)).toBe(generated)
-    expect(refreshedPullRequestBody(null, generated)).toBe(generated)
-  })
-
-  it("replaces only the ctx| section and keeps the text a person added", () => {
-    const old = pullRequestBody({
-      changes: { commits: ["Old"], files: [] },
-      conversationUrl: null,
-    })
-    const refreshed = refreshedPullRequestBody(
-      `Reviewer notes first.\n\n${old}\n\nThanks!`,
-      generated,
-    )
-    expect(refreshed).toBe(`Reviewer notes first.\n\n${generated}\n\nThanks!`)
-  })
-
-  it("leaves a body a person wrote without the ctx| section", () => {
-    expect(refreshedPullRequestBody("My own text", generated)).toBeNull()
-  })
-
-  it("does nothing when the body is already current", () => {
-    expect(refreshedPullRequestBody(generated, generated)).toBeNull()
+  it("says where the changes come from when there is nothing else", () => {
+    expect(
+      pullRequestBody({
+        changes: { commits: [], files: [] },
+        conversationUrl: null,
+      }),
+    ).toBe("Changes made in a ctx| conversation.")
   })
 })

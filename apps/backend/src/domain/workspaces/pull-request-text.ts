@@ -8,13 +8,6 @@ export type BranchChanges = {
   files: Array<{ path: string; status: string }>
 }
 
-const sectionStart = "<!-- ctxpipe:summary:start -->"
-const sectionEnd = "<!-- ctxpipe:summary:end -->"
-
-function fileName(path: string): string {
-  return path.split("/").pop() || path
-}
-
 /**
  * The pull request title: the conversation name as one clean line. Without a
  * usable name, a title that names the changed files.
@@ -25,20 +18,23 @@ export function pullRequestTitle(
 ): string {
   const title = isUnnamedConversation(name) ? "" : cleanTitle(name ?? "")
   if (title) return title
-  const [first, second] = changes.files.map((file) => fileName(file.path))
-  if (!first) return "Changes from ctx|"
-  if (!second) return cleanTitle(`Update ${first}`)
-  if (changes.files.length === 2)
-    return cleanTitle(`Update ${first} and ${second}`)
-  return cleanTitle(
-    `Update ${first} and ${changes.files.length - 1} other files`,
+  const [first, second] = changes.files.map(
+    (file) => file.path.split("/").pop() || file.path,
   )
+  if (!first) return "Changes from ctx|"
+  const others =
+    changes.files.length > 2
+      ? ` and ${changes.files.length - 1} other files`
+      : second
+        ? ` and ${second}`
+        : ""
+  return cleanTitle(`Update ${first}${others}`)
 }
 
 /**
- * The pull request body, plain markdown in a ctx| section: the commit
- * subjects, the changed files (at most 50) and a link to the conversation.
- * Credentials are masked.
+ * The pull request body, plain markdown written once at Create PR: the commit
+ * subjects and a link to the conversation. GitHub's Files tab lists the
+ * files. Credentials are masked.
  */
 export function pullRequestBody(input: {
   changes: BranchChanges
@@ -51,37 +47,10 @@ export function pullRequestBody(input: {
         .filter(Boolean),
     ),
   ]
-  const shown = input.changes.files.slice(0, 50)
-  const hidden = input.changes.files.length - shown.length
-  const lines = [sectionStart, "## Summary", ""]
-  if (subjects.length) lines.push(...subjects.map((subject) => `- ${subject}`))
-  else lines.push("Changes made in a ctx| conversation.")
-  if (shown.length) {
-    lines.push("", "## Changed files", "")
-    lines.push(...shown.map((file) => `- \`${file.path}\` (${file.status})`))
-    if (hidden > 0) lines.push(`- ${hidden} more files`)
-  }
+  const lines = subjects.length
+    ? subjects.map((subject) => `- ${subject}`)
+    : ["Changes made in a ctx| conversation."]
   if (input.conversationUrl)
     lines.push("", `[Open the conversation in ctx|](${input.conversationUrl})`)
-  lines.push(sectionEnd)
   return maskCredentials(lines.join("\n"))
-}
-
-/**
- * The body after a later push: an empty body gets the generated body, and the
- * ctx| section is replaced while the text around it stays. `null`: leave the
- * body as it is, because a person wrote it without the section or it is
- * already current.
- */
-export function refreshedPullRequestBody(
-  current: string | null | undefined,
-  generated: string,
-): string | null {
-  if (!current?.trim()) return generated
-  const start = current.indexOf(sectionStart)
-  const end = current.indexOf(sectionEnd, start)
-  if (start < 0 || end < 0) return null
-  const refreshed =
-    current.slice(0, start) + generated + current.slice(end + sectionEnd.length)
-  return refreshed === current ? null : refreshed
 }

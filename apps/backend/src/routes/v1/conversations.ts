@@ -22,7 +22,6 @@ import {
   sessionBranchOnGithub,
 } from "../../domain/workspaces/conversation-publish.js"
 import { cleanTitle } from "../../domain/workspaces/conversation-title.js"
-import { maskCredentials } from "../../domain/workspaces/mask-credentials.js"
 import { sameWorkspaceBinding } from "../../domain/workspaces/revision.js"
 import { postgresSandboxLocks } from "../../domain/workspaces/sandbox-lock-store.js"
 import {
@@ -444,7 +443,6 @@ const postConversationPrepareRoute = createRoute({
 const CreateConversationPullRequestSchema = z
   .object({
     title: z.string().min(1).optional(),
-    body: z.string().optional(),
   })
   .openapi("CreateConversationPullRequest")
 
@@ -657,8 +655,6 @@ async function createConversationPullRequest(input: {
   workspace: WorkspaceRecordFor
   /** From the client; else the conversation name, as one clean line. */
   title?: string
-  /** From the client; else a summary of the commits and changed files. */
-  body?: string
 }): Promise<
   | {
       pullRequest: {
@@ -772,7 +768,7 @@ async function createConversationPullRequest(input: {
       baseBranch: revision.defaultBranch,
       branch,
       title: described.title,
-      body: input.body?.trim() ? maskCredentials(input.body) : described.body,
+      body: described.body,
     })
     if (created && "refused" in created) {
       getLogger().warn("conversation-pull-request refused", {
@@ -1351,7 +1347,6 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
         return createConversationPullRequest({
           ...target,
           title: body.title,
-          body: body.body,
         })
       },
     })

@@ -916,53 +916,31 @@ const mergedPull = () => ({
 })
 
 it(
-  "opens the PR with a summary body and refreshes its ctx| section after a later push",
+  "opens the PR with a clean title and a summary body, and a shorter body when the compare fails",
   { timeout: 300_000 },
   async () => {
-    const pull = { ...mergedPull(), body: "" }
-    const updates: Array<{ body?: string }> = []
+    const compare = { fails: false }
     await withSession(
-      {
-        githubPullRequest: pull,
-        onGithubPullRequestUpdate: (body) => {
-          updates.push(body as { body?: string })
-        },
-      },
+      { githubCompareFails: () => compare.fails },
       async (_f, s) => {
-        pull.head.ref = s.branch
         const handle = await s.warm()
         await s.agentCommit(handle, "one.md", "Add note one")
-        expect((await s.createPr('"Add note one."\n\nMore text')).status).toBe(
-          200,
-        )
+        await s.agentCommit(handle, "two.md", "Add note two")
+        expect((await s.createPr('"Add notes."\n\nMore text')).status).toBe(200)
         const created = s.pullRequests[0] as { title: string; body: string }
-        expect(created.title).toBe("Add note one")
-        expect(created.body).toContain("- Add note one\n")
-        expect(created.body).toContain("- `one.md` (added)")
+        expect(created.title).toBe("Add notes")
         expect(created.body).toMatch(
           new RegExp(
-            `\\[Open the conversation in ctx\\|\\]\\(https?://[^)]+/ws/[^)]+/${s.conversationId}\\)`,
+            `^- Add note one\\n- Add note two\\n\\n\\[Open the conversation in ctx\\|\\]\\(https?://[^)]+/ws/[^)]+/${s.conversationId}\\)$`,
           ),
         )
-        expect(updates).toEqual([])
-        // A person adds a note above the ctx| section on GitHub.
-        pull.body = `Reviewer note\n\n${created.body}`
-        await s.turn("Write note two", [
-          commitStep("two.md", "Add note two"),
-          pushTool,
-        ])
-        expect(updates).toHaveLength(1)
-        const refreshed = updates[0]?.body ?? ""
-        expect(refreshed.startsWith("Reviewer note\n\n")).toBe(true)
-        expect(refreshed).toContain("- Add note two")
-        expect(refreshed).toContain("- `two.md` (added)")
-        // A body a person rewrote without the section stays as it is.
-        pull.body = "My own description"
-        await s.turn("Write note three", [
-          commitStep("three.md", "Add note three"),
-          pushTool,
-        ])
-        expect(updates).toHaveLength(1)
+        // The pull request opens even when GitHub cannot compare the branch.
+        compare.fails = true
+        expect((await s.createPr("Add notes")).status).toBe(200)
+        const second = s.pullRequests[1] as { body: string }
+        expect(second.body).toMatch(
+          /^Changes made in a ctx\| conversation\.\n\n\[Open the conversation in ctx\|\]/,
+        )
       },
     )
   },

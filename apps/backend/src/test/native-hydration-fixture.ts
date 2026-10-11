@@ -74,6 +74,8 @@ export type NativeHydrationOptions = {
   onGithubPullRequestRead?: () => void | Promise<void>
   onGithubPrCredential?: () => void | Promise<void>
   onGithubPullRequest?: (body: unknown) => void | Promise<void>
+  /** GitHub's compare answers 404 while this returns true. */
+  githubCompareFails?: () => boolean
   githubGitResponses?: Record<string, { status?: number; body: unknown }>
   onGithubRequest?: (method: string, url: string) => void
   onGithubGitRequest?: (method: string, path: string, body: unknown) => void
@@ -188,6 +190,8 @@ async function createNativeHydrationFixture(
     http.get(
       "https://api.github.com/repos/fixture/hydration-contract/compare/:basehead",
       ({ params }) => {
+        if (options.githubCompareFails?.())
+          return HttpResponse.json({ message: "Not Found" }, { status: 404 })
         const [base, head] = String(params.basehead).split("...")
         const remote = (...args: string[]) =>
           git("--git-dir", join(directory, "remote.git"), ...args)
