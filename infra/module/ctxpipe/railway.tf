@@ -233,8 +233,10 @@ resource "railway_variable_collection" "ui_env" {
     },
     {
       # UI SSR must reach the backend (not localhost baked into VITE_PUBLIC_API_URL).
+      # The port is 8080, the target port of the backend service domain. The
+      # backend sets no PORT variable, so `backend.PORT` can resolve empty.
       name  = "AUTH_BASE_URL"
-      value = "http://$${{backend.RAILWAY_PRIVATE_DOMAIN}}:$${{backend.PORT}}"
+      value = "http://$${{backend.RAILWAY_PRIVATE_DOMAIN}}:8080"
     }
   ], local.otel_shared_env)
 }

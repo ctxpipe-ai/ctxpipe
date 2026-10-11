@@ -23,9 +23,11 @@ export const Route = createFileRoute("/")({
         : undefined,
   }),
   loader: async ({ context }) => {
-    const session = await fetchSsrSession()
+    // This loader only warms the cache. The page reads the session in the
+    // browser, so a failed server-render call must not stop the page.
+    const session = await fetchSsrSession().catch(() => null)
     if (!session?.user.onboardingCompletedAt) return
-    const organizations = await fetchSsrOrganizations()
+    const organizations = await fetchSsrOrganizations().catch(() => [])
     await Promise.all(
       organizations.map((org) =>
         context.queryClient.ensureQueryData(workspaceListOptions(org.slug)),

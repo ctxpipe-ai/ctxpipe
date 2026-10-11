@@ -24,6 +24,7 @@ export const requiredStories = [
   "PrepareFailed",
   "PreparePendingWithError",
   "FailedTouchIsCaught",
+  "OrgGateTryAgainLoads",
 ]
 
 export function isGoldenPlaySuccess(phase) {
