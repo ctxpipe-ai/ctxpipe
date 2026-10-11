@@ -5,7 +5,7 @@ Status: done on `fix/ctx-531-files-put-git`. The conversation Files routes and t
 ## Rules
 
 - A Files write, rename, or delete changes only worktree files. It uses the same rule as the Files read, but a new file is permitted. The path cannot be in `.git` at any depth, and no part of the path can be a symlink.
-- Backend git commands in a sandbox ignore programs that the repository defines. The rule applies to hooks, the fsmonitor, the external diff, textconv, and filter drivers.
+- Backend git commands in a sandbox ignore programs that the repository defines. The rule applies to hooks, the fsmonitor, the external diff, textconv, filter drivers, and merge drivers. A merge driver becomes `git merge-file`, the built-in text merge.
 
 ## Implementation
 
@@ -14,9 +14,5 @@ Status: done on `fix/ctx-531-files-put-git`. The conversation Files routes and t
 
 ## Tests
 
-- `conversation-files.test.ts`, block "conversation sandbox writes", uses real git. It covers the path rules, normal writes (new, nested, and existing files), and a repository with configured programs. Backend status and diff commands do not run these programs.
+- `conversation-files.test.ts`, block "conversation sandbox writes", uses real git. It covers the path rules, normal writes (new, nested, and existing files), and a repository with configured programs. Backend status, diff, and rebase commands do not run these programs.
 - Two contract tests do not use sandbox hooks now. A failed commit comes from an index lock. The push barrier is a hook on the fixture remote.
-
-## Follow-ups
-
-- Merge drivers from the repository config are not in the rule yet. A backend rebase can use them.
