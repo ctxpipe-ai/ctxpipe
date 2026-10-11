@@ -50,3 +50,8 @@ The resolution above did not find this. Its scripted model never ends a model ca
 - Proof at the lock seam: `workspace-chat-thread-lock.test.ts` now uses the production middleware order, with `openCodeTrailingUserMiddleware` last, and a tool that the engine runs. "stores only the browser's questions after the engine runs a tool" sends three questions. Before the fix it failed with `ConversationChangedError`. After the fix the stored question ids are the browser's question ids, and each model call gets a user message last.
 - The native OpenCode contract tests pass with real OpenCode. Three WebSocket tests in `workspace-chat-native.contract.test.ts` fail on this machine with and without the change (`"" cannot be parsed as a URL` in the Bun client). CI is the check for them.
 - A conversation that already has a stored copy stays blocked, because the copy is in its transcript. Start a new conversation. `main` does not have this middleware, so production transcripts do not have the copy.
+
+### Follow-up
+
+- `tanstack-workspace-chat.ts` still applies `messagesForOpenCodeChat` one time to the first messages, before `chat()`. The middleware now does this at init, so the call is probably not necessary. When the history of a send does not end on its question, the call can still add a copy with no id to the run's `messages`. The three-axis review recommends to remove it and pass `input.messages ?? []`. Do this in a separate change, with a test of the first turn.
+- The lock test gets its prompt from `openCodeExtractableUserText`. Production gets it from `lastUserPrompt` in `transport.ts`. Use the production parser in the test if the two can differ.

@@ -129,7 +129,7 @@ describe("messagesForOpenCodeChat", () => {
       },
     )
     const patch = result && typeof result === "object" ? result : {}
-    // The run's messages are the stored transcript; the copy is not a question.
+    // The run's messages are the stored transcript. The copy is not a question.
     expect(patch).not.toHaveProperty("messages")
     const providerMessages =
       "providerMessages" in patch ? patch.providerMessages : undefined
