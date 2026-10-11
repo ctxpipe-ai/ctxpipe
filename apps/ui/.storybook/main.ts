@@ -1,5 +1,4 @@
-import { createRequire } from "node:module"
-import { dirname, join, resolve } from "node:path"
+import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 const useSyncExternalStoreWithSelectorShim = fileURLToPath(
@@ -22,11 +21,6 @@ import { mergeConfig } from "vite"
 import tsconfigPaths from "vite-tsconfig-paths"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-
-const require = createRequire(join(process.cwd(), "package.json"))
-const { motionwind } = require("motionwind-react/vite") as {
-  motionwind: () => PluginOption
-}
 
 const cosmographStyleAlias = resolve(
   __dirname,
@@ -118,7 +112,6 @@ const config: StorybookConfig = {
         tanstackStartPlugin(),
         tsconfigPaths({ projects: ["./tsconfig.json"] }),
         tailwindcss(),
-        motionwind(),
       ],
     })
   },

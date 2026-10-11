@@ -4,7 +4,6 @@ import {
   useSuspenseQuery,
 } from "@tanstack/react-query"
 import { useNavigate, useRouterState, useSearch } from "@tanstack/react-router"
-import { AnimatePresence } from "motion/react"
 import { Component, type ReactNode, Suspense, useEffect, useState } from "react"
 import { useSideNavLocation } from "@/components/ShellLayoutContext"
 import { parseSideNavLocation } from "@/components/SideNav/sideNavLocation"
@@ -180,10 +179,8 @@ function WorkspacePrepareFailedLayout(props: {
           </div>
         </WorkspaceChatChrome>
       </div>
-      <AnimatePresence initial={false}>
         {paneOpen ? (
           <WorkspacePane
-            key="pane"
             orgSlug={orgSlug}
             workspace={workspace}
             pane={pane}
@@ -216,7 +213,6 @@ function WorkspacePrepareFailedLayout(props: {
             onToggleTree={() => {}}
           />
         ) : null}
-      </AnimatePresence>
     </div>
   )
 }
@@ -519,10 +515,8 @@ function WorkspaceSurfaceColumns(props: {
           />
         </WorkspaceQueryErrorBoundary>
       </div>
-      <AnimatePresence initial={false}>
         {paneOpen && shownPane ? (
           <WorkspaceQueryErrorBoundary
-            key="pane"
             fallback={(error, reset) => (
               <WorkspaceColumnError
                 title="Could not load pane"
@@ -576,7 +570,6 @@ function WorkspaceSurfaceColumns(props: {
             />
           </WorkspaceQueryErrorBoundary>
         ) : null}
-      </AnimatePresence>
     </div>
   )
 }
