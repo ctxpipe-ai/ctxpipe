@@ -371,24 +371,24 @@ function htmlToMarkdown(
   for (const [index, match] of mediaMatches.entries()) {
     withPlaceholders += withoutCodeMacros.slice(cursor, match.start)
     const media = match.media
-    const pageHref =
-      media.kind === "page"
-        ? resolvePage?.(media.title, media.spaceKey)
-        : undefined
-    const rendered =
-      media.kind === "page"
-        ? pageHref
-          ? `[${markdownLabel(media.alt)}](${pageHref})`
-          : markdownLabel(media.alt)
-        : match.media.kind === "link"
-          ? isConnectorAssetCredentialUrl(match.media.url, {
-              includeGenericCredentials: true,
-            })
-            ? markdownLabel(match.media.alt)
-            : `[${markdownLabel(match.media.alt)}](${match.media.url})`
-          : resolveMedia === undefined
-            ? ""
-            : renderResolvedMedia(match.media, resolveMedia(match.media))
+    let rendered: string
+    if (media.kind === "page") {
+      const href = resolvePage?.(media.title, media.spaceKey)
+      rendered = href
+        ? `[${markdownLabel(media.alt)}](${href})`
+        : markdownLabel(media.alt)
+    } else if (media.kind === "link") {
+      rendered = isConnectorAssetCredentialUrl(media.url, {
+        includeGenericCredentials: true,
+      })
+        ? markdownLabel(media.alt)
+        : `[${markdownLabel(media.alt)}](${media.url})`
+    } else {
+      rendered =
+        resolveMedia === undefined
+          ? ""
+          : renderResolvedMedia(media, resolveMedia(media))
+    }
     replacements[index] = match.block ? `\n\n${rendered}\n\n` : rendered
     withPlaceholders += `${MEDIA_PLACEHOLDER_PREFIX}${index}@@`
     cursor = match.end
