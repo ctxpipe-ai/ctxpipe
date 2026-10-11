@@ -4,7 +4,6 @@ import {
   useSuspenseQuery,
 } from "@tanstack/react-query"
 import { useNavigate, useRouterState, useSearch } from "@tanstack/react-router"
-import { AnimatePresence } from "motion/react"
 import { Component, type ReactNode, useEffect, useState } from "react"
 import { useSideNavLocation } from "@/components/ShellLayoutContext"
 import { parseSideNavLocation } from "@/components/SideNav/sideNavLocation"
