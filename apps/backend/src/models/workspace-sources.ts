@@ -125,3 +125,50 @@ export async function listConnectionSourceRows(input: {
       .orderBy(workspaces.slug, workspaceSources.sourceKey),
   )
 }
+
+/** The source rows of one org with one provider and status. */
+export async function listOrgSourceRows(input: {
+  orgId: string
+  provider: string
+  status: WorkspaceSourceRow["status"]
+}): Promise<WorkspaceSourceRow[]> {
+  return withOrgDbContext(input.orgId, (db) =>
+    db
+      .select()
+      .from(workspaceSources)
+      .where(
+        and(
+          eq(workspaceSources.provider, input.provider),
+          eq(workspaceSources.status, input.status),
+        ),
+      ),
+  )
+}
+
+/**
+ * Record a new access check of one source row. The row keeps its revision;
+ * a projection of a newer revision since the read wins.
+ */
+export async function recordSourceAccessCheck(input: {
+  orgId: string
+  id: string
+  revision: string
+  status: "ok" | "out_of_access"
+  statusDetail: string | null
+}): Promise<void> {
+  await withOrgDbContext(input.orgId, (db) =>
+    db
+      .update(workspaceSources)
+      .set({
+        status: input.status,
+        statusDetail: input.statusDetail,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(workspaceSources.id, input.id),
+          eq(workspaceSources.revision, input.revision),
+        ),
+      ),
+  )
+}
