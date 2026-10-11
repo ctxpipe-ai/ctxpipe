@@ -160,22 +160,23 @@ export const workspaceHydrate = defineWorkflow(
                     : null,
               }),
             )
+            // Not a step: OpenWorkflow keeps a step output in one jsonb value
+            // and loads all outputs on each replay. The tree at a fixed SHA
+            // does not change, so a replay reads the same files again.
             const treeFiles = planning.needed
-              ? await step.run({ name: "read-planning-revision" }, async () =>
-                  listMarkdownFilesAtGitSha({
-                    includeIntroducingCommits: true,
-                    extraPaths: [SOURCES_FILE_PATH],
-                    url: revision.remote.url,
-                    sha: revision.sha,
-                    token:
-                      token ??
-                      (await resolveRepositoryReadCredential({
-                        orgId: input.orgId,
-                        env,
-                        remote: revision.remote,
-                      })),
-                  }),
-                )
+              ? await listMarkdownFilesAtGitSha({
+                  includeIntroducingCommits: true,
+                  extraPaths: [SOURCES_FILE_PATH],
+                  url: revision.remote.url,
+                  sha: revision.sha,
+                  token:
+                    token ??
+                    (await resolveRepositoryReadCredential({
+                      orgId: input.orgId,
+                      env,
+                      remote: revision.remote,
+                    })),
+                })
               : []
             const files = treeFiles.filter(
               (file) => file.path !== SOURCES_FILE_PATH,
