@@ -42,15 +42,13 @@ const config = defineConfig({
   test: {
     server: {
       deps: {
-        // Load React Aria, React Query and TanStack Router through Vite, as the
-        // app code is, so a jsdom test renders them with the same React copy as
-        // react-dom.
+        // Load React Aria and React Query through Vite, as the app code is, so
+        // a jsdom test renders them with the same React copy as react-dom.
         inline: [
           /react-aria/,
           /react-stately/,
           /@internationalized\//,
           /@tanstack\/react-query/,
-          /@tanstack\/react-router/,
         ],
       },
     },
