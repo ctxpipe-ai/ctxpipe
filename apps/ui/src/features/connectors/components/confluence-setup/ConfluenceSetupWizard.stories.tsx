@@ -152,6 +152,12 @@ const meta = {
   title: "Components/Connections/Atlassian/SetupWizard",
   component: ConfluenceSetupWizard,
   decorators: entryPageInnerDecorators,
+  args: {
+    orgSlug,
+    atlassianConnectionId,
+    isOpen: true,
+    onOpenChange: () => {},
+  },
   parameters: {
     layout: "fullscreen",
     docs: {
@@ -363,8 +369,39 @@ export const SkipWorkspaces: Story = {
   },
 }
 
+export const ReplacedSetup: Story = {
+  name: "08 / Replaced setup with a config pull request",
+  render: () => wizard(),
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          status({
+            ...sInstalled,
+            setupPhase: "awaiting_merge",
+            pendingConfigPullUrl: "https://github.com/acme/wiki/pull/12",
+          }),
+          orgAtlassianOauthGet(true, false),
+          workspaceListHandler([docsWorkspace]),
+          ...confluenceTreeHandlers,
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const body = within(canvasElement.ownerDocument.body)
+    await expect(await body.findByText(/This setup was replaced/)).toBeVisible()
+    await expect(
+      body.getByRole("link", { name: "configuration pull request" }),
+    ).toHaveAttribute("href", "https://github.com/acme/wiki/pull/12")
+    await expect(
+      body.getByRole("checkbox", { name: docsWorkspace.displayName }),
+    ).toBeVisible()
+  },
+}
+
 export const MissingConnectionId: Story = {
-  name: "08 / Missing connection id",
+  name: "09 / Missing connection id",
   render: () => wizard({ atlassianConnectionId: undefined }),
   parameters: {
     msw: {

@@ -1,15 +1,9 @@
 import type { SourceProvider } from "backend/domain/workspace-sources/sources-file"
-import { useState } from "react"
 import { Heading } from "react-aria-components"
 import { Button } from "@/components/ui/Button"
 import { Dialog } from "@/components/ui/Dialog"
 import { Modal } from "@/components/ui/Modal"
 import { ChooseWorkspacesStep } from "./ChooseWorkspacesStep"
-import {
-  type ChooseWorkspacesValue,
-  chooseWorkspacesRequests,
-  emptyChooseWorkspaces,
-} from "./choose-workspaces"
 import { sourceProviderLabel } from "./source-provider-ui"
 import { useAddToWorkspaces } from "./useAddToWorkspaces"
 
@@ -22,27 +16,22 @@ export function AddToWorkspacesDialog(props: {
   onOpenChange: (open: boolean) => void
 }) {
   const { orgSlug, connectionId, provider, isOpen, onOpenChange } = props
-  const [value, setValue] = useState<ChooseWorkspacesValue>(
-    emptyChooseWorkspaces,
-  )
-  const requests = chooseWorkspacesRequests(value, { provider, connectionId })
-
+  const adding = useAddToWorkspaces({
+    orgSlug,
+    provider,
+    connectionId,
+    onAdded: () => onOpenChange(false),
+  })
   const close = () => {
-    setValue(emptyChooseWorkspaces())
+    adding.reset()
     onOpenChange(false)
   }
-
-  const addMutation = useAddToWorkspaces({
-    orgSlug,
-    connectionId,
-    onAdded: close,
-  })
 
   return (
     <Modal
       isOpen={isOpen}
       onOpenChange={(open) => (open ? onOpenChange(true) : close())}
-      isDismissable={!addMutation.isPending}
+      isDismissable={!adding.isPending}
       size="medium"
       placement="top"
     >
@@ -61,8 +50,8 @@ export function AddToWorkspacesDialog(props: {
             orgSlug={orgSlug}
             provider={provider}
             connectionId={connectionId}
-            value={value}
-            onChange={setValue}
+            value={adding.value}
+            onChange={adding.setValue}
           />
         </div>
         <div className="mt-6 flex justify-end gap-2">
@@ -71,9 +60,9 @@ export function AddToWorkspacesDialog(props: {
           </Button>
           <Button
             variant="primary"
-            isDisabled={!requests}
-            isPending={addMutation.isPending}
-            onPress={() => requests && addMutation.mutate(requests)}
+            isDisabled={!adding.canAdd}
+            isPending={adding.isPending}
+            onPress={adding.add}
           >
             Add
           </Button>

@@ -1,16 +1,16 @@
-import { useState } from "react"
 import { Button } from "@/components/ui/Button"
+import { InlineAlert } from "@/components/ui/InlineAlert"
 import { ChooseWorkspacesStep } from "@/features/workspace-sources/ChooseWorkspacesStep"
-import {
-  type ChooseWorkspacesValue,
-  chooseWorkspacesRequests,
-  emptyChooseWorkspaces,
-} from "@/features/workspace-sources/choose-workspaces"
 import { useAddToWorkspaces } from "@/features/workspace-sources/useAddToWorkspaces"
 
 type AddToWorkspacesStepProps = {
   orgSlug: string
   atlassianConnectionId: string
+  /**
+   * The config pull request of an earlier setup (before Workspace sources).
+   * ctx| does not use it now; the step tells the user to close it.
+   */
+  replacedConfigPullUrl?: string | null
   /** After the add, or when the user skips the step. */
   onDone: () => void
 }
@@ -19,18 +19,12 @@ type AddToWorkspacesStepProps = {
 export function AddToWorkspacesStep({
   orgSlug,
   atlassianConnectionId,
+  replacedConfigPullUrl,
   onDone,
 }: AddToWorkspacesStepProps) {
-  const [value, setValue] = useState<ChooseWorkspacesValue>(
-    emptyChooseWorkspaces,
-  )
-  const base = {
-    provider: "confluence" as const,
-    connectionId: atlassianConnectionId,
-  }
-  const requests = chooseWorkspacesRequests(value, base)
-  const addMutation = useAddToWorkspaces({
+  const adding = useAddToWorkspaces({
     orgSlug,
+    provider: "confluence",
     connectionId: atlassianConnectionId,
     onAdded: onDone,
   })
@@ -45,25 +39,37 @@ export function AddToWorkspacesStep({
           pages for each.
         </p>
       </div>
+      {replacedConfigPullUrl ? (
+        <InlineAlert variant="warning">
+          This setup was replaced. ctx| no longer uses the{" "}
+          <a
+            href={replacedConfigPullUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="underline underline-offset-2"
+          >
+            configuration pull request
+          </a>{" "}
+          of the earlier setup. Close it, and add the spaces to a Workspace here
+          instead.
+        </InlineAlert>
+      ) : null}
       <ChooseWorkspacesStep
         orgSlug={orgSlug}
-        {...base}
-        value={value}
-        onChange={setValue}
+        provider="confluence"
+        connectionId={atlassianConnectionId}
+        value={adding.value}
+        onChange={adding.setValue}
       />
       <div className="flex justify-end gap-2">
-        <Button
-          variant="quiet"
-          isDisabled={addMutation.isPending}
-          onPress={onDone}
-        >
+        <Button variant="quiet" isDisabled={adding.isPending} onPress={onDone}>
           Skip for now
         </Button>
         <Button
           variant="primary"
-          isDisabled={!requests}
-          isPending={addMutation.isPending}
-          onPress={() => requests && addMutation.mutate(requests)}
+          isDisabled={!adding.canAdd}
+          isPending={adding.isPending}
+          onPress={adding.add}
         >
           Add to Workspaces
         </Button>

@@ -312,6 +312,7 @@ export function ConfluenceSetupWizard({
               <AddToWorkspacesStep
                 orgSlug={orgSlug}
                 atlassianConnectionId={atlassianConnectionId}
+                replacedConfigPullUrl={status.pendingConfigPullUrl}
                 onDone={() => {
                   setManualStepIndex(null)
                   setWorkspacesDone(true)
