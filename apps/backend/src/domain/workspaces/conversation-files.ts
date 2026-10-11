@@ -244,7 +244,12 @@ export async function writeConversationSandboxFile(input: {
   }
   const parent = input.path.split("/").slice(0, -1).join("/")
   if (parent) await input.handle.fs.mkdir(parent)
-  await input.handle.fs.write(input.path, input.body)
+  // The Docker handle runs `mkdir -p` on the part before the last "/". A
+  // root file has none, so the handle made a directory with the file's name.
+  await input.handle.fs.write(
+    parent ? input.path : `./${input.path}`,
+    input.body,
+  )
 }
 
 export async function removeConversationSandboxPath(input: {

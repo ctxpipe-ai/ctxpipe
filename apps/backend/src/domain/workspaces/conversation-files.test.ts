@@ -10,6 +10,7 @@ import {
 } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { DockerHandle } from "@tanstack/ai-sandbox-docker"
 import { describe, expect, it } from "vitest"
 import {
   conversationPathIsSafe,
@@ -21,8 +22,10 @@ import {
   readConversationSandboxFile,
   sanitizeGitRemoteError,
   splitGitNulPaths,
+  writeConversationSandboxFile,
 } from "./conversation-files.js"
 import { switchToSessionBranch } from "./conversation-session-branch.js"
+import { adaptTanstackHandle } from "./job-sandbox.js"
 import type { JobSandboxHandle } from "./job-worktree.js"
 import type { WorkspaceRevision } from "./revision.js"
 import { advanceConversationWorktree } from "./workspace-chat-revision-transition.js"
@@ -325,6 +328,42 @@ describe("conversation sandbox files", { timeout: 15_000 }, () => {
         expect(await changes()).toEqual([])
       },
     )
+  })
+
+  it("saves a new and an existing file at the root of a Docker sandbox", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "ctxpipe-docker-write-"))
+    try {
+      writeFileSync(join(directory, "notes.md"), "old\n")
+      // The Docker handle's own file writes, with the container's shell
+      // replaced by a local shell in the same working directory.
+      const docker = new DockerHandle({
+        container: { id: "fixture" },
+        workdir: "/workspace",
+      } as unknown as ConstructorParameters<typeof DockerHandle>[0])
+      const shell = realHandle(directory)
+      Object.assign(docker, {
+        exec: (command: string) => shell.exec(command),
+      })
+      const handle = adaptTanstackHandle(
+        docker as unknown as Parameters<typeof adaptTanstackHandle>[0],
+      )
+      await writeConversationSandboxFile({
+        handle,
+        path: "referral-faq.md",
+        body: "# FAQ\n",
+      })
+      await writeConversationSandboxFile({
+        handle,
+        path: "notes.md",
+        body: "new\n",
+      })
+      expect(readFileSync(join(directory, "referral-faq.md"), "utf8")).toBe(
+        "# FAQ\n",
+      )
+      expect(readFileSync(join(directory, "notes.md"), "utf8")).toBe("new\n")
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
   })
 
   it("lists only the conversation's own changes after the Workspace moves on", async () => {
