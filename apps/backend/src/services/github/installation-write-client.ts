@@ -639,6 +639,28 @@ export async function getPullRequestHeadBranch(
   return data.head.ref || undefined
 }
 
+/** The open pull requests whose head branch starts with `branchPrefix` (first 100). */
+export async function listOpenPullRequestsByBranchPrefix(
+  input: BaseInput & { branchPrefix: string },
+): Promise<Array<{ pullUrl: string; branch: string; createdAt: string }>> {
+  const context = await getInstallationContext(input, { pull_requests: "read" })
+  const { data } = await withTransientGitHubRetry(() =>
+    context.octokit.rest.pulls.list({
+      owner: context.owner,
+      repo: context.repo,
+      state: "open",
+      per_page: 100,
+    }),
+  )
+  return data
+    .filter((pull) => pull.head.ref.startsWith(input.branchPrefix))
+    .map((pull) => ({
+      pullUrl: pull.html_url,
+      branch: pull.head.ref,
+      createdAt: pull.created_at,
+    }))
+}
+
 /** Whether `compareCommits` lists `path` among added/changed/removed files (push webhook fallback). */
 export async function compareCommitsTouchesPath(
   input: BaseInput & {

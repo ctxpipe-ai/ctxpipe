@@ -64,6 +64,14 @@ export const requiredStories = [
   "UnrelatedLoadKeepsItsDelay",
   "HandOverHoldsMinimum",
   "HandOverUsesPaintStart",
+  "UsedInLinksToSourceSection",
+  "SeveralProviders",
+  "ScrollsToSourceAnchor",
+  "EditSendsChange",
+  "ReadOnlyHidesChanges",
+  "DirectCommitQueued",
+  "PickerShowsConnectionNames",
+  "ChooseWorkspacesMulti",
 ]
 
 export function isGoldenPlaySuccess(phase) {

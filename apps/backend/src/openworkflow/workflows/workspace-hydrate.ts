@@ -2,6 +2,8 @@ import { z } from "zod"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
+import { projectWorkspaceSources } from "../../domain/workspace-sources/project.js"
+import { SOURCES_FILE_PATH } from "../../domain/workspace-sources/sources-file.js"
 import { embedHydrateUnits } from "../../domain/workspaces/derived-stores.js"
 import { projectWorkspaceGraph } from "../../domain/workspaces/graph-projection.js"
 import {
@@ -157,10 +159,11 @@ export const workspaceHydrate = defineWorkflow(
                     : null,
               }),
             )
-            const files = planning.needed
+            const treeFiles = planning.needed
               ? await step.run({ name: "read-planning-revision" }, async () =>
                   listMarkdownFilesAtGitSha({
                     includeIntroducingCommits: true,
+                    extraPaths: [SOURCES_FILE_PATH],
                     url: revision.remote.url,
                     sha: revision.sha,
                     token:
@@ -173,6 +176,9 @@ export const workspaceHydrate = defineWorkflow(
                   }),
                 )
               : []
+            const files = treeFiles.filter(
+              (file) => file.path !== SOURCES_FILE_PATH,
+            )
             const enqueueRemainingWrites = async () => {
               if (!planning.needed) return
               const plan = await step.run(
@@ -341,6 +347,40 @@ export const workspaceHydrate = defineWorkflow(
                   skipped: parsed.skipped.length,
                 }
               }
+            }
+
+            if (activated && pending.postgres && planning.needed) {
+              // Two steps: a retry of the follow-ups reuses the memoized
+              // diff, because a second projection of the same revision finds
+              // no diff.
+              const projected = await step.run(
+                { name: "project-workspace-sources" },
+                () =>
+                  projectWorkspaceSources({
+                    orgId: input.orgId,
+                    workspaceId: workspace.id,
+                    revision: revision.sha,
+                    text:
+                      treeFiles.find((file) => file.path === SOURCES_FILE_PATH)
+                        ?.content ?? null,
+                    env,
+                  }),
+              )
+              await step.run(
+                { name: "enqueue-source-follow-ups" },
+                async () => {
+                  // Import at the admission boundary, like the PR backfill above.
+                  const { enqueueSourceProjectionFollowUps } = await import(
+                    "../../domain/workspace-sources/enqueue.js"
+                  )
+                  await enqueueSourceProjectionFollowUps({
+                    orgId: input.orgId,
+                    workspaceId: workspace.id,
+                    revision: revision.sha,
+                    projected,
+                  })
+                },
+              )
             }
 
             if (activated && pending.graph) {

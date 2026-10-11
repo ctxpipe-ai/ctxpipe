@@ -44,6 +44,7 @@ import {
 import { pendingAtlassianClaimRoutes } from "./pending-atlassian-claim.js"
 import { repositoryRoutes } from "./repositories.js"
 import { workspaceChatOpenaiRoutes } from "./workspace-chat-openai.js"
+import { connectionUsageRoutes } from "./workspace-sources-routes.js"
 import { workspaceRoutes } from "./workspaces.js"
 
 const githubInstallationAdminScoped = new OpenAPIHono<AppEnv>()
@@ -96,6 +97,7 @@ function createOrgScopedV1<BasePath extends string>(
     .route("/org/atlassian-oauth", orgAtlassianOauthAdminRoutes)
     .route("/capabilities", orgCapabilitiesRoutes)
     .route("/connectors", connectorsListRoutes)
+    .route("/connectors", connectionUsageRoutes)
     .route("/onboarding", orgOnboardingRoutes)
     .route("/openai", openaiRoutes)
 }

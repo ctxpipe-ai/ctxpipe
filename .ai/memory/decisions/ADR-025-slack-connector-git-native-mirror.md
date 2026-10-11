@@ -1,6 +1,6 @@
 # ADR-025: Slack connector as intent-based git-native capture
 
-**Status:** Accepted | **Date:** 2026-08-05 | **Updated:** 2026-08-21 | **Tags:** connectors, slack, github, multi-tenant, mcp
+**Status:** Accepted (sync repository and scope file superseded by [ADR-050](ADR-050-workspace-sources-config-file.md)) | **Date:** 2026-08-05 | **Updated:** 2026-08-21 | **Tags:** connectors, slack, github, multi-tenant, mcp
 
 ## Context
 

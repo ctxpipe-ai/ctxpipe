@@ -11,6 +11,8 @@ const ConnectorListItemSchema = z
   .object({
     id: z.string(),
     type: z.enum(["github", "forge", "slack", "linear", "notion", "pagerduty"]),
+    /** The account, site, or workspace name that the provider gives. */
+    displayName: z.string().nullable(),
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),
   })
@@ -88,6 +90,7 @@ export const connectorsListRoutes = new OpenAPIHono<AppEnv>()
         items: rows.map((r) => ({
           id: r.id,
           type: r.type,
+          displayName: r.displayName,
           createdAt: r.createdAt.toISOString(),
           updatedAt: r.updatedAt.toISOString(),
         })),

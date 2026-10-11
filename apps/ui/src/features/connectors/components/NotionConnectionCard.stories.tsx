@@ -2,6 +2,10 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import type { ReactNode } from "react"
 import { fn } from "storybook/test"
+import {
+  connectionUsageHandler,
+  connectionUsageItem,
+} from "@/mocks/workspace-sources-handlers"
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
 import { notionOauthAppHandler } from "../mocks/notion-oauth-app-msw"
@@ -48,6 +52,18 @@ const meta = {
   args: { orgSlug, connectionId, onOpenSetup: () => {} },
   decorators: entryPageInnerDecorators,
   parameters: {
+    msw: {
+      handlers: {
+        usage: [
+          connectionUsageHandler([
+            connectionUsageItem({
+              workspaceSlug: "docs",
+              workspaceName: "Docs",
+            }),
+          ]),
+        ],
+      },
+    },
     layout: "fullscreen",
     storyRoute: {
       pattern: "orgIndex",

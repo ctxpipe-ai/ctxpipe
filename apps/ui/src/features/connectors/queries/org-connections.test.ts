@@ -11,6 +11,7 @@ function row(
   return {
     id: `con_${type}_${createdAt}`,
     type,
+    displayName: null,
     createdAt,
     updatedAt: createdAt,
   }

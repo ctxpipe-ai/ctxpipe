@@ -1,6 +1,6 @@
 # ADR-034: PagerDuty connector Git-native mirror
 
-**Status:** Accepted | **Date:** 2026-09-14 | **Tags:** connectors, pagerduty, oauth, webhooks, git, multi-tenant
+**Status:** Accepted (sync repository and scope file superseded by [ADR-050](ADR-050-workspace-sources-config-file.md)) | **Date:** 2026-09-14 | **Tags:** connectors, pagerduty, oauth, webhooks, git, multi-tenant
 
 ## Context
 

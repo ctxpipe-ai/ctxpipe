@@ -9,9 +9,11 @@ import {
   readGitFiles,
   withGitDirectory,
 } from "../../services/git/pack.js"
+import { SOURCES_FILE_PATH } from "../workspace-sources/sources-file.js"
 import type {
   ConfiguredConnectorMirrorSource,
   ConnectorMirrorSource,
+  WorkspaceSourcesMirrorSource,
 } from "./connector-mirror-input.js"
 import { isLinkedRepositoryDeclaration } from "./layout.js"
 import { declaresLinkedRepository } from "./link-declarations.js"
@@ -32,9 +34,12 @@ export async function assertConnectorMirrorBinding(
     | Pick<
         ConfiguredConnectorMirrorSource,
         "provider" | "connectionId" | "repositoryId"
-      >,
+      >
+    | WorkspaceSourcesMirrorSource,
   revision: WorkspaceRevision,
 ): Promise<void> {
+  // A Workspace source sync has no binding: the sources file blob fences it.
+  if ("sourcesBlobSha" in source) return
   // GitHub has no binding; assertConnectorMirrorScope checks the link.
   if (source.provider === "github") return
   const bindingReaders = {
@@ -69,6 +74,13 @@ export async function assertConnectorMirrorScope(
   source: ConnectorMirrorSource,
   pack: GitPack,
 ): Promise<void> {
+  if ("sourcesBlobSha" in source) {
+    if ((await blobShaAt(pack, SOURCES_FILE_PATH)) !== source.sourcesBlobSha)
+      throw new Error(
+        "Workspace sources changed; discard this capture and sync the current sources",
+      )
+    return
+  }
   if (source.provider === "github") {
     // Unlinking is the GitHub scope change: a mirror never lands after it.
     const files = await readGitFiles(pack, isLinkedRepositoryDeclaration)
@@ -78,24 +90,26 @@ export async function assertConnectorMirrorScope(
       )
     return
   }
-  await withGitDirectory(
+  if (
+    (await blobShaAt(pack, `${source.provider}/config.yaml`)) !==
+    source.configBlobSha
+  )
+    throw new Error(
+      "Connector scope changed; discard this capture and sync the current config",
+    )
+}
+
+/** The blob id of `path` at the pack's commit, or null when it is absent. */
+async function blobShaAt(pack: GitPack, path: string): Promise<string | null> {
+  return withGitDirectory(
     pack.sha,
     async (directory) => {
       const entry = (
-        await nativeGit(directory, [
-          "ls-tree",
-          pack.sha,
-          "--",
-          `${source.provider}/config.yaml`,
-        ])
+        await nativeGit(directory, ["ls-tree", pack.sha, "--", path])
       )
         .toString()
         .trim()
-      const blobSha = entry ? entry.split(/\s+/)[2] : null
-      if (blobSha !== source.configBlobSha)
-        throw new Error(
-          "Connector scope changed; discard this capture and sync the current config",
-        )
+      return entry ? (entry.split(/\s+/)[2] ?? null) : null
     },
     pack,
   )

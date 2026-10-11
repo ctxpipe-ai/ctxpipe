@@ -27,23 +27,23 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-015](ADR-015-docker-compose-profiles-and-small-scale-deploy.md) | Docker Compose profiles and small-scale container deploy | Accepted |
 | [ADR-016](ADR-016-code-ingestion-react-agent-limits.md) | Code ingestion ReAct agents — recursion limits and context middleware | Accepted |
 | [ADR-017](ADR-017-amplitude-analytics.md) | Amplitude analytics (UI + backend) | Superseded by [ADR-038](ADR-038-self-hosted-clickstack-langfuse.md) |
-| [ADR-018](ADR-018-unified-connections-table.md) | Unified `connections` table | Accepted |
+| [ADR-018](ADR-018-unified-connections-table.md) | Unified `connections` table | Accepted; scope and sync target superseded by ADR-050 |
 | [ADR-019](ADR-019-confluence-forge-self-host-and-per-org-atlassian-3lo.md) | Confluence / Forge self-host, per-org Atlassian 3LO, and provision pipeline | Accepted |
 | [ADR-020](ADR-020-changeset-ci-guard-policy.md) | Changeset CI guard policy | Accepted |
 | [ADR-021](ADR-021-local-agent-memory-agentmemory-hybrid-mcp-proxy.md) | Local agent memory with repo Markdown and AgentMemory hydrated cache | Superseded by [ADR-024](ADR-024-markdown-only-local-memory-capture.md) |
-| [ADR-022](ADR-022-linear-connector-git-native-mirror.md) | Linear connector Git-native mirror | Accepted |
-| [ADR-023](ADR-023-notion-connector-git-native-mirror.md) | Notion connector Git-native mirror | Accepted |
+| [ADR-022](ADR-022-linear-connector-git-native-mirror.md) | Linear connector Git-native mirror | Accepted; sync repository superseded by ADR-050 |
+| [ADR-023](ADR-023-notion-connector-git-native-mirror.md) | Notion connector Git-native mirror | Accepted; sync repository superseded by ADR-050 |
 | [ADR-024](ADR-024-markdown-only-local-memory-capture.md) | Markdown-only local memory with candidate-first capture | Accepted (amended by ADR-037) |
-| [ADR-025](ADR-025-slack-connector-git-native-mirror.md) | Slack connector as intent-based git-native capture | Accepted |
+| [ADR-025](ADR-025-slack-connector-git-native-mirror.md) | Slack connector as intent-based git-native capture | Accepted; sync repository superseded by ADR-050 |
 | [ADR-026](ADR-026-claude-plugin-mcp-distribution.md) | Claude plugin for hosted MCP distribution | Accepted |
 | [ADR-027](ADR-027-codesearch-openworkflow-concurrency.md) | Size-based OpenWorkflow concurrency for single-instance codesearch | Accepted |
 | [ADR-028](ADR-028-git-native-connector-assets.md) | Git-native connector assets | Accepted |
 | [ADR-029](ADR-029-railway-us-east-next-to-neon.md) | Railway compute in US East next to Neon | Accepted |
 | [ADR-030](ADR-030-organization-owned-mcp-api-keys.md) | Organization-owned MCP API keys | Accepted (amended 2026-09-27: OpenCode HOME hashing) |
-| [ADR-031](ADR-031-github-pr-scoped-mirror.md) | GitHub pull-request scoped mirror (revised: follows linked repositories) | Accepted (revised 2026-10-03) |
+| [ADR-031](ADR-031-github-pr-scoped-mirror.md) | GitHub pull-request scoped mirror (revised: follows linked repositories) | Accepted (revised 2026-10-03); sync repository superseded by ADR-050 |
 | [ADR-032](ADR-032-path-located-graph-edges.md) | Path-located graph edges | Accepted (amended by ADR-033) |
 | [ADR-033](ADR-033-graph-ontology-v2.md) | Graph ontology v2: relation families, shared identity, deterministic connector extraction | Accepted (amended by ADR-037) |
-| [ADR-034](ADR-034-pagerduty-connector-git-native-mirror.md) | PagerDuty connector Git-native mirror | Accepted |
+| [ADR-034](ADR-034-pagerduty-connector-git-native-mirror.md) | PagerDuty connector Git-native mirror | Accepted; sync repository superseded by ADR-050 |
 | [ADR-037](ADR-037-committed-memory-reaches-the-graph.md) | Committed memory reaches the graph | Accepted |
 | [ADR-038](ADR-038-self-hosted-clickstack-langfuse.md) | Self-hosted ClickStack + Langfuse (ops observability) | Accepted (amended 2026-09-29) |
 | [ADR-039](ADR-039-production-image-deploys-one-environment.md) | Production image deploys stay on one Railway environment | Accepted |
@@ -57,5 +57,6 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-047](ADR-047-native-durable-write-workflows.md) | Durable write workflows | Accepted (revised 2026-10-06) |
 | [ADR-048](ADR-048-native-postgres-sandbox-ownership.md) | Conversation sandboxes: stock providers, Postgres ownership, git as durable state | Accepted |
 | [ADR-049](ADR-049-self-host-chat-sandbox-stock-docker.md) | Self-host chat sandboxes: stock Docker on DinD and an EC2 host; Agent Vault adds their credentials | Accepted |
+| [ADR-050](ADR-050-workspace-sources-config-file.md) | Workspace sources in a config file; connections hold auth only | Accepted |
 
-Numbers 035 and 036 are unused. The next new ADR is 050.
+Numbers 035 and 036 are unused. The next new ADR is 051.

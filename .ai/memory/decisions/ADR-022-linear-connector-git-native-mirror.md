@@ -1,6 +1,6 @@
 # ADR-022: Linear connector Git-native mirror
 
-**Status:** Accepted | **Date:** 2026-08-08 | **Updated:** 2026-09-28 | **Tags:** connectors, linear, oauth, webhooks, git, multi-tenant
+**Status:** Accepted (sync repository and scope file superseded by [ADR-050](ADR-050-workspace-sources-config-file.md)) | **Date:** 2026-08-08 | **Updated:** 2026-09-28 | **Tags:** connectors, linear, oauth, webhooks, git, multi-tenant
 
 ## Context
 
