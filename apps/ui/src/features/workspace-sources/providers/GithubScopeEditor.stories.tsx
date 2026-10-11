@@ -111,8 +111,9 @@ export const InitialScopeSelected: Story = {
     await expect(
       await canvas.findByRole("checkbox", { name: "acme/web" }),
     ).toBeChecked()
+    // The list shows the initial scope before the connection's list loads.
     await expect(
-      canvas.getByRole("checkbox", { name: "acme/api" }),
+      await canvas.findByRole("checkbox", { name: "acme/api" }),
     ).not.toBeChecked()
     // The connection cannot see acme/gone, but the user can still remove it.
     const gone = canvas.getByRole("checkbox", { name: "acme/gone" })
