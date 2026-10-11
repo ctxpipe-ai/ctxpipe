@@ -22,6 +22,13 @@ import { cn } from "@/lib/utils"
 export const SKELETON_DELAY_MS = 1000
 export const SKELETON_MIN_MS = 300
 
+/**
+ * The hold timers start this much before the CSS wait ends, so timer jitter
+ * cannot let a visible skeleton go without its hold. The hold lasts this much
+ * longer to match.
+ */
+const HOLD_LEAD_MS = 50
+
 /** A skeleton that mounts this soon after the last one left continues it. */
 const HAND_OVER_MS = 100
 
@@ -134,7 +141,10 @@ export function useSkeletonHold(pending: boolean) {
   useLayoutEffect(() => {
     if (pending) {
       if (shownAt !== null) return
-      const id = setTimeout(() => setShownAt(Date.now()), SKELETON_DELAY_MS)
+      const id = setTimeout(
+        () => setShownAt(Date.now() + HOLD_LEAD_MS),
+        SKELETON_DELAY_MS - HOLD_LEAD_MS,
+      )
       return () => clearTimeout(id)
     }
     if (shownAt === null) return
@@ -166,7 +176,7 @@ function createHold() {
     read: () => promise,
     start() {
       promise = new Promise((resolve) => {
-        timer = setTimeout(resolve, SKELETON_MIN_MS)
+        timer = setTimeout(resolve, SKELETON_MIN_MS + HOLD_LEAD_MS)
       })
       for (const listener of listeners) listener()
     },
@@ -204,7 +214,7 @@ function SkeletonFallback(props: { hold: Hold; children: ReactNode }) {
   // A layout effect runs before paint, and CSS starts the wait at paint, so
   // the hold starts no later than the skeleton shows.
   useLayoutEffect(() => {
-    const id = setTimeout(hold.start, wait)
+    const id = setTimeout(hold.start, Math.max(0, wait - HOLD_LEAD_MS))
     return () => clearTimeout(id)
   }, [hold, wait])
   return props.children
