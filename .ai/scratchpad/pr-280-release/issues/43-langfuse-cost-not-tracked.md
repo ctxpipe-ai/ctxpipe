@@ -60,3 +60,5 @@ Test: the ticket 42 integration test asserts `gen_ai.usage.cost` and `gen_ai.req
 
 To prove after the deploy and the script run: new chat, MCP, and ingestion generations on a preview show a cost that is not zero.
 
+
+- 2026-10-11 (team lead): running `apply-models.sh` failed. The Langfuse public API answers 500 "An unknown error occurred" to `POST /api/public/models`, with the flat price fields and with `pricingTiers`. `GET /api/public/models` and `/api/public/health` answer 200. So the self-hosted Langfuse write path for models fails on the server side. Next: read the Langfuse web service logs in the observability Railway project at the time of the POST, fix the server, then run the script again.
