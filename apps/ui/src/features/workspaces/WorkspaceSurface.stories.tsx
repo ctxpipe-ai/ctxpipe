@@ -668,8 +668,6 @@ export const CreatePrMatchesPaneTriggers: Story = {
         bottom: box.bottom,
         paddingLeft: style.paddingLeft,
         paddingRight: style.paddingRight,
-        fontSize: style.fontSize,
-        fontWeight: style.fontWeight,
         color: style.color,
         borderTopWidth: style.borderTopWidth,
         borderRadius: style.borderTopLeftRadius,
@@ -678,6 +676,9 @@ export const CreatePrMatchesPaneTriggers: Story = {
       }
     }
     expect(look(createPr)).toEqual(look(files))
+    // Only the text differs: publish buttons use a smaller, normal weight.
+    expect(getComputedStyle(createPr).fontSize).toBe("12px")
+    expect(getComputedStyle(createPr).fontWeight).toBe("400")
   },
 }
 
