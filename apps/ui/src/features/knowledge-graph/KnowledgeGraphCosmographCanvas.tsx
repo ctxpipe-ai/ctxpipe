@@ -107,6 +107,11 @@ type TimelineSelection =
 const REVEAL_AFTER_FIT_MS = 80
 const REVEAL_AFTER_REBUILD_MS = 250
 const FOCUS_FIT_PADDING = 0.12
+/**
+ * Camera moves help the user follow a node, so they animate, but for 250 ms
+ * at most (DESIGN.md "Motion").
+ */
+const CAMERA_MOVE_MS = 250
 const INITIAL_EXTENTS_FIT_PADDING = 0.1
 const GRAPH_SIMULATION_RESTART_ALPHA = 0.35
 const INITIAL_SIMULATION_AUTO_SETTLE_MS = 7000
@@ -186,7 +191,11 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
       const indices = getPointIndicesForIds(ids)
       if (indices.length === 0) return
       cosmographRef.current?.selectPoints?.(indices)
-      cosmographRef.current?.fitViewByIndices?.(indices, 500, FOCUS_FIT_PADDING)
+      cosmographRef.current?.fitViewByIndices?.(
+        indices,
+        CAMERA_MOVE_MS,
+        FOCUS_FIT_PADDING,
+      )
     },
     [getPointIndicesForIds],
   )
@@ -313,7 +322,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
     ref,
     () => ({
       fitView: () => {
-        cosmographRef.current?.fitView?.(400)
+        cosmographRef.current?.fitView?.(CAMERA_MOVE_MS)
       },
       fitToIds: (ids: string[], options?: FitToIdsOptions) => {
         const indices = getPointIndicesForIds(ids)
@@ -328,14 +337,14 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
           if (coordinates.length >= 4) {
             cosmographRef.current?.fitViewByCoordinates?.(
               coordinates,
-              600,
+              CAMERA_MOVE_MS,
               options?.padding ?? FOCUS_FIT_PADDING,
             )
             return
           }
           cosmographRef.current?.fitViewByIndices?.(
             fitIndices,
-            600,
+            CAMERA_MOVE_MS,
             options?.padding ?? FOCUS_FIT_PADDING,
           )
         }
@@ -343,7 +352,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
       focusNode: (id: string) => {
         const index = pointIndexByIdRef.current.get(id)
         if (index !== undefined) {
-          cosmographRef.current?.fitViewByIndices?.([index], 500)
+          cosmographRef.current?.fitViewByIndices?.([index], CAMERA_MOVE_MS)
         }
       },
       focusNeighbourhood: (id: string) => {
@@ -351,7 +360,10 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
         if (index === undefined) return
         const adj =
           cosmographRef.current?.getConnectedPointIndices?.(index) ?? []
-        cosmographRef.current?.fitViewByIndices?.([index, ...adj], 700)
+        cosmographRef.current?.fitViewByIndices?.(
+          [index, ...adj],
+          CAMERA_MOVE_MS,
+        )
       },
       selectPoints: (ids: string[]) => {
         const indices = getPointIndicesForIds(ids)
@@ -731,7 +743,9 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
                 </GraphControlButton>
                 <GraphControlButton
                   label="Reset view"
-                  onClick={() => cosmographRef.current?.fitView?.(300, 0.15)}
+                  onClick={() =>
+                    cosmographRef.current?.fitView?.(CAMERA_MOVE_MS, 0.15)
+                  }
                 >
                   <ResetViewIcon />
                 </GraphControlButton>
