@@ -45,6 +45,10 @@ vi.mock("../../../models/linear-connector.js", () => ({
   listLinearWebhookConnectionsByWorkspaceId: mocks.listConnections,
   recordLinearOAuthRevocation: mocks.recordRevocation,
 }))
+// The Workspace sources route has its own Postgres test (linear-sources.integration.test.ts).
+vi.mock("../../../models/workspace-sources.js", () => ({
+  listConnectionSourceRows: async () => [],
+}))
 vi.mock("../../../openworkflow/client.js", () => ({
   runWorkflowWithWorkerWake: mocks.runWorkflow,
 }))

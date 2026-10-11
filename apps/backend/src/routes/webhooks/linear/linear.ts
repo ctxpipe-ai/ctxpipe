@@ -3,15 +3,18 @@ import type { OpenAPIHono } from "@hono/zod-openapi"
 import { LinearWebhookClient } from "@linear/sdk/webhooks"
 import type { AppEnv } from "../../../app/env.js"
 import type { Env } from "../../../config/env.js"
+import { enqueueConnectionSourcesSync } from "../../../domain/workspace-sources/enqueue.js"
 import {
   getLinearBindingByConnectionId,
   type LinearWebhookConnection,
   listLinearWebhookConnectionsByWorkspaceId,
   recordLinearOAuthRevocation,
 } from "../../../models/linear-connector.js"
+import { listConnectionSourceRows } from "../../../models/workspace-sources.js"
 import { getLogger } from "../../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
 import { linearSyncEntity } from "../../../openworkflow/workflows/linear-sync-entity.js"
+import { linearSourceEventFromPayload } from "../../../services/linear/source-adapter.js"
 import { noteResolvedWebhookConnections } from "../attribution.js"
 
 type EntityTarget = {
@@ -252,6 +255,20 @@ async function processVerifiedLinearWebhook(input: {
   if (!target) return
   for (const connection of input.connections) {
     if (connection.status !== "installed") continue
+    // ADR-050: one sources sync for the connection; the frame keeps only
+    // the sources whose teams or projects the event touches.
+    const sources = await listConnectionSourceRows({
+      orgId: connection.orgId,
+      connectionId: connection.id,
+      status: "ok",
+    })
+    if (sources.length)
+      await enqueueConnectionSourcesSync({
+        orgId: connection.orgId,
+        connectionId: connection.id,
+        provider: "linear",
+        event: linearSourceEventFromPayload(input.payload),
+      })
     const binding = await getLinearBindingByConnectionId(connection.id)
     if (!binding?.enabled || binding.setupPhase !== "live") {
       continue
