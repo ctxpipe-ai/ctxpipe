@@ -1,4 +1,4 @@
-import { context, SpanKind, trace } from "@opentelemetry/api"
+import { context, SpanKind, SpanStatusCode, trace } from "@opentelemetry/api"
 import {
   InMemorySpanExporter,
   SimpleSpanProcessor,
@@ -186,5 +186,22 @@ describe("workspace chat otel turn summary", () => {
       "response-from-run-b",
     ])
     expect(finishWorkspaceChatTurn("run_a")).toBeNull()
+  })
+
+  it("gives a failed turn error status and a finished turn none", () => {
+    beginWorkspaceChatTurn("conv_status", "run_failed")
+    finishWorkspaceChatTurn("run_failed", { error: "sandbox start failed" })
+    beginWorkspaceChatTurn("conv_status", "run_ok")
+    finishWorkspaceChatTurn("run_ok")
+    const statuses = exporter
+      .getFinishedSpans()
+      .map((span) => [
+        span.attributes["workspace_chat.turn_id"],
+        span.status.code,
+      ])
+    expect(statuses).toEqual([
+      ["run_failed", SpanStatusCode.ERROR],
+      ["run_ok", SpanStatusCode.UNSET],
+    ])
   })
 })

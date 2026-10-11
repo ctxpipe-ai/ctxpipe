@@ -1,5 +1,5 @@
 import { httpInstrumentationMiddleware } from "@hono/otel"
-import { context, trace } from "@opentelemetry/api"
+import { context, SpanStatusCode, trace } from "@opentelemetry/api"
 import type { Context, MiddlewareHandler } from "hono"
 import { matchedRoutes } from "hono/route"
 import {
@@ -34,6 +34,46 @@ function ensureRequestId(c: Context): string {
   return id
 }
 
+/**
+ * `@hono/otel` ends the server span when the handler returns, which is at
+ * the headers of a streamed answer. A child span covers the stream until
+ * its last chunk, so the trace shows the real duration.
+ */
+function coverStreamedBody(c: Context): void {
+  const body = c.res.body
+  const type = c.res.headers.get("content-type") ?? ""
+  if (!body || !/^text\/event-stream\b/i.test(type)) return
+  const span = trace
+    .getTracer("ctxpipe-backend")
+    .startSpan("http.response.stream")
+  const reader = body.getReader()
+  const streamed = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const next = await reader.read()
+        if (next.done) {
+          controller.close()
+          span.end()
+          return
+        }
+        controller.enqueue(next.value)
+      } catch (error) {
+        span.recordException(error as Error)
+        span.setStatus({ code: SpanStatusCode.ERROR })
+        span.end()
+        controller.error(error)
+      }
+    },
+    async cancel(reason) {
+      // The client left; that is not a failure of this service.
+      span.setAttribute("http.response.stream.cancelled", true)
+      span.end()
+      await reader.cancel(reason)
+    },
+  })
+  c.res = new Response(streamed, c.res)
+}
+
 export function backendOtelMiddleware(): MiddlewareHandler {
   const instrument = httpInstrumentationMiddleware({
     captureActiveRequests: false,
@@ -62,6 +102,7 @@ export function backendOtelMiddleware(): MiddlewareHandler {
         } finally {
           if (span) copyAttributionToSpan(span, context.active())
         }
+        coverStreamedBody(c)
       })
     })
 

@@ -65,4 +65,18 @@ describe("Better Auth span filter", () => {
     expect(finished.map((span) => span.name)).toEqual(["db findOne sessions"])
     expect(finished[0]?.status.code).toBe(SpanStatusCode.ERROR)
   })
+
+  it("drops a better-auth span that ended with an APIError, its HTTP answer", () => {
+    const auth = trace.getTracer("better-auth")
+    const answered = auth.startSpan("hook before /get-session plugin:api-key")
+    const error = Object.assign(new Error("Unauthorized"), {
+      name: "APIError",
+      statusCode: 401,
+    })
+    answered.recordException(error)
+    answered.setStatus({ code: SpanStatusCode.ERROR, message: error.message })
+    answered.end()
+
+    expect(exporter.getFinishedSpans()).toEqual([])
+  })
 })

@@ -1,5 +1,11 @@
 import { propagateAttributes } from "@langfuse/tracing"
-import { type Context, context, type Span, trace } from "@opentelemetry/api"
+import {
+  type Context,
+  context,
+  type Span,
+  SpanStatusCode,
+  trace,
+} from "@opentelemetry/api"
 import {
   contextWithAttributionBag,
   readAttribution,
@@ -304,6 +310,11 @@ export function finishWorkspaceChatTurn(
     ...(ttftMs != null ? { "workspace_chat.ttft_ms": ttftMs } : {}),
     ...(input?.error ? { "error.type": input.error } : {}),
   })
+  if (input?.error)
+    state.rootSpan.setStatus({
+      code: SpanStatusCode.ERROR,
+      message: input.error,
+    })
   state.rootSpan.end()
   const generationSummary = state.generations
     .map(
