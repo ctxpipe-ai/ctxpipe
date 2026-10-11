@@ -1,5 +1,6 @@
 import HyperDX from "@hyperdx/browser"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { readApiJson } from "./api-result"
 import {
   createHyperDxQueryClient,
   hyperDxQueryKeyName,
@@ -28,6 +29,29 @@ describe("hyperDxQueryKeyName", () => {
 describe("createHyperDxQueryClient", () => {
   afterEach(() => {
     vi.restoreAllMocks()
+  })
+
+  it("names the failed request on the exception of an API error", async () => {
+    const recordException = vi.spyOn(HyperDX, "recordException")
+    const client = createHyperDxQueryClient()
+    const response = Response.json(
+      { error: "Workspace graph projection is unavailable." },
+      { status: 503, headers: { "x-request-id": "req_graph_1" } },
+    )
+    await expect(
+      client.fetchQuery({
+        queryKey: ["workspace-graph"],
+        retry: false,
+        queryFn: () => readApiJson(response),
+      }),
+    ).rejects.toThrow("Workspace graph projection is unavailable.")
+
+    expect(recordException).toHaveBeenCalledWith(expect.anything(), {
+      "ctxpipe.ui.source": "query",
+      "ctxpipe.ui.key": "workspace-graph",
+      "ctxpipe.ui.http_status": "503",
+      "request.id": "req_graph_1",
+    })
   })
 
   it("records a final query failure once and ignores retries", async () => {

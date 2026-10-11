@@ -304,6 +304,47 @@ describe("POST /.otel/v1/$signal", () => {
     )
   })
 
+  it("keeps console warn spans and drops console log, info and debug spans", async () => {
+    const consoleSpan = (level: string) => ({
+      name: `console.${level}`,
+      attributes: [
+        { key: "component", value: { stringValue: "console" } },
+        { key: "level", value: { stringValue: level } },
+      ],
+    })
+    const response = await postSignal(
+      "traces",
+      sameOriginRequest("https://app.example/.otel/v1/traces", {
+        body: JSON.stringify({
+          resourceSpans: [
+            {
+              scopeSpans: [
+                {
+                  scope: { name: "console" },
+                  spans: [
+                    consoleSpan("info"),
+                    consoleSpan("debug"),
+                    consoleSpan("warn"),
+                    { name: "documentLoad", attributes: [] },
+                  ],
+                },
+              ],
+            },
+          ],
+        }),
+      }),
+    )
+    expect(response.status).toBe(200)
+    const body = captured?.body as {
+      resourceSpans: Array<{
+        scopeSpans: Array<{ spans: Array<{ name: string }> }>
+      }>
+    }
+    expect(
+      body.resourceSpans[0]?.scopeSpans[0]?.spans.map((span) => span.name),
+    ).toEqual(["console.warn", "documentLoad"])
+  })
+
   it("posts logs to OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", async () => {
     vi.stubEnv(
       "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",

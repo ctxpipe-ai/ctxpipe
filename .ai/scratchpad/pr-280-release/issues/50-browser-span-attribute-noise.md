@@ -1,6 +1,6 @@
 # Browser spans: duplicate attribution keys, console noise, and error spans not joined to the failed request
 
-Status: ready-for-agent
+Status: done (needs pr-280 deploy check)
 Priority: P3
 Owner: unassigned
 Blocked by: none
@@ -39,3 +39,15 @@ Likely cause: the `@hyperdx/browser` `setGlobalAttributes` call adds both key se
 ## Comments
 
 ## Resolution
+
+Cause: `hyperdxGlobalAttributes` published the HyperDX session keys and the canonical keys with the same values. The HyperDX console capture has no level option and records `console.log`, `info`, `debug`, and `warn`. `ApiError` did not keep the response `x-request-id`.
+
+Fix:
+- `apps/ui/src/lib/hyperdxAttributes.ts`: publish only `enduser.id`, `ctxpipe.org.id`, and `ctxpipe.org.slug`. Session replay is off (`disableReplay: true`), so no HyperDX session view reads `userId`, `teamId`, or `teamName`. The HyperDX MCP returned 504 during this work, so the session-view check is from the code, not from the HyperDX UI.
+- `apps/ui/src/lib/otelBrowserScrub.ts` (`dropVerboseConsoleSpans`, called by the relay): drop console spans with level `info` or `debug` (`console.log` maps to `info`). Keep `warn`. `console.error` comes from the error instrumentation. Graph rendering did not change.
+- `apps/ui/src/lib/api-result.ts`: `ApiError.requestId` comes from the response `x-request-id`. `apps/ui/src/lib/hyperdxQueryErrors.ts` puts it on the exception span as `request.id`, so the span names the failed request.
+
+Tests (each failed before the fix): `hyperdxAttributes.test.ts`, `hyperdxBrowser.test.ts` (one key per concept), `otelBrowserProxy.test.ts` ("keeps console warn spans and drops console log, info and debug spans"), `hyperdxQueryErrors.test.ts` ("names the failed request on the exception of an API error").
+
+Open: after a pr-280 deploy, check that browser spans have no `teamId`/`teamName`/`userId`, no `[CosmographDataKit]` console spans, and that a graph 503 exception span has `request.id`.
+

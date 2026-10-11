@@ -9,16 +9,19 @@ export type ApiErrorBody = {
 export class ApiError extends Error {
   readonly status: number
   readonly body: ApiErrorBody
+  /** The backend `x-request-id` of the failed response, when there was one. */
+  readonly requestId: string | undefined
 
   constructor(
     message: string,
     status: number,
-    options?: { cause?: unknown; body?: ApiErrorBody },
+    options?: { cause?: unknown; body?: ApiErrorBody; requestId?: string },
   ) {
     super(message, options)
     this.name = "ApiError"
     this.status = status
     this.body = options?.body ?? {}
+    this.requestId = options?.requestId
   }
 }
 
@@ -89,7 +92,7 @@ export async function readApiJson<T>(
       opts?.message ??
       `Request failed (${res.status})`,
     res.status,
-    { body },
+    { body, requestId: res.headers.get("x-request-id") ?? undefined },
   )
 }
 

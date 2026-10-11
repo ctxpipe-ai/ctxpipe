@@ -1,4 +1,5 @@
 import {
+  dropVerboseConsoleSpans,
   restrictBrowserResourceAttributes,
   scrubOtlpJsonText,
 } from "@/lib/otelBrowserScrub"
@@ -141,6 +142,7 @@ export async function proxyBrowserOtlp(
     return new Response(null, { status: 400 })
   }
   restrictBrowserResourceAttributes(decoded, deploymentEnvironment())
+  dropVerboseConsoleSpans(decoded)
   return forward(upstream, JSON.stringify(decoded))
 }
 
