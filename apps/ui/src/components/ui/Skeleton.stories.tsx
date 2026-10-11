@@ -367,11 +367,11 @@ export const HandOverHoldsMinimum: Story = {
   render: () => <HandOverDemo />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await visibleAt(canvas.getByTestId("first"))
+    // The area shows a skeleton from this frame; the hold counts from here.
+    const shownAt = await visibleAt(canvas.getByTestId("first"))
     await userEvent.click(
       canvas.getByRole("button", { name: "Hand over to a query" }),
     )
-    const handedOverAt = performance.now()
     expect(allVisible(canvas.getByTestId("query"))).toBe(true)
     await userEvent.click(
       canvas.getByRole("button", { name: "Finish loading" }),
@@ -380,7 +380,7 @@ export const HandOverHoldsMinimum: Story = {
     await waitFor(() => expect(canvas.getByText("Loaded")).toBeVisible(), {
       timeout: SKELETON_MIN_MS * 3,
     })
-    expect(performance.now() - handedOverAt).toBeGreaterThanOrEqual(
+    expect(performance.now() - shownAt).toBeGreaterThanOrEqual(
       SKELETON_MIN_MS - 20,
     )
   },
