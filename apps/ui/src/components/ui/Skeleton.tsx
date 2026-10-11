@@ -44,6 +44,22 @@ export function Skeleton({ className, ...props }: ComponentProps<"span">) {
 }
 
 /**
+ * Wait text inside a skeleton (for example "Loading your files"). It follows
+ * the same delay as the bones, so a fast load shows nothing.
+ */
+export function SkeletonReveal(props: {
+  className?: string
+  children: ReactNode
+}) {
+  const visible = useDelayElapsed()
+  return (
+    <div className={cn(!visible && "invisible", props.className)}>
+      {props.children}
+    </div>
+  )
+}
+
+/**
  * Keep a query-driven skeleton up for `SKELETON_MIN_MS` after it became
  * visible. Use it as `useSkeletonHold(query.isPending) ? <Skeleton… /> : …`.
  */

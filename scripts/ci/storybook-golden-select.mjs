@@ -44,6 +44,7 @@ export const requiredStories = [
   "HeatmapSkeletonMatches",
   "ConnectorRowSkeletonMatches",
   "ConversationListSkeletonMatches",
+  "SurfaceSkeletonMatches",
 ]
 
 export function isGoldenPlaySuccess(phase) {

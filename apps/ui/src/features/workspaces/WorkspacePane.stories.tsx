@@ -340,7 +340,8 @@ export const FilesLoading: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    expect(await canvas.findByText("Loading your files")).toBeVisible()
+    const message = await canvas.findByText("Loading your files")
+    await waitFor(() => expect(message).toBeVisible(), { timeout: 2000 })
   },
 }
 

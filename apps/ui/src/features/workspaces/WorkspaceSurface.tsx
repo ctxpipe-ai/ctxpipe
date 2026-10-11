@@ -69,7 +69,13 @@ export function WorkspaceSurface(props: {
       : urlConversationId
   return (
     <WorkspaceQueryErrorBoundary>
-      <SkeletonSuspense fallback={<WorkspaceSurfaceSkeleton />}>
+      <SkeletonSuspense
+        fallback={
+          <WorkspaceSurfaceSkeleton
+            paneOpen={landingPane(props.paneParam) != null}
+          />
+        }
+      >
         <WorkspaceSurfaceReady
           orgSlug={props.orgSlug}
           workspaceSlug={props.workspaceSlug}

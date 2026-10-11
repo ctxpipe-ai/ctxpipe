@@ -18,7 +18,7 @@ import { Button } from "@/components/ui/Button"
 import { Dialog } from "@/components/ui/Dialog"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { Modal } from "@/components/ui/Modal"
-import { SkeletonSuspense } from "@/components/ui/Skeleton"
+import { SkeletonSuspense, useSkeletonHold } from "@/components/ui/Skeleton"
 import { TextField } from "@/components/ui/TextField"
 import { ApiError } from "@/lib/api-result"
 import { cn } from "@/lib/utils"
@@ -130,8 +130,13 @@ function ConversationSandboxFilesPane(props: {
   const tree = sandboxTreeQuery.data
   const awaitingFirstList =
     !tree || (tree.ready === false && !tree.paths.length)
-  if (awaitingFirstList) {
-    if (sandboxTreeQuery.isError && !sandboxTreeQuery.isFetching) {
+  const showSkeleton = useSkeletonHold(awaitingFirstList)
+  if (awaitingFirstList || showSkeleton) {
+    if (
+      awaitingFirstList &&
+      sandboxTreeQuery.isError &&
+      !sandboxTreeQuery.isFetching
+    ) {
       return (
         <div className="flex flex-1 items-center justify-center p-6">
           <InlineAlert variant="error" title="Could not load files">
