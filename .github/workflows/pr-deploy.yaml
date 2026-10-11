@@ -595,12 +595,24 @@ jobs:
             }
 
             # UI Nitro must bind 0.0.0.0 or Railway healthcheck on / never reaches the process.
+            # Server-render calls use the backend private domain, as in production
+            # (infra/module/ctxpipe/railway.tf). Through the public edge, about one
+            # new connection in three from the UI did not reach the backend, and
+            # the call waited for its 10 s timeout. Each environment has its own
+            # private network, so the reference resolves to this PR's backend.
+            # `dollar` keeps GitHub Actions from reading the Railway reference as
+            # an expression.
             upsert_preview_ui_bind_variables() {
               local service_id="$1"
-              local auth_base="https://backend-pr-${PR_NUMBER}.up.railway.app"
+              local dollar='$'
+              local auth_base="http://${dollar}{{backend.RAILWAY_PRIVATE_DOMAIN}}:${dollar}{{backend.PORT}}"
+              # The UI browser OTEL proxy accepts AUTH_BASE_URL and
+              # AUTH_ALLOWED_ORIGINS as the browser origin. AUTH_BASE_URL is now
+              # private, so name the public origin here.
+              local public_origin="https://backend-pr-${PR_NUMBER}.up.railway.app"
               railway_graphql \
                 'mutation variableCollectionUpsert($input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: $input) }' \
-                "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$service_id" --arg auth "$auth_base" \
+                "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$service_id" --arg auth "$auth_base" --arg origins "$public_origin" \
                   '{
                     input: {
                       projectId: $project,
@@ -610,7 +622,8 @@ jobs:
                       variables: {
                         HOST: "0.0.0.0",
                         NITRO_HOST: "0.0.0.0",
-                        AUTH_BASE_URL: $auth
+                        AUTH_BASE_URL: $auth,
+                        AUTH_ALLOWED_ORIGINS: $origins
                       }
                     }
                   }')"
