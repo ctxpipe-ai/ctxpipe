@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto"
 import { base32nopad } from "@scure/base"
+import { githubSourceRepositories } from "../workspace-sources/github-sources.js"
+import { SOURCES_FILE_PATH } from "../workspace-sources/sources-file.js"
 import { effectiveValidFrom } from "./hydrate-phases.js"
 import {
   isLinkedRepositoryDeclaration,
@@ -52,19 +54,33 @@ export type HydrateSkip = {
 
 const MD_LINK = /\[([^\]]*)\]\(([^)]+)\)/g
 
+/** One linked repository that a Workspace revision declares. */
+export type HydrateLinkedRepository = {
+  path: string
+  git: string
+  branch: string | null
+  /** The GitHub connection of a source entry. A repository file has none. */
+  connectionId?: string
+}
+
 export function hydrateKnowledgeTree(input: {
   workspaceId: string
   /** The Workspace repository. A linked-repository file that names it is skipped. */
   workspaceUrl?: string
   files: ReadonlyArray<{ path: string; content: string }>
+  /**
+   * The text of `.ctxpipe/sources.yaml`, or null. Its GitHub sources link
+   * their repositories after the `repositories/*.md` files (ADR-050).
+   */
+  sourcesFile?: string | null
 }): {
   units: HydrateUnit[]
   skipped: HydrateSkip[]
-  linked: Array<{ path: string; git: string; branch: string | null }>
+  linked: HydrateLinkedRepository[]
 } {
   const units: HydrateUnit[] = []
   const skipped: HydrateSkip[] = []
-  const linked: Array<{ path: string; git: string; branch: string | null }> = []
+  const linked: HydrateLinkedRepository[] = []
   const seenLinked = new Set<string>(
     input.workspaceUrl
       ? [normalizeWorkspaceRepositoryUrl(input.workspaceUrl)]
@@ -113,6 +129,19 @@ export function hydrateKnowledgeTree(input: {
       links: markdownLinks(parsed.body),
       claims: parseClaims(parsed.attributes.claims),
       confidence: parseOptionalNumber(parsed.attributes.confidence),
+    })
+  }
+
+  // A repository that a file or the Workspace already names is not a skip:
+  // during the migration, both places can name it.
+  for (const source of githubSourceRepositories(input.sourcesFile ?? null)) {
+    if (seenLinked.has(source.gitUrl)) continue
+    seenLinked.add(source.gitUrl)
+    linked.push({
+      path: SOURCES_FILE_PATH,
+      git: source.gitUrl,
+      branch: null,
+      connectionId: source.connectionId,
     })
   }
 

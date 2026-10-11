@@ -99,6 +99,10 @@ export async function syncConnectionSources(input: {
     byWorkspace.set(row.workspaceId, entry)
   }
 
+  // A provider that owns no path (GitHub) has nothing to write.
+  if (![...byWorkspace.values()].some((entry) => entry.prefixes.size))
+    return { fetchedScopes: 0, workspaces: [] }
+
   const scopes = [
     ...new Map(
       rows.map((row) => [JSON.stringify(row.scope), row.scope]),

@@ -284,6 +284,9 @@ export const workspaceHydrate = defineWorkflow(
                   workspaceId: workspace.id,
                   workspaceUrl: revision.remote.url,
                   files,
+                  sourcesFile:
+                    treeFiles.find((file) => file.path === SOURCES_FILE_PATH)
+                      ?.content ?? null,
                 })
               : { units: snapshot.units, linked: [], skipped: [] }
             const agents = files.find((file) => file.path === "AGENTS.md")

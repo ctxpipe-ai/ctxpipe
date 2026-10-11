@@ -84,6 +84,42 @@ describe("hydrateKnowledgeTree", () => {
     ])
   })
 
+  it("links the repositories of GitHub sources after the repository files", () => {
+    const result = hydrateKnowledgeTree({
+      workspaceId: "ws_1",
+      workspaceUrl: "https://github.com/acme/knowledge",
+      files: [
+        {
+          path: "repositories/billing.md",
+          content:
+            "---\ngit: https://github.com/acme/billing.git\nbranch: release\n---\n",
+        },
+      ],
+      sourcesFile: [
+        "version: 1",
+        "sources:",
+        "  - id: product-repos",
+        "    provider: github",
+        "    connection: con_github1",
+        "    repositories: [acme/billing, acme/web, acme/knowledge]",
+      ].join("\n"),
+    })
+    expect(result.linked).toEqual([
+      {
+        path: "repositories/billing.md",
+        git: "https://github.com/acme/billing",
+        branch: "release",
+      },
+      {
+        path: ".ctxpipe/sources.yaml",
+        git: "https://github.com/acme/web",
+        branch: null,
+        connectionId: "con_github1",
+      },
+    ])
+    expect(result.skipped).toEqual([])
+  })
+
   it("skips a linked-repository file that names the Workspace repository", () => {
     const result = hydrateKnowledgeTree({
       workspaceId: "ws_1",

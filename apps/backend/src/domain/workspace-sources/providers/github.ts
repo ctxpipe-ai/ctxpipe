@@ -9,7 +9,7 @@ const repositoryNameSchema = z
     "Use owner/name, for example acme/web",
   )
 
-const githubScopeSchema = z.strictObject({
+export const githubScopeSchema = z.strictObject({
   repositories: z
     .array(repositoryNameSchema)
     .min(1, "Select at least one repository")
