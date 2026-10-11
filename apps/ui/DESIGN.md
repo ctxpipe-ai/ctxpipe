@@ -110,12 +110,23 @@ Decorative icons: `aria-hidden`, `text-muted-foreground`, intended size (~16–2
 - **Titles:** product screens `text-lg` / `text-xl`. `text-3xl`+ only on onboarding / marketing.
 - **Alerts:** keep dark slabs ([`InlineAlert`](src/components/ui/InlineAlert.tsx)); no opacity-as-grey; same-hue muted secondary text on the slab. Prefer Tabler icons on new alerts.
 - **Empty states:** short title + one sentence + **one primary** control. Hide tabs/filters until there is data. Center only if copy is ≤2 lines; otherwise left-align.
-- **Loading:** region waits (list, tree, thread, pane) use [`Skeleton`](src/components/ui/Skeleton.tsx) that matches the populated pattern. Process waits (hydrate, OAuth, discovery) use [`InlineLoader`](src/components/ui/InlineLoader.tsx). Button mutations use `isPending`. Status uses a pulse-dot plus the word. See product-ui **Plan states**.
+- **Loading:** region waits (list, tree, thread, pane) use [`Skeleton`](src/components/ui/Skeleton.tsx) that matches the populated pattern (see **Loading states**). Process waits (hydrate, OAuth, discovery) use [`InlineLoader`](src/components/ui/InlineLoader.tsx). Button mutations use `isPending`. Status uses a pulse-dot plus the word. See product-ui **Plan states**.
 - **Lists:** icon + title + one-line body rows for features / capabilities. `list-disc` only for legal / consent or a true prose outline (see [`KnowledgeGraphIntroCallout`](src/features/knowledge-graph/KnowledgeGraphIntroCallout.tsx)).
 - **Destructive:** outline or quiet on the page. Filled red only on the confirm dialog ([`AlertDialog`](src/components/ui/AlertDialog.tsx)).
 - **Actions:** one primary per surface; outline / secondary next; link / quiet for tertiary. Teal is for the one real action in a dense list — not every row title.
 - **Separators:** gap or background shift first; one hairline if grouping is still ambiguous. Borders are a last separator. Do not nest cards inside cards.
 - **Status:** existing pill + pulse/dot **and** the word ([`RepositoryStatus`](src/features/repositories/components/RepositoryStatus.tsx)). Not color-only. Not a glowing dot without a label.
+
+## Loading states
+
+All skeletons follow one rule. The rule is in [`Skeleton.tsx`](src/components/ui/Skeleton.tsx).
+
+- **Delay:** a skeleton is not visible for the first `SKELETON_DELAY_MS` (1000 ms). Before that time, the region keeps its final size but stays empty. Thus a fast load shows no skeleton. A CSS animation (`ctx-skeleton-wait`) runs the delay, so the delay starts at first paint, also for server HTML.
+- **Hand-over:** when a skeleton of one thing hands over to a different skeleton of the same thing (for example the workspace skeleton to the Files pane skeleton), put both in a `SkeletonChain` with the same id, under one `SkeletonRegion`. The second skeleton then shows when the first one shows, so the area does not go blank. The chain takes its show time from the CSS animation, which starts at first paint. Skeletons of other chains keep their own delay. Give the chain id to `useSkeletonHold` and `SkeletonSuspense` too, so the hold starts when the chain shows.
+- **Minimum time:** when a skeleton is visible, it stays for at least `SKELETON_MIN_MS` (300 ms). Use `useSkeletonHold(isPending)` for a query-driven skeleton. Use `SkeletonSuspense` in place of `Suspense`. Put wait text in a skeleton inside `SkeletonReveal`.
+- **Match:** a skeleton has the same box as the loaded state: the same size, position, spacing, row count and row height. Use the class names of the loaded component. Use `SkeletonText` for a text line, so that the bone row has the line height of the text. When one skeleton hands over to a different skeleton, put both in one `SkeletonChain`.
+- **Subtle:** bones are `bg-zinc-800/50` with a `white/5` shimmer. The bone has the `ctx-loading-motion` class, so the reduced-motion rule does not stop the shimmer.
+- **Proof:** a story with a play test shows that the skeleton box and the loaded box have the same size (for example `RecentCommitsSkeletonMatches`).
 
 ## Primitives
 

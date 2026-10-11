@@ -4,11 +4,12 @@ import {
   useSuspenseQuery,
 } from "@tanstack/react-query"
 import { useNavigate, useRouterState, useSearch } from "@tanstack/react-router"
-import { Component, type ReactNode, Suspense, useEffect, useState } from "react"
+import { Component, type ReactNode, useEffect, useState } from "react"
 import { useSideNavLocation } from "@/components/ShellLayoutContext"
 import { parseSideNavLocation } from "@/components/SideNav/sideNavLocation"
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
+import { SkeletonRegion, SkeletonSuspense } from "@/components/ui/Skeleton"
 import { pollWhileOk } from "@/lib/api-result"
 import { useHyperDxScreenError } from "@/providers/HyperDxProvider"
 import {
@@ -68,16 +69,24 @@ export function WorkspaceSurface(props: {
       ? nav.conversationId
       : urlConversationId
   return (
-    <WorkspaceQueryErrorBoundary>
-      <Suspense fallback={<WorkspaceSurfaceSkeleton />}>
-        <WorkspaceSurfaceReady
-          orgSlug={props.orgSlug}
-          workspaceSlug={props.workspaceSlug}
-          conversationId={conversationId}
-          paneParam={props.paneParam}
-        />
-      </Suspense>
-    </WorkspaceQueryErrorBoundary>
+    <SkeletonRegion>
+      <WorkspaceQueryErrorBoundary>
+        <SkeletonSuspense
+          fallback={
+            <WorkspaceSurfaceSkeleton
+              paneOpen={landingPane(props.paneParam) != null}
+            />
+          }
+        >
+          <WorkspaceSurfaceReady
+            orgSlug={props.orgSlug}
+            workspaceSlug={props.workspaceSlug}
+            conversationId={conversationId}
+            paneParam={props.paneParam}
+          />
+        </SkeletonSuspense>
+      </WorkspaceQueryErrorBoundary>
+    </SkeletonRegion>
   )
 }
 

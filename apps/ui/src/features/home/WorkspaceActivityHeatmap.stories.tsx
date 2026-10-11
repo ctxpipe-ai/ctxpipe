@@ -1,6 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, within } from "storybook/test"
 import {
+  expectSkeletonMatchesLoaded,
+  SkeletonMatchFrame,
+} from "@/components/ui/skeletonMatchStory"
+import {
   docsWorkspaceActivity,
   emptyWorkspaceActivity,
 } from "@/features/workspaces/workspace-fixtures"
@@ -45,4 +49,22 @@ export const Loading: Story = {
     days: [],
   },
   render: () => <WorkspaceActivityHeatmapSkeleton />,
+}
+
+export const HeatmapSkeletonMatches: Story = {
+  tags: ["workspace-golden"],
+  args: {
+    days: docsWorkspaceActivity.days,
+  },
+  render: () => (
+    <SkeletonMatchFrame
+      className="w-3xl"
+      skeleton={<WorkspaceActivityHeatmapSkeleton />}
+      loaded={<WorkspaceActivityHeatmap days={docsWorkspaceActivity.days} />}
+    />
+  ),
+  play: async ({ canvasElement }) => {
+    await within(canvasElement).findAllByText(CALENDAR_WEEKDAYS[0])
+    await expectSkeletonMatchesLoaded(canvasElement)
+  },
 }

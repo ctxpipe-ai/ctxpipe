@@ -49,6 +49,21 @@ export const requiredStories = [
   "TurnCardCollapsed",
   "TurnCardExpanded",
   "TurnCardOpensDiff",
+  "WaitsForDelay",
+  "FastLoadSkipsSkeleton",
+  "VisibleSkeletonHoldsMinimum",
+  "SuspenseHoldsMinimum",
+  "RecentCommitsSkeletonMatches",
+  "HeatmapSkeletonMatches",
+  "ConnectorRowSkeletonMatches",
+  "ConversationListSkeletonMatches",
+  "SurfaceSkeletonMatches",
+  "DelayStartsAtFirstPaint",
+  "HandOverStaysVisible",
+  "HandOverKeepsDelayStart",
+  "UnrelatedLoadKeepsItsDelay",
+  "HandOverHoldsMinimum",
+  "HandOverUsesPaintStart",
 ]
 
 export function isGoldenPlaySuccess(phase) {

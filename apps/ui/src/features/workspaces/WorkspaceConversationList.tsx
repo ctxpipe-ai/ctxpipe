@@ -1,6 +1,7 @@
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query"
 import { useRouter, useSearch } from "@tanstack/react-router"
 import { Link } from "react-aria-components"
+import { SideNavRowSkeleton } from "@/components/SideNav/SideNavRowSkeleton"
 import { SideNavTooltip } from "@/components/SideNav/SideNavTooltip"
 import type { SideNavLocation } from "@/components/SideNav/sideNavLocation"
 import {
@@ -8,7 +9,7 @@ import {
   sideNavRowClassName,
 } from "@/components/SideNav/sideNavStyles"
 import { Button } from "@/components/ui/Button"
-import { SkeletonRow } from "@/components/ui/Skeleton"
+import { useSkeletonHold } from "@/components/ui/Skeleton"
 import type { ConversationListItem } from "@/features/chat/types"
 import { client } from "@/lib/api"
 import { readApiJson } from "@/lib/api-result"
@@ -70,21 +71,22 @@ export function WorkspaceConversationList(props: {
     initialPageParam: undefined as string | undefined,
   })
 
+  const loading = useSkeletonHold(query.isPending)
   const items = query.data?.pages.flatMap((page) => page.items) ?? []
 
   // One layout for both states: short label sits in the icon gutter (stays put),
   // full name clips away when the rail collapses.
   return (
-    <ul className="mt-0.5 mb-0.5 space-y-0.5">
-      {query.isPending ? (
-        <li className="space-y-0.5">
-          <div aria-busy>
-            <span className="sr-only">Loading conversations</span>
-            <SkeletonRow />
-            <SkeletonRow />
-            <SkeletonRow />
-          </div>
-        </li>
+    <ul className="mt-0.5 mb-0.5 space-y-0.5" aria-busy={loading || undefined}>
+      {loading ? (
+        <>
+          <li className="sr-only">Loading conversations</li>
+          {[0, 1, 2].map((row) => (
+            <li key={row}>
+              <SideNavRowSkeleton navExpanded={navExpanded} />
+            </li>
+          ))}
+        </>
       ) : items.length === 0 ? (
         <li
           className={[

@@ -3,7 +3,7 @@ import { Link } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
-import { SkeletonRow } from "@/components/ui/Skeleton"
+import { SkeletonRow, useSkeletonHold } from "@/components/ui/Skeleton"
 import {
   atlassianConnectorKeys,
   fetchAtlassianConnectorConfig,
@@ -94,6 +94,7 @@ export function EditScopeModal({
     },
   })
 
+  const showScopeSkeleton = useSkeletonHold(isLoadingScope)
   return (
     <div
       className={`flex min-h-0 min-w-0 w-full max-w-full flex-col rounded-md ${
@@ -120,7 +121,7 @@ export function EditScopeModal({
           embedded ? "" : "px-4 sm:px-6"
         }`}
       >
-        {isLoadingScope ? (
+        {showScopeSkeleton ? (
           <div className="space-y-0.5 pt-4" aria-busy>
             <span className="sr-only">Loading saved scope</span>
             <SkeletonRow />

@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import { Toaster } from "sonner"
 import { expect, userEvent, waitFor, within } from "storybook/test"
+import { responseGate } from "@/components/ui/skeletonMatchStory"
 import {
   conversationDetailLoadingHandler,
   conversationGitDiffHandler,
@@ -72,6 +73,65 @@ export const Loading: Story = {
       canvas.getByRole("navigation", { name: "Main navigation" }),
     ).toBeVisible()
     expect(canvas.getByText("Loading workspace")).toBeInTheDocument()
+  },
+}
+
+const surfaceGate = responseGate()
+
+const columnBox = (column: Element | null | undefined) => {
+  if (!column) throw new Error("No workspace column")
+  const { x, width, height } = column.getBoundingClientRect()
+  return {
+    x: Math.round(x),
+    width: Math.round(width),
+    height: Math.round(height),
+  }
+}
+
+/**
+ * The surface skeleton has the same chat and pane columns as the loaded
+ * workspace, so nothing moves when the workspace arrives.
+ */
+export const SurfaceSkeletonMatches: Story = {
+  tags: ["workspace-golden"],
+  args: { paneParam: "files" },
+  parameters: {
+    storyRoute: workspaceRoute({ pane: "files" }),
+    msw: {
+      handlers: {
+        page: [
+          http.get(
+            ({ request }) =>
+              /\/api\/v1\/workspaces\/[^/]+$/.test(
+                new URL(request.url).pathname,
+              ),
+            async () => {
+              // No response: MSW falls through to the shell handler.
+              await surfaceGate.wait()
+            },
+          ),
+          ...workspaceShellHandlers(),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const skeleton = (await canvas.findByText("Loading workspace"))
+      .parentElement
+    const chatBefore = columnBox(skeleton?.children[1])
+    const paneBefore = columnBox(skeleton?.children[2])
+    await surfaceGate.release()
+    await waitFor(
+      () =>
+        expect(
+          canvasElement.querySelector("[data-workspace-surface]"),
+        ).not.toBeNull(),
+      { timeout: 3000 },
+    )
+    const surface = canvasElement.querySelector("[data-workspace-surface]")
+    expect(columnBox(surface?.children[0])).toEqual(chatBefore)
+    expect(columnBox(surface?.children[1])).toEqual(paneBefore)
   },
 }
 

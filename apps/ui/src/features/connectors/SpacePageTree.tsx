@@ -8,7 +8,7 @@ import {
 import { useQuery } from "@tanstack/react-query"
 import { useCallback, useEffect, useState } from "react"
 import { Checkbox } from "@/components/ui/Checkbox"
-import { SkeletonRow } from "@/components/ui/Skeleton"
+import { SkeletonRow, useSkeletonHold } from "@/components/ui/Skeleton"
 import { apiFetch, readApiJson } from "@/lib/api-result"
 import type { ConfluencePage, ConfluenceSpace, SpaceScopeItem } from "./types"
 
@@ -569,8 +569,9 @@ export function SpacePageTree({
     },
     [value, onChange],
   )
+  const showSkeleton = useSkeletonHold(isLoading)
 
-  if (isLoading) {
+  if (showSkeleton) {
     return (
       <div className="space-y-0.5 py-2" aria-busy>
         <span className="sr-only">Loading spaces</span>

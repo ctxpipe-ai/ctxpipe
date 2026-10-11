@@ -1,4 +1,4 @@
-import { Skeleton, SkeletonLine } from "@/components/ui/Skeleton"
+import { SkeletonText } from "@/components/ui/Skeleton"
 import type { WorkspaceActivityCommit } from "@/features/workspaces/types"
 import { formatDate } from "@/lib/format"
 
@@ -76,11 +76,11 @@ export function WorkspaceRecentCommitsSkeleton() {
             key={row}
             className="flex items-start justify-between gap-4 border-b border-white/[0.06] py-3 last:border-b-0"
           >
-            <div className="min-w-0 flex-1 space-y-2">
-              <SkeletonLine className="h-4 w-3/4" />
-              <SkeletonLine className="h-4 w-1/2" />
+            <div className="min-w-0 flex-1">
+              <SkeletonText className="text-sm" boneClassName="w-3/4" />
+              <SkeletonText className="mt-0.5 text-sm" boneClassName="w-1/2" />
             </div>
-            <Skeleton className="mt-0.5 h-3 w-14" />
+            <SkeletonText className="w-14 text-xs" boneClassName="w-full" />
           </li>
         ))}
       </ul>

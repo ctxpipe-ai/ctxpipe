@@ -38,7 +38,7 @@ import { GridList, GridListItem } from "@/components/ui/GridList"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { Modal } from "@/components/ui/Modal"
 import { Select, SelectItem } from "@/components/ui/Select"
-import { ShimmerPlaceholder } from "@/components/ui/ShimmerPlaceholder"
+import { Skeleton, useSkeletonHold } from "@/components/ui/Skeleton"
 import { TextField } from "@/components/ui/TextField"
 import { betterAuthShellClassNames } from "@/features/auth/betterAuthShellClassNames"
 import {
@@ -194,6 +194,7 @@ function ApiKeysCard(props: ApiKeysCardProps) {
     isOrganization && keysQuery.error != null && isForbidden(keysQuery.error)
   const loadError = keysQuery.error != null && !forbidden
 
+  const keysLoading = useSkeletonHold(keysQuery.isPending)
   return (
     <div className="flex w-full min-w-0 flex-col gap-4">
       <Card
@@ -238,12 +239,12 @@ function ApiKeysCard(props: ApiKeysCardProps) {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {keysQuery.isPending ? (
+          {keysLoading ? (
             <div aria-hidden className="flex flex-col gap-3">
               {[1, 2, 3].map((row) => (
                 <div key={row} className="flex flex-col gap-2 py-2">
-                  <ShimmerPlaceholder className="h-4 w-40 max-w-full" />
-                  <ShimmerPlaceholder className="h-3 w-28" />
+                  <Skeleton className="h-4 w-40 max-w-full" />
+                  <Skeleton className="h-3 w-28" />
                 </div>
               ))}
             </div>

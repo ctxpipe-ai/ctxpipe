@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query"
 import { Button as RACButton } from "react-aria-components"
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
-import { SkeletonRow } from "@/components/ui/Skeleton"
+import { SkeletonRow, useSkeletonHold } from "@/components/ui/Skeleton"
 import { githubRepoFullNameFromGitUrl } from "@/features/repositories/github-web-url"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
@@ -41,6 +41,7 @@ export function GithubWorkspaceDestination({
   const onboarding = variant === "onboarding"
   const empty = status === "ready" && workspaces.length === 0
 
+  const loading = useSkeletonHold(status === "loading")
   return (
     <div className={cn("w-full", onboarding && "mx-auto max-w-2xl text-left")}>
       {variant === "page" ? (
@@ -64,7 +65,7 @@ export function GithubWorkspaceDestination({
           : "Create a new workspace, add repositories to an existing one, or close the wizard."}
       </p>
 
-      {status === "loading" ? (
+      {loading ? (
         <div className="mt-8 space-y-6">
           <div aria-busy>
             <span className="sr-only">Loading workspaces</span>
