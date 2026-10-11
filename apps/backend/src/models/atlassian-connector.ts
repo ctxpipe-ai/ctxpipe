@@ -700,6 +700,41 @@ export async function updateConfluenceSpaceSyncState(input: {
   })
 }
 
+/**
+ * Record a Workspace sources sync of these spaces. The cursor is one row for
+ * each connection and space, shared by all Workspaces (ADR-050). A new row
+ * keeps `selectedPageIds` null: the scope is in each Workspace's sources file.
+ */
+export async function recordConfluenceSpacesSynced(input: {
+  orgId: string
+  connectionId: string
+  spaceKeys: readonly string[]
+  lastSyncedAt: Date
+}): Promise<void> {
+  if (!input.spaceKeys.length) return
+  await withOrgDbContext(input.orgId, (db) =>
+    db
+      .insert(confluenceSpaces)
+      .values(
+        input.spaceKeys.map((spaceKey) => ({
+          id: generateObjectId("csp"),
+          orgId: input.orgId,
+          connectionId: input.connectionId,
+          spaceKey,
+          lastSyncedAt: input.lastSyncedAt,
+        })),
+      )
+      .onConflictDoUpdate({
+        target: [confluenceSpaces.connectionId, confluenceSpaces.spaceKey],
+        set: {
+          lastSyncedAt: input.lastSyncedAt,
+          lastSyncedPageId: null,
+          updatedAt: new Date(),
+        },
+      }),
+  )
+}
+
 type SyncTargetPatchInput = {
   repositoryId?: string
   repositoryName?: string

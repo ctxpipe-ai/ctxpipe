@@ -1,4 +1,5 @@
 import type { Env } from "../../config/env.js"
+import { confluenceSourceAdapter } from "../../services/confluence/workspace-source-adapter.js"
 import type { GitFileChange } from "../../services/git/file-change.js"
 import type { SourceProvider } from "./sources-file.js"
 
@@ -62,5 +63,6 @@ export type SourceAdapter<
  * The adapters in production. Each provider (phase 2) adds its adapter here.
  * A provider without an adapter keeps its sources projected but not synced.
  */
-export const SOURCE_ADAPTERS: Partial<Record<SourceProvider, SourceAdapter>> =
-  {}
+export const SOURCE_ADAPTERS: Partial<Record<SourceProvider, SourceAdapter>> = {
+  confluence: confluenceSourceAdapter,
+}

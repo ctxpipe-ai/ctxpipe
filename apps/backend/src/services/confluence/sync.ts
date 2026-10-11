@@ -71,7 +71,7 @@ export type ConfluenceReadApi = {
   downloadConnectorAsset: typeof downloadConnectorAsset
 }
 
-function defaultConfluenceReadApi(): ConfluenceReadApi {
+export function confluenceReadApi(): ConfluenceReadApi {
   return {
     listConfluenceSpaces,
     listConfluencePagesForSpace,
@@ -448,7 +448,7 @@ export async function captureConfluenceContent(input: {
   existingBlobs?: ReadonlyArray<{ path: string; sha: string }>
   api?: ConfluenceReadApi
 }): Promise<ConfluenceSyncResult> {
-  const api = input.api ?? defaultConfluenceReadApi()
+  const api = input.api ?? confluenceReadApi()
   const repoScope = input.config
   const syncedSpaces: ConfluenceSyncResult["syncedSpaces"] = []
   const scopeRows = normalizeSpaceRows(
