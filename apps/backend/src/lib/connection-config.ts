@@ -272,6 +272,23 @@ export function decodeLinearTokens(
 }
 
 /**
+ * The roots of a connection that failed in the Workspace sources sync
+ * (ADR-050). `tries` counts sync cycles; `countedAt` is the time of the last
+ * count, so that a burst of webhook syncs counts one time.
+ */
+export const sourceSyncFailuresSchema = z
+  .record(
+    z.string(),
+    z.object({
+      tries: z.number().int().positive(),
+      detail: z.string(),
+      countedAt: z.string().optional(),
+    }),
+  )
+  .default({})
+export type SourceSyncFailures = z.infer<typeof sourceSyncFailuresSchema>
+
+/**
  * The Workspace sources sync state of a Forge connection (ADR-050): the
  * cursor of each space, shared by all Workspaces, and the pages and spaces
  * that failed. The legacy `confluence_spaces` scope does not hold it.
@@ -280,13 +297,8 @@ export const forgeSourceSyncSchema = z.object({
   spaces: z
     .record(z.string(), z.object({ lastSyncedAt: z.string() }))
     .default({}),
-  /** Keyed `space:<KEY>` or `page:<KEY>:<id>`; `tries` counts sync cycles. */
-  failures: z
-    .record(
-      z.string(),
-      z.object({ tries: z.number().int().positive(), detail: z.string() }),
-    )
-    .default({}),
+  /** Keyed `space:<KEY>` or `page:<KEY>:<id>`. */
+  failures: sourceSyncFailuresSchema,
 })
 export type ForgeSourceSync = z.infer<typeof forgeSourceSyncSchema>
 
@@ -354,13 +366,8 @@ export type NotionSetupPhase = (typeof NOTION_SETUP_PHASES)[number]
  * gone for good stops after a bounded number of tries.
  */
 export const notionSourceSyncSchema = z.object({
-  /** Keyed `page:<id>` or `database:<id>`; `tries` counts sync cycles. */
-  failures: z
-    .record(
-      z.string(),
-      z.object({ tries: z.number().int().positive(), detail: z.string() }),
-    )
-    .default({}),
+  /** Keyed `page:<id>` or `database:<id>`. */
+  failures: sourceSyncFailuresSchema,
 })
 export type NotionSourceSync = z.infer<typeof notionSourceSyncSchema>
 

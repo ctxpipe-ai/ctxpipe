@@ -27,8 +27,8 @@ import {
 import { notionIdKey, titleSlug } from "./converter.js"
 import {
   managedNotionPagePathsForSubtree,
+  notionPageAncestry,
   parentDatabaseLikeId,
-  parentPageId,
 } from "./incremental.js"
 import {
   captureNotionContent,
@@ -52,9 +52,6 @@ export const NOTION_SYNC_MAX_TRIES = 3
 
 /** The Notion HTTP statuses that do not get better with a retry. */
 const PERMANENT_STATUSES = new Set([400, 403, 404])
-
-/** Do not follow parents above this depth (Notion trees are shallow). */
-const PARENT_WALK_MAX_DEPTH = 25
 
 type NotionRoot = { kind: "page" | "database"; id: string; title: string }
 
@@ -157,32 +154,24 @@ async function rootsForEvent(input: {
       affected.add(failureKey(root))
   if (event.action === "delete") return affected
   try {
-    let page = await retrieveNotionPage({
+    const page = await retrieveNotionPage({
       env: input.env,
       connection: input.connection,
       pageId: event.externalId,
       onTokenRefresh: input.onTokenRefresh,
     })
-    for (let depth = 0; depth < PARENT_WALK_MAX_DEPTH; depth += 1) {
-      const databaseId = parentDatabaseLikeId(page)
-      const parentId = parentPageId(page)
+    for await (const ancestor of notionPageAncestry({ ...input, page })) {
+      const databaseId = parentDatabaseLikeId(ancestor)
       for (const root of roots) {
         const key = notionIdKey(root.id)
         if (
-          (root.kind === "page" && key === notionIdKey(page.id)) ||
+          (root.kind === "page" && key === notionIdKey(ancestor.id)) ||
           (root.kind === "database" &&
             databaseId &&
             key === notionIdKey(databaseId))
         )
           affected.add(failureKey(root))
       }
-      if (databaseId || !parentId) break
-      page = await retrieveNotionPage({
-        env: input.env,
-        connection: input.connection,
-        pageId: parentId,
-        onTokenRefresh: input.onTokenRefresh,
-      })
     }
   } catch (error) {
     // A page that is gone or not shared: the roots that hold it re-sync.
@@ -213,9 +202,7 @@ export const notionSourceAdapter: SourceAdapter<NotionSourceScope> = {
     })
     const roots = [
       ...new Map(
-        scopes
-          .flatMap(rootsOf)
-          .map((root) => [`${rootPath(root)}`, root] as const),
+        scopes.flatMap(rootsOf).map((root) => [rootPath(root), root] as const),
       ).values(),
     ]
     const parsedEvent = notionSourceEventSchema.safeParse(event)
