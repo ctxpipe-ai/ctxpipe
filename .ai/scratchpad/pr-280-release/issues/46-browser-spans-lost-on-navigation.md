@@ -49,10 +49,10 @@ Cause (from the code; a deploy must confirm it):
 
 Fix:
 - `apps/ui/src/providers/HyperDxProvider.tsx`: init the SDK during the first client render (idempotent; it only patches browser globals), before child effects and the first auth fetches.
-- `apps/ui/src/lib/hyperdxBrowser.ts`: `recordHyperDxScreenError` records a `ui` exception span `UI screen: <screen>` with `ctxpipe.ui.source=screen`, `ctxpipe.ui.screen`, `route` (template), and `url.path`. A record before init waits (at most 10) and goes out at init. Init now runs once only.
+- `apps/ui/src/lib/hyperdxBrowser.ts`: `recordHyperDxScreenError` records a `ui` exception span `UI screen: <screen>` with `ctxpipe.ui.source=screen`, `ctxpipe.ui.screen`, `route` (template), and `url.path`. The provider inits the SDK in render, before any child effect, so the record goes straight to the SDK. Init now runs once only.
 - `useHyperDxScreenError` is called by the org access-denied screen (`routes/$orgSlug.tsx`, `org_access_denied`), the Workspace not-found screen (`WorkspaceSurface.tsx`, `workspace_not_found`), and the root not-found screen (`__root.tsx`, `not_found`).
 
-Test: `apps/ui/src/lib/hyperdxBrowser.test.ts` "keeps a screen error recorded before init and sends it at init" (failed before the fix). The render-time init order has no unit test; the deploy check proves it.
+Test: `apps/ui/src/lib/hyperdxBrowser.test.ts` "records a screen error with its screen, route template and path". The render-time init order has no unit test; the deploy check proves it.
 
 Open: on pr-280, open an unknown org slug and leave it at once. Check that its `documentLoad` span and a `UI screen: org_access_denied` span reach HyperDX, and that the first `get-session` fetch of a page load has a browser parent.
 

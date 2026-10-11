@@ -78,38 +78,4 @@ describe("HyperDX browser attributes", () => {
       "ctxpipe.org.slug": "",
     })
   })
-
-  it("keeps a screen error recorded before init and sends it at init", async () => {
-    vi.resetModules()
-    const fresh = await import("./hyperdxBrowser")
-    const { default: FreshHyperDX } = await import("@hyperdx/browser")
-    vi.spyOn(FreshHyperDX, "init").mockImplementation(() => {})
-    const recordException = vi.spyOn(FreshHyperDX, "recordException")
-    vi.stubGlobal("window", { location: { origin: "https://app.example" } })
-
-    fresh.recordHyperDxScreenError("org_access_denied", {
-      route: "/$orgSlug",
-      path: "/no-such-org",
-    })
-    expect(recordException).not.toHaveBeenCalled()
-
-    fresh.initHyperDxBrowser({ enabled: true }, null)
-    fresh.initHyperDxBrowser({ enabled: true }, null)
-    expect(FreshHyperDX.init).toHaveBeenCalledTimes(1)
-    expect(recordException).toHaveBeenCalledTimes(1)
-    const [error, attributes] = recordException.mock.calls[0] ?? []
-    expect((error as Error).message).toBe("UI screen: org_access_denied")
-    expect(attributes).toEqual({
-      "ctxpipe.ui.source": "screen",
-      "ctxpipe.ui.screen": "org_access_denied",
-      route: "/$orgSlug",
-      "url.path": "/no-such-org",
-    })
-
-    fresh.recordHyperDxScreenError("workspace_not_found", {
-      route: "/$orgSlug/ws/$workspaceSlug",
-      path: "/acme/ws/no-such-ws",
-    })
-    expect(recordException).toHaveBeenCalledTimes(2)
-  })
 })

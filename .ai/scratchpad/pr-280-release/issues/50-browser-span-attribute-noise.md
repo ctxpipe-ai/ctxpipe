@@ -1,6 +1,6 @@
 # Browser spans: duplicate attribution keys, console noise, and error spans not joined to the failed request
 
-Status: done (needs pr-280 deploy check)
+Status: done (needs pr-280 deploy check and the HyperDX session-view check)
 Priority: P3
 Owner: unassigned
 Blocked by: none
@@ -44,10 +44,12 @@ Cause: `hyperdxGlobalAttributes` published the HyperDX session keys and the cano
 
 Fix:
 - `apps/ui/src/lib/hyperdxAttributes.ts`: publish only `enduser.id`, `ctxpipe.org.id`, and `ctxpipe.org.slug`. Session replay is off (`disableReplay: true`), so no HyperDX session view reads `userId`, `teamId`, or `teamName`. The HyperDX MCP returned 504 during this work, so the session-view check is from the code, not from the HyperDX UI.
-- `apps/ui/src/lib/otelBrowserScrub.ts` (`dropVerboseConsoleSpans`, called by the relay): drop console spans with level `info` or `debug` (`console.log` maps to `info`). Keep `warn`. `console.error` comes from the error instrumentation. Graph rendering did not change.
+- `apps/ui/src/lib/otelBrowserScrub.ts` (`scrubOtlpJsonText`, the relay's one OTLP pass): drop spans named `console.log`, `console.info`, and `console.debug`. The filter reads the span name, because a logged object can overwrite the `level` attribute. Keep `console.warn`. `console.error` comes from the error instrumentation, not from the console capture. Graph rendering did not change.
 - `apps/ui/src/lib/api-result.ts`: `ApiError.requestId` comes from the response `x-request-id`. `apps/ui/src/lib/hyperdxQueryErrors.ts` puts it on the exception span as `request.id`, so the span names the failed request.
 
 Tests (each failed before the fix): `hyperdxAttributes.test.ts`, `hyperdxBrowser.test.ts` (one key per concept), `otelBrowserProxy.test.ts` ("keeps console warn spans and drops console log, info and debug spans"), `hyperdxQueryErrors.test.ts` ("names the failed request on the exception of an API error").
 
 Open: after a pr-280 deploy, check that browser spans have no `teamId`/`teamName`/`userId`, no `[CosmographDataKit]` console spans, and that a graph 503 exception span has `request.id`.
+
+Still open: check in the HyperDX UI that no session view needs `userId`, `teamId`, or `teamName`. HyperDX was not available during this work. User attribution stays through `enduser.id` (and the org through `ctxpipe.org.id` / `ctxpipe.org.slug`).
 

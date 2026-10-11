@@ -10,8 +10,6 @@ import type { HyperDxRuntimeConfig } from "@/lib/hyperdxRuntimeConfig"
  * Identity is applied with `setGlobalAttributes` in the same init call.
  */
 let hyperdxInitialized = false
-/** Screen errors from before init. The SDK drops a record before init. */
-let pendingScreenErrors: Array<() => void> = []
 
 export function initHyperDxBrowser(
   runtimeConfig: HyperDxRuntimeConfig,
@@ -43,29 +41,23 @@ export function initHyperDxBrowser(
   })
   hyperdxInitialized = true
   if (identity?.userId) setHyperDxGlobalAttributes(identity)
-  const pending = pendingScreenErrors
-  pendingScreenErrors = []
-  for (const record of pending) record()
 }
 
 /**
  * An access-denied or not-found screen makes no failing request, so this
- * error span is its only signal. A child effect runs before the provider can
- * init the SDK, so a record before init waits for init.
+ * error span is its only signal. `HyperDxProvider` inits the SDK in render,
+ * before any child effect calls this.
  */
 export function recordHyperDxScreenError(
   screen: string,
   where: { route: string; path: string },
 ): void {
-  const record = () =>
-    HyperDX.recordException(new Error(`UI screen: ${screen}`), {
-      "ctxpipe.ui.source": "screen",
-      "ctxpipe.ui.screen": screen,
-      route: where.route,
-      "url.path": where.path,
-    })
-  if (hyperdxInitialized) record()
-  else if (pendingScreenErrors.length < 10) pendingScreenErrors.push(record)
+  HyperDX.recordException(new Error(`UI screen: ${screen}`), {
+    "ctxpipe.ui.source": "screen",
+    "ctxpipe.ui.screen": screen,
+    route: where.route,
+    "url.path": where.path,
+  })
 }
 
 export function setHyperDxGlobalAttributes(

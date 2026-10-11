@@ -89,50 +89,32 @@ export function restrictBrowserResourceAttributes(
 }
 
 /**
- * The HyperDX console capture has no level option. Keep `console.warn` (errors
- * come from the error instrumentation) and drop log, info, and debug lines,
- * which are mostly third-party noise.
+ * Parse OTLP/JSON and scrub every string. Throws SyntaxError on malformed JSON.
+ *
+ * The HyperDX console capture has no level option. It names each span
+ * `console.<method>`, and a logged object can overwrite its `level`
+ * attribute, so the filter reads the name. `console.warn` stays;
+ * `console.error` comes from the error instrumentation, not this capture.
  */
-export function dropVerboseConsoleSpans(payload: unknown): void {
-  const resources = (payload as JsonRecord | null)?.resourceSpans
-  if (!Array.isArray(resources)) return
-  for (const resource of resources) {
-    const scopes = (resource as JsonRecord | null)?.scopeSpans
-    if (!Array.isArray(scopes)) continue
-    for (const scope of scopes) {
-      const record = scope as JsonRecord | null
-      if (!record || !Array.isArray(record.spans)) continue
-      record.spans = record.spans.filter((span) => !isVerboseConsoleSpan(span))
-    }
-  }
-}
-
-function isVerboseConsoleSpan(span: unknown): boolean {
-  const attributes = (span as JsonRecord | null)?.attributes
-  if (!Array.isArray(attributes)) return false
-  const value = (key: string) =>
-    (
-      attributes.find((a) => (a as JsonRecord | null)?.key === key) as
-        | JsonRecord
-        | undefined
-    )?.value as JsonRecord | undefined
-  if (value("component")?.stringValue !== "console") return false
-  const level = value("level")?.stringValue
-  return level === "info" || level === "debug"
-}
-
-/** Parse OTLP/JSON and scrub every string. Throws SyntaxError on malformed JSON. */
 export function scrubOtlpJsonText(text: string): unknown {
+  const verboseConsoleSpans = new Set([
+    "console.log",
+    "console.info",
+    "console.debug",
+  ])
   const emptyIdentityKeys = new Set([
-    "userId",
-    "teamId",
-    "teamName",
     "enduser.id",
     "ctxpipe.org.id",
     "ctxpipe.org.slug",
   ])
   return JSON.parse(text, (key, value: unknown) => {
     if (typeof value === "string") return scrubTelemetryString(value)
+    if (key === "spans" && Array.isArray(value)) {
+      return value.filter(
+        (span) =>
+          !verboseConsoleSpans.has((span as JsonRecord | null)?.name as string),
+      )
+    }
     if (key !== "attributes" || !Array.isArray(value)) return value
     return value.filter((attribute) => {
       if (!attribute || typeof attribute !== "object") return true

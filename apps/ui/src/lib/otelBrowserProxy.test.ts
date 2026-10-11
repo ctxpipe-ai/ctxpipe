@@ -305,8 +305,8 @@ describe("POST /.otel/v1/$signal", () => {
   })
 
   it("keeps console warn spans and drops console log, info and debug spans", async () => {
-    const consoleSpan = (level: string) => ({
-      name: `console.${level}`,
+    const consoleSpan = (type: string, level = type) => ({
+      name: `console.${type}`,
       attributes: [
         { key: "component", value: { stringValue: "console" } },
         { key: "level", value: { stringValue: level } },
@@ -324,6 +324,8 @@ describe("POST /.otel/v1/$signal", () => {
                   spans: [
                     consoleSpan("info"),
                     consoleSpan("debug"),
+                    // `console.log({ level: "warn" })` overwrites the attribute.
+                    consoleSpan("log", "warn"),
                     consoleSpan("warn"),
                     { name: "documentLoad", attributes: [] },
                   ],

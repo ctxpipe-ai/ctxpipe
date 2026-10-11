@@ -36,11 +36,9 @@ export const HyperDxProvider: FC<{
   const { data: organizations } = useListOrganizations()
 
   // Init in render, not in an effect: child effects and the first auth
-  // fetches run before a provider effect. The call is idempotent and only
-  // patches browser globals, so it does not change the rendered markup.
-  if (typeof window !== "undefined") {
-    initHyperDxBrowser({ enabled }, initialIdentity)
-  }
+  // fetches run before a provider effect. The call is idempotent, does nothing on the
+  // server, and only patches browser globals, so it does not change the rendered markup.
+  initHyperDxBrowser({ enabled }, initialIdentity)
 
   useEffect(() => {
     if (!enabled || sessionPending) return
