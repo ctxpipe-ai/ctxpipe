@@ -1,4 +1,5 @@
 import type { Env } from "../../config/env.js"
+import { parseLinkedRepositoryMarkdown } from "../workspaces/layout.js"
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../workspaces/write-status.js"
 import type { SourceChange } from "./edit.js"
@@ -47,6 +48,8 @@ export type MigrationWorkspace = {
   githubConnectionId: string | null
   /** The current `.ctxpipe/sources.yaml`, or null when absent. */
   sourcesFile: string | null
+  /** The `repositories/*.md` files of the Workspace repository. */
+  repositoryFiles?: ReadonlyArray<{ path: string; content: string }>
 }
 
 export type SourceMigrationReport = {
@@ -99,6 +102,8 @@ export function planSourceMigration(input: {
   bindings: readonly LegacySourceBinding[]
 }): {
   changes: Map<string, SourceChange[]>
+  /** The repository files that the GitHub source replaces, per Workspace. */
+  deletePaths: Map<string, string[]>
   report: SourceMigrationReport
 } {
   const report: SourceMigrationReport = {
@@ -125,11 +130,12 @@ export function planSourceMigration(input: {
     }
     if (present.get(workspaceId)?.has(pair)) {
       report.alreadyPresent.push(item)
-      return
+      return false
     }
     present.get(workspaceId)?.add(pair)
     changes.set(workspaceId, [...(changes.get(workspaceId) ?? []), change])
     report.moved.push(item)
+    return true
   }
 
   const linkedByWorkspace = new Map<string, string[]>()
@@ -173,8 +179,28 @@ export function planSourceMigration(input: {
       })
   }
 
+  const deletePaths = new Map<string, string[]>()
   for (const workspace of input.workspaces) {
-    const repositories = (linkedByWorkspace.get(workspace.id) ?? []).flatMap(
+    const files = (workspace.repositoryFiles ?? []).flatMap((file) => {
+      const parsed = parseLinkedRepositoryMarkdown(file.content)
+      return parsed.malformed
+        ? []
+        : [
+            {
+              path: file.path,
+              gitUrl: normalizeWorkspaceRepositoryUrl(parsed.git),
+              branch: parsed.branch,
+            },
+          ]
+    })
+    // A file that pins a branch stays: the GitHub scope has no branch.
+    const pinned = new Set(
+      files.filter((file) => file.branch).map((file) => file.gitUrl),
+    )
+    const moving = (linkedByWorkspace.get(workspace.id) ?? []).filter(
+      (url) => githubRepoFullNameFromWorkspaceUrl(url) && !pinned.has(url),
+    )
+    const repositories = moving.flatMap(
       (url) => githubRepoFullNameFromWorkspaceUrl(url) ?? [],
     )
     if (!repositories.length) continue
@@ -188,13 +214,18 @@ export function planSourceMigration(input: {
       })
       continue
     }
-    add(workspace.id, {
+    const paths = files
+      .filter((file) => !file.branch && moving.includes(file.gitUrl))
+      .map((file) => file.path)
+    const added = add(workspace.id, {
       action: "add",
       sourceKey: "linked-repositories",
       provider: "github",
       connectionId: workspace.githubConnectionId,
       scope: { repositories: [...new Set(repositories)].sort() },
     })
+    // Delete the files only in the PR that adds the source.
+    if (added && paths.length) deletePaths.set(workspace.id, paths)
   }
-  return { changes, report }
+  return { changes, deletePaths, report }
 }

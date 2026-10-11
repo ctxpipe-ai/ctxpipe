@@ -6,8 +6,10 @@ import {
 import {
   createPullRequestWithFiles,
   getFileContent,
+  listFilesInTree,
   listOpenPullRequestsByBranchPrefix,
 } from "../../services/github/installation-write-client.js"
+import { isLinkedRepositoryDeclaration } from "../workspaces/layout.js"
 import { applySourceFileChange } from "./edit.js"
 import {
   planSourceMigration,
@@ -56,15 +58,23 @@ export async function runSourceMigration(input: {
         { ...workspace, orgId: input.orgId },
         input.env,
       )
+      if (!repository) return { ...workspace, repository, sourcesFile: null }
+      const declarations = (await listFilesInTree(repository)).filter((file) =>
+        isLinkedRepositoryDeclaration(file.path),
+      )
       return {
         ...workspace,
         repository,
-        sourcesFile: repository
-          ? ((await getFileContent({
-              ...repository,
-              path: SOURCES_FILE_PATH,
-            })) ?? null)
-          : null,
+        sourcesFile:
+          (await getFileContent({ ...repository, path: SOURCES_FILE_PATH })) ??
+          null,
+        repositoryFiles: await Promise.all(
+          declarations.map(async (file) => ({
+            path: file.path,
+            content:
+              (await getFileContent({ ...repository, path: file.path })) ?? "",
+          })),
+        ),
       }
     }),
   )
@@ -105,9 +115,10 @@ export async function runSourceMigration(input: {
         baseBranch: workspace.repository.branch,
         featureBranchPrefix: MIGRATION_BRANCH_PREFIX,
         title: "Move connector sources into .ctxpipe/sources.yaml",
-        body: `ctx| now reads the sources of this Workspace from \`${SOURCES_FILE_PATH}\`. This PR adds ${changes.length} source(s) from the existing connector settings. Old mirrored content stays where it is.`,
+        body: `ctx| now reads the sources of this Workspace from \`${SOURCES_FILE_PATH}\`. This PR adds ${changes.length} source(s) from the existing connector settings, and deletes the repository files that a GitHub source replaces. Old mirrored content stays where it is.`,
         commitMessage: "Move connector sources into .ctxpipe/sources.yaml",
         files: [{ path: SOURCES_FILE_PATH, content: text }],
+        deletePaths: plan.deletePaths.get(workspaceId) ?? [],
       })
       pullRequests.push({
         workspaceId,
