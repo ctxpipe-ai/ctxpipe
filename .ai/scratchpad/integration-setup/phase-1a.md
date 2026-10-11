@@ -1,4 +1,4 @@
-Contract commit: 067ed818 (branch is-foundation)
+Contract commit: 067ed818 (branch is-foundation). Contract change in 65d1789e: a direct commit returns `{ outcome: "commit_queued", sourceKey }` (no SHA).
 
 # Phase 1A: backend foundation
 
@@ -14,14 +14,16 @@ Plan: [plan.md](plan.md).
   - `PUT  /:orgSlug/api/v1/workspaces/:workspaceSlug/sources/:sourceKey`
   - `DELETE /:orgSlug/api/v1/workspaces/:workspaceSlug/sources/:sourceKey?delivery=`
   - `GET  /:orgSlug/api/v1/connectors/:connectionId/workspaces`
-- A change returns `{ outcome: "pull_request", pullRequestUrl }` (awaiting merge) or `{ outcome: "commit", commitSha }`.
+- A change returns `{ outcome: "pull_request", pullRequestUrl }` (awaiting merge) or `{ outcome: "commit_queued" }` (the Workspace write queue commits it).
+- Pending PRs come back in `pendingChanges` (join on `sourceKey`). Their branch is `ctxpipe/sources/<action>/<provider>/<key>-<ms>`.
+- `connectionName` is null for now (connections have no display name).
 
 ## Steps
 
 1. Contract: done (067ed818).
-2. ADR: to do.
-3. `workspace_sources` table, migration, model, RLS tests: to do.
-4. Projection: to do.
-5. Edit API: to do.
+2. ADR: done (ADR-050).
+3. `workspace_sources` table, migration, model, RLS tests: done.
+4. Projection: done (hydrate step `project-workspace-sources`).
+5. Edit API: done.
 6. Sync frame and webhook fan-out: to do.
 7. Migration framework: to do.
