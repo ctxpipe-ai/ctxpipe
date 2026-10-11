@@ -39,6 +39,7 @@ import {
   tabsIncludingPanePath,
 } from "./fileTabs"
 import { type ParsedPane, parsePane, serializePane } from "./pane"
+import { useConversationPublish } from "./useConversationPublish"
 import { WorkspacePane, WorkspacePaneTriggers } from "./WorkspacePane"
 import {
   docsWorkspace,
@@ -116,6 +117,15 @@ function WorkspacePanePlayground(props: ComponentProps<typeof WorkspacePane>) {
   const [width, setWidth] = useState<number | null>(props.width)
   const [maximized, setMaximized] = useState(props.maximized)
   const [open, setOpen] = useState(true)
+  // The page makes the publish state; this harness stands in for the page.
+  const publish = useConversationPublish({
+    orgSlug: props.orgSlug,
+    conversationId: props.conversationId ?? "",
+    workspaceId: props.workspace.id,
+    title: props.conversationTitle,
+    statusEnabled: Boolean(props.conversationId),
+    pullEnabled: Boolean(props.conversationId),
+  })
   const panePath = pane.kind === "file" ? pane.path : null
   const fileTabs = tabsIncludingPanePath(session.tabs, panePath)
 
@@ -166,6 +176,7 @@ function WorkspacePanePlayground(props: ComponentProps<typeof WorkspacePane>) {
           <WorkspacePane
             {...props}
             key="pane"
+            publish={props.conversationId ? publish.chrome : null}
             pane={pane}
             width={width}
             maximized={maximized}

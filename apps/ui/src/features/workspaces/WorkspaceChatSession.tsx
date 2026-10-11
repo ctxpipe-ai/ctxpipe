@@ -29,7 +29,7 @@ import {
 import { workspaceChatPrepareOptions, workspaceKeys } from "./queries"
 import { takeFirstMessage } from "./start-workspace-conversation-ui"
 import type { Workspace } from "./types"
-import { useConversationPublish } from "./useConversationPublish"
+import type { ConversationPublish } from "./useWorkspaceConversationPublish"
 import { WorkspaceChatChrome } from "./WorkspaceChatChrome"
 import { workspaceChatWebSocket } from "./workspaceChatWebSocket"
 
@@ -92,6 +92,8 @@ export function WorkspaceChatSession(props: {
   initialMessages?: ConversationDetail["messages"]
   conversation?: ConversationListItem
   headerExtra?: ReactNode
+  /** The page makes the publish state one time and shares it with the tools pane. */
+  publish?: ConversationPublish | null
 }) {
   const { orgSlug, workspace, conversationId, title, initialMessages } = props
   const queryClient = useQueryClient()
@@ -151,18 +153,7 @@ export function WorkspaceChatSession(props: {
   const prepareQuery = useQuery(
     workspaceChatPrepareOptions(orgSlug, conversationId, workspace.id),
   )
-  const publish = useConversationPublish({
-    orgSlug,
-    conversationId,
-    workspaceId: workspace.id,
-    title: headerTitle,
-    statusEnabled: prepareQuery.isSuccess,
-    pullEnabled: (props.conversation?.lastChatPrNumber ?? null) != null,
-    fallbackPrState: props.conversation?.prState,
-    fallbackPullUrl: props.conversation?.lastChatPrUrl,
-    published: Boolean(props.conversation?.branchTreeUrl),
-  })
-  const gitStatus = publish.status
+  const gitStatus = props.publish?.status ?? null
 
   // When the first turn fails, the backend can drop the new conversation.
   // Give the text back to the composer and reload the list from the server.
@@ -278,7 +269,7 @@ export function WorkspaceChatSession(props: {
           workspace.writeStatus,
           workspace.conversationWritable,
         )
-          ? publish.chrome
+          ? (props.publish?.chrome ?? null)
           : null
       }
     >
