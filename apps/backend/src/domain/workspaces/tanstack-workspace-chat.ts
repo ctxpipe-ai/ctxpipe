@@ -126,6 +126,7 @@ import {
 import {
   beginWorkspaceChatTurn,
   finishWorkspaceChatTurn,
+  iterateInWorkspaceChatTurn,
   markWorkspaceChatFirstShownToken,
 } from "./workspace-chat-otel.js"
 import { workspaceChatPersistence } from "./workspace-chat-persistence.js"
@@ -333,10 +334,17 @@ export async function* streamTanstackWorkspaceChat(
   input: TanstackWorkspaceChatInput,
 ): AsyncGenerator<StreamChunk> {
   const turnId = input.runId ?? input.conversationId
-  beginWorkspaceChatTurn(input.conversationId, turnId)
+  const turnContext = beginWorkspaceChatTurn(input.conversationId, turnId, {
+    orgId: input.orgId,
+    orgSlug: input.orgSlug,
+    workspaceId: input.workspaceId,
+  })
   enterSandboxLifecycleContext(input.conversationId)
   try {
-    yield* streamTanstackWorkspaceChatBody(input, turnId)
+    yield* iterateInWorkspaceChatTurn(
+      turnContext,
+      streamTanstackWorkspaceChatBody(input, turnId),
+    )
   } catch (error) {
     finishWorkspaceChatTurn(turnId, {
       error: error instanceof Error ? error.message : String(error),

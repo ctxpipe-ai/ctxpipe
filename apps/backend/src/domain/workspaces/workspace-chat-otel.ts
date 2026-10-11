@@ -1,4 +1,9 @@
-import { type Span, trace } from "@opentelemetry/api"
+import { type Context, context, type Span, trace } from "@opentelemetry/api"
+import {
+  contextWithAttributionBag,
+  readAttribution,
+  sanitizeAttribution,
+} from "../../observability/attribution.js"
 import { log } from "../../observability/logger.js"
 
 export type WorkspaceChatGenerationRecord = {
@@ -28,6 +33,8 @@ type WorkspaceChatTurnState = {
   pendingToolsStartedAt: number | null
   generationSpan: Span | null
   rootSpan: Span
+  /** The turn's attribution and root span: the parent of each child span. */
+  context: Context
 }
 
 const turns = new Map<string, WorkspaceChatTurnState>()
@@ -40,12 +47,47 @@ export function workspaceChatTurnId(input: {
   return input.runId ?? input.conversationId
 }
 
+/**
+ * Open the turn root span and return its context. The root carries the
+ * attribution that is active now (user, request) plus the org, the
+ * Workspace, and the conversation. Generation and tool spans start under
+ * this context, also when a proxy request is the active context.
+ */
 export function beginWorkspaceChatTurn(
   conversationId: string,
   turnId = conversationId,
-): void {
+  owner?: { orgId?: string; orgSlug?: string; workspaceId?: string },
+): Context {
   const previous = turns.get(turnId)
   previous?.rootSpan.end()
+  const parent = context.active()
+  const { context: bagContext, bag } = contextWithAttributionBag(parent)
+  const attribution = {
+    ...readAttribution(),
+    ...sanitizeAttribution({
+      "ctxpipe.org.id": owner?.orgId,
+      "ctxpipe.org.slug": owner?.orgSlug,
+      "ctxpipe.workspace.id": owner?.workspaceId,
+      "ctxpipe.conversation.id": conversationId,
+    }),
+  }
+  for (const [key, value] of Object.entries(attribution)) bag.set(key, value)
+  const rootSpan = tracer().startSpan(
+    "workspace-chat.turn",
+    {
+      attributes: {
+        ...attribution,
+        "workspace_chat.conversation_id": conversationId,
+        "workspace_chat.turn_id": turnId,
+        // A turn with no caller span (the WebSocket) is the trace root.
+        ...(trace.getSpan(parent)
+          ? {}
+          : { "langfuse.trace.name": "workspace-chat" }),
+      },
+    },
+    bagContext,
+  )
+  const turnContext = trace.setSpan(bagContext, rootSpan)
   turns.set(turnId, {
     conversationId,
     turnId,
@@ -57,13 +99,48 @@ export function beginWorkspaceChatTurn(
     pendingToolSpans: [],
     pendingToolsStartedAt: null,
     generationSpan: null,
-    rootSpan: tracer().startSpan("workspace-chat.turn", {
-      attributes: {
-        "workspace_chat.conversation_id": conversationId,
-        "workspace_chat.turn_id": turnId,
-      },
-    }),
+    rootSpan,
+    context: turnContext,
   })
+  return turnContext
+}
+
+/** Run each step of `stream` in the turn context, so its spans join the turn. */
+export async function* iterateInWorkspaceChatTurn<T>(
+  turnContext: Context,
+  stream: AsyncIterable<T>,
+): AsyncGenerator<T> {
+  const iterator = stream[Symbol.asyncIterator]()
+  try {
+    while (true) {
+      const next = await context.with(turnContext, () => iterator.next())
+      if (next.done) return
+      yield next.value
+    }
+  } finally {
+    await context.with(turnContext, async () => {
+      await iterator.return?.()
+    })
+  }
+}
+
+/** A child of the turn root, linked to the active span (the proxy request). */
+function startTurnChildSpan(
+  state: WorkspaceChatTurnState,
+  name: string,
+  attributes: Record<string, string | number>,
+): Span {
+  const caller = trace.getActiveSpan()?.spanContext()
+  return tracer().startSpan(
+    name,
+    {
+      attributes,
+      ...(caller && caller.spanId !== state.rootSpan.spanContext().spanId
+        ? { links: [{ context: caller }] }
+        : {}),
+    },
+    state.context,
+  )
 }
 
 export function markWorkspaceChatFirstShownToken(turnId: string): void {
@@ -94,14 +171,13 @@ export function beginWorkspaceChatProxyGeneration(turnId: string): void {
     state.pendingToolsStartedAt = null
   }
   state.generationSpan?.end()
-  state.generationSpan = tracer().startSpan(
+  state.generationSpan = startTurnChildSpan(
+    state,
     `generation #${state.generations.length}`,
     {
-      attributes: {
-        "gen_ai.operation.name": "chat",
-        "workspace_chat.turn_id": turnId,
-        "workspace_chat.generation.index": state.generations.length,
-      },
+      "gen_ai.operation.name": "chat",
+      "workspace_chat.turn_id": turnId,
+      "workspace_chat.generation.index": state.generations.length,
     },
   )
 }
@@ -140,12 +216,10 @@ export function recordWorkspaceChatProxyGeneration(
     state.pendingTools = input.tools
     state.pendingToolsStartedAt = Date.now()
     state.pendingToolSpans = input.tools.map((name) =>
-      tracer().startSpan(`tool ${name}`, {
-        attributes: {
-          "gen_ai.tool.name": name,
-          "gen_ai.tool.type": "function",
-          "workspace_chat.turn_id": turnId,
-        },
+      startTurnChildSpan(state, `tool ${name}`, {
+        "gen_ai.tool.name": name,
+        "gen_ai.tool.type": "function",
+        "workspace_chat.turn_id": turnId,
       }),
     )
   }
@@ -184,19 +258,22 @@ export function finishWorkspaceChatTurn(
   const toolSummary = state.tools
     .map((tool) => `${tool.name}:${tool.durationMs}@${tool.generationIndex}`)
     .join(";")
-  log.info({
-    step: "workspace-chat-turn",
-    conversationId: state.conversationId,
-    turnId,
-    loops: state.generations.length,
-    ttftMs,
-    generations: state.generations.map(
-      ({ text: _text, ...generation }) => generation,
-    ),
-    tools: state.tools,
-    error: input?.error,
-    message: `workspace chat turn loops=${state.generations.length} ttftMs=${ttftMs ?? "none"} generations=${generationSummary || "-"} tools=${toolSummary || "-"}`,
-  })
+  // In the turn context, so the log line carries the turn trace id.
+  context.with(state.context, () =>
+    log.info({
+      step: "workspace-chat-turn",
+      conversationId: state.conversationId,
+      turnId,
+      loops: state.generations.length,
+      ttftMs,
+      generations: state.generations.map(
+        ({ text: _text, ...generation }) => generation,
+      ),
+      tools: state.tools,
+      error: input?.error,
+      message: `workspace chat turn loops=${state.generations.length} ttftMs=${ttftMs ?? "none"} generations=${generationSummary || "-"} tools=${toolSummary || "-"}`,
+    }),
+  )
   return {
     loops: state.generations.length,
     ttftMs,

@@ -1,3 +1,4 @@
+import { context } from "@opentelemetry/api"
 import { and, eq } from "drizzle-orm"
 import { getAuth } from "../../auth/config.js"
 import { withUserIdContext } from "../../auth/context.js"
@@ -20,6 +21,10 @@ import {
   resolveWorkspaceChatSendRuntime,
 } from "../../domain/workspaces/workspace-chat-send-runtime.js"
 import { discardUnstartedConversation } from "../../models/conversations.js"
+import {
+  contextWithAttributionBag,
+  sanitizeAttribution,
+} from "../../observability/attribution.js"
 import {
   createLogger,
   type LoggerHolder,
@@ -232,7 +237,7 @@ async function* streamWorkspaceChatSocketTurn(input: {
         },
       }),
   )
-  yield* withAuthContextStream(
+  yield* withSocketTurnContext(
     { id: input.orgId, slug: input.orgSlug },
     input.userId,
     input.conversationId,
@@ -246,12 +251,30 @@ async function* streamWorkspaceChatSocketTurn(input: {
   )
 }
 
-async function* withAuthContextStream<T>(
+/**
+ * Run each step of a socket turn in the auth, logger, and attribution
+ * context. The socket has no Hono request, so this is where the turn gets
+ * the org, user, and conversation that HTTP gets from its middleware.
+ */
+export async function* withSocketTurnContext<T>(
   org: { id: string; slug: string },
   userId: string,
   conversationId: string,
   stream: AsyncIterable<T>,
 ): AsyncGenerator<T> {
+  const { context: attributionContext, bag } = contextWithAttributionBag(
+    context.active(),
+  )
+  for (const [key, value] of Object.entries(
+    sanitizeAttribution({
+      "enduser.id": userId,
+      "ctxpipe.actor.type": "user",
+      "ctxpipe.org.id": org.id,
+      "ctxpipe.org.slug": org.slug,
+      "ctxpipe.conversation.id": conversationId,
+    }),
+  ))
+    bag.set(key, value)
   const logger = createLogger({
     step: "workspace-chat-ws",
     conversationId,
@@ -261,9 +284,11 @@ async function* withAuthContextStream<T>(
   const iterator = stream[Symbol.asyncIterator]()
   try {
     while (true) {
-      const next = await loggerStorage.run(holder, () =>
-        withOrgIdContext(org, () =>
-          withUserIdContext(userId, () => iterator.next()),
+      const next = await context.with(attributionContext, () =>
+        loggerStorage.run(holder, () =>
+          withOrgIdContext(org, () =>
+            withUserIdContext(userId, () => iterator.next()),
+          ),
         ),
       )
       if (next.done) return

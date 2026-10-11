@@ -1,11 +1,124 @@
-import { describe, expect, it } from "vitest"
+import { context, SpanKind, trace } from "@opentelemetry/api"
+import {
+  InMemorySpanExporter,
+  SimpleSpanProcessor,
+} from "@opentelemetry/sdk-trace-base"
+import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
+import { contextWithAttributionBag } from "../../observability/attribution.js"
+import { AttributionUrlSpanProcessor } from "../../observability/otel.js"
 import {
   beginWorkspaceChatProxyGeneration,
   beginWorkspaceChatTurn,
   finishWorkspaceChatTurn,
+  iterateInWorkspaceChatTurn,
   markWorkspaceChatFirstShownToken,
   recordWorkspaceChatProxyGeneration,
 } from "./workspace-chat-otel.js"
+
+const exporter = new InMemorySpanExporter()
+const provider = new NodeTracerProvider({
+  spanProcessors: [
+    new AttributionUrlSpanProcessor(),
+    new SimpleSpanProcessor(exporter),
+  ],
+})
+
+beforeAll(() => {
+  provider.register()
+})
+
+beforeEach(() => {
+  exporter.reset()
+})
+
+afterAll(async () => {
+  await provider.shutdown()
+})
+
+function proxyRequest(fn: () => void): string {
+  const span = trace
+    .getTracer("test")
+    .startSpan("POST /v1/chat/completions", { kind: SpanKind.SERVER })
+  context.with(trace.setSpan(context.active(), span), fn)
+  span.end()
+  return span.spanContext().spanId
+}
+
+describe("workspace chat turn trace", () => {
+  it("joins the generations, the tools, and the TanStack chat span under one attributed turn root", async () => {
+    const { context: socketContext, bag } = contextWithAttributionBag(
+      context.active(),
+    )
+    bag.set("enduser.id", "user_1")
+    bag.set("ctxpipe.actor.type", "user")
+    let turnContext = context.active()
+    context.with(socketContext, () => {
+      turnContext = beginWorkspaceChatTurn("conv_trace", "run_trace", {
+        orgId: "org_1",
+        orgSlug: "acme",
+        workspaceId: "ws_1",
+      })
+    })
+    async function* chatBody() {
+      trace.getTracer("tanstack").startSpan("chat test-model").end()
+      yield 1
+    }
+    for await (const _ of iterateInWorkspaceChatTurn(turnContext, chatBody())) {
+      /* drain */
+    }
+    const firstProxy = proxyRequest(() => {
+      beginWorkspaceChatProxyGeneration("run_trace")
+      recordWorkspaceChatProxyGeneration("run_trace", {
+        ttfbMs: 10,
+        durationMs: 20,
+        finishReason: "tool_calls",
+        tools: ["read"],
+      })
+    })
+    proxyRequest(() => {
+      beginWorkspaceChatProxyGeneration("run_trace")
+      recordWorkspaceChatProxyGeneration("run_trace", {
+        ttfbMs: 10,
+        durationMs: 20,
+        finishReason: "stop",
+        tools: [],
+      })
+    })
+    finishWorkspaceChatTurn("run_trace")
+
+    const spans = exporter.getFinishedSpans()
+    const byName = (name: string) => spans.find((span) => span.name === name)
+    const root = byName("workspace-chat.turn")
+    expect(root).toBeDefined()
+    expect(root?.parentSpanContext).toBeUndefined()
+    expect(root?.attributes).toMatchObject({
+      "ctxpipe.org.id": "org_1",
+      "ctxpipe.org.slug": "acme",
+      "ctxpipe.workspace.id": "ws_1",
+      "ctxpipe.conversation.id": "conv_trace",
+      "enduser.id": "user_1",
+      "langfuse.trace.name": "workspace-chat",
+    })
+    const traceId = root?.spanContext().traceId
+    const rootId = root?.spanContext().spanId
+    for (const name of [
+      "generation #0",
+      "generation #1",
+      "tool read",
+      "chat test-model",
+    ]) {
+      const span = byName(name)
+      expect(span, name).toBeDefined()
+      expect(span?.spanContext().traceId, name).toBe(traceId)
+      expect(span?.parentSpanContext?.spanId, name).toBe(rootId)
+      expect(span?.attributes["ctxpipe.org.id"], name).toBe("org_1")
+    }
+    expect(
+      byName("generation #0")?.links.map((link) => link.context.spanId),
+    ).toEqual([firstProxy])
+  })
+})
 
 describe("workspace chat otel turn summary", () => {
   it("records generation loops and the tool gap before the next completion", () => {
