@@ -1,8 +1,8 @@
 # Workspace chat turn over the WebSocket has no request span and no trace that joins its model calls
 
-Status: ready-for-agent
+Status: ready-for-human
 Priority: P1
-Owner: unassigned
+Owner: agent (obs-llm-traces)
 Blocked by: none
 Created: 2026-10-11
 Updated: 2026-10-11
@@ -39,3 +39,18 @@ The UI sends a chat turn over the conversation WebSocket. Ticket 37 sent one tur
 ## Comments
 
 ## Resolution
+
+Cause: the socket turn ran with no attribution context, and `workspace-chat-otel.ts` started the turn, generation, and tool spans with no explicit parent. Each span joined the context that was active at that time: the proxy request for a generation, nothing for a tool, and nothing for the TanStack chat span.
+
+Fix (branch `obs-llm-traces`):
+
+- `beginWorkspaceChatTurn` now takes the org, org slug, and Workspace. It makes a new attribution bag from the active attribution plus those ids and the conversation id, starts `workspace-chat.turn` in that context, and returns the turn context. A turn with no caller span (the socket) sets `langfuse.trace.name=workspace-chat`.
+- Generation and tool spans start with the turn context as parent. A generation span has a link to the proxy server span.
+- `streamTanstackWorkspaceChat` runs each step of its body in the turn context (`iterateInWorkspaceChatTurn`), so the TanStack `chat <model>` span is a child of the turn.
+- The turn summary log line is written in the turn context, so it has the turn `traceId`.
+- `conversation-websocket.ts` (`withSocketTurnContext`) gives each socket step an attribution bag with `enduser.id`, `ctxpipe.actor.type=user`, the org id and slug, and the conversation id. This also gives the Langfuse turn context its `org:` tag (ticket 44).
+
+Tests: `workspace-chat-otel.test.ts` ("joins the generations, the tools, and the TanStack chat span under one attributed turn root") asserts one trace id, the parent of each child, the root attributes, and the proxy link with `InMemorySpanExporter`. `conversation-websocket.attribution.test.ts` asserts the socket attribution and the Langfuse `org:` tag.
+
+To prove after a deploy: send a UI chat turn with tools on the preview and open the trace in HyperDX. Expect one trace with `workspace-chat.turn` as root, the `chat <model>` span, each `generation #N`, and each `tool <name>` under it.
+

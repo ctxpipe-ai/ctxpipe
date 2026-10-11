@@ -1,8 +1,8 @@
 # False error spans and streaming server spans that end too early
 
-Status: ready-for-agent
+Status: ready-for-human
 Priority: P3
-Owner: unassigned
+Owner: agent (obs-llm-traces)
 Blocked by: none
 Created: 2026-10-11
 Updated: 2026-10-11
@@ -41,3 +41,23 @@ Likely cause: better-auth's own OTel instrumentation marks the session lookup as
 ## Comments
 
 ## Resolution
+
+Cause:
+
+- better-auth records each thrown `APIError` (its HTTP answer, for example no session on an API-key request) as a span error, and `BetterAuthSpanFilter` kept every error span.
+- `traceGraphQuery` recorded the FalkorDB "already indexed" answer as an error, although the caller ignores it (FalkorDB has no `CREATE INDEX IF NOT EXISTS`).
+- `@hono/otel` ends the server span when the handler returns, which is at the headers of a streamed answer.
+- A failed chat turn set `error.type` on `workspace-chat.turn` but no error status.
+
+Fix (branch `obs-llm-traces`):
+
+- `BetterAuthSpanFilter` also drops a better-auth span whose exception is an `APIError`. It keeps other failures (for example an adapter error). The server span keeps the HTTP status.
+- `traceGraphQuery` does not record an error for "already indexed" on a `CREATE INDEX` query.
+- `backendOtelMiddleware` adds a child span `http.response.stream` to a `text/event-stream` answer. The span ends at the last chunk, has error status when the stream fails, and has `http.response.stream.canceled=true` when the client leaves. The server span stays as `@hono/otel` makes it.
+- A failed turn root has error status.
+- 4xx server spans stay `Unset`.
+
+Tests (each failed before the fix): `betterAuthSpanFilter.test.ts`, `dbTrace.test.ts` ("does not mark an index that already exists as an error"), `http.test.ts` ("covers a streamed response with a child span that ends with the stream", and no stream span on JSON), `workspace-chat-otel.test.ts` ("gives a failed turn error status").
+
+To prove after a deploy: a successful MCP `ctx_advisor` call and a hydrate run have no `Error` spans, and the MCP trace has `http.response.stream` under `POST /mcp` with the duration of the tool call.
+

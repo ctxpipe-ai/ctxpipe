@@ -1,8 +1,8 @@
 # Langfuse: Workspace chat generations have no model, no token counts, and no prompt or output
 
-Status: ready-for-agent
+Status: ready-for-human
 Priority: P1
-Owner: unassigned
+Owner: agent (obs-llm-traces)
 Blocked by: none
 Created: 2026-10-11
 Updated: 2026-10-11
@@ -47,3 +47,27 @@ Likely cause: `apps/backend/src/domain/workspaces/workspace-chat-otel.ts` sets o
 ## Comments
 
 ## Resolution
+
+Cause: the proxy knew the request model, the messages, and the response `usage`, but `workspace-chat-otel.ts` put only timing and the finish reason on the `generation #N` span. A streamed answer also had no `usage` chunk, because the proxy did not ask for one. A plain JSON answer was not read at all: its only line has no newline, and the observer read only complete lines.
+
+Fix (branch `obs-llm-traces`):
+
+- The proxy sets `stream_options.include_usage=true` on a streamed request. The observer reads `model` and `usage` (`prompt_tokens`, `completion_tokens`, `prompt_tokens_details.cached_tokens`, and the gateway `cost`), and reads the last line when the body ends.
+- The generation span gets `gen_ai.request.model`, `gen_ai.response.model`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `gen_ai.usage.cache_read.input_tokens`, `gen_ai.usage.cost`, and the prompt and answer as `langfuse.observation.input` / `output` (JSON, at most 64 KiB each). The ClickHouse pipeline already removes those two keys from HyperDX.
+- Prompt and answer go through `maskCredentialsDeep` (ticket 32) before they reach the span.
+- The trace name comes from ticket 41: a socket turn is a `workspace-chat` trace.
+- The TanStack `chat <model>` summary span: Langfuse showed `input: 0` because OpenCode reports input tokens without the cached tokens (359 + 6,838 cached), and Langfuse subtracts the cached count from the input count. The summary span and its iteration spans are now `langfuse.observation.type=span`, so the turn does not count the tokens and cost of its generations two times. HyperDX keeps the summary usage.
+
+Test: `workspace-chat-openai.attribution.integration.test.ts` ("records the model, the tokens, the cost, the prompt, and the output of a streamed generation") streams SSE from an msw provider and asserts the upstream `stream_options`, each attribute, and a masked GitHub token in the prompt.
+
+To prove after a deploy: open a chat generation in Langfuse. Expect the model, the tokens, the input, the output, and a cost. Also check that Langfuse shows the TanStack summary as a span with no cost; if it still shows a cost, remove the usage from it in a span processor.
+
+
+Review round 1 (security): the evlog span exporter logged all the attributes of each `generation #` span, so the prompt and output went to stdout and to HyperDX `otel_logs`. The exporter now drops the keys that match `LLM_CONTENT_KEY`, which is the same pattern as the collector trace rule (a test reads `config.yaml` to keep the two the same). The collector `logs/out-default` pipeline also blanks those JSON members (`transform/redact_llm_log_content`), as a second guard. I ran that rule in `clickstack-otel-collector:2.39.1` with a sample evlog line. The collector change needs an image build and a deploy of the observability project.
+
+Review round 1, other items:
+
+- Each span of a turn now carries `langfuse.trace.name=workspace-chat` through `propagateAttributes`, because the collector `filter/llm_only` sends only `gen_ai` spans to Langfuse and drops the turn root.
+- The Langfuse input keeps the newest whole messages, as valid JSON, at most 64 KiB. One message or answer that is still too long keeps the end of its text.
+- The proxy no longer wraps its work in `runWithLangfuseContext`: the generation spans start under the turn context, so that wrapper added nothing.
+- Not done: the Bedrock path (`MODEL_PROVIDER=bedrock`) does not feed the observer. Its answer is the AWS event stream converted in `bedrockOpenAiProxy.ts`, with no test seam today, so a generation on Bedrock has the model and the prompt but no tokens, cost, or output. This needs a Bedrock msw fixture first.

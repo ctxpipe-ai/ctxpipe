@@ -1,6 +1,13 @@
 import type { ReadableSpan, SpanExporter } from "@opentelemetry/sdk-trace-base"
 import { log } from "./logger.js"
 
+/**
+ * Prompt and output keys. They go only to Langfuse; logs never carry them.
+ * The collector `transform/redact_llm_content` rule uses the same pattern.
+ */
+export const LLM_CONTENT_KEY =
+  /^(langfuse\.observation\.(input|output)$|gen_ai\.(prompt|completion|input\.messages|output\.messages))/
+
 /** Compact evlog dump of workspace-chat spans when OTLP/Langfuse is off or alongside it. */
 export class EvlogSpanExporter implements SpanExporter {
   export(
@@ -22,7 +29,11 @@ export class EvlogSpanExporter implements SpanExporter {
         step: "workspace-chat-otel-span",
         span: name,
         durationMs: Math.round(durationMs),
-        attributes: span.attributes,
+        attributes: Object.fromEntries(
+          Object.entries(span.attributes).filter(
+            ([key]) => !LLM_CONTENT_KEY.test(key),
+          ),
+        ),
       })
     }
     resultCallback({ code: 0 })
