@@ -1,0 +1,85 @@
+import { describe, expect, it } from "vitest"
+import { FILE_ERROR_SOURCE_KEY, planSourceRows } from "./projection-plan.js"
+
+const connections = new Map([
+  ["con_linear1", { id: "con_linear1", type: "linear" }],
+  ["con_forge1", { id: "con_forge1", type: "forge" }],
+])
+
+describe("planSourceRows", () => {
+  it("gives no rows when the file is absent or empty", async () => {
+    expect(await planSourceRows({ text: null, connections })).toEqual([])
+    expect(await planSourceRows({ text: "", connections })).toEqual([])
+  })
+
+  it("records a file-level error in one reserved row", async () => {
+    const [bad] = await planSourceRows({ text: "version: 2\n", connections })
+    expect(bad).toMatchObject({
+      sourceKey: FILE_ERROR_SOURCE_KEY,
+      status: "invalid",
+    })
+    const [yaml] = await planSourceRows({ text: "a: [\n", connections })
+    expect(yaml?.statusDetail).toContain("not valid YAML")
+  })
+
+  it("gives each entry a status", async () => {
+    const rows = await planSourceRows({
+      text: `version: 1
+sources:
+  - id: eng-issues
+    provider: linear
+    connection: con_linear1
+    teams: [ENG]
+  - id: eng-docs
+    provider: confluence
+    connection: con_linear1
+  - id: gone
+    provider: notion
+    connection: con_missing1
+  - id: no-provider
+    connection: con_linear1
+  - provider: slack
+  - id: eng-issues
+    provider: linear
+    connection: con_linear1
+`,
+      connections,
+      checkAccess: async (entry) =>
+        entry.scope.teams ? null : "The connection cannot read this scope",
+    })
+    expect(
+      rows.map((row) => [row.sourceKey, row.status, row.statusDetail]),
+    ).toEqual([
+      [
+        "eng-issues",
+        "invalid",
+        'The id "eng-issues" is used by more than one entry',
+      ],
+      [
+        "eng-docs",
+        "invalid",
+        "The connection is a linear connection, not forge",
+      ],
+      [
+        "gone",
+        "connection_missing",
+        "The connection does not exist in this organization",
+      ],
+      ["no-provider", "invalid", expect.stringContaining("provider")],
+      [".entry-5", "invalid", expect.any(String)],
+    ])
+    expect(rows[0]?.scope).toEqual({ teams: ["ENG"] })
+  })
+
+  it("marks an entry out of the connection's reach as out_of_access", async () => {
+    const [row] = await planSourceRows({
+      text: "version: 1\nsources:\n  - {id: docs, provider: confluence, connection: con_forge1}\n",
+      connections,
+      checkAccess: async () => "Space ENG is not in this site",
+    })
+    expect(row).toMatchObject({
+      status: "out_of_access",
+      statusDetail: "Space ENG is not in this site",
+    })
+  })
+})

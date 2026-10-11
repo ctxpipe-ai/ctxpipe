@@ -1,0 +1,131 @@
+import YAML from "yaml"
+import {
+  parseSourceEntry,
+  SOURCE_SCOPES,
+  type SourceEntry,
+  type SourceProvider,
+  type SourceStatus,
+  sourcesFileSchema,
+} from "./sources-file.js"
+
+/** The reserved key of the row that records a file-level error. */
+export const FILE_ERROR_SOURCE_KEY = ".file"
+
+export type PlannedSourceRow = {
+  sourceKey: string
+  provider: SourceProvider | null
+  connectionId: string | null
+  scope: Record<string, unknown>
+  status: SourceStatus
+  statusDetail: string | null
+}
+
+export type SourceConnection = { id: string; type: string }
+
+/**
+ * Tell why a valid entry is out of its connection's reach, or return null.
+ * The provider adapter supplies this; without it every valid entry is `ok`.
+ */
+export type SourceAccessCheck = (
+  entry: SourceEntry,
+  connection: SourceConnection,
+) => Promise<string | null>
+
+function fileError(detail: string): PlannedSourceRow[] {
+  return [
+    {
+      sourceKey: FILE_ERROR_SOURCE_KEY,
+      provider: null,
+      connectionId: null,
+      scope: {},
+      status: "invalid",
+      statusDetail: detail,
+    },
+  ]
+}
+
+/** Turn the text of `.ctxpipe/sources.yaml` into the rows of its projection. */
+export async function planSourceRows(input: {
+  text: string | null
+  connections: ReadonlyMap<string, SourceConnection>
+  checkAccess?: SourceAccessCheck
+}): Promise<PlannedSourceRow[]> {
+  if (input.text === null) return []
+  let document: unknown
+  try {
+    document = YAML.parse(input.text)
+  } catch (error) {
+    return fileError(
+      `The file is not valid YAML: ${error instanceof Error ? error.message : String(error)}`,
+    )
+  }
+  if (document === null || document === undefined) return []
+  const file = sourcesFileSchema.safeParse(document)
+  if (!file.success)
+    return fileError(
+      `The file does not match version 1: ${file.error.issues.map((issue) => issue.message).join("; ")}`,
+    )
+
+  const rows = new Map<string, PlannedSourceRow>()
+  for (const [index, raw] of file.data.sources.entries()) {
+    const parsed = parseSourceEntry(raw)
+    const sourceKey = parsed.ok
+      ? parsed.entry.key
+      : (parsed.key ?? `.entry-${index + 1}`)
+    if (rows.has(sourceKey)) {
+      const first = rows.get(sourceKey)
+      if (first)
+        rows.set(sourceKey, {
+          ...first,
+          status: "invalid",
+          statusDetail: `The id "${sourceKey}" is used by more than one entry`,
+        })
+      continue
+    }
+    if (!parsed.ok) {
+      rows.set(sourceKey, {
+        sourceKey,
+        provider: parsed.provider,
+        connectionId: parsed.connectionId,
+        scope: {},
+        status: "invalid",
+        statusDetail: parsed.detail,
+      })
+      continue
+    }
+    const { entry } = parsed
+    const base = {
+      sourceKey,
+      provider: entry.provider,
+      connectionId: entry.connectionId,
+      scope: entry.scope,
+    }
+    const connection = input.connections.get(entry.connectionId)
+    if (!connection) {
+      rows.set(sourceKey, {
+        ...base,
+        status: "connection_missing",
+        statusDetail: "The connection does not exist in this organization",
+      })
+      continue
+    }
+    const expectedType = SOURCE_SCOPES[entry.provider].connectionType
+    if (connection.type !== expectedType) {
+      rows.set(sourceKey, {
+        ...base,
+        status: "invalid",
+        statusDetail: `The connection is a ${connection.type} connection, not ${expectedType}`,
+      })
+      continue
+    }
+    const accessIssue = input.checkAccess
+      ? await input.checkAccess(entry, connection)
+      : null
+    rows.set(sourceKey, {
+      ...base,
+      status: accessIssue ? "out_of_access" : "ok",
+      statusDetail: accessIssue,
+    })
+  }
+  return [...rows.values()]
+}
