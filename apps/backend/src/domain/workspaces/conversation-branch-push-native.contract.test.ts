@@ -916,6 +916,59 @@ const mergedPull = () => ({
 })
 
 it(
+  "opens the PR with a summary body and refreshes its ctx| section after a later push",
+  { timeout: 300_000 },
+  async () => {
+    const pull = { ...mergedPull(), body: "" }
+    const updates: Array<{ body?: string }> = []
+    await withSession(
+      {
+        githubPullRequest: pull,
+        onGithubPullRequestUpdate: (body) => {
+          updates.push(body as { body?: string })
+        },
+      },
+      async (_f, s) => {
+        pull.head.ref = s.branch
+        const handle = await s.warm()
+        await s.agentCommit(handle, "one.md", "Add note one")
+        expect((await s.createPr('"Add note one."\n\nMore text')).status).toBe(
+          200,
+        )
+        const created = s.pullRequests[0] as { title: string; body: string }
+        expect(created.title).toBe("Add note one")
+        expect(created.body).toContain("- Add note one\n")
+        expect(created.body).toContain("- `one.md` (added)")
+        expect(created.body).toMatch(
+          new RegExp(
+            `\\[Open the conversation in ctx\\|\\]\\(https?://[^)]+/ws/[^)]+/${s.conversationId}\\)`,
+          ),
+        )
+        expect(updates).toEqual([])
+        // A person adds a note above the ctx| section on GitHub.
+        pull.body = `Reviewer note\n\n${created.body}`
+        await s.turn("Write note two", [
+          commitStep("two.md", "Add note two"),
+          pushTool,
+        ])
+        expect(updates).toHaveLength(1)
+        const refreshed = updates[0]?.body ?? ""
+        expect(refreshed.startsWith("Reviewer note\n\n")).toBe(true)
+        expect(refreshed).toContain("- Add note two")
+        expect(refreshed).toContain("- `two.md` (added)")
+        // A body a person rewrote without the section stays as it is.
+        pull.body = "My own description"
+        await s.turn("Write note three", [
+          commitStep("three.md", "Add note three"),
+          pushTool,
+        ])
+        expect(updates).toHaveLength(1)
+      },
+    )
+  },
+)
+
+it(
   "keeps the branch after a closed PR and continues on a fresh branch, with unpushed work, once it is merged",
   { timeout: 300_000 },
   async () => {

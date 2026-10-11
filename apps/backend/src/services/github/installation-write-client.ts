@@ -663,6 +663,50 @@ export async function compareCommitsTouchesPath(
   })
 }
 
+/**
+ * What `head` adds to `base`: the commit messages (oldest first) and the
+ * changed files. GitHub lists at most 250 commits and 300 files.
+ */
+export async function compareBranchChanges(
+  input: BaseInput & { base: string; head: string },
+): Promise<{
+  commits: string[]
+  files: Array<{ path: string; status: string }>
+}> {
+  return withTransientGitHubRetry(async () => {
+    const context = await getInstallationContext(input)
+    const { data } = await context.octokit.rest.repos.compareCommits({
+      owner: context.owner,
+      repo: context.repo,
+      base: input.base,
+      head: input.head,
+    })
+    return {
+      commits: data.commits.map((commit) => commit.commit.message),
+      files: (data.files ?? []).map((file) => ({
+        path: file.filename,
+        status: file.status,
+      })),
+    }
+  })
+}
+
+export async function updatePullRequestBody(
+  input: BaseInput & { pullNumber: number; body: string },
+): Promise<void> {
+  const context = await getInstallationContext(input, {
+    pull_requests: "write",
+  })
+  await withTransientGitHubRetry(() =>
+    context.octokit.rest.pulls.update({
+      owner: context.owner,
+      repo: context.repo,
+      pull_number: input.pullNumber,
+      body: input.body,
+    }),
+  )
+}
+
 export async function closePullRequest(
   input: BaseInput & {
     pullNumber: number
@@ -704,6 +748,7 @@ export async function getPullRequestState(
   branch: string
   /** The head commit; for a merged PR, the commit GitHub merged. */
   headSha: string
+  body: string
 } | null> {
   try {
     const context = await getInstallationContext(input, {
@@ -727,6 +772,7 @@ export async function getPullRequestState(
       prState,
       branch: data.head.ref,
       headSha: data.head.sha,
+      body: data.body ?? "",
     }
   } catch (error) {
     if ((error as { status?: number }).status === 404) return null

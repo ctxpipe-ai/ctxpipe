@@ -184,6 +184,40 @@ async function createNativeHydrationFixture(
         )
       },
     ),
+    // GitHub's compare, answered from the fixture's real remote.
+    http.get(
+      "https://api.github.com/repos/fixture/hydration-contract/compare/:basehead",
+      ({ params }) => {
+        const [base, head] = String(params.basehead).split("...")
+        const remote = (...args: string[]) =>
+          git("--git-dir", join(directory, "remote.git"), ...args)
+        const range = `${base}...${head}`
+        const statuses: Record<string, string> = {
+          A: "added",
+          M: "modified",
+          D: "removed",
+        }
+        return HttpResponse.json({
+          commits: remote(
+            "log",
+            "--reverse",
+            "--format=%B%x00",
+            `${base}..${head}`,
+          )
+            .split("\0")
+            .map((message) => message.trim())
+            .filter(Boolean)
+            .map((message) => ({ commit: { message } })),
+          files: remote("diff", "--name-status", range)
+            .split("\n")
+            .filter(Boolean)
+            .map((line) => {
+              const [status = "", filename = ""] = line.split("\t")
+              return { filename, status: statuses[status] ?? "changed" }
+            }),
+        })
+      },
+    ),
     http.put(
       "https://api.github.com/repos/fixture/hydration-contract/contents/*",
       async ({ request, params }) => {

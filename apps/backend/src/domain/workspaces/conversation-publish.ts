@@ -2,18 +2,27 @@ import { randomUUID } from "node:crypto"
 import { open } from "node:fs/promises"
 import { join } from "node:path"
 import type { Env } from "../../config/env.js"
+import { getOrganizationSlugByOrgId } from "../../models/confluence-sync-target.js"
 import {
   getConversationSession,
   recordConversationSessionPush,
 } from "../../models/conversations.js"
 import { getRepoWriteCloneToken } from "../../models/github-installation.js"
-import { getWorkspaceWriteAdmission } from "../../models/workspaces.js"
+import {
+  getWorkspaceById,
+  getWorkspaceWriteAdmission,
+} from "../../models/workspaces.js"
 import { log } from "../../observability/logger.js"
 import {
   gitRemoteEnvironment,
   resolveGitRemoteTip,
 } from "../../services/git/clone-tree.js"
 import { nativeGit, withGitDirectory } from "../../services/git/pack.js"
+import {
+  compareBranchChanges,
+  getPullRequestState,
+  updatePullRequestBody,
+} from "../../services/github/installation-write-client.js"
 import {
   type ChatPublishBlock,
   conversationSessionBranch,
@@ -30,6 +39,12 @@ import {
 } from "./conversation-files.js"
 import { switchToSessionBranch } from "./conversation-session-branch.js"
 import type { JobSandboxHandle } from "./job-worktree.js"
+import {
+  type BranchChanges,
+  pullRequestBody,
+  pullRequestTitle,
+  refreshedPullRequestBody,
+} from "./pull-request-text.js"
 import { resolveRepositoryReadCredential } from "./resolve-revision.js"
 import {
   gitObjectIdSchema,
@@ -331,14 +346,14 @@ export async function pushConversationSession(input: {
         )
       dirty = false
     }
-    return {
-      ...(await brokerPush({
-        handle: input.handle,
-        env: input.env,
-        target,
-      })),
-      dirty,
-    }
+    const pushed = await brokerPush({
+      handle: input.handle,
+      env: input.env,
+      target,
+    })
+    if (pushed.status === "pushed")
+      await refreshSessionPullRequestBody(target, input.env)
+    return { ...pushed, dirty }
   } catch (error) {
     if (error instanceof PublishRefused)
       return { status: "skipped", reason: error.reason, dirty }
@@ -554,4 +569,103 @@ export function conversationGithubPullUrl(input: {
   prNumber: number
 }): string {
   return `https://github.com/${input.repositoryName}/pull/${input.prNumber}`
+}
+
+/** The conversation in the app, at the public origin `AUTH_BASE_URL`. */
+async function conversationAppUrl(
+  target: PublishTarget,
+  env: Env,
+): Promise<string | null> {
+  const [orgSlug, workspace] = await Promise.all([
+    getOrganizationSlugByOrgId(target.orgId),
+    getWorkspaceById(target.workspaceId, target.orgId),
+  ])
+  if (!orgSlug || !workspace?.slug) return null
+  const origin = env.AUTH_BASE_URL.replace(/\/+$/, "")
+  return `${origin}/${orgSlug}/ws/${workspace.slug}/${target.conversationId}`
+}
+
+/**
+ * The generated pull request body for the session branch: what the branch
+ * adds to the default branch on GitHub, and a link to the conversation. A
+ * failed compare gives a body without commits and files, so the pull request
+ * still opens.
+ */
+async function sessionBranchDescription(
+  target: PublishTarget,
+  env: Env,
+): Promise<{ changes: BranchChanges; body: string }> {
+  const changes = await compareBranchChanges({
+    orgId: target.orgId,
+    repositoryName: target.repositoryName,
+    env,
+    githubConnectionId: target.connectionId,
+    base: target.revision.defaultBranch,
+    head: target.branch,
+  }).catch((error: unknown): BranchChanges => {
+    log.warn({
+      step: "conversation-pull-request-body",
+      message: error instanceof Error ? error.message : String(error),
+      conversationId: target.conversationId,
+    })
+    return { commits: [], files: [] }
+  })
+  const conversationUrl = await conversationAppUrl(target, env)
+  return { changes, body: pullRequestBody({ changes, conversationUrl }) }
+}
+
+/** The title and body of a new pull request from the session branch. */
+export async function describeSessionPullRequest(input: {
+  target: PublishTarget
+  env: Env
+  name: string | null | undefined
+}): Promise<{ title: string; body: string }> {
+  const { changes, body } = await sessionBranchDescription(
+    input.target,
+    input.env,
+  )
+  return { title: pullRequestTitle(input.name, changes), body }
+}
+
+/**
+ * After a push, the conversation's open pull request gets a current ctx|
+ * section: the commits and files it now has. Text a person wrote stays. A
+ * failure is logged and does not fail the push.
+ */
+async function refreshSessionPullRequestBody(
+  target: PublishTarget,
+  env: Env,
+): Promise<void> {
+  try {
+    const conversation = await getConversationSession(
+      target.orgId,
+      target.conversationId,
+    )
+    if (conversation?.lastChatPrNumber == null) return
+    const github = {
+      orgId: target.orgId,
+      repositoryName: target.repositoryName,
+      env,
+      githubConnectionId: target.connectionId,
+    }
+    const pull = await getPullRequestState({
+      ...github,
+      pullNumber: conversation.lastChatPrNumber,
+    })
+    if (pull?.prState !== "open" || pull.branch !== target.branch) return
+    const { body } = await sessionBranchDescription(target, env)
+    const refreshed = refreshedPullRequestBody(pull.body, body)
+    if (refreshed === null) return
+    await updatePullRequestBody({
+      ...github,
+      pullNumber: pull.prNumber,
+      body: refreshed,
+    })
+  } catch (error) {
+    log.warn({
+      step: "conversation-pull-request-body",
+      message: error instanceof Error ? error.message : String(error),
+      conversationId: target.conversationId,
+    })
+  }
 }
