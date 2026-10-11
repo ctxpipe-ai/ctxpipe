@@ -8,6 +8,7 @@ import {
   parseLinkedRepositoryMarkdown,
   parseSimpleFrontMatter,
 } from "./layout.js"
+import { mirrorUnitKind, referenceLinks } from "./mirror-units.js"
 import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
 
 export function servingIdForKnowledgePath(
@@ -34,7 +35,10 @@ export type HydrateClaim = {
 export type HydrateUnit = {
   path: string
   servingId: string
-  /** Front-matter `kind` (graph ontology); absent for plain knowledge files. */
+  /**
+   * Front-matter `kind` (graph ontology), else the kind of a connector-mirror
+   * path; absent for plain knowledge files.
+   */
   kind?: string | null
   body: string
   links: string[]
@@ -81,6 +85,7 @@ export function hydrateKnowledgeTree(input: {
   linked: HydrateLinkedRepository[]
 } {
   const units: HydrateUnit[] = []
+  const attributes = new Map<string, Record<string, unknown>>()
   const skipped: HydrateSkip[] = []
   const linked: HydrateLinkedRepository[] = []
   const seenLinked = new Set<string>(
@@ -119,6 +124,7 @@ export function hydrateKnowledgeTree(input: {
       continue
     }
 
+    attributes.set(path, parsed.attributes)
     units.push({
       path,
       servingId: servingIdForKnowledgePath(input.workspaceId, path),
@@ -126,12 +132,25 @@ export function hydrateKnowledgeTree(input: {
         typeof parsed.attributes.kind === "string" &&
         parsed.attributes.kind.trim()
           ? parsed.attributes.kind.trim()
-          : null,
+          : mirrorUnitKind(path),
       body: parsed.body,
       links: markdownLinks(parsed.body),
       claims: parseClaims(parsed.attributes.claims),
       confidence: parseOptionalNumber(parsed.attributes.confidence),
     })
+  }
+
+  const references = referenceLinks({
+    units: units.map((unit) => ({
+      ...unit,
+      attributes: attributes.get(unit.path) ?? {},
+    })),
+    workspaceUrl: input.workspaceUrl,
+    resolveLink: resolveHydrateLink,
+  })
+  for (const unit of units) {
+    const extra = references.get(unit.path)
+    if (extra) unit.links.push(...extra)
   }
 
   // A repository that a file or the Workspace already names is not a skip:
@@ -272,7 +291,10 @@ export function resolveHydrateLink(fromDir: string, href: string): string {
   if (!cleaned || cleaned.startsWith("http:") || cleaned.startsWith("https:")) {
     return ""
   }
-  const parts = (fromDir ? `${fromDir}/${cleaned}` : cleaned).split("/")
+  // A leading `/` names a path from the Workspace root.
+  const parts = (
+    fromDir && !cleaned.startsWith("/") ? `${fromDir}/${cleaned}` : cleaned
+  ).split("/")
   const resolved: string[] = []
   for (const part of parts) {
     if (!part || part === ".") continue
