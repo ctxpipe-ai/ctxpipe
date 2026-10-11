@@ -17,6 +17,7 @@ import {
   getLinearOauthAppCreds,
   linearWorkspaceIdentity,
 } from "../../models/linear-oauth-app.js"
+import { log } from "../../observability/logger.js"
 import type { GitFileChange } from "../git/file-change.js"
 import {
   discoverLinearScopes,
@@ -262,7 +263,10 @@ async function linearTeamIdsByKey(input: {
   )
 }
 
-/** Name the team keys of a scope that the Linear workspace does not have. */
+/**
+ * Name the team keys of a scope that the Linear workspace does not have.
+ * When Linear cannot answer, the scope counts as in reach.
+ */
 export async function checkLinearSourceAccess(input: {
   orgId: string
   connectionId: string
@@ -270,11 +274,23 @@ export async function checkLinearSourceAccess(input: {
   env: Env
 }): Promise<string | null> {
   if (!linearTeams(input.scope).length) return null
-  const teamIdByKey = await linearTeamIdsByKey({
-    env: input.env,
-    connection: await loadInstalledConnection(input),
-    onTokenRefresh: tokenRefresher(input),
-  })
+  let teamIdByKey: Map<string, string>
+  try {
+    teamIdByKey = await linearTeamIdsByKey({
+      env: input.env,
+      connection: await loadInstalledConnection(input),
+      onTokenRefresh: tokenRefresher(input),
+    })
+  } catch (error) {
+    // A Linear or token failure must not stop the projection. The sync
+    // reports the same failure, and the next projection checks again.
+    log.warn({
+      step: "linear.source_access_check",
+      connectionId: input.connectionId,
+      message: error instanceof Error ? error.message : String(error),
+    })
+    return null
+  }
   const missing = linearTeams(input.scope).filter(
     (key) => !teamIdByKey.has(key.toUpperCase()),
   )

@@ -75,7 +75,6 @@ const row = (sourceKey: string, scope: Record<string, unknown>) => ({
   statusDetail: null,
 })
 
-
 describe("Linear source adapter on the sync frame (Postgres, msw)", () => {
   let docsWorkspace: string
   let engWorkspace: string
@@ -254,6 +253,19 @@ describe("Linear source adapter on the sync frame (Postgres, msw)", () => {
         connectionId: linear,
         env: env(),
         scope: { teams: ["ops"], projects: [] },
+      }),
+    ).resolves.toBeNull()
+  })
+
+  it("keeps a scope in reach when Linear cannot answer the access check", async () => {
+    resetLinearGraphqlForTests()
+    installLinearGraphql(server, calls, () => ({}), { status: 500 })
+    await expect(
+      linearSourceAdapter.checkAccess?.({
+        orgId: seed.orgId,
+        connectionId: linear,
+        env: env(),
+        scope: { teams: ["GONE"] },
       }),
     ).resolves.toBeNull()
   })
