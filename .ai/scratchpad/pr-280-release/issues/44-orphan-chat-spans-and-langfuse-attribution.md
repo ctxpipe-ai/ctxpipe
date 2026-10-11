@@ -1,8 +1,8 @@
 # Chat tool spans become root traces with no org, and some Langfuse traces have no org tag
 
-Status: ready-for-agent
+Status: ready-for-human
 Priority: P2
-Owner: unassigned
+Owner: agent (obs-llm-traces)
 Blocked by: 41
 Created: 2026-10-11
 Updated: 2026-10-11
@@ -41,3 +41,20 @@ Likely cause: `apps/backend/src/domain/workspaces/workspace-chat-otel.ts` starts
 ## Comments
 
 ## Resolution
+
+Cause: tool spans started with no parent and no attribution (ticket 41). The socket turn had no attribution bag, so `runWithLangfuseContext` found no org and wrote only the `ui` and `env:` tags. A job input has the org id but usually no org slug, and the `org:` tag needs the slug.
+
+Fix (branch `obs-llm-traces`):
+
+- Tool and generation spans are children of the turn root and copy the turn attribution (ticket 41).
+- The socket sets the org, user, actor, and conversation attribution for each turn step (`withSocketTurnContext`).
+- `beginWorkspaceChatTurn` applies the shared Langfuse builder (`langfusePropagation`, split out of `runWithLangfuseContext`) to the turn context. Every span of the turn, the TanStack `chat <model>` span too, gets `org:<slug>`, `env:<environment>`, and `orgId` / `orgSlug` metadata.
+- `defineObservedWorkflow` reads the org slug from `organizations` when a job input has only the org id, and gives it to the job attribution (the body input does not change). A failed lookup leaves the tag out and does not fail the job. This covers repository ingestion.
+- `user.id` on the TanStack span is the Langfuse `userId` key, which Langfuse needs. The same spans now also carry `enduser.id` from the attribution bag.
+
+Tests: `workspace-chat-otel.test.ts` asserts the org attributes, the `org:acme` tag, the `orgId` metadata, and the parent on each generation, tool, and chat span. `conversation-websocket.attribution.test.ts` asserts the socket attribution and tag. `defineObservedWorkflow.integration.test.ts` asserts the slug lookup against a real database.
+
+Open: the embedding trace (`openai/text-embedding-3-large`, only `env:`) runs where no attribution bag is active. This change does not find that caller. If it stays without `org:` after the deploy, find its caller from the trace and run it in the job or request attribution.
+
+To prove after a deploy: no Langfuse trace from a preview chat, MCP call, or ingestion run lacks `org:`, and no `tool <name>` span is a root in HyperDX.
+
