@@ -1,6 +1,6 @@
 # The knowledge graph fails to render and shows errors
 
-Status: needs deploy check
+Status: done
 Priority: P0
 Owner: claude
 Blocked by: none
@@ -45,3 +45,5 @@ Other checks: with WebGL 2 turned off, the canvas threw `Cannot read properties 
 - Review round 1 changed `709c7289`: the read must not build the graph. `54d1ead8` sets the ready graph phase back to pending with a compare-and-set, and only the winner starts one hydrate run (key per Workspace, revision and loss time). The run writes the revision graph clean, so stale extra nodes go. The route answers `202 {building: true}` while the phase is pending. `b76aea9e` shows the pane building state and reads again every 2 s, releases the WebGL probe context, and adds a revision note to ADR-046. Proof: contract tests for two concurrent reads (one run, then the graph renders), a write-only failure (phase `failed`), and stale extra nodes; golden stories `GraphLostRebuilds` and `NoWebGL` on a static Storybook build.
 
 Needs a deploy to prove: open the CTO's failing Workspace graph on pr-280. The first read shows the building state, a worker run rebuilds the graph, and the pane then renders it. The worker must be awake.
+
+- 2026-10-11 (team lead), after the PR Deploy of e6b86c3e: the graph API of the CTO's failing Workspace answered `202 {"building":true}` at the first read. 21 s later it answered 200 with 210 nodes and 265 edges, the same counts as the graph quality report.
