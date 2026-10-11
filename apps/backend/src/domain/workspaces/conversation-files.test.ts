@@ -817,4 +817,49 @@ describe("conversation sandbox writes", { timeout: 15_000 }, () => {
       },
     )
   })
+
+  it("runs no merge driver from the repository config in a backend rebase", async () => {
+    await withWorktree(
+      (directory) => {
+        writeFileSync(join(directory, "notes.md"), "1\n2\n3\n4\n5\n")
+        writeFileSync(
+          join(directory, ".gitattributes"),
+          "*.md merge=planted.m\n",
+        )
+      },
+      async ({ directory, handle, git }) => {
+        const ran = join(directory, ".git", "ran")
+        const script = join(directory, ".git", "merge.sh")
+        writeFileSync(script, `#!/bin/sh\necho merge >> '${ran}'\nexit 0\n`, {
+          mode: 0o755,
+        })
+        git("config", "merge.planted.m.driver", `${script} %A %O %B`)
+        git("checkout", "-q", "-b", "side")
+        writeFileSync(join(directory, "notes.md"), "one\n2\n3\n4\n5\n")
+        git("commit", "-q", "-am", "Side")
+        git("checkout", "-q", "main")
+        writeFileSync(join(directory, "notes.md"), "1\n2\n3\n4\nfive\n")
+        git("commit", "-q", "-am", "Main")
+        git("checkout", "-q", "side")
+        // A plain git merge runs the planted driver.
+        git("merge-tree", "--write-tree", "main", "side")
+        expect(existsSync(ran)).toBe(true)
+        rmSync(ran)
+        const sandbox = adaptTanstackHandle({
+          process: { exec: handle.exec },
+          fs: handle.fs,
+          destroy: async () => {},
+        })
+        const rebased = await sandbox.exec(
+          "git -c user.name=t -c user.email=t@example.test rebase -q main",
+        )
+        expect(rebased.exitCode).toBe(0)
+        expect(existsSync(ran)).toBe(false)
+        // The built-in text merge keeps both changes.
+        expect(readFileSync(join(directory, "notes.md"), "utf8")).toBe(
+          "one\n2\n3\n4\nfive\n",
+        )
+      },
+    )
+  })
 })
