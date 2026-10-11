@@ -1,4 +1,6 @@
 import { createServer } from "node:http"
+import { context, propagation, trace } from "@opentelemetry/api"
+import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
 import { initLogger } from "evlog"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { createLogger, withLogger } from "../observability/logger.js"
@@ -280,6 +282,33 @@ describe("uiProxyUpstreamHeaders", () => {
     expect(headers.get("x-forwarded-proto")).toBe("https")
     expect(headers.get("host")).toBe("ui.railway.internal:3002")
     expect(headers.get("origin")).toBe("https://backend-pr-343.up.railway.app")
+  })
+
+  it("passes the document span to the UI server as traceparent", async () => {
+    const provider = new NodeTracerProvider()
+    provider.register()
+    try {
+      const span = provider.getTracer("test").startSpan("GET /*")
+      const headers = context.with(trace.setSpan(context.active(), span), () =>
+        uiProxyUpstreamHeaders(
+          new Headers({
+            traceparent: "not-a-traceparent",
+            tracestate: "client=junk",
+          }),
+          "ui.railway.internal:3002",
+          { publicOrigin: "https://backend-pr-343.up.railway.app" },
+        ),
+      )
+      span.end()
+      const { traceId, spanId } = span.spanContext()
+      expect(headers.get("traceparent")).toBe(`00-${traceId}-${spanId}-01`)
+      expect(headers.get("tracestate")).toBeNull()
+    } finally {
+      await provider.shutdown()
+      trace.disable()
+      context.disable()
+      propagation.disable()
+    }
   })
 
   it("uses the configured https origin without an Origin header", () => {

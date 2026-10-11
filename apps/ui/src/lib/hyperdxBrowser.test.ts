@@ -49,9 +49,6 @@ describe("HyperDX browser attributes", () => {
       ),
     ).toBe(false)
     expect(setGlobalAttributes).toHaveBeenCalledWith({
-      userId: "user_1",
-      teamId: "org_1",
-      teamName: "acme",
       "enduser.id": "user_1",
       "ctxpipe.org.id": "org_1",
       "ctxpipe.org.slug": "acme",
@@ -66,9 +63,6 @@ describe("HyperDX browser attributes", () => {
       teamName: "",
     })
     expect(setGlobalAttributes).toHaveBeenCalledWith({
-      userId: "user_1",
-      teamId: "",
-      teamName: "",
       "enduser.id": "user_1",
       "ctxpipe.org.id": "",
       "ctxpipe.org.slug": "",
@@ -79,9 +73,6 @@ describe("HyperDX browser attributes", () => {
     const setGlobalAttributes = vi.spyOn(HyperDX, "setGlobalAttributes")
     clearHyperDxGlobalAttributes()
     expect(setGlobalAttributes).toHaveBeenCalledWith({
-      userId: "",
-      teamId: "",
-      teamName: "",
       "enduser.id": "",
       "ctxpipe.org.id": "",
       "ctxpipe.org.slug": "",

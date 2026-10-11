@@ -16,32 +16,48 @@ export function initHyperDxBrowser(
   identity: HyperDxSessionIdentity | null,
 ): void {
   if (typeof window === "undefined" || !runtimeConfig.enabled) return
-  if (!hyperdxInitialized) {
-    HyperDX.init({
-      url: `${window.location.origin}/.otel`,
-      apiKey: "proxy",
-      service: "ui",
-      // Strings in `ignoreUrls` are exact matches. This regex covers `/.otel` and `/.otel/...`.
-      ignoreUrls: [/\/\.otel(?:\/|$)/],
-      consoleCapture: true,
-      advancedNetworkCapture: false,
-      disableReplay: true,
-      disableIntercom: true,
-      // `interactions: false` is how this SDK turns click spans off.
-      // Do not set `fetch` or `xhr` here; the SDK spreads this object over
-      // the instrumentation that already sends traceparent on same-origin calls.
-      instrumentations: {
-        document: true,
-        postload: true,
-        webvitals: true,
-        errors: true,
-        interactions: false,
-        longtask: false,
-      },
-    })
-    hyperdxInitialized = true
-  }
+  if (hyperdxInitialized) return
+  HyperDX.init({
+    url: `${window.location.origin}/.otel`,
+    apiKey: "proxy",
+    service: "ui",
+    // Strings in `ignoreUrls` are exact matches. This regex covers `/.otel` and `/.otel/...`.
+    ignoreUrls: [/\/\.otel(?:\/|$)/],
+    consoleCapture: true,
+    advancedNetworkCapture: false,
+    disableReplay: true,
+    disableIntercom: true,
+    // `interactions: false` is how this SDK turns click spans off.
+    // Do not set `fetch` or `xhr` here; the SDK spreads this object over
+    // the instrumentation that already sends traceparent on same-origin calls.
+    instrumentations: {
+      document: true,
+      postload: true,
+      webvitals: true,
+      errors: true,
+      interactions: false,
+      longtask: false,
+    },
+  })
+  hyperdxInitialized = true
   if (identity?.userId) setHyperDxGlobalAttributes(identity)
+}
+
+/**
+ * An access-denied or not-found screen makes no failing request, so this
+ * error span is its only signal. `HyperDxProvider` inits the SDK in render,
+ * before any child effect calls this.
+ */
+export function recordHyperDxScreenError(
+  screen: string,
+  where: { route: string; path: string },
+): void {
+  HyperDX.recordException(new Error(`UI screen: ${screen}`), {
+    "ctxpipe.ui.source": "screen",
+    "ctxpipe.ui.screen": screen,
+    route: where.route,
+    "url.path": where.path,
+  })
 }
 
 export function setHyperDxGlobalAttributes(

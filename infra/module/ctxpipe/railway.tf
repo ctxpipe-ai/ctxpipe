@@ -238,6 +238,12 @@ resource "railway_variable_collection" "ui_env" {
       # UI SSR must reach the backend (not localhost baked into VITE_PUBLIC_API_URL).
       name  = "AUTH_BASE_URL"
       value = "http://$${{backend.RAILWAY_PRIVATE_DOMAIN}}:$${{backend.PORT}}"
+    },
+    {
+      # The browser OTLP relay (`/.otel`) accepts only these origins. The
+      # private AUTH_BASE_URL above is not an origin that a browser uses.
+      name  = "AUTH_ALLOWED_ORIGINS"
+      value = "https://${railway_custom_domain.app.domain},https://$${{backend.RAILWAY_PUBLIC_DOMAIN}}"
     }
   ], local.otel_shared_env)
 }
