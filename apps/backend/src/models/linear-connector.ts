@@ -1418,3 +1418,44 @@ export async function clearLinearSyncBindingsForRepository(input: {
   await Promise.all(updatedRows.map((row) => upsertConnectionDirectory(row)))
   return updatedRows.length
 }
+
+/**
+ * Turn off the legacy sync of one Linear connection after its scope moved to
+ * Workspace sources (ADR-050). Webhooks, config pushes, and a merge of an old
+ * config PR then start no legacy sync, because each needs an enabled binding.
+ * The repository binding stays for the record until phase 3 removes it.
+ */
+export async function disableLinearLegacyBinding(input: {
+  orgId: string
+  connectionId: string
+}): Promise<boolean> {
+  return orgSql(input.orgId, async () => {
+    const tx = getOrgDb()
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
+    )
+    const [row] = await tx
+      .select()
+      .from(connections)
+      .where(
+        and(
+          eq(connections.id, input.connectionId),
+          eq(connections.orgId, input.orgId),
+          eq(connections.type, CONNECTION_TYPE_LINEAR),
+        ),
+      )
+      .limit(1)
+    if (!row) return false
+    await tx
+      .update(connections)
+      .set({
+        config: mergeLinearStoredConfig(row, {
+          enabled: false,
+          pendingConfigPrCreating: false,
+        }),
+        updatedAt: new Date(),
+      })
+      .where(eq(connections.id, input.connectionId))
+    return true
+  })
+}

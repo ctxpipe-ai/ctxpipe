@@ -71,7 +71,7 @@ describe("planSourceMigration", () => {
       workspaces: [
         workspace(
           "context",
-          "version: 1\nsources:\n  - {id: issues, provider: linear, connection: con_lin1}\n",
+          "version: 1\nsources:\n  - {id: issues, provider: linear, connection: con_lin1, teams: [ENG]}\n",
         ),
         workspace("orphan", null, null),
       ],

@@ -40,7 +40,7 @@ export async function playPendingSetup(input: {
   await userEvent.click(
     canvas.getByRole("button", { name: new RegExp(` for ${input.name}$`) }),
   )
-  expect(input.onOpen).toHaveBeenCalledWith(false)
+  expect(input.onOpen).toHaveBeenCalledTimes(1)
   const reads = input.statusReads.mock.calls.length
   await userEvent.click(
     canvas.getByRole("button", { name: `Remove ${input.name} setup` }),

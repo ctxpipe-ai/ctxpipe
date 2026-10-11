@@ -16,12 +16,23 @@ export async function enqueueConnectionSourcesSync(input: {
   connectionId: string
   provider: SourceProvider
   event?: unknown
+  /**
+   * A key for one provider change. A second enqueue with the same key (a
+   * repeated webhook delivery) starts no new run.
+   */
+  dedupeKey?: string
 }): Promise<void> {
   assertNotInOrgDbContext()
-  await runWorkflowWithWorkerWake(workspaceSourcesSync.spec, {
-    kind: "connection",
-    ...input,
-  })
+  const { dedupeKey, ...workflowInput } = input
+  await runWorkflowWithWorkerWake(
+    workspaceSourcesSync.spec,
+    { kind: "connection", ...workflowInput },
+    dedupeKey
+      ? {
+          idempotencyKey: `workspace-sources:${input.connectionId}:${dedupeKey}`,
+        }
+      : undefined,
+  )
 }
 
 /** A provider without a sync adapter (GitHub) has nothing to sync or clean up. */

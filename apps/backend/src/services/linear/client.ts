@@ -257,6 +257,8 @@ export async function discoverLinearScopes(input: {
   env: Env
   connection: LinearConnection
   onTokenRefresh?: LinearTokenRefreshHandler
+  /** Only teams: skip the project, document, and initiative pages. */
+  teamsOnly?: boolean
 }): Promise<LinearDiscoveredScope[]> {
   return withLinearClient(input, async (client) => {
     const accessToken = input.connection.accessToken
@@ -274,9 +276,9 @@ export async function discoverLinearScopes(input: {
     let documentsAfter: string | null = null
     let initiativesAfter: string | null = null
     let includeTeams = true
-    let includeProjects = true
-    let includeDocuments = true
-    let includeInitiatives = true
+    let includeProjects = !input.teamsOnly
+    let includeDocuments = !input.teamsOnly
+    let includeInitiatives = !input.teamsOnly
 
     while (
       includeTeams ||

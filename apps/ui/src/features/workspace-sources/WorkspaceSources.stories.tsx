@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
 import { Toaster } from "sonner"
 import { expect, userEvent, waitFor, within } from "storybook/test"
+import { linearAvailableScopesHandler } from "@/mocks/linear-handlers"
 import { githubInstallationReposHandler } from "@/mocks/workspace-handlers"
 import {
   orgConnectionsHandler,
@@ -120,13 +121,12 @@ export const ConnectedWithoutSources: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByRole("button", { name: "Add repositories" })
-    // Confluence has a scope editor; Linear has none yet, so it cannot add.
     await expect(
       canvas.getByRole("button", { name: "Add Confluence source" }),
     ).toBeVisible()
     await expect(
-      canvas.queryByRole("button", { name: "Add Linear source" }),
-    ).toBeNull()
+      canvas.getByRole("button", { name: "Add Linear source" }),
+    ).toBeVisible()
     await expect(
       canvas.getByRole("link", { name: "Connect another source" }),
     ).toHaveAttribute("href", "/acme/connectors")
@@ -327,6 +327,55 @@ export const ScrollsToSourceAnchor: Story = {
 
 export const EditSendsChange: Story = {
   tags: ["workspace-golden"],
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceSourcesHandler(
+            workspaceSourceList({ items: [linearSource] }),
+          ),
+          connected,
+          linearAvailableScopesHandler(),
+          ...workspaceSourceChangeHandlers(editCalls),
+        ],
+      },
+    },
+  },
+  beforeEach: () => {
+    editCalls.length = 0
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Edit eng-issues" }),
+    )
+    const dialog = within(await within(document.body).findByRole("dialog"))
+    await dialog.findByRole("heading", { name: "Edit Linear source" })
+    await expect(
+      await dialog.findByRole("checkbox", { name: /Engineering/ }),
+    ).toBeChecked()
+    await userEvent.click(dialog.getByRole("checkbox", { name: /Operations/ }))
+    await userEvent.click(
+      dialog.getByRole("button", { name: "Open a pull request" }),
+    )
+    await waitFor(() => expect(editCalls).toHaveLength(1))
+    await expect(editCalls[0]).toEqual({
+      method: "PUT",
+      path: "/acme/api/v1/workspaces/docs/sources/eng-issues",
+      body: {
+        source: {
+          provider: "linear",
+          connectionId: "con_li1",
+          scope: { teams: ["ENG", "OPS"] },
+        },
+        delivery: "pull_request",
+      },
+    })
+    await within(document.body).findByText(/Pull request opened/)
+  },
+}
+
+export const UnlinkSendsChange: Story = {
   parameters: {
     msw: {
       handlers: {

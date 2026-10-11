@@ -126,8 +126,9 @@ export function ConnectorListItem({
    */
   remove: { description: ReactNode; onConfirm: () => void }
   workspace: ReactNode
-  scope: ReactNode
-  syncRepository: ReactNode
+  /** Omit both for a connection without a scope or sync repository of its own. */
+  scope?: ReactNode
+  syncRepository?: ReactNode
   /**
    * The "Used in" block: the Workspaces that use this connection. Each
    * provider card gives `<ConnectorUsedIn …/>`.
@@ -199,16 +200,20 @@ export function ConnectorListItem({
                 <dt className="text-muted-foreground">Workspace</dt>
                 <dd className="mt-1 text-foreground">{workspace}</dd>
               </div>
-              <div>
-                <dt className="text-muted-foreground">Scope</dt>
-                <dd className="mt-1 text-foreground">{scope}</dd>
-              </div>
-              <div className="sm:col-span-2">
-                <dt className="text-muted-foreground">
-                  Synchronised repository
-                </dt>
-                <dd className="mt-1 text-foreground">{syncRepository}</dd>
-              </div>
+              {scope === undefined ? null : (
+                <div>
+                  <dt className="text-muted-foreground">Scope</dt>
+                  <dd className="mt-1 text-foreground">{scope}</dd>
+                </div>
+              )}
+              {syncRepository === undefined ? null : (
+                <div className="sm:col-span-2">
+                  <dt className="text-muted-foreground">
+                    Synchronised repository
+                  </dt>
+                  <dd className="mt-1 text-foreground">{syncRepository}</dd>
+                </div>
+              )}
             </dl>
             {action && !pending ? (
               <div className="flex justify-end">

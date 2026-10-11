@@ -22,6 +22,7 @@ import {
 } from "../../domain/workspaces/write-status.js"
 import {
   claimPausedWriteJob,
+  ensureOrgFirstWorkspace,
   getWorkspaceProjection,
   listMigrationExportJobWorkspaceIds,
   listMigrationExportShas,
@@ -29,7 +30,6 @@ import {
   listOrgWorkspaces,
   listPausedWriteJobs,
   persistWriteStatus,
-  reconcileDestWorkspaceAssignment,
 } from "../../models/workspaces.js"
 import { log } from "../../observability/logger.js"
 import { getGithubRepoWriteView } from "../../routes/webhooks/github/github-workspace-tip.js"
@@ -85,7 +85,7 @@ export const workspaceTipCheck = defineWorkflow(
     if (!org) throw new Error(`Organization not found: ${input.orgId}`)
     return withOrgIdContext({ id: org.id, slug: org.slug }, async () => {
       await withOrgDbContext(input.orgId, () =>
-        reconcileDestWorkspaceAssignment(input.orgId),
+        ensureOrgFirstWorkspace(input.orgId),
       )
       const workspaces = await withOrgDbContext(input.orgId, () =>
         listOrgWorkspaces(input.orgId),

@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
-import { expect, fn, screen, userEvent, within } from "storybook/test"
+import { expect, fn, within } from "storybook/test"
 import {
   connectionUsageHandler,
   connectionUsageItem,
@@ -21,17 +21,6 @@ const connected: LinearConnectorStatus = {
   isInstalled: true,
   installationStatus: "installed",
   workspaceName: "Acme Product",
-  isGithubLinked: true,
-  selectedScopeCount: null,
-  setupPhase: "live",
-  pendingConfigPullUrl: null,
-  pendingConfigPrCreating: false,
-  syncTarget: {
-    repositoryId: "repo_1",
-    repositoryName: "acme/context",
-    githubConnectionId: "github_1",
-    branch: "main",
-  },
 }
 
 function statusHandler(status: LinearConnectorStatus) {
@@ -131,12 +120,6 @@ export const PendingSetup: Story = {
             isInstalled: false,
             installationStatus: null,
             workspaceName: null,
-            isGithubLinked: false,
-            selectedScopeCount: 0,
-            setupPhase: "draft",
-            pendingConfigPullUrl: null,
-            pendingConfigPrCreating: false,
-            syncTarget: null,
           }),
         ],
       },
@@ -152,9 +135,18 @@ export const PendingSetup: Story = {
     }),
 }
 
+/** An installed connection: no setup action; "Used in" adds it to Workspaces. */
 export const Connected: Story = {
   parameters: {
     msw: { handlers: { page: [statusHandler(connected)] } },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("Connected")
+    await expect(canvas.queryByText("Setup not finished")).toBeNull()
+    await expect(
+      canvas.queryByRole("button", { name: "Connect Linear" }),
+    ).toBeNull()
   },
 }
 
@@ -192,12 +184,6 @@ export const RevokedDraft: Story = {
             isInstalled: false,
             installationStatus: "revoked",
             workspaceName: "Acme Product",
-            isGithubLinked: true,
-            selectedScopeCount: 0,
-            setupPhase: "draft",
-            pendingConfigPullUrl: null,
-            pendingConfigPrCreating: false,
-            syncTarget: null,
           }),
         ],
       },
@@ -211,69 +197,5 @@ export const RevokedDraft: Story = {
     expect(
       canvas.getByRole("button", { name: "Linear connector actions" }),
     ).toBeVisible()
-  },
-}
-
-/** The server set a working row back to draft; it still holds the grant. */
-export const ResetToDraft: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          statusHandler({
-            ...connected,
-            setupPhase: "draft",
-            syncTarget: null,
-          }),
-        ],
-      },
-    },
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await canvas.findByText("Setup not finished")
-    await userEvent.click(
-      canvas.getByRole("button", { name: "Remove Linear setup" }),
-    )
-    const dialog = await screen.findByRole("alertdialog")
-    await within(dialog).findByText(
-      /deletes the Linear connection and its access grant/,
-    )
-  },
-}
-
-export const SyncFailed: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [statusHandler({ ...connected, setupPhase: "sync_failed" })],
-      },
-    },
-  },
-}
-
-export const ConfigurationPullRequestFailed: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [statusHandler({ ...connected, setupPhase: "config_failed" })],
-      },
-    },
-  },
-}
-
-export const AwaitingMerge: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          statusHandler({
-            ...connected,
-            setupPhase: "awaiting_merge",
-            pendingConfigPullUrl: "https://github.com/acme/context/pull/42",
-          }),
-        ],
-      },
-    },
   },
 }

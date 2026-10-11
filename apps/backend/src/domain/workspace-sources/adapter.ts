@@ -1,6 +1,7 @@
 import type { Env } from "../../config/env.js"
 import { confluenceSourceAdapter } from "../../services/confluence/workspace-source-adapter.js"
 import type { GitFileChange } from "../../services/git/file-change.js"
+import { linearSourceAdapter } from "../../services/linear/source-adapter.js"
 import type { SourceProvider } from "./sources-file.js"
 
 /**
@@ -14,6 +15,14 @@ type SourceFetchInput<S> = {
   connectionId: string
   scopes: readonly S[]
   env: Env
+  /** The webhook event of this sync, when a webhook started it. */
+  event?: unknown
+  /**
+   * The managed files that the Workspaces of these scopes have now, when the
+   * sync reads them. A path has a sha only when each Workspace that owns it
+   * has the same blob.
+   */
+  existing?: ReadonlyArray<{ path: string; sha: string | null }>
 }
 
 export type SourceAdapter<
@@ -50,9 +59,13 @@ export type SourceAdapter<
       /**
        * Fetch the content of the union of `scopes` one time. Return files at
        * Workspace repository paths. A file belongs to each Workspace whose
-       * scope owns its path.
+       * scope owns its path. A {@link SourceFetchResult} can also keep the
+       * files of a path it could not read, report a path out of reach, or
+       * send a patch.
        */
-      fetch(input: SourceFetchInput<S>): Promise<GitFileChange[]>
+      fetch(
+        input: SourceFetchInput<S>,
+      ): Promise<GitFileChange[] | SourceFetchResult>
       fetchEach?: never
     }
   | {
@@ -71,10 +84,36 @@ export type SourceAdapter<
     }
 )
 
+/** A fetch result with more than the files. */
+export type SourceFetchResult = {
+  files: GitFileChange[]
+  /**
+   * Path prefixes whose files stay as they are in this cycle: a failed read,
+   * or files that did not change.
+   */
+  keepPaths?: string[]
+  /**
+   * Managed paths out of the connection's reach for good. The sync keeps
+   * their files and sets each source that owns one to this status.
+   */
+  unreachable?: Array<{
+    path: string
+    status: "out_of_access" | "invalid"
+    detail: string
+  }>
+  /**
+   * A patch: write `files`, delete these paths, and keep each other file
+   * under the managed paths. Without it, the managed paths get exactly
+   * `files`.
+   */
+  deletePaths?: string[]
+}
+
 /**
  * The adapters in production. Each provider (phase 2) adds its adapter here.
  * A provider without an adapter keeps its sources projected but not synced.
  */
 export const SOURCE_ADAPTERS: Partial<Record<SourceProvider, SourceAdapter>> = {
   confluence: confluenceSourceAdapter,
+  linear: linearSourceAdapter,
 }

@@ -61,6 +61,7 @@ sources:
   - id: unknown
     provider: linear
     connection: con_doesnotexist
+    teams: [ENG]
 `,
     })
     const added = await project(first)
