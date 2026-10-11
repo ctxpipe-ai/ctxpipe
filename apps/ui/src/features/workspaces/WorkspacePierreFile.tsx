@@ -153,20 +153,17 @@ export function WorkspacePierreFile(props: {
     }
   }, [props.path, props.oldBody, props.cacheKey])
   const changed = props.oldBody != null && props.oldBody !== props.body
-  // The editor picks File or FileDiff when it opens a file, and keeps that
-  // surface while the user edits it. A switch remounts the editor: the editor
-  // then loses focus and the next keys go nowhere.
+  // The editor picks File or FileDiff when it opens a file, and an edit does
+  // not switch it to FileDiff: the switch makes a new editor without focus,
+  // so the next keys go nowhere. With no change left, it shows File again.
   const [surface, setSurface] = useState({
     cacheKey: props.cacheKey,
     diff: changed,
   })
-  if (surface.cacheKey !== props.cacheKey) {
+  if (surface.cacheKey !== props.cacheKey || (surface.diff && !changed)) {
     setSurface({ cacheKey: props.cacheKey, diff: changed })
   }
-  const showDiff =
-    props.editable && surface.cacheKey === props.cacheKey
-      ? surface.diff
-      : changed
+  const showDiff = props.editable ? surface.diff && changed : changed
   const fileDiff = useMemo(
     () => (showDiff ? parseDiffFromFile(oldFile, file) : null),
     [showDiff, oldFile, file],

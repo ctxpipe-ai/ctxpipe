@@ -70,6 +70,9 @@ export const workspaceKeys = {
     conversationId: string,
     turn?: string,
   ) => ["conversation-git-diff", orgSlug, conversationId, turn ?? ""] as const,
+  /** Matches the full diff and each turn diff of the conversation. */
+  conversationGitDiffs: (orgSlug: string, conversationId: string) =>
+    ["conversation-git-diff", orgSlug, conversationId] as const,
   conversationTurnChanges: (orgSlug: string, conversationId: string) =>
     ["conversation-turn-changes", orgSlug, conversationId] as const,
   conversationPullRequest: (orgSlug: string, conversationId: string) =>
@@ -575,8 +578,7 @@ export function refreshConversationAfterTurn(
       workspaceKeys.conversationGitTree(orgSlug, conversationId),
       workspaceKeys.conversationGitStatus(orgSlug, conversationId),
       workspaceKeys.conversationTurnChanges(orgSlug, conversationId),
-      // Without the turn part, the key matches the full diff and each turn diff.
-      workspaceKeys.conversationGitDiff(orgSlug, conversationId).slice(0, 3),
+      workspaceKeys.conversationGitDiffs(orgSlug, conversationId),
     ].map((queryKey) => client.invalidateQueries({ queryKey })),
   )
 }

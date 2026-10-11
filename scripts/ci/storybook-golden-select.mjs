@@ -8,6 +8,8 @@ export const requiredStories = [
   "EditThenNavigate",
   "OutOfOrderSaves",
   "NewFileKeepsTypedText",
+  "DraftSavedShowsFile",
+  "DraftRevertedShowsFile",
   "PierreKeyboardFocus",
   "SharedPublishPending",
   "PublishErrorsToast",

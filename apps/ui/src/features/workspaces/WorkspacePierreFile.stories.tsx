@@ -1,6 +1,19 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { useState } from "react"
+import { expect, userEvent, waitFor, within } from "storybook/test"
 import { WorkspacePierreFile } from "./WorkspacePierreFile"
 import { docsWorkspaceGitBlobs } from "./workspace-fixtures"
+
+function findInShadows(root: ParentNode, selector: string): Element | null {
+  const direct = root.querySelector(selector)
+  if (direct) return direct
+  for (const element of root.querySelectorAll("*")) {
+    if (!element.shadowRoot) continue
+    const nested = findInShadows(element.shadowRoot, selector)
+    if (nested) return nested
+  }
+  return null
+}
 
 const meta = {
   title: "Components/Workspaces/FilePreview",
@@ -73,5 +86,78 @@ export const LongFile: Story = {
       longLine.repeat(12).trimEnd(),
     ].join("\n"),
     cacheKey: "story:long:knowledge/handbook.md",
+  },
+}
+
+const draftHead = docsWorkspaceGitBlobs["AGENTS.md"] ?? ""
+
+/** A draft from an earlier visit; the buttons save it or put it back. */
+function DraftThenNoChange() {
+  const [file, setFile] = useState({
+    body: `${draftHead}\nDraft line.\n`,
+    oldBody: draftHead,
+  })
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex gap-2 p-2">
+        <button
+          type="button"
+          onClick={() => setFile((old) => ({ ...old, oldBody: old.body }))}
+        >
+          Save draft
+        </button>
+        <button
+          type="button"
+          onClick={() => setFile((old) => ({ ...old, body: old.oldBody }))}
+        >
+          Revert draft
+        </button>
+      </div>
+      <div className="min-h-0 flex-1">
+        <WorkspacePierreFile
+          path="AGENTS.md"
+          body={file.body}
+          oldBody={file.oldBody}
+          cacheKey="story:draft:AGENTS.md"
+          editable
+        />
+      </div>
+    </div>
+  )
+}
+
+async function expectView(canvasElement: HTMLElement, view: "diff" | "file") {
+  await waitFor(() => {
+    expect(Boolean(findInShadows(canvasElement, "[data-diff]"))).toBe(
+      view === "diff",
+    )
+    expect(Boolean(findInShadows(canvasElement, "[data-file]"))).toBe(
+      view === "file",
+    )
+  })
+}
+
+/** A draft opens as a diff; with no change left, it is a plain file again. */
+export const DraftSavedShowsFile: Story = {
+  tags: ["workspace-golden"],
+  render: () => <DraftThenNoChange />,
+  play: async ({ canvasElement }) => {
+    await expectView(canvasElement, "diff")
+    await userEvent.click(
+      within(canvasElement).getByRole("button", { name: "Save draft" }),
+    )
+    await expectView(canvasElement, "file")
+  },
+}
+
+export const DraftRevertedShowsFile: Story = {
+  tags: ["workspace-golden"],
+  render: () => <DraftThenNoChange />,
+  play: async ({ canvasElement }) => {
+    await expectView(canvasElement, "diff")
+    await userEvent.click(
+      within(canvasElement).getByRole("button", { name: "Revert draft" }),
+    )
+    await expectView(canvasElement, "file")
   },
 }

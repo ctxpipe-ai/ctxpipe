@@ -1251,6 +1251,8 @@ function pierreEditorHost(canvasElement: HTMLElement): PierreEditorHost | null {
     )) as PierreEditorHost | null
 }
 
+// userEvent types into document.activeElement, which is the shadow host, so
+// its keys never reach Pierre's editor; the editor's own handle types instead.
 async function typeInPierreEditor(canvasElement: HTMLElement, text: string) {
   await waitFor(
     () => {
@@ -1574,13 +1576,23 @@ export const NewFileKeepsTypedText: Story = {
     // the user types go nowhere (ticket 51, gap 3).
     const editable = () =>
       findInShadows(canvasElement, "[contenteditable='true']")
-    const opened = editable()
+    const opened = editable() as HTMLElement | null
     expect(opened).toBeTruthy()
+    const focused = () => {
+      let active = canvasElement.ownerDocument.activeElement
+      while (active?.shadowRoot?.activeElement)
+        active = active.shadowRoot.activeElement
+      return active
+    }
+    opened?.focus()
+    await waitFor(() => expect(focused()).toBe(opened))
     const [firstLine = "", ...otherLines] = newFileText.split("\n")
     await typeInPierreEditor(canvasElement, firstLine)
     expect(editable()).toBe(opened)
+    expect(focused()).toBe(opened)
     await typeInPierreEditor(canvasElement, `\n${otherLines.join("\n")}`)
     expect(editable()).toBe(opened)
+    expect(focused()).toBe(opened)
     expect(pierreEditorHost(canvasElement)?.getPierreText?.()).toBe(newFileText)
     await userEvent.click(canvas.getByRole("button", { name: "Save" }))
     await waitFor(() => {
