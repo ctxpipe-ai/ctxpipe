@@ -120,10 +120,10 @@ export const ConnectedWithoutSources: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByRole("button", { name: "Add repositories" })
-    // Confluence and Linear have no scope editor yet, so they cannot add.
+    // Confluence has a scope editor; Linear has none yet, so it cannot add.
     await expect(
-      canvas.queryByRole("button", { name: "Add Confluence source" }),
-    ).toBeNull()
+      canvas.getByRole("button", { name: "Add Confluence source" }),
+    ).toBeVisible()
     await expect(
       canvas.queryByRole("button", { name: "Add Linear source" }),
     ).toBeNull()
