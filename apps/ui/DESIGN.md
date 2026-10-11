@@ -83,6 +83,20 @@ Operate UI is keyboard-heavy. Apply on **new or touched** interactive chrome:
 
 Shared tokens: [`focus-styles.ts`](src/lib/focus-styles.ts) (`focusVisibleClassName`, `focusVisibleRingClassName`, RAC `focusRing`). Re-exported from [`react-aria-utils.ts`](src/lib/react-aria-utils.ts) for primitives.
 
+### Motion
+
+Motion must not make the UI feel slow. Obey these rules in new and changed code:
+
+- **Large components do not move.** Do not animate a pane, a panel, a drawer, a sidebar, page or route content, a layout change, or a resize. The change occurs at once.
+- **Small elements can move, but only fast.** Examples are a hover color, a focus ring, a menu, a tooltip, a toast, a dialog fade, and a chevron. Use 150 ms or less. Use 100 ms when possible. The Tailwind default (`transition`, `transition-colors`) is 100 ms, so do not add a `duration-*` class unless you must.
+- **Enter with `ease-out`.** An exit animation is optional. If you use one, it must not be longer than the enter.
+- **Animate only `opacity`, `transform` (`scale`, `translate`, `rotate`), and colors.** Do not animate `width`, `height`, `flex-grow`, or layout. Do not use `transition-all`. Name the properties, for example `transition-[opacity,scale]`.
+- **Loading indicators can loop.** A spinner, a skeleton shimmer, and a pulse dot show a wait, not content motion. They can be slower than 150 ms.
+- **Do not add a motion library.** Use Tailwind and CSS.
+- **Reduced motion:** a global `prefers-reduced-motion: reduce` rule in [`styles.css`](src/styles.css) stops all transitions and animations. Do not override it.
+
+CI runs `node scripts/ci/check-ui-motion.mjs`. It fails on a duration above 150 ms or on `transition-all` in `src/`. A line that contains `infinite` (a loader) passes. For another real exception, write `motion-allow: <reason>` on the line or on the line before it.
+
 ### Icons
 
 `@tabler/icons-react` first. Lucide only when Tabler has no equivalent. Do not add a third set.
