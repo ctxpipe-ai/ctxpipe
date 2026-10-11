@@ -2,6 +2,7 @@ import { requireCurrentOrgId } from "../../auth/context.js"
 import { listOrgConnections } from "../../models/org-connections.js"
 import {
   listConnectionSourceRows,
+  listGithubConnectionWorkspaces,
   listWorkspaceSourceRows,
   type WorkspaceSourceRow,
 } from "../../models/workspace-sources.js"
@@ -275,6 +276,31 @@ export async function listConnectionUsage(
     })
     item.stat = item.sources.map((entry) => entry.scopeSummary).join(", ")
     byWorkspace.set(source.workspaceId, item)
+  }
+  if (connection.type === "github") {
+    // A GitHub connection also reads each Workspace repository and linked
+    // repository bound to it, with or without a source entry.
+    for (const usage of await listGithubConnectionWorkspaces({
+      orgId,
+      connectionId,
+    })) {
+      const count = usage.linkedRepositories
+      const stat = [
+        usage.workspaceRepository ? "Workspace repository" : null,
+        count
+          ? `${count} linked ${count === 1 ? "repository" : "repositories"}`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(" · ")
+      byWorkspace.set(usage.workspaceId, {
+        workspaceId: usage.workspaceId,
+        workspaceSlug: usage.workspaceSlug,
+        workspaceName: usage.workspaceName,
+        sources: byWorkspace.get(usage.workspaceId)?.sources ?? [],
+        stat,
+      })
+    }
   }
   return { items: [...byWorkspace.values()] }
 }
