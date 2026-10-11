@@ -73,14 +73,6 @@ vi.mock("@tanstack/react-query", () => ({
         isFetching: false,
       }
     }
-    if (key === "notion-connector-config") {
-      return {
-        data: { resources: [], syncTarget: null },
-        isPending: false,
-        isError: false,
-        isFetching: false,
-      }
-    }
     return {
       data: key === "repositories" ? [] : undefined,
       isPending: false,
@@ -172,21 +164,12 @@ vi.mock("../hooks/useNotionOAuthConnect", () => ({
 
 vi.mock("../queries/notion-connector", () => ({
   fetchNotionConnectorStatus: vi.fn(),
-  fetchNotionConnectorConfig: vi.fn(),
   fetchNotionOauthApp: vi.fn(),
   saveNotionOauthApp: (...args: unknown[]) => saveOauthApp(...args),
-  patchNotionConnectorConfig: vi.fn(),
-  retryNotionSync: vi.fn(),
-  retryNotionConfig: vi.fn(),
   searchNotionResources: vi.fn(),
   notionConnectorKeys: {
     status: (orgSlug: string, connectionId?: string) => [
       "notion-connector-status",
-      orgSlug,
-      connectionId ?? "default",
-    ],
-    config: (orgSlug: string, connectionId?: string) => [
-      "notion-connector-config",
       orgSlug,
       connectionId ?? "default",
     ],

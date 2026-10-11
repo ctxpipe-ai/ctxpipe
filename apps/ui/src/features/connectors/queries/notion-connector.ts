@@ -1,9 +1,5 @@
 import { apiFetch, readApiJson } from "@/lib/api-result"
-import type {
-  NotionConnectorConfig,
-  NotionConnectorStatus,
-  NotionResource,
-} from "../types"
+import type { NotionConnectorStatus, NotionResource } from "../types"
 
 export class NotionOAuthNotConfiguredError extends Error {
   constructor() {
@@ -26,8 +22,6 @@ export type NotionOauthAppGet = {
 export const notionConnectorKeys = {
   status: (orgSlug: string, connectionId?: string) =>
     ["notion-connector-status", orgSlug, connectionId ?? "default"] as const,
-  config: (orgSlug: string, connectionId?: string) =>
-    ["notion-connector-config", orgSlug, connectionId ?? "default"] as const,
   oauthApp: (orgSlug: string, connectionId: string) =>
     ["notion-oauth-app", orgSlug, connectionId] as const,
   resources: (orgSlug: string, connectionId: string | undefined, q: string) =>
@@ -55,23 +49,6 @@ export async function fetchNotionConnectorStatus(
   )
   return readApiJson<NotionConnectorStatus>(res, {
     message: "Failed to fetch Notion connector status",
-  })
-}
-
-export async function fetchNotionConnectorConfig(
-  orgSlug: string,
-  connectionId?: string,
-): Promise<NotionConnectorConfig | null> {
-  const res = await apiFetch(
-    `/${orgSlug}/api/v1/connectors/notion/config${
-      connectionId ? notionConnectionSearch(connectionId) : ""
-    }`,
-    { credentials: "include" },
-  )
-  return readApiJson<NotionConnectorConfig | null>(res, {
-    emptyOn: [409, 404],
-    empty: null,
-    message: "Failed to load Notion connector config",
   })
 }
 
@@ -163,65 +140,6 @@ export async function searchNotionResources(
     message: "Failed to search Notion resources",
   })
   return json.items
-}
-
-export async function patchNotionConnectorConfig(
-  orgSlug: string,
-  body: { resources?: NotionResource[]; syncTarget?: unknown },
-  connectionId?: string,
-): Promise<{
-  accepted: true
-  savedCount: number
-  configPrEnqueued: boolean
-  workflowName?: string
-}> {
-  const qs = connectionId
-    ? `?${new URLSearchParams({ connectionId }).toString()}`
-    : ""
-  const res = await apiFetch(
-    `/${orgSlug}/api/v1/connectors/notion/config${qs}`,
-    {
-      method: "PATCH",
-      credentials: "include",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    },
-  )
-  return readApiJson(res, { message: "Failed to save Notion connector config" })
-}
-
-export async function retryNotionSync(
-  orgSlug: string,
-  connectionId: string,
-): Promise<void> {
-  const res = await apiFetch(
-    `/${orgSlug}/api/v1/connectors/notion/retry${notionConnectionSearch(connectionId)}`,
-    { method: "POST", credentials: "include" },
-  )
-  await readApiJson<void>(res, { message: "Failed to retry Notion sync" })
-}
-
-export async function retryNotionConfig(
-  orgSlug: string,
-  connectionId: string,
-  resources?: NotionResource[],
-): Promise<void> {
-  const res = await apiFetch(
-    `/${orgSlug}/api/v1/connectors/notion/retry-config${notionConnectionSearch(connectionId)}`,
-    {
-      method: "POST",
-      credentials: "include",
-      ...(resources
-        ? {
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ resources }),
-          }
-        : {}),
-    },
-  )
-  await readApiJson<void>(res, {
-    message: "Failed to retry Notion configuration pull request",
-  })
 }
 
 export async function deleteNotionConnector(

@@ -27,7 +27,6 @@ export type {
   ConfluenceScopeRow,
   ConfluenceSpace,
   ConfluenceSyncTarget,
-  NotionConnectorConfig,
   NotionConnectorStatus,
   NotionResource,
   NotionSyncTarget,
