@@ -765,7 +765,7 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
         // Each model call is a `generation #N` span with its own usage and
         // cost. In Langfuse this turn summary is a plain span, so the turn
         // does not count its tokens and cost two times.
-        attributeEnricher: (info) =>
+        attributeEnricher: (info): Record<string, string> =>
           info.kind === "chat" || info.kind === "iteration"
             ? { "langfuse.observation.type": "span" }
             : {},
