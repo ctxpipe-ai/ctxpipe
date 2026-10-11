@@ -37,12 +37,17 @@ describe("conversation thread tool summary", () => {
     expect(toolCallDetail({ arguments: "{not json" })).toBeNull()
   })
 
-  it("names the action of known tools and keeps the name of other tools", () => {
-    expect(toolCallAction("read")).toBe("Read file")
-    expect(toolCallAction("glob")).toBe("Search")
-    expect(toolCallAction("bash")).toBe("Run command")
-    expect(toolCallAction("edit")).toBe("Edit file")
-    expect(toolCallAction("graph_get_callers")).toBe("graph_get_callers")
+  it("names the action of known tools and humanizes other tool names", () => {
+    expect(toolCallAction("read", "read")).toBe("Read file")
+    expect(toolCallAction("glob", "search")).toBe("Search")
+    expect(toolCallAction("bash", "tool")).toBe("Run command")
+    expect(toolCallAction("edit", "tool")).toBe("Edit file")
+    expect(toolCallAction("graph_get_callers", "tool")).toBe(
+      "Graph get callers",
+    )
+    expect(toolCallAction("conversation-branch-push", "tool")).toBe(
+      "Conversation branch push",
+    )
   })
 
   it("counts unique calls and thoughts on the counters line", () => {
@@ -120,6 +125,26 @@ describe("splitThoughts", () => {
       },
       { title: "Checking", hasHeading: true, body: "" },
     ])
+  })
+
+  it("folds text before the first heading into the first thought", () => {
+    expect(
+      splitThoughts("Some intro.\n**Reading the ledger**\n\nThe body."),
+    ).toEqual([
+      {
+        title: "Reading the ledger",
+        hasHeading: true,
+        body: "Some intro.\n\nThe body.",
+      },
+    ])
+  })
+
+  it("does not take a bold word at the end of a sentence as a heading", () => {
+    const thoughts = splitThoughts(
+      "I checked the file. **Done**\nI checked the **ledger**.",
+    )
+    expect(thoughts).toHaveLength(1)
+    expect(thoughts[0]?.hasHeading).toBe(false)
   })
 
   it("titles a thought without a heading with its short first line", () => {

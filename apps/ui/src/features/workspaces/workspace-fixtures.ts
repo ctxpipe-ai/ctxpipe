@@ -442,43 +442,6 @@ const ledgerThoughts = [
   "**Checking the answer**\n\nThe ledger is the source of truth. I can answer now.",
 ]
 
-export const severalThoughtsMessages: ChatMessage[] = [
-  {
-    id: "msg_thoughts_u1",
-    role: "user",
-    parts: [{ type: "text", content: "Why ledger.md and not invoices.md?" }],
-    createdAt: new Date("2026-08-16T09:42:30.000Z"),
-  },
-  {
-    id: "msg_thoughts_a1",
-    role: "assistant",
-    parts: [
-      ...ledgerThoughts.map((content) => ({ type: "thinking", content })),
-      {
-        type: "text",
-        content:
-          "Use knowledge/billing/ledger.md. Invoice documents are generated from it.",
-      },
-    ],
-    createdAt: new Date("2026-08-16T09:42:44.000Z"),
-  },
-]
-
-export const streamingSeveralThoughtsMessages: ChatMessage[] = [
-  {
-    id: "msg_thoughts_live_u1",
-    role: "user",
-    parts: [{ type: "text", content: "Why ledger.md and not invoices.md?" }],
-    createdAt: new Date("2026-08-16T09:42:50.000Z"),
-  },
-  {
-    id: "msg_thoughts_live_a1",
-    role: "assistant",
-    parts: ledgerThoughts.map((content) => ({ type: "thinking", content })),
-    createdAt: new Date("2026-08-16T09:42:52.000Z"),
-  },
-]
-
 export const thoughtsBetweenToolsMessages: ChatMessage[] = [
   {
     id: "msg_thoughts_tools_u1",

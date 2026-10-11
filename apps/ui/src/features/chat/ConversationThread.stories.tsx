@@ -127,11 +127,89 @@ export const ThinkingFallbackWithTools: Story = {
   },
 }
 
+const interimTextMessages: ChatMessage[] = [
+  {
+    id: "msg_interim_u1",
+    role: "user",
+    parts: [{ type: "text", content: "Merge the docker knowledge units." }],
+  },
+  {
+    id: "msg_interim_a1",
+    role: "assistant",
+    parts: [
+      { type: "thinking", content: "**Finding the units**\n\nList them." },
+      {
+        type: "tool-call",
+        id: "tc_interim_1",
+        name: "glob",
+        input: { pattern: "knowledge/docker/**" },
+      },
+      { type: "text", content: "Let me check the setup guide." },
+      {
+        type: "tool-call",
+        id: "tc_interim_2",
+        name: "read",
+        input: { filePath: "knowledge/docker/setup.md" },
+      },
+    ],
+  },
+]
+
+/** Text in the middle of a run does not end it: the status line stays. */
+export const InterimTextKeepsStatus: Story = {
+  args: {
+    messages: interimTextMessages,
+    status: "streaming",
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(
+      canvas.getByText("Let me check the setup guide."),
+    ).toBeVisible()
+    const statuses = canvas.getAllByRole("status")
+    await expect(statuses).toHaveLength(1)
+    await expect(statuses[0]).toHaveTextContent("Finding the units")
+  },
+}
+
+/** The next turn gets its own status line; the done turn shows none. */
+export const NextTurnShowsStatus: Story = {
+  args: {
+    messages: [
+      ...progressDoneMessages,
+      {
+        id: "msg_next_u1",
+        role: "user",
+        parts: [{ type: "text", content: "Now commit it." }],
+      },
+      {
+        id: "msg_next_a1",
+        role: "assistant",
+        parts: [
+          {
+            type: "thinking",
+            content: "**Writing the commit**\n\nStage the file.",
+          },
+        ],
+      },
+    ],
+    status: "streaming",
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const statuses = canvas.getAllByRole("status")
+    await expect(statuses).toHaveLength(1)
+    await expect(statuses[0]).toHaveTextContent("Writing the commit")
+    await expect(canvas.queryByText("Checking the git status")).toBeNull()
+  },
+}
+
 /** After the reply, the current thought hides. The counters and the log stay. */
 export const ChatProgressDone: Story = {
   tags: ["workspace-golden"],
   args: {
     messages: progressDoneMessages,
+    status: "ready",
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)

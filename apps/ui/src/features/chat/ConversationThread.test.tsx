@@ -136,16 +136,24 @@ describe("ConversationThread status line", () => {
     expect(html).toContain("Use the ledger.")
   })
 
-  it("hides the current thought once reply text streams", () => {
+  it("keeps the current thought while text streams and the run goes on", () => {
     const html = renderThread(
       [
         user,
-        assistant([...ledgerThoughts, { type: "text", content: "Use the" }]),
+        assistant([
+          ...ledgerThoughts,
+          { type: "text", content: "Let me check" },
+          search("tc_2"),
+        ]),
       ],
       "streaming",
     )
+    expect(statuses(html)).toEqual(["Checking payments"])
+  })
+
+  it("hides the status line when the run ends with an error", () => {
+    const html = renderThread([user, assistant(ledgerThoughts)], "error")
     expect(statuses(html)).toEqual([])
-    expect(html).not.toContain("Checking payments")
   })
 
   it("omits sender marks and timestamps", () => {
@@ -169,7 +177,7 @@ describe("ConversationThread status line", () => {
 })
 
 describe("ConversationThread with AG-UI chunks", () => {
-  it("counts each reasoning step and shows the latest one before the reply", () => {
+  it("counts each reasoning step and shows the latest one until the run ends", () => {
     const processor = new StreamProcessor({
       initialMessages: [
         {
@@ -242,6 +250,8 @@ describe("ConversationThread with AG-UI chunks", () => {
     )
     expect(withReply).toContain("Sign-in is handled by Auth0.")
     expect(withReply).toContain('aria-label="1 search, 2 thoughts"')
-    expect(statuses(withReply)).toEqual([])
+    expect(statuses(withReply)).toEqual(["Comparing invoices"])
+    const done = renderThread(processor.getMessages() as ChatMessage[], "ready")
+    expect(statuses(done)).toEqual([])
   })
 })

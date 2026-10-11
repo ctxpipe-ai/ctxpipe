@@ -3,8 +3,6 @@ import type { ChatMessage } from "./types"
 export type ToolBucket = "read" | "search" | "tool"
 
 export type ToolCallSummary = {
-  id: string
-  name: string
   bucket: ToolBucket
   /** What the call does, for example "Read file". */
   action: string
@@ -53,14 +51,18 @@ export function toolBucket(name: string): ToolBucket {
   return "tool"
 }
 
-export function toolCallAction(name: string): string {
+export function toolCallAction(name: string, bucket: ToolBucket): string {
   if (name === "bash") return "Run command"
   if (name === "edit") return "Edit file"
   if (name === "write") return "Write file"
-  const bucket = toolBucket(name)
   if (bucket === "read") return "Read file"
   if (bucket === "search") return "Search"
-  return name
+  const words = name
+    .split(/[_\-\s]+/)
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase()
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : "Used tool"
 }
 
 function truncateDetail(value: string): string {
@@ -190,34 +192,43 @@ function shortTitle(line: string): string {
 }
 
 /**
- * Splits one reasoning text into thoughts. Models write a bold or ATX heading
- * at the start of each thought, sometimes on the same line as the end of the
- * previous sentence.
+ * Splits one reasoning text into thoughts, one for each heading. Models write
+ * a bold or ATX heading at the start of each thought, sometimes glued to the
+ * end of the previous sentence. Text before the first heading belongs to the
+ * first thought.
  */
 export function splitThoughts(text: string): Thought[] {
   const lines = text
     .replace(/\r\n/g, "\n")
-    .replace(/([.!?])[ \t]*(\*\*[^*\n]+\*\*)/g, "$1\n$2")
+    .replace(/([.!?])(\*\*[^*\n]+\*\*)[ \t]*(?=\n|$)/g, "$1\n$2")
     .split("\n")
-  const sections: Array<{ heading: string | null; lines: string[] }> = []
+  const intro: string[] = []
+  const sections: Array<{ heading: string; lines: string[] }> = []
   for (const line of lines) {
     const heading = reasoningHeadingTitle(line)
-    if (heading) {
-      sections.push({ heading, lines: [] })
-      continue
-    }
     const current = sections.at(-1)
-    if (current) current.lines.push(line)
-    else sections.push({ heading: null, lines: [line] })
+    if (heading) sections.push({ heading, lines: [] })
+    else if (current) current.lines.push(line)
+    else intro.push(line)
   }
-  return sections.flatMap((section): Thought[] => {
+  const introText = intro.join("\n").trim()
+  const first = sections[0]
+  if (!first) {
+    const firstLine = introText.split("\n")[0] ?? ""
+    return introText
+      ? [{ title: shortTitle(firstLine), hasHeading: false, body: introText }]
+      : []
+  }
+  return sections.map((section) => {
     const body = section.lines.join("\n").trim()
-    if (section.heading) {
-      return [{ title: shortTitle(section.heading), hasHeading: true, body }]
+    return {
+      title: shortTitle(section.heading),
+      hasHeading: true,
+      body:
+        section === first && introText
+          ? [introText, body].filter(Boolean).join("\n\n")
+          : body,
     }
-    if (!body) return []
-    const firstLine = body.split("\n")[0] ?? ""
-    return [{ title: shortTitle(firstLine), hasHeading: false, body }]
   })
 }
 
@@ -247,14 +258,13 @@ export function activityLog(parts: ChatMessage["parts"]): ActivityEntry[] {
     const id = part.id?.trim() || `${name}-${partIndex}`
     if (seen.has(id)) return
     seen.add(id)
+    const bucket = toolBucket(name)
     entries.push({
       kind: "tool",
       key: `tool-${id}`,
       tool: {
-        id,
-        name,
-        bucket: toolBucket(name),
-        action: toolCallAction(name),
+        bucket,
+        action: toolCallAction(name, bucket),
         detail: toolCallDetail(part),
       },
     })

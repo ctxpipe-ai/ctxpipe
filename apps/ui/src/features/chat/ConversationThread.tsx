@@ -77,7 +77,6 @@ function StatusLine(props: { label: string }) {
     <div
       className="flex w-full min-w-0 items-start gap-2"
       role="status"
-      aria-live="polite"
       aria-label={props.label}
     >
       <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center">
@@ -200,30 +199,15 @@ function renderAssistantParts(
       (part.type === "text" && Boolean(partText(part))) ||
       part.type === "source-url",
   )
-  const hasReply = replyParts.some(
-    (part) => part.type === "text" && Boolean(partText(part)),
-  )
   const nodes: ReactElement[] = []
   if (entries.length > 0) {
-    const thoughts = entries.flatMap((entry) =>
-      entry.kind === "thought" ? [entry.thought] : [],
-    )
-    const status = thoughts.at(-1)?.title ?? options.systemStatus ?? "Thinking"
-    nodes.push(
-      <div
-        key={`${message.id}-activity`}
-        className="flex w-full min-w-0 flex-col gap-1.5"
-      >
-        <ActivityLog entries={entries} />
-        {options.working && !hasReply ? <StatusLine label={status} /> : null}
-      </div>,
-    )
+    nodes.push(<ActivityLog key={`${message.id}-activity`} entries={entries} />)
   }
   replyParts.forEach((part, index) => {
     const key = `${message.id}-reply-${index}`
     if (part.type === "text") {
       nodes.push(
-        <MessageResponse key={key} isAnimating={options.working && hasReply}>
+        <MessageResponse key={key} isAnimating={options.working}>
           {partText(part)}
         </MessageResponse>,
       )
@@ -243,20 +227,24 @@ function renderAssistantParts(
       </p>,
     )
   })
+  // The status line stays until the run ends, also while text streams.
+  if (options.working && entries.length > 0) {
+    const thoughts = entries.flatMap((entry) =>
+      entry.kind === "thought" ? [entry.thought] : [],
+    )
+    nodes.push(
+      <StatusLine
+        key={`${message.id}-status`}
+        label={thoughts.at(-1)?.title ?? options.systemStatus ?? "Thinking"}
+      />,
+    )
+  }
   return nodes
 }
 
 function messageHasVisibleActivity(message: ChatMessage) {
   return message.parts.some(
     (part) => isRenderableMessagePart(part) || isActivityMessagePart(part),
-  )
-}
-
-function WaitIndicator(props: { label: string }) {
-  return (
-    <div className="flex w-full justify-start">
-      <StatusLine label={props.label} />
-    </div>
   )
 }
 
@@ -322,7 +310,7 @@ export function ConversationThread(props: {
               )
             })}
             {showPulsatingLoader && (
-              <WaitIndicator label={waitLabel ?? "Thinking"} />
+              <StatusLine label={waitLabel ?? "Thinking"} />
             )}
           </ConversationContent>
           <ConversationScrollButton />
