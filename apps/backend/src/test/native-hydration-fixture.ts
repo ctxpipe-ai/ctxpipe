@@ -309,7 +309,7 @@ async function createNativeHydrationFixture(
                 : "fixture-only-github-no-contents-token",
             expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
             permissions: {
-              contents: writing ? "write" : "read",
+              ...(reading ? { contents: writing ? "write" : "read" } : {}),
               metadata: "read",
             },
             ...(Array.isArray(requestBody.repositories)
