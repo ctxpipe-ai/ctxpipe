@@ -4,7 +4,11 @@ import type { AppEnv } from "../../app/env.js"
 import { conversationSessionBranch as sessionBranchName } from "../../domain/workspaces/chat-lifecycle.js"
 import { workspaceAllowsConversationEdits } from "../../domain/workspaces/chat-sandbox-policy.js"
 import {
-  conversationSandboxDiff,
+  changedFileDiffs,
+  conversationBaseDiff,
+  turnSnapshotsExist,
+} from "../../domain/workspaces/conversation-diff.js"
+import {
   conversationSandboxStatus,
   conversationWorktreeVersion,
   getConversationSandboxBinding,
@@ -27,6 +31,7 @@ import {
 import { warmTanstackWorkspaceChat } from "../../domain/workspaces/tanstack-workspace-chat.js"
 import { resolveWorkspaceChatTurnRuntime } from "../../domain/workspaces/workspace-chat-turn-runtime.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
+import { listConversationTurnChanges } from "../../models/conversation-turn-changes.js"
 import { getConversation } from "../../models/conversations.js"
 import {
   getDesiredWorkspaceRevision,
@@ -99,17 +104,49 @@ const ConversationGitStatusResponseSchema = z
   })
   .openapi("ConversationGitStatusResponse")
 
+const ChangedFileSchema = z.object({
+  path: z.string(),
+  /** The path before a rename. */
+  oldPath: z.string().optional(),
+  status: z.enum(["added", "modified", "deleted", "renamed"]),
+  additions: z.number().int(),
+  deletions: z.number().int(),
+  /** Why the file has no bodies: binary, too large, or not a regular file. */
+  omitted: z.enum(["binary", "too_large", "not_a_file"]).optional(),
+})
+
 const ConversationGitDiffResponseSchema = z
   .object({
+    /** The branch the diff compares against. */
+    base: z.string(),
     items: z.array(
-      z.object({
-        path: z.string(),
+      ChangedFileSchema.extend({
         oldBody: z.string().nullable(),
         body: z.string().nullable(),
       }),
     ),
   })
   .openapi("ConversationGitDiffResponse")
+
+const ConversationTurnChangesResponseSchema = z
+  .object({
+    items: z.array(
+      z.object({
+        runId: z.string(),
+        /** The number of user messages in the thread when the turn ended. */
+        turn: z.number().int(),
+        files: z.array(ChangedFileSchema),
+      }),
+    ),
+  })
+  .openapi("ConversationTurnChangesResponse")
+
+const ConversationGitDiffQuerySchema = z
+  .object({
+    /** Give the diff of this turn (run id) in place of the whole conversation. */
+    turn: z.string().min(1).optional(),
+  })
+  .openapi("ConversationGitDiffQuery")
 
 const PutConversationFileBodySchema = z
   .object({
@@ -256,7 +293,10 @@ const getStatusRoute = createRoute({
 const getDiffRoute = createRoute({
   method: "get",
   path: "/{conversationId}/files/diff",
-  request: { params: ConversationParamsSchema },
+  request: {
+    params: ConversationParamsSchema,
+    query: ConversationGitDiffQuerySchema,
+  },
   responses: {
     400: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -281,9 +321,36 @@ const getDiffRoute = createRoute({
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Sandbox provider unavailable",
     },
+    410: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description:
+        "turn_snapshot_gone: the sandbox no longer has this turn's snapshots",
+    },
     409: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Chat sandbox missing",
+    },
+  },
+})
+
+const getTurnChangesRoute = createRoute({
+  method: "get",
+  path: "/{conversationId}/turns",
+  request: { params: ConversationParamsSchema },
+  responses: {
+    200: {
+      content: {
+        "application/json": { schema: ConversationTurnChangesResponseSchema },
+      },
+      description: "The files each turn changed, in turn order",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Not found",
     },
   },
 })
@@ -619,8 +686,42 @@ export const conversationFileRoutes = fileRoutes
     const ready = await readySandboxHandle(loaded)
     if (!ready.ok) return c.json({ error: ready.error }, ready.status)
     const { handle } = ready
-    const items = await conversationSandboxDiff({ handle, defaultBranch })
-    return c.json({ items }, 200)
+    const turnId = c.req.valid("query").turn
+    if (turnId) {
+      const turn = (
+        await listConversationTurnChanges({
+          orgId: loaded.conversation.orgId,
+          conversationId,
+        })
+      ).find((item) => item.runId === turnId)
+      if (!turn) return c.json({ error: "Not found" }, 404)
+      // A rebuilt sandbox no longer has the turn's snapshots.
+      if (!(await turnSnapshotsExist(handle, turn.startTree, turn.endTree)))
+        return c.json({ error: "turn_snapshot_gone" }, 410)
+      const paths = new Set(turn.files.map((file) => file.path))
+      const items = (
+        await changedFileDiffs(handle, turn.startTree, turn.endTree)
+      ).filter((item) => paths.has(item.path))
+      return c.json({ base: defaultBranch, items }, 200)
+    }
+    const items = await conversationBaseDiff({ handle, defaultBranch })
+    return c.json({ base: defaultBranch, items }, 200)
+  })
+  .openapi(getTurnChangesRoute, async (c) => {
+    if (!requireUser(c)) return c.json({ error: "Unauthorized" }, 401)
+    const conversationId = c.req.param("conversationId")
+    const loaded = await loadConversationWorkspace(conversationId)
+    if (!loaded) return c.json({ error: "Not found" }, 404)
+    const turns = await listConversationTurnChanges({
+      orgId: loaded.conversation.orgId,
+      conversationId,
+    })
+    return c.json(
+      {
+        items: turns.map(({ runId, turn, files }) => ({ runId, turn, files })),
+      },
+      200,
+    )
   })
   .openapi(putFileRoute, async (c) => {
     if (!requireUser(c)) return c.json({ error: "Unauthorized" }, 401)

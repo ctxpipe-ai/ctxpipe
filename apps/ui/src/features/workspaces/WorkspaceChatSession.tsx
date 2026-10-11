@@ -21,12 +21,19 @@ import type {
   ConversationListInfiniteData,
   ConversationListItem,
 } from "@/features/chat/types"
+import { ConversationTurnChangesCard } from "./ConversationTurnChangesCard"
+import { placeTurnChanges } from "./conversationDiff"
 import {
   conversationAllowsEdits,
   conversationBranchShortName,
   conversationGithubTreeHref,
 } from "./conversationPublish"
-import { workspaceChatPrepareOptions, workspaceKeys } from "./queries"
+import type { ParsedPane } from "./pane"
+import {
+  conversationTurnChangesOptions,
+  workspaceChatPrepareOptions,
+  workspaceKeys,
+} from "./queries"
 import { takeFirstMessage } from "./start-workspace-conversation-ui"
 import type { Workspace } from "./types"
 import type { ConversationPublish } from "./useWorkspaceConversationPublish"
@@ -92,10 +99,15 @@ export function WorkspaceChatSession(props: {
   initialMessages?: ConversationDetail["messages"]
   conversation?: ConversationListItem
   headerExtra?: ReactNode
+  /** Opens a tools pane, such as the Diff pane from a turn card. */
+  onOpenPane?: (pane: ParsedPane) => void
   /** The page makes the publish state one time and shares it with the tools pane. */
   publish?: ConversationPublish | null
 }) {
   const { orgSlug, workspace, conversationId, title, initialMessages } = props
+  const turnChanges = useQuery(
+    conversationTurnChangesOptions(orgSlug, conversationId),
+  )
   const queryClient = useQueryClient()
   const [headerTitle, setHeaderTitle] = useState(title)
   const [sandboxPhase, setSandboxPhase] = useState<SandboxPhase>("idle")
@@ -210,10 +222,25 @@ export function WorkspaceChatSession(props: {
               conversationId,
             ),
           })
+          void queryClient.invalidateQueries({
+            queryKey: workspaceKeys.conversationTurnChanges(
+              orgSlug,
+              conversationId,
+            ),
+          })
         }
       }
     },
   })
+
+  const turnCards = useMemo(
+    () =>
+      placeTurnChanges(
+        messages as ChatMessage[],
+        turnChanges.data?.items ?? [],
+      ),
+    [messages, turnChanges.data],
+  )
 
   const handleSendMessage = async (
     params: { text: string },
@@ -292,6 +319,21 @@ export function WorkspaceChatSession(props: {
         error={error ?? sendError}
         status={status}
         waitLabel={workspaceChatWaitLabel(sandboxPhase)}
+        renderAfterMessage={(messageId) =>
+          turnCards.get(messageId)?.map((changes) => (
+            <ConversationTurnChangesCard
+              key={changes.runId}
+              changes={changes}
+              onOpenDiff={(path) =>
+                props.onOpenPane?.({
+                  kind: "diff",
+                  turn: changes.runId,
+                  ...(path ? { path } : {}),
+                })
+              }
+            />
+          ))
+        }
       />
       <MessageInputBox
         layout="thread"

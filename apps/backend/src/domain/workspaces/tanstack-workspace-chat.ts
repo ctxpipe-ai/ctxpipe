@@ -31,6 +31,7 @@ import { parseEnv } from "../../config/env.js"
 import { getSystemDb } from "../../db/client.js"
 import { organizations } from "../../db/schema/auth.js"
 import { loadConversationTurns } from "../../models/conversation-messages.js"
+import { saveConversationTurnChanges } from "../../models/conversation-turn-changes.js"
 import { getRepoReadCloneToken } from "../../models/github-installation.js"
 import {
   heartbeatSandboxInstance,
@@ -55,6 +56,13 @@ import {
 import { originUrlWithoutCredentials } from "./clone-credentials.js"
 import { conversationBranchPushTool } from "./conversation-branch-push.js"
 import {
+  conversationTurnFiles,
+  pruneConversationTurnSnapshots,
+  snapshotConversationTurn,
+  type TurnSnapshot,
+  turnSnapshotKey,
+} from "./conversation-diff.js"
+import {
   SandboxCapacityError,
   withConversationSandboxSlots,
 } from "./conversation-sandbox-lifecycle.js"
@@ -62,6 +70,8 @@ import { checkoutSessionBranch } from "./conversation-session-branch.js"
 import { nameConversationIfUnnamed } from "./conversation-title.js"
 import { openDockerRunVault } from "./docker-run-vault.js"
 import { hostedSandboxAccess } from "./hosted-sandbox-access.js"
+import { adaptTanstackHandle } from "./job-sandbox.js"
+import type { JobSandboxHandle } from "./job-worktree.js"
 import {
   createDeltaMasker,
   maskCredentials,
@@ -332,6 +342,26 @@ export async function collectTanstackWorkspaceChatText(
     await input.onError?.()
     throw error
   }
+}
+
+/** Snapshot refs of this many newest turns stay in the sandbox. */
+const KEPT_TURN_SNAPSHOTS = 50
+
+/**
+ * A slow snapshot (a very large work tree) must not hold the turn: after
+ * 10 s the turn gets no changed-files card, and the caller logs a warning.
+ */
+function withTurnSnapshotTimeout<T>(work: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  return Promise.race([
+    work,
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error("The turn snapshot timed out after 10 s")),
+        10_000,
+      )
+    }),
+  ]).finally(() => clearTimeout(timer))
 }
 
 export async function* streamTanstackWorkspaceChat(
@@ -696,6 +726,52 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
       }),
     )
   }
+  // The files this turn changed: a snapshot of the work tree when the turn
+  // starts and when it ends. Runs before the conversation lock is released,
+  // so a Files read that waits for the lock sees the stored result. A
+  // failure is logged and does not fail the turn.
+  let turnStart:
+    | { handle: JobSandboxHandle; key: string; snapshot: TurnSnapshot }
+    | undefined
+  const recordTurnChanges = async (ctx: {
+    runId: string
+    messages: ReadonlyArray<{ role: string }>
+  }) => {
+    const start = turnStart
+    turnStart = undefined
+    if (!start) return
+    try {
+      const end = await withTurnSnapshotTimeout(
+        snapshotConversationTurn(start.handle, start.key, "end"),
+      )
+      const files = await withTurnSnapshotTimeout(
+        conversationTurnFiles(start.handle, start.snapshot, end),
+      )
+      if (files.length > 0)
+        await saveConversationTurnChanges({
+          orgId: input.orgId,
+          conversationId: input.conversationId,
+          changes: {
+            runId: ctx.runId,
+            turn: ctx.messages.filter((message) => message.role === "user")
+              .length,
+            startTree: start.snapshot.tree,
+            endTree: end.tree,
+            finishedAt: Date.now(),
+            files,
+          },
+        })
+      await withTurnSnapshotTimeout(
+        pruneConversationTurnSnapshots(start.handle, KEPT_TURN_SNAPSHOTS),
+      )
+    } catch (error) {
+      log.warn({
+        step: "workspace-chat-turn-changes",
+        message: `Recording the files the turn changed failed: ${String(error)}`,
+        conversationId: input.conversationId,
+      })
+    }
+  }
   // The idle clock starts when the turn ends. Runs before the conversation
   // lock is released, so the sweep never sees a free lock with a stale time.
   // The sweep it schedules is due exactly 5 minutes after this use.
@@ -767,6 +843,12 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
         onFinish: closeHostedTurn,
         onError: closeHostedTurn,
         onAbort: closeHostedTurn,
+      }),
+      defineChatMiddleware({
+        name: "workspace-chat-turn-changes-end",
+        onFinish: recordTurnChanges,
+        onError: recordTurnChanges,
+        onAbort: recordTurnChanges,
       }),
       workspaceChatThreadLock({
         locks: postgresSandboxLocks(
@@ -840,6 +922,29 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
                   "Keep the current branch. Publishing is blocked until it is rebased onto desiredSha. Inspect Git status and saved stashes before repairing. An interrupted update is recorded at .git/ctxpipe-revision-transition; after recovering its saved edits and resolving the rebase, remove that marker so the next turn can move to the new commit. Never discard saved edits without the user's request.",
               }),
             ],
+          }
+        },
+      }),
+      defineChatMiddleware({
+        name: "workspace-chat-turn-changes-start",
+        requires: [SandboxCapability],
+        async setup(ctx) {
+          const handle = adaptTanstackHandle(getSandbox(ctx))
+          const key = turnSnapshotKey(ctx.runId, Date.now())
+          try {
+            turnStart = {
+              handle,
+              key,
+              snapshot: await withTurnSnapshotTimeout(
+                snapshotConversationTurn(handle, key, "start"),
+              ),
+            }
+          } catch (error) {
+            log.warn({
+              step: "workspace-chat-turn-changes",
+              message: `The turn start snapshot failed: ${String(error)}`,
+              conversationId: input.conversationId,
+            })
           }
         },
       }),

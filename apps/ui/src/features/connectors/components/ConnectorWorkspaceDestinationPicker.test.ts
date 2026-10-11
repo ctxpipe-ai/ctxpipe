@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest"
-import { docsWorkspace, readOnlyWorkspace } from "@/features/workspaces/workspace-fixtures"
+import {
+  docsWorkspace,
+  readOnlyWorkspace,
+} from "@/features/workspaces/workspace-fixtures"
 import {
   destinationFromWorkspace,
   normalizeWorkspaceGitUrl,

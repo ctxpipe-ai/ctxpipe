@@ -36,6 +36,15 @@ export const requiredStories = [
   "DoubleClickMovesOneSlide",
   "ChatProgressDone",
   "ChatProgressLogExpanded",
+  "DiffPaneEmpty",
+  "DiffPaneManyFiles",
+  "DiffPaneExpandedFile",
+  "DiffPaneLongPaths",
+  "DiffPaneRenamedAndOmitted",
+  "DiffPaneTurnGone",
+  "TurnCardCollapsed",
+  "TurnCardExpanded",
+  "TurnCardOpensDiff",
 ]
 
 export function isGoldenPlaySuccess(phase) {

@@ -10,7 +10,8 @@ export type ParsedPane =
   | { kind: "files" }
   | { kind: "graph" }
   | { kind: "settings" }
-  | { kind: "diff" }
+  /** `turn` limits the pane to one turn; `path` opens and shows that file. */
+  | { kind: "diff"; turn?: string; path?: string }
   | { kind: "file"; path: string }
   | { kind: "unknown"; id: string }
 
@@ -20,6 +21,16 @@ export function parsePane(raw: string | undefined): ParsedPane | null {
   if (raw === "graph") return { kind: "graph" }
   if (raw === "settings") return { kind: "settings" }
   if (raw === "diff") return { kind: "diff" }
+  if (raw.startsWith("diff:")) {
+    const params = new URLSearchParams(raw.slice("diff:".length))
+    const turn = params.get("turn") || undefined
+    const path = params.get("path") || undefined
+    return {
+      kind: "diff",
+      ...(turn ? { turn } : {}),
+      ...(path ? { path } : {}),
+    }
+  }
   if (raw.startsWith("file:")) {
     const encoded = raw.slice("file:".length)
     let path = encoded
@@ -37,6 +48,12 @@ export function parsePane(raw: string | undefined): ParsedPane | null {
 export function serializePane(pane: ParsedPane): string {
   if (pane.kind === "file") return `file:${encodeURIComponent(pane.path)}`
   if (pane.kind === "unknown") return pane.id
+  if (pane.kind === "diff" && (pane.turn || pane.path)) {
+    const params = new URLSearchParams()
+    if (pane.turn) params.set("turn", pane.turn)
+    if (pane.path) params.set("path", pane.path)
+    return `diff:${params.toString()}`
+  }
   return pane.kind
 }
 

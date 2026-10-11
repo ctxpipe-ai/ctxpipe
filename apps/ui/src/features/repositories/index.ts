@@ -14,7 +14,7 @@ export {
 } from "./types"
 export {
   getRepositoryIndexingSummary,
-  repositoriesListOptions,
   type RepositoryIndexingSummary,
+  repositoriesListOptions,
   useRepositoryIndexingSummary,
 } from "./useRepositoryIndexingSummary"

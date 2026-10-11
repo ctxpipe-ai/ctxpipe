@@ -498,6 +498,7 @@ function WorkspaceSurfaceColumns(props: {
             orgSlug={orgSlug}
             workspace={workspace}
             conversationId={conversationId}
+            onOpenPane={(next) => setPane(next)}
             publish={publish}
             headerExtra={
               paneOpen ? null : (

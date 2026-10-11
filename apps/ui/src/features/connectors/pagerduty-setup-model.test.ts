@@ -124,7 +124,9 @@ describe("PagerDuty setup model", () => {
         pendingConfigPullUrl: "https://github.com/acme/repo/pull/1",
         pendingConfigPrCreating: false,
       }),
-    ).toBe(PAGERDUTY_HOSTED_SETUP_STEPS.findIndex((step) => step.id === "merge"))
+    ).toBe(
+      PAGERDUTY_HOSTED_SETUP_STEPS.findIndex((step) => step.id === "merge"),
+    )
   })
 
   it("detects service selection changes", () => {
