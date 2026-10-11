@@ -36,13 +36,29 @@ export type GitShaFile =
   | { kind: "missing" }
   | { kind: "bytes"; bytes: Uint8Array }
 
+export const GIT_REMOTE_ACCESS_MESSAGES = {
+  noCredential:
+    "ctx| has no access to this repository. Connect GitHub to this Workspace, then retry.",
+  denied:
+    "ctx| has no access to this repository. Add the repository to the GitHub App installation, then refresh.",
+} as const
+
 /** The remote refused the read credential, or the read needs one and has none. */
 export class GitRemoteAccessError extends Error {
-  constructor() {
+  /** 401 or 403 when Git reported it; a write uses it to pause. */
+  readonly status: 401 | 403 | undefined
+  constructor(input: { hasCredential: boolean; stderr: string }) {
     super(
-      "ctx| has no access to this repository. Add the repository to the GitHub App installation, then refresh.",
+      input.hasCredential
+        ? GIT_REMOTE_ACCESS_MESSAGES.denied
+        : GIT_REMOTE_ACCESS_MESSAGES.noCredential,
     )
     this.name = "GitRemoteAccessError"
+    this.status = /returned error: 403/.test(input.stderr)
+      ? 403
+      : /returned error: 401|Authentication failed/i.test(input.stderr)
+        ? 401
+        : undefined
   }
 }
 
@@ -64,7 +80,10 @@ export async function resolveGitRemoteTip(input: {
         stderr,
       )
     )
-      throw new GitRemoteAccessError()
+      throw new GitRemoteAccessError({
+        hasCredential: Boolean(input.token),
+        stderr,
+      })
     throw error
   })
   const lines = stdout.toString("utf8").trim().split("\n")

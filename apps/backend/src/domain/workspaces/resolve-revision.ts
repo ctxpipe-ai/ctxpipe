@@ -8,7 +8,10 @@ import {
   persistLinkedDesiredSha,
   persistRevisionResolutionFailure,
 } from "../../models/workspaces.js"
-import { resolveGitRemoteTip } from "../../services/git/clone-tree.js"
+import {
+  GitRemoteAccessError,
+  resolveGitRemoteTip,
+} from "../../services/git/clone-tree.js"
 import { readUnbornRemoteBranch } from "../../services/git/unborn-tree.js"
 import { linkedRevisionSchema, type WorkspaceRevision } from "./revision.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "./write-status.js"
@@ -119,6 +122,7 @@ export async function resolveWorkspaceReadRevision(input: {
     await persistRevisionResolutionFailure({
       expected: workspace,
       message: error instanceof Error ? error.message : String(error),
+      noAccess: error instanceof GitRemoteAccessError,
     })
     throw error
   }
