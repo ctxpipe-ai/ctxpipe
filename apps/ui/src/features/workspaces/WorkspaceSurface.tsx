@@ -35,6 +35,7 @@ import {
   workspaceKeys,
 } from "./queries"
 import type { WorkspaceDetail } from "./types"
+import { useWorkspaceConversationPublish } from "./useWorkspaceConversationPublish"
 import { WorkspaceChat } from "./WorkspaceChat"
 import { WorkspaceChatChrome } from "./WorkspaceChatChrome"
 import {
@@ -452,6 +453,11 @@ function WorkspaceSurfaceColumns(props: {
 
   const paneOpen = shownPane != null && !paneCollapsed
   const panePath = shownPane?.kind === "file" ? shownPane.path : null
+  const publish = useWorkspaceConversationPublish({
+    orgSlug,
+    workspaceId: workspace.id,
+    conversationId,
+  })
 
   const collapsePane = () => {
     const nextTabs = seedFileTabSession(fileTabSession, panePath)
@@ -492,6 +498,7 @@ function WorkspaceSurfaceColumns(props: {
             orgSlug={orgSlug}
             workspace={workspace}
             conversationId={conversationId}
+            publish={publish}
             headerExtra={
               paneOpen ? null : (
                 <WorkspacePaneTriggers
@@ -536,6 +543,7 @@ function WorkspaceSurfaceColumns(props: {
             maximized={maximized}
             width={paneWidth}
             conversationTitle={conversationTitle}
+            publish={publish?.chrome}
             onPane={(next) => setPane(next)}
             onClose={collapsePane}
             onToggleMaximize={() => setMaximized((value) => !value)}
