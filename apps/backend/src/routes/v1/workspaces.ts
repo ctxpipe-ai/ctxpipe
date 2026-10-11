@@ -434,11 +434,16 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
       // "Then refresh" after an admin fix must start a new probe at once.
       void enqueueWorkspaceTipCheck(orgId, c.get("log"))
     }
-    if (orgId && workspace.writeStatus === WORKSPACE_WRITE_STATUSES.unknown) {
-      // The UI polls this route while write access is unknown. Enqueue at
-      // most one probe per org each minute.
+    if (
+      orgId &&
+      workspace.writeStatus === WORKSPACE_WRITE_STATUSES.unknown &&
+      !workspace.readOnlyReason
+    ) {
+      // The UI polls this route while a check runs. Enqueue at most one probe
+      // per org each minute. A failed check (with a reason) waits for an
+      // explicit "Check again".
       void enqueueWorkspaceTipCheck(orgId, c.get("log"), {
-        idempotencyKey: `tip-check-on-read:${orgId}:${Math.floor(Date.now() / 60_000)}`,
+        idempotencyKey: `tip-check-on-demand:${orgId}:${Math.floor(Date.now() / 60_000)}`,
       })
     }
     const linked = await listLinkedRepositories(workspace.id)
@@ -613,11 +618,18 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
     const { workspaceSlug } = workspaceSlugParams(c)
     const workspace = await getWorkspaceBySlug(workspaceSlug)
     if (!workspace) return c.json({ error: "Not found" }, 404)
-    const current = (await persistWriteCheckRetry(workspace.id)) ?? workspace
     // The probe checks every Workspace in the org. Start one each minute.
-    await enqueueWorkspaceTipCheck(current.orgId, c.get("log"), {
-      idempotencyKey: `tip-check-retry:${current.orgId}:${Math.floor(Date.now() / 60_000)}`,
-    })
+    const started = await enqueueWorkspaceTipCheck(
+      workspace.orgId,
+      c.get("log"),
+      {
+        idempotencyKey: `tip-check-on-demand:${workspace.orgId}:${Math.floor(Date.now() / 60_000)}`,
+      },
+    )
+    // Clear the failed state only when a new run will replace it.
+    const current = started
+      ? ((await persistWriteCheckRetry(workspace.id)) ?? workspace)
+      : workspace
     return c.json(
       serializeWorkspace(current, await getMigrationExportSha(current.id)),
       200,

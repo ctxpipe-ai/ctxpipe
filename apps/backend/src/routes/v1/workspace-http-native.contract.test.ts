@@ -211,7 +211,7 @@ it(
         .poll(async () => (await tipCheckKeys(f.org.id)).slice(before.length), {
           timeout: 5_000,
         })
-        .toEqual([`tip-check-on-read:${f.org.id}:${minute}`])
+        .toEqual([`tip-check-on-demand:${f.org.id}:${minute}`])
     })
   },
 )
@@ -335,7 +335,7 @@ it(
           readOnlyReason: null,
         })
         expect((await tipCheckKeys(f.org.id)).slice(before.length)).toEqual([
-          expect.stringMatching(/^tip-check-retry:/),
+          expect.stringMatching(/^tip-check-on-demand:/),
         ])
 
         await runTipCheck()
@@ -345,5 +345,66 @@ it(
         })
       },
     )
+  },
+)
+
+it(
+  "does not re-check on a read of a failed check, and a retry in the same minute starts no second run",
+  { timeout: 45_000 },
+  async () => {
+    await withNativeHydrationFixture({ github: true }, async (f) => {
+      await f.handle.cancel()
+      const app = workspaceHttpApp(f.org, workspaceRoutes)
+      const failed = async () =>
+        withOrgDbContext(f.org.id, (db) =>
+          db
+            .update(workspaces)
+            .set({
+              writeStatus: "unknown",
+              readOnlyReason: WRITE_STATUS_REASONS.checkFailed,
+            })
+            .where(eq(workspaces.id, f.workspaceId)),
+        )
+      await failed()
+      const before = await tipCheckKeys(f.org.id)
+      const now = vi.spyOn(Date, "now").mockReturnValue(Date.now())
+      try {
+        for (let i = 0; i < 2; i++) {
+          const detail = await app.request("/workspaces/knowledge")
+          expect(await detail.json()).toMatchObject({
+            readOnlyReason: WRITE_STATUS_REASONS.checkFailed,
+          })
+        }
+        expect((await tipCheckKeys(f.org.id)).slice(before.length)).toEqual([])
+
+        const first = await app.request(
+          "/workspaces/knowledge/check-write-access",
+          { method: "POST" },
+        )
+        expect(await first.json()).toMatchObject({ readOnlyReason: null })
+
+        // The run ends. A second failure and retry in the same minute starts
+        // no run, so the row keeps its reason.
+        await getSystemDb().execute(sql`
+          update openworkflow.workflow_runs
+          set status = 'completed'
+          where input->>'orgId' = ${f.org.id}
+            and workflow_name = 'workspace-tip-check'
+        `)
+        await failed()
+        const second = await app.request(
+          "/workspaces/knowledge/check-write-access",
+          { method: "POST" },
+        )
+        expect(await second.json()).toMatchObject({
+          readOnlyReason: WRITE_STATUS_REASONS.checkFailed,
+        })
+      } finally {
+        now.mockRestore()
+      }
+      expect((await tipCheckKeys(f.org.id)).slice(before.length)).toHaveLength(
+        1,
+      )
+    })
   },
 )
