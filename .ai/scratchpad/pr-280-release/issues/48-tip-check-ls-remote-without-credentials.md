@@ -44,3 +44,13 @@ The token path was already correct: `resolveGitRemoteTip` sends the installation
 - Tests: `clone-tree.test.ts` runs against a local HTTP Git remote that answers 401 (no token and a refused token) and checks that the error message, stack and fields hold neither the token nor its Basic encoding. `workspace-tip-check.contract.test.ts` runs the real workflow against that remote and checks that the run completes and the Workspace records "no access". Both failed before the fix.
 
 Open: the acceptance check on a preview with a private repository and access is not done here. If that Workspace has no `githubConnectionId`, connecting GitHub binds it (`bindUnboundWorkspace`).
+
+### Review round 1 (2026-10-11)
+
+- Diagnosis checked on `pr-280` (read-only, with the team's test org): every Workspace of that org has a GitHub connection and is ready. The failing reads come from two linked repositories that read `HEAD`; their org repository rows have no GitHub connection, so the read has no token. Their repository cards already show a failed index.
+- The message now matches the case: no token gives "Connect GitHub to this Workspace, then retry."; a refused token gives the installation message.
+- A no-access read now records `hydrateStatus: failed` with that message also on a ready Workspace, logs `workspace_tip_check_no_access` (Workspace id, link id, repository host, HTTP status; no token), and sets the span attributes `ctxpipe.tip_check.no_access_workspaces` and `ctxpipe.tip_check.no_access_linked` instead of a span error.
+- Backoff: the tip check does not read a Workspace in the no-access state again for six hours, and does not enqueue its hydrate. "Try again" (retry-prepare) and a rebind reset `hydrateStatus`, so they end the backoff at once.
+- `GitRemoteAccessError.status` keeps 401 or 403, so a refused read in the write broker still pauses write status.
+- UI: the "Prepare failed" panel links to Connectors when the message is a no-access message (story `PrepareNoAccess`).
+- Open: a linked repository has no column for its own no-access state or backoff. It logs and skips on each run. A visible state and a backoff for it need a schema column, which needs approval.
