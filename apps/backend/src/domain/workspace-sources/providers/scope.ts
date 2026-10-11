@@ -21,7 +21,7 @@ export type SourceScopeDefinition<
   label: string
   schema: z.ZodType<S>
   /** A short summary for settings and "Used in", for example "3 spaces". */
-  summarize: (scope: S) => string
+  summarize(scope: S): string
 }
 
 /**

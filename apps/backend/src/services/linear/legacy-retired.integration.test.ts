@@ -2,7 +2,6 @@ import { eq, sql } from "drizzle-orm"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { repositories } from "../../db/schema/repositories.js"
-import { disableMovedLegacySyncs } from "../../domain/workspace-sources/migration.js"
 import { getLinearBindingWithRepoByConnectionId } from "../../models/linear-connector.js"
 import { replaceWorkspaceSourceRows } from "../../models/workspace-sources.js"
 import { seedSourcesOrg } from "../../test/workspace-sources-fixture.js"
@@ -125,17 +124,9 @@ describe("Linear legacy sync after the move to Workspace sources (Postgres)", ()
       "linear",
       legacyConfig("awaiting_merge"),
     )
-    await disableMovedLegacySyncs({
+    await linearSourceMigrationHook.disableLegacy?.({
       orgId: seed.orgId,
-      hooks: [linearSourceMigrationHook],
-      changes: [
-        {
-          action: "add",
-          provider: "linear",
-          connectionId: moved,
-          scope: { teams: ["ENG"] },
-        },
-      ],
+      connectionId: moved,
     })
     expect(
       await getLinearBindingWithRepoByConnectionId(seed.orgId, moved),

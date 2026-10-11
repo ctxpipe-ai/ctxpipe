@@ -10,22 +10,24 @@ import {
 import { createWorkspaceSource, workspaceSourceKeys } from "./queries"
 
 /**
- * The state and the add request of the "Choose Workspaces" step: one source
- * for each selected Workspace. `onAdded` runs after each source is added.
+ * The state and the add of the Choose Workspaces step: one source for each
+ * chosen Workspace. After a successful add it refreshes "Used in" and each
+ * Workspace source list, tells the user whether a pull request waits for a
+ * merge, and clears the selection.
  */
 export function useAddToWorkspaces(input: {
   orgSlug: string
-  connectionId: string
   provider: SourceProvider
-  onAdded: () => void
+  connectionId: string
+  onAdded?: () => void
 }) {
-  const { orgSlug, connectionId, provider, onAdded } = input
+  const { orgSlug, provider, connectionId, onAdded } = input
   const queryClient = useQueryClient()
   const [value, setValue] = useState<ChooseWorkspacesValue>(
     emptyChooseWorkspaces,
   )
   const requests = chooseWorkspacesRequests(value, { provider, connectionId })
-  const addMutation = useMutation({
+  const mutation = useMutation({
     mutationFn: (list: NonNullable<typeof requests>) =>
       Promise.all(
         list.map((request) =>
@@ -46,18 +48,19 @@ export function useAddToWorkspaces(input: {
           : "Source added",
       )
       setValue(emptyChooseWorkspaces())
-      onAdded()
+      onAdded?.()
     },
     onError: (error: Error) => toast.error(error.message),
   })
   return {
     value,
     setValue,
-    reset: () => setValue(emptyChooseWorkspaces()),
     canAdd: requests !== null,
-    isAdding: addMutation.isPending,
     add: () => {
-      if (requests) addMutation.mutate(requests)
+      if (requests) mutation.mutate(requests)
     },
+    isPending: mutation.isPending,
+    /** Clear the selection without an add (for example on cancel). */
+    reset: () => setValue(emptyChooseWorkspaces()),
   }
 }

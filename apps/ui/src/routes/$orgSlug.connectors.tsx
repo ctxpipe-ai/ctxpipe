@@ -20,7 +20,6 @@ import {
   ConfluenceConnectionCard,
   ConnectorSetupDialog,
   ConnectorsEmptyState,
-  EditScopeModal,
   GithubConnectionCard,
   LinearConnectionCard,
   LinearSetupWizard,
@@ -120,10 +119,6 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
   const [wizardOpen, setWizardOpen] = useState(false)
   const [wizardAtlassianConnectionId, setWizardAtlassianConnectionId] =
     useState<string | undefined>(undefined)
-  const [scopeOpen, setScopeOpen] = useState(false)
-  const [scopeConnectionId, setScopeConnectionId] = useState<string | null>(
-    null,
-  )
   const [notionSetupOpen, setNotionSetupOpen] = useState(false)
   const [notionManageScope, setNotionManageScope] = useState(false)
   const [pagerdutySetupOpen, setPagerdutySetupOpen] = useState(false)
@@ -260,10 +255,6 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
                   onOpenWizard={() => {
                     setWizardAtlassianConnectionId(row.id)
                     setWizardOpen(true)
-                  }}
-                  onOpenScope={() => {
-                    setScopeConnectionId(row.id)
-                    setScopeOpen(true)
                   }}
                 />
               )
@@ -458,28 +449,6 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
         }}
       />
 
-      <Modal
-        isOpen={scopeOpen}
-        onOpenChange={(open) => {
-          setScopeOpen(open)
-          if (!open) setScopeConnectionId(null)
-        }}
-        isDismissable
-        size="wide"
-        className="max-w-[min(92vw,780px)]"
-      >
-        {scopeConnectionId ? (
-          <EditScopeModal
-            orgSlug={orgSlug}
-            atlassianConnectionId={scopeConnectionId}
-            onClose={() => {
-              setScopeOpen(false)
-              setScopeConnectionId(null)
-            }}
-          />
-        ) : null}
-      </Modal>
-
       <Modal isOpen={claimOpen} onOpenChange={setClaimOpen} isDismissable>
         <AtlassianAccountClaimModalContent
           onCancel={async () => {
@@ -529,9 +498,6 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
             })
             await queryClient.invalidateQueries({
               queryKey: atlassianConnectorKeys.allStatusForOrg(orgSlug),
-            })
-            await queryClient.invalidateQueries({
-              queryKey: atlassianConnectorKeys.allConfigForOrg(orgSlug),
             })
             void navigate({
               to: "/$orgSlug/connectors",

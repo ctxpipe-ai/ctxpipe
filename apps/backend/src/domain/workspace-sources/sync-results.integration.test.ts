@@ -21,7 +21,7 @@ const source = (sourceKey: string, connectionId: string, spaces: string[]) => ({
 
 /** An adapter whose fetch returns `result` and records what it saw. */
 function adapterReturning(result: SourceFetchResult) {
-  const seen: Array<Parameters<SourceAdapter["fetch"]>[0]> = []
+  const seen: Array<Parameters<NonNullable<SourceAdapter["fetch"]>>[0]> = []
   const adapter: SourceAdapter = {
     provider: "confluence",
     managedPaths: (scope) =>

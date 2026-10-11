@@ -134,7 +134,7 @@ export function LinearSetupWizard({
     <Modal
       isOpen={isOpen}
       onOpenChange={(open) => (open ? onOpenChange(true) : close())}
-      isDismissable={!adding.isAdding}
+      isDismissable={!adding.isPending}
       className="max-w-[min(92vw,720px)]"
     >
       <div className="p-6">
@@ -208,7 +208,7 @@ export function LinearSetupWizard({
               <Button
                 variant="primary"
                 isDisabled={!adding.canAdd}
-                isPending={adding.isAdding}
+                isPending={adding.isPending}
                 onPress={adding.add}
               >
                 Add to Workspaces

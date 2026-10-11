@@ -30,3 +30,8 @@ Plan: [plan.md](plan.md).
 5. Edit API: done.
 6. Sync frame and webhook fan-out: done (`workspace-sources-sync` workflow, `SourceAdapter`, `fanOutSourceWebhook`, fake adapter in `src/test/fake-source-adapter.ts`).
 7. Migration framework: done (`SourceMigrationHook`, `pnpm --filter @ctxpipe/backend migrate-workspace-sources --org <id> [--apply]`).
+
+## Adapter contract (phase 2 note)
+
+- `SourceAdapter` has two fetch forms for now: `fetch` (one union file list) and `fetchEach` (files for each scope; `null` skips the Workspaces of a failed scope). Confluence uses `fetchEach`, because a page selection changes the file layout under the same space path. Linear, GitHub, and Notion use `fetch`.
+- The team lead keeps both until phase 3. Phase 3 merges them into one contract.

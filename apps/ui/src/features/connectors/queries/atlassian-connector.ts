@@ -1,9 +1,6 @@
 import { client } from "@/lib/api"
 import { apiFetch, readApiJson } from "@/lib/api-result"
-import type {
-  AtlassianConnectorConfig,
-  AtlassianConnectorStatus,
-} from "../types"
+import type { AtlassianConnectorStatus } from "../types"
 
 export const atlassianConnectorKeys = {
   capabilities: (orgSlug: string, connectionId: string) =>
@@ -19,14 +16,6 @@ export const atlassianConnectorKeys = {
   /** Prefix to invalidate every Forge row’s status for an org (e.g. after account link claim). */
   allStatusForOrg: (orgSlug: string) =>
     ["atlassian-connector-status", orgSlug] as const,
-  config: (orgSlug: string, atlassianConnectionId?: string) =>
-    [
-      "atlassian-connector-config",
-      orgSlug,
-      atlassianConnectionId ?? "default",
-    ] as const,
-  allConfigForOrg: (orgSlug: string) =>
-    ["atlassian-connector-config", orgSlug] as const,
   githubRepos: (orgSlug: string, q: string, githubConnectionId?: string) =>
     [
       "github-repos-search",
@@ -95,47 +84,6 @@ export async function fetchAtlassianConnectorStatus(
   return readApiJson<AtlassianConnectorStatus>(res, {
     message: "Failed to fetch Atlassian connector status",
   })
-}
-
-/** 409 → `null` (Forge not installed yet). */
-export async function fetchAtlassianConnectorConfig(
-  orgSlug: string,
-  atlassianConnectionId?: string,
-): Promise<AtlassianConnectorConfig | null> {
-  const res = await client[":orgSlug"].api.v1.connectors.atlassian.config.$get({
-    param: { orgSlug },
-    ...atlassianConnectionQuery(atlassianConnectionId),
-  })
-  return readApiJson<AtlassianConnectorConfig | null>(res, {
-    emptyOn: [409],
-    empty: null,
-    message: "Failed to load connector config",
-  })
-}
-
-export async function patchAtlassianConnectorConfig(
-  orgSlug: string,
-  body: { spaces?: unknown; syncTarget?: unknown },
-  atlassianConnectionId?: string,
-): Promise<{
-  accepted: true
-  savedCount: number
-  configPrEnqueued: boolean
-  workflowName?: string
-}> {
-  const qs = atlassianConnectionId
-    ? `?${new URLSearchParams({ connectionId: atlassianConnectionId }).toString()}`
-    : ""
-  const res = await apiFetch(
-    `/${orgSlug}/api/v1/connectors/atlassian/config${qs}`,
-    {
-      method: "PATCH",
-      credentials: "include",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    },
-  )
-  return readApiJson(res, { message: "Failed to save connector config" })
 }
 
 export async function deleteAtlassianConnector(

@@ -16,7 +16,6 @@ const cardProps = {
   orgSlug,
   connectionId,
   onOpenWizard: () => {},
-  onOpenScope: () => {},
 } as const
 
 const statusNotLinked = {
@@ -171,15 +170,10 @@ export const LiveViewerWithoutAtlassianLink: Story = {
     await canvas.findByText("Connected")
     expect(canvas.queryByText("Needs reconnect")).toBeNull()
     expect(canvas.queryByRole("button", { name: /^Remove/ })).toBeNull()
-    await userEvent.click(
-      canvas.getByRole("button", { name: "Expand Atlassian Confluence" }),
-    )
-    await canvas.findByText(
-      "Link your Atlassian account to change the scope of this connection.",
-    )
+    // The org connection is ready: a member needs no Atlassian link.
     expect(
-      canvas.getByRole("button", { name: "Link Atlassian account" }),
-    ).toBeVisible()
+      canvas.queryByRole("button", { name: /Link Atlassian account/ }),
+    ).toBeNull()
   },
 }
 
@@ -330,22 +324,39 @@ export const RemovePendingSetup: Story = {
   },
 }
 
-export const LinkGitHub: Story = {
+/** A new connection holds auth only; the scope is in each Workspace. */
+export const InstalledNotInWorkspaces: Story = {
   render: () => <ConfluenceConnectionCard {...cardProps} />,
   parameters: {
     msw: {
       handlers: {
+        usage: [connectionUsageHandler([])],
         page: [
           atlassianStatus({
             ...statusNotLinked,
             isLinked: true,
             isInstalled: true,
-            isGithubLinked: false,
             installationStatus: "installed",
           }),
           orgAtlassianOauthHandler,
         ],
       },
     },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("Connected")
+    expect(canvas.queryByText("Setup not finished")).toBeNull()
+    expect(
+      canvas.queryByRole("button", { name: /for Atlassian Confluence$/ }),
+    ).toBeNull()
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Expand Atlassian Confluence" }),
+    )
+    await canvas.findByText("Set in each Workspace")
+    await canvas.findByText("Not used in any Workspace")
+    expect(
+      canvas.getByRole("button", { name: "Add to a Workspace" }),
+    ).toBeVisible()
   },
 }

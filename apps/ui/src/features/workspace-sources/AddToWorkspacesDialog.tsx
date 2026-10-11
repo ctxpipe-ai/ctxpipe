@@ -18,8 +18,8 @@ export function AddToWorkspacesDialog(props: {
   const { orgSlug, connectionId, provider, isOpen, onOpenChange } = props
   const adding = useAddToWorkspaces({
     orgSlug,
-    connectionId,
     provider,
+    connectionId,
     onAdded: () => onOpenChange(false),
   })
   const close = () => {
@@ -31,7 +31,7 @@ export function AddToWorkspacesDialog(props: {
     <Modal
       isOpen={isOpen}
       onOpenChange={(open) => (open ? onOpenChange(true) : close())}
-      isDismissable={!adding.isAdding}
+      isDismissable={!adding.isPending}
       size="medium"
       placement="top"
     >
@@ -61,7 +61,7 @@ export function AddToWorkspacesDialog(props: {
           <Button
             variant="primary"
             isDisabled={!adding.canAdd}
-            isPending={adding.isAdding}
+            isPending={adding.isPending}
             onPress={adding.add}
           >
             Add

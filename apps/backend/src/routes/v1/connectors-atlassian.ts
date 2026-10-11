@@ -6,14 +6,12 @@ import {
   userMessageForProvisionError,
 } from "../../lib/forge-provision-error-map.js"
 import {
-  ConfluenceConfigProposalInProgressError,
   deleteForgeConnectionById,
   deleteForgeInstallationByOrgId,
   type ForgeInstallation,
   getAtlassianUserAccessToken,
   getPendingForgeInstallationForUserInOtherOrg,
   listConfluenceSpacesByConnectionId,
-  patchAtlassianConnectorConfig,
   patchForgeConnectionTypedConfig,
   resolveForgeInstallationForOrg,
   upsertPendingForgeInstallation,
@@ -21,19 +19,11 @@ import {
 import {
   getConfluenceSyncTargetWithRepoByConnectionId,
   getConfluenceSyncTargetWithRepoByOrgId,
-  markConfluenceSyncTargetInitialSync,
-  updateConfluenceSyncTargetPrState,
 } from "../../models/confluence-sync-target.js"
 import { orgHasAnyGithubConnection } from "../../models/github-installation.js"
 import { getLogger } from "../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
-import { enqueueConnectorConfigSync } from "../../openworkflow/enqueue-connector-config-sync.js"
-import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
-import { confluenceSyncConfig } from "../../openworkflow/workflows/confluence-sync-config.js"
-import { confluenceSyncContent } from "../../openworkflow/workflows/confluence-sync-content.js"
 import { forgeProvision } from "../../openworkflow/workflows/forge-provision.js"
-import { loadConfluenceScopeFromRepo } from "../../services/confluence/config-from-repo.js"
-import { confluenceSpacesEqual } from "../../services/confluence/config-yaml.js"
 
 const ErrorResponseSchema = z
   .object({
@@ -143,41 +133,6 @@ const getStatusRoute = createRoute({
   },
 })
 
-const ScopedSpaceSchema = z.object({
-  spaceKey: z.string(),
-  spaceName: z.string().optional(),
-  selectedPageIds: z.array(z.string()).nullable().optional(),
-})
-
-const SaveSyncTargetSchema = z
-  .object({
-    repositoryId: z.string().min(1).optional(),
-    /** `owner/name` when the repo is not yet linked to the org (created automatically). */
-    repositoryName: z.string().min(1).optional(),
-    gitUrl: z.string().url().optional(),
-    branch: z.string().min(1),
-    enabled: z.boolean(),
-  })
-  .refine(
-    (v) =>
-      Boolean(v.repositoryId) ||
-      (Boolean(v.repositoryName) && Boolean(v.gitUrl)),
-    {
-      message: "Provide repositoryId or both repositoryName and gitUrl",
-    },
-  )
-
-const AtlassianPatchConfigRequestSchema = z
-  .object({
-    spaces: z.array(ScopedSpaceSchema).optional(),
-    syncTarget: SaveSyncTargetSchema.optional(),
-  })
-  .refine(
-    (body) => body.spaces !== undefined || body.syncTarget !== undefined,
-    { message: "Provide at least one of spaces or syncTarget" },
-  )
-  .openapi("AtlassianPatchConfigRequest")
-
 const ConfluenceSpaceInfoSchema = z
   .object({
     id: z.string(),
@@ -195,44 +150,6 @@ const ConfluencePageSummarySchema = z
     parentId: z.string().optional(),
   })
   .openapi("AtlassianConfluencePageSummary")
-
-const ConfluenceScopeRowSchema = z
-  .object({
-    id: z.string(),
-    connectionId: z.string(),
-    spaceKey: z.string(),
-    spaceName: z.string().nullable(),
-    selectedPageIds: z.array(z.string()).nullable(),
-    lastSyncedPageId: z.string().nullable(),
-    lastSyncedAt: z.string().nullable(),
-    createdAt: z.string().datetime(),
-    updatedAt: z.string().datetime(),
-  })
-  .openapi("AtlassianConfluenceScopeRow")
-
-const ConfluenceSyncTargetSchema = z
-  .object({
-    id: z.string(),
-    orgId: z.string(),
-    connectionId: z.string(),
-    repositoryId: z.string(),
-    repositoryName: z.string(),
-    branch: z.string(),
-    enabled: z.boolean(),
-    setupPhase: z.string(),
-    pendingConfigPullUrl: z.string().nullable(),
-    pendingConfigPrCreating: z.boolean(),
-    createdAt: z.string().datetime(),
-    updatedAt: z.string().datetime(),
-  })
-  .openapi("ConfluenceSyncTarget")
-
-const AtlassianConnectorConfigSchema = z
-  .object({
-    spaces: z.array(ConfluenceScopeRowSchema),
-    syncTarget: ConfluenceSyncTargetSchema.nullable(),
-  })
-  .openapi("AtlassianConnectorConfig")
 
 const listAvailableSpacesRoute = createRoute({
   method: "get",
@@ -320,36 +237,6 @@ const searchSpacePagesRoute = createRoute({
   },
 })
 
-const getConfigRoute = createRoute({
-  method: "get",
-  path: "/config",
-  request: {
-    query: ConnectionIdQuerySchema,
-  },
-  responses: {
-    200: {
-      content: {
-        "application/json": {
-          schema: AtlassianConnectorConfigSchema,
-        },
-      },
-      description: "Current Atlassian connector config",
-    },
-    401: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unauthorized",
-    },
-    409: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Forge installation/token not ready",
-    },
-    404: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unknown `connectionId` for this org",
-    },
-  },
-})
-
 const deleteAtlassianConnectorRoute = createRoute({
   method: "delete",
   path: "/",
@@ -364,57 +251,6 @@ const deleteAtlassianConnectorRoute = createRoute({
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Unauthorized",
-    },
-    404: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unknown `connectionId` for this org",
-    },
-  },
-})
-
-const patchConfigRoute = createRoute({
-  method: "patch",
-  path: "/config",
-  request: {
-    query: ConnectionIdQuerySchema,
-    body: {
-      content: {
-        "application/json": {
-          schema: AtlassianPatchConfigRequestSchema,
-        },
-      },
-    },
-  },
-  responses: {
-    503: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Native workflow admission unavailable",
-    },
-    200: {
-      content: {
-        "application/json": {
-          schema: z.object({
-            accepted: z.literal(true),
-            savedCount: z.number(),
-            configPrEnqueued: z.boolean(),
-            workflowName: z.string().optional(),
-          }),
-        },
-      },
-      description:
-        "Config patched; opens or updates a PR for `confluence/config.yaml` when `spaces` or `syncTarget` is present (content sync runs after merge via GitHub push)",
-    },
-    400: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Invalid or empty patch body",
-    },
-    401: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unauthorized",
-    },
-    409: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Forge installation/token not ready",
     },
     404: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -882,249 +718,6 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
       q,
     })
     return c.json({ items }, 200)
-  })
-  .openapi(getConfigRoute, async (c) => {
-    if (!c.get("user") || !c.get("session")) {
-      return c.json({ error: "Unauthorized" }, 401)
-    }
-    const orgId = c.get("orgId")
-    if (!orgId) return c.json({ error: "Unauthorized" }, 401)
-    const connectionId = ConnectionIdQuerySchema.parse({
-      connectionId: c.req.query("connectionId") ?? undefined,
-    }).connectionId
-    const installation = await resolveForgeInstallationForOrg(
-      orgId,
-      connectionId ?? null,
-    )
-    if (connectionId && !installation) {
-      return c.json({ error: "Unknown Confluence connection" }, 404)
-    }
-    if (
-      !installation ||
-      installation.status !== "installed" ||
-      !installation.cloudId
-    ) {
-      return c.json({ error: "Forge app is not installed" }, 409)
-    }
-    const [rows, syncTarget] = await Promise.all([
-      listConfluenceSpacesByConnectionId(installation.id),
-      getConfluenceSyncTargetWithRepoByConnectionId(orgId, installation.id),
-    ])
-    return c.json(
-      {
-        spaces: rows.map((row) => ({
-          id: row.id,
-          connectionId: row.connectionId,
-          spaceKey: row.spaceKey,
-          spaceName: row.spaceName ?? null,
-          selectedPageIds: (row.selectedPageIds as string[] | null) ?? null,
-          lastSyncedPageId: row.lastSyncedPageId ?? null,
-          lastSyncedAt: row.lastSyncedAt
-            ? row.lastSyncedAt.toISOString()
-            : null,
-          createdAt: row.createdAt.toISOString(),
-          updatedAt: row.updatedAt.toISOString(),
-        })),
-        syncTarget: syncTarget
-          ? {
-              id: syncTarget.id,
-              orgId: syncTarget.orgId,
-              connectionId: syncTarget.connectionId,
-              repositoryId: syncTarget.repositoryId,
-              repositoryName: syncTarget.repositoryName,
-              branch: syncTarget.branch,
-              enabled: syncTarget.enabled,
-              setupPhase: syncTarget.setupPhase,
-              pendingConfigPullUrl: syncTarget.pendingConfigPullUrl ?? null,
-              pendingConfigPrCreating: syncTarget.pendingConfigPrCreating,
-              createdAt: syncTarget.createdAt.toISOString(),
-              updatedAt: syncTarget.updatedAt.toISOString(),
-            }
-          : null,
-      },
-      200,
-    )
-  })
-  .openapi(patchConfigRoute, async (c) => {
-    if (!c.get("user") || !c.get("session")) {
-      return c.json({ error: "Unauthorized" }, 401)
-    }
-    const orgId = c.get("orgId")
-    if (!orgId) return c.json({ error: "Unauthorized" }, 401)
-    const orgSlug = c.get("orgSlug") ?? c.req.param("orgSlug")
-    if (!orgSlug) return c.json({ error: "Missing org slug" }, 400)
-    const connectionId = ConnectionIdQuerySchema.parse({
-      connectionId: c.req.query("connectionId") ?? undefined,
-    }).connectionId
-    const installation = await resolveForgeInstallationForOrg(
-      orgId,
-      connectionId ?? null,
-    )
-    if (connectionId && !installation) {
-      return c.json({ error: "Unknown Confluence connection" }, 404)
-    }
-    if (
-      !installation ||
-      installation.status !== "installed" ||
-      !installation.cloudId
-    ) {
-      return c.json({ error: "Forge app is not installed" }, 409)
-    }
-    const body = AtlassianPatchConfigRequestSchema.parse(await c.req.json())
-    const { spaces: spacesPatch, syncTarget } = body
-
-    let saved: Awaited<ReturnType<typeof patchAtlassianConnectorConfig>>
-    try {
-      saved = await patchAtlassianConnectorConfig({
-        orgId,
-        connectionId: installation.id,
-        ...(spacesPatch !== undefined
-          ? {
-              spaces: spacesPatch.map((space) => ({
-                spaceKey: space.spaceKey,
-                spaceName: space.spaceName,
-                selectedPageIds: space.selectedPageIds ?? null,
-              })),
-            }
-          : {}),
-        ...(syncTarget !== undefined ? { syncTarget } : {}),
-      })
-    } catch (error) {
-      if (error instanceof ConfluenceConfigProposalInProgressError)
-        return c.json({ error: error.message }, 409)
-      throw error
-    }
-
-    if (saved.repositoryIngestion) {
-      try {
-        await enqueueRepositoryIngestionWorkflow(saved.repositoryIngestion, {
-          error: (error) => getLogger().error(error),
-        })
-      } catch {
-        return c.json(
-          {
-            error:
-              "Repository ingestion admission unavailable; retry this request",
-          },
-          503,
-        )
-      }
-    }
-
-    const target = await getConfluenceSyncTargetWithRepoByConnectionId(
-      orgId,
-      installation.id,
-    )
-    const gitScope =
-      target?.githubConnectionId != null
-        ? await loadConfluenceScopeFromRepo({
-            orgId,
-            env: c.var.env,
-            repositoryName: target.repositoryName,
-            githubConnectionId: target.githubConnectionId,
-            branch: target.branch,
-          })
-        : undefined
-    const requestedSpaces = (
-      spacesPatch ??
-      saved.spaces.map((space) => ({
-        spaceKey: space.spaceKey,
-        selectedPageIds: space.selectedPageIds,
-      }))
-    ).map((space) => ({
-      spaceKey: space.spaceKey,
-      selectedPageIds: space.selectedPageIds ?? null,
-    }))
-    const spacesMatch = Boolean(
-      gitScope && confluenceSpacesEqual(requestedSpaces, gitScope.spaces),
-    )
-    const shouldStartInitialSync =
-      spacesMatch && target?.enabled === true && target.setupPhase === "draft"
-    const shouldOpenConfigPr =
-      !spacesMatch &&
-      target?.enabled !== false &&
-      (spacesPatch !== undefined ||
-        (syncTarget !== undefined && saved.spaces.length > 0))
-    if (shouldStartInitialSync) {
-      await markConfluenceSyncTargetInitialSync({
-        connectionId: installation.id,
-      })
-      const orgSlug = c.get("orgSlug") ?? c.req.param("orgSlug")
-      if (!orgSlug) return c.json({ error: "Unauthorized" }, 401)
-      try {
-        await runWorkflowWithWorkerWake(confluenceSyncContent.spec, {
-          orgId,
-          orgSlug,
-          connectionId: installation.id,
-        })
-      } catch (error) {
-        await updateConfluenceSyncTargetPrState({
-          connectionId: installation.id,
-          pendingConfigPullUrl: null,
-          pendingConfigPrCreating: false,
-          setupPhase: "draft",
-        })
-        getLogger().error(
-          error instanceof Error ? error : new Error(String(error)),
-          {
-            step: "confluence.initial_sync.enqueue",
-            connectionId: installation.id,
-          },
-        )
-        return c.json(
-          { error: "Failed to enqueue Confluence initial sync" },
-          503,
-        )
-      }
-    }
-    let configPrEnqueued = false
-    if (shouldOpenConfigPr) {
-      try {
-        const admission = await enqueueConnectorConfigSync({
-          provider: "confluence",
-          orgId,
-          orgSlug,
-          connectionId: installation.id,
-          spaces: requestedSpaces,
-        })
-        if (!admission.accepted)
-          return c.json(
-            {
-              error:
-                "Confluence configuration changed or a proposal is already in progress",
-            },
-            409,
-          )
-        configPrEnqueued = admission.started
-      } catch (err: unknown) {
-        await updateConfluenceSyncTargetPrState({
-          connectionId: installation.id,
-          pendingConfigPullUrl: null,
-          pendingConfigPrCreating: false,
-          setupPhase: "draft",
-        })
-        getLogger().error(err instanceof Error ? err : new Error(String(err)), {
-          step: "confluenceSyncConfig.enqueue",
-          connectionId: installation.id,
-        })
-        return c.json(
-          { error: "Failed to enqueue Confluence configuration pull request" },
-          503,
-        )
-      }
-    }
-
-    return c.json(
-      {
-        accepted: true as const,
-        savedCount: saved.spaces.length,
-        configPrEnqueued,
-        ...(configPrEnqueued
-          ? { workflowName: confluenceSyncConfig.spec.name }
-          : {}),
-      },
-      200,
-    )
   })
   .openapi(postForgeProvisionRoute, async (c) => {
     if (!c.get("user") || !c.get("session")) {
