@@ -9,17 +9,44 @@ function isGitHubUrl(gitUrl: string): boolean {
 }
 
 /**
- * Embeds an installation access token into a GitHub HTTPS URL using the
- * `x-access-token` scheme documented by GitHub for App installation tokens.
- * Returns the original URL unchanged for non-GitHub URLs or when no token is provided.
+ * Removes a user name and password from an HTTP(S) remote URL, so that Git
+ * does not write a credential into `.git/config`.
  */
-export function authenticatedGitUrl(
+export function credentialFreeGitUrl(gitUrl: string): string {
+  if (!URL.canParse(gitUrl)) return gitUrl
+  const url = new URL(gitUrl)
+  if (!["http:", "https:"].includes(url.protocol)) return gitUrl
+  if (!url.username && !url.password) return gitUrl
+  url.username = ""
+  url.password = ""
+  return url.toString()
+}
+
+/**
+ * The environment for a Git command against `gitUrl`. When a GitHub token is
+ * given, an inline credential helper gives the token to Git from the
+ * environment, with the `x-access-token` user that GitHub documents for App
+ * installation tokens. The helper applies only to the scheme and host of
+ * `gitUrl`, so Git follows a redirect on that host but never gives the token
+ * to another host. The empty helper first removes the other helpers, so no
+ * keychain stores the token. Git never prompts for a credential.
+ */
+export function gitCommandEnv(
   gitUrl: string,
   githubToken?: string,
-): string {
-  if (!githubToken || !isGitHubUrl(gitUrl)) return gitUrl
-  const url = new URL(gitUrl)
-  url.username = "x-access-token"
-  url.password = githubToken
-  return url.toString()
+): Record<string, string | undefined> {
+  const env = { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_ASKPASS: "" }
+  if (!githubToken || !isGitHubUrl(gitUrl) || !URL.canParse(gitUrl)) return env
+  const remote = new URL(gitUrl)
+  if (!["http:", "https:"].includes(remote.protocol)) return env
+  return {
+    ...env,
+    CTXPIPE_GIT_TOKEN: githubToken,
+    GIT_CONFIG_COUNT: "2",
+    GIT_CONFIG_KEY_0: "credential.helper",
+    GIT_CONFIG_VALUE_0: "",
+    GIT_CONFIG_KEY_1: `credential.${remote.protocol}//${remote.host}.helper`,
+    GIT_CONFIG_VALUE_1:
+      '!f() { test "$1" = get || return 0; echo username=x-access-token; echo "password=$CTXPIPE_GIT_TOKEN"; }; f',
+  }
 }

@@ -10,7 +10,7 @@ import {
 } from "../../db/client.js"
 import { repositoryCheckouts } from "../../db/schema.js"
 import { tryEmitIndexEvent } from "../../observability/indexingLog.js"
-import { authenticatedGitUrl } from "../../utils/git.js"
+import { credentialFreeGitUrl, gitCommandEnv } from "../../utils/git.js"
 import {
   assertScipIndex,
   encodeScipIndex,
@@ -193,13 +193,16 @@ async function ensureRepositoryClone(params: {
   clonePath: string
   githubToken?: string
 }): Promise<void> {
-  const authUrl = authenticatedGitUrl(params.repoGitUrl, params.githubToken)
+  const remoteUrl = credentialFreeGitUrl(params.repoGitUrl)
+  const env = gitCommandEnv(params.repoGitUrl, params.githubToken)
   if (await hasGitDir(params.clonePath)) {
-    await runCommand(["git", "remote", "set-url", "origin", authUrl], {
+    // Use the plain remote URL; the credential comes per command.
+    await runCommand(["git", "remote", "set-url", "origin", remoteUrl], {
       cwd: params.clonePath,
     })
     await runCommand(["git", "fetch", "origin", "--prune"], {
       cwd: params.clonePath,
+      env,
     })
     return
   }
@@ -207,12 +210,16 @@ async function ensureRepositoryClone(params: {
   if (await pathExists(params.clonePath)) {
     await rm(params.clonePath, { recursive: true, force: true })
   }
-  await runCommand(["git", "clone", "--depth", "1", authUrl, params.clonePath])
+  await runCommand(
+    ["git", "clone", "--depth", "1", remoteUrl, params.clonePath],
+    { env },
+  )
 }
 
 async function ensureCommitInRepo(
   clonePath: string,
   refOrSha: string,
+  env: Record<string, string | undefined>,
 ): Promise<string> {
   const trimmed = refOrSha.trim()
   try {
@@ -220,7 +227,10 @@ async function ensureCommitInRepo(
       cwd: clonePath,
     })
   } catch {
-    await runCommand(["git", "fetch", "origin", trimmed], { cwd: clonePath })
+    await runCommand(["git", "fetch", "origin", trimmed], {
+      cwd: clonePath,
+      env,
+    })
     await runCommand(["git", "rev-parse", "--verify", `${trimmed}^{commit}`], {
       cwd: clonePath,
     })
@@ -237,20 +247,22 @@ async function resolveTargetCommitHash(params: {
   githubToken?: string
   targetHash?: string
 }): Promise<string> {
+  const env = gitCommandEnv(params.repoGitUrl, params.githubToken)
   if (params.targetHash && params.targetHash.trim().length > 0) {
-    return ensureCommitInRepo(params.clonePath, params.targetHash.trim())
+    return ensureCommitInRepo(params.clonePath, params.targetHash.trim(), env)
   }
   const { hash } = await resolveRepositoryRef({
     gitUrl: params.repoGitUrl,
     githubToken: params.githubToken,
   })
-  return ensureCommitInRepo(params.clonePath, hash)
+  return ensureCommitInRepo(params.clonePath, hash, env)
 }
 
 async function ensureMergeBaseAvailable(
   clonePath: string,
   fromSha: string,
   toSha: string,
+  env: Record<string, string | undefined>,
 ): Promise<void> {
   const maxIterations = 24
   for (let i = 0; i < maxIterations; i++) {
@@ -264,6 +276,7 @@ async function ensureMergeBaseAvailable(
     try {
       await runCommand(["git", "fetch", "origin", "--deepen", "256"], {
         cwd: clonePath,
+        env,
       })
     } catch {
       // continue deepening / unshallow
@@ -272,6 +285,7 @@ async function ensureMergeBaseAvailable(
   try {
     await runCommand(["git", "fetch", "origin", "--unshallow"], {
       cwd: clonePath,
+      env,
     })
   } catch {
     // best-effort: some repos are not shallow
@@ -562,11 +576,17 @@ export async function phaseCloneCheckout(
   if (params.fromHash && params.fromHash.trim().length > 0) {
     const fromHash = params.fromHash.trim()
     const diffResult = await withPhase("diff", async () => {
-      const fromResolved = await ensureCommitInRepo(ctx.clonePath, fromHash)
+      const env = gitCommandEnv(ctx.repoGitUrl, ctx.githubToken)
+      const fromResolved = await ensureCommitInRepo(
+        ctx.clonePath,
+        fromHash,
+        env,
+      )
       await ensureMergeBaseAvailable(
         ctx.clonePath,
         fromResolved,
         resolvedTarget,
+        env,
       )
       const ancestor = await isAncestor(
         ctx.clonePath,
