@@ -21,7 +21,6 @@ export { PagerdutySetupDialog } from "./components/PagerdutySetupDialog"
 export { SlackConnectionCard } from "./components/SlackConnectionCard"
 export { SpacePageTree } from "./SpacePageTree"
 export type {
-  AtlassianConnectorConfig,
   AtlassianConnectorStatus,
   AtlassianConnectorStatusSpacePreview,
   ConfluencePage,

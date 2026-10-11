@@ -69,8 +69,7 @@ export function getConfluenceCardCurrentIndex(
   if (defs[0]?.id === "oauth_register" && !oauthMeta?.oauthAppSaved)
     return stepIndex(defs, "oauth_register")
   if (!status.isLinked) return stepIndex(defs, "link")
-  if (!status.isInstalled) return stepIndex(defs, "forge")
-  return stepIndex(defs, "workspaces")
+  return stepIndex(defs, "forge")
 }
 
 export type ConfluenceWizardBodyId =

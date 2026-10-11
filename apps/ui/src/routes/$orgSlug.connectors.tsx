@@ -503,9 +503,6 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
             await queryClient.invalidateQueries({
               queryKey: atlassianConnectorKeys.allStatusForOrg(orgSlug),
             })
-            await queryClient.invalidateQueries({
-              queryKey: atlassianConnectorKeys.allConfigForOrg(orgSlug),
-            })
             void navigate({
               to: "/$orgSlug/connectors",
               params: { orgSlug },

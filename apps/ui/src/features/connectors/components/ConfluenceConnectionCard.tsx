@@ -67,9 +67,6 @@ export function ConfluenceConnectionCard({
         queryKey: atlassianConnectorKeys.status(orgSlug, connectionId),
       })
       await queryClient.invalidateQueries({
-        queryKey: atlassianConnectorKeys.config(orgSlug, connectionId),
-      })
-      await queryClient.invalidateQueries({
         queryKey: orgConnectionsKeys.list(orgSlug),
       })
     },
