@@ -57,6 +57,11 @@ export function SkeletonRegion(props: { children: ReactNode }) {
   )
 }
 
+/** One hand-over chain of skeletons of the same thing in a region. */
+export function SkeletonChain(props: { id: string; children: ReactNode }) {
+  return props.children
+}
+
 /**
  * The wait (ms) before this skeleton shows. CSS runs the wait. Without a
  * region, or for a new load, it is the full delay.
@@ -134,7 +139,7 @@ export function SkeletonReveal(props: {
  * Keep a query-driven skeleton up for `SKELETON_MIN_MS` after it became
  * visible. Use it as `useSkeletonHold(query.isPending) ? <Skeleton… /> : …`.
  */
-export function useSkeletonHold(pending: boolean) {
+export function useSkeletonHold(pending: boolean, _chain?: string) {
   const [shownAt, setShownAt] = useState<number | null>(null)
   // Before paint, like the CSS wait, so the hold starts no later than the
   // skeleton shows.

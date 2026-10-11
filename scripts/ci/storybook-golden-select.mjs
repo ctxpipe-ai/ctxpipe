@@ -59,6 +59,9 @@ export const requiredStories = [
   "DelayStartsAtFirstPaint",
   "HandOverStaysVisible",
   "HandOverKeepsDelayStart",
+  "UnrelatedLoadKeepsItsDelay",
+  "HandOverHoldsMinimum",
+  "HandOverUsesPaintStart",
 ]
 
 export function isGoldenPlaySuccess(phase) {

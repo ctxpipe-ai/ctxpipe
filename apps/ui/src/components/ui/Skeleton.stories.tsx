@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { use, useState } from "react"
+import { type CSSProperties, use, useState } from "react"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 import { Button } from "./Button"
 import {
@@ -7,6 +7,7 @@ import {
   SKELETON_DELAY_MS,
   SKELETON_MIN_MS,
   Skeleton,
+  SkeletonChain,
   SkeletonLine,
   SkeletonRegion,
   SkeletonRow,
@@ -245,25 +246,64 @@ export const DelayStartsAtFirstPaint: Story = {
   },
 }
 
-function HandOverDemo() {
-  const [step, setStep] = useState<"first" | "second">("first")
+function HandOverDemo(props: { firstStyle?: CSSProperties }) {
   return (
     <SkeletonRegion>
-      <div className="w-64 space-y-2 bg-zinc-950">
-        <Button variant="outline" onPress={() => setStep("second")}>
-          Hand over
-        </Button>
-        {step === "first" ? (
-          <div data-testid="first">
-            <SkeletonRow />
-          </div>
-        ) : (
-          <section key="second" data-testid="second">
-            <SkeletonRow size="catalog" />
-          </section>
-        )}
-      </div>
+      <HandOverDemoBody {...props} />
     </SkeletonRegion>
+  )
+}
+
+function HandOverDemoBody(props: { firstStyle?: CSSProperties }) {
+  const [step, setStep] = useState<"first" | "second" | "query">("first")
+  const [pending, setPending] = useState(true)
+  const [quick, setQuick] = useState(false)
+  const showQuerySkeleton = useSkeletonHold(step === "query" && pending, "demo")
+  return (
+    <div className="w-64 space-y-2 bg-zinc-950">
+      <Button variant="outline" onPress={() => setStep("second")}>
+        Hand over
+      </Button>
+      <Button variant="outline" onPress={() => setStep("query")}>
+        Hand over to a query
+      </Button>
+      <Button variant="outline" onPress={() => setPending(false)}>
+        Finish loading
+      </Button>
+      <Button variant="outline" onPress={() => setQuick((value) => !value)}>
+        Quick load
+      </Button>
+      {step === "first" ? (
+        <div data-testid="first">
+          <SkeletonChain id="demo">
+            <Skeleton className="block h-8 w-full" style={props.firstStyle} />
+          </SkeletonChain>
+        </div>
+      ) : step === "second" ? (
+        <section key="second" data-testid="second">
+          <SkeletonChain id="demo">
+            <SkeletonRow size="catalog" />
+          </SkeletonChain>
+        </section>
+      ) : (
+        <article key="query" data-testid="query">
+          {showQuerySkeleton ? (
+            <SkeletonChain id="demo">
+              <SkeletonRow size="catalog" />
+            </SkeletonChain>
+          ) : (
+            <p className="h-8">Loaded</p>
+          )}
+        </article>
+      )}
+      {quick ? (
+        <aside data-testid="quick">
+          <SkeletonChain id="other">
+            <SkeletonRow />
+          </SkeletonChain>
+        </aside>
+      ) : null}
+    </div>
   )
 }
 
@@ -300,5 +340,67 @@ export const HandOverKeepsDelayStart: Story = {
       timeout: SKELETON_DELAY_MS * 2,
     })
     expect(performance.now() - mountedAt).toBeLessThan(SKELETON_DELAY_MS + 250)
+  },
+}
+
+/** A fast load in another chain of the region does not inherit the start. */
+export const UnrelatedLoadKeepsItsDelay: Story = {
+  tags: ["workspace-golden"],
+  render: () => <HandOverDemo />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await visibleAt(canvas.getByTestId("first"))
+    await userEvent.click(canvas.getByRole("button", { name: "Quick load" }))
+    const quick = canvas.getByTestId("quick")
+    for (let frame = 0; frame < 6; frame += 1) {
+      expect(allHidden(quick)).toBe(true)
+      await sleep(25)
+    }
+    await userEvent.click(canvas.getByRole("button", { name: "Quick load" }))
+    expect(canvas.queryByTestId("quick")).not.toBeInTheDocument()
+  },
+}
+
+/** A query skeleton that takes over a visible one holds from that moment. */
+export const HandOverHoldsMinimum: Story = {
+  tags: ["workspace-golden"],
+  render: () => <HandOverDemo />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await visibleAt(canvas.getByTestId("first"))
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Hand over to a query" }),
+    )
+    const handedOverAt = performance.now()
+    expect(allVisible(canvas.getByTestId("query"))).toBe(true)
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Finish loading" }),
+    )
+    expect(canvas.queryByText("Loaded")).not.toBeInTheDocument()
+    await waitFor(() => expect(canvas.getByText("Loaded")).toBeVisible(), {
+      timeout: SKELETON_MIN_MS * 3,
+    })
+    expect(performance.now() - handedOverAt).toBeGreaterThanOrEqual(
+      SKELETON_MIN_MS - 20,
+    )
+  },
+}
+
+/**
+ * The chain start comes from the CSS animation of the first bone, not from
+ * its React mount. Here the first bone's wait began 600 ms before the mount,
+ * as server HTML does before hydration, so the successor shows at about
+ * 400 ms.
+ */
+export const HandOverUsesPaintStart: Story = {
+  tags: ["workspace-golden"],
+  render: () => <HandOverDemo firstStyle={{ animationDelay: "-600ms" }} />,
+  play: async ({ canvasElement, mount }) => {
+    const mountedAt = performance.now()
+    await mount()
+    const canvas = within(canvasElement)
+    await userEvent.click(canvas.getByRole("button", { name: "Hand over" }))
+    await visibleAt(canvas.getByTestId("second"))
+    expect(performance.now() - mountedAt).toBeLessThan(SKELETON_DELAY_MS - 300)
   },
 }
