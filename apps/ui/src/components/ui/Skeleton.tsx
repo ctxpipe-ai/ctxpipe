@@ -129,7 +129,9 @@ export function SkeletonReveal(props: {
  */
 export function useSkeletonHold(pending: boolean) {
   const [shownAt, setShownAt] = useState<number | null>(null)
-  useEffect(() => {
+  // Before paint, like the CSS wait, so the hold starts no later than the
+  // skeleton shows.
+  useLayoutEffect(() => {
     if (pending) {
       if (shownAt !== null) return
       const id = setTimeout(() => setShownAt(Date.now()), SKELETON_DELAY_MS)
