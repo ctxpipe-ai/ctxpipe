@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { toast } from "sonner"
+import { ConnectorUsedIn } from "@/features/workspace-sources/ConnectorUsedIn"
 import {
   getConfluenceCardCurrentIndex,
   getConfluenceCardPrimaryCta,
@@ -96,6 +97,13 @@ export function ConfluenceConnectionCard({
 
   return (
     <ConnectorListItem
+      usedIn={
+        <ConnectorUsedIn
+          orgSlug={orgSlug}
+          connectionId={connectionId}
+          provider="confluence"
+        />
+      }
       name="Atlassian Confluence"
       icon={
         <ConfluenceMark className="size-5 text-foreground" variant="outline" />

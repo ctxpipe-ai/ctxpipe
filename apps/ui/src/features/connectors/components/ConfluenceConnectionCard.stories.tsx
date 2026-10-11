@@ -1,6 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import { expect, fn, screen, userEvent, waitFor, within } from "storybook/test"
+import {
+  connectionUsageHandler,
+  connectionUsageItem,
+} from "@/mocks/workspace-sources-handlers"
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
 import { ConfluenceConnectionCard } from "./ConfluenceConnectionCard"
@@ -91,6 +95,18 @@ const meta = {
     ...entryPageInnerDecorators,
   ],
   parameters: {
+    msw: {
+      handlers: {
+        usage: [
+          connectionUsageHandler([
+            connectionUsageItem({
+              workspaceSlug: "docs",
+              workspaceName: "Docs",
+            }),
+          ]),
+        ],
+      },
+    },
     layout: "centered",
     storyRoute: {
       pattern: "orgIndex",

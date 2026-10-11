@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { toast } from "sonner"
+import { ConnectorUsedIn } from "@/features/workspace-sources/ConnectorUsedIn"
 import {
   formatSelectedItemCount,
   resolveConnectorHealth,
@@ -86,6 +87,13 @@ export function LinearConnectionCard({
 
   return (
     <ConnectorListItem
+      usedIn={
+        <ConnectorUsedIn
+          orgSlug={orgSlug}
+          connectionId={connectionId}
+          provider="linear"
+        />
+      }
       name="Linear"
       icon={<LinearMark className="size-5 text-foreground" />}
       health={health}

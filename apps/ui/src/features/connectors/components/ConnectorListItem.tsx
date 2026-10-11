@@ -109,6 +109,7 @@ export function ConnectorListItem({
   workspace,
   scope,
   syncRepository,
+  usedIn,
   actionLabel,
   onAction,
   defaultExpanded = false,
@@ -126,6 +127,11 @@ export function ConnectorListItem({
   workspace: ReactNode
   scope: ReactNode
   syncRepository: ReactNode
+  /**
+   * The "Used in" block: the Workspaces that use this connection. Each
+   * provider card gives `<ConnectorUsedIn …/>`.
+   */
+  usedIn?: ReactNode
   actionLabel?: string
   onAction?: () => void
   defaultExpanded?: boolean
@@ -186,6 +192,7 @@ export function ConnectorListItem({
         <DisclosurePanel>
           <div className="space-y-4 px-1 pb-4 sm:px-2 sm:pl-[3.25rem]">
             {children}
+            {usedIn}
             <dl className="grid gap-4 text-sm sm:grid-cols-2">
               <div>
                 <dt className="text-muted-foreground">Workspace</dt>
