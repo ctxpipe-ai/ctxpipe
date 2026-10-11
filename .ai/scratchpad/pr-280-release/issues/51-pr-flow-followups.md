@@ -24,8 +24,8 @@ Rules: no new environment variables; do not change tab or button styles (other t
 
 - [x] Gap 1: a multi-line, quoted, very long, or empty title reply gives one clean line of at most 72 characters, with tests.
 - [x] Gap 2: Create PR sends a body with the commit subjects, the changed files and the conversation link; a later push refreshes it; tests use msw on the GitHub API.
-- [ ] Gap 3: a failing test first and a fix, or a record of what was tried and a guard test.
-- [ ] Gap 4: the Diff pane refreshes when a turn ends, with a test or story.
+- [x] Gap 3: a failing test first and a fix, or a record of what was tried and a guard test.
+- [x] Gap 4: the Diff pane refreshes when a turn ends, with a test or story.
 - [ ] After a deploy, one more full-flow run on pr-280 shows a clean title and a body (closes ticket 30 box 1).
 
 ## Comments
@@ -36,5 +36,11 @@ Rules: no new environment variables; do not change tab or button styles (other t
 2. **Body** (`04897b21`). Create PR reads GitHub's compare of the default branch and the session branch, and writes a body in a marked ctx| section: the commit subjects, the changed files (at most 50), and a link `{AUTH_BASE_URL}/{org}/ws/{workspace}/{conversation}`. The body is masked with `maskCredentials`. A failed compare gives a body without commits and files, so the PR still opens. A client body, if sent, is used and masked.
    - **Later pushes: decision.** After each push from the conversation (agent tool, Commit+Push, Create PR), the open PR's ctx| section is replaced with a current one. Text a person adds around the section stays. An empty body gets the section. A body a person rewrote without the section is not changed. Reason: the file list stays correct as the conversation adds commits, and nobody loses their own text. A failed refresh is logged and does not fail the push.
    - Tests: `pull-request-text.test.ts` (format, masking, refresh rules) and a new contract test in `conversation-branch-push-native.contract.test.ts` (msw on the GitHub API, with the fixture's compare served from the real remote): the created PR has the cleaned title, the summary, the files and the link; a later agent push refreshes the section and keeps a reviewer note; a rewritten body stays.
-3. **Editor text** (open). A sub-agent works on it in `WorkspacePierreFile.tsx` and `WorkspacePane.stories.tsx`; the work is not committed yet.
-4. **Diff refresh** (`c944ecac`, sub-agent). The Diff pane query refreshes when a chat turn ends.
+3. **Editor text** (`61dd3f5d`). Cause: `WorkspacePierreFile` showed `File` for a clean file and `FileDiff` as soon as the draft differed from the saved body. The first key in a clean file (a new file is empty) switched the view. The switch made a new editor without focus, so the next keys went nowhere. Reproduced in the static Storybook with real Playwright keys: with a 300 ms pause between keys, focus moved to `BODY` after the first key, and only one character was saved (as in run 2). Fix: the editor keeps the view it opened with until the file (`cacheKey`) changes. A draft from an earlier visit still opens as a diff.
+   - Test: golden story `NewFileKeepsTypedText` (`WorkspacePane.stories.tsx`). It creates a file, types, and saves, and it checks that the editor element is the same after the first edit. It failed 3 of 3 times on the old code and passed 3 of 3 times with the fix. `userEvent.keyboard` cannot type into the editor's shadow DOM, so the story types through the editor handle. The real-key check was done by hand only.
+   - Not covered: "type, then switch away" has no new test. The current `EditThenNavigate` story covers that path.
+4. **Diff refresh** (`c944ecac`). `refreshConversationAfterTurn` (`queries.ts`) marks as stale the Files tree, the status, the turn changes, and each Diff pane query (full and per turn) of the conversation when a turn ends. Test: `queries.test.ts` (the other conversation's diff stays fresh).
+
+Red checks: the new contract test failed on the code before `04897b21` (temporary worktree with the old production files and the new test): `expected '"Add note one."\n\nMore text' to be 'Add note one'`.
+
+Checks: backend publish tests (6 files, 74 tests) pass. Workspace golden stories (static build) pass. UI suite: 80 files, 440 tests pass; 8 jsdom files outside the workspace feature did not start, because `jsdom` is missing from this worktree's install. Biome and `test:policy` pass.
