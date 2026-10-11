@@ -1,3 +1,5 @@
+import { HttpResponse, http } from "msw"
+import { setupServer } from "msw/node"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
@@ -36,11 +38,32 @@ const TASKS = "1a2b3c4d-0000-4000-8000-000000000002"
 
 let seed: Awaited<ReturnType<typeof seedSourcesOrg>>
 
+/** Notion now calls the Handbook root "Company handbook". */
+const server = setupServer(
+  http.get("https://api.notion.com/v1/pages/:pageId", ({ params }) =>
+    params.pageId === HANDBOOK
+      ? HttpResponse.json({
+          object: "page",
+          id: HANDBOOK,
+          parent: { type: "workspace", workspace: true },
+          properties: {
+            Name: {
+              type: "title",
+              title: [{ plain_text: "Company handbook" }],
+            },
+          },
+        })
+      : HttpResponse.json({ message: "Not found" }, { status: 404 }),
+  ),
+)
+
 describe("Notion source migration hook (Postgres)", () => {
   beforeAll(async () => {
+    server.listen({ onUnhandledRequest: "error" })
     seed = await seedSourcesOrg("wsrc_notion_migrate")
   })
   afterAll(async () => {
+    server.close()
     await seed.cleanup()
   })
 
@@ -259,5 +282,32 @@ describe("Notion source migration hook (Postgres)", () => {
         },
       ),
     ).toBe(false)
+  })
+
+  it("names a page root with its live Notion title, as the old mirror did", async () => {
+    const { repositoryId } = await addRepository("notion-live-title")
+    const connection = await seed.addConnection("notion", {
+      repositoryId,
+      branch: "main",
+      setupPhase: "live",
+      accessToken: "fixture-token",
+    })
+    const hook = createNotionSourceMigrationHook(async () =>
+      parseNotionConfigYamlContent(LEGACY_CONFIG),
+    )
+    const bindings = await hook.listLegacyBindings({
+      orgId: seed.orgId,
+      env: parseEnv(process.env),
+    })
+    expect(
+      bindings.find((item) => item.connectionId === connection),
+    ).toMatchObject({
+      scope: {
+        // The old mirror named the page folder with the live title, so the
+        // source keeps that folder. Databases used the config title.
+        pages: [{ id: HANDBOOK, title: "Company handbook" }],
+        databases: [{ id: TASKS, title: "Tasks" }],
+      },
+    })
   })
 })

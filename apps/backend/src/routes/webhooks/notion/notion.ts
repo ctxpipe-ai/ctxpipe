@@ -16,6 +16,7 @@ import {
   listNotionConnectionsForWebhook,
   persistNotionWebhookSecret,
 } from "../../../models/notion-connector.js"
+import { listConnectionSourceRows } from "../../../models/workspace-sources.js"
 import { getLogger } from "../../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
 import { notionSyncEntity } from "../../../openworkflow/workflows/notion-sync-entity.js"
@@ -220,28 +221,46 @@ async function handleNotionWebhook(c: Context<AppEnv>) {
       connection.enabled &&
       connection.setupPhase === "live",
   )
+  // ADR-050: one sources sync for each installed connection with `ok`
+  // sources. A failed lookup or enqueue must not block the legacy sync.
+  const warnSources = (connectionId: string, error: unknown) =>
+    getLogger().warn("Notion webhook could not route to Workspace sources", {
+      step: "notion_webhook.sources",
+      connectionId,
+      error: error instanceof Error ? error.message : String(error),
+    })
+  const sourceConnections = (
+    await Promise.all(
+      connections
+        .filter((connection) => connection.status === "installed")
+        .map((connection) =>
+          listConnectionSourceRows({
+            orgId: connection.orgId,
+            connectionId: connection.id,
+            status: "ok",
+          }).then(
+            (rows) => (rows.length ? [connection] : []),
+            (error: unknown) => {
+              warnSources(connection.id, error)
+              return []
+            },
+          ),
+        ),
+    )
+  ).flat()
+  if (!liveConnections.length && !sourceConnections.length)
+    return c.body(null, 204)
 
   try {
     await Promise.all([
-      // ADR-050: Workspace sources sync once for each connection. A failed
-      // enqueue must not block the legacy sync below.
-      ...connections.map((connection) =>
+      ...sourceConnections.map((connection) =>
         enqueueConnectionSourcesSync({
           orgId: connection.orgId,
           connectionId: connection.id,
           provider: "notion",
           event: entityTarget satisfies NotionSourceEvent,
           dedupeKey: parsed.data.id,
-        }).catch((error: unknown) =>
-          getLogger().warn(
-            "Notion webhook could not enqueue the sources sync",
-            {
-              step: "notion_webhook.sources_enqueue",
-              connectionId: connection.id,
-              error: error instanceof Error ? error.message : String(error),
-            },
-          ),
-        ),
+        }).catch((error: unknown) => warnSources(connection.id, error)),
       ),
       ...liveConnections.map((connection) =>
         enqueueNotionEntitySync({

@@ -20,8 +20,10 @@ import {
 import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
 import { parseNotionConnectionConfig } from "../../lib/connection-config.js"
 import { log } from "../../observability/logger.js"
+import { getNotionPageTitle, retrieveNotionPage } from "./client.js"
 import { loadNotionScopeFromRepo } from "./config-from-repo.js"
 import type { ParsedNotionRepoConfig } from "./config-yaml.js"
+import { loadNotionConnection } from "./connection-load.js"
 
 /**
  * Map the old `notion/config.yaml` scope to a source scope. Each selected
@@ -123,6 +125,37 @@ export async function disableNotionLegacySync(input: {
 }
 
 /**
+ * The old mirror named a root page folder with the live page title, and a
+ * database folder with the config title. Use the live title of each page
+ * root, so the source keeps the folder that is in the repository. A page
+ * that ctx| cannot read keeps the config title.
+ */
+async function withLivePageTitles(input: {
+  orgId: string
+  connectionId: string
+  env: Env
+  scope: NotionSourceScope
+}): Promise<NotionSourceScope> {
+  if (!input.scope.pages?.length) return input.scope
+  const connection = await withOrgDbContext(input.orgId, () =>
+    loadNotionConnection(input.orgId, input.connectionId, input.env),
+  )
+  if (!connection?.accessToken || connection.status !== "installed")
+    return input.scope
+  const pages = await Promise.all(
+    input.scope.pages.map(async (page) => {
+      const live = await retrieveNotionPage({
+        env: input.env,
+        connection,
+        pageId: page.id,
+      }).then(getNotionPageTitle, () => null)
+      return { ...page, title: live?.trim() || page.title }
+    }),
+  )
+  return { ...input.scope, pages }
+}
+
+/**
  * ADR-050 migration: the `notion/config.yaml` scope of each Notion
  * connection's sync repository becomes a source entry in each Workspace that
  * links that repository. `readScope` reads the old config file.
@@ -210,7 +243,12 @@ export function createNotionSourceMigrationHook(
           provider: "notion",
           connectionId: row.connectionId,
           syncRepositoryUrl: row.gitUrl,
-          scope: mapped.scope,
+          scope: await withLivePageTitles({
+            orgId,
+            connectionId: row.connectionId,
+            env,
+            scope: mapped.scope,
+          }),
         })
       }
       return bindings
