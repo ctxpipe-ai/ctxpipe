@@ -11,15 +11,15 @@ export function OnboardingJoinerDoneSlide({
 }: OnboardingJoinerDoneSlideProps) {
   return (
     <>
-      <h2 className="onb-in-1 mb-4 text-3xl font-semibold text-zinc-100 sm:text-4xl">
+      <h2 className="mb-4 text-3xl font-semibold text-zinc-100 sm:text-4xl">
         Welcome aboard
       </h2>
-      <div className="onb-in-2 mx-auto mb-10 max-w-3xl">
+      <div className="mx-auto mb-10 max-w-3xl">
         <p className="mx-auto mb-8 text-zinc-300">
           You&apos;re all set. Your organisation is ready and waiting.
         </p>
       </div>
-      <div className="onb-in-3">
+      <div>
         <button
           type="button"
           disabled={completing}

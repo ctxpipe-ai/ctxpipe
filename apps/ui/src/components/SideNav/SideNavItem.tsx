@@ -79,7 +79,7 @@ export function SideNavItem({
         {status ? (
           <span
             className={[
-              "shrink-0 transition-opacity duration-200",
+              "shrink-0",
               expanded
                 ? "mr-2 opacity-100"
                 : "absolute right-1 top-1.5 opacity-100 ring-2 ring-zinc-950",

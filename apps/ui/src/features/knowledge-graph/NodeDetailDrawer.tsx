@@ -14,7 +14,7 @@ import { KIND_FALLBACK_COLOR } from "./theme"
 import type { KnowledgeGraphNode, NodeClaim, NodeFacts } from "./types"
 
 const OVERLAY_PANEL_CLASS =
-  "absolute top-2 right-2 bottom-2 z-20 flex w-[min(28rem,calc(100%-1rem))] flex-col rounded-md border border-border bg-zinc-900 shadow-md transition-transform duration-200 ease-out motion-reduce:transition-none"
+  "absolute top-2 right-2 bottom-2 z-20 flex w-[min(28rem,calc(100%-1rem))] flex-col rounded-md border border-border bg-zinc-900 shadow-md"
 
 /** 0.03 → "3%". Rounds to nearest whole percent, floors at 1% so the chip
  * still reads meaningfully for nodes at the very top. */

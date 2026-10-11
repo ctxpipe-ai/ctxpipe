@@ -30,6 +30,8 @@ export const requiredStories = [
   "PreparePendingWithError",
   "FailedTouchIsCaught",
   "OrgGateTryAgainLoads",
+  "LoadingUnderReducedMotion",
+  "DoubleClickMovesOneSlide",
 ]
 
 export function isGoldenPlaySuccess(phase) {

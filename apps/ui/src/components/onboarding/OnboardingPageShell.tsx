@@ -1,10 +1,9 @@
 "use client"
 
 import { AnimatedBackground } from "@/components/AnimatedBackground"
+import { ignoreRepeatClick } from "./ignoreRepeatClick"
 
 type OnboardingPageShellProps = {
-  completing: boolean
-  transitioning: boolean
   showDotNav: boolean
   sceneReady: boolean
   currentSlide: number
@@ -18,8 +17,6 @@ type OnboardingPageShellProps = {
 }
 
 export function OnboardingPageShell({
-  completing,
-  transitioning,
   showDotNav,
   sceneReady,
   currentSlide,
@@ -32,16 +29,14 @@ export function OnboardingPageShell({
   children,
 }: OnboardingPageShellProps) {
   return (
-    <main
-      className={`relative min-h-screen overflow-hidden bg-zinc-950 text-foreground transition-opacity duration-500 ${completing ? "opacity-0" : "opacity-100"}`}
-    >
+    <main className="relative min-h-screen overflow-hidden bg-zinc-950 text-foreground">
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0 z-0 bg-[radial-gradient(circle_at_20%_-10%,rgba(255,255,255,0.05),transparent_45%),radial-gradient(circle_at_90%_110%,rgba(255,255,255,0.03),transparent_40%)]"
       />
       <div
         aria-hidden
-        className={`pointer-events-none absolute inset-0 z-0 transition-opacity duration-700 ${
+        className={`pointer-events-none absolute inset-0 z-0 ${
           sceneReady && !sceneFailed ? "opacity-100" : "opacity-0"
         }`}
       >
@@ -70,11 +65,7 @@ export function OnboardingPageShell({
 
       <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-4xl items-center justify-center px-6 pb-24 pt-16 text-center">
         <section className="w-full max-w-3xl">
-          <div
-            className={`mx-auto max-w-3xl transition-opacity duration-300 ${
-              transitioning ? "pointer-events-none opacity-0" : "opacity-100"
-            }`}
-          >
+          <div className="mx-auto max-w-3xl" onClickCapture={ignoreRepeatClick}>
             {children}
           </div>
         </section>
@@ -87,7 +78,7 @@ export function OnboardingPageShell({
       ) : null}
 
       <div
-        className={`fixed inset-x-0 bottom-8 z-20 flex items-center justify-center gap-1.5 transition-opacity duration-700 ${
+        className={`fixed inset-x-0 bottom-8 z-20 flex items-center justify-center gap-1.5 ${
           showDotNav ? "opacity-100" : "opacity-0"
         }`}
       >
@@ -97,7 +88,7 @@ export function OnboardingPageShell({
             key={index}
             type="button"
             aria-label={`Go to slide ${index + 1}`}
-            className={`h-1.5 w-1.5 rounded-full transition-all ${
+            className={`h-1.5 w-1.5 rounded-full transition-[background-color,scale] ${
               index === currentSlide
                 ? "scale-110 bg-teal-400"
                 : "bg-zinc-600 hover:bg-zinc-500"

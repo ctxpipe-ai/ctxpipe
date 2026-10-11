@@ -107,6 +107,11 @@ type TimelineSelection =
 const REVEAL_AFTER_FIT_MS = 80
 const REVEAL_AFTER_REBUILD_MS = 250
 const FOCUS_FIT_PADDING = 0.12
+/**
+ * Camera moves help the user follow a node, so they animate, but for 250 ms
+ * at most (DESIGN.md "Motion").
+ */
+const CAMERA_MOVE_MS = 250
 const INITIAL_EXTENTS_FIT_PADDING = 0.1
 const GRAPH_SIMULATION_RESTART_ALPHA = 0.35
 const INITIAL_SIMULATION_AUTO_SETTLE_MS = 7000
@@ -186,7 +191,11 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
       const indices = getPointIndicesForIds(ids)
       if (indices.length === 0) return
       cosmographRef.current?.selectPoints?.(indices)
-      cosmographRef.current?.fitViewByIndices?.(indices, 500, FOCUS_FIT_PADDING)
+      cosmographRef.current?.fitViewByIndices?.(
+        indices,
+        CAMERA_MOVE_MS,
+        FOCUS_FIT_PADDING,
+      )
     },
     [getPointIndicesForIds],
   )
@@ -313,7 +322,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
     ref,
     () => ({
       fitView: () => {
-        cosmographRef.current?.fitView?.(400)
+        cosmographRef.current?.fitView?.(CAMERA_MOVE_MS)
       },
       fitToIds: (ids: string[], options?: FitToIdsOptions) => {
         const indices = getPointIndicesForIds(ids)
@@ -328,14 +337,14 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
           if (coordinates.length >= 4) {
             cosmographRef.current?.fitViewByCoordinates?.(
               coordinates,
-              600,
+              CAMERA_MOVE_MS,
               options?.padding ?? FOCUS_FIT_PADDING,
             )
             return
           }
           cosmographRef.current?.fitViewByIndices?.(
             fitIndices,
-            600,
+            CAMERA_MOVE_MS,
             options?.padding ?? FOCUS_FIT_PADDING,
           )
         }
@@ -343,7 +352,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
       focusNode: (id: string) => {
         const index = pointIndexByIdRef.current.get(id)
         if (index !== undefined) {
-          cosmographRef.current?.fitViewByIndices?.([index], 500)
+          cosmographRef.current?.fitViewByIndices?.([index], CAMERA_MOVE_MS)
         }
       },
       focusNeighbourhood: (id: string) => {
@@ -351,7 +360,10 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
         if (index === undefined) return
         const adj =
           cosmographRef.current?.getConnectedPointIndices?.(index) ?? []
-        cosmographRef.current?.fitViewByIndices?.([index, ...adj], 700)
+        cosmographRef.current?.fitViewByIndices?.(
+          [index, ...adj],
+          CAMERA_MOVE_MS,
+        )
       },
       selectPoints: (ids: string[]) => {
         const indices = getPointIndicesForIds(ids)
@@ -645,9 +657,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
             status="Building view"
           />
         ) : null}
-        {prepStage === "error" ? (
-          <GraphPrepFailed message={prepError} />
-        ) : null}
+        {prepStage === "error" ? <GraphPrepFailed message={prepError} /> : null}
       </div>
     )
   }
@@ -656,7 +666,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
     <CosmographProvider>
       <div ref={hostRef} className="relative h-full min-h-0 w-full min-w-0">
         <div
-          className="absolute inset-0 h-full min-h-0 w-full min-w-0 outline-none transition-opacity duration-300 ease-out [&_canvas]:outline-none [&_canvas]:focus:outline-none [&_canvas]:focus-visible:outline-none motion-reduce:transition-none"
+          className="absolute inset-0 h-full min-h-0 w-full min-w-0 outline-none [&_canvas]:outline-none [&_canvas]:focus:outline-none [&_canvas]:focus-visible:outline-none"
           style={{
             backgroundColor: PAGE_BG,
             opacity: isSettled ? 1 : 0,
@@ -731,7 +741,9 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
                 </GraphControlButton>
                 <GraphControlButton
                   label="Reset view"
-                  onClick={() => cosmographRef.current?.fitView?.(300, 0.15)}
+                  onClick={() =>
+                    cosmographRef.current?.fitView?.(CAMERA_MOVE_MS, 0.15)
+                  }
                 >
                   <ResetViewIcon />
                 </GraphControlButton>
@@ -1217,7 +1229,9 @@ function GraphPrepFailed({ message }: { message: string | null }) {
         <IconAlertTriangle className="size-4" aria-hidden />
       </span>
       <div className="w-full space-y-1 rounded-md border border-red-500/40 bg-red-950/35 px-4 py-3 text-left">
-        <p className="text-sm font-medium text-red-50">Couldn’t prepare graph</p>
+        <p className="text-sm font-medium text-red-50">
+          Couldn’t prepare graph
+        </p>
         {message ? (
           <p className="break-words text-sm text-red-200">{message}</p>
         ) : null}
@@ -1270,7 +1284,7 @@ function LayoutProgressOverlay({
 
   return (
     <div
-      className="pointer-events-none absolute inset-0 flex items-center justify-center px-6 transition-opacity duration-300 ease-out motion-reduce:transition-none"
+      className="pointer-events-none absolute inset-0 flex items-center justify-center px-6"
       style={{
         backgroundColor: PAGE_BG,
         opacity: hidden ? 0 : 1,

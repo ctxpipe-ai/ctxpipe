@@ -1,6 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useNavigate, useSearch } from "@tanstack/react-router"
-import { AnimatePresence } from "motion/react"
 import { HttpResponse, http } from "msw"
 import { type ComponentProps, useState } from "react"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
@@ -171,60 +170,57 @@ function WorkspacePanePlayground(props: ComponentProps<typeof WorkspacePane>) {
           )}
         </div>
       </div>
-      <AnimatePresence initial={false}>
-        {open ? (
-          <WorkspacePane
-            {...props}
-            key="pane"
-            publish={props.conversationId ? publish.chrome : null}
-            pane={pane}
-            width={width}
-            maximized={maximized}
-            fileTabs={fileTabs}
-            previewPath={session.previewPath}
-            onPane={setPane}
-            onClose={() => {
-              setMaximized(false)
-              setOpen(false)
-              props.onClose()
-            }}
-            onToggleMaximize={() => {
-              setMaximized((value) => !value)
-              props.onToggleMaximize()
-            }}
-            onRestoreConversation={() => {
-              setMaximized(false)
-              props.onRestoreConversation()
-            }}
-            onResize={(next) => {
-              setWidth(next)
-              props.onResize(next)
-            }}
-            onPreviewFile={(path) => {
-              openFile(path, false)
-              props.onPreviewFile(path)
-            }}
-            onPinFile={(path) => {
-              openFile(path, true)
-              props.onPinFile(path)
-            }}
-            onCloseFileTab={(path) => {
-              setSession((current) => closeFileTab(current, path))
-              if (pane.kind === "file" && pane.path === path) {
-                setPane({ kind: "files" })
-              }
-              props.onCloseFileTab(path)
-            }}
-            onCloseActiveFile={() => {
-              if (pane.kind === "file") {
-                setSession((current) => closeFileTab(current, pane.path))
-                setPane({ kind: "files" })
-              }
-              props.onCloseActiveFile()
-            }}
-          />
-        ) : null}
-      </AnimatePresence>
+      {open ? (
+        <WorkspacePane
+          {...props}
+          publish={props.conversationId ? publish.chrome : null}
+          pane={pane}
+          width={width}
+          maximized={maximized}
+          fileTabs={fileTabs}
+          previewPath={session.previewPath}
+          onPane={setPane}
+          onClose={() => {
+            setMaximized(false)
+            setOpen(false)
+            props.onClose()
+          }}
+          onToggleMaximize={() => {
+            setMaximized((value) => !value)
+            props.onToggleMaximize()
+          }}
+          onRestoreConversation={() => {
+            setMaximized(false)
+            props.onRestoreConversation()
+          }}
+          onResize={(next) => {
+            setWidth(next)
+            props.onResize(next)
+          }}
+          onPreviewFile={(path) => {
+            openFile(path, false)
+            props.onPreviewFile(path)
+          }}
+          onPinFile={(path) => {
+            openFile(path, true)
+            props.onPinFile(path)
+          }}
+          onCloseFileTab={(path) => {
+            setSession((current) => closeFileTab(current, path))
+            if (pane.kind === "file" && pane.path === path) {
+              setPane({ kind: "files" })
+            }
+            props.onCloseFileTab(path)
+          }}
+          onCloseActiveFile={() => {
+            if (pane.kind === "file") {
+              setSession((current) => closeFileTab(current, pane.path))
+              setPane({ kind: "files" })
+            }
+            props.onCloseActiveFile()
+          }}
+        />
+      ) : null}
     </>
   )
 }
@@ -293,7 +289,7 @@ export const Triggers: Story = {
   },
 }
 
-/** Hide, show, and maximise: the end states are asserted; the motion between them is checked by eye. */
+/** Hide, show, and maximize: the pane and the chat column change state at once, with no motion. */
 export const HideShowMaximize: Story = {
   parameters: {
     msw: {
@@ -316,14 +312,10 @@ export const HideShowMaximize: Story = {
       await canvas.findByRole("button", { name: "Maximise pane" }),
     ).toBeVisible()
     await userEvent.click(canvas.getByRole("button", { name: "Hide pane" }))
-    await waitFor(() => {
-      expect(canvas.queryByLabelText("Workspace files")).toBeNull()
-    })
+    // No exit animation: the pane unmounts in the same commit as the click.
+    expect(canvas.queryByLabelText("Workspace files")).toBeNull()
     await userEvent.click(canvas.getByRole("button", { name: "Files" }))
-    // The pane mounts at opacity 0 and fades in.
-    await waitFor(() => {
-      expect(canvas.getByLabelText("Workspace files")).toBeVisible()
-    })
+    expect(await canvas.findByLabelText("Workspace files")).toBeVisible()
   },
 }
 

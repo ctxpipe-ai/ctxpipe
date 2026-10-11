@@ -11,9 +11,9 @@ export const sideNavIconGutterClassName =
 export const sideNavTrailingSlotClassName =
   "inline-flex size-8 shrink-0 items-center justify-center"
 
-/** Label / trailing slot fade while the rail width animates. */
+/** Label / trailing slot that the rail clips when it collapses. No motion: the rail is a large component. */
 export const sideNavRevealClassName =
-  "min-w-0 overflow-hidden whitespace-nowrap transition-[opacity,flex-grow,flex-basis,width] duration-200 ease-out motion-reduce:transition-none"
+  "min-w-0 overflow-hidden whitespace-nowrap"
 
 export function sideNavLabelClassName(expanded: boolean): string {
   return [
