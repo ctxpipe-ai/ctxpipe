@@ -147,19 +147,38 @@ export function confluencePageDedupKey(pageId: string): string {
 
 /**
  * `https://{site}/wiki/spaces/{KEY}/pages/{id}[/{title}]` or
- * `…/pages/viewpage.action?pageId={id}` → the page id.
+ * `…/pages/viewpage.action?pageId={id}` → the site host and the page id. A
+ * page id is unique only in its site, so a caller compares the host.
  */
-export function parseConfluencePageUrl(rawUrl: string): string | null {
+export function parseConfluencePageUrl(
+  rawUrl: string,
+): { host: string; pageId: string } | null {
   let url: URL
   try {
     url = new URL(rawUrl.trim())
   } catch {
     return null
   }
+  const host = url.hostname.toLowerCase()
   const fromQuery = url.searchParams.get("pageId")
-  if (fromQuery && /^\d+$/.test(fromQuery)) return fromQuery
+  if (fromQuery && /^\d+$/.test(fromQuery)) return { host, pageId: fromQuery }
   const match = /\/wiki\/spaces\/[^/]+\/pages\/(\d+)(?:\/|$)/.exec(url.pathname)
-  return match?.[1] ?? null
+  return match?.[1] ? { host, pageId: match[1] } : null
+}
+
+/**
+ * The Linear workspace slug of a `https://linear.app/{ws}/…` URL, lowercase.
+ * An identifier such as `ENG-1` is unique only in its Linear workspace.
+ */
+export function linearWorkspaceOfUrl(rawUrl: string): string | null {
+  let url: URL
+  try {
+    url = new URL(rawUrl.trim())
+  } catch {
+    return null
+  }
+  if (url.hostname.toLowerCase() !== "linear.app") return null
+  return url.pathname.split("/").filter(Boolean)[0]?.toLowerCase() ?? null
 }
 
 export function linearTeamDedupKey(teamKey: string): string {

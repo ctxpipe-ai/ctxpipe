@@ -6,10 +6,17 @@ import {
   renderLinearIssue,
 } from "../../services/linear/converter.js"
 import { linearRootPath } from "../../services/linear/source-adapter.js"
+import { pagerdutyIncidentMirrorFiles } from "../../services/pagerduty/converter.js"
+import {
+  toSlackChannelIndexFile,
+  toSlackThreadMarkdownFile,
+} from "../../services/slack/converter.js"
 import {
   hydrateKnowledgeTree,
   hydrateUnitsToProjectionClaims,
+  resolveHydrateLink,
 } from "./hydrate.js"
+import { claimsUpgradeRemainder } from "./hydrate-write-jobs.js"
 import { computeWorkspaceGraphQuality } from "./workspace-graph.js"
 
 const WORKSPACE_URL = "https://github.com/acme/context"
@@ -121,12 +128,16 @@ function mirrorFixture() {
   return { project, eng1, eng2, runbook, design, knowledge }
 }
 
-function hydrate() {
+function hydrate(
+  extra: ReadonlyArray<{ path: string; content: string }> = [],
+  confluenceSiteHosts: ReadonlySet<string> = new Set(["acme.atlassian.net"]),
+) {
   const fixture = mirrorFixture()
   const { units } = hydrateKnowledgeTree({
     workspaceId: "ws_mirror",
     workspaceUrl: WORKSPACE_URL,
-    files: Object.values(fixture),
+    files: [...Object.values(fixture), ...extra],
+    confluenceSiteHosts,
   })
   const claims = hydrateUnitsToProjectionClaims(units)
   const byPath = new Map(units.map((unit) => [unit.path, unit]))
@@ -204,5 +215,181 @@ describe("connector-mirror units in the Workspace graph", () => {
       KnowledgeUnit: 1,
     })
     expect(quality.orphanUnits).toBe(0)
+  })
+})
+
+function knowledge(path: string, body: string) {
+  return { path, content: `# ${path}\n\n${body}\n` }
+}
+
+describe("reference resolution guards", () => {
+  it("does not throw on malformed URLs, and they make no edge", () => {
+    const odd = knowledge(
+      "knowledge/odd.md",
+      [
+        "https://github.com/acme/context/blob/main/50%.md",
+        "https://github.com/acme/context/blob/main/%E0%A4%A.md",
+        "https://linear.app/acme/issue/%ZZ/x",
+        "https://acme.atlassian.net/wiki/spaces/ENG/pages/10%2/x",
+        "https://[broken/wiki/spaces/ENG/pages/102",
+      ].join("\n"),
+    )
+    const { edges } = hydrate([odd])
+    expect(edges.filter((edge) => edge.from === odd.path)).toEqual([])
+  })
+
+  it("links a blob URL only to the file at the path after the ref", () => {
+    const links = knowledge(
+      "knowledge/links.md",
+      [
+        "https://github.com/acme/context/blob/main/packages/foo/README.md",
+        "https://github.com/acme/context/blob/main/knowledge/payments.md",
+      ].join("\n"),
+    )
+    const { edges } = hydrate([
+      links,
+      { path: "README.md", content: "# Root\n" },
+    ])
+    expect(edges.filter((edge) => edge.from === links.path)).toEqual([
+      { from: links.path, to: "knowledge/payments.md" },
+    ])
+  })
+
+  it("joins a Confluence URL only on a site of the org's Confluence connection", () => {
+    const own = knowledge(
+      "knowledge/own-site.md",
+      "https://acme.atlassian.net/wiki/spaces/ENG/pages/102",
+    )
+    const other = knowledge(
+      "knowledge/other-site.md",
+      "https://other.atlassian.net/wiki/spaces/ENG/pages/102/Payments+design",
+    )
+    const { edges, fixture } = hydrate([own, other])
+    expect(edges).toContainEqual({ from: own.path, to: fixture.design.path })
+    expect(edges.filter((edge) => edge.from === other.path)).toEqual([])
+
+    const noSite = hydrate([own], new Set())
+    expect(noSite.edges.filter((edge) => edge.from === own.path)).toEqual([])
+  })
+
+  it("joins a Linear URL only in the Linear workspace that the mirror names", () => {
+    const own = knowledge(
+      "knowledge/own-linear.md",
+      "[ticket](https://linear.app/acme/issue/ENG-2/fix-rounding)",
+    )
+    const other = knowledge(
+      "knowledge/other-linear.md",
+      "[ticket](https://linear.app/other/issue/ENG-2/fix-rounding)",
+    )
+    const { edges, fixture } = hydrate([own, other])
+    expect(edges).toContainEqual({ from: own.path, to: fixture.eng2.path })
+    expect(edges.filter((edge) => edge.from === other.path)).toEqual([])
+  })
+
+  it("keeps the meaning of a `/` link that a person wrote", () => {
+    const authored = knowledge(
+      "knowledge/a/b.md",
+      "[root](/knowledge/payments.md)",
+    )
+    expect(resolveHydrateLink("knowledge/a", "/knowledge/payments.md")).toBe(
+      "knowledge/a/knowledge/payments.md",
+    )
+    const { edges, unit } = hydrate([authored])
+    expect(edges.filter((edge) => edge.from === authored.path)).toEqual([])
+    expect(claimsUpgradeRemainder([unit(authored.path)])).toBe(1)
+  })
+
+  it("asks for no claim in the file for a resolved URL", () => {
+    const viaUrl = knowledge(
+      "knowledge/via-url.md",
+      "https://linear.app/acme/issue/ENG-2/fix-rounding",
+    )
+    const { edges, fixture, unit } = hydrate([viaUrl])
+    expect(edges).toContainEqual({ from: viaUrl.path, to: fixture.eng2.path })
+    expect(claimsUpgradeRemainder([unit(viaUrl.path)])).toBe(0)
+  })
+})
+
+describe("Slack, PagerDuty, and Linear project-root mirror units", () => {
+  const permalink = "https://acme.slack.com/archives/C123/p1700000000000100"
+  const thread = toSlackThreadMarkdownFile({
+    channelId: "C123",
+    channelName: "payments",
+    isPrivate: false,
+    threadTs: "1700000000.000100",
+    permalink,
+    messages: [
+      { ts: "1700000000.000100", userId: "U1", text: "Deploy broke." },
+    ],
+  })
+  const channel = toSlackChannelIndexFile({
+    channelId: "C123",
+    channelName: "payments",
+    isPrivate: false,
+  })
+  const [incident] = pagerdutyIncidentMirrorFiles({
+    id: "PABC123",
+    number: 7,
+    title: "Ledger down",
+    htmlUrl: "https://acme.pagerduty.com/incidents/PABC123",
+    status: "resolved",
+    serviceId: "PSVC1",
+    alerts: [],
+    notes: [],
+  })
+  const projectRoot = linearRootPath({ kind: "project", id: "proj-uuid-9" })
+  const inProject = (file: { path: string; content: string }) => ({
+    path: `${projectRoot}${file.path.slice("linear/".length)}`,
+    content: file.content,
+  })
+  const projectIssue = inProject(
+    renderLinearIssue(
+      issue({
+        id: "issue-uuid-9",
+        identifier: "ENG-9",
+        title: "Fix the deploy",
+        description: `Thread: ${permalink}`,
+      }),
+    ),
+  )
+  const projectPage = inProject(
+    renderLinearEntity({
+      directory: "projects",
+      type: "project",
+      id: "proj-uuid-9",
+      title: "Deploys",
+      url: "https://linear.app/acme/project/deploys-9a8b7c6d5e4f",
+    }),
+  )
+
+  it("writes the real layouts", () => {
+    expect(thread.path).toBe(
+      "slack/channels/payments--C123/threads/2023/11/1700000000.000100/thread.md",
+    )
+    expect(channel.path).toBe("slack/channels/payments--C123/index.md")
+    expect(incident?.path).toBe("pagerduty/incidents/7--PABC123.md")
+    expect(projectIssue.path).toBe(
+      "linear/projects/proj-uuid-9/issues/eng-9--issue-uuid-9.md",
+    )
+    expect(projectPage.path).toBe(
+      "linear/projects/proj-uuid-9/projects/deploys--proj-uuid-9.md",
+    )
+  })
+
+  it("gives them kinds and joins a Slack permalink to the thread file", () => {
+    if (!incident) throw new Error("no incident file")
+    const { unit, edges } = hydrate([
+      thread,
+      channel,
+      incident,
+      projectIssue,
+      projectPage,
+    ])
+    expect(unit(thread.path).kind).toBe("Thread")
+    expect(unit(channel.path).kind).toBe("Channel")
+    expect(unit(incident.path).kind).toBe("Incident")
+    expect(unit(projectIssue.path).kind).toBe("Issue")
+    expect(unit(projectPage.path).kind).toBe("Project")
+    expect(edges).toContainEqual({ from: projectIssue.path, to: thread.path })
   })
 })

@@ -8,7 +8,11 @@ import {
   parseLinkedRepositoryMarkdown,
   parseSimpleFrontMatter,
 } from "./layout.js"
-import { mirrorUnitKind, referenceLinks } from "./mirror-units.js"
+import {
+  mirrorUnitKind,
+  referenceLinks,
+  WORKSPACE_LINK_SCHEME,
+} from "./mirror-units.js"
 import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
 
 export function servingIdForKnowledgePath(
@@ -79,6 +83,11 @@ export function hydrateKnowledgeTree(input: {
   sourcesFile?: string | null
   /** The org's GitHub connection ids. A source with another id links nothing. */
   githubConnectionIds?: ReadonlySet<string>
+  /**
+   * Hosts of the org's Confluence connections. A Confluence URL on another
+   * host makes no edge.
+   */
+  confluenceSiteHosts?: ReadonlySet<string>
 }): {
   units: HydrateUnit[]
   skipped: HydrateSkip[]
@@ -146,6 +155,7 @@ export function hydrateKnowledgeTree(input: {
       attributes: attributes.get(unit.path) ?? {},
     })),
     workspaceUrl: input.workspaceUrl,
+    confluenceSiteHosts: input.confluenceSiteHosts,
     resolveLink: resolveHydrateLink,
   })
   for (const unit of units) {
@@ -287,14 +297,15 @@ export function hydrateUnitsToProjectionClaims(
 }
 
 export function resolveHydrateLink(fromDir: string, href: string): string {
+  // Hydrate writes a resolved reference as `workspace:<path>`.
+  if (href.startsWith(WORKSPACE_LINK_SCHEME)) {
+    return href.slice(WORKSPACE_LINK_SCHEME.length)
+  }
   const cleaned = href.split("#")[0] ?? href
   if (!cleaned || cleaned.startsWith("http:") || cleaned.startsWith("https:")) {
     return ""
   }
-  // A leading `/` names a path from the Workspace root.
-  const parts = (
-    fromDir && !cleaned.startsWith("/") ? `${fromDir}/${cleaned}` : cleaned
-  ).split("/")
+  const parts = (fromDir ? `${fromDir}/${cleaned}` : cleaned).split("/")
   const resolved: string[] = []
   for (const part of parts) {
     if (!part || part === ".") continue

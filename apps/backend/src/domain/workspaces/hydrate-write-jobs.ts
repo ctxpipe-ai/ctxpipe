@@ -10,6 +10,7 @@ import {
   updateKnowledgeMetadata,
 } from "./knowledge-metadata.js"
 import { parseSimpleFrontMatter } from "./layout.js"
+import { WORKSPACE_LINK_SCHEME } from "./mirror-units.js"
 import { renameRewriteRemainder } from "./rename-rewrite.js"
 import {
   shouldEnqueueAfterHydrate,
@@ -25,9 +26,8 @@ function missingClaimLinks(unit: HydrateUnit): string[] {
     unit.claims.map((claim) => resolveHydrateLink(directory, claim.to)),
   )
   return unit.links.filter((link) => {
-    // Hydrate writes a resolved URL as a `/` link. That link makes its own
-    // edge, so it needs no claim in the file.
-    if (link.startsWith("/")) return false
+    // A resolved reference makes its own edge, so it needs no claim.
+    if (link.startsWith(WORKSPACE_LINK_SCHEME)) return false
     const target = resolveHydrateLink(directory, link)
     if (!target || targets.has(target)) return false
     targets.add(target)

@@ -25,7 +25,10 @@ import {
   type WorkspaceRevision,
   workspaceRevisionSchema,
 } from "../../domain/workspaces/revision.js"
-import { listOrgConnections } from "../../models/org-connections.js"
+import {
+  listOrgConfluenceSiteHosts,
+  listOrgConnections,
+} from "../../models/org-connections.js"
 import { getMigrationExportSha } from "../../models/workspace-write-jobs.js"
 import { reserveHydrateWrites } from "../../models/workspace-write-planning.js"
 import {
@@ -289,6 +292,12 @@ export const workspaceHydrate = defineWorkflow(
                     .map((connection) => connection.id),
                 )
               : []
+            // A Confluence URL joins a mirrored page only on the org's site.
+            const confluenceSiteHosts = pending.postgres
+              ? await step.run({ name: "list-confluence-sites" }, async () =>
+                  listOrgConfluenceSiteHosts(input.orgId),
+                )
+              : []
             const parsed = pending.postgres
               ? hydrateKnowledgeTree({
                   workspaceId: workspace.id,
@@ -298,6 +307,7 @@ export const workspaceHydrate = defineWorkflow(
                     treeFiles.find((file) => file.path === SOURCES_FILE_PATH)
                       ?.content ?? null,
                   githubConnectionIds: new Set(githubConnectionIds),
+                  confluenceSiteHosts: new Set(confluenceSiteHosts),
                 })
               : { units: snapshot.units, linked: [], skipped: [] }
             const agents = files.find((file) => file.path === "AGENTS.md")

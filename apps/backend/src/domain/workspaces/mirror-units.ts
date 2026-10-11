@@ -1,10 +1,12 @@
+import { log } from "../../observability/logger.js"
 import {
   confluencePageDedupKey,
   extractUrls,
   findLinearIdentifiers,
+  issueDedupKey,
+  linearWorkspaceOfUrl,
   normalizeLinearIdentifier,
   parseConfluencePageUrl,
-  parseGithubPullRequestUrl,
   parseLinearEntityUrl,
   parseLinearIssueUrl,
   parseSlackPermalink,
@@ -59,20 +61,37 @@ export function mirrorUnitKind(path: string): string | null {
   }
 }
 
+/**
+ * The scheme of a link that hydrate resolved from a URL or an identifier.
+ * `workspace:<path>` names a path from the Workspace root. A person writes
+ * no such link, so a `/` link that a person wrote keeps its meaning.
+ */
+export const WORKSPACE_LINK_SCHEME = "workspace:"
+
+/** The sites whose URLs can name a unit of this Workspace. */
+type ProviderSites = {
+  /** Hosts of the org's Confluence connections, for example `acme.atlassian.net`. */
+  confluenceHosts: ReadonlySet<string>
+  /** Linear workspace slugs that the Linear mirror files name in their `url`. */
+  linearWorkspaces: ReadonlySet<string>
+}
+
 /** Keys that a provider URL can name. Unknown URLs give no key. */
-function urlKeys(url: string): string[] {
+function urlKeys(url: string, sites: ProviderSites): string[] {
   const keys: string[] = []
-  const issue = parseLinearIssueUrl(url)
-  if (issue) keys.push(`iss:linear:${issue}`)
-  const entity = parseLinearEntityUrl(url)
-  if (entity) keys.push(entity)
+  const linearWorkspace = linearWorkspaceOfUrl(url)
+  if (linearWorkspace && sites.linearWorkspaces.has(linearWorkspace)) {
+    const issue = parseLinearIssueUrl(url)
+    if (issue) keys.push(issueDedupKey(issue))
+    const entity = parseLinearEntityUrl(url)
+    if (entity) keys.push(entity)
+  }
   const page = parseConfluencePageUrl(url)
-  if (page) keys.push(confluencePageDedupKey(page))
+  if (page && sites.confluenceHosts.has(page.host)) {
+    keys.push(confluencePageDedupKey(page.pageId))
+  }
   const thread = parseSlackPermalink(url)
   if (thread) keys.push(threadDedupKey(thread.channelId, thread.ts))
-  const pull = parseGithubPullRequestUrl(url)
-  if (pull)
-    keys.push(`prq:github:${pull.repository.toLowerCase()}:${pull.number}`)
   return keys
 }
 
@@ -82,14 +101,27 @@ function confluencePageIdOfPath(path: string): string | null {
   return /(?:^|\/)[^/]+--(\d+)(?:\.md|\/index\.md)$/.exec(path)?.[1] ?? null
 }
 
+/** The Linear issue identifier in a mirror file's front matter, or null. */
+function linearIdentifierOf(
+  attributes: Record<string, unknown>,
+): string | null {
+  return typeof attributes.identifier === "string"
+    ? normalizeLinearIdentifier(attributes.identifier)
+    : null
+}
+
 /** The keys under which other files can name one mirror unit. */
-function unitKeys(path: string, attributes: Record<string, unknown>): string[] {
+function unitKeys(
+  path: string,
+  attributes: Record<string, unknown>,
+  sites: ProviderSites,
+): string[] {
   const keys: string[] = []
-  if (typeof attributes.url === "string") keys.push(...urlKeys(attributes.url))
-  if (typeof attributes.identifier === "string") {
-    const identifier = normalizeLinearIdentifier(attributes.identifier)
-    if (identifier) keys.push(`iss:linear:${identifier}`)
+  if (typeof attributes.url === "string") {
+    keys.push(...urlKeys(attributes.url, sites))
   }
+  const identifier = linearIdentifierOf(attributes)
+  if (identifier) keys.push(issueDedupKey(identifier))
   const page = confluencePageIdOfPath(path)
   if (page) keys.push(confluencePageDedupKey(page))
   const thread =
@@ -100,23 +132,11 @@ function unitKeys(path: string, attributes: Record<string, unknown>): string[] {
   return keys
 }
 
-/** URLs that a mirror file names in its front matter, apart from its own. */
-function frontMatterUrls(attributes: Record<string, unknown>): string[] {
-  const references = attributes.githubReferences
-  if (!Array.isArray(references)) return []
-  return references.flatMap((reference) =>
-    reference &&
-    typeof reference === "object" &&
-    typeof (reference as { url?: unknown }).url === "string"
-      ? [(reference as { url: string }).url]
-      : [],
-  )
-}
-
 /**
  * `https://github.com/<owner>/<repo>/blob/<ref>/<path>` of the Workspace
- * repository → a Workspace path that exists. A ref can hold `/`, so each
- * split is tried.
+ * repository → the Workspace path after the ref, when that file exists. The
+ * ref is one path segment. A URL whose ref holds `/` stays external, so no
+ * shorter path can match by mistake.
  */
 function workspaceBlobPath(
   url: string,
@@ -124,36 +144,31 @@ function workspaceBlobPath(
   paths: ReadonlySet<string>,
 ): string | null {
   if (!workspaceRepository) return null
-  let parsed: URL
-  try {
-    parsed = new URL(url)
-  } catch {
-    return null
-  }
+  const parsed = new URL(url)
   if (parsed.hostname.toLowerCase() !== "github.com") return null
-  const [owner, repo, blob, ...rest] = parsed.pathname
+  const [owner, repo, blob, ref, ...rest] = parsed.pathname
     .split("/")
     .filter(Boolean)
-  if (blob !== "blob" || !owner || !repo) return null
+  if (blob !== "blob" || !owner || !repo || !ref || rest.length === 0) {
+    return null
+  }
   if (
     normalizeWorkspaceRepositoryUrl(`https://github.com/${owner}/${repo}`) !==
     workspaceRepository
   ) {
     return null
   }
-  for (let start = 1; start < rest.length; start += 1) {
-    const candidate = decodeURIComponent(rest.slice(start).join("/"))
-    if (paths.has(candidate)) return candidate
-  }
-  return null
+  const candidate = decodeURIComponent(rest.join("/"))
+  return paths.has(candidate) ? candidate : null
 }
 
 /**
- * Workspace-root links (`/<path>`) for each unit: the URLs and the Linear
+ * `workspace:<path>` links for each unit: the URLs and the Linear
  * identifiers of known teams that name another unit of the Workspace. A
  * reference to a thing that the Workspace does not hold gives no link, so it
  * stays external. A relative Confluence link whose page moved resolves by
- * the page id.
+ * the page id. A reference that fails to parse is skipped with a warning; it
+ * never stops hydrate.
  */
 export function referenceLinks(input: {
   units: ReadonlyArray<{
@@ -163,20 +178,35 @@ export function referenceLinks(input: {
     attributes: Record<string, unknown>
   }>
   workspaceUrl?: string
+  /** Hosts of the org's Confluence connections. */
+  confluenceSiteHosts?: ReadonlySet<string>
   resolveLink: (fromDir: string, href: string) => string
 }): Map<string, string[]> {
   const paths = new Set(input.units.map((unit) => unit.path))
+  const linearWorkspaces = new Set<string>()
+  for (const unit of input.units) {
+    const url = unit.attributes.url
+    if (!unit.path.startsWith("linear/") || typeof url !== "string") continue
+    const workspace = linearWorkspaceOfUrl(url)
+    if (workspace) linearWorkspaces.add(workspace)
+  }
+  const sites: ProviderSites = {
+    confluenceHosts: new Set(
+      [...(input.confluenceSiteHosts ?? [])].map((host) => host.toLowerCase()),
+    ),
+    linearWorkspaces,
+  }
+
   const byKey = new Map<string, string[]>()
   const teamKeys = new Set<string>()
   for (const unit of input.units) {
-    for (const key of unitKeys(unit.path, unit.attributes)) {
+    for (const key of unitKeys(unit.path, unit.attributes, sites)) {
       const list = byKey.get(key) ?? []
       if (!list.includes(unit.path)) list.push(unit.path)
       byKey.set(key, list)
-      if (key.startsWith("iss:linear:")) {
-        teamKeys.add(key.slice("iss:linear:".length).split("-")[0] ?? "")
-      }
     }
+    const identifier = linearIdentifierOf(unit.attributes)
+    if (identifier) teamKeys.add(identifier.split("-")[0] ?? "")
   }
   if (byKey.size === 0 && !input.workspaceUrl) return new Map()
   const workspaceRepository = input.workspaceUrl
@@ -189,29 +219,51 @@ export function referenceLinks(input: {
     const addKey = (key: string) => {
       for (const target of byKey.get(key) ?? []) targets.add(target)
     }
-    for (const url of [
-      ...extractUrls(unit.body),
-      ...frontMatterUrls(unit.attributes),
-    ]) {
-      for (const key of urlKeys(url)) addKey(key)
-      const blob = workspaceBlobPath(url, workspaceRepository, paths)
-      if (blob) targets.add(blob)
+    const guarded = (what: string, resolve: () => void) => {
+      try {
+        resolve()
+      } catch (error) {
+        log.warn({
+          step: "workspace-hydrate.reference-links",
+          message: `A ${what} reference was skipped: ${error instanceof Error ? error.message : String(error)}`,
+          path: unit.path,
+        })
+      }
     }
-    for (const identifier of findLinearIdentifiers(unit.body, [...teamKeys])) {
-      addKey(`iss:linear:${identifier}`)
+    const urls = extractUrls(unit.body)
+    for (const url of urls) {
+      guarded("URL", () => {
+        for (const key of urlKeys(url, sites)) addKey(key)
+        const blob = workspaceBlobPath(url, workspaceRepository, paths)
+        if (blob) targets.add(blob)
+      })
     }
+    // An identifier inside a URL is the URL's, so the URL check decides it.
+    const text = urls.reduce(
+      (body, url) => body.replaceAll(url, " "),
+      unit.body,
+    )
+    guarded("Linear identifier", () => {
+      for (const identifier of findLinearIdentifiers(text, [...teamKeys])) {
+        addKey(issueDedupKey(identifier))
+      }
+    })
     const dir = unit.path.split("/").slice(0, -1).join("/")
     for (const href of unit.links) {
-      const target = input.resolveLink(dir, href)
-      if (paths.has(target)) continue
-      const page = confluencePageIdOfPath(target)
-      if (page) addKey(confluencePageDedupKey(page))
+      guarded("Confluence link", () => {
+        const target = input.resolveLink(dir, href)
+        if (paths.has(target)) return
+        const page = confluencePageIdOfPath(target)
+        if (page) addKey(confluencePageDedupKey(page))
+      })
     }
     targets.delete(unit.path)
     if (targets.size > 0) {
       out.set(
         unit.path,
-        [...targets].sort().map((target) => `/${target}`),
+        [...targets]
+          .sort()
+          .map((target) => `${WORKSPACE_LINK_SCHEME}${target}`),
       )
     }
   }

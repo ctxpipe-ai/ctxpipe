@@ -1,3 +1,4 @@
+import { matchesGlob } from "node:path"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { isConventionalEvidenceSourceId } from "../../../domain/codeIngestion/evidenceSourceId.js"
 import type { CodeIngestionState } from "../schemas.js"
@@ -20,6 +21,7 @@ import {
   renderLinearEntity,
   renderLinearIssue,
 } from "../../../services/linear/converter.js"
+import { linearRootPath } from "../../../services/linear/source-adapter.js"
 import {
   extractLinear,
   parseLinearIssueMarkdown,
@@ -108,12 +110,9 @@ beforeEach(() => {
   vi.clearAllMocks()
   mocks.globFiles.mockImplementation(
     async (_repo: string, _org: string, opts: { pattern: string }) => ({
+      // Codesearch matches with Bun.Glob; `matchesGlob` has the same `**` rules.
       entries: Object.keys(fixtures)
-        .filter((path) =>
-          opts.pattern.startsWith("linear/issues")
-            ? path.startsWith("linear/issues/")
-            : path.startsWith("linear/teams/"),
-        )
+        .filter((path) => matchesGlob(path, opts.pattern))
         .map((path) => ({ type: "file", path })),
     }),
   )
@@ -323,6 +322,31 @@ describe("extractLinear", () => {
     )
     expect(deletesOnly).toEqual({})
     expect(mocks.globFiles).toHaveBeenCalledTimes(2)
+  })
+
+  it("reads the team and project roots of the Workspace source layout, one Issue per identifier", async () => {
+    const teamRoot = linearRootPath({ kind: "team", key: "ENG" })
+    const projectRoot = linearRootPath({ kind: "project", id: "p1" })
+    const local = ISSUE_PATH.slice("linear/".length)
+    for (const path of Object.keys(fixtures)) delete fixtures[path]
+    fixtures[`${teamRoot}${local}`] = ISSUE
+    fixtures[`${projectRoot}${local}`] = ISSUE
+    fixtures[`${teamRoot}${TEAM_PATH.slice("linear/".length)}`] = TEAM
+    try {
+      const { extractedObjects = [] } = await extractLinear(state())
+      expect(
+        extractedObjects
+          .filter((object) => object.kind === "Issue")
+          .map((object) => object.deduplicationKey),
+      ).toEqual(["iss:linear:ENG-123"])
+      expect(
+        extractedObjects.find((object) => object.kind === "Team"),
+      ).toMatchObject({ deduplicationKey: "team:linear:ENG", name: "Backend" })
+    } finally {
+      for (const path of Object.keys(fixtures)) delete fixtures[path]
+      fixtures[ISSUE_PATH] = ISSUE
+      fixtures[TEAM_PATH] = TEAM
+    }
   })
 
   it("skips malformed issues and derives the team from the identifier when the mirror lacks it", async () => {
