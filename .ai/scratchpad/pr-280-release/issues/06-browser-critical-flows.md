@@ -71,6 +71,16 @@ The next agent does step 3 (first local run), then step 4 (pr-280). Never point 
 
 ## Comments
 
+- 2026-10-11 (claude): **GitHub App flows and ticket 27 checks on pr-280** (run `20261010-233044`, commit `728b6680`, report [`preview-env-runs/20261010-233044.md`](../preview-env-runs/20261010-233044.md)). Totals: 5 PASS, 2 FAIL, 11 SKIP(needs-human). **Connect GitHub** and **Sign in with GitHub** now use the preview App `ctxpipe-agent-pr-280`. The App is already installed on `ctxpipe-ai` for all repositories. The flows still stop at the GitHub sign-in page, because the link step needs the user's GitHub OAuth token and no person was present. The run did not reach the callback URL check.
+
+  | Flow | Before (124612) | After (233044) | Trace or request (after) |
+  | --- | --- | --- | --- |
+  | ONB-3 | BLOCKED(github-app-env), production App | SKIP(needs-human), preview App sign-in page | click 23:33:13Z |
+  | ONB-5, HOME-2, WS-6, HYD-3, HYD-5, CON-1, CON-8, MCP-5, RES-2, WS-5 name | BLOCKED(github-app-env) | SKIP(needs-human) | - |
+  | AUTH-1 | FAIL, about 1 load in 6 at 12.5 s | FAIL, home p50 12.5 s / p95 14.4 s / max 16.1 s, Workspace p50 12.2 s / p95 13.9 s / max 14.2 s; 48 of 60 loads at 10 s or more; 38 of 60 redirect a signed-in user to sign-in or onboarding | `5d5076ff22939ca94207e99453a59264`, `740f64bc37cfb7aad490f766cd806884`, `d52dfb93b47b189fa7771aee1fc83960` |
+  | GRAPH-3 signed out | FAIL, React #418 | PASS, 307 to sign-in, no #418 in 9 loads | `1ad3acf0-f0ea-4985-808c-33459de427ab` |
+  | Workspace not found | uncaught `ApiError: Not found` | FAIL: no uncaught error, but the not-found screen shows in 5 of 10 loads; the rest go to sign-in or another Workspace (AUTH-1 stall) | 23:58:13Z, 23:58:20Z |
+
 - 2026-10-11 (claude): **re-run of the failed flows on pr-280** (run `20261010-124612`, commit `0e0974fe`, report [`preview-env-runs/20261010-124612.md`](../preview-env-runs/20261010-124612.md)). Fixture: Workspace 1 is **Paste URL** of the public `ctxpipe-ai/ctxpipe` repository, because the tool policy refused a new public repository; no repository was created. GRAPH-2 ran in headed Chromium. Skipped: AUTH-4, HYD-3 (brief).
 
   | Flow | Before (051159) | After (124612) | Trace or request (after) |
