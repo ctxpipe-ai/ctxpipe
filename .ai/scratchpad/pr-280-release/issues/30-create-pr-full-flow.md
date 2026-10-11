@@ -52,6 +52,8 @@ Four defects, each with a failing test first (commits on branch `t30-pr-flow`):
 3. **Create PR always fails** (`4ac77c6a`). The PR token asked only for Pull requests: write. GitHub reads both branches with that token, so it refused with 422 `not all refs are readable`. The token now also asks for Contents: read. The fixture now grants only the permissions a token request names. Test: `conversation-branch-push-native.contract.test.ts`.
 4. **A root file cannot be saved in a Docker sandbox** (`59f98455`). The Docker handle runs `mkdir -p` on the path before the last `/`, so a root file became a directory. The write now prefixes `./`. Test: `conversation-files.test.ts`.
 
-Needs a deploy to prove: all four. After the deploy, run the full flow two times in new conversations (acceptance criterion 1), including step 5.
+Review round 1 (2026-10-11): fix 2 now compares status and diff with `refs/remotes/ctxpipe/base`, so the advance, the rotation after a merged PR, and the agent's repair rebase are all covered (`a3c31a8d`; the local branch move is gone). A GitHub 422 other than `No commits between` answers 400 `pr_refused` with GitHub's reason, and the toast names it (`c7c064ef`). Every sandbox file path starts with `./` (`78e53098`). The Git identity is set in the checkout step (`2654592b`). `listSandboxInstances` filters by org in the query, so a role that skips row-level security cannot sweep other orgs' sandboxes (`c6f0ce2d`).
 
-Follow-ups: a GitHub 422 other than `No commits between` maps to `github_unavailable` ("GitHub did not answer"); give it its own message. Delete the test repository (the `gh` token has no `delete_repo` scope).
+Needs a deploy to prove: all fixes. After the deploy, run the full flow two times in new conversations (acceptance criterion 1), including step 5.
+
+Follow-ups: delete the test repository (the `gh` token has no `delete_repo` scope).
