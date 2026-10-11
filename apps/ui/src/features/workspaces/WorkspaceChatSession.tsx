@@ -330,6 +330,11 @@ export function WorkspaceChatSession(props: {
             />
           ))
         }
+        onOpenFile={
+          props.onOpenPane
+            ? (path) => props.onOpenPane?.({ kind: "file", path })
+            : undefined
+        }
       />
       <MessageInputBox
         layout="thread"

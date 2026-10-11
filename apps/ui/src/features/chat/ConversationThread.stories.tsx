@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { expect, userEvent, within } from "storybook/test"
+import { expect, fn, userEvent, within } from "storybook/test"
 import type { ChatMessage } from "@/features/chat/types"
 import {
   docsConversationDetail,
@@ -323,6 +323,92 @@ export const ReasoningAndToolsHydrated: Story = {
     await expect(log[0]).toHaveAttribute("aria-expanded", "false")
     await expect(
       canvas.getByText(/ledger.md is the source of truth/),
+    ).toBeVisible()
+  },
+}
+
+const answerLinkMessages: ChatMessage[] = [
+  {
+    id: "msg_links_u1",
+    role: "user",
+    parts: [{ type: "text", content: "Where is the chat styling?" }],
+  },
+  {
+    id: "msg_links_a1",
+    role: "assistant",
+    parts: [
+      {
+        type: "text",
+        content: [
+          "The answer styles are in `apps/ui/src/styles.css`. See also [the message component](apps/ui/src/components/ai-elements/message.tsx) and `package.json`.",
+          "",
+          "Streamdown renders the Markdown. Read the [Streamdown docs](https://streamdown.ai) for the options.",
+          "",
+          "These stay as code: `useState`, `process.env`, `Node.js`, `application/json`, `/etc/hosts`, `../outside.ts` and `pnpm dev`.",
+        ].join("\n"),
+      },
+    ],
+  },
+]
+
+/** In a workspace, file paths open the file. Text that is not clearly a path stays as code. */
+export const AnswerLinksInWorkspace: Story = {
+  args: {
+    messages: answerLinkMessages,
+    onOpenFile: fn(),
+  },
+  play: async ({ args, canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(
+      canvas.getByRole("button", { name: "apps/ui/src/styles.css" }),
+    )
+    await expect(args.onOpenFile).toHaveBeenLastCalledWith(
+      "apps/ui/src/styles.css",
+    )
+    await userEvent.click(
+      canvas.getByRole("button", { name: "the message component" }),
+    )
+    await expect(args.onOpenFile).toHaveBeenLastCalledWith(
+      "apps/ui/src/components/ai-elements/message.tsx",
+    )
+    await expect(
+      canvas.getByRole("button", { name: "package.json" }),
+    ).toBeVisible()
+    // The off-site link keeps the Streamdown link-safety button and shows an icon.
+    const external = canvas.getByRole("button", { name: "Streamdown docs" })
+    await expect(external).toHaveAttribute("data-streamdown", "link")
+    await expect(
+      external.querySelector(".tabler-icon-external-link"),
+    ).not.toBeNull()
+    for (const text of [
+      "useState",
+      "process.env",
+      "Node.js",
+      "application/json",
+      "/etc/hosts",
+      "../outside.ts",
+      "pnpm dev",
+    ]) {
+      await expect(canvas.queryByRole("button", { name: text })).toBeNull()
+      await expect(canvas.getByText(text)).toBeVisible()
+    }
+    await expect(args.onOpenFile).toHaveBeenCalledTimes(2)
+  },
+}
+
+/** Outside a workspace there is no file to open, so paths stay as code. */
+export const AnswerLinksOutsideWorkspace: Story = {
+  args: {
+    messages: answerLinkMessages,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(canvas.getByText("apps/ui/src/styles.css")).toBeVisible()
+    await expect(
+      canvas.queryByRole("button", { name: "apps/ui/src/styles.css" }),
+    ).toBeNull()
+    await expect(
+      canvas.getByRole("button", { name: "Streamdown docs" }),
     ).toBeVisible()
   },
 }
