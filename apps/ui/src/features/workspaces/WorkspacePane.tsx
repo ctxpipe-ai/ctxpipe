@@ -521,7 +521,7 @@ function prefetchWorkspacePane(
 }
 
 function ConversationPanePublish(props: {
-  /** The pane is maximized, so the conversation column (and its Sync) is hidden. */
+  /** The pane is maximized, so the conversation column and its actions are hidden. */
   conversationHidden: boolean
   orgSlug: string
   workspaceId: string
@@ -536,12 +536,13 @@ function ConversationPanePublish(props: {
     statusEnabled: true,
     pullEnabled: true,
   })
-  // The conversation header has Sync. Below `lg` an open pane hides the
-  // conversation column, so the pane shows Sync there (and when maximized).
+  // The conversation header has the publish actions. The pane shows them only
+  // when the conversation column is hidden: below `lg` with the pane open, or
+  // when the pane is maximized.
   return (
     <ConversationPublishActions
       publish={publish.chrome}
-      syncClassName={props.conversationHidden ? undefined : "lg:hidden"}
+      className={props.conversationHidden ? undefined : "lg:hidden"}
     />
   )
 }
