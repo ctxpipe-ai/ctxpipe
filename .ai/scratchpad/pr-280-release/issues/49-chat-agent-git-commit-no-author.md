@@ -1,8 +1,8 @@
 # Chat agent cannot git commit in the sandbox: no author name or email
 
-Status: ready-for-agent
+Status: done (needs a deploy to prove)
 Priority: P3
-Owner: unassigned
+Owner: claude
 Blocked by: none
 Created: 2026-10-11
 Updated: 2026-10-11
@@ -32,3 +32,5 @@ In the ticket 37 chat turn, the agent edited a knowledge file and then tried to 
 ## Comments
 
 ## Resolution
+
+- 2026-10-11 (claude): fixed in ticket 30, commit `6276cf40` (defect 1 there; pr-280 showed the same `Author identity unknown` error). The product lets the agent commit: it commits with `git` and then calls `push_conversation_branch`. So the sandbox now has an identity. The thread setup (`WORKSPACE_CHAT_THREAD_SETUP` in `apps/backend/src/domain/workspaces/chat-runtime.ts`) sets `user.name` and `user.email` in the clone to `COMMIT_IDENTITY`, which is the identity that the backend Commit+Push uses. Test: `chat-runtime.test.ts`, "lets the agent commit in a sandbox that has no Git identity". It failed with `Author identity unknown` before the change. After the deploy, a chat turn that edits and commits a file must report no identity error.

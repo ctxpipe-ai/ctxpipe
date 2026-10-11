@@ -748,7 +748,8 @@ function isPullRequestPermissionError(error: unknown): boolean {
 }
 
 export type PullRequestRefusal = {
-  refused: "no_pr_access" | "no_changes"
+  /** pr_refused: any other 422; githubMessage then says why. */
+  refused: "no_pr_access" | "no_changes" | "pr_refused"
   githubStatus?: number
   githubMessage: string
 }
@@ -757,10 +758,21 @@ function refusal(
   refused: PullRequestRefusal["refused"],
   error: unknown,
 ): PullRequestRefusal {
+  // GitHub puts the reason of a 422 in errors[].message; Octokit's own
+  // message adds "Validation Failed" and a documentation link.
+  const reasons = (
+    error as { response?: { data?: { errors?: Array<{ message?: unknown }> } } }
+  ).response?.data?.errors
+    ?.map((item) => item.message)
+    .filter((message): message is string => typeof message === "string")
   return {
     refused,
     githubStatus: (error as { status?: number }).status,
-    githubMessage: error instanceof Error ? error.message : String(error),
+    githubMessage: reasons?.length
+      ? reasons.join("; ")
+      : error instanceof Error
+        ? error.message
+        : String(error),
   }
 }
 
@@ -788,7 +800,10 @@ export async function createPullRequestFromBranch(
 > {
   let context: Awaited<ReturnType<typeof getInstallationContext>>
   try {
+    // GitHub reads the base and head branches with this token. Without
+    // Contents it answers 422 "not all refs are readable".
     context = await getInstallationContext(input, {
+      contents: "read",
       pull_requests: "write",
     })
   } catch (error) {
@@ -842,7 +857,7 @@ export async function createPullRequestFromBranch(
       state: "open",
     })
     const open = existing[0]
-    if (!open) throw error
+    if (!open) return refusal("pr_refused", error)
     return {
       pullNumber: open.number,
       pullUrl: open.html_url,

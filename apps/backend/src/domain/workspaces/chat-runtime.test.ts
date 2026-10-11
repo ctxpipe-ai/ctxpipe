@@ -86,6 +86,56 @@ describe("workspace chat runtime", () => {
     }
   })
 
+  it("lets the agent commit in a sandbox that has no Git identity", () => {
+    const repo = mkdtempSync(join(tmpdir(), "ws-chat-identity-"))
+    const home = mkdtempSync(join(tmpdir(), "ws-chat-identity-home-"))
+    // A sandbox has no Git identity, and Git cannot guess one there from
+    // the host name. useConfigOnly gives this host the same result.
+    const globalConfig = join(home, ".gitconfig")
+    writeFileSync(globalConfig, "[user]\n\tuseConfigOnly = true\n")
+    const env = {
+      ...process.env,
+      HOME: home,
+      GIT_CONFIG_GLOBAL: globalConfig,
+      GIT_CONFIG_NOSYSTEM: "1",
+    }
+    execFileSync("git", ["init", "-q", "-b", "main"], { cwd: repo, env })
+    execFileSync(
+      "git",
+      ["-c", "user.name=seed", "-c", "user.email=seed@example.test"].concat([
+        "commit",
+        "-q",
+        "--allow-empty",
+        "-m",
+        "seed",
+      ]),
+      { cwd: repo, env },
+    )
+    const sha = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: repo,
+      env,
+      encoding: "utf8",
+    }).trim()
+    // The checkout step, as for a fresh clone with no published branch.
+    execFileSync("sh", ["-c", WORKSPACE_CHAT_THREAD_SETUP[0]], {
+      cwd: repo,
+      env: { ...env, CTXPIPE_CLONE_SHA: sha, CTXPIPE_CLONE_BRANCH: "main" },
+    })
+    writeFileSync(join(repo, "note.md"), "agent edit\n")
+    execFileSync("git", ["add", "note.md"], { cwd: repo, env })
+    execFileSync("git", ["commit", "-q", "-m", "docs: add note"], {
+      cwd: repo,
+      env,
+    })
+    expect(
+      execFileSync("git", ["log", "-1", "--format=%an <%ae>"], {
+        cwd: repo,
+        env,
+        encoding: "utf8",
+      }).trim(),
+    ).toBe("ctxpipe <workspace-chat@ctxpipe.local>")
+  })
+
   it("puts opencode and GNU find on the backend image PATH", () => {
     const dockerfile = readFileSync(
       join(dirname(fileURLToPath(import.meta.url)), "../../../Dockerfile"),

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { ApiError } from "@/lib/api-result"
 import {
   conversationAllowsEdits,
   conversationBranchShortName,
@@ -156,6 +157,19 @@ describe("conversationPublishErrorMessage", () => {
       ).toBe(
         "Create PR failed. The Workspace moved. Reload the page and try again.",
       )
+  })
+
+  it("says GitHub refused the pull request, and why", () => {
+    expect(
+      conversationPublishErrorMessage(
+        "Create PR",
+        new ApiError("pr_refused", 400, {
+          body: { error: "pr_refused", message: "not all refs are readable" },
+        }),
+      ),
+    ).toBe(
+      "Create PR failed. GitHub refused the pull request: not all refs are readable.",
+    )
   })
 
   it("shows an unknown code as it is", () => {

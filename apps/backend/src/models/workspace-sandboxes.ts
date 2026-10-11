@@ -9,7 +9,7 @@ import {
   or,
   sql,
 } from "drizzle-orm"
-import { getOrgDb, withOrgDbContext } from "../db/client.js"
+import { getOrgDb, tryGetOrgDbOrgId, withOrgDbContext } from "../db/client.js"
 import { workspaceSandboxInstances } from "../db/schema/workspaces.js"
 import type { WorkspaceRevision } from "../domain/workspaces/revision.js"
 import { orgSql } from "./workspace-sql.js"
@@ -261,7 +261,11 @@ export async function listSandboxInstances(input: {
 }): Promise<SandboxInstanceRecord[]> {
   return orgSql(async () => {
     const db = getOrgDb()
+    // Row-level security also scopes this, but a role that skips it (the
+    // owner role in local development) would list every org's sandboxes.
+    const orgId = requireSandboxOrgId(tryGetOrgDbOrgId())
     const filters = [
+      eq(workspaceSandboxInstances.orgId, orgId),
       input.workspaceId
         ? eq(workspaceSandboxInstances.workspaceId, input.workspaceId)
         : undefined,
