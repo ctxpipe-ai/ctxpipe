@@ -249,9 +249,9 @@ function HandOverDemo() {
             <SkeletonRow />
           </div>
         ) : (
-          <div data-testid="second">
+          <section key="second" data-testid="second">
             <SkeletonRow size="catalog" />
-          </div>
+          </section>
         )}
       </div>
     </SkeletonRegion>
