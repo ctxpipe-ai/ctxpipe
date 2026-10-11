@@ -185,13 +185,17 @@ export const FirstMessageOpensConversation: Story = {
       canvas.getByRole("navigation", { name: "Main navigation" }),
     ).toBeVisible()
     expect(await canvas.findByLabelText("Select workspace")).toBeVisible()
-    const input = await canvas.findByPlaceholderText(/ask about this workspace/i)
+    const input = await canvas.findByPlaceholderText(
+      /what should ctxpipe do in this workspace/i,
+    )
     await waitFor(() => expect(input).toBeEnabled())
     await userEvent.type(input, "What changed this week?")
     await userEvent.click(canvas.getByRole("button", { name: /send/i }))
     await waitFor(() =>
       expect(
-        canvas.queryByPlaceholderText(/ask about this workspace/i),
+        canvas.queryByPlaceholderText(
+          /what should ctxpipe do in this workspace/i,
+        ),
       ).toBeNull(),
     )
   },

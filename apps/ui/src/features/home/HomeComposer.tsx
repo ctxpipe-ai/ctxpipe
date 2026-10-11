@@ -78,7 +78,7 @@ export function HomeComposer(props: {
           layout="empty"
           sendMessage={({ text }) => startConversation(text)}
           isDisabled={!selected}
-          placeholder="Ask about this Workspace…"
+          placeholder="What should ctxpipe do in this Workspace?"
           draftKey={selected ? chatDraftKey(orgSlug, selected.id) : undefined}
         />
       </div>

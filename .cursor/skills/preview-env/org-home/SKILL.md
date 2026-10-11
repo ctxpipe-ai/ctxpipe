@@ -23,7 +23,7 @@ Shell and Home for the run's org. [Harness](../harness.md) is `PASS`; [onboardin
 **Steps**
 1. Open **Home** (`/{orgSlug}/`, no extra segment).
 
-**Expect (UI)** a Workspace picker (`aria-label` "Select workspace") showing Workspace 1, the composer (placeholder **Ask about this Workspace…**), and the activity region (heatmap and recent commits, or **No commits on the default branch yet.**). In an org with no Workspace, the body is a **Create a workspace** button instead.
+**Expect (UI)** a Workspace picker (`aria-label` "Select workspace") showing Workspace 1, the composer (placeholder **What should ctxpipe do in this Workspace?**), and the activity region (heatmap and recent commits, or **No commits on the default branch yet.**). In an org with no Workspace, the body is a **Create a workspace** button instead.
 **Expect (backend)** `GET /{orgSlug}/api/v1/workspaces/{slug}/activity` returns 200.
 **Budget** 3 s / 10 s, navigation to composer visible.
 **Evidence** `HOME-2-1.png`; trace of the activity request.

@@ -321,7 +321,9 @@ export const ConversationNavIsChatOnly: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await canvas.findByText("Ask about this Workspace.")
+    await canvas.findByPlaceholderText(
+      "What should ctxpipe do in this Workspace?",
+    )
     expect(canvas.queryByRole("list", { name: "Workspace files" })).toBeNull()
     await userEvent.click(canvas.getByRole("link", { name: "Repo layout" }))
     await waitFor(() => {
@@ -332,7 +334,11 @@ export const ConversationNavIsChatOnly: Story = {
       canvas.getByRole("link", { name: "New conversation in Docs" }),
     )
     await waitFor(() => {
-      expect(canvas.getByText("Ask about this Workspace.")).toBeInTheDocument()
+      expect(
+        canvas.getByPlaceholderText(
+          "What should ctxpipe do in this Workspace?",
+        ),
+      ).toBeInTheDocument()
     })
     expect(canvas.queryByRole("list", { name: "Workspace files" })).toBeNull()
     expect(canvas.queryByText("Loading workspace")).not.toBeInTheDocument()
@@ -350,7 +356,9 @@ export const ConversationKeepsExplicitPaneSearch: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await canvas.findByText("Ask about this Workspace.")
+    await canvas.findByPlaceholderText(
+      "What should ctxpipe do in this Workspace?",
+    )
     expect(canvas.getByRole("list", { name: "Workspace files" })).toBeVisible()
     await userEvent.click(canvas.getByRole("link", { name: "Repo layout" }))
     await waitFor(() => {
