@@ -919,9 +919,9 @@ it(
   "opens the PR with a clean title and a summary body, and a shorter body when the compare fails",
   { timeout: 300_000 },
   async () => {
-    const compare = { fails: false }
+    const compare = { refused: false }
     await withSession(
-      { githubCompareFails: () => compare.fails },
+      { githubCompareRefused: () => compare.refused },
       async (_f, s) => {
         const handle = await s.warm()
         await s.agentCommit(handle, "one.md", "Add note one")
@@ -935,7 +935,7 @@ it(
           ),
         )
         // The pull request opens even when GitHub cannot compare the branch.
-        compare.fails = true
+        compare.refused = true
         expect((await s.createPr("Add notes")).status).toBe(200)
         const second = s.pullRequests[1] as { body: string }
         expect(second.body).toMatch(
