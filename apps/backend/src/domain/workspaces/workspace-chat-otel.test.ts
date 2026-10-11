@@ -6,6 +6,7 @@ import {
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
 import { contextWithAttributionBag } from "../../observability/attribution.js"
+import { LangfuseContextSpanProcessor } from "../../observability/langfuseContextProcessor.js"
 import { AttributionUrlSpanProcessor } from "../../observability/otel.js"
 import {
   beginWorkspaceChatProxyGeneration,
@@ -20,6 +21,7 @@ const exporter = new InMemorySpanExporter()
 const provider = new NodeTracerProvider({
   spanProcessors: [
     new AttributionUrlSpanProcessor(),
+    new LangfuseContextSpanProcessor(),
     new SimpleSpanProcessor(exporter),
   ],
 })
@@ -113,6 +115,13 @@ describe("workspace chat turn trace", () => {
       expect(span?.spanContext().traceId, name).toBe(traceId)
       expect(span?.parentSpanContext?.spanId, name).toBe(rootId)
       expect(span?.attributes["ctxpipe.org.id"], name).toBe("org_1")
+      expect(span?.attributes["langfuse.trace.tags"], name).toEqual(
+        expect.arrayContaining(["org:acme"]),
+      )
+      expect(span?.attributes["langfuse.trace.metadata.orgId"], name).toBe(
+        "org_1",
+      )
+      expect(span?.attributes["user.id"], name).toBe("user_1")
     }
     expect(
       byName("generation #0")?.links.map((link) => link.context.spanId),

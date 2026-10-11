@@ -153,12 +153,24 @@ export const workspaceChatOpenaiRoutes = new OpenAPIHono<AppEnv>()
       ...body,
       ...extras,
       model: contract.modelBase,
+      // A streamed answer then ends with a `usage` chunk for the span.
+      ...(body.stream === true
+        ? {
+            stream_options: {
+              ...(body.stream_options as Record<string, unknown> | undefined),
+              include_usage: true,
+            },
+          }
+        : {}),
     }
     return runWithLangfuseContext(
       { sessionId: token.conversationId },
       async () => {
         const turnId = workspaceChatTurnId(token)
-        beginWorkspaceChatProxyGeneration(turnId)
+        beginWorkspaceChatProxyGeneration(turnId, {
+          model: contract.modelBase,
+          messages: body.messages,
+        })
         const startedAt = Date.now()
         let ttfbMs: number | null = null
         const observer = observeWorkspaceChatCompletionStream()
@@ -166,6 +178,7 @@ export const workspaceChatOpenaiRoutes = new OpenAPIHono<AppEnv>()
           if (ttfbMs == null) ttfbMs = Date.now() - startedAt
         }
         const record = (status: number) => {
+          observer.end()
           recordWorkspaceChatProxyCompletion(turnId, {
             ttfbMs: ttfbMs ?? Date.now() - startedAt,
             durationMs: Date.now() - startedAt,
@@ -174,6 +187,8 @@ export const workspaceChatOpenaiRoutes = new OpenAPIHono<AppEnv>()
             text: observer.text,
             status,
             model: contract.modelBase,
+            responseModel: observer.responseModel,
+            usage: observer.usage,
           })
         }
         getLogger().info("workspace-chat-model-proxy.request", {

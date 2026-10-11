@@ -65,10 +65,13 @@ function stringMetadata(
   return Object.keys(out).length > 0 ? out : undefined
 }
 
-export function runWithLangfuseContext<T>(
+/**
+ * Langfuse trace attributes from `attrs` and the active attribution: the
+ * user, the session, the `org:` and `env:` tags, and the org metadata.
+ */
+export function langfusePropagation(
   attrs: LangfuseContextAttrs,
-  fn: () => T | Promise<T>,
-): Promise<T> {
+): Parameters<typeof propagateAttributes>[0] {
   const bag = readAttribution()
   const userId =
     bag["ctxpipe.actor.type"] === "org_api_key"
@@ -89,17 +92,19 @@ export function runWithLangfuseContext<T>(
     ...(bag["request.id"] ? { requestId: bag["request.id"] } : {}),
     environment,
   })
-  return Promise.resolve(
-    propagateAttributes(
-      {
-        ...(userId ? { userId } : {}),
-        ...(sessionId ? { sessionId } : {}),
-        tags,
-        ...(metadata ? { metadata } : {}),
-      },
-      fn,
-    ),
-  )
+  return {
+    ...(userId ? { userId } : {}),
+    ...(sessionId ? { sessionId } : {}),
+    tags,
+    ...(metadata ? { metadata } : {}),
+  }
+}
+
+export function runWithLangfuseContext<T>(
+  attrs: LangfuseContextAttrs,
+  fn: () => T | Promise<T>,
+): Promise<T> {
+  return Promise.resolve(propagateAttributes(langfusePropagation(attrs), fn))
 }
 
 export function withLangfuseObservation<T>(

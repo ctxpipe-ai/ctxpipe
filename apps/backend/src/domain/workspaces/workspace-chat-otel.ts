@@ -1,10 +1,13 @@
+import { propagateAttributes } from "@langfuse/tracing"
 import { type Context, context, type Span, trace } from "@opentelemetry/api"
 import {
   contextWithAttributionBag,
   readAttribution,
   sanitizeAttribution,
 } from "../../observability/attribution.js"
+import { langfusePropagation } from "../../observability/langfuse.js"
 import { log } from "../../observability/logger.js"
+import type { WorkspaceChatCompletionUsage } from "./workspace-chat-model-proxy.js"
 
 export type WorkspaceChatGenerationRecord = {
   index: number
@@ -72,6 +75,14 @@ export function beginWorkspaceChatTurn(
     }),
   }
   for (const [key, value] of Object.entries(attribution)) bag.set(key, value)
+  // The Langfuse org tag and metadata come from the turn attribution, also
+  // when the caller (the socket) had none.
+  const turnParent = context.with(bagContext, () =>
+    propagateAttributes(
+      langfusePropagation({ sessionId: conversationId }),
+      () => context.active(),
+    ),
+  )
   const rootSpan = tracer().startSpan(
     "workspace-chat.turn",
     {
@@ -85,9 +96,9 @@ export function beginWorkspaceChatTurn(
           : { "langfuse.trace.name": "workspace-chat" }),
       },
     },
-    bagContext,
+    turnParent,
   )
-  const turnContext = trace.setSpan(bagContext, rootSpan)
+  const turnContext = trace.setSpan(turnParent, rootSpan)
   turns.set(turnId, {
     conversationId,
     turnId,
@@ -149,7 +160,20 @@ export function markWorkspaceChatFirstShownToken(turnId: string): void {
   state.firstShownTokenAt = Date.now()
 }
 
-export function beginWorkspaceChatProxyGeneration(turnId: string): void {
+/** Langfuse reads these; the ClickHouse pipeline removes them from HyperDX. */
+const MAX_LANGFUSE_CONTENT = 64 * 1024
+
+function langfuseContent(value: unknown): string {
+  const json = JSON.stringify(value)
+  return json.length > MAX_LANGFUSE_CONTENT
+    ? `${json.slice(0, MAX_LANGFUSE_CONTENT)}…[truncated]`
+    : json
+}
+
+export function beginWorkspaceChatProxyGeneration(
+  turnId: string,
+  request?: { model?: string; messages?: unknown },
+): void {
   const state = turns.get(turnId)
   if (!state) return
   if (state.pendingToolsStartedAt && state.pendingTools.length > 0) {
@@ -178,6 +202,10 @@ export function beginWorkspaceChatProxyGeneration(turnId: string): void {
       "gen_ai.operation.name": "chat",
       "workspace_chat.turn_id": turnId,
       "workspace_chat.generation.index": state.generations.length,
+      ...(request?.model ? { "gen_ai.request.model": request.model } : {}),
+      ...(request?.messages !== undefined
+        ? { "langfuse.observation.input": langfuseContent(request.messages) }
+        : {}),
     },
   )
 }
@@ -190,6 +218,8 @@ export function recordWorkspaceChatProxyGeneration(
     finishReason: string | null
     tools: string[]
     text?: string
+    responseModel?: string
+    usage?: WorkspaceChatCompletionUsage
   },
 ): void {
   const state = turns.get(turnId)
@@ -208,6 +238,15 @@ export function recordWorkspaceChatProxyGeneration(
     ...(input.finishReason
       ? { "gen_ai.response.finish_reasons": input.finishReason }
       : {}),
+    ...(input.responseModel
+      ? { "gen_ai.response.model": input.responseModel }
+      : {}),
+    ...usageAttributes(input.usage),
+    "langfuse.observation.output": langfuseContent({
+      role: "assistant",
+      content: input.text ?? "",
+      ...(input.tools.length > 0 ? { tool_calls: input.tools } : {}),
+    }),
   })
   state.generationSpan?.end()
   state.generationSpan = null
@@ -223,6 +262,21 @@ export function recordWorkspaceChatProxyGeneration(
       }),
     )
   }
+}
+
+function usageAttributes(
+  usage: WorkspaceChatCompletionUsage | undefined,
+): Record<string, number> {
+  if (!usage) return {}
+  const attributes: Record<string, number | undefined> = {
+    "gen_ai.usage.input_tokens": usage.inputTokens,
+    "gen_ai.usage.output_tokens": usage.outputTokens,
+    "gen_ai.usage.cache_read.input_tokens": usage.cachedInputTokens,
+    "gen_ai.usage.cost": usage.cost,
+  }
+  return Object.fromEntries(
+    Object.entries(attributes).filter(([, value]) => value !== undefined),
+  ) as Record<string, number>
 }
 
 export function finishWorkspaceChatTurn(

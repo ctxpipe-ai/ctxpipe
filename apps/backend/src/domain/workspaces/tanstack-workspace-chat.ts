@@ -695,6 +695,13 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
     middleware: [
       otelMiddleware({
         tracer: trace.getTracer("ctxpipe-workspace-chat"),
+        // Each model call is a `generation #N` span with its own usage and
+        // cost. In Langfuse this turn summary is a plain span, so the turn
+        // does not count its tokens and cost two times.
+        attributeEnricher: (info) =>
+          info.kind === "chat" || info.kind === "iteration"
+            ? { "langfuse.observation.type": "span" }
+            : {},
       }),
       defineChatMiddleware({
         name: "workspace-chat-sandbox-used",

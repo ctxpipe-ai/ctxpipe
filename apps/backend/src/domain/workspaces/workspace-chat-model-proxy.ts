@@ -23,20 +23,60 @@ export function workspaceChatCompletionsBaseUrl(input: {
   return `http://${host}:${input.port}/${input.orgSlug}/api/v1/workspace-chat/openai/v1`
 }
 
+/** Token counts and cost from an OpenAI-compatible `usage` object. */
+export type WorkspaceChatCompletionUsage = {
+  inputTokens?: number
+  outputTokens?: number
+  cachedInputTokens?: number
+  /** USD, when the gateway reports it (OpenRouter does). */
+  cost?: number
+}
+
+function numberOrUndefined(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined
+}
+
+function completionUsage(value: unknown): WorkspaceChatCompletionUsage | null {
+  if (!value || typeof value !== "object") return null
+  const usage = value as Record<string, unknown>
+  const details =
+    usage.prompt_tokens_details && typeof usage.prompt_tokens_details === "object"
+      ? (usage.prompt_tokens_details as Record<string, unknown>)
+      : {}
+  return {
+    inputTokens: numberOrUndefined(usage.prompt_tokens),
+    outputTokens: numberOrUndefined(usage.completion_tokens),
+    cachedInputTokens: numberOrUndefined(details.cached_tokens),
+    cost: numberOrUndefined(usage.cost),
+  }
+}
+
 export function observeWorkspaceChatCompletionStream(): {
   push: (chunk: Uint8Array) => void
+  /** Read the last line, which has no newline in a plain JSON response. */
+  end: () => void
   finishReason: string | null
   tools: string[]
   text: string
+  responseModel: string | null
+  usage: WorkspaceChatCompletionUsage | null
 } {
   const decoder = new TextDecoder()
   let buffer = ""
   let text = ""
   const tools = new Set<string>()
   let finishReason: string | null = null
+  let responseModel: string | null = null
+  let usage: WorkspaceChatCompletionUsage | null = null
   return {
     get finishReason() {
       return finishReason
+    },
+    get responseModel() {
+      return responseModel
+    },
+    get usage() {
+      return usage
     },
     get tools() {
       return [...tools]
@@ -48,21 +88,28 @@ export function observeWorkspaceChatCompletionStream(): {
       buffer += decoder.decode(chunk, { stream: true })
       const lines = buffer.split("\n")
       buffer = lines.pop() ?? ""
-      for (const line of lines) {
-        const payload = line.startsWith("data:")
-          ? line.slice(5).trim()
-          : line.trim()
-        if (!payload || payload === "[DONE]") continue
-        try {
-          noteCompletionJson(JSON.parse(payload) as Record<string, unknown>)
-        } catch {
-          /* ignore partial SSE */
-        }
-      }
+      for (const line of lines) noteLine(line)
+    },
+    end() {
+      buffer += decoder.decode()
+      noteLine(buffer)
+      buffer = ""
     },
   }
 
+  function noteLine(line: string): void {
+    const payload = line.startsWith("data:") ? line.slice(5).trim() : line.trim()
+    if (!payload || payload === "[DONE]") return
+    try {
+      noteCompletionJson(JSON.parse(payload) as Record<string, unknown>)
+    } catch {
+      /* ignore partial SSE */
+    }
+  }
+
   function noteCompletionJson(json: Record<string, unknown>): void {
+    if (typeof json.model === "string" && json.model) responseModel = json.model
+    usage = completionUsage(json.usage) ?? usage
     const choices = Array.isArray(json.choices) ? json.choices : []
     for (const choice of choices) {
       if (!choice || typeof choice !== "object") continue
@@ -97,6 +144,8 @@ export function recordWorkspaceChatProxyCompletion(
     text?: string
     status: number
     model?: string
+    responseModel?: string | null
+    usage?: WorkspaceChatCompletionUsage | null
   },
 ): void {
   log.info({
@@ -117,5 +166,7 @@ export function recordWorkspaceChatProxyCompletion(
     finishReason: input.finishReason,
     tools: input.tools,
     ...(input.text?.trim() ? { text: input.text } : {}),
+    responseModel: input.responseModel ?? undefined,
+    usage: input.usage ?? undefined,
   })
 }
