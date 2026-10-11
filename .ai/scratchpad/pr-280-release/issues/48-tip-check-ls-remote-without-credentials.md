@@ -54,3 +54,5 @@ Open: the acceptance check on a preview with a private repository and access is 
 - `GitRemoteAccessError.status` keeps 401 or 403, so a refused read in the write broker still pauses write status.
 - UI: the "Prepare failed" panel links to Connectors when the message is a no-access message (story `PrepareNoAccess`).
 - Open: a linked repository has no column for its own no-access state or backoff. It logs and skips on each run. A visible state and a backoff for it need a schema column, which needs approval.
+
+- 2026-10-11 (team lead): no schema column for a linked-repository "no access" state. Integration setup moves GitHub linked repositories into `workspace_sources`, which already has a status (`out_of_access`). The GitHub provider of integration setup phase 2 records it there. Until then, a linked repository without access logs a warning at each tip check.
