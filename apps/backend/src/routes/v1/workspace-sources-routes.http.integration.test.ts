@@ -122,5 +122,20 @@ sources:
       },
     )
     expect(change.status).toBe(409)
+
+    const badKey = await app.request(
+      `/${seed.orgId}/api/v1/workspaces/${slug}/sources/Bad%20Key`,
+      { method: "DELETE" },
+    )
+    expect(badKey.status).toBe(400)
+
+    await seed.removeConnection(slack)
+    const afterRemoval = await (
+      await app.request(`/${seed.orgId}/api/v1/workspaces/${slug}/sources`)
+    ).json()
+    expect(afterRemoval.items[1]).toMatchObject({
+      sourceKey: "support-channels",
+      status: "connection_missing",
+    })
   })
 })

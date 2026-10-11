@@ -1,13 +1,13 @@
-import YAML from "yaml"
 import type { Env } from "../../config/env.js"
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../workspaces/write-status.js"
-import type { SourceFileChange } from "./edit.js"
+import type { SourceChange } from "./edit.js"
 import {
   parseSourceEntry,
   type SourceProvider,
   sourcesFileSchema,
 } from "./sources-file.js"
+import { parseSourcesYaml } from "./sources-yaml.js"
 
 /** What one existing connection syncs today, read from its config (ADR-050 migration). */
 export type LegacySourceBinding =
@@ -71,7 +71,7 @@ export type SourceMigrationReport = {
 function existingPairs(text: string | null): Set<string> {
   if (!text) return new Set()
   try {
-    const file = sourcesFileSchema.safeParse(YAML.parse(text))
+    const file = sourcesFileSchema.safeParse(parseSourcesYaml(text))
     if (!file.success) return new Set()
     return new Set(
       file.data.sources.flatMap((raw) => {
@@ -98,7 +98,7 @@ export function planSourceMigration(input: {
   linked: ReadonlyArray<{ workspaceId: string; gitUrl: string }>
   bindings: readonly LegacySourceBinding[]
 }): {
-  changes: Map<string, SourceFileChange[]>
+  changes: Map<string, SourceChange[]>
   report: SourceMigrationReport
 } {
   const report: SourceMigrationReport = {
@@ -106,7 +106,7 @@ export function planSourceMigration(input: {
     alreadyPresent: [],
     unmapped: [],
   }
-  const changes = new Map<string, SourceFileChange[]>()
+  const changes = new Map<string, SourceChange[]>()
   const present = new Map(
     input.workspaces.map((workspace) => [
       workspace.id,
@@ -115,7 +115,7 @@ export function planSourceMigration(input: {
   )
   const add = (
     workspaceId: string,
-    change: Extract<SourceFileChange, { action: "add" }>,
+    change: Extract<SourceChange, { action: "add" }>,
   ) => {
     const pair = `${change.provider}:${change.connectionId}`
     const item = {

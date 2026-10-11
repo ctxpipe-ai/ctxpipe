@@ -350,10 +350,13 @@ export const workspaceHydrate = defineWorkflow(
             }
 
             if (activated && pending.postgres && planning.needed) {
-              await step.run(
+              // Two steps: a retry of the follow-ups reuses the memoized
+              // diff, because a second projection of the same revision finds
+              // no diff.
+              const projected = await step.run(
                 { name: "project-workspace-sources" },
-                async () => {
-                  const projected = await projectWorkspaceSources({
+                () =>
+                  projectWorkspaceSources({
                     orgId: input.orgId,
                     workspaceId: workspace.id,
                     revision: revision.sha,
@@ -361,7 +364,11 @@ export const workspaceHydrate = defineWorkflow(
                       treeFiles.find((file) => file.path === SOURCES_FILE_PATH)
                         ?.content ?? null,
                     env,
-                  })
+                  }),
+              )
+              await step.run(
+                { name: "enqueue-source-follow-ups" },
+                async () => {
                   // Import at the admission boundary, like the PR backfill above.
                   const { enqueueSourceProjectionFollowUps } = await import(
                     "../../domain/workspace-sources/enqueue.js"
@@ -369,6 +376,7 @@ export const workspaceHydrate = defineWorkflow(
                   await enqueueSourceProjectionFollowUps({
                     orgId: input.orgId,
                     workspaceId: workspace.id,
+                    revision: revision.sha,
                     projected,
                   })
                 },

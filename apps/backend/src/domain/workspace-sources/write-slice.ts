@@ -3,20 +3,15 @@ import type { Env } from "../../config/env.js"
 import { getSystemDb } from "../../db/client.js"
 import { getLogger } from "../../observability/logger.js"
 import { enqueueWorkspaceWriteCommit } from "../../openworkflow/enqueue-workspace-write-commit.js"
-import {
-  listTreeBlobs,
-  readGitPackFromRemote,
-  withGitDirectory,
-} from "../../services/git/pack.js"
-import { blobShaAt } from "../workspaces/connector-mirror.js"
 import { resolveWorkspaceReadRevision } from "../workspaces/resolve-revision.js"
 import { diffSlice } from "./slice-diff.js"
-import { SOURCES_FILE_PATH } from "./sources-file.js"
+import { readSliceTarget } from "./slice-target.js"
 import type { WorkspaceSliceWrite } from "./sync.js"
 
 /**
- * The production slice writer: read the Workspace's current tree, and queue
- * one connector mirror commit fenced by the blob of `.ctxpipe/sources.yaml`.
+ * The production slice writer: read the Workspace head, drop the write when
+ * the sources file changed after the rows' revision, and queue one connector
+ * mirror commit fenced by the blob of `.ctxpipe/sources.yaml`.
  */
 export async function writeWorkspaceSlice(
   write: WorkspaceSliceWrite,
@@ -34,22 +29,16 @@ export async function writeWorkspaceSlice(
       refresh: true,
     })
     if (!resolved) return null
-    const pack = await readGitPackFromRemote({
+    return readSliceTarget({
       url: resolved.revision.remote.url,
-      sha: resolved.revision.sha,
       token: resolved.token,
+      headSha: resolved.revision.sha,
+      rowsRevision: write.sourcesRevision,
     })
-    return {
-      blobs: await withGitDirectory(
-        pack.sha,
-        (directory) => listTreeBlobs(directory, pack.sha),
-        pack,
-      ),
-      sourcesBlobSha: await blobShaAt(pack, SOURCES_FILE_PATH),
-    }
   })
-  if (!captured) return { queued: false }
-  const change = diffSlice(write, captured.blobs)
+  // The next projection plans a new write from the changed sources file.
+  if (!captured?.fresh) return { queued: false }
+  const change = diffSlice(write, captured.paths)
   if (!change.files.length && !change.deletePaths.length)
     return { queued: false }
   const admitted = await enqueueWorkspaceWriteCommit(

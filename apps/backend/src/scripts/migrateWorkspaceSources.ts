@@ -12,6 +12,7 @@ import { closeDb, getSystemDb, initDb } from "../db/client.js"
 import { runSourceMigration } from "../domain/workspace-sources/migration.js"
 import { initEvlog, log } from "../observability/logger.js"
 
+initEvlog()
 const args = process.argv.slice(2)
 const orgId = args[args.indexOf("--org") + 1]
 if (!args.includes("--org") || !orgId) {
@@ -21,7 +22,6 @@ if (!args.includes("--org") || !orgId) {
   })
   process.exit(2)
 }
-initEvlog()
 const env = parseEnv(process.env)
 initDb(env.DATABASE_URL)
 try {

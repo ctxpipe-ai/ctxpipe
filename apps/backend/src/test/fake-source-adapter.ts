@@ -3,7 +3,7 @@ import type { GitFileChange } from "../services/git/file-change.js"
 
 /**
  * A provider adapter for tests. The scope is `{ spaces: string[] }`; each
- * space owns `confluence/<space>/`. `content` maps a space to its pages.
+ * space owns `confluence/<space>/`; the space "*" owns all of `confluence/`. `content` maps a space to its pages.
  * `fetches` records each fetch call, so a test can prove "fetch once".
  */
 export function fakeSourceAdapter(
@@ -15,7 +15,9 @@ export function fakeSourceAdapter(
   const adapter: SourceAdapter = {
     provider: "confluence",
     managedPaths: (scope) =>
-      spacesOf(scope).map((space) => `confluence/${space}/`),
+      spacesOf(scope).map((space) =>
+        space === "*" ? "confluence/" : `confluence/${space}/`,
+      ),
     async fetch({ scopes }) {
       fetches.push(scopes)
       const spaces = new Set(scopes.flatMap(spacesOf))

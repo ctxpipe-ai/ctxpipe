@@ -108,6 +108,7 @@ describe("Workspace source sync frame (Postgres)", () => {
     await cleanupRemovedSources({
       orgId: seed.orgId,
       workspaceId,
+      revision: "f".repeat(40),
       removed: [
         {
           provider: "confluence",
@@ -129,7 +130,78 @@ describe("Workspace source sync frame (Postgres)", () => {
         connectionId: forge,
         files: [],
         ownedPrefixes: ["confluence/HR/"],
+        keepPrefixes: [],
+        sourcesRevision: "f".repeat(40),
       },
     ])
+  })
+
+  it("keeps the files of a remaining source when a removed source owned a wider path", async () => {
+    const forge = await seed.addConnection("forge")
+    const workspaceId = await seed.addWorkspace("overlap")
+    await replaceWorkspaceSourceRows({
+      orgId: seed.orgId,
+      workspaceId,
+      revision: "d".repeat(40),
+      rows: [source("eng-docs", forge, ["ENG"])],
+    })
+    const { adapter } = fakeSourceAdapter({})
+    const writes: WorkspaceSliceWrite[] = []
+    await cleanupRemovedSources({
+      orgId: seed.orgId,
+      workspaceId,
+      revision: "f".repeat(40),
+      removed: [
+        {
+          provider: "confluence",
+          connectionId: forge,
+          scope: { spaces: ["*"] },
+        },
+        {
+          provider: "confluence",
+          connectionId: forge,
+          scope: { spaces: ["ENG/archive"] },
+        },
+      ],
+      adapters: { confluence: adapter },
+      write: async (write) => {
+        writes.push(write)
+      },
+    })
+    expect(writes).toMatchObject([
+      { ownedPrefixes: ["confluence/"], keepPrefixes: ["confluence/ENG/"] },
+    ])
+  })
+
+  it("refuses managed paths that leave the provider root", async () => {
+    const forge = await seed.addConnection("forge")
+    const workspaceId = await seed.addWorkspace("guard")
+    await replaceWorkspaceSourceRows({
+      orgId: seed.orgId,
+      workspaceId,
+      revision: "e".repeat(40),
+      rows: [source("eng-docs", forge, ["ENG"])],
+    })
+    for (const bad of [
+      "confluence/../secrets/",
+      "confluence//x/",
+      "/confluence/x/",
+      "confluence\\x/",
+      "confluence/x",
+    ]) {
+      await expect(
+        syncConnectionSources({
+          orgId: seed.orgId,
+          connectionId: forge,
+          env: parseEnv(process.env),
+          adapter: {
+            provider: "confluence",
+            managedPaths: () => [bad],
+            fetch: async () => [],
+          },
+          write: async () => {},
+        }),
+      ).rejects.toThrow(/Managed path/)
+    }
   })
 })

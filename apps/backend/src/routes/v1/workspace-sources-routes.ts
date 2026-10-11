@@ -1,11 +1,13 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import {
+  type SourceChange,
+  SourceChangeError,
+} from "../../domain/workspace-sources/edit.js"
+import {
   changeWorkspaceSource,
   listConnectionUsage,
   listWorkspaceSources,
-  type SourceChange,
-  SourceChangeError,
 } from "../../domain/workspace-sources/service.js"
 import { getWorkspaceBySlug } from "../../models/workspaces.js"
 import {

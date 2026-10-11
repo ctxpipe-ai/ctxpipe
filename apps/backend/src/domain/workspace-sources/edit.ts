@@ -1,13 +1,16 @@
-import YAML, { isMap, isSeq, type YAMLMap, type YAMLSeq } from "yaml"
+import { isMap, isSeq, type YAMLMap, type YAMLSeq } from "yaml"
 import {
   parseSourceEntry,
+  RESERVED_ENTRY_KEYS,
   type SourceEntry,
   type SourceProvider,
   sourceEntryToObject,
+  sourceKeySchema,
   sourcesFileSchema,
 } from "./sources-file.js"
+import { parseSourcesDocument } from "./sources-yaml.js"
 
-export type SourceFileChange =
+export type SourceChange =
   | {
       action: "add"
       sourceKey?: string
@@ -24,9 +27,10 @@ export type SourceFileChange =
     }
   | { action: "remove"; sourceKey: string }
 
-export class SourceFileEditError extends Error {
+/** A change that the route answers with this HTTP status. */
+export class SourceChangeError extends Error {
   constructor(
-    readonly reason: "invalid" | "not_found" | "conflict",
+    readonly status: 400 | 404 | 409,
     message: string,
   ) {
     super(message)
@@ -46,13 +50,35 @@ function freeKey(taken: ReadonlySet<string>, provider: string): string {
   return `${provider}-${suffix}`
 }
 
+/** Refuse a change whose key or scope cannot go into the file (400). */
+export function assertSourceChangeShape(change: SourceChange): void {
+  if (
+    change.action !== "add" &&
+    !sourceKeySchema.safeParse(change.sourceKey).success
+  )
+    throw new SourceChangeError(
+      400,
+      `The id "${change.sourceKey}" is not a valid source id. Fix it in git.`,
+    )
+  if (change.action !== "remove") {
+    const reserved = Object.keys(change.scope).filter((name) =>
+      RESERVED_ENTRY_KEYS.has(name),
+    )
+    if (reserved.length)
+      throw new SourceChangeError(
+        400,
+        `The scope must not set ${reserved.join(", ")}`,
+      )
+  }
+}
+
 /**
  * Apply one source change to the text of `.ctxpipe/sources.yaml`. It keeps
  * the comments and the order of the other entries. `text` null means no file.
  */
 export function applySourceFileChange(
   text: string | null,
-  change: SourceFileChange,
+  change: SourceChange,
 ): {
   text: string
   sourceKey: string
@@ -61,18 +87,22 @@ export function applySourceFileChange(
   /** The provider of the new or removed entry, when it is known. */
   provider: SourceProvider | null
 } {
-  const document = YAML.parseDocument(
-    text?.trim() ? text : "version: 1\nsources: []\n",
-  )
-  if (document.errors.length)
-    throw new SourceFileEditError(
-      "conflict",
-      `The sources file is not valid YAML: ${document.errors[0]?.message}`,
+  assertSourceChangeShape(change)
+  let document: ReturnType<typeof parseSourcesDocument>
+  try {
+    document = parseSourcesDocument(
+      text?.trim() ? text : "version: 1\nsources: []\n",
     )
+  } catch (error) {
+    throw new SourceChangeError(
+      409,
+      `The sources file cannot be read: ${error instanceof Error ? error.message : String(error)}`,
+    )
+  }
   const file = sourcesFileSchema.safeParse(document.toJS())
   if (!file.success)
-    throw new SourceFileEditError(
-      "conflict",
+    throw new SourceChangeError(
+      409,
       "The sources file does not match version 1. Fix it in git first.",
     )
   let sources = document.get("sources")
@@ -89,8 +119,8 @@ export function applySourceFileChange(
 
   if (change.action === "remove") {
     if (index < 0)
-      throw new SourceFileEditError(
-        "not_found",
+      throw new SourceChangeError(
+        404,
         `No source has the id "${change.sourceKey}"`,
       )
     const removed = parseSourceEntry((items[index] as YAMLMap).toJSON())
@@ -108,15 +138,12 @@ export function applySourceFileChange(
       ? change.sourceKey
       : (change.sourceKey ?? freeKey(keys, change.provider))
   if (change.action === "add" && keys.has(sourceKey))
-    throw new SourceFileEditError(
-      "conflict",
+    throw new SourceChangeError(
+      409,
       `A source with the id "${sourceKey}" exists`,
     )
   if (change.action === "edit" && index < 0)
-    throw new SourceFileEditError(
-      "not_found",
-      `No source has the id "${sourceKey}"`,
-    )
+    throw new SourceChangeError(404, `No source has the id "${sourceKey}"`)
   const parsed = parseSourceEntry(
     sourceEntryToObject({
       key: sourceKey,
@@ -125,7 +152,7 @@ export function applySourceFileChange(
       scope: change.scope,
     }),
   )
-  if (!parsed.ok) throw new SourceFileEditError("invalid", parsed.detail)
+  if (!parsed.ok) throw new SourceChangeError(400, parsed.detail)
   const node = document.createNode(sourceEntryToObject(parsed.entry))
   if (index < 0) items.push(node)
   else items[index] = node

@@ -58,7 +58,12 @@ export const sourceConnectionIdSchema = z
   .string()
   .regex(/^con_[A-Za-z0-9_-]+$/, "Use a connection id (con_…)")
 
-const RESERVED_ENTRY_KEYS = new Set(["id", "provider", "connection"])
+/** The generic entry keys; a provider scope must not use them. */
+export const RESERVED_ENTRY_KEYS: ReadonlySet<string> = new Set([
+  "id",
+  "provider",
+  "connection",
+])
 
 /** The generic fields of one entry. The other keys are the provider scope. */
 export const sourceEntryBaseSchema = z.object({
@@ -144,11 +149,16 @@ export function parseSourceEntry(raw: unknown): ParsedSourceEntry {
 export function sourceEntryToObject(
   entry: SourceEntry,
 ): Record<string, unknown> {
+  const scope = Object.fromEntries(
+    Object.entries(entry.scope).filter(
+      ([name]) => !RESERVED_ENTRY_KEYS.has(name),
+    ),
+  )
   return {
     id: entry.key,
     provider: entry.provider,
     connection: entry.connectionId,
-    ...entry.scope,
+    ...scope,
   }
 }
 

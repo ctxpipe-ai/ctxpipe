@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest"
-import { parseSourceEntry, sourcesFileSchema } from "./sources-file.js"
+import {
+  parseSourceEntry,
+  sourceEntryToObject,
+  sourcesFileSchema,
+} from "./sources-file.js"
 
 describe("sources file schema", () => {
   it("accepts version 1 and keeps entries unparsed", () => {
@@ -46,5 +50,28 @@ describe("sources file schema", () => {
 
   it("rejects an entry that is not a map", () => {
     expect(parseSourceEntry("nope")).toMatchObject({ ok: false, key: null })
+  })
+})
+
+describe("sourceEntryToObject", () => {
+  it("keeps the generic fields when the scope names them too", () => {
+    expect(
+      sourceEntryToObject({
+        key: "docs",
+        provider: "notion",
+        connectionId: "con_n1",
+        scope: {
+          id: "evil",
+          provider: "slack",
+          connection: "con_x",
+          pages: [],
+        },
+      }),
+    ).toEqual({
+      id: "docs",
+      provider: "notion",
+      connection: "con_n1",
+      pages: [],
+    })
   })
 })

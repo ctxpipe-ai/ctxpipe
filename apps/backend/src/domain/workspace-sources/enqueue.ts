@@ -6,25 +6,15 @@ import { workspaceSourcesSync } from "../../openworkflow/workflows/workspace-sou
 import type { PlannedSourceRow } from "./projection-plan.js"
 import { type SourceProvider, sourceProviderSchema } from "./sources-file.js"
 
-/** Sync the sources of one connection that match a provider webhook event. */
-export async function fanOutSourceWebhook(input: {
-  orgId: string
-  connectionId: string
-  provider: SourceProvider
-  event: unknown
-}): Promise<void> {
-  assertNotInOrgDbContext()
-  await runWorkflowWithWorkerWake(workspaceSourcesSync.spec, {
-    kind: "connection",
-    ...input,
-  })
-}
-
-/** Sync one connection for all its `ok` sources. */
+/**
+ * Sync one connection for all its `ok` sources. A provider webhook passes its
+ * `event`, and then only the sources that match the event sync.
+ */
 export async function enqueueConnectionSourcesSync(input: {
   orgId: string
   connectionId: string
   provider: SourceProvider
+  event?: unknown
 }): Promise<void> {
   assertNotInOrgDbContext()
   await runWorkflowWithWorkerWake(workspaceSourcesSync.spec, {
@@ -41,6 +31,8 @@ export async function enqueueConnectionSourcesSync(input: {
 export async function enqueueSourceProjectionFollowUps(input: {
   orgId: string
   workspaceId: string
+  /** The Workspace revision of the projection. */
+  revision: string
   projected: {
     added: PlannedSourceRow[]
     changed: Array<{ before: WorkspaceSourceRow; after: PlannedSourceRow }>
@@ -63,6 +55,7 @@ export async function enqueueSourceProjectionFollowUps(input: {
       kind: "cleanup",
       orgId: input.orgId,
       workspaceId: input.workspaceId,
+      revision: input.revision,
       removed,
     })
   const connections = new Map<string, SourceProvider>()

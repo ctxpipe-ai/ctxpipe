@@ -1,5 +1,4 @@
 import { requireCurrentOrgId } from "../../auth/context.js"
-import { parseEnv } from "../../config/env.js"
 import { listOrgConnections } from "../../models/org-connections.js"
 import {
   listConnectionSourceRows,
@@ -7,7 +6,7 @@ import {
   type WorkspaceSourceRow,
 } from "../../models/workspace-sources.js"
 import type { WorkspaceRecord } from "../../models/workspaces.js"
-import { getLogger, log } from "../../observability/logger.js"
+import { getLogger } from "../../observability/logger.js"
 import { enqueueWorkspaceWriteCommit } from "../../openworkflow/enqueue-workspace-write-commit.js"
 import type {
   ConnectionUsageResponse,
@@ -20,16 +19,15 @@ import {
   listOpenPullRequestsByBranchPrefix,
 } from "../../services/github/installation-write-client.js"
 import { workspaceAllowsConversationEdits } from "../workspaces/chat-sandbox-policy.js"
-import {
-  githubRepoFullNameFromWorkspaceUrl,
-  WORKSPACE_WRITE_STATUSES,
-} from "../workspaces/write-status.js"
+import { WORKSPACE_WRITE_STATUSES } from "../workspaces/write-status.js"
 import {
   applySourceFileChange,
-  type SourceFileChange,
-  SourceFileEditError,
+  assertSourceChangeShape,
+  type SourceChange,
+  SourceChangeError,
 } from "./edit.js"
 import { FILE_ERROR_SOURCE_KEY } from "./projection-plan.js"
+import { workspaceGithubRepository } from "./repository.js"
 import {
   SOURCE_SCOPES,
   SOURCES_FILE_PATH,
@@ -37,18 +35,6 @@ import {
   sourceProviderSchema,
   summarizeSourceScope,
 } from "./sources-file.js"
-
-export type SourceChange = SourceFileChange
-
-/** A change that the route maps to an HTTP error. */
-export class SourceChangeError extends Error {
-  constructor(
-    readonly status: 400 | 404 | 409,
-    message: string,
-  ) {
-    super(message)
-  }
-}
 
 /** Source PR branches: `ctxpipe/sources/<action>/<provider>/<key>-<ms>`. */
 const SOURCE_BRANCH_PREFIX = "ctxpipe/sources/"
@@ -62,27 +48,13 @@ function scopeSummary(row: WorkspaceSourceRow): string {
   return summarizeSourceScope(provider.data, row.scope)
 }
 
-function workspaceRepository(workspace: WorkspaceRecord) {
-  const repositoryName = githubRepoFullNameFromWorkspaceUrl(
-    workspace.workspaceRepositoryUrl,
-  )
-  if (!repositoryName || !workspace.githubConnectionId) return null
-  return {
-    orgId: workspace.orgId,
-    env: parseEnv(process.env),
-    repositoryName,
-    githubConnectionId: workspace.githubConnectionId,
-    branch: workspace.desiredDefaultBranch ?? "main",
-  }
-}
-
 /**
  * Every org member who can open the Workspace can change it (no Workspace
  * roles yet). A PR needs a connected repository that ctx| can push a branch
  * to; a direct commit also needs an unprotected default branch.
  */
 function editPolicy(workspace: WorkspaceRecord) {
-  const connected = workspaceRepository(workspace) !== null
+  const connected = workspaceGithubRepository(workspace) !== null
   return {
     canEdit:
       connected &&
@@ -96,7 +68,7 @@ function editPolicy(workspace: WorkspaceRecord) {
 }
 
 async function pendingChanges(workspace: WorkspaceRecord) {
-  const repository = workspaceRepository(workspace)
+  const repository = workspaceGithubRepository(workspace)
   if (!repository) return []
   try {
     const pulls = await listOpenPullRequestsByBranchPrefix({
@@ -119,10 +91,10 @@ async function pendingChanges(workspace: WorkspaceRecord) {
     })
   } catch (error) {
     // The list still shows the projection when GitHub cannot answer.
-    log.warn({
+    getLogger().warn("Could not list the source pull requests", {
       step: "workspace_sources.pending_changes",
       workspaceId: workspace.id,
-      message: error instanceof Error ? error.message : String(error),
+      error: error instanceof Error ? error.message : String(error),
     })
     return []
   }
@@ -208,7 +180,8 @@ export async function changeWorkspaceSource(input: {
   delivery: "pull_request" | "commit"
 }): Promise<WorkspaceSourceChangeResult> {
   const { workspace, change } = input
-  const repository = workspaceRepository(workspace)
+  assertSourceChangeShape(change)
+  const repository = workspaceGithubRepository(workspace)
   if (!repository)
     throw new SourceChangeError(
       409,
@@ -232,20 +205,7 @@ export async function changeWorkspaceSource(input: {
     ...repository,
     path: SOURCES_FILE_PATH,
   })
-  let next: ReturnType<typeof applySourceFileChange>
-  try {
-    next = applySourceFileChange(current ?? null, change)
-  } catch (error) {
-    if (!(error instanceof SourceFileEditError)) throw error
-    throw new SourceChangeError(
-      error.reason === "invalid"
-        ? 400
-        : error.reason === "not_found"
-          ? 404
-          : 409,
-      error.message,
-    )
-  }
+  const next = applySourceFileChange(current ?? null, change)
 
   if (input.delivery === "commit") {
     const admitted = await enqueueWorkspaceWriteCommit(

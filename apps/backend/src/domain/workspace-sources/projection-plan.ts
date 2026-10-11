@@ -1,4 +1,3 @@
-import YAML from "yaml"
 import {
   parseSourceEntry,
   SOURCE_SCOPES,
@@ -7,6 +6,7 @@ import {
   type SourceStatus,
   sourcesFileSchema,
 } from "./sources-file.js"
+import { parseSourcesYaml } from "./sources-yaml.js"
 
 /** The reserved key of the row that records a file-level error. */
 export const FILE_ERROR_SOURCE_KEY = ".file"
@@ -53,11 +53,9 @@ export async function planSourceRows(input: {
   if (input.text === null) return []
   let document: unknown
   try {
-    document = YAML.parse(input.text)
+    document = parseSourcesYaml(input.text)
   } catch (error) {
-    return fileError(
-      `The file is not valid YAML: ${error instanceof Error ? error.message : String(error)}`,
-    )
+    return fileError(error instanceof Error ? error.message : String(error))
   }
   if (document === null || document === undefined) return []
   const file = sourcesFileSchema.safeParse(document)

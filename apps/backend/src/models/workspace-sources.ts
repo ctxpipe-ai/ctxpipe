@@ -125,30 +125,3 @@ export async function listConnectionSourceRows(input: {
       .orderBy(workspaces.slug, workspaceSources.sourceKey),
   )
 }
-
-/**
- * Mark the sources of a removed connection as `connection_missing`. The file
- * stays; the next projection after a reconnect sets them back.
- */
-export async function markConnectionSourcesMissing(input: {
-  orgId: string
-  connectionId: string
-}): Promise<number> {
-  const updated = await withOrgDbContext(input.orgId, (db) =>
-    db
-      .update(workspaceSources)
-      .set({
-        status: "connection_missing",
-        statusDetail: "The connection was removed",
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(workspaceSources.connectionId, input.connectionId),
-          inArray(workspaceSources.status, ["ok", "out_of_access"]),
-        ),
-      )
-      .returning({ id: workspaceSources.id }),
-  )
-  return updated.length
-}

@@ -100,10 +100,7 @@ export async function assertConnectorMirrorScope(
 }
 
 /** The blob id of `path` at the pack's commit, or null when it is absent. */
-export async function blobShaAt(
-  pack: GitPack,
-  path: string,
-): Promise<string | null> {
+async function blobShaAt(pack: GitPack, path: string): Promise<string | null> {
   return withGitDirectory(
     pack.sha,
     async (directory) => {

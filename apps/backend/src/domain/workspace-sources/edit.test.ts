@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { applySourceFileChange, SourceFileEditError } from "./edit.js"
+import { applySourceFileChange, SourceChangeError } from "./edit.js"
 
 const base = `# Sources of this Workspace
 version: 1
@@ -67,7 +67,7 @@ describe("applySourceFileChange", () => {
       try {
         fn()
       } catch (error) {
-        if (error instanceof SourceFileEditError) return error.reason
+        if (error instanceof SourceChangeError) return error.status
       }
       return null
     }
@@ -75,7 +75,7 @@ describe("applySourceFileChange", () => {
       reason(() =>
         applySourceFileChange(base, { action: "remove", sourceKey: "nope" }),
       ),
-    ).toBe("not_found")
+    ).toBe(404)
     expect(
       reason(() =>
         applySourceFileChange(base, {
@@ -86,7 +86,7 @@ describe("applySourceFileChange", () => {
           scope: {},
         }),
       ),
-    ).toBe("conflict")
+    ).toBe(409)
     expect(
       reason(() =>
         applySourceFileChange(base, {
@@ -97,7 +97,7 @@ describe("applySourceFileChange", () => {
           scope: {},
         }),
       ),
-    ).toBe("invalid")
+    ).toBe(400)
     expect(
       reason(() =>
         applySourceFileChange("version: 9\n", {
@@ -105,6 +105,36 @@ describe("applySourceFileChange", () => {
           sourceKey: "x",
         }),
       ),
-    ).toBe("conflict")
+    ).toBe(409)
+  })
+
+  it("refuses reserved keys in the scope and oversized or alias-heavy files", () => {
+    const reason = (fn: () => unknown) => {
+      try {
+        fn()
+      } catch (error) {
+        if (error instanceof SourceChangeError) return error.status
+      }
+      return null
+    }
+    const add = {
+      action: "add" as const,
+      provider: "linear" as const,
+      connectionId: "con_linear1",
+      scope: { id: "other" },
+    }
+    expect(reason(() => applySourceFileChange(base, add))).toBe(400)
+    expect(
+      reason(() =>
+        applySourceFileChange(`${base}# ${"x".repeat(300_000)}\n`, {
+          ...add,
+          scope: {},
+        }),
+      ),
+    ).toBe(409)
+    const aliases = `version: 1\nsources: []\nbomb: &a [x]\nmore: [${Array.from({ length: 200 }, () => "*a").join(", ")}]\n`
+    expect(
+      reason(() => applySourceFileChange(aliases, { ...add, scope: {} })),
+    ).toBe(409)
   })
 })

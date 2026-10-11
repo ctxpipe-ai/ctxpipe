@@ -42,6 +42,11 @@ export async function seedSourcesOrg(name: string) {
       )
       return id
     },
+    async removeConnection(id: string) {
+      await withOrgDbContext(orgId, (db) =>
+        db.delete(connections).where(eq(connections.id, id)),
+      )
+    },
     async addWorkspace(slug: string, url?: string) {
       const id = `ws_${slug.replaceAll("-", "_")}_${suffix}`
       const repositoryUrl =

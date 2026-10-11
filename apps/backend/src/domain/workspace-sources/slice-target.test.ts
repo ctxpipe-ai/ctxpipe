@@ -1,0 +1,59 @@
+import { execFile } from "node:child_process"
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { dirname, join } from "node:path"
+import { promisify } from "node:util"
+import { afterEach, describe, expect, it } from "vitest"
+import { readSliceTarget } from "./slice-target.js"
+
+const git = promisify(execFile)
+let dir: string
+
+afterEach(async () => {
+  await rm(dir, { recursive: true, force: true })
+})
+
+async function commit(files: Record<string, string>): Promise<string> {
+  for (const [path, content] of Object.entries(files)) {
+    await mkdir(dirname(join(dir, path)), { recursive: true })
+    await writeFile(join(dir, path), content)
+  }
+  await git("git", ["-C", dir, "add", "-A"])
+  await git("git", ["-C", dir, "commit", "-m", "change"])
+  return (await git("git", ["-C", dir, "rev-parse", "HEAD"])).stdout.trim()
+}
+
+describe("readSliceTarget", () => {
+  it("is fresh only while the head has the sources file of the rows' revision", async () => {
+    dir = await mkdtemp(join(tmpdir(), "ctxpipe-slice-target-"))
+    await git("git", ["init", "-b", "main", dir])
+    await git("git", ["-C", dir, "config", "user.email", "dev@example.com"])
+    await git("git", ["-C", dir, "config", "user.name", "Dev"])
+    const rows = await commit({
+      ".ctxpipe/sources.yaml": "version: 1\nsources: []\n",
+      "confluence/ENG/home.md": "# ENG\n",
+    })
+    const unrelated = await commit({ "notes.md": "hello\n" })
+    const fresh = await readSliceTarget({
+      url: dir,
+      headSha: unrelated,
+      rowsRevision: rows,
+    })
+    expect(fresh.fresh).toBe(true)
+    expect(fresh.paths).toContain("confluence/ENG/home.md")
+    expect(fresh.sourcesBlobSha).toMatch(/^[0-9a-f]{40}$/)
+
+    const changed = await commit({
+      ".ctxpipe/sources.yaml": "version: 1\nsources: [{id: x}]\n",
+    })
+    expect(
+      (
+        await readSliceTarget({
+          url: dir,
+          headSha: changed,
+          rowsRevision: rows,
+        })
+      ).fresh,
+    ).toBe(false)
+  })
+})

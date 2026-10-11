@@ -12,7 +12,6 @@ import type { PlannedSourceRow } from "../domain/workspace-sources/projection-pl
 import {
   listConnectionSourceRows,
   listWorkspaceSourceRows,
-  markConnectionSourcesMissing,
   replaceWorkspaceSourceRows,
 } from "./workspace-sources.js"
 
@@ -124,13 +123,6 @@ describe("workspace_sources (Postgres)", () => {
         source: { sourceKey: "eng-issues" },
       },
     ])
-  })
-
-  it("marks the sources of a removed connection as connection_missing", async () => {
-    expect(await markConnectionSourcesMissing({ orgId, connectionId })).toBe(1)
-    expect(await markConnectionSourcesMissing({ orgId, connectionId })).toBe(0)
-    const [only] = await listWorkspaceSourceRows({ orgId, workspaceId })
-    expect(only?.status).toBe("connection_missing")
   })
 
   it("isolates rows by organization (RLS)", async () => {

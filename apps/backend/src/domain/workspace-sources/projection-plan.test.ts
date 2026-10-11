@@ -82,4 +82,17 @@ sources:
       statusDetail: "Space ENG is not in this site",
     })
   })
+
+  it("records a file error for an oversized file or too many aliases", async () => {
+    const [big] = await planSourceRows({
+      text: `version: 1\nsources: []\n# ${"x".repeat(300_000)}\n`,
+      connections,
+    })
+    expect(big?.statusDetail).toContain("larger than")
+    const [bomb] = await planSourceRows({
+      text: `version: 1\nsources: []\nbomb: &a [x]\nmore: [${Array.from({ length: 200 }, () => "*a").join(", ")}]\n`,
+      connections,
+    })
+    expect(bomb).toMatchObject({ sourceKey: ".file", status: "invalid" })
+  })
 })

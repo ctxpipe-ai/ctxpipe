@@ -6,8 +6,8 @@ import {
 import {
   createPullRequestWithFiles,
   getFileContent,
+  listOpenPullRequestsByBranchPrefix,
 } from "../../services/github/installation-write-client.js"
-import { githubRepoFullNameFromWorkspaceUrl } from "../workspaces/write-status.js"
 import { applySourceFileChange } from "./edit.js"
 import {
   planSourceMigration,
@@ -15,7 +15,10 @@ import {
   type SourceMigrationHook,
   type SourceMigrationReport,
 } from "./migration-plan.js"
+import { workspaceGithubRepository } from "./repository.js"
 import { SOURCES_FILE_PATH, type SourceProvider } from "./sources-file.js"
+
+const MIGRATION_BRANCH_PREFIX = "ctxpipe/sources/migrate"
 
 /**
  * Migrate the connections of one org to Workspace sources (ADR-050): one PR
@@ -30,7 +33,12 @@ export async function runSourceMigration(input: {
   hooks?: Partial<Record<SourceProvider, SourceMigrationHook>>
 }): Promise<
   SourceMigrationReport & {
-    pullRequests: Array<{ workspaceId: string; pullRequestUrl: string }>
+    pullRequests: Array<{
+      workspaceId: string
+      pullRequestUrl: string
+      /** True when an open migration PR existed, so none was opened. */
+      existing: boolean
+    }>
     failures: Array<{ workspaceId: string; error: string }>
   }
 > {
@@ -44,19 +52,10 @@ export async function runSourceMigration(input: {
   ).flat()
   const workspaces = await Promise.all(
     (await listOrgWorkspaces(input.orgId)).map(async (workspace) => {
-      const repositoryName = githubRepoFullNameFromWorkspaceUrl(
-        workspace.workspaceRepositoryUrl,
+      const repository = workspaceGithubRepository(
+        { ...workspace, orgId: input.orgId },
+        input.env,
       )
-      const repository =
-        repositoryName && workspace.githubConnectionId
-          ? {
-              orgId: input.orgId,
-              env: input.env,
-              repositoryName,
-              githubConnectionId: workspace.githubConnectionId,
-              branch: workspace.desiredDefaultBranch ?? "main",
-            }
-          : null
       return {
         ...workspace,
         repository,
@@ -74,8 +73,11 @@ export async function runSourceMigration(input: {
     linked: await listOrgLinkedRepositories(input.orgId),
     bindings,
   })
-  const pullRequests: Array<{ workspaceId: string; pullRequestUrl: string }> =
-    []
+  const pullRequests: Array<{
+    workspaceId: string
+    pullRequestUrl: string
+    existing: boolean
+  }> = []
   const failures: Array<{ workspaceId: string; error: string }> = []
   for (const [workspaceId, changes] of plan.changes) {
     const workspace = workspaces.find((item) => item.id === workspaceId)
@@ -86,16 +88,32 @@ export async function runSourceMigration(input: {
       for (const change of changes)
         text = applySourceFileChange(text, change).text
       if (!input.apply || text === null) continue
+      const [open] = await listOpenPullRequestsByBranchPrefix({
+        ...workspace.repository,
+        branchPrefix: MIGRATION_BRANCH_PREFIX,
+      })
+      if (open) {
+        pullRequests.push({
+          workspaceId,
+          pullRequestUrl: open.pullUrl,
+          existing: true,
+        })
+        continue
+      }
       const pull = await createPullRequestWithFiles({
         ...workspace.repository,
         baseBranch: workspace.repository.branch,
-        featureBranchPrefix: "ctxpipe/sources/migrate",
+        featureBranchPrefix: MIGRATION_BRANCH_PREFIX,
         title: "Move connector sources into .ctxpipe/sources.yaml",
         body: `ctx| now reads the sources of this Workspace from \`${SOURCES_FILE_PATH}\`. This PR adds ${changes.length} source(s) from the existing connector settings. Old mirrored content stays where it is.`,
         commitMessage: "Move connector sources into .ctxpipe/sources.yaml",
         files: [{ path: SOURCES_FILE_PATH, content: text }],
       })
-      pullRequests.push({ workspaceId, pullRequestUrl: pull.pullUrl })
+      pullRequests.push({
+        workspaceId,
+        pullRequestUrl: pull.pullUrl,
+        existing: false,
+      })
     } catch (error) {
       failures.push({
         workspaceId,

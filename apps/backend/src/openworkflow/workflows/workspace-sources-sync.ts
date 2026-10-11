@@ -25,6 +25,7 @@ export const workspaceSourcesSyncInputSchema = z.discriminatedUnion("kind", [
       kind: z.literal("cleanup"),
       orgId: z.string().min(1),
       workspaceId: z.string().min(1),
+      revision: z.string().min(1),
       removed: z.array(
         z.object({
           provider: z.string().nullable(),
@@ -53,6 +54,7 @@ export const workspaceSourcesSync = defineWorkflow(
           await cleanupRemovedSources({
             orgId: input.orgId,
             workspaceId: input.workspaceId,
+            revision: input.revision,
             removed: input.removed,
             adapters: SOURCE_ADAPTERS,
             write,
