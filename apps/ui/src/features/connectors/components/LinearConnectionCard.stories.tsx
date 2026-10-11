@@ -214,8 +214,11 @@ export const RevokedDraft: Story = {
   },
 }
 
-/** The server set a working row back to draft; it still holds the grant. */
-export const ResetToDraft: Story = {
+/**
+ * A connection from the Workspace sources flow has no sync repository and
+ * stays in the "draft" setup phase. It is connected and has no setup action.
+ */
+export const ConnectedWithoutSyncRepository: Story = {
   parameters: {
     msw: {
       handlers: {
@@ -231,49 +234,10 @@ export const ResetToDraft: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await canvas.findByText("Setup not finished")
-    await userEvent.click(
-      canvas.getByRole("button", { name: "Remove Linear setup" }),
-    )
-    const dialog = await screen.findByRole("alertdialog")
-    await within(dialog).findByText(
-      /deletes the Linear connection and its access grant/,
-    )
-  },
-}
-
-export const SyncFailed: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [statusHandler({ ...connected, setupPhase: "sync_failed" })],
-      },
-    },
-  },
-}
-
-export const ConfigurationPullRequestFailed: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [statusHandler({ ...connected, setupPhase: "config_failed" })],
-      },
-    },
-  },
-}
-
-export const AwaitingMerge: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          statusHandler({
-            ...connected,
-            setupPhase: "awaiting_merge",
-            pendingConfigPullUrl: "https://github.com/acme/context/pull/42",
-          }),
-        ],
-      },
-    },
+    await canvas.findByText("Connected")
+    await expect(canvas.queryByText("Setup not finished")).toBeNull()
+    await expect(
+      canvas.queryByRole("button", { name: "Connect Linear" }),
+    ).toBeNull()
   },
 }

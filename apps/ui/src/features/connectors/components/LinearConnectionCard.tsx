@@ -1,19 +1,13 @@
 "use client"
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useNavigate } from "@tanstack/react-router"
 import { toast } from "sonner"
 import { ConnectorUsedIn } from "@/features/workspace-sources/ConnectorUsedIn"
 import {
   formatSelectedItemCount,
   resolveConnectorHealth,
 } from "../connectorHealth"
-import {
-  getLinearCardPrimaryCta,
-  getLinearSetupCurrentIndex,
-  getLinearSetupSteps,
-  getLinearStatusRefetchInterval,
-} from "../linear-setup-model"
+import { getLinearCardPrimaryCta } from "../linear-setup-model"
 import {
   deleteLinearConnector,
   fetchLinearConnectorStatus,
@@ -31,7 +25,7 @@ import { LinearMark } from "./LinearMark"
 type LinearConnectionCardProps = {
   orgSlug: string
   connectionId: string
-  onOpenWizard: (manageScope: boolean) => void
+  onOpenWizard: () => void
 }
 
 export function LinearConnectionCard({
@@ -39,15 +33,10 @@ export function LinearConnectionCard({
   connectionId,
   onOpenWizard,
 }: LinearConnectionCardProps) {
-  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const statusQuery = useQuery({
     queryKey: linearConnectorKeys.status(orgSlug, connectionId),
     queryFn: () => fetchLinearConnectorStatus(orgSlug, connectionId),
-    refetchInterval: (query) =>
-      query.state.status === "error"
-        ? false
-        : getLinearStatusRefetchInterval(query.state.data),
   })
   const oauthQuery = useQuery({
     queryKey: linearConnectorKeys.oauthApp(orgSlug, connectionId),
@@ -71,18 +60,13 @@ export function LinearConnectionCard({
 
   const status = statusQuery.data
   const oauthMeta = oauthQuery.data
-  const complete = status
-    ? getLinearSetupCurrentIndex(status, oauthMeta) >=
-      getLinearSetupSteps(oauthMeta).length
-    : false
   const primary = status ? getLinearCardPrimaryCta(status, oauthMeta) : null
   const health = resolveConnectorHealth({
     installationStatus: status?.installationStatus,
     statusError: statusQuery.isError,
     checking: statusQuery.isPending || !status,
-    setupPhase: status?.setupPhase,
-    connected: complete,
-    draft: status?.setupPhase === "draft",
+    connected: Boolean(status?.isInstalled),
+    draft: !status?.isInstalled,
   })
 
   return (
@@ -99,7 +83,7 @@ export function LinearConnectionCard({
       health={health}
       remove={{
         description:
-          "This removes the Linear authorization and repository binding from the connection. Scope configuration and mirrored files already committed to Git are not deleted.",
+          "This removes the Linear authorization. Its Workspace sources stop syncing. The sources.yaml entries and the files already committed to Git stay.",
         onConfirm: () => removeMutation.mutate(),
       }}
       workspace={connectorDash(status?.workspaceName)}
@@ -118,40 +102,10 @@ export function LinearConnectionCard({
         statusQuery.isError
           ? () => void statusQuery.refetch()
           : primary
-            ? () => {
-                if (primary.kind === "navigate_repositories") {
-                  void navigate({
-                    to: "/$orgSlug/connectors",
-                    params: { orgSlug },
-                    search: {
-                      error: undefined,
-                      error_description: undefined,
-                      pendingAccountClaim: undefined,
-                      notionConnectionId: undefined,
-                    },
-                  })
-                } else {
-                  onOpenWizard(primary.kind === "manage_scope")
-                }
-              }
+            ? onOpenWizard
             : undefined
       }
     >
-      {status?.setupPhase === "initial_sync" ? (
-        <p className="text-sm text-muted-foreground">
-          Mirroring Linear content to Git.
-        </p>
-      ) : null}
-      {status?.setupPhase === "sync_failed" ? (
-        <p className="text-sm text-muted-foreground">
-          Content mirror failed. Open setup to retry.
-        </p>
-      ) : null}
-      {status?.setupPhase === "config_failed" ? (
-        <p className="text-sm text-muted-foreground">
-          Configuration pull request failed. Open setup to retry.
-        </p>
-      ) : null}
       {statusQuery.isError ? (
         <p className="text-sm text-muted-foreground">
           Status request failed. Retry, or open setup if this persists.
