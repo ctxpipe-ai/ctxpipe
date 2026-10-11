@@ -32,6 +32,8 @@ export const requiredStories = [
   "OrgGateTryAgainLoads",
   "LoadingUnderReducedMotion",
   "DoubleClickMovesOneSlide",
+  "ChatProgressDone",
+  "ChatProgressLogExpanded",
 ]
 
 export function isGoldenPlaySuccess(phase) {
