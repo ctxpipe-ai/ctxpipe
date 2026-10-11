@@ -222,8 +222,14 @@ async function openSession(
       `/conversations/${conversationId}/files/status`,
     )
     expect(response.status).toBe(200)
-    return (await response.json()) as { unpushed: boolean }
+    return (await response.json()) as {
+      unpushed: boolean
+      items: Array<{ path: string; status: string }>
+    }
   }
+  /** The Files pane's changed files: only this conversation's own work. */
+  const changes = async () =>
+    (await status()).items.map((item) => `${item.status} ${item.path}`).sort()
   const post = (path: string, body?: unknown) =>
     app.request(`/conversations/${conversationId}/${path}`, {
       method: "POST",
@@ -247,6 +253,7 @@ async function openSession(
     humanCommit,
     advanceDefault,
     status,
+    changes,
     commitPush: () => post("push"),
     createPr: (title: string) => post("pull-request", { title }),
     pullRequests,
@@ -642,6 +649,7 @@ it(
       const moved = await s.advanceDefault("default.md", "# Default moved\n")
       handle = await s.warm()
       await s.agentCommit(handle, "two.md", "Add note two")
+      expect(await s.changes()).toEqual(["added one.md", "added two.md"])
       expect((await s.commitPush()).status).toBe(200)
       expect(s.remote("merge-base", "--is-ancestor", moved, s.branch)).toBe("")
       expect(s.remoteLog()).toBe("Add note two\nAdd note one")
@@ -716,6 +724,7 @@ it(
         ).exitCode,
       ).toBe(0)
       expect(await handle.fs.read("one.md")).toBe("# Add note one\n")
+      expect(await s.changes()).toEqual(["added one.md"])
       await s.agentCommit(handle, "two.md", "Add note two")
       expect((await s.commitPush()).status).toBe(200)
       expect(s.remote("merge-base", "--is-ancestor", moved, s.branch)).toBe("")
@@ -976,6 +985,8 @@ it(
       )
       expect(await s.conversation()).toMatchObject({ lastBranch: next })
       expect(s.remoteLog(next)).toBe("")
+      // The merged note is on the default now, not a change of this branch.
+      expect(await s.changes()).toEqual([])
     })
   },
 )
@@ -1016,6 +1027,7 @@ it(
         lastBranch: next,
         lastChatPrNumber: null,
       })
+      expect(await s.changes()).toEqual(["modified one.md"])
       expect((await s.commitPush()).status).toBe(200)
       expect(s.remoteLog(next)).toBe("Note one, edited")
     })

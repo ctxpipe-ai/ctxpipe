@@ -24,6 +24,16 @@ export function splitGitNulPaths(stdout: string): string[] {
  * the sandbox builds on. Prints one commit, or nothing. The Files status, the
  * push and the deletion sweep all use this test.
  */
+/**
+ * The commit this conversation's changes are counted from: the default
+ * commit the sandbox builds on. The checkout, the revision update, and the
+ * rotation after a merged PR keep `refs/remotes/ctxpipe/base` current; the
+ * local default branch can stay behind. An older sandbox without that ref
+ * uses the local default branch.
+ */
+const CONVERSATION_BASE =
+  '$(git rev-parse -q --verify refs/remotes/ctxpipe/base || printf %s "refs/heads/$CTXPIPE_DEFAULT_BRANCH")'
+
 export const UNPUSHED_COMMITS_COMMAND =
   "git rev-list -n 1 HEAD --branches --not --remotes"
 
@@ -329,7 +339,7 @@ export async function conversationSandboxStatus(input: {
     execGitOk(input.handle.exec, "git diff --numstat HEAD"),
     execGit(
       input.handle.exec,
-      'git rev-list --left-right --count "refs/heads/$CTXPIPE_DEFAULT_BRANCH"...HEAD',
+      `git rev-list --left-right --count "${CONVERSATION_BASE}...HEAD"`,
       { CTXPIPE_DEFAULT_BRANCH: input.defaultBranch },
     ),
     execGit(
@@ -343,7 +353,7 @@ export async function conversationSandboxStatus(input: {
     // base branch, compare with HEAD.
     execGitOk(
       input.handle.exec,
-      'base=$(git merge-base "refs/heads/$CTXPIPE_DEFAULT_BRANCH" HEAD 2>/dev/null || git rev-parse HEAD) && git diff --no-renames --name-status --diff-filter=ADM -z "$base"',
+      `base=$(git merge-base "${CONVERSATION_BASE}" HEAD 2>/dev/null || git rev-parse HEAD) && git diff --no-renames --name-status --diff-filter=ADM -z "$base"`,
       { CTXPIPE_DEFAULT_BRANCH: input.defaultBranch },
     ),
   ])
@@ -401,7 +411,7 @@ export async function conversationSandboxDiff(input: {
   const [committed, unstaged, untracked, listed] = await Promise.all([
     execGitOk(
       input.handle.exec,
-      'git diff --name-only -z "refs/heads/$CTXPIPE_DEFAULT_BRANCH"...HEAD',
+      `git diff --name-only -z "${CONVERSATION_BASE}...HEAD"`,
       { CTXPIPE_DEFAULT_BRANCH: input.defaultBranch },
     ),
     execGitOk(input.handle.exec, "git diff --name-only -z HEAD"),
@@ -423,7 +433,7 @@ export async function conversationSandboxDiff(input: {
   for (const path of [...paths].sort()) {
     const oldResult = await execGit(
       input.handle.exec,
-      'git show "refs/heads/$CTXPIPE_DEFAULT_BRANCH:$CTXPIPE_FILE_PATH"',
+      `git show "${CONVERSATION_BASE}:$CTXPIPE_FILE_PATH"`,
       {
         CTXPIPE_DEFAULT_BRANCH: input.defaultBranch,
         CTXPIPE_FILE_PATH: path,
