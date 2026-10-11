@@ -38,7 +38,9 @@ describe("Workspace sources HTTP routes (Postgres + git)", () => {
   })
 
   it("lists sources, lists Used in for a connection, and refuses a change without GitHub", async () => {
-    const slack = await seed.addConnection("slack")
+    const slack = await seed.addConnection("slack", {
+      teamName: "Acme Support",
+    })
     const workspaceId = await seed.addWorkspace("support")
     const repo = await seed.gitRepository()
     const sha = await repo.commit({
@@ -72,6 +74,8 @@ sources:
       path: ".ctxpipe/sources.yaml",
       revision: sha,
       fileError: null,
+      canEdit: false,
+      directCommitAllowed: false,
       pendingChanges: [],
     })
     expect(
@@ -83,6 +87,7 @@ sources:
       ["broken", "invalid"],
       ["support-channels", "ok"],
     ])
+    expect(body.items[1].connectionName).toBe("Acme Support")
 
     const usage = await app.request(
       `/${seed.orgId}/api/v1/connectors/${slack}/workspaces`,

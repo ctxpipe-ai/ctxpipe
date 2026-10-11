@@ -59,6 +59,10 @@ export const WorkspaceSourceListResponseSchema = z
     /** A file-level error (bad YAML, wrong version). Entries are then empty. */
     fileError: z.string().nullable(),
     items: z.array(WorkspaceSourceSchema),
+    /** The user can change this Workspace's sources (by PR at least). */
+    canEdit: z.boolean(),
+    /** The Workspace accepts a direct commit of the file (delivery `commit`). */
+    directCommitAllowed: z.boolean(),
     /** Open PRs that change the file ("awaiting merge"). Join on `sourceKey`. */
     pendingChanges: z.array(PendingSourceChangeSchema),
   })

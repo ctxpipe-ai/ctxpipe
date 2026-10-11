@@ -16,7 +16,10 @@ Plan: [plan.md](plan.md).
   - `GET  /:orgSlug/api/v1/connectors/:connectionId/workspaces`
 - A change returns `{ outcome: "pull_request", pullRequestUrl }` (awaiting merge) or `{ outcome: "commit_queued" }` (the Workspace write queue commits it).
 - Pending PRs come back in `pendingChanges` (join on `sourceKey`). Their branch is `ctxpipe/sources/<action>/<provider>/<key>-<ms>`.
-- `connectionName` is null for now (connections have no display name).
+- Additive changes for the phase 1B gaps:
+  - `GET /connectors` items have `displayName: string | null` (GitHub account, Confluence site host, Slack team, Linear or Notion workspace, PagerDuty account). The source list fills `connectionName` from it.
+  - The source list has `canEdit` (a connected repository that ctx| can write, by PR at least) and `directCommitAllowed` (the default branch is writable, not protected). Every org member who can open the Workspace may edit; there are no Workspace roles yet.
+  - A change with delivery `commit` gets 409 when `directCommitAllowed` is false; any change gets 409 when `canEdit` is false.
 
 ## Steps
 
@@ -25,5 +28,5 @@ Plan: [plan.md](plan.md).
 3. `workspace_sources` table, migration, model, RLS tests: done.
 4. Projection: done (hydrate step `project-workspace-sources`).
 5. Edit API: done.
-6. Sync frame and webhook fan-out: to do.
-7. Migration framework: to do.
+6. Sync frame and webhook fan-out: done (`workspace-sources-sync` workflow, `SourceAdapter`, `fanOutSourceWebhook`, fake adapter in `src/test/fake-source-adapter.ts`).
+7. Migration framework: done (`SourceMigrationHook`, `pnpm --filter @ctxpipe/backend migrate-workspace-sources --org <id> [--apply]`).

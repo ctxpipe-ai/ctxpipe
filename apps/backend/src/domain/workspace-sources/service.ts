@@ -19,7 +19,11 @@ import {
   getFileContent,
   listOpenPullRequestsByBranchPrefix,
 } from "../../services/github/installation-write-client.js"
-import { githubRepoFullNameFromWorkspaceUrl } from "../workspaces/write-status.js"
+import { workspaceAllowsConversationEdits } from "../workspaces/chat-sandbox-policy.js"
+import {
+  githubRepoFullNameFromWorkspaceUrl,
+  WORKSPACE_WRITE_STATUSES,
+} from "../workspaces/write-status.js"
 import {
   applySourceFileChange,
   type SourceFileChange,
@@ -72,6 +76,25 @@ function workspaceRepository(workspace: WorkspaceRecord) {
   }
 }
 
+/**
+ * Every org member who can open the Workspace can change it (no Workspace
+ * roles yet). A PR needs a connected repository that ctx| can push a branch
+ * to; a direct commit also needs an unprotected default branch.
+ */
+function editPolicy(workspace: WorkspaceRecord) {
+  const connected = workspaceRepository(workspace) !== null
+  return {
+    canEdit:
+      connected &&
+      workspaceAllowsConversationEdits(
+        workspace.writeStatus,
+        workspace.readOnlyReason,
+      ),
+    directCommitAllowed:
+      connected && workspace.writeStatus === WORKSPACE_WRITE_STATUSES.writable,
+  }
+}
+
 async function pendingChanges(workspace: WorkspaceRecord) {
   const repository = workspaceRepository(workspace)
   if (!repository) return []
@@ -113,12 +136,15 @@ export async function listWorkspaceSources(
     workspaceId: workspace.id,
   })
   // A removed connection shows as missing before the next projection.
-  const connected = new Set(
-    (await listOrgConnections(workspace.orgId)).map((item) => item.id),
+  const names = new Map(
+    (await listOrgConnections(workspace.orgId)).map((item) => [
+      item.id,
+      item.displayName,
+    ]),
   )
   const rows = projected.map((row) =>
     row.connectionId &&
-    !connected.has(row.connectionId) &&
+    !names.has(row.connectionId) &&
     (row.status === "ok" || row.status === "out_of_access")
       ? {
           ...row,
@@ -138,7 +164,9 @@ export async function listWorkspaceSources(
         sourceKey: row.sourceKey,
         provider: sourceProviderSchema.safeParse(row.provider).data ?? null,
         connectionId: row.connectionId,
-        connectionName: null,
+        connectionName: row.connectionId
+          ? (names.get(row.connectionId) ?? null)
+          : null,
         scope: row.scope,
         scopeSummary: scopeSummary(row),
         status: row.status,
@@ -146,6 +174,7 @@ export async function listWorkspaceSources(
         revision: row.revision,
         updatedAt: row.updatedAt.toISOString(),
       })),
+    ...editPolicy(workspace),
     pendingChanges: await pendingChanges(workspace),
   }
 }
@@ -184,6 +213,14 @@ export async function changeWorkspaceSource(input: {
     throw new SourceChangeError(
       409,
       "This Workspace has no connected GitHub repository",
+    )
+  const policy = editPolicy(workspace)
+  if (!policy.canEdit)
+    throw new SourceChangeError(409, "This Workspace is read-only")
+  if (input.delivery === "commit" && !policy.directCommitAllowed)
+    throw new SourceChangeError(
+      409,
+      "This Workspace does not accept a direct commit. Use a pull request.",
     )
   if (change.action !== "remove")
     await assertConnection(

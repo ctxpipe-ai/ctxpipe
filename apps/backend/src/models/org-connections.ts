@@ -13,8 +13,32 @@ import { isEmptyPagerdutySetupDraft } from "./pagerduty-connector.js"
 export type OrgConnectionListItem = {
   id: string
   type: ConnectionType
+  /** The account, site, or workspace name that the provider gives. */
+  displayName: string | null
   createdAt: Date
   updatedAt: Date
+}
+
+const DISPLAY_NAME_KEYS: Record<ConnectionType, readonly string[]> = {
+  github: ["accountSlug"],
+  forge: ["confluenceSiteHost"],
+  slack: ["teamName"],
+  linear: ["workspaceName"],
+  notion: ["workspaceName"],
+  pagerduty: ["accountName", "accountSubdomain"],
+}
+
+/** Read only the non-secret name keys of a connection config. */
+export function connectionDisplayName(
+  type: ConnectionType,
+  config: unknown,
+): string | null {
+  if (!config || typeof config !== "object") return null
+  for (const key of DISPLAY_NAME_KEYS[type] ?? []) {
+    const value = (config as Record<string, unknown>)[key]
+    if (typeof value === "string" && value.trim()) return value.trim()
+  }
+  return null
 }
 
 /**
@@ -64,5 +88,8 @@ export async function listOrgConnections(
   })
   return rows
     .filter((row) => !isEmptySetupDraft(row.type, row.config))
-    .map(({ config: _config, ...item }) => item)
+    .map(({ config, ...item }) => ({
+      ...item,
+      displayName: connectionDisplayName(item.type, config),
+    }))
 }
