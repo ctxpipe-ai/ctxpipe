@@ -348,7 +348,7 @@ export const workspaceHydrate = defineWorkflow(
               await step.run(
                 { name: "project-workspace-sources" },
                 async () => {
-                  await projectWorkspaceSources({
+                  const projected = await projectWorkspaceSources({
                     orgId: input.orgId,
                     revision,
                     env,
@@ -359,6 +359,15 @@ export const workspaceHydrate = defineWorkflow(
                         env,
                         remote: revision.remote,
                       })),
+                  })
+                  // Import at the admission boundary, like the PR backfill above.
+                  const { enqueueSourceProjectionFollowUps } = await import(
+                    "../../domain/workspace-sources/enqueue.js"
+                  )
+                  await enqueueSourceProjectionFollowUps({
+                    orgId: input.orgId,
+                    workspaceId: workspace.id,
+                    projected,
                   })
                 },
               )

@@ -24,9 +24,32 @@ const githubMirrorSourceSchema = z
   .object({ provider: z.literal("github"), gitUrl: linkedRepositoryUrlSchema })
   .strict()
 
+/**
+ * A Workspace source sync (ADR-050): the scope is `.ctxpipe/sources.yaml` of
+ * the target Workspace. A change of that file discards the write.
+ */
+const workspaceSourcesMirrorSchema = z
+  .object({
+    provider: z.enum([
+      "github",
+      "linear",
+      "notion",
+      "slack",
+      "confluence",
+      "pagerduty",
+    ]),
+    connectionId: z.string().min(1),
+    sourcesBlobSha: gitObjectIdSchema.nullable(),
+  })
+  .strict()
+export type WorkspaceSourcesMirrorSource = z.infer<
+  typeof workspaceSourcesMirrorSchema
+>
+
 export const connectorMirrorSourceSchema = z.union([
   configuredMirrorSourceSchema,
   githubMirrorSourceSchema,
+  workspaceSourcesMirrorSchema,
 ])
 export type ConnectorMirrorSource = z.infer<typeof connectorMirrorSourceSchema>
 
