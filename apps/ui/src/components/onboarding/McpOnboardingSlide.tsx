@@ -37,12 +37,12 @@ export function McpOnboardingSlide(props: {
 
   return (
     <>
-      <h2 className="onb-in-1 mb-4 text-3xl font-semibold text-zinc-100 sm:text-4xl">
+      <h2 className="mb-4 text-3xl font-semibold text-zinc-100 sm:text-4xl">
         Connect ctx| to your agents
       </h2>
 
       {mode === "choose" && (
-        <div className="onb-in-2 mx-auto mb-10 max-w-3xl">
+        <div className="mx-auto mb-10 max-w-3xl">
           <p className="mx-auto mb-8 max-w-2xl text-balance text-zinc-300">
             Add the ctx| MCP server manually with a JSON snippet, or open pull
             requests that drop the right config files into repositories you
@@ -118,7 +118,7 @@ export function McpOnboardingSlide(props: {
       )}
 
       {mode === "manual" && (
-        <div className="onb-in-2 mx-auto mb-10 max-w-3xl">
+        <div className="mx-auto mb-10 max-w-3xl">
           <p className="mx-auto mb-6 max-w-2xl text-balance text-zinc-300">
             Paste this into your MCP client configuration. The URL targets this
             deployment and includes your organisation slug.

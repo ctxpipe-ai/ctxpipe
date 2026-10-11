@@ -114,7 +114,7 @@ function PageNode({
           ) : (
             <IconChevronRight
               className={[
-                "h-3.5 w-3.5 transition-transform duration-150",
+                "h-3.5 w-3.5 transition-transform duration-100",
                 expanded ? "rotate-90" : "",
               ].join(" ")}
             />
@@ -275,7 +275,7 @@ function SpaceNode({
           ) : (
             <IconChevronRight
               className={[
-                "h-3.5 w-3.5 transition-transform duration-150",
+                "h-3.5 w-3.5 transition-transform duration-100",
                 showPanel ? "rotate-90" : "",
               ].join(" ")}
             />
@@ -423,7 +423,7 @@ function PersonalSpacesGroup({
         <span className="flex min-w-0 items-center gap-2">
           <IconChevronRight
             className={[
-              "h-3.5 w-3.5 transition-transform duration-150",
+              "h-3.5 w-3.5 transition-transform duration-100",
               open ? "rotate-90" : "",
             ].join(" ")}
           />

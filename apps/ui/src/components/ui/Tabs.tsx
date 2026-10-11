@@ -92,13 +92,13 @@ export function TabPanels<T extends object>(props: TabPanelsProps<T>) {
   return (
     <RACTabPanels
       {...props}
-      className={twMerge('relative h-(--tab-panel-height) motion-safe:transition-[height] overflow-clip', props.className)} />
+      className={twMerge('relative h-(--tab-panel-height) overflow-clip', props.className)} />
   );
 }
 
 const tabPanelStyles = tv({
   extend: focusRing,
-  base: 'flex-1 box-border p-4 text-sm text-neutral-900 dark:text-neutral-100 transition entering:opacity-0 exiting:opacity-0 exiting:absolute exiting:top-0 exiting:left-0 exiting:w-full'
+  base: 'flex-1 box-border p-4 text-sm text-neutral-900 dark:text-neutral-100'
 });
 
 export function TabPanel(props: TabPanelProps) {

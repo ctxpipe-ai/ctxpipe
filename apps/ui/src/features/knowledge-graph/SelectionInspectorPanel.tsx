@@ -61,7 +61,7 @@ export function SelectionInspectorPanel({
 
   return (
     <aside
-      className="pointer-events-auto absolute top-2 right-2 bottom-2 z-20 flex w-[min(28rem,calc(100%-1rem))] translate-x-0 flex-col rounded-md border border-border bg-zinc-900 shadow-md transition-transform duration-200 ease-out motion-reduce:transition-none"
+      className="pointer-events-auto absolute top-2 right-2 bottom-2 z-20 flex w-[min(28rem,calc(100%-1rem))] translate-x-0 flex-col rounded-md border border-border bg-zinc-900 shadow-md"
       aria-label={selection.title}
     >
       <div className="flex items-start gap-3 border-b border-border p-4">

@@ -144,7 +144,7 @@ export function WorkspaceNavRow(props: {
         <span className="relative size-4">
           <IconFolder
             className={[
-              "absolute inset-0 size-4 transition-all duration-150 ease-out motion-reduce:transition-none",
+              "absolute inset-0 size-4 transition-[opacity,scale] duration-100 ease-out",
               showCaret ? "scale-75 opacity-0" : "scale-100 opacity-100",
             ].join(" ")}
             stroke={1.4}
@@ -152,7 +152,7 @@ export function WorkspaceNavRow(props: {
           />
           <span
             className={[
-              "absolute inset-0 transition-all duration-150 ease-out motion-reduce:transition-none",
+              "absolute inset-0 transition-[opacity,scale] duration-100 ease-out",
               showCaret ? "scale-100 opacity-100" : "scale-75 opacity-0",
             ].join(" ")}
             aria-hidden
@@ -223,7 +223,7 @@ export function WorkspaceNavRow(props: {
         aria-hidden={!navExpanded}
         isDisabled={!navExpanded}
         className={[
-          "inline-flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-zinc-400 transition-[opacity,width] duration-200 ease-out motion-reduce:transition-none hover:bg-teal-900/30 hover:text-zinc-50",
+          "inline-flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-teal-900/30 hover:text-zinc-50",
           focusVisibleClassName,
           navExpanded
             ? "opacity-100"

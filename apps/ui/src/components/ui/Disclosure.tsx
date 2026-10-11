@@ -22,7 +22,7 @@ const disclosure = tv({
 })
 
 const chevron = tv({
-  base: "w-4 h-4 text-muted-foreground transition-transform duration-200 ease-in-out",
+  base: "w-4 h-4 text-muted-foreground transition-transform duration-100 ease-in-out",
   variants: {
     isExpanded: {
       true: "transform rotate-90",
@@ -108,7 +108,7 @@ export function DisclosurePanel({ children, ...props }: DisclosurePanelProps) {
       {...props}
       className={composeTailwindRenderProps(
         props.className,
-        "h-(--disclosure-panel-height) motion-safe:transition-[height] overflow-clip",
+        "h-(--disclosure-panel-height) overflow-clip",
       )}
     >
       <div className="px-0 pt-0.5 pb-0">{children}</div>

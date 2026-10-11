@@ -656,7 +656,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
     <CosmographProvider>
       <div ref={hostRef} className="relative h-full min-h-0 w-full min-w-0">
         <div
-          className="absolute inset-0 h-full min-h-0 w-full min-w-0 outline-none transition-opacity duration-300 ease-out [&_canvas]:outline-none [&_canvas]:focus:outline-none [&_canvas]:focus-visible:outline-none motion-reduce:transition-none"
+          className="absolute inset-0 h-full min-h-0 w-full min-w-0 outline-none [&_canvas]:outline-none [&_canvas]:focus:outline-none [&_canvas]:focus-visible:outline-none"
           style={{
             backgroundColor: PAGE_BG,
             opacity: isSettled ? 1 : 0,
@@ -1270,7 +1270,7 @@ function LayoutProgressOverlay({
 
   return (
     <div
-      className="pointer-events-none absolute inset-0 flex items-center justify-center px-6 transition-opacity duration-300 ease-out motion-reduce:transition-none"
+      className="pointer-events-none absolute inset-0 flex items-center justify-center px-6"
       style={{
         backgroundColor: PAGE_BG,
         opacity: hidden ? 0 : 1,

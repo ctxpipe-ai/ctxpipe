@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
 import { createFileRoute, Navigate, useRouter } from "@tanstack/react-router"
-import { useEffect, useId, useRef, useState } from "react"
+import { useId, useState } from "react"
 import { toast } from "sonner"
 import { AnimatedBackground } from "@/components/AnimatedBackground"
 import { Button } from "@/components/ui/Button"
@@ -34,8 +34,6 @@ function OrgSetupPage() {
   const { data: session, isPending: sessionPending } = useSession()
 
   const [carouselPage, setCarouselPage] = useState(0)
-  const [slideKey, setSlideKey] = useState(0)
-  const [carouselTransitioning, setCarouselTransitioning] = useState(false)
   const [inviteEmails, setInviteEmails] = useState("")
   const [inviteSent, setInviteSent] = useState(false)
   const [inviteSubmitting, setInviteSubmitting] = useState(false)
@@ -47,7 +45,6 @@ function OrgSetupPage() {
   const [githubSetupError, setGithubSetupError] = useState<string | null>(null)
   const [githubConnectedOptimistic, setGithubConnectedOptimistic] =
     useState(false)
-  const carouselTransitionTimerRef = useRef<number | null>(null)
 
   const { data: installation, isPending: installationPending } = useQuery({
     queryKey: githubConnectorKeys.installation(orgSlug),
@@ -81,14 +78,6 @@ function OrgSetupPage() {
 
   const githubButtonBusy = installationPending || ghFlowPending || isSyncing
 
-  useEffect(() => {
-    return () => {
-      if (carouselTransitionTimerRef.current !== null) {
-        window.clearTimeout(carouselTransitionTimerRef.current)
-      }
-    }
-  }, [])
-
   if (sessionPending) {
     return (
       <main className="min-h-screen bg-zinc-950 text-zinc-100">
@@ -104,20 +93,6 @@ function OrgSetupPage() {
     { title: "Connect GitHub" },
     { title: "Invite team members" },
   ] as const
-
-  const goToPage = (nextPage: number) => {
-    if (nextPage === carouselPage || carouselTransitioning) return
-    setCarouselTransitioning(true)
-    if (carouselTransitionTimerRef.current !== null) {
-      window.clearTimeout(carouselTransitionTimerRef.current)
-    }
-    carouselTransitionTimerRef.current = window.setTimeout(() => {
-      setCarouselPage(nextPage)
-      setSlideKey((current) => current + 1)
-      window.requestAnimationFrame(() => setCarouselTransitioning(false))
-      carouselTransitionTimerRef.current = null
-    }, 180)
-  }
 
   const handleConnectGitHub = () => {
     if (githubButtonBusy) return
@@ -197,7 +172,6 @@ function OrgSetupPage() {
       toast.error("Could not finish setup. Try again.")
       return
     }
-    sessionStorage.setItem("ctxpipe:app-shell-fade-in", "1")
     void router.navigate({
       to: "/$orgSlug",
       params: { orgSlug },
@@ -228,21 +202,15 @@ function OrgSetupPage() {
 
       <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-4xl items-center justify-center px-6 py-16 text-center">
         <section className="w-full max-w-3xl">
-          <div
-            className={`mx-auto max-w-3xl transition-opacity duration-200 ${
-              carouselTransitioning
-                ? "pointer-events-none opacity-0"
-                : "opacity-100"
-            }`}
-          >
-            <div key={`${carouselPage}-${slideKey}`}>
-              <h2 className="onb-in-1 mb-4 text-3xl font-semibold text-zinc-100 sm:text-4xl">
+          <div className="mx-auto max-w-3xl">
+            <div key={carouselPage}>
+              <h2 className="mb-4 text-3xl font-semibold text-zinc-100 sm:text-4xl">
                 {pages[carouselPage]?.title}
               </h2>
 
               {/* Connect GitHub slide */}
               {carouselPage === 0 && (
-                <div className="onb-in-2 mx-auto mb-14 flex min-h-[280px] max-w-3xl flex-col">
+                <div className="mx-auto mb-14 flex min-h-[280px] max-w-3xl flex-col">
                   <p className="mx-auto mb-3 text-balance text-zinc-300">
                     {isSyncing
                       ? "Finalizing your GitHub connection..."
@@ -276,7 +244,7 @@ function OrgSetupPage() {
                       type="button"
                       disabled={isSyncing}
                       className="text-sm text-zinc-500 underline decoration-zinc-700 underline-offset-4 transition-colors hover:text-zinc-300 disabled:cursor-not-allowed disabled:opacity-50"
-                      onClick={() => goToPage(1)}
+                      onClick={() => setCarouselPage(1)}
                     >
                       I&apos;ll do this later
                     </button>
@@ -286,7 +254,7 @@ function OrgSetupPage() {
 
               {/* Invite team slide */}
               {carouselPage === 1 && (
-                <div className="onb-in-2 mx-auto mb-10 max-w-3xl">
+                <div className="mx-auto mb-10 max-w-3xl">
                   <p className="mx-auto mb-4 text-zinc-300">
                     ctx| is designed for your whole team and their agents.
                     Invite some co-workers to test it out with.
@@ -352,18 +320,18 @@ function OrgSetupPage() {
               )}
 
               {/* Dots */}
-              <div className="onb-in-3 mt-48 flex items-center justify-center gap-1.5">
+              <div className="mt-48 flex items-center justify-center gap-1.5">
                 {pages.map((page, index) => (
                   <button
                     key={page.title}
                     type="button"
                     aria-label={`Go to page ${index + 1}`}
-                    className={`h-1.5 w-1.5 rounded-full transition-all ${
+                    className={`h-1.5 w-1.5 rounded-full transition-[background-color,scale] ${
                       index === carouselPage
                         ? "scale-110 bg-teal-400"
                         : "bg-zinc-600 hover:bg-zinc-500"
                     }`}
-                    onClick={() => goToPage(index)}
+                    onClick={() => setCarouselPage(index)}
                   />
                 ))}
               </div>

@@ -11,10 +11,10 @@ const overlayStyles = tv({
   base: "absolute top-0 left-0 w-full h-(--page-height) isolate z-20 bg-black/[45%] text-center backdrop-blur-sm",
   variants: {
     isEntering: {
-      true: "animate-in fade-in duration-200 ease-out",
+      true: "animate-in fade-in duration-100 ease-out",
     },
     isExiting: {
-      true: "animate-out fade-out duration-200 ease-in",
+      true: "animate-out fade-out duration-100 ease-in",
     },
   },
 })
@@ -28,10 +28,10 @@ const modalStyles = tv({
       wide: "max-w-[min(94vw,960px)]",
     },
     isEntering: {
-      true: "animate-in zoom-in-105 ease-out duration-200",
+      true: "animate-in zoom-in-105 ease-out duration-100",
     },
     isExiting: {
-      true: "animate-out zoom-out-95 ease-in duration-200",
+      true: "animate-out zoom-out-95 ease-in duration-100",
     },
   },
   defaultVariants: {

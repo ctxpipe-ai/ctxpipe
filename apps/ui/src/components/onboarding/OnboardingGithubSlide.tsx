@@ -95,7 +95,7 @@ export function OnboardingGithubSlide({
 
   if (hasGithubInstallation && orgSlug) {
     return (
-      <div className="onb-in-2 mx-auto w-full max-w-3xl">
+      <div className="mx-auto w-full max-w-3xl">
         <GithubWorkspaceDestinationFromApi
           orgSlug={orgSlug}
           variant="onboarding"
@@ -121,10 +121,10 @@ export function OnboardingGithubSlide({
 
   return (
     <>
-      <h2 className="onb-in-1 mb-4 text-3xl font-semibold text-zinc-100 sm:text-4xl">
+      <h2 className="mb-4 text-3xl font-semibold text-zinc-100 sm:text-4xl">
         Connect GitHub
       </h2>
-      <div className="onb-in-2 mx-auto mb-14 flex min-h-[280px] max-w-3xl flex-col">
+      <div className="mx-auto mb-14 flex min-h-[280px] max-w-3xl flex-col">
         <p className="mx-auto mb-3 text-balance text-zinc-300">
           {isGithubSyncing
             ? "Finalizing your GitHub connection..."
