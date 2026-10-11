@@ -2,7 +2,7 @@ import type { FileContents } from "@pierre/diffs"
 import { parseDiffFromFile } from "@pierre/diffs"
 import { Editor } from "@pierre/diffs/edit"
 import { EditProvider, File, FileDiff } from "@pierre/diffs/react"
-import { useMemo, useRef } from "react"
+import { useMemo, useRef, useState } from "react"
 
 const FILE_UNSAFE_CSS = `
   :host {
@@ -152,13 +152,27 @@ export function WorkspacePierreFile(props: {
       cacheKey: `head:${props.cacheKey}`,
     }
   }, [props.path, props.oldBody, props.cacheKey])
-  const showDiff = props.oldBody != null && props.oldBody !== props.body
+  const changed = props.oldBody != null && props.oldBody !== props.body
+  // The editor picks File or FileDiff when it opens a file, and keeps that
+  // surface while the user edits it. A switch remounts the editor: the editor
+  // then loses focus and the next keys go nowhere.
+  const [surface, setSurface] = useState({
+    cacheKey: props.cacheKey,
+    diff: changed,
+  })
+  if (surface.cacheKey !== props.cacheKey) {
+    setSurface({ cacheKey: props.cacheKey, diff: changed })
+  }
+  const showDiff =
+    props.editable && surface.cacheKey === props.cacheKey
+      ? surface.diff
+      : changed
   const fileDiff = useMemo(
     () => (showDiff ? parseDiffFromFile(oldFile, file) : null),
     [showDiff, oldFile, file],
   )
 
-  const surface = fileDiff ? (
+  const view = fileDiff ? (
     <FileDiff
       fileDiff={fileDiff}
       options={DIFF_OPTIONS}
@@ -179,12 +193,12 @@ export function WorkspacePierreFile(props: {
   )
 
   const filled = (
-    <div className="h-full min-h-0 min-w-0 overflow-hidden">{surface}</div>
+    <div className="h-full min-h-0 min-w-0 overflow-hidden">{view}</div>
   )
   if (!props.editable) return filled
   return (
     <div className="h-full min-h-0 min-w-0 overflow-hidden">
-      <EditProvider createEditor={createPierreEditor}>{surface}</EditProvider>
+      <EditProvider createEditor={createPierreEditor}>{view}</EditProvider>
     </div>
   )
 }

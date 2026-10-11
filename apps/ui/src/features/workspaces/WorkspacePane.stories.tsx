@@ -1424,6 +1424,175 @@ export const EditThenNavigate: Story = {
   },
 }
 
+const newFilePath = "knowledge/billing/scratch.md"
+const newFileText = "# Scratch notes\nFirst line of text.\nSecond line."
+const newFileServer = {
+  blobs: {} as Record<string, string>,
+  puts: [] as Array<{ path: string; body: string }>,
+  version: 0,
+}
+
+function newFileWriteResponse(path: string, body: string | null) {
+  newFileServer.version += 1
+  const worktreeVersion = `wt-${newFileServer.version}`
+  const paths = [ledgerPath, "AGENTS.md", ...Object.keys(newFileServer.blobs)]
+  return {
+    path,
+    body,
+    binary: false,
+    worktreeVersion,
+    tree: {
+      sha: "sandboxsha",
+      paths: [...new Set(paths)],
+      branch: "ctxpipe/chat/conv_1/1",
+      worktreeVersion,
+    },
+    status: {
+      source: "sandbox" as const,
+      branch: "ctxpipe/chat/conv_1/1",
+      dirty: true,
+      differsFromDefault: true,
+      unpushed: true,
+      published: false,
+      ahead: 0,
+      behind: 0,
+      items: Object.keys(newFileServer.blobs).map((item) => ({
+        path: item,
+        status: "added" as const,
+      })),
+      worktreeVersion,
+    },
+  }
+}
+
+export const NewFileKeepsTypedText: Story = {
+  tags: ["workspace-golden"],
+  args: {
+    conversationId: "conv_1",
+    pane: { kind: "file", path: ledgerPath },
+    fileTabs: [ledgerPath],
+    previewPath: ledgerPath,
+  },
+  parameters: {
+    storyRoute: {
+      pattern: "orgWorkspace",
+      orgSlug: "acme",
+      workspaceSlug: "docs",
+      conversationId: "conv_1",
+      pane: serializePane({ kind: "file", path: ledgerPath }),
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: [
+          http.put(
+            ({ request }) =>
+              /\/api\/v1\/conversations\/[^/]+\/files\/blob$/.test(
+                new URL(request.url).pathname,
+              ),
+            async ({ request }) => {
+              const body = (await request.json()) as {
+                path: string
+                body?: string
+              }
+              newFileServer.puts.push({
+                path: body.path,
+                body: body.body ?? "",
+              })
+              newFileServer.blobs[body.path] = body.body ?? ""
+              return HttpResponse.json(
+                newFileWriteResponse(body.path, body.body ?? null),
+              )
+            },
+          ),
+          http.get(
+            ({ request }) =>
+              /\/api\/v1\/conversations\/[^/]+\/files\/blob$/.test(
+                new URL(request.url).pathname,
+              ) &&
+              new URL(request.url).searchParams.get("path") === newFilePath,
+            () => {
+              const body = newFileServer.blobs[newFilePath]
+              if (body === undefined) {
+                return HttpResponse.json(
+                  { error: "Not found" },
+                  { status: 404 },
+                )
+              }
+              return HttpResponse.json({
+                path: newFilePath,
+                body,
+                binary: false,
+              })
+            },
+          ),
+          conversationGitTreeHandler({
+            sha: "sandboxsha",
+            paths: [ledgerPath, "AGENTS.md"],
+            branch: "ctxpipe/chat/conv_1/1",
+            worktreeVersion: "wt-0",
+          }),
+          conversationGitBlobHandler(),
+          conversationGitStatusHandler({
+            source: "sandbox",
+            branch: "ctxpipe/chat/conv_1/1",
+            dirty: false,
+            differsFromDefault: false,
+            unpushed: false,
+            published: false,
+            ahead: 0,
+            behind: 0,
+            items: [],
+            worktreeVersion: "wt-0",
+          }),
+          conversationGitDiffHandler(),
+          ...gitFilesHandlers,
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    newFileServer.blobs = {}
+    newFileServer.puts = []
+    newFileServer.version = 0
+    const canvas = within(canvasElement)
+    const page = within(canvasElement.ownerDocument.body)
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "New file" }),
+    )
+    await userEvent.type(await page.findByLabelText("Name"), "scratch.md")
+    await userEvent.click(page.getByRole("button", { name: "Create" }))
+    await waitFor(() => {
+      expect(newFileServer.puts).toEqual([{ path: newFilePath, body: "" }])
+    })
+    await canvas.findAllByText("scratch.md")
+    await waitFor(() => {
+      expect(pierreEditorHost(canvasElement)?.hasPierreEditor?.()).toBe(true)
+      expect(pierreEditorHost(canvasElement)?.getPierreText?.()).toBe("")
+    })
+    // The first edit makes the text differ from the saved file. The editor
+    // must stay the same element: a new one has no focus, so the next keys
+    // the user types go nowhere (ticket 51, gap 3).
+    const editable = () =>
+      findInShadows(canvasElement, "[contenteditable='true']")
+    const opened = editable()
+    expect(opened).toBeTruthy()
+    const [firstLine = "", ...otherLines] = newFileText.split("\n")
+    await typeInPierreEditor(canvasElement, firstLine)
+    expect(editable()).toBe(opened)
+    await typeInPierreEditor(canvasElement, `\n${otherLines.join("\n")}`)
+    expect(editable()).toBe(opened)
+    expect(pierreEditorHost(canvasElement)?.getPierreText?.()).toBe(newFileText)
+    await userEvent.click(canvas.getByRole("button", { name: "Save" }))
+    await waitFor(() => {
+      expect(newFileServer.puts.at(-1)).toEqual({
+        path: newFilePath,
+        body: newFileText,
+      })
+    })
+    expect(pierreEditorHost(canvasElement)?.getPierreText?.()).toBe(newFileText)
+  },
+}
+
 const orderedWrites = {
   expected: [] as Array<string | undefined>,
   paths: [] as string[],

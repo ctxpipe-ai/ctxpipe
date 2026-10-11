@@ -7,6 +7,7 @@ export const requiredStories = [
   "RapidRouteChanges",
   "EditThenNavigate",
   "OutOfOrderSaves",
+  "NewFileKeepsTypedText",
   "PierreKeyboardFocus",
   "SharedPublishPending",
   "PublishErrorsToast",
