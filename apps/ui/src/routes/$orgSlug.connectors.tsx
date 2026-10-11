@@ -123,7 +123,6 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
   const [notionManageScope, setNotionManageScope] = useState(false)
   const [pagerdutySetupOpen, setPagerdutySetupOpen] = useState(false)
   const [pagerdutyManageScope, setPagerdutyManageScope] = useState(false)
-  const [linearManageScope, setLinearManageScope] = useState(false)
   const [notionConnectionId, setNotionConnectionId] = useState<string | null>(
     null,
   )
@@ -275,9 +274,8 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
                   key={row.id}
                   orgSlug={orgSlug}
                   connectionId={row.id}
-                  onOpenWizard={(manageScope) => {
+                  onOpenWizard={() => {
                     setLinearConnectionId(row.id)
-                    setLinearManageScope(manageScope)
                     setLinearWizardOpen(true)
                   }}
                 />
@@ -435,7 +433,6 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
         orgSlug={orgSlug}
         connectionId={linearConnectionId}
         isOpen={linearWizardOpen}
-        manageScope={linearManageScope}
         onConnectionIdChange={(connectionId) => {
           setLinearConnectionId(connectionId)
           void queryClient.invalidateQueries({
@@ -445,7 +442,6 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
         onOpenChange={(open) => {
           setLinearWizardOpen(open)
           if (!open) {
-            setLinearManageScope(false)
             void queryClient.invalidateQueries({
               queryKey: orgConnectionsKeys.list(orgSlug),
             })

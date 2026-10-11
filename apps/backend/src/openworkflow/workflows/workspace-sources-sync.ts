@@ -6,7 +6,10 @@ import {
   cleanupRemovedSources,
   syncConnectionSources,
 } from "../../domain/workspace-sources/sync.js"
-import { writeWorkspaceSlice } from "../../domain/workspace-sources/write-slice.js"
+import {
+  readWorkspaceBlobs,
+  writeWorkspaceSlice,
+} from "../../domain/workspace-sources/write-slice.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 
 export const workspaceSourcesSyncInputSchema = z.discriminatedUnion("kind", [
@@ -71,6 +74,8 @@ export const workspaceSourcesSync = defineWorkflow(
         adapter,
         write,
         event: input.event,
+        readExisting: (workspaceId) =>
+          readWorkspaceBlobs({ orgId: input.orgId, workspaceId, env }),
       }),
     )
   },
