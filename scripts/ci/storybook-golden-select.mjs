@@ -25,6 +25,10 @@ export const requiredStories = [
   "PreparePendingWithError",
   "FailedTouchIsCaught",
   "OrgGateTryAgainLoads",
+  "DiffPaneEmpty",
+  "DiffPaneManyFiles",
+  "DiffPaneExpandedFile",
+  "DiffPaneLongPaths",
 ]
 
 export function isGoldenPlaySuccess(phase) {

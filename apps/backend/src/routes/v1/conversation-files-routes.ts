@@ -101,6 +101,8 @@ const ConversationGitStatusResponseSchema = z
 
 const ConversationGitDiffResponseSchema = z
   .object({
+    /** The branch the diff compares against. */
+    base: z.string(),
     items: z.array(
       z.object({
         path: z.string(),
@@ -620,7 +622,7 @@ export const conversationFileRoutes = fileRoutes
     if (!ready.ok) return c.json({ error: ready.error }, ready.status)
     const { handle } = ready
     const items = await conversationSandboxDiff({ handle, defaultBranch })
-    return c.json({ items }, 200)
+    return c.json({ base: defaultBranch, items }, 200)
   })
   .openapi(putFileRoute, async (c) => {
     if (!requireUser(c)) return c.json({ error: "Unauthorized" }, 401)

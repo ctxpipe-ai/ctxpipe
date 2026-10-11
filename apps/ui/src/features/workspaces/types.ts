@@ -152,6 +152,8 @@ export type ConversationGitDiffItem = {
 }
 
 export type ConversationGitDiffResponse = {
+  /** The branch the diff compares against. */
+  base?: string
   items: ConversationGitDiffItem[]
 }
 

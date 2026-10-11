@@ -375,7 +375,7 @@ export function conversationGitDiffHandler(
   return http.get(
     ({ request }) =>
       /\/api\/v1\/conversations\/[^/]+\/files\/diff$/.test(pathnameOf(request)),
-    () => HttpResponse.json({ items }),
+    () => HttpResponse.json({ base: "main", items }),
   )
 }
 
