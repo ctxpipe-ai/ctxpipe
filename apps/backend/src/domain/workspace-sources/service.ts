@@ -108,10 +108,25 @@ async function pendingChanges(workspace: WorkspaceRecord) {
 export async function listWorkspaceSources(
   workspace: WorkspaceRecord,
 ): Promise<WorkspaceSourceListResponse> {
-  const rows = await listWorkspaceSourceRows({
+  const projected = await listWorkspaceSourceRows({
     orgId: workspace.orgId,
     workspaceId: workspace.id,
   })
+  // A removed connection shows as missing before the next projection.
+  const connected = new Set(
+    (await listOrgConnections(workspace.orgId)).map((item) => item.id),
+  )
+  const rows = projected.map((row) =>
+    row.connectionId &&
+    !connected.has(row.connectionId) &&
+    (row.status === "ok" || row.status === "out_of_access")
+      ? {
+          ...row,
+          status: "connection_missing" as const,
+          statusDetail: "The connection was removed",
+        }
+      : row,
+  )
   const fileRow = rows.find((row) => row.sourceKey === FILE_ERROR_SOURCE_KEY)
   return {
     path: SOURCES_FILE_PATH,
