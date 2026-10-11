@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useState } from "react"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 import { Button } from "@/components/ui/Button"
+import { workspaceSuggestions } from "@/features/workspaces/workspace-suggestions"
 import { readChatDraft, writeChatDraft } from "./chat-draft"
 import { MessageInputBox } from "./MessageInputBox"
 
@@ -65,6 +66,29 @@ export const DraftSurvivesRemount: Story = {
       expect(readChatDraft(draftKey)).toBe("")
     })
     expect(canvas.getByRole("textbox")).toHaveValue("")
+  },
+}
+
+/** Picking a suggested prompt fills the composer and focuses it. It does not send. */
+export const SuggestionFillsComposer: Story = {
+  beforeEach: () => {
+    writeChatDraft(draftKey, "")
+  },
+  args: {
+    suggestions: workspaceSuggestions,
+  },
+  play: async ({ args, canvasElement }) => {
+    const canvas = within(canvasElement)
+    const trigger = canvas.getByRole("button", { name: "Suggested" })
+    expect(trigger).toHaveAttribute("aria-expanded", "false")
+    await userEvent.click(trigger)
+    expect(trigger).toHaveAttribute("aria-expanded", "true")
+    const suggestion = workspaceSuggestions[2]
+    await userEvent.click(canvas.getByRole("button", { name: suggestion }))
+    const composer = canvas.getByRole("textbox")
+    expect(composer).toHaveValue(suggestion)
+    expect(composer).toHaveFocus()
+    expect(args.sendMessage).not.toHaveBeenCalled()
   },
 }
 

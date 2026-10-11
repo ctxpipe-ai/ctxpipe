@@ -186,8 +186,10 @@ export function withConversationSandboxSlots(
  * Stop one live sandbox and keep its files; `idleSince` leaves it running if
  * it was used after that. A reservation whose create never finished has no
  * provider sandbox, so its row is removed instead. The caller holds the
- * conversation's lock, which turns and file reads also hold, so nothing is
- * using the sandbox.
+ * conversation's lock, which turns and Files writes also hold, so no turn or
+ * write uses the sandbox. A Files read does not wait for the lock: it reads
+ * only from a live row's sandbox that runs, and never starts or resumes one.
+ * A stop can make that read fail; the pane reads again.
  */
 async function stopSandboxRow(
   orgId: string,

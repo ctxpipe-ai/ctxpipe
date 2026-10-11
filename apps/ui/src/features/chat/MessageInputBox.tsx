@@ -1,7 +1,8 @@
 "use client"
 
-import { IconArrowUp } from "@tabler/icons-react"
-import { useEffect, useRef } from "react"
+import { IconArrowUp, IconChevronRight } from "@tabler/icons-react"
+import { type RefObject, useEffect, useRef } from "react"
+import { Disclosure, DisclosurePanel } from "react-aria-components"
 import {
   PromptInput,
   PromptInputBody,
@@ -12,6 +13,7 @@ import {
   PromptInputTools,
   usePromptInputController,
 } from "@/components/ai-elements/prompt-input"
+import { Button } from "@/components/ui/Button"
 import type { ChatStatus } from "@/features/chat/types"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
@@ -32,6 +34,8 @@ export function MessageInputBox(props: {
   /** Unsent text survives navigation for the session under this key. */
   draftKey?: string
   contentClassName?: string
+  /** Example prompts under the composer. Picking one fills the composer; it does not send. */
+  suggestions?: readonly string[]
 }) {
   const {
     sendMessage,
@@ -43,7 +47,9 @@ export function MessageInputBox(props: {
     draftSeed,
     draftKey,
     contentClassName,
+    suggestions,
   } = props
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
   const isGenerating = status === "submitted" || status === "streaming"
 
   const handleSubmit = ({ text }: { text: string }) => {
@@ -73,6 +79,7 @@ export function MessageInputBox(props: {
         >
           <PromptInputBody>
             <PromptInputTextarea
+              ref={textareaRef}
               disabled={isDisabled}
               placeholder={
                 placeholder ??
@@ -110,6 +117,13 @@ export function MessageInputBox(props: {
           </PromptInputFooter>
         </PromptInput>
       </div>
+      {suggestions && suggestions.length > 0 ? (
+        <MessageInputSuggestions
+          suggestions={suggestions}
+          textareaRef={textareaRef}
+          isDisabled={isDisabled}
+        />
+      ) : null}
     </PromptInputProvider>
   )
 
@@ -153,4 +167,44 @@ function MessageInputDraftStore(props: { draftKey: string }) {
     writeChatDraft(props.draftKey, text)
   }, [props.draftKey, text])
   return null
+}
+
+function MessageInputSuggestions(props: {
+  suggestions: readonly string[]
+  textareaRef: RefObject<HTMLTextAreaElement | null>
+  isDisabled?: boolean
+}) {
+  const controller = usePromptInputController()
+  return (
+    <Disclosure className="group mt-2" isDisabled={props.isDisabled}>
+      <Button slot="trigger" variant="quiet" className="h-7 gap-1 px-1 text-xs">
+        <IconChevronRight
+          aria-hidden
+          className="size-3.5 transition-transform group-data-[expanded]:rotate-90"
+        />
+        Suggested
+      </Button>
+      <DisclosurePanel>
+        <ul
+          aria-label="Suggested prompts"
+          className="mt-1 flex flex-col gap-0.5"
+        >
+          {props.suggestions.map((suggestion) => (
+            <li key={suggestion}>
+              <Button
+                variant="ghost"
+                className="h-auto w-full justify-start px-2 py-1.5 text-left text-sm"
+                onPress={() => {
+                  controller.textInput.setInput(suggestion)
+                  props.textareaRef.current?.focus()
+                }}
+              >
+                {suggestion}
+              </Button>
+            </li>
+          ))}
+        </ul>
+      </DisclosurePanel>
+    </Disclosure>
+  )
 }

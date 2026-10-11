@@ -578,15 +578,20 @@ export async function stopVercelSandbox(target: SandboxTarget): Promise<void> {
  * A command handle on a sandbox, resumed from its saved state if stopped.
  * The handle gets no GitHub token: the push before a deletion runs only local
  * Git commands in the sandbox, and the broker holds the tokens.
+ * `onlyRunning` never resumes: null when the sandbox does not run.
  */
 export async function attachVercelSandbox(
   target: SandboxTarget,
+  options?: { onlyRunning?: boolean; signal?: AbortSignal },
 ): Promise<SandboxHandle | null> {
   try {
     const sandbox = await Sandbox.get({
       ...target.credentials,
       name: target.name,
+      ...(options?.onlyRunning ? { resume: false } : {}),
+      ...(options?.signal ? { signal: options.signal } : {}),
     })
+    if (options?.onlyRunning && sandbox.status !== "running") return null
     return new VercelHandle({ sandbox, workdir: WORKDIR, ports: [] })
   } catch (error) {
     if (notFound(error)) return null

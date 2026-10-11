@@ -390,7 +390,7 @@ export const DeleteLastWorkspaceEmptiesHome: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const composer = await canvas.findByPlaceholderText(
-      "Ask about this Workspace…",
+      "What should ctxpipe do in this Workspace?",
     )
     await waitFor(() => expect(composer).toBeEnabled())
     await userEvent.click(
@@ -408,7 +408,9 @@ export const DeleteLastWorkspaceEmptiesHome: Story = {
     })
     await waitFor(() => {
       expect(
-        canvas.getByPlaceholderText("Ask about this Workspace…"),
+        canvas.getByPlaceholderText(
+          "What should ctxpipe do in this Workspace?",
+        ),
       ).toBeDisabled()
     })
     expect(

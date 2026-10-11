@@ -595,7 +595,9 @@ export function KnowledgeGraphExplorer({
 
       {selectionInspector && !displayedNode ? (
         <SelectionInspectorPanel
-          key={`${selectionInspector.source}:${selectionInspector.title}`}
+          // Key by source only: timeline playback changes the title on each
+          // tick, and a remount would reset the panel each time.
+          key={selectionInspector.source}
           selection={selectionInspector}
           kindColors={kindColors}
           onClose={() => {

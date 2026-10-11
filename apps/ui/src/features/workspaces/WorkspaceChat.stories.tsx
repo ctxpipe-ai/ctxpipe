@@ -95,7 +95,9 @@ export const ConversationMissing: Story = {
       await canvas.findByRole("heading", { name: "Conversation not found" }),
     ).toBeVisible()
     expect(
-      canvas.queryByPlaceholderText(/ask about this workspace/i),
+      canvas.queryByPlaceholderText(
+        /what should ctxpipe do in this workspace/i,
+      ),
     ).toBeNull()
   },
 }
@@ -449,7 +451,9 @@ export const RapidRouteChanges: Story = {
       await canvas.findByRole("heading", { name: "Conversation not found" }),
     ).toBeVisible()
     expect(
-      canvas.queryByPlaceholderText(/ask about this workspace/i),
+      canvas.queryByPlaceholderText(
+        /what should ctxpipe do in this workspace/i,
+      ),
     ).toBeNull()
     await userEvent.click(canvas.getByRole("button", { name: "Open ready" }))
     expect(
@@ -563,7 +567,9 @@ export const LateErrorDoesNotClobberSuccess: Story = {
     )
     try {
       await userEvent.type(
-        await canvas.findByPlaceholderText(/ask about this workspace/i),
+        await canvas.findByPlaceholderText(
+          /what should ctxpipe do in this workspace/i,
+        ),
         "What is in this Workspace?",
       )
       await userEvent.click(canvas.getByRole("button", { name: /send/i }))
@@ -690,7 +696,9 @@ export const FirstTurnStreamsLive: Story = {
     const socket = installAguiWebSocket(firstTurnEvents)
     try {
       await userEvent.type(
-        await canvas.findByPlaceholderText(/ask about this workspace/i),
+        await canvas.findByPlaceholderText(
+          /what should ctxpipe do in this workspace/i,
+        ),
         "Where is the billing service?",
       )
       // Record the order in which each step of the turn first shows. The
@@ -764,7 +772,9 @@ export const FirstTurnFailureRestoresDraft: Story = {
     ])
     try {
       await userEvent.type(
-        await canvas.findByPlaceholderText(/ask about this workspace/i),
+        await canvas.findByPlaceholderText(
+          /what should ctxpipe do in this workspace/i,
+        ),
         "Where is the billing service?",
       )
       await userEvent.click(canvas.getByRole("button", { name: /send/i }))

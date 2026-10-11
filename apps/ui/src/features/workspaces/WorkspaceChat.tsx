@@ -20,6 +20,7 @@ import type { Workspace } from "./types"
 import type { ConversationPublish } from "./useWorkspaceConversationPublish"
 import { WorkspaceChatChrome } from "./WorkspaceChatChrome"
 import { WorkspaceChatSession } from "./WorkspaceChatSession"
+import { workspaceSuggestions } from "./workspace-suggestions"
 
 export function WorkspaceChat(props: {
   orgSlug: string
@@ -86,8 +87,8 @@ function WorkspaceComposeChat(props: {
               {props.workspace.displayName}
             </h1>
             <p className="mt-1.5 text-sm text-muted-foreground">
-              Ask about this Workspace. The first message creates the
-              conversation.
+              Give ctxpipe a task: find a decision, explain part of the system,
+              or record a lesson. Your first message starts the conversation.
             </p>
           </div>
           <MessageInputBox
@@ -103,7 +104,8 @@ function WorkspaceComposeChat(props: {
                 text,
               })
             }}
-            placeholder="Ask about this Workspace…"
+            placeholder="What should ctxpipe do in this Workspace?"
+            suggestions={workspaceSuggestions}
           />
         </div>
       </div>

@@ -221,24 +221,30 @@ export async function destroyDetachedProviderSandbox(input: {
 }
 
 /**
- * A command handle on a conversation sandbox outside any chat run, started if
- * it was stopped: the sweep's last push before it deletes the sandbox. Null
- * when the sandbox is gone.
+ * A command handle on a conversation sandbox outside the chat run's setup,
+ * started if it was stopped: the sweep's last push before it deletes the
+ * sandbox. Null when the sandbox is gone. `onlyRunning` (a Files read while
+ * a turn runs) never starts or resumes a sandbox: null when it does not run.
  */
 export async function attachProviderSandbox(input: {
   orgId: string
   provider: RunningSandboxProvider
   providerSandboxId: string
+  onlyRunning?: boolean
+  signal?: AbortSignal
 }): Promise<SandboxHandle | null> {
   if (input.provider === "docker") {
     const docker = new Docker({ timeout: 30_000 })
     const container = docker.getContainer(input.providerSandboxId)
-    const running = await container.inspect().then(
+    const running = await container.inspect({ abortSignal: input.signal }).then(
       (info) => info.State.Running,
       () => null,
     )
     if (running === null) return null
-    if (!running) await container.start()
+    if (!running) {
+      if (input.onlyRunning) return null
+      await container.start()
+    }
     const { DockerHandle } = await import("@tanstack/ai-sandbox-docker")
     return new DockerHandle({
       docker,
@@ -252,6 +258,7 @@ export async function attachProviderSandbox(input: {
   const { attachVercelSandbox } = await import("./vercel-sandbox-provider.js")
   return attachVercelSandbox(
     await vercelSandboxTarget(input.orgId, input.providerSandboxId),
+    { onlyRunning: input.onlyRunning, signal: input.signal },
   )
 }
 

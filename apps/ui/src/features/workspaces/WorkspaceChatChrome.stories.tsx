@@ -34,7 +34,7 @@ const meta = {
     children: (
       <div className="flex flex-1 items-center justify-center p-8">
         <p className="text-sm text-muted-foreground">
-          Ask about this Workspace.
+          What should ctxpipe do in this Workspace?
         </p>
       </div>
     ),
