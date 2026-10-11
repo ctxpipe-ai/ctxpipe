@@ -43,6 +43,11 @@ export function Skeleton({ className, ...props }: ComponentProps<"span">) {
   )
 }
 
+/** One loading region: a skeleton that follows another keeps its start time. */
+export function SkeletonRegion(props: { children: ReactNode }) {
+  return props.children
+}
+
 /**
  * Wait text inside a skeleton (for example "Loading your files"). It follows
  * the same delay as the bones, so a fast load shows nothing.

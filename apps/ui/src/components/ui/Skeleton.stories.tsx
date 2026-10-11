@@ -8,6 +8,7 @@ import {
   SKELETON_MIN_MS,
   Skeleton,
   SkeletonLine,
+  SkeletonRegion,
   SkeletonRow,
   SkeletonSuspense,
   useSkeletonHold,
@@ -212,6 +213,85 @@ export const SuspenseHoldsMinimum: Story = {
     })
     expect(performance.now() - releasedAt).toBeGreaterThanOrEqual(
       SKELETON_MIN_MS - 50,
+    )
+  },
+}
+
+/**
+ * CSS starts the delay, so it runs from the first paint of server HTML, not
+ * from hydration.
+ */
+export const DelayStartsAtFirstPaint: Story = {
+  tags: ["workspace-golden"],
+  render: () => (
+    <div className="w-64 bg-zinc-950">
+      <SkeletonRow />
+    </div>
+  ),
+  play: async ({ canvasElement }) => {
+    for (const bone of bones(canvasElement)) {
+      expect(getComputedStyle(bone).animationName).toBe("ctx-skeleton-wait")
+      expect(getComputedStyle(bone).visibility).toBe("hidden")
+    }
+  },
+}
+
+function HandOverDemo() {
+  const [step, setStep] = useState<"first" | "second">("first")
+  return (
+    <SkeletonRegion>
+      <div className="w-64 space-y-2 bg-zinc-950">
+        <Button variant="outline" onPress={() => setStep("second")}>
+          Hand over
+        </Button>
+        {step === "first" ? (
+          <div data-testid="first">
+            <SkeletonRow />
+          </div>
+        ) : (
+          <div data-testid="second">
+            <SkeletonRow size="catalog" />
+          </div>
+        )}
+      </div>
+    </SkeletonRegion>
+  )
+}
+
+/** A visible skeleton that hands over to another one never goes blank. */
+export const HandOverStaysVisible: Story = {
+  tags: ["workspace-golden"],
+  render: () => <HandOverDemo />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() => expect(allVisible(canvasElement)).toBe(true), {
+      timeout: SKELETON_DELAY_MS * 2,
+    })
+    await userEvent.click(canvas.getByRole("button", { name: "Hand over" }))
+    expect(canvas.getByTestId("second")).toBeInTheDocument()
+    for (let frame = 0; frame < 20; frame += 1) {
+      expect(allVisible(canvasElement)).toBe(true)
+      await sleep(25)
+    }
+  },
+}
+
+/** A hand-over before the delay keeps the first start time. */
+export const HandOverKeepsDelayStart: Story = {
+  tags: ["workspace-golden"],
+  render: () => <HandOverDemo />,
+  play: async ({ canvasElement, mount }) => {
+    const mountedAt = performance.now()
+    await mount()
+    const canvas = within(canvasElement)
+    await sleep(SKELETON_DELAY_MS / 2 - (performance.now() - mountedAt))
+    await userEvent.click(canvas.getByRole("button", { name: "Hand over" }))
+    expect(allHidden(canvasElement)).toBe(true)
+    await waitFor(() => expect(allVisible(canvasElement)).toBe(true), {
+      timeout: SKELETON_DELAY_MS * 2,
+    })
+    expect(performance.now() - mountedAt).toBeLessThan(
+      SKELETON_DELAY_MS + 250,
     )
   },
 }

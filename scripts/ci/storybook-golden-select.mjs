@@ -54,6 +54,9 @@ export const requiredStories = [
   "ConnectorRowSkeletonMatches",
   "ConversationListSkeletonMatches",
   "SurfaceSkeletonMatches",
+  "DelayStartsAtFirstPaint",
+  "HandOverStaysVisible",
+  "HandOverKeepsDelayStart",
 ]
 
 export function isGoldenPlaySuccess(phase) {
