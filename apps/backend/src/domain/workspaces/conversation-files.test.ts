@@ -24,6 +24,8 @@ import {
 } from "./conversation-files.js"
 import { switchToSessionBranch } from "./conversation-session-branch.js"
 import type { JobSandboxHandle } from "./job-worktree.js"
+import type { WorkspaceRevision } from "./revision.js"
+import { advanceConversationWorktree } from "./workspace-chat-revision-transition.js"
 
 function realHandle(directory: string): JobSandboxHandle {
   return {
@@ -323,6 +325,71 @@ describe("conversation sandbox files", { timeout: 15_000 }, () => {
         expect(await changes()).toEqual([])
       },
     )
+  })
+
+  it("lists only the conversation's own changes after the Workspace moves on", async () => {
+    const root = mkdtempSync(join(tmpdir(), "ctxpipe-conversation-advance-"))
+    const upstream = join(root, "upstream")
+    const sandbox = join(root, "sandbox")
+    const git = (cwd: string, ...args: string[]) =>
+      execFileSync(
+        "git",
+        ["-c", "user.name=Fixture", "-c", "user.email=f@example.test", ...args],
+        { cwd, encoding: "utf8" },
+      ).trim()
+    try {
+      mkdirSync(upstream)
+      git(upstream, "init", "-q", "-b", "main")
+      writeFileSync(join(upstream, "AGENTS.md"), "# Agents\n")
+      git(upstream, "add", ".")
+      git(upstream, "commit", "-q", "-m", "Initial")
+      const oldSha = git(upstream, "rev-parse", "HEAD")
+      git(root, "clone", "-q", upstream, sandbox)
+      git(sandbox, "checkout", "-q", "-b", "ctxpipe/session")
+      writeFileSync(join(sandbox, "agent.md"), "the agent's file\n")
+      // ctx| pushes to the default branch after the conversation starts.
+      writeFileSync(join(upstream, "AGENTS.md"), "# Agents\nmore\n")
+      writeFileSync(join(upstream, "imported.md"), "imported\n")
+      git(upstream, "add", ".")
+      git(upstream, "commit", "-q", "-m", "Knowledge update")
+      const newSha = git(upstream, "rev-parse", "HEAD")
+      const job = realHandle(sandbox)
+      const revision = {
+        workspaceId: "ws_fixture",
+        generation: 1,
+        remote: { url: upstream, connectionId: null },
+        defaultBranch: "main",
+        sha: oldSha,
+        access: "publish-session",
+      } satisfies WorkspaceRevision
+      expect(
+        await advanceConversationWorktree({
+          handle: { process: { exec: job.exec } } as unknown as Parameters<
+            typeof advanceConversationWorktree
+          >[0]["handle"],
+          from: revision,
+          to: { ...revision, sha: newSha },
+        }),
+      ).toBe("moved")
+      expect(git(sandbox, "rev-parse", "HEAD")).toBe(newSha)
+
+      const status = await conversationSandboxStatus({
+        handle: job,
+        defaultBranch: "main",
+        sessionBranch: "ctxpipe/session",
+      })
+      expect(status.items.map((item) => `${item.status} ${item.path}`)).toEqual(
+        ["added agent.md"],
+      )
+      expect(status.ahead).toBe(0)
+      expect(
+        (
+          await conversationSandboxDiff({ handle: job, defaultBranch: "main" })
+        ).map((diff) => diff.path),
+      ).toEqual(["agent.md"])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 
   it("reconciles uncommitted work with the base branch", async () => {

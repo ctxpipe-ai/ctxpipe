@@ -228,6 +228,12 @@ if [ -n "$STASH" ]; then
     fi
   fi
 fi
+# The Files status and diff compare with the local default branch. On a
+# session branch it stays on the old commit, so the Workspace's own new
+# commits would show as this conversation's changes. Never drop its commits.
+if [ "$BRANCH" != "$DEFAULT_BRANCH" ] && git merge-base --is-ancestor "refs/heads/$DEFAULT_BRANCH" "$NEW_SHA" 2>/dev/null; then
+  git update-ref "refs/heads/$DEFAULT_BRANCH" "$NEW_SHA"
+fi
 PHASE=complete
 write_state
 git update-ref refs/remotes/ctxpipe/base "$NEW_SHA"
