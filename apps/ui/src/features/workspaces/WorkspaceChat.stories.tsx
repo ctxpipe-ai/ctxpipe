@@ -4,7 +4,6 @@ import { HttpResponse, http } from "msw"
 import { StrictMode, useState } from "react"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 import { Button } from "@/components/ui/Button"
-import { WORKING_VERBS } from "@/features/chat/ConversationThread"
 import {
   conversationAguiTextEvents,
   installAguiWebSocket,
@@ -694,21 +693,18 @@ export const FirstTurnStreamsLive: Story = {
         await canvas.findByPlaceholderText(/ask about this workspace/i),
         "Where is the billing service?",
       )
-      // Record the order in which each step of the turn first shows. While
-      // the agent thinks, a working verb shows. Then the live reasoning box
-      // shows the reasoning heading.
+      // Record the order in which each step of the turn first shows. The
+      // status line shows the sandbox setup, then "Thinking", then the title
+      // of the current thought.
       const shows = (text: string) =>
         canvasElement.textContent?.includes(text) ?? false
+      const status = (text: string) => () =>
+        canvasElement.querySelector(`[role="status"][aria-label="${text}"]`) !==
+        null
       const steps: [string, () => boolean][] = [
-        ["Setting up sandbox", () => shows("Setting up sandbox")],
-        ["working verb", () => WORKING_VERBS.some(shows)],
-        [
-          "live reasoning heading",
-          () =>
-            canvasElement
-              .querySelector('[role="status"][aria-label="Reasoning"]')
-              ?.textContent?.includes("Finding billing") ?? false,
-        ],
+        ["Setting up sandbox", status("Setting up sandbox")],
+        ["Thinking", status("Thinking")],
+        ["current thought", status("Finding billing")],
         ["Used 1 tool", () => shows("Used 1 tool")],
         ["answer", () => shows(firstTurnAnswer)],
       ]

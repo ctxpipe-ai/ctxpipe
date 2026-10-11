@@ -153,10 +153,13 @@ export async function fetchLinearOauthApp(
 export async function createLinearDraft(
   orgSlug: string,
 ): Promise<{ connectionId: string }> {
-  const response = await apiFetch(`/${orgSlug}/api/v1/connectors/linear/draft`, {
-    method: "POST",
-    credentials: "include",
-  })
+  const response = await apiFetch(
+    `/${orgSlug}/api/v1/connectors/linear/draft`,
+    {
+      method: "POST",
+      credentials: "include",
+    },
+  )
   return readApiJson<{ connectionId: string }>(response, {
     message: "Failed to start Linear setup",
   })

@@ -1,23 +1,15 @@
 /// <reference types="vitest/config" />
-import { createRequire } from "node:module"
-import { dirname, join, resolve } from "node:path"
+import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import tailwindcss from "@tailwindcss/vite"
 import { devtools } from "@tanstack/devtools-vite"
 import { nitroV2Plugin } from "@tanstack/nitro-v2-vite-plugin"
 import { tanstackStart } from "@tanstack/react-start/plugin/vite"
 import viteReact from "@vitejs/plugin-react"
-import { defineConfig, type PluginOption } from "vite"
+import { defineConfig } from "vite"
 import tsconfigPaths from "vite-tsconfig-paths"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-
-/* Vite 7 pre-bundles this config into node_modules/.vite-temp; bare ESM import of
- * `motionwind-react/vite` then fails with ERR_MODULE_NOT_FOUND. Resolve from cwd. */
-const require = createRequire(join(process.cwd(), "package.json"))
-const { motionwind } = require("motionwind-react/vite") as {
-  motionwind: () => PluginOption
-}
 
 /** `@cosmograph/cosmograph` source imports `@/cosmograph/style.module.css` with its own
  * `@/` alias; point that at our local stub so both vite bundling and esbuild
@@ -72,7 +64,6 @@ const config = defineConfig({
         "@/cosmograph/style.module.css": cosmographStyleAlias,
       },
     }),
-    motionwind(),
     viteReact(),
   ],
 })

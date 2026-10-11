@@ -1825,6 +1825,34 @@ export * from "./workspace-sandboxes.js"
 export * from "./workspace-write-jobs.js"
 
 /** Publish derived graph freshness only for the complete active revision. */
+/**
+ * Set a ready graph phase back to pending when the graph store lost that graph.
+ * Only one caller wins for each loss, so only that caller starts the rebuild.
+ * Returns the time of the change, or null when another caller already won.
+ */
+export async function markWorkspaceGraphLost(
+  revision: WorkspaceRevision,
+): Promise<Date | null> {
+  return orgSql(async () => {
+    const [updated] = await getOrgDb()
+      .update(workspaces)
+      .set({
+        hydratePhases: sql`coalesce(${workspaces.hydratePhases}, '{}'::jsonb) || ${JSON.stringify({ graph: { revision, result: { kind: "pending" } } })}::jsonb`,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(workspaces.id, revision.workspaceId),
+          sql`${workspaces.activeRevision} = ${JSON.stringify(revision)}::jsonb`,
+          sql`${workspaces.hydratePhases}->'graph'->'revision' = ${JSON.stringify(revision)}::jsonb`,
+          sql`${workspaces.hydratePhases}->'graph'->'result'->>'kind' = 'ready'`,
+        ),
+      )
+      .returning({ updatedAt: workspaces.updatedAt })
+    return updated?.updatedAt ?? null
+  })
+}
+
 export async function persistWorkspaceGraphResult(input: {
   revision: WorkspaceRevision
   result: DerivedStoreResult

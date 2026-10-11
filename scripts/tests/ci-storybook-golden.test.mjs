@@ -67,6 +67,19 @@ const required = [
     "apps/ui/src/features/workspaces/WorkspaceSurface.stories.tsx",
     "StableRequestBudget",
   ],
+  [
+    "apps/ui/src/components/ui/LoadingIndicators.stories.tsx",
+    "LoadingUnderReducedMotion",
+  ],
+  ["apps/ui/src/routes/-onboarding.stories.tsx", "DoubleClickMovesOneSlide"],
+  [
+    "apps/ui/src/features/chat/ConversationThread.stories.tsx",
+    "ChatProgressDone",
+  ],
+  [
+    "apps/ui/src/features/chat/ConversationThread.stories.tsx",
+    "ChatProgressLogExpanded",
+  ],
 ]
 
 test("required golden stories carry the workspace-golden tag and a play", () => {
@@ -76,7 +89,7 @@ test("required golden stories carry the workspace-golden tag and a play", () => 
       "utf8",
     )
     const tagged = new RegExp(
-      `export const ${name}: Story = \\{[\\s\\S]*?tags: \\["workspace-golden"\\]`,
+      `export const ${name}: Story = \\{[\\s\\S]*?tags: \\["workspace-golden"[\\],]`,
     )
     const play = new RegExp(
       `export const ${name}: Story = \\{[\\s\\S]*?\\bplay:`,

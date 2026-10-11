@@ -1,11 +1,5 @@
 import { IconBrain, IconFile, IconSearch, IconTool } from "@tabler/icons-react"
-import {
-  type ReactElement,
-  type ReactNode,
-  useEffect,
-  useId,
-  useState,
-} from "react"
+import { type ReactElement, type ReactNode, useId, useState } from "react"
 import { Button as AriaButton } from "react-aria-components"
 import {
   Conversation,
@@ -19,13 +13,11 @@ import {
 } from "@/components/ai-elements/message"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import {
-  collapsedToolChips,
+  type ActivityChipKind,
+  type ActivityEntry,
+  activityChips,
+  activityLog,
   groupAssistantTurns,
-  latestReasoningHeading,
-  normalizeReasoningMarkdown,
-  summarizeToolCalls,
-  type ToolBucket,
-  type ToolCallSummary,
   toolBucketCounts,
 } from "@/features/chat/conversation-thread-utils"
 import type { ChatMessage, ChatStatus } from "@/features/chat/types"
@@ -40,9 +32,10 @@ function partText(part: ChatPart): string {
   return (part.content ?? part.text ?? "").trim()
 }
 
-function bucketIcon(bucket: ToolBucket) {
-  if (bucket === "read") return <IconFile className="size-4" aria-hidden />
-  if (bucket === "search") return <IconSearch className="size-4" aria-hidden />
+function chipIcon(kind: ActivityChipKind) {
+  if (kind === "read") return <IconFile className="size-4" aria-hidden />
+  if (kind === "search") return <IconSearch className="size-4" aria-hidden />
+  if (kind === "thought") return <IconBrain className="size-4" aria-hidden />
   return <IconTool className="size-4" aria-hidden />
 }
 
@@ -63,233 +56,125 @@ function isRenderableMessagePart(part: ChatPart) {
   return false
 }
 
-function ActivityIconSlot(props: { live: boolean; children: ReactElement }) {
+function IconSlot(props: { children: ReactElement }) {
   return (
     <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center text-zinc-500">
-      {props.live ? (
-        <span className="ctx-indexing-dot" aria-hidden />
-      ) : (
-        props.children
-      )}
+      {props.children}
     </span>
   )
-}
-
-/** Exported so stories can match the rotating verb without a second copy of the list. */
-export const WORKING_VERBS = [
-  "Contextualizing…",
-  "Analyzing…",
-  "Traversing your graph…",
-  "Reading knowledge…",
-  "Checking sources…",
-]
-
-/** Rotates through the product's working verbs while the agent runs. */
-function useWorkingVerb(): string {
-  const [index, setIndex] = useState(0)
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setIndex((value) => (value + 1) % WORKING_VERBS.length)
-    }, 2400)
-    return () => clearInterval(timer)
-  }, [])
-  return WORKING_VERBS[index] ?? WORKING_VERBS[0] ?? "Thinking…"
 }
 
 const reasoningResponseClassName =
   "ctx-streamdown-reasoning h-auto space-y-1 text-xs leading-relaxed text-muted-foreground [&_blockquote]:text-muted-foreground [&_h1]:text-muted-foreground [&_h2]:text-muted-foreground [&_h3]:text-muted-foreground [&_h4]:text-muted-foreground [&_li]:text-muted-foreground [&_ol]:text-muted-foreground [&_p]:text-muted-foreground [&_strong]:text-muted-foreground [&_ul]:text-muted-foreground"
 
-function ReasoningBox(props: {
-  text: string
-  live: boolean
-  collapsed: boolean
-}) {
-  const { text, live, collapsed } = props
-  const markdown = normalizeReasoningMarkdown(text)
-  const liveTitle = latestReasoningHeading(text)
-
-  if (live) return <LiveReasoning heading={liveTitle} />
-
+/**
+ * The one live line of a working turn: the current thought's title, else a
+ * real system state such as "Setting up sandbox", else "Thinking".
+ */
+function StatusLine(props: { label: string }) {
   return (
-    <ActivityGroup
-      label="Reasoning"
-      live={false}
-      defaultExpanded={!collapsed}
-      summary={
-        <span className="inline-flex min-w-0 items-center gap-1.5">
-          <ActivityIconSlot live={false}>
-            <IconBrain className="size-4" aria-hidden />
-          </ActivityIconSlot>
-          <span className="line-clamp-1">{liveTitle ?? "Reasoning"}</span>
-        </span>
-      }
-      details={
-        <MessageResponse className={reasoningResponseClassName}>
-          {markdown}
-        </MessageResponse>
-      }
-    />
-  )
-}
-
-/** The full reasoning text stays out of view while live; it opens from the collapsed group after the turn. */
-function LiveReasoning(props: { heading: string | null }) {
-  const verb = useWorkingVerb()
-  return (
-    // biome-ignore lint/a11y/useSemanticElements: live reasoning is a status, not a form output
+    // biome-ignore lint/a11y/useSemanticElements: div + role="status" is a live status, not a form output
     <div
       className="flex w-full min-w-0 items-start gap-2"
       role="status"
-      aria-label="Reasoning"
+      aria-label={props.label}
     >
-      <ActivityIconSlot live>
-        <IconBrain className="size-4" aria-hidden />
-      </ActivityIconSlot>
-      <div className="min-w-0 flex-1 space-y-1 text-xs leading-relaxed">
-        <p data-reasoning-title className="font-medium text-muted-foreground">
-          {verb}
-        </p>
-        {props.heading ? (
-          <p className="line-clamp-1 text-muted-foreground/70">
-            {props.heading}
-          </p>
-        ) : null}
-      </div>
+      <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center">
+        <span className="ctx-indexing-dot" aria-hidden />
+      </span>
+      <p className="line-clamp-1 min-w-0 flex-1 text-xs font-medium leading-relaxed text-muted-foreground">
+        {props.label}
+      </p>
     </div>
   )
 }
 
-function ToolChip(props: { bucket: ToolBucket; label: string }) {
+function LogEntry(props: { entry: ActivityEntry }) {
+  const { entry } = props
+  if (entry.kind === "thought") {
+    const { thought } = entry
+    return (
+      <li className="flex min-w-0 items-start gap-2">
+        <IconSlot>{chipIcon("thought")}</IconSlot>
+        <div className="min-w-0 flex-1 space-y-1">
+          {thought.hasHeading ? (
+            <p className="font-medium text-muted-foreground">{thought.title}</p>
+          ) : null}
+          {thought.body ? (
+            <MessageResponse className={reasoningResponseClassName}>
+              {thought.body}
+            </MessageResponse>
+          ) : null}
+        </div>
+      </li>
+    )
+  }
+  const { tool } = entry
   return (
-    <span className="inline-flex min-w-0 items-center gap-1.5">
-      <ActivityIconSlot live={false}>
-        {bucketIcon(props.bucket)}
-      </ActivityIconSlot>
-      <span className="tabular-nums">{props.label}</span>
-    </span>
+    <li className="flex min-w-0 items-start gap-2">
+      <IconSlot>{chipIcon(tool.bucket)}</IconSlot>
+      <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2">
+        <span className="text-muted-foreground">{tool.action}</span>
+        {tool.detail ? (
+          <span className="min-w-0 break-all font-mono text-muted-foreground/80">
+            {tool.detail}
+          </span>
+        ) : null}
+      </span>
+    </li>
   )
 }
 
-function ActivityGroup(props: {
-  label: string
-  live: boolean
-  defaultExpanded?: boolean
-  summary: ReactElement
-  details: ReactElement
-}) {
-  const { label, live, defaultExpanded = false, summary, details } = props
-  const [userExpanded, setUserExpanded] = useState<boolean | null>(null)
-  const expanded = userExpanded ?? defaultExpanded
-  const detailsId = useId()
+/** The counters line. It opens the log of every thought and tool call. */
+function ActivityLog(props: { entries: ActivityEntry[] }) {
+  const { entries } = props
+  const [expanded, setExpanded] = useState(false)
+  const logId = useId()
+  const tools = entries.flatMap((entry) =>
+    entry.kind === "tool" ? [entry.tool] : [],
+  )
+  const chips = activityChips({
+    ...toolBucketCounts(tools),
+    thoughts: entries.length - tools.length,
+  })
 
-  const group = (
+  return (
     <div className="flex w-full min-w-0 flex-col gap-1">
       <AriaButton
         aria-expanded={expanded}
-        aria-controls={expanded ? detailsId : undefined}
-        aria-label={label}
-        onPress={() => setUserExpanded(!expanded)}
+        aria-controls={expanded ? logId : undefined}
+        aria-label={chips.map((chip) => chip.label).join(", ")}
+        onPress={() => setExpanded(!expanded)}
         className={cn(
           focusVisibleClassName,
-          "flex w-full min-w-0 items-start gap-2 rounded-md text-left text-xs leading-relaxed text-muted-foreground",
+          "flex w-full min-w-0 flex-wrap items-center gap-x-3 gap-y-1 rounded-md text-left text-xs leading-relaxed text-muted-foreground",
           "hover:text-foreground/80",
         )}
       >
-        {summary}
+        {chips.map((chip) => (
+          <span
+            key={chip.kind}
+            className="inline-flex min-w-0 items-center gap-1.5"
+          >
+            <IconSlot>{chipIcon(chip.kind)}</IconSlot>
+            <span className="tabular-nums">{chip.label}</span>
+          </span>
+        ))}
       </AriaButton>
       {expanded ? (
         <section
-          id={detailsId}
-          aria-label={label}
-          className="min-w-0 pl-6 text-xs leading-relaxed text-muted-foreground"
+          id={logId}
+          aria-label="Activity log"
+          className="min-w-0 text-xs leading-relaxed text-muted-foreground"
         >
-          {details}
+          <ol className="flex min-w-0 flex-col gap-2">
+            {entries.map((entry) => (
+              <LogEntry key={entry.key} entry={entry} />
+            ))}
+          </ol>
         </section>
       ) : null}
     </div>
-  )
-
-  if (live) {
-    return (
-      // biome-ignore lint/a11y/useSemanticElements: live activity is a status, not a form output
-      <div role="status">{group}</div>
-    )
-  }
-
-  return group
-}
-
-function ToolUseRow(props: { tools: ToolCallSummary[]; live: boolean }) {
-  const { tools, live } = props
-  const chips = collapsedToolChips(toolBucketCounts(tools))
-
-  return (
-    <ActivityGroup
-      label={chips.map((chip) => chip.label).join(", ")}
-      live={live}
-      summary={
-        <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
-          {chips.map((chip) => (
-            <ToolChip
-              key={chip.bucket}
-              bucket={chip.bucket}
-              label={chip.label}
-            />
-          ))}
-        </span>
-      }
-      details={
-        <span className="flex min-w-0 flex-1 flex-col gap-1">
-          {tools.map((tool) => (
-            <span key={tool.id} className="flex min-w-0 items-start gap-2">
-              <ActivityIconSlot live={false}>
-                {bucketIcon(tool.bucket)}
-              </ActivityIconSlot>
-              <span className="min-w-0 flex-1 font-mono">{tool.detail}</span>
-            </span>
-          ))}
-        </span>
-      }
-    />
-  )
-}
-
-function ThoughtGroup(props: { thoughts: string[] }) {
-  const { thoughts } = props
-  const label =
-    thoughts.length === 1 ? "Thought" : `Thought ${thoughts.length}x`
-  const icon = (
-    <ActivityIconSlot live={false}>
-      <IconBrain className="size-4" aria-hidden />
-    </ActivityIconSlot>
-  )
-
-  return (
-    <ActivityGroup
-      label={label}
-      live={false}
-      summary={
-        <span className="inline-flex min-w-0 items-center gap-1.5">
-          {icon}
-          <span className="tabular-nums">{label}</span>
-        </span>
-      }
-      details={
-        <span className="flex min-w-0 flex-1 flex-col gap-2">
-          {thoughts.map((thought, index) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: earlier thoughts only append, so the index is stable
-            <span key={index} className="flex min-w-0 items-start gap-2">
-              {icon}
-              <span className="min-w-0 flex-1">
-                <MessageResponse className={reasoningResponseClassName}>
-                  {normalizeReasoningMarkdown(thought)}
-                </MessageResponse>
-              </span>
-            </span>
-          ))}
-        </span>
-      }
-    />
   )
 }
 
@@ -306,67 +191,23 @@ function renderUserParts(message: ChatMessage): ReactElement[] {
 
 function renderAssistantParts(
   message: ChatMessage,
-  options: { streaming: boolean },
+  options: { working: boolean; systemStatus: string | null },
 ): ReactElement[] {
-  const tools = summarizeToolCalls(message.parts)
-  const thoughts = message.parts
-    .filter((part) => part.type === "thinking")
-    .map(partText)
-    .filter(Boolean)
-  const earlierThoughts = thoughts.slice(0, -1)
-  const thinking = thoughts.at(-1)
+  const entries = activityLog(message.parts)
   const replyParts = message.parts.filter(
     (part) =>
       (part.type === "text" && Boolean(partText(part))) ||
       part.type === "source-url",
   )
-  const hasReply = replyParts.some(
-    (part) => part.type === "text" && Boolean(partText(part)),
-  )
   const nodes: ReactElement[] = []
-  const activity: ReactElement[] = []
-  if (tools.length > 0) {
-    activity.push(
-      <ToolUseRow
-        key={`${message.id}-tools`}
-        tools={tools}
-        live={options.streaming && !hasReply}
-      />,
-    )
-  }
-  if (earlierThoughts.length > 0) {
-    activity.push(
-      <ThoughtGroup
-        key={`${message.id}-thoughts`}
-        thoughts={earlierThoughts}
-      />,
-    )
-  }
-  if (thinking) {
-    activity.push(
-      <ReasoningBox
-        key={`${message.id}-reasoning`}
-        text={thinking}
-        live={options.streaming && !hasReply}
-        collapsed={hasReply}
-      />,
-    )
-  }
-  if (activity.length > 0) {
-    nodes.push(
-      <div
-        key={`${message.id}-activity`}
-        className="flex w-full min-w-0 flex-col gap-1.5"
-      >
-        {activity}
-      </div>,
-    )
+  if (entries.length > 0) {
+    nodes.push(<ActivityLog key={`${message.id}-activity`} entries={entries} />)
   }
   replyParts.forEach((part, index) => {
     const key = `${message.id}-reply-${index}`
     if (part.type === "text") {
       nodes.push(
-        <MessageResponse key={key} isAnimating={options.streaming && hasReply}>
+        <MessageResponse key={key} isAnimating={options.working}>
           {partText(part)}
         </MessageResponse>,
       )
@@ -386,6 +227,18 @@ function renderAssistantParts(
       </p>,
     )
   })
+  // The status line stays until the run ends, also while text streams.
+  if (options.working && entries.length > 0) {
+    const thoughts = entries.flatMap((entry) =>
+      entry.kind === "thought" ? [entry.thought] : [],
+    )
+    nodes.push(
+      <StatusLine
+        key={`${message.id}-status`}
+        label={thoughts.at(-1)?.title ?? options.systemStatus ?? "Thinking"}
+      />,
+    )
+  }
   return nodes
 }
 
@@ -395,30 +248,11 @@ function messageHasVisibleActivity(message: ChatMessage) {
   )
 }
 
-function WaitIndicator(props: { label: string | null }) {
-  const verb = useWorkingVerb()
-  const label = props.label ?? verb
-  return (
-    // biome-ignore lint/a11y/useSemanticElements: div + role="status" for loading indicator; output is for form/calculation results, not live status
-    <div
-      className="flex w-full justify-start"
-      role="status"
-      aria-live="polite"
-      aria-label={props.label ?? "Working"}
-    >
-      <div className="flex items-center gap-2">
-        <span className="ctx-indexing-dot" aria-hidden />
-        <p className="text-xs text-muted-foreground">{label}</p>
-      </div>
-    </div>
-  )
-}
-
 export function ConversationThread(props: {
   messages: ChatMessage[]
   error: Error | null
   status?: ChatStatus
-  /** Explicit wait copy; omit (or pass null) for the rotating working verbs. */
+  /** A real system state, such as "Setting up sandbox"; null shows "Thinking" or the current thought. */
   waitLabel?: string | null
   contentClassName?: string
   /**
@@ -435,9 +269,8 @@ export function ConversationThread(props: {
     lastMessage?.role === "assistant"
       ? messageHasVisibleActivity(lastMessage)
       : false
-  const showPulsatingLoader =
-    (status === "submitted" || status === "streaming") &&
-    !lastAssistantHasVisibleActivity
+  const running = status === "submitted" || status === "streaming"
+  const showPulsatingLoader = running && !lastAssistantHasVisibleActivity
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-transparent">
@@ -447,13 +280,16 @@ export function ConversationThread(props: {
             className={cn("mx-auto max-w-2xl gap-6 p-5", contentClassName)}
           >
             {turns.map((message, messageIndex) => {
-              const streaming =
-                status === "streaming" &&
+              const working =
+                running &&
                 message.role === "assistant" &&
                 messageIndex === turns.length - 1
               const renderedParts =
                 message.role === "assistant"
-                  ? renderAssistantParts(message, { streaming })
+                  ? renderAssistantParts(message, {
+                      working,
+                      systemStatus: waitLabel ?? null,
+                    })
                   : renderUserParts(message)
 
               const isUser = message.role === "user"
@@ -461,7 +297,7 @@ export function ConversationThread(props: {
               if (renderedParts.length === 0) return null
 
               const afterTurn =
-                !isUser && !streaming && userTurn > 0
+                !isUser && !working && userTurn > 0
                   ? props.renderAfterTurn?.(userTurn)
                   : null
 
@@ -485,7 +321,9 @@ export function ConversationThread(props: {
                 </div>
               )
             })}
-            {showPulsatingLoader && <WaitIndicator label={waitLabel ?? null} />}
+            {showPulsatingLoader && (
+              <StatusLine label={waitLabel ?? "Thinking"} />
+            )}
           </ConversationContent>
           <ConversationScrollButton />
         </Conversation>

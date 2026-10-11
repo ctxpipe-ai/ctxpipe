@@ -67,6 +67,47 @@ export const AdminFlowWelcome: Story = {
   },
 }
 
+/**
+ * A double-click on a slide button moves one slide. The slide changes at
+ * once, so the second click (detail 2) can land on the next slide's button.
+ */
+export const DoubleClickMovesOneSlide: Story = {
+  tags: ["workspace-golden"],
+  render: () => <OnboardingPageContent urlOrgSlug="acme" />,
+  parameters: {
+    msw: {
+      handlers: {
+        defaults: [
+          authConfigHandler,
+          sessionSignedInOnboardingHandler,
+          organizationListWithOrgHandler,
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Go to slide 2" }),
+    )
+    const click = (name: string, detail: number) =>
+      canvas
+        .getByRole("button", { name })
+        .dispatchEvent(new MouseEvent("click", { bubbles: true, detail }))
+    await canvas.findByRole("heading", {
+      name: "Your engineering context layer in one place",
+    })
+    click("Next", 1)
+    await canvas.findByRole("heading", { name: "Connect ctx| to your agents" })
+    click("I'll do this later", 2)
+    // Let React commit any slide change before the check.
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    expect(
+      canvas.getByRole("heading", { name: "Connect ctx| to your agents" }),
+    ).toBeVisible()
+  },
+}
+
 /** The manual MCP snippet names this deployment's origin, not the hosted app. */
 export const McpSnippetUsesCurrentOrigin: Story = {
   render: () => <OnboardingPageContent urlOrgSlug="acme" />,
@@ -90,10 +131,6 @@ export const McpSnippetUsesCurrentOrigin: Story = {
     const manual = await canvas.findByRole("button", {
       name: /install manually/i,
     })
-    // The carousel blocks pointer events until the slide transition ends.
-    await waitFor(() =>
-      expect(getComputedStyle(manual).pointerEvents).not.toBe("none"),
-    )
     await userEvent.click(manual)
     const snippet = await waitFor(() => {
       const code = canvasElement.querySelector("pre code")
@@ -159,14 +196,6 @@ function onboardingSession() {
   }
 }
 
-/** Waits until the carousel lets the button take a click. */
-async function clickWhenReady(button: HTMLElement) {
-  await waitFor(() =>
-    expect(getComputedStyle(button).pointerEvents).not.toBe("none"),
-  )
-  await userEvent.click(button)
-}
-
 async function finishJoiner(canvasElement: HTMLElement) {
   const canvas = within(canvasElement)
   await userEvent.click(
@@ -174,7 +203,7 @@ async function finishJoiner(canvasElement: HTMLElement) {
   )
   await canvas.findByRole("heading", { name: "Welcome aboard" })
   // The welcome slide also has a "Get started" button until it leaves.
-  await clickWhenReady(
+  await userEvent.click(
     await waitFor(() => canvas.getByRole("button", { name: "Get started" })),
   )
 }
@@ -323,7 +352,7 @@ export const CreatorFinishLandsInApp: Story = {
         },
       )
     })
-    await clickWhenReady(
+    await userEvent.click(
       await canvas.findByRole("button", { name: "I\u2019ll do this later" }),
     )
     await canvas.findByText("Landed on /acme/ws/docs", {}, { timeout: 5000 })

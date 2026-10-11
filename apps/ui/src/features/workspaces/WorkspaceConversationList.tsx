@@ -73,7 +73,7 @@ export function WorkspaceConversationList(props: {
   const items = query.data?.pages.flatMap((page) => page.items) ?? []
 
   // One layout for both states: short label sits in the icon gutter (stays put),
-  // full name clips away as the rail width animates.
+  // full name clips away when the rail collapses.
   return (
     <ul className="mt-0.5 mb-0.5 space-y-0.5">
       {query.isPending ? (
@@ -132,7 +132,7 @@ export function WorkspaceConversationList(props: {
                   <span className="relative flex size-8 shrink-0 items-center justify-center">
                     <span
                       className={[
-                        "text-xs font-normal tracking-tight transition-opacity duration-200 ease-out motion-reduce:transition-none",
+                        "text-xs font-normal tracking-tight",
                         active ? "text-zinc-100" : "text-zinc-300",
                         // Overlay drawer (`max-md`) always shows names, never initials.
                         navExpanded
@@ -168,7 +168,7 @@ export function WorkspaceConversationList(props: {
               void query.fetchNextPage()
             }}
             className={[
-              "h-8 cursor-pointer px-0 text-sm transition-opacity duration-200",
+              "h-8 cursor-pointer px-0 text-sm",
               navExpanded ? "opacity-100" : "pointer-events-none opacity-0",
             ].join(" ")}
           >

@@ -7,7 +7,9 @@ describe("insertConversationListItem", () => {
       {
         pages: [
           {
-            items: [{ id: "conv_old", name: "Old", source: "ui", lastMessageAt: "1" }],
+            items: [
+              { id: "conv_old", name: "Old", source: "ui", lastMessageAt: "1" },
+            ],
             pageInfo: { hasNextPage: false, endCursor: "conv_old" },
           },
         ],

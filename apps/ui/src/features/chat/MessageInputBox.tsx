@@ -61,7 +61,7 @@ export function MessageInputBox(props: {
       {draftKey ? <MessageInputDraftStore draftKey={draftKey} /> : null}
       <div
         className={cn(
-          "workspace-composer-vt relative overflow-hidden rounded-md bg-zinc-900/80",
+          "relative overflow-hidden rounded-md bg-zinc-900/80",
           "ring-1 ring-white/[0.08] transition-[box-shadow,background-color]",
           "focus-within:bg-zinc-900 focus-within:ring-teal-400/40",
         )}

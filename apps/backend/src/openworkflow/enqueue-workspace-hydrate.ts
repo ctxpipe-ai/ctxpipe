@@ -44,3 +44,26 @@ export async function enqueueWorkspaceHydrate(
     }
   }
 }
+
+/**
+ * Start one hydrate run that writes a lost revision graph again from the
+ * PostgreSQL projection. The key names the Workspace, the revision and the loss.
+ */
+export async function enqueueWorkspaceGraphRebuild(input: {
+  orgId: string
+  revision: WorkspaceRevision
+  revisionKey: string
+  lostAt: Date
+}): Promise<void> {
+  await runWorkflowWithWorkerWake(
+    workspaceHydrate.spec,
+    {
+      orgId: input.orgId,
+      workspaceId: input.revision.workspaceId,
+      revision: input.revision,
+    },
+    {
+      idempotencyKey: `workspace-graph-rebuild:${input.revision.workspaceId}:${input.revisionKey}:${input.lostAt.toISOString()}`,
+    },
+  )
+}

@@ -41,7 +41,8 @@ function oauthAppHandler(input: {
       linearOauthConfigured:
         input.globalLinearOauthConfigured || input.oauthAppSaved,
       globalLinearOauthConfigured: input.globalLinearOauthConfigured,
-      oauthCallbackUrl: "https://app.example.com/api/v1/integrations/linear/callback",
+      oauthCallbackUrl:
+        "https://app.example.com/api/v1/integrations/linear/callback",
       linearWebhookUrl: "https://app.example.com/api/v1/webhook/linear",
       linearCreateUrl: "https://linear.app/settings/api/applications/new",
       oauthAppSaved: input.oauthAppSaved,

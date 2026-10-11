@@ -15,6 +15,7 @@ import type { ParsedPane } from "./pane"
 import { workspaceConversationOptions, workspaceKeys } from "./queries"
 import { openWorkspaceConversation } from "./start-workspace-conversation-ui"
 import type { Workspace } from "./types"
+import type { ConversationPublish } from "./useWorkspaceConversationPublish"
 import { WorkspaceChatChrome } from "./WorkspaceChatChrome"
 import { WorkspaceChatSession } from "./WorkspaceChatSession"
 
@@ -24,6 +25,7 @@ export function WorkspaceChat(props: {
   conversationId?: string
   headerExtra?: ReactNode
   onOpenPane?: (pane: ParsedPane) => void
+  publish?: ConversationPublish | null
 }) {
   const { orgSlug, workspace, conversationId: routeConversationId } = props
 
@@ -55,6 +57,7 @@ export function WorkspaceChat(props: {
         conversationId={routeConversationId}
         headerExtra={props.headerExtra}
         onOpenPane={props.onOpenPane}
+        publish={props.publish}
       />
     </Suspense>
   )
@@ -193,6 +196,7 @@ function WorkspaceChatResume(props: {
   conversationId: string
   headerExtra?: ReactNode
   onOpenPane?: (pane: ParsedPane) => void
+  publish?: ConversationPublish | null
 }) {
   const { orgSlug, workspace, conversationId } = props
   const { data: detail } = useSuspenseQuery(
@@ -220,6 +224,7 @@ function WorkspaceChatResume(props: {
       initialMessages={detail.messages}
       headerExtra={props.headerExtra}
       onOpenPane={props.onOpenPane}
+      publish={props.publish}
     />
   )
 }

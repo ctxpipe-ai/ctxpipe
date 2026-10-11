@@ -150,7 +150,8 @@ describe("Linear connector API", () => {
     const body = {
       linearOauthConfigured: true,
       globalLinearOauthConfigured: false,
-      oauthCallbackUrl: "https://app.example.com/api/v1/integrations/linear/callback",
+      oauthCallbackUrl:
+        "https://app.example.com/api/v1/integrations/linear/callback",
       linearWebhookUrl: "https://app.example.com/api/v1/webhook/linear",
       linearCreateUrl: "https://linear.app/settings/api/applications/new",
       oauthAppSaved: true,
@@ -165,6 +166,8 @@ describe("Linear connector API", () => {
         }),
       ),
     )
-    await expect(fetchLinearOauthApp("acme", "con_draft")).resolves.toEqual(body)
+    await expect(fetchLinearOauthApp("acme", "con_draft")).resolves.toEqual(
+      body,
+    )
   })
 })

@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { fn } from "storybook/test"
+import { expect, fn, within } from "storybook/test"
 import { KnowledgeGraphCosmographCanvas } from "./KnowledgeGraphCosmographCanvas"
 
 const meta = {
@@ -138,4 +138,30 @@ export const PaneWide: Story = {
       </div>
     ),
   ],
+}
+
+/** A browser with WebGL 2 turned off gets a clear message, not a blank canvas. */
+export const NoWebGL: Story = {
+  tags: ["workspace-golden"],
+  beforeEach: () => {
+    const getContext = HTMLCanvasElement.prototype.getContext
+    HTMLCanvasElement.prototype.getContext = function (
+      this: HTMLCanvasElement,
+      kind: string,
+      ...rest: unknown[]
+    ) {
+      if (kind === "webgl2") return null
+      return Reflect.apply(getContext, this, [kind, ...rest])
+    } as typeof getContext
+    return () => {
+      HTMLCanvasElement.prototype.getContext = getContext
+    }
+  },
+  play: async ({ canvasElement }) => {
+    await expect(
+      await within(canvasElement).findByText(
+        "This browser cannot show the graph",
+      ),
+    ).toBeVisible()
+  },
 }

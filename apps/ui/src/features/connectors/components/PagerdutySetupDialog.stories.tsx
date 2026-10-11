@@ -297,7 +297,8 @@ export const TargetRepository: Story = {
                     orgId: "org_story",
                     slug: "context",
                     displayName: "Context",
-                    workspaceRepositoryUrl: "https://github.com/acme/context.git",
+                    workspaceRepositoryUrl:
+                      "https://github.com/acme/context.git",
                     githubConnectionId: "con_github",
                     desiredGeneration: 1,
                     desiredSha: null,
