@@ -1,45 +1,14 @@
-import { eq } from "drizzle-orm"
 import {
   defineWorkflow as defineOpenWorkflow,
   type Workflow,
 } from "openworkflow"
 import { z } from "zod"
-import { getSystemDb } from "../db/client.js"
-import { organizations } from "../db/schema/auth.js"
 import {
   attachJobTelemetryForSchema,
   type JobTelemetry,
   jobTelemetrySchema,
   restoreJobTelemetry,
 } from "../observability/jobTelemetry.js"
-
-/**
- * A job input often has the org id and no slug. Langfuse tags a trace with
- * `org:<slug>`, so add the slug for attribution. The body input stays as it
- * is. A failed lookup only leaves the tag out; it never fails the job.
- */
-async function withOrgSlug<T>(input: T): Promise<T> {
-  if (!input || typeof input !== "object") return input
-  const record = input as Record<string, unknown>
-  const telemetry = record.telemetry as Record<string, unknown> | undefined
-  if (
-    typeof record.orgId !== "string" ||
-    record.orgSlug ||
-    (telemetry?.["ctxpipe.org.id"] === record.orgId &&
-      telemetry?.["ctxpipe.org.slug"])
-  )
-    return input
-  try {
-    const [org] = await getSystemDb()
-      .select({ slug: organizations.slug })
-      .from(organizations)
-      .where(eq(organizations.id, record.orgId))
-      .limit(1)
-    return org ? { ...input, orgSlug: org.slug } : input
-  } catch {
-    return input
-  }
-}
 
 type JobInput<S extends z.ZodType> = z.output<S> & { telemetry?: JobTelemetry }
 type JobRaw<S extends z.ZodType> = z.input<S> & { telemetry?: JobTelemetry }
@@ -111,10 +80,8 @@ export function defineWorkflow<S extends z.ZodType, Output>(
       // Telemetry is enqueue-only: bodies re-parse `input` with their own
       // strict schema, which has no `telemetry` key.
       const { telemetry: _telemetry, ...input } = ctx.input
-      return withOrgSlug(ctx.input).then((attributed) =>
-        restoreJobTelemetry(attributed, () =>
-          fn({ ...ctx, input: input as z.output<S> }),
-        ),
+      return restoreJobTelemetry(ctx.input, () =>
+        fn({ ...ctx, input: input as z.output<S> }),
       )
     },
   )

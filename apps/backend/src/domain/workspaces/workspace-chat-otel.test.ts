@@ -4,8 +4,9 @@ import {
   SimpleSpanProcessor,
 } from "@opentelemetry/sdk-trace-base"
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
+import { chat } from "@tanstack/ai"
+import { BaseTextAdapter } from "@tanstack/ai/adapters"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
-import { contextWithAttributionBag } from "../../observability/attribution.js"
 import { LangfuseContextSpanProcessor } from "../../observability/langfuseContextProcessor.js"
 import { AttributionUrlSpanProcessor } from "../../observability/otel.js"
 import {
@@ -15,6 +16,7 @@ import {
   iterateInWorkspaceChatTurn,
   markWorkspaceChatFirstShownToken,
   recordWorkspaceChatProxyGeneration,
+  workspaceChatOtelMiddleware,
 } from "./workspace-chat-otel.js"
 
 const exporter = new InMemorySpanExporter()
@@ -49,18 +51,13 @@ function proxyRequest(fn: () => void): string {
 
 describe("workspace chat turn trace", () => {
   it("joins the generations, the tools, and the TanStack chat span under one attributed turn root", async () => {
-    const { context: socketContext, bag } = contextWithAttributionBag(
-      context.active(),
-    )
-    bag.set("enduser.id", "user_1")
-    bag.set("ctxpipe.actor.type", "user")
-    let turnContext = context.active()
-    context.with(socketContext, () => {
-      turnContext = beginWorkspaceChatTurn("conv_trace", "run_trace", {
-        orgId: "org_1",
-        orgSlug: "acme",
-        workspaceId: "ws_1",
-      })
+    // The socket has no auth attribution: the owner names the sender.
+    const turnContext = beginWorkspaceChatTurn("conv_trace", "run_trace", {
+      orgId: "org_1",
+      orgSlug: "acme",
+      workspaceId: "ws_1",
+      userId: "user_1",
+      source: "ui",
     })
     async function* chatBody() {
       trace.getTracer("tanstack").startSpan("chat test-model").end()
@@ -100,7 +97,9 @@ describe("workspace chat turn trace", () => {
       "ctxpipe.workspace.id": "ws_1",
       "ctxpipe.conversation.id": "conv_trace",
       "enduser.id": "user_1",
+      "ctxpipe.actor.type": "user",
       "langfuse.trace.name": "workspace-chat",
+      "session.id": "conv_trace",
     })
     const traceId = root?.spanContext().traceId
     const rootId = root?.spanContext().spanId
@@ -116,12 +115,17 @@ describe("workspace chat turn trace", () => {
       expect(span?.parentSpanContext?.spanId, name).toBe(rootId)
       expect(span?.attributes["ctxpipe.org.id"], name).toBe("org_1")
       expect(span?.attributes["langfuse.trace.tags"], name).toEqual(
-        expect.arrayContaining(["org:acme"]),
+        expect.arrayContaining(["org:acme", "ui"]),
       )
       expect(span?.attributes["langfuse.trace.metadata.orgId"], name).toBe(
         "org_1",
       )
       expect(span?.attributes["user.id"], name).toBe("user_1")
+      // The collector sends only gen_ai spans to Langfuse, so each one
+      // carries the trace name.
+      expect(span?.attributes["langfuse.trace.name"], name).toBe(
+        "workspace-chat",
+      )
     }
     expect(
       byName("generation #0")?.links.map((link) => link.context.spanId),
@@ -203,5 +207,79 @@ describe("workspace chat otel turn summary", () => {
       ["run_failed", SpanStatusCode.ERROR],
       ["run_ok", SpanStatusCode.UNSET],
     ])
+  })
+
+  it("keeps the newest whole messages and valid JSON when the prompt is too long", () => {
+    const messages = Array.from({ length: 100 }, (_, index) => ({
+      role: "user",
+      content: `message ${index} ${"x".repeat(1024)}`,
+    }))
+    beginWorkspaceChatTurn("conv_long", "run_long")
+    beginWorkspaceChatProxyGeneration("run_long", { messages })
+    recordWorkspaceChatProxyGeneration("run_long", {
+      ttfbMs: 1,
+      durationMs: 1,
+      finishReason: "stop",
+      tools: [],
+      text: `answer ${"y".repeat(100 * 1024)} end`,
+    })
+    finishWorkspaceChatTurn("run_long")
+    const generation = exporter
+      .getFinishedSpans()
+      .find(
+        (span) =>
+          span.attributes["workspace_chat.turn_id"] === "run_long" &&
+          span.name.startsWith("generation"),
+      )
+    const input = String(generation?.attributes["langfuse.observation.input"])
+    const output = String(generation?.attributes["langfuse.observation.output"])
+    expect(input.length).toBeLessThanOrEqual(64 * 1024)
+    expect(output.length).toBeLessThanOrEqual(64 * 1024)
+    const kept = JSON.parse(input) as typeof messages
+    expect(kept.at(-1)).toEqual(messages.at(-1))
+    expect(kept[0]).not.toEqual(messages[0])
+    expect(messages.slice(-kept.length)).toEqual(kept)
+    expect(JSON.parse(output).role).toBe("assistant")
+  })
+
+  it("makes the TanStack turn summary and iteration plain Langfuse spans", async () => {
+    class OneAnswer extends BaseTextAdapter<string, never, [], never> {
+      readonly name = "one-answer"
+      constructor() {
+        super({}, "scripted/model")
+      }
+      async *chatStream(options: { runId?: string; threadId?: string }) {
+        const run = { runId: options.runId, threadId: options.threadId }
+        const timestamp = Date.now()
+        yield { type: "RUN_STARTED", ...run, timestamp } as never
+        yield {
+          type: "RUN_FINISHED",
+          ...run,
+          finishReason: "stop",
+          usage: { promptTokens: 3, completionTokens: 2, totalTokens: 5 },
+          timestamp,
+        } as never
+      }
+      async structuredOutput(): Promise<never> {
+        throw new Error("Not used")
+      }
+    }
+    for await (const _ of chat({
+      adapter: new OneAnswer(),
+      threadId: "thread",
+      runId: "run_summary",
+      messages: [{ role: "user", content: "hi" }],
+      middleware: [workspaceChatOtelMiddleware()],
+    }) as AsyncIterable<unknown>) {
+      /* drain */
+    }
+    const tanstack = exporter
+      .getFinishedSpans()
+      .filter((span) => span.name.startsWith("chat scripted/model"))
+    expect(tanstack.length).toBeGreaterThanOrEqual(2)
+    for (const span of tanstack)
+      expect(span.attributes["langfuse.observation.type"], span.name).toBe(
+        "span",
+      )
   })
 })

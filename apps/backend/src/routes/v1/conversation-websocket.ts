@@ -1,4 +1,3 @@
-import { context } from "@opentelemetry/api"
 import { and, eq } from "drizzle-orm"
 import { getAuth } from "../../auth/config.js"
 import { withUserIdContext } from "../../auth/context.js"
@@ -8,7 +7,6 @@ import { members, organizations } from "../../db/schema/auth.js"
 import {
   type ConversationChatRequest,
   parseConversationChatRequest,
-  withLangfuseTurnContext,
 } from "../../domain/conversations/transport.js"
 import { stoppingSandboxWhenDone } from "../../domain/workspaces/conversation-sandbox-lifecycle.js"
 import {
@@ -21,10 +19,6 @@ import {
   resolveWorkspaceChatSendRuntime,
 } from "../../domain/workspaces/workspace-chat-send-runtime.js"
 import { discardUnstartedConversation } from "../../models/conversations.js"
-import {
-  contextWithAttributionBag,
-  sanitizeAttribution,
-} from "../../observability/attribution.js"
 import {
   createLogger,
   type LoggerHolder,
@@ -204,39 +198,33 @@ async function* streamWorkspaceChatSocketTurn(input: {
     yield workspaceChatRunError("workspace_required")
     return
   }
-  const stream = withLangfuseTurnContext(
-    {
-      sessionId: input.conversationId,
-      userId: input.userId,
-      source: parsed.source,
-    },
-    () =>
-      streamTanstackWorkspaceChat({
+  const stream = streamTanstackWorkspaceChat({
+    conversationId: input.conversationId,
+    prompt: parsed.prompt,
+    messages: parsed.messages,
+    threadId: parsed.threadId ?? input.conversationId,
+    runId: parsed.runId ?? input.runId,
+    abortSignal: input.signal,
+    orgId: input.orgId,
+    orgSlug: input.orgSlug,
+    userId: input.userId,
+    source: parsed.source,
+    workspaceId: parsed.workspaceId,
+    writeStatus: "read_only",
+    resolveRuntime: () =>
+      resolveWorkspaceChatSendRuntime({
         conversationId: input.conversationId,
-        prompt: parsed.prompt,
-        messages: parsed.messages,
-        threadId: parsed.threadId ?? input.conversationId,
-        runId: parsed.runId ?? input.runId,
-        abortSignal: input.signal,
-        orgId: input.orgId,
-        orgSlug: input.orgSlug,
         workspaceId: parsed.workspaceId,
-        writeStatus: "read_only",
-        resolveRuntime: () =>
-          resolveWorkspaceChatSendRuntime({
-            conversationId: input.conversationId,
-            workspaceId: parsed.workspaceId,
-            source: parsed.source,
-          }),
-        onUserPersist: () =>
-          persistWorkspaceChatUserTurnListed(input.conversationId),
-        onError: async () => {
-          if (!(await conversationHasStoredTurns(input.conversationId))) {
-            await discardUnstartedConversation(input.conversationId)
-          }
-        },
+        source: parsed.source,
       }),
-  )
+    onUserPersist: () =>
+      persistWorkspaceChatUserTurnListed(input.conversationId),
+    onError: async () => {
+      if (!(await conversationHasStoredTurns(input.conversationId))) {
+        await discardUnstartedConversation(input.conversationId)
+      }
+    },
+  })
   yield* withSocketTurnContext(
     { id: input.orgId, slug: input.orgSlug },
     input.userId,
@@ -252,29 +240,15 @@ async function* streamWorkspaceChatSocketTurn(input: {
 }
 
 /**
- * Run each step of a socket turn in the auth, logger, and attribution
- * context. The socket has no Hono request, so this is where the turn gets
- * the org, user, and conversation that HTTP gets from its middleware.
+ * Run each step of a socket turn in the auth and logger context. The turn
+ * attribution comes from `beginWorkspaceChatTurn`.
  */
-export async function* withSocketTurnContext<T>(
+async function* withSocketTurnContext<T>(
   org: { id: string; slug: string },
   userId: string,
   conversationId: string,
   stream: AsyncIterable<T>,
 ): AsyncGenerator<T> {
-  const { context: attributionContext, bag } = contextWithAttributionBag(
-    context.active(),
-  )
-  for (const [key, value] of Object.entries(
-    sanitizeAttribution({
-      "enduser.id": userId,
-      "ctxpipe.actor.type": "user",
-      "ctxpipe.org.id": org.id,
-      "ctxpipe.org.slug": org.slug,
-      "ctxpipe.conversation.id": conversationId,
-    }),
-  ))
-    bag.set(key, value)
   const logger = createLogger({
     step: "workspace-chat-ws",
     conversationId,
@@ -284,11 +258,9 @@ export async function* withSocketTurnContext<T>(
   const iterator = stream[Symbol.asyncIterator]()
   try {
     while (true) {
-      const next = await context.with(attributionContext, () =>
-        loggerStorage.run(holder, () =>
-          withOrgIdContext(org, () =>
-            withUserIdContext(userId, () => iterator.next()),
-          ),
+      const next = await loggerStorage.run(holder, () =>
+        withOrgIdContext(org, () =>
+          withUserIdContext(userId, () => iterator.next()),
         ),
       )
       if (next.done) return

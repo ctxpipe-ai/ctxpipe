@@ -66,7 +66,7 @@ function coverStreamedBody(c: Context): void {
     },
     async cancel(reason) {
       // The client left; that is not a failure of this service.
-      span.setAttribute("http.response.stream.cancelled", true)
+      span.setAttribute("http.response.stream.canceled", true)
       span.end()
       await reader.cancel(reason)
     },

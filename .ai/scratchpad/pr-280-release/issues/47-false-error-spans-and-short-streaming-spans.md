@@ -53,7 +53,7 @@ Fix (branch `obs-llm-traces`):
 
 - `BetterAuthSpanFilter` also drops a better-auth span whose exception is an `APIError`. It keeps other failures (for example an adapter error). The server span keeps the HTTP status.
 - `traceGraphQuery` does not record an error for "already indexed" on a `CREATE INDEX` query.
-- `backendOtelMiddleware` adds a child span `http.response.stream` to a `text/event-stream` answer. The span ends at the last chunk, has error status when the stream fails, and has `http.response.stream.cancelled=true` when the client leaves. The server span stays as `@hono/otel` makes it.
+- `backendOtelMiddleware` adds a child span `http.response.stream` to a `text/event-stream` answer. The span ends at the last chunk, has error status when the stream fails, and has `http.response.stream.canceled=true` when the client leaves. The server span stays as `@hono/otel` makes it.
 - A failed turn root has error status.
 - 4xx server spans stay `Unset`.
 

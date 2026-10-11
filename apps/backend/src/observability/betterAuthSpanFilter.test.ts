@@ -79,4 +79,20 @@ describe("Better Auth span filter", () => {
 
     expect(exporter.getFinishedSpans()).toEqual([])
   })
+
+  it("keeps a better-auth span that ended with a 5xx APIError", () => {
+    const auth = trace.getTracer("better-auth")
+    const failed = auth.startSpan("GET /get-session")
+    const error = Object.assign(new Error("Internal error"), {
+      name: "APIError",
+      statusCode: 500,
+    })
+    failed.recordException(error)
+    failed.setStatus({ code: SpanStatusCode.ERROR, message: error.message })
+    failed.end()
+
+    const finished = exporter.getFinishedSpans()
+    expect(finished.map((span) => span.name)).toEqual(["GET /get-session"])
+    expect(finished[0]?.attributes["http.response.status_code"]).toBe(500)
+  })
 })

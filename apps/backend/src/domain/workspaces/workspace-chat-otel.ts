@@ -6,6 +6,7 @@ import {
   SpanStatusCode,
   trace,
 } from "@opentelemetry/api"
+import { otelMiddleware } from "@tanstack/ai/middlewares/otel"
 import {
   contextWithAttributionBag,
   readAttribution,
@@ -50,6 +51,22 @@ type WorkspaceChatTurnState = {
 const turns = new Map<string, WorkspaceChatTurnState>()
 const tracer = () => trace.getTracer("ctxpipe-workspace-chat")
 
+/**
+ * TanStack spans of a chat turn. Each model call is a `generation #N` span
+ * with its own usage and cost, so in Langfuse the TanStack turn summary and
+ * its iterations are plain spans: the turn does not count its tokens and
+ * cost two times.
+ */
+export function workspaceChatOtelMiddleware() {
+  return otelMiddleware({
+    tracer: tracer(),
+    attributeEnricher: (info): Record<string, string> =>
+      info.kind === "chat" || info.kind === "iteration"
+        ? { "langfuse.observation.type": "span" }
+        : {},
+  })
+}
+
 export function workspaceChatTurnId(input: {
   conversationId: string
   runId?: string
@@ -57,24 +74,42 @@ export function workspaceChatTurnId(input: {
   return input.runId ?? input.conversationId
 }
 
+/** Who runs the turn, for its attribution and Langfuse trace. */
+export type WorkspaceChatTurnOwner = {
+  orgId?: string
+  orgSlug?: string
+  workspaceId?: string
+  /** The person who sent the turn. */
+  userId?: string
+  /** The conversation source (`ui`, `mcp`, ...), a Langfuse tag. */
+  source?: string | null
+}
+
 /**
- * Open the turn root span and return its context. The root carries the
- * attribution that is active now (user, request) plus the org, the
- * Workspace, and the conversation. Generation and tool spans start under
- * this context, also when a proxy request is the active context.
+ * Open the turn root span and return the one context of the turn. It holds
+ * the attribution that is active now (user, request) plus the owner and the
+ * conversation, and the Langfuse trace attributes. Generation and tool spans
+ * start under it, also when a proxy request is the active context.
  */
 export function beginWorkspaceChatTurn(
   conversationId: string,
   turnId = conversationId,
-  owner?: { orgId?: string; orgSlug?: string; workspaceId?: string },
+  owner?: WorkspaceChatTurnOwner,
 ): Context {
   const previous = turns.get(turnId)
   previous?.rootSpan.end()
   const parent = context.active()
   const { context: bagContext, bag } = contextWithAttributionBag(parent)
+  const active = readAttribution()
+  // A caller with no auth attribution (the socket) is the user who sent it.
+  const sender =
+    owner?.userId && !active["ctxpipe.actor.type"]
+      ? { "enduser.id": owner.userId, "ctxpipe.actor.type": "user" }
+      : {}
   const attribution = {
-    ...readAttribution(),
+    ...active,
     ...sanitizeAttribution({
+      ...sender,
       "ctxpipe.org.id": owner?.orgId,
       "ctxpipe.org.slug": owner?.orgSlug,
       "ctxpipe.workspace.id": owner?.workspaceId,
@@ -82,11 +117,18 @@ export function beginWorkspaceChatTurn(
     }),
   }
   for (const [key, value] of Object.entries(attribution)) bag.set(key, value)
-  // The Langfuse org tag and metadata come from the turn attribution, also
-  // when the caller (the socket) had none.
   const turnParent = context.with(bagContext, () =>
     propagateAttributes(
-      langfusePropagation({ sessionId: conversationId }),
+      {
+        ...langfusePropagation({
+          sessionId: conversationId,
+          userId: owner?.userId,
+          tags: owner?.source ? [owner.source] : undefined,
+        }),
+        // The collector sends only gen_ai spans to Langfuse, so each span
+        // of the turn carries the trace name.
+        traceName: "workspace-chat",
+      },
       () => context.active(),
     ),
   )
@@ -97,10 +139,6 @@ export function beginWorkspaceChatTurn(
         ...attribution,
         "workspace_chat.conversation_id": conversationId,
         "workspace_chat.turn_id": turnId,
-        // A turn with no caller span (the WebSocket) is the trace root.
-        ...(trace.getSpan(parent)
-          ? {}
-          : { "langfuse.trace.name": "workspace-chat" }),
       },
     },
     turnParent,
@@ -170,12 +208,44 @@ export function markWorkspaceChatFirstShownToken(turnId: string): void {
 /** Langfuse reads these; the ClickHouse pipeline removes them from HyperDX. */
 const MAX_LANGFUSE_CONTENT = 64 * 1024
 
-/** Credentials are masked before the text reaches a span. */
+/**
+ * JSON for a Langfuse input or output, at most `MAX_LANGFUSE_CONTENT`
+ * characters. Credentials are masked first. A message list keeps its newest
+ * whole messages; a text that is still too long keeps its end.
+ */
 function langfuseContent(value: unknown): string {
-  const json = JSON.stringify(maskCredentialsDeep(value))
-  return json.length > MAX_LANGFUSE_CONTENT
-    ? `${json.slice(0, MAX_LANGFUSE_CONTENT)}…[truncated]`
-    : json
+  let masked = maskCredentialsDeep(value)
+  if (Array.isArray(masked)) {
+    let size = JSON.stringify(masked).length
+    let start = 0
+    while (size > MAX_LANGFUSE_CONTENT && start < masked.length - 1) {
+      size -= JSON.stringify(masked[start]).length + 1
+      start += 1
+    }
+    masked = masked.slice(start)
+  }
+  let json = JSON.stringify(masked)
+  // One message or answer is still too long: keep the end of its text.
+  const last = Array.isArray(masked) ? masked.at(-1) : masked
+  while (
+    json.length > MAX_LANGFUSE_CONTENT &&
+    last &&
+    typeof last === "object" &&
+    typeof (last as { content?: unknown }).content === "string"
+  ) {
+    const item = last as { content: string }
+    const keep = item.content.length - (json.length - MAX_LANGFUSE_CONTENT) - 32
+    if (keep <= 0) {
+      item.content = "[truncated]"
+      json = JSON.stringify(masked)
+      break
+    }
+    item.content = `[truncated]${item.content.slice(-keep)}`
+    json = JSON.stringify(masked)
+  }
+  return json.length <= MAX_LANGFUSE_CONTENT
+    ? json
+    : JSON.stringify("[truncated]")
 }
 
 export function beginWorkspaceChatProxyGeneration(

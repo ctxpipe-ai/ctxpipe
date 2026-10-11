@@ -1,6 +1,5 @@
 import { randomBytes, randomUUID } from "node:crypto"
 import { createServer } from "node:net"
-import { trace } from "@opentelemetry/api"
 import {
   chat,
   defineChatMiddleware,
@@ -9,7 +8,6 @@ import {
   type StreamChunk,
   type UIMessage,
 } from "@tanstack/ai"
-import { otelMiddleware } from "@tanstack/ai/middlewares/otel"
 import { opencodeText } from "@tanstack/ai-opencode"
 import { withPersistence } from "@tanstack/ai-persistence"
 import {
@@ -133,6 +131,7 @@ import {
   finishWorkspaceChatTurn,
   iterateInWorkspaceChatTurn,
   markWorkspaceChatFirstShownToken,
+  workspaceChatOtelMiddleware,
 } from "./workspace-chat-otel.js"
 import { workspaceChatPersistence } from "./workspace-chat-persistence.js"
 import { updateConversationSandboxRevision } from "./workspace-chat-revision-transition.js"
@@ -166,6 +165,10 @@ export type TanstackWorkspaceChatInput = {
   abortSignal?: AbortSignal
   orgId: string
   orgSlug?: string
+  /** The person who sent the turn; telemetry only. */
+  userId?: string
+  /** The conversation source (`ui`, `mcp`, ...); telemetry only. */
+  source?: string | null
   workspaceId: string
   desiredUrl?: string
   desiredSha?: string | null
@@ -343,6 +346,8 @@ export async function* streamTanstackWorkspaceChat(
     orgId: input.orgId,
     orgSlug: input.orgSlug,
     workspaceId: input.workspaceId,
+    userId: input.userId,
+    source: input.source,
   })
   enterSandboxLifecycleContext(input.conversationId)
   try {
@@ -760,16 +765,7 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
       }),
     ],
     middleware: [
-      otelMiddleware({
-        tracer: trace.getTracer("ctxpipe-workspace-chat"),
-        // Each model call is a `generation #N` span with its own usage and
-        // cost. In Langfuse this turn summary is a plain span, so the turn
-        // does not count its tokens and cost two times.
-        attributeEnricher: (info): Record<string, string> =>
-          info.kind === "chat" || info.kind === "iteration"
-            ? { "langfuse.observation.type": "span" }
-            : {},
-      }),
+      workspaceChatOtelMiddleware(),
       defineChatMiddleware({
         name: "workspace-chat-sandbox-used",
         onFinish: markSandboxUsed,
