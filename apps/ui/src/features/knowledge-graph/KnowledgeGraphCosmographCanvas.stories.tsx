@@ -140,6 +140,24 @@ export const PaneWide: Story = {
   ],
 }
 
+/** The open node drawer is the focused layer: the search and the timeline dim
+ * and do not take input. */
+export const DrawerOpenDimsOverlays: Story = {
+  args: { drawerOpen: true },
+  play: async ({ canvasElement }) => {
+    const search = await within(canvasElement).findByLabelText(
+      "Search nodes",
+      {},
+      { timeout: 10_000 },
+    )
+    const overlay = search.closest("[inert]")
+    await expect(overlay).not.toBeNull()
+    await expect(getComputedStyle(overlay as Element).opacity).toBe("0.4")
+    search.focus()
+    await expect(search).not.toHaveFocus()
+  },
+}
+
 /** A browser with WebGL 2 turned off gets a clear message, not a blank canvas. */
 export const NoWebGL: Story = {
   tags: ["workspace-golden"],
