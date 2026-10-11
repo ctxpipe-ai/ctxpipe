@@ -112,7 +112,7 @@ describe("messagesForOpenCodeChat", () => {
     expect(openCodeTrailingUserText(normalized)).toBe("from hydrate")
   })
 
-  it("re-applies the trailing user on middleware onConfig", async () => {
+  it("re-applies the trailing user for the adapter only on middleware onConfig", async () => {
     const mw = openCodeTrailingUserMiddleware("next turn")
     const onConfig = mw.onConfig
     expect(onConfig).toEqual(expect.any(Function))
@@ -128,11 +128,12 @@ describe("messagesForOpenCodeChat", () => {
         tools: [],
       },
     )
-    const messages =
-      result && typeof result === "object" && "messages" in result
-        ? result.messages
-        : undefined
-    expect(messages).toBeDefined()
-    expect(openCodeTrailingUserText(messages ?? [])).toBe("next turn")
+    const patch = result && typeof result === "object" ? result : {}
+    // The run's messages are the stored transcript; the copy is not a question.
+    expect(patch).not.toHaveProperty("messages")
+    const providerMessages =
+      "providerMessages" in patch ? patch.providerMessages : undefined
+    expect(providerMessages).toBeDefined()
+    expect(openCodeTrailingUserText(providerMessages ?? [])).toBe("next turn")
   })
 })

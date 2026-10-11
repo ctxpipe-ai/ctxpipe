@@ -1,11 +1,11 @@
 # A second question in a chat conversation fails
 
-Status: in review (manual check by the CTO on the pr-280 preview)
+Status: in review (third question fixed; confirm on the pr-280 preview after the next deploy)
 Priority: P0
 Owner: claude
 Blocked by: none
 Created: 2026-10-08
-Updated: 2026-10-08
+Updated: 2026-10-11
 
 ## Context
 
@@ -28,3 +28,25 @@ The cause is not Vercel-specific. The per-turn OpenCode password, the earlier-tu
 - Proof at the lock seam: `workspace-chat-thread-lock.test.ts` uses the real `ChatClient`, `uiMessagesToWire`, `chatParamsFromRequestBody`, `chat()` and memory persistence, with a scripted model that sends the OpenCode chunk shapes. The second question passes after a first answer with text only, reasoning then text, two text parts, text-tool-text, a JSON tool result, a tool error, and a failed run. Before the fix, four of these cases failed with `ConversationChangedError`. The same file proves that stale sends are rejected.
 - Proof on the socket: `conversation-websocket-native.contract.test.ts`, "answers a second question on the same socket, with the messages the browser holds". The two stale-send rejections in `workspace-chat-native.contract.test.ts` still pass.
 - Not proved here: the real browser and a real OpenCode answer on the preview. Confirm a second question after a tool-using answer there.
+
+## Reopened: the third question fails
+
+Linear: CTX-519.
+
+On the pr-280 preview, the first two questions of a conversation streamed. Both answers used tools. The third send failed with `ConversationChangedError` at `workspace-chat-thread-lock.ts:88`, and each retry failed the same way.
+
+### Cause
+
+`openCodeTrailingUserMiddleware` runs before each model call. When the engine runs a `tanstack_*` tool, the list ends on the tool result. Then `messagesForOpenCodeChat` adds `{ role: "user", content: <prompt> }` with no id, because OpenCode reads the prompt only from a last user message. The middleware returned this list as `messages`. The engine puts `messages` on the run, and persistence saves the run's messages. Thus the stored transcript got a copy of the question with no id, after the tool result.
+
+The lock reads that copy as a third stored question with the id `""`. The browser's third send has a real id in that slot, so the lock rejects it. The second send passes because the copy is written during the second turn, after the lock accepted it. A reload does not help: the copy stays in the stored transcript.
+
+The resolution above did not find this. Its scripted model never ends a model call on a tool result, so the copy was never added.
+
+### Resolution
+
+- `openCodeTrailingUserMiddleware` returns the list as `providerMessages`. Only the adapter reads `providerMessages`. The run and the stored transcript keep `messages` without the copy.
+- Proof at the lock seam: `workspace-chat-thread-lock.test.ts` now uses the production middleware order, with `openCodeTrailingUserMiddleware` last, and a tool that the engine runs. "stores only the browser's questions after the engine runs a tool" sends three questions. Before the fix it failed with `ConversationChangedError`. After the fix the stored question ids are the browser's question ids.
+- The native OpenCode contract tests pass with real OpenCode. Three WebSocket tests in `workspace-chat-native.contract.test.ts` fail on this machine with and without the change (`"" cannot be parsed as a URL` in the Bun client). CI is the check for them.
+- A conversation that already has a stored copy stays blocked, because the copy is in its transcript. Start a new conversation. `main` does not have this middleware, so production transcripts do not have the copy.
+

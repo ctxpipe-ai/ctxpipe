@@ -51,12 +51,20 @@ export function messagesForOpenCodeChat<
   return [...list, { role: "user", content: text } as T]
 }
 
+/**
+ * After the engine runs a tool, the list ends on the tool result and the copy
+ * of the prompt is not a question. Only the adapter reads `providerMessages`;
+ * the run and the stored transcript keep `messages` without the copy.
+ */
 export function openCodeTrailingUserMiddleware(prompt: string) {
   return defineChatMiddleware({
     name: "opencode-trailing-user",
     onConfig(_ctx, config) {
       return {
-        messages: messagesForOpenCodeChat(config.messages, prompt),
+        providerMessages: messagesForOpenCodeChat(
+          config.providerMessages ?? config.messages,
+          prompt,
+        ),
       }
     },
   })
