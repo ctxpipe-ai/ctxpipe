@@ -2,31 +2,26 @@
 
 import HyperDX from "@hyperdx/browser"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { useEffect, useRef, useState } from "react"
+import { useEffect } from "react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
 import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
+import { ChooseWorkspacesStep } from "@/features/workspace-sources/ChooseWorkspacesStep"
+import { useAddToWorkspaces } from "@/features/workspace-sources/useAddToWorkspaces"
 import {
   getLinearSetupCurrentIndex,
   getLinearSetupSteps,
-  getLinearStatusRefetchInterval,
   getLinearWizardBodyId,
 } from "../../linear-setup-model"
 import {
   fetchLinearConnectorStatus,
   fetchLinearOauthApp,
-  type LinearConnectorStatus,
-  type LinearScope,
   linearConnectorKeys,
 } from "../../queries/linear-connector"
 import { ConnectorSetupStepper } from "../ConnectorSetupStepper"
-import { GitHubPrerequisiteStep } from "../GitHubPrerequisiteStep"
 import { LinearMark } from "../LinearMark"
 import { LinearConnectStep } from "./LinearConnectStep"
-import { LinearMergeStep } from "./LinearMergeStep"
-import { LinearScopeStep } from "./LinearScopeStep"
-import { LinearTargetStep } from "./LinearTargetStep"
 import { RegisterLinearOauthStep } from "./RegisterLinearOauthStep"
 
 type LinearSetupWizardProps = {
@@ -35,40 +30,40 @@ type LinearSetupWizardProps = {
   isOpen: boolean
   onOpenChange: (open: boolean) => void
   onConnectionIdChange: (connectionId: string) => void
-  /** When true and setup is complete, open on the scope editor — same as Notion. */
-  manageScope?: boolean
 }
 
+/**
+ * Connect Linear, then choose the Workspaces that sync from it. Each chosen
+ * Workspace gets a Linear entry in its `.ctxpipe/sources.yaml` (ADR-050).
+ */
 export function LinearSetupWizard({
   orgSlug,
   connectionId,
   isOpen,
   onOpenChange,
   onConnectionIdChange,
-  manageScope = false,
 }: LinearSetupWizardProps) {
   const queryClient = useQueryClient()
-  const [manualScope, setManualScope] = useState(false)
-  const [manualStepIndex, setManualStepIndex] = useState<number | null>(null)
-  const [retryScopes, setRetryScopes] = useState<LinearScope[] | undefined>()
-  const [configPrSubmitting, setConfigPrSubmitting] = useState(false)
-  const previousServerStepIndexRef = useRef<number | null>(null)
   const statusQuery = useQuery({
     queryKey: linearConnectorKeys.status(orgSlug, connectionId),
     queryFn: () => fetchLinearConnectorStatus(orgSlug, connectionId),
     enabled: isOpen && Boolean(connectionId),
-    refetchInterval: (query) => {
-      if (!isOpen || query.state.status === "error") return false
-      return getLinearStatusRefetchInterval(query.state.data)
-    },
   })
   const oauthQuery = useQuery({
     queryKey: linearConnectorKeys.oauthApp(orgSlug, connectionId),
     queryFn: () => fetchLinearOauthApp(orgSlug, connectionId),
     enabled: isOpen,
   })
-  const oauthMeta = oauthQuery.data
-  const setupSteps = getLinearSetupSteps(oauthMeta)
+  const adding = useAddToWorkspaces({
+    orgSlug,
+    connectionId: connectionId ?? "",
+    provider: "linear",
+    onAdded: () => onOpenChange(false),
+  })
+  const close = () => {
+    adding.reset()
+    onOpenChange(false)
+  }
 
   useEffect(() => {
     if (!isOpen) return
@@ -128,83 +123,18 @@ export function LinearSetupWizard({
     }
   }, [isOpen, onConnectionIdChange, orgSlug, queryClient])
 
-  const serverStatus: LinearConnectorStatus | undefined = connectionId
-    ? statusQuery.data
-    : {
-        isInstalled: false,
-        installationStatus: null,
-        workspaceName: null,
-        isGithubLinked: false,
-        selectedScopeCount: 0,
-        setupPhase: "draft",
-        pendingConfigPullUrl: null,
-        pendingConfigPrCreating: false,
-        syncTarget: null,
-      }
-  const status =
-    serverStatus && configPrSubmitting
-      ? {
-          ...serverStatus,
-          selectedScopeCount:
-            retryScopes?.length ?? serverStatus.selectedScopeCount,
-          setupPhase: "awaiting_merge" as const,
-          pendingConfigPullUrl: null,
-          pendingConfigPrCreating: true,
-        }
-      : serverStatus
-  const currentIndex = status
-    ? getLinearSetupCurrentIndex(status, oauthMeta)
-    : 0
-  const effectiveManualStepIndex =
-    manualStepIndex != null && manualStepIndex < currentIndex
-      ? manualStepIndex
-      : null
-  const serverBody = status
-    ? getLinearWizardBodyId(status, oauthMeta)
-    : "connect"
-  const manualBody =
-    effectiveManualStepIndex == null
-      ? null
-      : (setupSteps[effectiveManualStepIndex]?.id ?? null)
-  const body = configPrSubmitting
-    ? "merge"
-    : manualScope || (manageScope && serverBody === "complete" && !manualBody)
-      ? "scope"
-      : (manualBody ?? serverBody)
-  const requireConnection = connectionId && status?.isInstalled
-  const closeWizard = () => {
-    setManualScope(false)
-    setManualStepIndex(null)
-    setRetryScopes(undefined)
-    setConfigPrSubmitting(false)
-    onOpenChange(false)
-  }
-
-  useEffect(() => {
-    if (!status || statusQuery.isPending) return
-    if (
-      previousServerStepIndexRef.current !== null &&
-      currentIndex > previousServerStepIndexRef.current
-    ) {
-      setManualStepIndex(null)
-    }
-    previousServerStepIndexRef.current = currentIndex
-  }, [currentIndex, status, statusQuery.isPending])
+  const oauthMeta = oauthQuery.data
+  const setupSteps = getLinearSetupSteps(oauthMeta)
+  const status = connectionId ? statusQuery.data : { isInstalled: false }
+  const body = status ? getLinearWizardBodyId(status, oauthMeta) : "connect"
+  const loading =
+    (Boolean(connectionId) && statusQuery.isPending) || oauthQuery.isPending
 
   return (
     <Modal
       isOpen={isOpen}
-      onOpenChange={(open) => {
-        if (!open) {
-          setManualScope(false)
-          setManualStepIndex(null)
-          setRetryScopes(undefined)
-          setConfigPrSubmitting(false)
-          previousServerStepIndexRef.current = null
-        }
-        onOpenChange(open)
-      }}
-      isDismissable
+      onOpenChange={(open) => (open ? onOpenChange(true) : close())}
+      isDismissable={!adding.isPending}
       className="max-w-[min(92vw,720px)]"
     >
       <div className="p-6">
@@ -218,45 +148,26 @@ export function LinearSetupWizard({
                 Set up Linear connector
               </h2>
               <p className="mt-2 text-sm text-muted-foreground">
-                Authorise Linear, choose Git scope, then approve the generated
-                configuration.
+                Authorize Linear, then choose the Workspaces that sync its teams
+                and projects.
               </p>
             </div>
           </div>
-          <Button
-            variant="secondary"
-            className="rounded-md"
-            onPress={closeWizard}
-          >
+          <Button variant="secondary" className="rounded-md" onPress={close}>
             Close
           </Button>
         </div>
 
-        {status && !statusQuery.isPending && !oauthQuery.isPending ? (
+        {status && !loading ? (
           <div className="mb-6">
             <ConnectorSetupStepper
               steps={setupSteps}
-              currentIndex={currentIndex}
-              focusOverride={effectiveManualStepIndex}
-              onStepSelect={(index) => {
-                if (
-                  status.pendingConfigPrCreating ||
-                  status.setupPhase === "initial_sync"
-                ) {
-                  return
-                }
-                if (index === currentIndex && manualStepIndex != null) {
-                  setManualStepIndex(null)
-                  return
-                }
-                if (index >= currentIndex) return
-                setManualStepIndex(index)
-              }}
+              currentIndex={getLinearSetupCurrentIndex(status, oauthMeta)}
             />
           </div>
         ) : null}
 
-        {(connectionId && statusQuery.isPending) || oauthQuery.isPending ? (
+        {loading ? (
           <div className="mt-8 flex items-center justify-center gap-2 text-sm text-muted-foreground">
             <Spinner className="size-4" />
             Loading connector status...
@@ -274,123 +185,42 @@ export function LinearSetupWizard({
               Retry
             </Button>
           </div>
-        ) : status ? (
-          <div className="mt-2">
-            {body === "register" && connectionId ? (
-              <RegisterLinearOauthStep
-                orgSlug={orgSlug}
-                connectionId={connectionId}
-              />
-            ) : null}
-            {body === "connect" ? (
-              <LinearConnectStep
-                orgSlug={orgSlug}
-                connectionId={connectionId}
-              />
-            ) : null}
-            {body === "github" ? (
-              <GitHubPrerequisiteStep orgSlug={orgSlug} sourceName="Linear" />
-            ) : null}
-            {body === "target" && requireConnection ? (
-              <LinearTargetStep
-                orgSlug={orgSlug}
-                connectionId={connectionId}
-                onBack={() =>
-                  setManualStepIndex(
-                    setupSteps.findIndex((step) => step.id === "github"),
-                  )
-                }
-                onSaved={async () => {
-                  setManualStepIndex(null)
-                  return statusQuery.refetch()
-                }}
-              />
-            ) : null}
-            {body === "scope" && requireConnection ? (
-              <LinearScopeStep
-                orgSlug={orgSlug}
-                connectionId={connectionId}
-                manageLiveScope={manageScope && serverBody === "complete"}
-                onBack={() => {
-                  setManualScope(false)
-                  setManualStepIndex(
-                    setupSteps.findIndex((step) => step.id === "target"),
-                  )
-                }}
-                onSaved={async (configPrEnqueued) => {
-                  setManualScope(false)
-                  setManualStepIndex(null)
-                  setConfigPrSubmitting(configPrEnqueued)
-                  const result = await statusQuery.refetch()
-                  const next = result.data
-                  if (
-                    next?.pendingConfigPrCreating ||
-                    next?.pendingConfigPullUrl ||
-                    next?.setupPhase === "awaiting_merge" ||
-                    next?.setupPhase === "initial_sync" ||
-                    next?.setupPhase === "config_failed"
-                  ) {
-                    setConfigPrSubmitting(false)
-                  }
-                  return result
-                }}
-                onScopesSubmitted={(scopes) => {
-                  setRetryScopes(scopes)
-                  setConfigPrSubmitting(true)
-                }}
-                onSubmissionFailed={() => setConfigPrSubmitting(false)}
-              />
-            ) : null}
-            {body === "merge" && requireConnection ? (
-              <LinearMergeStep
-                orgSlug={orgSlug}
-                connectionId={connectionId}
-                status={status}
-                retryScopes={retryScopes}
-                onRetry={statusQuery.refetch}
-              />
-            ) : null}
-            {body === "complete" ? (
-              <div className="space-y-4">
-                <div>
-                  <h3 className="text-base font-medium text-foreground">
-                    Linear is connected
-                  </h3>
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    Content is synchronised through{" "}
-                    <code className="rounded-md bg-muted px-1 py-0.5 text-xs">
-                      linear/config.yaml
-                    </code>
-                    . Change scope at any time; updates remain reviewable in
-                    GitHub.
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    variant="primary"
-                    className="rounded-md"
-                    onPress={() => setManualScope(true)}
-                  >
-                    Manage scope
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    className="rounded-md"
-                    onPress={closeWizard}
-                  >
-                    Close
-                  </Button>
-                </div>
-              </div>
-            ) : null}
-            {body !== "connect" && body !== "register" && !requireConnection ? (
-              <p className="text-sm text-destructive">
-                The Linear connection identifier is missing. Close this dialog
-                and reopen setup from the connector card.
-              </p>
-            ) : null}
+        ) : body === "register" && connectionId ? (
+          <RegisterLinearOauthStep
+            orgSlug={orgSlug}
+            connectionId={connectionId}
+          />
+        ) : body === "connect" ? (
+          <LinearConnectStep orgSlug={orgSlug} connectionId={connectionId} />
+        ) : body === "workspaces" && connectionId ? (
+          <div className="flex flex-col gap-5">
+            <ChooseWorkspacesStep
+              orgSlug={orgSlug}
+              provider="linear"
+              connectionId={connectionId}
+              value={adding.value}
+              onChange={adding.setValue}
+            />
+            <div className="flex justify-end gap-2 border-t border-border pt-4">
+              <Button variant="quiet" onPress={close}>
+                Skip for now
+              </Button>
+              <Button
+                variant="primary"
+                isDisabled={!adding.canAdd}
+                isPending={adding.isPending}
+                onPress={adding.add}
+              >
+                Add to Workspaces
+              </Button>
+            </div>
           </div>
-        ) : null}
+        ) : (
+          <p className="text-sm text-destructive">
+            The Linear connection identifier is missing. Close this dialog and
+            reopen setup from the connector card.
+          </p>
+        )}
       </div>
     </Modal>
   )

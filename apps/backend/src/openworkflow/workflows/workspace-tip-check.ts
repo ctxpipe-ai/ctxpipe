@@ -3,11 +3,13 @@ import { z } from "zod"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
+import { githubRepositoriesWithoutAccess } from "../../domain/workspace-sources/github-access.js"
 import {
   resolveLinkedReadRevision,
   resolveWorkspaceReadRevision,
 } from "../../domain/workspaces/resolve-revision.js"
 import type { WorkspaceRevision } from "../../domain/workspaces/revision.js"
+import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
 import { shouldEnqueueCronHydrate } from "../../domain/workspaces/tip-resolve.js"
 import {
   destroySandboxesForWorkspace,
@@ -20,6 +22,7 @@ import {
 } from "../../domain/workspaces/write-status.js"
 import {
   claimPausedWriteJob,
+  ensureOrgFirstWorkspace,
   getWorkspaceProjection,
   listMigrationExportJobWorkspaceIds,
   listMigrationExportShas,
@@ -27,7 +30,6 @@ import {
   listOrgWorkspaces,
   listPausedWriteJobs,
   persistWriteStatus,
-  reconcileDestWorkspaceAssignment,
 } from "../../models/workspaces.js"
 import { log } from "../../observability/logger.js"
 import { getGithubRepoWriteView } from "../../routes/webhooks/github/github-workspace-tip.js"
@@ -83,7 +85,7 @@ export const workspaceTipCheck = defineWorkflow(
     if (!org) throw new Error(`Organization not found: ${input.orgId}`)
     return withOrgIdContext({ id: org.id, slug: org.slug }, async () => {
       await withOrgDbContext(input.orgId, () =>
-        reconcileDestWorkspaceAssignment(input.orgId),
+        ensureOrgFirstWorkspace(input.orgId),
       )
       const workspaces = await withOrgDbContext(input.orgId, () =>
         listOrgWorkspaces(input.orgId),
@@ -243,8 +245,23 @@ export const workspaceTipCheck = defineWorkflow(
       const linked = await withOrgDbContext(input.orgId, () =>
         listOrgLinkedRepositories(input.orgId),
       )
+      // A GitHub source records the repositories that its connection cannot
+      // read (`out_of_access`). Skip them until a new check finds access.
+      const withoutAccess = await githubRepositoriesWithoutAccess({
+        orgId: input.orgId,
+        env,
+        now: startedAt,
+      })
       let linkedUpdated = 0
       for (const row of linked) {
+        if (
+          withoutAccess.has(
+            `${row.workspaceId} ${normalizeWorkspaceRepositoryUrl(row.gitUrl)}`,
+          )
+        ) {
+          linkedNoAccess += 1
+          continue
+        }
         const resolved = await resolveLinkedReadRevision({
           orgId: input.orgId,
           linkId: row.id,

@@ -556,6 +556,7 @@ export function KnowledgeGraphExplorer({
             }
             onTips={() => setKgIntroOpen((open) => !open)}
             tipsActive={kgIntroOpen}
+            drawerOpen={drawerOpen}
             tipsPanel={
               <KnowledgeGraphIntroCallout
                 open={kgIntroOpen}

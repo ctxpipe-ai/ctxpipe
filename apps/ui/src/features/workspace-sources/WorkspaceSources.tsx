@@ -16,8 +16,10 @@ import { Link as TextLink } from "@/components/ui/Link"
 import { Modal } from "@/components/ui/Modal"
 import { Skeleton, SkeletonLine } from "@/components/ui/Skeleton"
 import { orgConnectionsOptions } from "@/features/connectors/queries/org-connections"
+import type { WorkspaceLinkedRepository } from "@/features/workspaces/types"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
+import { GithubSourceRepositories } from "./GithubSourceRepositories"
 import {
   deleteWorkspaceSource,
   type PendingSourceChange,
@@ -148,6 +150,49 @@ function PendingAddRow(props: { change: PendingSourceChange }) {
   )
 }
 
+/**
+ * The GitHub section lists repositories, not source entries. These notes
+ * keep what a source row shows otherwise: a pending pull request and a
+ * status that is not ok.
+ */
+function GithubSourceNotes(props: {
+  sources: WorkspaceSource[]
+  pendingAdds: PendingSourceChange[]
+  pendingOf: (sourceKey: string) => PendingSourceChange | undefined
+}) {
+  const { sources, pendingAdds, pendingOf } = props
+  const notes = sources.filter(
+    (source) =>
+      pendingOf(source.sourceKey) ||
+      (source.status !== "ok" && source.statusDetail),
+  )
+  if (notes.length === 0 && pendingAdds.length === 0) return null
+  return (
+    <ul className="mt-1 flex flex-col gap-1">
+      {notes.map((source) => {
+        const pending = pendingOf(source.sourceKey)
+        return (
+          <li key={source.sourceKey} className="px-2 py-1">
+            <p className="truncate text-xs text-muted-foreground">
+              {source.connectionName ?? "No connection"} ·{" "}
+              <code className="font-mono">{source.sourceKey}</code>
+            </p>
+            {source.status !== "ok" && source.statusDetail ? (
+              <p className="mt-0.5 text-xs text-amber-200/80">
+                {source.statusDetail}
+              </p>
+            ) : null}
+            {pending ? <AwaitingMergeLink change={pending} /> : null}
+          </li>
+        )
+      })}
+      {pendingAdds.map((change) => (
+        <PendingAddRow key={change.sourceKey} change={change} />
+      ))}
+    </ul>
+  )
+}
+
 /** Scroll to the provider section that the URL hash names. */
 function scrollIntoViewWhenHashMatches(element: HTMLElement | null) {
   if (element && window.location.hash === `#${element.id}`)
@@ -182,13 +227,22 @@ function SourcesSkeleton() {
 export function WorkspaceSources(props: {
   orgSlug: string
   workspaceSlug: string
+  /** The repositories linked to the Workspace, for the GitHub section. */
+  linkedRepositories?: WorkspaceLinkedRepository[]
+  workspaceRepositoryUrl?: string | null
 }) {
-  const { orgSlug, workspaceSlug } = props
+  const {
+    orgSlug,
+    workspaceSlug,
+    linkedRepositories = [],
+    workspaceRepositoryUrl = null,
+  } = props
   const queryClient = useQueryClient()
   const sourcesQuery = useQuery(workspaceSourcesOptions(orgSlug, workspaceSlug))
   const connectionsQuery = useQuery(orgConnectionsOptions(orgSlug))
   const [editor, setEditor] = useState<SourceEditorTarget | null>(null)
   const [removing, setRemoving] = useState<WorkspaceSource | null>(null)
+  const [githubAddOpen, setGithubAddOpen] = useState(false)
 
   const removeMutation = useMutation({
     mutationFn: (input: { sourceKey: string; delivery: SourceDelivery }) =>
@@ -227,7 +281,8 @@ export function WorkspaceSources(props: {
     (provider) =>
       items.some((item) => item.provider === provider) ||
       pendingChanges.some((change) => change.provider === provider) ||
-      connectionsOf(provider).length > 0,
+      connectionsOf(provider).length > 0 ||
+      (provider === "github" && linkedRepositories.length > 0),
   )
   const isEmpty =
     groups.length === 0 && unknownProvider.length === 0 && !data?.fileError
@@ -312,7 +367,7 @@ export function WorkspaceSources(props: {
             </div>
           ) : null}
           {groups.map((provider) => {
-            const { Icon } = SOURCE_PROVIDER_UI[provider]
+            const { Icon, ScopeEditor } = SOURCE_PROVIDER_UI[provider]
             const label = sourceProviderLabel(provider)
             const sources = items.filter((item) => item.provider === provider)
             const pendingAdds = pendingChanges.filter(
@@ -334,7 +389,18 @@ export function WorkspaceSources(props: {
                   <h3 className="min-w-0 flex-1 truncate text-sm text-foreground">
                     {label}
                   </h3>
-                  {connected && canEdit ? (
+                  {provider === "github" && connected && canEdit ? (
+                    <Button
+                      variant="quiet"
+                      onPress={() => setGithubAddOpen(true)}
+                    >
+                      <IconPlus className="size-4" aria-hidden />
+                      Add repositories
+                    </Button>
+                  ) : provider !== "github" &&
+                    connected &&
+                    canEdit &&
+                    ScopeEditor ? (
                     <Button
                       variant="quiet"
                       aria-label={`Add ${label} source`}
@@ -345,7 +411,27 @@ export function WorkspaceSources(props: {
                     </Button>
                   ) : null}
                 </div>
-                {sources.length === 0 && pendingAdds.length === 0 ? (
+                {provider === "github" ? (
+                  <>
+                    <GithubSourceRepositories
+                      orgSlug={orgSlug}
+                      workspaceSlug={workspaceSlug}
+                      workspaceRepositoryUrl={workspaceRepositoryUrl}
+                      linkedRepositories={linkedRepositories}
+                      sources={sources}
+                      connections={connectionsOf(provider)}
+                      canEdit={canEdit}
+                      directCommitAllowed={directCommitAllowed}
+                      addOpen={githubAddOpen}
+                      onAddOpenChange={setGithubAddOpen}
+                    />
+                    <GithubSourceNotes
+                      sources={sources}
+                      pendingAdds={pendingAdds}
+                      pendingOf={pendingOf}
+                    />
+                  </>
+                ) : sources.length === 0 && pendingAdds.length === 0 ? (
                   <p className="px-2 py-2 text-sm text-muted-foreground">
                     No {label} sources in this Workspace.
                   </p>
@@ -357,7 +443,7 @@ export function WorkspaceSources(props: {
                         source={source}
                         pending={pendingOf(source.sourceKey)}
                         onEdit={
-                          canEdit
+                          canEdit && ScopeEditor
                             ? () =>
                                 setEditor({ kind: "edit", provider, source })
                             : null

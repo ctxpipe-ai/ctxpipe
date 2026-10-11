@@ -436,8 +436,11 @@ describe("Notion webhook", () => {
     expect(runWorkflowMock).not.toHaveBeenCalled()
   })
 
-  it("asks Notion to retry when sync enqueue fails", async () => {
-    runWorkflowMock.mockRejectedValueOnce(new Error("worker unavailable"))
+  it("asks Notion to retry when the legacy sync enqueue fails", async () => {
+    runWorkflowMock.mockImplementation(async (spec: { name: string }) => {
+      if (spec.name === "notion-sync-entity")
+        throw new Error("worker unavailable")
+    })
     const body = JSON.stringify({
       integration_id: "bot_1",
       workspace_id: "workspace_1",
@@ -494,6 +497,32 @@ describe("Notion webhook", () => {
       workspaceSourcesSync.spec,
       expect.objectContaining({ connectionId: "con_1", provider: "notion" }),
       undefined,
+    )
+  })
+
+  it("still enqueues the legacy sync when the sources enqueue fails", async () => {
+    runWorkflowMock.mockImplementation(async (spec: { name: string }) => {
+      if (spec.name === "workspace-sources-sync")
+        throw new Error("queue is down")
+    })
+    const body = JSON.stringify({
+      id: "event_sources_down",
+      integration_id: "bot_1",
+      type: "page.content_updated",
+      entity: { id: "page_1", type: "page" },
+    })
+
+    const response = await testApp().request("/api/v1/webhook/notion", {
+      method: "POST",
+      headers: { "x-notion-signature": sign(body, webhookSecret) },
+      body,
+    })
+
+    expect(response.status).toBe(200)
+    expect(runWorkflowMock).toHaveBeenCalledWith(
+      { name: "notion-sync-entity" },
+      expect.objectContaining({ connectionId: "con_1" }),
+      { idempotencyKey: "notion:con_1:event_sources_down" },
     )
   })
 

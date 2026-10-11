@@ -41,7 +41,7 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock("../../../models/linear-connector.js", () => ({
-  getLinearBindingByConnectionId: mocks.getSyncTarget,
+  getLinearBindingWithRepoByConnectionId: mocks.getSyncTarget,
   listLinearWebhookConnectionsByWorkspaceId: mocks.listConnections,
   recordLinearOAuthRevocation: mocks.recordRevocation,
 }))
@@ -104,13 +104,17 @@ beforeEach(() => {
   mocks.getSyncTarget.mockResolvedValue({
     enabled: true,
     setupPhase: "live",
+    repositoryGitUrl: "https://github.com/acme/context.git",
   })
   mocks.recordRevocation.mockResolvedValue(undefined)
   mocks.runWorkflow.mockResolvedValue({ workflowRun: { id: "run_1" } })
 })
 
 describe("POST /api/v1/webhook/linear", () => {
-  it("verifies the raw body and enqueues a comment event for its issue", async () => {
+  // This file has no database, so the Workspace sources lookup fails. The
+  // legacy enqueue must still run (linear-sources.integration.test.ts has the
+  // sources cases).
+  it("verifies the raw body and enqueues a comment event for its issue, also when the sources lookup fails", async () => {
     const webhookTimestamp = Date.now()
     const request = signedRequest({
       type: "Comment",

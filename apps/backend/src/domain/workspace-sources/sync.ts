@@ -127,7 +127,7 @@ export async function syncConnectionSources(input: {
   }
   // With `fetchEach`, a Workspace gets only the files of its own scopes, and
   // a failed scope (null) skips the write of each Workspace that has it.
-  let result: SourceFetchResult = { files: [] }
+  let result: SourceFetchResult | undefined
   let filesOf: (scopeKeys: Set<string>) => GitFileChange[] | null
   if (adapter.fetchEach) {
     const each = await adapter.fetchEach(fetchInput)
@@ -145,10 +145,13 @@ export async function syncConnectionSources(input: {
     }
   } else {
     const fetched = await adapter.fetch(fetchInput)
-    result = Array.isArray(fetched) ? { files: fetched } : fetched
-    filesOf = () => result.files
+    const fetchedResult: SourceFetchResult = Array.isArray(fetched)
+      ? { files: fetched }
+      : fetched
+    result = fetchedResult
+    filesOf = () => fetchedResult.files
   }
-  const unreachable = result.unreachable ?? []
+  const unreachable = result?.unreachable ?? []
   for (const lost of unreachable)
     for (const row of rows)
       if (adapter.managedPaths(row.scope).includes(lost.path))
@@ -159,21 +162,19 @@ export async function syncConnectionSources(input: {
           statusDetail: lost.detail,
         })
   const kept = [
-    ...(result.keepPaths ?? []),
+    ...(result?.keepPaths ?? []),
     ...unreachable.map((lost) => lost.path),
   ]
   const written: string[] = []
   for (const [workspaceId, entry] of byWorkspace) {
-    const scopeFiles = filesOf(entry.scopeKeys)
-    if (!scopeFiles) continue
+    const all = filesOf(entry.scopeKeys)
+    if (!all) continue
     const ownedPrefixes = [...entry.prefixes].sort()
     const keepPrefixes = kept
       .filter((path) => underAny(path, ownedPrefixes))
       .sort()
-    const files = scopeFiles.filter((file) =>
-      underAny(file.path, ownedPrefixes),
-    )
-    const deletePaths = result.deletePaths?.filter(
+    const files = all.filter((file) => underAny(file.path, ownedPrefixes))
+    const deletePaths = result?.deletePaths?.filter(
       (path) => underAny(path, ownedPrefixes) && !underAny(path, keepPrefixes),
     )
     const allKept = ownedPrefixes.every((prefix) =>
@@ -208,31 +209,28 @@ async function readExistingManaged(
   ) => Promise<ReadonlyArray<{ path: string; sha: string }>>,
 ): Promise<Array<{ path: string; sha: string | null }>> {
   const shas = new Map<string, string | null>()
-  const owners = new Map<string, number>()
   const seen = new Map<string, number>()
-  const trees: Array<{ prefixes: string[]; blobs: Map<string, string> }> = []
+  const trees: string[][] = []
   for (const [workspaceId, entry] of byWorkspace) {
     const prefixes = [...entry.prefixes]
-    const blobs = new Map(
-      (await read(workspaceId))
-        .filter((blob) => underAny(blob.path, prefixes))
-        .map((blob) => [blob.path, blob.sha]),
-    )
-    trees.push({ prefixes, blobs })
-    for (const [path, sha] of blobs) {
-      seen.set(path, (seen.get(path) ?? 0) + 1)
-      const before = shas.get(path)
-      shas.set(path, before === undefined || before === sha ? sha : null)
+    trees.push(prefixes)
+    for (const blob of await read(workspaceId)) {
+      if (!underAny(blob.path, prefixes)) continue
+      seen.set(blob.path, (seen.get(blob.path) ?? 0) + 1)
+      const before = shas.get(blob.path)
+      shas.set(
+        blob.path,
+        before === undefined || before === blob.sha ? blob.sha : null,
+      )
     }
   }
-  for (const path of shas.keys())
-    owners.set(
-      path,
-      trees.filter((tree) => underAny(path, tree.prefixes)).length,
-    )
   return [...shas].map(([path, sha]) => ({
     path,
-    sha: seen.get(path) === owners.get(path) ? sha : null,
+    sha:
+      seen.get(path) ===
+      trees.filter((prefixes) => underAny(path, prefixes)).length
+        ? sha
+        : null,
   }))
 }
 

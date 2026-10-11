@@ -7,14 +7,12 @@ import {
   listMigrationExportShas,
   reconcileWorkspaceWriteJob,
 } from "../../models/workspace-write-jobs.js"
-import {
-  applyDestWorkspaceLinkPlan,
-  persistOrgFirstWorkspace,
-} from "../../models/workspaces.js"
+import { persistOrgFirstWorkspace } from "../../models/workspaces.js"
 import { enqueueWriteJob } from "../../openworkflow/enqueue-workspace-write-commit.js"
 import { storeTestExtraction } from "../../test/extraction-capture-fixture.js"
 import { seedLegacyExtractionObject } from "../../test/legacy-extraction-fixture.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
+import { insertWorkspaceLinks } from "../../test/workspace-links-fixture.js"
 import { ensureOrgRepositoryForGitUrl } from "./ensure-org-repository.js"
 
 it(
@@ -48,22 +46,17 @@ it(
             gitUrl: f.workspaceUrl,
           })
           if (!repository) throw new Error("Source repository was not created")
-          await applyDestWorkspaceLinkPlan({
-            firstWorkspaceId: f.workspaceId,
-            firstSourceRepositoryId: repository.id,
-            deleteLinkIds: [],
-            insertLinks: [
-              { workspaceId: f.workspaceId, gitUrl: "not-a-git-url" },
-              {
-                workspaceId: f.workspaceId,
-                gitUrl: "https://github.com/Team-A/API.git",
-              },
-              {
-                workspaceId: f.workspaceId,
-                gitUrl: "git@github.com:team-b/api.git",
-              },
-            ],
-          })
+          await insertWorkspaceLinks([
+            { workspaceId: f.workspaceId, gitUrl: "not-a-git-url" },
+            {
+              workspaceId: f.workspaceId,
+              gitUrl: "https://github.com/Team-A/API.git",
+            },
+            {
+              workspaceId: f.workspaceId,
+              gitUrl: "git@github.com:team-b/api.git",
+            },
+          ])
           await persistOrgFirstWorkspace({
             orgId: f.org.id,
             workspaceId: f.workspaceId,
@@ -531,17 +524,12 @@ it(
             gitUrl: f.workspaceUrl,
           })
           if (!repo) throw new Error("Fixture source repository unavailable")
-          await applyDestWorkspaceLinkPlan({
-            firstWorkspaceId: f.workspaceId,
-            firstSourceRepositoryId: repo.id,
-            deleteLinkIds: [],
-            insertLinks: [
-              {
-                workspaceId: f.workspaceId,
-                gitUrl: "https://github.com/team/api.git",
-              },
-            ],
-          })
+          await insertWorkspaceLinks([
+            {
+              workspaceId: f.workspaceId,
+              gitUrl: "https://github.com/team/api.git",
+            },
+          ])
         })
         const { workspaceMigrationExport } = await import(
           "../../openworkflow/workflows/workspace-migration-export.js"

@@ -19,6 +19,15 @@ ctxpipe needs Linear work context alongside code and existing source connectors.
 6. After a successful full reconcile on config merge, apply entity updates by enqueueing OpenWorkflow runs from signed Linear webhooks (ACK after enqueue). Non-live setup phases skip webhook events (same trade-off as Confluence). Failed initial syncs enter `sync_failed` and are explicitly retryable.
 7. OAuth credentials are deployment-owned **or** connection-specific. Hosted ctxpipe uses its shared public Linear OAuth app (`LINEAR_CLIENT_ID` / `LINEAR_CLIENT_SECRET` / `LINEAR_WEBHOOK_SECRET`) as the default. Self-hosted operators may paste their own Linear application client ID, client secret, and webhook signing secret onto `connections.config` (encrypted `*Enc` fields) from the product UI. Env remains an optional deployment-wide fallback. Same routes for hosted and self-host; no SaaS proxy.
 
+### Workspace sources (ADR-050, 2026-10-11)
+
+- A Linear source in `.ctxpipe/sources.yaml` holds `teams` (team keys, for example `ENG`), optional `projects` (Linear project ids), and an optional `customerRequests: exclude`. `connection` is the Linear connection. `config.workspaceId` of that connection is the Linear workspace, not a ctx| Workspace.
+- The sync walks each team and each project of the union of scopes one time, with the page walk above. It writes a team under `linear/teams/<key>/` and a project under `linear/projects/<id>/`, with the same layout as before inside that root. Each Workspace gets only the roots of its own scope.
+- One teams-only discovery maps the team keys to Linear ids. `checkAccess` names a key that the Linear workspace does not have.
+- A webhook enqueues one sources sync for the connection. The event carries the team keys and project ids of the changed entity, and only the matching sources sync. An event without them syncs every source of the connection.
+- A failed page stops the sync, so that the frame does not delete managed files.
+- The migration moves teams, projects, and the customer request policy from `linear/config.yaml`. Documents and initiatives do not move; the report names them.
+
 ## Rationale
 
 - Git remains the auditable approval and ingestion boundary used by Confluence and newer connectors.

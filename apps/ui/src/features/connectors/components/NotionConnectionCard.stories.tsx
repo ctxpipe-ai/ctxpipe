@@ -180,7 +180,6 @@ export const PendingSetup: Story = {
       canvasElement,
       name: "Notion",
       onOpen: onOpenSetup,
-      openArgs: [],
       statusReads,
       deleted,
     }),

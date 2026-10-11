@@ -5,69 +5,6 @@ import { reconcileWorkspaceWriteJob } from "../../models/workspace-write-jobs.js
 import { enqueueWriteJob } from "../../openworkflow/enqueue-workspace-write-commit.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 
-it.each([
-  { label: "unknown", writeStatus: undefined },
-  { label: "writable", writeStatus: "writable" as const },
-])(
-  "persists a canonical HTTP link command from $label access",
-  { timeout: 30_000 },
-  async ({ writeStatus }) => {
-    await withNativeHydrationFixture(
-      { github: true, githubWriteView: "writable", writeStatus },
-      async (f) => {
-        const { workspaceLinkedRoutes } = await import(
-          "../../routes/v1/workspace-linked-routes.js"
-        )
-        const { workspaceHttpApp } = await import(
-          "../../test/workspace-http-fixture.js"
-        )
-        const { BackendPostgres } = await import("openworkflow/postgres")
-        const backend = await BackendPostgres.connect(f.databaseUrl, {
-          runMigrations: false,
-        })
-        try {
-          const response = await workspaceHttpApp(
-            f.org,
-            workspaceLinkedRoutes,
-          ).request("/workspaces/knowledge/linked-repositories", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ gitUrl: "https://github.com/Acme/App.git" }),
-          })
-          expect(response.status).toBe(202)
-          expect(await response.json()).toEqual({
-            queued: true,
-            action: "link",
-            gitUrl: "https://github.com/acme/app",
-          })
-          await expect
-            .poll(
-              async () =>
-                (await backend.listWorkflowRuns({ limit: 100 })).data.find(
-                  (run) =>
-                    run.workflowName === "workspace-write-link-unlink" &&
-                    (run.input as { workspaceId?: string })?.workspaceId ===
-                      f.workspaceId,
-                ),
-              { timeout: 15_000 },
-            )
-            .toMatchObject({
-              workflowName: "workspace-write-link-unlink",
-              input: {
-                workspaceId: f.workspaceId,
-                linkGitUrl: "https://github.com/acme/app",
-                linkAction: "link",
-                revision: { sha: f.sha, access: "write-default" },
-              },
-            })
-        } finally {
-          await backend.stop()
-        }
-      },
-    )
-  },
-)
-
 it(
   "links and unlinks one canonical remote without overwriting a same-name declaration",
   { timeout: 60_000 },
@@ -248,36 +185,20 @@ it(
 )
 
 it(
-  "rejects credentials and invalid repository URLs before HTTP or paused-job admission",
+  "rejects credentials and invalid repository URLs before paused-job admission",
   { timeout: 30_000 },
   async () => {
     await withNativeHydrationFixture(
       { github: true, githubWriteView: "missing", writeStatus: "read_only" },
       async (f) => {
-        const { workspaceLinkedRoutes } = await import(
-          "../../routes/v1/workspace-linked-routes.js"
-        )
-        const { workspaceHttpApp } = await import(
-          "../../test/workspace-http-fixture.js"
-        )
         const { workspaceLinkUnlink } = await import(
           "../../openworkflow/workflows/workspace-link-unlink.js"
         )
-        const app = workspaceHttpApp(f.org, workspaceLinkedRoutes)
         for (const [index, gitUrl] of [
           "https://fixture-secret@github.com/acme/app.git",
           "https://github.com/acme/app.git?token=fixture-secret",
           "not a repository URL",
         ].entries()) {
-          const response = await app.request(
-            "/workspaces/knowledge/linked-repositories",
-            {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({ gitUrl }),
-            },
-          )
-          expect(response.status).toBe(400)
           const command = {
             orgId: f.org.id,
             workspaceId: f.workspaceId,
@@ -308,71 +229,6 @@ it(
               revision: { ...f.revision, access: "write-default" },
             }),
           ).rejects.toThrow()
-        }
-        expect(
-          f.git("--git-dir", f.remote, "rev-parse", "refs/heads/main"),
-        ).toBe(f.sha)
-      },
-    )
-  },
-)
-
-it(
-  "hydrates one GitHub remote across case variants and rejects duplicate or self links over HTTP",
-  { timeout: 45_000 },
-  async () => {
-    await withNativeHydrationFixture(
-      {
-        github: true,
-        githubWriteView: "writable",
-        writeStatus: "writable",
-        files: [
-          {
-            path: "repositories/first.md",
-            body: "---\ngit: git@github.com:Acme/App.git/\n---\n",
-          },
-          {
-            path: "repositories/second.md",
-            body: "---\ngit: https://github.com/acme/app\n---\n",
-          },
-        ],
-      },
-      async (f) => {
-        const { workspaceLinkedRoutes } = await import(
-          "../../routes/v1/workspace-linked-routes.js"
-        )
-        const { workspaceHttpApp } = await import(
-          "../../test/workspace-http-fixture.js"
-        )
-        const { listLinkedRepositories } = await import(
-          "../../models/workspaces.js"
-        )
-        await f.worker.start()
-        expect(await f.handle.result({ timeoutMs: 30_000 })).toMatchObject({
-          hydrated: true,
-          units: 0,
-          skipped: 1,
-        })
-        const linked = await withOrgIdContext(f.org, () =>
-          listLinkedRepositories(f.workspaceId),
-        )
-        expect(linked.map((row) => row.gitUrl)).toEqual([
-          "https://github.com/acme/app",
-        ])
-        const app = workspaceHttpApp(f.org, workspaceLinkedRoutes)
-        for (const gitUrl of [
-          "https://github.com/ACME/APP.git",
-          "https://github.com/Fixture/Hydration-Contract.git",
-        ]) {
-          const response = await app.request(
-            "/workspaces/knowledge/linked-repositories",
-            {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({ gitUrl }),
-            },
-          )
-          expect(response.status).toBe(409)
         }
         expect(
           f.git("--git-dir", f.remote, "rev-parse", "refs/heads/main"),

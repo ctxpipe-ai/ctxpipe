@@ -223,7 +223,8 @@ async function handleNotionWebhook(c: Context<AppEnv>) {
 
   try {
     await Promise.all([
-      // ADR-050: Workspace sources sync once for each connection.
+      // ADR-050: Workspace sources sync once for each connection. A failed
+      // enqueue must not block the legacy sync below.
       ...connections.map((connection) =>
         enqueueConnectionSourcesSync({
           orgId: connection.orgId,
@@ -231,7 +232,16 @@ async function handleNotionWebhook(c: Context<AppEnv>) {
           provider: "notion",
           event: entityTarget satisfies NotionSourceEvent,
           dedupeKey: parsed.data.id,
-        }),
+        }).catch((error: unknown) =>
+          getLogger().warn(
+            "Notion webhook could not enqueue the sources sync",
+            {
+              step: "notion_webhook.sources_enqueue",
+              connectionId: connection.id,
+              error: error instanceof Error ? error.message : String(error),
+            },
+          ),
+        ),
       ),
       ...liveConnections.map((connection) =>
         enqueueNotionEntitySync({

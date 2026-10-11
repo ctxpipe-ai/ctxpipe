@@ -71,7 +71,7 @@ describe("planSourceMigration", () => {
       workspaces: [
         workspace(
           "context",
-          "version: 1\nsources:\n  - {id: issues, provider: linear, connection: con_lin1}\n",
+          "version: 1\nsources:\n  - {id: issues, provider: linear, connection: con_lin1, teams: [ENG]}\n",
         ),
         workspace("orphan", null, null),
       ],
@@ -94,5 +94,43 @@ describe("planSourceMigration", () => {
     expect(report.unmapped).toMatchObject([
       { provider: "github", workspaceId: "orphan" },
     ])
+  })
+})
+
+describe("planSourceMigration: repository files", () => {
+  it("deletes the repository files of the GitHub repositories that move, and keeps a file that pins a branch or names another host", () => {
+    const { changes, deletePaths } = planSourceMigration({
+      workspaces: [
+        {
+          ...workspace("eng"),
+          repositoryFiles: [
+            {
+              path: "repositories/api.md",
+              content: "---\ngit: https://github.com/Acme/API.git\n---\n",
+            },
+            {
+              path: "repositories/web.md",
+              content:
+                "---\ngit: https://github.com/acme/web\nbranch: release\n---\n",
+            },
+            {
+              path: "repositories/tools.md",
+              content: "---\ngit: https://gitlab.example/acme/tools\n---\n",
+            },
+          ],
+        },
+      ],
+      linked: [
+        { workspaceId: "eng", gitUrl: "https://github.com/acme/api" },
+        { workspaceId: "eng", gitUrl: "https://github.com/acme/web" },
+        { workspaceId: "eng", gitUrl: "https://gitlab.example/acme/tools" },
+      ],
+      bindings: [],
+    })
+    // A branch pin has no place in the GitHub scope, so web stays a file.
+    expect(changes.get("eng")).toMatchObject([
+      { provider: "github", scope: { repositories: ["acme/api"] } },
+    ])
+    expect(deletePaths.get("eng")).toEqual(["repositories/api.md"])
   })
 })

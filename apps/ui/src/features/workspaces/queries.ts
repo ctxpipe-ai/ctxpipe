@@ -25,7 +25,6 @@ import type {
   WorkspaceGitStatusResponse,
   WorkspaceGitTreeResponse,
   WorkspaceGraphPayload,
-  WorkspaceLinkedRepository,
   WorkspaceListResponse,
 } from "./types"
 
@@ -899,23 +898,6 @@ export async function retryPrepareWorkspace(
   })
   return readApiJson<Workspace>(res, {
     message: "Failed to retry Workspace prepare",
-  })
-}
-
-export async function linkWorkspaceRepository(
-  orgSlug: string,
-  workspaceSlug: string,
-  gitUrl: string,
-): Promise<WorkspaceLinkedRepository> {
-  const client = await getApiClient()
-  const res = await client[":orgSlug"].api.v1.workspaces[":workspaceSlug"][
-    "linked-repositories"
-  ].$post({
-    param: { orgSlug, workspaceSlug },
-    json: { gitUrl },
-  })
-  return readApiJson<WorkspaceLinkedRepository>(res, {
-    message: "Failed to link repository",
   })
 }
 

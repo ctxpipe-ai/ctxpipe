@@ -92,6 +92,9 @@ type KnowledgeGraphCosmographCanvasProps = {
   onTips?: () => void
   tipsActive?: boolean
   tipsPanel?: ReactNode
+  /** Dims the search and the timeline, so the open node drawer is the focused
+   * layer. */
+  drawerOpen?: boolean
   /** `null` when the click missed a point. */
   onPointClick: (id: string | null) => void
   onBackgroundClick: () => void
@@ -139,6 +142,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
     onTips,
     tipsActive = false,
     tipsPanel,
+    drawerOpen = false,
     onPointClick,
     onBackgroundClick,
     onSelectionChange,
@@ -791,7 +795,15 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
               ) : null}
             </div>
 
-            <div className="pointer-events-auto absolute left-16 right-2 top-2 z-10 flex h-10 justify-center">
+            <div
+              className={cn(
+                "absolute left-16 right-2 top-2 z-10 flex h-10 justify-center transition-opacity",
+                drawerOpen
+                  ? "pointer-events-none opacity-40"
+                  : "pointer-events-auto",
+              )}
+              inert={drawerOpen}
+            >
               <div className="flex h-10 w-full max-w-xl items-stretch gap-3">
                 <div className="min-w-0 flex-1 rounded-md border border-border bg-zinc-900/95 px-3 py-1.5">
                   <FallbackGraphSearch
@@ -808,7 +820,13 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
               </div>
             </div>
 
-            <div className="pointer-events-none absolute inset-x-2 bottom-2 z-10 flex flex-col gap-2">
+            <div
+              className={cn(
+                "pointer-events-none absolute inset-x-2 bottom-2 z-10 flex flex-col gap-2 transition-opacity",
+                drawerOpen && "opacity-40",
+              )}
+              inert={drawerOpen}
+            >
               <LegendDock />
               <div className="pointer-events-auto">
                 <StockPanel className="px-2 py-1">

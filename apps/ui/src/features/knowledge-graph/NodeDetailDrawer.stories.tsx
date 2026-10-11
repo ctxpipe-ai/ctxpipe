@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { fn } from "storybook/test"
+import { expect, fn, within } from "storybook/test"
 import { NodeDetailDrawer } from "./NodeDetailDrawer"
 import { colorForKind } from "./theme"
 import type { KnowledgeGraphNode, NodeFacts } from "./types"
@@ -78,7 +78,26 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-export const Populated: Story = {}
+/** Section labels use the mono label style. A faint hairline separates each
+ * section from the one above it; the first section has no line. */
+export const Populated: Story = {
+  play: async ({ canvasElement }) => {
+    const headings = within(canvasElement).getAllByRole("heading", {
+      level: 3,
+    })
+    await expect(headings[0]).toHaveTextContent("Path")
+    for (const heading of headings) {
+      await expect(heading).toHaveClass("ctx-label")
+    }
+    const sections = headings.map((heading) => heading.closest("section"))
+    const borderTop = (section: Element | null) =>
+      getComputedStyle(section as Element).borderTopWidth
+    await expect(borderTop(sections[0])).toBe("0px")
+    for (const section of sections.slice(1)) {
+      await expect(borderTop(section)).toBe("1px")
+    }
+  },
+}
 
 export const Isolated: Story = {
   args: {

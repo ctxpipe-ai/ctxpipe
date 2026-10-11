@@ -4,6 +4,7 @@ import {
   getConfluenceSyncTargetWithRepoByConnectionId,
   isConfluenceTargetHandedOver,
 } from "../../models/confluence-sync-target.js"
+import { getLogger } from "../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
 import { confluenceSyncSpace } from "../../openworkflow/workflows/confluence-sync-space.js"
 import { loadConfluenceScopeFromRepo } from "./config-from-repo.js"
@@ -23,13 +24,18 @@ export async function handleForgeConfluenceContentEvent(input: {
   )
   if (!target?.enabled) return "skipped"
   // ADR-050: once Workspace sources own the repository, only they write it.
-  if (
-    await isConfluenceTargetHandedOver({
-      orgId: input.orgId,
-      repositoryGitUrl: target.repositoryGitUrl,
+  // A failed lookup must not block the legacy sync.
+  const handedOver = await isConfluenceTargetHandedOver({
+    orgId: input.orgId,
+    repositoryGitUrl: target.repositoryGitUrl,
+  }).catch((error: unknown) => {
+    getLogger().warn("confluence_handover_lookup_failed", {
+      connectionId: input.connectionId,
+      message: error instanceof Error ? error.message : String(error),
     })
-  )
-    return "skipped"
+    return false
+  })
+  if (handedOver) return "skipped"
 
   if (
     target.setupPhase === "awaiting_merge" ||

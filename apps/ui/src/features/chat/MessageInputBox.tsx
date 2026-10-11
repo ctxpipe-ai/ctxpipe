@@ -15,6 +15,7 @@ import {
 import type { ChatStatus } from "@/features/chat/types"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
+import { chatColumnClassName } from "./chat-column"
 import { readChatDraft, writeChatDraft } from "./chat-draft"
 
 export type MessageInputLayout = "thread" | "empty"
@@ -118,7 +119,7 @@ export function MessageInputBox(props: {
 
   return (
     <div className="shrink-0 p-3 pt-0">
-      <div className={cn("mx-auto max-w-2xl", contentClassName)}>
+      <div className={cn("mx-auto", chatColumnClassName, contentClassName)}>
         {inputShell}
       </div>
     </div>

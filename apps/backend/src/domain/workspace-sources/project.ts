@@ -2,8 +2,17 @@ import type { Env } from "../../config/env.js"
 import { listOrgConnections } from "../../models/org-connections.js"
 import { replaceWorkspaceSourceRows } from "../../models/workspace-sources.js"
 import { SOURCE_ADAPTERS, type SourceAdapter } from "./adapter.js"
+import { checkGithubSourceAccess } from "./github-access.js"
 import { planSourceRows, type SourceAccessCheck } from "./projection-plan.js"
 import type { SourceProvider } from "./sources-file.js"
+
+/**
+ * The access check of a provider that has no sync adapter. GitHub mirrors no
+ * files, so it has only this check.
+ */
+const SOURCE_ACCESS_CHECKS: Partial<
+  Record<SourceProvider, NonNullable<SourceAdapter["checkAccess"]>>
+> = { github: checkGithubSourceAccess }
 
 /**
  * Project `.ctxpipe/sources.yaml` at one Workspace revision into
@@ -27,9 +36,11 @@ export async function projectWorkspaceSources(input: {
     ]),
   )
   const checkAccess: SourceAccessCheck = async (entry) => {
-    const adapter = adapters[entry.provider]
-    if (!adapter?.checkAccess) return null
-    return adapter.checkAccess({
+    const check =
+      SOURCE_ACCESS_CHECKS[entry.provider] ??
+      adapters[entry.provider]?.checkAccess
+    if (!check) return null
+    return check({
       orgId: input.orgId,
       connectionId: entry.connectionId,
       scope: entry.scope,

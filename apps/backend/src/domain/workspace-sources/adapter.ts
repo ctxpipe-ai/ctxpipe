@@ -1,6 +1,7 @@
 import type { Env } from "../../config/env.js"
 import { confluenceSourceAdapter } from "../../services/confluence/workspace-source-adapter.js"
 import type { GitFileChange } from "../../services/git/file-change.js"
+import { linearSourceAdapter } from "../../services/linear/source-adapter.js"
 import { notionSourceAdapter } from "../../services/notion/workspace-source-adapter.js"
 import type { SourceProvider } from "./sources-file.js"
 
@@ -18,8 +19,9 @@ type SourceFetchInput<S> = {
   /** The webhook event of this sync, when a webhook started it. */
   event?: unknown
   /**
-   * The managed files that the Workspaces of these scopes have now. A path
-   * has a sha only when each Workspace that owns it has the same blob.
+   * The managed files that the Workspaces of these scopes have now, when the
+   * sync reads them. A path has a sha only when each Workspace that owns it
+   * has the same blob.
    */
   existing?: ReadonlyArray<{ path: string; sha: string | null }>
 }
@@ -58,8 +60,9 @@ export type SourceAdapter<
       /**
        * Fetch the content of the union of `scopes` one time. Return files at
        * Workspace repository paths. A file belongs to each Workspace whose
-       * scope owns its path. An adapter can return a {@link SourceFetchResult}
-       * to keep the files of a path it could not read, or to send a patch.
+       * scope owns its path. A {@link SourceFetchResult} can also keep the
+       * files of a path it could not read, report a path out of reach, or
+       * send a patch.
        */
       fetch(
         input: SourceFetchInput<S>,
@@ -113,5 +116,6 @@ export type SourceFetchResult = {
  */
 export const SOURCE_ADAPTERS: Partial<Record<SourceProvider, SourceAdapter>> = {
   confluence: confluenceSourceAdapter,
+  linear: linearSourceAdapter,
   notion: notionSourceAdapter as SourceAdapter,
 }

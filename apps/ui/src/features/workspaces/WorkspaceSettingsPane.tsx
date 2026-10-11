@@ -22,7 +22,6 @@ import type {
   WorkspaceListResponse,
   WorkspaceSkippedFile,
 } from "./types"
-import { WorkspaceLinkedRepositories } from "./WorkspaceLinkedRepositories"
 import { WorkspaceRepositoryPicker } from "./WorkspaceRepositoryPicker"
 import { workspaceDeleteNameMatches } from "./workspaceDeleteNameMatches"
 import { writeStatusLabel } from "./writeStatusLabel"
@@ -380,9 +379,12 @@ export function WorkspaceSettingsPane(props: {
         </div>
       </section>
 
-      <WorkspaceLinkedRepositories orgSlug={orgSlug} workspace={workspace} />
-
-      <WorkspaceSources orgSlug={orgSlug} workspaceSlug={workspace.slug} />
+      <WorkspaceSources
+        orgSlug={orgSlug}
+        workspaceSlug={workspace.slug}
+        linkedRepositories={workspace.linkedRepositories}
+        workspaceRepositoryUrl={workspace.workspaceRepositoryUrl}
+      />
 
       <section className="mt-16 max-w-lg">
         <h2 className="text-sm font-medium text-foreground">

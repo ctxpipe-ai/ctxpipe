@@ -38,14 +38,26 @@ describe("chooseWorkspacesRequests", () => {
         workspaceSlugs: ["docs", "eng"],
         scopeMode: "per_workspace",
         sharedScope: { teams: ["IGNORED"] },
-        scopes: { docs: { teams: ["DOC"] } },
+        scopes: { docs: { teams: ["DOC"] }, eng: { teams: ["ENG"] } },
       },
       base,
     )
     expect(requests?.map((r) => r.source.scope)).toEqual([
       { teams: ["DOC"] },
-      {},
+      { teams: ["ENG"] },
     ])
+    // A Workspace without a scope starts from {}, which Linear refuses.
+    expect(
+      chooseWorkspacesRequests(
+        {
+          workspaceSlugs: ["docs", "eng"],
+          scopeMode: "per_workspace",
+          sharedScope: null,
+          scopes: { docs: { teams: ["DOC"] } },
+        },
+        base,
+      ),
+    ).toBeNull()
   })
 
   it("is null while one scope editor reports an incomplete scope", () => {
