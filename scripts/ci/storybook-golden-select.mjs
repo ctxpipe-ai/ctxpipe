@@ -24,6 +24,7 @@ export const requiredStories = [
   "PrepareFailed",
   "PreparePendingWithError",
   "FailedTouchIsCaught",
+  "LoadingUnderReducedMotion",
 ]
 
 export function isGoldenPlaySuccess(phase) {

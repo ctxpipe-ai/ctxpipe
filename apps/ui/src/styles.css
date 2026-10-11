@@ -606,16 +606,6 @@
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .ctx-indexing,
-  .ctx-indexing-dot,
-  .ctx-unindexing,
-  .ctx-unindexing-dot,
-  .ctx-status-pulse {
-    animation: none;
-  }
-}
-
 /*
  * better-auth-ui Radix dialogs: house radius on the shell.
  * OrganizationSwitcher does not pass classNames to CreateOrganizationDialog,
@@ -696,7 +686,9 @@
 
 /*
  * Motion rule (DESIGN.md "Motion"): view transitions (the toast queue) use
- * 100 ms, and reduced motion stops all transitions and animations.
+ * 100 ms. Reduced motion stops all transitions and animations, except a
+ * loading indicator (`animate-spin` or `ctx-loading-motion`), which must
+ * continue to show progress.
  */
 ::view-transition-group(*),
 ::view-transition-old(*),
@@ -705,8 +697,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
+  *:not(.animate-spin, .ctx-loading-motion),
+  *:not(.ctx-loading-motion)::before,
   *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
