@@ -62,3 +62,5 @@ Test: `workspace-chat-openai.attribution.integration.test.ts` ("records the mode
 
 To prove after a deploy: open a chat generation in Langfuse. Expect the model, the tokens, the input, the output, and a cost. Also check that Langfuse shows the TanStack summary as a span with no cost; if it still shows a cost, remove the usage from it in a span processor.
 
+
+Review round 1 (security): the evlog span exporter logged all the attributes of each `generation #` span, so the prompt and output went to stdout and to HyperDX `otel_logs`. The exporter now drops the keys that match `LLM_CONTENT_KEY`, which is the same pattern as the collector trace rule (a test reads `config.yaml` to keep the two the same). The collector `logs/out-default` pipeline also blanks those JSON members (`transform/redact_llm_log_content`), as a second guard. I ran that rule in `clickstack-otel-collector:2.39.1` with a sample evlog line. The collector change needs an image build and a deploy of the observability project.
