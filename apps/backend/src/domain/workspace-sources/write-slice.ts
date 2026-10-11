@@ -3,6 +3,11 @@ import type { Env } from "../../config/env.js"
 import { getSystemDb } from "../../db/client.js"
 import { getLogger } from "../../observability/logger.js"
 import { enqueueWorkspaceWriteCommit } from "../../openworkflow/enqueue-workspace-write-commit.js"
+import {
+  listTreeBlobs,
+  readGitPackFromRemote,
+  withGitDirectory,
+} from "../../services/git/pack.js"
 import { resolveWorkspaceReadRevision } from "../workspaces/resolve-revision.js"
 import { diffSlice } from "./slice-diff.js"
 import { readSliceTarget } from "./slice-target.js"
@@ -57,4 +62,39 @@ export async function writeWorkspaceSlice(
     getLogger(),
   )
   return { queued: admitted.started }
+}
+
+/**
+ * The blobs of the Workspace head, for the sync to skip unchanged files.
+ * Empty when the Workspace has no readable revision.
+ */
+export async function readWorkspaceBlobs(input: {
+  orgId: string
+  workspaceId: string
+  env: Env
+}): Promise<Array<{ path: string; sha: string }>> {
+  const org = await getSystemDb().query.organizations.findFirst({
+    where: { id: { eq: input.orgId } },
+  })
+  if (!org) throw new Error("Organization not found")
+  return withOrgIdContext(org, async () => {
+    const resolved = await resolveWorkspaceReadRevision({
+      orgId: input.orgId,
+      workspaceId: input.workspaceId,
+      env: input.env,
+      refresh: true,
+    })
+    if (!resolved) return []
+    const pack = await readGitPackFromRemote({
+      url: resolved.revision.remote.url,
+      sha: resolved.revision.sha,
+      additionalShas: [],
+      token: resolved.token,
+    })
+    return withGitDirectory(
+      pack.sha,
+      (directory) => listTreeBlobs(directory, pack.sha),
+      pack,
+    )
+  })
 }

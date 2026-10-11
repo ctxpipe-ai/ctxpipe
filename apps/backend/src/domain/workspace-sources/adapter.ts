@@ -23,14 +23,22 @@ export type SourceAdapter<
   /**
    * Fetch the content of the union of `scopes` one time. Return files at
    * Workspace repository paths. A file belongs to each Workspace whose scope
-   * owns its path.
+   * owns its path. An adapter can return a {@link SourceFetchResult} to keep
+   * the files of a path it could not read, or to send a patch.
    */
   fetch(input: {
     orgId: string
     connectionId: string
     scopes: readonly S[]
     env: Env
-  }): Promise<GitFileChange[]>
+    /** The webhook event of this sync, when a webhook started it. */
+    event?: unknown
+    /**
+     * The managed files that the Workspaces of these scopes have now. A path
+     * has a sha only when each Workspace that owns it has the same blob.
+     */
+    existing?: ReadonlyArray<{ path: string; sha: string | null }>
+  }): Promise<GitFileChange[] | SourceFetchResult>
   /** Optional. Tell why a scope is outside the connection's reach, or null. */
   checkAccess?(input: {
     orgId: string
@@ -40,6 +48,31 @@ export type SourceAdapter<
   }): Promise<string | null>
   /** Optional. Whether a provider webhook event touches this scope. Default: yes. */
   matchesEvent?(input: { event: unknown; scope: S }): boolean
+}
+
+/** A fetch result with more than the files. */
+export type SourceFetchResult = {
+  files: GitFileChange[]
+  /**
+   * Path prefixes whose files stay as they are in this cycle: a failed read,
+   * or files that did not change.
+   */
+  keepPaths?: string[]
+  /**
+   * Managed paths out of the connection's reach for good. The sync keeps
+   * their files and sets each source that owns one to this status.
+   */
+  unreachable?: Array<{
+    path: string
+    status: "out_of_access" | "invalid"
+    detail: string
+  }>
+  /**
+   * A patch: write `files`, delete these paths, and keep each other file
+   * under the managed paths. Without it, the managed paths get exactly
+   * `files`.
+   */
+  deletePaths?: string[]
 }
 
 /**

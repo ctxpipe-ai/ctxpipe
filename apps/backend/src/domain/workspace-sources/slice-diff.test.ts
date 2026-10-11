@@ -22,4 +22,24 @@ describe("diffSlice", () => {
       deletePaths: ["confluence/ENG/old.md"],
     })
   })
+
+  it("deletes only the patch paths that exist, and keeps the other owned files", () => {
+    expect(
+      diffSlice(
+        {
+          ownedPrefixes: ["linear/teams/ENG/"],
+          keepPrefixes: [],
+          deletePaths: [
+            "linear/teams/ENG/issues/a.md",
+            "linear/teams/ENG/issues/gone.md",
+          ],
+          files: [{ path: "linear/teams/ENG/issues/b.md", content: "b" }],
+        },
+        ["linear/teams/ENG/issues/a.md", "linear/teams/ENG/issues/c.md"],
+      ),
+    ).toEqual({
+      files: [{ path: "linear/teams/ENG/issues/b.md", content: "b" }],
+      deletePaths: ["linear/teams/ENG/issues/a.md"],
+    })
+  })
 })
