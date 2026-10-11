@@ -2,7 +2,10 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, http } from "msw"
 import { type ComponentProps, useState } from "react"
 import { expect, userEvent, within } from "storybook/test"
-import { workspaceListHandler } from "@/mocks/workspace-handlers"
+import {
+  githubInstallationReposHandler,
+  workspaceListHandler,
+} from "@/mocks/workspace-handlers"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import {
@@ -59,11 +62,14 @@ const meta = {
     } satisfies StoryRouteParams,
     msw: {
       handlers: {
-        page: [workspaceListHandler([docsWorkspace, readOnlyWorkspace])],
+        page: [
+          workspaceListHandler([docsWorkspace, readOnlyWorkspace]),
+          githubInstallationReposHandler(),
+        ],
       },
     },
   },
-  args: { orgSlug: "acme", provider: "linear", connectionId: "con_li1" },
+  args: { orgSlug: "acme", provider: "github", connectionId: "con_gh1" },
 } satisfies Meta<typeof StepWithState>
 
 export default meta
@@ -104,7 +110,9 @@ export const SingleWorkspace: Story = {
     await userEvent.click(
       await canvas.findByRole("checkbox", { name: docsWorkspace.displayName }),
     )
-    await expect(canvas.getByRole("textbox", { name: "Scope" })).toBeVisible()
+    await userEvent.click(
+      await canvas.findByRole("checkbox", { name: "acme/handbook" }),
+    )
     await expect(canvas.queryByRole("radiogroup")).toBeNull()
     await expect(canvas.getByText("1 ready")).toBeVisible()
   },
@@ -123,22 +131,30 @@ export const ChooseWorkspacesMulti: Story = {
     await expect(
       canvas.getByRole("radio", { name: /Same scope/ }),
     ).toBeChecked()
-    await expect(canvas.getAllByRole("textbox")).toHaveLength(1)
+    await expect(
+      canvas.getAllByRole("group", { name: /^Repositories/ }),
+    ).toHaveLength(1)
+    await userEvent.click(
+      await canvas.findByRole("checkbox", { name: "acme/handbook" }),
+    )
     await expect(canvas.getByText("2 ready")).toBeVisible()
 
     await userEvent.click(
       canvas.getByRole("radio", { name: /different scope/ }),
     )
-    await expect(
-      canvas.getByRole("textbox", {
-        name: `Scope for ${docsWorkspace.displayName}`,
+    const first = within(
+      canvas.getByRole("group", {
+        name: `Repositories for ${docsWorkspace.displayName}`,
       }),
-    ).toBeVisible()
-    const second = canvas.getByRole("textbox", {
-      name: `Scope for ${readOnlyWorkspace.displayName}`,
-    })
-    await userEvent.clear(second)
-    await userEvent.paste("{")
+    )
+    await within(
+      canvas.getByRole("group", {
+        name: `Repositories for ${readOnlyWorkspace.displayName}`,
+      }),
+    ).findByRole("checkbox", { name: "acme/web" })
+    await userEvent.click(
+      await first.findByRole("checkbox", { name: "acme/web" }),
+    )
     await expect(canvas.getByText("Not ready")).toBeVisible()
     await expect(canvas.getByText(CHOOSE_WORKSPACES_HINT)).toBeVisible()
   },

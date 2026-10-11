@@ -312,7 +312,7 @@ export function WorkspaceSources(props: {
             </div>
           ) : null}
           {groups.map((provider) => {
-            const { Icon } = SOURCE_PROVIDER_UI[provider]
+            const { Icon, ScopeEditor } = SOURCE_PROVIDER_UI[provider]
             const label = sourceProviderLabel(provider)
             const sources = items.filter((item) => item.provider === provider)
             const pendingAdds = pendingChanges.filter(
@@ -334,7 +334,7 @@ export function WorkspaceSources(props: {
                   <h3 className="min-w-0 flex-1 truncate text-sm text-foreground">
                     {label}
                   </h3>
-                  {connected && canEdit ? (
+                  {connected && canEdit && ScopeEditor ? (
                     <Button
                       variant="quiet"
                       aria-label={`Add ${label} source`}
@@ -357,7 +357,7 @@ export function WorkspaceSources(props: {
                         source={source}
                         pending={pendingOf(source.sourceKey)}
                         onEdit={
-                          canEdit
+                          canEdit && ScopeEditor
                             ? () =>
                                 setEditor({ kind: "edit", provider, source })
                             : null

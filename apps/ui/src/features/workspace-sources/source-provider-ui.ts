@@ -33,7 +33,12 @@ export type SourceScopeEditorProps = {
  */
 export type SourceProviderUi = {
   Icon: ComponentType<{ className?: string }>
-  ScopeEditor: ComponentType<SourceScopeEditorProps>
+  /**
+   * The scope editor of the provider, or `null` when the provider has no
+   * editor yet. With `null`, the UI shows the sources of the provider but
+   * hides "Add source", "Edit", and "Add to a Workspace".
+   */
+  ScopeEditor: ComponentType<SourceScopeEditorProps> | null
 }
 
 export const SOURCE_PROVIDER_UI: Record<SourceProvider, SourceProviderUi> = {
