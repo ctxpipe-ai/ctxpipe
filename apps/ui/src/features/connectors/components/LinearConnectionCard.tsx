@@ -3,10 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { ConnectorUsedIn } from "@/features/workspace-sources/ConnectorUsedIn"
-import {
-  formatSelectedItemCount,
-  resolveConnectorHealth,
-} from "../connectorHealth"
+import { resolveConnectorHealth } from "../connectorHealth"
 import { getLinearCardPrimaryCta } from "../linear-setup-model"
 import {
   deleteLinearConnector,
@@ -15,11 +12,7 @@ import {
   linearConnectorKeys,
 } from "../queries/linear-connector"
 import { orgConnectionsKeys } from "../queries/org-connections"
-import {
-  ConnectorListItem,
-  connectorDash,
-  formatSyncRepositoryLine,
-} from "./ConnectorListItem"
+import { ConnectorListItem, connectorDash } from "./ConnectorListItem"
 import { LinearMark } from "./LinearMark"
 
 type LinearConnectionCardProps = {
@@ -87,14 +80,6 @@ export function LinearConnectionCard({
         onConfirm: () => removeMutation.mutate(),
       }}
       workspace={connectorDash(status?.workspaceName)}
-      scope={
-        status?.selectedScopeCount != null
-          ? formatSelectedItemCount(status.selectedScopeCount)
-          : status?.setupPhase === "live"
-            ? "Configured"
-            : "—"
-      }
-      syncRepository={formatSyncRepositoryLine(status?.syncTarget ?? null)}
       actionLabel={
         statusQuery.isError ? "Retry" : primary ? primary.label : undefined
       }

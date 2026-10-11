@@ -16,10 +16,10 @@ const available: LinearScope[] = [
 describe("Linear scope editor helpers", () => {
   it("lists teams and projects, and keeps a selected team that Linear does not list", () => {
     const items = linearChecklistItems(available, ["team:OLD", "team:eng"])
-    expect(items.map((item) => [item.value, item.detail])).toEqual([
-      ["team:ENG", "Team ENG"],
-      ["project:p1", "Team ENG"],
-      ["team:OLD", "Not found in Linear"],
+    expect(items.map((item) => [item.value, item.code, item.detail])).toEqual([
+      ["team:ENG", "ENG", undefined],
+      ["project:p1", "ENG", undefined],
+      ["team:OLD", "OLD", "Not found in Linear"],
     ])
     expect(matchLinearSelection(items, ["team:eng"])).toEqual(["team:ENG"])
   })

@@ -21,17 +21,6 @@ const connected: LinearConnectorStatus = {
   isInstalled: true,
   installationStatus: "installed",
   workspaceName: "Acme Product",
-  isGithubLinked: true,
-  selectedScopeCount: null,
-  setupPhase: "live",
-  pendingConfigPullUrl: null,
-  pendingConfigPrCreating: false,
-  syncTarget: {
-    repositoryId: "repo_1",
-    repositoryName: "acme/context",
-    githubConnectionId: "github_1",
-    branch: "main",
-  },
 }
 
 function statusHandler(status: LinearConnectorStatus) {
@@ -131,12 +120,6 @@ export const PendingSetup: Story = {
             isInstalled: false,
             installationStatus: null,
             workspaceName: null,
-            isGithubLinked: false,
-            selectedScopeCount: 0,
-            setupPhase: "draft",
-            pendingConfigPullUrl: null,
-            pendingConfigPrCreating: false,
-            syncTarget: null,
           }),
         ],
       },
@@ -147,15 +130,23 @@ export const PendingSetup: Story = {
       canvasElement,
       name: "Linear",
       onOpen: onOpenWizard,
-      openArgs: [],
       statusReads,
       deleted,
     }),
 }
 
+/** An installed connection: no setup action; "Used in" adds it to Workspaces. */
 export const Connected: Story = {
   parameters: {
     msw: { handlers: { page: [statusHandler(connected)] } },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("Connected")
+    await expect(canvas.queryByText("Setup not finished")).toBeNull()
+    await expect(
+      canvas.queryByRole("button", { name: "Connect Linear" }),
+    ).toBeNull()
   },
 }
 
@@ -193,12 +184,6 @@ export const RevokedDraft: Story = {
             isInstalled: false,
             installationStatus: "revoked",
             workspaceName: "Acme Product",
-            isGithubLinked: true,
-            selectedScopeCount: 0,
-            setupPhase: "draft",
-            pendingConfigPullUrl: null,
-            pendingConfigPrCreating: false,
-            syncTarget: null,
           }),
         ],
       },
@@ -212,33 +197,5 @@ export const RevokedDraft: Story = {
     expect(
       canvas.getByRole("button", { name: "Linear connector actions" }),
     ).toBeVisible()
-  },
-}
-
-/**
- * A connection from the Workspace sources flow has no sync repository and
- * stays in the "draft" setup phase. It is connected and has no setup action.
- */
-export const ConnectedWithoutSyncRepository: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          statusHandler({
-            ...connected,
-            setupPhase: "draft",
-            syncTarget: null,
-          }),
-        ],
-      },
-    },
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await canvas.findByText("Connected")
-    await expect(canvas.queryByText("Setup not finished")).toBeNull()
-    await expect(
-      canvas.queryByRole("button", { name: "Connect Linear" }),
-    ).toBeNull()
   },
 }

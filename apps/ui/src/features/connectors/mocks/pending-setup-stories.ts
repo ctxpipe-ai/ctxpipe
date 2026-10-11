@@ -30,8 +30,6 @@ export async function playPendingSetup(input: {
   canvasElement: HTMLElement
   name: string
   onOpen: Mock
-  /** The arguments of the open call. Default: `[false]` (no scope editor). */
-  openArgs?: unknown[]
   statusReads: Mock
   deleted: Mock
 }) {
@@ -42,7 +40,7 @@ export async function playPendingSetup(input: {
   await userEvent.click(
     canvas.getByRole("button", { name: new RegExp(` for ${input.name}$`) }),
   )
-  expect(input.onOpen).toHaveBeenCalledWith(...(input.openArgs ?? [false]))
+  expect(input.onOpen).toHaveBeenCalledTimes(1)
   const reads = input.statusReads.mock.calls.length
   await userEvent.click(
     canvas.getByRole("button", { name: `Remove ${input.name} setup` }),

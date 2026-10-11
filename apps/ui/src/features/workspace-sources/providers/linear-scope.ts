@@ -31,7 +31,7 @@ export function linearChecklistItems(
             value: `team:${item.teamKey}`,
             type: "team" as const,
             title: item.title,
-            detail: `Team ${item.teamKey}`,
+            code: item.teamKey,
           },
         ]
       : item.type === "project"
@@ -40,7 +40,7 @@ export function linearChecklistItems(
               value: `project:${item.externalId}`,
               type: "project" as const,
               title: item.title,
-              detail: item.teamKey ? `Team ${item.teamKey}` : null,
+              code: item.teamKey,
             },
           ]
         : [],
@@ -52,7 +52,8 @@ export function linearChecklistItems(
     items.push({
       value,
       type: kind === "team" ? "team" : "project",
-      title: id,
+      title: kind === "team" ? "Unknown team" : "Unknown project",
+      code: id,
       detail: "Not found in Linear",
     })
   }

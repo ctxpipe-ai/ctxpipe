@@ -11,6 +11,8 @@ export type LinearChecklistItem = {
   value: string
   type: (typeof groups)[number]["type"]
   title: string
+  /** A team key or Linear id, shown in a monospace font. */
+  code?: string | null
   detail?: string | null
 }
 
@@ -37,9 +39,9 @@ export function LinearScopeChecklist(props: {
             key={type}
             className="border-t border-border first:border-t-0"
           >
-            <h4 className="border-b border-border bg-card/40 px-3 py-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            <h3 className="ctx-label border-b border-border bg-card/40 px-3 py-2">
               {label}
-            </h4>
+            </h3>
             <div>
               {group.map((item) => (
                 <Checkbox
@@ -50,6 +52,11 @@ export function LinearScopeChecklist(props: {
                   <span className="min-w-0">
                     <span className="block truncate text-foreground">
                       {item.title}
+                      {item.code ? (
+                        <span className="ml-2 font-mono text-xs text-muted-foreground">
+                          {item.code}
+                        </span>
+                      ) : null}
                     </span>
                     {item.detail ? (
                       <span className="block text-xs text-muted-foreground">
