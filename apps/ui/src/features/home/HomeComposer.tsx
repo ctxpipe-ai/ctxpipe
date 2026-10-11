@@ -9,6 +9,7 @@ import { MessageInputBox } from "@/features/chat/MessageInputBox"
 import { workspaceDetailOptions } from "@/features/workspaces/queries"
 import { openWorkspaceConversation } from "@/features/workspaces/start-workspace-conversation-ui"
 import type { Workspace } from "@/features/workspaces/types"
+import { workspaceSuggestions } from "@/features/workspaces/workspace-suggestions"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
 
@@ -79,6 +80,7 @@ export function HomeComposer(props: {
           sendMessage={({ text }) => startConversation(text)}
           isDisabled={!selected}
           placeholder="What should ctxpipe do in this Workspace?"
+          suggestions={workspaceSuggestions}
           draftKey={selected ? chatDraftKey(orgSlug, selected.id) : undefined}
         />
       </div>

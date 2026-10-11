@@ -20,6 +20,7 @@ import type { Workspace } from "./types"
 import type { ConversationPublish } from "./useWorkspaceConversationPublish"
 import { WorkspaceChatChrome } from "./WorkspaceChatChrome"
 import { WorkspaceChatSession } from "./WorkspaceChatSession"
+import { workspaceSuggestions } from "./workspace-suggestions"
 
 export function WorkspaceChat(props: {
   orgSlug: string
@@ -104,6 +105,7 @@ function WorkspaceComposeChat(props: {
               })
             }}
             placeholder="What should ctxpipe do in this Workspace?"
+            suggestions={workspaceSuggestions}
           />
         </div>
       </div>
