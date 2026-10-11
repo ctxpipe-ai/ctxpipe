@@ -73,7 +73,7 @@ Team lead defaults, to apply unless the evidence shows a problem:
 
 **Kept (loading indicators).** `animate-spin` (5), `animate-pulse` (12), Skeleton shimmer 1.5 s, indexing / unindexing / status pulses (0.9–1.2 s), InlineLoader bounce 1.1 s and determinate fill 150 ms, GraphWaitState fill 150 ms, ProgressBar indeterminate 1 s.
 
-**Not changed, for the team lead.** The knowledge graph camera moves (`fitView` 300–700 ms, zoom buttons 180 ms) are canvas camera animations in Cosmograph, not CSS. They help the user follow a node. Decide if they must also drop to 150 ms or less.
+**Graph camera (team lead decision, review round 1).** `fitView` and the focus moves (300–700 ms) now use `CAMERA_MOVE_MS` = 250 ms. The zoom buttons stay at 180 ms. DESIGN.md records the exception (navigation feedback).
 
 **Reduced motion.** New global rule in `styles.css`: under `prefers-reduced-motion: reduce`, all transitions and animations end at once, and view transitions do not run.
 
@@ -82,3 +82,11 @@ Team lead defaults, to apply unless the evidence shows a problem:
 **Guard.** `scripts/ci/check-ui-motion.mjs` runs in CI. It fails on a duration above 150 ms or `transition-all` in `apps/ui/src` (53 findings on the base tree, 0 now).
 
 ## Resolution
+
+### 2026-10-11 — implementing agent: review round 1
+
+- Reduced motion no longer stops loaders: the global rule skips `animate-spin` and `ctx-loading-motion` (Skeleton, indeterminate ProgressBar). Proof: golden story `LoadingUnderReducedMotion`, which the runner opens with `prefers-reduced-motion: reduce`. It failed before the fix.
+- The CI check now catches arbitrary durations, `delay-*`, arbitrary properties, `animate-[…]`, inline styles, and CSS rules on one line or on many lines. A loader is exempt by class only. Each form is a test case (16 tests).
+- A double-click cannot skip an onboarding or setup slide: a click with `detail > 1` is dropped. Proof: golden story `DoubleClickMovesOneSlide`. It failed before the fix.
+- Proof: UI vitest 434/434 (the same 8 jsdom files do not start, as on the base), golden 27/27, `test:policy` passes.
+
