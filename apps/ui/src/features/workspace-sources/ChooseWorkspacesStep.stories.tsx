@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, http } from "msw"
 import { type ComponentProps, useState } from "react"
 import { expect, userEvent, within } from "storybook/test"
+import { linearAvailableScopesHandler } from "@/mocks/linear-handlers"
 import { workspaceListHandler } from "@/mocks/workspace-handlers"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
@@ -59,7 +60,10 @@ const meta = {
     } satisfies StoryRouteParams,
     msw: {
       handlers: {
-        page: [workspaceListHandler([docsWorkspace, readOnlyWorkspace])],
+        page: [
+          workspaceListHandler([docsWorkspace, readOnlyWorkspace]),
+          linearAvailableScopesHandler(),
+        ],
       },
     },
   },
@@ -104,8 +108,11 @@ export const SingleWorkspace: Story = {
     await userEvent.click(
       await canvas.findByRole("checkbox", { name: docsWorkspace.displayName }),
     )
-    await expect(canvas.getByRole("textbox", { name: "Scope" })).toBeVisible()
     await expect(canvas.queryByRole("radiogroup")).toBeNull()
+    await expect(canvas.getByText("Not ready")).toBeVisible()
+    await userEvent.click(
+      await canvas.findByRole("checkbox", { name: /Engineering/ }),
+    )
     await expect(canvas.getByText("1 ready")).toBeVisible()
   },
 }
@@ -123,22 +130,27 @@ export const ChooseWorkspacesMulti: Story = {
     await expect(
       canvas.getByRole("radio", { name: /Same scope/ }),
     ).toBeChecked()
-    await expect(canvas.getAllByRole("textbox")).toHaveLength(1)
+    await expect(
+      await canvas.findAllByRole("group", {
+        name: "Linear teams and projects",
+      }),
+    ).toHaveLength(1)
+    await userEvent.click(canvas.getByRole("checkbox", { name: /Engineering/ }))
     await expect(canvas.getByText("2 ready")).toBeVisible()
 
     await userEvent.click(
       canvas.getByRole("radio", { name: /different scope/ }),
     )
-    await expect(
-      canvas.getByRole("textbox", {
-        name: `Scope for ${docsWorkspace.displayName}`,
+    const own = (name: string) =>
+      canvas.findByRole("group", {
+        name: `Linear teams and projects for ${name}`,
+      })
+    await userEvent.click(
+      within(await own(docsWorkspace.displayName)).getByRole("checkbox", {
+        name: /Operations/,
       }),
-    ).toBeVisible()
-    const second = canvas.getByRole("textbox", {
-      name: `Scope for ${readOnlyWorkspace.displayName}`,
-    })
-    await userEvent.clear(second)
-    await userEvent.paste("{")
+    )
+    await expect(await own(readOnlyWorkspace.displayName)).toBeVisible()
     await expect(canvas.getByText("Not ready")).toBeVisible()
     await expect(canvas.getByText(CHOOSE_WORKSPACES_HINT)).toBeVisible()
   },

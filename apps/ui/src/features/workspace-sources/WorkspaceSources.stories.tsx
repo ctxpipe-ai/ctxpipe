@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { Toaster } from "sonner"
 import { expect, userEvent, waitFor, within } from "storybook/test"
+import { linearAvailableScopesHandler } from "@/mocks/linear-handlers"
 import {
   orgConnectionsHandler,
   workspaceSourceChangeHandlers,
@@ -334,6 +335,7 @@ export const EditSendsChange: Story = {
             workspaceSourceList({ items: [linearSource] }),
           ),
           connected,
+          linearAvailableScopesHandler(),
           ...workspaceSourceChangeHandlers(editCalls),
         ],
       },
@@ -349,12 +351,10 @@ export const EditSendsChange: Story = {
     )
     const dialog = within(await within(document.body).findByRole("dialog"))
     await dialog.findByRole("heading", { name: "Edit Linear source" })
-    const scope = dialog.getByRole("textbox", { name: "Scope" })
-    await expect(JSON.parse((scope as HTMLTextAreaElement).value)).toEqual({
-      teams: ["ENG"],
-    })
-    await userEvent.clear(scope)
-    await userEvent.paste('{"teams":["ENG","OPS"]}')
+    await expect(
+      await dialog.findByRole("checkbox", { name: /Engineering/ }),
+    ).toBeChecked()
+    await userEvent.click(dialog.getByRole("checkbox", { name: /Operations/ }))
     await userEvent.click(
       dialog.getByRole("button", { name: "Open a pull request" }),
     )
