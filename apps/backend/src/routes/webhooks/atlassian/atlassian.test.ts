@@ -25,6 +25,7 @@ const getConfluenceSyncTargetWithRepoByConnectionIdMock = vi.hoisted(() =>
 )
 const loadConfluenceScopeFromRepoMock = vi.hoisted(() => vi.fn())
 const runWorkflowMock = vi.hoisted(() => vi.fn())
+const isConfluenceTargetHandedOverMock = vi.hoisted(() => vi.fn())
 
 vi.mock("../../../models/atlassian-connector.js", () => ({
   getForgeInstallationByForgeInstallationId:
@@ -41,7 +42,7 @@ vi.mock("../../../models/confluence-sync-target.js", () => ({
     getConfluenceSyncTargetByConnectionIdMock,
   getConfluenceSyncTargetWithRepoByConnectionId:
     getConfluenceSyncTargetWithRepoByConnectionIdMock,
-  isConfluenceTargetHandedOver: async () => false,
+  isConfluenceTargetHandedOver: isConfluenceTargetHandedOverMock,
 }))
 
 vi.mock("../../../services/confluence/config-from-repo.js", () => ({
@@ -212,6 +213,7 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
       spaces: [{ spaceKey: "SP", selectedPageIds: null }],
     })
     runWorkflowMock.mockResolvedValue({ status: "completed" })
+    isConfluenceTargetHandedOverMock.mockResolvedValue(false)
   })
 
   function createApp() {
@@ -457,17 +459,46 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
       pageId: "838205441",
       eventType: "avi:confluence:created:page",
     })
-    expect(runWorkflowMock).toHaveBeenCalledWith(workspaceSourcesSync.spec, {
-      kind: "connection",
-      orgId: "org_1",
-      connectionId: "fgi_1",
-      provider: "confluence",
-      event: {
-        spaceKeys: ["SP"],
-        pageId: "838205441",
-        eventType: "avi:confluence:created:page",
+    expect(runWorkflowMock).toHaveBeenCalledWith(
+      workspaceSourcesSync.spec,
+      {
+        kind: "connection",
+        orgId: "org_1",
+        connectionId: "fgi_1",
+        provider: "confluence",
+        event: {
+          spaceKeys: ["SP"],
+          pageId: "838205441",
+          eventType: "avi:confluence:created:page",
+        },
       },
+      undefined,
+    )
+  })
+
+  it("still enqueues the legacy sync when the handover lookup throws", async () => {
+    isConfluenceTargetHandedOverMock.mockRejectedValue(new Error("no database"))
+    const { app } = createApp()
+    const res = await app.request("/api/v1/webhook/atlassian/forge", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer fit_token",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        eventType: "avi:confluence:created:page",
+        content: {
+          id: "838205441",
+          type: "page",
+          space: { id: 827392002, key: "SP" },
+        },
+      }),
     })
+    expect(res.status).toBe(204)
+    expect(runWorkflowMock).toHaveBeenCalledWith(
+      confluenceSyncSpace.spec,
+      expect.objectContaining({ spaceKey: "SP" }),
+    )
   })
 
   it.each([
@@ -573,6 +604,7 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
           eventType: "avi:confluence:moved:page",
         },
       }),
+      undefined,
     )
     expect(runWorkflowMock).toHaveBeenCalledWith(confluenceSyncSpace.spec, {
       orgId: "org_1",
