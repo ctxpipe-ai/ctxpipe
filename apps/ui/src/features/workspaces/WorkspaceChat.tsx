@@ -14,6 +14,7 @@ import { MessageInputBox } from "@/features/chat/MessageInputBox"
 import { workspaceConversationOptions, workspaceKeys } from "./queries"
 import { openWorkspaceConversation } from "./start-workspace-conversation-ui"
 import type { Workspace } from "./types"
+import type { ConversationPublish } from "./useWorkspaceConversationPublish"
 import { WorkspaceChatChrome } from "./WorkspaceChatChrome"
 import { WorkspaceChatSession } from "./WorkspaceChatSession"
 
@@ -22,6 +23,7 @@ export function WorkspaceChat(props: {
   workspace: Workspace
   conversationId?: string
   headerExtra?: ReactNode
+  publish?: ConversationPublish | null
 }) {
   const { orgSlug, workspace, conversationId: routeConversationId } = props
 
@@ -52,6 +54,7 @@ export function WorkspaceChat(props: {
         workspace={workspace}
         conversationId={routeConversationId}
         headerExtra={props.headerExtra}
+        publish={props.publish}
       />
     </SkeletonSuspense>
   )
@@ -189,6 +192,7 @@ function WorkspaceChatResume(props: {
   workspace: Workspace
   conversationId: string
   headerExtra?: ReactNode
+  publish?: ConversationPublish | null
 }) {
   const { orgSlug, workspace, conversationId } = props
   const { data: detail } = useSuspenseQuery(
@@ -215,6 +219,7 @@ function WorkspaceChatResume(props: {
       conversation={detail.conversation}
       initialMessages={detail.messages}
       headerExtra={props.headerExtra}
+      publish={props.publish}
     />
   )
 }

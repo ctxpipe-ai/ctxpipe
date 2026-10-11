@@ -1,7 +1,7 @@
 import { rename, unlink, writeFile } from "node:fs/promises"
 import { sql } from "drizzle-orm"
 import { FalkorDB } from "falkordb"
-import { expect, it } from "vitest"
+import { expect, it, vi } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { getSystemDb } from "../../db/client.js"
 import {
@@ -27,6 +27,15 @@ import {
 import { workspaceHttpApp } from "../../test/workspace-http-fixture.js"
 import { workspaceClaimsQuery } from "./graph-projection.js"
 import { workspaceChatTools } from "./workspace-chat-tools.js"
+
+// The graph route enqueues on the shared OpenWorkflow client. Give that client a
+// namespace of its own before it loads, so that a local dev worker on the shared
+// database cannot take the rebuild run.
+const routeNamespace = vi.hoisted(() => {
+  const namespace = `graph-contract-${process.pid}-${Date.now()}`
+  process.env.OPENWORKFLOW_NAMESPACE_ID = namespace
+  return namespace
+})
 
 async function withGraphHydration(
   options: NativeHydrationOptions,
@@ -167,22 +176,98 @@ it(
   },
 )
 
+/** Read the graph route once, as the pane does. */
+async function readGraph(f: NativeHydrationFixture) {
+  const response = await workspaceHttpApp(f.org, workspaceGraphRoutes).request(
+    "/workspaces/knowledge/graph",
+  )
+  return { status: response.status, body: (await response.json()) as unknown }
+}
+
+/** Read the graph route until it renders the graph or the time ends. */
+async function readGraphWhenRebuilt(f: NativeHydrationFixture) {
+  const deadline = Date.now() + 30_000
+  for (;;) {
+    const read = await readGraph(f)
+    if (read.status !== 202 || Date.now() > deadline) return read
+    await new Promise((resolve) => setTimeout(resolve, 250))
+  }
+}
+
+async function hydrateRuns(f: NativeHydrationFixture) {
+  const rows = await getSystemDb().execute<{ count: string }>(
+    sql`select count(*)::text as count from openworkflow.workflow_runs
+      where workflow_name = ${workspaceHydrate.spec.name}
+        and input->>'workspaceId' = ${f.workspaceId}`,
+  )
+  return Number(rows.rows[0]?.count)
+}
+
 it(
-  "Graph HTTP reports an unavailable derived graph instead of rebuilding it from Postgres",
-  { timeout: 60_000 },
+  "Graph HTTP answers building for a lost derived graph, and one workflow run rebuilds it",
+  { timeout: 90_000 },
   async () => {
-    await withGraphHydration({}, async (f, graph) => {
-      await f.publish()
-      await graph.delete()
-      const response = await workspaceHttpApp(
-        f.org,
-        workspaceGraphRoutes,
-      ).request("/workspaces/knowledge/graph")
-      expect({ status: response.status, body: await response.json() }).toEqual({
-        status: 503,
-        body: { error: "Workspace graph projection is unavailable." },
-      })
-    })
+    // The fixture worker uses the namespace of the shared client, so it runs the rebuild.
+    await withGraphHydration(
+      { namespaceId: routeNamespace },
+      async (f, graph) => {
+        await f.publish()
+        const runsBefore = await hydrateRuns(f)
+        // The graph store lost its data, for example after a FalkorDB service was replaced.
+        await graph.delete()
+        expect(await Promise.all([readGraph(f), readGraph(f)])).toEqual([
+          { status: 202, body: { building: true } },
+          { status: 202, body: { building: true } },
+        ])
+        expect(await hydrateRuns(f)).toBe(runsBefore + 1)
+        expect(await readGraphWhenRebuilt(f)).toMatchObject({
+          status: 200,
+          body: { nodes: [{ name: "document-000" }] },
+        })
+      },
+    )
+  },
+)
+
+it(
+  "a failed graph rebuild leaves the graph phase failed",
+  { timeout: 90_000 },
+  async () => {
+    await withGraphHydration(
+      { namespaceId: routeNamespace },
+      async (f, graph, db) => {
+        await f.publish()
+        await graph.delete()
+        // The read runs with full access. Only the workflow write is denied.
+        await f.worker.stop()
+        expect(await readGraph(f)).toEqual({
+          status: 202,
+          body: { building: true },
+        })
+        await withGraphWriteDenied(f, db, async () => {
+          await f.worker.start()
+          const deadline = Date.now() + 30_000
+          let projection = await withOrgIdContext(f.org, () =>
+            getWorkspaceProjection(f.workspaceId),
+          )
+          while (
+            projection.kind === "active" &&
+            projection.stores.graph.kind === "pending" &&
+            Date.now() < deadline
+          ) {
+            await new Promise((resolve) => setTimeout(resolve, 250))
+            projection = await withOrgIdContext(f.org, () =>
+              getWorkspaceProjection(f.workspaceId),
+            )
+          }
+          expect(projection).toMatchObject({
+            kind: "active",
+            stores: { graph: { kind: "failed" } },
+          })
+          await f.worker.stop()
+        })
+      },
+    )
   },
 )
 
@@ -789,18 +874,31 @@ it(
 )
 
 it(
-  "Graph HTTP rejects incomplete native data even when a completion marker exists",
-  { timeout: 60_000 },
+  "Graph HTTP rebuilds a graph with stale extra nodes, so the counts match again",
+  { timeout: 90_000 },
   async () => {
-    await withGraphHydration({}, async (f, graph) => {
-      await f.publish()
-      await graph.query("MATCH (n:WorkspaceKnowledgeUnit) DETACH DELETE n")
-      const response = await workspaceHttpApp(
-        f.org,
-        workspaceGraphRoutes,
-      ).request("/workspaces/knowledge/graph")
-      expect(response.status).toBe(503)
-    })
+    await withGraphHydration(
+      { namespaceId: routeNamespace },
+      async (f, graph) => {
+        await f.publish()
+        // A node under the same revision key that the projection does not have.
+        await graph.query(
+          `MATCH (n:WorkspaceKnowledgeUnit) WITH n LIMIT 1
+        CREATE (:WorkspaceKnowledgeUnit {projectionKey: n.projectionKey, id: "stale", kind: "KnowledgeUnit", name: "stale"})`,
+        )
+        expect(await readGraph(f)).toEqual({
+          status: 202,
+          body: { building: true },
+        })
+        const rebuilt = await readGraphWhenRebuilt(f)
+        expect(rebuilt).toMatchObject({ status: 200 })
+        expect(
+          (rebuilt.body as { nodes: { name: string }[] }).nodes.map(
+            (node) => node.name,
+          ),
+        ).toEqual(["document-000"])
+      },
+    )
   },
 )
 

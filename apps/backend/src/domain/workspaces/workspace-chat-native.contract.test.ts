@@ -33,6 +33,7 @@ import {
 } from "./run-git-tokens.js"
 import { workspaceChatInstanceAccess } from "./sandbox-instance-store.js"
 import {
+  collectTanstackWorkspaceChatText,
   streamTanstackWorkspaceChat,
   warmTanstackWorkspaceChat,
   workspaceChatDockerOwnership,
@@ -590,6 +591,136 @@ it(
         await client.close()
         await server.close()
       }
+    })
+  },
+)
+
+it(
+  "masks credentials in streamed chunks and in the stored transcript",
+  { timeout: 120_000 },
+  async () => {
+    // A made-up value in the shape of a GitHub token.
+    const token = `ghp_${"Zx9Yw8Vu7T".repeat(4)}`
+    await withNativeChatFixture(
+      async (f) => {
+        const chunks: StreamChunk[] = []
+        for await (const chunk of streamTanstackWorkspaceChat({
+          conversationId: f.conversationId,
+          orgId: f.orgId,
+          orgSlug: f.orgSlug,
+          workspaceId: f.workspaceId,
+          desiredUrl: f.directory,
+          desiredSha: f.sha,
+          defaultBranch: "main",
+          writeStatus: "read_only",
+          prompt: "Print the token",
+          runId: `${f.conversationId}-mask`,
+          messages: [
+            { id: "mask-question", role: "user", content: "Print the token" },
+          ],
+        }))
+          chunks.push(chunk)
+        expect(chunks.filter((chunk) => chunk.type === "RUN_ERROR")).toEqual([])
+        const streamed = JSON.stringify(chunks)
+        expect(streamed).toContain("[masked]")
+        expect(streamed).not.toContain(token)
+        expect(
+          chunks.some(
+            (chunk) =>
+              chunk.type === "TOOL_CALL_ARGS" ||
+              chunk.type === "TOOL_CALL_START",
+          ),
+        ).toBe(true)
+        const streamedText = chunks
+          .flatMap((chunk) =>
+            chunk.type === "TEXT_MESSAGE_CONTENT" ? [chunk.delta] : [],
+          )
+          .join("")
+        expect(streamedText).toContain("The token is [masked].")
+        expect(streamedText).not.toContain(token)
+        const stored = JSON.stringify(
+          await workspaceChatPersistence().stores.messages.loadThread(
+            f.conversationId,
+          ),
+        )
+        expect(stored).toContain("[masked]")
+        expect(stored).not.toContain(token)
+        // The MCP tool joins the text deltas of a turn into its result.
+        const collected = await collectTanstackWorkspaceChatText({
+          conversationId: f.conversationId,
+          orgId: f.orgId,
+          orgSlug: f.orgSlug,
+          workspaceId: f.workspaceId,
+          desiredUrl: f.directory,
+          desiredSha: f.sha,
+          defaultBranch: "main",
+          writeStatus: "read_only",
+          prompt: "Print it again",
+          runId: `${f.conversationId}-mask-mcp`,
+          messages: [
+            ...(await workspaceChatPersistence().stores.messages.loadThread(
+              f.conversationId,
+            )),
+            { id: "mask-again", role: "user", content: "Print it again" },
+          ],
+        })
+        if (!collected.ok) throw new Error(collected.error)
+        expect(collected.text).toContain("The token is [masked].")
+        expect(collected.text).not.toContain(token)
+      },
+      undefined,
+      {
+        reply: `The token is ${token}.`,
+        replyDeltaSize: 3,
+        toolCall: (request) => {
+          const messages = request.messages as Array<{ role: string }>
+          return messages.some((message) => message.role === "tool")
+            ? undefined
+            : {
+                name: "bash",
+                arguments: JSON.stringify({
+                  command: `echo ${token}`,
+                  description: "Print the token",
+                }),
+              }
+        },
+      },
+    )
+  },
+)
+
+it(
+  "masks credentials in the message of a run error",
+  { timeout: 45_000 },
+  async () => {
+    const token = `ghp_${"Qw7Er6Ty5U".repeat(4)}`
+    await withNativeChatFixture(async (f) => {
+      const stream = streamTanstackWorkspaceChat({
+        conversationId: f.conversationId,
+        orgId: f.orgId,
+        orgSlug: f.orgSlug,
+        workspaceId: f.workspaceId,
+        writeStatus: "read_only",
+        prompt: "Fail",
+        resolveRuntime: async () => {
+          throw new Error(
+            `clone failed for https://x-access-token:${token}@github.com/o/r`,
+          )
+        },
+      })
+      const error = await (async () => {
+        try {
+          for await (const _chunk of stream) {
+            /* drain */
+          }
+        } catch (caught) {
+          return caught as Error
+        }
+        return undefined
+      })()
+      expect(error?.message).toBe(
+        "clone failed for https://[masked]@github.com/o/r",
+      )
     })
   },
 )

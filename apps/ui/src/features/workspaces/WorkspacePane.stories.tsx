@@ -1,6 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useNavigate, useSearch } from "@tanstack/react-router"
-import { AnimatePresence } from "motion/react"
 import { HttpResponse, http } from "msw"
 import { type ComponentProps, useState } from "react"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
@@ -39,12 +38,14 @@ import {
   tabsIncludingPanePath,
 } from "./fileTabs"
 import { type ParsedPane, parsePane, serializePane } from "./pane"
+import { useConversationPublish } from "./useConversationPublish"
 import { WorkspacePane, WorkspacePaneTriggers } from "./WorkspacePane"
 import {
   docsWorkspace,
   docsWorkspaceDetail,
   docsWorkspaceGitBlobs,
   docsWorkspaceGitTree,
+  docsWorkspaceGraph,
   readOnlyWorkspaceDetail,
   skippedFilesWorkspaceDetail,
 } from "./workspace-fixtures"
@@ -116,6 +117,15 @@ function WorkspacePanePlayground(props: ComponentProps<typeof WorkspacePane>) {
   const [width, setWidth] = useState<number | null>(props.width)
   const [maximized, setMaximized] = useState(props.maximized)
   const [open, setOpen] = useState(true)
+  // The page makes the publish state; this harness stands in for the page.
+  const publish = useConversationPublish({
+    orgSlug: props.orgSlug,
+    conversationId: props.conversationId ?? "",
+    workspaceId: props.workspace.id,
+    title: props.conversationTitle,
+    statusEnabled: Boolean(props.conversationId),
+    pullEnabled: Boolean(props.conversationId),
+  })
   const panePath = pane.kind === "file" ? pane.path : null
   const fileTabs = tabsIncludingPanePath(session.tabs, panePath)
 
@@ -161,59 +171,57 @@ function WorkspacePanePlayground(props: ComponentProps<typeof WorkspacePane>) {
           )}
         </div>
       </div>
-      <AnimatePresence initial={false}>
-        {open ? (
-          <WorkspacePane
-            {...props}
-            key="pane"
-            pane={pane}
-            width={width}
-            maximized={maximized}
-            fileTabs={fileTabs}
-            previewPath={session.previewPath}
-            onPane={setPane}
-            onClose={() => {
-              setMaximized(false)
-              setOpen(false)
-              props.onClose()
-            }}
-            onToggleMaximize={() => {
-              setMaximized((value) => !value)
-              props.onToggleMaximize()
-            }}
-            onRestoreConversation={() => {
-              setMaximized(false)
-              props.onRestoreConversation()
-            }}
-            onResize={(next) => {
-              setWidth(next)
-              props.onResize(next)
-            }}
-            onPreviewFile={(path) => {
-              openFile(path, false)
-              props.onPreviewFile(path)
-            }}
-            onPinFile={(path) => {
-              openFile(path, true)
-              props.onPinFile(path)
-            }}
-            onCloseFileTab={(path) => {
-              setSession((current) => closeFileTab(current, path))
-              if (pane.kind === "file" && pane.path === path) {
-                setPane({ kind: "files" })
-              }
-              props.onCloseFileTab(path)
-            }}
-            onCloseActiveFile={() => {
-              if (pane.kind === "file") {
-                setSession((current) => closeFileTab(current, pane.path))
-                setPane({ kind: "files" })
-              }
-              props.onCloseActiveFile()
-            }}
-          />
-        ) : null}
-      </AnimatePresence>
+      {open ? (
+        <WorkspacePane
+          {...props}
+          publish={props.conversationId ? publish.chrome : null}
+          pane={pane}
+          width={width}
+          maximized={maximized}
+          fileTabs={fileTabs}
+          previewPath={session.previewPath}
+          onPane={setPane}
+          onClose={() => {
+            setMaximized(false)
+            setOpen(false)
+            props.onClose()
+          }}
+          onToggleMaximize={() => {
+            setMaximized((value) => !value)
+            props.onToggleMaximize()
+          }}
+          onRestoreConversation={() => {
+            setMaximized(false)
+            props.onRestoreConversation()
+          }}
+          onResize={(next) => {
+            setWidth(next)
+            props.onResize(next)
+          }}
+          onPreviewFile={(path) => {
+            openFile(path, false)
+            props.onPreviewFile(path)
+          }}
+          onPinFile={(path) => {
+            openFile(path, true)
+            props.onPinFile(path)
+          }}
+          onCloseFileTab={(path) => {
+            setSession((current) => closeFileTab(current, path))
+            if (pane.kind === "file" && pane.path === path) {
+              setPane({ kind: "files" })
+            }
+            props.onCloseFileTab(path)
+          }}
+          onCloseActiveFile={() => {
+            if (pane.kind === "file") {
+              setSession((current) => closeFileTab(current, pane.path))
+              setPane({ kind: "files" })
+            }
+            props.onCloseActiveFile()
+          }}
+        />
+      ) : null}
     </>
   )
 }
@@ -282,7 +290,7 @@ export const Triggers: Story = {
   },
 }
 
-/** Hide, show, and maximise: the end states are asserted; the motion between them is checked by eye. */
+/** Hide, show, and maximize: the pane and the chat column change state at once, with no motion. */
 export const HideShowMaximize: Story = {
   parameters: {
     msw: {
@@ -305,14 +313,10 @@ export const HideShowMaximize: Story = {
       await canvas.findByRole("button", { name: "Maximise pane" }),
     ).toBeVisible()
     await userEvent.click(canvas.getByRole("button", { name: "Hide pane" }))
-    await waitFor(() => {
-      expect(canvas.queryByLabelText("Workspace files")).toBeNull()
-    })
+    // No exit animation: the pane unmounts in the same commit as the click.
+    expect(canvas.queryByLabelText("Workspace files")).toBeNull()
     await userEvent.click(canvas.getByRole("button", { name: "Files" }))
-    // The pane mounts at opacity 0 and fades in.
-    await waitFor(() => {
-      expect(canvas.getByLabelText("Workspace files")).toBeVisible()
-    })
+    expect(await canvas.findByLabelText("Workspace files")).toBeVisible()
   },
 }
 
@@ -615,6 +619,66 @@ export const GraphPhaseFailed: Story = {
   },
 }
 
+/**
+ * The graph store lost a ready graph: the route answers building, the pane
+ * shows the building state, and the graph opens when a later read has it.
+ */
+export const GraphLostRebuilds: Story = {
+  tags: ["workspace-golden"],
+  args: {
+    pane: { kind: "graph" },
+    workspace: {
+      ...docsWorkspaceDetail,
+      hydratePhases: { graph: { kind: "ready" } },
+    },
+  },
+  beforeEach: () => {
+    graphGets.count = 0
+  },
+  parameters: {
+    storyRoute: graphPaneRoute,
+    msw: {
+      handlers: {
+        page: [
+          http.get(
+            ({ request }) =>
+              /\/api\/v1\/workspaces\/[^/]+\/graph$/.test(
+                new URL(request.url).pathname,
+              ),
+            () => {
+              graphGets.count += 1
+              return graphGets.count === 1
+                ? HttpResponse.json({ building: true }, { status: 202 })
+                : HttpResponse.json(docsWorkspaceGraph)
+            },
+          ),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    expect(
+      await canvas.findByText(
+        "The graph opens when ctx| finishes reading this Workspace.",
+      ),
+    ).toBeVisible()
+    expect(canvas.queryByText("Could not load graph")).toBeNull()
+    await waitFor(
+      () => {
+        expect(
+          canvas.queryByText(
+            "The graph opens when ctx| finishes reading this Workspace.",
+          ),
+        ).toBeNull()
+      },
+      { timeout: 10_000 },
+    )
+    expect(graphGets.count).toBeGreaterThan(1)
+    expect(canvas.queryByText("Could not load graph")).toBeNull()
+  },
+}
+
 /** The graph phase is ready but the graph route fails: the route error shows. */
 export const GraphPhaseReadyStoreUnavailable: Story = {
   tags: ["workspace-golden"],
@@ -784,6 +848,7 @@ export const ConversationWritable: Story = {
 }
 
 export const ConversationSandboxFiles: Story = {
+  tags: ["workspace-golden"],
   args: {
     conversationId: "conv_1",
     pane: { kind: "files" },
@@ -816,16 +881,21 @@ export const ConversationSandboxFiles: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await expectWorkspaceFiles(canvas, /e2e-session-branch-note/)
-    expect(canvas.getByRole("button", { name: "Create PR" })).toBeVisible()
+    // At a wide viewport the conversation header has Create PR, so the pane hides its copy.
+    expect(
+      canvas.queryByRole("button", { name: "Create PR" }),
+    ).not.toBeInTheDocument()
     expect(canvas.queryByText("repositories")).not.toBeInTheDocument()
   },
 }
 
 /**
  * The pane is maximized, so the conversation header is hidden: the pane shows
- * Sync. When the conversation shows beside the pane, only it has Sync.
+ * Sync and Create PR. When the conversation shows beside the pane, only it has
+ * them.
  */
 export const ConversationMaximizedSync: Story = {
+  tags: ["workspace-golden"],
   args: {
     ...ConversationSandboxFiles.args,
     maximized: true,
@@ -838,7 +908,11 @@ export const ConversationMaximizedSync: Story = {
     })
     expect(sync).toBeVisible()
     expect(sync).toHaveTextContent("Sync")
-    expect(canvas.getByRole("button", { name: "Create PR" })).toBeVisible()
+    const createPr = canvas.getByRole("button", { name: "Create PR" })
+    expect(createPr).toBeVisible()
+    expect(
+      createPr.querySelector("svg.tabler-icon-git-pull-request"),
+    ).not.toBeNull()
   },
 }
 
@@ -897,10 +971,12 @@ export const ConversationCleanNoPublish: Story = {
   },
 }
 
+/** Maximized, so the pane header shows the conversation's Create PR. */
 export const ConversationCommittedCreatePr: Story = {
   args: {
     conversationId: "conv_1",
     pane: { kind: "files" },
+    maximized: true,
   },
   parameters: {
     storyRoute: {
@@ -943,10 +1019,6 @@ export const ConversationCommittedCreatePr: Story = {
     await waitFor(() => {
       expect(canvas.getByRole("button", { name: "Create PR" })).toBeVisible()
     })
-    // At a wide viewport the conversation header has Sync, so the pane hides its copy.
-    expect(
-      canvas.queryByRole("button", { name: /^Sync/ }),
-    ).not.toBeInTheDocument()
   },
 }
 
@@ -1142,9 +1214,7 @@ export const StableFilesRequestBudget: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    expect(
-      await canvas.findByRole("button", { name: "Create PR" }),
-    ).toBeVisible()
+    await expectWorkspaceFiles(canvas, /AGENTS/)
     await waitFor(() => {
       expect(filesTreeGets.count).toBeGreaterThan(0)
     })

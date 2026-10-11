@@ -178,6 +178,8 @@ try {
     const pageErrors = []
     page.on("pageerror", (error) => pageErrors.push(String(error)))
     await page.addInitScript(playInitScript)
+    if ((story.tags ?? []).includes("reduced-motion"))
+      await page.emulateMedia({ reducedMotion: "reduce" })
     await page.goto(
       `${storybookUrl}/iframe.html?id=${encodeURIComponent(story.id)}&viewMode=story`,
       { waitUntil: "domcontentloaded", timeout: 120_000 },

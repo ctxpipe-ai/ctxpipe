@@ -309,7 +309,7 @@ export function McpConfigPrWizard(props: McpConfigPrWizardProps) {
     <div
       className={
         variant === "onboarding"
-          ? "onb-in-2 mx-auto mb-10 max-w-3xl text-left"
+          ? "mx-auto mb-10 max-w-3xl text-left"
           : "text-left"
       }
     >

@@ -30,7 +30,7 @@ function ExpandTrigger({ name }: { name: string }) {
     >
       <IconChevronRight
         aria-hidden
-        className={`size-4 text-muted-foreground transition-transform duration-200 ${
+        className={`size-4 text-muted-foreground transition-transform ${
           isExpanded ? "rotate-90" : ""
         }`}
       />

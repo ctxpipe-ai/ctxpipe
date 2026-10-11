@@ -223,17 +223,26 @@ export async function enqueueWorkspaceFileJob(
   await readApiJson<void>(res, { message: "Failed to save file changes" })
 }
 
+/** The graph route answers `building` while the graph of the active revision builds. */
+export type WorkspaceGraphRead = WorkspaceGraphPayload | { building: true }
+
+export function workspaceGraphBuilding(
+  read: WorkspaceGraphRead | undefined,
+): read is { building: true } {
+  return Boolean(read && "building" in read)
+}
+
 export async function fetchWorkspaceGraph(
   orgSlug: string,
   workspaceSlug: string,
-): Promise<WorkspaceGraphPayload> {
+): Promise<WorkspaceGraphRead> {
   const client = await getApiClient()
   const res = await client[":orgSlug"].api.v1.workspaces[
     ":workspaceSlug"
   ].graph.$get({
     param: { orgSlug, workspaceSlug },
   })
-  return readApiJson<WorkspaceGraphPayload>(res, {
+  return readApiJson<WorkspaceGraphRead>(res, {
     message: "Failed to load Workspace graph",
   })
 }
@@ -337,6 +346,9 @@ export function workspaceGraphOptions(orgSlug: string, workspaceSlug: string) {
   return queryOptions({
     queryKey: workspaceKeys.graph(orgSlug, workspaceSlug),
     queryFn: () => fetchWorkspaceGraph(orgSlug, workspaceSlug),
+    // Read again until the graph that builds is there.
+    refetchInterval: (query) =>
+      workspaceGraphBuilding(query.state.data) ? 2000 : false,
   })
 }
 

@@ -20,7 +20,7 @@ export const SKELETON_DELAY_MS = 1000
 export const SKELETON_MIN_MS = 300
 
 const boneClassName =
-  "relative inline-block overflow-hidden rounded-md bg-zinc-800/50 before:absolute before:inset-0 before:-translate-x-full before:animate-[shimmer_1.5s_ease-in-out_infinite] before:bg-linear-to-r before:from-transparent before:via-white/5 before:to-transparent"
+  "ctx-loading-motion relative inline-block overflow-hidden rounded-md bg-zinc-800/50 before:absolute before:inset-0 before:-translate-x-full before:animate-[shimmer_1.5s_ease-in-out_infinite] before:bg-linear-to-r before:from-transparent before:via-white/5 before:to-transparent"
 
 function useDelayElapsed() {
   const [elapsed, setElapsed] = useState(false)

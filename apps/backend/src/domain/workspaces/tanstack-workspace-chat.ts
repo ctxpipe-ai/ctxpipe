@@ -62,6 +62,11 @@ import { checkoutSessionBranch } from "./conversation-session-branch.js"
 import { nameConversationIfUnnamed } from "./conversation-title.js"
 import { openDockerRunVault } from "./docker-run-vault.js"
 import { hostedSandboxAccess } from "./hosted-sandbox-access.js"
+import {
+  createDeltaMasker,
+  maskCredentials,
+  maskCredentialsDeep,
+} from "./mask-credentials.js"
 import { type WorkspaceRevision, workspaceRevisionSchema } from "./revision.js"
 import { recordedRunGitToken, revokeRunGitTokens } from "./run-git-tokens.js"
 import { modelProxyCredentialRules } from "./sandbox-credential-rules.js"
@@ -341,9 +346,69 @@ export async function* streamTanstackWorkspaceChat(
     finishWorkspaceChatTurn(turnId, {
       error: error instanceof Error ? error.message : String(error),
     })
+    // The stream response sends the message of a thrown error to the client.
+    if (error instanceof Error) error.message = maskCredentials(error.message)
     throw error
   } finally {
     finishWorkspaceChatTurn(turnId)
+  }
+}
+
+type TextDeltaChunk = Extract<
+  StreamChunk,
+  { type: "TEXT_MESSAGE_CONTENT" | "REASONING_MESSAGE_CONTENT" }
+>
+
+/**
+ * Masks credentials in a run's chunks. Text and reasoning arrive in small
+ * deltas, so a credential can cross two of them: each message holds back a
+ * tail until its end, the end of the run, or a run error.
+ */
+function credentialMaskedChunks() {
+  const open = new Map<
+    string,
+    { masker: ReturnType<typeof createDeltaMasker>; last: TextDeltaChunk }
+  >()
+  const textChunk = (last: TextDeltaChunk, delta: string): StreamChunk => {
+    // The accumulated `content` is not sent; only the delta is.
+    const { content: _content, ...rest } = last as TextDeltaChunk & {
+      content?: string
+    }
+    return { ...rest, delta } as StreamChunk
+  }
+  const flush = (messageId?: string): StreamChunk[] => {
+    const ids = messageId === undefined ? [...open.keys()] : [messageId]
+    return ids.flatMap((id) => {
+      const entry = open.get(id)
+      open.delete(id)
+      const delta = entry?.masker.flush()
+      return entry && delta ? [textChunk(entry.last, delta)] : []
+    })
+  }
+  return (chunk: StreamChunk): StreamChunk[] => {
+    if (
+      chunk.type === "TEXT_MESSAGE_CONTENT" ||
+      chunk.type === "REASONING_MESSAGE_CONTENT"
+    ) {
+      const key = `${chunk.type}:${chunk.messageId}`
+      const entry = open.get(key) ?? {
+        masker: createDeltaMasker(),
+        last: chunk,
+      }
+      entry.last = chunk
+      open.set(key, entry)
+      const delta = entry.masker.push(chunk.delta)
+      return delta ? [textChunk(chunk, delta)] : []
+    }
+    const flushed =
+      chunk.type === "TEXT_MESSAGE_END"
+        ? flush(`TEXT_MESSAGE_CONTENT:${chunk.messageId}`)
+        : chunk.type === "REASONING_MESSAGE_END"
+          ? flush(`REASONING_MESSAGE_CONTENT:${chunk.messageId}`)
+          : chunk.type === "RUN_FINISHED" || chunk.type === "RUN_ERROR"
+            ? flush()
+            : []
+    return [...flushed, maskCredentialsDeep(chunk)]
   }
 }
 
@@ -362,6 +427,7 @@ async function* streamTanstackWorkspaceChatBody(
   const prepared = await startWorkspaceChat(turn)
   if (!prepared.ok) throw new Error(prepared.error)
   yield workspaceChatSandboxSetupChunk("ready")
+  const masked = credentialMaskedChunks()
   for await (const chunk of prepared.stream) {
     const typed = chunk as StreamChunk
     if (typed.type === "RUN_STARTED") continue
@@ -380,7 +446,8 @@ async function* streamTanstackWorkspaceChatBody(
       typed.type === "TOOL_CALL_START"
     )
       markWorkspaceChatFirstShownToken(turnId)
-    yield typed
+    // Tool arguments, tool output and model text can repeat a credential.
+    yield* masked(typed)
   }
 }
 

@@ -67,10 +67,10 @@ export function OnboardingInviteSlide({
 
   return (
     <>
-      <h2 className="onb-in-1 mb-4 text-3xl font-semibold text-zinc-100 sm:text-4xl">
+      <h2 className="mb-4 text-3xl font-semibold text-zinc-100 sm:text-4xl">
         Invite team members
       </h2>
-      <div className="onb-in-2 mx-auto mb-10 max-w-3xl">
+      <div className="mx-auto mb-10 max-w-3xl">
         <p className="mx-auto mb-4 text-zinc-300">
           ctx| is designed for your whole team and their agents. Invite some
           co-workers to test it out with.

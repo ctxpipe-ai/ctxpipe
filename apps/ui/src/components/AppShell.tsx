@@ -1,30 +1,17 @@
-import type { ReactNode } from "react"
-import { useState } from "react"
 import { useRouter } from "@tanstack/react-router"
+import type { ReactNode } from "react"
 import { OverlayNavMenuButton } from "@/components/OverlayNavButton"
-import { SideNav } from "@/components/SideNav"
 import { ShellLayoutProvider } from "@/components/ShellLayoutContext"
+import { SideNav } from "@/components/SideNav"
 
 type AppShellProps = {
   children: ReactNode
 }
 
 export function AppShell({ children }: AppShellProps) {
-  const [animateOnMount] = useState(() => {
-    if (typeof window === "undefined") return false
-    const shouldAnimate =
-      sessionStorage.getItem("ctxpipe:app-shell-fade-in") === "1"
-    if (shouldAnimate) {
-      sessionStorage.removeItem("ctxpipe:app-shell-fade-in")
-    }
-    return shouldAnimate
-  })
-
   return (
     <ShellLayoutProvider>
-      <div
-        className={`${animateOnMount ? "app-shell-fade-in-onboarding" : ""} relative flex min-h-screen min-w-0 bg-zinc-950 text-zinc-100`}
-      >
+      <div className="relative flex min-h-screen min-w-0 bg-zinc-950 text-zinc-100">
         <div
           aria-hidden="true"
           className="pointer-events-none fixed inset-0 z-0 opacity-50"

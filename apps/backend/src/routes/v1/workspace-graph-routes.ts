@@ -3,7 +3,9 @@ import type { AppEnv } from "../../app/env.js"
 import { requireCurrentOrgSlug } from "../../auth/context.js"
 import {
   readWorkspaceGraph,
+  WorkspaceGraphMissingError,
   WorkspaceGraphUnavailableError,
+  workspaceGraphRevisionKey,
 } from "../../domain/workspaces/graph-projection.js"
 import { hydrateUnitsToProjectionClaims } from "../../domain/workspaces/hydrate.js"
 import { publishedProjection } from "../../domain/workspaces/revision.js"
@@ -12,8 +14,11 @@ import {
   getWorkspaceBySlug,
   getWorkspaceProjection,
   getWorkspaceProjectionSnapshot,
+  markWorkspaceGraphLost,
+  persistWorkspaceGraphResult,
 } from "../../models/workspaces.js"
 import { getLogger } from "../../observability/logger.js"
+import { enqueueWorkspaceGraphRebuild } from "../../openworkflow/enqueue-workspace-hydrate.js"
 import {
   ErrorResponseSchema,
   WorkspaceSlugParamsSchema,
@@ -60,6 +65,15 @@ const listWorkspaceGraphRoute = createRoute({
         "application/json": { schema: WorkspaceGraphResponseSchema },
       },
       description: "This Workspace’s hydrate projection for the Graph pane",
+    },
+    202: {
+      content: {
+        "application/json": {
+          schema: z.object({ building: z.literal(true) }),
+        },
+      },
+      description:
+        "The graph of the active revision is building; read again later",
     },
     503: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -125,14 +139,56 @@ export const workspaceGraphRoutes = new OpenAPIHono<AppEnv>()
       const projection = publishedProjection(
         await getWorkspaceProjection(workspace.id),
       )
-      return c.json(
-        await readWorkspaceGraph({
-          orgId: workspace.orgId,
-          orgSlug: requireCurrentOrgSlug(),
-          projection,
-        }),
-        200,
+      // The pane shows its building state; the route never builds the graph itself.
+      if (
+        projection?.kind === "active" &&
+        projection.stores.graph.kind === "pending"
       )
+        return c.json({ building: true as const }, 202)
+      try {
+        return c.json(
+          await readWorkspaceGraph({
+            orgId: workspace.orgId,
+            orgSlug: requireCurrentOrgSlug(),
+            projection,
+          }),
+          200,
+        )
+      } catch (error) {
+        if (
+          !(error instanceof WorkspaceGraphMissingError) ||
+          projection?.kind !== "active"
+        )
+          throw error
+        // The graph store lost the graph of a ready revision, for example after
+        // the graph store was replaced. A hydrate run writes it again from PostgreSQL.
+        const revision = projection.revision
+        const lostAt = await markWorkspaceGraphLost(revision)
+        if (lostAt) {
+          getLogger().warn(
+            "Workspace graph is missing from the graph store; starting a rebuild",
+            { step: "workspace.graph.rebuild", workspaceId: workspace.id },
+          )
+          try {
+            await enqueueWorkspaceGraphRebuild({
+              orgId: workspace.orgId,
+              revision,
+              revisionKey: workspaceGraphRevisionKey(revision),
+              lostAt,
+            })
+          } catch (enqueueError) {
+            await persistWorkspaceGraphResult({
+              revision,
+              result: {
+                kind: "failed",
+                message: "Could not start the rebuild",
+              },
+            })
+            throw enqueueError
+          }
+        }
+        return c.json({ building: true as const }, 202)
+      }
     } catch (error) {
       if (!(error instanceof WorkspaceGraphUnavailableError))
         getLogger().error(

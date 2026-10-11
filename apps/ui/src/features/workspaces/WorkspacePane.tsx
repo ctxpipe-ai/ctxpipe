@@ -15,7 +15,6 @@ import {
   useQueryClient,
 } from "@tanstack/react-query"
 import { ClientOnly } from "@tanstack/react-router"
-import { motion } from "motion/react"
 import type { CSSProperties, ReactNode } from "react"
 import { lazy, useEffect, useRef } from "react"
 import { type Key, Tab, TabList, TabPanel, Tabs } from "react-aria-components"
@@ -43,11 +42,14 @@ import {
   workspaceChatPrepareOptions,
   workspaceGitBlobOptions,
   workspaceGitTreeOptions,
+  workspaceGraphBuilding,
   workspaceGraphOptions,
 } from "./queries"
 import type { WorkspaceDetail, WorkspaceStorePhase } from "./types"
-import { useConversationPublish } from "./useConversationPublish"
-import { ConversationPublishActions } from "./WorkspaceChatChrome"
+import {
+  ConversationPublishActions,
+  type ConversationPublishChrome,
+} from "./WorkspaceChatChrome"
 import { WorkspaceConversationDiffPane } from "./WorkspaceConversationDiff"
 import { WorkspaceFilesPaneBody } from "./WorkspaceFilesPane"
 import { WorkspaceSettingsPane } from "./WorkspaceSettingsPane"
@@ -92,6 +94,8 @@ export function WorkspacePane(props: {
   onCloseActiveFile: () => void
   onToggleTree: () => void
   conversationTitle: string
+  /** The conversation's publish state, shared with the conversation header. */
+  publish?: ConversationPublishChrome | null
 }) {
   const queryClient = useQueryClient()
   const urlPaneKey = serializePane(props.pane)
@@ -152,18 +156,14 @@ export function WorkspacePane(props: {
   }, [props.fileTabs, props.onCloseFileTab])
 
   return (
-    <motion.aside
-      initial={{ opacity: 0, x: 16 }}
-      animate={{ opacity: 1, x: 0 }}
-      exit={{ opacity: 0, x: 16 }}
-      transition={{ duration: 0.2, ease: "easeOut" }}
+    <aside
       className={cn(
         workspaceChromeOuterClassName,
         workspaceChromeOuterFlushClassName,
         "relative flex h-full min-h-0 pl-0 pr-3",
         paneWidthLocked
           ? cn(
-              "w-[var(--workspace-pane-width)] shrink-0 transition-[flex-grow] duration-200 ease-out",
+              "w-[var(--workspace-pane-width)] shrink-0",
               "max-lg:min-w-0 max-lg:w-auto max-lg:flex-1",
               // Maximise keeps the locked width as the flex basis and grows into the collapsed chat column.
               props.maximized && "min-w-0 grow",
@@ -317,17 +317,17 @@ export function WorkspacePane(props: {
               })}
             </TabList>
             <div className="flex shrink-0 items-end gap-0.5">
-              {props.conversationId &&
+              {/* The conversation header has the publish actions. The pane
+                  shows them only when the conversation column is hidden: below
+                  `lg` with the pane open, or when the pane is maximized. */}
+              {props.publish &&
               conversationAllowsEdits(
                 props.workspace.writeStatus,
                 props.workspace.conversationWritable,
               ) ? (
-                <ConversationPanePublish
-                  conversationHidden={props.maximized}
-                  orgSlug={props.orgSlug}
-                  workspaceId={props.workspace.id}
-                  conversationId={props.conversationId}
-                  title={props.conversationTitle}
+                <ConversationPublishActions
+                  publish={props.publish}
+                  className={props.maximized ? undefined : "lg:hidden"}
                 />
               ) : null}
               <HeaderIcon
@@ -424,7 +424,7 @@ export function WorkspacePane(props: {
           </div>
         </TabPanel>
       </Tabs>
-    </motion.aside>
+    </aside>
   )
 }
 
@@ -439,7 +439,7 @@ function WorkspaceGraphPaneBody(props: {
     ...workspaceGraphOptions(props.orgSlug, props.workspace.slug),
     enabled: graphReadable(phase),
   })
-  if (phase === "pending")
+  if (phase === "pending" || workspaceGraphBuilding(query.data))
     return (
       <div className="flex h-full min-h-0 flex-1 items-center justify-center p-6">
         <GraphWaitState
@@ -465,7 +465,7 @@ function WorkspaceGraphPaneBody(props: {
       <WorkspaceGraphPane
         orgSlug={props.orgSlug}
         workspaceSlug={props.workspace.slug}
-        graph={query.data}
+        graph={workspaceGraphBuilding(query.data) ? undefined : query.data}
         pending={query.isPending}
         error={query.error instanceof Error ? query.error : null}
         onOpenSource={props.onOpenSource}
@@ -519,32 +519,6 @@ function prefetchWorkspacePane(
       workspaceGraphOptions(orgSlug, workspace.slug),
     )
   }
-}
-
-function ConversationPanePublish(props: {
-  /** The pane is maximized, so the conversation column (and its Sync) is hidden. */
-  conversationHidden: boolean
-  orgSlug: string
-  workspaceId: string
-  conversationId: string
-  title: string
-}) {
-  const publish = useConversationPublish({
-    orgSlug: props.orgSlug,
-    conversationId: props.conversationId,
-    workspaceId: props.workspaceId,
-    title: props.title,
-    statusEnabled: true,
-    pullEnabled: true,
-  })
-  // The conversation header has Sync. Below `lg` an open pane hides the
-  // conversation column, so the pane shows Sync there (and when maximized).
-  return (
-    <ConversationPublishActions
-      publish={publish.chrome}
-      syncClassName={props.conversationHidden ? undefined : "lg:hidden"}
-    />
-  )
 }
 
 function ConversationDiffTab(props: {
@@ -632,8 +606,6 @@ export function WorkspacePaneTriggers(props: {
     )
   }
   const graphBuilding = props.workspace.hydratePhases?.graph.kind === "pending"
-  // These stand alone in the chat header, so they need a hairline to read as controls.
-  const triggerClassName = "border border-white/10 text-zinc-200"
   return (
     <TooltipProvider delay={200}>
       <div className={workspaceChromeTabStripClassName}>
@@ -645,7 +617,6 @@ export function WorkspacePaneTriggers(props: {
             prefetch({ kind: "files" })
             props.onOpen({ kind: "files" })
           }}
-          className={triggerClassName}
         />
         <HeaderIcon
           label={graphBuilding ? "Graph, building" : "Graph"}
@@ -656,20 +627,17 @@ export function WorkspacePaneTriggers(props: {
             prefetch({ kind: "graph" })
             props.onOpen({ kind: "graph" })
           }}
-          className={triggerClassName}
         />
         <HeaderIcon
           label="Settings"
           icon={<IconSettings stroke={1.6} aria-hidden />}
           onClick={() => props.onOpen({ kind: "settings" })}
-          className={triggerClassName}
         />
         {props.onExpand ? (
           <HeaderIcon
             label="Show pane"
             icon={<IconLayoutSidebarRightExpand stroke={1.6} aria-hidden />}
             onClick={props.onExpand}
-            className={triggerClassName}
           />
         ) : null}
       </div>
