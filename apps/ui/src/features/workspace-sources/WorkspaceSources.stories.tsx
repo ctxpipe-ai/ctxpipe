@@ -312,9 +312,10 @@ export const ScrollsToSourceAnchor: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await canvas.findByText("1 team")
+    await canvas.findAllByText("1 team")
     const root = canvasElement.querySelector<HTMLElement>("[data-scroll-root]")
-    const section = canvasElement.querySelector<HTMLElement>("#source-confluence")
+    const section =
+      canvasElement.querySelector<HTMLElement>("#source-confluence")
     if (!root || !section) throw new Error("Missing scroll root or section")
     await waitFor(() => expect(root.scrollTop).toBeGreaterThan(0))
     const offset =
