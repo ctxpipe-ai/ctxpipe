@@ -41,6 +41,7 @@ vi.mock("../../../models/confluence-sync-target.js", () => ({
     getConfluenceSyncTargetByConnectionIdMock,
   getConfluenceSyncTargetWithRepoByConnectionId:
     getConfluenceSyncTargetWithRepoByConnectionIdMock,
+  isConfluenceTargetHandedOver: async () => false,
 }))
 
 vi.mock("../../../services/confluence/config-from-repo.js", () => ({
