@@ -82,7 +82,7 @@ export const NotUsedInAnyWorkspace: Story = {
 }
 
 export const NoEditorHidesAdd: Story = {
-  args: { provider: "linear" },
+  args: { provider: "notion" },
   parameters: {
     msw: { handlers: { page: [connectionUsageHandler([])] } },
   },
