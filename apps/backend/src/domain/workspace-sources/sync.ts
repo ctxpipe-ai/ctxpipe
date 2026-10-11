@@ -111,37 +111,45 @@ export async function syncConnectionSources(input: {
     scopes,
     env: input.env,
   }
-  // With `fetchEach`, a Workspace gets only the files of its own scopes.
-  const filesOf: (scopeKeys: Set<string>) => GitFileChange[] = adapter.fetchEach
-    ? await adapter.fetchEach(fetchInput).then((each) => {
-        const byKey = new Map(
-          [...scopesByKey.keys()].map((key, index) => [key, each[index] ?? []]),
-        )
-        return (scopeKeys) => [
-          ...new Map(
-            [...scopeKeys]
-              .flatMap((key) => byKey.get(key) ?? [])
-              .map((file) => [file.path, file]),
-          ).values(),
-        ]
-      })
-    : await adapter.fetch(fetchInput).then((fetched) => () => fetched)
+  // With `fetchEach`, a Workspace gets only the files of its own scopes, and
+  // a failed scope (null) skips the write of each Workspace that has it.
+  const filesOf: (scopeKeys: Set<string>) => GitFileChange[] | null =
+    adapter.fetchEach
+      ? await adapter.fetchEach(fetchInput).then((each) => {
+          const byKey = new Map(
+            [...scopesByKey.keys()].map((key, index) => [key, each[index]]),
+          )
+          return (scopeKeys) => {
+            const lists = [...scopeKeys].map((key) => byKey.get(key))
+            if (lists.some((list) => !list)) return null
+            return [
+              ...new Map(
+                lists
+                  .flatMap((list) => list ?? [])
+                  .map((file) => [file.path, file]),
+              ).values(),
+            ]
+          }
+        })
+      : await adapter.fetch(fetchInput).then((fetched) => () => fetched)
+  const written: string[] = []
   for (const [workspaceId, entry] of byWorkspace) {
+    const files = filesOf(entry.scopeKeys)
+    if (!files) continue
     const ownedPrefixes = [...entry.prefixes].sort()
     await input.write({
       orgId: input.orgId,
       workspaceId,
       provider: adapter.provider,
       connectionId: input.connectionId,
-      files: filesOf(entry.scopeKeys).filter((file) =>
-        underAny(file.path, ownedPrefixes),
-      ),
+      files: files.filter((file) => underAny(file.path, ownedPrefixes)),
       ownedPrefixes,
       keepPrefixes: [],
       sourcesRevision: entry.revision,
     })
+    written.push(workspaceId)
   }
-  return { fetchedScopes: scopes.length, workspaces: [...byWorkspace.keys()] }
+  return { fetchedScopes: scopes.length, workspaces: written }
 }
 
 /**

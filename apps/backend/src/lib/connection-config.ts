@@ -271,6 +271,25 @@ export function decodeLinearTokens(
   }
 }
 
+/**
+ * The Workspace sources sync state of a Forge connection (ADR-050): the
+ * cursor of each space, shared by all Workspaces, and the pages and spaces
+ * that failed. The legacy `confluence_spaces` scope does not hold it.
+ */
+export const forgeSourceSyncSchema = z.object({
+  spaces: z
+    .record(z.string(), z.object({ lastSyncedAt: z.string() }))
+    .default({}),
+  /** Keyed `space:<KEY>` or `page:<KEY>:<id>`; `tries` counts sync cycles. */
+  failures: z
+    .record(
+      z.string(),
+      z.object({ tries: z.number().int().positive(), detail: z.string() }),
+    )
+    .default({}),
+})
+export type ForgeSourceSync = z.infer<typeof forgeSourceSyncSchema>
+
 /** Typed slice of `connections.config` for `type === "forge"`. */
 const provisionStatusSchema = z.enum(["idle", "running", "succeeded", "failed"])
 
@@ -307,6 +326,7 @@ export const forgeConnectionConfigSchema = z
       trimNullableConnectionString,
       z.string().nullable().optional(),
     ),
+    sourceSync: forgeSourceSyncSchema.optional(),
   })
   .transform((c) => ({
     ...c,

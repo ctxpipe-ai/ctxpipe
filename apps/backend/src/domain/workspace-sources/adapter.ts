@@ -36,6 +36,15 @@ export type SourceAdapter<
   }): Promise<string | null>
   /** Optional. Whether a provider webhook event touches this scope. Default: yes. */
   matchesEvent?(input: { event: unknown; scope: S }): boolean
+  /**
+   * Optional. A sync problem of an `ok` source, for example a page that
+   * failed too many times. The source list shows it at read time.
+   */
+  syncStatus?(input: {
+    orgId: string
+    connectionId: string
+    scope: S
+  }): Promise<{ status: "invalid" | "out_of_access"; detail: string } | null>
 } & (
   | {
       /**
@@ -52,9 +61,12 @@ export type SourceAdapter<
        * on the full scope, not only on its paths (for example, the Confluence
        * page tree of a page selection). Fetch the union one time and return
        * the files of each scope, in the order of `scopes`. A Workspace gets
-       * the files of its own scopes.
+       * the files of its own scopes. `null` for a scope skips the write of
+       * each Workspace that has it, so its last good copy stays.
        */
-      fetchEach(input: SourceFetchInput<S>): Promise<GitFileChange[][]>
+      fetchEach(
+        input: SourceFetchInput<S>,
+      ): Promise<Array<GitFileChange[] | null>>
       fetch?: never
     }
 )
