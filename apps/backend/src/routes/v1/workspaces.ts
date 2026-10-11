@@ -25,6 +25,7 @@ import {
   listMigrationExportShas,
   listWorkspaces,
   persistHydrateRetry,
+  persistWriteCheckRetry,
   projectionFromWorkspace,
   touchLastUsedWorkspace,
 } from "../../models/workspaces.js"
@@ -366,6 +367,26 @@ const retryPrepareWorkspaceRoute = createRoute({
   },
 })
 
+const checkWriteAccessWorkspaceRoute = createRoute({
+  method: "post",
+  path: "/{workspaceSlug}/check-write-access",
+  request: { params: WorkspaceSlugParamsSchema },
+  responses: {
+    200: {
+      content: { "application/json": { schema: WorkspaceSchema } },
+      description: "Check Workspace write access again",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Not found",
+    },
+  },
+})
+
 export const workspaceRoutes = new OpenAPIHono<AppEnv>()
   .openapi(listWorkspacesRoute, async (c) => {
     if (!c.get("user") || !c.get("session")) {
@@ -413,11 +434,16 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
       // "Then refresh" after an admin fix must start a new probe at once.
       void enqueueWorkspaceTipCheck(orgId, c.get("log"))
     }
-    if (orgId && workspace.writeStatus === WORKSPACE_WRITE_STATUSES.unknown) {
-      // The UI polls this route while write access is unknown. Enqueue at
-      // most one probe per org each minute.
+    if (
+      orgId &&
+      workspace.writeStatus === WORKSPACE_WRITE_STATUSES.unknown &&
+      !workspace.readOnlyReason
+    ) {
+      // The UI polls this route while a check runs. Enqueue at most one probe
+      // per org each minute. A failed check (with a reason) waits for an
+      // explicit "Check again".
       void enqueueWorkspaceTipCheck(orgId, c.get("log"), {
-        idempotencyKey: `tip-check-on-read:${orgId}:${Math.floor(Date.now() / 60_000)}`,
+        idempotencyKey: `tip-check-on-demand:${orgId}:${Math.floor(Date.now() / 60_000)}`,
       })
     }
     const linked = await listLinkedRepositories(workspace.id)
@@ -584,6 +610,30 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
       )
     }
     return c.json(serializeWorkspace(retried, exportSha), 200)
+  })
+  .openapi(checkWriteAccessWorkspaceRoute, async (c) => {
+    if (!c.get("user") || !c.get("session")) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+    const { workspaceSlug } = workspaceSlugParams(c)
+    const workspace = await getWorkspaceBySlug(workspaceSlug)
+    if (!workspace) return c.json({ error: "Not found" }, 404)
+    // The probe checks every Workspace in the org. Start one each minute.
+    const started = await enqueueWorkspaceTipCheck(
+      workspace.orgId,
+      c.get("log"),
+      {
+        idempotencyKey: `tip-check-on-demand:${workspace.orgId}:${Math.floor(Date.now() / 60_000)}`,
+      },
+    )
+    // Clear the failed state only when a new run will replace it.
+    const current = started
+      ? ((await persistWriteCheckRetry(workspace.id)) ?? workspace)
+      : workspace
+    return c.json(
+      serializeWorkspace(current, await getMigrationExportSha(current.id)),
+      200,
+    )
   })
   .route("/", workspaceActivityRoutes)
   .route("/", workspaceFilesRoutes)

@@ -16,7 +16,13 @@ import {
 import { WorkspaceSources } from "@/features/workspace-sources/WorkspaceSources"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
-import { deleteWorkspace, updateWorkspace, workspaceKeys } from "./queries"
+import { writeCheckInFlight } from "./projection"
+import {
+  checkWorkspaceWriteAccess,
+  deleteWorkspace,
+  updateWorkspace,
+  workspaceKeys,
+} from "./queries"
 import type {
   WorkspaceDetail,
   WorkspaceListResponse,
@@ -24,10 +30,14 @@ import type {
 } from "./types"
 import { WorkspaceRepositoryPicker } from "./WorkspaceRepositoryPicker"
 import { workspaceDeleteNameMatches } from "./workspaceDeleteNameMatches"
+import { useWriteCheckStall } from "./writeCheckStall"
 import { writeStatusLabel } from "./writeStatusLabel"
 
-function writeTag(status: string): { label: string; className: string } {
-  const tagged = writeStatusLabel(status)
+function writeTag(
+  status: string,
+  readOnlyReason: string | null,
+): { label: string; className: string } {
+  const tagged = writeStatusLabel(status, readOnlyReason)
   if (tagged.tone === "writable") {
     return {
       label: tagged.label,
@@ -221,6 +231,14 @@ export function WorkspaceSettingsPane(props: {
     onError: (error: Error) => setRelinkError(error.message),
   })
 
+  const checkWriteMutation = useMutation({
+    mutationFn: () => checkWorkspaceWriteAccess(orgSlug, workspace.slug),
+    onSuccess: invalidate,
+    onError: (error: Error) => {
+      toast.error(error.message)
+    },
+  })
+
   const deleteMutation = useMutation({
     mutationFn: (name: string) =>
       deleteWorkspace(orgSlug, workspace.slug, name),
@@ -263,7 +281,8 @@ export function WorkspaceSettingsPane(props: {
       ? workspace.activeProjectionUrl
       : null
 
-  const write = writeTag(workspace.writeStatus)
+  const stall = useWriteCheckStall()
+  const write = writeTag(workspace.writeStatus, workspace.readOnlyReason)
   const hydrate = hydrateTag(workspace.hydrateStatus)
   const repoTitle =
     githubRepoFullNameFromGitUrl(workspace.workspaceRepositoryUrl) ??
@@ -303,8 +322,51 @@ export function WorkspaceSettingsPane(props: {
       ) : null}
       {workspace.readOnlyReason ? (
         <div className="mt-4 max-w-lg">
-          <InlineAlert variant="warning" title="Read-only">
+          <InlineAlert
+            variant="warning"
+            title={
+              workspace.writeStatus === "unknown"
+                ? "Could not check write access"
+                : "Read-only"
+            }
+            actions={
+              workspace.writeStatus === "unknown" ? (
+                <Button
+                  variant="secondary"
+                  isDisabled={checkWriteMutation.isPending}
+                  onPress={() => {
+                    stall.restart()
+                    checkWriteMutation.mutate()
+                  }}
+                >
+                  Check again
+                </Button>
+              ) : undefined
+            }
+          >
             {workspace.readOnlyReason}
+          </InlineAlert>
+        </div>
+      ) : null}
+      {stall.stalled && writeCheckInFlight(workspace) ? (
+        <div className="mt-4 max-w-lg">
+          <InlineAlert
+            variant="warning"
+            title="Still checking write access"
+            actions={
+              <Button
+                variant="secondary"
+                isDisabled={checkWriteMutation.isPending}
+                onPress={() => {
+                  stall.restart()
+                  checkWriteMutation.mutate()
+                }}
+              >
+                Check again
+              </Button>
+            }
+          >
+            The check takes longer than usual.
           </InlineAlert>
         </div>
       ) : null}

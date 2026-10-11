@@ -24,6 +24,8 @@ export const requiredStories = [
   "ConversationSandboxFiles",
   "ConversationMaximizedSync",
   "StableRequestBudget",
+  "WriteCheckFailedStopsPolling",
+  "WriteCheckStallStopsPolling",
   "StableFilesRequestBudget",
   "DeletedFileStaysUntilMerged",
   "ChangeMarkers",

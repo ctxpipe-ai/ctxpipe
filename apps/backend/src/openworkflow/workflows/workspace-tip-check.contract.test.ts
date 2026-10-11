@@ -5,11 +5,13 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
 import { eq } from "drizzle-orm"
+import { HttpResponse, http } from "msw"
 import { BackendPostgres } from "openworkflow/postgres"
-import { expect, it } from "vitest"
+import { describe, expect, it } from "vitest"
 import { withOrgDbContext } from "../../db/client.js"
 import { workspaces, workspaceWriteJobs } from "../../db/schema/workspaces.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
+import { WRITE_STATUS_REASONS } from "../../domain/workspaces/write-status.js"
 import { workspaceTipCheck } from "./workspace-tip-check.js"
 
 it(
@@ -229,3 +231,61 @@ it(
     }
   },
 )
+
+describe("cron write probe on a GitHub error", () => {
+  it.each([
+    {
+      name: "a server error",
+      response: () =>
+        HttpResponse.json({ message: "Server Error" }, { status: 502 }),
+    },
+    {
+      name: "a primary rate limit (403)",
+      response: () =>
+        HttpResponse.json(
+          { message: "API rate limit exceeded for installation ID 1." },
+          { status: 403, headers: { "x-ratelimit-remaining": "0" } },
+        ),
+    },
+    {
+      name: "a secondary rate limit (429)",
+      response: () =>
+        HttpResponse.json(
+          { message: "You have exceeded a secondary rate limit." },
+          { status: 429, headers: { "retry-after": "1" } },
+        ),
+    },
+  ])(
+    "records that it could not check write access after $name",
+    { timeout: 60_000 },
+    async ({ response }) => {
+      await withNativeHydrationFixture(
+        { github: true, githubWriteView: "writable" },
+        async (f) => {
+          await f.publish()
+          f.server.use(
+            http.get("https://api.github.com/repos/fixture/:repo", response),
+          )
+          const handle = await f.runner.runWorkflow(workspaceTipCheck.spec, {
+            orgId: f.org.id,
+          })
+          await handle.result({ timeoutMs: 30_000 })
+          const [row] = await withOrgDbContext(f.org.id, (db) =>
+            db
+              .select({
+                writeStatus: workspaces.writeStatus,
+                readOnlyReason: workspaces.readOnlyReason,
+              })
+              .from(workspaces)
+              .where(eq(workspaces.id, f.workspaceId)),
+          )
+          // A definite state: the UI stops its poll and shows the reason.
+          expect(row).toEqual({
+            writeStatus: "unknown",
+            readOnlyReason: WRITE_STATUS_REASONS.checkFailed,
+          })
+        },
+      )
+    },
+  )
+})

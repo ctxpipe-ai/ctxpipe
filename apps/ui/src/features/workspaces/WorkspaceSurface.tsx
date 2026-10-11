@@ -4,7 +4,14 @@ import {
   useSuspenseQuery,
 } from "@tanstack/react-query"
 import { useNavigate, useRouterState, useSearch } from "@tanstack/react-router"
-import { Component, type ReactNode, useEffect, useState } from "react"
+import {
+  Component,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react"
 import { useSideNavLocation } from "@/components/ShellLayoutContext"
 import { parseSideNavLocation } from "@/components/SideNav/sideNavLocation"
 import { Button } from "@/components/ui/Button"
@@ -27,9 +34,11 @@ import {
   visiblePane,
 } from "./pane"
 import {
+  WRITE_CHECK_POLL_CAP_MS,
   workspaceHydrateView,
   workspacePrepareNeedsPoll,
   workspaceProjectionReady,
+  writeCheckInFlight,
 } from "./projection"
 import {
   touchWorkspace,
@@ -48,12 +57,15 @@ import { WorkspacePane, WorkspacePaneTriggers } from "./WorkspacePane"
 import { WorkspaceRouteError } from "./WorkspaceRouteError"
 import { workspaceChatColumnClassName } from "./workspaceChrome"
 import { WorkspaceSurfaceSkeleton } from "./workspaceSkeletons"
+import { WriteCheckStallContext } from "./writeCheckStall"
 
 export function WorkspaceSurface(props: {
   orgSlug: string
   workspaceSlug: string
   conversationId?: string
   paneParam?: string
+  /** How long a running write-access check is polled. Stories shorten it. */
+  writeCheckPollCapMs?: number
 }) {
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
@@ -83,6 +95,7 @@ export function WorkspaceSurface(props: {
             workspaceSlug={props.workspaceSlug}
             conversationId={conversationId}
             paneParam={props.paneParam}
+            writeCheckPollCapMs={props.writeCheckPollCapMs}
           />
         </SkeletonSuspense>
       </WorkspaceQueryErrorBoundary>
@@ -233,8 +246,15 @@ function WorkspaceSurfaceReady(props: {
   workspaceSlug: string
   conversationId?: string
   paneParam?: string
+  writeCheckPollCapMs?: number
 }) {
   const { orgSlug, workspaceSlug, conversationId } = props
+  const writeCheckPollCapMs =
+    props.writeCheckPollCapMs ?? WRITE_CHECK_POLL_CAP_MS
+  const [checkEpoch, setCheckEpoch] = useState(0)
+  const [writeCheckStalled, setWriteCheckStalled] = useState(false)
+  const stalledRef = useRef(false)
+  stalledRef.current = writeCheckStalled
   const search = useSearch({ strict: false }) as { pane?: string }
   const paneParam =
     typeof search.pane === "string" ? search.pane : props.paneParam
@@ -246,9 +266,26 @@ function WorkspaceSurfaceReady(props: {
       if (interval === false) return false
       const data = query.state.data
       if (!data) return false
+      if (stalledRef.current && writeCheckInFlight(data)) return false
       return workspacePrepareNeedsPoll(data) ? interval : false
     },
   })
+  const stall = {
+    stalled: writeCheckStalled,
+    restart: useCallback(() => setCheckEpoch((n) => n + 1), []),
+  }
+  const writeChecking = writeCheckInFlight(workspace ?? {})
+  // biome-ignore lint/correctness/useExhaustiveDependencies: checkEpoch restarts the timer
+  useEffect(() => {
+    setWriteCheckStalled(false)
+    if (!writeChecking) return
+    // "Check again" bumps checkEpoch, which restarts this timer.
+    const timer = setTimeout(
+      () => setWriteCheckStalled(true),
+      writeCheckPollCapMs,
+    )
+    return () => clearTimeout(timer)
+  }, [writeChecking, checkEpoch, writeCheckPollCapMs])
 
   useEffect(() => {
     // The touch only records the last-used Workspace. After a slug rename the
@@ -291,14 +328,16 @@ function WorkspaceSurfaceReady(props: {
   }
 
   return (
-    <WorkspaceSurfaceSession
-      key={`${orgSlug}/${workspaceSlug}`}
-      orgSlug={orgSlug}
-      workspaceSlug={workspaceSlug}
-      workspace={workspace}
-      conversationId={conversationId}
-      paneParam={paneParam}
-    />
+    <WriteCheckStallContext.Provider value={stall}>
+      <WorkspaceSurfaceSession
+        key={`${orgSlug}/${workspaceSlug}`}
+        orgSlug={orgSlug}
+        workspaceSlug={workspaceSlug}
+        workspace={workspace}
+        conversationId={conversationId}
+        paneParam={paneParam}
+      />
+    </WriteCheckStallContext.Provider>
   )
 }
 

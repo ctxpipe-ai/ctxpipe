@@ -20,6 +20,9 @@ export const WRITE_STATUS_REASONS = {
     "The GitHub App cannot write to this repository. Grant Contents: write so ctxpipe can push a conversation branch.",
   protectedBranch:
     "The default branch is protected. Jobs cannot push it; conversation chat can still push a session branch and open a pull request.",
+  /** Kept with `unknown`: GitHub failed or limited the probe, so the UI stops its poll. */
+  checkFailed:
+    "ctxpipe could not check write access because GitHub returned an error or a rate limit. Check again later.",
 } as const
 
 export type WorkspaceWriteProbe = {
@@ -83,9 +86,22 @@ export function isProtectedDefaultBranchGithubError(error: {
   )
 }
 
+function isGithubRateLimitError(error: {
+  status?: number
+  message?: string
+}): boolean {
+  if (error.status === 429) return true
+  return (
+    error.status === 403 &&
+    (error.message ?? "").toLowerCase().includes("rate limit")
+  )
+}
+
 /**
  * Maps a live GitHub error to Workspace writeStatus.
  * Protected default is not read-only: the App can still push a session branch.
+ * Other errors (5xx, rate limit, network) keep `unknown` with the
+ * `checkFailed` reason, which is a definite result of this probe.
  */
 export function writeStatusFromGithubProbeError(error: {
   status?: number
@@ -100,7 +116,7 @@ export function writeStatusFromGithubProbeError(error: {
   if (isProtectedDefaultBranchGithubError(error)) {
     return writableWorkspaceWriteProbe()
   }
-  if (error.status === 403) {
+  if (error.status === 403 && !isGithubRateLimitError(error)) {
     return {
       writeStatus: WORKSPACE_WRITE_STATUSES.read_only,
       readOnlyReason: WRITE_STATUS_REASONS.contentsWriteDenied,
@@ -108,7 +124,7 @@ export function writeStatusFromGithubProbeError(error: {
   }
   return {
     writeStatus: WORKSPACE_WRITE_STATUSES.unknown,
-    readOnlyReason: null,
+    readOnlyReason: WRITE_STATUS_REASONS.checkFailed,
   }
 }
 
@@ -201,7 +217,10 @@ export function nextPersistedWriteProbe(input: {
       readOnlyReason: input.probe.readOnlyReason,
     }
   }
-  return { writeStatus: WORKSPACE_WRITE_STATUSES.unknown, readOnlyReason: null }
+  return {
+    writeStatus: WORKSPACE_WRITE_STATUSES.unknown,
+    readOnlyReason: input.probe.readOnlyReason,
+  }
 }
 
 export async function probeWorkspaceWriteAccess(input: {

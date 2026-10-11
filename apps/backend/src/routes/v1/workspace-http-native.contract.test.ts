@@ -1,4 +1,5 @@
 import { eq, sql } from "drizzle-orm"
+import { HttpResponse, http } from "msw"
 import { expect, it, vi } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
@@ -6,10 +7,12 @@ import {
   workspaceLinkedRepositories,
   workspaces,
 } from "../../db/schema/workspaces.js"
+import { WRITE_STATUS_REASONS } from "../../domain/workspaces/write-status.js"
 import {
   getWorkspaceById,
   persistSandboxInstance,
 } from "../../models/workspaces.js"
+import { workspaceTipCheck } from "../../openworkflow/workflows/workspace-tip-check.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { workspaceHttpApp } from "../../test/workspace-http-fixture.js"
 import { workspaceRoutes } from "./workspaces.js"
@@ -208,7 +211,7 @@ it(
         .poll(async () => (await tipCheckKeys(f.org.id)).slice(before.length), {
           timeout: 5_000,
         })
-        .toEqual([`tip-check-on-read:${f.org.id}:${minute}`])
+        .toEqual([`tip-check-on-demand:${f.org.id}:${minute}`])
     })
   },
 )
@@ -274,6 +277,134 @@ it(
           .where(eq(workspaces.id, f.workspaceId)),
       )
       expect(await phases()).toEqual({ kind: "ready" })
+    })
+  },
+)
+
+it(
+  "resolves a failed write-access check, then a retry checks again until GitHub answers",
+  { timeout: 90_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      { github: true, githubWriteView: "writable" },
+      async (f) => {
+        await f.publish()
+        const app = workspaceHttpApp(f.org, workspaceRoutes)
+        const writeState = async () => {
+          const detail = await app.request("/workspaces/knowledge")
+          expect(detail.status).toBe(200)
+          const body = (await detail.json()) as {
+            writeStatus: string
+            readOnlyReason: string | null
+          }
+          return {
+            writeStatus: body.writeStatus,
+            readOnlyReason: body.readOnlyReason,
+          }
+        }
+        const runTipCheck = async () => {
+          const handle = await f.runner.runWorkflow(workspaceTipCheck.spec, {
+            orgId: f.org.id,
+          })
+          await handle.result({ timeoutMs: 30_000 })
+        }
+
+        f.server.use(
+          http.get("https://api.github.com/repos/fixture/:repo", () =>
+            HttpResponse.json(
+              { message: "API rate limit exceeded for installation ID 1." },
+              { status: 403, headers: { "x-ratelimit-remaining": "0" } },
+            ),
+          ),
+        )
+        await runTipCheck()
+        expect(await writeState()).toEqual({
+          writeStatus: "unknown",
+          readOnlyReason: WRITE_STATUS_REASONS.checkFailed,
+        })
+
+        f.server.resetHandlers()
+        const before = await tipCheckKeys(f.org.id)
+        const retried = await app.request(
+          "/workspaces/knowledge/check-write-access",
+          { method: "POST" },
+        )
+        expect(retried.status).toBe(200)
+        expect(await retried.json()).toMatchObject({
+          writeStatus: "unknown",
+          readOnlyReason: null,
+        })
+        expect((await tipCheckKeys(f.org.id)).slice(before.length)).toEqual([
+          expect.stringMatching(/^tip-check-on-demand:/),
+        ])
+
+        await runTipCheck()
+        expect(await writeState()).toEqual({
+          writeStatus: "writable",
+          readOnlyReason: null,
+        })
+      },
+    )
+  },
+)
+
+it(
+  "does not re-check on a read of a failed check, and a retry in the same minute starts no second run",
+  { timeout: 45_000 },
+  async () => {
+    await withNativeHydrationFixture({ github: true }, async (f) => {
+      await f.handle.cancel()
+      const app = workspaceHttpApp(f.org, workspaceRoutes)
+      const failed = async () =>
+        withOrgDbContext(f.org.id, (db) =>
+          db
+            .update(workspaces)
+            .set({
+              writeStatus: "unknown",
+              readOnlyReason: WRITE_STATUS_REASONS.checkFailed,
+            })
+            .where(eq(workspaces.id, f.workspaceId)),
+        )
+      await failed()
+      const before = await tipCheckKeys(f.org.id)
+      const now = vi.spyOn(Date, "now").mockReturnValue(Date.now())
+      try {
+        for (let i = 0; i < 2; i++) {
+          const detail = await app.request("/workspaces/knowledge")
+          expect(await detail.json()).toMatchObject({
+            readOnlyReason: WRITE_STATUS_REASONS.checkFailed,
+          })
+        }
+        expect((await tipCheckKeys(f.org.id)).slice(before.length)).toEqual([])
+
+        const first = await app.request(
+          "/workspaces/knowledge/check-write-access",
+          { method: "POST" },
+        )
+        expect(await first.json()).toMatchObject({ readOnlyReason: null })
+
+        // The run ends. A second failure and retry in the same minute starts
+        // no run, so the row keeps its reason.
+        await getSystemDb().execute(sql`
+          update openworkflow.workflow_runs
+          set status = 'completed'
+          where input->>'orgId' = ${f.org.id}
+            and workflow_name = 'workspace-tip-check'
+        `)
+        await failed()
+        const second = await app.request(
+          "/workspaces/knowledge/check-write-access",
+          { method: "POST" },
+        )
+        expect(await second.json()).toMatchObject({
+          readOnlyReason: WRITE_STATUS_REASONS.checkFailed,
+        })
+      } finally {
+        now.mockRestore()
+      }
+      expect((await tipCheckKeys(f.org.id)).slice(before.length)).toHaveLength(
+        1,
+      )
     })
   },
 )

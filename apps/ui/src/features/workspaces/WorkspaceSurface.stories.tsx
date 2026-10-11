@@ -17,6 +17,7 @@ import { WorkspaceSurface } from "./WorkspaceSurface"
 import {
   docsConversationDetail,
   docsWorkspace,
+  docsWorkspaceDetail,
   docsWorkspaceGitTree,
   failedHydrateWorkspace,
   failedHydrateWorkspaceDetail,
@@ -1005,6 +1006,188 @@ export const SettingsPane: Story = {
         }),
       },
     },
+  },
+}
+
+const writeCheck = {
+  phase: "failed" as "failed" | "checking" | "stuck",
+  detailReads: 0,
+  readsWhileChecking: 0,
+}
+const writeCheckFailedReason =
+  "ctxpipe could not check write access because GitHub returned an error or a rate limit. Check again later."
+
+/** Waits longer than two 2 s poll intervals, then proves no read happened. */
+async function expectNoDetailPoll() {
+  const reads = writeCheck.detailReads
+  await new Promise((resolve) => setTimeout(resolve, 4500))
+  await expect(writeCheck.detailReads).toBe(reads)
+}
+
+export const WriteCheckFailedStopsPolling: Story = {
+  tags: ["workspace-golden"],
+  args: { paneParam: "settings" },
+  beforeEach: () => {
+    writeCheck.phase = "failed"
+    writeCheck.detailReads = 0
+    writeCheck.readsWhileChecking = 0
+  },
+  parameters: {
+    storyRoute: workspaceRoute({ pane: "settings" }),
+    msw: {
+      handlers: {
+        page: [
+          http.get(
+            ({ request }) =>
+              /\/api\/v1\/workspaces\/[^/]+$/.test(
+                new URL(request.url).pathname,
+              ),
+            () => {
+              writeCheck.detailReads += 1
+              if (writeCheck.phase === "failed") {
+                return HttpResponse.json({
+                  ...docsWorkspaceDetail,
+                  writeStatus: "unknown",
+                  readOnlyReason: writeCheckFailedReason,
+                })
+              }
+              // The new check resolves after two polls.
+              writeCheck.readsWhileChecking += 1
+              return HttpResponse.json({
+                ...docsWorkspaceDetail,
+                writeStatus:
+                  writeCheck.readsWhileChecking > 2 ? "writable" : "unknown",
+                readOnlyReason: null,
+              })
+            },
+          ),
+          http.post(
+            ({ request }) =>
+              /\/api\/v1\/workspaces\/[^/]+\/check-write-access$/.test(
+                new URL(request.url).pathname,
+              ),
+            () => {
+              writeCheck.phase = "checking"
+              return HttpResponse.json({
+                ...docsWorkspace,
+                writeStatus: "unknown",
+                readOnlyReason: null,
+              })
+            },
+          ),
+          ...workspaceShellHandlers(),
+          githubInstallationReposHandler(),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const alert = await waitFor(
+      () => {
+        const found = canvas
+          .getAllByRole("alert")
+          .find((el) =>
+            el.textContent?.includes("Could not check write access"),
+          )
+        if (!found) throw new Error("The failed write check alert is missing")
+        return found
+      },
+      { timeout: 10_000 },
+    )
+    await expect(alert).toHaveTextContent(writeCheckFailedReason)
+    await expectNoDetailPoll()
+
+    await userEvent.click(
+      within(alert).getByRole("button", { name: "Check again" }),
+    )
+    await waitFor(
+      () => expect(canvas.getAllByText("Writable").length).toBeGreaterThan(0),
+      { timeout: 10_000 },
+    )
+    await expect(canvas.queryByText("Could not check write access")).toBeNull()
+    await expectNoDetailPoll()
+  },
+}
+
+export const WriteCheckStallStopsPolling: Story = {
+  tags: ["workspace-golden"],
+  // A short cap, so the story does not wait three minutes.
+  args: { paneParam: "settings", writeCheckPollCapMs: 3000 },
+  beforeEach: () => {
+    writeCheck.phase = "stuck"
+    writeCheck.detailReads = 0
+  },
+  parameters: {
+    storyRoute: workspaceRoute({ pane: "settings" }),
+    msw: {
+      handlers: {
+        page: [
+          http.get(
+            ({ request }) =>
+              /\/api\/v1\/workspaces\/[^/]+$/.test(
+                new URL(request.url).pathname,
+              ),
+            () => {
+              writeCheck.detailReads += 1
+              return HttpResponse.json({
+                ...docsWorkspaceDetail,
+                writeStatus: "unknown",
+                readOnlyReason: null,
+              })
+            },
+          ),
+          http.post(
+            ({ request }) =>
+              /\/api\/v1\/workspaces\/[^/]+\/check-write-access$/.test(
+                new URL(request.url).pathname,
+              ),
+            () =>
+              HttpResponse.json({
+                ...docsWorkspace,
+                writeStatus: "unknown",
+                readOnlyReason: null,
+              }),
+          ),
+          ...workspaceShellHandlers(),
+          githubInstallationReposHandler(),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const alert = await waitFor(
+      () => {
+        const found = canvas
+          .getAllByRole("alert")
+          .find((el) => el.textContent?.includes("Still checking write access"))
+        if (!found) throw new Error("The stalled check alert is missing")
+        return found
+      },
+      { timeout: 10_000 },
+    )
+    await expectNoDetailPoll()
+
+    // Check again resets the timer, so polling starts again.
+    const reads = writeCheck.detailReads
+    await userEvent.click(
+      within(alert).getByRole("button", { name: "Check again" }),
+    )
+    await waitFor(() => expect(writeCheck.detailReads).toBeGreaterThan(reads), {
+      timeout: 10_000,
+    })
+    await waitFor(
+      () =>
+        expect(
+          canvas
+            .getAllByRole("alert")
+            .some((el) =>
+              el.textContent?.includes("Still checking write access"),
+            ),
+        ).toBe(true),
+      { timeout: 10_000 },
+    )
   },
 }
 
