@@ -25,6 +25,12 @@ const allVisible = (root: HTMLElement) =>
   bones(root).length > 0 &&
   bones(root).every((bone) => getComputedStyle(bone).visibility === "visible")
 
+/**
+ * `visibleAt` sees the bones up to a frame (more on a busy CI host) after they
+ * show, so a hold measured from it can read this much short.
+ */
+const FRAME_LAG_MS = 50
+
 /** The time the bones became visible, read on each animation frame. */
 const visibleAt = async (root: HTMLElement) => {
   const deadline = performance.now() + SKELETON_DELAY_MS * 2
@@ -180,7 +186,7 @@ export const VisibleSkeletonHoldsMinimum: Story = {
       timeout: SKELETON_MIN_MS * 3,
     })
     expect(performance.now() - shownAt).toBeGreaterThanOrEqual(
-      SKELETON_MIN_MS - 20,
+      SKELETON_MIN_MS - FRAME_LAG_MS,
     )
   },
 }
@@ -222,7 +228,7 @@ export const SuspenseHoldsMinimum: Story = {
     })
     // Measured from the frame where the skeleton became visible.
     expect(performance.now() - shownAt).toBeGreaterThanOrEqual(
-      SKELETON_MIN_MS - 20,
+      SKELETON_MIN_MS - FRAME_LAG_MS,
     )
   },
 }
@@ -381,7 +387,7 @@ export const HandOverHoldsMinimum: Story = {
       timeout: SKELETON_MIN_MS * 3,
     })
     expect(performance.now() - shownAt).toBeGreaterThanOrEqual(
-      SKELETON_MIN_MS - 20,
+      SKELETON_MIN_MS - FRAME_LAG_MS,
     )
   },
 }
