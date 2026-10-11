@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { Toaster } from "sonner"
 import { expect, userEvent, waitFor, within } from "storybook/test"
+import { githubInstallationReposHandler } from "@/mocks/workspace-handlers"
 import {
   orgConnectionsHandler,
   workspaceSourceChangeHandlers,
@@ -381,6 +382,13 @@ export const AddSendsChange: Story = {
         page: [
           workspaceSourcesHandler(workspaceSourceList()),
           connected,
+          githubInstallationReposHandler([
+            {
+              name: "api",
+              clone_url: "https://github.com/acme/api.git",
+              full_name: "acme/api",
+            },
+          ]),
           ...workspaceSourceChangeHandlers(addCalls),
         ],
       },
@@ -396,14 +404,11 @@ export const AddSendsChange: Story = {
     )
     const dialog = within(await within(document.body).findByRole("dialog"))
     await dialog.findByRole("heading", { name: "Add GitHub source" })
-    await userEvent.click(dialog.getByRole("textbox", { name: "Scope" }))
-    await userEvent.keyboard("{Control>}a{/Control}{Backspace}")
-    await userEvent.paste("not json")
+    const repo = await dialog.findByRole("checkbox", { name: "acme/api" })
     await expect(
       dialog.getByRole("button", { name: "Open a pull request" }),
     ).toBeDisabled()
-    await userEvent.clear(dialog.getByRole("textbox", { name: "Scope" }))
-    await userEvent.paste('{"repositories":["acme/api"]}')
+    await userEvent.click(repo)
     await userEvent.click(
       dialog.getByRole("button", { name: "Open a pull request" }),
     )

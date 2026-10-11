@@ -501,7 +501,12 @@ export function orgGithubConnectionsHandler(
 }
 
 export function githubInstallationReposHandler(
-  repositories?: { name: string; clone_url: string }[],
+  repositories?: {
+    name: string
+    clone_url: string
+    id?: number
+    full_name?: string
+  }[],
   options?: {
     repositorySelection?: string
     manageUrl?: string | null
