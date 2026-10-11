@@ -326,6 +326,34 @@ describe("POST /.otel/v1/$signal", () => {
     expect(upstreamPosts).toBe(1)
   })
 
+  it("admits the public origin only from AUTH_ALLOWED_ORIGINS when AUTH_BASE_URL is the private backend", async () => {
+    // Production Terraform sets the UI AUTH_BASE_URL to the private backend.
+    vi.stubEnv("AUTH_BASE_URL", "http://backend.railway.internal:8080")
+    const fromPublicSite = () =>
+      new Request("http://ui.railway.internal:3002/.otel/v1/traces", {
+        method: "POST",
+        headers: {
+          origin: "https://app.example",
+          "content-type": "application/json",
+          "content-length": "2",
+        },
+        body: "{}",
+      })
+
+    vi.stubEnv("AUTH_ALLOWED_ORIGINS", "")
+    const privateOnly = await postSignal("traces", fromPublicSite())
+    expect(privateOnly.status).toBe(403)
+    expect(upstreamPosts).toBe(0)
+
+    vi.stubEnv(
+      "AUTH_ALLOWED_ORIGINS",
+      "https://app.example,https://backend.up.railway.app",
+    )
+    const withPublic = await postSignal("traces", fromPublicSite())
+    expect(withPublic.status).toBe(200)
+    expect(upstreamPosts).toBe(1)
+  })
+
   it("rejects a request with no Origin", async () => {
     const response = await postSignal(
       "traces",

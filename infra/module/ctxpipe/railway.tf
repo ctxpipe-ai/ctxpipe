@@ -237,6 +237,12 @@ resource "railway_variable_collection" "ui_env" {
       # backend sets no PORT variable, so `backend.PORT` can resolve empty.
       name  = "AUTH_BASE_URL"
       value = "http://$${{backend.RAILWAY_PRIVATE_DOMAIN}}:8080"
+    },
+    {
+      # The browser OTLP relay (`/.otel`) accepts only these origins. The
+      # private AUTH_BASE_URL above is not an origin that a browser uses.
+      name  = "AUTH_ALLOWED_ORIGINS"
+      value = "https://${railway_custom_domain.app.domain},https://$${{backend.RAILWAY_PUBLIC_DOMAIN}}"
     }
   ], local.otel_shared_env)
 }
