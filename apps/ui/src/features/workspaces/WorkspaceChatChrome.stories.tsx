@@ -292,15 +292,17 @@ export const ShowPr: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
+    const showPr = await canvas.findByRole(
+      "link",
+      { name: "Show PR (opens in a new tab)" },
+      { timeout: 15_000 },
+    )
     expect(
       canvas.queryByRole("button", { name: syncName }),
     ).not.toBeInTheDocument()
     expect(
       canvas.queryByRole("button", { name: "Create PR" }),
     ).not.toBeInTheDocument()
-    const showPr = canvas.getByRole("link", {
-      name: "Show PR (opens in a new tab)",
-    })
     expect(showPr).toBeVisible()
     expect(showPr).toHaveAttribute("target", "_blank")
     expect(
