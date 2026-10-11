@@ -1,0 +1,31 @@
+# ADR-050: Workspace sources in a config file; connections hold auth only
+
+**Status:** Accepted | **Date:** 2026-10-11 | **Tags:** connectors, workspaces, git, postgres, multi-tenant
+
+## Context
+
+A connection (`connections` row, [ADR-018](ADR-018-unified-connections-table.md)) holds the auth grant, the scope, and one sync repository. The mirror writes into that repository, and the scope file lives there too (`linear/config.yaml`, `notion/config.yaml`, `pagerduty/config.yaml`, and the Confluence scope PR). Workspaces link repositories through `workspace_linked_repositories`. No record says "connection X feeds Workspace Y". The link is only implicit, through the sync repository. One connection cannot feed many Workspaces with different scopes.
+
+## Decision
+
+1. **A connection holds auth only:** the OAuth grant or install, tokens, and webhooks. Org admins connect and remove connections.
+2. **A Workspace source maps a connection into one Workspace with a scope.** The source of truth is `.ctxpipe/sources.yaml` in the Workspace repository (`version: 1`, a list of entries with `id`, `provider`, `connection`, and a provider scope). One shared Zod schema (`apps/backend/src/domain/workspace-sources/sources-file.ts`) validates it for the backend and the UI. Each provider adds its scope shape in its own module.
+3. **`workspace_sources` is a projection of that file.** When the Workspace revision changes ([ADR-046](ADR-046-workspace-revision-projection-identity.md)), the projection adds, changes, or removes rows to match the file, and records the revision. Nothing else writes rows. A bad entry (unknown connection, wrong provider, scope out of reach, invalid shape) gets a row with an error status; the sync skips it. A disconnected connection makes its sources `connection_missing`; the file stays.
+4. **Edits change the file:** a PR against the Workspace repository ("awaiting merge"), or a direct commit when the default branch accepts it. A manual edit in git has the same effect.
+5. **Sync fetches once for each connection and writes for each Workspace.** It takes the union of the `ok` scopes of the connection, calls the provider adapter one time, and writes each Workspace's slice under the provider's managed path, with one commit for each Workspace in each cycle. A webhook arrives once for each connection and fans out to the matching sources. A removed source has its managed files deleted in a sync commit. Overlapping scopes give each Workspace its own copy.
+6. **Migration** turns the scope of each existing connection into entries of each Workspace that links its old sync repository, and moves GitHub linked repositories into the file. It makes one PR for each Workspace repository and a report. It runs only by an explicit command, never at boot.
+
+## Supersedes
+
+- The per-connection sync repository (`connections.config` `repositoryId` / `branch` / `enabled`) and the in-repository scope files (`<provider>/config.yaml`, `pendingConfigPullUrl`) in [ADR-022](ADR-022-linear-connector-git-native-mirror.md), [ADR-023](ADR-023-notion-connector-git-native-mirror.md), [ADR-025](ADR-025-slack-connector-git-native-mirror.md) (sync target), [ADR-031](ADR-031-github-pr-scoped-mirror.md) (scope source), and [ADR-034](ADR-034-pagerduty-connector-git-native-mirror.md). Phase 3 removes them after the migration is verified.
+- In [ADR-018](ADR-018-unified-connections-table.md), `connections.config` no longer holds scope or a sync target. The table stays.
+- [ADR-028](ADR-028-git-native-connector-assets.md) asset rules apply unchanged, inside each Workspace's managed path.
+- `workspace_linked_repositories` is retired in phase 3; GitHub sources in the file replace it.
+
+## Consequences
+
+- One connection feeds many Workspaces, each with its own reviewable scope.
+- Write fan-out: many Workspaces on one large scope give more commits; the one-commit-per-Workspace-per-cycle rule limits it.
+- Mirror commits can race user edits on the default branch. Managed paths belong only to the mirror, so a rebase and retry resolves it.
+- Storage grows with overlap, because each Workspace keeps its own copy.
+- The GitHub App needs write access to each Workspace repository, as git-backed Workspaces already do.

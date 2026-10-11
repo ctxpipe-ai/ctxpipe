@@ -1,6 +1,6 @@
 # ADR-023: Notion connector Git-native mirror
 
-**Status:** Accepted | **Date:** 2026-08-09 | **Updated:** 2026-09-20 | **Tags:** connectors, notion, oauth, webhooks, git, multi-tenant
+**Status:** Accepted (sync repository and scope file superseded by [ADR-050](ADR-050-workspace-sources-config-file.md)) | **Date:** 2026-08-09 | **Updated:** 2026-09-20 | **Tags:** connectors, notion, oauth, webhooks, git, multi-tenant
 
 ## Context
 

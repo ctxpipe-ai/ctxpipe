@@ -1,6 +1,6 @@
 # ADR-018: Unified `connections` table
 
-**Status:** Accepted | **Date:** 2026-04-22 | **Tags:** database, connectors, github, forge, confluence, slack, linear, notion, multi-tenant
+**Status:** Accepted (scope and sync target in `config` superseded by [ADR-050](ADR-050-workspace-sources-config-file.md)) | **Date:** 2026-04-22 | **Tags:** database, connectors, github, forge, confluence, slack, linear, notion, multi-tenant
 
 ## Context
 

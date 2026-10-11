@@ -1,6 +1,6 @@
 # ADR-031: GitHub pull-request scoped mirror
 
-**Status:** Accepted (revised 2026-10-03) | **Date:** 2026-09-16 | **Tags:** connectors, github, git, graph, ingestion, workspaces
+**Status:** Accepted (revised 2026-10-03) (sync repository and scope file superseded by [ADR-050](ADR-050-workspace-sources-config-file.md)) | **Date:** 2026-09-16 | **Tags:** connectors, github, git, graph, ingestion, workspaces
 
 ## Revision (2026-10-03): mirror follows linked repositories
 
