@@ -12,6 +12,15 @@ describe("writeStatusLabel", () => {
     expect(writeStatusLabel("unknown").label).not.toBe("Read-only")
   })
 
+  it("says a failed check could not run", () => {
+    expect(
+      writeStatusLabel("unknown", "GitHub returned an error"),
+    ).toMatchObject({
+      label: "Could not check write access",
+      tone: "check_failed",
+    })
+  })
+
   it("keeps writable and read_only honest", () => {
     expect(writeStatusLabel("writable")).toMatchObject({
       label: "Writable",

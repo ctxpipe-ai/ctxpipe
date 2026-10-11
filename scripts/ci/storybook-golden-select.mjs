@@ -25,6 +25,7 @@ export const requiredStories = [
   "ConversationMaximizedSync",
   "StableRequestBudget",
   "WriteCheckFailedStopsPolling",
+  "WriteCheckStallStopsPolling",
   "StableFilesRequestBudget",
   "DeletedFileStaysUntilMerged",
   "ChangeMarkers",

@@ -21,7 +21,7 @@ export function writeStatusLabel(
   }
   if (status === "unknown" && readOnlyReason) {
     return {
-      label: "Write access not checked",
+      label: "Could not check write access",
       tone: "check_failed",
       description: readOnlyReason,
     }

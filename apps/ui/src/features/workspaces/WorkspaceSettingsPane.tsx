@@ -16,6 +16,7 @@ import {
 import { WorkspaceSources } from "@/features/workspace-sources/WorkspaceSources"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
+import { writeCheckInFlight } from "./projection"
 import {
   checkWorkspaceWriteAccess,
   deleteWorkspace,
@@ -30,6 +31,7 @@ import type {
 import { WorkspaceLinkedRepositories } from "./WorkspaceLinkedRepositories"
 import { WorkspaceRepositoryPicker } from "./WorkspaceRepositoryPicker"
 import { workspaceDeleteNameMatches } from "./workspaceDeleteNameMatches"
+import { useWriteCheckStall } from "./writeCheckStall"
 import { writeStatusLabel } from "./writeStatusLabel"
 
 function writeTag(
@@ -280,6 +282,7 @@ export function WorkspaceSettingsPane(props: {
       ? workspace.activeProjectionUrl
       : null
 
+  const stall = useWriteCheckStall()
   const write = writeTag(workspace.writeStatus, workspace.readOnlyReason)
   const hydrate = hydrateTag(workspace.hydrateStatus)
   const repoTitle =
@@ -324,7 +327,7 @@ export function WorkspaceSettingsPane(props: {
             variant="warning"
             title={
               workspace.writeStatus === "unknown"
-                ? "Write access not checked"
+                ? "Could not check write access"
                 : "Read-only"
             }
             actions={
@@ -332,7 +335,10 @@ export function WorkspaceSettingsPane(props: {
                 <Button
                   variant="secondary"
                   isDisabled={checkWriteMutation.isPending}
-                  onPress={() => checkWriteMutation.mutate()}
+                  onPress={() => {
+                    stall.restart()
+                    checkWriteMutation.mutate()
+                  }}
                 >
                   Check again
                 </Button>
@@ -340,6 +346,28 @@ export function WorkspaceSettingsPane(props: {
             }
           >
             {workspace.readOnlyReason}
+          </InlineAlert>
+        </div>
+      ) : null}
+      {stall.stalled && writeCheckInFlight(workspace) ? (
+        <div className="mt-4 max-w-lg">
+          <InlineAlert
+            variant="warning"
+            title="Still checking write access"
+            actions={
+              <Button
+                variant="secondary"
+                isDisabled={checkWriteMutation.isPending}
+                onPress={() => {
+                  stall.restart()
+                  checkWriteMutation.mutate()
+                }}
+              >
+                Check again
+              </Button>
+            }
+          >
+            The check takes longer than usual.
           </InlineAlert>
         </div>
       ) : null}

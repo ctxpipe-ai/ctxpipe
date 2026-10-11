@@ -87,3 +87,6 @@ export function writeCheckInFlight(input: {
 }): boolean {
   return input.writeStatus === "unknown" && !input.readOnlyReason
 }
+
+/** The poll for a running write-access check stops after this time. */
+export const WRITE_CHECK_POLL_CAP_MS = 3 * 60_000
