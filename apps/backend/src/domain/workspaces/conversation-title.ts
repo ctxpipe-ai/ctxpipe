@@ -29,16 +29,52 @@ function textFromMessageContent(content: unknown): string {
     .join("")
 }
 
-/** One-shot title: model text, or truncated first user message. */
+/** The longest title, so it fits a pull request title and a commit subject. */
+const maxTitleLength = 72
+
+/**
+ * One line of plain text for a title: the first line that is not empty,
+ * without a heading mark, a "Title:" label, quotes or a trailing period, and
+ * cut at a word to at most 72 characters. Empty when nothing is left.
+ */
+export function cleanTitle(text: string): string {
+  const line =
+    text
+      .split(/\r?\n/)
+      .map((item) => item.trim())
+      .find(Boolean) ?? ""
+  let title = line
+    .replace(/^#+\s*/, "")
+    .replace(/^title\s*:\s*/i, "")
+    .replace(/\s+/g, " ")
+  let previous = ""
+  while (previous !== title) {
+    previous = title
+    title = title
+      .replace(/^["'`*_“”‘’]+|["'`*_“”‘’]+$/g, "")
+      .replace(/[.,;:]+$/, "")
+      .trim()
+  }
+  if (title.length <= maxTitleLength) return title
+  const cut = title.slice(0, maxTitleLength + 1)
+  const space = cut.lastIndexOf(" ")
+  return (
+    space > 0 ? cut.slice(0, space) : cut.slice(0, maxTitleLength)
+  ).replace(/[\s.,;:]+$/, "")
+}
+
+/**
+ * One-shot title: the model's title, or the first user message. A reply of
+ * more than 8 words is a sentence, not a title, so the fallback is used.
+ */
 export function conversationTitleFromModel(
   raw: string,
   firstUserText: string,
 ): string {
-  const context = firstUserText.slice(0, 200).trim() || "Conversation"
-  const truncatedFallback = context.slice(0, 80)
-  const name = raw.trim().slice(0, 100)
-  if (name && !isUnnamedConversation(name)) return name
-  return truncatedFallback
+  const name = cleanTitle(raw)
+  if (name && !isUnnamedConversation(name) && name.split(" ").length <= 8)
+    return name
+  return cleanTitle(firstUserText.slice(0, 200)) || "Conversation"
 }
 
 export async function nameConversationIfUnnamed(input: {
