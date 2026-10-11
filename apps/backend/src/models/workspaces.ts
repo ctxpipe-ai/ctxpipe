@@ -1611,6 +1611,25 @@ export async function persistHydrateRetry(
   })
 }
 
+/** Clear a failed write-access check so the UI shows a new check in progress. */
+export async function persistWriteCheckRetry(
+  workspaceId: string,
+): Promise<WorkspaceRecord | undefined> {
+  return orgSql(async () => {
+    const [updated] = await getOrgDb()
+      .update(workspaces)
+      .set({ readOnlyReason: null, updatedAt: new Date() })
+      .where(
+        and(
+          eq(workspaces.id, workspaceId),
+          eq(workspaces.writeStatus, "unknown"),
+        ),
+      )
+      .returning()
+    return updated
+  })
+}
+
 /** Remote permission results apply only to the exact binding that was probed. */
 export async function persistWriteStatus(
   expected: WorkspaceWriteProbeBinding,

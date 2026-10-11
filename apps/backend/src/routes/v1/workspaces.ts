@@ -25,6 +25,7 @@ import {
   listMigrationExportShas,
   listWorkspaces,
   persistHydrateRetry,
+  persistWriteCheckRetry,
   projectionFromWorkspace,
   touchLastUsedWorkspace,
 } from "../../models/workspaces.js"
@@ -366,6 +367,26 @@ const retryPrepareWorkspaceRoute = createRoute({
   },
 })
 
+const checkWriteAccessWorkspaceRoute = createRoute({
+  method: "post",
+  path: "/{workspaceSlug}/check-write-access",
+  request: { params: WorkspaceSlugParamsSchema },
+  responses: {
+    200: {
+      content: { "application/json": { schema: WorkspaceSchema } },
+      description: "Check Workspace write access again",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Not found",
+    },
+  },
+})
+
 export const workspaceRoutes = new OpenAPIHono<AppEnv>()
   .openapi(listWorkspacesRoute, async (c) => {
     if (!c.get("user") || !c.get("session")) {
@@ -584,6 +605,23 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
       )
     }
     return c.json(serializeWorkspace(retried, exportSha), 200)
+  })
+  .openapi(checkWriteAccessWorkspaceRoute, async (c) => {
+    if (!c.get("user") || !c.get("session")) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+    const { workspaceSlug } = workspaceSlugParams(c)
+    const workspace = await getWorkspaceBySlug(workspaceSlug)
+    if (!workspace) return c.json({ error: "Not found" }, 404)
+    const current = (await persistWriteCheckRetry(workspace.id)) ?? workspace
+    // The probe checks every Workspace in the org. Start one each minute.
+    await enqueueWorkspaceTipCheck(current.orgId, c.get("log"), {
+      idempotencyKey: `tip-check-retry:${current.orgId}:${Math.floor(Date.now() / 60_000)}`,
+    })
+    return c.json(
+      serializeWorkspace(current, await getMigrationExportSha(current.id)),
+      200,
+    )
   })
   .route("/", workspaceActivityRoutes)
   .route("/", workspaceFilesRoutes)

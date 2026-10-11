@@ -1,4 +1,5 @@
 import { eq, sql } from "drizzle-orm"
+import { HttpResponse, http } from "msw"
 import { expect, it, vi } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
@@ -10,6 +11,8 @@ import {
   getWorkspaceById,
   persistSandboxInstance,
 } from "../../models/workspaces.js"
+import { WRITE_STATUS_REASONS } from "../../domain/workspaces/write-status.js"
+import { workspaceTipCheck } from "../../openworkflow/workflows/workspace-tip-check.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { workspaceHttpApp } from "../../test/workspace-http-fixture.js"
 import { workspaceRoutes } from "./workspaces.js"
@@ -275,5 +278,72 @@ it(
       )
       expect(await phases()).toEqual({ kind: "ready" })
     })
+  },
+)
+
+it(
+  "resolves a failed write-access check, then a retry checks again until GitHub answers",
+  { timeout: 90_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      { github: true, githubWriteView: "writable" },
+      async (f) => {
+        await f.publish()
+        const app = workspaceHttpApp(f.org, workspaceRoutes)
+        const writeState = async () => {
+          const detail = await app.request("/workspaces/knowledge")
+          expect(detail.status).toBe(200)
+          const body = (await detail.json()) as {
+            writeStatus: string
+            readOnlyReason: string | null
+          }
+          return {
+            writeStatus: body.writeStatus,
+            readOnlyReason: body.readOnlyReason,
+          }
+        }
+        const runTipCheck = async () => {
+          const handle = await f.runner.runWorkflow(workspaceTipCheck.spec, {
+            orgId: f.org.id,
+          })
+          await handle.result({ timeoutMs: 30_000 })
+        }
+
+        f.server.use(
+          http.get("https://api.github.com/repos/fixture/:repo", () =>
+            HttpResponse.json(
+              { message: "API rate limit exceeded for installation ID 1." },
+              { status: 403, headers: { "x-ratelimit-remaining": "0" } },
+            ),
+          ),
+        )
+        await runTipCheck()
+        expect(await writeState()).toEqual({
+          writeStatus: "unknown",
+          readOnlyReason: WRITE_STATUS_REASONS.checkFailed,
+        })
+
+        f.server.resetHandlers()
+        const before = await tipCheckKeys(f.org.id)
+        const retried = await app.request(
+          "/workspaces/knowledge/check-write-access",
+          { method: "POST" },
+        )
+        expect(retried.status).toBe(200)
+        expect(await retried.json()).toMatchObject({
+          writeStatus: "unknown",
+          readOnlyReason: null,
+        })
+        expect((await tipCheckKeys(f.org.id)).slice(before.length)).toEqual([
+          expect.stringMatching(/^tip-check-retry:/),
+        ])
+
+        await runTipCheck()
+        expect(await writeState()).toEqual({
+          writeStatus: "writable",
+          readOnlyReason: null,
+        })
+      },
+    )
   },
 )
