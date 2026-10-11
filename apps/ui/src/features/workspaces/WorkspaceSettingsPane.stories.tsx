@@ -155,7 +155,9 @@ export const AddRepositories: Story = {
     const dialog = await body.findByRole("dialog", {
       name: /add repositories/i,
     })
-    await expect(await within(dialog).findByText("acme/handbook")).toBeInTheDocument()
+    await expect(
+      await within(dialog).findByText("acme/handbook"),
+    ).toBeInTheDocument()
   },
 }
 
