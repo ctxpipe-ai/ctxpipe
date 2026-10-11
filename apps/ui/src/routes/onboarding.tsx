@@ -90,8 +90,7 @@ export function OnboardingPageContent({
 
   const slides = isJoinerLocked === true ? JOINER_SLIDES : ADMIN_SLIDES
 
-  const { currentSlide, slideKey, transitioning, goToSlide } =
-    useOnboardingCarousel(slides.length)
+  const { currentSlide, goToSlide } = useOnboardingCarousel(slides.length)
 
   const { data: installation } = useQuery({
     queryKey: githubConnectorKeys.installation(orgSlug ?? ""),
@@ -139,8 +138,6 @@ export function OnboardingPageContent({
   if (isPending || orgsPending || isJoinerLocked === null) {
     return (
       <OnboardingPageShell
-        completing={false}
-        transitioning={false}
         showDotNav={false}
         sceneReady={false}
         currentSlide={0}
@@ -150,7 +147,7 @@ export function OnboardingPageContent({
         onSceneError={() => {}}
         onGoToSlide={() => {}}
       >
-        <div className="onboarding-fade-in mx-auto max-w-2xl">
+        <div className="mx-auto max-w-2xl">
           <PageBodySkeleton label="Preparing onboarding" />
         </div>
       </OnboardingPageShell>
@@ -206,14 +203,7 @@ export function OnboardingPageContent({
   const transitionToApp = (navigate: () => void) => {
     if (completing) return
     setCompleting(true)
-    window.setTimeout(() => {
-      sessionStorage.setItem(
-        "ctxpipe:onboarding-transition-pending-at",
-        String(Date.now()),
-      )
-      sessionStorage.setItem("ctxpipe:app-shell-fade-in", "1")
-      navigate()
-    }, 320)
+    navigate()
   }
 
   const completeOnboardingThen = async (leave: () => void) => {
@@ -302,8 +292,6 @@ export function OnboardingPageContent({
 
   return (
     <OnboardingPageShell
-      completing={completing}
-      transitioning={transitioning}
       showDotNav={showDotNav}
       sceneReady={sceneReady}
       currentSlide={currentSlide}
@@ -342,87 +330,85 @@ export function OnboardingPageContent({
       }}
       onGoToSlide={(i) => goToSlide(i)}
     >
-      <div key={`slide-${currentSlide}-${slideKey}`}>
-        {currentSlideName === "welcome" ? (
-          <OnboardingWelcomeSlide
-            onWelcomeDetailsVisible={onWelcomeDetailsVisible}
-            onGetStarted={() => goToSlide(1)}
-          />
-        ) : null}
+      {currentSlideName === "welcome" ? (
+        <OnboardingWelcomeSlide
+          onWelcomeDetailsVisible={onWelcomeDetailsVisible}
+          onGetStarted={() => goToSlide(1)}
+        />
+      ) : null}
 
-        {currentSlideName === "overview" ? (
-          <OnboardingOverviewSlide onNext={() => goToSlide(2)} />
-        ) : null}
+      {currentSlideName === "overview" ? (
+        <OnboardingOverviewSlide onNext={() => goToSlide(2)} />
+      ) : null}
 
-        {currentSlideName === "create-org" ? (
-          <OnboardingCreateOrgSlide
-            onOrgCreated={(slug) => {
-              setCreatedOrgSlug(slug)
+      {currentSlideName === "create-org" ? (
+        <OnboardingCreateOrgSlide
+          onOrgCreated={(slug) => {
+            setCreatedOrgSlug(slug)
+            void router.navigate({
+              to: "/onboarding",
+              search: (prev) => ({ ...prev, orgSlug: slug }),
+              replace: true,
+            })
+            goToSlide(githubSlideIndexAdmin)
+          }}
+        />
+      ) : null}
+
+      {currentSlideName === "github" ? (
+        <OnboardingGithubSlide
+          orgSlug={orgSlug}
+          onContinue={() => goToSlide(currentSlide + 1)}
+          onCreateWorkspace={() => {
+            if (!orgSlug) return
+            void completeOnboardingThen(() => {
               void router.navigate({
-                to: "/onboarding",
-                search: (prev) => ({ ...prev, orgSlug: slug }),
+                to: "/$orgSlug/workspaces/new",
+                params: { orgSlug },
+                search: { after: "settings" },
                 replace: true,
               })
-              goToSlide(githubSlideIndexAdmin)
-            }}
-          />
-        ) : null}
-
-        {currentSlideName === "github" ? (
-          <OnboardingGithubSlide
-            orgSlug={orgSlug}
-            onContinue={() => goToSlide(currentSlide + 1)}
-            onCreateWorkspace={() => {
-              if (!orgSlug) return
-              void completeOnboardingThen(() => {
-                void router.navigate({
-                  to: "/$orgSlug/workspaces/new",
-                  params: { orgSlug },
-                  search: { after: "settings" },
-                  replace: true,
-                })
+            })
+          }}
+          onSelectWorkspace={(workspace) => {
+            if (!orgSlug) return
+            void completeOnboardingThen(() => {
+              void router.navigate({
+                to: "/$orgSlug/ws/$workspaceSlug",
+                params: { orgSlug, workspaceSlug: workspace.slug },
+                search: { pane: "settings" },
+                replace: true,
               })
-            }}
-            onSelectWorkspace={(workspace) => {
-              if (!orgSlug) return
-              void completeOnboardingThen(() => {
-                void router.navigate({
-                  to: "/$orgSlug/ws/$workspaceSlug",
-                  params: { orgSlug, workspaceSlug: workspace.slug },
-                  search: { pane: "settings" },
-                  replace: true,
-                })
-              })
-            }}
-          />
-        ) : null}
+            })
+          }}
+        />
+      ) : null}
 
-        {currentSlideName === "mcp-config" ? (
-          <McpOnboardingSlide
-            key={orgSlug ?? "no-org"}
-            orgSlug={orgSlug}
-            hasGithubInstallation={hasGithubInstallation}
-            mcpSnippet={mcpSnippet}
-            onContinue={() => goToSlide(currentSlide + 1)}
-            onSkip={() => goToSlide(currentSlide + 1)}
-          />
-        ) : null}
+      {currentSlideName === "mcp-config" ? (
+        <McpOnboardingSlide
+          key={orgSlug ?? "no-org"}
+          orgSlug={orgSlug}
+          hasGithubInstallation={hasGithubInstallation}
+          mcpSnippet={mcpSnippet}
+          onContinue={() => goToSlide(currentSlide + 1)}
+          onSkip={() => goToSlide(currentSlide + 1)}
+        />
+      ) : null}
 
-        {currentSlideName === "invite" ? (
-          <OnboardingInviteSlide
-            userEmail={user.email}
-            completing={completing}
-            onCompleteOnboarding={() => completeOnboarding()}
-          />
-        ) : null}
+      {currentSlideName === "invite" ? (
+        <OnboardingInviteSlide
+          userEmail={user.email}
+          completing={completing}
+          onCompleteOnboarding={() => completeOnboarding()}
+        />
+      ) : null}
 
-        {currentSlideName === "done" ? (
-          <OnboardingJoinerDoneSlide
-            completing={completing}
-            onFinish={() => completeJoinerOnboarding()}
-          />
-        ) : null}
-      </div>
+      {currentSlideName === "done" ? (
+        <OnboardingJoinerDoneSlide
+          completing={completing}
+          onFinish={() => completeJoinerOnboarding()}
+        />
+      ) : null}
     </OnboardingPageShell>
   )
 }

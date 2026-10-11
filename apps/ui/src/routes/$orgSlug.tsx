@@ -7,20 +7,16 @@ import {
   useMatch,
 } from "@tanstack/react-router"
 import { AppShell } from "@/components/AppShell"
-import { OrgOutletError } from "@/features/org/OrgOutletError"
+import { OrgGateError } from "@/features/org/OrgGateError"
 import { isWorkspaceConversationDocument } from "@/features/workspaces/ensure-route-data"
 import { workspaceListOptions } from "@/features/workspaces/queries"
 import { orgGateOptions, peekOrgGate } from "@/lib/org-gate"
 
 export const Route = createFileRoute("/$orgSlug")({
   shouldReload: ({ cause }) => cause === "enter",
-  errorComponent: ({ error, reset }) => (
+  errorComponent: (props) => (
     <AppShell>
-      <OrgOutletError
-        title="Something went wrong"
-        error={error}
-        reset={reset}
-      />
+      <OrgGateError {...props} />
     </AppShell>
   ),
   loader: async ({ cause, params, context, location }) => {

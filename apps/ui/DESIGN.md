@@ -83,6 +83,21 @@ Operate UI is keyboard-heavy. Apply on **new or touched** interactive chrome:
 
 Shared tokens: [`focus-styles.ts`](src/lib/focus-styles.ts) (`focusVisibleClassName`, `focusVisibleRingClassName`, RAC `focusRing`). Re-exported from [`react-aria-utils.ts`](src/lib/react-aria-utils.ts) for primitives.
 
+### Motion
+
+Motion must not make the UI feel slow. Obey these rules in new and changed code:
+
+- **Large components do not move.** Do not animate a pane, a panel, a drawer, a sidebar, page or route content, a layout change, or a resize. The change occurs at once.
+- **Small elements can move, but only fast.** Examples are a hover color, a focus ring, a menu, a tooltip, a toast, a dialog fade, and a chevron. Use 150 ms or less. Use 100 ms when possible. The Tailwind default (`transition`, `transition-colors`) is 100 ms, so do not add a `duration-*` class to a `transition-*` utility. An `animate-in` or `animate-out` class needs `duration-100`, because the tw-animate-css default is 150 ms.
+- **Use `ease-out` when an element comes into view.** An animation when the element goes out of view is optional. If you use one, it must not be longer than the first animation.
+- **Animate only `opacity`, `transform` (`scale`, `translate`, `rotate`), and colors.** Do not animate `width`, `height`, `flex-grow`, or layout. Do not use `transition-all`. Name the properties, for example `transition-[opacity,scale]`.
+- **Loading indicators can loop.** A spinner, a skeleton shimmer, and a pulse dot tell the user to wait. They do not move content. Their animation can be longer than 150 ms. Give a loader the `ctx-loading-motion` class (`animate-spin` is also a loader class).
+- **Exception: graph camera moves.** A knowledge graph camera move (`fitView`, zoom) helps the user follow a node, so it can animate for 250 ms at most (`CAMERA_MOVE_MS`).
+- **Do not add a motion library.** Use Tailwind and CSS.
+- **Reduced motion:** a global `prefers-reduced-motion: reduce` rule in [`styles.css`](src/styles.css) stops all transitions and animations. It does not stop a loader with `animate-spin` or `ctx-loading-motion`, because a loader must continue to show progress. Do not override the rule.
+
+CI runs `node scripts/ci/check-ui-motion.mjs`. It fails on `transition-all` and on a transition or animation duration or delay above 150 ms in `src/`. It reads Tailwind classes, inline `style` objects, and CSS rules. A loader is exempt only when it has a loader class. For another real exception, write `motion-allow: <reason>` on the line or on the line before it (TS/TSX), or in the rule (CSS).
+
 ### Icons
 
 `@tabler/icons-react` first. Lucide only when Tabler has no equivalent. Do not add a third set.
