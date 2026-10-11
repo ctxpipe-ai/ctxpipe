@@ -1,8 +1,8 @@
 # Langfuse: no cost for any model call
 
-Status: ready-for-agent
+Status: ready-for-human
 Priority: P2
-Owner: unassigned
+Owner: agent (obs-llm-traces)
 Blocked by: none
 Created: 2026-10-11
 Updated: 2026-10-11
@@ -39,3 +39,24 @@ Likely cause: the model names carry a gateway prefix (`ctxpipe/openai/...`, `ope
 ## Comments
 
 ## Resolution
+
+Cause (checked against the Langfuse model list on 2026-10-11):
+
+- Chat generations sent no model and no usage (ticket 42). The built-in entry `gpt-5.6-terra` matches `(?i)^(openai/)?(gpt-5.6-terra)$`, so `openai/gpt-5.6-terra` gets a price, but `ctxpipe/openai/gpt-5.6-terra` (the TanStack summary span) does not.
+- `openai/gpt-6-luna` and `xiaomi/mimo-v2.6-pro` have no built-in entry.
+- The built-in `text-embedding-3-large` pattern has no `openai/` prefix, so `openai/text-embedding-3-large` does not match.
+
+Fix (branch `obs-llm-traces`):
+
+- Chat generations now send `gen_ai.request.model=openai/gpt-5.6-terra` (a built-in price) and `gen_ai.usage.cost` when the gateway reports it (OpenRouter puts `cost` in `usage`).
+- `ops/observability/langfuse/models.json` holds custom entries for `openai/gpt-6-luna`, `xiaomi/mimo-v2.6-pro`, and `openai/text-embedding-3-large` at OpenRouter list prices. `ops/observability/langfuse/apply-models.sh` creates the missing entries through the Langfuse public API and skips the ones that exist. The README tells when to run it.
+- No new environment variable.
+
+Manual step for the team lead: run `LANGFUSE_AUTH_STRING=<base64 pk:sk> ops/observability/langfuse/apply-models.sh` once against `langfuse.ctxpipe.ai`. The agent did not change the shared Langfuse project. Langfuse prices only new generations; it does not change old ones.
+
+Not done: the prices do not model the cache-read discount. Chat cost uses the gateway cost when it is present, which includes the discount.
+
+Test: the ticket 42 integration test asserts `gen_ai.usage.cost` and `gen_ai.request.model` on the generation span.
+
+To prove after the deploy and the script run: new chat, MCP, and ingestion generations on a preview show a cost that is not zero.
+
