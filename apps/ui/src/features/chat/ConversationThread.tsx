@@ -1,5 +1,11 @@
 import { IconBrain, IconFile, IconSearch, IconTool } from "@tabler/icons-react"
-import { type ReactElement, useEffect, useId, useState } from "react"
+import {
+  type ReactElement,
+  type ReactNode,
+  useEffect,
+  useId,
+  useState,
+} from "react"
 import { Button as AriaButton } from "react-aria-components"
 import {
   Conversation,
@@ -415,9 +421,15 @@ export function ConversationThread(props: {
   /** Explicit wait copy; omit (or pass null) for the rotating working verbs. */
   waitLabel?: string | null
   contentClassName?: string
+  /**
+   * Content after the reply to the user message with this 1-based number,
+   * shown when the reply is done (for example, the files the turn changed).
+   */
+  renderAfterTurn?: (userTurn: number) => ReactNode
 }) {
   const { messages, error, status, waitLabel, contentClassName } = props
   const turns = groupAssistantTurns(messages)
+  let userTurn = 0
   const lastMessage = turns[turns.length - 1]
   const lastAssistantHasVisibleActivity =
     lastMessage?.role === "assistant"
@@ -444,9 +456,14 @@ export function ConversationThread(props: {
                   ? renderAssistantParts(message, { streaming })
                   : renderUserParts(message)
 
+              const isUser = message.role === "user"
+              if (isUser) userTurn += 1
               if (renderedParts.length === 0) return null
 
-              const isUser = message.role === "user"
+              const afterTurn =
+                !isUser && !streaming && userTurn > 0
+                  ? props.renderAfterTurn?.(userTurn)
+                  : null
 
               return (
                 <div
@@ -462,6 +479,7 @@ export function ConversationThread(props: {
                   >
                     <MessageContent className={isUser ? undefined : "gap-5"}>
                       {renderedParts}
+                      {afterTurn}
                     </MessageContent>
                   </Message>
                 </div>

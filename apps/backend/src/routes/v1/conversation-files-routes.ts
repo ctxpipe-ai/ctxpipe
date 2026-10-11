@@ -18,6 +18,7 @@ import {
   conversationGithubPullUrl,
   conversationGithubTreeUrl,
 } from "../../domain/workspaces/conversation-publish.js"
+import { conversationTurnDiff } from "../../domain/workspaces/conversation-turn-changes.js"
 import { adaptTanstackHandle } from "../../domain/workspaces/job-sandbox.js"
 import type { JobSandboxHandle } from "../../domain/workspaces/job-worktree.js"
 import {
@@ -27,6 +28,7 @@ import {
 import { warmTanstackWorkspaceChat } from "../../domain/workspaces/tanstack-workspace-chat.js"
 import { resolveWorkspaceChatTurnRuntime } from "../../domain/workspaces/workspace-chat-turn-runtime.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
+import { listConversationTurnChanges } from "../../models/conversation-turn-changes.js"
 import { getConversation } from "../../models/conversations.js"
 import {
   getDesiredWorkspaceRevision,
@@ -112,6 +114,33 @@ const ConversationGitDiffResponseSchema = z
     ),
   })
   .openapi("ConversationGitDiffResponse")
+
+const ConversationTurnChangesResponseSchema = z
+  .object({
+    items: z.array(
+      z.object({
+        runId: z.string(),
+        /** The number of user messages in the thread when the turn ended. */
+        turn: z.number().int(),
+        files: z.array(
+          z.object({
+            path: z.string(),
+            status: z.enum(["added", "modified", "deleted"]),
+            additions: z.number().int(),
+            deletions: z.number().int(),
+          }),
+        ),
+      }),
+    ),
+  })
+  .openapi("ConversationTurnChangesResponse")
+
+const ConversationGitDiffQuerySchema = z
+  .object({
+    /** Give the diff of this turn (run id) in place of the whole conversation. */
+    turn: z.string().min(1).optional(),
+  })
+  .openapi("ConversationGitDiffQuery")
 
 const PutConversationFileBodySchema = z
   .object({
@@ -258,7 +287,10 @@ const getStatusRoute = createRoute({
 const getDiffRoute = createRoute({
   method: "get",
   path: "/{conversationId}/files/diff",
-  request: { params: ConversationParamsSchema },
+  request: {
+    params: ConversationParamsSchema,
+    query: ConversationGitDiffQuerySchema,
+  },
   responses: {
     400: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -286,6 +318,33 @@ const getDiffRoute = createRoute({
     409: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Chat sandbox missing",
+    },
+  },
+})
+
+const getTurnChangesRoute = createRoute({
+  method: "get",
+  path: "/{conversationId}/files/turns",
+  request: { params: ConversationParamsSchema },
+  responses: {
+    200: {
+      content: {
+        "application/json": { schema: ConversationTurnChangesResponseSchema },
+      },
+      description: "The files each turn changed, in turn order",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Not found",
+    },
+    409: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description:
+        "turn_running: a turn holds the conversation now (ask again later)",
     },
   },
 })
@@ -517,6 +576,7 @@ const withConversationFileLock = createMiddleware<ConversationFileEnv>(
 const fileRoutes = new OpenAPIHono<ConversationFileEnv>()
 fileRoutes.get("/:conversationId/files/tree", readWithoutWait)
 fileRoutes.get("/:conversationId/files/status", readWithoutWait)
+fileRoutes.get("/:conversationId/files/turns", readWithoutWait)
 fileRoutes.use("/:conversationId/files/*", withConversationFileLock)
 export const conversationFileRoutes = fileRoutes
   .openapi(listTreeRoute, async (c) => {
@@ -621,8 +681,41 @@ export const conversationFileRoutes = fileRoutes
     const ready = await readySandboxHandle(loaded)
     if (!ready.ok) return c.json({ error: ready.error }, ready.status)
     const { handle } = ready
+    const turnId = c.req.valid("query").turn
+    if (turnId) {
+      const turn = (
+        await listConversationTurnChanges({
+          orgId: loaded.conversation.orgId,
+          conversationId,
+        })
+      ).find((item) => item.runId === turnId)
+      if (!turn) return c.json({ error: "Not found" }, 404)
+      const items = await conversationTurnDiff(
+        handle,
+        turn.startTree,
+        turn.endTree,
+        turn.files.map((file) => file.path),
+      )
+      return c.json({ base: defaultBranch, items }, 200)
+    }
     const items = await conversationSandboxDiff({ handle, defaultBranch })
     return c.json({ base: defaultBranch, items }, 200)
+  })
+  .openapi(getTurnChangesRoute, async (c) => {
+    if (!requireUser(c)) return c.json({ error: "Unauthorized" }, 401)
+    const conversationId = c.req.param("conversationId")
+    const loaded = await loadConversationWorkspace(conversationId)
+    if (!loaded) return c.json({ error: "Not found" }, 404)
+    const turns = await listConversationTurnChanges({
+      orgId: loaded.conversation.orgId,
+      conversationId,
+    })
+    return c.json(
+      {
+        items: turns.map(({ runId, turn, files }) => ({ runId, turn, files })),
+      },
+      200,
+    )
   })
   .openapi(putFileRoute, async (c) => {
     if (!requireUser(c)) return c.json({ error: "Unauthorized" }, 401)

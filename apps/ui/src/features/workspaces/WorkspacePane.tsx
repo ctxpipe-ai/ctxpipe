@@ -395,7 +395,9 @@ export function WorkspacePane(props: {
                 <WorkspaceConversationDiffPane
                   orgSlug={props.orgSlug}
                   conversationId={props.conversationId}
+                  turn={pane.turn}
                   focusPath={pane.path}
+                  onShowAll={() => selectPane({ kind: "diff" })}
                 />
               </Suspense>
             ) : null}
@@ -510,7 +512,7 @@ function prefetchWorkspacePane(
     }
   } else if (pane.kind === "diff" && conversationId) {
     void queryClient.prefetchQuery(
-      conversationGitDiffOptions(orgSlug, conversationId),
+      conversationGitDiffOptions(orgSlug, conversationId, pane.turn),
     )
   } else if (
     pane.kind === "graph" &&

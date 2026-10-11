@@ -47,3 +47,8 @@ A Workspace conversation changes files in its sandbox. Today the user sees the c
 ## Comments
 
 ## Resolution
+
+- Diff pane: `WorkspaceConversationDiff.tsx`, data from `files/diff` (now with `base`). Counts come from the Pierre parse of the before and after bodies.
+- Turn data: tree snapshots at turn start and end (refs `refs/ctxpipe/turns/<run>/start|end`), the changed-file list in `chat_metadata`. Route `GET …/files/turns`; `files/diff?turn=<run>` gives one turn's bodies.
+- Turn card: `ConversationTurnChangesCard.tsx`, placed through `ConversationThread` `renderAfterTurn`.
+- Open: no route-level test for `files/turns`; the turn number is the count of user messages in the run at its end.

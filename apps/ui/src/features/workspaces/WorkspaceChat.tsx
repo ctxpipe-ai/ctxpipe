@@ -11,6 +11,7 @@ import { Skeleton } from "@/components/ui/Skeleton"
 import { chatDraftKey } from "@/features/chat/chat-draft"
 import { ConversationThreadSkeleton } from "@/features/chat/components/ConversationThreadSkeleton"
 import { MessageInputBox } from "@/features/chat/MessageInputBox"
+import type { ParsedPane } from "./pane"
 import { workspaceConversationOptions, workspaceKeys } from "./queries"
 import { openWorkspaceConversation } from "./start-workspace-conversation-ui"
 import type { Workspace } from "./types"
@@ -22,6 +23,7 @@ export function WorkspaceChat(props: {
   workspace: Workspace
   conversationId?: string
   headerExtra?: ReactNode
+  onOpenPane?: (pane: ParsedPane) => void
 }) {
   const { orgSlug, workspace, conversationId: routeConversationId } = props
 
@@ -52,6 +54,7 @@ export function WorkspaceChat(props: {
         workspace={workspace}
         conversationId={routeConversationId}
         headerExtra={props.headerExtra}
+        onOpenPane={props.onOpenPane}
       />
     </Suspense>
   )
@@ -189,6 +192,7 @@ function WorkspaceChatResume(props: {
   workspace: Workspace
   conversationId: string
   headerExtra?: ReactNode
+  onOpenPane?: (pane: ParsedPane) => void
 }) {
   const { orgSlug, workspace, conversationId } = props
   const { data: detail } = useSuspenseQuery(
@@ -215,6 +219,7 @@ function WorkspaceChatResume(props: {
       conversation={detail.conversation}
       initialMessages={detail.messages}
       headerExtra={props.headerExtra}
+      onOpenPane={props.onOpenPane}
     />
   )
 }

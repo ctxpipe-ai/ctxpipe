@@ -47,7 +47,9 @@ export function WorkspaceFilesPaneSkeleton() {
         </div>
       </div>
       <div className="flex flex-col items-center justify-center gap-2 p-6 text-center">
-        <p className="text-sm font-medium text-foreground">Loading your files</p>
+        <p className="text-sm font-medium text-foreground">
+          Loading your files
+        </p>
         <p className="text-sm text-muted-foreground">
           The file tree arrives first, then the file you open.
         </p>

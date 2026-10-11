@@ -29,6 +29,9 @@ export const requiredStories = [
   "DiffPaneManyFiles",
   "DiffPaneExpandedFile",
   "DiffPaneLongPaths",
+  "TurnCardCollapsed",
+  "TurnCardExpanded",
+  "TurnCardOpensDiff",
 ]
 
 export function isGoldenPlaySuccess(phase) {

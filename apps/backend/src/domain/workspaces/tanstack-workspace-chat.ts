@@ -31,6 +31,7 @@ import { parseEnv } from "../../config/env.js"
 import { getSystemDb } from "../../db/client.js"
 import { organizations } from "../../db/schema/auth.js"
 import { loadConversationTurns } from "../../models/conversation-messages.js"
+import { saveConversationTurnChanges } from "../../models/conversation-turn-changes.js"
 import { getRepoReadCloneToken } from "../../models/github-installation.js"
 import {
   heartbeatSandboxInstance,
@@ -60,8 +61,14 @@ import {
 } from "./conversation-sandbox-lifecycle.js"
 import { checkoutSessionBranch } from "./conversation-session-branch.js"
 import { nameConversationIfUnnamed } from "./conversation-title.js"
+import {
+  conversationTurnFiles,
+  snapshotConversationTurn,
+} from "./conversation-turn-changes.js"
 import { openDockerRunVault } from "./docker-run-vault.js"
 import { hostedSandboxAccess } from "./hosted-sandbox-access.js"
+import { adaptTanstackHandle } from "./job-sandbox.js"
+import type { JobSandboxHandle } from "./job-worktree.js"
 import { type WorkspaceRevision, workspaceRevisionSchema } from "./revision.js"
 import { recordedRunGitToken, revokeRunGitTokens } from "./run-git-tokens.js"
 import { modelProxyCredentialRules } from "./sandbox-credential-rules.js"
@@ -629,6 +636,51 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
       }),
     )
   }
+  // The files this turn changed: a snapshot of the work tree when the turn
+  // starts and when it ends. Runs before the conversation lock is released,
+  // so a Files read that waits for the lock sees the stored result. A
+  // failure is logged and does not fail the turn.
+  let turnStart: { handle: JobSandboxHandle; tree: string } | undefined
+  const recordTurnChanges = async (ctx: {
+    runId: string
+    messages: ReadonlyArray<{ role: string }>
+  }) => {
+    const start = turnStart
+    turnStart = undefined
+    if (!start) return
+    try {
+      const endTree = await snapshotConversationTurn(
+        start.handle,
+        ctx.runId,
+        "end",
+      )
+      const files = await conversationTurnFiles(
+        start.handle,
+        start.tree,
+        endTree,
+      )
+      if (files.length === 0) return
+      await saveConversationTurnChanges({
+        orgId: input.orgId,
+        conversationId: input.conversationId,
+        changes: {
+          runId: ctx.runId,
+          turn: ctx.messages.filter((message) => message.role === "user")
+            .length,
+          startTree: start.tree,
+          endTree,
+          finishedAt: Date.now(),
+          files,
+        },
+      })
+    } catch (error) {
+      log.warn({
+        step: "workspace-chat-turn-changes",
+        message: `Recording the files the turn changed failed: ${String(error)}`,
+        conversationId: input.conversationId,
+      })
+    }
+  }
   // The idle clock starts when the turn ends. Runs before the conversation
   // lock is released, so the sweep never sees a free lock with a stale time.
   // The sweep it schedules is due exactly 5 minutes after this use.
@@ -700,6 +752,12 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
         onFinish: closeHostedTurn,
         onError: closeHostedTurn,
         onAbort: closeHostedTurn,
+      }),
+      defineChatMiddleware({
+        name: "workspace-chat-turn-changes-end",
+        onFinish: recordTurnChanges,
+        onError: recordTurnChanges,
+        onAbort: recordTurnChanges,
       }),
       workspaceChatThreadLock({
         locks: postgresSandboxLocks(
@@ -773,6 +831,25 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
                   "Keep the current branch. Publishing is blocked until it is rebased onto desiredSha. Inspect Git status and saved stashes before repairing. An interrupted update is recorded at .git/ctxpipe-revision-transition; after recovering its saved edits and resolving the rebase, remove that marker so the next turn can move to the new commit. Never discard saved edits without the user's request.",
               }),
             ],
+          }
+        },
+      }),
+      defineChatMiddleware({
+        name: "workspace-chat-turn-changes-start",
+        requires: [SandboxCapability],
+        async setup(ctx) {
+          const handle = adaptTanstackHandle(getSandbox(ctx))
+          try {
+            turnStart = {
+              handle,
+              tree: await snapshotConversationTurn(handle, ctx.runId, "start"),
+            }
+          } catch (error) {
+            log.warn({
+              step: "workspace-chat-turn-changes",
+              message: `The turn start snapshot failed: ${String(error)}`,
+              conversationId: input.conversationId,
+            })
           }
         },
       }),

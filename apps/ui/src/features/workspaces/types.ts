@@ -157,6 +157,24 @@ export type ConversationGitDiffResponse = {
   items: ConversationGitDiffItem[]
 }
 
+export type ConversationTurnFile = {
+  path: string
+  status: "added" | "modified" | "deleted"
+  additions: number
+  deletions: number
+}
+
+export type ConversationTurnChanges = {
+  runId: string
+  /** The number of user messages in the thread when the turn ended. */
+  turn: number
+  files: ConversationTurnFile[]
+}
+
+export type ConversationTurnChangesResponse = {
+  items: ConversationTurnChanges[]
+}
+
 export type ConversationFileMutation = {
   path: string
   body?: string

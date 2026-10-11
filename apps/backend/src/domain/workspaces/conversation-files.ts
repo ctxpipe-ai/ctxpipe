@@ -54,7 +54,7 @@ export function isConversationSandboxHarnessPath(path: string): boolean {
   return false
 }
 
-function isConversationSandboxListedPath(path: string): boolean {
+export function isConversationSandboxListedPath(path: string): boolean {
   return conversationPathIsSafe(path) && !isConversationSandboxHarnessPath(path)
 }
 

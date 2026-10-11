@@ -21,12 +21,18 @@ import type {
   ConversationListInfiniteData,
   ConversationListItem,
 } from "@/features/chat/types"
+import { ConversationTurnChangesCard } from "./ConversationTurnChangesCard"
 import {
   conversationAllowsEdits,
   conversationBranchShortName,
   conversationGithubTreeHref,
 } from "./conversationPublish"
-import { workspaceChatPrepareOptions, workspaceKeys } from "./queries"
+import type { ParsedPane } from "./pane"
+import {
+  conversationTurnChangesOptions,
+  workspaceChatPrepareOptions,
+  workspaceKeys,
+} from "./queries"
 import { takeFirstMessage } from "./start-workspace-conversation-ui"
 import type { Workspace } from "./types"
 import { useConversationPublish } from "./useConversationPublish"
@@ -92,8 +98,13 @@ export function WorkspaceChatSession(props: {
   initialMessages?: ConversationDetail["messages"]
   conversation?: ConversationListItem
   headerExtra?: ReactNode
+  /** Opens a tools pane, such as the Diff pane from a turn card. */
+  onOpenPane?: (pane: ParsedPane) => void
 }) {
   const { orgSlug, workspace, conversationId, title, initialMessages } = props
+  const turnChanges = useQuery(
+    conversationTurnChangesOptions(orgSlug, conversationId),
+  )
   const queryClient = useQueryClient()
   const [headerTitle, setHeaderTitle] = useState(title)
   const [sandboxPhase, setSandboxPhase] = useState<SandboxPhase>("idle")
@@ -219,6 +230,12 @@ export function WorkspaceChatSession(props: {
               conversationId,
             ),
           })
+          void queryClient.invalidateQueries({
+            queryKey: workspaceKeys.conversationTurnChanges(
+              orgSlug,
+              conversationId,
+            ),
+          })
         }
       }
     },
@@ -301,6 +318,24 @@ export function WorkspaceChatSession(props: {
         error={error ?? sendError}
         status={status}
         waitLabel={workspaceChatWaitLabel(sandboxPhase)}
+        renderAfterTurn={(userTurn) => {
+          const changes = turnChanges.data?.items.find(
+            (item) => item.turn === userTurn,
+          )
+          if (!changes || changes.files.length === 0) return null
+          return (
+            <ConversationTurnChangesCard
+              changes={changes}
+              onOpenDiff={(path) =>
+                props.onOpenPane?.({
+                  kind: "diff",
+                  turn: changes.runId,
+                  ...(path ? { path } : {}),
+                })
+              }
+            />
+          )
+        }}
       />
       <MessageInputBox
         layout="thread"

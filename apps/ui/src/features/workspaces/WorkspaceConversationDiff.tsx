@@ -41,21 +41,45 @@ import type { ConversationGitDiffItem } from "./types"
 export function WorkspaceConversationDiffPane(props: {
   orgSlug: string
   conversationId: string
+  /** Show only the changes of this turn (run id). */
+  turn?: string
   /** Expand this file and scroll it into view. */
   focusPath?: string
+  /** Leave the turn view and show all changes of the conversation. */
+  onShowAll?: () => void
 }) {
   const query = useSuspenseQuery(
-    conversationGitDiffOptions(props.orgSlug, props.conversationId),
+    conversationGitDiffOptions(props.orgSlug, props.conversationId, props.turn),
   )
   return (
     <ConversationDiffList
       // A new focus file resets which rows are open.
-      key={props.focusPath ?? ""}
+      key={`${props.turn ?? ""}:${props.focusPath ?? ""}`}
       items={query.data.items}
-      base={query.data.base ?? null}
+      base={props.turn ? null : (query.data.base ?? null)}
       focusPath={props.focusPath}
       refreshing={query.isFetching}
       onRefresh={() => void query.refetch()}
+      scope={
+        props.turn ? (
+          <>
+            <span className="px-1 text-xs font-medium text-foreground">
+              One turn
+            </span>
+            {props.onShowAll ? (
+              <AriaButton
+                onPress={props.onShowAll}
+                className={cn(
+                  "h-7 cursor-default rounded-md px-2 text-xs text-muted-foreground outline-0 hover:bg-foreground/[0.06] hover:text-foreground",
+                  focusVisibleClassName,
+                )}
+              >
+                Show all changes
+              </AriaButton>
+            ) : null}
+          </>
+        ) : null
+      }
     />
   )
 }
