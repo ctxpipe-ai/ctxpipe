@@ -1,12 +1,18 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
+import { expect, userEvent, waitFor, within } from "storybook/test"
+import { confluenceTreeHandlers } from "@/mocks/confluence-handlers"
+import { workspaceListHandler } from "@/mocks/workspace-handlers"
+import { workspaceSourceChangeHandlers } from "@/mocks/workspace-sources-handlers"
 import { entryPageInnerDecorators } from "../../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../../.storybook/decorators/with-story-route"
+import { docsWorkspace } from "../../../workspaces/workspace-fixtures"
 import type { AtlassianConnectorStatus } from "../../types"
 import { ConfluenceSetupWizard } from "./ConfluenceSetupWizard"
 
 const orgSlug = "acme"
-const atlassianConnectionId = "conn_forge_wizard"
+const atlassianConnectionId = "con_forge_wizard"
+const addCalls: { method: string; path: string; body: unknown }[] = []
 
 function statusUrlMatches(request: Request, connectionId: string) {
   const u = new URL(request.url)
@@ -95,136 +101,6 @@ const installationPost = http.post(
   () => HttpResponse.json({ id: "install_intent_story" }),
 )
 
-function configGetPredicate(request: Request) {
-  const u = new URL(request.url)
-  if (!u.pathname.includes("/atlassian/config")) return false
-  return u.searchParams.get("connectionId") === atlassianConnectionId
-}
-
-const scopeConfigBody = {
-  spaces: [
-    {
-      id: "scope_row_1",
-      connectionId: atlassianConnectionId,
-      spaceKey: "DOC",
-      spaceName: "Documentation",
-      selectedPageIds: null as string[] | null,
-      lastSyncedPageId: null as string | null,
-      lastSyncedAt: null as string | null,
-      createdAt: "2025-01-01T00:00:00.000Z",
-      updatedAt: "2025-01-01T00:00:00.000Z",
-    },
-  ],
-  syncTarget: {
-    id: "st1",
-    orgId: "org_story",
-    connectionId: atlassianConnectionId,
-    repositoryId: "repo1",
-    repositoryName: "acme/ingest",
-    branch: "main",
-    enabled: true,
-    createdAt: "2025-01-01T00:00:00.000Z",
-    updatedAt: "2025-01-01T00:00:00.000Z",
-  },
-}
-
-const availableSpaces = {
-  items: [{ id: "s1", key: "DOC", name: "Documentation", type: "global" }],
-}
-
-const scopeHandlers = [
-  http.get(
-    ({ request }) => configGetPredicate(request),
-    () => HttpResponse.json(scopeConfigBody),
-  ),
-  http.get(
-    ({ request }) => {
-      const u = new URL(request.url)
-      if (!u.pathname.includes("/atlassian/available-spaces")) return false
-      if (u.searchParams.get("connectionId") !== atlassianConnectionId) {
-        return false
-      }
-      return u.pathname.endsWith("/available-spaces")
-    },
-    () => HttpResponse.json(availableSpaces),
-  ),
-  http.patch(
-    ({ request }) => configGetPredicate(request),
-    () =>
-      HttpResponse.json({
-        accepted: true,
-        savedCount: 1,
-        configPrEnqueued: false,
-      }),
-  ),
-]
-
-const searchPayload = {
-  repositories: [
-    {
-      id: 101,
-      full_name: "acme/confluence-target",
-      html_url: "https://github.com/acme/confluence-target",
-      clone_url: "https://github.com/acme/confluence-target.git",
-      name: "confluence-target",
-      default_branch: "main",
-    },
-  ],
-  repositorySelection: "selected",
-  manageUrl: "https://github.com/organizations/acme/settings/installations/123",
-  hasMore: false,
-}
-
-const syncTargetHandlers = [
-  http.get(
-    ({ request }) =>
-      new URL(request.url).pathname.endsWith(
-        "/connectors/suggested-sync-target",
-      ),
-    () => HttpResponse.json({ target: null }),
-  ),
-  http.get(
-    ({ request }) =>
-      new URL(request.url).pathname === `/${orgSlug}/api/v1/repositories`,
-    () =>
-      HttpResponse.json({
-        items: [
-          {
-            id: "repo_101",
-            name: "confluence-target",
-            gitUrl: "https://github.com/acme/confluence-target.git",
-          },
-        ],
-      }),
-  ),
-  http.get(
-    ({ request }) => {
-      const u = new URL(request.url)
-      if (!u.pathname.includes("/atlassian/config")) return false
-      return u.searchParams.get("connectionId") === atlassianConnectionId
-    },
-    () => new HttpResponse(null, { status: 409 }),
-  ),
-  http.get(
-    ({ request }) =>
-      new URL(request.url).pathname.includes("installation/repositories"),
-    () => HttpResponse.json(searchPayload),
-  ),
-  http.patch(
-    ({ request }) => {
-      const u = new URL(request.url)
-      if (!u.pathname.includes("/atlassian/config")) return false
-      return u.searchParams.get("connectionId") === atlassianConnectionId
-    },
-    () =>
-      HttpResponse.json({
-        accepted: true,
-        savedCount: 1,
-        configPrEnqueued: false,
-      }),
-  ),
-]
-
 const s0: AtlassianConnectorStatus = {
   isLinked: false,
   isInstalled: false,
@@ -246,56 +122,11 @@ const sInstall: AtlassianConnectorStatus = {
   installationStatus: null,
 }
 
-const sAfterGithub: AtlassianConnectorStatus = {
+/** Forge installed: the connection is ready; the scope is in each Workspace. */
+const sInstalled: AtlassianConnectorStatus = {
   ...sInstall,
   isInstalled: true,
   installationStatus: "installed",
-  isGithubLinked: true,
-  syncTargetConfigured: true,
-  syncTarget: {
-    repositoryId: "r1",
-    repositoryName: "acme/wiki",
-    branch: "main",
-  },
-}
-
-const sNeedScope: AtlassianConnectorStatus = {
-  ...sAfterGithub,
-  selectedSpaceCount: 0,
-  selectedSpaces: [],
-}
-
-const sComplete: AtlassianConnectorStatus = {
-  ...sAfterGithub,
-  selectedSpaceCount: 1,
-  selectedSpaces: [{ spaceKey: "DOC", spaceName: "Docs" }],
-  syncTargetConfigured: true,
-  setupPhase: "live",
-  pendingConfigPullUrl: null,
-  pendingConfigPrCreating: false,
-  syncTarget: {
-    repositoryId: "r1",
-    repositoryName: "acme/wiki",
-    branch: "main",
-  },
-}
-
-/** Forge installed; user must connect GitHub before choosing a repo. */
-const sNeedGitHub: AtlassianConnectorStatus = {
-  ...sInstall,
-  isInstalled: true,
-  installationStatus: "installed",
-  isGithubLinked: false,
-  syncTargetConfigured: false,
-  syncTarget: null,
-  selectedSpaceCount: 0,
-  selectedSpaces: [],
-}
-
-/** GitHub linked; choose Confluence sync repository. */
-const sBeforeTarget: AtlassianConnectorStatus = {
-  ...sNeedGitHub,
-  isGithubLinked: true,
 }
 
 const wizard = (extra?: {
@@ -321,6 +152,12 @@ const meta = {
   title: "Components/Connections/Atlassian/SetupWizard",
   component: ConfluenceSetupWizard,
   decorators: entryPageInnerDecorators,
+  args: {
+    orgSlug,
+    atlassianConnectionId,
+    isOpen: true,
+    onOpenChange: () => {},
+  },
   parameters: {
     layout: "fullscreen",
     docs: {
@@ -335,8 +172,8 @@ production.
 **Self-hosted:** the wizard adds **Register Atlassian OAuth app** until 3LO credentials are saved;
 then **Link Atlassian account** and the rest match the managed flow.
 
-Order (self-hosted): Register OAuth → Link Atlassian → Install Forge → optional wait → Link GitHub →
-sync repository → Configure scope → complete.
+Order (self-hosted): Register OAuth → Link Atlassian → Install Forge → optional wait → Add to
+Workspaces (Workspaces, then spaces and pages) → complete.
         `.trim(),
       },
     },
@@ -464,64 +301,109 @@ export const WaitForInstall: Story = {
   },
 }
 
-export const LinkGitHub: Story = {
-  name: "06 / Link GitHub",
-  render: () => wizard(),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [status(sNeedGitHub), orgAtlassianOauthGet(true, false)],
-      },
-    },
-  },
-}
-
-export const SelectSyncTarget: Story = {
-  name: "07 / Select sync target",
+export const AddToWorkspaces: Story = {
+  name: "06 / Add to Workspaces",
   render: () => wizard(),
   parameters: {
     msw: {
       handlers: {
         page: [
-          status(sBeforeTarget),
-          ...syncTargetHandlers,
+          status(sInstalled),
           orgAtlassianOauthGet(true, false),
+          workspaceListHandler([docsWorkspace]),
+          ...confluenceTreeHandlers,
+          ...workspaceSourceChangeHandlers(addCalls),
         ],
       },
     },
   },
+  play: async ({ canvasElement }) => {
+    addCalls.length = 0
+    const body = within(canvasElement.ownerDocument.body)
+    await expect(
+      await body.findByRole("heading", {
+        name: "Add Confluence to Workspaces",
+      }),
+    ).toBeVisible()
+    const add = body.getByRole("button", { name: "Add to Workspaces" })
+    await expect(add).toBeDisabled()
+    await userEvent.click(
+      await body.findByRole("checkbox", { name: docsWorkspace.displayName }),
+    )
+    await userEvent.click(
+      await body.findByRole("checkbox", { name: /Engineering/ }),
+    )
+    await userEvent.click(add)
+    await expect(
+      await body.findByRole("heading", { name: "Confluence is connected" }),
+    ).toBeVisible()
+    await expect(addCalls).toEqual([
+      {
+        method: "POST",
+        path: `/${orgSlug}/api/v1/workspaces/${docsWorkspace.slug}/sources`,
+        body: {
+          source: {
+            provider: "confluence",
+            connectionId: atlassianConnectionId,
+            scope: { spaces: [{ key: "ENG", pages: "all" }] },
+          },
+          delivery: "pull_request",
+        },
+      },
+    ])
+  },
 }
 
-export const ConfigureScope: Story = {
-  name: "08 / Configure scope",
+export const SkipWorkspaces: Story = {
+  name: "07 / Skip Workspaces, setup complete",
+  render: () => wizard(),
+  parameters: AddToWorkspaces.parameters,
+  play: async ({ canvasElement }) => {
+    const body = within(canvasElement.ownerDocument.body)
+    await userEvent.click(
+      await body.findByRole("button", { name: "Skip for now" }),
+    )
+    await expect(
+      await body.findByRole("heading", { name: "Confluence is connected" }),
+    ).toBeVisible()
+  },
+}
+
+export const ReplacedSetup: Story = {
+  name: "08 / Replaced setup with a config pull request",
   render: () => wizard(),
   parameters: {
     msw: {
       handlers: {
         page: [
-          status(sNeedScope),
-          ...scopeHandlers,
+          status({
+            ...sInstalled,
+            setupPhase: "awaiting_merge",
+            pendingConfigPullUrl: "https://github.com/acme/wiki/pull/12",
+          }),
           orgAtlassianOauthGet(true, false),
+          workspaceListHandler([docsWorkspace]),
+          ...confluenceTreeHandlers,
         ],
       },
     },
   },
-}
-
-export const SetupComplete: Story = {
-  name: "09 / Setup complete",
-  render: () => wizard(),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [status(sComplete), orgAtlassianOauthGet(true, false)],
-      },
-    },
+  play: async ({ canvasElement }) => {
+    const body = within(canvasElement.ownerDocument.body)
+    const notice = await body.findByText(/This setup was replaced/)
+    // The modal fades in; wait until the notice is visible.
+    await waitFor(() => expect(notice).toBeVisible())
+    await expect(
+      body.getByRole("link", { name: "configuration pull request" }),
+    ).toHaveAttribute("href", "https://github.com/acme/wiki/pull/12")
+    await expect(
+      await body.findByRole("checkbox", { name: docsWorkspace.displayName }),
+    ).toBeVisible()
   },
 }
 
 export const MissingConnectionId: Story = {
-  name: "10 / Missing connection id",
+  name: "09 / Missing connection id",
   render: () => wizard({ atlassianConnectionId: undefined }),
   parameters: {
     msw: {

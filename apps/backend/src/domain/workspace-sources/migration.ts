@@ -45,6 +45,16 @@ export async function runSourceMigration(input: {
   }
 > {
   const hooks = Object.values(input.hooks ?? SOURCE_MIGRATION_HOOKS)
+  const disableLegacy = async (workspaceId: string) => {
+    for (const moved of plan.report.moved)
+      if (moved.workspaceId === workspaceId)
+        await hooks
+          .find((hook) => hook.provider === moved.provider)
+          ?.disableLegacy?.({
+            orgId: input.orgId,
+            connectionId: moved.connectionId,
+          })
+  }
   const bindings = (
     await Promise.all(
       hooks.map((hook) =>
@@ -108,6 +118,7 @@ export async function runSourceMigration(input: {
           pullRequestUrl: open.pullUrl,
           existing: true,
         })
+        await disableLegacy(workspaceId)
         continue
       }
       const pull = await createPullRequestWithFiles({
@@ -125,6 +136,7 @@ export async function runSourceMigration(input: {
         pullRequestUrl: pull.pullUrl,
         existing: false,
       })
+      await disableLegacy(workspaceId)
     } catch (error) {
       failures.push({
         workspaceId,

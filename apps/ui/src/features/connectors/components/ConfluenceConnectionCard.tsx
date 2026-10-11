@@ -1,7 +1,6 @@
 "use client"
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useNavigate } from "@tanstack/react-router"
 import { toast } from "sonner"
 import { ConnectorUsedIn } from "@/features/workspace-sources/ConnectorUsedIn"
 import {
@@ -30,17 +29,14 @@ type ConfluenceConnectionCardProps = {
   orgSlug: string
   connectionId: string
   onOpenWizard: () => void
-  onOpenScope: () => void
 }
 
 export function ConfluenceConnectionCard({
   orgSlug,
   connectionId,
   onOpenWizard,
-  onOpenScope,
 }: ConfluenceConnectionCardProps) {
   const queryClient = useQueryClient()
-  const navigate = useNavigate()
 
   const {
     data: status,
@@ -71,9 +67,6 @@ export function ConfluenceConnectionCard({
         queryKey: atlassianConnectorKeys.status(orgSlug, connectionId),
       })
       await queryClient.invalidateQueries({
-        queryKey: atlassianConnectorKeys.config(orgSlug, connectionId),
-      })
-      await queryClient.invalidateQueries({
         queryKey: orgConnectionsKeys.list(orgSlug),
       })
     },
@@ -85,14 +78,14 @@ export function ConfluenceConnectionCard({
     ? getConfluenceCardCurrentIndex(status, oauthForCard)
     : 0
   const primary = getConfluenceCardPrimaryCta(currentIndex, stepDefs)
-  const live = status?.setupPhase === "live"
+  // A connection holds auth only (ADR-050): it is connected once installed.
   const health = resolveConnectorHealth({
     installationStatus: status?.installationStatus,
     statusError: isError,
     checking: isPending || !status || oauthPending,
     setupPhase: status?.setupPhase,
-    connected: live,
-    draft: status?.setupPhase === "draft",
+    connected: Boolean(status?.isInstalled),
+    draft: !status?.isInstalled,
   })
 
   return (
@@ -115,42 +108,27 @@ export function ConfluenceConnectionCard({
         onConfirm: () => removeMutation.mutate(),
       }}
       workspace={status?.isLinked ? "Atlassian" : "—"}
-      scope={status ? formatSelectedItemCount(status.selectedSpaceCount) : "—"}
+      scope={
+        status?.syncTarget
+          ? formatSelectedItemCount(status.selectedSpaceCount)
+          : "Set in each Workspace"
+      }
       syncRepository={formatSyncRepositoryLine(status?.syncTarget ?? null)}
       actionLabel={
         isError
           ? "Retry"
-          : isPending || oauthPending
+          : isPending || oauthPending || primary.kind === "none"
             ? undefined
             : primary.label
       }
       onAction={
         isError
           ? () => void refetch()
-          : isPending || oauthPending
+          : isPending || oauthPending || primary.kind === "none"
             ? undefined
-            : () => {
-                if (primary.kind === "open_wizard") onOpenWizard()
-                else if (primary.kind === "navigate_repositories") {
-                  void navigate({
-                    to: "/$orgSlug/connectors",
-                    params: { orgSlug },
-                    search: {
-                      error: undefined,
-                      error_description: undefined,
-                      pendingAccountClaim: undefined,
-                      notionConnectionId: undefined,
-                    },
-                  })
-                } else onOpenScope()
-              }
+            : onOpenWizard
       }
     >
-      {live && !status?.isLinked ? (
-        <p className="text-sm text-muted-foreground">
-          Link your Atlassian account to change the scope of this connection.
-        </p>
-      ) : null}
       {isError ? (
         <p className="text-sm text-muted-foreground">
           Status request failed. Retry, or open setup if this persists.

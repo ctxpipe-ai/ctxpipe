@@ -1,4 +1,5 @@
 import type { Env } from "../../config/env.js"
+import { confluenceSourceMigrationHook } from "../../services/confluence/workspace-source-migration.js"
 import { parseLinkedRepositoryMarkdown } from "../workspaces/layout.js"
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../workspaces/write-status.js"
@@ -36,11 +37,18 @@ export type SourceMigrationHook = {
     orgId: string
     env: Env
   }): Promise<LegacySourceBinding[]>
+  /**
+   * Optional. Turn off the legacy sync of a migrated connection, so only the
+   * Workspace sources sync writes its content (`--apply`).
+   */
+  disableLegacy?(input: { orgId: string; connectionId: string }): Promise<void>
 }
 
 export const SOURCE_MIGRATION_HOOKS: Partial<
   Record<SourceProvider, SourceMigrationHook>
-> = {}
+> = {
+  confluence: confluenceSourceMigrationHook,
+}
 
 export type MigrationWorkspace = {
   id: string

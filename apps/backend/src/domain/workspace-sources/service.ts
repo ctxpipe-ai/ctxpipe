@@ -21,6 +21,7 @@ import {
 } from "../../services/github/installation-write-client.js"
 import { workspaceAllowsConversationEdits } from "../workspaces/chat-sandbox-policy.js"
 import { WORKSPACE_WRITE_STATUSES } from "../workspaces/write-status.js"
+import { SOURCE_ADAPTERS } from "./adapter.js"
 import {
   applySourceFileChange,
   assertSourceChangeShape,
@@ -36,6 +37,7 @@ import {
   sourceProviderSchema,
   summarizeSourceScope,
 } from "./sources-file.js"
+import { overlaySourceStatus } from "./status-overlay.js"
 
 /** Source PR branches: `ctxpipe/sources/<action>/<provider>/<key>-<ms>`. */
 const SOURCE_BRANCH_PREFIX = "ctxpipe/sources/"
@@ -108,24 +110,18 @@ export async function listWorkspaceSources(
     orgId: workspace.orgId,
     workspaceId: workspace.id,
   })
-  // A removed connection shows as missing before the next projection.
   const names = new Map(
     (await listOrgConnections(workspace.orgId)).map((item) => [
       item.id,
       item.displayName,
     ]),
   )
-  const rows = projected.map((row) =>
-    row.connectionId &&
-    !names.has(row.connectionId) &&
-    (row.status === "ok" || row.status === "out_of_access")
-      ? {
-          ...row,
-          status: "connection_missing" as const,
-          statusDetail: "The connection was removed",
-        }
-      : row,
-  )
+  const rows = await overlaySourceStatus({
+    orgId: workspace.orgId,
+    rows: projected,
+    connectionIds: new Set(names.keys()),
+    adapters: SOURCE_ADAPTERS,
+  })
   const fileRow = rows.find((row) => row.sourceKey === FILE_ERROR_SOURCE_KEY)
   return {
     path: SOURCES_FILE_PATH,
