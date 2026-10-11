@@ -3,11 +3,13 @@ import { z } from "zod"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
+import { githubRepositoriesWithoutAccess } from "../../domain/workspace-sources/github-access.js"
 import {
   resolveLinkedReadRevision,
   resolveWorkspaceReadRevision,
 } from "../../domain/workspaces/resolve-revision.js"
 import type { WorkspaceRevision } from "../../domain/workspaces/revision.js"
+import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
 import { shouldEnqueueCronHydrate } from "../../domain/workspaces/tip-resolve.js"
 import {
   destroySandboxesForWorkspace,
@@ -243,8 +245,23 @@ export const workspaceTipCheck = defineWorkflow(
       const linked = await withOrgDbContext(input.orgId, () =>
         listOrgLinkedRepositories(input.orgId),
       )
+      // A GitHub source records the repositories that its connection cannot
+      // read (`out_of_access`). Skip them until a new check finds access.
+      const withoutAccess = await githubRepositoriesWithoutAccess({
+        orgId: input.orgId,
+        env,
+        now: startedAt,
+      })
       let linkedUpdated = 0
       for (const row of linked) {
+        if (
+          withoutAccess.has(
+            `${row.workspaceId} ${normalizeWorkspaceRepositoryUrl(row.gitUrl)}`,
+          )
+        ) {
+          linkedNoAccess += 1
+          continue
+        }
         const resolved = await resolveLinkedReadRevision({
           orgId: input.orgId,
           linkId: row.id,

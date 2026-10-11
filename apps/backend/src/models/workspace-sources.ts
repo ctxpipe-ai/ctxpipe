@@ -1,8 +1,13 @@
 import { and, eq, inArray } from "drizzle-orm"
 import { withOrgDbContext } from "../db/client.js"
+import { repositories } from "../db/schema/repositories.js"
 import { workspaceSources } from "../db/schema/workspace_sources.js"
-import { workspaces } from "../db/schema/workspaces.js"
+import {
+  workspaceLinkedRepositories,
+  workspaces,
+} from "../db/schema/workspaces.js"
 import type { PlannedSourceRow } from "../domain/workspace-sources/projection-plan.js"
+import { normalizeWorkspaceRepositoryUrl } from "../domain/workspaces/slug.js"
 import { generateObjectId } from "../lib/id.js"
 
 export type WorkspaceSourceRow = typeof workspaceSources.$inferSelect
@@ -148,4 +153,96 @@ export async function setWorkspaceSourceStatus(input: {
       })
       .where(eq(workspaceSources.id, input.id)),
   )
+}
+
+/**
+ * Record a new access check of one source row. The row keeps its revision;
+ * a projection of a newer revision since the read wins.
+ */
+export async function recordSourceAccessCheck(input: {
+  orgId: string
+  id: string
+  revision: string
+  status: "ok" | "out_of_access"
+  statusDetail: string | null
+}): Promise<void> {
+  await withOrgDbContext(input.orgId, (db) =>
+    db
+      .update(workspaceSources)
+      .set({
+        status: input.status,
+        statusDetail: input.statusDetail,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(workspaceSources.id, input.id),
+          eq(workspaceSources.revision, input.revision),
+        ),
+      ),
+  )
+}
+
+/**
+ * The Workspaces that use one GitHub connection: for its own Workspace
+ * repository, for linked repositories whose org repository row it reads, or
+ * both.
+ */
+export async function listGithubConnectionWorkspaces(input: {
+  orgId: string
+  connectionId: string
+}): Promise<
+  Array<{
+    workspaceId: string
+    workspaceSlug: string
+    workspaceName: string
+    workspaceRepository: boolean
+    linkedRepositories: number
+  }>
+> {
+  return withOrgDbContext(input.orgId, async (db) => {
+    const [rows, linked, bound] = await Promise.all([
+      db
+        .select({
+          id: workspaces.id,
+          slug: workspaces.slug,
+          displayName: workspaces.displayName,
+          githubConnectionId: workspaces.githubConnectionId,
+        })
+        .from(workspaces)
+        .orderBy(workspaces.slug),
+      db
+        .select({
+          workspaceId: workspaceLinkedRepositories.workspaceId,
+          gitUrl: workspaceLinkedRepositories.gitUrl,
+        })
+        .from(workspaceLinkedRepositories),
+      db
+        .select({ gitUrl: repositories.gitUrl })
+        .from(repositories)
+        .where(eq(repositories.githubConnectionId, input.connectionId)),
+    ])
+    const readable = new Set(
+      bound.map((row) => normalizeWorkspaceRepositoryUrl(row.gitUrl)),
+    )
+    return rows.flatMap((workspace) => {
+      const linkedRepositories = linked.filter(
+        (row) =>
+          row.workspaceId === workspace.id &&
+          readable.has(normalizeWorkspaceRepositoryUrl(row.gitUrl)),
+      ).length
+      const workspaceRepository =
+        workspace.githubConnectionId === input.connectionId
+      if (!workspaceRepository && !linkedRepositories) return []
+      return [
+        {
+          workspaceId: workspace.id,
+          workspaceSlug: workspace.slug,
+          workspaceName: workspace.displayName,
+          workspaceRepository,
+          linkedRepositories,
+        },
+      ]
+    })
+  })
 }

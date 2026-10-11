@@ -1,3 +1,4 @@
+import { queryOptions } from "@tanstack/react-query"
 import { client } from "@/lib/api"
 import { readApiJson } from "@/lib/api-result"
 
@@ -250,4 +251,39 @@ export function buildSelectedRepositories(args: {
     })
   }
   return selected
+}
+
+/**
+ * The one query for the repositories of GitHub connections. Each repository
+ * carries its `githubConnectionId`. Every picker uses this key and shape, so
+ * they share the cache.
+ */
+export function githubInstallationReposOptions(
+  orgSlug: string,
+  connectionIds: readonly string[],
+) {
+  return queryOptions({
+    queryKey: ["github-installation-repos", orgSlug, [...connectionIds]],
+    queryFn: async () => {
+      const pages = await Promise.all(
+        connectionIds.map(async (connectionId) => ({
+          connectionId,
+          ...(await collectInstallationRepoPages((page) =>
+            fetchGithubInstallationReposPage(orgSlug, page, connectionId),
+          )),
+        })),
+      )
+      return {
+        repositories: pages.flatMap((page) =>
+          page.repositories.map((repo) => ({
+            ...repo,
+            githubConnectionId: page.connectionId,
+          })),
+        ),
+        repositorySelection: pages[0]?.repositorySelection ?? "selected",
+        manageUrl: pages[0]?.manageUrl ?? null,
+        totalCount: pages.reduce((sum, page) => sum + page.totalCount, 0),
+      }
+    },
+  })
 }

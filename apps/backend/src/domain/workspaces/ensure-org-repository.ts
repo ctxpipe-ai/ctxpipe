@@ -33,7 +33,12 @@ export async function ensureOrgRepositoryForGitUrl(input: {
   orgId: string
   gitUrl: string
   githubConnectionId?: string | null
-}): Promise<{ id: string; created: boolean } | null> {
+}): Promise<{
+  id: string
+  created: boolean
+  /** What GitHub said about the requested connection's read access. */
+  coverage: "covers" | "foreign" | "unknown"
+} | null> {
   const gitUrl = normalizeWorkspaceRepositoryUrl(input.gitUrl)
   if (!gitUrl) return null
   const requestedConnectionId = input.githubConnectionId
@@ -76,7 +81,7 @@ export async function ensureOrgRepositoryForGitUrl(input: {
 
   if (existing[0]) {
     await reconcileBinding(existing[0])
-    return { id: existing[0].id, created: false }
+    return { id: existing[0].id, created: false, coverage }
   }
 
   const created = await bulkCreateRepositoriesForOrg(
@@ -86,12 +91,12 @@ export async function ensureOrgRepositoryForGitUrl(input: {
       ? { githubConnectionId: requestedConnectionId }
       : undefined,
   )
-  if (created[0]) return { id: created[0].id, created: true }
+  if (created[0]) return { id: created[0].id, created: true, coverage }
 
   const raced = await findRepositoriesByNormalizedGitUrls([gitUrl])
   if (!raced[0]) return null
   await reconcileBinding(raced[0])
-  return { id: raced[0].id, created: false }
+  return { id: raced[0].id, created: false, coverage }
 }
 
 export async function ensureOrgRepositoryAndIngest(input: {

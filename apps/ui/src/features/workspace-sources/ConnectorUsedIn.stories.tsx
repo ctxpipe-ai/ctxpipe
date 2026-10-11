@@ -56,7 +56,6 @@ export const Loading: Story = {
 }
 
 export const NotUsedInAnyWorkspace: Story = {
-  args: { provider: "linear" },
   parameters: {
     msw: {
       handlers: {
@@ -74,11 +73,25 @@ export const NotUsedInAnyWorkspace: Story = {
       canvas.getByRole("button", { name: "Add to a Workspace" }),
     )
     const dialog = within(await within(document.body).findByRole("dialog"))
-    await dialog.findByRole("heading", { name: "Add Linear to Workspaces" })
+    await dialog.findByRole("heading", { name: "Add GitHub to Workspaces" })
     await dialog.findByRole("checkbox", { name: docsWorkspace.displayName })
     await waitFor(() =>
       expect(dialog.getByText(CHOOSE_WORKSPACES_HINT)).toBeVisible(),
     )
+  },
+}
+
+export const NoEditorHidesAdd: Story = {
+  args: { provider: "notion" },
+  parameters: {
+    msw: { handlers: { page: [connectionUsageHandler([])] } },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("Not used in any Workspace")
+    await expect(
+      canvas.queryByRole("button", { name: "Add to a Workspace" }),
+    ).toBeNull()
   },
 }
 

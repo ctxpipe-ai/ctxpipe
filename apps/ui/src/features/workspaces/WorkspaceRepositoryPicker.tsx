@@ -14,10 +14,9 @@ import {
 } from "@/features/repositories/components/GithubRepoPickerList"
 import { GithubRepoSortSelect } from "@/features/repositories/components/GithubRepoSortSelect"
 import {
-  collectInstallationRepoPages,
-  fetchGithubInstallationReposPage,
   type GithubRepoItem,
   type GithubRepoSort,
+  githubInstallationReposOptions,
   sortGithubRepos,
 } from "@/features/repositories/githubRepoSelection"
 import { gitSourceMatchesQuery } from "@/features/repositories/gitSourcesFilter"
@@ -61,37 +60,8 @@ export function WorkspaceRepositoryPicker(props: {
     .filter((connection) => connection.type === "github")
     .map((connection) => connection.id)
   const reposQuery = useQuery({
-    queryKey: ["github-installation-repos", orgSlug, githubConnectionIds],
+    ...githubInstallationReposOptions(orgSlug, githubConnectionIds),
     enabled: connectionsQuery.isSuccess,
-    queryFn: async () => {
-      if (githubConnectionIds.length === 0) {
-        return {
-          repositories: [] as GithubRepoItem[],
-          repositorySelection: "selected",
-          manageUrl: null,
-          totalCount: 0,
-        }
-      }
-      const pages = await Promise.all(
-        githubConnectionIds.map(async (connectionId) => {
-          const collected = await collectInstallationRepoPages((page) =>
-            fetchGithubInstallationReposPage(orgSlug, page, connectionId),
-          )
-          return { connectionId, ...collected }
-        }),
-      )
-      return {
-        repositories: pages.flatMap((page) =>
-          page.repositories.map((repo) => ({
-            ...repo,
-            githubConnectionId: page.connectionId,
-          })),
-        ),
-        repositorySelection: pages[0]?.repositorySelection ?? "selected",
-        manageUrl: pages[0]?.manageUrl ?? null,
-        totalCount: pages.reduce((sum, page) => sum + page.totalCount, 0),
-      }
-    },
     refetchOnWindowFocus: "always",
   })
 

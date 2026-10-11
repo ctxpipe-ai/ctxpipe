@@ -130,17 +130,32 @@ export const LinkedRepositoryWithIssues: Story = {
   },
 }
 
+/**
+ * The Workspace repository picker and "Add repositories" share one cached
+ * repository query. Opening one, then the other, lists the repositories.
+ */
 export const AddRepositories: Story = {
   args: {
     workspace: emptyLinkedWorkspaceDetail,
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await userEvent.click(
-      canvas.getByRole("button", { name: /add repositories/i }),
-    )
     const body = within(canvasElement.ownerDocument.body)
-    await body.findByRole("dialog", { name: /add repositories/i })
+    await userEvent.click(
+      await canvas.findByRole("button", { name: /edit workspace repository/i }),
+    )
+    const picker = await body.findByRole("dialog")
+    await within(picker).findByText("acme/handbook")
+    await userEvent.keyboard("{Escape}")
+    await waitFor(() => expect(body.queryByRole("dialog")).toBeNull())
+
+    await userEvent.click(
+      await canvas.findByRole("button", { name: /add repositories/i }),
+    )
+    const dialog = await body.findByRole("dialog", {
+      name: /add repositories/i,
+    })
+    await expect(await within(dialog).findByText("acme/handbook")).toBeInTheDocument()
   },
 }
 
