@@ -119,7 +119,12 @@ if [ -n "\${CTXPIPE_SESSION_BRANCH:-}" ]; then
     exit "$REMOTE_STATUS"
   fi
 fi)`,
-  `OPENCODE_HOME="\${HOME:-/tmp/ctxpipe-opencode-home}"
+  // The agent commits with plain git, and the sandbox has no identity.
+  `if git rev-parse --git-dir >/dev/null 2>&1; then
+  git config user.name ${COMMIT_IDENTITY.GIT_AUTHOR_NAME}
+  git config user.email ${COMMIT_IDENTITY.GIT_AUTHOR_EMAIL}
+fi
+OPENCODE_HOME="\${HOME:-/tmp/ctxpipe-opencode-home}"
 mkdir -p "$OPENCODE_HOME"
 if [ -n "\${CTXPIPE_OPENCODE_JSON:-}" ]; then
   printf '%s\\n' "$CTXPIPE_OPENCODE_JSON" > "$OPENCODE_HOME/opencode.json"
