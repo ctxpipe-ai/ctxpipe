@@ -108,6 +108,9 @@ git cat-file -e "$CTXPIPE_CLONE_SHA^{commit}" 2>/dev/null ||
   ${SANDBOX_READ_GIT} fetch --depth 1 origin "$CTXPIPE_CLONE_SHA" || exit 1
 git checkout -B "$CTXPIPE_CLONE_BRANCH" "$CTXPIPE_CLONE_SHA" &&
 git update-ref refs/remotes/ctxpipe/base "$CTXPIPE_CLONE_SHA" &&
+# The agent commits with plain git, and the sandbox has no identity.
+git config user.name ${COMMIT_IDENTITY.GIT_AUTHOR_NAME} &&
+git config user.email ${COMMIT_IDENTITY.GIT_AUTHOR_EMAIL} &&
 if [ -n "\${CTXPIPE_SESSION_BRANCH:-}" ]; then
   git check-ref-format "refs/heads/$CTXPIPE_SESSION_BRANCH" || exit 1
   ${SANDBOX_READ_GIT} ls-remote --exit-code --heads origin "refs/heads/$CTXPIPE_SESSION_BRANCH" >/dev/null
@@ -119,12 +122,7 @@ if [ -n "\${CTXPIPE_SESSION_BRANCH:-}" ]; then
     exit "$REMOTE_STATUS"
   fi
 fi)`,
-  // The agent commits with plain git, and the sandbox has no identity.
-  `if git rev-parse --git-dir >/dev/null 2>&1; then
-  git config user.name ${COMMIT_IDENTITY.GIT_AUTHOR_NAME}
-  git config user.email ${COMMIT_IDENTITY.GIT_AUTHOR_EMAIL}
-fi
-OPENCODE_HOME="\${HOME:-/tmp/ctxpipe-opencode-home}"
+  `OPENCODE_HOME="\${HOME:-/tmp/ctxpipe-opencode-home}"
 mkdir -p "$OPENCODE_HOME"
 if [ -n "\${CTXPIPE_OPENCODE_JSON:-}" ]; then
   printf '%s\\n' "$CTXPIPE_OPENCODE_JSON" > "$OPENCODE_HOME/opencode.json"

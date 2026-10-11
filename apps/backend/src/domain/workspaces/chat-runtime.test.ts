@@ -101,10 +101,26 @@ describe("workspace chat runtime", () => {
     }
     execFileSync("git", ["init", "-q", "-b", "main"], { cwd: repo, env })
     execFileSync(
-      "sh",
-      ["-c", WORKSPACE_CHAT_THREAD_SETUP.slice(1).join("\n")],
+      "git",
+      ["-c", "user.name=seed", "-c", "user.email=seed@example.test"].concat([
+        "commit",
+        "-q",
+        "--allow-empty",
+        "-m",
+        "seed",
+      ]),
       { cwd: repo, env },
     )
+    const sha = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: repo,
+      env,
+      encoding: "utf8",
+    }).trim()
+    // The checkout step, as for a fresh clone with no published branch.
+    execFileSync("sh", ["-c", WORKSPACE_CHAT_THREAD_SETUP[0]], {
+      cwd: repo,
+      env: { ...env, CTXPIPE_CLONE_SHA: sha, CTXPIPE_CLONE_BRANCH: "main" },
+    })
     writeFileSync(join(repo, "note.md"), "agent edit\n")
     execFileSync("git", ["add", "note.md"], { cwd: repo, env })
     execFileSync("git", ["commit", "-q", "-m", "docs: add note"], {
