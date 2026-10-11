@@ -59,11 +59,7 @@ export async function apiFetch(
       ? fetchInit.signal
       : mergeSignals(fetchInit.signal, timeoutMs ?? defaultTimeoutMs())
   try {
-    // Open a new connection for each call. On the server, Bun keeps idle
-    // sockets in a pool, and a proxy can drop an idle socket without a FIN.
-    // A request on that socket waits for the whole timeout. Browsers already
-    // default to false.
-    return await fetch(input, { ...fetchInit, signal, keepalive: false })
+    return await fetch(input, { ...fetchInit, signal })
   } catch (error) {
     throw new ApiError(
       error instanceof Error ? error.message : "Network request failed",

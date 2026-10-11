@@ -1,5 +1,3 @@
-import { execFileSync } from "node:child_process"
-import { fileURLToPath } from "node:url"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   ApiError,
@@ -111,51 +109,5 @@ describe("pollWhileOk", () => {
     expect(poll({ state: { status: "error" } })).toBe(false)
     expect(poll({ state: { status: "success" } })).toBe(3000)
     expect(poll({ state: { status: "pending" } })).toBe(3000)
-  })
-})
-
-describe("apiFetch under Bun", () => {
-  // The UI server runs on Bun. Bun keeps idle sockets in a pool. When a proxy
-  // drops an idle socket without a FIN, the next request on it waits for the
-  // whole timeout. This proxy forwards the first request and then goes silent
-  // on that socket, as the Railway edge did on pr-280.
-  it("does not send a second request on a pooled socket", () => {
-    const modulePath = fileURLToPath(
-      new URL("./api-result.ts", import.meta.url),
-    )
-    const script = `
-      import net from "node:net"
-      import http from "node:http"
-      import { apiFetch } from ${JSON.stringify(modulePath)}
-      const upstream = http.createServer((_req, res) => res.end("ok"))
-      await new Promise((r) => upstream.listen(0, "127.0.0.1", r))
-      const sockets = []
-      const proxy = net.createServer((client) => {
-        const state = { silent: false }
-        sockets.push(state)
-        const up = net.connect(upstream.address().port, "127.0.0.1")
-        client.on("data", (d) => { if (!state.silent) up.write(d) })
-        up.on("data", (d) => { if (!state.silent) client.write(d) })
-        client.on("error", () => {})
-        up.on("error", () => {})
-      })
-      await new Promise((r) => proxy.listen(0, "127.0.0.1", r))
-      const url = "http://127.0.0.1:" + proxy.address().port + "/"
-      await (await apiFetch(url)).text()
-      for (const s of sockets) s.silent = true
-      try {
-        const res = await apiFetch(url, { timeoutMs: 2000 })
-        console.log("second:" + (await res.text()))
-      } catch (error) {
-        console.log("second:" + error.name)
-      }
-      process.exit(0)
-    `
-    const out = execFileSync("bun", ["-e", script], {
-      cwd: fileURLToPath(new URL("../..", import.meta.url)),
-      encoding: "utf8",
-      timeout: 15_000,
-    })
-    expect(out.trim()).toBe("second:ok")
   })
 })

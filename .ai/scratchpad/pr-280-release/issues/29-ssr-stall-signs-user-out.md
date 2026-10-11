@@ -32,7 +32,7 @@ Request path on pr-280: browser → backend → `UI_PROXY_URL` (UI public URL) �
 
 1. `pr-deploy.yaml` and `pr-preview-roll-existing.yaml`: set the preview UI `AUTH_BASE_URL` to the backend private domain, as in production. This is an existing variable, and Railway already gives the value through a reference. Railway gives each environment its own private network, so the reference resolves to the backend of the PR. The UI browser OTEL proxy accepts only `AUTH_BASE_URL` and `AUTH_ALLOWED_ORIGINS` as the browser origin. The workflows now also set the existing `AUTH_ALLOWED_ORIGINS` on the UI to the public backend origin.
 2. `apps/ui/src/lib/auth-ssr.ts`: return the signed-out value only when the backend says so (no session, or 401). A network error, a timeout, or a server error throws `ApiError`. The org gate query retries once (`retryQuery`), then the `$orgSlug` route shows its error screen with **Try again**. The `/` loader only warms the cache, so it ignores the failure.
-3. `keepalive: false` stays. On the private network it costs one TCP handshake with no TLS.
+3. Revert the ticket 27 `keepalive: false` in `apiFetch`, with its "apiFetch under Bun" test. The evidence above disproves its premise: the stall comes from new connections, not from a dead pooled socket. With a public `AUTH_BASE_URL`, as in some self-host setups, it opens more new connections and so causes more stalls.
 
 ## Proof
 
