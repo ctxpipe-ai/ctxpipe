@@ -576,11 +576,56 @@ export const SingleCreatePrPaneClosed: Story = {
   },
 }
 
+/**
+ * The pane is closed. Create PR and the pane triggers sit in the same header
+ * row, and they look the same.
+ */
+export const CreatePrMatchesPaneTriggers: Story = {
+  tags: ["workspace-golden"],
+  args: { conversationId: "conv_1" },
+  parameters: {
+    storyRoute: workspaceRoute({ conversationId: "conv_1" }),
+    msw: {
+      handlers: {
+        page: noPrHandlers(),
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const page = within(canvasElement.ownerDocument.body)
+    const createPr = await page.findByRole(
+      "button",
+      { name: "Create PR" },
+      { timeout: 15_000 },
+    )
+    const files = page.getByRole("button", { name: "Files" })
+    const look = (element: HTMLElement) => {
+      const style = getComputedStyle(element)
+      const icon = element.querySelector("svg")?.getBoundingClientRect()
+      const box = element.getBoundingClientRect()
+      return {
+        height: box.height,
+        bottom: box.bottom,
+        paddingLeft: style.paddingLeft,
+        paddingRight: style.paddingRight,
+        fontSize: style.fontSize,
+        fontWeight: style.fontWeight,
+        color: style.color,
+        borderTopWidth: style.borderTopWidth,
+        borderRadius: style.borderTopLeftRadius,
+        iconWidth: icon?.width,
+        iconHeight: icon?.height,
+      }
+    }
+    expect(look(createPr)).toEqual(look(files))
+  },
+}
+
 /** The names of the visible publish actions in one header. */
 const publishActionNames = (root: HTMLElement) =>
   within(root)
     .queryAllByRole("button", { name: /^(Sync|Create PR)/ })
-    .concat(within(root).queryAllByRole("link", { name: "Show PR" }))
+    .concat(within(root).queryAllByRole("link", { name: /^Show PR/ }))
     .filter((element) => !element.closest("[inert]"))
     .map((element) => element.getAttribute("aria-label") ?? element.textContent)
 
