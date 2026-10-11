@@ -1,4 +1,4 @@
-import { ApiError, apiFetch } from "./api-result"
+import { apiFetch, readApiJson } from "./api-result"
 import { ssrApiBaseUrl } from "./ssr-api-base"
 
 export type SsrAuthUser = {
@@ -48,9 +48,11 @@ export async function fetchSsrSession(): Promise<SsrSession> {
     `${authBaseUrl()}/.auth/api/v1/auth/get-session`,
     init,
   )
-  if (res.status === 401) return null
-  if (!res.ok) throw failedAuthCall(res, "Session check failed")
-  const data = (await res.json()) as SsrSession | null
+  const data = await readApiJson<SsrSession>(res, {
+    emptyOn: [401],
+    empty: null,
+    message: "Session check failed",
+  })
   if (!data?.session || !data.user) return null
   return data
 }
@@ -66,12 +68,10 @@ export async function fetchSsrOrganizations(): Promise<SsrOrganization[]> {
     `${authBaseUrl()}/.auth/api/v1/auth/organization/list`,
     init,
   )
-  if (res.status === 401) return []
-  if (!res.ok) throw failedAuthCall(res, "Organization list failed")
-  const data = (await res.json()) as SsrOrganization[] | null
+  const data = await readApiJson<SsrOrganization[] | null>(res, {
+    emptyOn: [401],
+    empty: [],
+    message: "Organization list failed",
+  })
   return Array.isArray(data) ? data : []
-}
-
-function failedAuthCall(res: Response, message: string): ApiError {
-  return new ApiError(`${message} (${res.status})`, res.status)
 }

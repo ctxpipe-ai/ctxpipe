@@ -11,7 +11,7 @@ import {
   it,
   vi,
 } from "vitest"
-import { ApiError } from "./api-result"
+import { API_FETCH_TIMEOUT_SSR_MS, ApiError, retryQuery } from "./api-result"
 import {
   type OrgGate,
   orgGateKeys,
@@ -124,6 +124,45 @@ describe("orgGateOptions against the backend", () => {
         HttpResponse.json([{ id: "org_1", name: "Acme", slug: "acme" }]),
       ),
     )
-    await expect(fetchGate()).rejects.toMatchObject({ status: 502 })
+    await expect(fetchGate()).rejects.toMatchObject({
+      status: 502,
+      message: "Bad gateway",
+    })
+  })
+
+  it("resolves a signed-out gate when the session check answers 401", async () => {
+    server.use(
+      http.get(`${backend}/.auth/api/v1/auth/get-session`, () =>
+        HttpResponse.json({ message: "Unauthorized" }, { status: 401 }),
+      ),
+      http.get(`${backend}/.auth/api/v1/auth/organization/list`, () =>
+        HttpResponse.json({ message: "Unauthorized" }, { status: 401 }),
+      ),
+    )
+    await expect(fetchGate()).resolves.toMatchObject({ session: null })
+  })
+
+  it("does not retry during the server render, so one stall stays under the backend proxy timeout", async () => {
+    let sessionCalls = 0
+    server.use(
+      http.get(`${backend}/.auth/api/v1/auth/get-session`, () => {
+        sessionCalls += 1
+        return HttpResponse.error()
+      }),
+      http.get(`${backend}/.auth/api/v1/auth/organization/list`, () =>
+        HttpResponse.json([{ id: "org_1", name: "Acme", slug: "acme" }]),
+      ),
+    )
+    // The app QueryClient retries network errors once (retryQuery).
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: retryQuery, retryDelay: 0 } },
+    })
+    await expect(
+      queryClient.fetchQuery(orgGateOptions("acme")),
+    ).rejects.toBeInstanceOf(ApiError)
+    expect(sessionCalls).toBe(1)
+    // Worst case is one SSR timeout. UI_PROXY_TIMEOUT_MS in
+    // apps/backend/src/routes/ui.ts is 15 s.
+    expect(API_FETCH_TIMEOUT_SSR_MS).toBeLessThan(15_000)
   })
 })

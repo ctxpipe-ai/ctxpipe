@@ -20,6 +20,11 @@ export const orgGateKeys = {
 export function orgGateOptions(orgSlug: string) {
   return queryOptions({
     queryKey: orgGateKeys.org(orgSlug),
+    // A server-render retry would wait a second SSR timeout, and the backend
+    // UI proxy would answer 504 first. Fail fast to the route error screen;
+    // its Try again runs the gate again. The browser keeps the client default
+    // (an explicit `retry: undefined` would replace it).
+    ...(import.meta.env.SSR ? { retry: false } : {}),
     queryFn: async (): Promise<OrgGate> => {
       const [session, organizations] = await Promise.all([
         fetchSsrSession(),
