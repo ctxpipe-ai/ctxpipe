@@ -916,6 +916,37 @@ const mergedPull = () => ({
 })
 
 it(
+  "opens the PR with a clean title and a summary body, and a shorter body when the compare fails",
+  { timeout: 300_000 },
+  async () => {
+    const compare = { refused: false }
+    await withSession(
+      { githubCompareRefused: () => compare.refused },
+      async (_f, s) => {
+        const handle = await s.warm()
+        await s.agentCommit(handle, "one.md", "Add note one")
+        await s.agentCommit(handle, "two.md", "Add note two")
+        expect((await s.createPr('"Add notes."\n\nMore text')).status).toBe(200)
+        const created = s.pullRequests[0] as { title: string; body: string }
+        expect(created.title).toBe("Add notes")
+        expect(created.body).toMatch(
+          new RegExp(
+            `^- Add note one\\n- Add note two\\n\\n\\[Open the conversation in ctx\\|\\]\\(https?://[^)]+/ws/[^)]+/${s.conversationId}\\)$`,
+          ),
+        )
+        // The pull request opens even when GitHub cannot compare the branch.
+        compare.refused = true
+        expect((await s.createPr("Add notes")).status).toBe(200)
+        const second = s.pullRequests[1] as { body: string }
+        expect(second.body).toMatch(
+          /^Changes made in a ctx\| conversation\.\n\n\[Open the conversation in ctx\|\]/,
+        )
+      },
+    )
+  },
+)
+
+it(
   "keeps the branch after a closed PR and continues on a fresh branch, with unpushed work, once it is merged",
   { timeout: 300_000 },
   async () => {

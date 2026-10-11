@@ -1,5 +1,5 @@
 import { parseEnv } from "../config/env.js"
-import { getOrganizationSlugByOrgId } from "../models/confluence-sync-target.js"
+import { getOrganizationSlugByOrgId } from "../models/organizations.js"
 import { loadConfluenceScopeFromRepo } from "../services/confluence/config-from-repo.js"
 import {
   confluenceSpaceSelection,

@@ -685,6 +685,34 @@ export async function compareCommitsTouchesPath(
   })
 }
 
+/**
+ * What `head` adds to `base`: the commit messages (oldest first) and the
+ * changed files. GitHub lists at most 250 commits and 300 files.
+ */
+export async function compareBranchChanges(
+  input: BaseInput & { base: string; head: string },
+): Promise<{
+  commits: string[]
+  files: Array<{ path: string; status: string }>
+}> {
+  return withTransientGitHubRetry(async () => {
+    const context = await getInstallationContext(input)
+    const { data } = await context.octokit.rest.repos.compareCommits({
+      owner: context.owner,
+      repo: context.repo,
+      base: input.base,
+      head: input.head,
+    })
+    return {
+      commits: data.commits.map((commit) => commit.commit.message),
+      files: (data.files ?? []).map((file) => ({
+        path: file.filename,
+        status: file.status,
+      })),
+    }
+  })
+}
+
 export async function closePullRequest(
   input: BaseInput & {
     pullNumber: number

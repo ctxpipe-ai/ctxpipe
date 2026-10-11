@@ -7,13 +7,18 @@ import {
   recordConversationSessionPush,
 } from "../../models/conversations.js"
 import { getRepoWriteCloneToken } from "../../models/github-installation.js"
-import { getWorkspaceWriteAdmission } from "../../models/workspaces.js"
+import { getOrganizationSlugByOrgId } from "../../models/organizations.js"
+import {
+  getWorkspaceById,
+  getWorkspaceWriteAdmission,
+} from "../../models/workspaces.js"
 import { log } from "../../observability/logger.js"
 import {
   gitRemoteEnvironment,
   resolveGitRemoteTip,
 } from "../../services/git/clone-tree.js"
 import { nativeGit, withGitDirectory } from "../../services/git/pack.js"
+import { compareBranchChanges } from "../../services/github/installation-write-client.js"
 import {
   type ChatPublishBlock,
   conversationSessionBranch,
@@ -30,6 +35,11 @@ import {
 } from "./conversation-files.js"
 import { switchToSessionBranch } from "./conversation-session-branch.js"
 import type { JobSandboxHandle } from "./job-worktree.js"
+import {
+  type BranchChanges,
+  pullRequestBody,
+  pullRequestTitle,
+} from "./pull-request-text.js"
 import { resolveRepositoryReadCredential } from "./resolve-revision.js"
 import {
   gitObjectIdSchema,
@@ -554,4 +564,53 @@ export function conversationGithubPullUrl(input: {
   prNumber: number
 }): string {
   return `https://github.com/${input.repositoryName}/pull/${input.prNumber}`
+}
+
+/** The conversation in the app, at the public origin `AUTH_BASE_URL`. */
+async function conversationAppUrl(
+  target: PublishTarget,
+  env: Env,
+): Promise<string | null> {
+  const [orgSlug, workspace] = await Promise.all([
+    getOrganizationSlugByOrgId(target.orgId),
+    getWorkspaceById(target.workspaceId, target.orgId),
+  ])
+  if (!orgSlug || !workspace?.slug) return null
+  const origin = env.AUTH_BASE_URL.replace(/\/+$/, "")
+  return `${origin}/${orgSlug}/ws/${workspace.slug}/${target.conversationId}`
+}
+
+/**
+ * The title and body of a new pull request from the session branch: what the
+ * branch adds to the default branch on GitHub, and a link to the
+ * conversation. A failed compare gives a shorter body, so the pull request
+ * still opens.
+ */
+export async function describeSessionPullRequest(input: {
+  target: PublishTarget
+  env: Env
+  name: string | null | undefined
+}): Promise<{ title: string; body: string }> {
+  const { target, env } = input
+  const changes = await compareBranchChanges({
+    orgId: target.orgId,
+    repositoryName: target.repositoryName,
+    env,
+    githubConnectionId: target.connectionId,
+    base: target.revision.defaultBranch,
+    head: target.branch,
+  }).catch((error: unknown): BranchChanges => {
+    log.warn({
+      step: "conversation-pull-request-compare",
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+      conversationId: target.conversationId,
+    })
+    return { commits: [], files: [] }
+  })
+  const conversationUrl = await conversationAppUrl(target, env)
+  return {
+    title: pullRequestTitle(input.name, changes),
+    body: pullRequestBody({ changes, conversationUrl }),
+  }
 }

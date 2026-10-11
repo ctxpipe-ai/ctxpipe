@@ -14,12 +14,14 @@ import {
 } from "../../domain/conversations/transport.js"
 import { conversationSessionBranch } from "../../domain/workspaces/chat-lifecycle.js"
 import {
+  describeSessionPullRequest,
   pushConversationSession,
   resolvePublishTarget,
   type SessionPublishFailure,
   type SessionPublishSkip,
   sessionBranchOnGithub,
 } from "../../domain/workspaces/conversation-publish.js"
+import { cleanTitle } from "../../domain/workspaces/conversation-title.js"
 import { sameWorkspaceBinding } from "../../domain/workspaces/revision.js"
 import { postgresSandboxLocks } from "../../domain/workspaces/sandbox-lock-store.js"
 import {
@@ -441,7 +443,6 @@ const postConversationPrepareRoute = createRoute({
 const CreateConversationPullRequestSchema = z
   .object({
     title: z.string().min(1).optional(),
-    body: z.string().optional(),
   })
   .openapi("CreateConversationPullRequest")
 
@@ -652,8 +653,8 @@ type WorkspaceRecordFor = NonNullable<
 async function createConversationPullRequest(input: {
   conversation: ConversationRecordFor
   workspace: WorkspaceRecordFor
-  title: string
-  body: string
+  /** From the client; else the conversation name, as one clean line. */
+  title?: string
 }): Promise<
   | {
       pullRequest: {
@@ -665,7 +666,7 @@ async function createConversationPullRequest(input: {
     }
   | PublishError
 > {
-  const { conversation, workspace, title } = input
+  const { conversation, workspace } = input
   const env = parseEnv(process.env as Record<string, string | undefined>)
   try {
     // A merged branch never gets a second PR; checked first, as the merge
@@ -756,13 +757,18 @@ async function createConversationPullRequest(input: {
         },
       }
     }
+    const described = await describeSessionPullRequest({
+      target,
+      env,
+      name: input.title ?? conversation.name,
+    })
     const created = await createPullRequestFromBranch({
       ...github,
       revision,
       baseBranch: revision.defaultBranch,
       branch,
-      title,
-      body: input.body,
+      title: described.title,
+      body: described.body,
     })
     if (created && "refused" in created) {
       getLogger().warn("conversation-pull-request refused", {
@@ -838,7 +844,7 @@ async function pushConversationBranch(input: {
     orgId: workspace.orgId,
     workspaceId: workspace.id,
     env: parseEnv(process.env as Record<string, string | undefined>),
-    commit: { subject: conversation.name },
+    commit: { subject: cleanTitle(conversation.name) || "Changes from ctx|" },
   })
   if (pushed.status === "unchanged") return publishError("no_changes")
   if (pushed.status !== "pushed") return publishError(pushed.reason)
@@ -1340,8 +1346,7 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
         )
         return createConversationPullRequest({
           ...target,
-          title: body.title ?? target.conversation.name,
-          body: body.body ?? "",
+          title: body.title,
         })
       },
     })

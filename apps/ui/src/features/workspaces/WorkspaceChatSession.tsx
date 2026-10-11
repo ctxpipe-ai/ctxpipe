@@ -31,6 +31,7 @@ import {
 import type { ParsedPane } from "./pane"
 import {
   conversationTurnChangesOptions,
+  refreshConversationAfterTurn,
   workspaceChatPrepareOptions,
   workspaceKeys,
 } from "./queries"
@@ -210,24 +211,11 @@ export function WorkspaceChatSession(props: {
           setSendError(new Error(message))
         }
         if (chunk.type === "RUN_FINISHED") {
-          void queryClient.invalidateQueries({
-            queryKey: workspaceKeys.conversationGitTree(
-              orgSlug,
-              conversationId,
-            ),
-          })
-          void queryClient.invalidateQueries({
-            queryKey: workspaceKeys.conversationGitStatus(
-              orgSlug,
-              conversationId,
-            ),
-          })
-          void queryClient.invalidateQueries({
-            queryKey: workspaceKeys.conversationTurnChanges(
-              orgSlug,
-              conversationId,
-            ),
-          })
+          void refreshConversationAfterTurn(
+            queryClient,
+            orgSlug,
+            conversationId,
+          )
         }
       }
     },

@@ -1,11 +1,5 @@
 import { and, eq } from "drizzle-orm"
-import {
-  type Db,
-  getOrgDb,
-  getSystemDb,
-  withOrgDbContext,
-} from "../db/client.js"
-import { organizations } from "../db/schema/auth.js"
+import { type Db, getOrgDb, withOrgDbContext } from "../db/client.js"
 import { confluenceSyncTargets } from "../db/schema/confluenceSyncTargets.js"
 import { connections } from "../db/schema/connections.js"
 import { repositories } from "../db/schema/repositories.js"
@@ -121,18 +115,6 @@ export async function getConfluenceSyncTargetByConnectionId(
       .limit(1)
     return row
   })
-}
-
-export async function getOrganizationSlugByOrgId(
-  orgId: string,
-): Promise<string | undefined> {
-  const db = getSystemDb()
-  const [row] = await db
-    .select({ slug: organizations.slug })
-    .from(organizations)
-    .where(eq(organizations.id, orgId))
-    .limit(1)
-  return row?.slug
 }
 
 export async function listConfluenceSyncTargetsByRepositoryId(

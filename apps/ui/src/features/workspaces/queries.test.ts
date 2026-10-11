@@ -12,6 +12,7 @@ import {
   deleteWorkspace,
   fetchWorkspaceGitTree,
   landingWorkspace,
+  refreshConversationAfterTurn,
   retryPrepareWorkspace,
   workspaceChatPrepareOptions,
   workspaceGitTreeOptions,
@@ -354,5 +355,25 @@ describe("workspace query HTTP helpers", () => {
         workspaceChatPrepareOptions("acme", "conv_1", "ws_1"),
       ),
     ).rejects.toThrow(message)
+  })
+})
+
+describe("refreshConversationAfterTurn", () => {
+  it("marks the Files tree, status, turn changes and every Diff pane query stale", async () => {
+    const client = new QueryClient()
+    const keys = [
+      workspaceKeys.conversationGitTree("acme", "conv_1"),
+      workspaceKeys.conversationGitStatus("acme", "conv_1"),
+      workspaceKeys.conversationTurnChanges("acme", "conv_1"),
+      workspaceKeys.conversationGitDiff("acme", "conv_1"),
+      workspaceKeys.conversationGitDiff("acme", "conv_1", "run_1"),
+    ]
+    const otherDiff = workspaceKeys.conversationGitDiff("acme", "conv_2")
+    for (const key of [...keys, otherDiff]) client.setQueryData(key, {})
+    await refreshConversationAfterTurn(client, "acme", "conv_1")
+    for (const key of keys) {
+      expect(client.getQueryState(key)?.isInvalidated, String(key)).toBe(true)
+    }
+    expect(client.getQueryState(otherDiff)?.isInvalidated).toBe(false)
   })
 })

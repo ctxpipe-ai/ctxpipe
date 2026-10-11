@@ -74,6 +74,8 @@ export type NativeHydrationOptions = {
   onGithubPullRequestRead?: () => void | Promise<void>
   onGithubPrCredential?: () => void | Promise<void>
   onGithubPullRequest?: (body: unknown) => void | Promise<void>
+  /** GitHub's compare answers 404 while this returns true. */
+  githubCompareRefused?: () => boolean
   githubGitResponses?: Record<string, { status?: number; body: unknown }>
   onGithubRequest?: (method: string, url: string) => void
   onGithubGitRequest?: (method: string, path: string, body: unknown) => void
@@ -182,6 +184,42 @@ async function createNativeHydrationFixture(
           options.githubPullRequest ?? { message: "Not found" },
           { status: options.githubPullRequest ? 200 : 404 },
         )
+      },
+    ),
+    // GitHub's compare, answered from the fixture's real remote.
+    http.get(
+      "https://api.github.com/repos/fixture/hydration-contract/compare/:basehead",
+      ({ params }) => {
+        if (options.githubCompareRefused?.())
+          return HttpResponse.json({ message: "Not Found" }, { status: 404 })
+        const [base, head] = String(params.basehead).split("...")
+        const remote = (...args: string[]) =>
+          git("--git-dir", join(directory, "remote.git"), ...args)
+        const range = `${base}...${head}`
+        const statuses: Record<string, string> = {
+          A: "added",
+          M: "modified",
+          D: "removed",
+        }
+        return HttpResponse.json({
+          commits: remote(
+            "log",
+            "--reverse",
+            "--format=%B%x00",
+            `${base}..${head}`,
+          )
+            .split("\0")
+            .map((message) => message.trim())
+            .filter(Boolean)
+            .map((message) => ({ commit: { message } })),
+          files: remote("diff", "--name-status", range)
+            .split("\n")
+            .filter(Boolean)
+            .map((line) => {
+              const [status = "", filename = ""] = line.split("\t")
+              return { filename, status: statuses[status] ?? "changed" }
+            }),
+        })
       },
     ),
     http.put(

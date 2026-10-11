@@ -70,6 +70,9 @@ export const workspaceKeys = {
     conversationId: string,
     turn?: string,
   ) => ["conversation-git-diff", orgSlug, conversationId, turn ?? ""] as const,
+  /** Matches the full diff and each turn diff of the conversation. */
+  conversationGitDiffs: (orgSlug: string, conversationId: string) =>
+    ["conversation-git-diff", orgSlug, conversationId] as const,
   conversationTurnChanges: (orgSlug: string, conversationId: string) =>
     ["conversation-turn-changes", orgSlug, conversationId] as const,
   conversationPullRequest: (orgSlug: string, conversationId: string) =>
@@ -564,6 +567,22 @@ export function applyConversationFileWriteSnapshot(
   })
 }
 
+/** A finished chat turn can change files: reload what the panes show. */
+export function refreshConversationAfterTurn(
+  client: QueryClient,
+  orgSlug: string,
+  conversationId: string,
+) {
+  return Promise.all(
+    [
+      workspaceKeys.conversationGitTree(orgSlug, conversationId),
+      workspaceKeys.conversationGitStatus(orgSlug, conversationId),
+      workspaceKeys.conversationTurnChanges(orgSlug, conversationId),
+      workspaceKeys.conversationGitDiffs(orgSlug, conversationId),
+    ].map((queryKey) => client.invalidateQueries({ queryKey })),
+  )
+}
+
 export async function persistConversationFileMutation(
   orgSlug: string,
   conversationId: string,
@@ -642,7 +661,7 @@ export async function fetchConversationPullRequest(
 export async function createConversationPullRequest(
   orgSlug: string,
   conversationId: string,
-  input?: { title?: string; body?: string },
+  input?: { title?: string },
 ): Promise<ConversationPullRequestResponse> {
   const client = await getApiClient()
   const res = await client[":orgSlug"].api.v1.conversations[":conversationId"][
