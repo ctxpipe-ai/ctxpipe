@@ -24,6 +24,16 @@ const allVisible = (root: HTMLElement) =>
   bones(root).length > 0 &&
   bones(root).every((bone) => getComputedStyle(bone).visibility === "visible")
 
+/** The time the bones became visible, read on each animation frame. */
+const visibleAt = async (root: HTMLElement) => {
+  const deadline = performance.now() + SKELETON_DELAY_MS * 2
+  while (!allVisible(root)) {
+    if (performance.now() > deadline) throw new Error("Bones stayed hidden")
+    await new Promise((resolve) => requestAnimationFrame(resolve))
+  }
+  return performance.now()
+}
+
 const allHidden = (root: HTMLElement) =>
   bones(root).length > 0 &&
   bones(root).every((bone) => getComputedStyle(bone).visibility === "hidden")
@@ -159,10 +169,7 @@ export const VisibleSkeletonHoldsMinimum: Story = {
   render: () => <HoldDemo />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await waitFor(() => expect(allVisible(canvasElement)).toBe(true), {
-      timeout: SKELETON_DELAY_MS * 2,
-    })
-    const finishedAt = performance.now()
+    const shownAt = await visibleAt(canvasElement)
     await userEvent.click(
       canvas.getByRole("button", { name: "Finish loading" }),
     )
@@ -171,8 +178,8 @@ export const VisibleSkeletonHoldsMinimum: Story = {
     await waitFor(() => expect(canvas.getByText("Loaded")).toBeVisible(), {
       timeout: SKELETON_MIN_MS * 3,
     })
-    expect(performance.now() - finishedAt).toBeGreaterThanOrEqual(
-      SKELETON_MIN_MS - 50,
+    expect(performance.now() - shownAt).toBeGreaterThanOrEqual(
+      SKELETON_MIN_MS - 20,
     )
   },
 }
@@ -205,18 +212,16 @@ export const SuspenseHoldsMinimum: Story = {
     })
     await mount()
     const canvas = within(canvasElement)
-    await waitFor(() => expect(allVisible(canvasElement)).toBe(true), {
-      timeout: SKELETON_DELAY_MS * 2,
-    })
-    const releasedAt = performance.now()
+    const shownAt = await visibleAt(canvasElement)
     release()
     await sleep(SKELETON_MIN_MS / 3)
     expect(canvas.queryByText("Loaded")).not.toBeInTheDocument()
     await waitFor(() => expect(canvas.getByText("Loaded")).toBeVisible(), {
       timeout: SKELETON_MIN_MS * 3,
     })
-    expect(performance.now() - releasedAt).toBeGreaterThanOrEqual(
-      SKELETON_MIN_MS - 50,
+    // Measured from the frame where the skeleton became visible.
+    expect(performance.now() - shownAt).toBeGreaterThanOrEqual(
+      SKELETON_MIN_MS - 20,
     )
   },
 }
