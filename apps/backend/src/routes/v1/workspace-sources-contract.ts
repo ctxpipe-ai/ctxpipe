@@ -77,7 +77,7 @@ const DeliverySchema = z
   .default("pull_request")
   .openapi("WorkspaceSourceDelivery", {
     description:
-      "pull_request opens a PR against the default branch. commit pushes to the default branch; the server opens a PR when it cannot push.",
+      "pull_request opens a PR against the default branch (awaiting merge). commit queues a direct commit to the default branch through the Workspace write queue.",
   })
 
 export const CreateWorkspaceSourceRequestSchema = z
@@ -108,9 +108,9 @@ export const WorkspaceSourceChangeResultSchema = z
       pullRequestUrl: z.string().url(),
     }),
     z.object({
-      outcome: z.literal("commit"),
+      // The durable Workspace write queue commits to the default branch.
+      outcome: z.literal("commit_queued"),
       sourceKey: z.string(),
-      commitSha: z.string(),
     }),
   ])
   .openapi("WorkspaceSourceChangeResult")
@@ -147,7 +147,7 @@ const changeOk = {
     content: {
       "application/json": { schema: WorkspaceSourceChangeResultSchema },
     },
-    description: "The file change: a PR (awaiting merge) or a commit",
+    description: "The file change: a PR (awaiting merge) or a queued commit",
   },
 } as const
 

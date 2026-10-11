@@ -146,6 +146,7 @@ import {
   getCommitTimestamp,
   getFileContentBytes,
   getPullRequestHeadBranch,
+  listOpenPullRequestsByBranchPrefix,
   listFilesAtSha,
   listFilesInTree,
   listFilesInTreeWithMetadata,
@@ -247,6 +248,50 @@ describe("getPullRequestHeadBranch", () => {
       owner: "acme",
       repo: "context",
       pull_number: 17,
+    })
+  })
+})
+
+describe("listOpenPullRequestsByBranchPrefix", () => {
+  it("keeps only the open pull requests on the branch prefix", async () => {
+    const pullsList = vi.fn().mockResolvedValue({
+      data: [
+        {
+          html_url: "https://github.com/acme/context/pull/3",
+          head: { ref: "ctxpipe/sources/add/linear/eng-issues-17" },
+          created_at: "2026-10-11T00:00:00Z",
+        },
+        {
+          html_url: "https://github.com/acme/context/pull/4",
+          head: { ref: "feature/other" },
+          created_at: "2026-10-11T00:00:00Z",
+        },
+      ],
+    })
+    getInstallationOctokitForOrgMock.mockResolvedValue({
+      installation: { installationId: 42 },
+      octokit: { rest: { pulls: { list: pullsList } } },
+    })
+    await expect(
+      listOpenPullRequestsByBranchPrefix({
+        orgId: "org_1",
+        repositoryName: "acme/context",
+        githubConnectionId: "con_github",
+        env: {} as Env,
+        branchPrefix: "ctxpipe/sources/",
+      }),
+    ).resolves.toEqual([
+      {
+        pullUrl: "https://github.com/acme/context/pull/3",
+        branch: "ctxpipe/sources/add/linear/eng-issues-17",
+        createdAt: "2026-10-11T00:00:00Z",
+      },
+    ])
+    expect(pullsList).toHaveBeenCalledWith({
+      owner: "acme",
+      repo: "context",
+      state: "open",
+      per_page: 100,
     })
   })
 })
