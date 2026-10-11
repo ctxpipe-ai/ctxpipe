@@ -4,6 +4,7 @@ import {
   afterAll,
   afterEach,
   beforeAll,
+  beforeEach,
   describe,
   expect,
   it,
@@ -18,6 +19,10 @@ const server = setupServer()
 
 beforeAll(() => {
   server.listen({ onUnhandledRequest: "error" })
+})
+
+beforeEach(() => {
+  vi.stubEnv("AUTH_BASE_URL", backend)
 })
 
 afterEach(() => {
@@ -38,19 +43,18 @@ function documentRequest(pathname: string, cookie?: string): Request {
   return new Request(`http://ui.internal${pathname}`, { headers })
 }
 
+const backend = "http://backend.internal:8080"
+
 function sessionHandlers(activeOrganizationId = "org_1") {
   return [
-    http.get(
-      "https://app.example/.auth/api/v1/auth/get-session",
-      ({ request }) => {
-        expect(request.headers.get("cookie")).toBe("session=abc")
-        return HttpResponse.json({
-          user: { id: "user_1", email: "a@b.c", name: "Ada" },
-          session: { activeOrganizationId },
-        })
-      },
-    ),
-    http.get("https://app.example/.auth/api/v1/auth/organization/list", () =>
+    http.get(`${backend}/.auth/api/v1/auth/get-session`, ({ request }) => {
+      expect(request.headers.get("cookie")).toBe("session=abc")
+      return HttpResponse.json({
+        user: { id: "user_1", email: "a@b.c", name: "Ada" },
+        session: { activeOrganizationId },
+      })
+    }),
+    http.get(`${backend}/.auth/api/v1/auth/organization/list`, () =>
       HttpResponse.json([
         { id: "org_1", slug: "acme", name: "Acme Inc" },
         { id: "org_2", slug: "beta", name: "Beta" },
@@ -90,15 +94,13 @@ describe("readHyperDxDocumentIdentity", () => {
     expect(JSON.stringify(identity)).not.toContain("Ada")
   })
 
-  it("defaults a missing forwarded proto to https", async () => {
+  it("reads the session from the server-render API base, not the forwarded host", async () => {
+    // documentRequest forwards app.example. A handler exists only on the
+    // backend base URL, so a read through the forwarded host returns null.
     server.use(...sessionHandlers())
-    const headers = new Headers({
-      cookie: "session=abc",
-      "x-forwarded-host": "App.Example",
-    })
     await expect(
       readHyperDxDocumentIdentity(
-        new Request("http://ui.internal/acme/repositories", { headers }),
+        documentRequest("/acme/repositories", "session=abc"),
         "/acme/repositories",
       ),
     ).resolves.toEqual({
@@ -106,31 +108,6 @@ describe("readHyperDxDocumentIdentity", () => {
       teamId: "org_1",
       teamName: "acme",
     })
-  })
-
-  it("skips identity when the forwarded host or proto is not a plain hostname and http(s)", async () => {
-    const evil = new Headers({
-      cookie: "session=abc",
-      "x-forwarded-host": "app.example",
-      "x-forwarded-proto": "file",
-    })
-    await expect(
-      readHyperDxDocumentIdentity(
-        new Request("http://ui.internal/acme", { headers: evil }),
-        "/acme",
-      ),
-    ).resolves.toBeNull()
-    const metadata = new Headers({
-      cookie: "session=abc",
-      "x-forwarded-host": "169.254.169.254/latest/meta-data#",
-      "x-forwarded-proto": "http",
-    })
-    await expect(
-      readHyperDxDocumentIdentity(
-        new Request("http://ui.internal/acme", { headers: metadata }),
-        "/acme",
-      ),
-    ).resolves.toBeNull()
   })
 
   it("omits org keys on auth pages and returns nothing on sign-out", async () => {
