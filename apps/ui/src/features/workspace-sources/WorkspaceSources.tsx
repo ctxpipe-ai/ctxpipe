@@ -7,11 +7,12 @@ import {
   type SourceStatus,
 } from "backend/domain/workspace-sources/sources-file"
 import { useState } from "react"
-import { Link } from "react-aria-components"
+import { Heading, Link } from "react-aria-components"
 import { toast } from "sonner"
-import { AlertDialog } from "@/components/ui/AlertDialog"
 import { Button } from "@/components/ui/Button"
+import { Dialog } from "@/components/ui/Dialog"
 import { InlineAlert } from "@/components/ui/InlineAlert"
+import { Link as TextLink } from "@/components/ui/Link"
 import { Modal } from "@/components/ui/Modal"
 import { Skeleton, SkeletonLine } from "@/components/ui/Skeleton"
 import { orgConnectionsOptions } from "@/features/connectors/queries/org-connections"
@@ -20,6 +21,8 @@ import { cn } from "@/lib/utils"
 import {
   deleteWorkspaceSource,
   type PendingSourceChange,
+  type SourceDelivery,
+  sourceChangeMessage,
   type WorkspaceSource,
   workspaceSourceKeys,
   workspaceSourcesOptions,
@@ -66,17 +69,15 @@ const STATUS_TAG: Record<
 function AwaitingMergeLink(props: { change: PendingSourceChange }) {
   const { change } = props
   return (
-    <a
+    <TextLink
       href={change.pullRequestUrl}
       target="_blank"
       rel="noreferrer"
-      className={cn(
-        "mt-0.5 inline-block rounded-md text-xs text-teal-300 underline-offset-4 transition-colors hover:text-teal-200 hover:underline",
-        focusVisibleClassName,
-      )}
+      variant="secondary"
+      className="mt-0.5 inline-block text-xs"
     >
       {change.action === "remove" ? "Removal awaiting merge" : "Awaiting merge"}
-    </a>
+    </TextLink>
   )
 }
 
@@ -84,7 +85,7 @@ function SourceRow(props: {
   source: WorkspaceSource
   pending: PendingSourceChange | undefined
   onEdit: (() => void) | null
-  onRemove: () => void
+  onRemove: (() => void) | null
 }) {
   const { source, pending, onEdit, onRemove } = props
   const tag = STATUS_TAG[source.status]
@@ -119,14 +120,16 @@ function SourceRow(props: {
           <IconPencil className="size-4 text-muted-foreground" aria-hidden />
         </Button>
       ) : null}
-      <Button
-        variant="quiet"
-        size="icon-sm"
-        aria-label={`Remove ${source.sourceKey}`}
-        onPress={onRemove}
-      >
-        <IconTrash className="size-4 text-muted-foreground" aria-hidden />
-      </Button>
+      {onRemove ? (
+        <Button
+          variant="quiet"
+          size="icon-sm"
+          aria-label={`Remove ${source.sourceKey}`}
+          onPress={onRemove}
+        >
+          <IconTrash className="size-4 text-muted-foreground" aria-hidden />
+        </Button>
+      ) : null}
     </li>
   )
 }
@@ -188,30 +191,33 @@ export function WorkspaceSources(props: {
   const [removing, setRemoving] = useState<WorkspaceSource | null>(null)
 
   const removeMutation = useMutation({
-    mutationFn: (sourceKey: string) =>
-      deleteWorkspaceSource(orgSlug, workspaceSlug, sourceKey),
+    mutationFn: (input: { sourceKey: string; delivery: SourceDelivery }) =>
+      deleteWorkspaceSource(
+        orgSlug,
+        workspaceSlug,
+        input.sourceKey,
+        input.delivery,
+      ),
     onSuccess: (result) => {
       void queryClient.invalidateQueries({
         queryKey: workspaceSourceKeys.list(orgSlug, workspaceSlug),
       })
-      toast.success(
-        result.outcome === "pull_request"
-          ? "Pull request opened. The source stops after the merge."
-          : "Source removed",
-      )
+      toast.success(sourceChangeMessage(result))
     },
     onError: (error: Error) => toast.error(error.message),
   })
 
-  const connectionIdsOf = (provider: SourceProvider) =>
+  const connectionsOf = (provider: SourceProvider) =>
     (connectionsQuery.data ?? [])
       .filter(
         (connection) =>
           connection.type === SOURCE_SCOPES[provider].connectionType,
       )
-      .map((connection) => connection.id)
+      .map(({ id, displayName }) => ({ id, displayName }))
 
   const data = sourcesQuery.data
+  const canEdit = data?.canEdit ?? false
+  const directCommitAllowed = data?.directCommitAllowed ?? false
   const items = data?.items ?? []
   const pendingChanges = data?.pendingChanges ?? []
   const pendingOf = (sourceKey: string) =>
@@ -221,7 +227,7 @@ export function WorkspaceSources(props: {
     (provider) =>
       items.some((item) => item.provider === provider) ||
       pendingChanges.some((change) => change.provider === provider) ||
-      connectionIdsOf(provider).length > 0,
+      connectionsOf(provider).length > 0,
   )
   const isEmpty =
     groups.length === 0 && unknownProvider.length === 0 && !data?.fileError
@@ -299,7 +305,7 @@ export function WorkspaceSources(props: {
                     source={source}
                     pending={pendingOf(source.sourceKey)}
                     onEdit={null}
-                    onRemove={() => setRemoving(source)}
+                    onRemove={canEdit ? () => setRemoving(source) : null}
                   />
                 ))}
               </ul>
@@ -315,7 +321,7 @@ export function WorkspaceSources(props: {
                 change.action === "add" &&
                 !sources.some((item) => item.sourceKey === change.sourceKey),
             )
-            const connected = connectionIdsOf(provider).length > 0
+            const connected = connectionsOf(provider).length > 0
             return (
               <div
                 key={provider}
@@ -328,7 +334,7 @@ export function WorkspaceSources(props: {
                   <h3 className="min-w-0 flex-1 truncate text-sm text-foreground">
                     {label}
                   </h3>
-                  {connected ? (
+                  {connected && canEdit ? (
                     <Button
                       variant="quiet"
                       aria-label={`Add ${label} source`}
@@ -350,10 +356,13 @@ export function WorkspaceSources(props: {
                         key={source.sourceKey}
                         source={source}
                         pending={pendingOf(source.sourceKey)}
-                        onEdit={() =>
-                          setEditor({ kind: "edit", provider, source })
+                        onEdit={
+                          canEdit
+                            ? () =>
+                                setEditor({ kind: "edit", provider, source })
+                            : null
                         }
-                        onRemove={() => setRemoving(source)}
+                        onRemove={canEdit ? () => setRemoving(source) : null}
                       />
                     ))}
                     {pendingAdds.map((change) => (
@@ -380,7 +389,8 @@ export function WorkspaceSources(props: {
         <SourceEditorDialog
           orgSlug={orgSlug}
           workspaceSlug={workspaceSlug}
-          connectionIds={connectionIdsOf(editor.provider)}
+          connections={connectionsOf(editor.provider)}
+          directCommitAllowed={directCommitAllowed}
           target={editor}
           onClose={() => setEditor(null)}
         />
@@ -392,19 +402,56 @@ export function WorkspaceSources(props: {
         }}
         isDismissable
       >
-        <AlertDialog
-          title={`Remove ${removing?.sourceKey ?? "source"}?`}
-          variant="destructive"
-          actionLabel="Remove source"
-          cancelLabel="Cancel"
-          onAction={() => {
-            if (removing) removeMutation.mutate(removing.sourceKey)
-          }}
-        >
-          This opens a pull request that removes the source from the sources
-          file. After the merge, the sync deletes its files. Git history keeps
-          them.
-        </AlertDialog>
+        <Dialog role="alertdialog">
+          {({ close }) => (
+            <>
+              <Heading
+                slot="title"
+                className="my-0 text-lg font-medium leading-6 text-foreground"
+              >
+                Remove {removing?.sourceKey ?? "source"}?
+              </Heading>
+              <p className="mt-3 text-sm text-muted-foreground">
+                The change removes the source from the sources file. After it
+                lands, the sync deletes its files. Git history keeps them.
+              </p>
+              <div className="mt-6 flex justify-end gap-2">
+                <Button variant="quiet" onPress={close}>
+                  Cancel
+                </Button>
+                {directCommitAllowed ? (
+                  <Button
+                    variant="secondary"
+                    onPress={() => {
+                      if (removing)
+                        removeMutation.mutate({
+                          sourceKey: removing.sourceKey,
+                          delivery: "commit",
+                        })
+                      close()
+                    }}
+                  >
+                    Commit directly
+                  </Button>
+                ) : null}
+                <Button
+                  variant="destructive"
+                  autoFocus
+                  onPress={() => {
+                    if (removing)
+                      removeMutation.mutate({
+                        sourceKey: removing.sourceKey,
+                        delivery: "pull_request",
+                      })
+                    close()
+                  }}
+                >
+                  Open a pull request
+                </Button>
+              </div>
+            </>
+          )}
+        </Dialog>
       </Modal>
     </section>
   )

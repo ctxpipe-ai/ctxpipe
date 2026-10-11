@@ -4,7 +4,7 @@ import type {
   TextFieldProps as AriaTextFieldProps,
   ValidationResult,
 } from "react-aria-components"
-import { TextField as AriaTextField } from "react-aria-components"
+import { TextField as AriaTextField, TextArea } from "react-aria-components"
 import { tv } from "tailwind-variants"
 import {
   Description,
@@ -30,12 +30,15 @@ export interface TextFieldProps extends AriaTextFieldProps {
   description?: React.ReactNode
   placeholder?: string
   errorMessage?: string | ((validation: ValidationResult) => string)
+  /** Render a text area with this many rows instead of a one-line input. */
+  rows?: number
 }
 
 export function TextField({
   label,
   description,
   errorMessage,
+  rows,
   ...props
 }: TextFieldProps) {
   return (
@@ -47,7 +50,20 @@ export function TextField({
       )}
     >
       {label && <Label>{label}</Label>}
-      <Input className={inputStyles} />
+      {rows ? (
+        <TextArea
+          rows={rows}
+          className={(renderProps) =>
+            inputStyles({
+              ...renderProps,
+              className:
+                "bg-white py-2 font-mono text-xs text-neutral-800 dark:bg-neutral-900 dark:text-neutral-200",
+            })
+          }
+        />
+      ) : (
+        <Input className={inputStyles} />
+      )}
       {description && <Description>{description}</Description>}
       <FieldError>{errorMessage}</FieldError>
     </AriaTextField>

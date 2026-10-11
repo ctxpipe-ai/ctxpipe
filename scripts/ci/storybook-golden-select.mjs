@@ -36,6 +36,9 @@ export const requiredStories = [
   "SeveralProviders",
   "ScrollsToSourceAnchor",
   "EditSendsChange",
+  "ReadOnlyHidesChanges",
+  "DirectCommitQueued",
+  "PickerShowsConnectionNames",
   "ChooseWorkspacesMulti",
 ]
 

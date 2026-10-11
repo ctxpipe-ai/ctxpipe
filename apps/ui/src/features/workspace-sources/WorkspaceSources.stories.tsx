@@ -44,7 +44,7 @@ const addCalls: ChangeCall[] = []
 const removeCalls: ChangeCall[] = []
 
 const connected = orgConnectionsHandler([
-  { id: "con_gh1", type: "github" },
+  { id: "con_gh1", type: "github", displayName: "acme-gh" },
   { id: "con_cf1", type: "forge" },
   { id: "con_li1", type: "linear" },
 ])
@@ -355,7 +355,9 @@ export const EditSendsChange: Story = {
     })
     await userEvent.clear(scope)
     await userEvent.paste('{"teams":["ENG","OPS"]}')
-    await userEvent.click(dialog.getByRole("button", { name: "Save" }))
+    await userEvent.click(
+      dialog.getByRole("button", { name: "Open a pull request" }),
+    )
     await waitFor(() => expect(editCalls).toHaveLength(1))
     await expect(editCalls[0]).toEqual({
       method: "PUT",
@@ -397,10 +399,14 @@ export const AddSendsChange: Story = {
     await userEvent.click(dialog.getByRole("textbox", { name: "Scope" }))
     await userEvent.keyboard("{Control>}a{/Control}{Backspace}")
     await userEvent.paste("not json")
-    await expect(dialog.getByRole("button", { name: "Save" })).toBeDisabled()
+    await expect(
+      dialog.getByRole("button", { name: "Open a pull request" }),
+    ).toBeDisabled()
     await userEvent.clear(dialog.getByRole("textbox", { name: "Scope" }))
     await userEvent.paste('{"repositories":["acme/api"]}')
-    await userEvent.click(dialog.getByRole("button", { name: "Save" }))
+    await userEvent.click(
+      dialog.getByRole("button", { name: "Open a pull request" }),
+    )
     await waitFor(() => expect(addCalls).toHaveLength(1))
     await expect(addCalls[0]).toMatchObject({
       method: "POST",
@@ -438,7 +444,12 @@ export const RemoveSendsChange: Story = {
       await canvas.findByRole("button", { name: "Remove product-repos" }),
     )
     const dialog = within(await within(document.body).findByRole("alertdialog"))
-    await userEvent.click(dialog.getByRole("button", { name: "Remove source" }))
+    await expect(
+      dialog.queryByRole("button", { name: "Commit directly" }),
+    ).toBeNull()
+    await userEvent.click(
+      dialog.getByRole("button", { name: "Open a pull request" }),
+    )
     await waitFor(() => expect(removeCalls).toHaveLength(1))
     await expect(removeCalls[0]).toMatchObject({
       method: "DELETE",
@@ -478,5 +489,117 @@ export const LoadFailed: Story = {
     const canvas = within(canvasElement)
     await canvas.findByText("Could not load the sources of this Workspace.")
     await expect(canvas.getByRole("button", { name: "Retry" })).toBeVisible()
+  },
+}
+
+const commitCalls: ChangeCall[] = []
+
+export const ReadOnlyHidesChanges: Story = {
+  tags: ["workspace-golden"],
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceSourcesHandler(
+            workspaceSourceList({ items: [githubSource], canEdit: false }),
+          ),
+          connected,
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("2 repositories")
+    await expect(
+      canvas.queryByRole("button", { name: "Add GitHub source" }),
+    ).toBeNull()
+    await expect(
+      canvas.queryByRole("button", { name: "Edit product-repos" }),
+    ).toBeNull()
+    await expect(
+      canvas.queryByRole("button", { name: "Remove product-repos" }),
+    ).toBeNull()
+  },
+}
+
+export const DirectCommitQueued: Story = {
+  tags: ["workspace-golden"],
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceSourcesHandler(
+            workspaceSourceList({
+              items: [linearSource],
+              directCommitAllowed: true,
+            }),
+          ),
+          connected,
+          ...workspaceSourceChangeHandlers(commitCalls),
+        ],
+      },
+    },
+  },
+  beforeEach: () => {
+    commitCalls.length = 0
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Edit eng-issues" }),
+    )
+    const dialog = within(await within(document.body).findByRole("dialog"))
+    await userEvent.click(
+      dialog.getByRole("button", { name: "Commit directly" }),
+    )
+    await waitFor(() => expect(commitCalls).toHaveLength(1))
+    await expect(commitCalls[0]?.body).toMatchObject({ delivery: "commit" })
+    await within(document.body).findByText(
+      "Change queued. It appears after the next sync.",
+    )
+
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Remove eng-issues" }),
+    )
+    const confirm = within(
+      await within(document.body).findByRole("alertdialog"),
+    )
+    await userEvent.click(
+      confirm.getByRole("button", { name: "Commit directly" }),
+    )
+    await waitFor(() => expect(commitCalls).toHaveLength(2))
+    await expect(commitCalls[1]?.method).toBe("DELETE")
+  },
+}
+
+export const PickerShowsConnectionNames: Story = {
+  tags: ["workspace-golden"],
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceSourcesHandler(workspaceSourceList()),
+          orgConnectionsHandler([
+            { id: "con_gh1", type: "github", displayName: "acme-gh" },
+            { id: "con_gh2", type: "github", displayName: "acme-labs" },
+          ]),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Add GitHub source" }),
+    )
+    const dialog = within(await within(document.body).findByRole("dialog"))
+    await userEvent.click(dialog.getByRole("button", { name: /Connection/ }))
+    const listbox = within(await within(document.body).findByRole("listbox"))
+    await expect(listbox.getByRole("option", { name: "acme-gh" })).toBeVisible()
+    await expect(
+      listbox.getByRole("option", { name: "acme-labs" }),
+    ).toBeVisible()
+    await expect(listbox.queryByText("con_gh1")).toBeNull()
   },
 }

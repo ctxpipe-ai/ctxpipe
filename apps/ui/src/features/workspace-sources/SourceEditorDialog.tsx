@@ -12,6 +12,8 @@ import { Modal } from "@/components/ui/Modal"
 import { Select, SelectItem } from "@/components/ui/Select"
 import {
   createWorkspaceSource,
+  type SourceDelivery,
+  sourceChangeMessage,
   updateWorkspaceSource,
   type WorkspaceSource,
   workspaceSourceKeys,
@@ -22,24 +24,36 @@ export type SourceEditorTarget =
   | { kind: "add"; provider: SourceProvider }
   | { kind: "edit"; provider: SourceProvider; source: WorkspaceSource }
 
+/** A connection that a source can use, with the name the provider gives. */
+export type SourceConnectionOption = { id: string; displayName: string | null }
+
 /**
  * Add or edit one source of a Workspace. The body is the provider scope
- * editor slot. Save changes `.ctxpipe/sources.yaml` through a pull request.
+ * editor slot. The change goes to `.ctxpipe/sources.yaml` by a pull request,
+ * or by a direct commit when the Workspace allows one.
  */
 export function SourceEditorDialog(props: {
   orgSlug: string
   workspaceSlug: string
   /** The connections of this provider in the org. */
-  connectionIds: string[]
+  connections: SourceConnectionOption[]
+  directCommitAllowed: boolean
   target: SourceEditorTarget
   onClose: () => void
 }) {
-  const { orgSlug, workspaceSlug, connectionIds, target, onClose } = props
+  const {
+    orgSlug,
+    workspaceSlug,
+    connections,
+    directCommitAllowed,
+    target,
+    onClose,
+  } = props
   const { provider } = target
   const editing = target.kind === "edit" ? target.source : null
   const queryClient = useQueryClient()
   const [connectionId, setConnectionId] = useState<string | null>(
-    editing?.connectionId ?? connectionIds[0] ?? null,
+    editing?.connectionId ?? connections[0]?.id ?? null,
   )
   const [scope, setScope] = useState<Record<string, unknown> | null>(
     editing?.scope ?? {},
@@ -55,26 +69,25 @@ export function SourceEditorDialog(props: {
     mutationFn: (input: {
       connectionId: string
       scope: Record<string, unknown>
+      delivery: SourceDelivery
     }) => {
-      const source = { provider, ...input }
+      const { delivery, ...rest } = input
+      const source = { provider, ...rest }
       return editing
         ? updateWorkspaceSource(
             orgSlug,
             workspaceSlug,
             editing.sourceKey,
             source,
+            delivery,
           )
-        : createWorkspaceSource(orgSlug, workspaceSlug, source)
+        : createWorkspaceSource(orgSlug, workspaceSlug, source, delivery)
     },
     onSuccess: (result) => {
       void queryClient.invalidateQueries({
         queryKey: workspaceSourceKeys.list(orgSlug, workspaceSlug),
       })
-      toast.success(
-        result.outcome === "pull_request"
-          ? "Pull request opened. The change applies after the merge."
-          : "Source saved",
-      )
+      toast.success(sourceChangeMessage(result))
       onClose()
     },
     onError: (error: Error) => toast.error(error.message),
@@ -98,11 +111,10 @@ export function SourceEditorDialog(props: {
           {editing ? `Edit ${label} source` : `Add ${label} source`}
         </Heading>
         <p className="mt-1 text-sm text-muted-foreground">
-          Save opens a pull request that changes the sources file of this
-          Workspace.
+          The change goes to the sources file of this Workspace.
         </p>
         <div className="mt-5 flex flex-col gap-4">
-          {connectionIds.length > 1 ? (
+          {connections.length > 1 ? (
             <Select
               label="Connection"
               selectedKey={connectionId}
@@ -110,9 +122,9 @@ export function SourceEditorDialog(props: {
                 setConnectionId(key == null ? null : String(key))
               }
             >
-              {connectionIds.map((id) => (
-                <SelectItem key={id} id={id}>
-                  {id}
+              {connections.map((connection) => (
+                <SelectItem key={connection.id} id={connection.id}>
+                  {connection.displayName ?? `${label} connection`}
                 </SelectItem>
               ))}
             </Select>
@@ -136,16 +148,36 @@ export function SourceEditorDialog(props: {
           <Button variant="quiet" onPress={onClose}>
             Cancel
           </Button>
+          {directCommitAllowed ? (
+            <Button
+              variant="secondary"
+              isDisabled={!valid || saveMutation.isPending}
+              onPress={() => {
+                if (connectionId && scope)
+                  saveMutation.mutate({
+                    connectionId,
+                    scope,
+                    delivery: "commit",
+                  })
+              }}
+            >
+              Commit directly
+            </Button>
+          ) : null}
           <Button
             variant="primary"
             isDisabled={!valid}
             isPending={saveMutation.isPending}
             onPress={() => {
               if (connectionId && scope)
-                saveMutation.mutate({ connectionId, scope })
+                saveMutation.mutate({
+                  connectionId,
+                  scope,
+                  delivery: "pull_request",
+                })
             }}
           >
-            Save
+            Open a pull request
           </Button>
         </div>
       </Dialog>

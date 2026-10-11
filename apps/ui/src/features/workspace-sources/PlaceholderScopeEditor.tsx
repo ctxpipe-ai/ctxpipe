@@ -1,7 +1,6 @@
 import { SOURCE_SCOPES } from "backend/domain/workspace-sources/sources-file"
 import { useState } from "react"
-import { TextArea, TextField } from "react-aria-components"
-import { Description, FieldError, Label } from "@/components/ui/Field"
+import { TextField } from "@/components/ui/TextField"
 import type { SourceScopeEditorProps } from "./source-provider-ui"
 
 /** Parse the JSON text of a scope and validate it with the provider schema. */
@@ -36,6 +35,11 @@ export function PlaceholderScopeEditor(props: SourceScopeEditorProps) {
   const error = "error" in result ? result.error : undefined
   return (
     <TextField
+      label={label ? `Scope for ${label}` : "Scope"}
+      description="Enter the scope as JSON. It becomes the entry in sources.yaml."
+      errorMessage={error}
+      rows={5}
+      spellCheck="false"
       value={text}
       onChange={(next) => {
         setText(next)
@@ -43,18 +47,6 @@ export function PlaceholderScopeEditor(props: SourceScopeEditorProps) {
         onChange("scope" in parsed ? parsed.scope : null)
       }}
       isInvalid={Boolean(error)}
-      className="flex flex-col gap-1 font-sans"
-    >
-      <Label>{label ? `Scope for ${label}` : "Scope"}</Label>
-      <TextArea
-        rows={5}
-        spellCheck={false}
-        className="min-h-24 rounded-md border border-neutral-600 bg-neutral-900 px-3 py-2 font-mono text-xs text-neutral-200 outline-none focus-visible:border-neutral-300 data-[invalid]:border-red-600"
-      />
-      <Description>
-        Enter the scope as JSON. It becomes the entry in sources.yaml.
-      </Description>
-      <FieldError>{error}</FieldError>
-    </TextField>
+    />
   )
 }

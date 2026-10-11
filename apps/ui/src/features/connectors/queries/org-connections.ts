@@ -4,6 +4,8 @@ import { apiFetch, readApiJson } from "@/lib/api-result"
 export type OrgConnectionListItem = {
   id: string
   type: "github" | "forge" | "slack" | "linear" | "notion" | "pagerduty"
+  /** The account, site, or workspace name that the provider gives. */
+  displayName: string | null
   createdAt: string
   updatedAt: string
 }

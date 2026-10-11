@@ -39,6 +39,8 @@ export function workspaceSourceList(
     path: ".ctxpipe/sources.yaml",
     revision: "a1b2c3d",
     fileError: null,
+    canEdit: true,
+    directCommitAllowed: false,
     items: [],
     pendingChanges: [],
     ...overrides,
@@ -60,7 +62,10 @@ export function workspaceSourcesHandler(
   )
 }
 
-/** Records each add, edit, and remove request; answers with a pull request. */
+/**
+ * Records each add, edit, and remove request. It answers a direct commit
+ * with `commit_queued` and any other change with a pull request.
+ */
 export function workspaceSourceChangeHandlers(
   calls: { method: string; path: string; body: unknown }[] = [],
 ) {
@@ -68,9 +73,16 @@ export function workspaceSourceChangeHandlers(
     const path = pathnameOf(request)
     const body = request.method === "DELETE" ? null : await request.json()
     calls.push({ method: request.method, path, body })
+    const sourceKey = path.split("/").at(-1) ?? "new-source"
+    const delivery =
+      request.method === "DELETE"
+        ? new URL(request.url).searchParams.get("delivery")
+        : (body as { delivery?: string } | null)?.delivery
+    if (delivery === "commit")
+      return HttpResponse.json({ outcome: "commit_queued", sourceKey })
     return HttpResponse.json({
       outcome: "pull_request",
-      sourceKey: path.split("/").at(-1) ?? "new-source",
+      sourceKey,
       pullRequestUrl: "https://github.com/acme/docs/pull/7",
     })
   }
@@ -97,13 +109,17 @@ export function connectionUsageHandler(
 }
 
 export function orgConnectionsHandler(
-  items: Array<Pick<OrgConnectionListItem, "id" | "type">>,
+  items: Array<
+    Pick<OrgConnectionListItem, "id" | "type"> &
+      Partial<Pick<OrgConnectionListItem, "displayName">>
+  >,
 ) {
   return http.get(
     ({ request }) => pathnameOf(request).endsWith("/api/v1/connectors"),
     () =>
       HttpResponse.json({
         items: items.map((item) => ({
+          displayName: null,
           ...item,
           createdAt: "2026-08-15T10:00:00.000Z",
           updatedAt: "2026-08-15T10:00:00.000Z",
