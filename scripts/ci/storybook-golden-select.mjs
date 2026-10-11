@@ -12,6 +12,7 @@ export const requiredStories = [
   "PublishErrorsToast",
   "SingleCreatePr",
   "SingleCreatePrPaneClosed",
+  "MaximizedPaneMatchesHeader",
   "ConversationSandboxFiles",
   "ConversationMaximizedSync",
   "StableRequestBudget",

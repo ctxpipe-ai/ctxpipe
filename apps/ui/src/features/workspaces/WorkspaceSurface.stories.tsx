@@ -515,6 +515,7 @@ export const SingleCreatePr: Story = {
       () => {
         const buttons = visibleCreatePr()
         expect(buttons).toHaveLength(1)
+        expect(buttons[0]).toBeVisible()
         return buttons[0]
       },
       { timeout: 15_000 },
@@ -567,6 +568,74 @@ export const SingleCreatePrPaneClosed: Story = {
       },
       { timeout: 15_000 },
     )
+    // The pane triggers sit at the top right of the conversation too, with no border.
+    for (const name of ["Files", "Graph", "Settings"])
+      expect(
+        getComputedStyle(page.getByRole("button", { name })).borderTopWidth,
+      ).toBe("0px")
+  },
+}
+
+/** The names of the visible publish actions in one header. */
+const publishActionNames = (root: HTMLElement) =>
+  within(root)
+    .queryAllByRole("button", { name: /^(Sync|Create PR)/ })
+    .concat(within(root).queryAllByRole("link", { name: "Show PR" }))
+    .filter((element) => !element.closest("[inert]"))
+    .map((element) => element.getAttribute("aria-label") ?? element.textContent)
+
+/**
+ * No sandbox runs and the branch is on GitHub. Maximized, the pane header
+ * shows the same publish actions as the conversation header.
+ */
+export const MaximizedPaneMatchesHeader: Story = {
+  tags: ["workspace-golden"],
+  args: { conversationId: "conv_1", paneParam: "files" },
+  parameters: {
+    storyRoute: workspaceRoute({ conversationId: "conv_1", pane: "files" }),
+    msw: {
+      handlers: {
+        page: [
+          http.get(
+            ({ request }) =>
+              /\/api\/v1\/conversations\/[^/]+\/files\/status$/.test(
+                new URL(request.url).pathname,
+              ),
+            () =>
+              HttpResponse.json(
+                { error: "sandbox_not_running" },
+                { status: 409 },
+              ),
+          ),
+          ...noPrHandlers(),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const document = canvasElement.ownerDocument
+    const page = within(document.body)
+    const pane = document.querySelector("aside")
+    if (!pane) throw new Error("The tools pane is missing")
+    const header = await waitFor(
+      () => {
+        const createPr = page.getByRole("button", { name: "Create PR" })
+        expect(createPr).toBeVisible()
+        expect(createPr.closest("aside")).toBeNull()
+        const actions = createPr.parentElement
+        if (!actions) throw new Error("The publish actions are missing")
+        return actions
+      },
+      { timeout: 15_000 },
+    )
+    const headerNames = publishActionNames(header)
+    await userEvent.click(page.getByRole("button", { name: "Maximise pane" }))
+    await waitFor(() => {
+      expect(publishActionNames(pane)).toEqual(headerNames)
+      expect(
+        within(pane).getByRole("button", { name: "Create PR" }),
+      ).toBeVisible()
+    })
   },
 }
 
