@@ -13,6 +13,7 @@ import {
   githubRepoFullNameFromGitUrl,
   githubWebUrl,
 } from "@/features/repositories/github-web-url"
+import { WorkspaceSources } from "@/features/workspace-sources/WorkspaceSources"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
 import { deleteWorkspace, updateWorkspace, workspaceKeys } from "./queries"
@@ -380,6 +381,8 @@ export function WorkspaceSettingsPane(props: {
       </section>
 
       <WorkspaceLinkedRepositories orgSlug={orgSlug} workspace={workspace} />
+
+      <WorkspaceSources orgSlug={orgSlug} workspaceSlug={workspace.slug} />
 
       <section className="mt-16 max-w-lg">
         <h2 className="text-sm font-medium text-foreground">

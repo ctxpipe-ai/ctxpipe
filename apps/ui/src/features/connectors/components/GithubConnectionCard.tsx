@@ -8,6 +8,7 @@ import {
   githubConnectorKeys,
   githubInstallationIsLinked,
 } from "@/features/connectors/queries/github-connector"
+import { ConnectorUsedIn } from "@/features/workspace-sources/ConnectorUsedIn"
 import { apiFetch, readApiJson } from "@/lib/api-result"
 import { resolveConnectorHealth } from "../connectorHealth"
 import { orgConnectionsKeys } from "../queries/org-connections"
@@ -96,6 +97,13 @@ export function GithubConnectionCard({
 
   return (
     <ConnectorListItem
+      usedIn={
+        <ConnectorUsedIn
+          orgSlug={orgSlug}
+          connectionId={connectionId}
+          provider="github"
+        />
+      }
       id={`connector-github-${connectionId}`}
       name="GitHub"
       icon={<IconBrandGithub className="size-5 text-foreground" aria-hidden />}

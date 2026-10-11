@@ -32,6 +32,11 @@ export const requiredStories = [
   "OrgGateTryAgainLoads",
   "LoadingUnderReducedMotion",
   "DoubleClickMovesOneSlide",
+  "UsedInLinksToSourceSection",
+  "SeveralProviders",
+  "ScrollsToSourceAnchor",
+  "EditSendsChange",
+  "ChooseWorkspacesMulti",
 ]
 
 export function isGoldenPlaySuccess(phase) {

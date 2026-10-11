@@ -7,6 +7,11 @@ import {
   workspaceActivityHandler,
   workspaceListHandler,
 } from "@/mocks/workspace-handlers"
+import {
+  orgConnectionsHandler,
+  workspaceSourceList,
+  workspaceSourcesHandler,
+} from "@/mocks/workspace-sources-handlers"
 import { OrgHomePageContent } from "@/routes/$orgSlug.index"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
@@ -44,6 +49,10 @@ const meta = {
         page: [
           workspaceListHandler([docsWorkspace]),
           githubInstallationReposHandler(),
+        ],
+        sources: [
+          workspaceSourcesHandler(workspaceSourceList()),
+          orgConnectionsHandler([{ id: "con_gh", type: "github" }]),
         ],
       },
     },

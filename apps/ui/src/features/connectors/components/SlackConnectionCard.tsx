@@ -4,6 +4,7 @@ import { IconBrandSlack } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 import { toast } from "sonner"
+import { ConnectorUsedIn } from "@/features/workspace-sources/ConnectorUsedIn"
 import { resolveConnectorHealth } from "../connectorHealth"
 import { orgConnectionsKeys } from "../queries/org-connections"
 import {
@@ -73,6 +74,13 @@ export function SlackConnectionCard({
   return (
     <>
       <ConnectorListItem
+        usedIn={
+          <ConnectorUsedIn
+            orgSlug={orgSlug}
+            connectionId={connectionId}
+            provider="slack"
+          />
+        }
         name="Slack"
         icon={<IconBrandSlack className="size-5 text-foreground" aria-hidden />}
         health={health}
