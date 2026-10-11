@@ -3,6 +3,7 @@ import type { WorkspaceSourceRow } from "../../models/workspace-sources.js"
 import { log } from "../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
 import { workspaceSourcesSync } from "../../openworkflow/workflows/workspace-sources-sync.js"
+import { SOURCE_ADAPTERS } from "./adapter.js"
 import type { PlannedSourceRow } from "./projection-plan.js"
 import { type SourceProvider, sourceProviderSchema } from "./sources-file.js"
 
@@ -21,6 +22,12 @@ export async function enqueueConnectionSourcesSync(input: {
     kind: "connection",
     ...input,
   })
+}
+
+/** A provider without a sync adapter (GitHub) has nothing to sync or clean up. */
+function hasAdapter(provider: string | null): boolean {
+  const parsed = sourceProviderSchema.safeParse(provider)
+  return parsed.success && SOURCE_ADAPTERS[parsed.data] !== undefined
 }
 
 /**
@@ -44,7 +51,7 @@ export async function enqueueSourceProjectionFollowUps(input: {
     ...input.projected.removed,
     ...input.projected.changed.map((change) => change.before),
   ]
-    .filter((row) => row.status === "ok")
+    .filter((row) => row.status === "ok" && hasAdapter(row.provider))
     .map(({ provider, connectionId, scope }) => ({
       provider,
       connectionId,
@@ -64,7 +71,12 @@ export async function enqueueSourceProjectionFollowUps(input: {
     ...input.projected.changed.map((change) => change.after),
   ]) {
     const provider = sourceProviderSchema.safeParse(row.provider)
-    if (row.status === "ok" && row.connectionId && provider.success)
+    if (
+      row.status === "ok" &&
+      row.connectionId &&
+      provider.success &&
+      hasAdapter(provider.data)
+    )
       connections.set(row.connectionId, provider.data)
   }
   for (const [connectionId, provider] of connections) {

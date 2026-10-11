@@ -1,12 +1,10 @@
 import { describe, expect, it } from "vitest"
-import {
-  githubNoAccessDetail,
-  githubSourceRepositories,
-  repositoriesWithoutAccess,
-} from "./github-sources.js"
+import { githubSourceRepositories } from "./github-sources.js"
+
+const connections = new Set(["con_github1"])
 
 describe("githubSourceRepositories", () => {
-  it("lists the repositories of each valid GitHub entry with its connection", () => {
+  it("lists the repositories of each valid GitHub entry whose connection is a GitHub connection of the org", () => {
     const text = [
       "version: 1",
       "sources:",
@@ -22,8 +20,12 @@ describe("githubSourceRepositories", () => {
       "    provider: linear",
       "    connection: con_linear1",
       "    teams: [ENG]",
+      "  - id: other-org",
+      "    provider: github",
+      "    connection: con_elsewhere",
+      "    repositories: [acme/secret]",
     ].join("\n")
-    expect(githubSourceRepositories(text)).toEqual([
+    expect(githubSourceRepositories(text, connections)).toEqual([
       {
         gitUrl: "https://github.com/acme/web",
         connectionId: "con_github1",
@@ -36,26 +38,10 @@ describe("githubSourceRepositories", () => {
   })
 
   it("gives nothing for an absent, invalid, or unreadable file", () => {
-    expect(githubSourceRepositories(null)).toEqual([])
-    expect(githubSourceRepositories("version: 2\nsources: []")).toEqual([])
-    expect(githubSourceRepositories("sources: [")).toEqual([])
-  })
-})
-
-describe("the no-access detail", () => {
-  it("names the repositories, and the same repositories come back from it", () => {
-    const detail = githubNoAccessDetail(["acme/hidden", "acme/private"])
-    expect(detail).toContain("acme/hidden, acme/private")
-    expect(repositoriesWithoutAccess(detail)).toEqual([
-      "https://github.com/acme/hidden",
-      "https://github.com/acme/private",
-    ])
-  })
-
-  it("gives no repository for another detail", () => {
-    expect(repositoriesWithoutAccess(null)).toEqual([])
+    expect(githubSourceRepositories(null, connections)).toEqual([])
     expect(
-      repositoriesWithoutAccess("The connection does not exist in this org"),
+      githubSourceRepositories("version: 2\nsources: []", connections),
     ).toEqual([])
+    expect(githubSourceRepositories("sources: [", connections)).toEqual([])
   })
 })

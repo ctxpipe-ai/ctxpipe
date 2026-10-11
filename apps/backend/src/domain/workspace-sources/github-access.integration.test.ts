@@ -3,15 +3,16 @@ import { createServer } from "node:http"
 import { join } from "node:path"
 import { eq } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
+import { BackendPostgres } from "openworkflow/postgres"
 import { beforeAll, expect, it } from "vitest"
-import { withOrgDbContext } from "../../../db/client.js"
-import { repositories } from "../../../db/schema/repositories.js"
-import { workspaceSources } from "../../../db/schema/workspace_sources.js"
-import { workspaceLinkedRepositories } from "../../../db/schema/workspaces.js"
-import { workspaceHydrate } from "../../../openworkflow/workflows/workspace-hydrate.js"
-import { workspaceTipCheck } from "../../../openworkflow/workflows/workspace-tip-check.js"
-import { withNativeHydrationFixture } from "../../../test/native-hydration-fixture.js"
-import { repositoryKeyFromGitUrl } from "../../workspaces/slug.js"
+import { withOrgDbContext } from "../../db/client.js"
+import { repositories } from "../../db/schema/repositories.js"
+import { workspaceSources } from "../../db/schema/workspace_sources.js"
+import { workspaceLinkedRepositories } from "../../db/schema/workspaces.js"
+import { workspaceHydrate } from "../../openworkflow/workflows/workspace-hydrate.js"
+import { workspaceTipCheck } from "../../openworkflow/workflows/workspace-tip-check.js"
+import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
+import { repositoryKeyFromGitUrl } from "../workspaces/slug.js"
 
 beforeAll(() => {
   if (!process.env.DATABASE_URL)
@@ -78,6 +79,11 @@ it(
               "    provider: github",
               `    connection: ${f.connectionId}`,
               "    repositories: [fixture/visible-service, fixture/hidden-service]",
+              // Not a connection of this org: it links nothing.
+              "  - id: elsewhere",
+              "    provider: github",
+              "    connection: con_elsewhere",
+              "    repositories: [fixture/foreign-service]",
               "",
             ].join("\n"),
           )
@@ -100,13 +106,35 @@ it(
           expect(await hydrate.result({ timeoutMs: 60_000 })).toMatchObject({
             hydrated: true,
           })
+          // GitHub has no sync adapter, so the projection queues no sync.
+          const backend = await BackendPostgres.connect(f.databaseUrl, {
+            runMigrations: false,
+          })
+          try {
+            const syncRuns = (
+              await backend.listWorkflowRuns({ limit: 1000 })
+            ).data.filter(
+              (run) =>
+                run.workflowName === "workspace-sources-sync" &&
+                JSON.stringify(run.input).includes(f.org.id),
+            )
+            expect(syncRuns).toEqual([])
+          } finally {
+            await backend.stop()
+          }
 
-          const [source] = await withOrgDbContext(f.org.id, (db) =>
+          const sourceRows = await withOrgDbContext(f.org.id, (db) =>
             db
               .select()
               .from(workspaceSources)
               .where(eq(workspaceSources.workspaceId, f.workspaceId)),
           )
+          const source = sourceRows.find(
+            (row) => row.sourceKey === "product-repos",
+          )
+          expect(
+            sourceRows.find((row) => row.sourceKey === "elsewhere")?.status,
+          ).toBe("connection_missing")
           expect(source).toMatchObject({
             provider: "github",
             connectionId: f.connectionId,
@@ -201,7 +229,7 @@ it(
             db
               .select()
               .from(workspaceSources)
-              .where(eq(workspaceSources.workspaceId, f.workspaceId)),
+              .where(eq(workspaceSources.sourceKey, "product-repos")),
           )
           expect(rechecked).toMatchObject({ status: "ok", statusDetail: null })
           expect(hiddenReads).toBeGreaterThan(0)

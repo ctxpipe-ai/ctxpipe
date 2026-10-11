@@ -73,6 +73,8 @@ export function hydrateKnowledgeTree(input: {
    * their repositories after the `repositories/*.md` files (ADR-050).
    */
   sourcesFile?: string | null
+  /** The org's GitHub connection ids. A source with another id links nothing. */
+  githubConnectionIds?: ReadonlySet<string>
 }): {
   units: HydrateUnit[]
   skipped: HydrateSkip[]
@@ -134,7 +136,10 @@ export function hydrateKnowledgeTree(input: {
 
   // A repository that a file or the Workspace already names is not a skip:
   // during the migration, both places can name it.
-  for (const source of githubSourceRepositories(input.sourcesFile ?? null)) {
+  for (const source of githubSourceRepositories(
+    input.sourcesFile ?? null,
+    input.githubConnectionIds ?? new Set(),
+  )) {
     if (seenLinked.has(source.gitUrl)) continue
     seenLinked.add(source.gitUrl)
     linked.push({

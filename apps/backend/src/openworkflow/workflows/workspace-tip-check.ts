@@ -3,8 +3,7 @@ import { z } from "zod"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
-import { githubSourcesWithoutAccess } from "../../domain/workspace-sources/adapters/github.js"
-import { repositoriesWithoutAccess } from "../../domain/workspace-sources/github-sources.js"
+import { githubRepositoriesWithoutAccess } from "../../domain/workspace-sources/github-access.js"
 import {
   resolveLinkedReadRevision,
   resolveWorkspaceReadRevision,
@@ -248,19 +247,11 @@ export const workspaceTipCheck = defineWorkflow(
       )
       // A GitHub source records the repositories that its connection cannot
       // read (`out_of_access`). Skip them until a new check finds access.
-      const withoutAccess = new Set(
-        (
-          await githubSourcesWithoutAccess({
-            orgId: input.orgId,
-            env,
-            now: startedAt,
-          })
-        ).flatMap((source) =>
-          repositoriesWithoutAccess(source.statusDetail).map(
-            (url) => `${source.workspaceId} ${url}`,
-          ),
-        ),
-      )
+      const withoutAccess = await githubRepositoriesWithoutAccess({
+        orgId: input.orgId,
+        env,
+        now: startedAt,
+      })
       let linkedUpdated = 0
       for (const row of linked) {
         if (

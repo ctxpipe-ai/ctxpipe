@@ -25,6 +25,7 @@ import {
   type WorkspaceRevision,
   workspaceRevisionSchema,
 } from "../../domain/workspaces/revision.js"
+import { listOrgConnections } from "../../models/org-connections.js"
 import { getMigrationExportSha } from "../../models/workspace-write-jobs.js"
 import { reserveHydrateWrites } from "../../models/workspace-write-planning.js"
 import {
@@ -279,6 +280,15 @@ export const workspaceHydrate = defineWorkflow(
               return { hydrated: false, reason: "index_lag" as const }
             }
 
+            // A GitHub source links its repositories only with a GitHub
+            // connection of this org.
+            const githubConnectionIds = pending.postgres
+              ? await step.run({ name: "list-github-connections" }, async () =>
+                  (await listOrgConnections(input.orgId))
+                    .filter((connection) => connection.type === "github")
+                    .map((connection) => connection.id),
+                )
+              : []
             const parsed = pending.postgres
               ? hydrateKnowledgeTree({
                   workspaceId: workspace.id,
@@ -287,6 +297,7 @@ export const workspaceHydrate = defineWorkflow(
                   sourcesFile:
                     treeFiles.find((file) => file.path === SOURCES_FILE_PATH)
                       ?.content ?? null,
+                  githubConnectionIds: new Set(githubConnectionIds),
                 })
               : { units: snapshot.units, linked: [], skipped: [] }
             const agents = files.find((file) => file.path === "AGENTS.md")

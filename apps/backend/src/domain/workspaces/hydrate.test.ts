@@ -103,6 +103,7 @@ describe("hydrateKnowledgeTree", () => {
         "    connection: con_github1",
         "    repositories: [acme/billing, acme/web, acme/knowledge]",
       ].join("\n"),
+      githubConnectionIds: new Set(["con_github1"]),
     })
     expect(result.linked).toEqual([
       {
