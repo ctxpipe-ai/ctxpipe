@@ -1,4 +1,8 @@
-export type WriteStatusTone = "writable" | "read_only" | "pending"
+export type WriteStatusTone =
+  | "writable"
+  | "read_only"
+  | "pending"
+  | "check_failed"
 
 export function writeStatusLabel(
   status: string,
@@ -13,6 +17,13 @@ export function writeStatusLabel(
       label: "Writable",
       tone: "writable",
       description: "The GitHub App can push to this repository",
+    }
+  }
+  if (status === "unknown" && readOnlyReason) {
+    return {
+      label: "Write access not checked",
+      tone: "check_failed",
+      description: readOnlyReason,
     }
   }
   if (status === "unknown") {

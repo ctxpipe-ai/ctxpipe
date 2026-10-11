@@ -16,7 +16,12 @@ import {
 import { WorkspaceSources } from "@/features/workspace-sources/WorkspaceSources"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
-import { deleteWorkspace, updateWorkspace, workspaceKeys } from "./queries"
+import {
+  checkWorkspaceWriteAccess,
+  deleteWorkspace,
+  updateWorkspace,
+  workspaceKeys,
+} from "./queries"
 import type {
   WorkspaceDetail,
   WorkspaceListResponse,
@@ -27,8 +32,11 @@ import { WorkspaceRepositoryPicker } from "./WorkspaceRepositoryPicker"
 import { workspaceDeleteNameMatches } from "./workspaceDeleteNameMatches"
 import { writeStatusLabel } from "./writeStatusLabel"
 
-function writeTag(status: string): { label: string; className: string } {
-  const tagged = writeStatusLabel(status)
+function writeTag(
+  status: string,
+  readOnlyReason: string | null,
+): { label: string; className: string } {
+  const tagged = writeStatusLabel(status, readOnlyReason)
   if (tagged.tone === "writable") {
     return {
       label: tagged.label,
@@ -222,6 +230,14 @@ export function WorkspaceSettingsPane(props: {
     onError: (error: Error) => setRelinkError(error.message),
   })
 
+  const checkWriteMutation = useMutation({
+    mutationFn: () => checkWorkspaceWriteAccess(orgSlug, workspace.slug),
+    onSuccess: invalidate,
+    onError: (error: Error) => {
+      toast.error(error.message)
+    },
+  })
+
   const deleteMutation = useMutation({
     mutationFn: (name: string) =>
       deleteWorkspace(orgSlug, workspace.slug, name),
@@ -264,7 +280,7 @@ export function WorkspaceSettingsPane(props: {
       ? workspace.activeProjectionUrl
       : null
 
-  const write = writeTag(workspace.writeStatus)
+  const write = writeTag(workspace.writeStatus, workspace.readOnlyReason)
   const hydrate = hydrateTag(workspace.hydrateStatus)
   const repoTitle =
     githubRepoFullNameFromGitUrl(workspace.workspaceRepositoryUrl) ??
@@ -304,7 +320,25 @@ export function WorkspaceSettingsPane(props: {
       ) : null}
       {workspace.readOnlyReason ? (
         <div className="mt-4 max-w-lg">
-          <InlineAlert variant="warning" title="Read-only">
+          <InlineAlert
+            variant="warning"
+            title={
+              workspace.writeStatus === "unknown"
+                ? "Write access not checked"
+                : "Read-only"
+            }
+            actions={
+              workspace.writeStatus === "unknown" ? (
+                <Button
+                  variant="secondary"
+                  isDisabled={checkWriteMutation.isPending}
+                  onPress={() => checkWriteMutation.mutate()}
+                >
+                  Check again
+                </Button>
+              ) : undefined
+            }
+          >
             {workspace.readOnlyReason}
           </InlineAlert>
         </div>

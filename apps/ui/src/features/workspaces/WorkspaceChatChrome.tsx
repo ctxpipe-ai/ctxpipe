@@ -91,8 +91,7 @@ export function WorkspaceChatChrome(props: {
     props.publish &&
       (props.publish.commitPush.visible || props.publish.pullRequest.visible),
   )
-  const showWriteBadge =
-    !props.publish && (write.tone === "read_only" || write.tone === "pending")
+  const showWriteBadge = !props.publish && write.tone !== "writable"
   return (
     <div
       className={cn(

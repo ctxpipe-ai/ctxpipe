@@ -57,6 +57,7 @@ export function workspacePrepareNeedsPoll(input: {
   activeProjectionSha?: string | null
   migrationExportSha?: string | null
   writeStatus?: string | null
+  readOnlyReason?: string | null
   hydratePhases?: { graph: WorkspaceStorePhase }
 }): boolean {
   if (
@@ -69,9 +70,20 @@ export function workspacePrepareNeedsPoll(input: {
   ) {
     return (
       workspaceHydrateInFlight(input) ||
-      input.writeStatus === "unknown" ||
+      writeCheckInFlight(input) ||
       input.hydratePhases?.graph.kind === "pending"
     )
   }
   return workspaceHydrateView(input) !== "failed"
+}
+
+/**
+ * A write-access check is in progress. `unknown` with a reason is a failed
+ * check: the backend stops there, so the UI stops its poll.
+ */
+export function writeCheckInFlight(input: {
+  writeStatus?: string | null
+  readOnlyReason?: string | null
+}): boolean {
+  return input.writeStatus === "unknown" && !input.readOnlyReason
 }

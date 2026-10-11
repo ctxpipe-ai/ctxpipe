@@ -902,6 +902,22 @@ export async function retryPrepareWorkspace(
   })
 }
 
+/** Clears a failed write-access check and starts a new one. */
+export async function checkWorkspaceWriteAccess(
+  orgSlug: string,
+  workspaceSlug: string,
+): Promise<Workspace> {
+  const client = await getApiClient()
+  const res = await client[":orgSlug"].api.v1.workspaces[":workspaceSlug"][
+    "check-write-access"
+  ].$post({
+    param: { orgSlug, workspaceSlug },
+  })
+  return readApiJson<Workspace>(res, {
+    message: "Failed to check write access",
+  })
+}
+
 export async function linkWorkspaceRepository(
   orgSlug: string,
   workspaceSlug: string,
