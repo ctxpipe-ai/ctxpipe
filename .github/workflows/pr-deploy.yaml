@@ -600,14 +600,16 @@ jobs:
             # new connection in three from the UI did not reach the backend, and
             # the call waited for its 10 s timeout. Each environment has its own
             # private network, so the reference resolves to this PR's backend.
-            # `dollar` keeps GitHub Actions from reading the Railway reference as
-            # an expression.
+            # The port is 8080, the target port of the backend service domain:
+            # the backend sets no PORT variable, so `backend.PORT` can resolve
+            # empty. `dollar` keeps GitHub Actions from reading the Railway
+            # reference as an expression.
             upsert_preview_ui_bind_variables() {
               local service_id="$1"
               local dollar='$'
-              local auth_base="http://${dollar}{{backend.RAILWAY_PRIVATE_DOMAIN}}:${dollar}{{backend.PORT}}"
+              local auth_base="http://${dollar}{{backend.RAILWAY_PRIVATE_DOMAIN}}:8080"
               # The UI browser OTEL proxy accepts AUTH_BASE_URL and
-              # AUTH_ALLOWED_ORIGINS as the browser origin. AUTH_BASE_URL is now
+              # AUTH_ALLOWED_ORIGINS as the browser origin. AUTH_BASE_URL is
               # private, so name the public origin here.
               local public_origin="https://backend-pr-${PR_NUMBER}.up.railway.app"
               railway_graphql \

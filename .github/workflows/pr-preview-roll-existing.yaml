@@ -137,13 +137,14 @@ jobs:
           }
 
           # Bind UI + SSR API origin: the backend private domain, as in
-          # production and pr-deploy.yaml. AUTH_ALLOWED_ORIGINS gives the UI
-          # browser OTEL proxy the public origin. `dollar` keeps GitHub Actions
-          # from reading the Railway reference as an expression.
+          # pr-deploy.yaml, on port 8080 (the target port of the backend service
+          # domain). AUTH_ALLOWED_ORIGINS gives the UI browser OTEL proxy the
+          # public origin. `dollar` keeps GitHub Actions from reading the
+          # Railway reference as an expression.
           dollar='$'
           railway_graphql \
             'mutation variableCollectionUpsert($input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: $input) }' \
-            "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$UI_SERVICE_ID" --arg auth "http://${dollar}{{backend.RAILWAY_PRIVATE_DOMAIN}}:${dollar}{{backend.PORT}}" --arg origins "https://backend-pr-${{ inputs.pr_number }}.up.railway.app" \
+            "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$UI_SERVICE_ID" --arg auth "http://${dollar}{{backend.RAILWAY_PRIVATE_DOMAIN}}:8080" --arg origins "https://backend-pr-${{ inputs.pr_number }}.up.railway.app" \
               '{input:{projectId:$project,environmentId:$env,serviceId:$service,skipDeploys:true,variables:{HOST:"0.0.0.0",NITRO_HOST:"0.0.0.0",AUTH_BASE_URL:$auth,AUTH_ALLOWED_ORIGINS:$origins}}}')" >/dev/null
 
           UI_DOMAIN="$(railway_graphql \
