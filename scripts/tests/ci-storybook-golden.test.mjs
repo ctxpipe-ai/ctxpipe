@@ -72,6 +72,14 @@ const required = [
     "LoadingUnderReducedMotion",
   ],
   ["apps/ui/src/routes/-onboarding.stories.tsx", "DoubleClickMovesOneSlide"],
+  [
+    "apps/ui/src/features/chat/ConversationThread.stories.tsx",
+    "ChatProgressDone",
+  ],
+  [
+    "apps/ui/src/features/chat/ConversationThread.stories.tsx",
+    "ChatProgressLogExpanded",
+  ],
 ]
 
 test("required golden stories carry the workspace-golden tag and a play", () => {

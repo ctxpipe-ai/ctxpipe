@@ -3,10 +3,11 @@ import type { ChatMessage } from "./types"
 export type ToolBucket = "read" | "search" | "tool"
 
 export type ToolCallSummary = {
-  id: string
-  name: string
   bucket: ToolBucket
-  detail: string
+  /** What the call does, for example "Read file". */
+  action: string
+  /** The main argument, for example the file path; null when the call has none. */
+  detail: string | null
 }
 
 export type ToolBucketCounts = {
@@ -50,14 +51,18 @@ export function toolBucket(name: string): ToolBucket {
   return "tool"
 }
 
-export function toolCallFallbackLabel(name: string): string {
+export function toolCallAction(name: string, bucket: ToolBucket): string {
   if (name === "bash") return "Run command"
   if (name === "edit") return "Edit file"
   if (name === "write") return "Write file"
-  const bucket = toolBucket(name)
   if (bucket === "read") return "Read file"
-  if (bucket === "search") return "Search files"
-  return "Used tool"
+  if (bucket === "search") return "Search"
+  const words = name
+    .split(/[_\-\s]+/)
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase()
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : "Used tool"
 }
 
 function truncateDetail(value: string): string {
@@ -89,11 +94,9 @@ function parseArguments(raw: string | undefined): unknown {
 }
 
 export function toolCallDetail(part: {
-  name?: string
   input?: unknown
   arguments?: string
-}): string {
-  const name = part.name?.trim() || "tool"
+}): string | null {
   const input =
     part.input && typeof part.input === "object"
       ? part.input
@@ -109,34 +112,7 @@ export function toolCallDetail(part: {
       if (value) return truncateDetail(value)
     }
   }
-  return toolCallFallbackLabel(name)
-}
-
-export function summarizeToolCalls(
-  parts: Array<{
-    type: string
-    id?: string
-    name?: string
-    input?: unknown
-    arguments?: string
-  }>,
-): ToolCallSummary[] {
-  const seen = new Set<string>()
-  const tools: ToolCallSummary[] = []
-  for (const part of parts) {
-    if (part.type !== "tool-call") continue
-    const name = part.name?.trim() || "tool"
-    const id = part.id?.trim() || `${name}-${tools.length}`
-    if (seen.has(id)) continue
-    seen.add(id)
-    tools.push({
-      id,
-      name,
-      bucket: toolBucket(name),
-      detail: toolCallDetail(part),
-    })
-  }
-  return tools
+  return null
 }
 
 export function toolBucketCounts(tools: ToolCallSummary[]): ToolBucketCounts {
@@ -151,33 +127,38 @@ export function toolBucketCounts(tools: ToolCallSummary[]): ToolBucketCounts {
   return { reads, searches, tools: other }
 }
 
-export function collapsedToolChips(
-  counts: ToolBucketCounts,
-): Array<{ bucket: ToolBucket; label: string }> {
-  const chips: Array<{ bucket: ToolBucket; label: string }> = []
+export type ActivityChipKind = ToolBucket | "thought"
+
+export function activityChips(
+  counts: ToolBucketCounts & { thoughts: number },
+): Array<{ kind: ActivityChipKind; label: string }> {
+  const chips: Array<{ kind: ActivityChipKind; label: string }> = []
   if (counts.reads > 0) {
     chips.push({
-      bucket: "read",
+      kind: "read",
       label: counts.reads === 1 ? "Read 1 file" : `Read ${counts.reads} files`,
     })
   }
   if (counts.searches > 0) {
     chips.push({
-      bucket: "search",
+      kind: "search",
       label: counts.searches === 1 ? "1 search" : `${counts.searches} searches`,
     })
   }
   if (counts.tools > 0) {
     chips.push({
-      bucket: "tool",
+      kind: "tool",
       label: counts.tools === 1 ? "Used 1 tool" : `Used ${counts.tools} tools`,
     })
   }
+  if (counts.thoughts > 0) {
+    chips.push({
+      kind: "thought",
+      label:
+        counts.thoughts === 1 ? "1 thought" : `${counts.thoughts} thoughts`,
+    })
+  }
   return chips
-}
-
-export function collapsedToolSummary(counts: ToolBucketCounts): string[] {
-  return collapsedToolChips(counts).map((chip) => chip.label)
 }
 
 const BOLD_HEADING_LINE = /^\s*\*\*([^*]+)\*\*\s*$/
@@ -191,33 +172,104 @@ function reasoningHeadingTitle(line: string): string | null {
   return null
 }
 
-export function latestReasoningHeading(text: string): string | null {
-  let last: string | null = null
-  for (const line of text.replace(/\r\n/g, "\n").split("\n")) {
-    const title = reasoningHeadingTitle(line)
-    if (title) last = title
-  }
-  return last
+export type Thought = {
+  /** The heading, or the first line when the block has no heading. */
+  title: string
+  /** True when the title is a heading of the text, not a copy of its first line. */
+  hasHeading: boolean
+  body: string
 }
 
-export function normalizeReasoningMarkdown(text: string): string {
-  const prepared = text
-    .replace(/\r\n/g, "\n")
-    .replace(/([.!?])\s*(\*\*[^*]+\*\*)/g, "$1\n$2")
-  const out: string[] = []
-  for (const line of prepared.split("\n")) {
-    if (reasoningHeadingTitle(line)) {
-      if (out.length > 0 && out[out.length - 1] !== "") out.push("")
-      out.push(line.trim())
-      out.push("")
-      continue
-    }
-    out.push(line)
-  }
-  return out
-    .join("\n")
-    .replace(/\n{3,}/g, "\n\n")
+const TITLE_MAX = 80
+
+function shortTitle(line: string): string {
+  const plain = line
+    .replace(/[*_`#>]/g, "")
+    .replace(/\s+/g, " ")
     .trim()
+  if (plain.length <= TITLE_MAX) return plain
+  return `${plain.slice(0, TITLE_MAX - 1)}…`
+}
+
+/**
+ * Splits one reasoning text into thoughts, one for each heading. Models write
+ * a bold or ATX heading at the start of each thought, sometimes glued to the
+ * end of the previous sentence. Text before the first heading belongs to the
+ * first thought.
+ */
+export function splitThoughts(text: string): Thought[] {
+  const lines = text
+    .replace(/\r\n/g, "\n")
+    .replace(/([.!?])(\*\*[^*\n]+\*\*)[ \t]*(?=\n|$)/g, "$1\n$2")
+    .split("\n")
+  const intro: string[] = []
+  const sections: Array<{ heading: string; lines: string[] }> = []
+  for (const line of lines) {
+    const heading = reasoningHeadingTitle(line)
+    const current = sections.at(-1)
+    if (heading) sections.push({ heading, lines: [] })
+    else if (current) current.lines.push(line)
+    else intro.push(line)
+  }
+  const introText = intro.join("\n").trim()
+  const first = sections[0]
+  if (!first) {
+    const firstLine = introText.split("\n")[0] ?? ""
+    return introText
+      ? [{ title: shortTitle(firstLine), hasHeading: false, body: introText }]
+      : []
+  }
+  return sections.map((section) => {
+    const body = section.lines.join("\n").trim()
+    return {
+      title: shortTitle(section.heading),
+      hasHeading: true,
+      body:
+        section === first && introText
+          ? [introText, body].filter(Boolean).join("\n\n")
+          : body,
+    }
+  })
+}
+
+export type ActivityEntry =
+  | { kind: "thought"; key: string; thought: Thought }
+  | { kind: "tool"; key: string; tool: ToolCallSummary }
+
+/** The turn's thoughts and tool calls in the order the agent made them. */
+export function activityLog(parts: ChatMessage["parts"]): ActivityEntry[] {
+  const seen = new Set<string>()
+  const entries: ActivityEntry[] = []
+  parts.forEach((part, partIndex) => {
+    if (part.type === "thinking") {
+      splitThoughts(part.content ?? part.text ?? "").forEach(
+        (thought, index) => {
+          entries.push({
+            kind: "thought",
+            key: `thought-${partIndex}-${index}`,
+            thought,
+          })
+        },
+      )
+      return
+    }
+    if (part.type !== "tool-call") return
+    const name = part.name?.trim() || "tool"
+    const id = part.id?.trim() || `${name}-${partIndex}`
+    if (seen.has(id)) return
+    seen.add(id)
+    const bucket = toolBucket(name)
+    entries.push({
+      kind: "tool",
+      key: `tool-${id}`,
+      tool: {
+        bucket,
+        action: toolCallAction(name, bucket),
+        detail: toolCallDetail(part),
+      },
+    })
+  })
+  return entries
 }
 
 /**

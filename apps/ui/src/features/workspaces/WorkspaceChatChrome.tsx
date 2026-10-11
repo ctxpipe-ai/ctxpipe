@@ -1,4 +1,4 @@
-import { IconCloudUpload } from "@tabler/icons-react"
+import { IconCloudUpload, IconGitPullRequest } from "@tabler/icons-react"
 import type { ReactElement, ReactNode } from "react"
 import { Link as AriaLink } from "react-aria-components"
 import { OverlayNavMenuButton } from "@/components/OverlayNavButton"
@@ -175,13 +175,13 @@ export function WorkspaceChatChrome(props: {
 }
 
 /**
- * Sync (commit and push), Create PR, and Show PR. `syncClassName` lets the
- * tools pane show Sync only when the conversation column is hidden, so the
- * page shows Sync once.
+ * Sync (commit and push), Create PR, and Show PR. The buttons have no border.
+ * `className` lets the tools pane show the actions only when the conversation
+ * column is hidden, so the page shows each action once.
  */
 export function ConversationPublishActions(props: {
   publish: ConversationPublishChrome
-  syncClassName?: string
+  className?: string
 }) {
   const { commitPush, pullRequest } = props.publish
   const showCommit = commitPush.visible
@@ -189,11 +189,16 @@ export function ConversationPublishActions(props: {
   const showCreatePr = pullRequest.visible && pullRequest.action === "create"
   if (!showCommit && !showPrLink && !showCreatePr) return null
   return (
-    <div className="mb-px flex h-[37px] shrink-0 items-center gap-1">
+    <div
+      className={cn(
+        "mb-px flex h-[37px] shrink-0 items-center gap-1",
+        props.className,
+      )}
+    >
       {showCommit ? (
         // A span trigger: the tooltip shows on hover also while Sync is disabled.
         <ChromeTooltip
-          trigger={<span className={cn("inline-flex", props.syncClassName)} />}
+          trigger={<span className="inline-flex" />}
           content="Commit and push your changes to the conversation branch"
         >
           <Button
@@ -230,8 +235,9 @@ export function ConversationPublishActions(props: {
           isDisabled={pullRequest.pending}
           isPending={pullRequest.pending}
           onPress={pullRequest.onPress}
-          className="h-8 px-2 text-xs"
+          className="h-8 gap-1.5 px-2 text-xs"
         >
+          <IconGitPullRequest className="size-4" stroke={1.6} aria-hidden />
           {pullRequest.pending ? "Creating PR…" : "Create PR"}
         </Button>
       ) : null}

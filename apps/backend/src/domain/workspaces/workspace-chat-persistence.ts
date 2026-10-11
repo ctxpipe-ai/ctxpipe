@@ -22,6 +22,7 @@ import {
   chatThreads,
 } from "../../db/schema/chat-persistence.js"
 import { reviveChatMessages } from "../conversations/chat-message-created-at.js"
+import { maskCredentialsDeep } from "./mask-credentials.js"
 
 function orgSql<T>(fn: () => Promise<T>): Promise<T> {
   return withAmbientOrgDb(fn)
@@ -86,7 +87,9 @@ function createMessageStore(): MessageStore {
         )
       })
     },
-    async saveThread(threadId, messages) {
+    async saveThread(threadId, input) {
+      // The transcript keeps no credential that a tool or the model repeated.
+      const messages = maskCredentialsDeep(input)
       return orgSql(async () => {
         const orgId = requireCurrentOrgId()
         const updatedAt = Date.now()

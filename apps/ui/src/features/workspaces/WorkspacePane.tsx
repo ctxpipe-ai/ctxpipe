@@ -44,8 +44,10 @@ import {
   workspaceGraphOptions,
 } from "./queries"
 import type { WorkspaceDetail, WorkspaceStorePhase } from "./types"
-import { useConversationPublish } from "./useConversationPublish"
-import { ConversationPublishActions } from "./WorkspaceChatChrome"
+import {
+  ConversationPublishActions,
+  type ConversationPublishChrome,
+} from "./WorkspaceChatChrome"
 import { WorkspaceConversationDiffPane } from "./WorkspaceConversationDiff"
 import { WorkspaceFilesPaneBody } from "./WorkspaceFilesPane"
 import { WorkspaceSettingsPane } from "./WorkspaceSettingsPane"
@@ -90,6 +92,8 @@ export function WorkspacePane(props: {
   onCloseActiveFile: () => void
   onToggleTree: () => void
   conversationTitle: string
+  /** The conversation's publish state, shared with the conversation header. */
+  publish?: ConversationPublishChrome | null
 }) {
   const queryClient = useQueryClient()
   const urlPaneKey = serializePane(props.pane)
@@ -311,17 +315,17 @@ export function WorkspacePane(props: {
               })}
             </TabList>
             <div className="flex shrink-0 items-end gap-0.5">
-              {props.conversationId &&
+              {/* The conversation header has the publish actions. The pane
+                  shows them only when the conversation column is hidden: below
+                  `lg` with the pane open, or when the pane is maximized. */}
+              {props.publish &&
               conversationAllowsEdits(
                 props.workspace.writeStatus,
                 props.workspace.conversationWritable,
               ) ? (
-                <ConversationPanePublish
-                  conversationHidden={props.maximized}
-                  orgSlug={props.orgSlug}
-                  workspaceId={props.workspace.id}
-                  conversationId={props.conversationId}
-                  title={props.conversationTitle}
+                <ConversationPublishActions
+                  publish={props.publish}
+                  className={props.maximized ? undefined : "lg:hidden"}
                 />
               ) : null}
               <HeaderIcon
@@ -515,32 +519,6 @@ function prefetchWorkspacePane(
   }
 }
 
-function ConversationPanePublish(props: {
-  /** The pane is maximized, so the conversation column (and its Sync) is hidden. */
-  conversationHidden: boolean
-  orgSlug: string
-  workspaceId: string
-  conversationId: string
-  title: string
-}) {
-  const publish = useConversationPublish({
-    orgSlug: props.orgSlug,
-    conversationId: props.conversationId,
-    workspaceId: props.workspaceId,
-    title: props.title,
-    statusEnabled: true,
-    pullEnabled: true,
-  })
-  // The conversation header has Sync. Below `lg` an open pane hides the
-  // conversation column, so the pane shows Sync there (and when maximized).
-  return (
-    <ConversationPublishActions
-      publish={publish.chrome}
-      syncClassName={props.conversationHidden ? undefined : "lg:hidden"}
-    />
-  )
-}
-
 function ConversationDiffTab(props: {
   orgSlug: string
   conversationId: string
@@ -626,8 +604,6 @@ export function WorkspacePaneTriggers(props: {
     )
   }
   const graphBuilding = props.workspace.hydratePhases?.graph.kind === "pending"
-  // These stand alone in the chat header, so they need a hairline to read as controls.
-  const triggerClassName = "border border-white/10 text-zinc-200"
   return (
     <TooltipProvider delay={200}>
       <div className={workspaceChromeTabStripClassName}>
@@ -639,7 +615,6 @@ export function WorkspacePaneTriggers(props: {
             prefetch({ kind: "files" })
             props.onOpen({ kind: "files" })
           }}
-          className={triggerClassName}
         />
         <HeaderIcon
           label={graphBuilding ? "Graph, building" : "Graph"}
@@ -650,20 +625,17 @@ export function WorkspacePaneTriggers(props: {
             prefetch({ kind: "graph" })
             props.onOpen({ kind: "graph" })
           }}
-          className={triggerClassName}
         />
         <HeaderIcon
           label="Settings"
           icon={<IconSettings stroke={1.6} aria-hidden />}
           onClick={() => props.onOpen({ kind: "settings" })}
-          className={triggerClassName}
         />
         {props.onExpand ? (
           <HeaderIcon
             label="Show pane"
             icon={<IconLayoutSidebarRightExpand stroke={1.6} aria-hidden />}
             onClick={props.onExpand}
-            className={triggerClassName}
           />
         ) : null}
       </div>

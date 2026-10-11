@@ -10,6 +10,11 @@ export const requiredStories = [
   "PierreKeyboardFocus",
   "SharedPublishPending",
   "PublishErrorsToast",
+  "SingleCreatePr",
+  "SingleCreatePrPaneClosed",
+  "MaximizedPaneMatchesHeader",
+  "ConversationSandboxFiles",
+  "ConversationMaximizedSync",
   "StableRequestBudget",
   "StableFilesRequestBudget",
   "DeletedFileStaysUntilMerged",
@@ -27,6 +32,8 @@ export const requiredStories = [
   "OrgGateTryAgainLoads",
   "LoadingUnderReducedMotion",
   "DoubleClickMovesOneSlide",
+  "ChatProgressDone",
+  "ChatProgressLogExpanded",
 ]
 
 export function isGoldenPlaySuccess(phase) {

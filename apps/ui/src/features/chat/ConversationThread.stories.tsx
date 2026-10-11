@@ -6,16 +6,14 @@ import {
   hydratedReasoningAndToolsMessages,
   manyToolMessages,
   oneToolMessages,
+  progressDoneMessages,
+  progressWorkingMessages,
   reasoningAndToolsMessages,
   reasoningMessages,
-  severalThoughtsMessages,
-  streamingReasoningAndToolsMessages,
-  streamingReasoningMessages,
-  streamingSeveralThoughtsMessages,
   streamingToolMessages,
   thoughtsBetweenToolsMessages,
 } from "@/features/workspaces/workspace-fixtures"
-import { ConversationThread, WORKING_VERBS } from "./ConversationThread"
+import { ConversationThread } from "./ConversationThread"
 
 const meta = {
   title: "Components/Chat/ConversationThread",
@@ -41,7 +39,222 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+const askOnly: ChatMessage[] = [
+  {
+    id: "msg_wait_u1",
+    role: "user",
+    parts: [{ type: "text", content: "What's in this Workspace?" }],
+  },
+]
+
+const progressCounters = "Read 1 file, 2 searches, Used 1 tool, 3 thoughts"
+
+/** Words of the old rotating labels; none of them is a real system state. */
+const inventedLabel =
+  /Contextualizing|Analyzing|Traversing|Reading knowledge|Checking sources/
+
 export const ReplyOnly: Story = {}
+
+/** While the agent works, the counters show and one line names the current thought. */
+export const WorkingWithThought: Story = {
+  args: {
+    messages: progressWorkingMessages,
+    status: "streaming",
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const log = canvas.getByRole("button", { name: progressCounters })
+    await expect(log).toHaveAttribute("aria-expanded", "false")
+    await expect(log).toHaveTextContent("3 thoughts")
+    const statuses = canvas.getAllByRole("status")
+    await expect(statuses).toHaveLength(1)
+    await expect(statuses[0]).toHaveTextContent("Checking the git status")
+    // Only the title of the current thought shows, not its text.
+    await expect(
+      canvas.queryByText(/check the status before the commit/),
+    ).toBeNull()
+    await expect(canvas.queryByText("Inspecting knowledge units")).toBeNull()
+    await expect(canvasElement).not.toHaveTextContent(inventedLabel)
+  },
+}
+
+/** Before any activity, the line shows the real sandbox state. */
+export const SettingUpSandbox: Story = {
+  args: {
+    messages: askOnly,
+    status: "submitted",
+    waitLabel: "Setting up sandbox",
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const statuses = canvas.getAllByRole("status")
+    await expect(statuses).toHaveLength(1)
+    await expect(statuses[0]).toHaveTextContent("Setting up sandbox")
+    await expect(canvasElement).not.toHaveTextContent(/Thinking/)
+    await expect(canvasElement).not.toHaveTextContent(inventedLabel)
+  },
+}
+
+/** With no thought and no system state, the line shows "Thinking". */
+export const ThinkingFallback: Story = {
+  args: {
+    messages: askOnly,
+    status: "submitted",
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(
+      canvas.getByRole("status", { name: "Thinking" }),
+    ).toHaveTextContent("Thinking")
+    await expect(canvasElement).not.toHaveTextContent(inventedLabel)
+  },
+}
+
+/** Tool calls without a thought also fall back to "Thinking". */
+export const ThinkingFallbackWithTools: Story = {
+  args: {
+    messages: streamingToolMessages,
+    status: "streaming",
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(
+      canvas.getByRole("button", { name: "Read 1 file, 1 search" }),
+    ).toBeVisible()
+    await expect(
+      canvas.getByRole("status", { name: "Thinking" }),
+    ).toHaveTextContent("Thinking")
+  },
+}
+
+const interimTextMessages: ChatMessage[] = [
+  {
+    id: "msg_interim_u1",
+    role: "user",
+    parts: [{ type: "text", content: "Merge the docker knowledge units." }],
+  },
+  {
+    id: "msg_interim_a1",
+    role: "assistant",
+    parts: [
+      { type: "thinking", content: "**Finding the units**\n\nList them." },
+      {
+        type: "tool-call",
+        id: "tc_interim_1",
+        name: "glob",
+        input: { pattern: "knowledge/docker/**" },
+      },
+      { type: "text", content: "Let me check the setup guide." },
+      {
+        type: "tool-call",
+        id: "tc_interim_2",
+        name: "read",
+        input: { filePath: "knowledge/docker/setup.md" },
+      },
+    ],
+  },
+]
+
+/** Text in the middle of a run does not end it: the status line stays. */
+export const InterimTextKeepsStatus: Story = {
+  args: {
+    messages: interimTextMessages,
+    status: "streaming",
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(
+      canvas.getByText("Let me check the setup guide."),
+    ).toBeVisible()
+    const statuses = canvas.getAllByRole("status")
+    await expect(statuses).toHaveLength(1)
+    await expect(statuses[0]).toHaveTextContent("Finding the units")
+  },
+}
+
+/** The next turn gets its own status line; the done turn shows none. */
+export const NextTurnShowsStatus: Story = {
+  args: {
+    messages: [
+      ...progressDoneMessages,
+      {
+        id: "msg_next_u1",
+        role: "user",
+        parts: [{ type: "text", content: "Now commit it." }],
+      },
+      {
+        id: "msg_next_a1",
+        role: "assistant",
+        parts: [
+          {
+            type: "thinking",
+            content: "**Writing the commit**\n\nStage the file.",
+          },
+        ],
+      },
+    ],
+    status: "streaming",
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const statuses = canvas.getAllByRole("status")
+    await expect(statuses).toHaveLength(1)
+    await expect(statuses[0]).toHaveTextContent("Writing the commit")
+    await expect(canvas.queryByText("Checking the git status")).toBeNull()
+  },
+}
+
+/** After the reply, the current thought hides. The counters and the log stay. */
+export const ChatProgressDone: Story = {
+  tags: ["workspace-golden"],
+  args: {
+    messages: progressDoneMessages,
+    status: "ready",
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const log = canvas.getByRole("button", { name: progressCounters })
+    await expect(log).toHaveAttribute("aria-expanded", "false")
+    await expect(log).toHaveTextContent("Read 1 file")
+    await expect(log).toHaveTextContent("3 thoughts")
+    await expect(canvas.queryAllByRole("status")).toHaveLength(0)
+    await expect(canvas.queryByText("Checking the git status")).toBeNull()
+    await expect(
+      canvas.getByText(/now in knowledge\/docker\/setup\.md/),
+    ).toBeVisible()
+  },
+}
+
+/** The open log lists each thought and each tool call with its details. */
+export const ChatProgressLogExpanded: Story = {
+  tags: ["workspace-golden"],
+  args: {
+    messages: progressDoneMessages,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const log = canvas.getByRole("button", { name: progressCounters })
+    await userEvent.click(log)
+    await expect(log).toHaveAttribute("aria-expanded", "true")
+    const region = canvas.getByRole("region", { name: "Activity log" })
+    await expect(log).toHaveAttribute("aria-controls", region.id)
+    await expect(log).not.toContainElement(region)
+    const entries = within(region).getAllByRole("listitem")
+    const texts = entries.map((entry) => entry.textContent ?? "")
+    await expect(texts).toHaveLength(7)
+    await expect(texts[0]).toContain("Inspecting knowledge units")
+    await expect(texts[0]).toContain("split over five units")
+    await expect(texts[1]).toContain("Consolidating docker knowledge")
+    await expect(texts[2]).toContain("Checking the git status")
+    await expect(texts[3]).toContain("Read file")
+    await expect(texts[3]).toContain("knowledge/docker/setup.md")
+    await expect(texts[4]).toContain("docker compose")
+    await expect(texts[5]).toContain("docker knowledge units")
+    await expect(texts[6]).toContain("Run command")
+    await expect(texts[6]).toContain("git status --short")
+    await expect(texts.join(" ")).not.toMatch(/\*\*/)
+  },
+}
 
 export const ReasoningCollapsed: Story = {
   args: {
@@ -49,79 +262,10 @@ export const ReasoningCollapsed: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    const reasoning = canvas.getByRole("button", { name: /reasoning/i })
-    await expect(reasoning).toHaveAttribute("aria-expanded", "false")
-    await expect(reasoning).toHaveTextContent("Inspecting repository options")
-    await expect(reasoning.textContent ?? "").not.toMatch(/\*\*Inspecting/)
-  },
-}
-
-export const ReasoningExpanded: Story = {
-  args: {
-    messages: reasoningMessages,
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    const reasoning = canvas.getByRole("button", { name: /reasoning/i })
-    await userEvent.click(reasoning)
-    await expect(reasoning).toHaveAttribute("aria-expanded", "true")
-    const region = canvas.getByRole("region", { name: "Reasoning" })
-    await expect(reasoning).not.toContainElement(region)
-    await expect(region).toHaveTextContent("derived view")
-  },
-}
-
-const workingVerb = new RegExp(
-  WORKING_VERBS.map((verb) => verb.replace("…", "")).join("|"),
-)
-
-export const ReasoningLive: Story = {
-  args: {
-    messages: streamingReasoningMessages,
-    status: "streaming",
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    const live = canvas.getByRole("status", { name: /reasoning/i })
-    // A working verb, the latest heading, and no reasoning body while live.
-    await expect(live).toHaveTextContent(workingVerb)
-    await expect(live).toHaveTextContent("Consolidating documents")
-    await expect(live).not.toHaveTextContent("Editing docker.md")
-    await expect(live).not.toHaveTextContent("Implementing document updates")
-  },
-}
-
-export const ThoughtsCollapsed: Story = {
-  args: {
-    messages: severalThoughtsMessages,
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    const group = canvas.getByRole("button", { name: "Thought 2x" })
-    await expect(group).toHaveAttribute("aria-expanded", "false")
-    await expect(group).toHaveTextContent("Thought 2x")
     await expect(
-      canvas.getByRole("button", { name: /reasoning/i }),
-    ).toHaveTextContent("Checking the answer")
-    await expect(canvas.queryByText(/Reading the claim/)).toBeNull()
-  },
-}
-
-export const ThoughtsExpanded: Story = {
-  args: {
-    messages: severalThoughtsMessages,
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    const group = canvas.getByRole("button", { name: "Thought 2x" })
-    await userEvent.click(group)
-    await expect(group).toHaveAttribute("aria-expanded", "true")
-    const region = canvas.getByRole("region", { name: "Thought 2x" })
-    await expect(group).toHaveAttribute("aria-controls", region.id)
-    await expect(group).not.toContainElement(region)
-    await expect(region).toHaveTextContent("Reading the claim")
-    await expect(region).toHaveTextContent("Comparing the files")
-    await expect(region).not.toHaveTextContent("Checking the answer")
+      canvas.getByRole("button", { name: "1 thought" }),
+    ).toHaveAttribute("aria-expanded", "false")
+    await expect(canvas.queryByText(/derived view/)).toBeNull()
   },
 }
 
@@ -131,32 +275,19 @@ export const ThoughtsBetweenTools: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    const tools = canvas.getByRole("button", { name: "Read 1 file, 1 search" })
-    const group = canvas.getByRole("button", { name: "Thought 2x" })
-    const latest = canvas.getByRole("button", { name: /reasoning/i })
-    await expect(
-      tools.compareDocumentPosition(group) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy()
-    await expect(
-      group.compareDocumentPosition(latest) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy()
-    await expect(latest).toHaveTextContent("Checking the answer")
-  },
-}
-
-export const ThoughtsLive: Story = {
-  args: {
-    messages: streamingSeveralThoughtsMessages,
-    status: "streaming",
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    const live = canvas.getByRole("status", { name: /reasoning/i })
-    await expect(live).toHaveTextContent("Checking the answer")
-    await expect(live).not.toHaveTextContent("Reading the claim")
-    await expect(
-      canvas.getByRole("button", { name: "Thought 2x" }),
-    ).toHaveAttribute("aria-expanded", "false")
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Read 1 file, 1 search, 3 thoughts" }),
+    )
+    const region = canvas.getByRole("region", { name: "Activity log" })
+    const texts = within(region)
+      .getAllByRole("listitem")
+      .map((entry) => entry.textContent ?? "")
+    await expect(texts).toHaveLength(5)
+    await expect(texts[0]).toContain("Reading the claim")
+    await expect(texts[1]).toContain("ledger vs invoices")
+    await expect(texts[2]).toContain("Comparing the files")
+    await expect(texts[3]).toContain("knowledge/billing/ledger.md")
+    await expect(texts[4]).toContain("Checking the answer")
   },
 }
 
@@ -166,41 +297,15 @@ export const ToolUse: Story = {
   },
 }
 
-export const ToolUseExpanded: Story = {
-  args: {
-    messages: manyToolMessages,
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await userEvent.click(
-      canvas.getByRole("button", { name: /read 1 file, 2 searches/i }),
-    )
-  },
-}
-
 export const ToolUseMany: Story = {
   args: {
     messages: manyToolMessages,
   },
 }
 
-export const ToolUseLive: Story = {
-  args: {
-    messages: streamingToolMessages,
-    status: "streaming",
-  },
-}
-
 export const ReasoningAndTools: Story = {
   args: {
     messages: reasoningAndToolsMessages,
-  },
-}
-
-export const ReasoningAndToolsLive: Story = {
-  args: {
-    messages: streamingReasoningAndToolsMessages,
-    status: "streaming",
   },
 }
 
@@ -211,50 +316,13 @@ export const ReasoningAndToolsHydrated: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    const reasoning = canvas.getAllByRole("button", { name: /reasoning/i })
-    await expect(reasoning).toHaveLength(1)
-    await expect(reasoning[0]).toHaveAttribute("aria-expanded", "false")
-    await expect(
-      canvas.getByRole("button", { name: /read 1 file/i }),
-    ).toHaveAttribute("aria-expanded", "false")
-    await expect(
-      canvas.getByRole("button", { name: "Thought" }),
-    ).toHaveAttribute("aria-expanded", "false")
+    const log = canvas.getAllByRole("button", {
+      name: "Read 1 file, 2 thoughts",
+    })
+    await expect(log).toHaveLength(1)
+    await expect(log[0]).toHaveAttribute("aria-expanded", "false")
     await expect(
       canvas.getByText(/ledger.md is the source of truth/),
     ).toBeVisible()
-  },
-}
-
-export const Waiting: Story = {
-  args: {
-    messages: [
-      {
-        id: "msg_wait_u1",
-        role: "user",
-        parts: [{ type: "text", content: "What's in this Workspace?" }],
-      } satisfies ChatMessage,
-    ],
-    status: "submitted",
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await expect(
-      canvas.getByRole("status", { name: "Working" }),
-    ).toHaveTextContent(workingVerb)
-  },
-}
-
-export const SettingUpSandbox: Story = {
-  args: {
-    messages: [
-      {
-        id: "msg_setup_u1",
-        role: "user",
-        parts: [{ type: "text", content: "What's in this Workspace?" }],
-      } satisfies ChatMessage,
-    ],
-    status: "submitted",
-    waitLabel: "Setting up sandbox",
   },
 }
