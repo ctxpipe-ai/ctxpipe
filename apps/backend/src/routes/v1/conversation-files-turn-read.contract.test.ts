@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs"
+import { rename } from "node:fs/promises"
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { eq } from "drizzle-orm"
 import { expect, it } from "vitest"
@@ -5,6 +7,7 @@ import type { AppEnv } from "../../app/env.js"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { conversations } from "../../db/schema/conversations.js"
+import { workspaceSandboxInstances } from "../../db/schema/workspaces.js"
 import { conversationSessionBranch } from "../../domain/workspaces/chat-lifecycle.js"
 import { postgresSandboxLocks } from "../../domain/workspaces/sandbox-lock-store.js"
 import { warmTanstackWorkspaceChat } from "../../domain/workspaces/tanstack-workspace-chat.js"
@@ -125,6 +128,43 @@ it(
               body: { path: "notes.md", body: "# Second\n", binary: false },
               fast: true,
             })
+            // The lock holder can also be the idle sweep: a stopped sandbox
+            // is never started for a read; the pane polls again.
+            const busy = {
+              status: 409,
+              body: { error: "turn_running" },
+              fast: true,
+            }
+            const setState = (state: "live" | "stopped") =>
+              withOrgDbContext(f.org.id, (db) =>
+                db
+                  .update(workspaceSandboxInstances)
+                  .set({ state })
+                  .where(
+                    eq(workspaceSandboxInstances.conversationId, conversationId),
+                  ),
+              )
+            await setState("stopped")
+            expect(await read()).toEqual(busy)
+            await setState("live")
+            // A live row whose sandbox does not run: no attach either.
+            const [row] = await withOrgDbContext(f.org.id, (db) =>
+              db
+                .select()
+                .from(workspaceSandboxInstances)
+                .where(
+                  eq(workspaceSandboxInstances.conversationId, conversationId),
+                ),
+            )
+            const directory = row?.providerSandboxId
+            if (!directory) throw new Error("The sandbox row has no id")
+            await rename(directory, `${directory}.away`)
+            try {
+              expect(await read()).toEqual(busy)
+            } finally {
+              await rename(`${directory}.away`, directory)
+            }
+            expect(existsSync(`${directory}.away`)).toBe(false)
           } finally {
             await releaseTurn()
           }
