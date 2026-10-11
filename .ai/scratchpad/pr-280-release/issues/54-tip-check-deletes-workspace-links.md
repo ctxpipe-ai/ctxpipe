@@ -28,24 +28,31 @@ The spec is a one-time migration step, not a cron step. See `.ai/scratchpad/git-
 
 ## Scope
 
-- Keep the step in the tip check, because it is the only place that persists the first Workspace of a migrated org. Make it a one-time backfill (`backfillDestWorkspaceAssignment`): do nothing when the org has an `org_first_workspaces` row.
-- Never delete a link. Remove `deleteLinkIds` from the plan.
-- Normalize URLs when the model finds the connector targets.
-- Do not add a repository that a Workspace already links.
+- Root cause: the SQL migration `20260820070625_purple_eddie_brock` linked every org repository to every target Workspace, also the target repositories of sibling Workspaces. `workspace-migration-export.ts` then wrote them as `repositories/*.md` into each Workspace repository. Commit 5c65eb9a deleted those links later from the tip check, and that step caused this bug.
+- Fix the migration: link each other org repository only to the Workspace of the first connector target. Write the `org_first_workspaces` row in SQL.
+- The tip check only records a missing first Workspace. It never adds or removes a link.
 
 ## Acceptance criteria
 
 - [x] An org with two Workspaces, each with its own linked repository, keeps both links after several tip checks (real Postgres).
-- [x] When no Workspace URL matches an org repository, the step deletes no link and persists no first Workspace (real Postgres).
+- [x] When no Workspace URL matches an org repository, the tip check changes no link and records the oldest Workspace (real Postgres).
+- [x] After the first Workspace is deleted, the tip check records the next one and adds no link (real Postgres).
+- [x] The migration SQL, on a fresh database with two target Workspaces, writes no sibling link and writes the `org_first_workspaces` row.
 
 ## Comments
 
+- 2026-10-12 (review): the cause is in the migration SQL. The migration is not on `main`, so production never ran it. The team lead decided to edit it. Preview databases that ran it keep their old links; that is test data.
+
 ## Resolution
 
-- `models/workspaces.ts`: `reconcileDestWorkspaceAssignment` is now `backfillDestWorkspaceAssignment`. It returns at once when the org has a first Workspace. It matches Workspace and repository URLs with `normalizeWorkspaceRepositoryUrl`. It persists the first Workspace and inserts links only when it finds a first Workspace. `applyDestWorkspaceLinkPlan` no longer deletes.
-- `domain/workspaces/dest-workspace-assignment.ts`: the plan has no `deleteLinkIds`. It inserts a link only for a non-target repository that no Workspace links yet.
-- `openworkflow/workflows/workspace-tip-check.ts` calls the backfill. The brief asked to remove the call. The call stays because nothing else writes `org_first_workspaces` for an org that the SQL migration created, but after the first successful run it reads one row and returns.
-- Test: `models/dest-workspace-backfill.integration.test.ts` (real Postgres). Both cases failed before the fix: the old code deleted both links in each case.
+- `migrations/20260820070625_purple_eddie_brock/migration.sql`: the link insert picks one Workspace per org (the Workspace whose URL is the first connector target, by `created_at` then `id`). It links each org repository that is not a Workspace repository only to that Workspace.
+- `migrations/20260825105305_organic_rhino/migration.sql` creates `org_first_workspaces`, so it also writes the row with the same rule. It makes the URL normalize function again and then drops it.
+- Drizzle and edited migrations: the migrator (`drizzle-orm` `getMigrationsToRun`, used by `drizzle-kit migrate`) selects a migration by folder name only. It does not compare the stored hash. Check done: apply the old migration files to a fresh database (52 rows in `drizzle.__drizzle_migrations`), then run `drizzle-kit migrate` with the edited files. Result: "migrations applied successfully", still 52 rows, and no new `org_first_workspaces` row. So an applied database does not run the edit again and does not reject it.
+- `models/workspaces.ts`: `ensureOrgFirstWorkspace` replaces the reconcile step. When the org has no row, it records the Workspace of the oldest org repository with the same normalized URL, else the oldest Workspace (`created_at`, then `id`). It writes no link. With no URL match, `source_repository_id` is an empty string, because the column is not null and no code reads it. After the row exists, each tip check reads one row and returns.
+- `openworkflow/workflows/workspace-tip-check.ts` calls `ensureOrgFirstWorkspace`.
+- Tests: `src/db/dest-workspace-migration.integration.test.ts` applies the real migration files to a new database. `src/models/dest-workspace-backfill.integration.test.ts` has the three runtime cases. Each test failed before its fix.
 - `write-extract-native.contract.test.ts` "backfills completed path maps by native completion order despite an old completion replay" fails on the base commit too. It is not related to this change.
 
-Open: a new org gets its first Workspace row from the first tip check after it has a Workspace whose URL is an org repository. If the product wants the first Workspace to be the first one that the user creates, persist it on Workspace create instead.
+Open:
+- `planDestWorkspaceLinks` and `applyDestWorkspaceLinkPlan` now have no runtime caller. Only tests use them (the SQL parity fixture and the seed steps of two contract tests). Remove them in a cleanup.
+- `org_first_workspaces.source_repository_id` has no reader. A later schema change can drop it.

@@ -19,8 +19,8 @@ import {
   probeWorkspaceWriteAccess,
 } from "../../domain/workspaces/write-status.js"
 import {
-  backfillDestWorkspaceAssignment,
   claimPausedWriteJob,
+  ensureOrgFirstWorkspace,
   getWorkspaceProjection,
   listMigrationExportJobWorkspaceIds,
   listMigrationExportShas,
@@ -83,7 +83,7 @@ export const workspaceTipCheck = defineWorkflow(
     if (!org) throw new Error(`Organization not found: ${input.orgId}`)
     return withOrgIdContext({ id: org.id, slug: org.slug }, async () => {
       await withOrgDbContext(input.orgId, () =>
-        backfillDestWorkspaceAssignment(input.orgId),
+        ensureOrgFirstWorkspace(input.orgId),
       )
       const workspaces = await withOrgDbContext(input.orgId, () =>
         listOrgWorkspaces(input.orgId),

@@ -12,7 +12,7 @@ import {
   workspaceLinkedRepositories,
   workspaces,
 } from "../db/schema/workspaces.js"
-import { backfillDestWorkspaceAssignment } from "./workspaces.js"
+import { ensureOrgFirstWorkspace } from "./workspaces.js"
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url))
 config({ path: resolve(__dirname, "../../.env.local") })
@@ -72,6 +72,13 @@ async function seedOrg(input: {
         gitUrl: "https://github.com/acme/lib",
         createdAt: new Date("2026-01-04T00:00:00.000Z"),
       },
+      {
+        id: id("repo", "unlinked"),
+        orgId,
+        name: "unlinked",
+        gitUrl: "https://github.com/acme/unlinked",
+        createdAt: new Date("2026-01-05T00:00:00.000Z"),
+      },
     ])
     await db.insert(workspaceLinkedRepositories).values([
       {
@@ -93,7 +100,7 @@ async function seedOrg(input: {
 
 function tipCheckBackfill(orgId: string) {
   return withOrgIdContext({ id: orgId, slug: orgId }, () =>
-    withOrgDbContext(orgId, () => backfillDestWorkspaceAssignment(orgId)),
+    withOrgDbContext(orgId, () => ensureOrgFirstWorkspace(orgId)),
   )
 }
 
@@ -163,7 +170,7 @@ describe("dest Workspace backfill (Postgres)", () => {
     expect(await firstWorkspace(seed.orgId)).toBe(seed.workspaceA)
   })
 
-  it("deletes no link when no Workspace matches an org repository", async () => {
+  it("changes no link and picks the oldest Workspace when no Workspace matches an org repository", async () => {
     const seed = await seedOrg({
       name: "nomatch",
       workspaceUrls: {
@@ -178,6 +185,31 @@ describe("dest Workspace backfill (Postgres)", () => {
     const before = await links(seed.orgId)
     await tipCheckBackfill(seed.orgId)
     expect(await links(seed.orgId)).toEqual(before)
-    expect(await firstWorkspace(seed.orgId)).toBeNull()
+    expect(await firstWorkspace(seed.orgId)).toBe(seed.workspaceA)
+  })
+
+  it("records the next first Workspace after the first one is deleted, without new links", async () => {
+    const seed = await seedOrg({
+      name: "deleted",
+      workspaceUrls: {
+        a: "https://github.com/acme/a",
+        b: "https://github.com/acme/b",
+      },
+      repositoryUrls: {
+        a: "https://github.com/acme/a.git",
+        b: "https://github.com/acme/b.git",
+      },
+    })
+    await tipCheckBackfill(seed.orgId)
+    await withOrgDbContext(seed.orgId, async (db) => {
+      await db
+        .delete(orgFirstWorkspaces)
+        .where(eq(orgFirstWorkspaces.orgId, seed.orgId))
+      await db.delete(workspaces).where(eq(workspaces.id, seed.workspaceA))
+    })
+    const before = await links(seed.orgId)
+    await tipCheckBackfill(seed.orgId)
+    expect(await links(seed.orgId)).toEqual(before)
+    expect(await firstWorkspace(seed.orgId)).toBe(seed.workspaceB)
   })
 })
