@@ -278,13 +278,10 @@ describe("conversation diffs", { timeout: 20_000 }, () => {
         `refs/ctxpipe/turns/${turnSnapshotKey("run_2", 2)}/end`,
         `refs/ctxpipe/turns/${turnSnapshotKey("run_3", 3)}/end`,
       ])
-      const [first, , last] = snapshots
-      expect(await turnSnapshotsExist(handle, first!.tree, last!.tree)).toBe(
-        true,
-      )
-      expect(await turnSnapshotsExist(handle, "0".repeat(40), last!.tree)).toBe(
-        false,
-      )
+      const first = snapshots[0]?.tree ?? ""
+      const last = snapshots[2]?.tree ?? ""
+      expect(await turnSnapshotsExist(handle, first, last)).toBe(true)
+      expect(await turnSnapshotsExist(handle, "0".repeat(40), last)).toBe(false)
       await pruneConversationTurnSnapshots(handle, 0)
       expect(git("for-each-ref", "refs/ctxpipe/turns/")).toBe("")
     })
