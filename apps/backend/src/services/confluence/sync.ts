@@ -58,6 +58,30 @@ import {
 
 const CONFLUENCE_CONFIG_PATH = "confluence/config.yaml"
 
+/**
+ * The Confluence reads of one capture. The Workspace sources adapter passes a
+ * memoized copy, so scopes that share pages fetch each page one time.
+ */
+export type ConfluenceReadApi = {
+  listConfluenceSpaces: typeof listConfluenceSpaces
+  listConfluencePagesForSpace: typeof listConfluencePagesForSpace
+  getConfluencePageWithBody: typeof getConfluencePageWithBody
+  listConfluencePageAttachments: typeof listConfluencePageAttachments
+  downloadConfluenceAttachment: typeof downloadConfluenceAttachment
+  downloadConnectorAsset: typeof downloadConnectorAsset
+}
+
+function defaultConfluenceReadApi(): ConfluenceReadApi {
+  return {
+    listConfluenceSpaces,
+    listConfluencePagesForSpace,
+    getConfluencePageWithBody,
+    listConfluencePageAttachments,
+    downloadConfluenceAttachment,
+    downloadConnectorAsset,
+  }
+}
+
 /** Kept in sync with Forge webhook `eventType` values. */
 export const CONFLUENCE_DELETED_PAGE_EVENT =
   "avi:confluence:deleted:page" as const
@@ -77,6 +101,7 @@ function stubFromFileSize(
 }
 
 async function collectPageAssetFiles(input: {
+  api: ConfluenceReadApi
   client: ConfluenceClientInput
   spaceKey: string
   pageId: string
@@ -107,7 +132,7 @@ async function collectPageAssetFiles(input: {
   )
   try {
     const maxDiscoveredAttachments = CONNECTOR_ENTITY_MAX_ASSETS * 10
-    const discovered = await listConfluencePageAttachments({
+    const discovered = await input.api.listConfluencePageAttachments({
       client: input.client,
       pageId: input.pageId,
       maxAttachments: maxDiscoveredAttachments + 1,
@@ -195,7 +220,7 @@ async function collectPageAssetFiles(input: {
     }
     let resolution: ConfluenceMediaResolution
     try {
-      const result = await downloadConfluenceAttachment({
+      const result = await input.api.downloadConfluenceAttachment({
         client: input.client,
         pageId: input.pageId,
         attachmentId: attachment.id,
@@ -234,7 +259,7 @@ async function collectPageAssetFiles(input: {
     remainingDeclaredAssets -= 1
     let resolution: ConfluenceMediaResolution
     try {
-      const result = await downloadConnectorAsset({ url, budget })
+      const result = await input.api.downloadConnectorAsset({ url, budget })
       if (result.status === "downloaded") {
         const href = storeAsset(sourceKey, result.filename, result.bytes)
         resolution = href
@@ -421,7 +446,9 @@ export async function captureConfluenceContent(input: {
   config: ParsedConfluenceRepoConfig
   existingPaths: string[]
   existingBlobs?: ReadonlyArray<{ path: string; sha: string }>
+  api?: ConfluenceReadApi
 }): Promise<ConfluenceSyncResult> {
+  const api = input.api ?? defaultConfluenceReadApi()
   const repoScope = input.config
   const syncedSpaces: ConfluenceSyncResult["syncedSpaces"] = []
   const scopeRows = normalizeSpaceRows(
@@ -469,7 +496,7 @@ export async function captureConfluenceContent(input: {
     }
   }
 
-  const spaces = await listConfluenceSpaces(input.forgeInstallation)
+  const spaces = await api.listConfluenceSpaces(input.forgeInstallation)
   const spaceIdByKey = new Map(spaces.map((space) => [space.key, space.id]))
   const existingRepoPaths =
     input.existingBlobs?.map((entry) => entry.path) ?? input.existingPaths
@@ -504,7 +531,7 @@ export async function captureConfluenceContent(input: {
       continue
     }
 
-    const allPages = await listConfluencePagesForSpace({
+    const allPages = await api.listConfluencePagesForSpace({
       client: input.forgeInstallation,
       spaceId,
     })
@@ -551,7 +578,7 @@ export async function captureConfluenceContent(input: {
           selectedIds: selectedSetForTree,
           pathRootSkipPageIds,
         })
-        const pageWithBody = await getConfluencePageWithBody({
+        const pageWithBody = await api.getConfluencePageWithBody({
           client: input.forgeInstallation,
           pageId: page.id,
         })
@@ -562,6 +589,7 @@ export async function captureConfluenceContent(input: {
           preserveAssetPrefixes: pagePreserveAssetPrefixes,
           additionalAttachments,
         } = await collectPageAssetFiles({
+          api,
           client: input.forgeInstallation,
           spaceKey: scopeRow.spaceKey,
           pageId: page.id,

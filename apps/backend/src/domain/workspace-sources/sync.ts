@@ -86,30 +86,46 @@ export async function syncConnectionSources(input: {
   // Check every managed path before the provider fetch.
   const byWorkspace = new Map<
     string,
-    { prefixes: Set<string>; revision: string }
+    { prefixes: Set<string>; scopeKeys: Set<string>; revision: string }
   >()
   for (const row of rows) {
     const prefixes = adapter.managedPaths(row.scope)
     assertManagedPaths(adapter, prefixes)
     const entry = byWorkspace.get(row.workspaceId) ?? {
       prefixes: new Set<string>(),
+      scopeKeys: new Set<string>(),
       revision: row.revision,
     }
     for (const prefix of prefixes) entry.prefixes.add(prefix)
+    entry.scopeKeys.add(JSON.stringify(row.scope))
     byWorkspace.set(row.workspaceId, entry)
   }
 
-  const scopes = [
-    ...new Map(
-      rows.map((row) => [JSON.stringify(row.scope), row.scope]),
-    ).values(),
-  ]
-  const fetched = await adapter.fetch({
+  const scopesByKey = new Map(
+    rows.map((row) => [JSON.stringify(row.scope), row.scope]),
+  )
+  const scopes = [...scopesByKey.values()]
+  const fetchInput = {
     orgId: input.orgId,
     connectionId: input.connectionId,
     scopes,
     env: input.env,
-  })
+  }
+  // With `fetchEach`, a Workspace gets only the files of its own scopes.
+  const filesOf: (scopeKeys: Set<string>) => GitFileChange[] = adapter.fetchEach
+    ? await adapter.fetchEach(fetchInput).then((each) => {
+        const byKey = new Map(
+          [...scopesByKey.keys()].map((key, index) => [key, each[index] ?? []]),
+        )
+        return (scopeKeys) => [
+          ...new Map(
+            [...scopeKeys]
+              .flatMap((key) => byKey.get(key) ?? [])
+              .map((file) => [file.path, file]),
+          ).values(),
+        ]
+      })
+    : await adapter.fetch(fetchInput).then((fetched) => () => fetched)
   for (const [workspaceId, entry] of byWorkspace) {
     const ownedPrefixes = [...entry.prefixes].sort()
     await input.write({
@@ -117,7 +133,9 @@ export async function syncConnectionSources(input: {
       workspaceId,
       provider: adapter.provider,
       connectionId: input.connectionId,
-      files: fetched.filter((file) => underAny(file.path, ownedPrefixes)),
+      files: filesOf(entry.scopeKeys).filter((file) =>
+        underAny(file.path, ownedPrefixes),
+      ),
       ownedPrefixes,
       keepPrefixes: [],
       sourcesRevision: entry.revision,

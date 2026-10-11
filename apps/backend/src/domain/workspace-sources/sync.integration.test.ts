@@ -94,6 +94,59 @@ describe("Workspace source sync frame (Postgres)", () => {
     expect(writes.map((write) => write.workspaceId)).toEqual([docs])
   })
 
+  it("with fetchEach, gives each Workspace only the files of its own scopes", async () => {
+    const forge = await seed.addConnection("forge")
+    const all = await seed.addWorkspace("each-all")
+    const some = await seed.addWorkspace("each-some")
+    await replaceWorkspaceSourceRows({
+      orgId: seed.orgId,
+      workspaceId: all,
+      revision: "d".repeat(40),
+      rows: [source("docs", forge, ["ENG"])],
+    })
+    await replaceWorkspaceSourceRows({
+      orgId: seed.orgId,
+      workspaceId: some,
+      revision: "e".repeat(40),
+      rows: [source("docs", forge, ["ENG", "one-page"])],
+    })
+    const fetched: Array<readonly Record<string, unknown>[]> = []
+    const writes: WorkspaceSliceWrite[] = []
+    await syncConnectionSources({
+      orgId: seed.orgId,
+      connectionId: forge,
+      env: parseEnv(process.env),
+      adapter: {
+        provider: "confluence",
+        managedPaths: () => ["confluence/ENG/"],
+        async fetchEach({ scopes }) {
+          fetched.push(scopes)
+          // The same page has a different path in each layout.
+          return scopes.map((scope) =>
+            (scope.spaces as string[]).includes("one-page")
+              ? [{ path: "confluence/ENG/home--1.md", content: "# Home" }]
+              : [{ path: "confluence/ENG/1/index.md", content: "# Home" }],
+          )
+        },
+      },
+      write: async (write) => {
+        writes.push(write)
+      },
+    })
+    expect(fetched).toHaveLength(1)
+    expect(
+      Object.fromEntries(
+        writes.map((write) => [
+          write.workspaceId,
+          write.files.map((file) => file.path),
+        ]),
+      ),
+    ).toEqual({
+      [all]: ["confluence/ENG/1/index.md"],
+      [some]: ["confluence/ENG/home--1.md"],
+    })
+  })
+
   it("deletes only the managed paths that no remaining source owns", async () => {
     const forge = await seed.addConnection("forge")
     const workspaceId = await seed.addWorkspace("cleanup")
