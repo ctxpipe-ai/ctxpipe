@@ -26,6 +26,7 @@
     "src/routes/v1/conversation-websocket-native.contract.test.ts",
     "src/routes/v1/conversation-files-routes.live.test.ts",
     "src/routes/v1/conversation-publish-native.contract.test.ts",
+    "src/routes/v1/conversation-files-turn-read.contract.test.ts",
     "src/domain/workspaces/protected-conversation-native.contract.test.ts"
   ],
   "native OpenCode port ownership": [
@@ -75,6 +76,7 @@
     "src/domain/workspaces/sandbox-ownership-native.contract.test.ts",
     "src/domain/workspaces/sandbox-lock-native.contract.test.ts",
     "src/domain/workspaces/sandbox-lifecycle-native.contract.test.ts",
+    "src/domain/workspaces/sandbox-attach-native.contract.test.ts",
     "src/domain/workspaces/workspace-sandbox-base-native.contract.test.ts",
     "src/domain/workspaces/workspace-chat-run-capability-native.contract.test.ts",
     "src/domain/workspaces/agent-vault-native.contract.test.ts",

@@ -9,6 +9,7 @@ import {
   turnSnapshotsExist,
 } from "../../domain/workspaces/conversation-diff.js"
 import {
+  attachTurnSandboxForRead,
   conversationSandboxStatus,
   conversationWorktreeVersion,
   getConversationSandboxBinding,
@@ -531,7 +532,12 @@ async function conversationFileSnapshot(input: {
 }
 
 type ConversationFileEnv = AppEnv & {
-  Variables: { sandboxAbortSignal: AbortSignal; readWithoutWait?: boolean }
+  Variables: {
+    sandboxAbortSignal: AbortSignal
+    readWithoutWait?: boolean
+    readDuringTurn?: boolean
+    turnRunning?: boolean
+  }
 }
 /**
  * A turn holds the conversation lock until its reply ends. The Files pane
@@ -541,6 +547,17 @@ type ConversationFileEnv = AppEnv & {
 const readWithoutWait = createMiddleware<ConversationFileEnv>(
   async (c, next) => {
     c.set("readWithoutWait", true)
+    await next()
+  },
+)
+/**
+ * A file read does not wait for a turn either: when another holder has the
+ * lock, it reads from the running sandbox with a plain attach that changes
+ * nothing, or answers 409 `turn_running` when no sandbox runs.
+ */
+const readDuringTurn = createMiddleware<ConversationFileEnv>(
+  async (c, next) => {
+    c.set("readDuringTurn", true)
     await next()
   },
 )
@@ -561,15 +578,18 @@ const withConversationFileLock = createMiddleware<ConversationFileEnv>(
     const orgId = loaded.conversation.orgId
     const key = `chat-thread:${conversationId}`
     try {
-      if (c.get("readWithoutWait")) {
+      if (c.get("readWithoutWait") || c.get("readDuringTurn")) {
         const read = await withSandboxLockIfFree(
           orgId,
           key,
           () => next(),
           controller,
         )
-        if (read.busy) return c.json({ error: "turn_running" }, 409)
-        return
+        if (!read.busy) return
+        if (!c.get("readDuringTurn"))
+          return c.json({ error: "turn_running" }, 409)
+        c.set("turnRunning", true)
+        return await next()
       }
       return await postgresSandboxLocks(orgId, controller).withLock(key, () =>
         next(),
@@ -582,6 +602,7 @@ const withConversationFileLock = createMiddleware<ConversationFileEnv>(
 const fileRoutes = new OpenAPIHono<ConversationFileEnv>()
 fileRoutes.get("/:conversationId/files/tree", readWithoutWait)
 fileRoutes.get("/:conversationId/files/status", readWithoutWait)
+fileRoutes.get("/:conversationId/files/blob", readDuringTurn)
 fileRoutes.use("/:conversationId/files/*", withConversationFileLock)
 export const conversationFileRoutes = fileRoutes
   .openapi(listTreeRoute, async (c) => {
@@ -626,9 +647,22 @@ export const conversationFileRoutes = fileRoutes
       c.get("sandboxAbortSignal"),
     )
     if (!loaded) return c.json({ error: "Not found" }, 404)
-    const ready = await readySandboxHandle({ ...loaded, existingOnly: true })
-    if (!ready.ok) return c.json({ error: ready.error }, ready.status)
-    const { handle } = ready
+    let handle: JobSandboxHandle
+    if (c.get("turnRunning")) {
+      const attached = await attachTurnSandboxForRead({
+        orgId: loaded.conversation.orgId,
+        conversationId,
+        signal: c.get("sandboxAbortSignal"),
+      })
+      // Nothing runs to read (the idle sweep may hold the lock): the pane
+      // polls again.
+      if (!attached) return c.json({ error: "turn_running" }, 409)
+      handle = attached
+    } else {
+      const ready = await readySandboxHandle({ ...loaded, existingOnly: true })
+      if (!ready.ok) return c.json({ error: ready.error }, ready.status)
+      handle = ready.handle
+    }
     const blob = await readConversationSandboxFile(handle, path)
     if (!blob) return c.json({ error: "Not found" }, 404)
     return c.json(blob, 200)

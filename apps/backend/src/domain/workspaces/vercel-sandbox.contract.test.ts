@@ -19,6 +19,7 @@ import { WORKSPACE_CHAT_VERCEL_SETUP } from "./chat-runtime.js"
 import { stopEarlierTurnProcesses } from "./sandbox-process-guards.js"
 import {
   agentSnapshotTags,
+  attachVercelSandbox,
   conversationFirewall,
   deleteVercelBuilder,
   deleteVercelSandbox,
@@ -164,6 +165,17 @@ describe("Vercel Sandbox", { timeout: 600_000 }, () => {
     let started = Date.now()
     await sandbox.stop()
     report(`[vercel] stop ${Date.now() - started}ms`)
+    // A read-only attach never resumes a stopped sandbox.
+    expect(
+      await attachVercelSandbox(
+        { credentials, name: sandbox.name },
+        { onlyRunning: true },
+      ),
+    ).toBeNull()
+    expect(
+      (await Sandbox.get({ ...credentials, name: sandbox.name, resume: false }))
+        .status,
+    ).not.toBe("running")
     started = Date.now()
     const resumed = await Sandbox.get({ ...credentials, name: sandbox.name })
     expect(await handle(resumed).fs.read("/workspace/state.txt")).toBe("kept")
