@@ -29,6 +29,7 @@ import {
 import type { ChatMessage, ChatStatus } from "@/features/chat/types"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
+import { chatColumnClassName, chatUserBubbleClassName } from "./chat-column"
 
 const HIDDEN_DATA_PARTS = new Set(["data-rename-conversation", "data-kg-focus"])
 
@@ -282,7 +283,11 @@ export function ConversationThread(props: {
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <Conversation className="min-h-0 flex-1">
           <ConversationContent
-            className={cn("mx-auto max-w-2xl gap-6 p-5", contentClassName)}
+            className={cn(
+              "mx-auto gap-6 p-5",
+              chatColumnClassName,
+              contentClassName,
+            )}
           >
             {turns.map((message, messageIndex) => {
               const working =
@@ -314,7 +319,7 @@ export function ConversationThread(props: {
                     >
                       <Message
                         from={message.role}
-                        className={isUser ? "max-w-md" : undefined}
+                        className={isUser ? chatUserBubbleClassName : undefined}
                       >
                         <MessageContent
                           className={isUser ? undefined : "gap-5"}
@@ -336,7 +341,7 @@ export function ConversationThread(props: {
         </Conversation>
         {error ? (
           <div className="px-4 pb-2">
-            <div className="mx-auto max-w-2xl">
+            <div className={cn("mx-auto", chatColumnClassName)}>
               <InlineAlert variant="error" title="Could not send">
                 {error.message || "Chat request failed."} Send again to retry.
               </InlineAlert>

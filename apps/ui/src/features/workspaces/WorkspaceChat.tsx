@@ -8,9 +8,11 @@ import type { ReactNode } from "react"
 import { useSelectNav } from "@/components/ShellLayoutContext"
 import { Button } from "@/components/ui/Button"
 import { Skeleton, SkeletonSuspense } from "@/components/ui/Skeleton"
+import { chatColumnClassName } from "@/features/chat/chat-column"
 import { chatDraftKey } from "@/features/chat/chat-draft"
 import { ConversationThreadSkeleton } from "@/features/chat/components/ConversationThreadSkeleton"
 import { MessageInputBox } from "@/features/chat/MessageInputBox"
+import { cn } from "@/lib/utils"
 import type { ParsedPane } from "./pane"
 import { workspaceConversationOptions, workspaceKeys } from "./queries"
 import { openWorkspaceConversation } from "./start-workspace-conversation-ui"
@@ -78,7 +80,7 @@ function WorkspaceComposeChat(props: {
       headerExtra={props.headerExtra}
     >
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-6 py-10">
-        <div className="w-full max-w-2xl space-y-5">
+        <div className={cn("w-full space-y-5", chatColumnClassName)}>
           <div>
             <h1 className="text-lg font-medium tracking-tight">
               {props.workspace.displayName}
