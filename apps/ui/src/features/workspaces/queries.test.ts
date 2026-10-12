@@ -88,6 +88,10 @@ describe("forgetDeletedWorkspace", () => {
     client.setQueryData(workspaceKeys.orgActivity("acme", null), {})
     client.setQueryData(workspaceKeys.orgActivity("acme", "2026-08-22"), {})
     client.setQueryData(workspaceKeys.orgActivity("other", null), {})
+    client.setQueryData(
+      workspaceKeys.activityCommits("acme", null, { author: "Ada" }),
+      {},
+    )
 
     await forgetDeletedWorkspace(client, "acme", "ws_a")
 
@@ -105,6 +109,12 @@ describe("forgetDeletedWorkspace", () => {
     expect(
       client.getQueryData(workspaceKeys.orgActivity("other", null)),
     ).toEqual({})
+    // The paged commit list of the org is dropped too.
+    expect(
+      client.getQueryData(
+        workspaceKeys.activityCommits("acme", null, { author: "Ada" }),
+      ),
+    ).toBeUndefined()
   })
 })
 

@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, lt, sql } from "drizzle-orm"
+import { and, desc, eq, gte, lt, or, type SQL, sql } from "drizzle-orm"
 import { requireCurrentOrgId } from "../auth/context.js"
 import { getOrgDb } from "../db/client.js"
 import {
@@ -36,6 +36,7 @@ export async function getWorkspaceCommitProjection(
 }
 
 export type WorkspaceActivityCommitRecord = ProjectedCommit & {
+  workspaceId: string
   workspaceSlug: string
   workspaceName: string
 }
@@ -49,6 +50,8 @@ export async function listWorkspaceRepositoryCommits(input: {
   workspaceId?: string
   date?: string
   limit?: number
+  /** Optional author, date range, and keyset filters of the activity list. */
+  filters?: WorkspaceCommitListFilters
 }): Promise<WorkspaceActivityCommitRecord[]> {
   return orgSql(async () => {
     const orgId = requireCurrentOrgId()
@@ -81,11 +84,13 @@ export async function listWorkspaceRepositoryCommits(input: {
                 new Date(dayStart.getTime() + 86_400_000),
               )
             : undefined,
+          ...commitListConditions(input.filters),
         ),
       )
       .orderBy(
         desc(workspaceRepositoryCommits.committedAt),
         workspaceRepositoryCommits.sha,
+        workspaceRepositoryCommits.workspaceId,
       )
       .limit(input.limit ?? 5)
     return rows.map(({ commit, workspaceSlug, workspaceName }) => ({
@@ -94,9 +99,87 @@ export async function listWorkspaceRepositoryCommits(input: {
       authorName: commit.authorName,
       subject: commit.subject,
       htmlUrl: commit.htmlUrl,
+      workspaceId: commit.workspaceId,
       workspaceSlug,
       workspaceName,
     }))
+  })
+}
+
+/**
+ * The filters of the Home activity list. `since` and `until` are UTC days
+ * (`YYYY-MM-DD`), both inclusive. `after` is the last row of the previous page
+ * in the list order (newest first, then SHA, then workspace id).
+ */
+export type WorkspaceCommitListFilters = {
+  author?: string
+  since?: string
+  until?: string
+  after?: { committedAt: Date; sha: string; workspaceId: string }
+}
+
+function commitListConditions(
+  filters: WorkspaceCommitListFilters | undefined,
+): (SQL | undefined)[] {
+  if (!filters) return []
+  const commits = workspaceRepositoryCommits
+  const after = filters.after
+  return [
+    filters.author ? eq(commits.authorName, filters.author) : undefined,
+    filters.since
+      ? gte(commits.committedAt, new Date(`${filters.since}T00:00:00.000Z`))
+      : undefined,
+    filters.until
+      ? lt(
+          commits.committedAt,
+          new Date(
+            new Date(`${filters.until}T00:00:00.000Z`).getTime() + 86_400_000,
+          ),
+        )
+      : undefined,
+    after
+      ? or(
+          lt(commits.committedAt, after.committedAt),
+          and(
+            eq(commits.committedAt, after.committedAt),
+            or(
+              sql`${commits.sha} > ${after.sha}`,
+              and(
+                eq(commits.sha, after.sha),
+                sql`${commits.workspaceId} > ${after.workspaceId}`,
+              ),
+            ),
+          ),
+        )
+      : undefined,
+  ]
+}
+
+/**
+ * The authors of the stored commits (the heatmap window), of one workspace or
+ * (no `workspaceId`) of the org. The most active author is first.
+ */
+export async function listWorkspaceCommitAuthors(
+  workspaceId?: string,
+): Promise<{ name: string; count: number }[]> {
+  return orgSql(async () => {
+    const orgId = requireCurrentOrgId()
+    const db = getOrgDb()
+    const count = sql<number>`count(*)::int`
+    const rows = await db
+      .select({ name: workspaceRepositoryCommits.authorName, count })
+      .from(workspaceRepositoryCommits)
+      .where(
+        and(
+          eq(workspaceRepositoryCommits.orgId, orgId),
+          workspaceId
+            ? eq(workspaceRepositoryCommits.workspaceId, workspaceId)
+            : undefined,
+        ),
+      )
+      .groupBy(workspaceRepositoryCommits.authorName)
+      .orderBy(desc(count), workspaceRepositoryCommits.authorName)
+    return rows.map((row) => ({ name: row.name, count: Number(row.count) }))
   })
 }
 

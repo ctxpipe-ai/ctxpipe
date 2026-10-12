@@ -1,4 +1,8 @@
-import { type QueryClient, queryOptions } from "@tanstack/react-query"
+import {
+  infiniteQueryOptions,
+  type QueryClient,
+  queryOptions,
+} from "@tanstack/react-query"
 import type {
   ConversationDetail,
   ConversationListItem,
@@ -60,6 +64,11 @@ export const workspaceKeys = {
     ["workspace-activity", orgSlug, workspaceSlug, date] as const,
   orgActivity: (orgSlug: string, date: string | null) =>
     ["org-activity", orgSlug, date] as const,
+  activityCommits: (
+    orgSlug: string,
+    workspaceSlug: string | null,
+    filters: ActivityCommitFilters,
+  ) => ["activity-commits", orgSlug, workspaceSlug, filters] as const,
   conversationGitTree: (orgSlug: string, conversationId: string) =>
     ["conversation-git-tree", orgSlug, conversationId] as const,
   conversationGitBlob: (
@@ -414,6 +423,57 @@ async function fetchOrgActivity(
 }
 
 /**
+ * The filters of the Home commit list. `date` is one UTC day (the heatmap
+ * day). `since` and `until` are UTC days, both inclusive.
+ */
+export type ActivityCommitFilters = {
+  author?: string
+  date?: string
+  since?: string
+  until?: string
+}
+
+/** The page size of the Home commit list. */
+export const ACTIVITY_COMMITS_PAGE_SIZE = 10
+
+/**
+ * The recent commits of one workspace, or (`workspaceSlug: null`) of every
+ * workspace in the org, page by page. Each page holds the response of one
+ * activity read; `recent` is the commits of that page.
+ */
+export function activityCommitsOptions(
+  orgSlug: string,
+  workspaceSlug: string | null,
+  filters: ActivityCommitFilters,
+) {
+  return infiniteQueryOptions({
+    queryKey: workspaceKeys.activityCommits(orgSlug, workspaceSlug, filters),
+    queryFn: async ({ pageParam }) => {
+      const query = {
+        ...filters,
+        limit: String(ACTIVITY_COMMITS_PAGE_SIZE),
+        ...(pageParam ? { cursor: pageParam } : {}),
+      }
+      const client = await getApiClient()
+      const res =
+        workspaceSlug === null
+          ? await client[":orgSlug"].api.v1.activity.$get({
+              param: { orgSlug },
+              query,
+            })
+          : await client[":orgSlug"].api.v1.workspaces[
+              ":workspaceSlug"
+            ].activity.$get({ param: { orgSlug, workspaceSlug }, query })
+      return readApiJson<WorkspaceActivityResponse>(res, {
+        message: "Failed to load commits",
+      })
+    },
+    initialPageParam: null as string | null,
+    getNextPageParam: (page) => page.nextCursor,
+  })
+}
+
+/**
  * After a delete, remove the Workspace from the cached list before Home
  * renders, and drop the cached org activity. Home keeps a query fresh for a
  * minute, so without this it shows the deleted Workspace again.
@@ -434,6 +494,7 @@ export async function forgetDeletedWorkspace(
   )
   // Every day of the org activity: the key prefix without the date.
   queryClient.removeQueries({ queryKey: ["org-activity", orgSlug] })
+  queryClient.removeQueries({ queryKey: ["activity-commits", orgSlug] })
 }
 
 /** When the org activity read first listed a pending workspace, per query. */

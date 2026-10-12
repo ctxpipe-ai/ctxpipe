@@ -74,6 +74,10 @@ export type WorkspaceActivityResponse = {
   status: "pending" | "ready" | "failed"
   days: WorkspaceActivityDay[]
   recent: WorkspaceActivityCommit[]
+  /** The authors of the commits in the heatmap window, most active first. */
+  authors: { name: string; count: number }[]
+  /** The cursor of the next page of `recent`. `null`: no more commits. */
+  nextCursor: string | null
   /** Org read only: the workspaces whose activity is still loading. */
   pendingWorkspaces?: { slug: string; name: string }[]
 }
