@@ -1,4 +1,14 @@
-import { and, desc, eq, gte, lt, or, type SQL, sql } from "drizzle-orm"
+import {
+  and,
+  desc,
+  eq,
+  gte,
+  isNotNull,
+  lt,
+  or,
+  type SQL,
+  sql,
+} from "drizzle-orm"
 import { requireCurrentOrgId } from "../auth/context.js"
 import { getOrgDb } from "../db/client.js"
 import {
@@ -97,6 +107,7 @@ export async function listWorkspaceRepositoryCommits(input: {
       sha: commit.sha,
       committedAt: commit.committedAt,
       authorName: commit.authorName,
+      authorLogin: commit.authorLogin,
       subject: commit.subject,
       htmlUrl: commit.htmlUrl,
       workspaceId: commit.workspaceId,
@@ -251,6 +262,10 @@ export async function listOrgWorkspaceCommitProjections(): Promise<
   })
 }
 
+/**
+ * The SHAs of the stored commits that need no new read. A row without a
+ * GitHub login is read again, so a row from before the login column gets it.
+ */
 export async function listWorkspaceCommitShas(
   workspaceId: string,
 ): Promise<Set<string>> {
@@ -264,6 +279,7 @@ export async function listWorkspaceCommitShas(
         and(
           eq(workspaceRepositoryCommits.orgId, orgId),
           eq(workspaceRepositoryCommits.workspaceId, workspaceId),
+          isNotNull(workspaceRepositoryCommits.authorLogin),
         ),
       )
     return new Set(rows.map((row) => row.sha))
@@ -287,15 +303,17 @@ export async function insertWorkspaceRepositoryCommits(input: {
           sha: commit.sha,
           committedAt: commit.committedAt,
           authorName: commit.authorName,
+          authorLogin: commit.authorLogin ?? null,
           subject: commit.subject,
           htmlUrl: commit.htmlUrl,
         })),
       )
-      .onConflictDoNothing({
+      .onConflictDoUpdate({
         target: [
           workspaceRepositoryCommits.workspaceId,
           workspaceRepositoryCommits.sha,
         ],
+        set: { authorLogin: sql`excluded.author_login` },
       })
   })
 }

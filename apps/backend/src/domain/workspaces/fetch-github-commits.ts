@@ -68,6 +68,7 @@ export async function fetchGithubWorkspaceCommits(input: {
             item.commit.author?.name?.trim() ||
             item.author?.login?.trim() ||
             "Unknown",
+          authorLogin: item.author?.login?.trim() || null,
           subject: firstLineSubject(item.commit.message ?? ""),
           htmlUrl: item.html_url ?? null,
         })
