@@ -11,6 +11,7 @@ import {
 import { PAGERDUTY_SYNC_MAX_TRIES } from "../../services/pagerduty/workspace-source-adapter.js"
 import { seedSourcesOrg } from "../../test/workspace-sources-fixture.js"
 import { SOURCE_ADAPTERS } from "./adapter.js"
+import type { SourceProvider } from "./sources-file.js"
 import { syncConnectionSources, type WorkspaceSliceWrite } from "./sync.js"
 
 // The OpenWorkflow client reads its namespace on import: keep these runs apart.
@@ -98,7 +99,7 @@ const pagerdutyConfig = () => ({
 async function addSource(input: {
   connectionId: string
   slug: string
-  provider: string
+  provider: SourceProvider
   scope: Record<string, unknown>
   status?: "ok" | "out_of_access"
 }) {

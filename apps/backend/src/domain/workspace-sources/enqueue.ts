@@ -67,7 +67,13 @@ export async function enqueueDailySourcesSyncs(now: Date): Promise<number> {
   let queued = 0
   for (const connection of await listConnectionsWithOkSources()) {
     const provider = sourceProviderSchema.safeParse(connection.provider)
-    if (!provider.success || !hasAdapter(provider.data)) continue
+    // Slack sources capture on demand: a full Slack sync writes nothing.
+    if (
+      !provider.success ||
+      provider.data === "slack" ||
+      !hasAdapter(provider.data)
+    )
+      continue
     const offset =
       createHash("sha256")
         .update(connection.connectionId)
