@@ -88,6 +88,7 @@ function plural(count: number, noun: string) {
 function connectorsSummary(
   items: WorkspaceSource[],
   pendingChanges: PendingSourceChange[],
+  linkedRepositoryCount: number,
 ) {
   const connectors = new Set(
     items.flatMap((item) =>
@@ -96,9 +97,11 @@ function connectorsSummary(
   ).size
   const attention = items.filter((item) => item.status !== "ok").length
   return [
-    items.length === 0
-      ? "No sources yet"
-      : `${plural(items.length, "source")} from ${plural(connectors, "connector")}`,
+    items.length > 0
+      ? `${plural(items.length, "source")} from ${plural(connectors, "connector")}`
+      : linkedRepositoryCount > 0
+        ? `${linkedRepositoryCount} linked ${linkedRepositoryCount === 1 ? "repository" : "repositories"}`
+        : "No sources yet",
     attention > 0
       ? `${attention} ${attention === 1 ? "needs" : "need"} attention`
       : null,
@@ -381,7 +384,7 @@ export function WorkspaceSources(props: {
         <SkeletonText className="text-sm" boneClassName="h-3.5 w-48" />
       ) : data && !isEmpty ? (
         <p className="text-sm text-muted-foreground">
-          {connectorsSummary(items, pendingChanges)}
+          {connectorsSummary(items, pendingChanges, linkedRepositories.length)}
         </p>
       ) : null}
       {data && isEmpty ? null : (
