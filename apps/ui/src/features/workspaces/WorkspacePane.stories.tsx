@@ -174,7 +174,7 @@ function WorkspacePanePlayground(props: ComponentProps<typeof WorkspacePane>) {
       {open ? (
         <WorkspacePane
           {...props}
-          publish={props.conversationId ? publish.chrome : null}
+          cta={props.conversationId ? publish.chrome : null}
           pane={pane}
           width={width}
           maximized={maximized}

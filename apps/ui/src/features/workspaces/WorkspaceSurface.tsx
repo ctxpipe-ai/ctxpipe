@@ -594,7 +594,7 @@ function WorkspaceSurfaceColumns(props: {
             maximized={maximized}
             width={paneWidth}
             conversationTitle={conversationTitle}
-            publish={publish?.chrome}
+            cta={publish?.chrome}
             onPane={(next) => setPane(next)}
             onClose={collapsePane}
             onToggleMaximize={() => setMaximized((value) => !value)}

@@ -37,9 +37,7 @@ import { filePaneId, type ParsedPane, parsePane, serializePane } from "./pane"
 import {
   conversationGitBlobOptions,
   conversationGitDiffOptions,
-  conversationGitStatusOptions,
   conversationGitTreeOptions,
-  workspaceChatPrepareOptions,
   workspaceGitBlobOptions,
   workspaceGitTreeOptions,
   workspaceGraphBuilding,
@@ -47,8 +45,8 @@ import {
 } from "./queries"
 import type { WorkspaceDetail, WorkspaceStorePhase } from "./types"
 import {
-  ConversationPublishActions,
-  type ConversationPublishChrome,
+  ConversationCtaActions,
+  type ConversationCtaChrome,
 } from "./WorkspaceChatChrome"
 import { WorkspaceConversationDiffPane } from "./WorkspaceConversationDiff"
 import { WorkspaceFilesPaneBody } from "./WorkspaceFilesPane"
@@ -95,7 +93,7 @@ export function WorkspacePane(props: {
   onToggleTree: () => void
   conversationTitle: string
   /** The conversation's publish state, shared with the conversation header. */
-  publish?: ConversationPublishChrome | null
+  cta?: ConversationCtaChrome | null
 }) {
   const queryClient = useQueryClient()
   const urlPaneKey = serializePane(props.pane)
@@ -108,7 +106,6 @@ export function WorkspacePane(props: {
     orgSlug: props.orgSlug,
     workspace: props.workspace,
     conversationId: props.conversationId,
-    diffSelected: pane.kind === "diff",
   })
   // The card joins the active tab with a square corner only when that tab
   // leads the strip. Each other tab keeps the round corner.
@@ -254,7 +251,7 @@ export function WorkspacePane(props: {
             </Button>
             <TabList
               ref={fileTabListRef}
-              className="flex min-w-0 flex-1 items-end gap-0.5 overflow-x-auto overflow-y-hidden [scrollbar-width:none]"
+              className="flex min-w-0 flex-1 items-end gap-1 overflow-x-auto overflow-y-hidden [scrollbar-width:none]"
             >
               {toolTabs.map((tab) => (
                 <PaneIconTab
@@ -277,7 +274,7 @@ export function WorkspacePane(props: {
                     aria-label={title}
                     className={({ isSelected }) =>
                       cn(
-                        "max-w-[12rem] gap-1",
+                        "max-w-[12rem] gap-1 px-3",
                         newTabClassName,
                         isSelected
                           ? workspaceChromeTabClassName
@@ -312,17 +309,17 @@ export function WorkspacePane(props: {
                 )
               })}
             </TabList>
-            <div className="flex shrink-0 items-end gap-0.5">
+            <div className="flex shrink-0 items-end gap-1">
               {/* The conversation header has the publish actions. The pane
                   shows them only when the conversation column is hidden: below
                   `lg` with the pane open, or when the pane is maximized. */}
-              {props.publish &&
+              {props.cta &&
               conversationAllowsEdits(
                 props.workspace.writeStatus,
                 props.workspace.conversationWritable,
               ) ? (
-                <ConversationPublishActions
-                  publish={props.publish}
+                <ConversationCtaActions
+                  cta={props.cta}
                   className={props.maximized ? undefined : "lg:hidden"}
                 />
               ) : null}
@@ -557,25 +554,8 @@ function usePaneToolTabs(props: {
   orgSlug: string
   workspace: WorkspaceDetail
   conversationId?: string
-  /** Keep the Diff tab while it is open, also when the status has no changes. */
-  diffSelected?: boolean
 }): PaneToolTab[] {
-  const conversationId = props.conversationId ?? ""
-  const prepareQuery = useQuery({
-    ...workspaceChatPrepareOptions(
-      props.orgSlug,
-      conversationId,
-      props.workspace.id,
-    ),
-    enabled: conversationId !== "",
-  })
-  const statusQuery = useQuery({
-    ...conversationGitStatusOptions(props.orgSlug, conversationId),
-    enabled: conversationId !== "" && prepareQuery.isSuccess,
-  })
-  const showDiff =
-    conversationId !== "" &&
-    (props.diffSelected || statusQuery.data?.differsFromDefault === true)
+  const showDiff = Boolean(props.conversationId)
   const graphBuilding = props.workspace.hydratePhases?.graph.kind === "pending"
   const tabs: PaneToolTab[] = [
     {

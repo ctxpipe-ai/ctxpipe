@@ -13,30 +13,30 @@ export const workspaceChromeOuterClassName =
   "flex min-h-0 min-w-0 flex-col pb-3 pt-[6.5px]"
 
 /**
- * Active tab: 12px x-padding, 37px tall including the 1px hairline.
+ * Active tab: 37px tall including the 1px hairline. Its 1px side borders are
+ * in the width, so the idle tab has transparent side borders of the same
+ * size: a tab switch does not move the tabs beside it. Text tabs add `px-3`;
+ * the icon tab is square (7px + 1px border + 16px icon).
  * Idle tab: 32px face + 2px (`0.5`) inset; `-translate-y-px` restores the gap
  * above the card after the strip sits 1px over the hairline.
  */
 export const workspaceChromeTabClassName = [
-  "relative z-10 box-border inline-flex h-[37px] shrink-0 items-center justify-center px-3",
+  "relative z-10 box-border inline-flex h-[37px] shrink-0 items-center justify-center px-[7px]",
   "rounded-t-md border border-b-0 border-white/[0.06] bg-card",
   "text-sm font-medium leading-none text-foreground",
 ].join(" ")
 
-/**
- * Idle tab. The buttons at the top right of the conversation (Sync, Create PR,
- * Show PR) use it too, so they look the same as the pane triggers.
- */
+/** Idle tab. It takes the same box as the active tab. */
 export const workspaceChromeTabIdleClassName = [
-  "box-border my-0.5 -translate-y-px inline-flex h-8 shrink-0 cursor-pointer items-center justify-center px-3",
-  "rounded-md border-0 bg-transparent",
+  "box-border my-0.5 -translate-y-px inline-flex h-8 shrink-0 cursor-pointer items-center justify-center px-[7px]",
+  "rounded-md border border-b-0 border-transparent bg-transparent",
   "text-sm font-medium leading-none text-zinc-400",
   "transition-colors hover:bg-teal-900/30 hover:text-zinc-50",
 ].join(" ")
 
 /** Gap between conversation + pane tabs (both columns). Sit 1px over the card hairline. */
 export const workspaceChromeTabStripClassName =
-  "relative z-10 -mb-px flex items-end gap-0.5"
+  "relative z-10 -mb-px flex items-end gap-1"
 
 export function workspaceChromeIconTabClassName(active: boolean): string {
   return active ? workspaceChromeTabClassName : workspaceChromeTabIdleClassName

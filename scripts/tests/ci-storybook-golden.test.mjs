@@ -60,6 +60,22 @@ const required = [
     "ChangeMarkers",
   ],
   [
+    "apps/ui/src/features/workspaces/WorkspaceChatChrome.stories.tsx",
+    "CtaButtonStyle",
+  ],
+  [
+    "apps/ui/src/features/workspaces/WorkspaceChatChrome.stories.tsx",
+    "BranchLabel",
+  ],
+  [
+    "apps/ui/src/features/workspaces/WorkspaceSurface.stories.tsx",
+    "DiffTriggerNoChanges",
+  ],
+  [
+    "apps/ui/src/features/workspaces/WorkspaceSurface.stories.tsx",
+    "PaneTabsStayInPlace",
+  ],
+  [
     "apps/ui/src/features/workspaces/WorkspaceSurface.stories.tsx",
     "SharedPublishPending",
   ],

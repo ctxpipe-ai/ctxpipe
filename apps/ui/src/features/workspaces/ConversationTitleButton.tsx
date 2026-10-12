@@ -1,70 +1,100 @@
-import { IconPencil } from "@tabler/icons-react"
 import { useMutation } from "@tanstack/react-query"
-import { useState } from "react"
-import { Button as RACButton } from "react-aria-components"
-import { Dialog } from "@/components/ui/Dialog"
-import { Modal } from "@/components/ui/Modal"
-import { RenameConversationModal } from "@/features/chat/components/RenameConversationModal"
+import { useRef, useState } from "react"
+import { Input, Button as RACButton, TextField } from "react-aria-components"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
 import { renameConversation } from "./queries"
 
-/** The conversation title in the chat header. Pressing it opens the rename dialog. */
+/**
+ * The conversation title in the chat header. Pressing it turns the title into
+ * an input. Enter or blur saves the name, and Escape cancels. An empty or
+ * unchanged name does nothing.
+ */
 export function ConversationTitleButton(props: {
   orgSlug: string
   conversationId: string
   name: string
   onRenamed: (name: string) => void
 }) {
-  const [isOpen, setIsOpen] = useState(false)
+  const [isEditing, setIsEditing] = useState(false)
+  const [draft, setDraft] = useState(props.name)
+  // Escape unmounts the input, and the unmount must not save.
+  const cancelled = useRef(false)
   const rename = useMutation({
     mutationFn: (name: string) =>
       renameConversation(props.orgSlug, props.conversationId, name),
     onSuccess: (updated) => {
       props.onRenamed(updated.name)
-      setIsOpen(false)
+      setIsEditing(false)
     },
   })
-  const close = () => {
-    if (rename.isPending) return
+  const stop = () => {
     rename.reset()
-    setIsOpen(false)
+    setIsEditing(false)
+  }
+  const save = () => {
+    if (cancelled.current || rename.isPending) return
+    const name = draft.trim()
+    if (!name || name === props.name) {
+      stop()
+      return
+    }
+    rename.mutate(name)
   }
 
-  return (
-    <>
+  if (!isEditing) {
+    return (
       <RACButton
         aria-label={`Rename conversation: ${props.name}`}
-        onPress={() => setIsOpen(true)}
+        onPress={() => {
+          cancelled.current = false
+          setDraft(props.name)
+          setIsEditing(true)
+        }}
         className={cn(
-          "group/title inline-flex min-w-0 items-center gap-1.5 rounded-md text-left",
-          "hover:text-teal-400",
+          "min-w-0 rounded-md text-left hover:text-teal-400",
           focusVisibleClassName,
         )}
       >
-        <span className="min-w-0 truncate">{props.name}</span>
-        <IconPencil
-          aria-hidden
-          className="size-3.5 shrink-0 text-muted-foreground opacity-0 group-hover/title:opacity-100 group-focus-visible/title:opacity-100"
-        />
+        <span className="block truncate">{props.name}</span>
       </RACButton>
-      <Modal
-        isOpen={isOpen}
-        isDismissable={!rename.isPending}
-        onOpenChange={(open) => {
-          if (!open) close()
-        }}
+    )
+  }
+  return (
+    <div className="flex min-w-0 flex-col">
+      <TextField
+        aria-label="Conversation name"
+        value={draft}
+        onChange={setDraft}
+        isReadOnly={rename.isPending}
+        isInvalid={rename.isError}
+        className="min-w-0"
       >
-        <Dialog aria-label="Rename conversation" className="p-0">
-          <RenameConversationModal
-            conversationName={props.name}
-            onClose={close}
-            onSubmit={(name) => rename.mutate(name)}
-            isPending={rename.isPending}
-            error={rename.error?.message}
-          />
-        </Dialog>
-      </Modal>
-    </>
+        <Input
+          autoFocus
+          onFocus={(event) => event.currentTarget.select()}
+          onBlur={rename.isError ? stop : save}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault()
+              save()
+            } else if (event.key === "Escape") {
+              event.preventDefault()
+              cancelled.current = true
+              stop()
+            }
+          }}
+          className="field-sizing-content min-w-[8ch] max-w-full rounded-sm bg-transparent font-[inherit] text-[length:inherit] leading-[inherit] text-foreground outline-none ring-1 ring-teal-500/60 focus-visible:ring-teal-500"
+        />
+      </TextField>
+      {rename.error ? (
+        <p
+          role="alert"
+          className="absolute top-full left-0 z-20 mt-1 rounded-md bg-zinc-800 px-2 py-1 text-xs font-normal text-red-400 shadow-md"
+        >
+          {rename.error.message}
+        </p>
+      ) : null}
+    </div>
   )
 }

@@ -1,6 +1,6 @@
 import {
   IconCloudUpload,
-  IconExternalLink,
+  IconGitBranch,
   IconGitPullRequest,
 } from "@tabler/icons-react"
 import type { ReactElement, ReactNode } from "react"
@@ -21,12 +21,11 @@ import {
   workspaceChromeOuterClassName,
   workspaceChromeOuterFlushClassName,
   workspaceChromeTabClassName,
-  workspaceChromeTabIdleClassName,
   workspaceChromeTabStripClassName,
 } from "./workspaceChrome"
 import { writeStatusLabel } from "./writeStatusLabel"
 
-export type ConversationPublishChrome = {
+export type ConversationCtaChrome = {
   commitPush: {
     visible: boolean
     enabled: boolean
@@ -71,6 +70,42 @@ export type ConversationBranchChrome = {
   href?: string | null
 }
 
+/** The branch name as a label with a git-branch icon. The tooltip has the full ref. */
+function BranchLabel(props: { branch: ConversationBranchChrome }) {
+  const { shortName, fullRef, href } = props.branch
+  const labelClassName =
+    "ml-2 inline-flex min-w-0 max-w-40 shrink items-center gap-1 rounded-md border border-border bg-zinc-800 px-1.5 py-0.5 font-mono text-xs font-normal text-muted-foreground"
+  const content = (
+    <>
+      <IconGitBranch className="size-3 shrink-0" stroke={1.8} aria-hidden />
+      <span className="truncate">{shortName}</span>
+    </>
+  )
+  return (
+    <ChromeTooltip
+      trigger={<span className={labelClassName} />}
+      content={fullRef}
+    >
+      {href ? (
+        <AriaLink
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={fullRef}
+          className={cn(
+            "inline-flex min-w-0 items-center gap-1 rounded-sm hover:text-teal-400",
+            focusVisibleClassName,
+          )}
+        >
+          {content}
+        </AriaLink>
+      ) : (
+        content
+      )}
+    </ChromeTooltip>
+  )
+}
+
 /**
  * Conversation column chrome: card surface with the conversation name as an
  * active tab (conversation is one pane; files/graph/settings are the other).
@@ -80,18 +115,18 @@ export function WorkspaceChatChrome(props: {
   title: ReactNode
   headerExtra?: ReactNode
   branch?: ConversationBranchChrome | null
-  publish?: ConversationPublishChrome | null
+  cta?: ConversationCtaChrome | null
   children: ReactNode
 }) {
   const write = writeStatusLabel(
     props.workspace.writeStatus,
     props.workspace.readOnlyReason,
   )
-  const publishHasActions = Boolean(
-    props.publish &&
-      (props.publish.commitPush.visible || props.publish.pullRequest.visible),
+  const ctaHasActions = Boolean(
+    props.cta &&
+      (props.cta.commitPush.visible || props.cta.pullRequest.visible),
   )
-  const showWriteBadge = !props.publish && write.tone !== "writable"
+  const showWriteBadge = !props.cta && write.tone !== "writable"
   return (
     <div
       className={cn(
@@ -114,7 +149,7 @@ export function WorkspaceChatChrome(props: {
           <div
             className={cn(
               workspaceChromeTabClassName,
-              "max-w-[min(100%,24rem)]",
+              "max-w-[min(100%,24rem)] px-3",
             )}
           >
             {typeof props.title === "string" ? (
@@ -122,29 +157,10 @@ export function WorkspaceChatChrome(props: {
             ) : (
               props.title
             )}
-            {props.branch ? (
-              props.branch.href ? (
-                <AriaLink
-                  href={props.branch.href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="ml-2 truncate font-mono text-xs text-muted-foreground hover:text-teal-400"
-                  aria-label={props.branch.fullRef}
-                >
-                  {props.branch.shortName}
-                </AriaLink>
-              ) : (
-                <span
-                  title={props.branch.fullRef}
-                  className="ml-2 truncate font-mono text-xs text-muted-foreground"
-                >
-                  {props.branch.shortName}
-                </span>
-              )
-            ) : null}
+            {props.branch ? <BranchLabel branch={props.branch} /> : null}
           </div>
-          {props.headerExtra || showWriteBadge || publishHasActions ? (
-            <div className="ml-auto flex min-w-0 items-end gap-0.5">
+          {props.headerExtra || showWriteBadge || ctaHasActions ? (
+            <div className="ml-auto flex min-w-0 items-end gap-1">
               {showWriteBadge ? (
                 <span className="inline-flex h-[37px] shrink-0 items-center">
                   <ChromeTooltip
@@ -165,9 +181,9 @@ export function WorkspaceChatChrome(props: {
                   </ChromeTooltip>
                 </span>
               ) : null}
-              {publishHasActions && props.publish ? (
-                <ConversationPublishActions
-                  publish={props.publish}
+              {ctaHasActions && props.cta ? (
+                <ConversationCtaActions
+                  cta={props.cta}
                   className={workspaceChromeTabStripClassName}
                 />
               ) : null}
@@ -183,38 +199,38 @@ export function WorkspaceChatChrome(props: {
 }
 
 /**
- * Sync and Create PR use the pane triggers' idle tab style. The class wins
- * over the ghost variant, so it must also set the disabled and pending text.
+ * The CTA button: Sync, Create PR and Show PR. White face and dark text from
+ * the primary tokens. It is 28px tall, centered on the 32px trigger row.
  */
-const publishButtonClassName = (state: {
+const ctaBaseClassName =
+  "box-border my-1 -translate-y-px inline-flex h-7 shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-md border-0 bg-primary px-2.5 text-xs font-normal leading-none text-primary-foreground transition-colors hover:bg-primary/90 active:bg-primary/80 pressed:bg-primary/80"
+
+const ctaButtonClassName = (state: {
   isDisabled: boolean
   isPending: boolean
 }) =>
   cn(
-    workspaceChromeTabIdleClassName,
-    "gap-1.5 text-xs font-normal pressed:bg-teal-900/30",
+    ctaBaseClassName,
     state.isDisabled &&
-      "cursor-default hover:bg-transparent hover:text-zinc-400",
-    state.isDisabled && !state.isPending && "opacity-50",
+      "cursor-default bg-muted text-muted-foreground hover:bg-muted active:bg-muted",
     state.isPending && "text-transparent hover:text-transparent",
   )
 
 /**
- * Sync (commit and push), Create PR, and Show PR. They look the same as the
- * pane triggers. `className` lets the tools pane show the actions only when
+ * Sync (commit and push), Create PR, and Show PR as CTA buttons. `className` lets the tools pane show the actions only when
  * the conversation column is hidden, so the page shows each action once.
  */
-export function ConversationPublishActions(props: {
-  publish: ConversationPublishChrome
+export function ConversationCtaActions(props: {
+  cta: ConversationCtaChrome
   className?: string
 }) {
-  const { commitPush, pullRequest } = props.publish
+  const { commitPush, pullRequest } = props.cta
   const showCommit = commitPush.visible
   const showPrLink = pullRequest.action === "show" && Boolean(pullRequest.href)
   const showCreatePr = pullRequest.visible && pullRequest.action === "create"
   if (!showCommit && !showPrLink && !showCreatePr) return null
   return (
-    <div className={cn("flex shrink-0 items-end gap-0.5", props.className)}>
+    <div className={cn("flex shrink-0 items-end gap-1", props.className)}>
       {showCommit ? (
         // A span trigger: the tooltip shows on hover also while Sync is disabled.
         <ChromeTooltip
@@ -231,7 +247,7 @@ export function ConversationPublishActions(props: {
                 ? "Syncing: commit and push in progress"
                 : "Sync: commit and push your changes"
             }
-            className={publishButtonClassName}
+            className={ctaButtonClassName}
           >
             <IconCloudUpload className="size-4" stroke={1.6} aria-hidden />
             {commitPush.pending ? "Syncing…" : "Sync"}
@@ -244,20 +260,10 @@ export function ConversationPublishActions(props: {
           target="_blank"
           rel="noopener noreferrer"
           aria-label="Show PR (opens in a new tab)"
-          className={cn(
-            workspaceChromeTabIdleClassName,
-            focusVisibleClassName,
-            "relative gap-1.5 pr-4 text-xs font-normal",
-          )}
+          className={cn(ctaBaseClassName, focusVisibleClassName)}
         >
           <IconGitPullRequest className="size-4" stroke={1.6} aria-hidden />
           Show PR
-          <IconExternalLink
-            data-external-badge
-            className="absolute top-1 right-1 size-2.5"
-            stroke={2}
-            aria-hidden
-          />
         </AriaLink>
       ) : showCreatePr ? (
         <Button
@@ -265,7 +271,7 @@ export function ConversationPublishActions(props: {
           isDisabled={pullRequest.pending}
           isPending={pullRequest.pending}
           onPress={pullRequest.onPress}
-          className={publishButtonClassName}
+          className={ctaButtonClassName}
         >
           <IconGitPullRequest className="size-4" stroke={1.6} aria-hidden />
           {pullRequest.pending ? "Creating PR…" : "Create PR"}

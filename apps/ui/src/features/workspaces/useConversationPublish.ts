@@ -23,7 +23,7 @@ import type {
   ConversationGitStatusResponse,
   ConversationPullRequestResponse,
 } from "./types"
-import type { ConversationPublishChrome } from "./WorkspaceChatChrome"
+import type { ConversationCtaChrome } from "./WorkspaceChatChrome"
 
 export function conversationPushMutationKey(
   orgSlug: string,
@@ -155,7 +155,7 @@ export function useConversationPublish(input: {
   )
   const commitEnabled = conversationCommitPushEnabled(status)
 
-  const chrome: ConversationPublishChrome = {
+  const chrome: ConversationCtaChrome = {
     commitPush: {
       visible: commitEnabled || pushPending,
       enabled: commitEnabled,
