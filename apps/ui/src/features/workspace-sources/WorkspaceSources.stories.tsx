@@ -85,7 +85,7 @@ export const Loading: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText("Loading sources")
-    await expect(canvas.queryByText(/No connectors yet/)).toBeNull()
+    await expect(canvas.queryByText(/No sources yet/)).toBeNull()
   },
 }
 
@@ -102,9 +102,9 @@ export const Empty: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await canvas.findByText(/No connectors yet/)
+    await canvas.findByText(/No sources yet\. Connect a tool/)
     await expect(
-      canvas.getByRole("heading", { level: 2, name: "Connectors" }),
+      canvas.getByRole("heading", { level: 2, name: "Sources" }),
     ).toBeInTheDocument()
     await expect(
       canvas.getByRole("link", { name: "Add connection" }),
@@ -333,6 +333,13 @@ export const EachStatus: Story = {
                   scopeSummary: "1 team",
                 }),
                 workspaceSourceFixture({
+                  sourceKey: "eng-channels",
+                  provider: "slack",
+                  status: "ok",
+                  statusDetail: "Channel #old is archived",
+                  scopeSummary: "2 Slack channels",
+                }),
+                workspaceSourceFixture({
                   sourceKey: "secret-space",
                   provider: "confluence",
                   status: "out_of_access",
@@ -349,12 +356,14 @@ export const EachStatus: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await canvas.findByText("OK")
+    await canvas.findAllByText("OK")
     await expect(canvas.getByText("Not valid")).toBeVisible()
     await expect(canvas.getByText("Connection missing")).toBeVisible()
     await expect(canvas.getByText("Out of access")).toBeVisible()
     await expect(canvas.getByText("teams: Expected an array")).toBeVisible()
     await expect(canvas.getByText(/No connection/)).toBeVisible()
+    // An ok source that is usable in part names its bad channels.
+    await expect(canvas.getByText("Channel #old is archived")).toBeVisible()
   },
 }
 
@@ -787,7 +796,7 @@ export const LoadFailed: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await canvas.findByText("Could not load the connectors of this Workspace.")
+    await canvas.findByText("Could not load the sources of this Workspace.")
     await expect(canvas.getByRole("button", { name: "Retry" })).toBeVisible()
   },
 }

@@ -45,7 +45,7 @@ export function ConversationTurnChangesCard(props: {
       aria-label={title}
       className="w-full rounded-md bg-foreground/[0.03] p-2 text-sm"
     >
-      <div className="flex items-center gap-3 px-2">
+      <div className="flex items-center gap-3 pl-2">
         <span className="font-medium text-foreground">{title}</span>
         <LineCounts additions={additions} deletions={deletions} />
         <span className="flex-1" />

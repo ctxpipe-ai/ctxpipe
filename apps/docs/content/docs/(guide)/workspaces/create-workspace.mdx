@@ -3,9 +3,10 @@ title: Create a Workspace
 description: Choose or create the git repository that holds a Workspace's knowledge.
 ---
 
-Creating a Workspace means choosing its **workspace repository**. There is no
-draft step: once you pick a repository, the Workspace exists and ctx| starts
-reading it.
+Add Workspace has two steps. Step 1 chooses the Workspace's **workspace
+repository**. There is no draft step: once you pick a repository, the
+Workspace exists and ctx| starts reading it. Step 2 adds the code
+repositories and tools that the Workspace reads.
 
 ## Before you start
 
@@ -21,9 +22,10 @@ reading it.
   <Step>
     ### Open Add Workspace
 
-    Choose **+** next to **Workspaces** in the sidebar. Onboarding also offers
-    to create your first Workspace after you connect GitHub, and Home shows
-    **Create a workspace** while your organization has none.
+    Choose **+** next to **Workspaces** in the sidebar. Home also has
+    **Create Workspace**: in the **Get started** guide, or on its own while
+    your organization has no Workspace. After you connect GitHub from
+    **Connectors**, the GitHub setup page also has **Create workspace**.
   </Step>
 
   <Step>
@@ -38,6 +40,26 @@ reading it.
       it.
     - **Paste URL**: any git URL. Repositories outside GitHub work as
       read-only Workspaces.
+
+    Choose **Create Workspace**.
+  </Step>
+
+  <Step>
+    ### Add code repositories and tools
+
+    ctx| first checks that it can write to the workspace repository. Then it
+    shows the **Sources** section of the new Workspace:
+
+    - Choose **Add repositories** under **GitHub** to link
+      [code repositories](/docs/workspaces/linked-repositories).
+    - Choose **Add** next to a connected tool, such as Linear or Notion.
+    - Choose **Add another connection**, or **Add connection** when no tool
+      is connected, to connect a new tool. This closes Add Workspace.
+
+    Each change goes to `.ctxpipe/sources.yaml` in the workspace repository,
+    as a pull request or a direct commit. This step is optional. You can make
+    the same changes later in **Settings**. Choose **Open Workspace** to
+    finish.
   </Step>
 
   <Step>

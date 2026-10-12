@@ -146,8 +146,15 @@ function SourceRow(props: {
           {source.connectionName ?? "No connection"} ·{" "}
           <code className="font-mono">{source.sourceKey}</code>
         </p>
-        {source.status !== "ok" && source.statusDetail ? (
-          <p className="mt-0.5 text-xs text-amber-200/80">
+        {source.statusDetail ? (
+          <p
+            className={cn(
+              "mt-0.5 text-xs",
+              source.status === "ok"
+                ? "text-muted-foreground"
+                : "text-amber-200/80",
+            )}
+          >
             {source.statusDetail}
           </p>
         ) : null}
@@ -307,7 +314,7 @@ function SourcesSkeleton() {
 }
 
 /**
- * The "Connectors" section of the Workspace settings pane: the entries of
+ * The "Sources" section of the Workspace settings pane: the entries of
  * `.ctxpipe/sources.yaml`, grouped by provider. Each provider group has the
  * anchor `source-<provider>`.
  */
@@ -375,10 +382,10 @@ export function WorkspaceSources(props: {
     groups.length === 0 && unknownProvider.length === 0 && !data?.fileError
 
   return (
-    <section className="max-w-lg" aria-labelledby="workspace-connectors">
+    <section className="max-w-lg" aria-labelledby="workspace-sources">
       {/* The settings group eyebrow names this section on screen. */}
-      <h2 id="workspace-connectors" className="sr-only">
-        Connectors
+      <h2 id="workspace-sources" className="sr-only">
+        Sources
       </h2>
       {sourcesQuery.isPending ? (
         <SkeletonText className="text-sm" boneClassName="h-3.5 w-48" />
@@ -411,13 +418,14 @@ export function WorkspaceSources(props: {
               </Button>
             }
           >
-            Could not load the connectors of this Workspace.
+            Could not load the sources of this Workspace.
           </InlineAlert>
         </div>
       ) : isEmpty ? (
         <div className="flex flex-col gap-3">
           <p className="text-sm text-muted-foreground">
-            No connectors yet. Connect a tool, then add it to this Workspace.
+            No sources yet. Connect a tool under Connectors, then add it to this
+            Workspace.
           </p>
           <div>
             <Link
@@ -468,7 +476,7 @@ export function WorkspaceSources(props: {
               </ConnectorGroup>
             ) : null}
             {groups.map((provider) => {
-              const { Icon, ScopeEditor } = SOURCE_PROVIDER_UI[provider]
+              const { Icon } = SOURCE_PROVIDER_UI[provider]
               const label = sourceProviderLabel(provider)
               const sources = items.filter((item) => item.provider === provider)
               const pendingAdds = pendingChanges.filter(
@@ -520,10 +528,7 @@ export function WorkspaceSources(props: {
                         <IconPlus className="size-4" aria-hidden />
                         Add repositories
                       </Button>
-                    ) : provider !== "github" &&
-                      connected &&
-                      canEdit &&
-                      ScopeEditor ? (
+                    ) : provider !== "github" && connected && canEdit ? (
                       <Button
                         variant="quiet"
                         aria-label={`Add ${label} source`}
@@ -564,7 +569,7 @@ export function WorkspaceSources(props: {
                           source={source}
                           pending={pendingOf(source.sourceKey)}
                           onEdit={
-                            canEdit && ScopeEditor
+                            canEdit
                               ? () =>
                                   setEditor({ kind: "edit", provider, source })
                               : null

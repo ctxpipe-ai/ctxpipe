@@ -24,12 +24,13 @@ export type SourceConnection = { id: string; type: string }
 
 /**
  * Tell why a valid entry is out of its connection's reach, or return null.
- * The provider adapter supplies this; without it every valid entry is `ok`.
+ * `okDetail` keeps the entry `ok` with a detail (usable in part). The
+ * provider adapter supplies this; without it every valid entry is `ok`.
  */
 export type SourceAccessCheck = (
   entry: SourceEntry,
   connection: SourceConnection,
-) => Promise<string | null>
+) => Promise<string | { okDetail: string } | null>
 
 function fileError(detail: string): PlannedSourceRow[] {
   return [
@@ -119,11 +120,16 @@ export async function planSourceRows(input: {
     const accessIssue = input.checkAccess
       ? await input.checkAccess(entry, connection)
       : null
-    rows.set(sourceKey, {
-      ...base,
-      status: accessIssue ? "out_of_access" : "ok",
-      statusDetail: accessIssue,
-    })
+    rows.set(
+      sourceKey,
+      typeof accessIssue === "string"
+        ? { ...base, status: "out_of_access", statusDetail: accessIssue }
+        : {
+            ...base,
+            status: "ok",
+            statusDetail: accessIssue?.okDetail ?? null,
+          },
+    )
   }
   return [...rows.values()]
 }

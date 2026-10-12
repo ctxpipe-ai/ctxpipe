@@ -65,7 +65,6 @@ function GitHubSetupPage() {
     void navigate({
       to: "/$orgSlug/workspaces/new",
       params: { orgSlug },
-      search: { after: "settings" },
     })
   }
 

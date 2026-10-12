@@ -50,7 +50,7 @@ sources:
   - id: eng-issues
     provider: slack
     connection: ${slack}
-    teams: [ENG]
+    channels: [C0ENG0001]
   - id: eng-docs
     provider: confluence
     connection: ${forge}
@@ -87,7 +87,7 @@ sources:
   - id: eng-issues
     provider: slack
     connection: ${slack}
-    teams: [ENG, OPS]
+    channels: [C0ENG0001, C0OPS0001]
 `,
     })
     const next = await project(second)
@@ -97,7 +97,7 @@ sources:
       "wrong",
     ])
     expect(next.changed.map((change) => change.before.scope)).toEqual([
-      { teams: ["ENG"] },
+      { channels: ["C0ENG0001"] },
     ])
 
     const broken = await repo.commit({

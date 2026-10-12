@@ -16,6 +16,7 @@ import {
 import { OnboardingHint } from "@/features/hints/OnboardingHint"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
+import { conversationCtaPlan } from "./conversationPublish"
 import type { Workspace } from "./types"
 import {
   workspaceChromeCardClassName,
@@ -67,13 +68,12 @@ function ChromeTooltip(props: {
 
 export type ConversationBranchChrome = {
   shortName: string
-  fullRef: string
   href?: string | null
 }
 
-/** The branch name as a label with a git-branch icon. The tooltip has the full ref. */
+/** The branch name as a label with a git-branch icon. */
 function BranchLabel(props: { branch: ConversationBranchChrome }) {
-  const { shortName, fullRef, href } = props.branch
+  const { shortName, href } = props.branch
   const labelClassName =
     "ml-2 inline-flex min-w-0 max-w-40 shrink items-center gap-1 rounded-md border border-border bg-zinc-800 px-1.5 py-0.5 font-mono text-xs font-normal text-muted-foreground"
   const content = (
@@ -83,16 +83,12 @@ function BranchLabel(props: { branch: ConversationBranchChrome }) {
     </>
   )
   return (
-    <ChromeTooltip
-      trigger={<span className={labelClassName} />}
-      content={fullRef}
-    >
+    <span className={labelClassName}>
       {href ? (
         <AriaLink
           href={href}
           target="_blank"
           rel="noopener noreferrer"
-          aria-label={fullRef}
           className={cn(
             "inline-flex min-w-0 items-center gap-1 rounded-sm hover:text-teal-400",
             focusVisibleClassName,
@@ -103,7 +99,7 @@ function BranchLabel(props: { branch: ConversationBranchChrome }) {
       ) : (
         content
       )}
-    </ChromeTooltip>
+    </span>
   )
 }
 
@@ -125,10 +121,8 @@ export function WorkspaceChatChrome(props: {
     props.workspace.writeStatus,
     props.workspace.readOnlyReason,
   )
-  const ctaHasActions = Boolean(
-    props.cta &&
-      (props.cta.commitPush.visible || props.cta.pullRequest.visible),
-  )
+  const ctaPlanNow = props.cta ? ctaPlan(props.cta) : null
+  const ctaHasActions = Boolean(ctaPlanNow?.sync || ctaPlanNow?.pullRequest)
   const showWriteBadge = !props.cta && write.tone !== "writable"
   return (
     <div
@@ -210,6 +204,22 @@ export function WorkspaceChatChrome(props: {
 const ctaClassName =
   "my-1 h-7 -translate-y-px gap-1.5 border-0 px-2.5 text-xs font-normal leading-none"
 
+/** The CTA face is the `cta` token: the primary face, a little dimmer in dark mode. */
+const ctaPrimaryClassName = "bg-cta hover:bg-cta/90 pressed:bg-cta/80"
+
+function ctaPlan(cta: ConversationCtaChrome) {
+  const prExists =
+    cta.pullRequest.action === "show" && Boolean(cta.pullRequest.href)
+  const plan = conversationCtaPlan({
+    syncVisible: cta.commitPush.visible,
+    createPrVisible:
+      cta.pullRequest.visible && cta.pullRequest.action === "create",
+    createPrPending: cta.pullRequest.pending,
+    prExists,
+  })
+  return plan
+}
+
 /**
  * Sync (commit and push), Create PR, and Show PR as CTA buttons. `className` lets the tools pane show the actions only when
  * the conversation column is hidden, so the page shows each action once.
@@ -222,9 +232,10 @@ export function ConversationCtaActions(props: {
 }) {
   const { commitPush, pullRequest } = props.cta
   const createPrRef = useRef<HTMLButtonElement>(null)
-  const showCommit = commitPush.visible
-  const showPrLink = pullRequest.action === "show" && Boolean(pullRequest.href)
-  const showCreatePr = pullRequest.visible && pullRequest.action === "create"
+  const plan = ctaPlan(props.cta)
+  const showCommit = plan.sync !== null
+  const showPrLink = plan.pullRequest === "show"
+  const showCreatePr = plan.pullRequest === "create"
   if (!showCommit && !showPrLink && !showCreatePr) return null
   return (
     <div className={cn("flex shrink-0 items-end gap-1", props.className)}>
@@ -235,7 +246,7 @@ export function ConversationCtaActions(props: {
           content="Commit and push your changes to the conversation branch"
         >
           <Button
-            variant="primary"
+            variant={plan.sync === "cta" ? "primary" : "ghost"}
             isDisabled={!commitPush.enabled || commitPush.pending}
             isPending={commitPush.pending}
             onPress={commitPush.onPress}
@@ -244,7 +255,10 @@ export function ConversationCtaActions(props: {
                 ? "Syncing: commit and push in progress"
                 : "Sync: commit and push your changes"
             }
-            className={ctaClassName}
+            className={cn(
+              ctaClassName,
+              plan.sync === "cta" ? ctaPrimaryClassName : "border",
+            )}
           >
             <IconCloudUpload className="size-4" stroke={1.6} aria-hidden />
             {commitPush.pending ? "Syncing…" : "Sync"}
@@ -253,12 +267,15 @@ export function ConversationCtaActions(props: {
       ) : null}
       {showPrLink ? (
         <Button
-          variant="primary"
+          variant={plan.sync === "cta" ? "ghost" : "primary"}
           href={pullRequest.href ?? undefined}
           target="_blank"
           rel="noopener noreferrer"
           aria-label="Show PR (opens in a new tab)"
-          className={ctaClassName}
+          className={cn(
+            ctaClassName,
+            plan.sync === "cta" ? "border" : ctaPrimaryClassName,
+          )}
         >
           <IconGitPullRequest className="size-4" stroke={1.6} aria-hidden />
           Show PR
@@ -271,7 +288,7 @@ export function ConversationCtaActions(props: {
             isDisabled={pullRequest.pending}
             isPending={pullRequest.pending}
             onPress={pullRequest.onPress}
-            className={ctaClassName}
+            className={cn(ctaClassName, ctaPrimaryClassName)}
           >
             <IconGitPullRequest className="size-4" stroke={1.6} aria-hidden />
             {pullRequest.pending ? "Creating PR…" : "Create PR"}

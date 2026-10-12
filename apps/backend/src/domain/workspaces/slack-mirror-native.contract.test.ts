@@ -6,6 +6,7 @@ import { withOrgDbContext } from "../../db/client.js"
 import { connections } from "../../db/schema/connections.js"
 import { encodeSlackBotTokenForDb } from "../../lib/connection-config.js"
 import { upsertConnectionDirectory } from "../../models/connection-directory.js"
+import { replaceWorkspaceSourceRows } from "../../models/workspace-sources.js"
 import { slackMentionAgent } from "../../openworkflow/workflows/slack-mention-agent.js"
 import { workspaceConnectorMirror } from "../../openworkflow/workflows/workspace-connector-mirror.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
@@ -17,6 +18,8 @@ it.each([
   "capability",
   "child_failure",
   "child_failure_fallback",
+  "source",
+  "no_source",
 ] as const)(
   "handles Slack %s through durable intent and mirror steps before publishing status",
   { timeout: 45_000 },
@@ -24,6 +27,8 @@ it.each([
     const requests: Array<{ method: string; body: unknown }> = []
     await withNativeHydrationFixture(
       {
+        // A source write is admitted on the production namespace.
+        ...(mode === "source" ? { namespaceId: "default" } : {}),
         slackCaptureIntent: mode === "intent",
         github: true,
         githubWriteView: "writable",
@@ -38,7 +43,11 @@ it.each([
               : { ok: true },
           "conversations.info": {
             ok: true,
-            channel: { id: "C1", name: "engineering", is_private: false },
+            channel: {
+              id: "C0FIX0001",
+              name: "engineering",
+              is_private: false,
+            },
           },
           "conversations.replies": {
             ok: true,
@@ -53,7 +62,7 @@ it.each([
           "chat.getPermalink": {
             ok: true,
             permalink:
-              "https://fixture.slack.com/archives/C1/p1700000000000000",
+              "https://fixture.slack.com/archives/C0FIX0001/p1700000000000000",
           },
         },
       },
@@ -88,13 +97,30 @@ it.each([
                 status: "installed",
                 repositoryId: repo.id,
                 branch: "main",
-                enabled: true,
+                // "no_source": the migration turned the old binding off.
+                enabled: mode !== "no_source",
               },
             })
             .returning(),
         )
         if (!connection) throw new Error("Fixture connection missing")
         await upsertConnectionDirectory(connection)
+        if (mode === "source")
+          await replaceWorkspaceSourceRows({
+            orgId: f.org.id,
+            workspaceId: f.workspaceId,
+            revision: f.sha,
+            rows: [
+              {
+                sourceKey: "slack-engineering",
+                provider: "slack",
+                connectionId,
+                scope: { channels: ["C0FIX0001"] },
+                status: "ok",
+                statusDetail: null,
+              },
+            ],
+          })
         f.runner.implementWorkflow(slackMentionAgent.spec, slackMentionAgent.fn)
         f.runner.implementWorkflow(
           workspaceConnectorMirror.spec,
@@ -115,10 +141,12 @@ it.each([
         const handle = await f.runner.runWorkflow(slackMentionAgent.spec, {
           orgId: f.org.id,
           connectionId,
-          channelId: "C1",
+          channelId: "C0FIX0001",
           threadTs: "1700000000.000000",
           mentionText:
-            mode === "bare" || mode.startsWith("child_failure")
+            mode === "bare" ||
+            mode.startsWith("child_failure") ||
+            mode.endsWith("source")
               ? "<@B1>"
               : mode === "intent"
                 ? "<@B1> capture this"
@@ -176,6 +204,76 @@ it.each([
             return
           }
           const result = await handle.result({ timeoutMs: 20_000 })
+          if (mode === "no_source") {
+            expect(result).toEqual({ kind: "failed", errorCode: "no_source" })
+            expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(
+              f.sha,
+            )
+            expect(
+              requests.filter((r) => r.method === "chat.update"),
+            ).toMatchObject([
+              {
+                body: {
+                  text: expect.stringContaining(
+                    "no Workspace has this channel",
+                  ),
+                },
+              },
+            ])
+            return
+          }
+          if (mode === "source") {
+            // The source owns the Workspace repository, so the old binding
+            // to the same repository writes nothing (one writer).
+            expect(result).toMatchObject({
+              kind: "captured",
+              workspaceCount: 1,
+              capture: { status: "completed", messageCount: 1 },
+            })
+            await expect
+              .poll(
+                () =>
+                  f.git(
+                    "--git-dir",
+                    f.remote,
+                    "rev-list",
+                    "--count",
+                    `${f.sha}..main`,
+                  ),
+                { timeout: 20_000 },
+              )
+              .toBe("1")
+            expect(
+              f.git(
+                "--git-dir",
+                f.remote,
+                "ls-tree",
+                "-r",
+                "--name-only",
+                "main",
+              ),
+            ).toBe(
+              "knowledge/owner.md\nslack/channels/C0FIX0001/index.md\nslack/channels/C0FIX0001/threads/2023/11/1700000000.000000/thread.md",
+            )
+            expect(
+              f.git(
+                "--git-dir",
+                f.remote,
+                "show",
+                "main:slack/channels/C0FIX0001/threads/2023/11/1700000000.000000/thread.md",
+              ),
+            ).not.toContain("ctx| agent working")
+            expect(
+              requests.filter((r) => r.method === "chat.update"),
+            ).toMatchObject([
+              {
+                body: {
+                  text: "Engineering context captured into 1 Workspace.",
+                },
+              },
+            ])
+            return
+          }
           if (mode === "capability") {
             expect(result).toEqual({ kind: "capability" })
             expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(
@@ -238,13 +336,13 @@ it.each([
               "main",
             ),
           ).toBe(
-            "knowledge/owner.md\nslack/channels/engineering--C1/index.md\nslack/channels/engineering--C1/threads/2023/11/1700000000.000000/thread.md",
+            "knowledge/owner.md\nslack/channels/engineering--C0FIX0001/index.md\nslack/channels/engineering--C0FIX0001/threads/2023/11/1700000000.000000/thread.md",
           )
           const markdown = f.git(
             "--git-dir",
             f.remote,
             "show",
-            "main:slack/channels/engineering--C1/threads/2023/11/1700000000.000000/thread.md",
+            "main:slack/channels/engineering--C0FIX0001/threads/2023/11/1700000000.000000/thread.md",
           )
           expect(markdown).toContain("Keep this engineering decision.")
           expect(markdown).not.toContain("ctx| agent working")

@@ -9,7 +9,7 @@ import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
 import { AddToWorkspacesDialog } from "./AddToWorkspacesDialog"
 import { connectionUsageOptions, syncConnectionNow } from "./queries"
-import { SOURCE_PROVIDER_UI, workspaceSourceHref } from "./source-provider-ui"
+import { sourceProviderLabel, workspaceSourceHref } from "./source-provider-ui"
 
 /**
  * The providers whose sources sync content on a schedule. GitHub sources
@@ -92,13 +92,19 @@ export function ConnectorUsedIn(props: {
           </InlineAlert>
         </div>
       ) : items.length === 0 ? (
-        <div className="mt-1 flex flex-wrap items-center gap-3">
-          <p className="text-foreground">Not used in any Workspace</p>
-          {SOURCE_PROVIDER_UI[provider].ScopeEditor ? (
-            <Button variant="primary" onPress={() => setAddOpen(true)}>
-              Add to a Workspace
-            </Button>
-          ) : null}
+        <div className="mt-2 rounded-md bg-zinc-900/60 p-3">
+          <p className="font-medium text-foreground">No Workspaces yet</p>
+          <p className="mt-0.5 text-muted-foreground">
+            Nothing syncs from {sourceProviderLabel(provider)} until you add it
+            to a Workspace.
+          </p>
+          <Button
+            variant="primary"
+            className="mt-3"
+            onPress={() => setAddOpen(true)}
+          >
+            Add to a Workspace
+          </Button>
         </div>
       ) : (
         <ul className="mt-1 flex flex-col">

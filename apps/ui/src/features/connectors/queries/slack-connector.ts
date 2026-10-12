@@ -35,6 +35,17 @@ export type SlackConnectorStatus = {
 export const slackConnectorKeys = {
   status: (orgSlug: string, connectionId?: string) =>
     ["slack-connector-status", orgSlug, connectionId ?? "default"] as const,
+  channels: (orgSlug: string, connectionId: string) =>
+    ["slack-channels", orgSlug, connectionId] as const,
+}
+
+/** A channel that a Slack source can select. */
+export type SlackChannel = {
+  id: string
+  name: string
+  isPrivate: boolean
+  /** The bot is in the channel, so it can read it. */
+  isMember: boolean
 }
 
 function connectionQuery(connectionId?: string) {
@@ -86,29 +97,6 @@ export async function fetchSlackOAuthStart(
   }
 }
 
-export type SlackBindRepositoryBody = {
-  repositoryId?: string
-  repositoryName?: string
-  gitUrl?: string
-  githubConnectionId?: string
-  branch?: string
-}
-
-export async function patchSlackConnectorConfig(
-  orgSlug: string,
-  body: SlackBindRepositoryBody,
-  connectionId?: string,
-): Promise<{ accepted: true; setupPhase: SlackSetupPhase }> {
-  const res = await client[":orgSlug"].api.v1.connectors.slack.config.$patch({
-    param: { orgSlug },
-    ...connectionQuery(connectionId),
-    json: body,
-  })
-  return readApiJson<{ accepted: true; setupPhase: SlackSetupPhase }>(res, {
-    message: "Failed to save Slack connector config",
-  })
-}
-
 export async function deleteSlackConnector(
   orgSlug: string,
   connectionId?: string,
@@ -118,4 +106,17 @@ export async function deleteSlackConnector(
     ...connectionQuery(connectionId),
   })
   await readApiJson<void>(res, { message: "Failed to remove Slack connector" })
+}
+
+export async function fetchSlackChannels(
+  orgSlug: string,
+  connectionId: string,
+): Promise<{ items: SlackChannel[]; truncated: boolean }> {
+  const res = await client[":orgSlug"].api.v1.connectors.slack.channels.$get({
+    param: { orgSlug },
+    query: { connectionId },
+  })
+  return readApiJson<{ items: SlackChannel[]; truncated: boolean }>(res, {
+    message: "Failed to load the Slack channels",
+  })
 }

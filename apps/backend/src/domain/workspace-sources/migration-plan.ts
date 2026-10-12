@@ -3,6 +3,7 @@ import { confluenceSourceMigrationHook } from "../../services/confluence/workspa
 import { linearSourceMigrationHook } from "../../services/linear/source-migration.js"
 import { notionSourceMigrationHook } from "../../services/notion/workspace-source-migration.js"
 import { pagerdutySourceMigrationHook } from "../../services/pagerduty/workspace-source-migration.js"
+import { slackSourceMigrationHook } from "../../services/slack/source-migration.js"
 import { parseLinkedRepositoryMarkdown } from "../workspaces/layout.js"
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../workspaces/write-status.js"
@@ -22,6 +23,11 @@ export type LegacySourceBinding =
       /** The connection's old sync repository. */
       syncRepositoryUrl: string
       scope: Record<string, unknown>
+      /**
+       * Map only to the Workspace whose own repository is the sync
+       * repository, not to a Workspace that links it.
+       */
+      ownRepositoryOnly?: boolean
     }
   | {
       provider: SourceProvider
@@ -42,9 +48,16 @@ export type SourceMigrationHook = {
   }): Promise<LegacySourceBinding[]>
   /**
    * Optional. Turn off the legacy sync of a migrated connection, so only the
-   * Workspace sources sync writes its content (`--apply`).
+   * Workspace sources sync writes its content. It runs when a source of the
+   * connection first projects as `ok` in the Workspace whose repository is
+   * {@link legacyRepositoryUrl}, after the migration PR merges.
    */
   disableLegacy?(input: { orgId: string; connectionId: string }): Promise<void>
+  /** The git URL of the old sync repository of a connection, or null. */
+  legacyRepositoryUrl?(input: {
+    orgId: string
+    connectionId: string
+  }): Promise<string | null>
   /**
    * Optional. Move the old mirror files into the new managed paths in the
    * migration commit (`--apply`), by blob sha, so git keeps their history.
@@ -64,6 +77,7 @@ export const SOURCE_MIGRATION_HOOKS: Partial<
   linear: linearSourceMigrationHook,
   notion: notionSourceMigrationHook,
   pagerduty: pagerdutySourceMigrationHook,
+  slack: slackSourceMigrationHook,
 }
 
 export type MigrationWorkspace = {
@@ -183,7 +197,9 @@ export function planSourceMigration(input: {
     const workspaces = input.workspaces.filter(
       (workspace) =>
         normalizeWorkspaceRepositoryUrl(workspace.workspaceRepositoryUrl) ===
-          target || linkedByWorkspace.get(workspace.id)?.includes(target),
+          target ||
+        (!binding.ownRepositoryOnly &&
+          linkedByWorkspace.get(workspace.id)?.includes(target)),
     )
     if (!workspaces.length) {
       report.unmapped.push({

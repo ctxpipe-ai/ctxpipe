@@ -1,3 +1,4 @@
+import { configBoundRepositoryUrl } from "../../domain/workspace-sources/legacy-handover.js"
 import type {
   LegacySourceBinding,
   SourceMigrationHook,
@@ -127,4 +128,5 @@ export const linearSourceMigrationHook: SourceMigrationHook = {
   async disableLegacy(input) {
     await disableLinearLegacyBinding(input)
   },
+  legacyRepositoryUrl: configBoundRepositoryUrl,
 }

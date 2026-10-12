@@ -6,6 +6,7 @@ import {
   connections,
 } from "../../db/schema/connections.js"
 import { repositories } from "../../db/schema/repositories.js"
+import { configBoundRepositoryUrl } from "../../domain/workspace-sources/legacy-handover.js"
 import type {
   LegacySourceBinding,
   SourceMigrationHook,
@@ -116,6 +117,7 @@ export function createNotionSourceMigrationHook(
   return {
     provider: "notion",
     disableLegacy: disableNotionLegacySync,
+    legacyRepositoryUrl: configBoundRepositoryUrl,
     async listLegacyBindings({ orgId, env }) {
       const rows = await withOrgDbContext(orgId, (db) =>
         db

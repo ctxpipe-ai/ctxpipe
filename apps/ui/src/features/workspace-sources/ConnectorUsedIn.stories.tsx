@@ -69,7 +69,12 @@ export const NotUsedInAnyWorkspace: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await canvas.findByText("Not used in any Workspace")
+    await canvas.findByText("No Workspaces yet")
+    await expect(
+      canvas.getByText(
+        "Nothing syncs from GitHub until you add it to a Workspace.",
+      ),
+    ).toBeVisible()
     await userEvent.click(
       canvas.getByRole("button", { name: "Add to a Workspace" }),
     )
@@ -79,20 +84,6 @@ export const NotUsedInAnyWorkspace: Story = {
     await waitFor(() =>
       expect(dialog.getByText(CHOOSE_WORKSPACES_HINT)).toBeVisible(),
     )
-  },
-}
-
-export const NoEditorHidesAdd: Story = {
-  args: { provider: "notion" },
-  parameters: {
-    msw: { handlers: { page: [connectionUsageHandler([])] } },
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await canvas.findByText("Not used in any Workspace")
-    await expect(
-      canvas.queryByRole("button", { name: "Add to a Workspace" }),
-    ).toBeNull()
   },
 }
 
@@ -118,7 +109,7 @@ export const UsedInOneWorkspace: Story = {
       name: "Docs · 5 linked repositories",
     })
     await expect(link).toBeVisible()
-    await expect(canvas.queryByText("Not used in any Workspace")).toBeNull()
+    await expect(canvas.queryByText("No Workspaces yet")).toBeNull()
     // GitHub sources read the repositories as they are: nothing to sync.
     await expect(canvas.queryByRole("button", { name: "Sync now" })).toBeNull()
   },

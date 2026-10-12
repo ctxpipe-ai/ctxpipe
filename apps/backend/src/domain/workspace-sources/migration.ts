@@ -46,16 +46,6 @@ export async function runSourceMigration(input: {
   }
 > {
   const hooks = Object.values(input.hooks ?? SOURCE_MIGRATION_HOOKS)
-  const disableLegacy = async (workspaceId: string) => {
-    for (const moved of plan.report.moved)
-      if (moved.workspaceId === workspaceId)
-        await hooks
-          .find((hook) => hook.provider === moved.provider)
-          ?.disableLegacy?.({
-            orgId: input.orgId,
-            connectionId: moved.connectionId,
-          })
-  }
   const bindings = (
     await Promise.all(
       hooks.map((hook) =>
@@ -158,13 +148,15 @@ export async function runSourceMigration(input: {
           pullRequestUrl: open.pullUrl,
           existing: true,
         })
-        await disableLegacy(workspaceId)
         continue
       }
       const moves = await legacyMovesFor(workspace)
+      // `branch` is the default branch. For createPullRequestWithFiles,
+      // `branch` is the head of the pull request, so do not pass it.
+      const { branch: baseBranch, ...target } = workspace.repository
       const pull = await createPullRequestWithFiles({
-        ...workspace.repository,
-        baseBranch: workspace.repository.branch,
+        ...target,
+        baseBranch,
         featureBranchPrefix: MIGRATION_BRANCH_PREFIX,
         title: "Move connector sources into .ctxpipe/sources.yaml",
         body: `ctx| now reads the sources of this Workspace from \`${SOURCES_FILE_PATH}\`. This PR adds ${changes.length} source(s) from the existing connector settings, and deletes the repository files that a GitHub source replaces. Old mirrored content stays where it is, except files that a connector moves into its new managed path (git keeps their history).`,
@@ -187,7 +179,8 @@ export async function runSourceMigration(input: {
         pullRequestUrl: pull.pullUrl,
         existing: false,
       })
-      await disableLegacy(workspaceId)
+      // The legacy sync stays on until the PR merges and the source
+      // projects (handOverLegacyBindings), so no content is lost meanwhile.
     } catch (error) {
       failures.push({
         workspaceId,

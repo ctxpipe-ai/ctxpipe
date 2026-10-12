@@ -80,7 +80,8 @@ export const Connected: Story = {
   },
 }
 
-export const DraftAwaitingRepository: Story = {
+/** Installed without an @mention capture repository: the connection is ready for Workspace sources. */
+export const ConnectedWithoutCaptureRepository: Story = {
   render: () =>
     shell(
       <SlackConnectionCard orgSlug={orgSlug} connectionId={connectionId} />,
@@ -100,10 +101,11 @@ export const DraftAwaitingRepository: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await canvas.findByText("Setup not finished")
-    expect(
-      canvas.getByRole("button", { name: "Remove Slack setup" }),
+    await expect(
+      await canvas.findByRole("button", { name: "Slack connector actions" }),
     ).toBeVisible()
+    expect(canvas.queryByText("Setup not finished")).toBeNull()
+    expect(canvas.queryByText(/in a thread to capture it/)).toBeNull()
   },
 }
 

@@ -964,7 +964,7 @@ export const ConversationSandboxFiles: Story = {
 
 /**
  * The pane is maximized, so the conversation header is hidden: the pane shows
- * Sync and Create PR. When the conversation shows beside the pane, only it has
+ * Sync. When the conversation shows beside the pane, only it has
  * them.
  */
 export const ConversationMaximizedSync: Story = {
@@ -981,11 +981,8 @@ export const ConversationMaximizedSync: Story = {
     })
     expect(sync).toBeVisible()
     expect(sync).toHaveTextContent("Sync")
-    const createPr = canvas.getByRole("button", { name: "Create PR" })
-    expect(createPr).toBeVisible()
-    expect(
-      createPr.querySelector("svg.tabler-icon-git-pull-request"),
-    ).not.toBeNull()
+    // The branch is dirty, so Sync is the only CTA.
+    expect(canvas.queryByRole("button", { name: "Create PR" })).toBeNull()
   },
 }
 

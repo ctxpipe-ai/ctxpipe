@@ -267,7 +267,7 @@ export async function cleanupRemovedSources(input: {
     const adapter = source.provider
       ? input.adapters[source.provider as SourceProvider]
       : undefined
-    if (!adapter || !source.connectionId) continue
+    if (!adapter || adapter.keepFilesOnRemove || !source.connectionId) continue
     const kept = remaining
       .filter((row) => row.provider === adapter.provider)
       .flatMap((row) => adapter.managedPaths(row.scope))

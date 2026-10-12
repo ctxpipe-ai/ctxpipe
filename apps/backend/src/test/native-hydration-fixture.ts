@@ -84,6 +84,7 @@ export type NativeHydrationOptions = {
   onGithubContentsWrite?: (path: string, body: unknown) => void
   githubListCommits?:
     | "fail"
+    | "missing"
     | Array<{
         sha: string
         message: string
@@ -140,7 +141,7 @@ async function createNativeHydrationFixture(
   const tokenRequests: unknown[] = []
   const appPermissionRequests: { usesAppAuth: boolean }[] = []
   let failEmbeddings = embeddingFailure === true
-  let failGithubTokens = false
+  let failGithubTokens: number | false = false
   let githubWriteView = options.githubWriteView
   // GitHub gives each repository a numeric id. A repository-scoped token mint
   // and the repository read return the same id.
@@ -338,7 +339,7 @@ async function createNativeHydrationFixture(
         if (failGithubTokens)
           return HttpResponse.json(
             { message: "Credential provider unavailable" },
-            { status: 400 },
+            { status: failGithubTokens },
           )
         return HttpResponse.json(
           {
@@ -406,6 +407,9 @@ async function createNativeHydrationFixture(
     http.get(
       "https://api.github.com/repos/fixture/hydration-contract/commits",
       () => {
+        if (options.githubListCommits === "missing") {
+          return HttpResponse.json({ message: "Not Found" }, { status: 404 })
+        }
         if (options.githubListCommits === "fail") {
           return HttpResponse.json(
             { message: "GitHub commit list unavailable" },
@@ -843,9 +847,10 @@ async function createNativeHydrationFixture(
       onWriteCredentialRequest: (callback: () => Promise<void>) => {
         beforeWriteCredential = callback
       },
-      failTokens: () => {
+      /** GitHub answers 422 when the repository is gone or not accessible. */
+      failTokens: (status = 400) => {
         invalidateGithubAppCacheForConnection(connectionId)
-        failGithubTokens = true
+        failGithubTokens = status
       },
       repairWriteAccess: () => {
         githubWriteView = "writable"

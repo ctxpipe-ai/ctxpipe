@@ -318,10 +318,26 @@ const activeInView = () => {
   return box.top >= area.top - 1 && box.bottom <= area.bottom + 1
 }
 
+/**
+ * The field points at the active item (`aria-activedescendant`), and the
+ * item is in view. React Aria scrolls after it marks the item, so wait for
+ * both.
+ */
+const expectActiveSettled = async (name?: RegExp) => {
+  await waitFor(async () => {
+    const item = focusedItem()
+    if (!item) throw new Error("No active item")
+    if (name) expect(item.textContent).toMatch(name)
+    expect((await searchField()).getAttribute("aria-activedescendant")).toBe(
+      item.id,
+    )
+    expect(activeInView()).toBe(true)
+  })
+}
+
 const pressAndExpect = async (key: string, name: RegExp) => {
   await userEvent.keyboard(key)
-  await waitFor(() => expect(focusedItem()?.textContent).toMatch(name))
-  await expect(activeInView()).toBe(true)
+  await expectActiveSettled(name)
 }
 
 export const PaletteArrowKeysWalkEveryItem: Story = {
@@ -351,11 +367,9 @@ export const PaletteArrowKeysWalkEveryItem: Story = {
     await pressAndExpect("{End}", /^Connectors$/)
     // Page keys keep an item active and do not close the dialog.
     await userEvent.keyboard("{PageUp}")
-    await waitFor(() => expect(focusedItem()).not.toBeNull())
-    await expect(activeInView()).toBe(true)
+    await expectActiveSettled()
     await userEvent.keyboard("{PageDown}")
-    await waitFor(() => expect(focusedItem()).not.toBeNull())
-    await expect(activeInView()).toBe(true)
+    await expectActiveSettled()
     // Tab does not leave the dialog.
     await userEvent.keyboard("{Tab}")
     await expect(field).toHaveFocus()
