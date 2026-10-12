@@ -947,6 +947,192 @@ export const FirstTurnStreamsLive: Story = {
   },
 }
 
+/** Records each new status line label, in the order the user sees them. */
+function recordStatusLabels(root: HTMLElement) {
+  const labels: string[] = []
+  const observer = new MutationObserver(() => {
+    const label = root
+      .querySelector('[role="status"][aria-label]')
+      ?.getAttribute("aria-label")
+    if (label && labels.at(-1) !== label) labels.push(label)
+  })
+  observer.observe(root, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    characterData: true,
+  })
+  return { labels, stop: () => observer.disconnect() }
+}
+
+const followUpAnswer = "The ledger package has no Docker setup."
+
+/** A follow-up turn: the backend sets up the sandbox again before it thinks. */
+function followUpEvents(threadId: string, runId: string): object[] {
+  return [
+    { type: "RUN_STARTED", threadId, runId },
+    { type: "CUSTOM", name: "sandbox-setup", value: { phase: "starting" } },
+    { type: "CUSTOM", name: "sandbox-setup", value: { phase: "ready" } },
+    {
+      type: "TEXT_MESSAGE_START",
+      messageId: "msg_follow_up",
+      role: "assistant",
+    },
+    {
+      type: "TEXT_MESSAGE_CONTENT",
+      messageId: "msg_follow_up",
+      delta: followUpAnswer,
+    },
+    { type: "TEXT_MESSAGE_END", messageId: "msg_follow_up" },
+    { type: "RUN_FINISHED", threadId, runId },
+  ]
+}
+
+/**
+ * A follow-up turn shows "Setting up sandbox" first and "Thinking" only
+ * after the sandbox is ready. No other label shows before the setup label.
+ */
+export const FollowUpShowsSandboxSetupFirst: Story = {
+  tags: ["workspace-golden"],
+  render: () => <ComposeHarness />,
+  parameters: FirstTurnStreamsLive.parameters,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const socket = installAguiWebSocket((threadId, runId, index) =>
+      index === 0
+        ? firstTurnEvents(threadId, runId)
+        : followUpEvents(threadId, runId),
+    )
+    try {
+      await userEvent.type(
+        await canvas.findByPlaceholderText(
+          /what should ctxpipe do in this workspace/i,
+        ),
+        "Where is the billing service?",
+      )
+      await userEvent.click(canvas.getByRole("button", { name: /send/i }))
+      await canvas.findByText(firstTurnAnswer, undefined, {
+        timeout: SEND_WAIT_MS,
+      })
+      await waitFor(
+        () => {
+          expect(canvas.queryAllByRole("status")).toHaveLength(0)
+        },
+        { timeout: SEND_WAIT_MS },
+      )
+      await userEvent.type(
+        await canvas.findByPlaceholderText(/continue the conversation/i),
+        "Does it use Docker?",
+      )
+      const status = recordStatusLabels(canvasElement)
+      await userEvent.click(canvas.getByRole("button", { name: /^send$/i }))
+      try {
+        expect(
+          await canvas.findByText(followUpAnswer, undefined, {
+            timeout: SEND_WAIT_MS,
+          }),
+        ).toBeVisible()
+      } finally {
+        status.stop()
+      }
+      expect(status.labels).toEqual(["Setting up sandbox", "Thinking"])
+    } finally {
+      socket.restore()
+    }
+  },
+}
+
+/** A turn that thinks, uses a tool, thinks again, and uses a second tool. */
+function interleavedTurnEvents(threadId: string, runId: string): object[] {
+  const thought = (id: string, text: string) => [
+    { type: "REASONING_START", messageId: id },
+    { type: "REASONING_MESSAGE_START", messageId: id, role: "reasoning" },
+    { type: "REASONING_MESSAGE_CONTENT", messageId: id, delta: text },
+    { type: "REASONING_MESSAGE_END", messageId: id },
+    { type: "REASONING_END", messageId: id },
+  ]
+  const tool = (id: string, name: string, args: object) => [
+    {
+      type: "TOOL_CALL_START",
+      toolCallId: id,
+      toolCallName: name,
+      parentMessageId: "msg_interleaved",
+    },
+    { type: "TOOL_CALL_ARGS", toolCallId: id, delta: JSON.stringify(args) },
+    { type: "TOOL_CALL_END", toolCallId: id },
+    {
+      type: "TOOL_CALL_RESULT",
+      messageId: `${id}_result`,
+      toolCallId: id,
+      content: "done",
+      role: "tool",
+    },
+  ]
+  return [
+    { type: "RUN_STARTED", threadId, runId },
+    { type: "CUSTOM", name: "sandbox-setup", value: { phase: "starting" } },
+    { type: "CUSTOM", name: "sandbox-setup", value: { phase: "ready" } },
+    ...thought("reason_one", "**Reading the guide**\n\nOpen the Docker notes."),
+    ...tool("call_read", "read", { filePath: "knowledge/docker.md" }),
+    ...thought("reason_two", "**Checking the tree**\n\nLook for changes."),
+    ...tool("call_bash", "bash", { command: "git status" }),
+    {
+      type: "TEXT_MESSAGE_START",
+      messageId: "msg_interleaved",
+      role: "assistant",
+    },
+    {
+      type: "TEXT_MESSAGE_CONTENT",
+      messageId: "msg_interleaved",
+      delta: firstTurnAnswer,
+    },
+    { type: "TEXT_MESSAGE_END", messageId: "msg_interleaved" },
+    { type: "RUN_FINISHED", threadId, runId },
+  ]
+}
+
+/**
+ * The log lists thoughts and tool calls in the order they happened, also
+ * when a thought comes after a tool call. Each tool row shows its detail.
+ */
+export const LogKeepsStreamOrder: Story = {
+  tags: ["workspace-golden"],
+  render: () => <ComposeHarness />,
+  parameters: FirstTurnStreamsLive.parameters,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const socket = installAguiWebSocket(interleavedTurnEvents)
+    try {
+      await userEvent.type(
+        await canvas.findByPlaceholderText(
+          /what should ctxpipe do in this workspace/i,
+        ),
+        "Where is the billing service?",
+      )
+      await userEvent.click(canvas.getByRole("button", { name: /send/i }))
+      await canvas.findByText(firstTurnAnswer, undefined, {
+        timeout: SEND_WAIT_MS,
+      })
+      await userEvent.click(
+        canvas.getByRole("button", { name: /2 thoughts/i }),
+      )
+      const region = canvas.getByRole("region", { name: "Activity log" })
+      const rows = within(region)
+        .getAllByRole("listitem")
+        .map((row) => row.textContent ?? "")
+      expect(rows).toHaveLength(4)
+      expect(rows[0]).toContain("Reading the guide")
+      expect(rows[1]).toContain("Read file")
+      expect(rows[1]).toContain("knowledge/docker.md")
+      expect(rows[2]).toContain("Checking the tree")
+      expect(rows[3]).toContain("Run command")
+      expect(rows[3]).toContain("git status")
+    } finally {
+      socket.restore()
+    }
+  },
+}
+
 const capacityError =
   "Workspace chat is at capacity: your organization already has 50 chats running."
 

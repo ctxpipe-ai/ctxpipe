@@ -1,3 +1,4 @@
+import type { StreamChunk } from "@tanstack/ai"
 import { type SubscribeConnectionAdapter, webSocket } from "@tanstack/ai-react"
 import { reviveChatMessages } from "@/features/chat/reviveChatMessageCreatedAt"
 import { apiFetch, readApiJson } from "@/lib/api-result"
@@ -70,8 +71,17 @@ export function workspaceChatWebSocket(
     } as unknown as typeof WebSocket,
   })
 
+  const subscribe = connection.subscribe
+  const joinRun = connection.joinRun
   return {
     ...connection,
+    subscribe: (abortSignal) => withReasoningSteps(subscribe(abortSignal)),
+    ...(joinRun
+      ? {
+          joinRun: (runId: string, abortSignal?: AbortSignal) =>
+            withReasoningSteps(joinRun(runId, abortSignal)),
+        }
+      : {}),
     async hydrate(threadId: string) {
       const res = await apiFetch(
         `${path}/chat?threadId=${encodeURIComponent(threadId)}`,
@@ -145,4 +155,24 @@ function absoluteWebSocketUrl(path: string): string {
   if (typeof window === "undefined") return path
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
   return `${protocol}//${window.location.host}${path}`
+}
+
+/**
+ * Starts a new step before each reasoning message. Without a step, the chat
+ * client adds all reasoning of a turn to the first thinking part, so a late
+ * thought shows above the tool calls that came before it.
+ */
+async function* withReasoningSteps(
+  chunks: AsyncIterable<StreamChunk>,
+): AsyncIterable<StreamChunk> {
+  for await (const chunk of chunks) {
+    if (chunk.type === "REASONING_MESSAGE_START") {
+      yield {
+        type: "STEP_STARTED",
+        stepName: chunk.messageId,
+        timestamp: chunk.timestamp,
+      } as StreamChunk
+    }
+    yield chunk
+  }
 }

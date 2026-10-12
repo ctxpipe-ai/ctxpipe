@@ -75,8 +75,8 @@ const reasoningResponseClassName =
   "ctx-streamdown-reasoning h-auto space-y-1 text-xs leading-relaxed text-muted-foreground [&_blockquote]:text-muted-foreground [&_h1]:text-muted-foreground [&_h2]:text-muted-foreground [&_h3]:text-muted-foreground [&_h4]:text-muted-foreground [&_li]:text-muted-foreground [&_ol]:text-muted-foreground [&_p]:text-muted-foreground [&_strong]:text-muted-foreground [&_ul]:text-muted-foreground"
 
 /**
- * The one live line of a working turn: the current thought's title, else a
- * real system state such as "Setting up sandbox", else "Thinking".
+ * The one live line of a working turn: a real system state such as
+ * "Setting up sandbox", else the current thought's title, else "Thinking".
  */
 function StatusLine(props: { label: string }) {
   return (
@@ -250,7 +250,7 @@ function renderAssistantParts(
     nodes.push(
       <StatusLine
         key={`${message.id}-status`}
-        label={thoughts.at(-1)?.title ?? options.systemStatus ?? "Thinking"}
+        label={options.systemStatus ?? thoughts.at(-1)?.title ?? "Thinking"}
       />,
     )
   }

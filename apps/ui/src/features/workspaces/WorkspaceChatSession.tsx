@@ -235,11 +235,10 @@ export function WorkspaceChatSession(props: {
     [messages, turnChanges.data],
   )
 
-  const handleSendMessage = async (
-    params: { text: string },
-    phase: SandboxPhase = "idle",
-  ) => {
-    setSandboxPhase(phase)
+  // Each turn sets up the sandbox before the agent thinks. The backend
+  // sends "starting" after RUN_STARTED, so the label starts there at once.
+  const handleSendMessage = async (params: { text: string }) => {
+    setSandboxPhase("starting")
     setSendError(null)
     HyperDX.addAction("advisor_question_sent")
     try {
@@ -255,10 +254,10 @@ export function WorkspaceChatSession(props: {
 
   // A new conversation's first message waits in the query cache. The
   // session takes it once and sends it on this chat, so the first turn
-  // streams live. The sandbox starts first, so the label starts there.
+  // streams live.
   const sendFirstMessage = useEffectEvent((text: string) => {
     firstMessageRef.current = text
-    void handleSendMessage({ text }, "starting")
+    void handleSendMessage({ text })
   })
   useEffect(() => {
     const text = takeFirstMessage(queryClient, orgSlug, conversationId)
