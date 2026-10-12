@@ -151,8 +151,8 @@ export async function captureSlackThreadToSources(input: {
       managedPaths: slackSourceAdapter.managedPaths,
       matchesEvent: slackSourceAdapter.matchesEvent,
       fetch: async ({ existing }) => {
-        const { files, deletePaths, ...result } =
-          await captureSlackThreadFiles({
+        const { files, deletePaths, ...result } = await captureSlackThreadFiles(
+          {
             ...thread,
             env,
             connection,
@@ -163,7 +163,8 @@ export async function captureSlackThreadToSources(input: {
               path: file.path,
               sha: file.sha ?? "",
             })),
-          })
+          },
+        )
         capture = result
         return { files, deletePaths }
       },

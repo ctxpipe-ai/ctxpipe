@@ -27,6 +27,26 @@ describe("stripSlackMentionText", () => {
   })
 })
 
+describe("formatSlackMentionStatusText", () => {
+  it("tells why nothing was captured when no Workspace has the channel", () => {
+    expect(
+      formatSlackMentionStatusText({ kind: "failed", errorCode: "no_source" }),
+    ).toBe(
+      "Nothing captured: no Workspace has this channel. Add the channel to a Slack source in the Workspace settings, then mention me again.",
+    )
+  })
+
+  it("names the number of Workspaces that got the thread", () => {
+    expect(
+      formatSlackMentionStatusText({
+        kind: "captured",
+        capture: { status: "completed", messageCount: 2 },
+        workspaceCount: 2,
+      }),
+    ).toBe("Engineering context captured into 2 Workspaces.")
+  })
+})
+
 describe("isSlackModelConfigured", () => {
   it("accepts an API key or Bedrock", () => {
     expect(

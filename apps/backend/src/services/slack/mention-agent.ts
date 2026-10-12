@@ -26,9 +26,16 @@ If the message is a question, joke, greeting, or any request you cannot fulfill 
 export type SlackMentionErrorCode =
   | SlackCaptureResult["errorCode"]
   | "model_not_configured"
+  /** No Workspace has a Slack source with the channel (ADR-050). */
+  | "no_source"
 
 export type SlackMentionAgentResult =
-  | { kind: "captured"; capture: SlackCaptureResult }
+  | {
+      kind: "captured"
+      capture: SlackCaptureResult
+      /** The number of Workspaces that got the thread through their sources. */
+      workspaceCount?: number
+    }
   | { kind: "capability" }
   | {
       kind: "failed"
@@ -56,9 +63,13 @@ export function formatSlackMentionStatusText(
   }
   if (result.kind === "captured") {
     const captured = result.capture
-    const base = captured.githubUrl
-      ? `${SLACK_CAPTURE_STATUS_CAPTURED} <${captured.githubUrl}|View in GitHub>`
+    const n = result.workspaceCount ?? 0
+    const done = n
+      ? `Engineering context captured into ${n} ${n === 1 ? "Workspace" : "Workspaces"}.`
       : SLACK_CAPTURE_STATUS_CAPTURED
+    const base = captured.githubUrl
+      ? `${done} <${captured.githubUrl}|View in GitHub>`
+      : done
     if (captured.truncated) {
       return `${base} Thread was truncated to the oldest 500 messages.`
     }
@@ -75,6 +86,8 @@ export function formatSlackMentionStatusText(
       return "Capture failed: this deployment has no model configured (set MODEL_PROVIDER*)."
     case "dm_not_supported":
       return "Capture failed: direct messages are not supported."
+    case "no_source":
+      return "Nothing captured: no Workspace has this channel. Add the channel to a Slack source in the Workspace settings, then mention me again."
     default:
       return result.error
         ? `${SLACK_CAPTURE_STATUS_FAILED} ${result.error}`

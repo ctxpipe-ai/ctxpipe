@@ -40,7 +40,11 @@ export function slackLegacyBindings(input: {
       },
     ]
   return [
-    { ...base, syncRepositoryUrl: input.syncRepositoryUrl, scope: { channels } },
+    {
+      ...base,
+      syncRepositoryUrl: input.syncRepositoryUrl,
+      scope: { channels },
+    },
   ]
 }
 
