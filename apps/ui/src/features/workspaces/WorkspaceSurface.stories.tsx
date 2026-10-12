@@ -1486,8 +1486,6 @@ async function deleteOpenWorkspace(canvasElement: HTMLElement) {
   await userEvent.keyboard("{Enter}")
   await waitFor(() => expect(body.queryByRole("alertdialog")).toBeNull())
   await within(canvasElement).findByText("Home page", {}, { timeout: 5000 })
-  // Let late refetches of the deleted Workspace settle.
-  await new Promise((resolve) => setTimeout(resolve, 500))
   scan()
   observer.disconnect()
   await expect(seen).toEqual([])
@@ -1506,6 +1504,7 @@ const deleteFlowDecorators = [
 
 /** Deleting the open Workspace goes Home with a toast and no error page. */
 export const DeleteWorkspaceShowsNoError: Story = {
+  tags: ["workspace-golden"],
   args: { paneParam: "settings" },
   render: (args) => <DeleteFlowStage {...args} />,
   decorators: deleteFlowDecorators,
@@ -1523,6 +1522,8 @@ export const DeleteWorkspaceShowsNoError: Story = {
 /** The same, when the Workspace is the last one. */
 export const DeleteLastWorkspaceShowsNoError: Story = {
   ...DeleteWorkspaceShowsNoError,
+  tags: ["workspace-golden"],
+  play: ({ canvasElement }) => deleteOpenWorkspace(canvasElement),
   parameters: {
     ...DeleteWorkspaceShowsNoError.parameters,
     msw: { handlers: { page: deleteFlowHandlers([]) } },
@@ -1532,6 +1533,8 @@ export const DeleteLastWorkspaceShowsNoError: Story = {
 /** The same, from a conversation URL. */
 export const DeleteFromConversationShowsNoError: Story = {
   ...DeleteWorkspaceShowsNoError,
+  tags: ["workspace-golden"],
+  play: ({ canvasElement }) => deleteOpenWorkspace(canvasElement),
   args: { paneParam: "settings", conversationId: "conv_1" },
   parameters: {
     ...DeleteWorkspaceShowsNoError.parameters,
