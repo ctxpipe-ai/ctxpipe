@@ -12,7 +12,7 @@ import {
   Snapshot,
 } from "@vercel/sandbox"
 import { eq } from "drizzle-orm"
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { parseEnv } from "../../config/env.js"
 import { closeDb, initDb, withOrgDbContext } from "../../db/client.js"
 import { workspaceSandboxGitTokens } from "../../db/schema/workspaces.js"
@@ -20,6 +20,7 @@ import {
   type SandboxGitTokenStore,
   sandboxGitTokenStore,
 } from "../../models/sandbox-git-tokens.js"
+import { log } from "../../observability/logger.js"
 import { WORKSPACE_CHAT_VERCEL_SETUP } from "./chat-runtime.js"
 import { stopEarlierTurnProcesses } from "./sandbox-process-guards.js"
 import {
@@ -809,8 +810,25 @@ describe("agent snapshot and Workspace base", { timeout: 900_000 }, () => {
     ).toContain(snapshotId)
 
     started = Date.now()
-    const conversation = await start(conversationFrom(snapshotId))
+    // A failed start from the base goes on from the agent snapshot and only
+    // logs a warning; keep it, so a fallback fails here with its cause and
+    // not later as a missing clone.
+    const warnings: unknown[] = []
+    const warn = vi.spyOn(log, "warn").mockImplementation((entry) => {
+      warnings.push(entry)
+    })
+    const conversation = await start(conversationFrom(snapshotId)).finally(() =>
+      warn.mockRestore(),
+    )
     report(`[vercel] conversation sandbox from base ${Date.now() - started}ms`)
+    const source = (
+      await Sandbox.get({
+        ...credentials,
+        name: conversation.id,
+        resume: false,
+      })
+    ).sourceSnapshotId
+    expect(source, JSON.stringify(warnings)).toBe(snapshotId)
     expect(await conversation.fs.exists("/workspace/.git")).toBe(true)
     expect(await conversation.fs.read("/workspace/README")).toContain(
       "Hello World",
