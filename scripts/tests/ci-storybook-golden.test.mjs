@@ -196,6 +196,18 @@ const required = [
     "apps/ui/src/features/workspaces/WorkspaceCommandPalette.stories.tsx",
     "PaletteShortcutClosesAfterSyncRender",
   ],
+  [
+    "apps/ui/src/features/workspaces/WorkspaceSurface.stories.tsx",
+    "DeleteWorkspaceShowsNoError",
+  ],
+  [
+    "apps/ui/src/features/workspaces/WorkspaceSurface.stories.tsx",
+    "DeleteLastWorkspaceShowsNoError",
+  ],
+  [
+    "apps/ui/src/features/workspaces/WorkspaceSurface.stories.tsx",
+    "DeleteFromConversationShowsNoError",
+  ],
 ]
 
 test("required golden stories carry the workspace-golden tag and a play", () => {

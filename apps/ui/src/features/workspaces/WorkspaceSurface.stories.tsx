@@ -1,5 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { useLocation } from "@tanstack/react-router"
 import { delay, HttpResponse, http } from "msw"
+import { useEffect, useState } from "react"
 import { Toaster } from "sonner"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 import { responseGate } from "@/components/ui/skeletonMatchStory"
@@ -12,6 +14,11 @@ import {
   workspaceDetailLoadingHandler,
   workspaceShellHandlers,
 } from "@/mocks/workspace-handlers"
+import {
+  orgConnectionsHandler,
+  workspaceSourceList,
+  workspaceSourcesHandler,
+} from "@/mocks/workspace-sources-handlers"
 import { orgPageDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { WorkspaceSurface } from "./WorkspaceSurface"
@@ -1429,5 +1436,154 @@ export const ReadOnly: Story = {
         }),
       },
     },
+  },
+}
+
+/**
+ * Shows the Workspace until the URL is Home, as the real route tree does. The
+ * real tree unmounts the Workspace a little after the router resolves, so this
+ * stage keeps it for 1.5 s and renders it again every 100 ms.
+ */
+function DeleteFlowStage(props: React.ComponentProps<typeof WorkspaceSurface>) {
+  const pathname = useLocation({ select: (location) => location.pathname })
+  const home = pathname === `/${orgSlug}`
+  const [unmounted, setUnmounted] = useState(false)
+  const [, setTick] = useState(0)
+  useEffect(() => {
+    if (!home) return
+    const timer = setTimeout(() => setUnmounted(true), 1500)
+    // Any render of the Workspace that is still mounted, such as a poll.
+    const tick = setInterval(() => setTick((n) => n + 1), 100)
+    return () => {
+      clearTimeout(timer)
+      clearInterval(tick)
+    }
+  }, [home])
+  if (home && unmounted) return <p>Home page</p>
+  return <WorkspaceSurface {...props} />
+}
+
+/** The API after the delete: the Workspace routes answer 404, the list drops it. */
+function deleteFlowHandlers(remaining: (typeof docsWorkspace)[]) {
+  let deleted = false
+  const path = (request: Request) => new URL(request.url).pathname
+  return [
+    http.get(
+      ({ request }) =>
+        deleted &&
+        (/\/api\/v1\/workspaces\/ws_docs|\/api\/v1\/workspaces\/docs(\/|$)/.test(
+          path(request),
+        ) ||
+          request.url.includes("workspaceId=ws_docs") ||
+          /\/api\/v1\/conversations\/[^/]+/.test(path(request))),
+      () => HttpResponse.json({ error: "not found" }, { status: 404 }),
+    ),
+    http.get(
+      ({ request }) => deleted && /\/api\/v1\/workspaces$/.test(path(request)),
+      () =>
+        HttpResponse.json({
+          items: remaining,
+          lastUsedWorkspaceId: remaining[0]?.id ?? null,
+        }),
+    ),
+    http.delete(
+      ({ request }) => /\/api\/v1\/workspaces\/[^/]+$/.test(path(request)),
+      () => {
+        deleted = true
+        return new HttpResponse(null, { status: 204 })
+      },
+    ),
+    workspaceSourcesHandler(workspaceSourceList()),
+    orgConnectionsHandler([{ id: "con_gh", type: "github" }]),
+    githubInstallationReposHandler(),
+    ...workspaceShellHandlers({ workspaces: [docsWorkspace, ...remaining] }),
+  ]
+}
+
+/** Deletes the open Workspace and records every error the page shows on the way. */
+async function deleteOpenWorkspace(canvasElement: HTMLElement) {
+  const body = within(canvasElement.ownerDocument.body)
+  const seen: string[] = []
+  const scan = () => {
+    for (const text of [
+      "Something went wrong",
+      "Could not load",
+      "Workspace not found",
+    ]) {
+      if (canvasElement.ownerDocument.body.textContent?.includes(text))
+        seen.push(text)
+    }
+  }
+  const observer = new MutationObserver(scan)
+  observer.observe(canvasElement.ownerDocument.body, {
+    childList: true,
+    subtree: true,
+    characterData: true,
+  })
+  await userEvent.click(
+    await body.findByRole("button", { name: "Delete Workspace" }),
+  )
+  const dialog = await body.findByRole("alertdialog")
+  await userEvent.type(within(dialog).getByLabelText("Workspace name"), "Docs")
+  await userEvent.keyboard("{Enter}")
+  await waitFor(() => expect(body.queryByRole("alertdialog")).toBeNull())
+  await within(canvasElement).findByText("Home page", {}, { timeout: 5000 })
+  scan()
+  observer.disconnect()
+  await expect(seen).toEqual([])
+  await expect(await body.findByText("Workspace deleted")).toBeVisible()
+  await expect(within(canvasElement).getByText("Home page")).toBeVisible()
+}
+
+const deleteFlowDecorators = [
+  (Story: () => React.ReactElement) => (
+    <>
+      <Story />
+      <Toaster />
+    </>
+  ),
+]
+
+/** Deleting the open Workspace goes Home with a toast and no error page. */
+export const DeleteWorkspaceShowsNoError: Story = {
+  tags: ["workspace-golden"],
+  args: { paneParam: "settings" },
+  render: (args) => <DeleteFlowStage {...args} />,
+  decorators: deleteFlowDecorators,
+  parameters: {
+    storyRoute: {
+      pattern: "flat",
+      path: `/${orgSlug}/ws/${workspaceSlug}`,
+      alsoAt: [`/${orgSlug}`],
+    } satisfies StoryRouteParams,
+    msw: { handlers: { page: deleteFlowHandlers([readOnlyWorkspace]) } },
+  },
+  play: ({ canvasElement }) => deleteOpenWorkspace(canvasElement),
+}
+
+/** The same, when the Workspace is the last one. */
+export const DeleteLastWorkspaceShowsNoError: Story = {
+  ...DeleteWorkspaceShowsNoError,
+  tags: ["workspace-golden"],
+  play: ({ canvasElement }) => deleteOpenWorkspace(canvasElement),
+  parameters: {
+    ...DeleteWorkspaceShowsNoError.parameters,
+    msw: { handlers: { page: deleteFlowHandlers([]) } },
+  },
+}
+
+/** The same, from a conversation URL. */
+export const DeleteFromConversationShowsNoError: Story = {
+  ...DeleteWorkspaceShowsNoError,
+  tags: ["workspace-golden"],
+  play: ({ canvasElement }) => deleteOpenWorkspace(canvasElement),
+  args: { paneParam: "settings", conversationId: "conv_1" },
+  parameters: {
+    ...DeleteWorkspaceShowsNoError.parameters,
+    storyRoute: {
+      pattern: "flat",
+      path: `/${orgSlug}/ws/${workspaceSlug}/conv_1`,
+      alsoAt: [`/${orgSlug}`],
+    } satisfies StoryRouteParams,
   },
 }

@@ -119,6 +119,9 @@ export const requiredStories = [
   "PaletteHoverAndKeysShareOneHighlight",
   "PaletteEnterAfterDeleteRunsFirstMatch",
   "PaletteShortcutClosesAfterSyncRender",
+  "DeleteWorkspaceShowsNoError",
+  "DeleteLastWorkspaceShowsNoError",
+  "DeleteFromConversationShowsNoError",
 ]
 
 export function isGoldenPlaySuccess(phase) {
