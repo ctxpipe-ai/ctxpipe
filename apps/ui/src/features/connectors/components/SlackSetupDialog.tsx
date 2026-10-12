@@ -270,8 +270,8 @@ export function SlackSetupDialog({
                 Set up Slack connector
               </h2>
               <p className="mt-2 text-sm text-muted-foreground">
-                Authorize Slack, then choose the Workspaces that get the
-                threads you capture in their channels.
+                Authorize Slack, then choose the Workspaces that get the threads
+                you capture in their channels.
               </p>
               <a
                 href={SLACK_DOCS_URL}

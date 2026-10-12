@@ -80,9 +80,9 @@ export function SlackScopeEditor(props: SourceScopeEditorProps) {
       <div>
         <p className="text-sm font-medium text-foreground">{pickerLabel}</p>
         <p className="mt-1 text-sm text-muted-foreground">
-          When someone @mentions the ctx| bot in a thread of these channels,
-          the thread is saved to this Workspace. Private channels show only
-          when the bot is in them.
+          When someone @mentions the ctx| bot in a thread of these channels, the
+          thread is saved to this Workspace. Private channels show only when the
+          bot is in them.
         </p>
       </div>
       <SearchField

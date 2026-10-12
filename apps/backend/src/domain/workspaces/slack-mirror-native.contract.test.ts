@@ -43,7 +43,11 @@ it.each([
               : { ok: true },
           "conversations.info": {
             ok: true,
-            channel: { id: "C0FIX0001", name: "engineering", is_private: false },
+            channel: {
+              id: "C0FIX0001",
+              name: "engineering",
+              is_private: false,
+            },
           },
           "conversations.replies": {
             ok: true,
