@@ -6,6 +6,7 @@ import { tooltip } from "@tanstack/charts/tooltip"
 import { useMemo } from "react"
 import { Skeleton } from "@/components/ui/Skeleton"
 import type { WorkspaceActivityDay } from "@/features/workspaces/types"
+import { cn } from "@/lib/utils"
 import {
   CALENDAR_WEEKDAYS,
   COMMIT_LEVEL_COLORS,
@@ -16,10 +17,17 @@ import {
   toCalendarCells,
 } from "./calendar-days"
 
+/** A click or Enter on a day calls `onSelectDate`; `selectedDate` gets an outline. */
 export function WorkspaceActivityHeatmap(props: {
   days: readonly WorkspaceActivityDay[]
+  selectedDate?: string | null
+  onSelectDate?: (date: string) => void
 }) {
   const cells = useMemo(() => toCalendarCells(props.days), [props.days])
+  const selectedCells = useMemo(
+    () => cells.filter((cell) => cell.date === props.selectedDate),
+    [cells, props.selectedDate],
+  )
   const weekCount = cells.reduce(
     (highest, cell) => Math.max(highest, cell.week + 1),
     0,
@@ -42,6 +50,17 @@ export function WorkspaceActivityHeatmap(props: {
               key: "date",
               inset: 1,
               radius: 2,
+            }),
+            cell(selectedCells, {
+              id: "selected-day",
+              x: "week",
+              y: "weekday",
+              key: "date",
+              inset: 1,
+              radius: 2,
+              fill: "transparent",
+              stroke: "#fafafa",
+              strokeWidth: 1.5,
             }),
           ],
           color: {
@@ -94,17 +113,33 @@ export function WorkspaceActivityHeatmap(props: {
           },
         },
       ),
-    [cells, monthTicks, weekDomain],
+    [cells, monthTicks, selectedCells, weekDomain],
   )
 
   if (cells.length === 0) return null
 
+  const onSelectDate = props.onSelectDate
   return (
     <Chart
       definition={definition}
       height={128}
       ariaLabel={calendarAriaLabel(cells)}
-      className="w-full min-w-0 text-xs text-muted-foreground"
+      ariaDescription={
+        onSelectDate
+          ? "Use the arrow keys to move between days. Press Enter to show the commits of a day."
+          : undefined
+      }
+      onSelect={
+        onSelectDate
+          ? (point) => {
+              if (point) onSelectDate(point.datum.date)
+            }
+          : undefined
+      }
+      className={cn(
+        "w-full min-w-0 text-xs text-muted-foreground",
+        onSelectDate && "cursor-pointer",
+      )}
     />
   )
 }

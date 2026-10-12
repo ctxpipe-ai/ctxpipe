@@ -1,6 +1,6 @@
 import {
   getConversation,
-  updateConversation,
+  nameUnnamedConversation,
 } from "../../models/conversations.js"
 import { getModel } from "../../retrieval/services/modelProvider.js"
 import { maskCredentials } from "./mask-credentials.js"
@@ -9,6 +9,7 @@ const titlePrompt =
   `Generate a short 2-5 word title for a chat conversation. Reply with ONLY the title, no quotes or punctuation.
 First user message: ` as const
 
+/** True for no name or a default label. `nameUnnamedConversation` checks the same labels in SQL. */
 export function isUnnamedConversation(
   name: string | null | undefined,
 ): boolean {
@@ -97,6 +98,7 @@ export async function nameConversationIfUnnamed(input: {
     raw = ""
   }
   const name = conversationTitleFromModel(raw, input.prompt)
-  await updateConversation(input.conversationId, { name })
-  return name
+  // The user can rename while the model works. The write then changes no row.
+  const named = await nameUnnamedConversation(input.conversationId, name)
+  return named ? name : null
 }

@@ -3,6 +3,7 @@ import {
   desc,
   eq,
   getTableColumns,
+  inArray,
   isNotNull,
   isNull,
   lt,
@@ -604,6 +605,37 @@ export async function updateConversation(
       )
       .returning(conversationFieldsWithCurrentPr())
     return updated ?? null
+  })
+}
+
+/**
+ * Sets the automatic name only while the conversation has no name or a
+ * default label, so a name that the user saved first stays. Returns true when
+ * a row changed.
+ */
+export async function nameUnnamedConversation(
+  conversationId: string,
+  name: string,
+): Promise<boolean> {
+  return orgSql(async () => {
+    const orgId = requireCurrentOrgId()
+    const db = getOrgDb()
+    const updated = await db
+      .update(conversations)
+      .set({ name, updatedAt: new Date() })
+      .where(
+        and(
+          eq(conversations.id, conversationId),
+          eq(conversations.orgId, orgId),
+          conversationActorWhere(),
+          or(
+            isNull(conversations.name),
+            inArray(conversations.name, ["", "New conversation", "New Chat"]),
+          ),
+        ),
+      )
+      .returning({ id: conversations.id })
+    return updated.length > 0
   })
 }
 

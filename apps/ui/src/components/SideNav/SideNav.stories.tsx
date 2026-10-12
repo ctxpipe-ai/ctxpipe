@@ -1,5 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { userEvent, within } from "storybook/test"
+import { Link } from "react-aria-components"
+import { expect, userEvent, waitFor, within } from "storybook/test"
+import { AppShell } from "@/components/AppShell"
 import { SideNav } from "@/components/SideNav"
 import {
   docsConversations,
@@ -96,6 +98,53 @@ export const Collapsed: Story = {
     const canvas = within(canvasElement)
     await userEvent.click(
       canvas.getByRole("button", { name: /collapse navigation/i }),
+    )
+  },
+}
+
+/** A plain link (not a nav item) opens Connectors. The shell stays mounted, and
+ * the current nav item moves from the Workspace to Connectors. */
+export const PlainLinkMovesCurrentNav: Story = {
+  tags: ["workspace-golden"],
+  render: () => (
+    <AppShell>
+      <Link href="/acme/connectors" className="p-6 text-sm text-teal-400">
+        Connect another source
+      </Link>
+    </AppShell>
+  ),
+  parameters: {
+    storyRoute: {
+      pattern: "flat",
+      path: "/acme/ws/docs",
+      alsoAt: ["/acme/connectors"],
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: [
+          workspaceListHandler([docsWorkspace]),
+          conversationsListHandler(docsConversations),
+          githubInstallationReposHandler(),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const nav = await canvas.findByRole("navigation", {
+      name: "Main navigation",
+    })
+    const connectors = await within(nav).findByRole("link", {
+      name: "Connectors",
+    })
+    await expect(connectors).not.toHaveAttribute("aria-current")
+    await userEvent.click(
+      canvas.getByRole("link", { name: "Connect another source" }),
+    )
+    await waitFor(() =>
+      expect(
+        within(nav).getByRole("link", { name: "Connectors" }),
+      ).toHaveAttribute("aria-current", "page"),
     )
   },
 }

@@ -85,11 +85,11 @@ export const Loading: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText("Loading sources")
-    await expect(canvas.queryByText("No sources yet.")).toBeNull()
+    await expect(canvas.queryByText(/No connectors yet/)).toBeNull()
   },
 }
 
-export const NoSources: Story = {
+export const Empty: Story = {
   parameters: {
     msw: {
       handlers: {
@@ -102,11 +102,15 @@ export const NoSources: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await canvas.findByText(/No sources yet/)
+    await canvas.findByText(/No connectors yet/)
     await expect(
-      canvas.getByRole("link", { name: "Connect a source" }),
-    ).toBeVisible()
-    await expect(canvas.queryByText("Connect another source")).toBeNull()
+      canvas.getByRole("heading", { level: 2, name: "Connectors" }),
+    ).toBeInTheDocument()
+    await expect(
+      canvas.getByRole("link", { name: "Add connection" }),
+    ).toHaveAttribute("href", "/acme/connectors")
+    await expect(canvas.queryByText("Add another connection")).toBeNull()
+    await expect(canvas.queryByText(".ctxpipe/sources.yaml")).toBeNull()
   },
 }
 
@@ -121,6 +125,8 @@ export const ConnectedWithoutSources: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByRole("button", { name: "Add repositories" })
+    await expect(canvas.getByText("No sources yet")).toBeVisible()
+    await expect(canvas.getByText("No Linear sources yet")).toBeVisible()
     await expect(
       canvas.getByRole("button", { name: "Add Confluence source" }),
     ).toBeVisible()
@@ -128,7 +134,7 @@ export const ConnectedWithoutSources: Story = {
       canvas.getByRole("button", { name: "Add Linear source" }),
     ).toBeVisible()
     await expect(
-      canvas.getByRole("link", { name: "Connect another source" }),
+      canvas.getByRole("link", { name: "Add another connection" }),
     ).toHaveAttribute("href", "/acme/connectors")
   },
 }
@@ -152,6 +158,8 @@ export const SeveralProviders: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText("acme/api")
+    await expect(canvas.getByText("3 sources from 3 connectors")).toBeVisible()
+    await expect(canvas.getByText(".ctxpipe/sources.yaml")).toBeVisible()
     for (const [provider, heading, summary] of [
       ["github", "GitHub", "acme/web"],
       ["confluence", "Confluence", "3 spaces"],
@@ -167,8 +175,135 @@ export const SeveralProviders: Story = {
       await expect(group.getByText(summary)).toBeVisible()
     }
     await expect(
-      canvas.getByRole("link", { name: "Connect another source" }),
+      canvas.getByRole("link", { name: "Add another connection" }),
     ).toBeVisible()
+  },
+}
+
+export const OneProviderSeveralSources: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceSourcesHandler(
+            workspaceSourceList({
+              items: [
+                linearSource,
+                {
+                  ...linearSource,
+                  sourceKey: "ops-issues",
+                  scopeSummary: "2 teams",
+                },
+                {
+                  ...linearSource,
+                  sourceKey: "labs-issues",
+                  connectionId: "con_li2",
+                  connectionName: "Labs Linear",
+                  scopeSummary: "3 teams",
+                },
+              ],
+            }),
+          ),
+          orgConnectionsHandler([
+            { id: "con_li1", type: "linear" },
+            { id: "con_li2", type: "linear" },
+          ]),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("3 sources from 2 connectors")
+    const section = canvasElement.querySelector<HTMLElement>("#source-linear")
+    if (!section) throw new Error("Missing Linear group")
+    const group = within(section)
+    await expect(group.getByText("3 sources")).toBeVisible()
+    await expect(group.getAllByRole("listitem")).toHaveLength(3)
+    await expect(group.getByText("2 teams")).toBeVisible()
+    await expect(
+      group.getByRole("button", { name: "Edit labs-issues" }),
+    ).toBeVisible()
+    await expect(canvas.getAllByRole("heading", { level: 3 })).toHaveLength(1)
+  },
+}
+
+export const NeedsAttention: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceSourcesHandler(
+            workspaceSourceList({
+              items: [
+                githubSource,
+                linearSource,
+                workspaceSourceFixture({
+                  sourceKey: "old-issues",
+                  provider: "linear",
+                  connectionId: "con_gone",
+                  connectionName: null,
+                  status: "connection_missing",
+                  statusDetail: "The connection con_gone does not exist",
+                  scopeSummary: "2 teams",
+                }),
+              ],
+            }),
+          ),
+          connected,
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("3 sources from 2 connectors · 1 needs attention")
+    const section = canvasElement.querySelector<HTMLElement>("#source-linear")
+    if (!section) throw new Error("Missing Linear group")
+    const group = within(section)
+    await expect(group.getByText("2 sources · 1 needs attention")).toBeVisible()
+    await expect(group.getByText("Connection missing")).toBeVisible()
+    await expect(
+      group.getByText("The connection con_gone does not exist"),
+    ).toBeVisible()
+  },
+}
+
+export const PendingAdd: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceSourcesHandler(
+            workspaceSourceList({
+              pendingChanges: [
+                {
+                  sourceKey: "eng-docs",
+                  provider: "confluence",
+                  action: "add",
+                  pullRequestUrl: "https://github.com/acme/docs/pull/5",
+                  createdAt: "2026-10-10T10:00:00.000Z",
+                },
+              ],
+            }),
+          ),
+          connected,
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("No sources yet · 1 change awaiting merge")
+    const section =
+      canvasElement.querySelector<HTMLElement>("#source-confluence")
+    if (!section) throw new Error("Missing Confluence group")
+    const group = within(section)
+    await expect(group.getByText("1 awaiting merge")).toBeVisible()
+    await expect(group.getByText("New source")).toBeVisible()
+    await expect(
+      group.getByRole("link", { name: "Awaiting merge" }),
+    ).toHaveAttribute("href", "https://github.com/acme/docs/pull/5")
   },
 }
 
@@ -652,7 +787,7 @@ export const LoadFailed: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await canvas.findByText("Could not load the sources of this Workspace.")
+    await canvas.findByText("Could not load the connectors of this Workspace.")
     await expect(canvas.getByRole("button", { name: "Retry" })).toBeVisible()
   },
 }
@@ -836,5 +971,131 @@ export const PickerShowsConnectionNames: Story = {
         },
       ]),
     )
+  },
+}
+
+/** The GitHub group with no repositories yet. */
+export const GithubNoRepositories: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [workspaceSourcesHandler(workspaceSourceList()), connected],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("No GitHub repositories in this Workspace.")
+    const section = canvasElement.querySelector<HTMLElement>("#source-github")
+    if (!section) throw new Error("Missing GitHub group")
+    const group = within(section)
+    await expect(group.getByText("No GitHub sources yet")).toBeVisible()
+    await expect(group.queryByRole("searchbox")).toBeNull()
+    await expect(
+      group.getByRole("button", { name: "Add repositories" }),
+    ).toBeVisible()
+  },
+}
+
+/** A few repositories: every row shows, with no filter and no "Show all". */
+export const GithubThreeRepositories: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceSourcesHandler(
+            workspaceSourceList({
+              items: [
+                {
+                  ...githubSource,
+                  scope: { repositories: ["acme/api", "acme/web", "acme/cli"] },
+                  scopeSummary: "3 repositories",
+                },
+              ],
+            }),
+          ),
+          connected,
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const list = within(
+      await canvas.findByRole("list", { name: "GitHub repositories" }),
+    )
+    await expect(canvas.getByText("3 repositories")).toBeVisible()
+    await expect(list.getAllByRole("listitem")).toHaveLength(3)
+    await expect(canvas.queryByRole("searchbox")).toBeNull()
+    await expect(canvas.queryByRole("button", { name: /Show all/ })).toBeNull()
+    await expect(
+      canvas.getByRole("button", { name: "Unlink acme/cli" }),
+    ).toBeVisible()
+  },
+}
+
+const manyLinkedRepositories = Array.from({ length: 312 }, (_, index) => {
+  const name = `acme/service-${String(index + 1).padStart(3, "0")}`
+  const withIssues = (index + 1) % 75 === 0
+  return {
+    id: `lnk_many_${index + 1}`,
+    workspaceId: "ws_story1",
+    gitUrl: `https://github.com/${name}`,
+    desiredRef: null,
+    desiredSha: "abc",
+    indexedSha: "abc",
+    createdAt: "2026-10-01T10:00:00.000Z",
+    ...(withIssues
+      ? {
+          indexingStatus: "complete_with_issues" as const,
+          indexingError: "Code intelligence is incomplete for 1 project",
+        }
+      : {}),
+  }
+})
+
+/**
+ * Hundreds of repositories: the meta line counts them, the first 5 show
+ * (rows that need attention first), "Show all" opens a scroll area, and the
+ * filter narrows the list.
+ */
+export const GithubManyRepositories: Story = {
+  args: { linkedRepositories: manyLinkedRepositories },
+  parameters: {
+    msw: {
+      handlers: {
+        page: [workspaceSourcesHandler(workspaceSourceList()), connected],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("312 repositories · 4 need attention")
+    const listElement = canvas.getByRole("list", {
+      name: "GitHub repositories",
+    })
+    const list = within(listElement)
+    await expect(list.getAllByRole("listitem")).toHaveLength(5)
+    await expect(list.getAllByText("Indexed with issues")).toHaveLength(4)
+
+    await userEvent.click(canvas.getByRole("button", { name: "Show all 312" }))
+    await expect(list.getAllByRole("listitem")).toHaveLength(312)
+    await expect(listElement.scrollHeight).toBeGreaterThan(
+      listElement.clientHeight,
+    )
+    await userEvent.click(canvas.getByRole("button", { name: "Show fewer" }))
+    await expect(list.getAllByRole("listitem")).toHaveLength(5)
+
+    const filter = canvas.getByRole("searchbox", {
+      name: "Filter linked repositories",
+    })
+    await userEvent.type(filter, "service-01")
+    await waitFor(() => expect(list.getAllByRole("listitem")).toHaveLength(10))
+    await expect(canvas.queryByRole("button", { name: /Show all/ })).toBeNull()
+    await userEvent.clear(filter)
+    await userEvent.type(filter, "no-such-repository")
+    await expect(
+      await list.findByText("No repositories match that filter."),
+    ).toBeVisible()
   },
 }

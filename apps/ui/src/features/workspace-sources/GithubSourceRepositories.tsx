@@ -93,7 +93,7 @@ function linkedStatus(item: WorkspaceLinkedRepository): StatusTag {
 }
 
 /** One row: a linked repository, a source repository, or both. */
-type RepositoryRow = {
+export type RepositoryRow = {
   key: string
   title: string
   gitUrl: string
@@ -102,7 +102,16 @@ type RepositoryRow = {
   source: WorkspaceSource | null
 }
 
-function repositoryRows(
+/** A row needs attention when its index has issues or its source is not ok. */
+export function repositoryNeedsAttention(row: RepositoryRow): boolean {
+  return (
+    row.linked?.indexingStatus === "complete_with_issues" ||
+    (row.source != null && row.source.status !== "ok")
+  )
+}
+
+/** The repository rows of the GitHub section. Rows that need attention come first. */
+export function repositoryRows(
   linked: WorkspaceLinkedRepository[],
   sources: WorkspaceSource[],
 ): RepositoryRow[] {
@@ -134,7 +143,10 @@ function repositoryRows(
       })
     }
   }
-  return rows
+  return rows.sort(
+    (a, b) =>
+      Number(repositoryNeedsAttention(b)) - Number(repositoryNeedsAttention(a)),
+  )
 }
 
 /**
@@ -165,10 +177,16 @@ export function GithubSourceRepositories(props: {
   } = props
   const queryClient = useQueryClient()
   const [query, setQuery] = useState("")
+  const [showAll, setShowAll] = useState(false)
   const rows = repositoryRows(linkedRepositories, sources)
   const filtered = rows.filter((row) =>
     gitSourceMatchesQuery(row.title, row.gitUrl, query),
   )
+  // A Workspace can have hundreds of repositories: show the first rows, and
+  // all of them in a scroll area on request or while a filter is set.
+  const filtering = query.trim() !== ""
+  const expanded = showAll || filtering
+  const visible = expanded ? filtered : filtered.slice(0, 5)
 
   const unlinkMutation = useMutation({
     mutationFn: async (row: RepositoryRow) => {
@@ -227,7 +245,7 @@ export function GithubSourceRepositories(props: {
         </p>
       ) : (
         <>
-          {rows.length > 5 ? (
+          {rows.length > 8 ? (
             <SearchField
               value={query}
               onChange={setQuery}
@@ -236,13 +254,19 @@ export function GithubSourceRepositories(props: {
               className="mt-2"
             />
           ) : null}
-          <ul aria-label="GitHub repositories" className="mt-1 flex flex-col">
+          <ul
+            aria-label="GitHub repositories"
+            className={cn(
+              "mt-1 flex flex-col",
+              expanded && filtered.length > 5 && "max-h-80 overflow-auto",
+            )}
+          >
             {filtered.length === 0 ? (
               <li className="px-2 py-2 text-sm text-muted-foreground">
                 No repositories match that filter.
               </li>
             ) : (
-              filtered.map((row) => {
+              visible.map((row) => {
                 const webUrl = githubWebUrl(row.gitUrl)
                 const status = row.linked
                   ? linkedStatus(row.linked)
@@ -310,6 +334,15 @@ export function GithubSourceRepositories(props: {
               })
             )}
           </ul>
+          {!filtering && rows.length > 5 ? (
+            <Button
+              variant="quiet"
+              className="mt-1 h-8 px-2 text-xs text-muted-foreground tabular-nums"
+              onPress={() => setShowAll(!showAll)}
+            >
+              {showAll ? "Show fewer" : `Show all ${rows.length}`}
+            </Button>
+          ) : null}
         </>
       )}
       <AddGithubRepositoriesModal

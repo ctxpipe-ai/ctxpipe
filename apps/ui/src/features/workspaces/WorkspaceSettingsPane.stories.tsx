@@ -9,6 +9,7 @@ import {
 } from "@/mocks/workspace-handlers"
 import {
   orgConnectionsHandler,
+  workspaceSourceFixture,
   workspaceSourceList,
   workspaceSourcesHandler,
 } from "@/mocks/workspace-sources-handlers"
@@ -70,6 +71,87 @@ type Story = StoryObj<typeof meta>
 
 export const Settings: Story = {}
 
+/**
+ * Four groups in one column: General, Repositories, Connectors, and Danger
+ * zone. The Connectors group shows three providers.
+ */
+export const Populated: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        sources: [
+          workspaceSourcesHandler(
+            workspaceSourceList({
+              items: [
+                workspaceSourceFixture({
+                  sourceKey: "product-repos",
+                  provider: "github",
+                  connectionId: "con_gh1",
+                  connectionName: "acme-gh",
+                  scope: { repositories: ["acme/api", "acme/web"] },
+                  scopeSummary: "2 repositories",
+                }),
+                workspaceSourceFixture({
+                  sourceKey: "eng-docs",
+                  provider: "confluence",
+                  connectionId: "con_cf1",
+                  connectionName: "acme.atlassian.net",
+                  scopeSummary: "3 spaces",
+                }),
+                workspaceSourceFixture({
+                  sourceKey: "eng-issues",
+                  provider: "linear",
+                  connectionId: "con_li1",
+                  connectionName: "Acme Linear",
+                  scope: { teams: ["ENG"] },
+                  scopeSummary: "1 team",
+                }),
+              ],
+            }),
+          ),
+          orgConnectionsHandler([
+            { id: "con_gh1", type: "github", displayName: "acme-gh" },
+            { id: "con_cf1", type: "forge" },
+            { id: "con_li1", type: "linear" },
+          ]),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("acme/api")
+    const eyebrows = ["General", "Repositories", "Connectors", "Danger zone"]
+    const labels = [...canvasElement.querySelectorAll(".ctx-label")].map(
+      (element) => element.textContent,
+    )
+    await expect(labels).toEqual(eyebrows)
+    await expect(canvas.getByText("Can save changes")).toBeVisible()
+    await expect(canvas.getByText("Ready")).toBeVisible()
+    await expect(canvas.getByRole("textbox", { name: "Name" })).toHaveValue(
+      docsWorkspaceDetail.displayName,
+    )
+    await expect(
+      canvas.getByText("Shown in the sidebar and to your team."),
+    ).toBeVisible()
+    await expect(canvas.getByRole("textbox", { name: "URL name" })).toHaveValue(
+      docsWorkspaceDetail.slug,
+    )
+    await expect(
+      canvas.getByRole("heading", { level: 2, name: "Main repository" }),
+    ).toBeVisible()
+    await expect(
+      canvas.getByRole("region", { name: "Connectors" }),
+    ).toBeInTheDocument()
+    await expect(
+      canvas.getByRole("link", { name: "Add another connection" }),
+    ).toHaveAttribute("href", "/acme/connectors")
+    await expect(
+      canvas.getByRole("heading", { level: 2, name: "Delete this Workspace" }),
+    ).toBeVisible()
+  },
+}
+
 export const SkippedFiles: Story = {
   args: {
     workspace: skippedFilesWorkspaceDetail,
@@ -96,6 +178,13 @@ export const ReadOnly: Story = {
 export const ProjectionLag: Story = {
   args: {
     workspace: projectionLagWorkspaceDetail,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText(/Answers still come from/)
+    await expect(
+      canvas.getByText(/until the new repository finishes loading/),
+    ).toBeVisible()
   },
 }
 
@@ -131,7 +220,7 @@ export const LinkedRepositoryWithIssues: Story = {
 }
 
 /**
- * The Workspace repository picker and "Add repositories" share one cached
+ * The main repository picker and "Add repositories" share one cached
  * repository query. Opening one, then the other, lists the repositories.
  */
 export const AddRepositories: Story = {
@@ -142,7 +231,7 @@ export const AddRepositories: Story = {
     const canvas = within(canvasElement)
     const body = within(canvasElement.ownerDocument.body)
     await userEvent.click(
-      await canvas.findByRole("button", { name: /edit workspace repository/i }),
+      await canvas.findByRole("button", { name: /edit main repository/i }),
     )
     const picker = await body.findByRole("dialog")
     await within(picker).findByText("acme/handbook")
@@ -171,6 +260,9 @@ export const HydrateFailed: Story = {
   args: {
     workspace: failedHydrateWorkspaceDetail,
   },
+  play: async ({ canvasElement }) => {
+    await within(canvasElement).findByText("Loading failed")
+  },
 }
 
 export const RelinkError: Story = {
@@ -198,7 +290,7 @@ export const RelinkError: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.click(
-      canvas.getByRole("button", { name: /edit workspace repository/i }),
+      canvas.getByRole("button", { name: /edit main repository/i }),
     )
     const body = within(canvasElement.ownerDocument.body)
     const dialog = await body.findByRole("dialog")
@@ -252,15 +344,15 @@ export const RenameRefused: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    const name = canvas.getByRole("textbox", { name: /display name/i })
+    const name = canvas.getByRole("textbox", { name: /^name$/i })
     await userEvent.clear(name)
     await userEvent.type(name, "Renamed Workspace")
     await userEvent.click(canvas.getByRole("button", { name: /^save$/i }))
     const body = within(canvasElement.ownerDocument.body)
     await body.findByText(/rename could not be scheduled/i)
-    await expect(canvas.getByRole("textbox", { name: /^slug$/i })).toHaveValue(
-      docsWorkspaceDetail.slug,
-    )
+    await expect(
+      canvas.getByRole("textbox", { name: /^url name$/i }),
+    ).toHaveValue(docsWorkspaceDetail.slug)
   },
 }
 
