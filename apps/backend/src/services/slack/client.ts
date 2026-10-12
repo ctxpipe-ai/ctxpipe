@@ -610,3 +610,140 @@ export async function getSlackPermalink(input: {
     return undefined
   }
 }
+
+/** A channel that a Slack source can select. */
+export type SlackListedChannel = {
+  id: string
+  name: string
+  isPrivate: boolean
+  /** The bot is a member, so it can read the history. */
+  isMember: boolean
+}
+
+const SLACK_CHANNEL_LIST_MAX = 2000
+
+/**
+ * List the channels that a source can select: the public channels of the
+ * team and the private channels that the bot is a member of. Slack returns a
+ * private channel only when the bot is in it. Archived channels are left out.
+ */
+export async function listSlackChannels(input: {
+  env: Env
+  connection: SlackConnectionShape
+}): Promise<SlackListedChannel[]> {
+  const botToken = botTokenFromConnection(input.connection, input.env)
+  const channels: SlackListedChannel[] = []
+  let cursor: string | undefined
+  do {
+    const page = await slackApiCall<{
+      ok: boolean
+      error?: string
+      channels?: Array<{
+        id?: string
+        name?: string
+        is_private?: boolean
+        is_member?: boolean
+        is_archived?: boolean
+      }>
+      response_metadata?: { next_cursor?: string }
+    }>({
+      method: "conversations.list",
+      botToken,
+      query: {
+        types: "public_channel,private_channel",
+        exclude_archived: "true",
+        limit: "200",
+        cursor,
+      },
+    })
+    for (const channel of page.channels ?? []) {
+      if (!channel.id || channel.is_archived) continue
+      channels.push({
+        id: channel.id,
+        name: channel.name?.trim() || channel.id,
+        isPrivate: Boolean(channel.is_private),
+        isMember: Boolean(channel.is_member),
+      })
+    }
+    const next = page.response_metadata?.next_cursor?.trim()
+    cursor = next ? next : undefined
+  } while (cursor && channels.length < SLACK_CHANNEL_LIST_MAX)
+  return channels.sort((a, b) => a.name.localeCompare(b.name))
+}
+
+/** The state of one channel for a source: its name and why the bot cannot read it. */
+export async function readSlackSourceChannel(input: {
+  env: Env
+  connection: SlackConnectionShape
+  channelId: string
+}): Promise<SlackChannelInfo & { isArchived: boolean; isMember: boolean }> {
+  const botToken = botTokenFromConnection(input.connection, input.env)
+  const page = await slackApiCall<{
+    ok: boolean
+    error?: string
+    channel?: {
+      name?: string
+      is_private?: boolean
+      is_archived?: boolean
+      is_member?: boolean
+      is_im?: boolean
+      is_mpim?: boolean
+    }
+  }>({
+    method: "conversations.info",
+    botToken,
+    query: { channel: input.channelId },
+  })
+  if (page.channel?.is_im || page.channel?.is_mpim) {
+    throw new SlackDirectMessageNotSupportedError()
+  }
+  return {
+    channelId: input.channelId,
+    name: page.channel?.name?.trim() || input.channelId,
+    isPrivate: Boolean(page.channel?.is_private),
+    isArchived: Boolean(page.channel?.is_archived),
+    // Slack sends is_member for public channels; it can read a private
+    // channel only as a member.
+    isMember: Boolean(page.channel?.is_member ?? page.channel?.is_private),
+  }
+}
+
+/**
+ * The thread roots of a channel since `oldest` (a Slack ts), newest first.
+ * A thread root is a message with at least one reply. Stop at `maxThreads`.
+ */
+export async function listSlackChannelThreadRoots(input: {
+  env: Env
+  connection: SlackConnectionShape
+  channelId: string
+  oldest: string
+  maxThreads: number
+}): Promise<string[]> {
+  const botToken = botTokenFromConnection(input.connection, input.env)
+  const roots: string[] = []
+  let cursor: string | undefined
+  do {
+    const page = await slackApiCall<{
+      ok: boolean
+      error?: string
+      messages?: SlackApiMessage[]
+      response_metadata?: { next_cursor?: string }
+    }>({
+      method: "conversations.history",
+      botToken,
+      query: {
+        channel: input.channelId,
+        oldest: input.oldest,
+        limit: "200",
+        cursor,
+      },
+    })
+    for (const message of page.messages ?? []) {
+      if ((message.reply_count ?? 0) > 0 && roots.length < input.maxThreads)
+        roots.push(message.ts)
+    }
+    const next = page.response_metadata?.next_cursor?.trim()
+    cursor = next ? next : undefined
+  } while (cursor && roots.length < input.maxThreads)
+  return roots
+}

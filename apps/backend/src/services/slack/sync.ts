@@ -50,17 +50,22 @@ export function githubBlobUrl(input: {
   return `https://github.com/${name}/blob/${encodeURIComponent(input.ref)}/${segments}`
 }
 
-async function buildThreadFiles(input: {
+/**
+ * Build the files of one thread snapshot: `thread.md` and its assets. The
+ * mention capture and the Workspace source mirror both use it.
+ */
+export async function buildThreadFiles(input: {
   env: Env
   connection: SlackConnection
+  layout?: "capture" | "source"
   channelId: string
   channelName: string
-  pathSlug: string
+  pathSlug?: string
   isPrivate: boolean
   teamId?: string | null
   threadTs: string
   permalink?: string | null
-  capturedAt: string
+  capturedAt?: string
   capturedBy?: SlackUserProfile | null
   messages: SlackApiMessage[]
   truncated?: boolean
@@ -154,6 +159,7 @@ async function buildThreadFiles(input: {
   }
 
   const md = toSlackThreadMarkdownFile({
+    layout: input.layout,
     channelId: input.channelId,
     channelName: input.channelName,
     pathSlug: input.pathSlug,
