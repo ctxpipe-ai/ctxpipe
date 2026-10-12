@@ -172,13 +172,20 @@ function commitListConditions(
  */
 export async function listWorkspaceCommitAuthors(
   workspaceId?: string,
-): Promise<{ name: string; count: number }[]> {
+): Promise<{ name: string; count: number; login: string | null }[]> {
   return orgSql(async () => {
     const orgId = requireCurrentOrgId()
     const db = getOrgDb()
     const count = sql<number>`count(*)::int`
     const rows = await db
-      .select({ name: workspaceRepositoryCommits.authorName, count })
+      .select({
+        name: workspaceRepositoryCommits.authorName,
+        count,
+        // One GitHub login of the author, for the avatar.
+        login: sql<
+          string | null
+        >`max(${workspaceRepositoryCommits.authorLogin})`,
+      })
       .from(workspaceRepositoryCommits)
       .where(
         and(
@@ -190,7 +197,11 @@ export async function listWorkspaceCommitAuthors(
       )
       .groupBy(workspaceRepositoryCommits.authorName)
       .orderBy(desc(count), workspaceRepositoryCommits.authorName)
-    return rows.map((row) => ({ name: row.name, count: Number(row.count) }))
+    return rows.map((row) => ({
+      name: row.name,
+      count: Number(row.count),
+      login: row.login ?? null,
+    }))
   })
 }
 

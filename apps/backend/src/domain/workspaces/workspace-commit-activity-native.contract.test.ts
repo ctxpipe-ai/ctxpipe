@@ -278,6 +278,11 @@ it(
           [withUser.sha, "ada-gh"],
           [noUser.sha, null],
         ])
+        // The author menu shows the avatar of each author too.
+        expect(body.authors).toEqual([
+          { name: "Ada Lovelace", count: 1, login: "ada-gh" },
+          { name: "Grace", count: 1, login: null },
+        ])
       },
     )
   },

@@ -1,4 +1,5 @@
 import { IconExternalLink } from "@tabler/icons-react"
+import { useState } from "react"
 import {
   Link as AriaLink,
   Focusable,
@@ -58,16 +59,37 @@ function CommitLineNode() {
   )
 }
 
-/** A round avatar with the first letter of the name. */
-export function AuthorAvatar(props: { name: string; className?: string }) {
+/**
+ * A round avatar: the GitHub avatar of `login`, or the first letter of the
+ * name when there is no login or the image does not load. The image URL is
+ * public; the request sends no token and no referrer.
+ */
+export function AuthorAvatar(props: {
+  name: string
+  login?: string | null
+  className?: string
+}) {
+  const [failedLogin, setFailedLogin] = useState<string | null>(null)
+  const className = cn(
+    "flex size-5 shrink-0 items-center justify-center rounded-full bg-zinc-800 text-xs font-medium text-zinc-300 uppercase",
+    props.className,
+  )
+  if (props.login && failedLogin !== props.login) {
+    const login = props.login
+    return (
+      <img
+        src={`https://github.com/${encodeURIComponent(login)}.png?size=40`}
+        alt=""
+        aria-hidden
+        loading="lazy"
+        referrerPolicy="no-referrer"
+        onError={() => setFailedLogin(login)}
+        className={cn(className, "object-cover")}
+      />
+    )
+  }
   return (
-    <span
-      aria-hidden
-      className={cn(
-        "flex size-5 shrink-0 items-center justify-center rounded-full bg-zinc-800 text-xs font-medium text-zinc-300 uppercase",
-        props.className,
-      )}
-    >
+    <span aria-hidden className={className}>
       {props.name.trim().charAt(0) || "?"}
     </span>
   )
@@ -116,7 +138,7 @@ function CommitRow({
 
   return (
     <div className="flex min-w-0 flex-1 items-center gap-3 py-2 text-sm">
-      <AuthorAvatar name={commit.authorName} />
+      <AuthorAvatar name={commit.authorName} login={commit.authorLogin} />
       <span className="sr-only">{commit.authorName}:</span>
       <span className="min-w-0 flex-1 truncate text-foreground">
         {commit.subject}

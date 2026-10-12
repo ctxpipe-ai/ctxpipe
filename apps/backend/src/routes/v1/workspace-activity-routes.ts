@@ -42,7 +42,14 @@ const WorkspaceActivityResponseSchema = z
       }),
     ),
     /** The authors of the commits in the heatmap window, most active first. */
-    authors: z.array(z.object({ name: z.string(), count: z.number().int() })),
+    authors: z.array(
+      z.object({
+        name: z.string(),
+        count: z.number().int(),
+        /** One GitHub login of the author. `null`: no GitHub user. */
+        login: z.string().nullable().optional(),
+      }),
+    ),
     /** Send as `cursor` to read the next page of `recent`. `null`: no more commits. */
     nextCursor: z.string().nullable(),
     /** Org read only: the workspaces whose projection is not done yet. */

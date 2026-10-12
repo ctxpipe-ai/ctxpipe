@@ -215,8 +215,8 @@ const pixelPng = Uint8Array.from(
   (char) => char.charCodeAt(0),
 )
 
-/** The GitHub avatar of each image request (login, credentials mode). */
-const avatarRequests: { login: string; credentials: string }[] = []
+/** The GitHub avatar of each image request (login, auth header). */
+const avatarRequests: { login: string; authorization: string | null }[] = []
 
 /**
  * A commit with a GitHub login shows the GitHub avatar of that login. A
@@ -238,7 +238,10 @@ export const AvatarAndInitialFallback: Story = {
         page: [
           http.get("https://github.com/:file", ({ params, request }) => {
             const login = String(params.file).replace(/\.png$/, "")
-            avatarRequests.push({ login, credentials: request.credentials })
+            avatarRequests.push({
+              login,
+              authorization: request.headers.get("authorization"),
+            })
             if (login === "gone-user")
               return new HttpResponse(null, { status: 404 })
             return HttpResponse.arrayBuffer(pixelPng.buffer, {
@@ -278,13 +281,13 @@ export const AvatarAndInitialFallback: Story = {
     await waitFor(() => expect(gone.querySelector("img")).toBeNull())
     expect(gone).toHaveTextContent(/^S/)
 
-    // The image requests carry no cookies or tokens.
+    // The image requests carry no token.
     expect(avatarRequests.map((request) => request.login).sort()).toEqual([
       "ada-gh",
       "gone-user",
     ])
     for (const request of avatarRequests)
-      expect(request.credentials).not.toBe("include")
+      expect(request.authorization).toBeNull()
   },
 }
 
