@@ -77,6 +77,21 @@ export function connectionUsageOptions(orgSlug: string, connectionId: string) {
   })
 }
 
+/**
+ * "Sync now": queue a full sync of the connection's Workspace sources. A
+ * second request in the same minute starts no other sync.
+ */
+export async function syncConnectionNow(
+  orgSlug: string,
+  connectionId: string,
+): Promise<void> {
+  const client = await getApiClient()
+  const res = await client[":orgSlug"].api.v1.connectors[
+    ":connectionId"
+  ].sync.$post({ param: { orgSlug, connectionId } })
+  await readApiJson(res, { message: "Failed to start the sync" })
+}
+
 export async function createWorkspaceSource(
   orgSlug: string,
   workspaceSlug: string,
