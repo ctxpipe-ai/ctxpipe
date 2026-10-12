@@ -117,7 +117,7 @@ export async function reserveHydrateWrites(input: {
           jobWorkspaceUrl: revision.remote.url,
           defaultBranch: revision.defaultBranch,
           planning,
-          ...(requirement.kind === "rename_rewrite"
+          ...("previousSha" in requirement && requirement.previousSha
             ? { previousSha: requirement.previousSha }
             : {}),
         },
@@ -125,7 +125,7 @@ export async function reserveHydrateWrites(input: {
       reserved.push({
         kind,
         jobId,
-        ...(requirement.kind === "rename_rewrite"
+        ...("previousSha" in requirement && requirement.previousSha
           ? { previousSha: requirement.previousSha }
           : {}),
       })

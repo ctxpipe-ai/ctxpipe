@@ -1,5 +1,12 @@
 import { z } from "zod"
 import { log } from "../../observability/logger.js"
+import {
+  type GitPack,
+  nativeGit,
+  withGitDirectory,
+} from "../../services/git/pack.js"
+import { updateKnowledgeMetadata } from "./knowledge-metadata.js"
+import { parseSimpleFrontMatter } from "./layout.js"
 
 /**
  * The AGENTS.md folder list is a plain Markdown list for external agents. A
@@ -30,6 +37,28 @@ export function folderSetChanged(
   return (
     previous.length !== current.length ||
     previous.some((folder, index) => folder !== current[index])
+  )
+}
+
+/** Compare the folder sets of two immutable trees; the pack holds both. */
+export async function nativeFolderSetChanged(
+  pack: GitPack,
+  previousSha: string,
+): Promise<boolean> {
+  return withGitDirectory(
+    pack.sha,
+    async (directory) => {
+      const pathsAt = async (sha: string) =>
+        (await nativeGit(directory, ["ls-tree", "-r", "--name-only", "-z", sha]))
+          .toString()
+          .split("\0")
+          .filter(Boolean)
+      return folderSetChanged(
+        await pathsAt(previousSha),
+        await pathsAt(pack.sha),
+      )
+    },
+    pack,
   )
 }
 
@@ -169,4 +198,36 @@ export async function updateFolderList(input: {
     return null
   }
   return reply.agentsMd
+}
+
+/**
+ * The AGENTS.md write of the folder-list job: remove old markers, apply a
+ * requested name, and, when the folder set changed, update the folder list.
+ */
+export async function folderListFiles(input: {
+  displayName: string
+  requestedDisplayName?: string
+  existingAgentsMd: string | null
+  paths: readonly string[]
+  updateList: boolean
+}): Promise<Array<{ path: string; content: string }>> {
+  const start =
+    input.existingAgentsMd ??
+    `---\nname: ${JSON.stringify(input.displayName.trim() || "Workspace")}\n---\n`
+  if (parseSimpleFrontMatter(start).malformed) return []
+  let content = removeFolderMapMarkers(start)
+  if (input.requestedDisplayName !== undefined)
+    content = updateKnowledgeMetadata(content, (document) =>
+      document.set("name", input.requestedDisplayName),
+    )
+  if (input.updateList)
+    content =
+      (await updateFolderList({
+        agentsMd: content,
+        folders: listedFolders(input.paths),
+      })) ?? content
+  if (content === start && input.requestedDisplayName === undefined) return []
+  return content === input.existingAgentsMd
+    ? []
+    : [{ path: "AGENTS.md", content }]
 }

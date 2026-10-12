@@ -12,6 +12,7 @@ import {
   hydrateKnowledgeTree,
 } from "../../domain/workspaces/hydrate.js"
 import { importKeyCleanupRemainder } from "../../domain/workspaces/hydrate-write-jobs.js"
+import { nativeFolderSetChanged } from "../../domain/workspaces/folder-list.js"
 import { planHydrateWrites } from "../../domain/workspaces/hydrate-write-planner.js"
 import { nativeRenameRewriteFiles } from "../../domain/workspaces/native-rename-rewrite.js"
 import {
@@ -263,6 +264,21 @@ export const workspaceHydrate = defineWorkflow(
                         previousSha: planning.previousSha,
                         remainder: changes.length,
                       })
+                    if (
+                      await nativeFolderSetChanged(pack, planning.previousSha)
+                    ) {
+                      // One job both removes old markers and updates the list.
+                      const index = remaining.findIndex(
+                        (requirement) => requirement.kind === "ops_folder_map",
+                      )
+                      const cleanup =
+                        index < 0 ? 0 : remaining.splice(index, 1)[0]?.remainder
+                      remaining.push({
+                        kind: "ops_folder_map",
+                        previousSha: planning.previousSha,
+                        remainder: (cleanup ?? 0) + 1,
+                      })
+                    }
                   }
                   return remaining
                 },

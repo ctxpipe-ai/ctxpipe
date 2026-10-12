@@ -45,7 +45,7 @@ import {
   workspaceLinkUnlinkInputSchema,
 } from "./workflows/workspace-link-unlink.js"
 import { workspaceMigrationExport } from "./workflows/workspace-migration-export.js"
-import { workspaceOpsFolderMap } from "./workflows/workspace-ops-folder-map.js"
+import { workspaceOpsFolderList } from "./workflows/workspace-ops-folder-list.js"
 import {
   workspaceRenameRewrite,
   workspaceRenameRewriteInputSchema,
@@ -203,7 +203,7 @@ export async function enqueueWriteJob(
     claims_upgrade: workspaceClaimsUpgrade,
     valid_from_persist: workspaceValidFromPersist,
     import_key_cleanup: workspaceImportKeyCleanup,
-    ops_folder_map: workspaceOpsFolderMap,
+    ops_folder_map: workspaceOpsFolderList,
   }
   const snapshotWorkflow = snapshotWriteWorkflows[input.kind]
   if (
@@ -468,6 +468,9 @@ export async function enqueueWriteJob(
         ...(input.kind === "ops_folder_map" && input.displayName !== undefined
           ? { displayName: input.displayName.trim() }
           : {}),
+        ...(input.kind === "ops_folder_map" && input.previousSha
+          ? { previousSha: input.previousSha }
+          : {}),
       }
       await persistBoundWriteJob({
         admissionStatus,
@@ -475,6 +478,7 @@ export async function enqueueWriteJob(
         kind: input.kind,
         revision,
         displayName: command.displayName,
+        previousSha: command.previousSha,
       })
       bound = true
       if (input.kind === "bootstrap")

@@ -39,6 +39,8 @@ export type NativeHydrationOptions = {
     files: Array<{ path: string; content: string | null }>
   }
   semanticMergeDelayMs?: number
+  /** The model's reply to the AGENTS.md folder-list step. */
+  folderListReply?: { changed: boolean; agentsMd: string | null }
   /**
    * A real chat agent (OpenCode) runs against this fixture: streamed model
    * requests get a short streamed reply, and loopback HTTP (the agent, the
@@ -545,6 +547,8 @@ async function createNativeHydrationFixture(
           tool === "capture_thread" &&
           options.slackCaptureIntent &&
           !body.messages?.some((message) => message.role === "tool")
+        const folderList =
+          tool === "agents_md_folder_list" ? options.folderListReply : undefined
         if (tool) semanticRequests.push(body)
         if (tool && options.semanticMergeDelayMs)
           await new Promise((resolve) =>
@@ -559,7 +563,9 @@ async function createNativeHydrationFixture(
             {
               index: 0,
               message:
-                captureIntent || (tool && options.semanticMergeResolution)
+                captureIntent ||
+                folderList ||
+                (tool && options.semanticMergeResolution)
                   ? {
                       role: "assistant",
                       content: null,
@@ -572,7 +578,8 @@ async function createNativeHydrationFixture(
                             arguments: JSON.stringify(
                               captureIntent
                                 ? {}
-                                : options.semanticMergeResolution,
+                                : (folderList ??
+                                    options.semanticMergeResolution),
                             ),
                           },
                         },
