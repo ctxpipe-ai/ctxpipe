@@ -21,10 +21,11 @@ import {
 } from "better-auth/plugins/organization/access"
 import { eq } from "drizzle-orm"
 import { parseEnv } from "../config/env.js"
-import { type Db, initDb } from "../db/client.js"
-import { members } from "../db/schema/auth.js"
+import { type Db, initDb, isRailwayPrPreview } from "../db/client.js"
+import { members, users } from "../db/schema/auth.js"
 import { schema } from "../db/schema.js"
 import { generateObjectId } from "../lib/id.js"
+import { log } from "../observability/logger.js"
 import { invitationEmailLink } from "./invitation-email-url.js"
 import {
   getOAuthConsentOrganizationId,
@@ -125,6 +126,20 @@ export function createBetterAuth() {
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean)
+  // Email/password accounts verify their address before signing in. Not on
+  // PR previews (throwaway test accounts), and not without SMTP, where mail
+  // is only logged and nobody could verify.
+  const smtpConfigured = Boolean(
+    env.SMTP_CONNECTION_URL && env.EMAIL_FROM_ADDRESS,
+  )
+  const requireEmailVerification = smtpConfigured && !isRailwayPrPreview()
+  if (!smtpConfigured && !isRailwayPrPreview()) {
+    log.warn({
+      step: "auth.email_verification",
+      message:
+        "Email verification is off: SMTP_CONNECTION_URL or EMAIL_FROM_ADDRESS is not set",
+    })
+  }
 
   return betterAuth({
     appName: "ctx|",
@@ -162,8 +177,70 @@ export function createBetterAuth() {
         generateId: ({ model }) => generateObjectId(toTypeSlug(model)),
       },
     },
+    emailVerification: {
+      // An unverified account that signs in gets a fresh link instead of a
+      // dead end; existing accounts verify this way on their next sign-in.
+      sendOnSignIn: true,
+      autoSignInAfterVerification: true,
+      sendVerificationEmail: async ({ user, url }) => {
+        const [{ sendEmail }, { VerifyEmail }] = await Promise.all([
+          import("../email/index.js"),
+          import("../email/templates/verify-email.js"),
+        ])
+        await sendEmail(
+          user.email,
+          "Verify your email address",
+          VerifyEmail({ url, userEmail: user.email }),
+        )
+      },
+    },
     emailAndPassword: {
       enabled: true,
+      // Better Auth then sends the link at sign-up and starts no session.
+      requireEmailVerification,
+      // With verification on, signing up with a taken address answers as if
+      // it were new (no account enumeration), so the address's owner gets
+      // the email instead: a pointer to sign in or reset the password. Never
+      // a verification link, even while the account is unverified: that would
+      // verify whatever password its first registrant set. Signing in sends
+      // the owner a link; resetting the password verifies too.
+      onExistingUserSignUp: async ({ user }, request) => {
+        const body = (await request?.json().catch(() => null)) as {
+          callbackURL?: unknown
+        } | null
+        // Sign in back to where the sign-up started, e.g. an invitation.
+        const signInUrl = new URL("/.auth/sign-in", env.AUTH_BASE_URL)
+        if (typeof body?.callbackURL === "string") {
+          signInUrl.searchParams.set("redirectTo", body.callbackURL)
+        }
+        const [{ sendEmail }, { AccountExistsEmail }] = await Promise.all([
+          import("../email/index.js"),
+          import("../email/templates/account-exists.js"),
+        ])
+        await sendEmail(
+          user.email,
+          "You already have a ctx| account",
+          AccountExistsEmail({
+            signInUrl: signInUrl.toString(),
+            resetUrl: new URL(
+              "/.auth/forgot-password",
+              env.AUTH_BASE_URL,
+            ).toString(),
+            userEmail: user.email,
+          }),
+        )
+      },
+      // A reset ends other sessions, including any held by whoever set the
+      // password before the address was proven.
+      revokeSessionsOnPasswordReset: true,
+      // The reset link went to their inbox, which proves the address.
+      onPasswordReset: async ({ user }) => {
+        if (user.emailVerified) return
+        await db
+          .update(users)
+          .set({ emailVerified: true })
+          .where(eq(users.id, user.id))
+      },
       sendResetPassword: async ({ user, url }) => {
         const [{ sendEmail }, { ResetPasswordEmail }] = await Promise.all([
           import("../email/index.js"),
