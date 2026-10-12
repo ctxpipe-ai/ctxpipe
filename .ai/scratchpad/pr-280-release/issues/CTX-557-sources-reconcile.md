@@ -30,3 +30,10 @@ The sources sync frame ran a full sync only after a projection change. A webhook
 
 - `listConnectionsWithOkSources` reads each organization in turn: one query per org each day.
 - The scheduled runs of a test namespace stay pending in a shared local database; no worker reads that namespace.
+
+## Proof
+
+- `vitest run src/domain/workspace-sources/ src/routes/v1/connector-sync-now.http.integration.test.ts`: 22 files, 81 tests pass (real Postgres).
+- Biome on the changed files: clean. `pnpm test:policy`: pass.
+- `scripts/ci/typecheck.mjs` for backend and UI: no new diagnostics (only the acknowledged baseline).
+- Storybook plays of `ConnectorUsedIn.stories.tsx` (static build, golden runner): `SyncNow` and `SyncNowFails` pass. `NoEditorHidesAdd` fails on the base too; commit 341fe7d9 on the PR branch removes that story.
