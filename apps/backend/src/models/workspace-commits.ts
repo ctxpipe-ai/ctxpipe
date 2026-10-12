@@ -135,7 +135,7 @@ export async function listWorkspaceCommitDayCounts(
 /** Every workspace in the org with its commit projection (null: none yet). */
 export async function listOrgWorkspaceCommitProjections(): Promise<
   {
-    workspace: { slug: string; name: string }
+    workspace: { id: string; orgId: string; slug: string; name: string }
     projection: WorkspaceCommitProjectionRecord | null
   }[]
 > {
@@ -144,7 +144,12 @@ export async function listOrgWorkspaceCommitProjections(): Promise<
     const db = getOrgDb()
     return db
       .select({
-        workspace: { slug: workspaces.slug, name: workspaces.displayName },
+        workspace: {
+          id: workspaces.id,
+          orgId: workspaces.orgId,
+          slug: workspaces.slug,
+          name: workspaces.displayName,
+        },
         projection: workspaceCommitProjections,
       })
       .from(workspaces)

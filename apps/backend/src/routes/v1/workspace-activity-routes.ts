@@ -173,7 +173,7 @@ const getOrgActivityRoute = createRoute({
         "application/json": { schema: WorkspaceActivityResponseSchema },
       },
       description:
-        "Commit heatmap and recent commits of every workspace in the org. With `date`, `recent` holds the commits of that UTC day. `pending` while a workspace projection is not done; `failed` only when every projection failed. `failedWorkspaces` lists each workspace whose projection failed. The read does not start projection runs.",
+        "Commit heatmap and recent commits of every workspace in the org. With `date`, `recent` holds the commits of that UTC day. `pending` while a workspace projection is not done; `failed` only when every projection failed. `failedWorkspaces` lists each workspace whose projection failed. The read starts a projection run for each pending workspace.",
     },
     400: {
       description: "Invalid query parameter",
@@ -196,6 +196,18 @@ export const orgActivityRoutes = new OpenAPIHono<AppEnv>().openapi(
       workspace: row.workspace,
       status: readProjectionStatus(row.projection),
     }))
+    // A pending workspace stays pending until a projection run ends. Start a
+    // run for each one, so the org read does not stay pending without end.
+    for (const row of rows) {
+      if (row.status !== "pending") continue
+      void enqueueWorkspaceCommitProjection(
+        { orgId: row.workspace.orgId, workspaceId: row.workspace.id },
+        {
+          error: (err) =>
+            getLogger().error(err, { step: "org.activity.enqueue" }),
+        },
+      )
+    }
     const statuses = rows.map((row) => row.status)
     const status: ActivityStatus = statuses.includes("pending")
       ? "pending"

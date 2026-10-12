@@ -282,23 +282,20 @@ describe("workspace activity routes (Postgres)", () => {
     ])
   })
 
-  it("does not start a projection run on an org read", async () => {
+  it("starts a projection run for each workspace that keeps the org read pending", async () => {
+    // Without a run, a workspace with no projection stays pending, and the
+    // UI polls the org read without end (CTX-556).
     await seedWorkspace(otherOrg, idle, { projected: false })
     const app = workspaceHttpApp(otherOrg, orgActivityRoutes)
-    expect((await app.request("/workspaces")).status).toBe(200)
-
-    // The workspace read starts one run for the same workspace. When that run
-    // is in the table, a run from the org read would be there too.
-    const scoped = workspaceHttpApp(otherOrg, workspaceActivityRoutes)
-    expect(
-      (await scoped.request(`/workspaces/${idle.slug}/activity`)).status,
-    ).toBe(200)
+    expect((await (await app.request("/workspaces")).json()).status).toBe(
+      "pending",
+    )
     await vi.waitFor(
       async () => expect(await projectionRunCount(idle.id)).toBeGreaterThan(0),
       { timeout: 5_000 },
     )
-    await new Promise((settle) => setTimeout(settle, 500))
-    expect(await projectionRunCount(idle.id)).toBe(1)
+    // A ready projection is fresh, so the org read starts no run for it.
+    expect(await projectionRunCount(otherWorkspace.id)).toBe(0)
   })
 
   it("lists the workspaces whose activity could not load", async () => {
