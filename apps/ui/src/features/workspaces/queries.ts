@@ -432,8 +432,18 @@ export function activityOptions(
       workspaceSlug === null
         ? fetchOrgActivity(orgSlug, date)
         : fetchWorkspaceActivity(orgSlug, workspaceSlug, date),
-    refetchInterval: (query) =>
-      query.state.data?.status === "pending" ? pollWhileOk(2000)(query) : false,
+    refetchInterval: (query) => {
+      const data = query.state.data
+      // All workspaces shows the ready data at once. Poll slowly while a
+      // workspace is pending, and stop after about 3 minutes (18 reads).
+      if (workspaceSlug === null) {
+        return (data?.pendingWorkspaces?.length ?? 0) > 0 &&
+          query.state.dataUpdateCount < 18
+          ? pollWhileOk(10_000)(query)
+          : false
+      }
+      return data?.status === "pending" ? pollWhileOk(2000)(query) : false
+    },
   })
 }
 

@@ -58,8 +58,10 @@ export function WorkspaceActivity(props: {
     enabled: scope !== null && selectedDate !== null,
   })
 
+  // All workspaces shows the data of the ready workspaces at once.
   const loading = useSkeletonHold(
-    query.isPending || query.data?.status === "pending",
+    query.isPending ||
+      (scope !== ALL_WORKSPACES && query.data?.status === "pending"),
   )
   const dayLoading = useSkeletonHold(
     selectedDate !== null && dayQuery.isPending,
@@ -101,6 +103,7 @@ export function WorkspaceActivity(props: {
 
   const showWorkspace = scope === ALL_WORKSPACES
   const failedWorkspaces = showWorkspace ? (data.failedWorkspaces ?? []) : []
+  const pendingWorkspaces = showWorkspace ? (data.pendingWorkspaces ?? []) : []
   return (
     <>
       <section>
@@ -119,6 +122,14 @@ export function WorkspaceActivity(props: {
               {failedWorkspaces.length === 1 ? "workspace" : "workspaces"} could
               not load:{" "}
               {failedWorkspaces.map((workspace) => workspace.name).join(", ")}.
+            </p>
+          ) : null}
+          {pendingWorkspaces.length > 0 ? (
+            <p className="mt-2 text-xs text-muted-foreground">
+              Activity for {pendingWorkspaces.length}{" "}
+              {pendingWorkspaces.length === 1 ? "workspace" : "workspaces"} is
+              still loading:{" "}
+              {pendingWorkspaces.map((workspace) => workspace.name).join(", ")}.
             </p>
           ) : null}
         </div>

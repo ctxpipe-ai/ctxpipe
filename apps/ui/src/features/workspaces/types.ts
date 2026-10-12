@@ -76,6 +76,8 @@ export type WorkspaceActivityResponse = {
   recent: WorkspaceActivityCommit[]
   /** Org read only: the workspaces whose activity could not load. */
   failedWorkspaces?: { slug: string; name: string }[]
+  /** Org read only: the workspaces whose activity is still loading. */
+  pendingWorkspaces?: { slug: string; name: string }[]
 }
 
 export type WorkspaceFile = {

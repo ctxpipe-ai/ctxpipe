@@ -276,3 +276,64 @@ export const AllWorkspacesFailedNote: Story = {
     expect(canvas.getByText("Document billing ledger rules")).toBeVisible()
   },
 }
+
+let pendingOrgReads = 0
+
+/**
+ * All workspaces shows the data at once while a workspace is not ready, with a
+ * note, and polls slowly. Before CTX-556 it stayed loading and polled every 2 s.
+ */
+export const AllWorkspacesPendingNote: Story = {
+  args: {
+    workspaces: [
+      { slug: "docs", displayName: "Docs" },
+      { slug: "handbook", displayName: "Handbook" },
+    ],
+  },
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          http.get(
+            ({ request }) =>
+              /\/api\/v1\/activity$/.test(new URL(request.url).pathname),
+            () => {
+              pendingOrgReads += 1
+              return HttpResponse.json({
+                ...docsWorkspaceActivity,
+                status: "pending",
+                pendingWorkspaces: [{ slug: "handbook", name: "Handbook" }],
+              })
+            },
+          ),
+          ...activityByDayHandlers,
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    pendingOrgReads = 0
+    const canvas = within(canvasElement)
+    const page = within(canvasElement.ownerDocument.body)
+    expect(
+      await canvas.findByText("Document billing ledger rules"),
+    ).toBeVisible()
+
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Show activity for: Docs" }),
+    )
+    await userEvent.click(
+      await page.findByRole("menuitemradio", { name: "All workspaces" }),
+    )
+
+    expect(
+      await canvas.findByText(
+        "Activity for 1 workspace is still loading: Handbook.",
+      ),
+    ).toBeVisible()
+    expect(canvas.getByText("Document billing ledger rules")).toBeVisible()
+    // The slow poll waits 10 s, so a 3 s window holds one request only.
+    await new Promise((settle) => setTimeout(settle, 3_000))
+    expect(pendingOrgReads).toBe(1)
+  },
+}
