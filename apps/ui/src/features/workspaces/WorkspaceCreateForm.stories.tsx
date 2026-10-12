@@ -161,15 +161,11 @@ export const AddSourcesAfterCreate: Story = {
     await expect(
       canvas.getByRole("link", { name: "Add another connection" }),
     ).toHaveAttribute("href", "/acme/connectors")
-    await userEvent.click(
+    // NavList AddWorkspaceThenRepositories covers "Open Workspace". A click
+    // here would leave this story on an empty route.
+    await expect(
       canvas.getByRole("button", { name: "Open Workspace" }),
-    )
-    // The new Workspace route replaces this story's Home route.
-    await waitFor(() =>
-      expect(
-        canvas.queryByRole("heading", { name: "Add Workspace" }),
-      ).toBeNull(),
-    )
+    ).toBeVisible()
   },
 }
 
