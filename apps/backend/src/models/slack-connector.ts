@@ -10,9 +10,7 @@ import {
   encodeSlackBotTokenForDb,
   parseSlackConnectionStored,
   type SlackSetupPhase,
-  type SlackSourceSync,
   serialiseSlackConnectionConfigForDb,
-  tryParseSlackConnectionStored,
 } from "../lib/connection-config.js"
 import { generateObjectId } from "../lib/id.js"
 import {
@@ -618,28 +616,4 @@ export async function clearSlackSyncBindingsForRepository(input: {
   })
   await Promise.all(updatedRows.map((row) => upsertConnectionDirectory(row)))
   return updatedRows.length
-}
-
-/** The Workspace sources sync state of a Slack connection (ADR-050). */
-export async function getSlackSourceSync(
-  orgId: string,
-  connectionId: string,
-): Promise<SlackSourceSync> {
-  return orgSql(async () => {
-    const [row] = await getOrgDb()
-      .select({ config: connections.config })
-      .from(connections)
-      .where(
-        and(
-          eq(connections.id, connectionId),
-          eq(connections.orgId, orgId),
-          eq(connections.type, CONNECTION_TYPE_SLACK),
-        ),
-      )
-      .limit(1)
-    const stored = row
-      ? tryParseSlackConnectionStored(row.config)?.sourceSync
-      : undefined
-    return stored ?? { failures: {} }
-  })
 }

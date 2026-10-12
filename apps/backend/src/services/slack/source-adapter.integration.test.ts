@@ -1,56 +1,55 @@
+import { execFile } from "node:child_process"
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
+import { dirname, join } from "node:path"
+import { promisify } from "node:util"
 import { HttpResponse, http } from "msw"
-import {
-  afterAll,
-  afterEach,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest"
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
 import { useMswServer } from "../../../test/msw.js"
 import { parseEnv } from "../../config/env.js"
+import { withOrgDbContext } from "../../db/client.js"
+import { diffSlice } from "../../domain/workspace-sources/slice-diff.js"
 import {
+  type SliceWriter,
   syncConnectionSources,
-  type WorkspaceSliceWrite,
 } from "../../domain/workspace-sources/sync.js"
 import { encodeSlackBotTokenForDb } from "../../lib/connection-config.js"
-import { saveConnectionSourceSync } from "../../models/connection-source-sync.js"
 import {
-  listWorkspaceSourceRows,
-  replaceWorkspaceSourceRows,
-} from "../../models/workspace-sources.js"
+  getSlackConnectionByConnectionId,
+  type SlackConnection,
+} from "../../models/slack-connector.js"
+import { replaceWorkspaceSourceRows } from "../../models/workspace-sources.js"
 import { seedSourcesOrg } from "../../test/workspace-sources-fixture.js"
-import { gitBlobSha } from "../connectors/assets.js"
-import { slackSourceAdapter } from "./source-adapter.js"
+import { gitFileBytes } from "../git/file-change.js"
+import { getSlackThreadPath } from "./converter.js"
+import {
+  captureSlackThreadToSources,
+  slackSourceAdapter,
+} from "./source-adapter.js"
 
+const execFileAsync = promisify(execFile)
 // biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 const server = useMswServer()
 const env = () => parseEnv(process.env)
 
 const ENG = "C0ENG0001"
 const OPS = "C0OPS0001"
+const NONE = "C0NONE001"
 const BOT = "U0BOT0001"
-const thread = (channel: string) =>
-  channel === ENG ? "1790000000.000100" : "1790000500.000100"
-const NOW = 1790100000 * 1000
+const THREAD = "1790000000.000100"
+const STATUS = "1790000700.000100"
 
-type Call = { method: string; query: Record<string, string> }
-let calls: Call[] = []
+let calls: string[] = []
+let replies: Array<{ ts: string; user: string; text: string }> = []
 /** A Slack error for a method and channel, by `method:channel`. */
 let failures: Record<string, string | number> = {}
-let channelState: Record<
-  string,
-  { is_archived?: boolean; is_member?: boolean }
-> = {}
+let channelState: Record<string, { is_member?: boolean }> = {}
 
 function installSlack() {
   server.use(
     http.get("https://slack.com/api/:method", ({ params, request }) => {
       const method = String(params.method)
       const query = Object.fromEntries(new URL(request.url).searchParams)
-      calls.push({ method, query })
+      calls.push(method)
       const failure = failures[`${method}:${query.channel ?? ""}`]
       if (typeof failure === "number")
         return new HttpResponse(null, { status: failure })
@@ -68,32 +67,8 @@ function installSlack() {
               ...channelState[channel],
             },
           })
-        case "conversations.history":
-          return HttpResponse.json({
-            ok: true,
-            messages: [
-              { ts: "1790050000.000100", user: "U0PERSON1", text: "hi" },
-              {
-                ts: thread(channel),
-                user: "U0PERSON1",
-                text: "Root",
-                reply_count: 2,
-              },
-            ],
-          })
         case "conversations.replies":
-          return HttpResponse.json({
-            ok: true,
-            messages: [
-              { ts: query.ts, user: "U0PERSON1", text: `Root of ${channel}` },
-              { ts: "1790000600.000100", user: "U0PERSON2", text: "Reply" },
-              {
-                ts: "1790000700.000100",
-                user: BOT,
-                text: "ctx| agent working…",
-              },
-            ],
-          })
+          return HttpResponse.json({ ok: true, messages: replies })
         case "users.info":
           return HttpResponse.json({
             ok: true,
@@ -111,12 +86,71 @@ function installSlack() {
   )
 }
 
-describe("Slack source adapter on the sync frame (Postgres, msw)", () => {
+const git = async (dir: string, ...args: string[]) =>
+  (await execFileAsync("git", ["-C", dir, ...args])).stdout
+
+/** The blobs of a real git repository, as the frame reads a Workspace head. */
+async function blobs(dir: string) {
+  return (await git(dir, "ls-files", "-s"))
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => {
+      const [meta = "", path = ""] = line.split("\t")
+      return { path, sha: meta.split(" ")[1] ?? "" }
+    })
+}
+
+describe("Slack mention capture through Workspace sources (Postgres, msw, git)", () => {
   let seed: Awaited<ReturnType<typeof seedSourcesOrg>>
   let slack: string
+  let connection: SlackConnection
   let engWorkspace: string
   let bothWorkspace: string
+  const repos = new Map<string, string>()
   let revision = 0
+
+  /** Write each slice as one commit into the Workspace's own git repository. */
+  const write: SliceWriter = async (slice) => {
+    const dir = repos.get(slice.workspaceId)
+    if (!dir) throw new Error(`No repository for ${slice.workspaceId}`)
+    const change = diffSlice(
+      slice,
+      (await blobs(dir)).map((blob) => blob.path),
+    )
+    for (const file of change.files) {
+      await mkdir(dirname(join(dir, file.path)), { recursive: true })
+      await writeFile(join(dir, file.path), gitFileBytes(file))
+    }
+    for (const path of change.deletePaths) await rm(join(dir, path))
+    await git(dir, "add", "-A")
+    await git(dir, "commit", "-q", "-m", `${slice.provider} capture`)
+  }
+  const readExisting = async (workspaceId: string) =>
+    blobs(repos.get(workspaceId) ?? "")
+  const commits = async (workspaceId: string) =>
+    Number(
+      (await git(repos.get(workspaceId) ?? "", "rev-list", "--count", "HEAD"))
+        .toString()
+        .trim(),
+    ) - 1
+  const capture = (channelId: string) =>
+    captureSlackThreadToSources({
+      orgId: seed.orgId,
+      env: env(),
+      connection,
+      channelId,
+      threadTs: THREAD,
+      capturedAt: "2026-10-01T00:00:00.000Z",
+      excludeMessageTs: STATUS,
+      write,
+      readExisting,
+    })
+  const threadPath = getSlackThreadPath({
+    layout: "source",
+    channelId: ENG,
+    channelName: "eng",
+    threadTs: THREAD,
+  })
 
   beforeAll(async () => {
     if (!process.env.DATABASE_URL)
@@ -129,6 +163,11 @@ describe("Slack source adapter on the sync frame (Postgres, msw)", () => {
       botUserId: BOT,
       status: "installed",
     })
+    const found = await withOrgDbContext(seed.orgId, () =>
+      getSlackConnectionByConnectionId(seed.orgId, slack),
+    )
+    if (!found) throw new Error("The Slack connection is missing")
+    connection = found
     engWorkspace = await seed.addWorkspace("eng")
     bothWorkspace = await seed.addWorkspace("both")
   })
@@ -136,23 +175,21 @@ describe("Slack source adapter on the sync frame (Postgres, msw)", () => {
     await seed.cleanup()
   })
 
-  afterEach(() => {
-    vi.useRealTimers()
-  })
-
   beforeEach(async () => {
-    // Pin the clock so the backfill window holds the fixture threads.
-    vi.useFakeTimers({ toFake: ["Date"], now: NOW })
     calls = []
     failures = {}
     channelState = {}
+    replies = [
+      { ts: THREAD, user: "U0PERSON1", text: "Root of the thread" },
+      { ts: "1790000600.000100", user: "U0PERSON2", text: "First reply" },
+      { ts: STATUS, user: BOT, text: "ctx| agent working…" },
+    ]
     installSlack()
-    await saveConnectionSourceSync({
-      type: "slack",
-      orgId: seed.orgId,
-      connectionId: slack,
-      sourceSync: { failures: {} },
-    })
+    for (const workspaceId of [engWorkspace, bothWorkspace]) {
+      const repo = await seed.gitRepository()
+      await repo.commit({ "README.md": "# Workspace\n" })
+      repos.set(workspaceId, repo.dir)
+    }
     revision += 1
     const at = (n: number) => String(revision * 10 + n).padStart(40, "0")
     const row = (sourceKey: string, channels: string[]) => ({
@@ -177,150 +214,85 @@ describe("Slack source adapter on the sync frame (Postgres, msw)", () => {
     })
   })
 
-  async function sync(
-    extra: Partial<Parameters<typeof syncConnectionSources>[0]> = {},
-  ) {
-    const writes = new Map<string, WorkspaceSliceWrite>()
+  it("writes the thread into each Workspace that lists the channel, one commit each", async () => {
+    const result = await capture(ENG)
+    expect(result).toMatchObject({
+      kind: "captured",
+      capture: { status: "completed", messageCount: 2, threadPath },
+    })
+    if (result.kind !== "captured") return
+    expect(result.workspaces.sort()).toEqual(
+      [engWorkspace, bothWorkspace].sort(),
+    )
+    for (const workspaceId of [engWorkspace, bothWorkspace]) {
+      const dir = repos.get(workspaceId) ?? ""
+      expect(await commits(workspaceId)).toBe(1)
+      const thread = await readFile(join(dir, threadPath), "utf-8")
+      expect(thread).toContain("First reply")
+      // The in-thread status reply is not context (ADR-025).
+      expect(thread).not.toContain("ctx| agent working")
+      expect((await blobs(dir)).map((blob) => blob.path)).toContain(
+        "slack/channels/C0ENG0001/index.md",
+      )
+    }
+  })
+
+  it("writes only into the Workspace of a channel that one source lists", async () => {
+    const result = await capture(OPS)
+    expect(result.kind === "captured" && result.workspaces).toEqual([
+      bothWorkspace,
+    ])
+    expect(await commits(engWorkspace)).toBe(0)
+  })
+
+  it("writes nothing when no Workspace lists the channel", async () => {
+    expect(await capture(NONE)).toEqual({ kind: "no_source" })
+    expect(calls).toEqual([])
+    expect(await commits(engWorkspace)).toBe(0)
+    expect(await commits(bothWorkspace)).toBe(0)
+  })
+
+  it("overwrites the snapshot of the thread root on a recapture", async () => {
+    await capture(ENG)
+    replies.splice(2, 0, {
+      ts: "1790000650.000100",
+      user: "U0PERSON1",
+      text: "Second reply",
+    })
+    await capture(ENG)
+    const dir = repos.get(engWorkspace) ?? ""
+    const threads = (await blobs(dir)).filter((blob) =>
+      blob.path.endsWith("/thread.md"),
+    )
+    expect(threads.map((blob) => blob.path)).toEqual([threadPath])
+    expect(await readFile(join(dir, threadPath), "utf-8")).toContain(
+      "Second reply",
+    )
+  })
+
+  it("writes nothing and keeps the files when Slack fails", async () => {
+    failures[`conversations.replies:${ENG}`] = "not_in_channel"
+    expect(await capture(ENG)).toMatchObject({
+      kind: "captured",
+      capture: { status: "failed", errorCode: "not_in_channel" },
+      workspaces: [],
+    })
+    expect(await commits(engWorkspace)).toBe(0)
+  })
+
+  it("reads nothing from Slack in a sync without a capture", async () => {
+    const written: string[] = []
     await syncConnectionSources({
       orgId: seed.orgId,
       connectionId: slack,
       env: env(),
       adapter: slackSourceAdapter,
-      write: async (write) => {
-        writes.set(write.workspaceId, write)
+      write: async (slice) => {
+        written.push(slice.workspaceId)
       },
-      ...extra,
     })
-    const paths = (workspaceId: string) =>
-      (writes.get(workspaceId)?.files ?? []).map((file) => file.path).sort()
-    return { writes, paths }
-  }
-
-  const status = async (workspaceId: string) =>
-    (await listWorkspaceSourceRows({ orgId: seed.orgId, workspaceId }))[0]
-  const count = (method: string) =>
-    calls.filter((call) => call.method === method).length
-
-  it("reads each channel one time and writes each Workspace its own channels", async () => {
-    const { paths, writes } = await sync()
-    const engThread = `slack/channels/${ENG}/threads/2026/09/${thread(ENG)}/thread.md`
-    const opsThread = `slack/channels/${OPS}/threads/2026/09/${thread(OPS)}/thread.md`
-    expect(paths(engWorkspace)).toEqual([
-      `slack/channels/${ENG}/index.md`,
-      engThread,
-    ])
-    expect(paths(bothWorkspace)).toEqual([
-      `slack/channels/${ENG}/index.md`,
-      engThread,
-      `slack/channels/${OPS}/index.md`,
-      opsThread,
-    ])
-    expect(count("conversations.history")).toBe(2)
-    expect(count("conversations.replies")).toBe(2)
-    const md = writes
-      .get(engWorkspace)
-      ?.files.find((file) => file.path === engThread)?.content
-    expect(md).toContain(`Root of ${ENG}`)
-    expect(md).not.toContain("ctx| agent working")
-    expect(md).not.toContain("captured_at")
-    // A patch: the files of other threads stay.
-    expect(writes.get(engWorkspace)?.deletePaths).toEqual([])
-  })
-
-  it("does not read again a thread that each Workspace has", async () => {
-    const first = await sync()
-    const blobs = (workspaceId: string) =>
-      (first.writes.get(workspaceId)?.files ?? []).map((file) => ({
-        path: file.path,
-        sha: gitBlobSha(Buffer.from(file.content)),
-      }))
-    calls = []
-    const second = await sync({
-      readExisting: async (workspaceId) => blobs(workspaceId),
-    })
-    expect(count("conversations.history")).toBe(2)
-    expect(count("conversations.replies")).toBe(0)
-    expect(second.writes.size).toBe(0)
-  })
-
-  it("reads only the thread of a webhook event, for the Workspaces of its channel", async () => {
-    const { paths } = await sync({
-      event: { channelId: OPS, threadTs: thread(OPS) },
-    })
-    expect(paths(engWorkspace)).toEqual([])
-    expect(paths(bothWorkspace)).toEqual([
-      `slack/channels/${OPS}/index.md`,
-      `slack/channels/${OPS}/threads/2026/09/${thread(OPS)}/thread.md`,
-    ])
-    expect(count("conversations.history")).toBe(0)
-    expect(
-      calls
-        .filter((call) => call.method === "conversations.replies")
-        .map((call) => call.query.channel),
-    ).toEqual([OPS])
-  })
-
-  /** Sync `times` times, two hours apart, so that each failure counts. */
-  async function syncSpaced(times: number, from = 0) {
-    let last: Awaited<ReturnType<typeof sync>> | undefined
-    for (let i = 0; i < times; i++) {
-      vi.setSystemTime(NOW + (from + i) * 2 * 60 * 60 * 1000)
-      last = await sync()
-    }
-    return last as Awaited<ReturnType<typeof sync>>
-  }
-
-  it("marks only the source of a channel that the bot left after three counted syncs, and keeps its files", async () => {
-    failures[`conversations.info:${OPS}`] = "channel_not_found"
-    await sync()
-    // A burst in the same hour counts one time.
-    await sync()
-    expect(await status(bothWorkspace)).toMatchObject({ status: "ok" })
-    const { paths, writes } = await syncSpaced(2, 1)
-    expect(paths(engWorkspace)).toHaveLength(2)
-    expect(await status(engWorkspace)).toMatchObject({ status: "ok" })
-    expect(await status(bothWorkspace)).toMatchObject({
-      status: "out_of_access",
-      statusDetail: expect.stringContaining(OPS),
-    })
-    expect(writes.get(bothWorkspace)?.keepPrefixes).toContain(
-      `slack/channels/${OPS}/`,
-    )
-  })
-
-  it("marks an archived channel invalid after three counted syncs", async () => {
-    channelState[OPS] = { is_archived: true }
-    await syncSpaced(3)
-    expect(await status(bothWorkspace)).toMatchObject({
-      status: "invalid",
-      statusDetail: expect.stringContaining("Channel #ops is archived"),
-    })
-    expect(await status(engWorkspace)).toMatchObject({ status: "ok" })
-  })
-
-  it("starts the count again after a good sync", async () => {
-    channelState[OPS] = { is_member: false }
-    await syncSpaced(2)
-    channelState = {}
-    await syncSpaced(1, 2)
-    channelState[OPS] = { is_member: false }
-    await syncSpaced(2, 3)
-    expect(await status(bothWorkspace)).toMatchObject({ status: "ok" })
-  })
-
-  it("skips a channel with a transient failure and deletes nothing", async () => {
-    failures[`conversations.history:${OPS}`] = 503
-    const { paths, writes } = await sync()
-    expect(paths(bothWorkspace)).toContain(
-      `slack/channels/${ENG}/threads/2026/09/${thread(ENG)}/thread.md`,
-    )
-    expect(
-      paths(bothWorkspace).some(
-        (path) => path.includes("/threads/") && path.includes(OPS),
-      ),
-    ).toBe(false)
-    expect(writes.get(bothWorkspace)?.deletePaths).toEqual([])
-    expect(await status(bothWorkspace)).toMatchObject({ status: "ok" })
+    expect(written).toEqual([])
+    expect(calls).toEqual([])
   })
 
   it("checkAccess reports a revoked connection without a throw", async () => {

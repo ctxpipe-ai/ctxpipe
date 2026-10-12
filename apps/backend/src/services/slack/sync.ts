@@ -50,22 +50,18 @@ export function githubBlobUrl(input: {
   return `https://github.com/${name}/blob/${encodeURIComponent(input.ref)}/${segments}`
 }
 
-/**
- * Build the files of one thread snapshot: `thread.md` and its assets. The
- * mention capture and the Workspace source mirror both use it.
- */
-export async function buildThreadFiles(input: {
+async function buildThreadFiles(input: {
   env: Env
   connection: SlackConnection
   layout?: "capture" | "source"
   channelId: string
   channelName: string
-  pathSlug?: string
+  pathSlug: string
   isPrivate: boolean
   teamId?: string | null
   threadTs: string
   permalink?: string | null
-  capturedAt?: string
+  capturedAt: string
   capturedBy?: SlackUserProfile | null
   messages: SlackApiMessage[]
   truncated?: boolean
@@ -258,6 +254,8 @@ export async function captureSlackThreadFiles(input: {
   excludeMessageTs?: string
   capturedByUserId?: string
   existing?: Array<{ path: string; sha: string }>
+  /** "source": write under the Workspace source path `slack/channels/<id>/`. */
+  layout?: "capture" | "source"
 }): Promise<
   SlackCaptureResult & {
     files: Array<{
@@ -342,6 +340,7 @@ export async function captureSlackThreadFiles(input: {
     })
 
     const channelIndex = toSlackChannelIndexFile({
+      layout: input.layout,
       channelId: input.channelId,
       channelName,
       pathSlug,
@@ -351,6 +350,7 @@ export async function captureSlackThreadFiles(input: {
     const threadCommit = await buildThreadFiles({
       env: input.env,
       connection: input.connection,
+      layout: input.layout,
       channelId: input.channelId,
       channelName,
       pathSlug,
@@ -367,6 +367,7 @@ export async function captureSlackThreadFiles(input: {
       existing,
     })
     const threadPath = getSlackThreadPath({
+      layout: input.layout,
       channelId: input.channelId,
       channelName,
       pathSlug,

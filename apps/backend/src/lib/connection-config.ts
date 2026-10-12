@@ -565,15 +565,6 @@ export function derivedSlackSetupPhase(input: {
   return input.repositoryId && input.enabled ? "live" : "draft"
 }
 
-/**
- * The Workspace sources sync state of a Slack connection (ADR-050): the
- * channels that failed, keyed `channel:<id>`.
- */
-export const slackSourceSyncSchema = z.object({
-  failures: sourceSyncFailuresSchema,
-})
-export type SlackSourceSync = z.infer<typeof slackSourceSyncSchema>
-
 /** Stored in `connections.config` for `type === "slack"` (bot token encrypted). */
 export const slackConnectionConfigStoredSchema = z
   .object({
@@ -612,7 +603,6 @@ export const slackConnectionConfigStoredSchema = z
     repositoryId: z.string().min(1).nullable().optional(),
     branch: z.string().min(1).nullable().optional(),
     enabled: z.boolean().optional(),
-    sourceSync: slackSourceSyncSchema.optional(),
   })
   .transform((c) => ({
     ...c,

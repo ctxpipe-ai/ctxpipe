@@ -1,13 +1,11 @@
 import type { OpenAPIHono } from "@hono/zod-openapi"
 import { z } from "zod"
 import type { AppEnv } from "../../../app/env.js"
-import { enqueueConnectionSourcesSync } from "../../../domain/workspace-sources/enqueue.js"
 import {
   getSlackConnectionByTeamId,
   getSlackSyncTargetByConnectionId,
   revokeSlackConnectionByTeamId,
 } from "../../../models/slack-connector.js"
-import { listConnectionSourceRows } from "../../../models/workspace-sources.js"
 import { getLogger } from "../../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
 import { slackMentionAgent } from "../../../openworkflow/workflows/slack-mention-agent.js"
@@ -16,7 +14,6 @@ import {
   SLACK_MENTION_STATUS_ENQUEUE_FAILED,
   SLACK_MENTION_STATUS_NEEDS_THREAD,
 } from "../../../services/slack/mention-status.js"
-import { slackSourceEventFromMessage } from "../../../services/slack/source-event.js"
 import { verifySlackRequestSignature } from "../../../services/slack/verify-signature.js"
 import { noteResolvedWebhookConnections } from "../attribution.js"
 
@@ -101,16 +98,6 @@ export function registerSlackWebhookRoute(app: OpenAPIHono<AppEnv>) {
           revoked,
         })
       }
-      return c.json({ ok: true }, 200)
-    }
-
-    if (event.type === "message") {
-      if (teamId)
-        await routeSlackMessageToSources({
-          teamId,
-          eventId: parsed.data.event_id,
-          event,
-        })
       return c.json({ ok: true }, 200)
     }
 
@@ -221,45 +208,5 @@ export function registerSlackWebhookRoute(app: OpenAPIHono<AppEnv>) {
       })
 
     return c.json({ ok: true }, 200)
-  })
-}
-
-/**
- * A message in a thread of a source channel syncs that thread into each
- * Workspace of the channel (ADR-050). Messages arrive often, so this
- * enqueues only when an `ok` source has the channel, and one time for each
- * Slack event (a repeated delivery starts no new run).
- */
-async function routeSlackMessageToSources(input: {
-  teamId: string
-  eventId?: string
-  event: unknown
-}): Promise<void> {
-  // Most messages are not in a thread: drop them before the lookup.
-  if (!slackSourceEventFromMessage(input.event, null)) return
-  const connection = await getSlackConnectionByTeamId(input.teamId)
-  if (!connection || connection.status !== "installed") return
-  const sourceEvent = slackSourceEventFromMessage(
-    input.event,
-    connection.botUserId,
-  )
-  if (!sourceEvent) return
-  const sources = await listConnectionSourceRows({
-    orgId: connection.orgId,
-    connectionId: connection.id,
-    status: "ok",
-  })
-  const channels = sources.flatMap(({ source }) => {
-    const scope = source.scope as { channels?: unknown }
-    return Array.isArray(scope.channels) ? scope.channels : []
-  })
-  if (!channels.includes(sourceEvent.channelId)) return
-  noteResolvedWebhookConnections([connection])
-  await enqueueConnectionSourcesSync({
-    orgId: connection.orgId,
-    connectionId: connection.id,
-    provider: "slack",
-    event: sourceEvent,
-    dedupeKey: input.eventId && `slack-event:${input.eventId}`,
   })
 }

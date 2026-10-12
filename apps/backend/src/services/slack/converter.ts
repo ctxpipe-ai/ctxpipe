@@ -77,7 +77,7 @@ export type SlackChannelPathInput = {
   /** Already-slugified directory segment; display name stays `channelName`. */
   pathSlug?: string
   /**
-   * "source": a Workspace source mirror (ADR-050) keys the channel directory
+   * "source": a Workspace source (ADR-050) keys the channel directory
    * on the id only, so the directory is a fixed managed path that a channel
    * rename does not move. Default: the capture layout `<slug>--<id>`.
    */
