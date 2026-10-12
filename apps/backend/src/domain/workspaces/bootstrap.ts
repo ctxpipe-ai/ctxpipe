@@ -1,4 +1,3 @@
-import { removeFolderMapMarkers } from "./folder-list.js"
 import { KNOWLEDGE_SKILL_PATH, parseSimpleFrontMatter } from "./layout.js"
 import { isBootstrapAllowedPath } from "./write-jobs.js"
 
@@ -162,9 +161,9 @@ function serializeFrontMatter(attributes: Record<string, unknown>): string {
 }
 
 function ensureFolderStructureSection(body: string): string {
-  const clean = removeFolderMapMarkers(body)
-  if (clean.split(/\r?\n/).some((line) => FOLDER_MAP_HEADING.test(line.trim())))
-    return clean
-  const trimmed = clean.trim()
+  // Old marker lines are removed by the folder-list job, not here.
+  if (body.split(/\r?\n/).some((line) => FOLDER_MAP_HEADING.test(line.trim())))
+    return body
+  const trimmed = body.trim()
   return trimmed ? `${trimmed}\n\n${DEFAULT_FOLDER_MAP}` : DEFAULT_FOLDER_MAP
 }

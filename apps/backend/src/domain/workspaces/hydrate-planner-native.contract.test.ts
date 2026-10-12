@@ -440,3 +440,39 @@ it(
     )
   },
 )
+
+it(
+  "reserves a new folder-list job for a new folder change on the same root",
+  { timeout: 30_000 },
+  async () => {
+    const { reserveHydrateWrites } = await import(
+      "../../models/workspace-write-planning.js"
+    )
+    const { persistWriteJobStatus } = await import(
+      "../../models/workspace-write-jobs.js"
+    )
+    await withNativeHydrationFixture(
+      { github: true, githubWriteView: "writable", writeStatus: "writable" },
+      async (f) => {
+        const reserve = (previousSha: string) =>
+          withOrgIdContext(f.org, () =>
+            reserveHydrateWrites({
+              revision: f.revision,
+              remaining: [
+                { kind: "ops_folder_map", remainder: 1, previousSha },
+              ],
+            }),
+          )
+        const first = await reserve("a".repeat(40))
+        expect(first).toMatchObject([{ previousSha: "a".repeat(40) }])
+        await withOrgIdContext(f.org, () =>
+          persistWriteJobStatus(first[0]?.jobId ?? "", "completed"),
+        )
+        expect(await reserve("a".repeat(40))).toEqual([])
+        const second = await reserve("b".repeat(40))
+        expect(second).toMatchObject([{ previousSha: "b".repeat(40) }])
+        expect(second[0]?.jobId).not.toBe(first[0]?.jobId)
+      },
+    )
+  },
+)

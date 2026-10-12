@@ -268,16 +268,18 @@ export const workspaceHydrate = defineWorkflow(
                       await nativeFolderSetChanged(pack, planning.previousSha)
                     ) {
                       // One job both removes old markers and updates the list.
-                      const index = remaining.findIndex(
+                      const planned = remaining.find(
                         (requirement) => requirement.kind === "ops_folder_map",
                       )
-                      const cleanup =
-                        index < 0 ? 0 : remaining.splice(index, 1)[0]?.remainder
-                      remaining.push({
-                        kind: "ops_folder_map",
-                        previousSha: planning.previousSha,
-                        remainder: (cleanup ?? 0) + 1,
-                      })
+                      if (planned?.kind === "ops_folder_map") {
+                        planned.previousSha = planning.previousSha
+                        planned.remainder += 1
+                      } else
+                        remaining.push({
+                          kind: "ops_folder_map",
+                          previousSha: planning.previousSha,
+                          remainder: 1,
+                        })
                     }
                   }
                   return remaining

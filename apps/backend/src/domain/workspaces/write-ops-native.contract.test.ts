@@ -128,7 +128,10 @@ it(
         github: true,
         githubWriteView: "writable",
         writeStatus: "writable",
-        folderListReply: { changed: true, agentsMd: updated },
+        folderListReply: {
+          replaceBlock: 2,
+          list: "- [docs/](docs/): guides\n- [runbooks/](runbooks/): on-call steps",
+        },
         files: [
           { path: "AGENTS.md", body: instructions },
           { path: "docs/intro.md", body: "# Introduction\n" },
@@ -154,12 +157,8 @@ it(
         github: true,
         githubWriteView: "writable",
         writeStatus: "writable",
-        folderListReply: {
-          changed: true,
-          agentsMd: instructions
-            .replace("carefully", "quickly")
-            .replace("guides\n", "guides\n- [runbooks/](runbooks/)\n"),
-        },
+        // Block 4 is the review paragraph, not a folder list.
+        folderListReply: { replaceBlock: 4, list: "- [runbooks/](runbooks/)" },
         files: [
           { path: "AGENTS.md", body: instructions },
           { path: "runbooks/pager.md", body: "# Pager\n" },

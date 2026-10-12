@@ -43,7 +43,10 @@ export const workspaceOpsFolderListInputSchema = z
     workspaceId: z.string().min(1),
     jobId: z.string().min(1),
     displayName: z.string().trim().min(1).optional(),
-    /** Set when hydrate saw a changed folder set since this revision. */
+    /**
+     * Set when hydrate saw a changed folder set since this revision. The job
+     * uses it only as a flag to run the model step; it does not read that tree.
+     */
     previousSha: z
       .string()
       .regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/)

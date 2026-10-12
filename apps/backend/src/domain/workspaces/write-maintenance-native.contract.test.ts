@@ -635,7 +635,10 @@ it(
         github: true,
         githubWriteView: "writable",
         writeStatus: "writable",
-        folderListReply: { changed: true, agentsMd: after },
+        folderListReply: {
+          replaceBlock: 3,
+          list: "- [Guides](guides/) — keep owner label\n- [Reference](reference/) — API reference",
+        },
         files: [
           { path: "AGENTS.md", body: before },
           { path: "guides/intro.md", body: "# Introduction\n" },
@@ -709,7 +712,7 @@ it(
               "refs/heads/main",
             ),
           ).toBe("AGENTS.md")
-          // The model now returns the file as it is: no second commit.
+          // The same list now matches the file: no second commit.
           const noOpId = `${jobId}_again`
           expect(
             await withOrgIdContext(f.org, () =>

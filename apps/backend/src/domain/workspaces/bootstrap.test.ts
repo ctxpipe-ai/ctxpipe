@@ -69,17 +69,6 @@ describe("bootstrapWorkspaceFiles", () => {
     expect(merged.match(/## Folder Structure/g) ?? []).toHaveLength(0)
   })
 
-  it("removes old marker lines and keeps the list between them", () => {
-    const merged = bootstrapAgentsMarkdown({
-      displayName: "Docs",
-      existing:
-        "---\nname: Keep Me\n---\n\n<!-- ctxpipe:folder-map -->\n## Folders\n\n- `notes/` notes\n<!-- /ctxpipe:folder-map -->\n",
-    })
-    expect(merged).toBe(
-      "---\nname: Keep Me\n---\n\n## Folders\n\n- `notes/` notes\n",
-    )
-  })
-
   it("polishes an existing skill without dropping extra notes", () => {
     const polished = bootstrapKnowledgeSkillMarkdown(
       "---\nname: ctxpipe-knowledge\n---\n\nCustom note.\n",
