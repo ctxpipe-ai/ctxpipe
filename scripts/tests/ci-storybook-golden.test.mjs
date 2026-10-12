@@ -76,6 +76,18 @@ const required = [
     "PaneTabsStayInPlace",
   ],
   [
+    "apps/ui/src/features/workspaces/WorkspacePane.stories.tsx",
+    "TextTabsKeepPadding",
+  ],
+  [
+    "apps/ui/src/features/workspaces/ConversationTitleButton.stories.tsx",
+    "UneditedSaveKeepsAutomaticTitle",
+  ],
+  [
+    "apps/ui/src/features/workspaces/ConversationTitleButton.stories.tsx",
+    "EscapeReturnsFocus",
+  ],
+  [
     "apps/ui/src/features/workspaces/WorkspaceSurface.stories.tsx",
     "SharedPublishPending",
   ],

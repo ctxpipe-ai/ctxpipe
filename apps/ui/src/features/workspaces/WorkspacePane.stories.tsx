@@ -517,6 +517,32 @@ export const SelectedTabInView: Story = {
   },
 }
 
+/** Text tabs keep 12px side padding, active or idle; icon tabs are square. */
+export const TextTabsKeepPadding: Story = {
+  tags: ["workspace-golden"],
+  args: {
+    pane: { kind: "file", path: ledgerPath },
+    fileTabs: [ledgerPath, "knowledge/notes/meeting-notes-1.md"],
+    previewPath: null,
+  },
+  parameters: SelectedTabInView.parameters,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const active = await canvas.findByRole("tab", { name: "ledger.md" })
+    const idle = await canvas.findByRole("tab", {
+      name: "meeting-notes-1.md",
+    })
+    for (const tab of [active, idle]) {
+      const style = getComputedStyle(tab)
+      expect(style.paddingLeft).toBe("12px")
+      expect(style.paddingRight).toBe("12px")
+    }
+    const files = await canvas.findByRole("tab", { name: "Files" })
+    // The icon tab is square: 7px + 1px border + 16px icon on each side.
+    expect(files.getBoundingClientRect().width).toBe(32)
+  },
+}
+
 export const TreeCollapsed: Story = {
   args: {
     pane: { kind: "file", path: ledgerPath },
