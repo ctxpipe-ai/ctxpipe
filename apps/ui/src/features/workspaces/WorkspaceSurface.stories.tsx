@@ -1102,7 +1102,10 @@ export const WriteCheckFailedStopsPolling: Story = {
       within(alert).getByRole("button", { name: "Check again" }),
     )
     await waitFor(
-      () => expect(canvas.getAllByText("Writable").length).toBeGreaterThan(0),
+      () =>
+        expect(canvas.getAllByText("Can save changes").length).toBeGreaterThan(
+          0,
+        ),
       { timeout: 10_000 },
     )
     await expect(canvas.queryByText("Could not check write access")).toBeNull()
