@@ -1,8 +1,8 @@
 import type { QueryClient } from "@tanstack/react-query"
 import { orgConnectionsOptions } from "@/features/connectors/queries/org-connections"
 import {
+  activityOptions,
   landingWorkspace,
-  workspaceActivityOptions,
   workspaceListOptions,
 } from "@/features/workspaces/queries"
 
@@ -12,9 +12,7 @@ export function prefetchOrgHome(queryClient: QueryClient, orgSlug: string) {
     const list = queryClient.getQueryData(listOptions.queryKey)
     const workspace = list ? landingWorkspace(list) : null
     if (!workspace) return
-    void queryClient.prefetchQuery(
-      workspaceActivityOptions(orgSlug, workspace.slug),
-    )
+    void queryClient.prefetchQuery(activityOptions(orgSlug, workspace.slug))
   })
 }
 

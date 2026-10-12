@@ -100,6 +100,7 @@ export function WorkspaceActivity(props: {
   if (!data) return <WorkspaceActivityLoading header={activityHeader} />
 
   const showWorkspace = scope === ALL_WORKSPACES
+  const failedWorkspaces = showWorkspace ? (data.failedWorkspaces ?? []) : []
   return (
     <>
       <section>
@@ -112,6 +113,14 @@ export function WorkspaceActivity(props: {
               setSelection({ scope, date })
             }}
           />
+          {failedWorkspaces.length > 0 ? (
+            <p className="mt-2 text-xs text-muted-foreground">
+              Activity for {failedWorkspaces.length}{" "}
+              {failedWorkspaces.length === 1 ? "workspace" : "workspaces"} could
+              not load:{" "}
+              {failedWorkspaces.map((workspace) => workspace.name).join(", ")}.
+            </p>
+          ) : null}
         </div>
       </section>
       <section>

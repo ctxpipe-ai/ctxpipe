@@ -1,10 +1,15 @@
 import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { config } from "dotenv"
-import { inArray } from "drizzle-orm"
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { inArray, sql } from "drizzle-orm"
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
-import { closeDb, initDb, withOrgDbContext } from "../../db/client.js"
+import {
+  closeDb,
+  getSystemDb,
+  initDb,
+  withOrgDbContext,
+} from "../../db/client.js"
 import { workspaces } from "../../db/schema/workspaces.js"
 import {
   insertWorkspaceRepositoryCommits,
@@ -40,6 +45,20 @@ const unprojected = {
   id: `ws_activity_unprojected_${suffix}`,
   slug: `new-${suffix}`,
 }
+const idle = { id: `ws_activity_idle_${suffix}`, slug: `idle-${suffix}` }
+const failedOrg = {
+  id: `org_test_activity_failed_${suffix}`,
+  slug: `activity-failed-${suffix}`,
+  name: "Failed",
+}
+const readyWorkspace = {
+  id: `ws_activity_ready_${suffix}`,
+  slug: `api-${suffix}`,
+}
+const failedWorkspace = {
+  id: `ws_activity_failed_${suffix}`,
+  slug: `docs-${suffix}`,
+}
 
 // Days in the heatmap window: `day` is three UTC days before today.
 const DAY_MS = 86_400_000
@@ -57,10 +76,19 @@ function commit(sha: string, offsetMs: number) {
   }
 }
 
+async function projectionRunCount(workspaceId: string) {
+  const result = await getSystemDb().execute<{ count: number }>(
+    sql`select count(*)::int as count from openworkflow.workflow_runs where workflow_name = 'workspace-commit-projection' and input->>'workspaceId' = ${workspaceId}`,
+  )
+  return result.rows[0]?.count ?? 0
+}
+
 async function seedWorkspace(
   target: typeof org,
   row: { id: string; slug: string },
-  options: { projected: boolean } = { projected: true },
+  options: { projected: boolean; status?: "ready" | "failed" } = {
+    projected: true,
+  },
 ) {
   await withOrgDbContext(target.id, (db) =>
     db.insert(workspaces).values({
@@ -77,7 +105,7 @@ async function seedWorkspace(
     upsertWorkspaceCommitProjection({
       workspaceId: row.id,
       headSha: null,
-      backfillStatus: "ready",
+      backfillStatus: options.status ?? "ready",
     }),
   )
 }
@@ -117,6 +145,14 @@ describe("workspace activity routes (Postgres)", () => {
   })
 
   afterAll(async () => {
+    await getSystemDb().execute(
+      sql`delete from openworkflow.workflow_runs where input->>'orgId' in (${org.id}, ${otherOrg.id}, ${failedOrg.id})`,
+    )
+    await withOrgDbContext(failedOrg.id, (db) =>
+      db
+        .delete(workspaces)
+        .where(inArray(workspaces.id, [readyWorkspace.id, failedWorkspace.id])),
+    )
     await withOrgDbContext(org.id, (db) =>
       db
         .delete(workspaces)
@@ -125,8 +161,15 @@ describe("workspace activity routes (Postgres)", () => {
     await withOrgDbContext(otherOrg.id, (db) =>
       db
         .delete(workspaces)
-        .where(inArray(workspaces.id, [otherWorkspace.id, unprojected.id])),
+        .where(
+          inArray(workspaces.id, [otherWorkspace.id, unprojected.id, idle.id]),
+        ),
     )
+    // The routes import the OpenWorkflow client, which connects on import.
+    const { closeOpenWorkflowClient } = await import(
+      "../../openworkflow/client.js"
+    )
+    await closeOpenWorkflowClient()
     await closeDb()
   })
 
@@ -237,5 +280,43 @@ describe("workspace activity routes (Postgres)", () => {
     expect(body.recent.map((row: { subject: string }) => row.subject)).toEqual([
       "Commit x",
     ])
+  })
+
+  it("does not start a projection run on an org read", async () => {
+    await seedWorkspace(otherOrg, idle, { projected: false })
+    const app = workspaceHttpApp(otherOrg, orgActivityRoutes)
+    expect((await app.request("/workspaces")).status).toBe(200)
+
+    // The workspace read starts one run for the same workspace. When that run
+    // is in the table, a run from the org read would be there too.
+    const scoped = workspaceHttpApp(otherOrg, workspaceActivityRoutes)
+    expect(
+      (await scoped.request(`/workspaces/${idle.slug}/activity`)).status,
+    ).toBe(200)
+    await vi.waitFor(
+      async () => expect(await projectionRunCount(idle.id)).toBeGreaterThan(0),
+      { timeout: 5_000 },
+    )
+    await new Promise((settle) => setTimeout(settle, 500))
+    expect(await projectionRunCount(idle.id)).toBe(1)
+  })
+
+  it("lists the workspaces whose activity could not load", async () => {
+    await seedWorkspace(failedOrg, readyWorkspace)
+    await seedWorkspace(failedOrg, failedWorkspace, {
+      projected: true,
+      status: "failed",
+    })
+    const app = workspaceHttpApp(failedOrg, orgActivityRoutes)
+    const body = await (await app.request("/workspaces")).json()
+    expect(body.status).toBe("ready")
+    expect(body.failedWorkspaces).toEqual([
+      { slug: failedWorkspace.slug, name: failedWorkspace.slug },
+    ])
+
+    const ready = workspaceHttpApp(org, orgActivityRoutes)
+    expect(
+      (await (await ready.request("/workspaces")).json()).failedWorkspaces,
+    ).toEqual([])
   })
 })

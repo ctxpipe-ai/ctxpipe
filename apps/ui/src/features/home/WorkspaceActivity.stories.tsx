@@ -229,3 +229,50 @@ export const AllWorkspaces: Story = {
     expect(activityDates).not.toContain("2026-08-22")
   },
 }
+
+/** All workspaces says which workspaces have activity that could not load. */
+export const AllWorkspacesFailedNote: Story = {
+  args: {
+    workspaces: [
+      { slug: "docs", displayName: "Docs" },
+      { slug: "handbook", displayName: "Handbook" },
+    ],
+  },
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          http.get(
+            ({ request }) =>
+              /\/api\/v1\/activity$/.test(new URL(request.url).pathname),
+            () =>
+              HttpResponse.json({
+                ...docsWorkspaceActivity,
+                failedWorkspaces: [{ slug: "handbook", name: "Handbook" }],
+              }),
+          ),
+          ...activityByDayHandlers,
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const page = within(canvasElement.ownerDocument.body)
+    const note = "Activity for 1 workspace could not load: Handbook."
+    expect(
+      await canvas.findByText("Document billing ledger rules"),
+    ).toBeVisible()
+    expect(canvas.queryByText(note)).not.toBeInTheDocument()
+
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Show activity for: Docs" }),
+    )
+    await userEvent.click(
+      await page.findByRole("menuitemradio", { name: "All workspaces" }),
+    )
+
+    expect(await canvas.findByText(note)).toBeVisible()
+    expect(canvas.getByText("Document billing ledger rules")).toBeVisible()
+  },
+}

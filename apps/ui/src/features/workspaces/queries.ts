@@ -437,14 +437,6 @@ export function activityOptions(
   })
 }
 
-export function workspaceActivityOptions(
-  orgSlug: string,
-  workspaceSlug: string,
-  date: string | null = null,
-) {
-  return activityOptions(orgSlug, workspaceSlug, date)
-}
-
 /**
  * A 409 from a Files read. `busy`: a turn holds the conversation
  * (`turn_running`), so a later read can succeed. Other 409s (for example

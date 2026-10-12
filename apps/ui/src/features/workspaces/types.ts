@@ -74,6 +74,8 @@ export type WorkspaceActivityResponse = {
   status: "pending" | "ready" | "failed"
   days: WorkspaceActivityDay[]
   recent: WorkspaceActivityCommit[]
+  /** Org read only: the workspaces whose activity could not load. */
+  failedWorkspaces?: { slug: string; name: string }[]
 }
 
 export type WorkspaceFile = {

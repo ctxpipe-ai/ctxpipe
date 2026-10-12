@@ -37,6 +37,10 @@ const WorkspaceActivityResponseSchema = z
         workspaceName: z.string(),
       }),
     ),
+    /** Org read only: the workspaces whose projection failed. */
+    failedWorkspaces: z
+      .array(z.object({ slug: z.string(), name: z.string() }))
+      .optional(),
   })
   .openapi("WorkspaceActivityResponse")
 
@@ -76,19 +80,24 @@ const getWorkspaceActivityRoute = createRoute({
 
 type ActivityStatus = "pending" | "ready" | "failed"
 
+/** Reads the activity status of one workspace projection. It starts nothing. */
+function readProjectionStatus(
+  projection: WorkspaceCommitProjectionRecord | null,
+): ActivityStatus {
+  return projection?.backfillStatus === "ready" ||
+    projection?.backfillStatus === "failed"
+    ? projection.backfillStatus
+    : "pending"
+}
+
 /**
- * The status of one workspace projection. A projection that is missing, not
- * ready, or behind the desired SHA starts a projection run.
+ * Reads the status of one workspace projection, and starts a projection run
+ * when the projection is missing, not ready, or behind the desired SHA.
  */
-function projectionStatus(
+function readProjectionStatusAndRefresh(
   workspace: { id: string; orgId: string; desiredSha: string | null },
   projection: WorkspaceCommitProjectionRecord | null,
 ): ActivityStatus {
-  const status: ActivityStatus =
-    projection?.backfillStatus === "ready" ||
-    projection?.backfillStatus === "failed"
-      ? projection.backfillStatus
-      : "pending"
   const stale =
     !projection ||
     projection.backfillStatus !== "ready" ||
@@ -103,7 +112,7 @@ function projectionStatus(
       },
     )
   }
-  return status
+  return readProjectionStatus(projection)
 }
 
 async function activityBody(input: {
@@ -146,7 +155,7 @@ export const workspaceActivityRoutes = new OpenAPIHono<AppEnv>().openapi(
     if (!workspace) return c.json({ error: "Not found" }, 404)
 
     const projection = await getWorkspaceCommitProjection(workspace.id)
-    const status = projectionStatus(workspace, projection)
+    const status = readProjectionStatusAndRefresh(workspace, projection)
     return c.json(
       await activityBody({ status, workspaceId: workspace.id, date }),
       200,
@@ -164,7 +173,7 @@ const getOrgActivityRoute = createRoute({
         "application/json": { schema: WorkspaceActivityResponseSchema },
       },
       description:
-        "Commit heatmap and recent commits of every workspace in the org. With `date`, `recent` holds the commits of that UTC day. `pending` while a workspace projection is not done; `failed` only when every projection failed.",
+        "Commit heatmap and recent commits of every workspace in the org. With `date`, `recent` holds the commits of that UTC day. `pending` while a workspace projection is not done; `failed` only when every projection failed. `failedWorkspaces` lists each workspace whose projection failed. The read does not start projection runs.",
     },
     400: {
       description: "Invalid query parameter",
@@ -183,14 +192,22 @@ export const orgActivityRoutes = new OpenAPIHono<AppEnv>().openapi(
       return c.json({ error: "Unauthorized" }, 401)
     }
     const { date } = c.req.valid("query")
-    const statuses = (await listOrgWorkspaceCommitProjections()).map((row) =>
-      projectionStatus(row.workspace, row.projection),
-    )
+    const rows = (await listOrgWorkspaceCommitProjections()).map((row) => ({
+      workspace: row.workspace,
+      status: readProjectionStatus(row.projection),
+    }))
+    const statuses = rows.map((row) => row.status)
     const status: ActivityStatus = statuses.includes("pending")
       ? "pending"
       : statuses.length > 0 && statuses.every((value) => value === "failed")
         ? "failed"
         : "ready"
-    return c.json(await activityBody({ status, date }), 200)
+    const failedWorkspaces = rows
+      .filter((row) => row.status === "failed")
+      .map((row) => ({ slug: row.workspace.slug, name: row.workspace.name }))
+    return c.json(
+      { ...(await activityBody({ status, date })), failedWorkspaces },
+      200,
+    )
   },
 )
