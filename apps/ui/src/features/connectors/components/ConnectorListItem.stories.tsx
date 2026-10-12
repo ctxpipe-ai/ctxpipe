@@ -81,7 +81,7 @@ export const PendingSetup: Story = {
       canvas.queryByRole("button", { name: /connector actions/ }),
     ).toBeNull()
     await userEvent.click(canvas.getByRole("button", { name: "Expand GitHub" }))
-    await canvas.findByText("Workspace")
+    await canvas.findByText("Account")
     expect(
       canvas.getAllByRole("button", { name: /Complete GitHub install/ }),
     ).toHaveLength(1)

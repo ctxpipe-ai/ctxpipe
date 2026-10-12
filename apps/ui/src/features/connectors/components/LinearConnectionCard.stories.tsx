@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
-import { expect, fn, within } from "storybook/test"
+import { expect, fn, userEvent, within } from "storybook/test"
 import {
   connectionUsageHandler,
   connectionUsageItem,
@@ -147,6 +147,35 @@ export const Connected: Story = {
     await expect(
       canvas.queryByRole("button", { name: "Connect Linear" }),
     ).toBeNull()
+  },
+}
+
+/** Connected, but no Workspace uses it yet, so nothing syncs. */
+export const ConnectedNotInAWorkspace: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        usage: [connectionUsageHandler([])],
+        page: [statusHandler(connected)],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("Connected")
+    await userEvent.click(canvas.getByRole("button", { name: "Expand Linear" }))
+    await canvas.findByText("No Workspaces yet")
+    await expect(
+      canvas.getByText(
+        "Nothing syncs from Linear until you add it to a Workspace.",
+      ),
+    ).toBeVisible()
+    await expect(
+      canvas.getByRole("button", { name: "Add to a Workspace" }),
+    ).toBeVisible()
+    // The Linear workspace is the account, not a ctx| Workspace.
+    await expect(canvas.getByText("Account")).toBeVisible()
+    await expect(canvas.getByText("Acme Product")).toBeVisible()
   },
 }
 

@@ -125,6 +125,11 @@ export function ConnectorListItem({
    * Remove and the step action on the row, in place of the menu.
    */
   remove: { description: ReactNode; onConfirm: () => void }
+  /**
+   * The provider account of the connection, for example the Linear workspace
+   * or the GitHub organization. The row labels it "Account", so that it is
+   * not read as a ctx| Workspace.
+   */
   workspace: ReactNode
   /** Omit both for a connection without a scope or sync repository of its own. */
   scope?: ReactNode
@@ -197,7 +202,7 @@ export function ConnectorListItem({
             {usedIn}
             <dl className="grid gap-4 text-sm sm:grid-cols-2">
               <div>
-                <dt className="text-muted-foreground">Workspace</dt>
+                <dt className="text-muted-foreground">Account</dt>
                 <dd className="mt-1 text-foreground">{workspace}</dd>
               </div>
               {scope === undefined ? null : (
