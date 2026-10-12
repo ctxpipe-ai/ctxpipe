@@ -7,6 +7,7 @@ import {
   upsertWorkspaceCommitProjection,
 } from "../../models/workspace-commits.js"
 import { getWorkspaceById } from "../../models/workspaces.js"
+import { log } from "../../observability/logger.js"
 import {
   activityCalendarStart,
   shouldSkipCommitProjection,
@@ -58,7 +59,29 @@ export async function projectWorkspaceCommits(input: {
     existingShas,
     env: input.env,
   })
+  if (!fetched.ok && fetched.reason === "unreachable") {
+    // Skip the workspace: no commits, and no failed status. The projection
+    // is then fresh for this SHA, so the log occurs once.
+    log.info({
+      step: "workspace.commit-projection",
+      message:
+        "Workspace commit activity skipped: the repository does not exist or the app has no access",
+      workspaceId: workspace.id,
+    })
+    await upsertWorkspaceCommitProjection({
+      workspaceId: workspace.id,
+      headSha: workspace.desiredSha,
+      backfillStatus: "ready",
+      backfilledSince: activityCalendarStart(),
+    })
+    return { status: "ready" }
+  }
   if (!fetched.ok) {
+    log.warn({
+      step: "workspace.commit-projection",
+      message: `Workspace commit activity failed: ${fetched.error instanceof Error ? fetched.error.message : String(fetched.error)}`,
+      workspaceId: workspace.id,
+    })
     await upsertWorkspaceCommitProjection({
       workspaceId: workspace.id,
       headSha: projection?.headSha ?? null,

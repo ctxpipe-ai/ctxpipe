@@ -15,6 +15,7 @@ import {
   insertWorkspaceRepositoryCommits,
   upsertWorkspaceCommitProjection,
 } from "../../models/workspace-commits.js"
+import { deleteWorkspace } from "../../models/workspaces.js"
 import { workspaceHttpApp } from "../../test/workspace-http-fixture.js"
 import {
   orgActivityRoutes,
@@ -61,6 +62,10 @@ const failedOrg = {
 const readyWorkspace = {
   id: `ws_activity_ready_${suffix}`,
   slug: `api-${suffix}`,
+}
+const deletedWorkspace = {
+  id: `ws_activity_deleted_${suffix}`,
+  slug: `deleted-${suffix}`,
 }
 const failedWorkspace = {
   id: `ws_activity_failed_${suffix}`,
@@ -358,7 +363,7 @@ describe("workspace activity routes (Postgres)", () => {
     expect(await projectionRunCount(polled.id)).toBe(1)
   })
 
-  it("lists the workspaces whose activity could not load", async () => {
+  it("does not list the workspaces whose activity could not load", async () => {
     await seedWorkspace(failedOrg, readyWorkspace)
     await seedWorkspace(failedOrg, failedWorkspace, {
       projected: true,
@@ -367,13 +372,27 @@ describe("workspace activity routes (Postgres)", () => {
     const app = workspaceHttpApp(failedOrg, orgActivityRoutes)
     const body = await (await app.request("/workspaces")).json()
     expect(body.status).toBe("ready")
-    expect(body.failedWorkspaces).toEqual([
-      { slug: failedWorkspace.slug, name: failedWorkspace.slug },
-    ])
+    expect(body).not.toHaveProperty("failedWorkspaces")
+    expect(body.pendingWorkspaces).toEqual([])
+  })
 
-    const ready = workspaceHttpApp(org, orgActivityRoutes)
-    expect(
-      (await (await ready.request("/workspaces")).json()).failedWorkspaces,
-    ).toEqual([])
+  it("leaves a deleted workspace out of the org activity", async () => {
+    await seedWorkspace(failedOrg, deletedWorkspace, {
+      projected: true,
+      status: "failed",
+    })
+    await withOrgIdContext(failedOrg, () =>
+      insertWorkspaceRepositoryCommits({
+        workspaceId: deletedWorkspace.id,
+        commits: [commit("9", 0)],
+      }),
+    )
+    await withOrgIdContext(failedOrg, () =>
+      deleteWorkspace(deletedWorkspace.slug, deletedWorkspace.slug),
+    )
+    const app = workspaceHttpApp(failedOrg, orgActivityRoutes)
+    const body = await (await app.request("/workspaces")).json()
+    expect(JSON.stringify(body)).not.toContain(deletedWorkspace.slug)
+    expect(body.recent).toEqual([])
   })
 })
