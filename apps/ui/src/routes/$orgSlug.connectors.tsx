@@ -121,7 +121,6 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
     useState<string | undefined>(undefined)
   const [notionSetupOpen, setNotionSetupOpen] = useState(false)
   const [pagerdutySetupOpen, setPagerdutySetupOpen] = useState(false)
-  const [pagerdutyManageScope, setPagerdutyManageScope] = useState(false)
   const [notionConnectionId, setNotionConnectionId] = useState<string | null>(
     null,
   )
@@ -298,9 +297,8 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
                   key={row.id}
                   orgSlug={orgSlug}
                   connectionId={row.id}
-                  onOpenSetup={(manageScope) => {
+                  onOpenSetup={() => {
                     setPagerdutyConnectionId(row.id)
-                    setPagerdutyManageScope(manageScope)
                     setPagerdutySetupOpen(true)
                   }}
                 />
@@ -380,7 +378,6 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
             orgSlug={orgSlug}
             onStart={({ connectionId }) => {
               setPagerdutyConnectionId(connectionId ?? null)
-              setPagerdutyManageScope(false)
               setPagerdutySetupOpen(true)
               setCatalogOpen(false)
             }}
@@ -525,12 +522,9 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
       />
 
       <PagerdutySetupDialog
+        key={pagerdutyConnectionId ?? "pagerduty-setup"}
         orgSlug={orgSlug}
         connectionId={pagerdutyConnectionId ?? undefined}
-        githubConnectionIds={items
-          .filter((item) => item.type === "github")
-          .map((item) => item.id)}
-        manageScope={pagerdutyManageScope}
         isOpen={pagerdutySetupOpen}
         onConnectionIdChange={(nextConnectionId) => {
           setPagerdutyConnectionId(nextConnectionId)
@@ -542,7 +536,6 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
           setPagerdutySetupOpen(open)
           if (!open) {
             setPagerdutyConnectionId(null)
-            setPagerdutyManageScope(false)
           }
         }}
       />

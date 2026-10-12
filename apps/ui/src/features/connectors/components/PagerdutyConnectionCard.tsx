@@ -7,10 +7,7 @@ import {
   formatSelectedItemCount,
   resolveConnectorHealth,
 } from "../connectorHealth"
-import {
-  getPagerdutyCardCtaLabel,
-  getPagerdutyFailureAction,
-} from "../pagerduty-setup-model"
+import { getPagerdutyCardCtaLabel } from "../pagerduty-setup-model"
 import { orgConnectionsKeys } from "../queries/org-connections"
 import {
   deletePagerdutyConnector,
@@ -27,7 +24,7 @@ import { PagerdutyMark } from "./PagerdutyMark"
 type PagerdutyConnectionCardProps = {
   orgSlug: string
   connectionId: string
-  onOpenSetup: (manageScope: boolean) => void
+  onOpenSetup: () => void
 }
 
 export function PagerdutyConnectionCard({
@@ -55,25 +52,27 @@ export function PagerdutyConnectionCard({
           queryKey: pagerdutyConnectorKeys.status(orgSlug, connectionId),
         }),
         queryClient.invalidateQueries({
-          queryKey: pagerdutyConnectorKeys.config(orgSlug, connectionId),
-        }),
-        queryClient.invalidateQueries({
           queryKey: orgConnectionsKeys.list(orgSlug),
         }),
       ])
     },
     onError: (error: Error) => toast.error(error.message),
   })
-  const failureAction = status ? getPagerdutyFailureAction(status) : null
-  const live = status?.setupPhase === "live"
+  // A connection holds auth only (ADR-050): it is connected once installed.
   const health = resolveConnectorHealth({
     installationStatus: status?.installationStatus,
     statusError: isError,
     checking: isPending || !status,
     setupPhase: status?.setupPhase,
-    connected: live,
-    draft: status?.setupPhase === "draft",
+    connected: Boolean(status?.isInstalled),
+    draft: !status?.isInstalled,
   })
+  const actionLabel = status
+    ? getPagerdutyCardCtaLabel(status, {
+        globalPagerdutyOAuthConfigured: status.globalPagerdutyOAuthConfigured,
+        oauthAppSaved: status.oauthAppSaved,
+      })
+    : null
 
   return (
     <ConnectorListItem
@@ -89,64 +88,33 @@ export function PagerdutyConnectionCard({
       health={health}
       remove={{
         description:
-          "This removes the PagerDuty connection and sync target for this organization. Existing mirrored files in GitHub are left in place.",
+          "This removes the PagerDuty connection for this organization. The Workspace sources that use it stop syncing. Existing mirrored files in GitHub stay in place.",
         onConfirm: () => removeMutation.mutate(),
       }}
       workspace={connectorDash(status?.accountName)}
       scope={
-        status?.selectedServiceCount != null
+        status?.syncTarget && status.selectedServiceCount != null
           ? formatSelectedItemCount(status.selectedServiceCount)
-          : live
-            ? "Configured"
-            : "—"
+          : "Set in each Workspace"
       }
       syncRepository={formatSyncRepositoryLine(status?.syncTarget ?? null)}
-      actionLabel={
-        isError
-          ? "Retry"
-          : status
-            ? getPagerdutyCardCtaLabel(status, {
-                globalPagerdutyOAuthConfigured:
-                  status.globalPagerdutyOAuthConfigured,
-                oauthAppSaved: status.oauthAppSaved,
-              })
-            : undefined
-      }
+      actionLabel={isError ? "Retry" : (actionLabel ?? undefined)}
       onAction={
         isError
           ? () => void refetch()
-          : status
-            ? () => onOpenSetup(live)
+          : actionLabel
+            ? () => onOpenSetup()
             : undefined
       }
     >
       {status?.installationStatus === "revoked" ? (
         <p className="text-sm text-muted-foreground">
-          PagerDuty authorization is revoked; reconnect the account.
-        </p>
-      ) : null}
-      {failureAction ? (
-        <p className="text-sm text-muted-foreground">
-          {failureAction === "retry_content"
-            ? "Content mirror failed. Open setup to retry."
-            : "Configuration pull request failed. Open setup to retry."}
+          PagerDuty authorization is revoked. Reconnect the account.
         </p>
       ) : null}
       {isError ? (
         <p className="text-sm text-muted-foreground">
           Status request failed. Retry, or open setup if this persists.
-        </p>
-      ) : null}
-      {!failureAction &&
-      status &&
-      status.setupPhase !== "live" &&
-      (status.selectedServiceCount ?? 0) > 0 ? (
-        <p className="text-xs text-muted-foreground">
-          Merge the open pull request for{" "}
-          <code className="rounded-md bg-muted px-1 py-0.5 text-[11px]">
-            pagerduty/config.yaml
-          </code>{" "}
-          to enable syncing.
         </p>
       ) : null}
     </ConnectorListItem>

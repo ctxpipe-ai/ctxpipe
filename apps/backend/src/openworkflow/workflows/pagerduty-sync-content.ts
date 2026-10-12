@@ -1,5 +1,6 @@
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
+import { legacyBindingHandedOver } from "../../domain/workspace-sources/legacy-handover.js"
 import { captureConnectorMirrorTarget } from "../../domain/workspaces/capture-connector-mirror.js"
 import {
   finalizePagerdutyBindingAfterContentWorkflow,
@@ -38,6 +39,34 @@ export const pagerdutySyncContent = defineWorkflow(
             connectionId: input.connectionId,
             workflowStatus: "failed",
           })
+        // ADR-050: once Workspace sources own the repository, only they write it.
+        if (
+          await step.run(
+            { name: "check-workspace-sources-handover" },
+            async () => {
+              const binding = await getPagerdutyBindingWithRepoByConnectionId(
+                input.orgId,
+                input.connectionId,
+              )
+              return binding
+                ? legacyBindingHandedOver("pagerduty", {
+                    orgId: input.orgId,
+                    connectionId: input.connectionId,
+                    repositoryGitUrl: binding.repositoryGitUrl,
+                  })
+                : false
+            },
+          )
+        )
+          return {
+            status: "superseded" as const,
+            written: 0,
+            deleted: 0,
+            resourcesProcessed: 0,
+            resourcesFailed: 0,
+            commitShas: [],
+            errors: [],
+          }
         const context = await step
           .run(
             {

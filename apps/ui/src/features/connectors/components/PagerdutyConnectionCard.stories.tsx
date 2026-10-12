@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import type { ReactNode } from "react"
-import { expect, fn, within } from "storybook/test"
+import { expect, fn, userEvent, within } from "storybook/test"
 import {
   connectionUsageHandler,
   connectionUsageItem,
@@ -217,28 +217,67 @@ export const RevokedLive: Story = {
   },
 }
 
-export const SyncFailed: Story = {
+export const ConnectedWithoutSyncRepository: Story = {
+  name: "Connected, scope set in each Workspace",
   render: () => shell(card()),
   parameters: {
     msw: {
       handlers: {
         page: [
-          pagerdutyStatus({ ...statusComplete, setupPhase: "sync_failed" }),
+          pagerdutyStatus({
+            ...statusComplete,
+            setupPhase: "draft",
+            isGithubLinked: false,
+            selectedServiceCount: null,
+            syncTargetConfigured: false,
+            syncTarget: null,
+          }),
         ],
       },
     },
   },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement.ownerDocument.body)
+    await expect(
+      await canvas.findByText("Set in each Workspace"),
+    ).toBeInTheDocument()
+    // Auth is done, so the card has no setup action; "Used in" adds sources.
+    await expect(
+      canvas.queryByRole("button", {
+        name: /Set up|Connect PagerDuty|Manage scope|Choose services/,
+      }),
+    ).toBeNull()
+  },
 }
 
-export const ConfigurationPullRequestFailed: Story = {
+export const RevokedOpensReconnect: Story = {
+  name: "Revoked, reconnect opens setup",
   render: () => shell(card()),
   parameters: {
     msw: {
       handlers: {
         page: [
-          pagerdutyStatus({ ...statusComplete, setupPhase: "config_failed" }),
+          pagerdutyStatus({
+            ...statusComplete,
+            isInstalled: false,
+            installationStatus: "revoked",
+          }),
         ],
       },
     },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement.ownerDocument.body)
+    await expect(await canvas.findByText("Needs reconnect")).toBeInTheDocument()
+    onOpenSetup.mockClear()
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Expand PagerDuty" }),
+    )
+    const [reconnect] = await canvas.findAllByRole("button", {
+      name: /^Reconnect PagerDuty/,
+    })
+    if (!reconnect) throw new Error("No Reconnect PagerDuty action")
+    await userEvent.click(reconnect)
+    await expect(onOpenSetup).toHaveBeenCalledTimes(1)
   },
 }

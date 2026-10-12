@@ -1,8 +1,12 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
+import { pagerdutyServicesHandler } from "@/mocks/pagerduty-handlers"
+import { workspaceListHandler } from "@/mocks/workspace-handlers"
+import { workspaceSourceChangeHandlers } from "@/mocks/workspace-sources-handlers"
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
+import { docsWorkspace } from "../../workspaces/workspace-fixtures"
 import { PagerdutySetupDialog } from "./PagerdutySetupDialog"
 
 const orgSlug = "acme"
@@ -92,8 +96,11 @@ export const RegisterOAuthApp: Story = {
     },
   },
   play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await userEvent.type(canvas.getByLabelText("Client ID"), "pd-client")
+    const canvas = within(canvasElement.ownerDocument.body)
+    const clientId = await canvas.findByLabelText("Client ID")
+    // The modal fades in; wait until the form is visible.
+    await waitFor(() => expect(clientId).toBeVisible())
+    await userEvent.type(clientId, "pd-client")
     await userEvent.type(canvas.getByLabelText("Client secret"), "pd-secret")
     await userEvent.click(
       canvas.getByRole("button", { name: "Save OAuth app" }),
@@ -136,189 +143,145 @@ export const ConnectAccount: Story = {
       },
     },
   },
+  play: async ({ canvasElement }) => {
+    const body = within(canvasElement.ownerDocument.body)
+    await body.findByRole("heading", { name: "Connect PagerDuty account" })
+    const connect = body.getByRole("button", { name: "Connect PagerDuty" })
+    // The modal fades in; wait until the step is visible.
+    await waitFor(() => expect(connect).toBeVisible())
+  },
 }
 
-const githubInstallationHandler = http.get(
-  ({ request }) =>
-    new URL(request.url).pathname === `/${orgSlug}/api/v1/github/installation`,
-  () =>
-    HttpResponse.json({
-      id: "con_github",
-      appSlug: "ctxpipe-pr-153",
-      accountSlug: "acme",
-    }),
-)
+const installedStatus = {
+  isInstalled: true,
+  installationStatus: "installed",
+  accountName: "Acme Test",
+  accountSubdomain: "acme-test",
+  region: "us",
+  isGithubLinked: false,
+  selectedServiceCount: null,
+  syncTargetConfigured: false,
+  setupPhase: "draft",
+  pendingConfigPullUrl: null,
+  pendingConfigPrCreating: false,
+  syncTarget: null,
+  ...hostedOauth,
+}
 
-export const ServiceSelection: Story = {
-  render: () => (
+function pagerdutyStatus(status: object) {
+  return http.get(
+    ({ request }) =>
+      new URL(request.url).pathname.includes(
+        "/api/v1/connectors/pagerduty/status",
+      ),
+    () => HttpResponse.json(status),
+  )
+}
+
+function dialog() {
+  return (
     <PagerdutySetupDialog
       orgSlug={orgSlug}
       connectionId={connectionId}
-      githubConnectionIds={["con_github"]}
       isOpen
       onOpenChange={() => {}}
       onConnectionIdChange={() => {}}
     />
-  ),
+  )
+}
+
+const addCalls: { method: string; path: string; body: unknown }[] = []
+
+const installedHandlers = [
+  pagerdutyStatus(installedStatus),
+  workspaceListHandler([docsWorkspace]),
+  pagerdutyServicesHandler,
+  ...workspaceSourceChangeHandlers(addCalls),
+]
+
+export const AddToWorkspaces: Story = {
+  name: "Add PagerDuty to Workspaces",
+  render: () => dialog(),
+  parameters: { msw: { handlers: { page: installedHandlers } } },
+  play: async ({ canvasElement }) => {
+    addCalls.length = 0
+    const body = within(canvasElement.ownerDocument.body)
+    const heading = await body.findByRole("heading", {
+      name: "Add PagerDuty to Workspaces",
+    })
+    // The modal fades in; wait until the step is visible.
+    await waitFor(() => expect(heading).toBeVisible())
+    // The old repository, scope, and pull request steps are gone.
+    await expect(body.queryByText("Select sync repository")).toBeNull()
+    await expect(body.queryByText(/pagerduty\/config\.yaml/)).toBeNull()
+    const add = body.getByRole("button", { name: "Add to Workspaces" })
+    await expect(add).toBeDisabled()
+    await userEvent.click(
+      await body.findByRole("checkbox", { name: docsWorkspace.displayName }),
+    )
+    await userEvent.click(
+      await body.findByRole("checkbox", { name: "checkout-api" }),
+    )
+    await userEvent.click(add)
+    await expect(
+      await body.findByRole("heading", { name: "PagerDuty is connected" }),
+    ).toBeVisible()
+    await expect(addCalls).toEqual([
+      {
+        method: "POST",
+        path: `/${orgSlug}/api/v1/workspaces/${docsWorkspace.slug}/sources`,
+        body: {
+          source: {
+            provider: "pagerduty",
+            connectionId,
+            scope: { services: ["PSVC001"] },
+          },
+          delivery: "pull_request",
+        },
+      },
+    ])
+  },
+}
+
+export const SkipWorkspaces: Story = {
+  name: "Skip Workspaces, setup complete",
+  render: () => dialog(),
+  parameters: { msw: { handlers: { page: installedHandlers } } },
+  play: async ({ canvasElement }) => {
+    const body = within(canvasElement.ownerDocument.body)
+    await userEvent.click(
+      await body.findByRole("button", { name: "Skip for now" }),
+    )
+    await expect(
+      await body.findByRole("heading", { name: "PagerDuty is connected" }),
+    ).toBeVisible()
+  },
+}
+
+export const ReplacedSetup: Story = {
+  name: "Replaced setup with a config pull request",
+  render: () => dialog(),
   parameters: {
     msw: {
       handlers: {
         page: [
-          http.get(
-            ({ request }) =>
-              new URL(request.url).pathname.includes(
-                "/api/v1/connectors/pagerduty/status",
-              ),
-            () =>
-              HttpResponse.json({
-                isInstalled: true,
-                installationStatus: "installed",
-                accountName: "Acme",
-                accountSubdomain: "acme",
-                region: "us",
-                isGithubLinked: true,
-                selectedServiceCount: 0,
-                syncTargetConfigured: true,
-                setupPhase: "draft",
-                pendingConfigPullUrl: null,
-                pendingConfigPrCreating: false,
-                syncTarget: {
-                  repositoryId: "repo_1",
-                  repositoryName: "acme/context",
-                  branch: "main",
-                  githubConnectionId: "con_github",
-                },
-                ...hostedOauth,
-              }),
-          ),
-          http.get(
-            ({ request }) =>
-              new URL(request.url).pathname.includes(
-                "/api/v1/connectors/pagerduty/config",
-              ),
-            () =>
-              HttpResponse.json({
-                services: [],
-                syncTarget: {
-                  repositoryId: "repo_1",
-                  repositoryName: "acme/context",
-                  branch: "main",
-                  githubConnectionId: "con_github",
-                  enabled: true,
-                  setupPhase: "draft",
-                  pendingConfigPullUrl: null,
-                  pendingConfigPrCreating: false,
-                },
-              }),
-          ),
-          http.get(
-            ({ request }) =>
-              new URL(request.url).pathname.includes(
-                "/api/v1/connectors/pagerduty/available-services",
-              ),
-            () =>
-              HttpResponse.json({
-                items: [
-                  { id: "PXXXX1", name: "Checkout API" },
-                  { id: "PXXXX2", name: "Payments" },
-                ],
-                more: true,
-              }),
-          ),
-          http.get(
-            ({ request }) =>
-              new URL(request.url).pathname.endsWith(
-                `/${orgSlug}/api/v1/repositories`,
-              ),
-            () => HttpResponse.json({ items: [] }),
-          ),
+          pagerdutyStatus({
+            ...installedStatus,
+            setupPhase: "awaiting_merge",
+            pendingConfigPullUrl: "https://github.com/acme/on-call/pull/4",
+          }),
+          ...installedHandlers.slice(1),
         ],
       },
     },
   },
-}
-
-export const TargetRepository: Story = {
-  render: () => (
-    <PagerdutySetupDialog
-      orgSlug={orgSlug}
-      connectionId={connectionId}
-      githubConnectionIds={["con_github"]}
-      isOpen
-      onOpenChange={() => {}}
-      onConnectionIdChange={() => {}}
-    />
-  ),
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          githubInstallationHandler,
-          http.get(
-            ({ request }) =>
-              new URL(request.url).pathname.includes(
-                "/api/v1/connectors/pagerduty/status",
-              ),
-            () =>
-              HttpResponse.json({
-                isInstalled: true,
-                installationStatus: "installed",
-                accountName: "Acme",
-                accountSubdomain: "acme",
-                region: "us",
-                isGithubLinked: true,
-                selectedServiceCount: 0,
-                syncTargetConfigured: false,
-                setupPhase: "draft",
-                pendingConfigPullUrl: null,
-                pendingConfigPrCreating: false,
-                syncTarget: null,
-                ...hostedOauth,
-              }),
-          ),
-          http.get(
-            ({ request }) =>
-              new URL(request.url).pathname.includes(
-                "/api/v1/connectors/pagerduty/config",
-              ),
-            () => HttpResponse.json({ services: [], syncTarget: null }),
-          ),
-          http.get(
-            ({ request }) =>
-              new URL(request.url).pathname.endsWith(
-                `/${orgSlug}/api/v1/workspaces`,
-              ),
-            () =>
-              HttpResponse.json({
-                lastUsedWorkspaceId: "ws_context",
-                items: [
-                  {
-                    id: "ws_context",
-                    orgId: "org_story",
-                    slug: "context",
-                    displayName: "Context",
-                    workspaceRepositoryUrl:
-                      "https://github.com/acme/context.git",
-                    githubConnectionId: "con_github",
-                    desiredGeneration: 1,
-                    desiredSha: null,
-                    activeProjectionUrl: null,
-                    activeProjectionSha: null,
-                    indexedSha: null,
-                    writeStatus: "ready",
-                    hydrateStatus: "ready",
-                    hydrateError: null,
-                    readOnlyReason: null,
-                    mostRecentConversationId: null,
-                    migrationExportSha: null,
-                    createdAt: "2025-01-01T00:00:00.000Z",
-                    updatedAt: "2025-01-01T00:00:00.000Z",
-                  },
-                ],
-              }),
-          ),
-        ],
-      },
-    },
+  play: async ({ canvasElement }) => {
+    const body = within(canvasElement.ownerDocument.body)
+    const notice = await body.findByText(/This setup was replaced/)
+    // The modal fades in; wait until the notice is visible.
+    await waitFor(() => expect(notice).toBeVisible())
+    await expect(
+      body.getByRole("link", { name: "configuration pull request" }),
+    ).toHaveAttribute("href", "https://github.com/acme/on-call/pull/4")
   },
 }

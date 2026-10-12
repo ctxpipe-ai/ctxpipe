@@ -289,6 +289,33 @@ export const sourceSyncFailuresSchema = z
 export type SourceSyncFailures = z.infer<typeof sourceSyncFailuresSchema>
 
 /**
+ * Count one more failed sync cycle of `key` in `failures` (changed in
+ * place), and give the new entry. A key that was counted in the last hour
+ * is not counted again (a burst of webhook syncs), and gives null.
+ */
+export function countSourceFailure(input: {
+  failures: SourceSyncFailures
+  key: string
+  now: Date
+  detail: (tries: number) => string
+}): { tries: number; detail: string } | null {
+  const previous = input.failures[input.key]
+  if (
+    previous?.countedAt &&
+    input.now.getTime() - Date.parse(previous.countedAt) < 60 * 60 * 1000
+  )
+    return null
+  const tries = (previous?.tries ?? 0) + 1
+  const detail = input.detail(tries)
+  input.failures[input.key] = {
+    tries,
+    detail,
+    countedAt: input.now.toISOString(),
+  }
+  return { tries, detail }
+}
+
+/**
  * The Workspace sources sync state of a Forge connection (ADR-050): the
  * cursor of each space, shared by all Workspaces, and the pages and spaces
  * that failed. The legacy `confluence_spaces` scope does not hold it.
@@ -666,6 +693,17 @@ export type PagerdutySetupPhase = (typeof PAGERDUTY_SETUP_PHASES)[number]
 export const PAGERDUTY_REGIONS = ["us", "eu"] as const
 export type PagerdutyRegion = (typeof PAGERDUTY_REGIONS)[number]
 
+/**
+ * The Workspace sources sync state of a PagerDuty connection (ADR-050). It
+ * counts the sync cycles in which a selected service failed for good, so a
+ * deleted or unreadable service stops after a bounded number of tries.
+ */
+export const pagerdutySourceSyncSchema = z.object({
+  /** Keyed `service:<id>`. */
+  failures: sourceSyncFailuresSchema,
+})
+export type PagerdutySourceSync = z.infer<typeof pagerdutySourceSyncSchema>
+
 /** Stored in `connections.config` for `type === "pagerduty"`. */
 export const pagerdutyConnectionConfigStoredSchema = z
   .object({
@@ -689,6 +727,7 @@ export const pagerdutyConnectionConfigStoredSchema = z
     webhookSecretEnc: z.string().min(1).optional(),
     oauthClientId: z.string().min(1).optional(),
     oauthClientSecretEnc: z.string().min(1).optional(),
+    sourceSync: pagerdutySourceSyncSchema.optional(),
   })
   .transform((config) => ({
     ...config,

@@ -2,6 +2,7 @@ import type { Env } from "../../config/env.js"
 import { confluenceSourceMigrationHook } from "../../services/confluence/workspace-source-migration.js"
 import { linearSourceMigrationHook } from "../../services/linear/source-migration.js"
 import { notionSourceMigrationHook } from "../../services/notion/workspace-source-migration.js"
+import { pagerdutySourceMigrationHook } from "../../services/pagerduty/workspace-source-migration.js"
 import { parseLinkedRepositoryMarkdown } from "../workspaces/layout.js"
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../workspaces/write-status.js"
@@ -44,6 +45,16 @@ export type SourceMigrationHook = {
    * Workspace sources sync writes its content (`--apply`).
    */
   disableLegacy?(input: { orgId: string; connectionId: string }): Promise<void>
+  /**
+   * Optional. Move the old mirror files into the new managed paths in the
+   * migration commit (`--apply`), by blob sha, so git keeps their history.
+   * It runs only for a Workspace whose repository is the old sync
+   * repository. `read` gives the text of one file.
+   */
+  legacyMoves?(input: {
+    files: ReadonlyArray<{ path: string; sha: string }>
+    read: (path: string) => Promise<string | null | undefined>
+  }): Promise<Array<{ from: string; to: string; sha: string }>>
 }
 
 export const SOURCE_MIGRATION_HOOKS: Partial<
@@ -52,6 +63,7 @@ export const SOURCE_MIGRATION_HOOKS: Partial<
   confluence: confluenceSourceMigrationHook,
   linear: linearSourceMigrationHook,
   notion: notionSourceMigrationHook,
+  pagerduty: pagerdutySourceMigrationHook,
 }
 
 export type MigrationWorkspace = {

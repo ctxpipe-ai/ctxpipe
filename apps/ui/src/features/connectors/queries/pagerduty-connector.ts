@@ -36,46 +36,15 @@ export type PagerdutyConnectorStatus = {
   oauthCallbackUrl: string
 }
 
-export type PagerdutySyncTargetInput = {
-  repositoryId?: string
-  repositoryName?: string
-  gitUrl?: string
-  githubConnectionId?: string
-  branch: string
-  enabled: boolean
-}
-
-export type PagerdutyConnectorConfig = {
-  services: PagerdutyService[]
-  syncTarget: {
-    repositoryId: string
-    repositoryName: string
-    githubConnectionId: string | null
-    branch: string
-    enabled: boolean
-    setupPhase: string
-    pendingConfigPullUrl: string | null
-    pendingConfigPrCreating: boolean
-  } | null
-}
-
 export const pagerdutyConnectorKeys = {
   status: (orgSlug: string, connectionId?: string) =>
     ["pagerduty-connector-status", orgSlug, connectionId ?? "default"] as const,
-  config: (orgSlug: string, connectionId?: string) =>
-    ["pagerduty-connector-config", orgSlug, connectionId ?? "default"] as const,
-  services: (
-    orgSlug: string,
-    connectionId: string | undefined,
-    q: string,
-    offset: number,
-  ) =>
+  services: (orgSlug: string, connectionId: string | undefined, q: string) =>
     [
       "pagerduty-connector-services",
       orgSlug,
       connectionId ?? "default",
       q,
-      offset,
     ] as const,
   allStatusForOrg: (orgSlug: string) =>
     ["pagerduty-connector-status", orgSlug] as const,
@@ -97,21 +66,6 @@ export async function fetchPagerdutyConnectorStatus(
   )
   return readApiJson<PagerdutyConnectorStatus>(res, {
     message: "Failed to fetch PagerDuty connector status",
-  })
-}
-
-export async function fetchPagerdutyConnectorConfig(
-  orgSlug: string,
-  connectionId?: string,
-): Promise<PagerdutyConnectorConfig | null> {
-  const res = await apiFetch(
-    `/${orgSlug}/api/v1/connectors/pagerduty/config${connectionSearch(connectionId)}`,
-    { credentials: "include" },
-  )
-  return readApiJson<PagerdutyConnectorConfig | null>(res, {
-    emptyOn: [409, 404],
-    empty: null,
-    message: "Failed to load PagerDuty connector config",
   })
 }
 
@@ -182,79 +136,6 @@ export async function searchPagerdutyServices(
   )
   if (!res.ok) throw new Error("Failed to search PagerDuty services")
   return res.json() as Promise<{ items: PagerdutyService[]; more: boolean }>
-}
-
-export async function patchPagerdutyConnectorConfig(
-  orgSlug: string,
-  body: {
-    services?: PagerdutyService[]
-    syncTarget?: PagerdutySyncTargetInput
-  },
-  connectionId?: string,
-): Promise<{
-  accepted: true
-  savedCount: number
-  configPrEnqueued: boolean
-  workflowName?: string
-}> {
-  const qs = connectionId
-    ? `?${new URLSearchParams({ connectionId }).toString()}`
-    : ""
-  const res = await fetch(
-    `/${orgSlug}/api/v1/connectors/pagerduty/config${qs}`,
-    {
-      method: "PATCH",
-      credentials: "include",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    },
-  )
-  if (!res.ok) {
-    const errorBody = (await res.json().catch(() => ({}))) as { error?: string }
-    throw new Error(
-      errorBody.error ?? "Failed to save PagerDuty connector config",
-    )
-  }
-  return res.json() as Promise<{
-    accepted: true
-    savedCount: number
-    configPrEnqueued: boolean
-    workflowName?: string
-  }>
-}
-
-export async function retryPagerdutySync(
-  orgSlug: string,
-  connectionId: string,
-): Promise<void> {
-  const res = await fetch(
-    `/${orgSlug}/api/v1/connectors/pagerduty/retry?${new URLSearchParams({ connectionId }).toString()}`,
-    { method: "POST", credentials: "include" },
-  )
-  if (!res.ok) {
-    const body = (await res.json().catch(() => ({}))) as { error?: string }
-    throw new Error(body.error ?? "Failed to retry PagerDuty sync")
-  }
-}
-
-export async function retryPagerdutyConfig(
-  orgSlug: string,
-  connectionId: string,
-  services?: PagerdutyService[],
-): Promise<void> {
-  const res = await fetch(
-    `/${orgSlug}/api/v1/connectors/pagerduty/retry-config?${new URLSearchParams({ connectionId }).toString()}`,
-    {
-      method: "POST",
-      credentials: "include",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(services ? { services } : {}),
-    },
-  )
-  if (!res.ok) {
-    const body = (await res.json().catch(() => ({}))) as { error?: string }
-    throw new Error(body.error ?? "Failed to retry PagerDuty configuration")
-  }
 }
 
 export async function deletePagerdutyConnector(

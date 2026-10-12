@@ -5,6 +5,7 @@ import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { repositories } from "../../db/schema/repositories.js"
 import { applySourceFileChange } from "../../domain/workspace-sources/edit.js"
+import { isLegacyBindingHandedOver } from "../../domain/workspace-sources/legacy-handover.js"
 import { planSourceMigration } from "../../domain/workspace-sources/migration-plan.js"
 import {
   parseSourceEntry,
@@ -15,11 +16,7 @@ import { replaceWorkspaceSourceRows } from "../../models/workspace-sources.js"
 import { seedSourcesOrg } from "../../test/workspace-sources-fixture.js"
 import { parseNotionConfigYamlContent } from "./config-yaml.js"
 import { loadNotionStoredConfig } from "./connection-load.js"
-import {
-  createNotionSourceMigrationHook,
-  isNotionBindingHandedOver,
-  notionLegacyHandedOver,
-} from "./workspace-source-migration.js"
+import { createNotionSourceMigrationHook } from "./workspace-source-migration.js"
 
 /** A `notion/config.yaml` as the old Notion settings wrote it. */
 const LEGACY_CONFIG = `version: 1
@@ -195,7 +192,7 @@ describe("Notion source migration hook (Postgres)", () => {
       accessToken: "fixture-token",
     })
     const handedOver = () =>
-      isNotionBindingHandedOver({
+      isLegacyBindingHandedOver("notion", {
         orgId: seed.orgId,
         connectionId: connection,
         repositoryGitUrl: gitUrl,
@@ -261,26 +258,11 @@ describe("Notion source migration hook (Postgres)", () => {
       ],
     })
     expect(
-      await isNotionBindingHandedOver({
+      await isLegacyBindingHandedOver("notion", {
         orgId: seed.orgId,
         connectionId: legacy,
         repositoryGitUrl: gitUrl,
       }),
-    ).toBe(false)
-  })
-
-  it("lets the legacy sync run when the handover lookup fails", async () => {
-    expect(
-      await notionLegacyHandedOver(
-        {
-          orgId: seed.orgId,
-          connectionId: "con_any",
-          repositoryGitUrl: "https://github.com/acme/any.git",
-        },
-        async () => {
-          throw new Error("database is down")
-        },
-      ),
     ).toBe(false)
   })
 

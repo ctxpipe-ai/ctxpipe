@@ -31,6 +31,11 @@ export type CommitFile = {
   content: string
   /** Defaults to utf-8. Use base64 for binary connector assets. */
   encoding?: "utf-8" | "base64"
+  /**
+   * An existing blob of the repository. With it, the file points at that
+   * blob and `content` is not sent (a move keeps the bytes and history).
+   */
+  sha?: string
 }
 
 const GITHUB_API_MAX_ATTEMPTS = 3
@@ -400,6 +405,15 @@ export async function commitFiles(
   const fileEntries: GitTreeEntry[] = []
   let lastBinaryBlobStartedAt = 0
   for (const file of input.files) {
+    if (file.sha) {
+      fileEntries.push({
+        path: file.path,
+        mode: "100644",
+        type: "blob",
+        sha: file.sha,
+      })
+      continue
+    }
     if (file.encoding === "base64") {
       if (lastBinaryBlobStartedAt > 0) {
         const remainingDelay = 1_000 - (Date.now() - lastBinaryBlobStartedAt)
