@@ -16,10 +16,10 @@ import { conversationSessionBranch } from "../../domain/workspaces/chat-lifecycl
 import {
   describeSessionPullRequest,
   pushConversationSession,
+  recordConversationPush,
   resolvePublishTarget,
   type SessionPublishFailure,
   type SessionPublishSkip,
-  type SessionPushResult,
   sessionBranchOnGithub,
 } from "../../domain/workspaces/conversation-publish.js"
 import { cleanTitle } from "../../domain/workspaces/conversation-title.js"
@@ -45,7 +45,6 @@ import {
   generateObjectId,
 } from "../../lib/id.js"
 import { PageInfoSchema } from "../../lib/pagination.js"
-import { saveConversationSync } from "../../models/conversation-turn-changes.js"
 import {
   type ConversationRecord,
   deleteConversation,
@@ -58,7 +57,7 @@ import {
 } from "../../models/conversations.js"
 import { getWorkspaceById } from "../../models/workspaces.js"
 import { applyAttribution } from "../../observability/attribution.js"
-import { getLogger, log } from "../../observability/logger.js"
+import { getLogger } from "../../observability/logger.js"
 import {
   createPullRequestFromBranch,
   getPullRequestState,
@@ -670,6 +669,9 @@ async function createConversationPullRequest(input: {
 > {
   const { conversation, workspace } = input
   const env = parseEnv(process.env as Record<string, string | undefined>)
+  // The commits are on GitHub once pushed, also when the PR fails to open.
+  let pushed: Awaited<ReturnType<typeof pushConversationSession>> | null = null
+  let pullRequest: { number: number; url: string; opened: boolean } | undefined
   try {
     // A merged branch never gets a second PR; checked first, as the merge
     // also moves the default the sandbox is compared against.
@@ -716,7 +718,7 @@ async function createConversationPullRequest(input: {
     })
     if (!ready.ok && ready.error !== "missing_sandbox")
       return sandboxError(ready)
-    const pushed = ready.ok
+    pushed = ready.ok
       ? await pushConversationSession({
           handle: ready.handle,
           orgId: workspace.orgId,
@@ -750,6 +752,11 @@ async function createConversationPullRequest(input: {
         }))
       )
         return publishError("stale_binding")
+      pullRequest = {
+        number: existing.prNumber,
+        url: existing.pullUrl,
+        opened: false,
+      }
       return {
         pullRequest: {
           branch,
@@ -799,6 +806,11 @@ async function createConversationPullRequest(input: {
       }))
     )
       return publishError("stale_binding")
+    pullRequest = {
+      number: created.pullNumber,
+      url: created.pullUrl,
+      opened: true,
+    }
     return {
       pullRequest: {
         branch: created.branch,
@@ -817,42 +829,15 @@ async function createConversationPullRequest(input: {
       },
     )
     return { status: 502, error: "github_unavailable" }
-  }
-}
-
-/**
- * The thread shows the Sync after the last user turn. The commits are already
- * on GitHub, so a failure to record the Sync is logged and the Sync succeeds.
- */
-async function recordSync(input: {
-  orgId: string
-  conversationId: string
-  pushed: Extract<SessionPushResult, { status: "pushed" }>
-}): Promise<void> {
-  const { pushed } = input
-  try {
-    const thread = await workspaceChatPersistence().stores.messages.loadThread(
-      input.conversationId,
-    )
-    await saveConversationSync({
-      orgId: input.orgId,
-      conversationId: input.conversationId,
-      sync: {
-        branch: pushed.branch,
-        sha: pushed.sha,
-        files: pushed.files,
-        treeUrl: pushed.treeUrl,
-        turn: thread.filter((message) => message.role === "user").length,
-        syncedAt: new Date().toISOString(),
-      },
-    })
-  } catch (error) {
-    log.warn({
-      step: "conversation-sync-record",
-      message: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined,
-      conversationId: input.conversationId,
-    })
+  } finally {
+    if (pushed?.status === "pushed")
+      await recordConversationPush({
+        orgId: workspace.orgId,
+        conversationId: conversation.id,
+        pushed,
+        trigger: "create_pr",
+        pullRequest,
+      })
   }
 }
 
@@ -886,10 +871,11 @@ async function pushConversationBranch(input: {
   })
   if (pushed.status === "unchanged") return publishError("no_changes")
   if (pushed.status !== "pushed") return publishError(pushed.reason)
-  await recordSync({
+  await recordConversationPush({
     orgId: workspace.orgId,
     conversationId: conversation.id,
     pushed,
+    trigger: "sync",
   })
   return { pushed: { branch: pushed.branch, treeUrl: pushed.treeUrl } }
 }

@@ -142,9 +142,19 @@ const ConversationTurnChangesResponseSchema = z
         files: z.array(ChangedFileSchema),
       }),
     ),
-    /** Each Sync of the conversation, oldest first. */
+    /** Each push of the conversation's commits, oldest first. */
     syncs: z.array(
       z.object({
+        /** What pushed: the user's Sync or Create PR, the agent, or the sweep. */
+        trigger: z.enum(["sync", "create_pr", "agent", "sweep"]),
+        /** Create PR: the pull request; `opened` when this push opened it. */
+        pullRequest: z
+          .object({
+            number: z.number().int(),
+            url: z.string(),
+            opened: z.boolean(),
+          })
+          .optional(),
         branch: z.string(),
         sha: z.string(),
         /** The number of files that the pushed commits changed. */
