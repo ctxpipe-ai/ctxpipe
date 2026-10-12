@@ -662,7 +662,8 @@ export async function listSlackChannels(input: {
         id: channel.id,
         name: channel.name?.trim() || channel.id,
         isPrivate: Boolean(channel.is_private),
-        isMember: Boolean(channel.is_member),
+        // Slack lists a private channel only when the bot is in it.
+        isMember: Boolean(channel.is_member ?? channel.is_private),
       })
     }
     const next = page.response_metadata?.next_cursor?.trim()

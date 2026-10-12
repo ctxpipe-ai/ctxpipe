@@ -23,6 +23,7 @@ import {
   exchangeSlackOAuthCode,
   fetchSlackUserProfile,
   getSlackOAuthAuthorizeUrl,
+  listSlackChannels,
   SlackOAuthMissingScopesError,
   verifySlackInstallation,
 } from "../../services/slack/client.js"
@@ -152,6 +153,52 @@ const getStatusRoute = createRoute({
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Unauthorized",
+    },
+  },
+})
+
+const SlackChannelSchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    isPrivate: z.boolean(),
+    isMember: z.boolean(),
+  })
+  .openapi("SlackChannel")
+
+const listChannelsRoute = createRoute({
+  method: "get",
+  path: "/channels",
+  request: { query: ConnectionIdQuerySchema },
+  responses: {
+    200: {
+      content: {
+        "application/json": {
+          schema: z.object({ items: z.array(SlackChannelSchema) }),
+        },
+      },
+      description:
+        "Channels that a Slack source can select: public channels, and private channels that the bot is in",
+    },
+    400: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Multiple Slack connections; pass connectionId",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unknown connectionId",
+    },
+    409: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Slack connection is not installed",
+    },
+    502: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Slack did not return the channels",
     },
   },
 })
@@ -612,6 +659,31 @@ export const slackConnectorRoutes = slackOAuthStartRoutes
       },
       200,
     )
+  })
+  .openapi(listChannelsRoute, async (c) => {
+    if (!c.get("user") || !c.get("session")) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+    const orgId = c.get("orgId")
+    if (!orgId) return c.json({ error: "Unauthorized" }, 401)
+    const { connectionId } = c.req.valid("query")
+    const installed = await resolveInstalledSlack(orgId, connectionId ?? null)
+    if ("error" in installed) {
+      return c.json({ error: installed.error }, installed.status)
+    }
+    try {
+      const items = await listSlackChannels({
+        env: c.var.env,
+        connection: installed.connection,
+      })
+      return c.json({ items }, 200)
+    } catch (error) {
+      getLogger().error(
+        error instanceof Error ? error : new Error(String(error)),
+        { step: "slack.channels.list", connectionId: installed.connection.id },
+      )
+      return c.json({ error: "Could not load the Slack channels" }, 502)
+    }
   })
   .openapi(verifyInstallationRoute, async (c) => {
     if (!c.get("user") || !c.get("session")) {
