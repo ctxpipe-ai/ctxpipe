@@ -1,66 +1,179 @@
 import HyperDX from "@hyperdx/browser"
-import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { useState } from "react"
-import { workspaceCreateLandingSearch } from "./github-workspace-destination-nav"
-import { createWorkspace, workspaceKeys } from "./queries"
-import { WorkspaceRepositoryPicker } from "./WorkspaceRepositoryPicker"
+import { Heading } from "react-aria-components"
+import { Button } from "@/components/ui/Button"
+import { InlineAlert } from "@/components/ui/InlineAlert"
+import { InlineLoader } from "@/components/ui/InlineLoader"
+import { ConnectorSetupStepper } from "@/features/connectors/components/ConnectorSetupStepper"
+import { WorkspaceSources } from "@/features/workspace-sources/WorkspaceSources"
+import { pollWhileOk } from "@/lib/api-result"
+import { WRITE_CHECK_POLL_CAP_MS, writeCheckInFlight } from "./projection"
+import {
+  createWorkspace,
+  workspaceDetailOptions,
+  workspaceKeys,
+} from "./queries"
+import {
+  type WorkspaceRepositoryChoice,
+  WorkspaceRepositoryPicker,
+} from "./WorkspaceRepositoryPicker"
 
-export function WorkspaceCreateForm(props: {
-  orgSlug: string
-  onCreated?: (slug: string) => void
-  after?: "settings"
-}) {
-  const { orgSlug, onCreated, after } = props
-  const navigate = useNavigate()
+/**
+ * Add Workspace in two steps. Step 1 chooses the Workspace repository and
+ * creates the Workspace. Step 2 adds code repositories and tools to it.
+ */
+export function WorkspaceCreateForm(props: { orgSlug: string }) {
+  const { orgSlug } = props
   const queryClient = useQueryClient()
   const [error, setError] = useState<string | null>(null)
+  const [createdSlug, setCreatedSlug] = useState<string | null>(null)
 
   const createMutation = useMutation({
-    mutationFn: (choice: {
-      gitUrl: string
-      githubConnectionId?: string
-      source: "select" | "paste"
-    }) => createWorkspace(orgSlug, choice),
+    mutationFn: (choice: WorkspaceRepositoryChoice) =>
+      createWorkspace(orgSlug, choice),
     onSuccess: (workspace) => {
       HyperDX.addAction("workspace_created")
       void queryClient.invalidateQueries({
         queryKey: workspaceKeys.list(orgSlug),
       })
-      if (onCreated) {
-        onCreated(workspace.slug)
-        return
-      }
-      void navigate({
-        to: "/$orgSlug/ws/$workspaceSlug",
-        params: { orgSlug, workspaceSlug: workspace.slug },
-        search: workspaceCreateLandingSearch(after),
-      })
+      setCreatedSlug(workspace.slug)
     },
     onError: (err: Error) => setError(err.message),
   })
 
   return (
     <div className="w-full">
-      <h1 className="text-lg font-medium tracking-tight">Add Workspace</h1>
-      <p className="mt-2 text-sm text-muted-foreground">
-        Pick one repository to be this Workspace’s repository. ctxpipe writes
-        the Workspace’s knowledge and connector files into it and reads its
-        code. A monorepo works as one repository. You can link more repositories
-        for code search in Settings after you create the Workspace.
-      </p>
-      <div className="mt-6">
-        <WorkspaceRepositoryPicker
-          orgSlug={orgSlug}
-          submitLabel="Create Workspace"
-          pending={createMutation.isPending}
-          error={error}
-          onSubmit={(choice) => {
-            setError(null)
-            createMutation.mutate(choice)
-          }}
-        />
-      </div>
+      {/* In the Add Workspace modal, the title slot names the dialog. */}
+      <Heading
+        slot="title"
+        level={1}
+        className="my-0 text-lg font-medium tracking-tight"
+      >
+        Add Workspace
+      </Heading>
+      <ConnectorSetupStepper
+        className="mt-4"
+        steps={[
+          { id: "repository", label: "Choose the Workspace repository" },
+          { id: "sources", label: "Add code repositories and tools" },
+        ]}
+        currentIndex={createdSlug ? 1 : 0}
+      />
+      {createdSlug ? (
+        <AddSourcesStep orgSlug={orgSlug} workspaceSlug={createdSlug} />
+      ) : (
+        <>
+          <p className="mt-6 text-sm text-muted-foreground">
+            ctxpipe saves this Workspace’s knowledge in the repository you
+            choose.
+          </p>
+          <div className="mt-4">
+            <WorkspaceRepositoryPicker
+              orgSlug={orgSlug}
+              submitLabel="Create Workspace"
+              pending={createMutation.isPending}
+              error={error}
+              onSubmit={(choice) => {
+                setError(null)
+                createMutation.mutate(choice)
+              }}
+            />
+          </div>
+        </>
+      )}
     </div>
+  )
+}
+
+/**
+ * The Connectors section of Workspace settings, for the new Workspace. A new
+ * Workspace starts with an unknown write status, and sources can only be
+ * added after the write-access check, so the step waits for that check.
+ * The wait stops at the same cap as the Workspace page, which owns
+ * "Check again".
+ */
+function AddSourcesStep(props: { orgSlug: string; workspaceSlug: string }) {
+  const { orgSlug, workspaceSlug } = props
+  const navigate = useNavigate()
+  const [startedAt] = useState(Date.now)
+  const detailQuery = useQuery({
+    ...workspaceDetailOptions(orgSlug, workspaceSlug),
+    refetchInterval: (query) =>
+      query.state.data &&
+      writeCheckInFlight(query.state.data) &&
+      query.state.dataUpdatedAt - startedAt < WRITE_CHECK_POLL_CAP_MS
+        ? pollWhileOk(2000)(query)
+        : false,
+  })
+  const workspace = detailQuery.data
+
+  return (
+    <>
+      <p className="mt-6 text-sm text-muted-foreground">
+        ctxpipe reads these sources to answer questions. You can change them
+        later under Connectors in Workspace settings.
+      </p>
+      <div className="mt-4">
+        {detailQuery.isError ? (
+          <InlineAlert
+            variant="error"
+            title="Could not load the Workspace"
+            actions={
+              <Button
+                variant="secondary"
+                onPress={() => void detailQuery.refetch()}
+              >
+                Retry
+              </Button>
+            }
+          >
+            Try again, or open the Workspace and add sources under Connectors in
+            Settings.
+          </InlineAlert>
+        ) : !workspace ||
+          (writeCheckInFlight(workspace) &&
+            detailQuery.dataUpdatedAt - startedAt < WRITE_CHECK_POLL_CAP_MS) ? (
+          <InlineLoader label="Checking write access" />
+        ) : writeCheckInFlight(workspace) ? (
+          <InlineAlert variant="warning" title="Still checking write access">
+            The check takes longer than usual. Open the Workspace to check
+            again, then add sources under Connectors in Settings.
+          </InlineAlert>
+        ) : workspace.conversationWritable === false ? (
+          <InlineAlert
+            variant="warning"
+            title={
+              workspace.writeStatus === "unknown"
+                ? "Could not check write access"
+                : "Read-only"
+            }
+          >
+            {workspace.readOnlyReason}
+          </InlineAlert>
+        ) : (
+          <WorkspaceSources
+            orgSlug={orgSlug}
+            workspaceSlug={workspaceSlug}
+            linkedRepositories={workspace.linkedRepositories}
+            workspaceRepositoryUrl={workspace.workspaceRepositoryUrl}
+          />
+        )}
+      </div>
+      <div className="mt-6 flex justify-end">
+        <Button
+          variant="primary"
+          onPress={() => {
+            void navigate({
+              to: "/$orgSlug/ws/$workspaceSlug",
+              params: { orgSlug, workspaceSlug },
+            })
+          }}
+        >
+          Open Workspace
+        </Button>
+      </div>
+    </>
   )
 }

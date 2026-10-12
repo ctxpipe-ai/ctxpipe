@@ -78,7 +78,7 @@ export function ConnectorWorkspaceDestinationPicker(props: {
           repository.
         </p>
         <a
-          href={`/${orgSlug}/workspaces/new?after=settings`}
+          href={`/${orgSlug}/workspaces/new`}
           className="text-sm text-teal-400 hover:text-teal-300"
         >
           Create a workspace

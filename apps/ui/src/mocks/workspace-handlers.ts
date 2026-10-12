@@ -64,6 +64,13 @@ export function workspaceDetailHandler(detail: WorkspaceDetail | null) {
   )
 }
 
+export function workspaceCreateHandler(created: Workspace) {
+  return http.post(
+    ({ request }) => /\/api\/v1\/workspaces$/.test(pathnameOf(request)),
+    () => HttpResponse.json(created, { status: 201 }),
+  )
+}
+
 export function workspaceDetailLoadingHandler() {
   return http.get(
     ({ request }) => /\/api\/v1\/workspaces\/[^/]+$/.test(pathnameOf(request)),
