@@ -6,6 +6,7 @@ import { useState } from "react"
 import { Button } from "@/components/ui/Button"
 import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
+import { AddToWorkspacesStep } from "@/features/workspace-sources/AddToWorkspacesStep"
 import { useNotionOAuthConnect } from "../hooks/useNotionOAuthConnect"
 import {
   getNotionSetupCurrentIndex,
@@ -19,7 +20,6 @@ import {
   notionConnectorKeys,
 } from "../queries/notion-connector"
 import { ConnectorSetupStepper } from "./ConnectorSetupStepper"
-import { AddNotionToWorkspacesStep } from "./notion-setup/AddNotionToWorkspacesStep"
 import { AddNotionWebhookStep } from "./notion-setup/AddNotionWebhookStep"
 import { RegisterNotionOauthStep } from "./notion-setup/RegisterNotionOauthStep"
 
@@ -166,9 +166,13 @@ export function NotionSetupDialog({
     }
     if (!workspacesDone) {
       return (
-        <AddNotionToWorkspacesStep
+        <AddToWorkspacesStep
           orgSlug={orgSlug}
+          provider="notion"
           connectionId={connectionId}
+          label="Notion"
+          description="the pages and databases for each"
+          items="the pages"
           replacedConfigPullUrl={status.pendingConfigPullUrl}
           onDone={() => setWorkspacesDone(true)}
         />

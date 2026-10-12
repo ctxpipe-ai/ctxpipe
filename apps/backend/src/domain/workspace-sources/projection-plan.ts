@@ -124,7 +124,11 @@ export async function planSourceRows(input: {
       sourceKey,
       typeof accessIssue === "string"
         ? { ...base, status: "out_of_access", statusDetail: accessIssue }
-        : { ...base, status: "ok", statusDetail: accessIssue?.okDetail ?? null },
+        : {
+            ...base,
+            status: "ok",
+            statusDetail: accessIssue?.okDetail ?? null,
+          },
     )
   }
   return [...rows.values()]

@@ -11,7 +11,10 @@ import type {
   SourceFetchResult,
 } from "../../domain/workspace-sources/adapter.js"
 import type { NotionSourceScope } from "../../domain/workspace-sources/providers/notion.js"
-import type { NotionSourceSync } from "../../lib/connection-config.js"
+import {
+  countSourceFailure,
+  type NotionSourceSync,
+} from "../../lib/connection-config.js"
 import { saveConnectionSourceSync } from "../../models/connection-source-sync.js"
 import type { NotionConnection } from "../../models/notion-connector.js"
 import { getLogger } from "../../observability/logger.js"
@@ -129,9 +132,6 @@ async function loadSourceSync(
   )
   return stored?.sourceSync ?? { failures: {} }
 }
-
-/** Count a failure at most one time in this window (a burst of webhooks). */
-const FAILURE_COUNT_WINDOW_MS = 60 * 60 * 1000
 
 /**
  * The roots that a webhook event can change: the roots whose files hold the
@@ -312,20 +312,18 @@ export const notionSourceAdapter: SourceAdapter<NotionSourceScope> = {
         })
         continue
       }
-      const previous = failures[key]
-      if (
-        previous?.countedAt &&
-        now.getTime() - Date.parse(previous.countedAt) < FAILURE_COUNT_WINDOW_MS
-      )
-        continue
-      const tries = (previous?.tries ?? 0) + 1
-      const detail = `${rootLabel(root)} failed ${tries} syncs: ctx| cannot read it (${error.status}). Share it with the ctx| integration in Notion, or remove it from the source.`
-      failures[key] = { tries, detail, countedAt: now.toISOString() }
-      if (tries >= NOTION_SYNC_MAX_TRIES)
+      const counted = countSourceFailure({
+        failures,
+        key,
+        now,
+        detail: (tries) =>
+          `${rootLabel(root)} failed ${tries} syncs: ctx| cannot read it (${error.status}). Share it with the ctx| integration in Notion, or remove it from the source.`,
+      })
+      if (counted && counted.tries >= NOTION_SYNC_MAX_TRIES)
         result.unreachable.push({
           path: prefix,
           status: "out_of_access",
-          detail,
+          detail: counted.detail,
         })
     }
     // A full sync sees every root, so it drops the counts of removed roots.

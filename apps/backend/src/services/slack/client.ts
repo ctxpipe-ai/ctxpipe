@@ -686,4 +686,3 @@ export async function listSlackChannels(input: {
     truncated: Boolean(cursor),
   }
 }
-

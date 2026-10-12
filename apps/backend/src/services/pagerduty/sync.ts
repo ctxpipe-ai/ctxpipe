@@ -92,7 +92,7 @@ function createPagerdutyTokenRefreshHandler(input: {
     )
 }
 
-async function resolveFreshAccessToken(input: {
+export async function resolveFreshAccessToken(input: {
   orgId: string
   env: Env
   connection: PagerdutyConnection

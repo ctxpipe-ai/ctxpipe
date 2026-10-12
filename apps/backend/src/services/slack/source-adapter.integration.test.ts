@@ -7,6 +7,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
 import { useMswServer } from "../../../test/msw.js"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
+import { projectWorkspaceSources } from "../../domain/workspace-sources/project.js"
 import { diffSlice } from "../../domain/workspace-sources/slice-diff.js"
 import {
   cleanupRemovedSources,
@@ -18,7 +19,6 @@ import {
   getSlackConnectionByConnectionId,
   type SlackConnection,
 } from "../../models/slack-connector.js"
-import { projectWorkspaceSources } from "../../domain/workspace-sources/project.js"
 import {
   listWorkspaceSourceRows,
   replaceWorkspaceSourceRows,

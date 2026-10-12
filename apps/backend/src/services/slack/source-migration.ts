@@ -51,26 +51,34 @@ export function slackLegacyBindings(input: {
       // Only the bound repository has the captures, so a Workspace that
       // only links it does not get the source.
       ownRepositoryOnly: true,
-      // Move each old capture directory to the managed path of its channel.
-      movePaths: [
-        ...new Map(
-          input.paths.flatMap((path) => {
-            const match = CAPTURED_CHANNEL.exec(path)
-            return match?.[1] ? [[match[0], match[1]] as const] : []
-          }),
-        ),
-      ]
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([from, channelId]) => ({
-          from,
-          to: slackSourceChannelDir(channelId),
-        })),
     },
   ]
 }
 
+/**
+ * Move each old capture `slack/channels/<slug>--<id>/…` to the managed path
+ * `slack/channels/<id>/…` of its channel, by blob sha, so the threads stay
+ * managed and git keeps their history. No file is read.
+ */
+export async function planSlackLegacyMoves(input: {
+  files: ReadonlyArray<{ path: string; sha: string }>
+}): Promise<Array<{ from: string; to: string; sha: string }>> {
+  return input.files.flatMap((file) => {
+    const match = CAPTURED_CHANNEL.exec(file.path)
+    if (!match?.[1]) return []
+    return [
+      {
+        from: file.path,
+        to: `${slackSourceChannelDir(match[1])}${file.path.slice(match[0].length)}`,
+        sha: file.sha,
+      },
+    ]
+  })
+}
+
 export const slackSourceMigrationHook: SourceMigrationHook = {
   provider: "slack",
+  legacyMoves: planSlackLegacyMoves,
   async listLegacyBindings({ orgId, env }) {
     const connections = await withOrgDbContext(orgId, () =>
       listSlackConnectionsForOrg(orgId),

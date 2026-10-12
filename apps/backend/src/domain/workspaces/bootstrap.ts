@@ -2,17 +2,13 @@ import { KNOWLEDGE_SKILL_PATH, parseSimpleFrontMatter } from "./layout.js"
 import { isBootstrapAllowedPath } from "./write-jobs.js"
 
 export const BOOTSTRAP_SKILL_PATH = KNOWLEDGE_SKILL_PATH
-export const FOLDER_MAP_START = "<!-- ctxpipe:folder-map -->"
-export const FOLDER_MAP_END = "<!-- /ctxpipe:folder-map -->"
 
 const FOLDER_MAP_HEADING =
   /^#{1,6}\s+.*\b(folders?|director(?:y|ies)|layout|structure)\b/i
-const DEFAULT_FOLDER_MAP = `${FOLDER_MAP_START}
-## Folder Structure
+const DEFAULT_FOLDER_MAP = `## Folder Structure
 
 - \`knowledge/\` — workspace knowledge units
-- \`repositories/\` — linked remotes for search
-${FOLDER_MAP_END}`
+- \`repositories/\` — linked remotes for search`
 
 const DEFAULT_SKILL = `---
 name: ctxpipe-knowledge
@@ -164,42 +160,10 @@ function serializeFrontMatter(attributes: Record<string, unknown>): string {
   return lines.join("\n")
 }
 
-function bodyHasSemanticFolderMap(body: string): boolean {
-  return (
-    FOLDER_MAP_HEADING.test(body) &&
-    /knowledge\//i.test(body) &&
-    /repositories\//i.test(body)
-  )
-}
-
 function ensureFolderStructureSection(body: string): string {
-  if (body.includes(FOLDER_MAP_START) && body.includes(FOLDER_MAP_END)) {
+  // Old marker lines are removed by the folder-list job, not here.
+  if (body.split(/\r?\n/).some((line) => FOLDER_MAP_HEADING.test(line.trim())))
     return body
-  }
-  const lines = body.split(/\r?\n/)
-  const headingIdx = lines.findIndex((line) =>
-    FOLDER_MAP_HEADING.test(line.trim()),
-  )
-  if (headingIdx >= 0) {
-    let end = lines.length
-    for (let i = headingIdx + 1; i < lines.length; i++) {
-      if (/^#{1,6}\s+/.test(lines[i] ?? "")) {
-        end = i
-        break
-      }
-    }
-    const wrapped = [
-      ...lines.slice(0, headingIdx),
-      FOLDER_MAP_START,
-      ...lines.slice(headingIdx, end),
-      FOLDER_MAP_END,
-      ...lines.slice(end),
-    ]
-    return wrapped.join("\n")
-  }
-  if (headingIdx < 0 && bodyHasSemanticFolderMap(body)) {
-    return `${FOLDER_MAP_START}\n${body.trim()}\n${FOLDER_MAP_END}`
-  }
   const trimmed = body.trim()
   return trimmed ? `${trimmed}\n\n${DEFAULT_FOLDER_MAP}` : DEFAULT_FOLDER_MAP
 }

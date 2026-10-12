@@ -51,6 +51,12 @@ export async function reserveHydrateWrites(input: {
     for (const requirement of input.remaining) {
       const { kind, remainder } = requirement
       if (remainder <= 0) continue
+      // A folder-list job answers one folder change. A new change on the
+      // same root is a new concern, not a retry of the earlier job.
+      const folderChange =
+        requirement.kind === "ops_folder_map"
+          ? requirement.previousSha
+          : undefined
       const [previous] = await db
         .select()
         .from(workspaceWriteJobs)
@@ -59,6 +65,9 @@ export async function reserveHydrateWrites(input: {
             binding,
             eq(workspaceWriteJobs.kind, kind),
             sql`${workspaceWriteJobs.payload}->'planning'->>'rootSha' = ${rootSha}`,
+            folderChange
+              ? sql`${workspaceWriteJobs.payload}->>'previousSha' = ${folderChange}`
+              : undefined,
           ),
         )
         .orderBy(
@@ -101,6 +110,7 @@ export async function reserveHydrateWrites(input: {
             sha: rootSha,
             kind,
             attempt: planning.attempt,
+            ...(folderChange ? { previousSha: folderChange } : {}),
           }),
         )
         .digest("hex")}`
@@ -117,7 +127,7 @@ export async function reserveHydrateWrites(input: {
           jobWorkspaceUrl: revision.remote.url,
           defaultBranch: revision.defaultBranch,
           planning,
-          ...(requirement.kind === "rename_rewrite"
+          ...("previousSha" in requirement && requirement.previousSha
             ? { previousSha: requirement.previousSha }
             : {}),
         },
@@ -125,7 +135,7 @@ export async function reserveHydrateWrites(input: {
       reserved.push({
         kind,
         jobId,
-        ...(requirement.kind === "rename_rewrite"
+        ...("previousSha" in requirement && requirement.previousSha
           ? { previousSha: requirement.previousSha }
           : {}),
       })

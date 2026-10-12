@@ -1,8 +1,8 @@
 import { bootstrapWorkspaceFiles } from "./bootstrap.js"
+import { removeFolderMapMarkers } from "./folder-list.js"
 import { hydrateKnowledgeTree } from "./hydrate.js"
 import {
   claimsUpgradeRemainder,
-  opsFolderMapRemainder,
   validFromPersistRemainder,
 } from "./hydrate-write-jobs.js"
 import type { WorkspaceRevision } from "./revision.js"
@@ -15,8 +15,13 @@ export type HydrateWriteRequirement =
         | "import_key_cleanup"
         | "claims_upgrade"
         | "valid_from_persist"
-        | "ops_folder_map"
       remainder: number
+    }
+  | {
+      kind: "ops_folder_map"
+      remainder: number
+      /** Set when the folder set changed since this hydrated revision. */
+      previousSha?: string
     }
   | { kind: "rename_rewrite"; remainder: number; previousSha: string }
 
@@ -32,6 +37,7 @@ export function planHydrateWrites(input: {
     files: input.files,
   })
   const existing = new Map(input.files.map((file) => [file.path, file.content]))
+  const agentsMd = existing.get("AGENTS.md") ?? ""
   const remaining = {
     bootstrap: bootstrapWorkspaceFiles({
       displayName: input.displayName,
@@ -39,7 +45,8 @@ export function planHydrateWrites(input: {
     }).filter((file) => existing.get(file.path) !== file.content).length,
     claims_upgrade: claimsUpgradeRemainder(units),
     valid_from_persist: validFromPersistRemainder(units),
-    ops_folder_map: opsFolderMapRemainder(existing.get("AGENTS.md") ?? null),
+    // Retired folder-map marker lines still in AGENTS.md: one cleanup write.
+    ops_folder_map: removeFolderMapMarkers(agentsMd) === agentsMd ? 0 : 1,
   }
   return (Object.keys(remaining) as Array<keyof typeof remaining>)
     .filter((kind) => remaining[kind] > 0)

@@ -2,6 +2,7 @@ import type { Env } from "../../config/env.js"
 import { confluenceSourceMigrationHook } from "../../services/confluence/workspace-source-migration.js"
 import { linearSourceMigrationHook } from "../../services/linear/source-migration.js"
 import { notionSourceMigrationHook } from "../../services/notion/workspace-source-migration.js"
+import { pagerdutySourceMigrationHook } from "../../services/pagerduty/workspace-source-migration.js"
 import { slackSourceMigrationHook } from "../../services/slack/source-migration.js"
 import { parseLinkedRepositoryMarkdown } from "../workspaces/layout.js"
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
@@ -27,11 +28,6 @@ export type LegacySourceBinding =
        * repository, not to a Workspace that links it.
        */
       ownRepositoryOnly?: boolean
-      /**
-       * Directories that the migration PR moves (same blobs) to the managed
-       * paths of the new source, for example old captures.
-       */
-      movePaths?: ReadonlyArray<{ from: string; to: string }>
     }
   | {
       provider: SourceProvider
@@ -55,6 +51,16 @@ export type SourceMigrationHook = {
    * Workspace sources sync writes its content (`--apply`).
    */
   disableLegacy?(input: { orgId: string; connectionId: string }): Promise<void>
+  /**
+   * Optional. Move the old mirror files into the new managed paths in the
+   * migration commit (`--apply`), by blob sha, so git keeps their history.
+   * It runs only for a Workspace whose repository is the old sync
+   * repository. `read` gives the text of one file.
+   */
+  legacyMoves?(input: {
+    files: ReadonlyArray<{ path: string; sha: string }>
+    read: (path: string) => Promise<string | null | undefined>
+  }): Promise<Array<{ from: string; to: string; sha: string }>>
 }
 
 export const SOURCE_MIGRATION_HOOKS: Partial<
@@ -63,6 +69,7 @@ export const SOURCE_MIGRATION_HOOKS: Partial<
   confluence: confluenceSourceMigrationHook,
   linear: linearSourceMigrationHook,
   notion: notionSourceMigrationHook,
+  pagerduty: pagerdutySourceMigrationHook,
   slack: slackSourceMigrationHook,
 }
 
@@ -128,8 +135,6 @@ export function planSourceMigration(input: {
   changes: Map<string, SourceChange[]>
   /** The repository files that the GitHub source replaces, per Workspace. */
   deletePaths: Map<string, string[]>
-  /** The directories to move in the migration PR, per Workspace. */
-  moves: Map<string, Array<{ from: string; to: string }>>
   report: SourceMigrationReport
 } {
   const report: SourceMigrationReport = {
@@ -138,7 +143,6 @@ export function planSourceMigration(input: {
     unmapped: [],
   }
   const changes = new Map<string, SourceChange[]>()
-  const moves = new Map<string, Array<{ from: string; to: string }>>()
   const present = new Map(
     input.workspaces.map((workspace) => [
       workspace.id,
@@ -199,20 +203,13 @@ export function planSourceMigration(input: {
       })
       continue
     }
-    for (const workspace of workspaces) {
-      const added = add(workspace.id, {
+    for (const workspace of workspaces)
+      add(workspace.id, {
         action: "add",
         provider: binding.provider,
         connectionId: binding.connectionId,
         scope: binding.scope,
       })
-      // Move the files only in the PR that adds the source.
-      if (added && binding.movePaths?.length)
-        moves.set(workspace.id, [
-          ...(moves.get(workspace.id) ?? []),
-          ...binding.movePaths,
-        ])
-    }
   }
 
   const deletePaths = new Map<string, string[]>()
@@ -263,5 +260,5 @@ export function planSourceMigration(input: {
     // Delete the files only in the PR that adds the source.
     if (added && paths.length) deletePaths.set(workspace.id, paths)
   }
-  return { changes, deletePaths, moves, report }
+  return { changes, deletePaths, report }
 }

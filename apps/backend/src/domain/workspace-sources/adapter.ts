@@ -3,6 +3,7 @@ import { confluenceSourceAdapter } from "../../services/confluence/workspace-sou
 import type { GitFileChange } from "../../services/git/file-change.js"
 import { linearSourceAdapter } from "../../services/linear/source-adapter.js"
 import { notionSourceAdapter } from "../../services/notion/workspace-source-adapter.js"
+import { pagerdutySourceAdapter } from "../../services/pagerduty/workspace-source-adapter.js"
 import { slackSourceAdapter } from "../../services/slack/source-adapter.js"
 import type { SourceProvider } from "./sources-file.js"
 
@@ -128,5 +129,6 @@ export const SOURCE_ADAPTERS: Partial<Record<SourceProvider, SourceAdapter>> = {
   confluence: confluenceSourceAdapter,
   linear: linearSourceAdapter,
   notion: notionSourceAdapter as SourceAdapter,
+  pagerduty: pagerdutySourceAdapter as SourceAdapter,
   slack: slackSourceAdapter,
 }

@@ -1,6 +1,7 @@
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
+import { legacyBindingHandedOver } from "../../domain/workspace-sources/legacy-handover.js"
 import { captureConnectorMirrorTarget } from "../../domain/workspaces/capture-connector-mirror.js"
 import {
   activateConnectorSync,
@@ -19,7 +20,6 @@ import {
 import { parseNotionConfigYamlContent } from "../../services/notion/config-yaml.js"
 import { loadNotionConnection } from "../../services/notion/connection-load.js"
 import { captureNotionContent } from "../../services/notion/sync.js"
-import { notionLegacyHandedOver } from "../../services/notion/workspace-source-migration.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { runRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
 import { parsedNotionRepoScopeSchema } from "../notion-scope-repo-schema.js"
@@ -72,7 +72,7 @@ export const notionSyncContent = defineWorkflow(
                 input.connectionId,
               )
               return binding
-                ? notionLegacyHandedOver({
+                ? legacyBindingHandedOver("notion", {
                     orgId: input.orgId,
                     connectionId: input.connectionId,
                     repositoryGitUrl: binding.repositoryGitUrl,
