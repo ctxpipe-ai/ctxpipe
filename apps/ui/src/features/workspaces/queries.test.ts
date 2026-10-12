@@ -11,6 +11,7 @@ import {
   conversationGitTreeOptions,
   deleteWorkspace,
   fetchWorkspaceGitTree,
+  forgetDeletedWorkspace,
   landingWorkspace,
   refreshConversationAfterTurn,
   retryPrepareWorkspace,
@@ -75,6 +76,37 @@ describe("landingWorkspace", () => {
 
 const server = setupServer()
 let restoreFetch = () => {}
+
+describe("forgetDeletedWorkspace", () => {
+  it("drops the Workspace from the list and the cached org activity", async () => {
+    const client = new QueryClient()
+    const list: WorkspaceListResponse = {
+      lastUsedWorkspaceId: null,
+      items: [ws("ws_a", "alpha"), ws("ws_b", "beta")],
+    }
+    client.setQueryData(workspaceKeys.list("acme"), list)
+    client.setQueryData(workspaceKeys.orgActivity("acme", null), {})
+    client.setQueryData(workspaceKeys.orgActivity("acme", "2026-08-22"), {})
+    client.setQueryData(workspaceKeys.orgActivity("other", null), {})
+
+    await forgetDeletedWorkspace(client, "acme", "ws_a")
+
+    expect(
+      client
+        .getQueryData<WorkspaceListResponse>(workspaceKeys.list("acme"))
+        ?.items.map((item) => item.id),
+    ).toEqual(["ws_b"])
+    expect(
+      client.getQueryData(workspaceKeys.orgActivity("acme", null)),
+    ).toBeUndefined()
+    expect(
+      client.getQueryData(workspaceKeys.orgActivity("acme", "2026-08-22")),
+    ).toBeUndefined()
+    expect(
+      client.getQueryData(workspaceKeys.orgActivity("other", null)),
+    ).toEqual({})
+  })
+})
 
 describe("workspace query HTTP helpers", () => {
   beforeAll(() => {

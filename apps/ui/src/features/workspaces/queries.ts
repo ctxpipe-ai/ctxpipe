@@ -413,6 +413,29 @@ async function fetchOrgActivity(
   })
 }
 
+/**
+ * After a delete, remove the Workspace from the cached list before Home
+ * renders, and drop the cached org activity. Home keeps a query fresh for a
+ * minute, so without this it shows the deleted Workspace again.
+ */
+export async function forgetDeletedWorkspace(
+  queryClient: QueryClient,
+  orgSlug: string,
+  workspaceId: string,
+) {
+  await queryClient.cancelQueries({ queryKey: workspaceKeys.list(orgSlug) })
+  queryClient.setQueryData<WorkspaceListResponse>(
+    workspaceKeys.list(orgSlug),
+    (list) =>
+      list && {
+        ...list,
+        items: list.items.filter((item) => item.id !== workspaceId),
+      },
+  )
+  // Every day of the org activity: the key prefix without the date.
+  queryClient.removeQueries({ queryKey: ["org-activity", orgSlug] })
+}
+
 /** When the org activity read first listed a pending workspace, per query. */
 const orgActivityPendingSince = new WeakMap<object, number>()
 

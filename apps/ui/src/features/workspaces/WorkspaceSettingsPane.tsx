@@ -20,14 +20,11 @@ import { writeCheckInFlight } from "./projection"
 import {
   checkWorkspaceWriteAccess,
   deleteWorkspace,
+  forgetDeletedWorkspace,
   updateWorkspace,
   workspaceKeys,
 } from "./queries"
-import type {
-  WorkspaceDetail,
-  WorkspaceListResponse,
-  WorkspaceSkippedFile,
-} from "./types"
+import type { WorkspaceDetail, WorkspaceSkippedFile } from "./types"
 import { WorkspaceRepositoryPicker } from "./WorkspaceRepositoryPicker"
 import { workspaceDeleteNameMatches } from "./workspaceDeleteNameMatches"
 import { useWriteCheckStall } from "./writeCheckStall"
@@ -255,18 +252,7 @@ export function WorkspaceSettingsPane(props: {
     onSuccess: async () => {
       toast.success("Workspace deleted")
       setDeleteOpen(false)
-      // Remove the Workspace from the cached list before Home renders.
-      await queryClient.cancelQueries({
-        queryKey: workspaceKeys.list(orgSlug),
-      })
-      queryClient.setQueryData<WorkspaceListResponse>(
-        workspaceKeys.list(orgSlug),
-        (list) =>
-          list && {
-            ...list,
-            items: list.items.filter((item) => item.id !== workspace.id),
-          },
-      )
+      await forgetDeletedWorkspace(queryClient, orgSlug, workspace.id)
       void navigate({
         to: "/$orgSlug",
         params: { orgSlug },
