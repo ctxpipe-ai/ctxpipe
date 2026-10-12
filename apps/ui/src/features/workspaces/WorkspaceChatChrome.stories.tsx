@@ -265,8 +265,8 @@ export const CreatingPr: Story = {
 }
 
 /**
- * Show PR has the pull request icon, and an external-link badge at its top
- * right. Its name tells that it opens in a new tab.
+ * Show PR has the pull request icon on the left and no external-link icon.
+ * Its name tells that it opens in a new tab.
  */
 export const ShowPr: Story = {
   tags: ["workspace-golden"],
@@ -311,24 +311,10 @@ export const ShowPr: Story = {
     expect(
       showPr.querySelector("svg.tabler-icon-git-pull-request"),
     ).not.toBeNull()
-    const badge = showPr.querySelector("svg.tabler-icon-external-link")
-    expect(badge).not.toBeNull()
-    const link = showPr.getBoundingClientRect()
-    const mark = badge?.getBoundingClientRect()
-    // The badge is small and sits in the top right corner of the link.
-    expect(mark?.width).toBeGreaterThanOrEqual(10)
-    expect(mark?.width).toBeLessThanOrEqual(12)
-    expect((mark?.top ?? 0) - link.top).toBeLessThan(link.height / 3)
-    expect(link.right - (mark?.right ?? 0)).toBeLessThan(link.width / 6)
-    // The badge does not overlap the text.
-    const textNode = [...showPr.childNodes].find(
-      (n) =>
-        n.nodeType === Node.TEXT_NODE && n.textContent?.includes("Show PR"),
-    )
-    const range = document.createRange()
-    range.selectNodeContents(textNode as Node)
-    expect(range.getBoundingClientRect().right).toBeLessThanOrEqual(
-      mark?.left ?? 0,
+    expect(showPr.querySelector("svg.tabler-icon-external-link")).toBeNull()
+    // The icon is the first child, left of the text.
+    expect(showPr.firstElementChild).toBe(
+      showPr.querySelector("svg.tabler-icon-git-pull-request"),
     )
   },
 }
@@ -398,5 +384,71 @@ export const ChatError: Story = {
         </div>
       </div>
     ),
+  },
+}
+
+const syncCta = {
+  commitPush: {
+    visible: true,
+    enabled: true,
+    pending: false,
+    onPress: () => {},
+  },
+  pullRequest: {
+    visible: true,
+    action: "create" as const,
+    pending: false,
+    onPress: () => {},
+  },
+}
+
+/** The CTA button has a light face with dark text, and a hover state from the tokens. */
+export const CtaButtonStyle: Story = {
+  tags: ["workspace-golden"],
+  args: { cta: syncCta },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const sync = await canvas.findByRole("button", { name: syncName })
+    const face = getComputedStyle(sync)
+    expect(face.backgroundColor).not.toBe("rgba(0, 0, 0, 0)")
+    expect(face.color).not.toBe(face.backgroundColor)
+    expect(face.fontSize).toBe("12px")
+    expect(face.fontWeight).toBe("400")
+    expect(sync.getBoundingClientRect().height).toBeLessThanOrEqual(28)
+    expect(sync.querySelector("svg.tabler-icon-external-link")).toBeNull()
+    const rest = face.backgroundColor
+    await userEvent.hover(sync)
+    await waitFor(() =>
+      expect(getComputedStyle(sync).backgroundColor).not.toBe(rest),
+    )
+  },
+}
+
+/** The branch is a label with a git-branch icon. A long name truncates, and the tooltip has the full ref. */
+export const BranchLabel: Story = {
+  tags: ["workspace-golden"],
+  args: {
+    title: "Repo layout",
+    branch: {
+      shortName: "chat/a-very-long-branch-name-that-does-not-fit-in-the-label",
+      fullRef:
+        "ctxpipe/chat/conv_1/a-very-long-branch-name-that-does-not-fit-in-the-label",
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const label = canvasElement.querySelector("[data-branch-label]")
+    if (!(label instanceof HTMLElement)) throw new Error("Branch label missing")
+    expect(label.querySelector("svg.tabler-icon-git-branch")).not.toBeNull()
+    expect(label.firstElementChild).toBe(
+      label.querySelector("svg.tabler-icon-git-branch"),
+    )
+    const text = label.querySelector("span.truncate")
+    if (!(text instanceof HTMLElement)) throw new Error("Branch text missing")
+    expect(text.scrollWidth).toBeGreaterThan(text.clientWidth)
+    await userEvent.hover(label)
+    const tooltip = await within(canvasElement.ownerDocument.body).findByText(
+      "ctxpipe/chat/conv_1/a-very-long-branch-name-that-does-not-fit-in-the-label",
+    )
+    await waitFor(() => expect(tooltip).toBeVisible())
   },
 }

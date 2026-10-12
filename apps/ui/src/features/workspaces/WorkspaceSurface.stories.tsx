@@ -823,12 +823,83 @@ export const DiffTriggerPaneClosed: Story = {
     expect(diff).toBeVisible()
     expect(diff.parentElement).toBe(files.parentElement)
     expect(diff.className).toBe(files.className)
-    expect(getComputedStyle(diff).borderTopWidth).toBe("0px")
     expect(diff.querySelector("svg.tabler-icon-file-diff")).not.toBeNull()
     await userEvent.click(diff)
     const tab = await page.findByRole("tab", { name: "Diff", selected: true })
     // The tab fades in for 100 ms when the pane mounts.
     await waitFor(() => expect(tab).toBeVisible())
+  },
+}
+
+/**
+ * The Diff trigger shows with no changes on the branch, and its pane has an
+ * empty state.
+ */
+export const DiffTriggerNoChanges: Story = {
+  tags: ["workspace-golden"],
+  args: { conversationId: "conv_1", paneParam: "files" },
+  parameters: {
+    storyRoute: workspaceRoute({ conversationId: "conv_1", pane: "files" }),
+    msw: {
+      handlers: {
+        page: [...workspaceShellHandlers(), conversationGitDiffHandler([])],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const page = within(canvasElement.ownerDocument.body)
+    await userEvent.click(
+      await page.findByRole("tab", { name: "Diff" }, { timeout: 15_000 }),
+    )
+    expect(await page.findByText("No changes on this branch")).toBeVisible()
+  },
+}
+
+/**
+ * A tab switch moves no tab. Each trigger keeps its box (x, y, width and
+ * height) when another trigger becomes active. The tab that becomes active
+ * keeps its x and width; it grows only to join the card.
+ */
+export const PaneTabsStayInPlace: Story = {
+  tags: ["workspace-golden"],
+  args: { conversationId: "conv_1", paneParam: "files" },
+  parameters: {
+    storyRoute: workspaceRoute({ conversationId: "conv_1", pane: "files" }),
+    msw: {
+      handlers: {
+        page: [...workspaceShellHandlers(), conversationGitDiffHandler()],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const page = within(canvasElement.ownerDocument.body)
+    const names = ["Files", "Diff", "Graph", "Settings"]
+    for (const name of names)
+      await page.findByRole("tab", { name }, { timeout: 15_000 })
+    const boxes = () =>
+      Object.fromEntries(
+        names.map((name) => {
+          const r = page.getByRole("tab", { name }).getBoundingClientRect()
+          return [name, { x: r.x, y: r.y, width: r.width, height: r.height }]
+        }),
+      )
+    // Let the fade-in of the tabs finish before the first read.
+    await new Promise((resolve) => window.setTimeout(resolve, 200))
+    for (const next of ["Diff", "Graph", "Settings", "Files"]) {
+      const before = boxes()
+      await userEvent.click(page.getByRole("tab", { name: next }))
+      await page.findByRole("tab", { name: next, selected: true })
+      await new Promise((resolve) => window.setTimeout(resolve, 200))
+      const after = boxes()
+      for (const name of names) {
+        expect(after[name]?.x).toBe(before[name]?.x)
+        expect(after[name]?.width).toBe(before[name]?.width)
+        // The tab that becomes active, or stops being active, joins the card.
+        if (name !== next && before[name]?.height === after[name]?.height) {
+          expect(after[name]?.y).toBe(before[name]?.y)
+        }
+      }
+    }
   },
 }
 

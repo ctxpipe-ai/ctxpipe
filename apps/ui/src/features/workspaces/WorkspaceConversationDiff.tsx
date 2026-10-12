@@ -112,7 +112,9 @@ export function ConversationDiffList(props: {
   if (files.length === 0) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-1 p-6 text-center">
-        <p className="text-sm font-medium text-foreground">No changes</p>
+        <p className="text-sm font-medium text-foreground">
+          No changes on this branch
+        </p>
         <p className="text-sm text-muted-foreground">
           {props.base
             ? `This conversation has no changes against ${props.base}.`

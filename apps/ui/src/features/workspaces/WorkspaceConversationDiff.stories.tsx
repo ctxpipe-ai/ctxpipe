@@ -75,7 +75,9 @@ export const DiffPaneEmpty: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await expect(await canvas.findByText("No changes")).toBeVisible()
+    await expect(
+      await canvas.findByText("No changes on this branch"),
+    ).toBeVisible()
     await expect(
       canvas.getByText("This conversation has no changes against main."),
     ).toBeVisible()

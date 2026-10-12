@@ -1,5 +1,6 @@
 import {
   IconCloudUpload,
+  IconGitBranch,
   IconGitPullRequest,
 } from "@tabler/icons-react"
 import type { ReactElement, ReactNode } from "react"
@@ -20,7 +21,6 @@ import {
   workspaceChromeOuterClassName,
   workspaceChromeOuterFlushClassName,
   workspaceChromeTabClassName,
-  workspaceChromeTabIdleClassName,
   workspaceChromeTabStripClassName,
 } from "./workspaceChrome"
 import { writeStatusLabel } from "./writeStatusLabel"
@@ -68,6 +68,42 @@ export type ConversationBranchChrome = {
   shortName: string
   fullRef: string
   href?: string | null
+}
+
+/** The branch name as a label with a git-branch icon. The tooltip has the full ref. */
+function BranchLabel(props: { branch: ConversationBranchChrome }) {
+  const { shortName, fullRef, href } = props.branch
+  const labelClassName =
+    "ml-2 inline-flex min-w-0 max-w-40 shrink items-center gap-1 rounded-md border border-border bg-zinc-800 px-1.5 py-0.5 font-mono text-xs font-normal text-muted-foreground"
+  const content = (
+    <>
+      <IconGitBranch className="size-3 shrink-0" stroke={1.8} aria-hidden />
+      <span className="truncate">{shortName}</span>
+    </>
+  )
+  return (
+    <ChromeTooltip
+      trigger={<span data-branch-label="" className={labelClassName} />}
+      content={fullRef}
+    >
+      {href ? (
+        <AriaLink
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={fullRef}
+          className={cn(
+            "inline-flex min-w-0 items-center gap-1 rounded-sm hover:text-teal-400",
+            focusVisibleClassName,
+          )}
+        >
+          {content}
+        </AriaLink>
+      ) : (
+        content
+      )}
+    </ChromeTooltip>
+  )
 }
 
 /**
@@ -121,26 +157,7 @@ export function WorkspaceChatChrome(props: {
             ) : (
               props.title
             )}
-            {props.branch ? (
-              props.branch.href ? (
-                <AriaLink
-                  href={props.branch.href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="ml-2 truncate font-mono text-xs text-muted-foreground hover:text-teal-400"
-                  aria-label={props.branch.fullRef}
-                >
-                  {props.branch.shortName}
-                </AriaLink>
-              ) : (
-                <span
-                  title={props.branch.fullRef}
-                  className="ml-2 truncate font-mono text-xs text-muted-foreground"
-                >
-                  {props.branch.shortName}
-                </span>
-              )
-            ) : null}
+            {props.branch ? <BranchLabel branch={props.branch} /> : null}
           </div>
           {props.headerExtra || showWriteBadge || ctaHasActions ? (
             <div className="ml-auto flex min-w-0 items-end gap-1">
