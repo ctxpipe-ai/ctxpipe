@@ -1,5 +1,6 @@
-import { and, eq, inArray } from "drizzle-orm"
-import { withOrgDbContext } from "../db/client.js"
+import { and, eq, inArray, sql } from "drizzle-orm"
+import { getSystemDb, withOrgDbContext } from "../db/client.js"
+import { organizations } from "../db/schema/auth.js"
 import { repositories } from "../db/schema/repositories.js"
 import { workspaceSources } from "../db/schema/workspace_sources.js"
 import {
@@ -9,6 +10,8 @@ import {
 import type { PlannedSourceRow } from "../domain/workspace-sources/projection-plan.js"
 import { normalizeWorkspaceRepositoryUrl } from "../domain/workspaces/slug.js"
 import { generateObjectId } from "../lib/id.js"
+import { log } from "../observability/logger.js"
+import { openWorkflowNamespaceId } from "../openworkflow/namespace.js"
 
 export type WorkspaceSourceRow = typeof workspaceSources.$inferSelect
 
@@ -130,6 +133,63 @@ export async function listConnectionSourceRows(input: {
       )
       .orderBy(workspaces.slug, workspaceSources.sourceKey),
   )
+}
+
+/**
+ * The connections of each organization that have at least one `ok` source,
+ * with the provider of those sources. Rows are org-isolated, so the read
+ * goes through each organization in turn.
+ */
+export async function listConnectionsWithOkSources(): Promise<
+  Array<{ orgId: string; connectionId: string; provider: string }>
+> {
+  const orgs = await getSystemDb()
+    .select({ id: organizations.id })
+    .from(organizations)
+  const found: Array<{
+    orgId: string
+    connectionId: string
+    provider: string
+  }> = []
+  for (const { id } of orgs) {
+    // One org that fails to read does not stop the scan of the others.
+    const rows = await withOrgDbContext(id, (db) =>
+      db
+        .selectDistinct({
+          connectionId: workspaceSources.connectionId,
+          provider: workspaceSources.provider,
+        })
+        .from(workspaceSources)
+        .where(eq(workspaceSources.status, "ok")),
+    ).catch((error: unknown) => {
+      log.error({
+        step: "workspace_sources.list_ok_connections",
+        orgId: id,
+        message: error instanceof Error ? error.message : String(error),
+      })
+      return []
+    })
+    for (const row of rows)
+      if (row.connectionId && row.provider)
+        found.push({
+          orgId: id,
+          connectionId: row.connectionId,
+          provider: row.provider,
+        })
+  }
+  return found
+}
+
+/** True when a daily sources sync run exists for the UTC `day` (YYYY-MM-DD). */
+export async function hasDailySourcesSyncRun(day: string): Promise<boolean> {
+  const found = await getSystemDb().execute(sql`
+    select 1 from openworkflow.workflow_runs
+    where namespace_id = ${openWorkflowNamespaceId()}
+      and workflow_name = 'workspace-sources-daily-sync'
+      and input->>'day' = ${day}
+    limit 1
+  `)
+  return found.rows.length > 0
 }
 
 /**

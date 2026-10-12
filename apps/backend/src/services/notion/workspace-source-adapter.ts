@@ -204,7 +204,15 @@ async function rootsForEvent(input: {
 export const notionSourceAdapter: SourceAdapter<NotionSourceScope> = {
   provider: "notion",
   managedPaths: (scope) => rootsOf(scope).map(rootPath),
-  async fetch({ orgId, connectionId, scopes, env, event, existing }) {
+  async fetch({
+    orgId,
+    connectionId,
+    scopes,
+    env,
+    event,
+    existing,
+    countFailures,
+  }) {
     const roots = [
       ...new Map(
         scopes.flatMap(rootsOf).map((root) => [rootPath(root), root] as const),
@@ -313,6 +321,7 @@ export const notionSourceAdapter: SourceAdapter<NotionSourceScope> = {
         continue
       }
       const counted = countSourceFailure({
+        count: countFailures,
         failures,
         key,
         now,

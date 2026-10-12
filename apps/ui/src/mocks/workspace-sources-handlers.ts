@@ -108,6 +108,34 @@ export function connectionUsageHandler(
   )
 }
 
+/** The org role of the story user (`get-active-member-role`). */
+export function activeMemberRoleHandler(role: string) {
+  return http.get(
+    "*/.auth/api/v1/auth/organization/get-active-member-role",
+    () => HttpResponse.json({ role }),
+  )
+}
+
+/**
+ * "Sync now" (`POST /connectors/:id/sync`). Each request is added to
+ * `requests`; the reply waits `delayMs` so a story can see the pending state.
+ */
+export function connectionSyncHandler(
+  options: { status?: 202 | 404; delayMs?: number; requests?: string[] } = {},
+) {
+  return http.post(
+    ({ request }) =>
+      /\/api\/v1\/connectors\/[^/]+\/sync$/.test(pathnameOf(request)),
+    async ({ request }) => {
+      options.requests?.push(pathnameOf(request))
+      if (options.delayMs) await delay(options.delayMs)
+      return options.status === 404
+        ? HttpResponse.json({ error: "Not found" }, { status: 404 })
+        : HttpResponse.json({ accepted: true }, { status: 202 })
+    },
+  )
+}
+
 export function orgConnectionsHandler(
   items: Array<
     Pick<OrgConnectionListItem, "id" | "type"> &

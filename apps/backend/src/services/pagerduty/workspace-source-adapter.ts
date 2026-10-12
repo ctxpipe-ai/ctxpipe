@@ -198,7 +198,15 @@ function withoutUnchanged(
 export const pagerdutySourceAdapter: SourceAdapter<PagerdutySourceScope> = {
   provider: "pagerduty",
   managedPaths: (scope) => scope.services.map(pagerdutyServiceIncidentsRoot),
-  async fetch({ orgId, connectionId, scopes, env, event, existing }) {
+  async fetch({
+    orgId,
+    connectionId,
+    scopes,
+    env,
+    event,
+    existing,
+    countFailures,
+  }) {
     const serviceIds = [...new Set(scopes.flatMap((scope) => scope.services))]
     const roots = serviceIds.map(pagerdutyServiceIncidentsRoot)
     const existingPaths = (existing ?? []).map((file) => file.path)
@@ -291,6 +299,7 @@ export const pagerdutySourceAdapter: SourceAdapter<PagerdutySourceScope> = {
         if (service === "not_found" || service === "forbidden") {
           keepPaths.push(root)
           const counted = countSourceFailure({
+            count: countFailures,
             failures,
             key,
             now,

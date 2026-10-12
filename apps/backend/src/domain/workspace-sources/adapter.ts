@@ -21,6 +21,11 @@ type SourceFetchInput<S> = {
   /** The webhook event of this sync, when a webhook started it. */
   event?: unknown
   /**
+   * False for a "Sync now" sync: keep the failure counts as they are. Only
+   * scheduled and webhook syncs count toward the bounded tries.
+   */
+  countFailures: boolean
+  /**
    * The managed files that the Workspaces of these scopes have now, when the
    * sync reads them. A path has a sha only when each Workspace that owns it
    * has the same blob.

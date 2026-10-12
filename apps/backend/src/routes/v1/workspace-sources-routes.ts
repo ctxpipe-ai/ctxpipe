@@ -4,6 +4,7 @@ import {
   type SourceChange,
   SourceChangeError,
 } from "../../domain/workspace-sources/edit.js"
+import { requestConnectionSourcesSync } from "../../domain/workspace-sources/enqueue.js"
 import {
   changeWorkspaceSource,
   listConnectionUsage,
@@ -15,6 +16,7 @@ import {
   deleteWorkspaceSourceRoute,
   listConnectionWorkspacesRoute,
   listWorkspaceSourcesRoute,
+  syncConnectionSourcesRoute,
   updateWorkspaceSourceRoute,
 } from "./workspace-sources-contract.js"
 
@@ -91,5 +93,22 @@ export const connectionUsageRoutes = new OpenAPIHono<AppEnv>().openapi(
     const usage = await listConnectionUsage(c.req.valid("param").connectionId)
     if (!usage) return c.json({ error: "Not found" }, 404)
     return c.json(usage, 200)
+  },
+)
+
+/** "Sync now" on a connector. Mount it behind the org admin check. */
+export const connectionSyncRoutes = new OpenAPIHono<AppEnv>().openapi(
+  syncConnectionSourcesRoute,
+  async (c) => {
+    const orgId = c.get("orgId")
+    if (!c.get("user") || !c.get("session") || !orgId)
+      return c.json({ error: "Unauthorized" }, 401)
+    const queued = await requestConnectionSourcesSync({
+      orgId,
+      connectionId: c.req.valid("param").connectionId,
+      now: new Date(),
+    })
+    if (!queued) return c.json({ error: "Not found" }, 404)
+    return c.json({ accepted: true as const }, 202)
   },
 )

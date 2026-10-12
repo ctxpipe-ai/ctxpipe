@@ -134,7 +134,7 @@ export const confluenceSourceAdapter: SourceAdapter<ConfluenceSourceScope> = {
   provider: "confluence",
   managedPaths: (scope) =>
     scope.spaces.map((space) => `confluence/${space.key}/`),
-  async fetchEach({ orgId, connectionId, scopes }) {
+  async fetchEach({ orgId, connectionId, scopes, countFailures }) {
     const ready = await readyClient(orgId, connectionId)
     if (!ready)
       throw new Error("Forge installation is not ready for Confluence sync")
@@ -142,7 +142,9 @@ export const confluenceSourceAdapter: SourceAdapter<ConfluenceSourceScope> = {
     const startedAt = new Date().toISOString()
     const api =
       scopes.length > 1 ? memoizedReads(confluenceReadApi()) : undefined
-    const tries = (key: string) => (sourceSync.failures[key]?.tries ?? 0) + 1
+    // A "Sync now" sync keeps each count as it is.
+    const tries = (key: string) =>
+      (sourceSync.failures[key]?.tries ?? 0) + (countFailures ? 1 : 0)
     const failed = new Map<string, string>()
     const checkedSpaces = new Set<string>()
     const syncedSpaces = new Set<string>()
@@ -211,10 +213,9 @@ export const confluenceSourceAdapter: SourceAdapter<ConfluenceSourceScope> = {
             ),
           ),
           ...Object.fromEntries(
-            [...failed].map(([key, detail]) => [
-              key,
-              { tries: tries(key), detail },
-            ]),
+            [...failed]
+              .filter(([key]) => tries(key) > 0)
+              .map(([key, detail]) => [key, { tries: tries(key), detail }]),
           ),
         },
       },

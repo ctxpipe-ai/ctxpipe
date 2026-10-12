@@ -1,15 +1,28 @@
-import { useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery } from "@tanstack/react-query"
 import type { SourceProvider } from "backend/domain/workspace-sources/sources-file"
 import { useState } from "react"
 import { Link } from "react-aria-components"
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { SkeletonLine } from "@/components/ui/Skeleton"
+import { authClient } from "@/lib/auth-client"
 import { focusVisibleClassName } from "@/lib/focus-styles"
+import { isAdminRole } from "@/lib/session-user"
 import { cn } from "@/lib/utils"
 import { AddToWorkspacesDialog } from "./AddToWorkspacesDialog"
-import { connectionUsageOptions } from "./queries"
+import { connectionUsageOptions, syncConnectionNow } from "./queries"
 import { sourceProviderLabel, workspaceSourceHref } from "./source-provider-ui"
+
+/**
+ * The providers whose sources sync content on a schedule. GitHub sources
+ * read the repositories as they are; Slack captures messages on demand.
+ */
+const SYNCED_PROVIDERS: ReadonlySet<SourceProvider> = new Set([
+  "confluence",
+  "linear",
+  "notion",
+  "pagerduty",
+])
 
 /**
  * "Used in" on an expanded connector: the Workspaces whose sources use this
@@ -24,12 +37,48 @@ export function ConnectorUsedIn(props: {
   const usageQuery = useQuery(connectionUsageOptions(orgSlug, connectionId))
   const [addOpen, setAddOpen] = useState(false)
   const items = usageQuery.data?.items ?? []
+  const syncMutation = useMutation({
+    mutationFn: () => syncConnectionNow(orgSlug, connectionId),
+  })
+  // The sync route is for an org admin or owner only.
+  const roleQuery = useQuery({
+    queryKey: ["organization-member-role", orgSlug],
+    queryFn: () =>
+      authClient.organization.getActiveMemberRole({
+        query: { organizationSlug: orgSlug },
+        fetchOptions: { throw: true },
+      }),
+  })
+  const canSync =
+    SYNCED_PROVIDERS.has(provider) &&
+    items.length > 0 &&
+    isAdminRole(roleQuery.data?.role)
 
   return (
     <section aria-labelledby={`used-in-${connectionId}`} className="text-sm">
-      <h3 id={`used-in-${connectionId}`} className="text-muted-foreground">
-        Used in
-      </h3>
+      <div className="flex min-h-8 items-center justify-between gap-3">
+        <h3 id={`used-in-${connectionId}`} className="text-muted-foreground">
+          Used in
+        </h3>
+        {canSync ? (
+          <div className="flex items-center gap-3">
+            <output className="text-muted-foreground">
+              {syncMutation.isSuccess
+                ? "Sync started. Files update after it ends."
+                : syncMutation.isError
+                  ? "Could not start the sync."
+                  : null}
+            </output>
+            <Button
+              variant="secondary"
+              isPending={syncMutation.isPending}
+              onPress={() => syncMutation.mutate()}
+            >
+              Sync now
+            </Button>
+          </div>
+        ) : null}
+      </div>
       {usageQuery.isPending ? (
         <ul
           className="mt-1 flex flex-col"

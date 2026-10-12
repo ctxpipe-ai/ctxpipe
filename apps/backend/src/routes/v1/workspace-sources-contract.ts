@@ -251,6 +251,32 @@ export const listConnectionWorkspacesRoute = createRoute({
   },
 })
 
+export const syncConnectionSourcesRoute = createRoute({
+  method: "post",
+  path: "/{connectionId}/sync",
+  request: { params: ConnectionIdParamsSchema },
+  responses: {
+    202: {
+      content: {
+        "application/json": {
+          schema: z.object({ accepted: z.literal(true) }),
+        },
+      },
+      description:
+        "A full sync of the connection's Workspace sources is queued. A second request in the same minute queues no other sync.",
+    },
+    401: errors[401],
+    403: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Forbidden: only an org admin or owner can start a sync",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "No Workspace source of this connection can sync",
+    },
+  },
+})
+
 export type WorkspaceSourceListResponse = z.infer<
   typeof WorkspaceSourceListResponseSchema
 >
