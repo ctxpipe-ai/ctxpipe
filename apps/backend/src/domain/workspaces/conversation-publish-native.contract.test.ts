@@ -11,11 +11,16 @@ import {
   workspaceSandboxInstances,
   workspaces,
 } from "../../db/schema/workspaces.js"
+import {
+  deleteConversationThreadRecords,
+  listConversationSyncs,
+} from "../../models/conversation-turn-changes.js"
 import type { NativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { conversationSessionBranch } from "./chat-lifecycle.js"
 import {
   pushConversationSession,
+  recordConversationPush,
   shellSingleQuote,
 } from "./conversation-publish.js"
 import { adaptTanstackHandle } from "./job-sandbox.js"
@@ -150,6 +155,7 @@ it.each([
               status: "pushed",
               branch,
               sha: expect.any(String),
+              files: 1,
               treeUrl: expect.any(String),
               dirty: false,
             })
@@ -303,6 +309,7 @@ it.each(["unchanged", "edited", "rebased"])(
                   status: "pushed",
                   branch,
                   sha: expect.any(String),
+                  files: 1,
                   treeUrl: expect.any(String),
                   dirty: false,
                 },
@@ -325,3 +332,120 @@ it.each(["unchanged", "edited", "rebased"])(
     )
   },
 )
+
+it(
+  "counts the files a push changed, a rename as one file",
+  {
+    timeout: 30_000,
+  },
+  async () => {
+    await withNativeHydrationFixture(
+      { github: true, githubWriteView: "writable", writeStatus: "writable" },
+      async (f) => {
+        const conversationId = `conv_${f.id}`
+        const raw = await localProcessSandbox().create({ id: conversationId })
+        try {
+          await withOrgDbContext(f.org.id, (db) =>
+            db.insert(conversations).values({
+              id: conversationId,
+              orgId: f.org.id,
+              userId: `user_${f.id}`,
+              workspaceId: f.workspaceId,
+            }),
+          )
+          await raw.process.exec("git init -b main")
+          await raw.process.exec(`git fetch ${shellSingleQuote(f.remote)} main`)
+          await raw.process.exec("git checkout -B main FETCH_HEAD")
+          f.git(
+            "config",
+            "--file",
+            process.env.GIT_CONFIG_GLOBAL ?? "missing",
+            "--add",
+            `url.${f.remote}.insteadOf`,
+            "https://github.com/fixture/hydration-contract.git",
+          )
+          await recordSandbox(f, conversationId, raw.id, f.revision)
+          const push = () =>
+            withOrgIdContext(f.org, () =>
+              withUserIdContext(`user_${f.id}`, () =>
+                pushConversationSession({
+                  handle: adaptTanstackHandle(raw),
+                  conversationId,
+                  orgId: f.org.id,
+                  workspaceId: f.workspaceId,
+                  env: parseEnv(process.env),
+                  commit: { subject: "Sync conversation edit" },
+                }),
+              ),
+            )
+          await raw.fs.write("notes.md", "# Conversation edit\n")
+          await raw.fs.write(
+            "docs/plan.md",
+            "# Plan\n\nA long enough body so that Git finds the rename.\n",
+          )
+
+          const first = await push()
+          await raw.process.exec("git mv docs/plan.md docs/plan-v2.md")
+          const renamed = await push()
+
+          expect(first).toMatchObject({ status: "pushed", files: 2 })
+          expect(renamed).toMatchObject({ status: "pushed", files: 1 })
+        } finally {
+          await raw.destroy()
+          await withOrgDbContext(f.org.id, (db) =>
+            db
+              .delete(conversations)
+              .where(eq(conversations.id, conversationId)),
+          )
+        }
+      },
+    )
+  },
+)
+
+it("writes no push entry for a conversation that was deleted meanwhile", async () => {
+  await withNativeHydrationFixture({}, async (f) => {
+    const live = `conv_${f.id}_live`
+    const deleted = `conv_${f.id}_deleted`
+    await withOrgDbContext(f.org.id, (db) =>
+      db.insert(conversations).values({
+        id: live,
+        orgId: f.org.id,
+        userId: `user_${f.id}`,
+        workspaceId: f.workspaceId,
+      }),
+    )
+    const record = (conversationId: string) =>
+      withOrgIdContext(f.org, () =>
+        recordConversationPush({
+          orgId: f.org.id,
+          conversationId,
+          trigger: "sweep",
+          pushed: {
+            status: "pushed",
+            branch: "ctxpipe/chat/conv_1/1",
+            sha: "d".repeat(40),
+            files: 1,
+            treeUrl:
+              "https://github.com/fixture/hydration-contract/tree/ctxpipe/chat/conv_1/1",
+          },
+        }),
+      )
+    try {
+      await record(live)
+      // The sweep pushed after the user deleted the conversation.
+      await record(deleted)
+
+      const count = async (conversationId: string) =>
+        (await listConversationSyncs({ orgId: f.org.id, conversationId }))
+          .length
+      expect([await count(live), await count(deleted)]).toEqual([1, 0])
+    } finally {
+      await withOrgDbContext(f.org.id, async (db) => {
+        for (const id of [live, deleted])
+          await deleteConversationThreadRecords(db, id)
+        await db.delete(conversations).where(eq(conversations.id, live))
+      })
+    }
+  })
+})

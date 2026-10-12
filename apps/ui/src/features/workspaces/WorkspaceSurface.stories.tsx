@@ -478,6 +478,113 @@ export const PublishErrorsToast: Story = {
 }
 
 /**
+ * A successful Sync shows no toast. The thread reads the stored Sync again
+ * and shows it after the last turn, with a link to the branch on GitHub.
+ */
+export const SyncAddsThreadEntry: Story = {
+  tags: ["workspace-golden"],
+  args: { conversationId: "conv_1" },
+  decorators: [
+    (Story) => (
+      <>
+        <Story />
+        <Toaster />
+      </>
+    ),
+  ],
+  parameters: {
+    storyRoute: workspaceRoute({ conversationId: "conv_1" }),
+    msw: {
+      handlers: {
+        page: (() => {
+          let synced = false
+          const branch = "ctxpipe/chat/conv_1/1"
+          const treeUrl = `https://github.com/acme/docs/tree/${branch}`
+          return [
+            http.post(
+              ({ request }) =>
+                /\/api\/v1\/conversations\/[^/]+\/push$/.test(
+                  new URL(request.url).pathname,
+                ),
+              () => {
+                synced = true
+                return HttpResponse.json({ branch, treeUrl })
+              },
+            ),
+            http.get(
+              ({ request }) =>
+                /\/api\/v1\/conversations\/conv_1\/turns$/.test(
+                  new URL(request.url).pathname,
+                ),
+              () =>
+                HttpResponse.json({
+                  items: [],
+                  syncs: synced
+                    ? [
+                        {
+                          trigger: "sync",
+                          branch,
+                          sha: "8eb1704c2d1f0a5b6e3c9d7f4a2b1c0d9e8f7a6b",
+                          files: 3,
+                          treeUrl,
+                          turn: 1,
+                          syncedAt: "2026-08-16T10:05:00.000Z",
+                        },
+                      ]
+                    : [],
+                }),
+            ),
+            ...workspaceShellHandlers(),
+          ]
+        })(),
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const page = within(canvasElement.ownerDocument.body)
+    const sync = await waitFor(
+      () => {
+        const button = page.getByRole("button", {
+          name: "Sync: commit and push your changes",
+        })
+        expect(button).toBeEnabled()
+        return button
+      },
+      { timeout: 15_000 },
+    )
+    await page.findByText("How is billing structured?", undefined, {
+      timeout: 15_000,
+    })
+    expect(
+      page.queryByRole("region", { name: /^Synced/ }),
+    ).not.toBeInTheDocument()
+    await userEvent.click(sync)
+    const entry = await page.findByRole(
+      "region",
+      { name: "Synced 3 files to ctxpipe/chat/conv_1/1" },
+      { timeout: 10_000 },
+    )
+    const link = within(entry).getByRole("link", {
+      name: "ctxpipe/chat/conv_1/1 on GitHub (opens in a new tab)",
+    })
+    expect(link).toHaveAttribute(
+      "href",
+      "https://github.com/acme/docs/tree/ctxpipe/chat/conv_1/1",
+    )
+    expect(link).toHaveAttribute("target", "_blank")
+    // The entry follows the reply of the last turn.
+    const reply = page.getByText(/Billing lives in knowledge/)
+    expect(
+      reply.compareDocumentPosition(entry) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+    // A successful Sync has no toast.
+    expect(
+      canvasElement.ownerDocument.querySelector("[data-sonner-toast]"),
+    ).toBeNull()
+  },
+}
+
+/**
  * Sync shows once: in the conversation header while the tools pane is open
  * beside it, and in the pane header when the pane is maximized. Both share
  * one pending push.
@@ -637,11 +744,11 @@ export const SingleCreatePrPaneClosed: Story = {
       },
       { timeout: 15_000 },
     )
-    // The pane triggers sit at the top right of the conversation too, with no border.
+    // The pane triggers sit at the top right of the conversation too, with no visible border.
     for (const name of ["Files", "Graph", "Settings"])
       expect(
-        getComputedStyle(page.getByRole("button", { name })).borderTopWidth,
-      ).toBe("0px")
+        getComputedStyle(page.getByRole("button", { name })).borderTopColor,
+      ).toBe("rgba(0, 0, 0, 0)")
   },
 }
 
@@ -668,24 +775,22 @@ export const CreatePrMatchesPaneTriggers: Story = {
       { timeout: 15_000 },
     )
     const files = page.getByRole("button", { name: "Files" })
-    const look = (element: HTMLElement) => {
-      const style = getComputedStyle(element)
-      const icon = element.querySelector("svg")?.getBoundingClientRect()
-      const box = element.getBoundingClientRect()
-      return {
-        height: box.height,
-        bottom: box.bottom,
-        paddingLeft: style.paddingLeft,
-        paddingRight: style.paddingRight,
-        color: style.color,
-        borderTopWidth: style.borderTopWidth,
-        borderRadius: style.borderTopLeftRadius,
-        iconWidth: icon?.width,
-        iconHeight: icon?.height,
-      }
-    }
-    expect(look(createPr)).toEqual(look(files))
-    // Only the text differs: publish buttons use a smaller, normal weight.
+    await waitFor(() => expect(files).toBeVisible())
+    // Both sit in the same header row.
+    expect(createPr.closest("[data-workspace-surface]")).toBe(
+      files.closest("[data-workspace-surface]"),
+    )
+    expect(createPr.closest("[data-workspace-surface]")).not.toBeNull()
+    // The CTA button is smaller than a trigger, and both centers align.
+    const cta = createPr.getBoundingClientRect()
+    const trigger = files.getBoundingClientRect()
+    expect(cta.height).toBeLessThan(trigger.height)
+    expect(cta.top + cta.height / 2).toBeCloseTo(
+      trigger.top + trigger.height / 2,
+      0,
+    )
+    // Triggers are square.
+    expect(trigger.width).toBe(trigger.height)
     expect(getComputedStyle(createPr).fontSize).toBe("12px")
     expect(getComputedStyle(createPr).fontWeight).toBe("400")
   },
@@ -714,15 +819,87 @@ export const DiffTriggerPaneClosed: Story = {
       { timeout: 15_000 },
     )
     const files = page.getByRole("button", { name: "Files" })
-    expect(diff).toBeVisible()
+    // The trigger fades in for 100 ms when it mounts.
+    await waitFor(() => expect(diff).toBeVisible())
     expect(diff.parentElement).toBe(files.parentElement)
     expect(diff.className).toBe(files.className)
-    expect(getComputedStyle(diff).borderTopWidth).toBe("0px")
     expect(diff.querySelector("svg.tabler-icon-file-diff")).not.toBeNull()
     await userEvent.click(diff)
     const tab = await page.findByRole("tab", { name: "Diff", selected: true })
     // The tab fades in for 100 ms when the pane mounts.
     await waitFor(() => expect(tab).toBeVisible())
+  },
+}
+
+/**
+ * The Diff trigger shows with no changes on the branch, and its pane has an
+ * empty state.
+ */
+export const DiffTriggerNoChanges: Story = {
+  tags: ["workspace-golden"],
+  args: { conversationId: "conv_1", paneParam: "files" },
+  parameters: {
+    storyRoute: workspaceRoute({ conversationId: "conv_1", pane: "files" }),
+    msw: {
+      handlers: {
+        page: [...workspaceShellHandlers(), conversationGitDiffHandler([])],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const page = within(canvasElement.ownerDocument.body)
+    await userEvent.click(
+      await page.findByRole("tab", { name: "Diff" }, { timeout: 15_000 }),
+    )
+    expect(await page.findByText("No changes on this branch")).toBeVisible()
+  },
+}
+
+/**
+ * A tab switch moves no tab. Each trigger keeps its box (x, y, width and
+ * height) when another trigger becomes active. The tab that becomes active
+ * keeps its x and width; it grows only to join the card.
+ */
+export const PaneTabsStayInPlace: Story = {
+  tags: ["workspace-golden"],
+  args: { conversationId: "conv_1", paneParam: "files" },
+  parameters: {
+    storyRoute: workspaceRoute({ conversationId: "conv_1", pane: "files" }),
+    msw: {
+      handlers: {
+        page: [...workspaceShellHandlers(), conversationGitDiffHandler()],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const page = within(canvasElement.ownerDocument.body)
+    const names = ["Files", "Diff", "Graph", "Settings"]
+    for (const name of names)
+      await page.findByRole("tab", { name }, { timeout: 15_000 })
+    const boxes = () =>
+      Object.fromEntries(
+        names.map((name) => {
+          const r = page.getByRole("tab", { name }).getBoundingClientRect()
+          return [name, { x: r.x, y: r.y, width: r.width, height: r.height }]
+        }),
+      )
+    // Let the fade-in of the tabs finish before the first read.
+    await new Promise((resolve) => window.setTimeout(resolve, 200))
+    for (const next of ["Diff", "Graph", "Settings", "Files"]) {
+      const before = boxes()
+      await userEvent.click(page.getByRole("tab", { name: next }))
+      await page.findByRole("tab", { name: next, selected: true })
+      await new Promise((resolve) => window.setTimeout(resolve, 200))
+      const after = boxes()
+      for (const name of names) {
+        expect(after[name]?.x).toBe(before[name]?.x)
+        expect(after[name]?.width).toBe(before[name]?.width)
+        // The tab that becomes active, or stops being active, joins the card.
+        if (name !== next && before[name]?.height === after[name]?.height) {
+          expect(after[name]?.y).toBe(before[name]?.y)
+        }
+      }
+    }
   },
 }
 

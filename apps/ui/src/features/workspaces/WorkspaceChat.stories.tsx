@@ -142,7 +142,7 @@ export const ConversationReady: Story = {
   },
 }
 
-/** The header title opens the rename dialog; a save sends PATCH and shows the new name. */
+/** The header title becomes an input. Enter saves with PATCH, Escape cancels, and an empty name does nothing. */
 export const RenameConversation: Story = {
   args: { conversationId: "conv_1" },
   parameters: {
@@ -175,29 +175,40 @@ export const RenameConversation: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await userEvent.click(
-      await canvas.findByRole("button", {
-        name: "Rename conversation: Repo layout",
-      }),
-    )
-    const body = within(canvasElement.ownerDocument.body)
-    const dialog = await body.findByRole("dialog", {
-      name: "Rename conversation",
+    const open = async (name: string) =>
+      userEvent.click(
+        await canvas.findByRole("button", {
+          name: `Rename conversation: ${name}`,
+        }),
+      )
+    // Escape cancels and keeps the name.
+    await open("Repo layout")
+    let input = await canvas.findByRole("textbox", {
+      name: "Conversation name",
     })
-    const input = within(dialog).getByRole("textbox", { name: "Name" })
     await userEvent.clear(input)
-    await userEvent.type(input, "Billing layout")
-    await userEvent.click(
-      within(dialog).getByRole("button", { name: "Rename" }),
-    )
-    await waitFor(() => {
-      expect(body.queryByRole("dialog")).not.toBeInTheDocument()
-    })
+    await userEvent.type(input, "Discarded{Escape}")
+    expect(canvas.queryByRole("textbox")).not.toBeInTheDocument()
+    // An empty name does nothing.
+    await open("Repo layout")
+    input = await canvas.findByRole("textbox", { name: "Conversation name" })
+    await userEvent.clear(input)
+    await userEvent.keyboard("{Enter}")
+    expect(canvas.queryByRole("textbox")).not.toBeInTheDocument()
     expect(
-      canvas.getByRole("button", {
+      canvas.getByRole("button", { name: "Rename conversation: Repo layout" }),
+    ).toBeInTheDocument()
+    // Enter saves.
+    await open("Repo layout")
+    input = await canvas.findByRole("textbox", { name: "Conversation name" })
+    await userEvent.clear(input)
+    await userEvent.type(input, "Billing layout{Enter}")
+    expect(
+      await canvas.findByRole("button", {
         name: "Rename conversation: Billing layout",
       }),
     ).toBeInTheDocument()
+    expect(canvas.queryByRole("dialog")).not.toBeInTheDocument()
   },
 }
 
@@ -238,7 +249,7 @@ export const RenameBeatsAutomaticTitle: Story = {
               ),
             () => {
               renameStory.turnReads += 1
-              return HttpResponse.json({ items: [] })
+              return HttpResponse.json({ items: [], syncs: [] })
             },
           ),
           ...workspaceShellHandlers(),
@@ -248,7 +259,6 @@ export const RenameBeatsAutomaticTitle: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    const body = within(canvasElement.ownerDocument.body)
     const socket = installAguiWebSocket((threadId, runId) => {
       const events = conversationAguiTextEvents({
         threadId,
@@ -283,17 +293,13 @@ export const RenameBeatsAutomaticTitle: Story = {
           name: "Rename conversation: Repo layout",
         }),
       )
-      const dialog = await body.findByRole("dialog", {
-        name: "Rename conversation",
+      const input = await canvas.findByRole("textbox", {
+        name: "Conversation name",
       })
-      const input = within(dialog).getByRole("textbox", { name: "Name" })
       await userEvent.clear(input)
-      await userEvent.type(input, "Billing layout")
-      await userEvent.click(
-        within(dialog).getByRole("button", { name: "Rename" }),
-      )
-      await waitFor(() => {
-        expect(body.queryByRole("dialog")).not.toBeInTheDocument()
+      await userEvent.type(input, "Billing layout{Enter}")
+      await canvas.findByRole("button", {
+        name: "Rename conversation: Billing layout",
       })
 
       await userEvent.type(

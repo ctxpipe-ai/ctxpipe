@@ -33,8 +33,14 @@ import {
   resolveSourceRepositoryId,
 } from "./repositoryResolution.js"
 
-export const LINEAR_ISSUES_GLOB = "linear/issues/**/*.md"
-export const LINEAR_TEAMS_GLOB = "linear/teams/**/*.md"
+/**
+ * Issue and team files in each Linear layout: the legacy walk
+ * (`linear/issues/…`, `linear/teams/<team>.md`) and the Workspace source
+ * roots `linear/teams/<KEY>/…` and `linear/projects/<id>/…`
+ * (`linearRootPath`).
+ */
+export const LINEAR_ISSUES_GLOB = "linear/**/issues/**/*.md"
+export const LINEAR_TEAMS_GLOB = "linear/**/teams/*.md"
 
 const TEAM_KEY = /^[A-Za-z][A-Za-z0-9]{0,9}$/
 
@@ -225,12 +231,16 @@ export async function extractLinear(
       targetHash: state.targetHash,
     })
 
+  // A team root and a project root can both hold one issue.
+  const seenIssues = new Set<string>()
   for (const path of issuePaths) {
     const content = contents[path]
     if (!content) continue
     const parsed = parseLinearIssueMarkdown(content)
     if (!parsed) continue
     const issueKey = issueDedupKey(parsed.identifier)
+    if (seenIssues.has(issueKey)) continue
+    seenIssues.add(issueKey)
     objects.push({
       kind: "Issue",
       deduplicationKey: issueKey,

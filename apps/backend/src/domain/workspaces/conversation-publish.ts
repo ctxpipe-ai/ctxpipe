@@ -3,6 +3,11 @@ import { open } from "node:fs/promises"
 import { join } from "node:path"
 import type { Env } from "../../config/env.js"
 import {
+  type ConversationPushTrigger,
+  type ConversationSync,
+  saveConversationSync,
+} from "../../models/conversation-turn-changes.js"
+import {
   getConversationSession,
   recordConversationSessionPush,
 } from "../../models/conversations.js"
@@ -46,6 +51,7 @@ import {
   sameWorkspaceRevision,
   type WorkspaceRevision,
 } from "./revision.js"
+import { workspaceChatPersistence } from "./workspace-chat-persistence.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "./write-status.js"
 
 export type ConversationSandboxBinding = {
@@ -120,7 +126,14 @@ export type SessionPublishFailure =
   | "push_failed"
 
 export type SessionPushResult =
-  | { status: "pushed"; branch: string; sha: string; treeUrl: string }
+  | {
+      status: "pushed"
+      branch: string
+      sha: string
+      /** The number of files that the pushed commits changed. */
+      files: number
+      treeUrl: string
+    }
   | { status: "unchanged" }
   | { status: "skipped"; reason: SessionPublishSkip }
   | { status: "failed"; reason: SessionPublishFailure }
@@ -362,6 +375,51 @@ export async function pushConversationSession(input: {
   }
 }
 
+/**
+ * The thread shows each push of the conversation's commits after the last
+ * user turn. The commits are already on GitHub, so a failure to record the
+ * push is logged and the push succeeds.
+ */
+export async function recordConversationPush(input: {
+  orgId: string
+  conversationId: string
+  pushed: Extract<SessionPushResult, { status: "pushed" }>
+  trigger: ConversationPushTrigger
+  pullRequest?: ConversationSync["pullRequest"]
+}): Promise<void> {
+  const { pushed } = input
+  try {
+    // The sweep does not hold off a delete: a deleted conversation gets no
+    // entry that nothing would delete.
+    if (!(await getConversationSession(input.orgId, input.conversationId)))
+      return
+    const thread = await workspaceChatPersistence().stores.messages.loadThread(
+      input.conversationId,
+    )
+    await saveConversationSync({
+      orgId: input.orgId,
+      conversationId: input.conversationId,
+      sync: {
+        trigger: input.trigger,
+        ...(input.pullRequest ? { pullRequest: input.pullRequest } : {}),
+        branch: pushed.branch,
+        sha: pushed.sha,
+        files: pushed.files,
+        treeUrl: pushed.treeUrl,
+        turn: thread.filter((message) => message.role === "user").length,
+        syncedAt: new Date().toISOString(),
+      },
+    })
+  } catch (error) {
+    log.warn({
+      step: "conversation-sync-record",
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+      conversationId: input.conversationId,
+    })
+  }
+}
+
 async function brokerPush(input: {
   handle: JobSandboxHandle
   env: Env
@@ -424,6 +482,12 @@ async function brokerPush(input: {
     )
     if (packed.exitCode !== 0)
       throw new Error("Cannot capture the conversation Git delta")
+    const changed = await run(
+      `git diff --no-ext-diff --name-only -z -M ${shellSingleQuote(packBase)} ${shellSingleQuote(sha)}`,
+    )
+    if (changed.exitCode !== 0)
+      throw new Error("Cannot count the conversation's changed files")
+    const files = changed.stdout.split("\0").filter(Boolean).length
     const size = await run(`wc -c < ${shellSingleQuote(agentPack)}`)
     const packBytes = Number(size.stdout.trim())
     if (
@@ -510,6 +574,7 @@ async function brokerPush(input: {
       status: "pushed",
       branch,
       sha,
+      files,
       treeUrl: conversationGithubTreeUrl({
         repositoryName: target.repositoryName,
         branch,

@@ -4,9 +4,12 @@ import { config } from "dotenv"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { closeDb, initDb, withOrgDbContext } from "../db/client.js"
 import {
+  type ConversationSync,
   type ConversationTurnChanges,
-  deleteConversationTurnChanges,
+  deleteConversationThreadRecords,
+  listConversationSyncs,
   listConversationTurnChanges,
+  saveConversationSync,
   saveConversationTurnChanges,
 } from "./conversation-turn-changes.js"
 
@@ -42,7 +45,7 @@ describe("conversation turn changes (Postgres)", () => {
   afterAll(async () => {
     for (const id of [conversationId, lookalikeId])
       await withOrgDbContext(orgId, (db) =>
-        deleteConversationTurnChanges(db, id),
+        deleteConversationThreadRecords(db, id),
       )
     await closeDb()
   })
@@ -82,7 +85,7 @@ describe("conversation turn changes (Postgres)", () => {
     ).toEqual([])
 
     await withOrgDbContext(orgId, (db) =>
-      deleteConversationTurnChanges(db, conversationId),
+      deleteConversationThreadRecords(db, conversationId),
     )
     expect(
       await listConversationTurnChanges({ orgId, conversationId }),
@@ -90,5 +93,43 @@ describe("conversation turn changes (Postgres)", () => {
     expect(
       await listConversationTurnChanges({ orgId, conversationId: lookalikeId }),
     ).toHaveLength(1)
+  })
+
+  it("keeps the first entry of a synced commit and masks credentials", async () => {
+    const sync = (turn: number, syncedAt: string): ConversationSync => ({
+      trigger: "sync",
+      branch: "ctxpipe/chat/conv_1/1",
+      sha: "c".repeat(40),
+      files: 2,
+      treeUrl:
+        "https://x-access-token:ghs_abcdefghijklmnopqrstuvwxyz0123456789@github.com/acme/docs/tree/ctxpipe/chat/conv_1/1",
+      turn,
+      syncedAt,
+    })
+    await saveConversationSync({
+      orgId,
+      conversationId,
+      sync: sync(1, "2026-08-16T10:00:00.000Z"),
+    })
+    // The same commit again, later: the first entry stays where it is.
+    await saveConversationSync({
+      orgId,
+      conversationId,
+      sync: sync(4, "2026-08-16T12:00:00.000Z"),
+    })
+
+    const listed = await listConversationSyncs({ orgId, conversationId })
+    expect(listed.map((item) => [item.turn, item.syncedAt])).toEqual([
+      [1, "2026-08-16T10:00:00.000Z"],
+    ])
+    expect(listed[0]?.treeUrl).not.toContain("ghs_")
+    expect(
+      await listConversationSyncs({ orgId: otherOrgId, conversationId }),
+    ).toEqual([])
+
+    await withOrgDbContext(orgId, (db) =>
+      deleteConversationThreadRecords(db, conversationId),
+    )
+    expect(await listConversationSyncs({ orgId, conversationId })).toEqual([])
   })
 })

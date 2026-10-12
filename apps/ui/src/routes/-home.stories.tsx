@@ -43,7 +43,7 @@ export const Loading: Story = {
     expect(canvas.getByLabelText("Select workspace")).toBeVisible()
     expect(canvas.getByText("Loading activity")).toBeInTheDocument()
     expect(
-      canvas.queryByRole("button", { name: "Create a workspace" }),
+      canvas.queryByRole("button", { name: "Create Workspace" }),
     ).not.toBeInTheDocument()
   },
   parameters: {
@@ -76,7 +76,7 @@ export const WorkspacesLoading: Story = {
     expect(await canvas.findByLabelText("Select workspace")).toBeVisible()
     expect(canvas.getByText("Loading activity")).toBeInTheDocument()
     expect(
-      canvas.queryByRole("button", { name: "Create a workspace" }),
+      canvas.queryByRole("button", { name: "Create Workspace" }),
     ).not.toBeInTheDocument()
   },
   parameters: {
@@ -106,7 +106,7 @@ export const Empty: Story = {
       canvas.getByRole("navigation", { name: "Main navigation" }),
     ).toBeVisible()
     expect(
-      await canvas.findByRole("button", { name: "Create a workspace" }),
+      await canvas.findByRole("button", { name: "Create Workspace" }),
     ).toBeVisible()
     expect(canvas.queryByText("Activity")).not.toBeInTheDocument()
   },

@@ -32,7 +32,10 @@ import {
 import { warmTanstackWorkspaceChat } from "../../domain/workspaces/tanstack-workspace-chat.js"
 import { resolveWorkspaceChatTurnRuntime } from "../../domain/workspaces/workspace-chat-turn-runtime.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
-import { listConversationTurnChanges } from "../../models/conversation-turn-changes.js"
+import {
+  listConversationSyncs,
+  listConversationTurnChanges,
+} from "../../models/conversation-turn-changes.js"
 import { getConversation } from "../../models/conversations.js"
 import {
   getDesiredWorkspaceRevision,
@@ -137,6 +140,29 @@ const ConversationTurnChangesResponseSchema = z
         /** The number of user messages in the thread when the turn ended. */
         turn: z.number().int(),
         files: z.array(ChangedFileSchema),
+      }),
+    ),
+    /** Each push of the conversation's commits, oldest first. */
+    syncs: z.array(
+      z.object({
+        /** What pushed: the user's Sync or Create PR, the agent, or the sweep. */
+        trigger: z.enum(["sync", "create_pr", "agent", "sweep"]),
+        /** Create PR: the pull request; `opened` when this push opened it. */
+        pullRequest: z
+          .object({
+            number: z.number().int(),
+            url: z.string(),
+            opened: z.boolean(),
+          })
+          .optional(),
+        branch: z.string(),
+        sha: z.string(),
+        /** The number of files that the pushed commits changed. */
+        files: z.number().int(),
+        treeUrl: z.string(),
+        /** The number of user messages in the thread at the time of the Sync. */
+        turn: z.number().int(),
+        syncedAt: z.string(),
       }),
     ),
   })
@@ -343,7 +369,8 @@ const getTurnChangesRoute = createRoute({
       content: {
         "application/json": { schema: ConversationTurnChangesResponseSchema },
       },
-      description: "The files each turn changed, in turn order",
+      description:
+        "The files each turn changed, in turn order, and the conversation's syncs",
     },
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -746,13 +773,15 @@ export const conversationFileRoutes = fileRoutes
     const conversationId = c.req.param("conversationId")
     const loaded = await loadConversationWorkspace(conversationId)
     if (!loaded) return c.json({ error: "Not found" }, 404)
-    const turns = await listConversationTurnChanges({
-      orgId: loaded.conversation.orgId,
-      conversationId,
-    })
+    const scope = { orgId: loaded.conversation.orgId, conversationId }
+    const [turns, syncs] = await Promise.all([
+      listConversationTurnChanges(scope),
+      listConversationSyncs(scope),
+    ])
     return c.json(
       {
         items: turns.map(({ runId, turn, files }) => ({ runId, turn, files })),
+        syncs,
       },
       200,
     )

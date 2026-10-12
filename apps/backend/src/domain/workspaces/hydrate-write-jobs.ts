@@ -1,4 +1,5 @@
 import { isAlias, isMap, isSeq } from "yaml"
+import { isConnectorMirrorPath } from "../codeIngestion/connectorMirrorPaths.js"
 import { folderMapMarkerState, maintainFolderMap } from "./folder-map.js"
 import { type HydrateUnit, resolveHydrateLink } from "./hydrate.js"
 import { looksLikeGitSha } from "./hydrate-phases.js"
@@ -9,6 +10,7 @@ import {
   updateKnowledgeMetadata,
 } from "./knowledge-metadata.js"
 import { parseSimpleFrontMatter } from "./layout.js"
+import { WORKSPACE_LINK_SCHEME } from "./mirror-units.js"
 import { renameRewriteRemainder } from "./rename-rewrite.js"
 import {
   shouldEnqueueAfterHydrate,
@@ -17,11 +19,15 @@ import {
 } from "./write-jobs.js"
 
 function missingClaimLinks(unit: HydrateUnit): string[] {
+  // The connector sync owns a mirror file, so no claims are written into it.
+  if (isConnectorMirrorPath(unit.path)) return []
   const directory = unit.path.split("/").slice(0, -1).join("/")
   const targets = new Set(
     unit.claims.map((claim) => resolveHydrateLink(directory, claim.to)),
   )
   return unit.links.filter((link) => {
+    // A resolved reference makes its own edge, so it needs no claim.
+    if (link.startsWith(WORKSPACE_LINK_SCHEME)) return false
     const target = resolveHydrateLink(directory, link)
     if (!target || targets.has(target)) return false
     targets.add(target)

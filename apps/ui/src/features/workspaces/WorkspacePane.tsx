@@ -28,8 +28,10 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/Tooltip"
+import { OnboardingHint } from "@/features/hints/OnboardingHint"
 import { GraphWaitState } from "@/features/knowledge-graph/GraphWaitState"
 import { focusVisibleClassName } from "@/lib/focus-styles"
+import { useMarkWorkspaceExplored } from "@/lib/useOrgGuide"
 import { useUrgentValue } from "@/lib/useUrgentValue"
 import { cn } from "@/lib/utils"
 import { conversationAllowsEdits } from "./conversationPublish"
@@ -37,7 +39,6 @@ import { filePaneId, type ParsedPane, parsePane, serializePane } from "./pane"
 import {
   conversationGitBlobOptions,
   conversationGitDiffOptions,
-  conversationGitStatusOptions,
   conversationGitTreeOptions,
   workspaceChatPrepareOptions,
   workspaceGitBlobOptions,
@@ -47,10 +48,13 @@ import {
 } from "./queries"
 import type { WorkspaceDetail, WorkspaceStorePhase } from "./types"
 import {
-  ConversationPublishActions,
-  type ConversationPublishChrome,
+  ConversationCtaActions,
+  type ConversationCtaChrome,
 } from "./WorkspaceChatChrome"
-import { WorkspaceConversationDiffPane } from "./WorkspaceConversationDiff"
+import {
+  ConversationDiffEmpty,
+  WorkspaceConversationDiffPane,
+} from "./WorkspaceConversationDiff"
 import { WorkspaceFilesPaneBody } from "./WorkspaceFilesPane"
 import { WorkspaceSettingsPane } from "./WorkspaceSettingsPane"
 import {
@@ -94,21 +98,30 @@ export function WorkspacePane(props: {
   onCloseActiveFile: () => void
   onToggleTree: () => void
   conversationTitle: string
-  /** The conversation's publish state, shared with the conversation header. */
-  publish?: ConversationPublishChrome | null
+  /** The CTA state, shared with the conversation header. */
+  cta?: ConversationCtaChrome | null
 }) {
   const queryClient = useQueryClient()
+  const markExplored = useMarkWorkspaceExplored(props.orgSlug)
   const urlPaneKey = serializePane(props.pane)
   const [pane, setPane] = useUrgentValue(props.pane, urlPaneKey)
   const activeFile = pane.kind === "file" ? pane.path : null
   // Every Diff pane variant (one turn, one focused file) is the Diff tab.
   const selectedKey = pane.kind === "diff" ? "diff" : serializePane(pane)
   const paneWidthLocked = props.width != null
+  // The cache says if the sandbox is ready. This query never fetches.
+  const prepared = useQuery({
+    ...workspaceChatPrepareOptions(
+      props.orgSlug,
+      props.conversationId ?? "",
+      props.workspace.id,
+    ),
+    enabled: false,
+  }).isSuccess
   const toolTabs = usePaneToolTabs({
     orgSlug: props.orgSlug,
     workspace: props.workspace,
     conversationId: props.conversationId,
-    diffSelected: pane.kind === "diff",
   })
   // The card joins the active tab with a square corner only when that tab
   // leads the strip. Each other tab keeps the round corner.
@@ -131,6 +144,7 @@ export function WorkspacePane(props: {
   }
 
   const selectPane = (next: ParsedPane) => {
+    markExplored()
     setPane(next)
     prefetchPane(next)
     props.onPane(next)
@@ -254,7 +268,7 @@ export function WorkspacePane(props: {
             </Button>
             <TabList
               ref={fileTabListRef}
-              className="flex min-w-0 flex-1 items-end gap-0.5 overflow-x-auto overflow-y-hidden [scrollbar-width:none]"
+              className="flex min-w-0 flex-1 items-end gap-1 overflow-x-auto overflow-y-hidden [scrollbar-width:none]"
             >
               {toolTabs.map((tab) => (
                 <PaneIconTab
@@ -283,6 +297,7 @@ export function WorkspacePane(props: {
                           ? workspaceChromeTabClassName
                           : workspaceChromeTabIdleClassName,
                         focusVisibleClassName,
+                        "px-3",
                       )
                     }
                   >
@@ -312,17 +327,17 @@ export function WorkspacePane(props: {
                 )
               })}
             </TabList>
-            <div className="flex shrink-0 items-end gap-0.5">
-              {/* The conversation header has the publish actions. The pane
+            <div className="flex shrink-0 items-end gap-1">
+              {/* The conversation header has the CTA actions. The pane
                   shows them only when the conversation column is hidden: below
                   `lg` with the pane open, or when the pane is maximized. */}
-              {props.publish &&
+              {props.cta &&
               conversationAllowsEdits(
                 props.workspace.writeStatus,
                 props.workspace.conversationWritable,
               ) ? (
-                <ConversationPublishActions
-                  publish={props.publish}
+                <ConversationCtaActions
+                  cta={props.cta}
                   className={props.maximized ? undefined : "lg:hidden"}
                 />
               ) : null}
@@ -404,7 +419,10 @@ export function WorkspacePane(props: {
                 />
               </SkeletonSuspense>
             ) : null}
-            {pane.kind === "diff" && props.conversationId ? (
+            {pane.kind === "diff" && props.conversationId && !prepared ? (
+              <ConversationDiffEmpty base={null} />
+            ) : null}
+            {pane.kind === "diff" && props.conversationId && prepared ? (
               <SkeletonSuspense
                 chain="files"
                 fallback={<WorkspaceFilesPaneSkeleton />}
@@ -527,7 +545,15 @@ function prefetchWorkspacePane(
         )
       }
     }
-  } else if (pane.kind === "diff" && conversationId) {
+  } else if (
+    pane.kind === "diff" &&
+    conversationId &&
+    // Before the sandbox is ready the diff request waits on the chat lock.
+    queryClient.getQueryState(
+      workspaceChatPrepareOptions(orgSlug, conversationId, workspace.id)
+        .queryKey,
+    )?.status === "success"
+  ) {
     void queryClient.prefetchQuery(
       conversationGitDiffOptions(orgSlug, conversationId, pane.turn),
     )
@@ -557,25 +583,8 @@ function usePaneToolTabs(props: {
   orgSlug: string
   workspace: WorkspaceDetail
   conversationId?: string
-  /** Keep the Diff tab while it is open, also when the status has no changes. */
-  diffSelected?: boolean
 }): PaneToolTab[] {
-  const conversationId = props.conversationId ?? ""
-  const prepareQuery = useQuery({
-    ...workspaceChatPrepareOptions(
-      props.orgSlug,
-      conversationId,
-      props.workspace.id,
-    ),
-    enabled: conversationId !== "",
-  })
-  const statusQuery = useQuery({
-    ...conversationGitStatusOptions(props.orgSlug, conversationId),
-    enabled: conversationId !== "" && prepareQuery.isSuccess,
-  })
-  const showDiff =
-    conversationId !== "" &&
-    (props.diffSelected || statusQuery.data?.differsFromDefault === true)
+  const showDiff = Boolean(props.conversationId)
   const graphBuilding = props.workspace.hydratePhases?.graph.kind === "pending"
   const tabs: PaneToolTab[] = [
     {
@@ -671,6 +680,7 @@ export function WorkspacePaneTriggers(props: {
   onExpand?: () => void
 }) {
   const queryClient = useQueryClient()
+  const markExplored = useMarkWorkspaceExplored(props.orgSlug)
   const prefetch = (pane: ParsedPane) => {
     prefetchWorkspacePane(
       queryClient,
@@ -685,10 +695,15 @@ export function WorkspacePaneTriggers(props: {
     workspace: props.workspace,
     conversationId: props.conversationId,
   })
+  const stripRef = useRef<HTMLDivElement>(null)
   return (
     <TooltipProvider delay={200}>
+      <OnboardingHint id="panes" orgSlug={props.orgSlug} triggerRef={stripRef}>
+        Files is the knowledge repository. Graph shows how its files link.
+      </OnboardingHint>
       {/* Hide pane mounts the triggers. They fade in, so the user sees where the pane went. */}
       <div
+        ref={stripRef}
         className={cn(
           workspaceChromeTabStripClassName,
           "animate-in fade-in duration-100 ease-out",
@@ -703,6 +718,7 @@ export function WorkspacePaneTriggers(props: {
             onIntent={() => prefetch(tab.pane)}
             onClick={() => {
               prefetch(tab.pane)
+              markExplored()
               props.onOpen(tab.pane)
             }}
           />

@@ -1,5 +1,5 @@
 "use client"
-import type { ComponentProps, ReactNode } from "react"
+import type { ComponentProps, ReactNode, Ref } from "react"
 import type { ButtonProps as RACButtonProps } from "react-aria-components"
 import {
   composeRenderProps,
@@ -20,6 +20,7 @@ export interface ButtonProps extends Omit<RACButtonProps, "size"> {
     | "outline"
   /** @default 'default' */
   size?: "default" | "icon" | "icon-sm"
+  ref?: Ref<HTMLButtonElement>
   href?: string
   target?: ComponentProps<typeof RACLink>["target"]
   rel?: string

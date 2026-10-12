@@ -18,6 +18,8 @@ export function HomeComposer(props: {
   workspaces: Workspace[]
   selected: Workspace | null
   onSelectWorkspace: (workspaceId: string) => void
+  /** A new value mounts a new text box: it reads the stored draft and takes focus. */
+  inputKey?: number
 }) {
   const { orgSlug, workspaces, selected, onSelectWorkspace } = props
   const queryClient = useQueryClient()
@@ -76,6 +78,7 @@ export function HomeComposer(props: {
       </MenuTrigger>
       <div className="mt-3">
         <MessageInputBox
+          key={props.inputKey}
           layout="empty"
           sendMessage={({ text }) => startConversation(text)}
           isDisabled={!selected}

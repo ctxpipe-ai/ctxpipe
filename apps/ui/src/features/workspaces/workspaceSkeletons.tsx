@@ -108,7 +108,7 @@ export function WorkspaceSurfaceSkeleton(props: { paneOpen: boolean }) {
         >
           <div className="flex min-h-0 flex-1 flex-col">
             <div className={workspaceChromeTabStripClassName}>
-              <div className={workspaceChromeTabClassName}>
+              <div className={cn(workspaceChromeTabClassName, "px-3")}>
                 <SkeletonText className="w-40" boneClassName="w-full" />
               </div>
             </div>

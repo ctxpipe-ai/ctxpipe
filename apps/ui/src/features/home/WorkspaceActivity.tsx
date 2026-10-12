@@ -20,7 +20,7 @@ import {
   WorkspaceRecentCommitsSkeleton,
 } from "./WorkspaceRecentCommits"
 
-const sectionHeadingClassName =
+export const sectionHeadingClassName =
   "text-xs font-medium uppercase tracking-normal text-teal-400"
 
 /** The activity scope of every workspace. A workspace slug cannot have `*`. */

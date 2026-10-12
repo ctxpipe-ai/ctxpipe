@@ -23,6 +23,7 @@ import {
   workspaceSandboxInstances,
   workspaces,
 } from "../../db/schema/workspaces.js"
+import { listConversationSyncs } from "../../models/conversation-turn-changes.js"
 import { getConversationSession } from "../../models/conversations.js"
 import { getSandboxInstance } from "../../models/workspaces.js"
 import { conversationRoutes } from "../../routes/v1/conversations.js"
@@ -357,6 +358,19 @@ async function withSession(
   )
 }
 
+/** The thread entries of the conversation's pushes, in push order. */
+async function pushEntries(orgId: string, conversationId: string) {
+  return (await listConversationSyncs({ orgId, conversationId })).map(
+    ({ trigger, branch, files, turn, pullRequest }) => ({
+      trigger,
+      branch,
+      files,
+      turn,
+      ...(pullRequest ? { pullRequest } : {}),
+    }),
+  )
+}
+
 const bash = (command: string): AgentStep => ({
   tool: "bash",
   args: { command, description: "Run a command" },
@@ -374,7 +388,7 @@ it(
   "lets the agent commit and push through its workspace tool, and pushes nothing when it does not",
   { timeout: 240_000 },
   async () => {
-    await withSession({}, async (_f, s) => {
+    await withSession({}, async (f, s) => {
       await s.turn("Write two notes and publish them", [
         commitStep("one.md", "Add note one"),
         commitStep("two.md", "Add note two"),
@@ -391,6 +405,10 @@ it(
         commitStep("three.md", "Add note three"),
       ])
       expect(s.remote("rev-parse", s.branch)).toBe(tip)
+      // The agent's push is in the thread, after its turn.
+      expect(await pushEntries(f.org.id, s.conversationId)).toEqual([
+        { trigger: "agent", branch: s.branch, files: 2, turn: 1 },
+      ])
     })
   },
 )
@@ -541,6 +559,23 @@ it(
       // Without a live sandbox Create PR uses the branch on GitHub.
       await s.asUser(() => destroySandboxesForConversation(s.conversationId))
       expect((await s.createPr("Write the notes")).status).toBe(200)
+      // Each push is in the thread. A Sync with nothing to push and a Create
+      // PR that pushes nothing add no entry.
+      expect(await pushEntries(f.org.id, s.conversationId)).toEqual([
+        { trigger: "sync", branch: s.branch, files: 2, turn: 0 },
+        { trigger: "sync", branch: s.branch, files: 1, turn: 0 },
+        {
+          trigger: "create_pr",
+          branch: s.branch,
+          files: 1,
+          turn: 0,
+          pullRequest: {
+            number: 41,
+            url: expect.stringContaining("/pull/41"),
+            opened: true,
+          },
+        },
+      ])
       handle = await s.warm()
       expect(await handle.fs.read("two.md")).toBe("# Add note two\n")
       expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(f.sha)
@@ -635,6 +670,8 @@ it(
           },
         ),
       )
+      // The first Create PR pushes this commit, then GitHub refuses the PR.
+      await s.agentCommit(handle, "two.md", "Add note two")
       const answers: Array<{ status: number; body: unknown }> = []
       for (const mode of [
         "mint",
@@ -658,6 +695,11 @@ it(
         },
       ])
       expect(s.pullRequests).toEqual([])
+      // The commit is on GitHub without a PR: the entry has no PR.
+      expect(await pushEntries(f.org.id, s.conversationId)).toEqual([
+        { trigger: "sync", branch: s.branch, files: 1, turn: 0 },
+        { trigger: "create_pr", branch: s.branch, files: 1, turn: 0 },
+      ])
     })
   },
 )
@@ -1322,6 +1364,9 @@ printf '# Draft\\n' > draft.md`,
         expect(s.remoteLog()).toBe("Agent commit")
         expect(s.remote("show", `${s.branch}:committed.md`)).toBe("# Committed")
         expect(() => s.remote("show", `${s.branch}:draft.md`)).toThrow()
+        expect(await pushEntries(f.org.id, s.conversationId)).toEqual([
+          { trigger: "sweep", branch: s.branch, files: 1, turn: 0 },
+        ])
       } finally {
         await sandbox.destroy()
       }
@@ -1372,6 +1417,9 @@ git -c user.name=Agent -c user.email=agent@example.test commit -q -m "Agent comm
           conversation: { lastBranch: next, lastChatPrNumber: null },
           row: null,
         })
+        expect(await pushEntries(f.org.id, s.conversationId)).toEqual([
+          { trigger: "sweep", branch: next, files: 1, turn: 0 },
+        ])
       } finally {
         await sandbox.destroy()
       }
