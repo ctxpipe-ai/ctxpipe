@@ -76,14 +76,25 @@ const onboardingJourneyRoute = {
 
 /**
  * Follows the finish navigation: `/` is the real index page, and each other
- * path shows where the user landed.
+ * path shows where the user landed. Like the real route, the page reads
+ * `orgSlug` from the URL: onboarding writes it there after it creates the
+ * organization. A fixed prop made the page redirect to itself without end
+ * when the new organization arrived in the list before the finish navigated.
  */
 function OnboardingJourney(props: { urlOrgSlug: string | null }) {
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   })
+  const searchOrgSlug = useRouterState({
+    select: (state) => {
+      const value = (state.location.search as { orgSlug?: unknown }).orgSlug
+      return typeof value === "string" ? value : null
+    },
+  })
   if (pathname === "/onboarding")
-    return <OnboardingPageContent urlOrgSlug={props.urlOrgSlug} />
+    return (
+      <OnboardingPageContent urlOrgSlug={searchOrgSlug ?? props.urlOrgSlug} />
+    )
   if (pathname === "/") return <IndexRoutePage />
   return <p>Landed on {pathname}</p>
 }
