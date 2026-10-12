@@ -120,7 +120,6 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
   const [wizardAtlassianConnectionId, setWizardAtlassianConnectionId] =
     useState<string | undefined>(undefined)
   const [notionSetupOpen, setNotionSetupOpen] = useState(false)
-  const [notionManageScope, setNotionManageScope] = useState(false)
   const [pagerdutySetupOpen, setPagerdutySetupOpen] = useState(false)
   const [pagerdutyManageScope, setPagerdutyManageScope] = useState(false)
   const [notionConnectionId, setNotionConnectionId] = useState<string | null>(
@@ -160,7 +159,6 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
   useEffect(() => {
     if (!search.notionConnectionId) return
     setNotionConnectionId(search.notionConnectionId)
-    setNotionManageScope(false)
     setNotionSetupOpen(true)
     void navigate({
       to: "/$orgSlug/connectors",
@@ -287,9 +285,8 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
                   key={row.id}
                   orgSlug={orgSlug}
                   connectionId={row.id}
-                  onOpenSetup={(manageScope) => {
+                  onOpenSetup={() => {
                     setNotionConnectionId(row.id)
-                    setNotionManageScope(manageScope)
                     setNotionSetupOpen(true)
                   }}
                 />
@@ -368,7 +365,6 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
             onRegisterRequired={({ connectionId }) => {
               setCatalogOpen(false)
               setNotionConnectionId(connectionId)
-              setNotionManageScope(false)
               setNotionSetupOpen(true)
             }}
             onFlowFinished={({ connectionId }) => {
@@ -518,17 +514,12 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
         key={notionConnectionId ?? "notion-setup"}
         orgSlug={orgSlug}
         connectionId={notionConnectionId ?? undefined}
-        githubConnectionIds={items
-          .filter((item) => item.type === "github")
-          .map((item) => item.id)}
-        manageScope={notionManageScope}
         isOpen={notionSetupOpen}
         onConnectionIdChange={setNotionConnectionId}
         onOpenChange={(open) => {
           setNotionSetupOpen(open)
           if (!open) {
             setNotionConnectionId(null)
-            setNotionManageScope(false)
           }
         }}
       />

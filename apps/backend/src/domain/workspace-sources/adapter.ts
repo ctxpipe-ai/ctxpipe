@@ -2,6 +2,7 @@ import type { Env } from "../../config/env.js"
 import { confluenceSourceAdapter } from "../../services/confluence/workspace-source-adapter.js"
 import type { GitFileChange } from "../../services/git/file-change.js"
 import { linearSourceAdapter } from "../../services/linear/source-adapter.js"
+import { notionSourceAdapter } from "../../services/notion/workspace-source-adapter.js"
 import type { SourceProvider } from "./sources-file.js"
 
 /**
@@ -116,4 +117,5 @@ export type SourceFetchResult = {
 export const SOURCE_ADAPTERS: Partial<Record<SourceProvider, SourceAdapter>> = {
   confluence: confluenceSourceAdapter,
   linear: linearSourceAdapter,
+  notion: notionSourceAdapter as SourceAdapter,
 }

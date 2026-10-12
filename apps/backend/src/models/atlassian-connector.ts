@@ -15,7 +15,6 @@ import { repositories } from "../db/schema/repositories.js"
 import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
 import {
   type ForgeConnectionConfig,
-  type ForgeSourceSync,
   parseForgeConnectionConfig,
   serialiseForgeConnectionConfigForDb,
 } from "../lib/connection-config.js"
@@ -701,30 +700,6 @@ export async function updateConfluenceSpaceSyncState(input: {
         ),
       )
   })
-}
-
-/**
- * Save the Workspace sources sync state of a Forge connection. It changes
- * only `config.sourceSync`, so a concurrent edit of other keys stays.
- */
-export async function saveForgeSourceSync(input: {
-  orgId: string
-  connectionId: string
-  sourceSync: ForgeSourceSync
-}): Promise<void> {
-  await withOrgDbContext(input.orgId, (db) =>
-    db
-      .update(connections)
-      .set({
-        config: sql`jsonb_set(${connections.config}, '{sourceSync}', ${JSON.stringify(input.sourceSync)}::jsonb)`,
-      })
-      .where(
-        and(
-          eq(connections.id, input.connectionId),
-          eq(connections.type, CONNECTION_TYPE_FORGE),
-        ),
-      ),
-  )
 }
 
 type SyncTargetPatchInput = {
