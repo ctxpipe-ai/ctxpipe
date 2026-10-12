@@ -19,6 +19,7 @@ import {
 import { useSelectNav } from "@/components/ShellLayoutContext"
 import { Button } from "@/components/ui/Button"
 import { Disclosure, DisclosurePanel } from "@/components/ui/Disclosure"
+import { Skeleton, SkeletonText } from "@/components/ui/Skeleton"
 import { useGithubConnectFlow } from "@/features/connectors/useGithubConnectFlow"
 import { sectionHeadingClassName } from "@/features/home/WorkspaceActivity"
 import { focusVisibleClassName } from "@/lib/focus-styles"
@@ -27,8 +28,6 @@ import type { GuideRow, GuideRowId } from "./guide-state"
 import type { SetupGuide } from "./useSetupGuide"
 
 export const ASK_PROMPT = "What should a new engineer read first?"
-
-const MCP_DOCS_URL = "https://docs.ctxpipe.ai/docs/mcp/mcp-docs"
 
 const rowCopy: Record<
   GuideRowId,
@@ -69,17 +68,11 @@ const rowCopy: Record<
     title: "Explore a Workspace",
     body: "Open Files and Graph to see what the Workspace knows.",
   },
-  editor: {
-    icon: <IconTerminal2 stroke={1.5} aria-hidden />,
-    title: "Use it from your editor",
-    body: "Add the ctx| MCP server to Cursor or Claude Code.",
-  },
 }
 
 type GuideAction = {
   label: string
   onPress?: () => void
-  href?: string
   isPending?: boolean
 }
 
@@ -96,52 +89,13 @@ export function SetupGuideCard(props: {
   guide: ReadyGuide
   onAsk?: () => void
 }) {
-  if (props.guide.role === "admin") return <AdminSetupGuide {...props} />
-  return <MemberSetupGuide {...props} />
-}
-
-function MemberSetupGuide(props: {
-  orgSlug: string
-  guide: ReadyGuide
-  onAsk?: () => void
-}) {
-  return <SetupGuidePanel {...props} actions={useBaseActions(props)} />
-}
-
-/** Admins also connect GitHub. The popup flow lives as long as the card. */
-function AdminSetupGuide(props: {
-  orgSlug: string
-  guide: ReadyGuide
-  onAsk?: () => void
-}) {
-  const base = useBaseActions(props)
-  const github = useGithubConnectFlow({ orgSlug: props.orgSlug })
-  return (
-    <>
-      <SetupGuidePanel
-        {...props}
-        actions={{
-          ...base,
-          github: {
-            label: "Connect GitHub",
-            isPending: github.isSyncing,
-            onPress: () => github.start("connect"),
-          },
-        }}
-      />
-      {github.SelfHostedWizardModal}
-    </>
-  )
-}
-
-function useBaseActions(props: {
-  orgSlug: string
-  guide: ReadyGuide
-  onAsk?: () => void
-}): GuideActions {
   const { orgSlug, guide, onAsk } = props
   const navigate = useNavigate()
   const selectNav = useSelectNav()
+  // An empty org slug turns off the flow's queries for a member.
+  const github = useGithubConnectFlow({
+    orgSlug: guide.role === "admin" ? orgSlug : "",
+  })
   const landing = guide.landing
   const openWorkspace = (pane: string | undefined) => {
     if (!landing) return
@@ -152,7 +106,12 @@ function useBaseActions(props: {
       search: { pane },
     })
   }
-  return {
+  const actions: GuideActions = {
+    github: {
+      label: "Connect GitHub",
+      isPending: github.isSyncing,
+      onPress: () => github.start("connect"),
+    },
     workspace: {
       label: "Create Workspace",
       onPress: () => {
@@ -193,8 +152,13 @@ function useBaseActions(props: {
     explore: landing
       ? { label: "Open Workspace", onPress: () => openWorkspace(undefined) }
       : undefined,
-    editor: { label: "Set up", href: MCP_DOCS_URL },
   }
+  return (
+    <>
+      <SetupGuidePanel guide={guide} actions={actions} />
+      {guide.role === "admin" ? github.SelfHostedWizardModal : null}
+    </>
+  )
 }
 
 function ActionButton(props: {
@@ -210,9 +174,6 @@ function ActionButton(props: {
       className={props.className}
       isPending={action.isPending}
       onPress={action.onPress}
-      href={action.href}
-      target={action.href ? "_blank" : undefined}
-      rel={action.href ? "noopener noreferrer" : undefined}
     >
       {action.label}
     </Button>
@@ -431,11 +392,81 @@ function SetupGuidePanel(props: { guide: ReadyGuide; actions: GuideActions }) {
               More
             </RACButton>
             <DisclosurePanel>
-              <GuideRows rows={guide.more} actions={actions} />
+              <div className="flex items-center gap-3 px-2 py-2">
+                <span className="ctx-node size-7 text-muted-foreground [&>svg]:size-4">
+                  <IconTerminal2 stroke={1.5} aria-hidden />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm text-zinc-300">
+                    Use it from your editor
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Add the ctx| MCP server to Cursor or Claude Code.
+                  </p>
+                </div>
+                <Button
+                  variant="quiet"
+                  className="h-7 px-1 text-xs"
+                  href="https://docs.ctxpipe.ai/docs/mcp/mcp-docs"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Set up
+                </Button>
+              </div>
             </DisclosurePanel>
           </Disclosure>
         </DisclosurePanel>
       </Disclosure>
+    </section>
+  )
+}
+
+/**
+ * Holds the place of the guide while its signals load. It has the box of the
+ * collapsed card, or of the expanded admin card with the first row open.
+ */
+export function SetupGuideSkeleton(props: { collapsed: boolean }) {
+  return (
+    <section
+      aria-busy
+      className="rounded-md bg-zinc-900/60 p-2 ring-1 ring-zinc-800"
+    >
+      <span className="sr-only">Loading the setup guide</span>
+      <div
+        className={cn(
+          "flex items-center gap-x-3 px-2 pt-1",
+          props.collapsed ? "pb-1" : "pb-2",
+        )}
+      >
+        <Skeleton className="h-7 w-48" />
+      </div>
+      {props.collapsed ? null : (
+        // The disclosure panel of the card has `pt-0.5`.
+        <div className="pt-0.5">
+          <ul className="space-y-1">
+            <li className="flex items-start gap-3 rounded-md px-2 py-3">
+              <Skeleton className="size-7 shrink-0" />
+              <div className="min-w-0 flex-1">
+                <div className="pt-1">
+                  <SkeletonText className="text-sm" boneClassName="w-40" />
+                </div>
+                <SkeletonText className="mt-0.5 text-sm" boneClassName="w-72" />
+                <Skeleton className="mt-3 block h-9 w-32" />
+              </div>
+            </li>
+            {[0, 1, 2, 3, 4].map((row) => (
+              <li key={row} className="flex items-center gap-3 px-2 py-2">
+                <Skeleton className="size-7 shrink-0" />
+                <SkeletonText className="flex-1 text-sm" boneClassName="w-48" />
+              </li>
+            ))}
+          </ul>
+          <div className="mt-1 px-2 py-2">
+            <SkeletonText className="text-xs" boneClassName="w-12" />
+          </div>
+        </div>
+      )}
     </section>
   )
 }

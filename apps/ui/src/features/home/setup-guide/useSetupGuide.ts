@@ -2,13 +2,16 @@ import { useQuery } from "@tanstack/react-query"
 import { useEffect } from "react"
 import { githubSetupLinkOptions } from "@/features/connectors/queries/github-connector"
 import { orgConnectionsOptions } from "@/features/connectors/queries/org-connections"
+import { workspaceHydrateInFlight } from "@/features/workspaces/projection"
 import {
   landingWorkspace,
   workspaceDetailOptions,
   workspaceListOptions,
 } from "@/features/workspaces/queries"
 import type { Workspace } from "@/features/workspaces/types"
-import { authClient, useSession } from "@/lib/auth-client"
+import { pollWhileOk } from "@/lib/api-result"
+import { authClient, useListOrganizations, useSession } from "@/lib/auth-client"
+import { isAdminRole, sessionUser } from "@/lib/session-user"
 import { useOrgGuide } from "@/lib/useOrgGuide"
 import {
   type GuideRole,
@@ -16,120 +19,138 @@ import {
   type GuideView,
   guideRows,
   guideView,
+  isWithinGuideWindow,
 } from "./guide-state"
 
 /** When this app load started. The complete line shows on one load only. */
 const APP_BOOT_AT = Date.now()
 
-const BUILDING_STATUSES = new Set(["pending", "running", "hydrating"])
-
-export const organizationMembersKeys = {
-  members: (orgSlug: string) => ["organization-members", orgSlug] as const,
-  invitations: (orgSlug: string, organizationId: string) =>
-    ["organization-invitations", orgSlug, organizationId] as const,
-}
-
 export type SetupGuide =
-  | { status: "pending" }
+  | {
+      status: "pending"
+      /** The guide can still show, so Home holds its place with a skeleton. */
+      mayShow: boolean
+      /** The likely shape of the card when it loads. */
+      collapsed: boolean
+    }
   | {
       status: "ready"
       view: GuideView
       role: GuideRole
       rows: GuideRow[]
-      more: GuideRow[]
       landing: Workspace | null
       setCollapsed: (collapsed: boolean) => void
       dismiss: () => void
     }
 
-/** Owner and admin can invite and connect. `role` can list several roles. */
-function isAdminRole(role: string | undefined): boolean {
-  return (role ?? "")
-    .split(",")
-    .map((part) => part.trim())
-    .some((part) => part === "owner" || part === "admin")
-}
-
 /**
- * Reads every guide signal from real data. While a signal query is pending,
- * the guide is pending. A failed query counts as "not done".
+ * Reads every guide signal from real data. Each query refetches when Home
+ * mounts, so a return to Home shows new progress. A failed signal query
+ * counts as "not done"; a failed role query hides the guide.
  */
 export function useSetupGuide(orgSlug: string): SetupGuide {
   const { data: session, isPending: sessionPending } = useSession()
-  const user = session?.user as
-    | { id: string; onboardingCompletedAt?: string | null }
-    | undefined
+  const user = sessionUser(session)
+  const { data: organizations } = useListOrganizations()
+  const organizationId =
+    organizations?.find((org) => org.slug === orgSlug)?.id ?? ""
   const [guidePrefs, updateGuide, prefsLoaded] = useOrgGuide(orgSlug)
 
+  const roleQuery = useQuery({
+    queryKey: ["organization-member-role", orgSlug],
+    queryFn: () =>
+      authClient.organization.getActiveMemberRole({
+        query: { organizationSlug: orgSlug },
+        fetchOptions: { throw: true },
+      }),
+    enabled: user !== null,
+    refetchOnMount: "always",
+  })
+  const role: GuideRole = isAdminRole(roleQuery.data?.role) ? "admin" : "member"
+  const isAdmin = roleQuery.isSuccess && role === "admin"
+
   const membersQuery = useQuery({
-    queryKey: organizationMembersKeys.members(orgSlug),
+    queryKey: ["organization-members", orgSlug],
     queryFn: () =>
       authClient.organization.listMembers({
         query: { organizationSlug: orgSlug },
         fetchOptions: { throw: true },
       }),
-    enabled: Boolean(user),
+    enabled: isAdmin,
+    refetchOnMount: "always",
   })
-  const members = membersQuery.data?.members ?? []
-  const me = members.find((member) => member.userId === user?.id)
-  // A failed member list gives the member rows: they need no admin access.
-  const role: GuideRole = isAdminRole(me?.role) ? "admin" : "member"
-  const isAdmin = role === "admin"
-  const organizationId = me?.organizationId ?? ""
-
   const invitationsQuery = useQuery({
-    queryKey: organizationMembersKeys.invitations(orgSlug, organizationId),
+    queryKey: ["organization-invitations", orgSlug, organizationId],
     queryFn: () =>
       authClient.organization.listInvitations({
         query: { organizationId },
         fetchOptions: { throw: true },
       }),
     enabled: isAdmin && organizationId !== "",
+    refetchOnMount: "always",
   })
   const githubQuery = useQuery({
     ...githubSetupLinkOptions(orgSlug),
     enabled: isAdmin,
+    refetchOnMount: "always",
   })
   const connectionsQuery = useQuery({
     ...orgConnectionsOptions(orgSlug),
     enabled: isAdmin,
+    refetchOnMount: "always",
   })
-  const listQuery = useQuery(workspaceListOptions(orgSlug))
+  const listQuery = useQuery({
+    ...workspaceListOptions(orgSlug),
+    refetchOnMount: "always",
+    // Poll while the first Workspace builds, so "Building" goes away.
+    refetchInterval: (query) => {
+      const data = query.state.data
+      const first = data ? landingWorkspace(data) : null
+      return first && workspaceHydrateInFlight(first)
+        ? pollWhileOk(5000)(query)
+        : false
+    },
+  })
   const landing = listQuery.data ? landingWorkspace(listQuery.data) : null
   const detailQuery = useQuery({
     ...workspaceDetailOptions(orgSlug, landing?.slug ?? ""),
     enabled: isAdmin && landing !== null,
+    refetchOnMount: "always",
   })
 
+  const workspaces = listQuery.data?.items ?? []
+  const asked = workspaces.some((item) => item.mostRecentConversationId)
   const pending =
     sessionPending ||
     !prefsLoaded ||
-    (Boolean(user) && membersQuery.isPending) ||
+    (user !== null && roleQuery.isPending) ||
     listQuery.isPending ||
     (isAdmin &&
-      (githubQuery.isPending ||
+      (membersQuery.isPending ||
+        githubQuery.isPending ||
         connectionsQuery.isPending ||
         (organizationId !== "" && invitationsQuery.isPending) ||
         (landing !== null && detailQuery.isPending)))
 
-  const workspaces = listQuery.data?.items ?? []
-  const { rows, more } = guideRows({
+  const rows = guideRows({
     role,
     githubLinked: githubQuery.data === "linked",
     workspaceCount: workspaces.length,
-    landingBuilding: BUILDING_STATUSES.has(landing?.hydrateStatus ?? ""),
+    landingBuilding: landing !== null && workspaceHydrateInFlight(landing),
     linkedRepositories: (detailQuery.data?.linkedRepositories.length ?? 0) > 0,
-    asked: workspaces.some((item) => item.mostRecentConversationId !== null),
+    asked,
     toolConnected: (connectionsQuery.data ?? []).some(
       (connection) => connection.type !== "github",
     ),
     teamInvited:
-      (invitationsQuery.data?.length ?? 0) > 0 ||
-      (membersQuery.data?.total ?? members.length) > 1,
+      (invitationsQuery.data ?? []).some(
+        (invitation) =>
+          invitation.status === "pending" || invitation.status === "accepted",
+      ) || (membersQuery.data?.total ?? 0) > 1,
     explored: Boolean(guidePrefs.exploredAt),
   })
   const view: GuideView =
-    pending || !user
+    pending || !user || roleQuery.isError
       ? { kind: "hidden" }
       : guideView({
           rows,
@@ -150,13 +171,21 @@ export function useSetupGuide(orgSlug: string): SetupGuide {
     )
   }, [recordComplete, updateGuide])
 
-  if (pending) return { status: "pending" }
+  if (pending) {
+    return {
+      status: "pending",
+      mayShow:
+        prefsLoaded &&
+        !guidePrefs.dismissedAt &&
+        isWithinGuideWindow(user?.onboardingCompletedAt, Date.now()),
+      collapsed: guidePrefs.collapsed ?? asked,
+    }
+  }
   return {
     status: "ready",
     view,
     role,
     rows,
-    more,
     landing,
     setCollapsed: (collapsed) =>
       updateGuide((guide) => ({ ...guide, collapsed })),

@@ -23,8 +23,8 @@ const doneIds = (rows: GuideRow[]) =>
   rows.filter((row) => row.done).map((row) => row.id)
 
 describe("guideRows", () => {
-  it("gives an admin six counted rows and the editor row under More", () => {
-    const { rows, more } = guideRows(noSignals)
+  it("gives an admin six rows", () => {
+    const rows = guideRows(noSignals)
     expect(ids(rows)).toEqual([
       "github",
       "workspace",
@@ -34,11 +34,10 @@ describe("guideRows", () => {
       "invite",
     ])
     expect(doneIds(rows)).toEqual([])
-    expect(more).toEqual([{ id: "editor", done: false }])
   })
 
   it("marks each admin row from its own signal", () => {
-    const { rows } = guideRows({
+    const rows = guideRows({
       ...noSignals,
       githubLinked: true,
       workspaceCount: 1,
@@ -56,21 +55,20 @@ describe("guideRows", () => {
       toolConnected: true,
       teamInvited: true,
     })
-    expect(doneIds(all.rows)).toHaveLength(6)
-    expect(all.rows.find((row) => row.id === "workspace")?.building).toBe(false)
+    expect(doneIds(all)).toHaveLength(6)
+    expect(all.find((row) => row.id === "workspace")?.building).toBe(false)
   })
 
   it("never gives a member the GitHub, tool or invite rows", () => {
     const member = { ...noSignals, role: "member" as const }
-    expect(ids(guideRows(member).rows)).toEqual(["workspace", "ask", "explore"])
+    expect(ids(guideRows(member))).toEqual(["workspace", "ask", "explore"])
     const withWorkspace = guideRows({
       ...member,
       workspaceCount: 1,
       explored: true,
     })
-    expect(ids(withWorkspace.rows)).toEqual(["ask", "explore"])
-    expect(doneIds(withWorkspace.rows)).toEqual(["explore"])
-    expect(ids(withWorkspace.more)).toEqual(["editor"])
+    expect(ids(withWorkspace)).toEqual(["ask", "explore"])
+    expect(doneIds(withWorkspace)).toEqual(["explore"])
   })
 })
 
@@ -86,7 +84,7 @@ describe("guideView", () => {
   }
 
   it("is open and expanded with the first open row as next", () => {
-    const view = guideView({ ...base, rows: guideRows(noSignals).rows })
+    const view = guideView({ ...base, rows: guideRows(noSignals) })
     expect(view).toEqual({
       kind: "open",
       collapsed: false,
@@ -101,7 +99,7 @@ describe("guideView", () => {
       ...noSignals,
       workspaceCount: 1,
       asked: true,
-    }).rows
+    })
     expect(guideView({ ...base, rows })).toMatchObject({
       kind: "open",
       collapsed: true,
@@ -115,14 +113,14 @@ describe("guideView", () => {
       ...noSignals,
       workspaceCount: 1,
       asked: true,
-    }).rows
+    })
     expect(
       guideView({ ...base, rows: asked, prefs: { collapsed: false } }),
     ).toMatchObject({ kind: "open", collapsed: false })
     expect(
       guideView({
         ...base,
-        rows: guideRows(noSignals).rows,
+        rows: guideRows(noSignals),
         prefs: { collapsed: true },
       }),
     ).toMatchObject({ kind: "open", collapsed: true })
@@ -131,14 +129,21 @@ describe("guideView", () => {
   it("is hidden after a dismiss", () => {
     const view = guideView({
       ...base,
-      rows: guideRows(noSignals).rows,
+      rows: guideRows(noSignals),
       prefs: { dismissedAt: "2026-10-11T00:00:00.000Z" },
     })
     expect(view).toEqual({ kind: "hidden" })
   })
 
   it("is hidden when onboarding finished more than 14 days ago, or is unknown", () => {
-    const rows = guideRows(noSignals).rows
+    expect(
+      guideView({
+        ...base,
+        rows: guideRows(noSignals),
+        onboardingCompletedAt: new Date("2026-10-10T12:00:00.000Z"),
+      }),
+    ).toMatchObject({ kind: "open" })
+    const rows = guideRows(noSignals)
     expect(
       guideView({
         ...base,
@@ -170,7 +175,7 @@ describe("guideView", () => {
       asked: true,
       toolConnected: true,
       teamInvited: true,
-    }).rows
+    })
     expect(guideView({ ...base, rows })).toEqual({
       kind: "complete",
       record: true,
@@ -191,19 +196,5 @@ describe("guideView", () => {
         prefs: { completedAt: new Date(appBootAt - 1000).toISOString() },
       }),
     ).toEqual({ kind: "hidden" })
-  })
-
-  it("does not count the editor row toward completion", () => {
-    const member = guideRows({
-      ...noSignals,
-      role: "member",
-      workspaceCount: 1,
-      asked: true,
-      explored: true,
-    })
-    expect(member.more[0]?.done).toBe(false)
-    expect(guideView({ ...base, rows: member.rows })).toMatchObject({
-      kind: "complete",
-    })
   })
 })

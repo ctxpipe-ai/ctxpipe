@@ -109,62 +109,6 @@ export function organizationCreateSlowSuccessHandler() {
   })
 }
 
-/** `POST /.auth/api/v1/auth/organization/invite-member` — per-email success. */
-export function organizationInviteSuccessHandler() {
-  return http.post(
-    `${authBase}/organization/invite-member`,
-    async ({ request }) => {
-      const body = (await request.json()) as {
-        email: string
-        role: string
-        organizationId?: string
-      }
-      return HttpResponse.json({
-        id: `inv_${body.email.replace(/[@.]+/g, "_")}`,
-        email: body.email,
-        role: body.role,
-        organizationId: body.organizationId ?? "org_storybook",
-        inviterId: "user_onboarding_story",
-        status: "pending",
-        expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
-        createdAt: new Date().toISOString(),
-      })
-    },
-  )
-}
-
-export function organizationInviteErrorHandler() {
-  return http.post(`${authBase}/organization/invite-member`, async () => {
-    await delay("real")
-    return HttpResponse.json({ message: "Invite failed" }, { status: 400 })
-  })
-}
-
-/** Invite after MSW `delay("real")` (same JSON shape as {@link organizationInviteSuccessHandler}). */
-export function organizationInviteSlowSuccessHandler() {
-  return http.post(
-    `${authBase}/organization/invite-member`,
-    async ({ request }) => {
-      await delay("real")
-      const body = (await request.json()) as {
-        email: string
-        role: string
-        organizationId?: string
-      }
-      return HttpResponse.json({
-        id: `inv_${body.email.replace(/[@.]+/g, "_")}`,
-        email: body.email,
-        role: body.role,
-        organizationId: body.organizationId ?? "org_storybook",
-        inviterId: "user_onboarding_story",
-        status: "pending",
-        expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
-        createdAt: new Date().toISOString(),
-      })
-    },
-  )
-}
-
 /** Backend returns JSON `null` with 200 when the org has no GitHub installation yet. */
 export const githubInstallationNoneHandler = http.get(
   ({ request }) =>
@@ -184,54 +128,6 @@ export const githubInstallationLinkedHandler = http.get(
       installationId: 4242,
     }),
 )
-
-type StoryMember = { userId: string; role: string; email?: string }
-
-/** `GET .../organization/list-members` in the Better Auth response shape. */
-export function organizationMembersHandler(
-  members: StoryMember[],
-  organizationId = "org_storybook",
-) {
-  return http.get(`${authBase}/organization/list-members`, () =>
-    HttpResponse.json({
-      members: members.map((member, index) => ({
-        id: `mem_story_${index}`,
-        organizationId,
-        userId: member.userId,
-        role: member.role,
-        createdAt: "2026-10-01T00:00:00.000Z",
-        user: {
-          id: member.userId,
-          name: "Storybook User",
-          email: member.email ?? `${member.userId}@story.example`,
-          image: null,
-        },
-      })),
-      total: members.length,
-    }),
-  )
-}
-
-/** `GET .../organization/list-invitations`: an array of invitations. */
-export function organizationInvitationsHandler(
-  invitations: { email: string; role: string }[] = [],
-  organizationId = "org_storybook",
-) {
-  return http.get(`${authBase}/organization/list-invitations`, () =>
-    HttpResponse.json(
-      invitations.map((invitation, index) => ({
-        id: `inv_story_${index}`,
-        organizationId,
-        email: invitation.email,
-        role: invitation.role,
-        status: "pending",
-        inviterId: "user_storybook",
-        expiresAt: "2026-12-01T00:00:00.000Z",
-        createdAt: "2026-10-01T00:00:00.000Z",
-      })),
-    ),
-  )
-}
 
 export function organizationFullHandler(organization: {
   id: string

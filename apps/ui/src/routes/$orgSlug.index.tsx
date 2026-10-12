@@ -2,10 +2,12 @@ import { useQuery } from "@tanstack/react-query"
 import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/Button"
+import { chatDraftKey, writeChatDraft } from "@/features/chat/chat-draft"
 import { HomeComposer } from "@/features/home/HomeComposer"
 import {
   ASK_PROMPT,
   SetupGuideCard,
+  SetupGuideSkeleton,
 } from "@/features/home/setup-guide/SetupGuide"
 import { useSetupGuide } from "@/features/home/setup-guide/useSetupGuide"
 import { WorkspaceActivity } from "@/features/home/WorkspaceActivity"
@@ -45,7 +47,7 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
     listQuery.data?.items.find((item) => item.id === selectedId) ?? landing
   const workspaces = listQuery.data?.items ?? []
   const guide = useSetupGuide(orgSlug)
-  const [askSeed, setAskSeed] = useState<string | null>(null)
+  const [composerKey, setComposerKey] = useState(0)
 
   useEffect(() => {
     if (preferences.selectedOrganizationSlug !== orgSlug) {
@@ -66,30 +68,40 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
       workspaces={workspaces}
       selected={selected}
       onSelectWorkspace={setSelectedId}
-      draftSeed={askSeed}
+      inputKey={composerKey}
     />
   )
+  // Ask: store the prompt as the draft of the current Workspace, then mount
+  // a new text box, which reads that draft and takes focus.
+  const ask = selected
+    ? () => {
+        writeChatDraft(chatDraftKey(orgSlug, selected.id), ASK_PROMPT)
+        setComposerKey((key) => key + 1)
+      }
+    : undefined
+  const guideCard =
+    guide.status === "ready" ? (
+      <SetupGuideCard orgSlug={orgSlug} guide={guide} onAsk={ask} />
+    ) : guide.mayShow ? (
+      <SetupGuideSkeleton collapsed={guide.collapsed} />
+    ) : null
   const hasWorkspace = sessionPending || listQuery.isPending || selected
   // With no Workspace, the setup guide takes the composer's place. Without
   // the guide (an established user), keep the composer and the create button.
+  const guideShows =
+    guide.status === "ready" ? guide.view.kind !== "hidden" : guide.mayShow
   const body = hasWorkspace ? (
     <>
       {composer}
-      {guide.status === "ready" ? (
-        <SetupGuideCard
-          orgSlug={orgSlug}
-          guide={guide}
-          onAsk={() => setAskSeed(ASK_PROMPT)}
-        />
-      ) : null}
+      {guideCard}
       <WorkspaceActivity
         orgSlug={orgSlug}
         workspaceSlug={sessionPending ? null : (selected?.slug ?? null)}
         workspaces={workspaces}
       />
     </>
-  ) : guide.status === "pending" ? null : guide.view.kind !== "hidden" ? (
-    <SetupGuideCard orgSlug={orgSlug} guide={guide} />
+  ) : guideShows ? (
+    guideCard
   ) : (
     <>
       {composer}
@@ -102,7 +114,7 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
           })
         }}
       >
-        Create a workspace
+        Create Workspace
       </Button>
     </>
   )

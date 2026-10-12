@@ -1,8 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { delay, HttpResponse, http, type RequestHandler } from "msw"
+import { HttpResponse, http, type RequestHandler } from "msw"
 import { expect, userEvent, waitFor, within } from "storybook/test"
+import { responseGate } from "@/components/ui/skeletonMatchStory"
 import { githubConnectorBootstrapHandler } from "@/features/connectors/mocks/github-bootstrap-msw"
-import type { Workspace } from "@/features/workspaces/types"
+import type { Workspace, WorkspaceDetail } from "@/features/workspaces/types"
 import {
   docsWorkspace,
   docsWorkspaceDetail,
@@ -13,9 +14,7 @@ import {
   authConfigHandler,
   githubInstallationLinkedHandler,
   githubInstallationNoneHandler,
-  organizationInvitationsHandler,
   organizationListWithOrgHandler,
-  organizationMembersHandler,
   sessionSignedInHandler,
 } from "@/mocks/handlers"
 import {
@@ -29,6 +28,7 @@ import { OrgHomePageContent } from "./$orgSlug.index"
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const userId = "user_storybook"
+const authBase = "*/.auth/api/v1/auth"
 
 /** A signed-in user who finished onboarding `daysAgo` days ago. */
 function sessionDefaults(daysAgo: number) {
@@ -44,11 +44,52 @@ function sessionDefaults(daysAgo: number) {
   ]
 }
 
-const bootstrapHosted = githubConnectorBootstrapHandler({
-  orgSlug: "acme",
-  hostedDefaultAppInstallUrl:
-    "https://github.com/apps/ctxpipe-agent/installations/new",
-})
+/** `GET .../organization/get-active-member-role`: `{ role }`. */
+function roleHandler(role: string) {
+  return http.get(`${authBase}/organization/get-active-member-role`, () =>
+    HttpResponse.json({ role }),
+  )
+}
+
+/** `GET .../organization/list-members` in the Better Auth response shape. */
+function membersHandler(count: number) {
+  return http.get(`${authBase}/organization/list-members`, () =>
+    HttpResponse.json({
+      members: Array.from({ length: count }, (_, index) => ({
+        id: `mem_story_${index}`,
+        organizationId: "org_storybook",
+        userId: index === 0 ? userId : `user_story_${index}`,
+        role: index === 0 ? "owner" : "member",
+        createdAt: "2026-10-01T00:00:00.000Z",
+        user: {
+          id: index === 0 ? userId : `user_story_${index}`,
+          name: "Storybook User",
+          email: `member${index}@story.example`,
+          image: null,
+        },
+      })),
+      total: count,
+    }),
+  )
+}
+
+/** `GET .../organization/list-invitations`: an array of invitations. */
+function invitationsHandler(statuses: string[]) {
+  return http.get(`${authBase}/organization/list-invitations`, () =>
+    HttpResponse.json(
+      statuses.map((status, index) => ({
+        id: `inv_story_${index}`,
+        organizationId: "org_storybook",
+        email: `teammate${index}@story.example`,
+        role: "member",
+        status,
+        inviterId: userId,
+        expiresAt: "2026-12-01T00:00:00.000Z",
+        createdAt: "2026-10-01T00:00:00.000Z",
+      })),
+    ),
+  )
+}
 
 function connectorsHandler(types: string[]) {
   return http.get(
@@ -73,7 +114,27 @@ const failed = (path: string) =>
     () => HttpResponse.json({ error: "failed" }, { status: 500 }),
   )
 
-const owner = organizationMembersHandler([{ userId, role: "owner" }])
+/** The guide signals of an owner. Each field replaces one signal. */
+function adminGuide(input: {
+  github?: RequestHandler
+  connectors?: RequestHandler
+  invitations?: string[]
+  detail?: WorkspaceDetail
+}) {
+  return [
+    roleHandler("owner"),
+    membersHandler(1),
+    invitationsHandler(input.invitations ?? []),
+    githubConnectorBootstrapHandler({
+      orgSlug: "acme",
+      hostedDefaultAppInstallUrl:
+        "https://github.com/apps/ctxpipe-agent/installations/new",
+    }),
+    input.github ?? githubInstallationNoneHandler,
+    input.connectors ?? connectorsHandler([]),
+    workspaceDetailHandler(input.detail ?? emptyLinkedWorkspaceDetail),
+  ]
+}
 
 /** A new Workspace with no conversation of this user yet. */
 const quietWorkspace: Workspace = {
@@ -86,7 +147,7 @@ const buildingWorkspace: Workspace = {
 }
 
 /** Workspace shell handlers come after the guide handlers, so these win. */
-function homeHandlers(guide: RequestHandler[], workspaces?: Workspace[]) {
+function homeHandlers(guide: RequestHandler[], workspaces: Workspace[]) {
   return [...guide, ...workspaceShellHandlers({ workspaces })]
 }
 
@@ -125,14 +186,7 @@ export const GuideAdminNewOrg: Story = {
     msw: {
       handlers: {
         defaults: sessionDefaults(1),
-        page: [
-          owner,
-          organizationInvitationsHandler(),
-          bootstrapHosted,
-          githubInstallationNoneHandler,
-          connectorsHandler([]),
-          workspaceListHandler([]),
-        ],
+        page: [...adminGuide({}), workspaceListHandler([])],
       },
     },
   },
@@ -144,9 +198,6 @@ export const GuideAdminNewOrg: Story = {
     expect(guide.getByRole("button", { name: "Connect GitHub" })).toBeVisible()
     const canvas = within(canvasElement)
     expect(canvas.queryByLabelText("Select workspace")).not.toBeInTheDocument()
-    expect(
-      canvas.queryByRole("button", { name: "Create a workspace" }),
-    ).not.toBeInTheDocument()
   },
 }
 
@@ -157,17 +208,11 @@ export const GuideAdminWorkspaceBuilding: Story = {
       handlers: {
         defaults: sessionDefaults(1),
         page: homeHandlers(
-          [
-            owner,
-            organizationInvitationsHandler(),
-            bootstrapHosted,
-            githubInstallationLinkedHandler,
-            connectorsHandler(["github"]),
-            workspaceDetailHandler({
-              ...emptyLinkedWorkspaceDetail,
-              ...buildingWorkspace,
-            }),
-          ],
+          adminGuide({
+            github: githubInstallationLinkedHandler,
+            connectors: connectorsHandler(["github"]),
+            detail: { ...emptyLinkedWorkspaceDetail, ...buildingWorkspace },
+          }),
           [buildingWorkspace],
         ),
       },
@@ -198,14 +243,11 @@ export const GuideAdminAfterFirstQuestion: Story = {
       handlers: {
         defaults: sessionDefaults(2),
         page: homeHandlers(
-          [
-            owner,
-            organizationInvitationsHandler(),
-            bootstrapHosted,
-            githubInstallationLinkedHandler,
-            connectorsHandler(["github"]),
-            workspaceDetailHandler(docsWorkspaceDetail),
-          ],
+          adminGuide({
+            github: githubInstallationLinkedHandler,
+            connectors: connectorsHandler(["github"]),
+            detail: docsWorkspaceDetail,
+          }),
           [docsWorkspace],
         ),
       },
@@ -240,15 +282,7 @@ export const GuideMemberView: Story = {
     msw: {
       handlers: {
         defaults: sessionDefaults(1),
-        page: homeHandlers(
-          [
-            organizationMembersHandler([
-              { userId: "user_owner", role: "owner" },
-              { userId, role: "member" },
-            ]),
-          ],
-          [quietWorkspace],
-        ),
+        page: homeHandlers([roleHandler("member")], [quietWorkspace]),
       },
     },
   },
@@ -264,14 +298,21 @@ export const GuideMemberView: Story = {
     ]) {
       expect(guide.queryByText(title)).not.toBeInTheDocument()
     }
-    await userEvent.click(guide.getByRole("button", { name: "Ask" }))
-    const input = within(canvasElement).getByPlaceholderText(
-      /what should ctxpipe do in this workspace/i,
-    )
-    await waitFor(() =>
-      expect(input).toHaveValue("What should a new engineer read first?"),
-    )
-    expect(input).toHaveFocus()
+    const composer = () =>
+      within(canvasElement).getByPlaceholderText(
+        /what should ctxpipe do in this workspace/i,
+      )
+    // Ask fills the composer and focuses it, also on a second press.
+    for (const _press of [1, 2]) {
+      await userEvent.clear(composer())
+      await userEvent.click(guide.getByRole("button", { name: "Ask" }))
+      await waitFor(() =>
+        expect(composer()).toHaveValue(
+          "What should a new engineer read first?",
+        ),
+      )
+      expect(composer()).toHaveFocus()
+    }
   },
 }
 
@@ -282,16 +323,12 @@ export const GuideAllDone: Story = {
       handlers: {
         defaults: sessionDefaults(3),
         page: homeHandlers(
-          [
-            owner,
-            organizationInvitationsHandler([
-              { email: "teammate@story.example", role: "member" },
-            ]),
-            bootstrapHosted,
-            githubInstallationLinkedHandler,
-            connectorsHandler(["github", "linear"]),
-            workspaceDetailHandler(docsWorkspaceDetail),
-          ],
+          adminGuide({
+            github: githubInstallationLinkedHandler,
+            connectors: connectorsHandler(["github", "linear"]),
+            invitations: ["canceled", "pending"],
+            detail: docsWorkspaceDetail,
+          }),
           [docsWorkspace],
         ),
       },
@@ -319,17 +356,7 @@ export const GuideDismissRemovesIt: Story = {
     msw: {
       handlers: {
         defaults: sessionDefaults(1),
-        page: homeHandlers(
-          [
-            owner,
-            organizationInvitationsHandler(),
-            bootstrapHosted,
-            githubInstallationNoneHandler,
-            connectorsHandler([]),
-            workspaceDetailHandler(emptyLinkedWorkspaceDetail),
-          ],
-          [quietWorkspace],
-        ),
+        page: homeHandlers(adminGuide({}), [quietWorkspace]),
       },
     },
   },
@@ -354,14 +381,11 @@ export const GuideSignalFailureKeepsHome: Story = {
       handlers: {
         defaults: sessionDefaults(1),
         page: homeHandlers(
-          [
-            owner,
-            organizationInvitationsHandler(),
-            bootstrapHosted,
-            failed("/api/v1/github/installation"),
-            failed("/api/v1/connectors"),
-            workspaceDetailHandler(docsWorkspaceDetail),
-          ],
+          adminGuide({
+            github: failed("/api/v1/github/installation"),
+            connectors: failed("/api/v1/connectors"),
+            detail: docsWorkspaceDetail,
+          }),
           [docsWorkspace],
         ),
       },
@@ -376,8 +400,40 @@ export const GuideSignalFailureKeepsHome: Story = {
   },
 }
 
-/** While a signal query is pending, the guide shows nothing (no wrong count). */
-export const GuideSignalsPending: Story = {
+const expandedGate = responseGate()
+/**
+ * While a signal loads, a skeleton holds the place of the expanded card, and
+ * the loaded card has the same box.
+ */
+export const GuideSkeletonMatchesExpanded: Story = {
+  tags: ["workspace-golden"],
+  parameters: {
+    msw: {
+      handlers: {
+        defaults: sessionDefaults(1),
+        page: [
+          http.get(
+            ({ request }) =>
+              new URL(request.url).pathname.endsWith("/api/v1/connectors"),
+            async () => {
+              await expandedGate.wait()
+              return HttpResponse.json({ items: [] })
+            },
+          ),
+          ...adminGuide({}),
+          workspaceListHandler([]),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    await expectGuideSkeletonMatches(canvasElement, expandedGate)
+  },
+}
+
+const collapsedGate = responseGate()
+/** After the first question the skeleton has the box of the collapsed card. */
+export const GuideSkeletonMatchesCollapsed: Story = {
   parameters: {
     msw: {
       handlers: {
@@ -385,13 +441,52 @@ export const GuideSignalsPending: Story = {
         page: homeHandlers(
           [
             http.get(
-              "*/.auth/api/v1/auth/organization/list-members",
+              ({ request }) =>
+                new URL(request.url).pathname.endsWith("/api/v1/connectors"),
               async () => {
-                await delay("infinite")
-                return HttpResponse.json({ members: [], total: 0 })
+                await collapsedGate.wait()
+                return HttpResponse.json({ items: [] })
               },
             ),
+            ...adminGuide({ detail: docsWorkspaceDetail }),
           ],
+          [docsWorkspace],
+        ),
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    await expectGuideSkeletonMatches(canvasElement, collapsedGate)
+  },
+}
+
+async function expectGuideSkeletonMatches(
+  canvasElement: HTMLElement,
+  gate: ReturnType<typeof responseGate>,
+) {
+  const canvas = within(canvasElement)
+  const skeleton = await canvas.findByText("Loading the setup guide")
+  const box = (element: Element) => {
+    const { width, height } = element.getBoundingClientRect()
+    return { width: Math.round(width), height: Math.round(height) }
+  }
+  const section = skeleton.closest("section")
+  if (!section) throw new Error("The skeleton has no section")
+  const skeletonBox = box(section)
+  expect(skeletonBox.height).toBeGreaterThan(0)
+  await gate.release()
+  const loaded = await canvas.findByRole("region", { name: "Get started" })
+  expect(box(loaded)).toEqual(skeletonBox)
+}
+
+/** A failed role query hides the guide. Home still works. */
+export const GuideRoleFailureHidesIt: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        defaults: sessionDefaults(1),
+        page: homeHandlers(
+          [failed("/organization/get-active-member-role")],
           [docsWorkspace],
         ),
       },
@@ -400,6 +495,9 @@ export const GuideSignalsPending: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     expect(await canvas.findByText("Activity")).toBeVisible()
+    await waitFor(() =>
+      expect(canvas.queryByText("Loading the setup guide")).toBeNull(),
+    )
     expect(
       canvas.queryByRole("region", { name: "Get started" }),
     ).not.toBeInTheDocument()
@@ -413,23 +511,15 @@ export const GuideEstablishedUserHidden: Story = {
     msw: {
       handlers: {
         defaults: sessionDefaults(30),
-        page: homeHandlers(
-          [
-            owner,
-            organizationInvitationsHandler(),
-            bootstrapHosted,
-            githubInstallationNoneHandler,
-            connectorsHandler([]),
-            workspaceDetailHandler(emptyLinkedWorkspaceDetail),
-          ],
-          [quietWorkspace],
-        ),
+        page: homeHandlers(adminGuide({}), [quietWorkspace]),
       },
     },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     expect(await canvas.findByText("Activity")).toBeVisible()
+    // An established user gets no skeleton either.
+    expect(canvas.queryByText("Loading the setup guide")).toBeNull()
     // Give the guide signals time to settle before the check.
     await new Promise((resolve) => setTimeout(resolve, 300))
     expect(

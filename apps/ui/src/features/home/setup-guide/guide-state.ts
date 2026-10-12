@@ -11,7 +11,6 @@ export type GuideRowId =
   | "tool"
   | "invite"
   | "explore"
-  | "editor"
 
 /** Real data only. No click marks a row done. */
 export type GuideSignals = {
@@ -39,11 +38,8 @@ export type GuideRow = {
   building?: boolean
 }
 
-/** `rows` count toward progress. `more` is optional and never done. */
-export function guideRows(signals: GuideSignals): {
-  rows: GuideRow[]
-  more: GuideRow[]
-} {
+/** The rows of the guide. Each row counts toward progress. */
+export function guideRows(signals: GuideSignals): GuideRow[] {
   const hasWorkspace = signals.workspaceCount > 0
   const workspace: GuideRow = {
     id: "workspace",
@@ -51,39 +47,32 @@ export function guideRows(signals: GuideSignals): {
     building: hasWorkspace && signals.landingBuilding,
   }
   const ask: GuideRow = { id: "ask", done: signals.asked }
-  const more: GuideRow[] = [{ id: "editor", done: false }]
   if (signals.role === "member") {
-    return {
-      rows: [
-        ...(hasWorkspace ? [] : [workspace]),
-        ask,
-        { id: "explore", done: signals.explored },
-      ],
-      more,
-    }
-  }
-  return {
-    rows: [
-      { id: "github", done: signals.githubLinked },
-      workspace,
-      { id: "repositories", done: signals.linkedRepositories },
+    return [
+      ...(hasWorkspace ? [] : [workspace]),
       ask,
-      { id: "tool", done: signals.toolConnected },
-      { id: "invite", done: signals.teamInvited },
-    ],
-    more,
+      { id: "explore", done: signals.explored },
+    ]
   }
+  return [
+    { id: "github", done: signals.githubLinked },
+    workspace,
+    { id: "repositories", done: signals.linkedRepositories },
+    ask,
+    { id: "tool", done: signals.toolConnected },
+    { id: "invite", done: signals.teamInvited },
+  ]
 }
 
 /** The guide and the hints are for users who finished onboarding recently. */
-export const GUIDE_WINDOW_MS = 14 * 24 * 60 * 60 * 1000
+const GUIDE_WINDOW_MS = 14 * 24 * 60 * 60 * 1000
 
 export function isWithinGuideWindow(
-  onboardingCompletedAt: string | null | undefined,
+  onboardingCompletedAt: Date | string | null | undefined,
   now: number,
 ): boolean {
   if (!onboardingCompletedAt) return false
-  const at = Date.parse(onboardingCompletedAt)
+  const at = new Date(onboardingCompletedAt).getTime()
   return !Number.isNaN(at) && now - at <= GUIDE_WINDOW_MS
 }
 
@@ -107,7 +96,7 @@ export type GuideView =
 export function guideView(input: {
   rows: GuideRow[]
   prefs: OrgGuidePreferences
-  onboardingCompletedAt: string | null | undefined
+  onboardingCompletedAt: Date | string | null | undefined
   now: number
   /** When this app load started. */
   appBootAt: number
