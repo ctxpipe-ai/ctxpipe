@@ -162,3 +162,52 @@ it(
     )
   },
 )
+
+it(
+  "skips a workspace whose GitHub repository no longer exists",
+  { timeout: 60_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      { github: true, githubListCommits: "missing" },
+      async (f) => {
+        await f.handle.cancel()
+        expect(
+          await withOrgIdContext(f.org, () =>
+            projectWorkspaceCommits({
+              workspaceId: f.workspaceId,
+              env: parseEnv(process.env),
+            }),
+          ),
+        ).toEqual({ status: "ready" })
+        const app = workspaceHttpApp(f.org, workspaceActivityRoutes)
+        const body = await (
+          await app.request("/workspaces/knowledge/activity")
+        ).json()
+        expect(body.status).toBe("ready")
+        expect(body.recent).toEqual([])
+      },
+    )
+  },
+)
+
+it(
+  "skips a workspace when GitHub refuses a token for its repository",
+  { timeout: 60_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      { github: true, githubListCommits: [COMMIT] },
+      async (f) => {
+        await f.handle.cancel()
+        f.failTokens(422)
+        expect(
+          await withOrgIdContext(f.org, () =>
+            projectWorkspaceCommits({
+              workspaceId: f.workspaceId,
+              env: parseEnv(process.env),
+            }),
+          ),
+        ).toEqual({ status: "ready" })
+      },
+    )
+  },
+)

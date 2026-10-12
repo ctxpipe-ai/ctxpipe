@@ -22,4 +22,4 @@ Status: done on `ui/ctx-581-activity-list` (not pushed).
 ## Tests
 
 - Backend: `apps/backend/src/routes/v1/workspace-activity-list.integration.test.ts` (pages and filters on one workspace and on the org; bad cursor, limit, and day).
-- Stories: `WorkspaceActivity.stories.tsx` (`DayFiltersRecent`, `AuthorFiltersRecent`, `DateRangeFiltersRecent`, `ResetClearsEveryFilter`, `LoadMorePages`, scope stories) and `WorkspaceRecentCommits.stories.tsx` (`OpensInNewTab`, `CompactRowTruncates`, `TimeTooltip`, `CommitLineAligns`, golden `RecentCommitsSkeletonMatches` with ten rows).
+- Stories: `WorkspaceActivity.stories.tsx` (`DayFiltersRecent`, `AuthorFiltersRecent`, `DateRangeFiltersRecent`, `ResetClearsEveryFilter`, `LoadMorePages`, `AllWorkspaces` scope stories) and `WorkspaceRecentCommits.stories.tsx` (`OpensInNewTab`, `CompactRowTruncates`, `TimeTooltip`, `CommitLineAligns`, golden `RecentCommitsSkeletonMatches` with ten rows).

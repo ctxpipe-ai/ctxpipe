@@ -78,8 +78,6 @@ export type WorkspaceActivityResponse = {
   authors: { name: string; count: number }[]
   /** The cursor of the next page of `recent`. `null`: no more commits. */
   nextCursor: string | null
-  /** Org read only: the workspaces whose activity could not load. */
-  failedWorkspaces?: { slug: string; name: string }[]
   /** Org read only: the workspaces whose activity is still loading. */
   pendingWorkspaces?: { slug: string; name: string }[]
 }

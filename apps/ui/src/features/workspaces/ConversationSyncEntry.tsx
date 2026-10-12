@@ -59,7 +59,7 @@ export function ConversationSyncEntry(props: { sync: ConversationSync }) {
         aria-hidden
       />
       <span className="shrink-0 text-muted-foreground">{pushedText(sync)}</span>
-      <span className="min-w-0 font-mono text-xs">
+      <span className="flex min-w-0 font-mono text-xs">
         <ExternalLink
           href={sync.treeUrl}
           label={`${sync.branch} on GitHub`}

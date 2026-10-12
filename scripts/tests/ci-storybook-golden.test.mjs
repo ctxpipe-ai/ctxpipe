@@ -25,6 +25,14 @@ const required = [
   ],
   [
     "apps/ui/src/features/workspaces/WorkspaceChat.stories.tsx",
+    "FollowUpShowsSandboxSetupFirst",
+  ],
+  [
+    "apps/ui/src/features/workspaces/WorkspaceChat.stories.tsx",
+    "LogKeepsStreamOrder",
+  ],
+  [
+    "apps/ui/src/features/workspaces/WorkspaceChat.stories.tsx",
     "SocketCleansUpOnLeave",
   ],
   [
@@ -66,6 +74,22 @@ const required = [
   [
     "apps/ui/src/features/workspaces/WorkspaceChatChrome.stories.tsx",
     "BranchLabel",
+  ],
+  [
+    "apps/ui/src/features/workspaces/WorkspaceChatChrome.stories.tsx",
+    "SyncCtaWithSubtleShowPr",
+  ],
+  [
+    "apps/ui/src/features/workspaces/WorkspaceChatChrome.stories.tsx",
+    "DirtyShowsOnlySync",
+  ],
+  [
+    "apps/ui/src/features/chat/ConversationThread.stories.tsx",
+    "PushEntryUnderCard",
+  ],
+  [
+    "apps/ui/src/features/workspaces/WorkspaceSurface.stories.tsx",
+    "PublishPrErrorToast",
   ],
   [
     "apps/ui/src/features/workspaces/WorkspaceSurface.stories.tsx",
@@ -137,6 +161,14 @@ const required = [
     "ChatProgressLogExpanded",
   ],
   [
+    "apps/ui/src/features/chat/ConversationThread.stories.tsx",
+    "ChatProgressSpacing",
+  ],
+  [
+    "apps/ui/src/features/chat/ConversationThread.stories.tsx",
+    "OpeningLogKeepsScroll",
+  ],
+  [
     "apps/ui/src/features/workspaces/WorkspaceCommandPalette.stories.tsx",
     "PaletteShortcutTogglesAndRestoresFocus",
   ],
@@ -179,6 +211,18 @@ const required = [
   [
     "apps/ui/src/features/workspaces/WorkspaceCommandPalette.stories.tsx",
     "PaletteShortcutClosesAfterSyncRender",
+  ],
+  [
+    "apps/ui/src/features/workspaces/WorkspaceSurface.stories.tsx",
+    "DeleteWorkspaceShowsNoError",
+  ],
+  [
+    "apps/ui/src/features/workspaces/WorkspaceSurface.stories.tsx",
+    "DeleteLastWorkspaceShowsNoError",
+  ],
+  [
+    "apps/ui/src/features/workspaces/WorkspaceSurface.stories.tsx",
+    "DeleteFromConversationShowsNoError",
   ],
 ]
 

@@ -88,7 +88,7 @@ export function WorkspaceCreateForm(props: { orgSlug: string }) {
 }
 
 /**
- * The Connectors section of Workspace settings, for the new Workspace. A new
+ * The Sources section of Workspace settings, for the new Workspace. A new
  * Workspace starts with an unknown write status, and sources can only be
  * added after the write-access check, so the step waits for that check.
  * The wait stops at the same cap as the Workspace page, which owns
@@ -113,7 +113,7 @@ function AddSourcesStep(props: { orgSlug: string; workspaceSlug: string }) {
     <>
       <p className="mt-6 text-sm text-muted-foreground">
         ctxpipe reads these sources to answer questions. You can change them
-        later under Connectors in Workspace settings.
+        later under Sources in Workspace settings.
       </p>
       <div className="mt-4">
         {detailQuery.isError ? (
@@ -129,8 +129,7 @@ function AddSourcesStep(props: { orgSlug: string; workspaceSlug: string }) {
               </Button>
             }
           >
-            Try again, or open the Workspace and add sources under Connectors in
-            Settings.
+            Try again, or open the Workspace and add sources in Settings.
           </InlineAlert>
         ) : !workspace ||
           (writeCheckInFlight(workspace) &&
@@ -139,7 +138,7 @@ function AddSourcesStep(props: { orgSlug: string; workspaceSlug: string }) {
         ) : writeCheckInFlight(workspace) ? (
           <InlineAlert variant="warning" title="Still checking write access">
             The check takes longer than usual. Open the Workspace to check
-            again, then add sources under Connectors in Settings.
+            again, then add sources in Settings.
           </InlineAlert>
         ) : workspace.conversationWritable === false ? (
           <InlineAlert

@@ -43,10 +43,6 @@ const WorkspaceActivityResponseSchema = z
     authors: z.array(z.object({ name: z.string(), count: z.number().int() })),
     /** Send as `cursor` to read the next page of `recent`. `null`: no more commits. */
     nextCursor: z.string().nullable(),
-    /** Org read only: the workspaces whose projection failed. */
-    failedWorkspaces: z
-      .array(z.object({ slug: z.string(), name: z.string() }))
-      .optional(),
     /** Org read only: the workspaces whose projection is not done yet. */
     pendingWorkspaces: z
       .array(z.object({ slug: z.string(), name: z.string() }))
@@ -273,7 +269,7 @@ const getOrgActivityRoute = createRoute({
         "application/json": { schema: WorkspaceActivityResponseSchema },
       },
       description:
-        "Commit heatmap and recent commits of every workspace in the org. With `date`, `recent` holds the commits of that UTC day. `author`, `since`, and `until` filter `recent`; `cursor` and `limit` page it. `ready` when one workspace projection is ready; `pending` only when no projection is ready and one is not done; `failed` only when every projection failed. `failedWorkspaces` and `pendingWorkspaces` list the workspaces whose projection failed or is not done. The read starts at most one projection run per pending workspace in each 5-minute window.",
+        "Commit heatmap and recent commits of every workspace in the org. With `date`, `recent` holds the commits of that UTC day. `author`, `since`, and `until` filter `recent`; `cursor` and `limit` page it. `ready` when one workspace projection is ready; `pending` only when no projection is ready and one is not done; `failed` only when every projection failed. `pendingWorkspaces` lists the workspaces whose projection is not done. The response does not name a workspace whose projection failed; the projection run logs the failure. The read starts at most one projection run per pending workspace in each 5-minute window.",
     },
     400: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -316,12 +312,9 @@ export const orgActivityRoutes = new OpenAPIHono<AppEnv>().openapi(
         : statuses.length > 0
           ? "failed"
           : "ready"
-    const listed = (value: ActivityStatus) =>
-      rows
-        .filter((row) => row.status === value)
-        .map((row) => ({ slug: row.workspace.slug, name: row.workspace.name }))
-    const failedWorkspaces = listed("failed")
-    const pendingWorkspaces = listed("pending")
+    const pendingWorkspaces = rows
+      .filter((row) => row.status === "pending")
+      .map((row) => ({ slug: row.workspace.slug, name: row.workspace.name }))
     return c.json(
       {
         ...(await activityBody({
@@ -330,7 +323,6 @@ export const orgActivityRoutes = new OpenAPIHono<AppEnv>().openapi(
           limit: query.limit,
           filters,
         })),
-        failedWorkspaces,
         pendingWorkspaces,
       },
       200,

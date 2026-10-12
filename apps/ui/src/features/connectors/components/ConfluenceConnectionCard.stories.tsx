@@ -272,7 +272,7 @@ export const PendingSetup: Story = {
     await userEvent.click(
       canvas.getByRole("button", { name: "Expand Atlassian Confluence" }),
     )
-    await canvas.findByText("Workspace")
+    await canvas.findByText("Account")
     expect(
       canvas.getAllByRole("button", { name: /Link Atlassian account/ }),
     ).toHaveLength(1)
@@ -354,7 +354,7 @@ export const InstalledNotInWorkspaces: Story = {
       canvas.getByRole("button", { name: "Expand Atlassian Confluence" }),
     )
     await canvas.findByText("Set in each Workspace")
-    await canvas.findByText("Not used in any Workspace")
+    await canvas.findByText("No Workspaces yet")
     expect(
       canvas.getByRole("button", { name: "Add to a Workspace" }),
     ).toBeVisible()
