@@ -88,25 +88,23 @@ function placeAfter<T>(
 /**
  * Places each turn's card after the last shown message of its run. A run
  * with no message that carries its id (a failed turn, or a reply that is
- * still live) goes after the last message of its user turn.
+ * still live) goes after the last message of its user turn. Places each Sync
+ * after the last shown message of its user turn.
  */
-export function placeTurnChanges(
+export function placeThreadRecords(
   messages: ChatMessage[],
-  records: ConversationTurnChanges[],
-): Map<string, ConversationTurnChanges[]> {
+  records: { turns: ConversationTurnChanges[]; syncs: ConversationSync[] },
+): {
+  turns: Map<string, ConversationTurnChanges[]>
+  syncs: Map<string, ConversationSync[]>
+} {
   const { lastForRun, lastForUserTurn } = lastShownMessages(messages)
-  return placeAfter(
-    records,
-    (record) =>
-      lastForRun.get(record.runId) ?? lastForUserTurn.get(record.turn),
-  )
-}
-
-/** Places each Sync after the last shown message of its user turn. */
-export function placeSyncs(
-  messages: ChatMessage[],
-  syncs: ConversationSync[],
-): Map<string, ConversationSync[]> {
-  const { lastForUserTurn } = lastShownMessages(messages)
-  return placeAfter(syncs, (sync) => lastForUserTurn.get(sync.turn))
+  return {
+    turns: placeAfter(
+      records.turns,
+      (record) =>
+        lastForRun.get(record.runId) ?? lastForUserTurn.get(record.turn),
+    ),
+    syncs: placeAfter(records.syncs, (sync) => lastForUserTurn.get(sync.turn)),
+  }
 }

@@ -19,6 +19,7 @@ import {
   resolvePublishTarget,
   type SessionPublishFailure,
   type SessionPublishSkip,
+  type SessionPushResult,
   sessionBranchOnGithub,
 } from "../../domain/workspaces/conversation-publish.js"
 import { cleanTitle } from "../../domain/workspaces/conversation-title.js"
@@ -44,6 +45,7 @@ import {
   generateObjectId,
 } from "../../lib/id.js"
 import { PageInfoSchema } from "../../lib/pagination.js"
+import { saveConversationSync } from "../../models/conversation-turn-changes.js"
 import {
   type ConversationRecord,
   deleteConversation,
@@ -56,7 +58,7 @@ import {
 } from "../../models/conversations.js"
 import { getWorkspaceById } from "../../models/workspaces.js"
 import { applyAttribution } from "../../observability/attribution.js"
-import { getLogger } from "../../observability/logger.js"
+import { getLogger, log } from "../../observability/logger.js"
 import {
   createPullRequestFromBranch,
   getPullRequestState,
@@ -819,6 +821,42 @@ async function createConversationPullRequest(input: {
 }
 
 /**
+ * The thread shows the Sync after the last user turn. The commits are already
+ * on GitHub, so a failure to record the Sync is logged and the Sync succeeds.
+ */
+async function recordSync(input: {
+  orgId: string
+  conversationId: string
+  pushed: Extract<SessionPushResult, { status: "pushed" }>
+}): Promise<void> {
+  const { pushed } = input
+  try {
+    const thread = await workspaceChatPersistence().stores.messages.loadThread(
+      input.conversationId,
+    )
+    await saveConversationSync({
+      orgId: input.orgId,
+      conversationId: input.conversationId,
+      sync: {
+        branch: pushed.branch,
+        sha: pushed.sha,
+        files: pushed.files,
+        treeUrl: pushed.treeUrl,
+        turn: thread.filter((message) => message.role === "user").length,
+        syncedAt: new Date().toISOString(),
+      },
+    })
+  } catch (error) {
+    log.warn({
+      step: "conversation-sync-record",
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+      conversationId: input.conversationId,
+    })
+  }
+}
+
+/**
  * Commit+Push, under the conversation's lock: commit the sandbox's
  * uncommitted files and push the session branch through the broker.
  */
@@ -845,10 +883,14 @@ async function pushConversationBranch(input: {
     workspaceId: workspace.id,
     env: parseEnv(process.env as Record<string, string | undefined>),
     commit: { subject: cleanTitle(conversation.name) || "Changes from ctx|" },
-    recordSync: true,
   })
   if (pushed.status === "unchanged") return publishError("no_changes")
   if (pushed.status !== "pushed") return publishError(pushed.reason)
+  await recordSync({
+    orgId: workspace.orgId,
+    conversationId: conversation.id,
+    pushed,
+  })
   return { pushed: { branch: pushed.branch, treeUrl: pushed.treeUrl } }
 }
 

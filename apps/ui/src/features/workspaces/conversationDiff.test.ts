@@ -2,9 +2,17 @@ import { describe, expect, it } from "vitest"
 import {
   formatLineCount,
   groupChangedFilesByFolder,
-  placeSyncs,
-  placeTurnChanges,
+  placeThreadRecords,
 } from "./conversationDiff"
+
+const placeTurnChanges = (
+  messages: Parameters<typeof placeThreadRecords>[0],
+  turns: Parameters<typeof placeThreadRecords>[1]["turns"],
+) => placeThreadRecords(messages, { turns, syncs: [] }).turns
+const placeSyncs = (
+  messages: Parameters<typeof placeThreadRecords>[0],
+  syncs: Parameters<typeof placeThreadRecords>[1]["syncs"],
+) => placeThreadRecords(messages, { turns: [], syncs }).syncs
 
 describe("placeTurnChanges", () => {
   const user = (id: string) => ({ id, role: "user" as const, parts: [] })

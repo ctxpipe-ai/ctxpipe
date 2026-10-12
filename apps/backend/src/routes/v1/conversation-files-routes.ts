@@ -32,8 +32,10 @@ import {
 import { warmTanstackWorkspaceChat } from "../../domain/workspaces/tanstack-workspace-chat.js"
 import { resolveWorkspaceChatTurnRuntime } from "../../domain/workspaces/workspace-chat-turn-runtime.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
-import { listConversationSyncs } from "../../models/conversation-syncs.js"
-import { listConversationTurnChanges } from "../../models/conversation-turn-changes.js"
+import {
+  listConversationSyncs,
+  listConversationTurnChanges,
+} from "../../models/conversation-turn-changes.js"
 import { getConversation } from "../../models/conversations.js"
 import {
   getDesiredWorkspaceRevision,

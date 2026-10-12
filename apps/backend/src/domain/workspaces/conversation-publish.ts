@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto"
 import { open } from "node:fs/promises"
 import { join } from "node:path"
 import type { Env } from "../../config/env.js"
-import { saveConversationSync } from "../../models/conversation-syncs.js"
 import {
   getConversationSession,
   recordConversationSessionPush,
@@ -47,7 +46,6 @@ import {
   sameWorkspaceRevision,
   type WorkspaceRevision,
 } from "./revision.js"
-import { workspaceChatPersistence } from "./workspace-chat-persistence.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "./write-status.js"
 
 export type ConversationSandboxBinding = {
@@ -297,7 +295,6 @@ printf 'branch %s\\n' "$B"
  * The remote tip is replaced only when it is the tip ctx| pushed last (its
  * own history, rebased onto a moved default); anything else on the branch
  * that HEAD lacks answers `session_moved`. `dirty`: uncommitted files remain.
- * `recordSync`: the user's Sync; a push records it in the thread.
  */
 export async function pushConversationSession(input: {
   handle: JobSandboxHandle
@@ -306,7 +303,6 @@ export async function pushConversationSession(input: {
   workspaceId: string
   env: Env
   commit?: { subject: string }
-  recordSync?: boolean
   /** Resolved by a caller that already checked it. */
   target?: PublishTarget
 }): Promise<SessionPushResult & { dirty?: boolean }> {
@@ -352,14 +348,14 @@ export async function pushConversationSession(input: {
         )
       dirty = false
     }
-    const pushed = await brokerPush({
-      handle: input.handle,
-      env: input.env,
-      target,
-    })
-    if (pushed.status === "pushed" && input.recordSync)
-      await recordSync(input, pushed)
-    return { ...pushed, dirty }
+    return {
+      ...(await brokerPush({
+        handle: input.handle,
+        env: input.env,
+        target,
+      })),
+      dirty,
+    }
   } catch (error) {
     if (error instanceof PublishRefused)
       return { status: "skipped", reason: error.reason, dirty }
@@ -370,39 +366,6 @@ export async function pushConversationSession(input: {
       conversationId: input.conversationId,
     })
     return { status: "failed", reason: "push_failed", dirty }
-  }
-}
-
-/**
- * The pushed commits are already on GitHub; a failure to record the Sync is
- * logged and does not fail the push.
- */
-async function recordSync(
-  input: { orgId: string; conversationId: string },
-  pushed: Extract<SessionPushResult, { status: "pushed" }>,
-): Promise<void> {
-  try {
-    const thread = await workspaceChatPersistence().stores.messages.loadThread(
-      input.conversationId,
-    )
-    await saveConversationSync({
-      orgId: input.orgId,
-      conversationId: input.conversationId,
-      sync: {
-        branch: pushed.branch,
-        sha: pushed.sha,
-        files: pushed.files,
-        treeUrl: pushed.treeUrl,
-        turn: thread.filter((message) => message.role === "user").length,
-        syncedAt: new Date().toISOString(),
-      },
-    })
-  } catch (error) {
-    log.warn({
-      step: "conversation-session-push",
-      message: `Recording the Sync failed: ${String(error)}`,
-      conversationId: input.conversationId,
-    })
   }
 }
 
@@ -469,7 +432,7 @@ async function brokerPush(input: {
     if (packed.exitCode !== 0)
       throw new Error("Cannot capture the conversation Git delta")
     const changed = await run(
-      `git diff --no-ext-diff --no-renames --name-only -z ${shellSingleQuote(packBase)} ${shellSingleQuote(sha)}`,
+      `git diff --no-ext-diff --name-only -z -M ${shellSingleQuote(packBase)} ${shellSingleQuote(sha)}`,
     )
     if (changed.exitCode !== 0)
       throw new Error("Cannot count the conversation's changed files")

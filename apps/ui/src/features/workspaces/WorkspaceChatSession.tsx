@@ -24,7 +24,7 @@ import type {
 import { ConversationSyncEntry } from "./ConversationSyncEntry"
 import { ConversationTitleButton } from "./ConversationTitleButton"
 import { ConversationTurnChangesCard } from "./ConversationTurnChangesCard"
-import { placeSyncs, placeTurnChanges } from "./conversationDiff"
+import { placeThreadRecords } from "./conversationDiff"
 import {
   conversationAllowsEdits,
   conversationBranchShortName,
@@ -226,16 +226,12 @@ export function WorkspaceChatSession(props: {
     },
   })
 
-  const turnCards = useMemo(
+  const placed = useMemo(
     () =>
-      placeTurnChanges(
-        messages as ChatMessage[],
-        turnChanges.data?.items ?? [],
-      ),
-    [messages, turnChanges.data],
-  )
-  const syncEntries = useMemo(
-    () => placeSyncs(messages as ChatMessage[], turnChanges.data?.syncs ?? []),
+      placeThreadRecords(messages as ChatMessage[], {
+        turns: turnChanges.data?.items ?? [],
+        syncs: turnChanges.data?.syncs ?? [],
+      }),
     [messages, turnChanges.data],
   )
 
@@ -328,7 +324,7 @@ export function WorkspaceChatSession(props: {
         waitLabel={workspaceChatWaitLabel(sandboxPhase)}
         renderAfterMessage={(messageId) => {
           const after = [
-            ...(turnCards.get(messageId)?.map((changes) => (
+            ...(placed.turns.get(messageId)?.map((changes) => (
               <ConversationTurnChangesCard
                 key={changes.runId}
                 changes={changes}
@@ -341,7 +337,7 @@ export function WorkspaceChatSession(props: {
                 }
               />
             )) ?? []),
-            ...(syncEntries
+            ...(placed.syncs
               .get(messageId)
               ?.map((sync) => (
                 <ConversationSyncEntry key={sync.sha} sync={sync} />
