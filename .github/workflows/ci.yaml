@@ -444,6 +444,7 @@ jobs:
         working-directory: apps/backend
         run: |
           pnpm exec drizzle-kit migrate
+          pnpm exec tsx src/db/migrate-openworkflow.ts
           pnpm exec tsx src/db/provision-app-role-cli.ts
       - name: Required real Vercel sandbox contracts
         env:

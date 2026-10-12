@@ -5,7 +5,12 @@ import {
   gitSource,
 } from "@tanstack/ai-sandbox"
 import { VercelHandle } from "@tanstack/ai-sandbox-vercel"
-import { type NetworkPolicy, Sandbox, Snapshot } from "@vercel/sandbox"
+import {
+  APIError,
+  type NetworkPolicy,
+  Sandbox,
+  Snapshot,
+} from "@vercel/sandbox"
 import { eq } from "drizzle-orm"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { parseEnv } from "../../config/env.js"
@@ -114,19 +119,19 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
-  for (const name of created) {
-    try {
-      const sandbox = await Sandbox.get({ ...credentials, name, resume: false })
-      await sandbox.delete()
-    } catch (error) {
-      report(`[vercel] cleanup ${name}: ${String(error)}`)
-    }
-  }
+  // A test can delete its own sandbox or snapshot first; already gone counts
+  // as deleted, so only a real cleanup fault is reported.
+  for (const name of created)
+    await deleteVercelSandbox({ credentials, name }).catch((error: unknown) =>
+      report(`[vercel] cleanup ${name}: ${String(error)}`),
+    )
   for (const snapshotId of snapshots) {
     try {
-      await (await Snapshot.get({ ...credentials, snapshotId })).delete()
+      const snapshot = await Snapshot.get({ ...credentials, snapshotId })
+      if (snapshot.status !== "deleted") await snapshot.delete()
     } catch (error) {
-      report(`[vercel] cleanup ${snapshotId}: ${String(error)}`)
+      if (!(error instanceof APIError && error.response.status === 404))
+        report(`[vercel] cleanup ${snapshotId}: ${String(error)}`)
     }
   }
   // This run's agent and base builders, with their snapshots.
