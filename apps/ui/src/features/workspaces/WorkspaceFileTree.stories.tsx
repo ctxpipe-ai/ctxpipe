@@ -448,3 +448,48 @@ export const ChangeMarkers: Story = {
     expect(canvas.getByText(/Added in this conversation/)).toBe(summary)
   },
 }
+
+function NewPathsHarness(props: ComponentProps<typeof WorkspaceFileTree>) {
+  const [paths, setPaths] = useState(props.paths)
+  return (
+    <>
+      <Button
+        variant="quiet"
+        onPress={() => setPaths([...props.paths, "sandbox-note.md"])}
+      >
+        Load new paths
+      </Button>
+      <WorkspaceFileTree {...props} paths={paths} />
+    </>
+  )
+}
+
+/** A new path list (for example the sandbox tree) keeps the open folders. */
+export const NewPathsKeepExpandedFolders: Story = {
+  tags: ["workspace-golden"],
+  args: { selectedPath: "AGENTS.md" },
+  render: (args) => <NewPathsHarness {...args} />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const row = (path: string) =>
+      findInShadows(canvasElement, `button[data-item-path='${path}']`)
+    const folder = () => row("apps/") ?? row("apps")
+    await waitFor(() => {
+      expect(folder()).toBeTruthy()
+    })
+    expect(row("apps/Button.tsx")).toBeNull()
+    await userEvent.click(folder() as HTMLElement)
+    await waitFor(() => {
+      expect(row("apps/Button.tsx")).toBeTruthy()
+    })
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Load new paths" }),
+    )
+    await waitFor(() => {
+      expect(row("sandbox-note.md")).toBeTruthy()
+    })
+    expect(row("apps/Button.tsx")).toBeTruthy()
+    expect(folder()).toHaveAttribute("aria-expanded", "true")
+    expect(row("knowledge/auth.md")).toBeNull()
+  },
+}
