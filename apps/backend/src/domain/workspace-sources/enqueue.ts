@@ -37,12 +37,14 @@ export async function enqueueConnectionSourcesSync(input: {
   await runWorkflowWithWorkerWake(
     workspaceSourcesSync.spec,
     { kind: "connection", ...workflowInput },
-    {
-      idempotencyKey: dedupeKey
-        ? `workspace-sources:${input.connectionId}:${dedupeKey}`
-        : undefined,
-      availableAt,
-    },
+    dedupeKey || availableAt
+      ? {
+          idempotencyKey: dedupeKey
+            ? `workspace-sources:${input.connectionId}:${dedupeKey}`
+            : undefined,
+          availableAt,
+        }
+      : undefined,
   )
 }
 
