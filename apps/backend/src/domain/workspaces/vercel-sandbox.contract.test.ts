@@ -465,11 +465,51 @@ describe("hosted conversation provider", { timeout: 600_000 }, () => {
   })
 })
 
+/**
+ * Start a server that answers each request with its method, path and
+ * headers, on a sandbox's public port. Returns the public host.
+ */
+async function startEchoHost(): Promise<string> {
+  const port = 8080
+  const sandbox = await create({
+    runtime: VERCEL_SANDBOX.runtime,
+    ports: [port],
+  })
+  await sandbox.runCommand({
+    cmd: "node",
+    args: [
+      "-e",
+      `require("node:http").createServer((req, res) => { res.setHeader("content-type", "application/json"); res.end(JSON.stringify({ echo: true, method: req.method, url: req.url, headers: req.headers })) }).listen(${port}, "0.0.0.0")`,
+    ],
+    detached: true,
+  })
+  const { url } = await handle(sandbox, [port]).ports.connect(port)
+  const started = Date.now()
+  let last = ""
+  while (Date.now() - started < 60_000) {
+    last = await fetch(`${url}/ready`, {
+      signal: AbortSignal.timeout(5_000),
+    }).then(
+      (response) => response.text(),
+      (error: unknown) => String(error),
+    )
+    if (last.includes('"echo":true')) {
+      report(`[vercel] echo host ready ${Date.now() - started}ms`)
+      return new URL(url).host
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1_000))
+  }
+  throw new Error(
+    `The echo host did not start within 60 s: ${last.slice(0, 300)}`,
+  )
+}
+
 describe("hosted turn credentials", { timeout: 600_000 }, () => {
   it("adds a turn's credentials outside the sandbox on exact paths and the pinned host, and removes them at turn end; the internet stays open", async () => {
-    // An echo service that answers any path stands in for the backend: it
-    // shows the headers that the firewall set. Known debt: this lane depends
-    // on httpbin.org.
+    // An echo service on a second sandbox's public port stands in for the
+    // backend: it shows the headers that the firewall set. A public echo
+    // service (httpbin.org) answered 503 pages and failed this lane.
+    const echoHost = await startEchoHost()
     const githubToken = process.env.GITHUB_TOKEN?.trim()
     if (!githubToken)
       throw new Error("GITHUB_TOKEN is required for the hosted sandbox lane")
@@ -485,7 +525,7 @@ describe("hosted turn credentials", { timeout: 600_000 }, () => {
         return token
       },
     }
-    const firewall = conversationFirewall("httpbin.org")
+    const firewall = conversationFirewall(echoHost)
     const provider = vercelConversationProvider({
       credentials,
       agentPassword: "contract-agent-password",
@@ -516,7 +556,7 @@ describe("hosted turn credentials", { timeout: 600_000 }, () => {
     const echo = async (path: string, extra = "") =>
       (
         await handle.process.exec(
-          `curl -sS --path-as-is ${extra} -H 'Authorization: Bearer ${WORKSPACE_CHAT_FIREWALL_PLACEHOLDER}' 'https://httpbin.org${path}'`,
+          `curl -sS --path-as-is ${extra} -H 'Authorization: Bearer ${WORKSPACE_CHAT_FIREWALL_PLACEHOLDER}' 'https://${echoHost}${path}'`,
         )
       ).stdout
     const until = async (check: () => Promise<boolean>) => {
@@ -584,7 +624,13 @@ describe("hosted turn credentials", { timeout: 600_000 }, () => {
     await firewall.closeTurn(handle.id)
     report(`[vercel] turn credentials removed ${Date.now() - started}ms`)
     report(
-      `[vercel] turn credentials gone after ${await until(async () => !(await echo(model)).includes(turn.modelCapability))}ms`,
+      `[vercel] turn credentials gone after ${await until(async () => {
+        const body = await echo(model)
+        return (
+          !body.includes(turn.modelCapability) &&
+          body.includes(WORKSPACE_CHAT_FIREWALL_PLACEHOLDER)
+        )
+      })}ms`,
     )
     const after = `${await echo(model)}${await echo(turn.bridgePath)}`
     expect(after).not.toContain(turn.modelCapability)
