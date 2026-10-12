@@ -220,6 +220,26 @@ export const waitingForTipWorkspaceDetail: WorkspaceDetail = {
   linkedRepositories: [],
 }
 
+/** The answer to Add Workspace: the write-access check has not run yet. */
+export const createdWorkspace: Workspace = {
+  ...waitingForTipWorkspace,
+  id: "ws_handbook",
+  slug: "handbook",
+  displayName: "Handbook",
+  workspaceRepositoryUrl: "https://github.com/acme/handbook.git",
+  activeProjectionUrl: null,
+  writeStatus: "unknown",
+  readOnlyReason: null,
+  mostRecentConversationId: null,
+}
+
+export const createdWritableWorkspaceDetail: WorkspaceDetail = {
+  ...createdWorkspace,
+  writeStatus: "writable",
+  conversationWritable: true,
+  linkedRepositories: [],
+}
+
 export const hydratingWorkspaceDetail: WorkspaceDetail = {
   ...hydratingWorkspace,
   linkedRepositories: [],

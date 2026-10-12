@@ -1,14 +1,25 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
-import { userEvent, waitFor, within } from "storybook/test"
+import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 import {
   githubInstallationReposHandler,
   orgGithubConnectionsHandler,
+  workspaceCreateHandler,
+  workspaceDetailHandler,
   workspaceListHandler,
 } from "@/mocks/workspace-handlers"
+import {
+  orgConnectionsHandler,
+  workspaceSourceList,
+  workspaceSourcesHandler,
+} from "@/mocks/workspace-sources-handlers"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { WorkspaceCreateForm } from "./WorkspaceCreateForm"
+import {
+  createdWorkspace,
+  createdWritableWorkspaceDetail,
+} from "./workspace-fixtures"
 
 const meta = {
   title: "Components/Workspaces/CreateForm",
@@ -44,10 +55,36 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+const detailPath = /\/api\/v1\/workspaces\/[^/]+$/
+
+/** Step 2 needs the new Workspace, its sources, and a GitHub connection. */
+const stepTwoHandlers = [
+  workspaceListHandler([]),
+  orgConnectionsHandler([
+    { id: "con_gh", type: "github", displayName: "acme" },
+  ]),
+  githubInstallationReposHandler(),
+  workspaceCreateHandler(createdWorkspace),
+  workspaceSourcesHandler(workspaceSourceList()),
+]
+
+async function createFromGithub(canvasElement: HTMLElement) {
+  const canvas = within(canvasElement)
+  await userEvent.click(
+    await canvas.findByRole("radio", { name: /acme\/handbook/ }),
+  )
+  await userEvent.click(
+    canvas.getByRole("button", { name: "Create Workspace" }),
+  )
+}
+
 export const ZeroWorkspaces: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await canvas.findByText(/pick one repository/i)
+    await canvas.findByText(/saves this Workspace’s knowledge/)
+    await expect(
+      canvas.getByText("Choose the Workspace repository").closest("li"),
+    ).toHaveAttribute("aria-current", "step")
     await canvas.findByRole("list", { name: /repositories/i })
   },
 }
@@ -99,5 +136,114 @@ export const SaveError: Story = {
       canvas.getByRole("button", { name: /create workspace/i }),
     )
     await waitFor(() => canvas.getByText(/could not save/i))
+  },
+}
+
+export const AddSourcesAfterCreate: Story = {
+  args: { onDone: fn() },
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          ...stepTwoHandlers,
+          workspaceDetailHandler(createdWritableWorkspaceDetail),
+        ],
+      },
+    },
+  },
+  play: async ({ args, canvasElement }) => {
+    const canvas = within(canvasElement)
+    await createFromGithub(canvasElement)
+    await canvas.findByRole("button", { name: "Add repositories" })
+    await expect(
+      canvas.getByText("Add code repositories and tools").closest("li"),
+    ).toHaveAttribute("aria-current", "step")
+    await expect(
+      canvas.getByText("Choose the Workspace repository").closest("li"),
+    ).toHaveAttribute("data-state", "done")
+    await expect(
+      canvas.getByRole("link", { name: "Add another connection" }),
+    ).toHaveAttribute("href", "/acme/connectors")
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Open Workspace" }),
+    )
+    await expect(args.onDone).toHaveBeenCalledWith("handbook")
+  },
+}
+
+let checkingDetailRequests = 0
+
+export const WaitsForWriteAccessCheck: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          ...stepTwoHandlers,
+          // The first answer has the check running; the next has it done.
+          http.get(
+            ({ request }) => detailPath.test(new URL(request.url).pathname),
+            () => {
+              checkingDetailRequests += 1
+              return HttpResponse.json(
+                checkingDetailRequests === 1
+                  ? {
+                      ...createdWritableWorkspaceDetail,
+                      writeStatus: "unknown",
+                      conversationWritable: false,
+                    }
+                  : createdWritableWorkspaceDetail,
+              )
+            },
+          ),
+        ],
+      },
+    },
+  },
+  beforeEach: () => {
+    checkingDetailRequests = 0
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await createFromGithub(canvasElement)
+    await canvas.findByText("Checking write access")
+    await expect(canvas.queryByText("Read-only")).toBeNull()
+    await canvas.findByRole(
+      "button",
+      { name: "Add repositories" },
+      { timeout: 5000 },
+    )
+    await expect(canvas.queryByText("Checking write access")).toBeNull()
+  },
+}
+
+export const ReadOnlyRepository: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          ...stepTwoHandlers,
+          workspaceDetailHandler({
+            ...createdWritableWorkspaceDetail,
+            writeStatus: "read_only",
+            conversationWritable: false,
+            readOnlyReason: "The GitHub App cannot write to this repository.",
+          }),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await createFromGithub(canvasElement)
+    await canvas.findByText("Read-only")
+    await expect(
+      canvas.getByText("The GitHub App cannot write to this repository."),
+    ).toBeVisible()
+    await expect(
+      canvas.queryByRole("button", { name: "Add repositories" }),
+    ).toBeNull()
+    await expect(
+      canvas.getByRole("button", { name: "Open Workspace" }),
+    ).toBeVisible()
   },
 }

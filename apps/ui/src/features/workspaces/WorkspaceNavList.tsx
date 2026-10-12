@@ -1,5 +1,6 @@
 import { IconPlus } from "@tabler/icons-react"
 import { useSuspenseQuery } from "@tanstack/react-query"
+import { useLocation } from "@tanstack/react-router"
 import { useRef, useState } from "react"
 import { SideNavRowSkeleton } from "@/components/SideNav/SideNavRowSkeleton"
 import type { SideNavLocation } from "@/components/SideNav/sideNavLocation"
@@ -69,7 +70,11 @@ function WorkspaceNavListReady(props: {
   const n = workspaces.length
   const [expandedIds, setExpandedIds] = useState<string[]>([])
   const [syncedSlug, setSyncedSlug] = useState<string | undefined>(undefined)
-  const [createOpen, setCreateOpen] = useState(false)
+  const pathname = useLocation({ select: (location) => location.pathname })
+  // The page where Add Workspace opened. A link out of the wizard, for
+  // example to Connectors, changes the page and so closes the wizard.
+  const [createOpenOn, setCreateOpenOn] = useState<string | null>(null)
+  if (createOpenOn !== null && createOpenOn !== pathname) setCreateOpenOn(null)
   const addRef = useRef<HTMLSpanElement>(null)
   const currentWorkspace = workspaces.find(
     (workspace) => workspace.slug === currentWorkspaceSlug,
@@ -95,7 +100,7 @@ function WorkspaceNavListReady(props: {
               variant="ghost"
               size="icon-sm"
               aria-label="Add Workspace"
-              onPress={() => setCreateOpen(true)}
+              onPress={() => setCreateOpenOn(pathname)}
             >
               <IconPlus
                 className="size-4 text-muted-foreground"
@@ -116,8 +121,8 @@ function WorkspaceNavListReady(props: {
           ) : null}
           <WorkspaceCreateModal
             orgSlug={orgSlug}
-            isOpen={createOpen}
-            onOpenChange={setCreateOpen}
+            isOpen={createOpenOn !== null}
+            onOpenChange={(open) => setCreateOpenOn(open ? pathname : null)}
           />
         </li>
       ) : null}

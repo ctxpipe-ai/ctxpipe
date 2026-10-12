@@ -33,7 +33,7 @@ export function WorkspaceCreateModal(props: {
         </Button>
         <WorkspaceCreateForm
           orgSlug={orgSlug}
-          onCreated={(slug) => {
+          onDone={(slug) => {
             onOpenChange(false)
             void navigate({
               to: "/$orgSlug/ws/$workspaceSlug",

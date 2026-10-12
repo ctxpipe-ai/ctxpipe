@@ -4,12 +4,21 @@ import { expect, userEvent, waitFor, within } from "storybook/test"
 import {
   conversationsListHandler,
   githubInstallationReposHandler,
+  workspaceCreateHandler,
+  workspaceDetailHandler,
   workspaceListHandler,
 } from "@/mocks/workspace-handlers"
+import {
+  orgConnectionsHandler,
+  workspaceSourceList,
+  workspaceSourcesHandler,
+} from "@/mocks/workspace-sources-handlers"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { WorkspaceNavList } from "./WorkspaceNavList"
 import {
+  createdWorkspace,
+  createdWritableWorkspaceDetail,
   docsConversations,
   docsWorkspace,
   readOnlyWorkspace,
@@ -132,5 +141,53 @@ export const AddWorkspace: Story = {
         within(dialog).getByRole("heading", { name: "Add Workspace" }),
       ).toBeVisible(),
     )
+  },
+}
+
+export const AddWorkspaceThenRepositories: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceListHandler([docsWorkspace]),
+          conversationsListHandler(docsConversations),
+          orgConnectionsHandler([
+            { id: "con_gh", type: "github", displayName: "acme" },
+          ]),
+          githubInstallationReposHandler(),
+          workspaceCreateHandler(createdWorkspace),
+          workspaceDetailHandler(createdWritableWorkspaceDetail),
+          workspaceSourcesHandler(workspaceSourceList()),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const body = within(canvasElement.ownerDocument.body)
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Add Workspace" }),
+    )
+    const wizard = within(await body.findByRole("dialog"))
+    await userEvent.click(
+      await wizard.findByRole("radio", { name: /acme\/handbook/ }),
+    )
+    await userEvent.click(
+      wizard.getByRole("button", { name: "Create Workspace" }),
+    )
+    // Step 2 opens a second dialog over the wizard.
+    await userEvent.click(
+      await wizard.findByRole("button", { name: "Add repositories" }),
+    )
+    await body.findByRole("heading", { name: "Add repositories" })
+    await userEvent.click(body.getByRole("button", { name: "Cancel" }))
+    await waitFor(() =>
+      expect(
+        body.queryByRole("heading", { name: "Add repositories" }),
+      ).toBeNull(),
+    )
+    await expect(
+      wizard.getByRole("button", { name: "Open Workspace" }),
+    ).toBeVisible()
   },
 }
