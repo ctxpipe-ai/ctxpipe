@@ -8,6 +8,7 @@ import {
 import { createLogger, withLogger } from "../../observability/logger.js"
 import { parsePagerdutyConfigYamlContent } from "../../services/pagerduty/config-yaml.js"
 import { capturePagerdutyIncrementalContent } from "../../services/pagerduty/sync.js"
+import { pagerdutyLegacyHandedOver } from "../../services/pagerduty/workspace-source-migration.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { workspaceConnectorMirror } from "./workspace-connector-mirror.js"
 
@@ -61,6 +62,15 @@ export const pagerdutySyncEntity = defineWorkflow(
             ) {
               return null
             }
+            // ADR-050: once Workspace sources own the repository, only they write it.
+            if (
+              await pagerdutyLegacyHandedOver({
+                orgId: input.orgId,
+                connectionId: input.connectionId,
+                repositoryGitUrl: binding.repositoryGitUrl,
+              })
+            )
+              return null
             const captured = await captureConnectorMirrorTarget({
               repositoryGitUrl: binding.repositoryGitUrl,
               orgId: input.orgId,

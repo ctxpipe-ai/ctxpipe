@@ -9,6 +9,7 @@ import {
 import { createLogger, withLogger } from "../../observability/logger.js"
 import { parsePagerdutyConfigYamlContent } from "../../services/pagerduty/config-yaml.js"
 import { capturePagerdutyContent } from "../../services/pagerduty/sync.js"
+import { pagerdutyLegacyHandedOver } from "../../services/pagerduty/workspace-source-migration.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { isWorkflowControlSignal } from "../isSleepSignal.js"
 import { workspaceConnectorMirror } from "./workspace-connector-mirror.js"
@@ -38,6 +39,34 @@ export const pagerdutySyncContent = defineWorkflow(
             connectionId: input.connectionId,
             workflowStatus: "failed",
           })
+        // ADR-050: once Workspace sources own the repository, only they write it.
+        if (
+          await step.run(
+            { name: "check-workspace-sources-handover" },
+            async () => {
+              const binding = await getPagerdutyBindingWithRepoByConnectionId(
+                input.orgId,
+                input.connectionId,
+              )
+              return binding
+                ? pagerdutyLegacyHandedOver({
+                    orgId: input.orgId,
+                    connectionId: input.connectionId,
+                    repositoryGitUrl: binding.repositoryGitUrl,
+                  })
+                : false
+            },
+          )
+        )
+          return {
+            status: "superseded" as const,
+            written: 0,
+            deleted: 0,
+            resourcesProcessed: 0,
+            resourcesFailed: 0,
+            commitShas: [],
+            errors: [],
+          }
         const context = await step
           .run(
             {

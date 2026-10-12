@@ -2,6 +2,7 @@ import type { Env } from "../../config/env.js"
 import { confluenceSourceMigrationHook } from "../../services/confluence/workspace-source-migration.js"
 import { linearSourceMigrationHook } from "../../services/linear/source-migration.js"
 import { notionSourceMigrationHook } from "../../services/notion/workspace-source-migration.js"
+import { pagerdutySourceMigrationHook } from "../../services/pagerduty/workspace-source-migration.js"
 import { parseLinkedRepositoryMarkdown } from "../workspaces/layout.js"
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../workspaces/write-status.js"
@@ -52,6 +53,7 @@ export const SOURCE_MIGRATION_HOOKS: Partial<
   confluence: confluenceSourceMigrationHook,
   linear: linearSourceMigrationHook,
   notion: notionSourceMigrationHook,
+  pagerduty: pagerdutySourceMigrationHook,
 }
 
 export type MigrationWorkspace = {
