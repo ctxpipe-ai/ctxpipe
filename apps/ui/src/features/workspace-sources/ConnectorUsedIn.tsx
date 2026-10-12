@@ -9,7 +9,7 @@ import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
 import { AddToWorkspacesDialog } from "./AddToWorkspacesDialog"
 import { connectionUsageOptions } from "./queries"
-import { SOURCE_PROVIDER_UI, workspaceSourceHref } from "./source-provider-ui"
+import { workspaceSourceHref } from "./source-provider-ui"
 
 /**
  * "Used in" on an expanded connector: the Workspaces whose sources use this
@@ -59,11 +59,9 @@ export function ConnectorUsedIn(props: {
       ) : items.length === 0 ? (
         <div className="mt-1 flex flex-wrap items-center gap-3">
           <p className="text-foreground">Not used in any Workspace</p>
-          {SOURCE_PROVIDER_UI[provider].ScopeEditor ? (
-            <Button variant="primary" onPress={() => setAddOpen(true)}>
-              Add to a Workspace
-            </Button>
-          ) : null}
+          <Button variant="primary" onPress={() => setAddOpen(true)}>
+            Add to a Workspace
+          </Button>
         </div>
       ) : (
         <ul className="mt-1 flex flex-col">

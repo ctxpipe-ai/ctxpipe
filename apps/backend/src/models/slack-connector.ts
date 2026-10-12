@@ -617,3 +617,41 @@ export async function clearSlackSyncBindingsForRepository(input: {
   await Promise.all(updatedRows.map((row) => upsertConnectionDirectory(row)))
   return updatedRows.length
 }
+
+/**
+ * Turn off the capture binding of one connection (ADR-050 migration). The
+ * mention capture then writes only into the Workspaces of its sources, not
+ * into the old bound repository. Returns false when no Slack connection has
+ * this id.
+ */
+export async function disableSlackLegacyBinding(input: {
+  orgId: string
+  connectionId: string
+}): Promise<boolean> {
+  const updated = await withOrgDbContext(input.orgId, async (db) => {
+    const [row] = await db
+      .select()
+      .from(connections)
+      .where(
+        and(
+          eq(connections.id, input.connectionId),
+          eq(connections.orgId, input.orgId),
+          eq(connections.type, CONNECTION_TYPE_SLACK),
+        ),
+      )
+      .limit(1)
+    if (!row) return undefined
+    const [next] = await db
+      .update(connections)
+      .set({
+        config: mergeSlackStoredConfig(row, { enabled: false }),
+        updatedAt: new Date(),
+      })
+      .where(eq(connections.id, input.connectionId))
+      .returning()
+    return next
+  })
+  if (!updated) return false
+  await upsertConnectionDirectory(updated)
+  return true
+}

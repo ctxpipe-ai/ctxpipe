@@ -22,6 +22,20 @@ import { disableConfluenceSyncTarget } from "../../models/confluence-sync-target
 export const confluenceSourceMigrationHook: SourceMigrationHook = {
   provider: "confluence",
   disableLegacy: disableConfluenceSyncTarget,
+  legacyRepositoryUrl: async ({ orgId, connectionId }) => {
+    const [row] = await withOrgDbContext(orgId, (db) =>
+      db
+        .select({ gitUrl: repositories.gitUrl })
+        .from(confluenceSyncTargets)
+        .innerJoin(
+          repositories,
+          eq(repositories.id, confluenceSyncTargets.repositoryId),
+        )
+        .where(eq(confluenceSyncTargets.connectionId, connectionId))
+        .limit(1),
+    )
+    return row?.gitUrl ?? null
+  },
   listLegacyBindings: ({ orgId }) =>
     withOrgDbContext(orgId, async (db) => {
       const targets = await db

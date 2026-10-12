@@ -333,6 +333,13 @@ export const EachStatus: Story = {
                   scopeSummary: "1 team",
                 }),
                 workspaceSourceFixture({
+                  sourceKey: "eng-channels",
+                  provider: "slack",
+                  status: "ok",
+                  statusDetail: "Channel #old is archived",
+                  scopeSummary: "2 Slack channels",
+                }),
+                workspaceSourceFixture({
                   sourceKey: "secret-space",
                   provider: "confluence",
                   status: "out_of_access",
@@ -349,12 +356,14 @@ export const EachStatus: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await canvas.findByText("OK")
+    await canvas.findAllByText("OK")
     await expect(canvas.getByText("Not valid")).toBeVisible()
     await expect(canvas.getByText("Connection missing")).toBeVisible()
     await expect(canvas.getByText("Out of access")).toBeVisible()
     await expect(canvas.getByText("teams: Expected an array")).toBeVisible()
     await expect(canvas.getByText(/No connection/)).toBeVisible()
+    // An ok source that is usable in part names its bad channels.
+    await expect(canvas.getByText("Channel #old is archived")).toBeVisible()
   },
 }
 

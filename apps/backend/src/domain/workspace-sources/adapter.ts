@@ -4,6 +4,7 @@ import type { GitFileChange } from "../../services/git/file-change.js"
 import { linearSourceAdapter } from "../../services/linear/source-adapter.js"
 import { notionSourceAdapter } from "../../services/notion/workspace-source-adapter.js"
 import { pagerdutySourceAdapter } from "../../services/pagerduty/workspace-source-adapter.js"
+import { slackSourceAdapter } from "../../services/slack/source-adapter.js"
 import type { SourceProvider } from "./sources-file.js"
 
 /**
@@ -38,13 +39,22 @@ export type SourceAdapter<
    * them when the scope goes away.
    */
   managedPaths(scope: S): string[]
-  /** Optional. Tell why a scope is outside the connection's reach, or null. */
+  /**
+   * Optional. True when the files cannot be fetched again (captures): a
+   * removed or narrowed scope keeps its files, and the cleanup deletes none.
+   */
+  keepFilesOnRemove?: boolean
+  /**
+   * Optional. Tell why a scope is outside the connection's reach, or null.
+   * `okDetail`: the scope is usable in part; the source stays `ok` and shows
+   * the detail.
+   */
   checkAccess?(input: {
     orgId: string
     connectionId: string
     scope: S
     env: Env
-  }): Promise<string | null>
+  }): Promise<string | { okDetail: string } | null>
   /** Optional. Whether a provider webhook event touches this scope. Default: yes. */
   matchesEvent?(input: { event: unknown; scope: S }): boolean
   /**
@@ -120,4 +130,5 @@ export const SOURCE_ADAPTERS: Partial<Record<SourceProvider, SourceAdapter>> = {
   linear: linearSourceAdapter,
   notion: notionSourceAdapter as SourceAdapter,
   pagerduty: pagerdutySourceAdapter as SourceAdapter,
+  slack: slackSourceAdapter,
 }

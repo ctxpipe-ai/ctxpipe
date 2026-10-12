@@ -129,7 +129,7 @@ export function SourceEditorDialog(props: {
               ))}
             </Select>
           ) : null}
-          {connectionId && ScopeEditor ? (
+          {connectionId ? (
             <ScopeEditor
               key={connectionId}
               orgSlug={orgSlug}

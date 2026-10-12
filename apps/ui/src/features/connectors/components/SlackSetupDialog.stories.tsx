@@ -1,5 +1,11 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
+import { expect, fn, userEvent, waitFor, within } from "storybook/test"
+import { CHOOSE_WORKSPACES_HINT } from "@/features/workspace-sources/ChooseWorkspacesStep"
+import { docsWorkspace } from "@/features/workspaces/workspace-fixtures"
+import { slackChannelsHandler } from "@/mocks/slack-handlers"
+import { workspaceListHandler } from "@/mocks/workspace-handlers"
+import { workspaceSourceChangeHandlers } from "@/mocks/workspace-sources-handlers"
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
 import { SlackSetupDialog } from "./SlackSetupDialog"
@@ -29,57 +35,6 @@ function statusHandler(body: unknown) {
     () => HttpResponse.json(body),
   )
 }
-
-const configurationHandlers = [
-  http.get(
-    ({ request }) =>
-      new URL(request.url).pathname.endsWith("/api/v1/github/installation"),
-    () =>
-      HttpResponse.json({
-        id: "ghc_1",
-        appSlug: "ctxpipe-agent",
-        accountSlug: "acme",
-      }),
-  ),
-  http.get(
-    ({ request }) =>
-      new URL(request.url).pathname.includes(
-        "/api/v1/github/installation/repositories",
-      ),
-    () =>
-      HttpResponse.json({
-        repositories: [
-          {
-            id: 1,
-            full_name: "acme/ctxpipe-context",
-            html_url: "https://github.com/acme/ctxpipe-context",
-            clone_url: "https://github.com/acme/ctxpipe-context.git",
-            name: "ctxpipe-context",
-            default_branch: "main",
-          },
-        ],
-        repositorySelection: "selected",
-        manageUrl:
-          "https://github.com/organizations/acme/settings/installations/123",
-        hasMore: false,
-      }),
-  ),
-  http.get(
-    ({ request }) =>
-      new URL(request.url).pathname.endsWith("/api/v1/repositories"),
-    () =>
-      HttpResponse.json({
-        items: [
-          {
-            id: "repo_1",
-            name: "acme/ctxpipe-context",
-            gitUrl: "https://github.com/acme/ctxpipe-context.git",
-            githubConnectionId: "ghc_1",
-          },
-        ],
-      }),
-  ),
-]
 
 const meta = {
   title: "Components/Connections/Slack/SetupDialog",
@@ -162,7 +117,15 @@ export const ConnectGitHub: Story = {
   },
 }
 
-export const ChooseRepository: Story = {
+const addCalls: { method: string; path: string; body: unknown }[] = []
+const onOpenChange = fn()
+
+/**
+ * After Slack and GitHub, the dialog maps the connection into Workspaces,
+ * each with its own channels. No capture repository is needed.
+ */
+export const ChooseWorkspaces: Story = {
+  args: { onOpenChange },
   parameters: {
     msw: {
       handlers: {
@@ -172,20 +135,73 @@ export const ChooseRepository: Story = {
             setupPhase: "draft",
             syncTarget: null,
           }),
-          ...configurationHandlers,
+          workspaceListHandler([docsWorkspace]),
+          slackChannelsHandler(),
+          ...workspaceSourceChangeHandlers(addCalls),
         ],
       },
     },
   },
+  beforeEach: () => {
+    addCalls.length = 0
+    onOpenChange.mockClear()
+  },
+  play: async ({ canvasElement }) => {
+    const body = within(canvasElement.ownerDocument.body)
+    await expect(
+      await body.findByRole("region", { name: "Thread capture on mention" }),
+    ).toBeInTheDocument()
+    await userEvent.click(
+      await body.findByRole("checkbox", { name: docsWorkspace.displayName }),
+    )
+    await expect(body.getByText(CHOOSE_WORKSPACES_HINT)).toBeVisible()
+    const add = body.getByRole("button", { name: "Add to Workspaces" })
+    await expect(add).toBeDisabled()
+    await userEvent.click(
+      await body.findByRole("checkbox", { name: /incidents/ }),
+    )
+    await userEvent.click(add)
+    await waitFor(() => expect(addCalls).toHaveLength(1))
+    await expect(addCalls[0]).toMatchObject({
+      method: "POST",
+      path: `/${orgSlug}/api/v1/workspaces/docs/sources`,
+      body: {
+        source: {
+          provider: "slack",
+          connectionId,
+          scope: { channels: ["G0INC0001"] },
+        },
+      },
+    })
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false))
+  },
 }
 
-export const Live: Story = {
+/** The Workspaces step explains capture and offers no repository picker (ADR-050). */
+export const CaptureWorkspace: Story = {
   parameters: {
     msw: {
       handlers: {
-        page: [statusHandler(installedStatus), ...configurationHandlers],
+        page: [
+          statusHandler(installedStatus),
+          workspaceListHandler([docsWorkspace]),
+          slackChannelsHandler(),
+        ],
       },
     },
+  },
+  play: async ({ canvasElement }) => {
+    const body = within(canvasElement.ownerDocument.body)
+    await expect(
+      await body.findByText(/capture it into each Workspace/),
+    ).toBeVisible()
+    await expect(body.getByText(/\/invite @ctxpipe/)).toBeVisible()
+    await expect(
+      body.queryByRole("button", { name: /capture Workspace/ }),
+    ).toBeNull()
+    await expect(
+      body.getByRole("button", { name: "Add to Workspaces" }),
+    ).toBeVisible()
   },
 }
 

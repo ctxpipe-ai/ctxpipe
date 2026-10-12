@@ -87,7 +87,7 @@ export function ChooseWorkspacesStep(props: {
         </RadioGroup>
       ) : null}
 
-      {!ScopeEditor || selected.length === 0 ? null : perWorkspace ? (
+      {selected.length === 0 ? null : perWorkspace ? (
         selected.map((workspace) => (
           <ScopeEditor
             key={workspace.slug}

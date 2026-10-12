@@ -53,6 +53,7 @@ export function githubBlobUrl(input: {
 async function buildThreadFiles(input: {
   env: Env
   connection: SlackConnection
+  layout?: "capture" | "source"
   channelId: string
   channelName: string
   pathSlug: string
@@ -154,6 +155,7 @@ async function buildThreadFiles(input: {
   }
 
   const md = toSlackThreadMarkdownFile({
+    layout: input.layout,
     channelId: input.channelId,
     channelName: input.channelName,
     pathSlug: input.pathSlug,
@@ -176,6 +178,8 @@ async function buildThreadFiles(input: {
 
 export type SlackCaptureErrorCode =
   | "not_in_channel"
+  | "missing_scope"
+  | "channel_archived"
   | "github_protected_branch"
   | "repo_missing"
   | "dm_not_supported"
@@ -202,10 +206,13 @@ export function classifySlackCaptureError(
     return { errorCode: "dm_not_supported", error: error.message }
   }
   if (error instanceof SlackApiError) {
+    if (error.slackError === "missing_scope")
+      return { errorCode: "missing_scope", error: error.message }
+    if (error.slackError === "is_archived")
+      return { errorCode: "channel_archived", error: error.message }
     if (
       error.slackError === "not_in_channel" ||
-      error.slackError === "channel_not_found" ||
-      error.slackError === "missing_scope"
+      error.slackError === "channel_not_found"
     ) {
       return {
         errorCode: "not_in_channel",
@@ -252,6 +259,8 @@ export async function captureSlackThreadFiles(input: {
   excludeMessageTs?: string
   capturedByUserId?: string
   existing?: Array<{ path: string; sha: string }>
+  /** "source": write under the Workspace source path `slack/channels/<id>/`. */
+  layout?: "capture" | "source"
 }): Promise<
   SlackCaptureResult & {
     files: Array<{
@@ -336,6 +345,7 @@ export async function captureSlackThreadFiles(input: {
     })
 
     const channelIndex = toSlackChannelIndexFile({
+      layout: input.layout,
       channelId: input.channelId,
       channelName,
       pathSlug,
@@ -345,6 +355,7 @@ export async function captureSlackThreadFiles(input: {
     const threadCommit = await buildThreadFiles({
       env: input.env,
       connection: input.connection,
+      layout: input.layout,
       channelId: input.channelId,
       channelName,
       pathSlug,
@@ -361,6 +372,7 @@ export async function captureSlackThreadFiles(input: {
       existing,
     })
     const threadPath = getSlackThreadPath({
+      layout: input.layout,
       channelId: input.channelId,
       channelName,
       pathSlug,

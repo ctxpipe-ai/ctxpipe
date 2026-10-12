@@ -1,6 +1,10 @@
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
+import {
+  readWorkspaceBlobs,
+  writeWorkspaceSlice,
+} from "../../domain/workspace-sources/write-slice.js"
 import { captureConnectorMirrorTarget } from "../../domain/workspaces/capture-connector-mirror.js"
 import {
   getSlackBindingWithRepoByConnectionId,
@@ -18,6 +22,7 @@ import {
   selectSlackMentionIntent,
 } from "../../services/slack/mention-agent.js"
 import { publishSlackMentionStatus } from "../../services/slack/mention-status.js"
+import { captureSlackThreadToSources } from "../../services/slack/source-adapter.js"
 import {
   captureSlackThreadFiles,
   githubBlobUrl,
@@ -48,30 +53,33 @@ export const slackMentionAgent = defineWorkflow(
         const context = await step.run(
           { name: "capture-slack-target" },
           async () => {
+            const connection = await withOrgDbContext(input.orgId, () =>
+              getSlackConnectionByConnectionId(input.orgId, input.connectionId),
+            )
+            if (connection?.status !== "installed")
+              throw new Error("Slack connector is not live for this connection")
+            // The repository binding from before ADR-050. The migration
+            // turns it off, and then only the Workspace sources get captures.
             const target = await getSlackBindingWithRepoByConnectionId(
               input.orgId,
               input.connectionId,
             )
-            const connection = await withOrgDbContext(input.orgId, () =>
-              getSlackConnectionByConnectionId(input.orgId, input.connectionId),
-            )
-            if (!target?.enabled || connection?.status !== "installed")
-              throw new Error("Slack connector is not live for this connection")
-            const captured = await captureConnectorMirrorTarget({
-              orgId: input.orgId,
-              env,
-              repositoryGitUrl: target.repositoryGitUrl,
-              mirror: {
-                provider: "slack",
-                connectionId: input.connectionId,
-                repositoryId: target.repositoryId,
-              },
-            })
-            return {
-              captured,
-              teamId: connection.teamId,
-              repositoryName: target.repositoryName,
-            }
+            const legacy = target?.enabled
+              ? {
+                  captured: await captureConnectorMirrorTarget({
+                    orgId: input.orgId,
+                    env,
+                    repositoryGitUrl: target.repositoryGitUrl,
+                    mirror: {
+                      provider: "slack",
+                      connectionId: input.connectionId,
+                      repositoryId: target.repositoryId,
+                    },
+                  }),
+                  repositoryName: target.repositoryName,
+                }
+              : null
+            return { teamId: connection.teamId, legacy }
           },
         )
         const freshConnection = async () => {
@@ -105,34 +113,64 @@ export const slackMentionAgent = defineWorkflow(
         )
         let outcome: SlackMentionAgentResult
         if (intent.kind === "capture") {
-          const captured = await step.run(
-            { name: "capture-slack-thread" },
+          const thread = {
+            channelId: input.channelId,
+            threadTs: input.threadTs,
+            excludeMessageTs: statusMessage?.ts,
+            capturedByUserId: input.mentionUserId,
+            capturedAt: run.createdAt.toISOString(),
+          }
+          const sources = await step.run(
+            { name: "capture-slack-thread-to-sources" },
             async () =>
-              captureSlackThreadFiles({
+              captureSlackThreadToSources({
+                ...thread,
+                orgId: input.orgId,
                 env,
                 connection: await freshConnection(),
-                channelId: input.channelId,
-                threadTs: input.threadTs,
-                excludeMessageTs: statusMessage?.ts,
-                capturedByUserId: input.mentionUserId,
-                capturedAt: run.createdAt.toISOString(),
+                write: async (slice) => {
+                  await writeWorkspaceSlice(slice, env)
+                },
+                readExisting: (workspaceId) =>
+                  readWorkspaceBlobs({
+                    orgId: input.orgId,
+                    workspaceId,
+                    env,
+                  }),
               }),
           )
-          if (captured.status === "failed")
-            outcome = {
-              kind: "failed",
-              errorCode: captured.errorCode,
-              error: captured.error,
-            }
-          else {
+          const workspaceCount =
+            sources.kind === "captured" ? sources.workspaces.length : 0
+          const legacy = context.legacy
+          // The old capture into the bound repository, until the migration
+          // turns the binding off.
+          const captureToLegacyRepository = async (
+            target: NonNullable<typeof legacy>,
+            count: number,
+          ): Promise<SlackMentionAgentResult> => {
+            const captured = await step.run(
+              { name: "capture-slack-thread" },
+              async () =>
+                captureSlackThreadFiles({
+                  ...thread,
+                  env,
+                  connection: await freshConnection(),
+                }),
+            )
+            if (captured.status === "failed")
+              return {
+                kind: "failed",
+                errorCode: captured.errorCode,
+                error: captured.error,
+              }
             const result = await step
               .runWorkflow(
                 workspaceConnectorMirror.spec,
                 {
                   orgId: input.orgId,
-                  workspaceId: context.captured.workspaceId,
-                  revision: context.captured.revision,
-                  mirror: context.captured.mirror,
+                  workspaceId: target.captured.workspaceId,
+                  revision: target.captured.revision,
+                  mirror: target.captured.mirror,
                   jobId: `wjob_${run.id}_mirror`,
                   files: captured.files,
                   deletePaths: [],
@@ -150,27 +188,54 @@ export const slackMentionAgent = defineWorkflow(
                 return { failed: true as const, error: failure }
               })
             if ("failed" in result)
-              outcome = { kind: "failed", error: result.error }
-            else {
-              const { files: _files, ...capture } = captured
-              outcome = {
-                kind: "captured",
-                capture: {
-                  ...capture,
-                  commitSha: result.commitSha,
-                  githubUrl: capture.threadPath
-                    ? githubBlobUrl({
-                        repositoryName: context.repositoryName,
-                        ref:
-                          result.commitSha ??
-                          context.captured.revision.defaultBranch,
-                        path: capture.threadPath,
-                      })
-                    : undefined,
-                },
-              }
+              return { kind: "failed", error: result.error }
+            const {
+              files: _files,
+              deletePaths: _deletes,
+              ...capture
+            } = captured
+            return {
+              kind: "captured",
+              workspaceCount: count,
+              capture: {
+                ...capture,
+                commitSha: result.commitSha,
+                githubUrl: capture.threadPath
+                  ? githubBlobUrl({
+                      repositoryName: target.repositoryName,
+                      ref:
+                        result.commitSha ??
+                        target.captured.revision.defaultBranch,
+                      path: capture.threadPath,
+                    })
+                  : undefined,
+              },
             }
           }
+          if (
+            sources.kind === "captured" &&
+            sources.capture.status === "failed"
+          )
+            outcome = {
+              kind: "failed",
+              errorCode: sources.capture.errorCode,
+              error: sources.capture.error,
+            }
+          else if (
+            legacy &&
+            !(
+              sources.kind === "captured" &&
+              sources.workspaces.includes(legacy.captured.workspaceId)
+            )
+          )
+            outcome = await captureToLegacyRepository(legacy, workspaceCount)
+          else if (sources.kind === "captured")
+            outcome = {
+              kind: "captured",
+              capture: sources.capture,
+              workspaceCount,
+            }
+          else outcome = { kind: "failed", errorCode: "no_source" }
         } else outcome = intent
         await step.run({ name: "publish-capture-status" }, async () => {
           const published = await publishSlackMentionStatus({
@@ -184,7 +249,7 @@ export const slackMentionAgent = defineWorkflow(
           if (!published)
             throw new Error("Slack capture status could not be published")
         })
-        if (outcome.kind === "failed")
+        if (outcome.kind === "failed" && outcome.errorCode !== "no_source")
           throw new Error(outcome.error ?? "Slack mention agent failed")
         return outcome
       },
