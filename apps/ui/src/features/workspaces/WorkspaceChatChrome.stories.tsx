@@ -424,7 +424,7 @@ export const CtaButtonStyle: Story = {
   },
 }
 
-/** The branch is a label with a git-branch icon. A long name truncates, and the tooltip has the full ref. */
+/** The branch is a label with a git-branch icon. A long name truncates. No tooltip shows the internal ref. */
 export const BranchLabel: Story = {
   tags: ["workspace-golden"],
   args: {
@@ -447,9 +447,55 @@ export const BranchLabel: Story = {
     if (!(text instanceof HTMLElement)) throw new Error("Branch text missing")
     expect(text.scrollWidth).toBeGreaterThan(text.clientWidth)
     await userEvent.hover(label)
-    const tooltip = await within(canvasElement.ownerDocument.body).findByText(
-      "ctxpipe/chat/conv_1/a-very-long-branch-name-that-does-not-fit-in-the-label",
+    await new Promise((resolve) => setTimeout(resolve, 400))
+    expect(
+      within(canvasElement.ownerDocument.body).queryByRole("tooltip"),
+    ).toBeNull()
+    expect(
+      within(canvasElement.ownerDocument.body).queryByText(
+        /ctxpipe\/chat\/conv_1/,
+      ),
+    ).toBeNull()
+  },
+}
+
+const prCta = {
+  visible: true,
+  action: "show" as const,
+  pending: false,
+  href: "https://github.com/acme/docs/pull/41",
+  onPress: () => {},
+}
+
+/** A PR exists and the branch is dirty: Sync is the CTA, Show PR is subtle. */
+export const SyncCtaWithSubtleShowPr: Story = {
+  tags: ["workspace-golden"],
+  args: { cta: { ...syncCta, pullRequest: prCta } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const sync = await canvas.findByRole("button", { name: syncName })
+    const show = await canvas.findByRole("link", {
+      name: "Show PR (opens in a new tab)",
+    })
+    expect(getComputedStyle(show).backgroundColor).not.toBe(
+      getComputedStyle(sync).backgroundColor,
     )
-    await waitFor(() => expect(tooltip).toBeVisible())
+    expect(canvas.queryByRole("button", { name: /Create PR/ })).toBeNull()
+  },
+}
+
+/** A dirty branch with no PR shows Sync only. */
+export const DirtyShowsOnlySync: Story = {
+  tags: ["workspace-golden"],
+  args: {
+    cta: {
+      ...syncCta,
+      pullRequest: { ...prCta, visible: true, action: "create" },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByRole("button", { name: syncName })
+    expect(canvas.queryByRole("button", { name: "Create PR" })).toBeNull()
   },
 }
