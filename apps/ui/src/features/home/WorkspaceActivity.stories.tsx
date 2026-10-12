@@ -182,7 +182,9 @@ export const DayFiltersRecent: Story = {
 
     clickDay(canvasElement, "2026-08-22")
 
-    expect(await canvas.findByText("Aug 22, 2026")).toBeVisible()
+    expect(
+      await canvas.findByText("Aug 22, 2026", { selector: "p" }),
+    ).toBeVisible()
     await waitFor(() => expect(activityDates.includes("2026-08-22")).toBe(true))
     expect(await canvas.findByText("Add on-call severity notes")).toBeVisible()
     expect(
@@ -240,6 +242,7 @@ export const KeyboardSelectsEmptyDay: Story = {
  * pick reads only the commits of that author and goes into the URL.
  */
 export const AuthorFiltersRecent: Story = {
+  tags: ["workspace-golden"],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const page = within(canvasElement.ownerDocument.body)
@@ -327,6 +330,7 @@ export const DateRangeFiltersRecent: Story = {
  * the author, the day, and the date range.
  */
 export const ResetClearsEveryFilter: Story = {
+  tags: ["workspace-golden"],
   parameters: {
     storyRoute: {
       pattern: "orgIndex",
@@ -336,7 +340,9 @@ export const ResetClearsEveryFilter: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    expect(await canvas.findByText("Aug 26, 2026")).toBeVisible()
+    expect(
+      await canvas.findByText("Aug 26, 2026", { selector: "p" }),
+    ).toBeVisible()
     expect(
       canvas.getByRole("button", { name: "Filter commits by author: Ada" }),
     ).toBeVisible()
@@ -397,6 +403,7 @@ function beadTops(canvasElement: HTMLElement): number[] {
  * and adds it under the rows; the rows above and the commit line do not move.
  */
 export const LoadMorePages: Story = {
+  tags: ["workspace-golden"],
   parameters: {
     msw: { handlers: { page: activityHandlers(twelveCommits) } },
   },
@@ -463,7 +470,9 @@ export const AllWorkspaces: Story = {
 
     clickDay(canvasElement, "2026-08-22")
 
-    expect(await canvas.findByText("Aug 22, 2026")).toBeVisible()
+    expect(
+      await canvas.findByText("Aug 22, 2026", { selector: "p" }),
+    ).toBeVisible()
     await waitFor(() =>
       expect(orgActivityDates.includes("2026-08-22")).toBe(true),
     )

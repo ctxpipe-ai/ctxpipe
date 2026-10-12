@@ -100,6 +100,7 @@ const longCommit = {
  * an ellipsis, and the time and hash stay whole at the right.
  */
 export const CompactRowTruncates: Story = {
+  tags: ["workspace-golden"],
   args: {
     commits: [longCommit, ...docsWorkspaceActivityRecent.slice(1)],
   },
@@ -166,6 +167,7 @@ export const TimeTooltip: Story = {
  * each node sits at the center line of its row, also with a taller row.
  */
 export const CommitLineAligns: Story = {
+  tags: ["workspace-golden"],
   args: {
     commits: [longCommit, ...docsWorkspaceActivityRecent.slice(1)],
     showWorkspace: true,
