@@ -776,9 +776,11 @@ export const CreatePrMatchesPaneTriggers: Story = {
     )
     const files = page.getByRole("button", { name: "Files" })
     await waitFor(() => expect(files).toBeVisible())
-    expect(createPr.parentElement?.parentElement).toBe(
-      files.parentElement?.parentElement,
+    // Both sit in the same header row.
+    expect(createPr.closest("[data-workspace-surface]")).toBe(
+      files.closest("[data-workspace-surface]"),
     )
+    expect(createPr.closest("[data-workspace-surface]")).not.toBeNull()
     // The CTA button is smaller than a trigger, and both centers align.
     const cta = createPr.getBoundingClientRect()
     const trigger = files.getBoundingClientRect()

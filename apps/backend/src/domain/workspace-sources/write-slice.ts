@@ -46,20 +46,23 @@ export async function writeWorkspaceSlice(
   const change = diffSlice(write, captured.paths)
   if (!change.files.length && !change.deletePaths.length)
     return { queued: false }
-  const admitted = await enqueueWorkspaceWriteCommit(
-    {
-      orgId: write.orgId,
-      workspaceId: write.workspaceId,
-      kind: "connector_mirror",
-      mirror: {
-        provider: write.provider,
-        connectionId: write.connectionId,
-        sourcesBlobSha: captured.sourcesBlobSha,
+  // Admission reads the Workspace in the org context, as the read above.
+  const admitted = await withOrgIdContext(org, () =>
+    enqueueWorkspaceWriteCommit(
+      {
+        orgId: write.orgId,
+        workspaceId: write.workspaceId,
+        kind: "connector_mirror",
+        mirror: {
+          provider: write.provider,
+          connectionId: write.connectionId,
+          sourcesBlobSha: captured.sourcesBlobSha,
+        },
+        mergeFiles: change.files,
+        mergeDeletePaths: change.deletePaths,
       },
-      mergeFiles: change.files,
-      mergeDeletePaths: change.deletePaths,
-    },
-    getLogger(),
+      getLogger(),
+    ),
   )
   return { queued: admitted.started }
 }

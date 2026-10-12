@@ -40,6 +40,7 @@ import {
   conversationGitBlobOptions,
   conversationGitDiffOptions,
   conversationGitTreeOptions,
+  workspaceChatPrepareOptions,
   workspaceGitBlobOptions,
   workspaceGitTreeOptions,
   workspaceGraphBuilding,
@@ -50,7 +51,10 @@ import {
   ConversationCtaActions,
   type ConversationCtaChrome,
 } from "./WorkspaceChatChrome"
-import { WorkspaceConversationDiffPane } from "./WorkspaceConversationDiff"
+import {
+  ConversationDiffEmpty,
+  WorkspaceConversationDiffPane,
+} from "./WorkspaceConversationDiff"
 import { WorkspaceFilesPaneBody } from "./WorkspaceFilesPane"
 import { WorkspaceSettingsPane } from "./WorkspaceSettingsPane"
 import {
@@ -94,7 +98,7 @@ export function WorkspacePane(props: {
   onCloseActiveFile: () => void
   onToggleTree: () => void
   conversationTitle: string
-  /** The conversation's publish state, shared with the conversation header. */
+  /** The CTA state, shared with the conversation header. */
   cta?: ConversationCtaChrome | null
 }) {
   const queryClient = useQueryClient()
@@ -105,6 +109,15 @@ export function WorkspacePane(props: {
   // Every Diff pane variant (one turn, one focused file) is the Diff tab.
   const selectedKey = pane.kind === "diff" ? "diff" : serializePane(pane)
   const paneWidthLocked = props.width != null
+  // The cache says if the sandbox is ready. This query never fetches.
+  const prepared = useQuery({
+    ...workspaceChatPrepareOptions(
+      props.orgSlug,
+      props.conversationId ?? "",
+      props.workspace.id,
+    ),
+    enabled: false,
+  }).isSuccess
   const toolTabs = usePaneToolTabs({
     orgSlug: props.orgSlug,
     workspace: props.workspace,
@@ -278,12 +291,13 @@ export function WorkspacePane(props: {
                     aria-label={title}
                     className={({ isSelected }) =>
                       cn(
-                        "max-w-[12rem] gap-1 px-3",
+                        "max-w-[12rem] gap-1",
                         newTabClassName,
                         isSelected
                           ? workspaceChromeTabClassName
                           : workspaceChromeTabIdleClassName,
                         focusVisibleClassName,
+                        "px-3",
                       )
                     }
                   >
@@ -314,7 +328,7 @@ export function WorkspacePane(props: {
               })}
             </TabList>
             <div className="flex shrink-0 items-end gap-1">
-              {/* The conversation header has the publish actions. The pane
+              {/* The conversation header has the CTA actions. The pane
                   shows them only when the conversation column is hidden: below
                   `lg` with the pane open, or when the pane is maximized. */}
               {props.cta &&
@@ -405,7 +419,10 @@ export function WorkspacePane(props: {
                 />
               </SkeletonSuspense>
             ) : null}
-            {pane.kind === "diff" && props.conversationId ? (
+            {pane.kind === "diff" && props.conversationId && !prepared ? (
+              <ConversationDiffEmpty base={null} />
+            ) : null}
+            {pane.kind === "diff" && props.conversationId && prepared ? (
               <SkeletonSuspense
                 chain="files"
                 fallback={<WorkspaceFilesPaneSkeleton />}
@@ -528,7 +545,15 @@ function prefetchWorkspacePane(
         )
       }
     }
-  } else if (pane.kind === "diff" && conversationId) {
+  } else if (
+    pane.kind === "diff" &&
+    conversationId &&
+    // Before the sandbox is ready the diff request waits on the chat lock.
+    queryClient.getQueryState(
+      workspaceChatPrepareOptions(orgSlug, conversationId, workspace.id)
+        .queryKey,
+    )?.status === "success"
+  ) {
     void queryClient.prefetchQuery(
       conversationGitDiffOptions(orgSlug, conversationId, pane.turn),
     )
