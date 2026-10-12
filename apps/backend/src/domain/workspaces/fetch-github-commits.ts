@@ -14,14 +14,21 @@ export async function fetchGithubWorkspaceCommits(input: {
   since: Date
   existingShas: ReadonlySet<string>
   env: Env
-}): Promise<{ commits: ProjectedCommit[]; ok: boolean }> {
+}): Promise<
+  | { ok: true; commits: ProjectedCommit[] }
+  /**
+   * `unreachable`: the repository does not exist, or the app has no access
+   * to it. `error`: any other failure.
+   */
+  | { ok: false; reason: "unreachable" | "error"; error?: unknown }
+> {
   assertNotInOrgDbContext()
   const fullName = githubRepoFullNameFromWorkspaceUrl(
     input.workspaceRepositoryUrl,
   )
-  if (!fullName) return { commits: [], ok: true }
+  if (!fullName) return { ok: true, commits: [] }
   const [owner, repo] = fullName.split("/")
-  if (!owner || !repo) return { commits: [], ok: true }
+  if (!owner || !repo) return { ok: true, commits: [] }
 
   try {
     const ctx = await getInstallationOctokitForOrg(
@@ -33,7 +40,7 @@ export async function fetchGithubWorkspaceCommits(input: {
         permissions: { contents: "read", metadata: "read" },
       },
     )
-    if (!ctx) return { commits: [], ok: false }
+    if (!ctx) return { ok: false, reason: "unreachable" }
 
     const collected: ProjectedCommit[] = []
     for (let page = 1; page <= MAX_PAGES; page++) {
@@ -67,8 +74,25 @@ export async function fetchGithubWorkspaceCommits(input: {
       }
       if (hitKnown || data.length < PAGE_SIZE) break
     }
-    return { commits: collected, ok: true }
-  } catch {
-    return { commits: [], ok: false }
+    return { ok: true, commits: collected }
+  } catch (error) {
+    return {
+      ok: false,
+      reason: unreachableStatus(error) ? "unreachable" : "error",
+      error,
+    }
   }
+}
+
+/**
+ * GitHub answers 404 for a repository that does not exist or that the
+ * installation cannot see, and 422 when it cannot make a token for such a
+ * repository.
+ */
+function unreachableStatus(error: unknown): boolean {
+  const status =
+    error && typeof error === "object" && "status" in error
+      ? (error as { status?: unknown }).status
+      : undefined
+  return status === 404 || status === 422
 }
