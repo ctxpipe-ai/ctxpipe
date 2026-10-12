@@ -3,7 +3,7 @@ import {
   IconExternalLink,
   IconGitPullRequest,
 } from "@tabler/icons-react"
-import type { ReactElement, ReactNode } from "react"
+import { type ReactElement, type ReactNode, useRef } from "react"
 import { Link as AriaLink } from "react-aria-components"
 import { OverlayNavMenuButton } from "@/components/OverlayNavButton"
 import { Button } from "@/components/ui/Button"
@@ -13,6 +13,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/Tooltip"
+import { OnboardingHint } from "@/features/hints/OnboardingHint"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
 import type { Workspace } from "./types"
@@ -77,6 +78,8 @@ export type ConversationBranchChrome = {
  */
 export function WorkspaceChatChrome(props: {
   workspace: Workspace
+  /** Shows the one-time Create PR hint for a new user of this organization. */
+  hintOrgSlug?: string
   title: ReactNode
   headerExtra?: ReactNode
   branch?: ConversationBranchChrome | null
@@ -169,6 +172,7 @@ export function WorkspaceChatChrome(props: {
                 <ConversationPublishActions
                   publish={props.publish}
                   className={workspaceChromeTabStripClassName}
+                  hintOrgSlug={props.hintOrgSlug}
                 />
               ) : null}
               {props.headerExtra}
@@ -207,8 +211,11 @@ const publishButtonClassName = (state: {
 export function ConversationPublishActions(props: {
   publish: ConversationPublishChrome
   className?: string
+  /** Only the conversation header passes it, so the hint shows once. */
+  hintOrgSlug?: string
 }) {
   const { commitPush, pullRequest } = props.publish
+  const createPrRef = useRef<HTMLSpanElement>(null)
   const showCommit = commitPush.visible
   const showPrLink = pullRequest.action === "show" && Boolean(pullRequest.href)
   const showCreatePr = pullRequest.visible && pullRequest.action === "create"
@@ -260,16 +267,28 @@ export function ConversationPublishActions(props: {
           />
         </AriaLink>
       ) : showCreatePr ? (
-        <Button
-          variant="ghost"
-          isDisabled={pullRequest.pending}
-          isPending={pullRequest.pending}
-          onPress={pullRequest.onPress}
-          className={publishButtonClassName}
-        >
-          <IconGitPullRequest className="size-4" stroke={1.6} aria-hidden />
-          {pullRequest.pending ? "Creating PR…" : "Create PR"}
-        </Button>
+        <span ref={createPrRef} className="inline-flex">
+          <Button
+            variant="ghost"
+            isDisabled={pullRequest.pending}
+            isPending={pullRequest.pending}
+            onPress={pullRequest.onPress}
+            className={publishButtonClassName}
+          >
+            <IconGitPullRequest className="size-4" stroke={1.6} aria-hidden />
+            {pullRequest.pending ? "Creating PR…" : "Create PR"}
+          </Button>
+          {props.hintOrgSlug ? (
+            <OnboardingHint
+              id="create-pr"
+              orgSlug={props.hintOrgSlug}
+              triggerRef={createPrRef}
+            >
+              Changes stay on this conversation's branch until you create a pull
+              request.
+            </OnboardingHint>
+          ) : null}
+        </span>
       ) : null}
     </div>
   )

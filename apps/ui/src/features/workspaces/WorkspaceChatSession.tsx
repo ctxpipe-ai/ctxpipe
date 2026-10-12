@@ -268,6 +268,7 @@ export function WorkspaceChatSession(props: {
   return (
     <WorkspaceChatChrome
       workspace={workspace}
+      hintOrgSlug={orgSlug}
       title={
         <ConversationTitleButton
           orgSlug={orgSlug}

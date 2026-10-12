@@ -28,6 +28,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/Tooltip"
+import { OnboardingHint } from "@/features/hints/OnboardingHint"
 import { GraphWaitState } from "@/features/knowledge-graph/GraphWaitState"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { useMarkWorkspaceExplored } from "@/lib/useOrgGuide"
@@ -689,10 +690,15 @@ export function WorkspacePaneTriggers(props: {
     workspace: props.workspace,
     conversationId: props.conversationId,
   })
+  const stripRef = useRef<HTMLDivElement>(null)
   return (
     <TooltipProvider delay={200}>
+      <OnboardingHint id="panes" orgSlug={props.orgSlug} triggerRef={stripRef}>
+        Files is the knowledge repository. Graph shows how its files link.
+      </OnboardingHint>
       {/* Hide pane mounts the triggers. They fade in, so the user sees where the pane went. */}
       <div
+        ref={stripRef}
         className={cn(
           workspaceChromeTabStripClassName,
           "animate-in fade-in duration-100 ease-out",
