@@ -210,7 +210,7 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
         Open it to finish joining
         {invitationEmailQuery.data?.organizationName
           ? ` ${invitationEmailQuery.data.organizationName}`
-          : " the organisation"}
+          : " the organization"}
         . No email, or the link expired?{" "}
         <a
           href={inviteSignInHref(invitationId, verifyEmailFor)}
@@ -227,7 +227,7 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
     signUpMutation.isPending ||
     acceptInviteMutation.isPending
   ) {
-    return <AuthStatusMessage message="Accepting organisation invite…" />
+    return <AuthStatusMessage message="Accepting organization invite…" />
   }
 
   if (!invitationId) {
@@ -284,7 +284,7 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
         .
       </p>
       <label className="grid gap-1 text-sm">
-        <span className="text-zinc-300">Organisation</span>
+        <span className="text-zinc-300">Organization</span>
         <input
           type="text"
           value={invitationEmailQuery.data.organizationName}
@@ -515,7 +515,7 @@ function AuthViewRoute() {
             </div>
             <div className="ctx-border ctx-surface shadow-none px-6 pt-24 pb-6">
               <h2 className="mb-3 text-lg font-semibold text-zinc-100">
-                Join organisation
+                Join organization
               </h2>
               <InviteAcceptSignUp
                 invitationId={inviteFromRedirect.invitationId}

@@ -24,7 +24,7 @@ export const WrongAccount: Story = {
     (Story) => (
       <div className="ctx-border ctx-surface w-[22rem] px-6 py-6">
         <h2 className="mb-3 text-lg font-semibold text-zinc-100">
-          Join organisation
+          Join organization
         </h2>
         <Story />
       </div>
