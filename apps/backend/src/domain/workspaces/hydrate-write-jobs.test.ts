@@ -7,8 +7,6 @@ import {
   hydrateWriteJobsToEnqueue,
   importKeyCleanupFiles,
   kindsToRetryAfterHydrate,
-  opsFolderMapFiles,
-  opsFolderMapRemainder,
   validFromPersistFiles,
   validFromPersistRemainder,
 } from "./hydrate-write-jobs.js"
@@ -63,22 +61,15 @@ describe("hydrate write remainders", () => {
     expect(validFromPersistRemainder([unit({ claims: [] })])).toBe(0)
   })
 
-  it("counts a missing folder-map marker", () => {
-    expect(opsFolderMapRemainder(null)).toBe(1)
-    expect(opsFolderMapRemainder("# Notes\n")).toBe(1)
-    expect(opsFolderMapRemainder("<!-- ctxpipe:folder-map -->")).toBe(1)
-  })
-
   it("enqueues remaining kinds when writable or paused, not after relink", () => {
     expect(
       hydrateWriteJobsToEnqueue({
         units: [unit({})],
-        agentsMd: null,
         writeStatus: "writable",
         jobGeneration: 1,
         desiredGeneration: 1,
       }),
-    ).toEqual(["claims_upgrade", "ops_folder_map"])
+    ).toEqual(["claims_upgrade"])
     expect(
       hydrateWriteJobsToEnqueue({
         units: [
@@ -92,8 +83,6 @@ describe("hydrate write remainders", () => {
             body: "Ledger",
           }),
         ],
-        agentsMd:
-          "<!-- ctxpipe:folder-map -->\n## Folders\n<!-- /ctxpipe:folder-map -->",
         writeStatus: "writable",
         jobGeneration: 1,
         desiredGeneration: 1,
@@ -107,16 +96,14 @@ describe("hydrate write remainders", () => {
     expect(
       hydrateWriteJobsToEnqueue({
         units: [unit({})],
-        agentsMd: null,
         writeStatus: "unknown",
         jobGeneration: 1,
         desiredGeneration: 1,
       }),
-    ).toEqual(["claims_upgrade", "ops_folder_map"])
+    ).toEqual(["claims_upgrade"])
     expect(
       hydrateWriteJobsToEnqueue({
         units: [unit({})],
-        agentsMd: null,
         writeStatus: "writable",
         jobGeneration: 1,
         desiredGeneration: 2,
@@ -127,11 +114,8 @@ describe("hydrate write remainders", () => {
   it("retries a kind only when that remainder shrank", () => {
     const after = hydrateWriteJobRemainders({
       units: [unit({})],
-      agentsMd:
-        "<!-- ctxpipe:folder-map -->\n## Folders\n<!-- /ctxpipe:folder-map -->",
     })
     expect(after.claims_upgrade).toBe(1)
-    expect(after.ops_folder_map).toBe(0)
     expect(
       kindsToRetryAfterHydrate({
         remaining: ["claims_upgrade"],
@@ -213,14 +197,5 @@ describe("hydrate write files", () => {
     expect(files[0]?.content).toContain("predicate: DEPENDS_ON")
     expect(files[0]?.content).toContain("# Billing")
     expect(files[0]?.content).toContain("Ledger lives here.")
-  })
-
-  it("writes a folder-map section into AGENTS.md", () => {
-    const files = opsFolderMapFiles({
-      displayName: "Docs",
-      paths: ["guides/intro.md"],
-      existingAgentsMd: "---\nname: Docs\n---\n\nHello.\n",
-    })
-    expect(files[0]?.content).toContain("<!-- ctxpipe:folder-map -->")
   })
 })

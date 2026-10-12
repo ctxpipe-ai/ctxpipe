@@ -1,3 +1,5 @@
+import { mkdirSync, writeFileSync } from "node:fs"
+import { join } from "node:path"
 import { OpenWorkflow } from "openworkflow"
 import { BackendPostgres } from "openworkflow/postgres"
 import { expect, it } from "vitest"
@@ -42,7 +44,6 @@ it(
           expect((await jobs()).map((run) => run.workflowName).sort()).toEqual([
             "workspace-write-bootstrap",
             "workspace-write-claims-upgrade",
-            "workspace-write-ops-folder-map",
             "workspace-write-valid-from-persist",
           ])
           const replay = await f.runner.runWorkflow(workspaceHydrate.spec, {
@@ -51,7 +52,7 @@ it(
             revision: f.revision,
           })
           await replay.result({ timeoutMs: 30_000 })
-          expect(await jobs()).toHaveLength(4)
+          expect(await jobs()).toHaveLength(3)
           expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(f.sha)
           expect(
             f.tokenRequests.filter(
@@ -278,10 +279,7 @@ it(
         const paused = await withOrgIdContext(f.org, () =>
           listPausedWriteJobs(f.workspaceId),
         )
-        expect(paused.map((job) => job.kind).sort()).toEqual([
-          "bootstrap",
-          "ops_folder_map",
-        ])
+        expect(paused.map((job) => job.kind).sort()).toEqual(["bootstrap"])
         expect(
           paused.every(
             (job) =>
@@ -357,6 +355,15 @@ it(
           })
           await replay.result({ timeoutMs: 30_000 })
           expect(await repairs()).toHaveLength(1)
+          // A rename inside one folder keeps the folder set.
+          expect(
+            (await backend.listWorkflowRuns({ limit: 100 })).data.filter(
+              (run) =>
+                run.workflowName === "workspace-write-ops-folder-list" &&
+                (run.input as { workspaceId?: string }).workspaceId ===
+                  f.workspaceId,
+            ),
+          ).toHaveLength(0)
           expect(
             f.git("--git-dir", f.remote, "show", "main:knowledge/source.md"),
           ).toBe("# Source\n[Target](old.md)")
@@ -370,6 +377,101 @@ it(
         } finally {
           await backend.stop()
         }
+      },
+    )
+  },
+)
+
+it(
+  "hydration plans one folder-list update when the folder set changes",
+  { timeout: 60_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        files: [{ path: "knowledge/a.md", body: "# A\n" }],
+      },
+      async (f) => {
+        const backend = await BackendPostgres.connect(f.databaseUrl, {
+          runMigrations: false,
+        })
+        try {
+          await f.publish()
+          f.git("reset", "--hard", f.sha)
+          mkdirSync(join(f.directory, "runbooks"), { recursive: true })
+          writeFileSync(join(f.directory, "runbooks", "pager.md"), "# Pager\n")
+          f.git("add", "runbooks/pager.md")
+          f.git("commit", "-m", "Human adds a folder")
+          f.git("push", f.remote, "HEAD:main")
+          const resolved = await withOrgIdContext(f.org, () =>
+            resolveWorkspaceReadRevision({
+              orgId: f.org.id,
+              workspaceId: f.workspaceId,
+              env: parseEnv(process.env),
+              refresh: true,
+            }),
+          )
+          if (!resolved) throw new Error("New revision is unavailable")
+          const next = await f.runner.runWorkflow(workspaceHydrate.spec, {
+            orgId: f.org.id,
+            workspaceId: f.workspaceId,
+            revision: resolved.revision,
+          })
+          await next.result({ timeoutMs: 30_000 })
+          const updates = (
+            await backend.listWorkflowRuns({ limit: 100 })
+          ).data.filter(
+            (run) =>
+              run.workflowName === "workspace-write-ops-folder-list" &&
+              (run.input as { workspaceId?: string }).workspaceId ===
+                f.workspaceId,
+          )
+          expect(updates).toHaveLength(1)
+          expect(updates[0]?.input).toMatchObject({
+            previousSha: f.sha,
+            revision: { sha: resolved.revision.sha },
+          })
+        } finally {
+          await backend.stop()
+        }
+      },
+    )
+  },
+)
+
+it(
+  "reserves a new folder-list job for a new folder change on the same root",
+  { timeout: 30_000 },
+  async () => {
+    const { reserveHydrateWrites } = await import(
+      "../../models/workspace-write-planning.js"
+    )
+    const { persistWriteJobStatus } = await import(
+      "../../models/workspace-write-jobs.js"
+    )
+    await withNativeHydrationFixture(
+      { github: true, githubWriteView: "writable", writeStatus: "writable" },
+      async (f) => {
+        const reserve = (previousSha: string) =>
+          withOrgIdContext(f.org, () =>
+            reserveHydrateWrites({
+              revision: f.revision,
+              remaining: [
+                { kind: "ops_folder_map", remainder: 1, previousSha },
+              ],
+            }),
+          )
+        const first = await reserve("a".repeat(40))
+        expect(first).toMatchObject([{ previousSha: "a".repeat(40) }])
+        await withOrgIdContext(f.org, () =>
+          persistWriteJobStatus(first[0]?.jobId ?? "", "completed"),
+        )
+        expect(await reserve("a".repeat(40))).toEqual([])
+        const second = await reserve("b".repeat(40))
+        expect(second).toMatchObject([{ previousSha: "b".repeat(40) }])
+        expect(second[0]?.jobId).not.toBe(first[0]?.jobId)
       },
     )
   },

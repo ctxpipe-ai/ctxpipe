@@ -247,6 +247,7 @@ export const WORKSPACE_CHAT_OPENCODE_AGENT_PROMPT = [
   "Each repositories/<name>.md declares a linked repository. Linked repositories are read-only and not cloned; read them with the ctxpipe tools.",
   "Linked repositories often keep agent memory: .ai/memory/lessons-learned.md, .ai/memory/glossary.md, and ADRs, for example in .ai/memory/decisions/.",
   "Propose changes as knowledge updates, not code patches: edit or add Markdown units in this repository as the ctxpipe-knowledge skill says.",
+  "The folder structure is the map of this repository. When you add, move, or delete a folder, also update the folder list in AGENTS.md.",
   "Do not create .ai/memory/ in this repository. For a linked repository, write the proposed lesson, ADR, or glossary text in your answer.",
   "Prefer the smallest tool set that answers the question.",
   "Issue independent glob, grep, and read calls in one step when they do not depend on each other.",

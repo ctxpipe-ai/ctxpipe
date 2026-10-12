@@ -1,6 +1,5 @@
 import { isAlias, isMap, isSeq } from "yaml"
 import { isConnectorMirrorPath } from "../codeIngestion/connectorMirrorPaths.js"
-import { folderMapMarkerState, maintainFolderMap } from "./folder-map.js"
 import { type HydrateUnit, resolveHydrateLink } from "./hydrate.js"
 import { looksLikeGitSha } from "./hydrate-phases.js"
 import {
@@ -49,14 +48,8 @@ export function validFromPersistRemainder(
   ).length
 }
 
-export function opsFolderMapRemainder(agentsMd: string | null): number {
-  if (!agentsMd?.trim()) return 1
-  return folderMapMarkerState(agentsMd) === "valid" ? 0 : 1
-}
-
 export function hydrateWriteJobsToEnqueue(input: {
   units: readonly HydrateUnit[]
-  agentsMd: string | null
   writeStatus: string
   jobGeneration: number
   desiredGeneration: number
@@ -70,7 +63,6 @@ export function hydrateWriteJobsToEnqueue(input: {
   if (validFromPersistRemainder(input.units) > 0) {
     kinds.push("valid_from_persist")
   }
-  if (opsFolderMapRemainder(input.agentsMd) > 0) kinds.push("ops_folder_map")
   if (
     renameRewriteRemainder({
       previousPaths: input.previousPaths ?? [],
@@ -86,14 +78,12 @@ export function hydrateWriteJobsToEnqueue(input: {
 
 export function hydrateWriteJobRemainders(input: {
   units: readonly HydrateUnit[]
-  agentsMd: string | null
   previousPaths?: readonly string[]
   extractRemainder?: number
 }): Partial<Record<WorkspaceWriteJobKind, number>> {
   return {
     claims_upgrade: claimsUpgradeRemainder(input.units),
     valid_from_persist: validFromPersistRemainder(input.units),
-    ops_folder_map: opsFolderMapRemainder(input.agentsMd),
     rename_rewrite: renameRewriteRemainder({
       previousPaths: input.previousPaths ?? [],
       currentPaths: input.units.map((unit) => unit.path),
@@ -248,20 +238,4 @@ export function extractIngestRemainder(input: {
   existing: ReadonlyMap<string, string>
 }): number {
   return extractIngestFiles(input).length
-}
-
-export function opsFolderMapFiles(input: {
-  displayName: string
-  existingAgentsMd: string | null
-  requestedDisplayName?: string
-  paths: readonly string[]
-}): Array<{ path: string; content: string }> {
-  const content = maintainFolderMap({
-    displayName: input.displayName,
-    existing: input.existingAgentsMd,
-    requestedDisplayName: input.requestedDisplayName,
-    paths: input.paths,
-  })
-  if (input.existingAgentsMd === content) return []
-  return [{ path: "AGENTS.md", content }]
 }

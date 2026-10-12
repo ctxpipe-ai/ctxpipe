@@ -5,6 +5,7 @@ import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { projectWorkspaceSources } from "../../domain/workspace-sources/project.js"
 import { SOURCES_FILE_PATH } from "../../domain/workspace-sources/sources-file.js"
 import { embedHydrateUnits } from "../../domain/workspaces/derived-stores.js"
+import { nativeFolderSetChanged } from "../../domain/workspaces/folder-list.js"
 import { projectWorkspaceGraph } from "../../domain/workspaces/graph-projection.js"
 import {
   applyEffectiveValidFromToUnits,
@@ -263,6 +264,23 @@ export const workspaceHydrate = defineWorkflow(
                         previousSha: planning.previousSha,
                         remainder: changes.length,
                       })
+                    if (
+                      await nativeFolderSetChanged(pack, planning.previousSha)
+                    ) {
+                      // One job both removes old markers and updates the list.
+                      const planned = remaining.find(
+                        (requirement) => requirement.kind === "ops_folder_map",
+                      )
+                      if (planned?.kind === "ops_folder_map") {
+                        planned.previousSha = planning.previousSha
+                        planned.remainder += 1
+                      } else
+                        remaining.push({
+                          kind: "ops_folder_map",
+                          previousSha: planning.previousSha,
+                          remainder: 1,
+                        })
+                    }
                   }
                   return remaining
                 },
