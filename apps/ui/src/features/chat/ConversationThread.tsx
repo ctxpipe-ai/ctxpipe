@@ -340,7 +340,11 @@ export function ConversationThread(props: {
                       </Message>
                     </div>
                   ) : null}
-                  {after ? <div className="flex w-full">{after}</div> : null}
+                  {after ? (
+                    <div className="flex w-full min-w-0 flex-col gap-3">
+                      {after}
+                    </div>
+                  ) : null}
                 </Fragment>
               )
             })}

@@ -5,6 +5,7 @@ import {
   conversationBranchShortName,
   conversationCommitPushEnabled,
   conversationCreatePrEnabled,
+  conversationCtaPlan,
   conversationGithubTreeHref,
   conversationPublishErrorMessage,
   conversationPullRequestAction,
@@ -177,4 +178,76 @@ describe("conversationPublishErrorMessage", () => {
       conversationPublishErrorMessage("Create PR", new Error("odd_code")),
     ).toBe("Create PR failed (odd_code).")
   })
+})
+
+describe("conversationCtaPlan", () => {
+  const cases: Array<{
+    name: string
+    input: Parameters<typeof conversationCtaPlan>[0]
+    want: ReturnType<typeof conversationCtaPlan>
+  }> = [
+    {
+      name: "none shows nothing",
+      input: {
+        syncVisible: false,
+        createPrVisible: false,
+        createPrPending: false,
+        prExists: false,
+      },
+      want: { sync: false, pullRequest: null, pullRequestIsCta: false },
+    },
+    {
+      name: "dirty shows only Sync",
+      input: {
+        syncVisible: true,
+        createPrVisible: true,
+        createPrPending: false,
+        prExists: false,
+      },
+      want: { sync: true, pullRequest: null, pullRequestIsCta: false },
+    },
+    {
+      name: "clean and ahead shows Create PR",
+      input: {
+        syncVisible: false,
+        createPrVisible: true,
+        createPrPending: false,
+        prExists: false,
+      },
+      want: { sync: false, pullRequest: "create", pullRequestIsCta: true },
+    },
+    {
+      name: "a running Create PR stays visible",
+      input: {
+        syncVisible: true,
+        createPrVisible: true,
+        createPrPending: true,
+        prExists: false,
+      },
+      want: { sync: true, pullRequest: "create", pullRequestIsCta: true },
+    },
+    {
+      name: "a PR shows Show PR as the CTA",
+      input: {
+        syncVisible: false,
+        createPrVisible: false,
+        createPrPending: false,
+        prExists: true,
+      },
+      want: { sync: false, pullRequest: "show", pullRequestIsCta: true },
+    },
+    {
+      name: "a PR and dirty show Sync as the CTA and a subtle Show PR",
+      input: {
+        syncVisible: true,
+        createPrVisible: false,
+        createPrPending: false,
+        prExists: true,
+      },
+      want: { sync: true, pullRequest: "show", pullRequestIsCta: false },
+    },
+  ]
+  for (const { name, input, want } of cases) {
+    it(name, () => expect(conversationCtaPlan(input)).toEqual(want))
+  }
 })

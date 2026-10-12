@@ -6,6 +6,7 @@ import { responseGate } from "@/components/ui/skeletonMatchStory"
 import {
   conversationDetailLoadingHandler,
   conversationGitDiffHandler,
+  conversationGitStatusHandler,
   githubInstallationReposHandler,
   workspaceDetailErrorHandler,
   workspaceDetailLoadingHandler,
@@ -395,7 +396,22 @@ const noPrHandlers = () =>
     },
   })
 
-/** A failed Sync or Create PR shows why in a toast. */
+/** The branch is clean and ahead of the default branch: only Create PR shows. */
+const cleanAheadStatus = () =>
+  conversationGitStatusHandler({
+    source: "sandbox",
+    branch: "ctxpipe/chat/conv_1/1",
+    dirty: false,
+    differsFromDefault: true,
+    unpushed: false,
+    published: true,
+    ahead: 1,
+    behind: 0,
+    items: [],
+    worktreeVersion: "wt-0",
+  })
+
+/** A failed Sync shows why in a toast. */
 export const PublishErrorsToast: Story = {
   tags: ["workspace-golden"],
   args: { conversationId: "conv_1", paneParam: "files" },
@@ -418,13 +434,6 @@ export const PublishErrorsToast: Story = {
                 new URL(request.url).pathname,
               ),
             () => HttpResponse.json({ error: "turn_running" }, { status: 409 }),
-          ),
-          http.post(
-            ({ request }) =>
-              /\/api\/v1\/conversations\/[^/]+\/pull-request$/.test(
-                new URL(request.url).pathname,
-              ),
-            () => HttpResponse.json({ error: "no_pr_access" }, { status: 400 }),
           ),
           ...noPrHandlers(),
         ],
@@ -463,8 +472,41 @@ export const PublishErrorsToast: Story = {
         ).toBeVisible(),
       { timeout: 10_000 },
     )
-    await userEvent.click(await enabledButton(/create pr/i))
-    // The toast fades in.
+  },
+}
+
+/** A failed Create PR shows why in a toast. */
+export const PublishPrErrorToast: Story = {
+  tags: ["workspace-golden"],
+  args: { conversationId: "conv_1", paneParam: "files" },
+  decorators: PublishErrorsToast.decorators,
+  parameters: {
+    storyRoute: workspaceRoute({ conversationId: "conv_1", pane: "files" }),
+    msw: {
+      handlers: {
+        page: [
+          http.post(
+            ({ request }) =>
+              /\/api\/v1\/conversations\/[^/]+\/pull-request$/.test(
+                new URL(request.url).pathname,
+              ),
+            () => HttpResponse.json({ error: "no_pr_access" }, { status: 400 }),
+          ),
+          cleanAheadStatus(),
+          ...noPrHandlers(),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const page = within(canvasElement.ownerDocument.body)
+    await userEvent.click(
+      await page.findByRole(
+        "button",
+        { name: /create pr/i },
+        { timeout: 15_000 },
+      ),
+    )
     await waitFor(
       () =>
         expect(
@@ -763,7 +805,7 @@ export const CreatePrMatchesPaneTriggers: Story = {
     storyRoute: workspaceRoute({ conversationId: "conv_1" }),
     msw: {
       handlers: {
-        page: noPrHandlers(),
+        page: [cleanAheadStatus(), ...noPrHandlers()],
       },
     },
   },

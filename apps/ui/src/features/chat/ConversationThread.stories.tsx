@@ -1,6 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, fn, userEvent, within } from "storybook/test"
 import type { ChatMessage } from "@/features/chat/types"
+import { ConversationSyncEntry } from "@/features/workspaces/ConversationSyncEntry"
+import { ConversationTurnChangesCard } from "@/features/workspaces/ConversationTurnChangesCard"
 import {
   docsConversationDetail,
   hydratedReasoningAndToolsMessages,
@@ -410,5 +412,73 @@ export const AnswerLinksOutsideWorkspace: Story = {
     await expect(
       canvas.getByRole("button", { name: "Streamdown docs" }),
     ).toBeVisible()
+  },
+}
+
+/** A turn ends with the changed-files card, then a push entry. The entry sits under the card and its long branch truncates. */
+export const PushEntryUnderCard: Story = {
+  tags: ["workspace-golden"],
+  decorators: [
+    (Story) => (
+      <div className="flex h-[32rem] w-[26rem] bg-zinc-950">
+        <Story />
+      </div>
+    ),
+  ],
+  args: {
+    messages: reasoningMessages,
+    renderAfterMessage: (messageId) =>
+      messageId === reasoningMessages[reasoningMessages.length - 1]?.id
+        ? [
+            <ConversationTurnChangesCard
+              key="card"
+              changes={{
+                runId: "run_push_1",
+                turn: 1,
+                files: [
+                  {
+                    path: "knowledge/docker.md",
+                    status: "added",
+                    additions: 42,
+                    deletions: 0,
+                  },
+                ],
+              }}
+              onOpenDiff={fn()}
+            />,
+            <ConversationSyncEntry
+              key="sync"
+              sync={{
+                trigger: "create_pr",
+                branch:
+                  "ctxpipe/chat/conv_long_identifier_0123456789/12345678901234567890",
+                sha: "8eb1704c2d1f0a5b6e3c9d7f4a2b1c0d9e8f7a6b",
+                files: 1,
+                treeUrl: "https://github.com/acme/docs/tree/branch",
+                pullRequest: {
+                  number: 27,
+                  url: "https://github.com/acme/docs/pull/27",
+                  opened: true,
+                },
+                turn: 1,
+                syncedAt: "2026-08-16T10:05:00.000Z",
+              }}
+            />,
+          ]
+        : null,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const card = await canvas.findByRole("region", { name: "1 changed file" })
+    const entry = await canvas.findByRole("region", {
+      name: /^Pushed 1 file to/,
+    })
+    const cardBox = card.getBoundingClientRect()
+    const entryBox = entry.getBoundingClientRect()
+    expect(entryBox.top).toBeGreaterThanOrEqual(cardBox.bottom)
+    expect(entryBox.left).toBeCloseTo(cardBox.left, 0)
+    expect(entryBox.right).toBeLessThanOrEqual(cardBox.right + 1)
+    const branch = within(entry).getByText(/conv_long_identifier/)
+    expect(branch.scrollWidth).toBeGreaterThan(branch.clientWidth)
   },
 }

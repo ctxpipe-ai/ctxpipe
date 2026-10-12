@@ -78,6 +78,37 @@ export function conversationPullRequestVisible(
   return action === "show" || conversationCreatePrEnabled(status)
 }
 
+/**
+ * Which header buttons show. One CTA at a time: Sync wins while the branch is
+ * dirty. A PR that exists shows as a subtle link next to Sync, as the CTA
+ * otherwise.
+ */
+export function conversationCtaPlan(input: {
+  syncVisible: boolean
+  createPrVisible: boolean
+  createPrPending: boolean
+  prExists: boolean
+}): {
+  sync: boolean
+  pullRequest: "create" | "show" | null
+  pullRequestIsCta: boolean
+} {
+  if (input.prExists) {
+    return {
+      sync: input.syncVisible,
+      pullRequest: "show",
+      pullRequestIsCta: !input.syncVisible,
+    }
+  }
+  const create =
+    input.createPrVisible && (!input.syncVisible || input.createPrPending)
+  return {
+    sync: input.syncVisible,
+    pullRequest: create ? "create" : null,
+    pullRequestIsCta: create,
+  }
+}
+
 /** Every error code the Commit+Push and Create PR routes answer. */
 export type PublishErrorCode =
   | "missing_conversation"
