@@ -1,6 +1,6 @@
 # CTX-558: rebuild the command palette (Cmd+K) on React Aria Autocomplete
 
-Status: in progress on `ui/ctx-558-command-palette` (not pushed).
+Status: done on `ui/ctx-558-command-palette` (not pushed).
 
 ## Audit of the old palette
 
@@ -47,4 +47,20 @@ Source: `apps/ui/src/features/workspaces/WorkspaceCommandPalette.tsx` and its st
 
 ## Rebuild
 
-See the commits on the branch. Summary at the end of the work.
+- `react-aria-components` 1.15.1 has `Autocomplete`. No upgrade was necessary.
+- `WorkspaceCommandPalette` uses `Autocomplete` + the shared `SearchField` + the shared `Menu` / `MenuItem` in the shared `Modal` (`placement="top"`, so the field does not move when the list changes) and `Dialog`.
+- Virtual focus stays in the field. Arrow keys move, Enter runs the active item, and the first match is active after each key. Escape clears the search, and a second Escape closes the dialog. The modal gives focus back to the element that had it.
+- Sections: Workspaces (name, then the slug in mono) and Pages (Home, Connectors). The filter matches the name or the slug, not the old "page" hint.
+- The modal unmounts the body on close, so the search starts empty each time.
+- While the workspace list loads, a Workspaces skeleton (`useSkeletonHold`, row height of a loaded row) shows above the Pages section. Pages stay usable. The empty state ("No results for “…”") waits for the list. A failed list shows one line of text.
+- Names and slugs truncate. A footer row shows the keys (arrow keys, Enter, Esc).
+- Labels: dialog "Command palette", field "Search workspaces and pages", menu "Results".
+- The unused `components/ui/CommandPalette.tsx` is deleted, with its typecheck entries in `scripts/ci/diagnostics/ui.json`.
+
+## Tests
+
+Golden plays in `WorkspaceCommandPalette.stories.tsx`: `PaletteShortcutTogglesAndRestoresFocus`, `PaletteFiltersAtOnce`, `PaletteArrowKeysAndEnterKeepPane` (also checks `?pane=files` and `selectNav`), `PaletteEscapeClearsThenCloses`, `PaletteNoResults`, `PaletteLoadingKeepsPages`.
+
+## Follow-up
+
+- The SideNav Search row shows `⌘K` also on Windows and Linux. It is outside this ticket (SideNav chrome).

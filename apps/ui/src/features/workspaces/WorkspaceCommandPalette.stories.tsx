@@ -93,7 +93,7 @@ export const PaletteShortcutTogglesAndRestoresFocus: Story = {
   args: { isOpen: false },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    const trigger = canvas.getByRole("button", { name: "Search" })
+    const trigger = await canvas.findByRole("button", { name: "Search" })
     trigger.focus()
     await userEvent.keyboard("{Meta>}k{/Meta}")
     const field = await searchField()
