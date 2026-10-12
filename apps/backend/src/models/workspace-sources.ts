@@ -1,4 +1,4 @@
-import { and, eq, inArray } from "drizzle-orm"
+import { and, eq, inArray, sql } from "drizzle-orm"
 import { getSystemDb, withOrgDbContext } from "../db/client.js"
 import { organizations } from "../db/schema/auth.js"
 import { repositories } from "../db/schema/repositories.js"
@@ -10,6 +10,8 @@ import {
 import type { PlannedSourceRow } from "../domain/workspace-sources/projection-plan.js"
 import { normalizeWorkspaceRepositoryUrl } from "../domain/workspaces/slug.js"
 import { generateObjectId } from "../lib/id.js"
+import { log } from "../observability/logger.js"
+import { openWorkflowNamespaceId } from "../openworkflow/namespace.js"
 
 export type WorkspaceSourceRow = typeof workspaceSources.$inferSelect
 
@@ -150,6 +152,7 @@ export async function listConnectionsWithOkSources(): Promise<
     provider: string
   }> = []
   for (const { id } of orgs) {
+    // One org that fails to read does not stop the scan of the others.
     const rows = await withOrgDbContext(id, (db) =>
       db
         .selectDistinct({
@@ -158,7 +161,14 @@ export async function listConnectionsWithOkSources(): Promise<
         })
         .from(workspaceSources)
         .where(eq(workspaceSources.status, "ok")),
-    )
+    ).catch((error: unknown) => {
+      log.error({
+        step: "workspace_sources.list_ok_connections",
+        orgId: id,
+        message: error instanceof Error ? error.message : String(error),
+      })
+      return []
+    })
     for (const row of rows)
       if (row.connectionId && row.provider)
         found.push({
@@ -168,6 +178,18 @@ export async function listConnectionsWithOkSources(): Promise<
         })
   }
   return found
+}
+
+/** True when a daily sources sync run exists for the UTC `day` (YYYY-MM-DD). */
+export async function hasDailySourcesSyncRun(day: string): Promise<boolean> {
+  const found = await getSystemDb().execute(sql`
+    select 1 from openworkflow.workflow_runs
+    where namespace_id = ${openWorkflowNamespaceId()}
+      and workflow_name = 'workspace-sources-daily-sync'
+      and input->>'day' = ${day}
+    limit 1
+  `)
+  return found.rows.length > 0
 }
 
 /**
