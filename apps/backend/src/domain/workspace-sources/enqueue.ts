@@ -4,6 +4,7 @@ import { log } from "../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
 import { workspaceSourcesSync } from "../../openworkflow/workflows/workspace-sources-sync.js"
 import { SOURCE_ADAPTERS } from "./adapter.js"
+import { handOverLegacyBindings } from "./legacy-handover.js"
 import type { PlannedSourceRow } from "./projection-plan.js"
 import { type SourceProvider, sourceProviderSchema } from "./sources-file.js"
 
@@ -76,6 +77,15 @@ export async function enqueueSourceProjectionFollowUps(input: {
       revision: input.revision,
       removed,
     })
+  // A migrated legacy binding hands over to the sources after the merge.
+  await handOverLegacyBindings({
+    orgId: input.orgId,
+    workspaceId: input.workspaceId,
+    rows: [
+      ...input.projected.added,
+      ...input.projected.changed.map((change) => change.after),
+    ],
+  })
   const connections = new Map<string, SourceProvider>()
   for (const row of [
     ...input.projected.added,

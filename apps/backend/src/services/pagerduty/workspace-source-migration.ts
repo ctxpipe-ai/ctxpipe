@@ -7,6 +7,7 @@ import {
   connections,
 } from "../../db/schema/connections.js"
 import { repositories } from "../../db/schema/repositories.js"
+import { configBoundRepositoryUrl } from "../../domain/workspace-sources/legacy-handover.js"
 import type {
   LegacySourceBinding,
   SourceMigrationHook,
@@ -128,6 +129,7 @@ export function createPagerdutySourceMigrationHook(
   return {
     provider: "pagerduty",
     disableLegacy: disablePagerdutyLegacySync,
+    legacyRepositoryUrl: configBoundRepositoryUrl,
     legacyMoves: planPagerdutyLegacyMoves,
     async listLegacyBindings({ orgId, env }) {
       const rows = await withOrgDbContext(orgId, (db) =>

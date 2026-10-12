@@ -1,4 +1,5 @@
 import { withOrgDbContext } from "../../db/client.js"
+import { configBoundRepositoryUrl } from "../../domain/workspace-sources/legacy-handover.js"
 import type {
   LegacySourceBinding,
   SourceMigrationHook,
@@ -117,4 +118,5 @@ export const slackSourceMigrationHook: SourceMigrationHook = {
   async disableLegacy(input) {
     await disableSlackLegacyBinding(input)
   },
+  legacyRepositoryUrl: configBoundRepositoryUrl,
 }

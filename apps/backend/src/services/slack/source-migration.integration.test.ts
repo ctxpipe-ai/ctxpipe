@@ -8,6 +8,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { connections } from "../../db/schema/connections.js"
+import { repositories } from "../../db/schema/repositories.js"
+import { handOverLegacyBindings } from "../../domain/workspace-sources/legacy-handover.js"
 import { planSourceMigration } from "../../domain/workspace-sources/migration-plan.js"
 import { seedSourcesOrg } from "../../test/workspace-sources-fixture.js"
 import {
@@ -204,5 +206,55 @@ describe("Slack source migration hook (Postgres)", () => {
       ...oldConfig(seed.suffix),
       enabled: false,
     })
+  })
+
+  it("keeps the old binding on until a source of the connection projects in the bound Workspace", async () => {
+    // The migration PR is open, not merged: the old binding still captures.
+    const repositoryId = `repo_ctx_${seed.suffix}_handover`
+    const repositoryUrl = `https://github.com/example/handover-${seed.suffix}.git`
+    await withOrgDbContext(seed.orgId, (db) =>
+      db.insert(repositories).values({
+        id: repositoryId,
+        orgId: seed.orgId,
+        name: `example/handover-${seed.suffix}`,
+        gitUrl: repositoryUrl,
+      }),
+    )
+    const connectionId = await seed.addConnection("slack", {
+      ...oldConfig(seed.suffix),
+      teamId: `T1${seed.suffix}`.toUpperCase().slice(0, 20),
+      repositoryId,
+    })
+    const bound = await seed.addWorkspace("bound", repositoryUrl)
+    const other = await seed.addWorkspace("other")
+    const enabled = async () => {
+      const [row] = await withOrgDbContext(seed.orgId, (db) =>
+        db.select().from(connections).where(eq(connections.id, connectionId)),
+      )
+      return (row?.config as { enabled?: boolean }).enabled
+    }
+    const row = {
+      provider: "slack" as const,
+      connectionId,
+      scope: { channels: ["C0ENG0001"] },
+      status: "ok" as const,
+    }
+    // A source in another Workspace does not hand the binding over.
+    await handOverLegacyBindings({
+      orgId: seed.orgId,
+      workspaceId: other,
+      rows: [row],
+    })
+    expect(await enabled()).toBe(true)
+    // The first projection in the bound Workspace (after the merge) does.
+    await handOverLegacyBindings({
+      orgId: seed.orgId,
+      workspaceId: bound,
+      rows: [row],
+    })
+    expect(await enabled()).toBe(false)
+    await withOrgDbContext(seed.orgId, (db) =>
+      db.delete(repositories).where(eq(repositories.id, repositoryId)),
+    )
   })
 })
