@@ -1,5 +1,4 @@
 import { IconX } from "@tabler/icons-react"
-import { useNavigate } from "@tanstack/react-router"
 import { Button } from "@/components/ui/Button"
 import { Dialog } from "@/components/ui/Dialog"
 import { Modal } from "@/components/ui/Modal"
@@ -11,7 +10,6 @@ export function WorkspaceCreateModal(props: {
   onOpenChange: (open: boolean) => void
 }) {
   const { orgSlug, isOpen, onOpenChange } = props
-  const navigate = useNavigate()
 
   return (
     <Modal
@@ -31,16 +29,8 @@ export function WorkspaceCreateModal(props: {
         >
           <IconX className="size-4 text-muted-foreground" aria-hidden />
         </Button>
-        <WorkspaceCreateForm
-          orgSlug={orgSlug}
-          onDone={(slug) => {
-            onOpenChange(false)
-            void navigate({
-              to: "/$orgSlug/ws/$workspaceSlug",
-              params: { orgSlug, workspaceSlug: slug },
-            })
-          }}
-        />
+        {/* "Open Workspace" changes the page, and that closes this modal. */}
+        <WorkspaceCreateForm orgSlug={orgSlug} />
       </Dialog>
     </Modal>
   )

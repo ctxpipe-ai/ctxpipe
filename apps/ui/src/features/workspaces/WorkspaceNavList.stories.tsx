@@ -186,8 +186,10 @@ export const AddWorkspaceThenRepositories: Story = {
         body.queryByRole("heading", { name: "Add repositories" }),
       ).toBeNull(),
     )
-    await expect(
+    // Opening the new Workspace changes the page, which closes the wizard.
+    await userEvent.click(
       wizard.getByRole("button", { name: "Open Workspace" }),
-    ).toBeVisible()
+    )
+    await waitFor(() => expect(body.queryByRole("dialog")).toBeNull())
   },
 }

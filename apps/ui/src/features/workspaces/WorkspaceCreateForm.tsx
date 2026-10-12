@@ -9,7 +9,7 @@ import { InlineLoader } from "@/components/ui/InlineLoader"
 import { ConnectorSetupStepper } from "@/features/connectors/components/ConnectorSetupStepper"
 import { WorkspaceSources } from "@/features/workspace-sources/WorkspaceSources"
 import { pollWhileOk } from "@/lib/api-result"
-import { writeCheckInFlight } from "./projection"
+import { WRITE_CHECK_POLL_CAP_MS, writeCheckInFlight } from "./projection"
 import {
   createWorkspace,
   workspaceDetailOptions,
@@ -24,13 +24,8 @@ import {
  * Add Workspace in two steps. Step 1 chooses the Workspace repository and
  * creates the Workspace. Step 2 adds code repositories and tools to it.
  */
-export function WorkspaceCreateForm(props: {
-  orgSlug: string
-  /** Replaces the default navigation to the new Workspace. */
-  onDone?: (slug: string) => void
-}) {
-  const { orgSlug, onDone } = props
-  const navigate = useNavigate()
+export function WorkspaceCreateForm(props: { orgSlug: string }) {
+  const { orgSlug } = props
   const queryClient = useQueryClient()
   const [error, setError] = useState<string | null>(null)
   const [createdSlug, setCreatedSlug] = useState<string | null>(null)
@@ -47,17 +42,6 @@ export function WorkspaceCreateForm(props: {
     },
     onError: (err: Error) => setError(err.message),
   })
-
-  const done = (slug: string) => {
-    if (onDone) {
-      onDone(slug)
-      return
-    }
-    void navigate({
-      to: "/$orgSlug/ws/$workspaceSlug",
-      params: { orgSlug, workspaceSlug: slug },
-    })
-  }
 
   return (
     <div className="w-full">
@@ -78,15 +62,12 @@ export function WorkspaceCreateForm(props: {
         currentIndex={createdSlug ? 1 : 0}
       />
       {createdSlug ? (
-        <AddSourcesStep
-          orgSlug={orgSlug}
-          workspaceSlug={createdSlug}
-          onDone={() => done(createdSlug)}
-        />
+        <AddSourcesStep orgSlug={orgSlug} workspaceSlug={createdSlug} />
       ) : (
         <>
           <p className="mt-6 text-sm text-muted-foreground">
-            ctxpipe saves this Workspace’s knowledge in this repository.
+            ctxpipe saves this Workspace’s knowledge in the repository you
+            choose.
           </p>
           <div className="mt-4">
             <WorkspaceRepositoryPicker
@@ -110,17 +91,19 @@ export function WorkspaceCreateForm(props: {
  * The Connectors section of Workspace settings, for the new Workspace. A new
  * Workspace starts with an unknown write status, and sources can only be
  * added after the write-access check, so the step waits for that check.
+ * The wait stops at the same cap as the Workspace page, which owns
+ * "Check again".
  */
-function AddSourcesStep(props: {
-  orgSlug: string
-  workspaceSlug: string
-  onDone: () => void
-}) {
-  const { orgSlug, workspaceSlug, onDone } = props
+function AddSourcesStep(props: { orgSlug: string; workspaceSlug: string }) {
+  const { orgSlug, workspaceSlug } = props
+  const navigate = useNavigate()
+  const [startedAt] = useState(Date.now)
   const detailQuery = useQuery({
     ...workspaceDetailOptions(orgSlug, workspaceSlug),
     refetchInterval: (query) =>
-      query.state.data && writeCheckInFlight(query.state.data)
+      query.state.data &&
+      writeCheckInFlight(query.state.data) &&
+      query.state.dataUpdatedAt - startedAt < WRITE_CHECK_POLL_CAP_MS
         ? pollWhileOk(2000)(query)
         : false,
   })
@@ -129,8 +112,8 @@ function AddSourcesStep(props: {
   return (
     <>
       <p className="mt-6 text-sm text-muted-foreground">
-        ctxpipe reads them to answer questions. You can change them later under
-        Connectors in Workspace settings.
+        ctxpipe reads these sources to answer questions. You can change them
+        later under Connectors in Workspace settings.
       </p>
       <div className="mt-4">
         {detailQuery.isError ? (
@@ -146,10 +129,18 @@ function AddSourcesStep(props: {
               </Button>
             }
           >
-            Try again, or open the Workspace and add sources in Settings.
+            Try again, or open the Workspace and add sources under Connectors in
+            Settings.
           </InlineAlert>
-        ) : !workspace || writeCheckInFlight(workspace) ? (
+        ) : !workspace ||
+          (writeCheckInFlight(workspace) &&
+            detailQuery.dataUpdatedAt - startedAt < WRITE_CHECK_POLL_CAP_MS) ? (
           <InlineLoader label="Checking write access" />
+        ) : writeCheckInFlight(workspace) ? (
+          <InlineAlert variant="warning" title="Still checking write access">
+            The check takes longer than usual. Open the Workspace to check
+            again, then add sources under Connectors in Settings.
+          </InlineAlert>
         ) : workspace.conversationWritable === false ? (
           <InlineAlert
             variant="warning"
@@ -171,7 +162,15 @@ function AddSourcesStep(props: {
         )}
       </div>
       <div className="mt-6 flex justify-end">
-        <Button variant="primary" onPress={onDone}>
+        <Button
+          variant="primary"
+          onPress={() => {
+            void navigate({
+              to: "/$orgSlug/ws/$workspaceSlug",
+              params: { orgSlug, workspaceSlug },
+            })
+          }}
+        >
           Open Workspace
         </Button>
       </div>

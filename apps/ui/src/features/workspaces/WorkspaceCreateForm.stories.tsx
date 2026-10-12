@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
-import { expect, fn, userEvent, waitFor, within } from "storybook/test"
+import { expect, userEvent, waitFor, within } from "storybook/test"
 import {
   githubInstallationReposHandler,
   orgGithubConnectionsHandler,
@@ -54,8 +54,6 @@ const meta = {
 export default meta
 
 type Story = StoryObj<typeof meta>
-
-const detailPath = /\/api\/v1\/workspaces\/[^/]+$/
 
 /** Step 2 needs the new Workspace, its sources, and a GitHub connection. */
 const stepTwoHandlers = [
@@ -140,7 +138,6 @@ export const SaveError: Story = {
 }
 
 export const AddSourcesAfterCreate: Story = {
-  args: { onDone: fn() },
   parameters: {
     msw: {
       handlers: {
@@ -151,7 +148,7 @@ export const AddSourcesAfterCreate: Story = {
       },
     },
   },
-  play: async ({ args, canvasElement }) => {
+  play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await createFromGithub(canvasElement)
     await canvas.findByRole("button", { name: "Add repositories" })
@@ -167,11 +164,14 @@ export const AddSourcesAfterCreate: Story = {
     await userEvent.click(
       canvas.getByRole("button", { name: "Open Workspace" }),
     )
-    await expect(args.onDone).toHaveBeenCalledWith("handbook")
+    // The new Workspace route replaces this story's Home route.
+    await waitFor(() =>
+      expect(
+        canvas.queryByRole("heading", { name: "Add Workspace" }),
+      ).toBeNull(),
+    )
   },
 }
-
-let checkingDetailRequests = 0
 
 export const WaitsForWriteAccessCheck: Story = {
   parameters: {
@@ -181,26 +181,22 @@ export const WaitsForWriteAccessCheck: Story = {
           ...stepTwoHandlers,
           // The first answer has the check running; the next has it done.
           http.get(
-            ({ request }) => detailPath.test(new URL(request.url).pathname),
-            () => {
-              checkingDetailRequests += 1
-              return HttpResponse.json(
-                checkingDetailRequests === 1
-                  ? {
-                      ...createdWritableWorkspaceDetail,
-                      writeStatus: "unknown",
-                      conversationWritable: false,
-                    }
-                  : createdWritableWorkspaceDetail,
-              )
-            },
+            ({ request }) =>
+              /\/api\/v1\/workspaces\/[^/]+$/.test(
+                new URL(request.url).pathname,
+              ),
+            () =>
+              HttpResponse.json({
+                ...createdWritableWorkspaceDetail,
+                writeStatus: "unknown",
+                conversationWritable: false,
+              }),
+            { once: true },
           ),
+          workspaceDetailHandler(createdWritableWorkspaceDetail),
         ],
       },
     },
-  },
-  beforeEach: () => {
-    checkingDetailRequests = 0
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
