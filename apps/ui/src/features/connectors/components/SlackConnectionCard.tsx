@@ -89,7 +89,7 @@ export function SlackConnectionCard({
         health={health}
         remove={{
           description:
-            "This removes the Slack connection. Its Workspace sources stop syncing and @mention capture stops. The sources.yaml entries and the files already committed to Git stay.",
+            "This removes the Slack connection. @mention capture stops. The sources.yaml entries and the files already committed to Git stay.",
           onConfirm: () => removeMutation.mutate(),
         }}
         workspace={connectorDash(status?.teamName)}

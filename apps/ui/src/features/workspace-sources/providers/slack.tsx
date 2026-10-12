@@ -39,7 +39,7 @@ function channelRows(
   return [...missing, ...listed]
 }
 
-/** Pick the Slack channels that one Workspace syncs. */
+/** Pick the Slack channels whose captured threads go to one Workspace. */
 export function SlackScopeEditor(props: SourceScopeEditorProps) {
   const { orgSlug, connectionId, initialScope, onChange, label } = props
   const [selected, setSelected] = useState(() => initialChannels(initialScope))
@@ -80,8 +80,9 @@ export function SlackScopeEditor(props: SourceScopeEditorProps) {
       <div>
         <p className="text-sm font-medium text-foreground">{pickerLabel}</p>
         <p className="mt-1 text-sm text-muted-foreground">
-          Each channel syncs its threads into the Workspace. Private channels
-          show only when the ctx| bot is in them.
+          When someone @mentions the ctx| bot in a thread of these channels,
+          the thread is saved to this Workspace. Private channels show only
+          when the bot is in them.
         </p>
       </div>
       <SearchField
