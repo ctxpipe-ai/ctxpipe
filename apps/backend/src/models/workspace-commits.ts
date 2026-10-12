@@ -184,7 +184,7 @@ export async function listWorkspaceCommitAuthors(
         // One GitHub login of the author, for the avatar.
         login: sql<
           string | null
-        >`max(${workspaceRepositoryCommits.authorLogin})`,
+        >`max(nullif(${workspaceRepositoryCommits.authorLogin}, ''))`,
       })
       .from(workspaceRepositoryCommits)
       .where(
@@ -274,8 +274,9 @@ export async function listOrgWorkspaceCommitProjections(): Promise<
 }
 
 /**
- * The SHAs of the stored commits that need no new read. A row without a
- * GitHub login is read again, so a row from before the login column gets it.
+ * The SHAs of the stored commits that need no new read. A row with a null
+ * login (from before the login column) is read again once; `""` means
+ * checked, no GitHub user.
  */
 export async function listWorkspaceCommitShas(
   workspaceId: string,

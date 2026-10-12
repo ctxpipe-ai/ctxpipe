@@ -68,7 +68,8 @@ export async function fetchGithubWorkspaceCommits(input: {
             item.commit.author?.name?.trim() ||
             item.author?.login?.trim() ||
             "Unknown",
-          authorLogin: item.author?.login?.trim() || null,
+          // "": checked, no GitHub user (null is "not checked yet").
+          authorLogin: item.author?.login?.trim() ?? "",
           subject: firstLineSubject(item.commit.message ?? ""),
           htmlUrl: item.html_url ?? null,
         })

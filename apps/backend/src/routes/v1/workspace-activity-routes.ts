@@ -232,7 +232,8 @@ async function activityBody(input: {
       sha: row.sha,
       subject: row.subject,
       authorName: row.authorName,
-      authorLogin: row.authorLogin ?? null,
+      // "" (no GitHub user) and null (not read yet) both give no avatar.
+      authorLogin: row.authorLogin || null,
       committedAt: row.committedAt.toISOString(),
       htmlUrl: row.htmlUrl,
       workspaceSlug: row.workspaceSlug,

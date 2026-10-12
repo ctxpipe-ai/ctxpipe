@@ -315,7 +315,7 @@ export const workspaceRepositoryCommits = pgTable.withRLS(
       mode: "date",
     }).notNull(),
     authorName: text("author_name").notNull(),
-    /** The GitHub login of the author. `null`: no GitHub user, or not read yet. */
+    /** The GitHub login of the author. `""`: no GitHub user. `null`: not read yet. */
     authorLogin: text("author_login"),
     subject: text("subject").notNull(),
     htmlUrl: text("html_url"),
