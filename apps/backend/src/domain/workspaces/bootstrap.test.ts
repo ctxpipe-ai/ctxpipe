@@ -17,6 +17,8 @@ describe("bootstrapWorkspaceFiles", () => {
     ])
     expect(files[0]?.content).toContain("name: Docs")
     expect(files[0]?.content).toContain("## Folder Structure")
+    expect(files[0]?.content).toContain("- `knowledge/`")
+    expect(files[0]?.content).not.toContain("ctxpipe:folder-map")
     expect(files[1]?.content).toContain("0.5")
     expect(files[1]?.content).toContain("0.7")
     expect(files[1]?.content).toContain("knowledge/<area>")
@@ -31,7 +33,7 @@ describe("bootstrapWorkspaceFiles", () => {
     expect(merged).toContain("name: Keep Me")
     expect(merged).toContain("Do not rewrite this.")
     expect(merged).toContain("## Folder Structure")
-    expect(merged).toContain("<!-- ctxpipe:folder-map -->")
+    expect(merged).not.toContain("ctxpipe:folder-map")
   })
 
   it("preserves unrelated AGENTS.md front matter keys", () => {
@@ -56,15 +58,26 @@ describe("bootstrapWorkspaceFiles", () => {
     expect(merged).toContain("predicate: owns")
   })
 
-  it("wraps an existing semantic folder map instead of inserting a second one", () => {
+  it("keeps an existing folder list instead of inserting a second one", () => {
     const merged = bootstrapAgentsMarkdown({
       displayName: "Docs",
       existing:
         "---\nname: Keep Me\n---\n\n## Directory layout\n\n- `knowledge/` units\n- `repositories/` remotes\n",
     })
     expect(merged).toContain("## Directory layout")
-    expect(merged).toContain("<!-- ctxpipe:folder-map -->")
+    expect(merged).not.toContain("ctxpipe:folder-map")
     expect(merged.match(/## Folder Structure/g) ?? []).toHaveLength(0)
+  })
+
+  it("removes old marker lines and keeps the list between them", () => {
+    const merged = bootstrapAgentsMarkdown({
+      displayName: "Docs",
+      existing:
+        "---\nname: Keep Me\n---\n\n<!-- ctxpipe:folder-map -->\n## Folders\n\n- `notes/` notes\n<!-- /ctxpipe:folder-map -->\n",
+    })
+    expect(merged).toBe(
+      "---\nname: Keep Me\n---\n\n## Folders\n\n- `notes/` notes\n",
+    )
   })
 
   it("polishes an existing skill without dropping extra notes", () => {
