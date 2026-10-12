@@ -402,12 +402,54 @@ describe("PagerDuty source adapter (Postgres + msw)", () => {
     })
   })
 
-  it("matches a webhook event by service id", () => {
+  it("moves an incident from the Workspace of its old service to the new one", async () => {
+    const connection = await seed.addConnection("pagerduty", installed())
+    const shop = await addSource(connection, "pd-move-shop", [CHECKOUT])
+    const money = await addSource(connection, "pd-move-money", [BILLING])
+    const old = incidentPath(CHECKOUT, 11, "PINC001")
+    pd.incidents.set("PINC001", {
+      number: 11,
+      serviceId: BILLING,
+      title: "Checkout is slow",
+    })
+    try {
+      const writes = await sync(connection, {
+        event: { incidentId: "PINC001", serviceId: BILLING },
+        blobs: [{ path: old, sha: blobSha("old") }],
+      })
+
+      expect(writes.get(shop)?.files).toEqual([])
+      expect(writes.get(shop)?.deletePaths).toEqual([old])
+      expect(paths(writes.get(money))).toEqual([
+        incidentPath(BILLING, 11, "PINC001"),
+      ])
+    } finally {
+      pd.incidents.set("PINC001", {
+        number: 11,
+        serviceId: CHECKOUT,
+        title: "Checkout is slow",
+      })
+    }
+  })
+
+  it("does not fetch an incident that no source has or selects", async () => {
+    const connection = await seed.addConnection("pagerduty", installed())
+    await addSource(connection, "pd-event-other", [CHECKOUT])
+
+    const writes = await sync(connection, {
+      event: { incidentId: "PINC777", serviceId: "PSVC999" },
+      blobs: [],
+    })
+
+    expect(pd.reads).toEqual([])
+    expect(writes.size).toBe(0)
+  })
+
+  it("matches each incident event, so the fetch can move or delete files", () => {
     const scope = { services: [CHECKOUT] }
     const match = (event: unknown) =>
       pagerdutySourceAdapter.matchesEvent?.({ event, scope })
-    expect(match({ incidentId: "PINC001", serviceId: CHECKOUT })).toBe(true)
-    expect(match({ incidentId: "PINC003", serviceId: BILLING })).toBe(false)
+    expect(match({ incidentId: "PINC003", serviceId: BILLING })).toBe(true)
     expect(match({ incidentId: "PINC003" })).toBe(false)
   })
 })

@@ -203,13 +203,32 @@ export const pagerdutySourceAdapter: SourceAdapter<PagerdutySourceScope> = {
   async fetch({ orgId, connectionId, scopes, env, event, existing }) {
     const serviceIds = [...new Set(scopes.flatMap((scope) => scope.services))]
     const roots = serviceIds.map(pagerdutyServiceIncidentsRoot)
+    const existingPaths = (existing ?? []).map((file) => file.path)
+    const parsedEvent = pagerdutySourceEventSchema.safeParse(event)
+    // The files of the event incident in each source, also under the root of
+    // its old service, so a service change moves the file.
+    const prior = parsedEvent.success
+      ? roots.flatMap((root) =>
+          pagerdutyManagedPathsForIncidentId(
+            existingPaths,
+            parsedEvent.data.incidentId,
+            root,
+          ),
+        )
+      : []
+    // An incident that no source has or selects: nothing to fetch.
+    if (
+      parsedEvent.success &&
+      !prior.length &&
+      !serviceIds.includes(parsedEvent.data.serviceId)
+    )
+      return { files: [], deletePaths: [] }
     const state = await loadConnectionState(orgId, connectionId, env)
     // A revoked connection keeps every file until a reconnect.
     if (!state.ready && state.revoked) return { files: [], keepPaths: roots }
     if (!state.ready)
       throw new Error("The PagerDuty connection is not ready for sync")
     const { connection } = state
-    const existingPaths = (existing ?? []).map((file) => file.path)
     let accessToken: string
     try {
       accessToken = await resolveFreshAccessToken({ orgId, env, connection })
@@ -219,13 +238,9 @@ export const pagerdutySourceAdapter: SourceAdapter<PagerdutySourceScope> = {
       throw error
     }
 
-    const parsedEvent = pagerdutySourceEventSchema.safeParse(event)
     if (parsedEvent.success) {
       // One incident changed: a patch of its files only.
       const { incidentId } = parsedEvent.data
-      const prior = roots.flatMap((root) =>
-        pagerdutyManagedPathsForIncidentId(existingPaths, incidentId, root),
-      )
       let incident: Awaited<ReturnType<typeof getPagerdutyIncident>>
       try {
         incident = await getPagerdutyIncident({
@@ -395,8 +410,11 @@ export const pagerdutySourceAdapter: SourceAdapter<PagerdutySourceScope> = {
       ? { status: "out_of_access" as const, detail: RECONNECT_DETAIL }
       : null
   },
-  matchesEvent: ({ event, scope }) => {
-    const parsed = pagerdutySourceEventSchema.safeParse(event)
-    return parsed.success && scope.services.includes(parsed.data.serviceId)
-  },
+  /**
+   * Each source takes an incident event: the incident can have moved from a
+   * service of one source to a service of another. The fetch reads the
+   * incident one time and patches only its files.
+   */
+  matchesEvent: ({ event }) =>
+    pagerdutySourceEventSchema.safeParse(event).success,
 }
