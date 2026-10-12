@@ -31,6 +31,8 @@ export function MessageInputBox(props: {
   layout?: MessageInputLayout
   placeholder?: string
   draftSeed?: string | null
+  /** Focus the text box when a new `draftSeed` fills it. */
+  focusOnSeed?: boolean
   /** Unsent text survives navigation for the session under this key. */
   draftKey?: string
   contentClassName?: string
@@ -45,6 +47,7 @@ export function MessageInputBox(props: {
     layout = "thread",
     placeholder,
     draftSeed,
+    focusOnSeed,
     draftKey,
     contentClassName,
     suggestions,
@@ -64,7 +67,10 @@ export function MessageInputBox(props: {
       key={draftKey}
       initialInput={draftSeed ?? (draftKey ? readChatDraft(draftKey) : "")}
     >
-      <MessageInputDraftSeed seed={draftSeed ?? null} />
+      <MessageInputDraftSeed
+        seed={draftSeed ?? null}
+        focusRef={focusOnSeed ? textareaRef : undefined}
+      />
       {draftKey ? <MessageInputDraftStore draftKey={draftKey} /> : null}
       <div
         className={cn(
@@ -140,21 +146,26 @@ export function MessageInputBox(props: {
   )
 }
 
-function MessageInputDraftSeed(props: { seed: string | null }) {
+function MessageInputDraftSeed(props: {
+  seed: string | null
+  focusRef?: RefObject<HTMLTextAreaElement | null>
+}) {
   const controller = usePromptInputController()
   const appliedRef = useRef<string | null>(null)
+  const { focusRef } = props
 
   useEffect(() => {
     if (props.seed) {
       if (appliedRef.current === props.seed) return
       appliedRef.current = props.seed
       controller.textInput.setInput(props.seed)
+      focusRef?.current?.focus()
       return
     }
     if (appliedRef.current == null) return
     appliedRef.current = null
     controller.textInput.clear()
-  }, [controller, props.seed])
+  }, [controller, props.seed, focusRef])
 
   return null
 }

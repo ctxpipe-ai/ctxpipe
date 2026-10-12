@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/Tooltip"
 import { GraphWaitState } from "@/features/knowledge-graph/GraphWaitState"
 import { focusVisibleClassName } from "@/lib/focus-styles"
+import { useMarkWorkspaceExplored } from "@/lib/useOrgGuide"
 import { useUrgentValue } from "@/lib/useUrgentValue"
 import { cn } from "@/lib/utils"
 import { conversationAllowsEdits } from "./conversationPublish"
@@ -98,6 +99,7 @@ export function WorkspacePane(props: {
   publish?: ConversationPublishChrome | null
 }) {
   const queryClient = useQueryClient()
+  const markExplored = useMarkWorkspaceExplored(props.orgSlug)
   const urlPaneKey = serializePane(props.pane)
   const [pane, setPane] = useUrgentValue(props.pane, urlPaneKey)
   const activeFile = pane.kind === "file" ? pane.path : null
@@ -131,6 +133,7 @@ export function WorkspacePane(props: {
   }
 
   const selectPane = (next: ParsedPane) => {
+    markExplored()
     setPane(next)
     prefetchPane(next)
     props.onPane(next)
@@ -671,6 +674,7 @@ export function WorkspacePaneTriggers(props: {
   onExpand?: () => void
 }) {
   const queryClient = useQueryClient()
+  const markExplored = useMarkWorkspaceExplored(props.orgSlug)
   const prefetch = (pane: ParsedPane) => {
     prefetchWorkspacePane(
       queryClient,
@@ -703,6 +707,7 @@ export function WorkspacePaneTriggers(props: {
             onIntent={() => prefetch(tab.pane)}
             onClick={() => {
               prefetch(tab.pane)
+              markExplored()
               props.onOpen(tab.pane)
             }}
           />

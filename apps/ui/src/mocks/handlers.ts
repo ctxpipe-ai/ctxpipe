@@ -185,6 +185,54 @@ export const githubInstallationLinkedHandler = http.get(
     }),
 )
 
+type StoryMember = { userId: string; role: string; email?: string }
+
+/** `GET .../organization/list-members` in the Better Auth response shape. */
+export function organizationMembersHandler(
+  members: StoryMember[],
+  organizationId = "org_storybook",
+) {
+  return http.get(`${authBase}/organization/list-members`, () =>
+    HttpResponse.json({
+      members: members.map((member, index) => ({
+        id: `mem_story_${index}`,
+        organizationId,
+        userId: member.userId,
+        role: member.role,
+        createdAt: "2026-10-01T00:00:00.000Z",
+        user: {
+          id: member.userId,
+          name: "Storybook User",
+          email: member.email ?? `${member.userId}@story.example`,
+          image: null,
+        },
+      })),
+      total: members.length,
+    }),
+  )
+}
+
+/** `GET .../organization/list-invitations`: an array of invitations. */
+export function organizationInvitationsHandler(
+  invitations: { email: string; role: string }[] = [],
+  organizationId = "org_storybook",
+) {
+  return http.get(`${authBase}/organization/list-invitations`, () =>
+    HttpResponse.json(
+      invitations.map((invitation, index) => ({
+        id: `inv_story_${index}`,
+        organizationId,
+        email: invitation.email,
+        role: invitation.role,
+        status: "pending",
+        inviterId: "user_storybook",
+        expiresAt: "2026-12-01T00:00:00.000Z",
+        createdAt: "2026-10-01T00:00:00.000Z",
+      })),
+    ),
+  )
+}
+
 export function organizationFullHandler(organization: {
   id: string
   name: string

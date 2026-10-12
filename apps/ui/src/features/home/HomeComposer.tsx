@@ -18,6 +18,8 @@ export function HomeComposer(props: {
   workspaces: Workspace[]
   selected: Workspace | null
   onSelectWorkspace: (workspaceId: string) => void
+  /** Fills the composer and focuses it (the setup guide's "Ask"). */
+  draftSeed?: string | null
 }) {
   const { orgSlug, workspaces, selected, onSelectWorkspace } = props
   const queryClient = useQueryClient()
@@ -82,6 +84,8 @@ export function HomeComposer(props: {
           placeholder="What should ctxpipe do in this Workspace?"
           suggestions={workspaceSuggestions}
           draftKey={selected ? chatDraftKey(orgSlug, selected.id) : undefined}
+          draftSeed={props.draftSeed}
+          focusOnSeed
         />
       </div>
     </section>
