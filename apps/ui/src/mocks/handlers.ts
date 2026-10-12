@@ -84,7 +84,7 @@ export function organizationCreateSuccessHandler() {
 }
 
 export function organizationCreateErrorHandler(
-  message = "Failed to create organisation",
+  message = "Failed to create organization",
 ) {
   return http.post(`${authBase}/organization/create`, async () => {
     await delay("real")
@@ -170,6 +170,19 @@ export const githubInstallationNoneHandler = http.get(
   ({ request }) =>
     new URL(request.url).pathname.includes("/api/v1/github/installation"),
   () => HttpResponse.json(null),
+)
+
+/** The org has a GitHub App installation (`installationId` set). */
+export const githubInstallationLinkedHandler = http.get(
+  ({ request }) =>
+    /\/api\/v1\/github\/installation$/.test(new URL(request.url).pathname),
+  () =>
+    HttpResponse.json({
+      id: "con_story_github",
+      appSlug: "ctxpipe",
+      accountSlug: "acme",
+      installationId: 4242,
+    }),
 )
 
 export function organizationFullHandler(organization: {

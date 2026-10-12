@@ -1,24 +1,14 @@
-import { useQuery } from "@tanstack/react-query"
 import { createFileRoute, Navigate, useRouter } from "@tanstack/react-router"
 import { useCallback, useEffect, useState } from "react"
 import { toast } from "sonner"
 import { ADMIN_SLIDES, JOINER_SLIDES } from "@/components/onboarding/constants"
-import { McpOnboardingSlide } from "@/components/onboarding/McpOnboardingSlide"
 import { OnboardingCreateOrgSlide } from "@/components/onboarding/OnboardingCreateOrgSlide"
 import { OnboardingGithubSlide } from "@/components/onboarding/OnboardingGithubSlide"
-import { OnboardingInviteSlide } from "@/components/onboarding/OnboardingInviteSlide"
-import { OnboardingJoinerDoneSlide } from "@/components/onboarding/OnboardingJoinerDoneSlide"
-import { OnboardingOverviewSlide } from "@/components/onboarding/OnboardingOverviewSlide"
+import { OnboardingHowItWorksSlide } from "@/components/onboarding/OnboardingHowItWorksSlide"
 import { OnboardingPageShell } from "@/components/onboarding/OnboardingPageShell"
 import { OnboardingWelcomeSlide } from "@/components/onboarding/OnboardingWelcomeSlide"
 import { useOnboardingCarousel } from "@/components/onboarding/useOnboardingCarousel"
 import { PageBodySkeleton } from "@/components/ui/Skeleton"
-import {
-  fetchGithubInstallationSummary,
-  githubConnectorKeys,
-  githubInstallationIsLinked,
-} from "@/features/connectors/queries/github-connector"
-import { useRepositoryIndexingSummary } from "@/features/repositories"
 import { client } from "@/lib/api"
 import { apiFetch, readApiJson } from "@/lib/api-result"
 import {
@@ -31,16 +21,6 @@ import { useUserPreferences } from "@/lib/user-preferences"
 
 export const Route = createFileRoute("/onboarding")({
   ssr: false,
-  head: () => ({
-    links: [
-      {
-        rel: "preload",
-        href: "/images/ctxpipe-onboarding-diagram.svg",
-        as: "image",
-        type: "image/svg+xml",
-      },
-    ],
-  }),
   component: OnboardingPage,
   validateSearch: (search: Record<string, unknown>) => ({
     orgSlug: typeof search.orgSlug === "string" ? search.orgSlug : undefined,
@@ -92,51 +72,12 @@ export function OnboardingPageContent({
 
   const { currentSlide, goToSlide } = useOnboardingCarousel(slides.length)
 
-  const { data: installation } = useQuery({
-    queryKey: githubConnectorKeys.installation(orgSlug ?? ""),
-    queryFn: () =>
-      orgSlug ? fetchGithubInstallationSummary(orgSlug) : Promise.resolve(null),
-    enabled: Boolean(orgSlug && session),
-  })
-  const hasGithubInstallation = githubInstallationIsLinked(installation)
-  const repositoryIndexing = useRepositoryIndexingSummary(orgSlug, {
-    enabled: Boolean(orgSlug && session),
-  })
-  const { activeCount, failedCount, runningCount } = repositoryIndexing.summary
-  const repositoryStatus =
-    activeCount > 0
-      ? {
-          tone: "indexing" as const,
-          label: `${runningCount > 0 ? "Indexing" : "Preparing"} ${activeCount} ${
-            activeCount === 1 ? "repository" : "repositories"
-          }`,
-        }
-      : failedCount > 0
-        ? {
-            tone: "failed" as const,
-            label: `${failedCount} ${
-              failedCount === 1 ? "repository needs" : "repositories need"
-            } attention`,
-          }
-        : null
-
   const onWelcomeDetailsVisible = useCallback(() => {
     setShowWelcomeDotNav(true)
   }, [])
 
-  const mcpSnippetOrgSlug = orgSlug ?? "your-org"
-  // ssr: false, so the browser is on the deployment's origin, which serves /mcp.
-  const mcpSnippet = `{
-  "mcpServers": {
-    "ctxpipe": {
-      "type": "http",
-      "url": "${window.location.origin}/mcp?orgSlug=${mcpSnippetOrgSlug}"
-    }
-  }
-}`
-
   // Signed out (e.g. an expired verification link landed here): the
-  // organisation data below never arrives, so do not wait for it.
+  // organization data below never arrives, so do not wait for it.
   if (!isPending && !session) return <Navigate to="/.auth/sign-in" replace />
   if (isPending || orgsPending || isJoinerLocked === null) {
     return (
@@ -161,7 +102,7 @@ export function OnboardingPageContent({
   const user = session.user as {
     id: string
     onboardingCompletedAt?: string | null
-    email?: string
+    email?: string | null
   }
   if (user.onboardingCompletedAt && orgSlug) {
     return (
@@ -300,29 +241,6 @@ export function OnboardingPageContent({
       currentSlide={currentSlide}
       slideCount={slides.length}
       sceneFailed={sceneFailed}
-      statusIndicator={
-        repositoryStatus ? (
-          <output
-            aria-live="polite"
-            className={[
-              "inline-flex items-center gap-2 border bg-zinc-950/90 px-3 py-2 font-mono text-xs shadow-lg shadow-black/20 backdrop-blur",
-              repositoryStatus.tone === "failed"
-                ? "border-red-400/30 text-red-200"
-                : "border-teal-400/30 text-teal-100",
-            ].join(" ")}
-          >
-            <span
-              aria-hidden
-              className={
-                repositoryStatus.tone === "failed"
-                  ? "ctx-indexing-failed-dot"
-                  : "ctx-indexing-dot"
-              }
-            />
-            {repositoryStatus.label}
-          </output>
-        ) : null
-      }
       onSceneLoad={() => {
         setSceneReady(true)
         setSceneFailed(false)
@@ -340,12 +258,23 @@ export function OnboardingPageContent({
         />
       ) : null}
 
-      {currentSlideName === "overview" ? (
-        <OnboardingOverviewSlide onNext={() => goToSlide(2)} />
+      {currentSlideName === "how-it-works" ? (
+        <OnboardingHowItWorksSlide
+          actionLabel={isJoinerLocked ? "Get started" : "Next"}
+          isPending={completing}
+          onNext={() => {
+            if (isJoinerLocked) {
+              void completeJoinerOnboarding()
+              return
+            }
+            goToSlide(currentSlide + 1)
+          }}
+        />
       ) : null}
 
       {currentSlideName === "create-org" ? (
         <OnboardingCreateOrgSlide
+          userEmail={user.email}
           onOrgCreated={(slug) => {
             setCreatedOrgSlug(slug)
             void router.navigate({
@@ -361,55 +290,8 @@ export function OnboardingPageContent({
       {currentSlideName === "github" ? (
         <OnboardingGithubSlide
           orgSlug={orgSlug}
-          onContinue={() => goToSlide(currentSlide + 1)}
-          onCreateWorkspace={() => {
-            if (!orgSlug) return
-            void completeOnboardingThen(() => {
-              void router.navigate({
-                to: "/$orgSlug/workspaces/new",
-                params: { orgSlug },
-                search: { after: "settings" },
-                replace: true,
-              })
-            })
-          }}
-          onSelectWorkspace={(workspace) => {
-            if (!orgSlug) return
-            void completeOnboardingThen(() => {
-              void router.navigate({
-                to: "/$orgSlug/ws/$workspaceSlug",
-                params: { orgSlug, workspaceSlug: workspace.slug },
-                search: { pane: "settings" },
-                replace: true,
-              })
-            })
-          }}
-        />
-      ) : null}
-
-      {currentSlideName === "mcp-config" ? (
-        <McpOnboardingSlide
-          key={orgSlug ?? "no-org"}
-          orgSlug={orgSlug}
-          hasGithubInstallation={hasGithubInstallation}
-          mcpSnippet={mcpSnippet}
-          onContinue={() => goToSlide(currentSlide + 1)}
-          onSkip={() => goToSlide(currentSlide + 1)}
-        />
-      ) : null}
-
-      {currentSlideName === "invite" ? (
-        <OnboardingInviteSlide
-          userEmail={user.email}
-          completing={completing}
-          onCompleteOnboarding={() => completeOnboarding()}
-        />
-      ) : null}
-
-      {currentSlideName === "done" ? (
-        <OnboardingJoinerDoneSlide
-          completing={completing}
-          onFinish={() => completeJoinerOnboarding()}
+          finishing={completing}
+          onFinish={() => void completeOnboarding()}
         />
       ) : null}
     </OnboardingPageShell>

@@ -52,12 +52,12 @@ export function OnboardingWelcomeSlide({
           ))}
       </h1>
       <p
-        className={`mx-auto max-w-2xl text-balance text-zinc-300 ${
+        className={`mx-auto max-w-xl text-balance text-zinc-300 ${
           showDetails ? "opacity-100" : "opacity-0"
         }`}
       >
-        ctx| is the self-learning context layer for autonomous AI agent fleets
-        for engineering orgs, and their humans, too.
+        Your team's knowledge, in a git repository you own. ctx| keeps it
+        current and puts an agent to work in it.
       </p>
       <div
         className={`mt-8 ${

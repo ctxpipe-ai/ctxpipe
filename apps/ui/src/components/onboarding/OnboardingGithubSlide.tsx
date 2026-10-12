@@ -1,49 +1,34 @@
 "use client"
 
 import { useQuery } from "@tanstack/react-query"
-import { useCallback, useState } from "react"
+import { useState } from "react"
 import { GITHUB_FINALISING_MIN_MS } from "@/components/onboarding/constants"
-import {
-  fetchGithubInstallationSummary,
-  githubConnectorKeys,
-  githubInstallationIsLinked,
-} from "@/features/connectors/queries/github-connector"
+import { githubSetupLinkOptions } from "@/features/connectors/queries/github-connector"
 import { useGithubConnectFlow } from "@/features/connectors/useGithubConnectFlow"
-import { GithubWorkspaceDestinationFromApi } from "@/features/workspaces/GithubWorkspaceDestination"
-import type { Workspace } from "@/features/workspaces/types"
 
 type OnboardingGithubSlideProps = {
   orgSlug: string | null
-  onContinue: () => void
-  onCreateWorkspace?: () => void
-  onSelectWorkspace?: (workspace: Workspace) => void
+  /** Skip for now, or Continue after GitHub is connected. Finishes onboarding. */
+  onFinish: () => void
+  finishing?: boolean
 }
+
+const primaryClassName =
+  "inline-flex h-11 items-center justify-center rounded-md border border-border px-6 text-sm font-medium transition-colors"
 
 export function OnboardingGithubSlide({
   orgSlug,
-  onContinue,
-  onCreateWorkspace,
-  onSelectWorkspace,
+  onFinish,
+  finishing,
 }: OnboardingGithubSlideProps) {
   const [githubSetupError, setGithubSetupError] = useState<string | null>(null)
   const [connectOptimistic, setConnectOptimistic] = useState(false)
 
-  const onContinueStable = useCallback(() => {
-    onContinue()
-  }, [onContinue])
-
-  const { data: installation, isPending: installationPending } = useQuery({
-    queryKey: githubConnectorKeys.installation(orgSlug ?? ""),
-    queryFn: () =>
-      orgSlug ? fetchGithubInstallationSummary(orgSlug) : Promise.resolve(null),
+  const linkQuery = useQuery({
+    ...githubSetupLinkOptions(orgSlug ?? ""),
     enabled: !!orgSlug,
   })
-
-  const hasGithubInstallation =
-    githubInstallationIsLinked(installation) || connectOptimistic
-
-  const hookOrg = orgSlug ?? ""
-  const flowEnabled = !!orgSlug
+  const linked = linkQuery.data === "linked" || connectOptimistic
 
   const {
     start,
@@ -52,7 +37,7 @@ export function OnboardingGithubSlide({
     hasHostedApp,
     SelfHostedWizardModal,
   } = useGithubConnectFlow({
-    orgSlug: hookOrg,
+    orgSlug: orgSlug ?? "",
     minFinalizeAfterRegistrationMs: GITHUB_FINALISING_MIN_MS,
     onAlreadyInstalled: () => setConnectOptimistic(true),
     onRegistered: () => {
@@ -67,108 +52,80 @@ export function OnboardingGithubSlide({
     },
   })
 
-  const bootstrapStillLoading = hasHostedApp === null
-  const primaryBusy =
-    !flowEnabled ||
-    installationPending ||
-    flowPending ||
-    isSyncing ||
-    bootstrapStillLoading
-
-  const isGithubSyncing = isSyncing
-
-  const hostedDescription = (() => {
-    if (bootstrapStillLoading) {
-      return "Connect your GitHub App to choose the organization and repositories ctx| can access."
-    }
-    if (hasHostedApp) {
-      return "Connect your GitHub App to choose the organization and repositories ctx| can access."
-    }
-    return "This deployment uses a GitHub App you create in your organization. You will register the app, webhook URL, and credentials, then install it on the accounts you want ctx| to access."
-  })()
-
-  const primaryLabel = bootstrapStillLoading
-    ? "Connect GitHub"
-    : hasHostedApp
-      ? "Connect GitHub"
-      : "Set up GitHub App"
-
-  if (hasGithubInstallation && orgSlug) {
+  if (linked && orgSlug) {
     return (
-      <div className="mx-auto w-full max-w-3xl">
-        <GithubWorkspaceDestinationFromApi
-          orgSlug={orgSlug}
-          variant="onboarding"
-          onCreateWorkspace={() => {
-            if (onCreateWorkspace) {
-              onCreateWorkspace()
-              return
-            }
-            onContinueStable()
-          }}
-          onSelectWorkspace={(workspace) => {
-            if (onSelectWorkspace) {
-              onSelectWorkspace(workspace)
-              return
-            }
-            onContinueStable()
-          }}
-          onClose={onContinueStable}
-        />
-      </div>
+      <>
+        <h2 className="mb-4 text-3xl font-semibold text-zinc-100 sm:text-4xl">
+          GitHub is connected
+        </h2>
+        <p className="mx-auto mb-12 max-w-xl text-balance text-zinc-300">
+          Next, create your first Workspace on Home.
+        </p>
+        <button
+          type="button"
+          disabled={finishing}
+          className={`${primaryClassName} bg-zinc-100 text-zinc-950 hover:bg-zinc-200 disabled:opacity-50`}
+          onClick={() => onFinish()}
+        >
+          Continue
+        </button>
+      </>
     )
   }
+
+  const bootstrapStillLoading = hasHostedApp === null
+  const checking = !orgSlug || linkQuery.isPending || bootstrapStillLoading
+  const primaryBusy = checking || flowPending || isSyncing
+  const selfHosted = hasHostedApp === false
 
   return (
     <>
       <h2 className="mb-4 text-3xl font-semibold text-zinc-100 sm:text-4xl">
         Connect GitHub
       </h2>
-      <div className="mx-auto mb-14 flex min-h-[280px] max-w-3xl flex-col">
-        <p className="mx-auto mb-3 text-balance text-zinc-300">
-          {isGithubSyncing
-            ? "Finalizing your GitHub connection..."
-            : hostedDescription}
-        </p>
-        <p className="mx-auto min-h-5 text-xs text-zinc-400">
-          {githubSetupError ? githubSetupError : "\u00A0"}
-        </p>
-        <div className="mt-auto flex flex-col items-center gap-8">
-          <button
-            type="button"
-            disabled={
-              primaryBusy ||
-              (!orgSlug && !hasGithubInstallation) ||
-              !flowEnabled
-            }
-            className={`inline-flex h-11 items-center justify-center rounded-md border border-border px-6 text-sm font-medium transition-colors ${
-              primaryBusy || (!orgSlug && !hasGithubInstallation)
-                ? "cursor-not-allowed bg-zinc-100/80 text-zinc-700"
-                : "bg-zinc-100 text-zinc-950 hover:bg-zinc-200"
-            }`}
-            onClick={() => {
-              if (!orgSlug) return
-              setGithubSetupError(null)
-              start("connect")
-            }}
-          >
-            {isGithubSyncing
-              ? "Finalizing connection..."
-              : installationPending || bootstrapStillLoading
-                ? "Checking..."
-                : primaryLabel}
-          </button>
-          <button
-            type="button"
-            disabled={isGithubSyncing}
-            className="text-sm text-zinc-500 underline decoration-zinc-700 underline-offset-4 transition-colors hover:text-zinc-300 disabled:cursor-not-allowed disabled:opacity-50"
-            onClick={() => onContinueStable()}
-          >
-            I&apos;ll do this later
-          </button>
-        </div>
+      <p className="mx-auto mb-3 max-w-xl text-balance text-zinc-300">
+        {isSyncing
+          ? "Finalizing your GitHub connection..."
+          : selfHosted
+            ? "This deployment uses a GitHub App you create in your organization. You will register the app, webhook URL, and credentials, then install it on the accounts you want ctx| to access."
+            : "ctx| reads the code you choose and writes to one knowledge repository. You pick the repositories on GitHub."}
+      </p>
+      <p className="mx-auto mb-9 min-h-5 text-xs text-zinc-400">
+        {githubSetupError ? githubSetupError : " "}
+      </p>
+      <div className="flex flex-col items-center gap-6">
+        <button
+          type="button"
+          disabled={primaryBusy}
+          className={`${primaryClassName} ${
+            primaryBusy
+              ? "cursor-not-allowed bg-zinc-100/80 text-zinc-700"
+              : "bg-zinc-100 text-zinc-950 hover:bg-zinc-200"
+          }`}
+          onClick={() => {
+            if (!orgSlug) return
+            setGithubSetupError(null)
+            start("connect")
+          }}
+        >
+          {isSyncing
+            ? "Finalizing connection..."
+            : checking
+              ? "Checking..."
+              : selfHosted
+                ? "Set up GitHub App"
+                : "Connect GitHub"}
+        </button>
+        <button
+          type="button"
+          disabled={isSyncing || finishing}
+          className="text-sm text-zinc-500 underline decoration-zinc-700 underline-offset-4 transition-colors hover:text-zinc-300 disabled:cursor-not-allowed disabled:opacity-50"
+          onClick={() => onFinish()}
+        >
+          Skip for now
+        </button>
       </div>
-      {flowEnabled ? SelfHostedWizardModal : null}
+      {orgSlug ? SelfHostedWizardModal : null}
     </>
   )
 }

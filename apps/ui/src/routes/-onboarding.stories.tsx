@@ -1,12 +1,13 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useRouterState } from "@tanstack/react-router"
-import { delay, HttpResponse, http } from "msw"
+import { delay, HttpResponse, http, type RequestHandler } from "msw"
 import { Toaster } from "sonner"
-import { expect, userEvent, waitFor, within } from "storybook/test"
+import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 import { docsWorkspace } from "@/features/workspaces/workspace-fixtures"
 import { authClient } from "@/lib/auth-client"
 import {
   authConfigHandler,
+  githubInstallationLinkedHandler,
   githubInstallationNoneHandler,
   organizationFullHandler,
   organizationListEmptyHandler,
@@ -55,7 +56,7 @@ export const Loading: Story = {
   },
 }
 
-/** New admin user, no organisation yet — welcome slide in the carousel. */
+/** New admin user, no organization yet: the welcome slide of the carousel. */
 export const AdminFlowWelcome: Story = {
   render: () => <OnboardingPageContent urlOrgSlug={null} />,
   parameters: {
@@ -64,83 +65,6 @@ export const AdminFlowWelcome: Story = {
         page: [sessionSignedInOnboardingHandler, organizationListEmptyHandler],
       },
     },
-  },
-}
-
-/**
- * A double-click on a slide button moves one slide. The slide changes at
- * once, so the second click (detail 2) can land on the next slide's button.
- */
-export const DoubleClickMovesOneSlide: Story = {
-  tags: ["workspace-golden"],
-  render: () => <OnboardingPageContent urlOrgSlug="acme" />,
-  parameters: {
-    msw: {
-      handlers: {
-        defaults: [
-          authConfigHandler,
-          sessionSignedInOnboardingHandler,
-          organizationListWithOrgHandler,
-        ],
-      },
-    },
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await userEvent.click(
-      await canvas.findByRole("button", { name: "Go to slide 2" }),
-    )
-    const click = (name: string, detail: number) =>
-      canvas
-        .getByRole("button", { name })
-        .dispatchEvent(new MouseEvent("click", { bubbles: true, detail }))
-    await canvas.findByRole("heading", {
-      name: "Your engineering context layer in one place",
-    })
-    click("Next", 1)
-    await canvas.findByRole("heading", { name: "Connect ctx| to your agents" })
-    click("I'll do this later", 2)
-    // Let React commit any slide change before the check.
-    await new Promise((resolve) => setTimeout(resolve, 100))
-    expect(
-      canvas.getByRole("heading", { name: "Connect ctx| to your agents" }),
-    ).toBeVisible()
-  },
-}
-
-/** The manual MCP snippet names this deployment's origin, not the hosted app. */
-export const McpSnippetUsesCurrentOrigin: Story = {
-  render: () => <OnboardingPageContent urlOrgSlug="acme" />,
-  parameters: {
-    msw: {
-      handlers: {
-        // Replaces the preview's signed-in user, who has finished onboarding.
-        defaults: [
-          authConfigHandler,
-          sessionSignedInOnboardingHandler,
-          organizationListWithOrgHandler,
-        ],
-      },
-    },
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await userEvent.click(
-      await canvas.findByRole("button", { name: "Go to slide 3" }),
-    )
-    const manual = await canvas.findByRole("button", {
-      name: /install manually/i,
-    })
-    await userEvent.click(manual)
-    const snippet = await waitFor(() => {
-      const code = canvasElement.querySelector("pre code")
-      expect(code).not.toBeNull()
-      return code?.textContent ?? ""
-    })
-    expect(snippet).toContain(
-      `"url": "${window.location.origin}/mcp?orgSlug=acme"`,
-    )
-    expect(snippet).not.toContain("app.ctxpipe.ai")
   },
 }
 
@@ -196,21 +120,23 @@ function onboardingSession() {
   }
 }
 
+/** A joiner has two slides. "Get started" on How it works finishes. */
 async function finishJoiner(canvasElement: HTMLElement) {
   const canvas = within(canvasElement)
   await userEvent.click(
-    await canvas.findByRole("button", { name: "Go to slide 4" }),
+    await canvas.findByRole("button", { name: "Go to slide 2" }),
   )
-  await canvas.findByRole("heading", { name: "Welcome aboard" })
-  // The welcome slide also has a "Get started" button until it leaves.
-  await userEvent.click(
-    await waitFor(() => canvas.getByRole("button", { name: "Get started" })),
-  )
+  await canvas.findByRole("heading", { name: "How ctx| works" })
+  expect(
+    canvas.queryByRole("button", { name: "Go to slide 3" }),
+  ).not.toBeInTheDocument()
+  await userEvent.click(canvas.getByRole("button", { name: "Get started" }))
 }
 
 const joinerSession = onboardingSession()
 /** A joiner finishes and lands on their Workspace, not on the welcome slide (AUTH-5). */
 export const JoinerFinishLandsInApp: Story = {
+  tags: ["workspace-golden"],
   render: () => <OnboardingJourney urlOrgSlug="acme" />,
   beforeEach: joinerSession.reset,
   parameters: {
@@ -275,86 +201,192 @@ export const JoinerFinishStaysWhenSessionIsStale: Story = {
     // The page fades back in after the failed finish.
     await waitFor(() =>
       expect(
-        canvas.getByRole("heading", { name: "Welcome aboard" }),
+        canvas.getByRole("heading", { name: "How ctx| works" }),
       ).toBeVisible(),
     )
   },
 }
 
+/** Handlers for an admin who has no organization on arrival. */
+function creatorHandlers(
+  session: ReturnType<typeof onboardingSession>,
+  state: { orgCreated: boolean },
+  extra: RequestHandler[],
+) {
+  return [
+    authConfigHandler,
+    ...session.handlers({ completes: true }),
+    http.get("*/.auth/api/v1/auth/organization/list", () =>
+      HttpResponse.json(
+        state.orgCreated
+          ? [{ id: "org_storybook", name: "Acme", slug: "acme" }]
+          : [],
+      ),
+    ),
+    http.post("*/.auth/api/v1/auth/organization/create", () => {
+      state.orgCreated = true
+      return HttpResponse.json({
+        id: "org_storybook",
+        name: "Acme",
+        slug: "acme",
+        createdAt: new Date().toISOString(),
+        metadata: null,
+        logo: null,
+        members: [],
+      })
+    }),
+    organizationFullHandler({
+      id: "org_storybook",
+      name: "Acme",
+      slug: "acme",
+    }),
+    http.post("*/.auth/api/v1/auth/organization/set-active", () =>
+      HttpResponse.json({}),
+    ),
+    http.post("*/acme/api/v1/onboarding/complete", () =>
+      HttpResponse.json({ completedAt: new Date().toISOString() }),
+    ),
+    ...extra,
+  ]
+}
+
 const creatorSession = onboardingSession()
-let creatorOrgCreated = false
-/** A creator makes an organization, skips invites, and lands in the app (ONB-4). */
-export const CreatorFinishLandsInApp: Story = {
-  render: () => <OnboardingJourney urlOrgSlug="acme" />,
+const creatorState = { orgCreated: false }
+/**
+ * A new admin steps through the four slides with the slide buttons, skips
+ * GitHub, and lands on Home, because the new organization has no Workspace.
+ */
+export const AdminFlowSkipGithubLandsOnHome: Story = {
+  tags: ["workspace-golden"],
+  render: () => <OnboardingJourney urlOrgSlug={null} />,
   beforeEach: () => {
     creatorSession.reset()
-    creatorOrgCreated = false
+    creatorState.orgCreated = false
   },
   parameters: {
     storyRoute: onboardingJourneyRoute,
     msw: {
       handlers: {
+        defaults: creatorHandlers(creatorSession, creatorState, [
+          githubInstallationNoneHandler,
+          workspaceListHandler([]),
+        ]),
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const getStarted = await canvas.findByRole("button", {
+      name: "Get started",
+    })
+    // The button shows after the typed hero.
+    await waitFor(() => expect(getStarted).toBeVisible(), { timeout: 4000 })
+    await userEvent.click(getStarted)
+    await canvas.findByRole("heading", { name: "How ctx| works" })
+    expect(
+      canvas.getAllByRole("button", { name: /^Go to slide/ }),
+    ).toHaveLength(4)
+    await userEvent.click(canvas.getByRole("button", { name: "Next" }))
+    await canvas.findByRole("heading", { name: "Create your organization" })
+    // The session email domain gives the first name, and the slug follows it.
+    const name = canvas.getByRole("textbox", { name: "Organization name" })
+    await expect(name).toHaveValue("Story")
+    await expect(canvas.getByRole("textbox", { name: "Slug URL" })).toHaveValue(
+      "story",
+    )
+    await userEvent.clear(name)
+    await userEvent.type(name, "Acme")
+    await expect(canvas.getByRole("textbox", { name: "Slug URL" })).toHaveValue(
+      "acme",
+    )
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Create organization" }),
+    )
+    await canvas.findByRole("heading", { name: "Connect GitHub" })
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Skip for now" }),
+    )
+    await canvas.findByText("Landed on /acme", {}, { timeout: 5000 })
+  },
+}
+
+const connectedSession = onboardingSession()
+const connectedState = { orgCreated: false }
+/** GitHub is already linked on the GitHub slide: "Continue" finishes onboarding. */
+export const GithubConnectedContinueFinishes: Story = {
+  tags: ["workspace-golden"],
+  render: () => <OnboardingJourney urlOrgSlug="acme" />,
+  beforeEach: () => {
+    connectedSession.reset()
+    connectedState.orgCreated = false
+  },
+  parameters: {
+    storyRoute: onboardingJourneyRoute,
+    msw: {
+      handlers: {
+        defaults: creatorHandlers(connectedSession, connectedState, [
+          githubInstallationLinkedHandler,
+          workspaceListHandler([docsWorkspace]),
+        ]),
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByRole("button", { name: "Go to slide 4" })
+    // Setup: the create slide has its own play. Create refreshes the
+    // organization list that `/` reads, as the create slide does.
+    await authClient.organization.create({ name: "Acme", slug: "acme" })
+    await userEvent.click(canvas.getByRole("button", { name: "Go to slide 4" }))
+    await canvas.findByRole("heading", { name: "GitHub is connected" })
+    await userEvent.click(canvas.getByRole("button", { name: "Continue" }))
+    await canvas.findByText("Landed on /acme/ws/docs", {}, { timeout: 5000 })
+  },
+}
+
+const doubleClickComplete = fn()
+/**
+ * A double-click on a slide button moves one slide. The slide changes at
+ * once, so the second click (detail 2) can land on the next slide's button.
+ * Here that button finishes onboarding, so the second click must not count.
+ */
+export const DoubleClickMovesOneSlide: Story = {
+  tags: ["workspace-golden"],
+  render: () => <OnboardingPageContent urlOrgSlug="acme" />,
+  beforeEach: () => {
+    doubleClickComplete.mockClear()
+  },
+  parameters: {
+    msw: {
+      handlers: {
         defaults: [
           authConfigHandler,
-          ...creatorSession.handlers({ completes: true }),
-          http.get("*/.auth/api/v1/auth/organization/list", () =>
-            HttpResponse.json(
-              creatorOrgCreated
-                ? [{ id: "org_storybook", name: "Acme", slug: "acme" }]
-                : [],
-            ),
-          ),
-          http.post("*/.auth/api/v1/auth/organization/create", () => {
-            creatorOrgCreated = true
-            return HttpResponse.json({
-              id: "org_storybook",
-              name: "Acme",
-              slug: "acme",
-              createdAt: new Date().toISOString(),
-              metadata: null,
-              logo: null,
-              members: [],
-            })
+          sessionSignedInOnboardingHandler,
+          organizationListWithOrgHandler,
+          http.post("*/api/v1/onboarding/user/complete", () => {
+            doubleClickComplete()
+            return HttpResponse.json({ completedAt: null })
           }),
-          organizationFullHandler({
-            id: "org_storybook",
-            name: "Acme",
-            slug: "acme",
-          }),
-          githubInstallationNoneHandler,
-          http.post("*/.auth/api/v1/auth/organization/set-active", () =>
-            HttpResponse.json({}),
-          ),
-          http.post("*/acme/api/v1/onboarding/complete", () =>
-            HttpResponse.json({ completedAt: new Date().toISOString() }),
-          ),
-          workspaceListHandler([docsWorkspace]),
         ],
       },
     },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await canvas.findByRole("button", { name: "Go to slide 6" })
-    // Setup: the create slide has its own play. Create refreshes the
-    // organization list that `/` reads, as the create slide does.
-    await authClient.organization.create({ name: "Acme", slug: "acme" })
-    // The carousel ignores a dot click while a slide transition runs.
-    await waitFor(async () => {
-      await userEvent.click(
-        canvas.getByRole("button", { name: "Go to slide 6" }),
-      )
-      await canvas.findByRole(
-        "heading",
-        { name: "Invite team members" },
-        {
-          timeout: 500,
-        },
-      )
-    })
-    await userEvent.click(
-      await canvas.findByRole("button", { name: "I\u2019ll do this later" }),
-    )
-    await canvas.findByText("Landed on /acme/ws/docs", {}, { timeout: 5000 })
+    const click = (name: string, detail: number) =>
+      canvas
+        .getByRole("button", { name })
+        .dispatchEvent(new MouseEvent("click", { bubbles: true, detail }))
+    await canvas.findByRole("button", { name: "Get started" })
+    click("Get started", 1)
+    await canvas.findByRole("heading", { name: "How ctx| works" })
+    click("Get started", 2)
+    // Let React commit any change before the check.
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    expect(
+      canvas.getByRole("heading", { name: "How ctx| works" }),
+    ).toBeVisible()
+    expect(canvas.getByRole("button", { name: "Get started" })).toBeEnabled()
+    expect(doubleClickComplete).not.toHaveBeenCalled()
   },
 }
