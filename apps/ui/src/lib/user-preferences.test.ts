@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
-  orgGuideKey,
   parseUserPreferences,
   SIDE_NAV_DEFAULT_WIDTH,
-  withOrgGuide,
 } from "./user-preferences"
 
 describe("parseUserPreferences", () => {
@@ -66,28 +64,5 @@ describe("parseUserPreferences", () => {
       "user_1:acme": { hintsSeen: ["panes"] },
     })
     expect(parseUserPreferences('{"orgGuides":[1]}').orgGuides).toEqual({})
-  })
-})
-
-describe("withOrgGuide", () => {
-  it("changes one user and organization and keeps the other fields", () => {
-    const key = orgGuideKey("user_1", "acme")
-    const before = {
-      ...parseUserPreferences(null),
-      selectedOrganizationSlug: "acme",
-      orgGuides: {
-        [key]: { exploredAt: "2026-10-03T00:00:00.000Z" },
-        "user_2:acme": { collapsed: false },
-      },
-    }
-    const after = withOrgGuide(before, key, (guide) => ({
-      ...guide,
-      collapsed: true,
-    }))
-    expect(after.selectedOrganizationSlug).toBe("acme")
-    expect(after.orgGuides).toEqual({
-      [key]: { exploredAt: "2026-10-03T00:00:00.000Z", collapsed: true },
-      "user_2:acme": { collapsed: false },
-    })
   })
 })

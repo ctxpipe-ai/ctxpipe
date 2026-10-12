@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react"
+import { useSyncExternalStore } from "react"
 
 const USER_PREFERENCES_KEY = "ctxpipe:userPreferences"
 
@@ -20,7 +20,7 @@ export type UserPreferences = {
   selectedOrganizationSlug: string | null
   isSideNavExpanded: boolean | null
   sideNavWidth: number
-  /** Keyed by `orgGuideKey(userId, orgSlug)`. */
+  /** Keyed by `${userId}:${orgSlug}`. */
   orgGuides: Record<string, OrgGuidePreferences>
 }
 
@@ -29,25 +29,6 @@ export function clampSideNavWidth(width: number): number {
     SIDE_NAV_MAX_WIDTH,
     Math.max(SIDE_NAV_MIN_WIDTH, Math.round(width)),
   )
-}
-
-export function orgGuideKey(userId: string, orgSlug: string): string {
-  return `${userId}:${orgSlug}`
-}
-
-/** Replace the guide state of one user and organization. */
-export function withOrgGuide(
-  preferences: UserPreferences,
-  key: string,
-  update: (guide: OrgGuidePreferences) => OrgGuidePreferences,
-): UserPreferences {
-  return {
-    ...preferences,
-    orgGuides: {
-      ...preferences.orgGuides,
-      [key]: update(preferences.orgGuides[key] ?? {}),
-    },
-  }
 }
 
 function defaultPreferences(): UserPreferences {
@@ -122,47 +103,63 @@ export function parseUserPreferences(raw: string | null): UserPreferences {
   }
 }
 
-function readStoredPreferences(): UserPreferences {
+const SERVER_PREFERENCES = defaultPreferences()
+const listeners = new Set<() => void>()
+/** The last stored text and its parse, so a snapshot keeps its identity. */
+let cache: { raw: string | null; value: UserPreferences } | null = null
+
+function readRaw(): string | null {
   try {
-    return parseUserPreferences(
-      window.localStorage.getItem(USER_PREFERENCES_KEY),
-    )
+    return window.localStorage.getItem(USER_PREFERENCES_KEY)
   } catch {
-    return defaultPreferences()
+    return cache?.raw ?? null
   }
 }
 
+/** Reads storage each time, so a change from elsewhere (a test) shows too. */
+function snapshot(): UserPreferences {
+  const raw = readRaw()
+  if (!cache || cache.raw !== raw) {
+    cache = { raw, value: parseUserPreferences(raw) }
+  }
+  return cache.value
+}
+
+function subscribe(listener: () => void) {
+  listeners.add(listener)
+  return () => {
+    listeners.delete(listener)
+  }
+}
+
+function updatePreferences(
+  updater: (prev: UserPreferences) => UserPreferences,
+) {
+  const next = updater(snapshot())
+  const raw = JSON.stringify(next)
+  try {
+    window.localStorage.setItem(USER_PREFERENCES_KEY, raw)
+  } catch {
+    // Storage can be full or blocked. Keep the value for this page.
+  }
+  cache = { raw, value: next }
+  for (const listener of listeners) listener()
+}
+
 /**
- * `isLoaded` is false on the first render, which uses the defaults so that
- * the server and client renders match. Each hook has its own state, so an
- * update reads the stored value first: two hooks do not overwrite the
- * fields of each other.
+ * One store for every hook, so all readers see an update at once. The
+ * server render and hydration use the defaults; `isLoaded` is false then.
  */
 export function useUserPreferences() {
-  const [preferences, setPreferences] =
-    useState<UserPreferences>(defaultPreferences)
-  const [isLoaded, setIsLoaded] = useState(false)
-
-  useEffect(() => {
-    setPreferences(readStoredPreferences())
-    setIsLoaded(true)
-  }, [])
-
-  const updatePreferences = useCallback(
-    (updater: (prev: UserPreferences) => UserPreferences) => {
-      if (typeof window === "undefined") {
-        setPreferences(updater)
-        return
-      }
-      const next = updater(readStoredPreferences())
-      try {
-        window.localStorage.setItem(USER_PREFERENCES_KEY, JSON.stringify(next))
-      } catch {
-        // Storage can be full or blocked. Keep the value for this page.
-      }
-      setPreferences(next)
-    },
-    [],
+  const preferences = useSyncExternalStore(
+    subscribe,
+    snapshot,
+    () => SERVER_PREFERENCES,
+  )
+  const isLoaded = useSyncExternalStore(
+    subscribe,
+    () => true,
+    () => false,
   )
   return [preferences, updatePreferences, isLoaded] as const
 }

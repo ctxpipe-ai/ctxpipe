@@ -94,6 +94,13 @@ export const AddWorkspaceHint: Story = {
   },
   play: async ({ canvasElement }) => {
     await findHint(canvasElement, "Add a Workspace for each team or product.")
+    // Escape records the hint while focus stays on the page.
+    await userEvent.keyboard("{Escape}")
+    const body = within(canvasElement.ownerDocument.body)
+    await waitFor(() =>
+      expect(body.queryByRole("dialog", { name: "Hint" })).toBeNull(),
+    )
+    expect(storedHintsSeen()).toContain("add-workspace")
   },
 }
 
@@ -110,10 +117,21 @@ export const PanesHint: Story = {
     </div>
   ),
   play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const files = await canvas.findByRole("button", { name: "Files" })
+    files.focus()
     const hint = await findHint(
       canvasElement,
       "Files is the knowledge repository. Graph shows how its files link.",
     )
+    // The hint does not take focus from the page control.
+    expect(files).toHaveFocus()
+    // A blur and an outside click do not dismiss it.
+    files.blur()
+    await userEvent.click(canvasElement)
+    await new Promise((resolve) => setTimeout(resolve, 200))
+    expect(hint.getByRole("button", { name: "Got it" })).toBeVisible()
+    expect(storedHintsSeen()).not.toContain("panes")
     await userEvent.click(hint.getByRole("button", { name: "Got it" }))
     const body = within(canvasElement.ownerDocument.body)
     await waitFor(() =>
@@ -148,9 +166,15 @@ export const CreatePrHint: Story = {
     </div>
   ),
   play: async ({ canvasElement }) => {
-    await findHint(
+    const dialog = await findHint(
       canvasElement,
       "Changes stay on this conversation's branch until you create a pull request.",
     )
+    // The hint does not take focus.
+    expect(
+      dialog
+        .getByRole("button", { name: "Got it" })
+        .contains(canvasElement.ownerDocument.activeElement),
+    ).toBe(false)
   },
 }

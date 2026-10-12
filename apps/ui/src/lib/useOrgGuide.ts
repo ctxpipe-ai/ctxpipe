@@ -1,29 +1,30 @@
 import { useCallback } from "react"
 import { useSession } from "@/lib/auth-client"
+import { sessionUser } from "@/lib/session-user"
 import {
   type OrgGuidePreferences,
-  orgGuideKey,
   useUserPreferences,
-  withOrgGuide,
 } from "@/lib/user-preferences"
 
 const NO_GUIDE: OrgGuidePreferences = {}
 
-/**
- * The setup guide and hint state of the signed-in user in `orgSlug`. An
- * update reads the stored value first, so the guide, the hints and the
- * Workspace pane do not overwrite each other's fields.
- */
+/** The setup guide and hint state of the signed-in user in `orgSlug`. */
 export function useOrgGuide(orgSlug: string) {
   const { data: session } = useSession()
-  const userId = (session?.user as { id?: string } | undefined)?.id ?? null
+  const userId = sessionUser(session)?.id ?? null
   const [preferences, updatePreferences, isLoaded] = useUserPreferences()
-  const key = userId ? orgGuideKey(userId, orgSlug) : null
+  const key = userId ? `${userId}:${orgSlug}` : null
   const guide = (key ? preferences.orgGuides[key] : undefined) ?? NO_GUIDE
   const updateGuide = useCallback(
     (update: (guide: OrgGuidePreferences) => OrgGuidePreferences) => {
       if (!key) return
-      updatePreferences((prev) => withOrgGuide(prev, key, update))
+      updatePreferences((prev) => ({
+        ...prev,
+        orgGuides: {
+          ...prev.orgGuides,
+          [key]: update(prev.orgGuides[key] ?? {}),
+        },
+      }))
     },
     [key, updatePreferences],
   )
