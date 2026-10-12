@@ -178,6 +178,8 @@ async function buildThreadFiles(input: {
 
 export type SlackCaptureErrorCode =
   | "not_in_channel"
+  | "missing_scope"
+  | "channel_archived"
   | "github_protected_branch"
   | "repo_missing"
   | "dm_not_supported"
@@ -204,10 +206,13 @@ export function classifySlackCaptureError(
     return { errorCode: "dm_not_supported", error: error.message }
   }
   if (error instanceof SlackApiError) {
+    if (error.slackError === "missing_scope")
+      return { errorCode: "missing_scope", error: error.message }
+    if (error.slackError === "is_archived")
+      return { errorCode: "channel_archived", error: error.message }
     if (
       error.slackError === "not_in_channel" ||
-      error.slackError === "channel_not_found" ||
-      error.slackError === "missing_scope"
+      error.slackError === "channel_not_found"
     ) {
       return {
         errorCode: "not_in_channel",

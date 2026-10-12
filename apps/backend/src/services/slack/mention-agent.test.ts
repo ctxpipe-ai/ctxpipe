@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { SlackApiError } from "./client.js"
 import {
   formatSlackMentionStatusText,
   isSlackModelConfigured,
   selectSlackMentionIntent,
   stripSlackMentionText,
 } from "./mention-agent.js"
+import { classifySlackCaptureError } from "./sync.js"
 
 const getModelMock = vi.hoisted(() => vi.fn())
 const createAgentMock = vi.hoisted(() => vi.fn())
@@ -33,6 +35,25 @@ describe("formatSlackMentionStatusText", () => {
       formatSlackMentionStatusText({ kind: "failed", errorCode: "no_source" }),
     ).toBe(
       "Nothing captured: no Workspace has this channel. Add the channel to a Slack source in the Workspace settings, then mention me again.",
+    )
+  })
+
+  it("names the real cause of a Slack channel error", () => {
+    const reply = (slackError: string) =>
+      formatSlackMentionStatusText({
+        kind: "failed",
+        ...classifySlackCaptureError(
+          new SlackApiError({ slackError, status: 200 }),
+        ),
+      })
+    expect(reply("missing_scope")).toBe(
+      "Capture failed: the ctx| Slack app needs more permissions to read this channel. Reinstall Slack.",
+    )
+    expect(reply("is_archived")).toBe(
+      "Capture failed: this channel is archived.",
+    )
+    expect(reply("not_in_channel")).toBe(
+      "Capture failed: invite the bot to this channel, then mention it again.",
     )
   })
 

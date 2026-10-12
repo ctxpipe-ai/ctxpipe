@@ -365,12 +365,15 @@ export class SlackDirectMessageNotSupportedError extends Error {
   }
 }
 
-/** Resolve a human-readable channel name for git paths (ADR-025 layout). */
+/**
+ * Resolve a human-readable channel name for git paths (ADR-025 layout), and
+ * whether the bot can read the channel.
+ */
 export async function resolveSlackChannelInfo(input: {
   env: Env
   connection: SlackConnectionShape
   channelId: string
-}): Promise<SlackChannelInfo> {
+}): Promise<SlackChannelInfo & { isArchived: boolean; isMember: boolean }> {
   const botToken = botTokenFromConnection(input.connection, input.env)
   const page = await slackApiCall<{
     ok: boolean
@@ -379,6 +382,8 @@ export async function resolveSlackChannelInfo(input: {
       id?: string
       name?: string
       is_private?: boolean
+      is_archived?: boolean
+      is_member?: boolean
       is_im?: boolean
       is_mpim?: boolean
     }
@@ -395,6 +400,10 @@ export async function resolveSlackChannelInfo(input: {
     channelId: input.channelId,
     name: name && name.length > 0 ? name : input.channelId,
     isPrivate: Boolean(page.channel?.is_private),
+    isArchived: Boolean(page.channel?.is_archived),
+    // Slack sends is_member for public channels; it can read a private
+    // channel only as a member.
+    isMember: Boolean(page.channel?.is_member ?? page.channel?.is_private),
   }
 }
 
@@ -672,39 +681,3 @@ export async function listSlackChannels(input: {
   return channels.sort((a, b) => a.name.localeCompare(b.name))
 }
 
-/** The state of one channel for a source: its name and why the bot cannot read it. */
-export async function readSlackSourceChannel(input: {
-  env: Env
-  connection: SlackConnectionShape
-  channelId: string
-}): Promise<SlackChannelInfo & { isArchived: boolean; isMember: boolean }> {
-  const botToken = botTokenFromConnection(input.connection, input.env)
-  const page = await slackApiCall<{
-    ok: boolean
-    error?: string
-    channel?: {
-      name?: string
-      is_private?: boolean
-      is_archived?: boolean
-      is_member?: boolean
-      is_im?: boolean
-      is_mpim?: boolean
-    }
-  }>({
-    method: "conversations.info",
-    botToken,
-    query: { channel: input.channelId },
-  })
-  if (page.channel?.is_im || page.channel?.is_mpim) {
-    throw new SlackDirectMessageNotSupportedError()
-  }
-  return {
-    channelId: input.channelId,
-    name: page.channel?.name?.trim() || input.channelId,
-    isPrivate: Boolean(page.channel?.is_private),
-    isArchived: Boolean(page.channel?.is_archived),
-    // Slack sends is_member for public channels; it can read a private
-    // channel only as a member.
-    isMember: Boolean(page.channel?.is_member ?? page.channel?.is_private),
-  }
-}

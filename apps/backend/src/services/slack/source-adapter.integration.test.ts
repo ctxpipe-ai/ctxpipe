@@ -18,7 +18,11 @@ import {
   getSlackConnectionByConnectionId,
   type SlackConnection,
 } from "../../models/slack-connector.js"
-import { replaceWorkspaceSourceRows } from "../../models/workspace-sources.js"
+import { projectWorkspaceSources } from "../../domain/workspace-sources/project.js"
+import {
+  listWorkspaceSourceRows,
+  replaceWorkspaceSourceRows,
+} from "../../models/workspace-sources.js"
 import { seedSourcesOrg } from "../../test/workspace-sources-fixture.js"
 import { gitFileBytes } from "../git/file-change.js"
 import { getSlackThreadPath } from "./converter.js"
@@ -43,7 +47,10 @@ let calls: string[] = []
 let replies: Array<{ ts: string; user: string; text: string }> = []
 /** A Slack error for a method and channel, by `method:channel`. */
 let failures: Record<string, string | number> = {}
-let channelState: Record<string, { is_member?: boolean }> = {}
+let channelState: Record<
+  string,
+  { is_member?: boolean; is_archived?: boolean; name?: string }
+> = {}
 
 function installSlack() {
   server.use(
@@ -322,6 +329,56 @@ describe("Slack mention capture through Workspace sources (Postgres, msw, git)",
     expect(calls).toEqual([])
   })
 
+  it("keeps a source ok when one channel is archived, and captures in the good channel", async () => {
+    const OLD = "C0OLD0001"
+    channelState[OLD] = { is_archived: true, name: "old" }
+    const projected = await projectWorkspaceSources({
+      orgId: seed.orgId,
+      workspaceId: engWorkspace,
+      revision: "e".repeat(40),
+      text: `version: 1
+sources:
+  - id: eng-channels
+    provider: slack
+    connection: ${slack}
+    channels: [${ENG}, ${OLD}]
+`,
+      env: env(),
+      adapters: { slack: slackSourceAdapter },
+    })
+    expect(projected).toBeDefined()
+    expect(
+      await listWorkspaceSourceRows({
+        orgId: seed.orgId,
+        workspaceId: engWorkspace,
+      }),
+    ).toMatchObject([
+      {
+        sourceKey: "eng-channels",
+        status: "ok",
+        statusDetail: "Channel #old is archived",
+      },
+    ])
+    expect(await capture(ENG)).toMatchObject({
+      kind: "captured",
+      capture: { status: "completed" },
+    })
+    expect(await commits(engWorkspace)).toBe(1)
+  })
+
+  it("marks a source out of access when no channel is usable", async () => {
+    channelState[ENG] = { is_archived: true }
+    channelState[OPS] = { is_member: false }
+    expect(
+      await slackSourceAdapter.checkAccess?.({
+        orgId: seed.orgId,
+        connectionId: slack,
+        scope: { channels: [ENG, OPS] },
+        env: env(),
+      }),
+    ).toBe("Channel #eng is archived; Invite the ctx| bot to channel #ops")
+  })
+
   it("checkAccess reports a revoked connection without a throw", async () => {
     const revoked = await seed.addConnection("slack", {
       teamId: "T0REVOKED1",
@@ -348,7 +405,7 @@ describe("Slack mention capture through Workspace sources (Postgres, msw, git)",
         scope: { channels: [ENG, OPS] },
         env: env(),
       }),
-    ).toBe("Invite the ctx| bot to channel #ops")
+    ).toEqual({ okDetail: "Invite the ctx| bot to channel #ops" })
     channelState = {}
     failures = {}
     expect(

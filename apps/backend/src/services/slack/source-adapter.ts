@@ -16,7 +16,7 @@ import {
 } from "../../models/slack-connector.js"
 import { log } from "../../observability/logger.js"
 import {
-  readSlackSourceChannel,
+  resolveSlackChannelInfo,
   SlackApiError,
   SlackDirectMessageNotSupportedError,
 } from "./client.js"
@@ -33,9 +33,9 @@ async function channelProblem(input: {
   channelId: string
 }): Promise<string | null> {
   const channel = input.channelId
-  let info: Awaited<ReturnType<typeof readSlackSourceChannel>>
+  let info: Awaited<ReturnType<typeof resolveSlackChannelInfo>>
   try {
-    info = await readSlackSourceChannel(input)
+    info = await resolveSlackChannelInfo(input)
   } catch (error) {
     if (error instanceof SlackDirectMessageNotSupportedError)
       return `${channel} is a direct message`
@@ -44,8 +44,9 @@ async function channelProblem(input: {
       case "channel_not_found":
         return `Channel ${channel} is not found, or the ctx| bot cannot see it`
       case "not_in_channel":
-      case "missing_scope":
         return `Invite the ctx| bot to channel ${channel}`
+      case "missing_scope":
+        return `The ctx| Slack app needs a scope to read channel ${channel}. Reinstall Slack.`
       case "is_archived":
         return `Channel ${channel} is archived`
       case "method_not_supported_for_channel_type":
@@ -59,13 +60,18 @@ async function channelProblem(input: {
   return null
 }
 
-/** Why the bot cannot read a scope, or null. A transient failure is not a reason. */
+/**
+ * Why the bot cannot read a scope. A string: no channel is usable, so the
+ * source is out of access. `okDetail`: some channels are usable, so the
+ * source stays `ok` and the detail names the others. A transient failure is
+ * not a reason, and the channel counts as usable.
+ */
 export async function checkSlackSourceAccess(input: {
   orgId: string
   connectionId: string
   scope: SlackSourceScope
   env: Env
-}): Promise<string | null> {
+}): Promise<string | { okDetail: string } | null> {
   const connection = await withOrgDbContext(input.orgId, () =>
     getSlackConnectionByConnectionId(input.orgId, input.connectionId),
   )
@@ -75,8 +81,7 @@ export async function checkSlackSourceAccess(input: {
     !connection.botTokenEnc
   )
     return "The Slack connection is not installed. Reconnect Slack."
-  // Check each channel: a transient failure of one channel must not hide
-  // a permanent problem of another.
+  const problems: string[] = []
   for (const channelId of input.scope.channels) {
     try {
       const problem = await channelProblem({
@@ -84,7 +89,7 @@ export async function checkSlackSourceAccess(input: {
         connection,
         channelId,
       })
-      if (problem) return problem
+      if (problem) problems.push(problem)
     } catch (error) {
       log.warn({
         step: "slack_source.check_access",
@@ -94,10 +99,14 @@ export async function checkSlackSourceAccess(input: {
       })
     }
   }
-  return null
+  if (!problems.length) return null
+  const detail = problems.join("; ")
+  return problems.length === input.scope.channels.length
+    ? detail
+    : { okDetail: detail }
 }
 
-export const slackSourceAdapter: SourceAdapter = {
+export const slackSourceAdapter = {
   provider: "slack",
   managedPaths: (scope) =>
     slackScopeSchema.parse(scope).channels.map(slackSourceChannelDir),
@@ -112,7 +121,7 @@ export const slackSourceAdapter: SourceAdapter = {
     slackScopeSchema
       .parse(scope)
       .channels.includes(slackCaptureEventSchema.parse(event).channelId),
-}
+} satisfies SourceAdapter
 
 /**
  * Capture one thread into each Workspace whose `ok` Slack source of this
@@ -149,9 +158,7 @@ export async function captureSlackThreadToSources(input: {
     readExisting,
     event: { channelId: thread.channelId },
     adapter: {
-      provider: "slack",
-      managedPaths: slackSourceAdapter.managedPaths,
-      matchesEvent: slackSourceAdapter.matchesEvent,
+      ...slackSourceAdapter,
       fetch: async ({ existing }) => {
         const { files, deletePaths, ...result } = await captureSlackThreadFiles(
           {

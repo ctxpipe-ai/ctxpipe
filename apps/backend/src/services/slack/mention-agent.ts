@@ -86,6 +86,10 @@ export function formatSlackMentionStatusText(
       return "Capture failed: this deployment has no model configured (set MODEL_PROVIDER*)."
     case "dm_not_supported":
       return "Capture failed: direct messages are not supported."
+    case "missing_scope":
+      return "Capture failed: the ctx| Slack app needs more permissions to read this channel. Reinstall Slack."
+    case "channel_archived":
+      return "Capture failed: this channel is archived."
     case "no_source":
       return "Nothing captured: no Workspace has this channel. Add the channel to a Slack source in the Workspace settings, then mention me again."
     default:

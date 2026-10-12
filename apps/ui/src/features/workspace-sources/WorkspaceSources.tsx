@@ -146,8 +146,15 @@ function SourceRow(props: {
           {source.connectionName ?? "No connection"} ·{" "}
           <code className="font-mono">{source.sourceKey}</code>
         </p>
-        {source.status !== "ok" && source.statusDetail ? (
-          <p className="mt-0.5 text-xs text-amber-200/80">
+        {source.statusDetail ? (
+          <p
+            className={cn(
+              "mt-0.5 text-xs",
+              source.status === "ok"
+                ? "text-muted-foreground"
+                : "text-amber-200/80",
+            )}
+          >
             {source.statusDetail}
           </p>
         ) : null}

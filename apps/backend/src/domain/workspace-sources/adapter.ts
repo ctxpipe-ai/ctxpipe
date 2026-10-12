@@ -43,13 +43,17 @@ export type SourceAdapter<
    * removed or narrowed scope keeps its files, and the cleanup deletes none.
    */
   keepFilesOnRemove?: boolean
-  /** Optional. Tell why a scope is outside the connection's reach, or null. */
+  /**
+   * Optional. Tell why a scope is outside the connection's reach, or null.
+   * `okDetail`: the scope is usable in part; the source stays `ok` and shows
+   * the detail.
+   */
   checkAccess?(input: {
     orgId: string
     connectionId: string
     scope: S
     env: Env
-  }): Promise<string | null>
+  }): Promise<string | { okDetail: string } | null>
   /** Optional. Whether a provider webhook event touches this scope. Default: yes. */
   matchesEvent?(input: { event: unknown; scope: S }): boolean
   /**
