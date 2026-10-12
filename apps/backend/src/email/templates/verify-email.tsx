@@ -28,7 +28,7 @@ export function VerifyEmail({ url, userEmail }: VerifyEmailProps) {
           <Heading style={heading}>Verify your email address</Heading>
           <Text style={paragraph}>
             Welcome to <strong>ctx|</strong>. Confirm that{" "}
-            <strong>{userEmail}</strong> is yours so we can finish creating your
+            <strong>{userEmail}</strong> is yours to finish setting up your
             account.
           </Text>
           <Section style={buttonContainer}>
@@ -37,14 +37,19 @@ export function VerifyEmail({ url, userEmail }: VerifyEmailProps) {
             </Button>
           </Section>
           <Text style={paragraph}>
-            If you did not create an account, you can ignore this email.
+            The link works for one hour. If it has expired, sign in and we will
+            send you a new one. If you did not create an account, you can ignore
+            this email.
           </Text>
           <Hr style={hr} />
           <Text style={footer}>
             If the button doesn&apos;t work, copy and paste this link into your
             browser: {url}
           </Text>
-          <Text style={brandFooter}>ctx| - the self-learning context layer for engineering AI agents & humans</Text>
+          <Text style={brandFooter}>
+            ctx| - the self-learning context layer for engineering AI agents &
+            humans
+          </Text>
         </Container>
       </Body>
     </Html>

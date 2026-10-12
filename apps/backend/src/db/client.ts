@@ -15,7 +15,7 @@ import {
 // per new TCP connect — the same shape as a transpacific org-SQL hop.
 setDefaultResultOrder("ipv4first")
 
-function isRailwayPrPreview(): boolean {
+export function isRailwayPrPreview(): boolean {
   return Boolean(process.env.RAILWAY_ENVIRONMENT_NAME?.trim().startsWith("pr-"))
 }
 

@@ -140,6 +140,9 @@ export function OnboardingPageContent({
   }
 }`
 
+  // Signed out (e.g. an expired verification link landed here): the
+  // organisation data below never arrives, so do not wait for it.
+  if (!isPending && !session) return <Navigate to="/.auth/sign-in" replace />
   if (isPending || orgsPending || isJoinerLocked === null) {
     return (
       <OnboardingPageShell
