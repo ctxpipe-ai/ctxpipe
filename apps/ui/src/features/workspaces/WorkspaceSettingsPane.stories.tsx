@@ -121,7 +121,7 @@ export const Populated: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText("acme/api")
-    const eyebrows = ["General", "Repositories", "Connectors", "Danger zone"]
+    const eyebrows = ["General", "Repositories", "Sources", "Danger zone"]
     const labels = [...canvasElement.querySelectorAll(".ctx-label")].map(
       (element) => element.textContent,
     )
@@ -141,7 +141,7 @@ export const Populated: Story = {
       canvas.getByRole("heading", { level: 2, name: "Main repository" }),
     ).toBeVisible()
     await expect(
-      canvas.getByRole("region", { name: "Connectors" }),
+      canvas.getByRole("region", { name: "Sources" }),
     ).toBeInTheDocument()
     await expect(
       canvas.getByRole("link", { name: "Add another connection" }),

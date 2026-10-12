@@ -8,7 +8,17 @@ Connectors bring content from the tools your team uses into a
 Markdown into the Workspace's repository, so you can see, review, and keep
 exactly what ctx| and your agents rely on.
 
-You choose what each connector may read and which Workspace it writes to.
+You choose what each source reads and which Workspace it writes to.
+
+## Connectors and sources
+
+- A **connector** gives ctx| access to a tool: the ctx| GitHub App, or an
+  OAuth app for Linear, Notion, Slack, Confluence, or PagerDuty. You add each
+  connector once for the organization, on the **Connectors** page.
+- A **source** is what a Workspace reads: a code repository, or a scope in a
+  dev tool or a docs tool, such as Linear teams or Notion pages. You add
+  sources to each Workspace, under **Sources** in its **Settings**. Each
+  source reads through a connector.
 
 ## GitHub is the foundation
 
