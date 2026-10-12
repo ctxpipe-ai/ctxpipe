@@ -105,11 +105,11 @@ export const Empty: Story = {
     await canvas.findByText(/No connectors yet/)
     await expect(
       canvas.getByRole("heading", { level: 2, name: "Connectors" }),
-    ).toBeVisible()
+    ).toBeInTheDocument()
     await expect(
       canvas.getByRole("link", { name: "Add connection" }),
     ).toHaveAttribute("href", "/acme/connectors")
-    await expect(canvas.queryByText("Connect another source")).toBeNull()
+    await expect(canvas.queryByText("Add another connection")).toBeNull()
     await expect(canvas.queryByText(".ctxpipe/sources.yaml")).toBeNull()
   },
 }
@@ -134,7 +134,7 @@ export const ConnectedWithoutSources: Story = {
       canvas.getByRole("button", { name: "Add Linear source" }),
     ).toBeVisible()
     await expect(
-      canvas.getByRole("link", { name: "Connect another source" }),
+      canvas.getByRole("link", { name: "Add another connection" }),
     ).toHaveAttribute("href", "/acme/connectors")
   },
 }
@@ -175,7 +175,7 @@ export const SeveralProviders: Story = {
       await expect(group.getByText(summary)).toBeVisible()
     }
     await expect(
-      canvas.getByRole("link", { name: "Connect another source" }),
+      canvas.getByRole("link", { name: "Add another connection" }),
     ).toBeVisible()
   },
 }

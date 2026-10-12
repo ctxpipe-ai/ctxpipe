@@ -368,17 +368,15 @@ export function WorkspaceSources(props: {
     groups.length === 0 && unknownProvider.length === 0 && !data?.fileError
 
   return (
-    <section className="mt-10 max-w-lg" aria-labelledby="workspace-connectors">
-      <h2
-        id="workspace-connectors"
-        className="text-sm font-medium text-foreground"
-      >
+    <section className="max-w-lg" aria-labelledby="workspace-connectors">
+      {/* The settings group eyebrow names this section on screen. */}
+      <h2 id="workspace-connectors" className="sr-only">
         Connectors
       </h2>
       {sourcesQuery.isPending ? (
-        <SkeletonText className="mt-1 text-sm" boneClassName="h-3.5 w-48" />
+        <SkeletonText className="text-sm" boneClassName="h-3.5 w-48" />
       ) : data && !isEmpty ? (
-        <p className="mt-1 text-sm text-muted-foreground">
+        <p className="text-sm text-muted-foreground">
           {connectorsSummary(items, pendingChanges)}
         </p>
       ) : null}
@@ -410,7 +408,7 @@ export function WorkspaceSources(props: {
           </InlineAlert>
         </div>
       ) : isEmpty ? (
-        <div className="mt-4 flex flex-col gap-3">
+        <div className="flex flex-col gap-3">
           <p className="text-sm text-muted-foreground">
             No connectors yet. Connect a tool, then add it to this Workspace.
           </p>
@@ -572,7 +570,7 @@ export function WorkspaceSources(props: {
               focusVisibleClassName,
             )}
           >
-            Connect another source
+            Add another connection
           </Link>
         </>
       )}
