@@ -36,57 +36,6 @@ function statusHandler(body: unknown) {
   )
 }
 
-const configurationHandlers = [
-  http.get(
-    ({ request }) =>
-      new URL(request.url).pathname.endsWith("/api/v1/github/installation"),
-    () =>
-      HttpResponse.json({
-        id: "ghc_1",
-        appSlug: "ctxpipe-agent",
-        accountSlug: "acme",
-      }),
-  ),
-  http.get(
-    ({ request }) =>
-      new URL(request.url).pathname.includes(
-        "/api/v1/github/installation/repositories",
-      ),
-    () =>
-      HttpResponse.json({
-        repositories: [
-          {
-            id: 1,
-            full_name: "acme/ctxpipe-context",
-            html_url: "https://github.com/acme/ctxpipe-context",
-            clone_url: "https://github.com/acme/ctxpipe-context.git",
-            name: "ctxpipe-context",
-            default_branch: "main",
-          },
-        ],
-        repositorySelection: "selected",
-        manageUrl:
-          "https://github.com/organizations/acme/settings/installations/123",
-        hasMore: false,
-      }),
-  ),
-  http.get(
-    ({ request }) =>
-      new URL(request.url).pathname.endsWith("/api/v1/repositories"),
-    () =>
-      HttpResponse.json({
-        items: [
-          {
-            id: "repo_1",
-            name: "acme/ctxpipe-context",
-            gitUrl: "https://github.com/acme/ctxpipe-context.git",
-            githubConnectionId: "ghc_1",
-          },
-        ],
-      }),
-  ),
-]
-
 const meta = {
   title: "Components/Connections/Slack/SetupDialog",
   component: SlackSetupDialog,
@@ -200,7 +149,7 @@ export const ChooseWorkspaces: Story = {
   play: async ({ canvasElement }) => {
     const body = within(canvasElement.ownerDocument.body)
     await expect(
-      await body.findByRole("button", { name: "Choose capture Workspace" }),
+      await body.findByRole("region", { name: "Thread capture on mention" }),
     ).toBeInTheDocument()
     await userEvent.click(
       await body.findByRole("checkbox", { name: docsWorkspace.displayName }),
@@ -228,7 +177,7 @@ export const ChooseWorkspaces: Story = {
   },
 }
 
-/** The optional @mention capture repository opens from the Workspaces step and comes back. */
+/** The Workspaces step explains capture and offers no repository picker (ADR-050). */
 export const CaptureWorkspace: Story = {
   parameters: {
     msw: {
@@ -237,26 +186,21 @@ export const CaptureWorkspace: Story = {
           statusHandler(installedStatus),
           workspaceListHandler([docsWorkspace]),
           slackChannelsHandler(),
-          ...configurationHandlers,
         ],
       },
     },
   },
   play: async ({ canvasElement }) => {
     const body = within(canvasElement.ownerDocument.body)
-    await expect(await body.findByText(/capture it into/)).toHaveTextContent(
-      "acme/ctxpipe-context",
-    )
-    await expect(body.getByText(/\/invite @ctxpipe/)).toBeVisible()
-    await userEvent.click(
-      body.getByRole("button", { name: "Change capture Workspace" }),
-    )
     await expect(
-      await body.findByRole("heading", { name: "Choose a capture Workspace" }),
+      await body.findByText(/capture it into each Workspace/),
     ).toBeVisible()
-    await userEvent.click(body.getByRole("button", { name: "Back" }))
+    await expect(body.getByText(/\/invite @ctxpipe/)).toBeVisible()
     await expect(
-      await body.findByRole("button", { name: "Add to Workspaces" }),
+      body.queryByRole("button", { name: /capture Workspace/ }),
+    ).toBeNull()
+    await expect(
+      body.getByRole("button", { name: "Add to Workspaces" }),
     ).toBeVisible()
   },
 }

@@ -97,29 +97,6 @@ export async function fetchSlackOAuthStart(
   }
 }
 
-export type SlackBindRepositoryBody = {
-  repositoryId?: string
-  repositoryName?: string
-  gitUrl?: string
-  githubConnectionId?: string
-  branch?: string
-}
-
-export async function patchSlackConnectorConfig(
-  orgSlug: string,
-  body: SlackBindRepositoryBody,
-  connectionId?: string,
-): Promise<{ accepted: true; setupPhase: SlackSetupPhase }> {
-  const res = await client[":orgSlug"].api.v1.connectors.slack.config.$patch({
-    param: { orgSlug },
-    ...connectionQuery(connectionId),
-    json: body,
-  })
-  return readApiJson<{ accepted: true; setupPhase: SlackSetupPhase }>(res, {
-    message: "Failed to save Slack connector config",
-  })
-}
-
 export async function deleteSlackConnector(
   orgSlug: string,
   connectionId?: string,
