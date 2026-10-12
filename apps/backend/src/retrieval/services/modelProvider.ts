@@ -82,6 +82,11 @@ const modelEnvSchema = z.preprocess(
     }),
 )
 
+/** True when the deployment sets enough model settings for `getModel`. */
+export function modelProviderConfigured(): boolean {
+  return modelEnvSchema.safeParse(process.env).success
+}
+
 export type GetModelOptions = {
   /** Fixed-purpose model selection; bypasses the configurable tier fallback chain. */
   model?: string
