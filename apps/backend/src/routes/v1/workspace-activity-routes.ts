@@ -33,6 +33,8 @@ const WorkspaceActivityResponseSchema = z
         sha: z.string(),
         subject: z.string(),
         authorName: z.string(),
+        /** The GitHub login of the author. `null`: no GitHub user. */
+        authorLogin: z.string().nullable().optional(),
         committedAt: z.string().datetime(),
         htmlUrl: z.string().nullable(),
         workspaceSlug: z.string(),
@@ -40,7 +42,14 @@ const WorkspaceActivityResponseSchema = z
       }),
     ),
     /** The authors of the commits in the heatmap window, most active first. */
-    authors: z.array(z.object({ name: z.string(), count: z.number().int() })),
+    authors: z.array(
+      z.object({
+        name: z.string(),
+        count: z.number().int(),
+        /** One GitHub login of the author. `null`: no GitHub user. */
+        login: z.string().nullable().optional(),
+      }),
+    ),
     /** Send as `cursor` to read the next page of `recent`. `null`: no more commits. */
     nextCursor: z.string().nullable(),
     /** Org read only: the workspaces whose projection is not done yet. */
@@ -223,6 +232,8 @@ async function activityBody(input: {
       sha: row.sha,
       subject: row.subject,
       authorName: row.authorName,
+      // "" (no GitHub user) and null (not read yet) both give no avatar.
+      authorLogin: row.authorLogin || null,
       committedAt: row.committedAt.toISOString(),
       htmlUrl: row.htmlUrl,
       workspaceSlug: row.workspaceSlug,

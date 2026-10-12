@@ -64,6 +64,8 @@ export type WorkspaceActivityCommit = {
   sha: string
   subject: string
   authorName: string
+  /** The GitHub login of the author. `null`: no GitHub user. */
+  authorLogin?: string | null
   committedAt: string
   htmlUrl: string | null
   workspaceSlug: string
@@ -75,7 +77,7 @@ export type WorkspaceActivityResponse = {
   days: WorkspaceActivityDay[]
   recent: WorkspaceActivityCommit[]
   /** The authors of the commits in the heatmap window, most active first. */
-  authors: { name: string; count: number }[]
+  authors: { name: string; count: number; login?: string | null }[]
   /** The cursor of the next page of `recent`. `null`: no more commits. */
   nextCursor: string | null
   /** Org read only: the workspaces whose activity is still loading. */

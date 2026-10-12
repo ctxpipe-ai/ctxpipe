@@ -5,6 +5,8 @@ export type ProjectedCommit = {
   sha: string
   committedAt: Date
   authorName: string
+  /** The GitHub login of the author. `""`: no GitHub user. */
+  authorLogin?: string | null
   subject: string
   htmlUrl: string | null
 }

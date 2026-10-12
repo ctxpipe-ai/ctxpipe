@@ -1,4 +1,14 @@
-import { and, desc, eq, gte, lt, or, type SQL, sql } from "drizzle-orm"
+import {
+  and,
+  desc,
+  eq,
+  gte,
+  isNotNull,
+  lt,
+  or,
+  type SQL,
+  sql,
+} from "drizzle-orm"
 import { requireCurrentOrgId } from "../auth/context.js"
 import { getOrgDb } from "../db/client.js"
 import {
@@ -97,6 +107,7 @@ export async function listWorkspaceRepositoryCommits(input: {
       sha: commit.sha,
       committedAt: commit.committedAt,
       authorName: commit.authorName,
+      authorLogin: commit.authorLogin,
       subject: commit.subject,
       htmlUrl: commit.htmlUrl,
       workspaceId: commit.workspaceId,
@@ -161,13 +172,20 @@ function commitListConditions(
  */
 export async function listWorkspaceCommitAuthors(
   workspaceId?: string,
-): Promise<{ name: string; count: number }[]> {
+): Promise<{ name: string; count: number; login: string | null }[]> {
   return orgSql(async () => {
     const orgId = requireCurrentOrgId()
     const db = getOrgDb()
     const count = sql<number>`count(*)::int`
     const rows = await db
-      .select({ name: workspaceRepositoryCommits.authorName, count })
+      .select({
+        name: workspaceRepositoryCommits.authorName,
+        count,
+        // One GitHub login of the author, for the avatar.
+        login: sql<
+          string | null
+        >`max(nullif(${workspaceRepositoryCommits.authorLogin}, ''))`,
+      })
       .from(workspaceRepositoryCommits)
       .where(
         and(
@@ -179,7 +197,11 @@ export async function listWorkspaceCommitAuthors(
       )
       .groupBy(workspaceRepositoryCommits.authorName)
       .orderBy(desc(count), workspaceRepositoryCommits.authorName)
-    return rows.map((row) => ({ name: row.name, count: Number(row.count) }))
+    return rows.map((row) => ({
+      name: row.name,
+      count: Number(row.count),
+      login: row.login ?? null,
+    }))
   })
 }
 
@@ -251,6 +273,11 @@ export async function listOrgWorkspaceCommitProjections(): Promise<
   })
 }
 
+/**
+ * The SHAs of the stored commits that need no new read. A row with a null
+ * login (from before the login column) is read again once; `""` means
+ * checked, no GitHub user.
+ */
 export async function listWorkspaceCommitShas(
   workspaceId: string,
 ): Promise<Set<string>> {
@@ -264,6 +291,7 @@ export async function listWorkspaceCommitShas(
         and(
           eq(workspaceRepositoryCommits.orgId, orgId),
           eq(workspaceRepositoryCommits.workspaceId, workspaceId),
+          isNotNull(workspaceRepositoryCommits.authorLogin),
         ),
       )
     return new Set(rows.map((row) => row.sha))
@@ -287,15 +315,17 @@ export async function insertWorkspaceRepositoryCommits(input: {
           sha: commit.sha,
           committedAt: commit.committedAt,
           authorName: commit.authorName,
+          authorLogin: commit.authorLogin ?? null,
           subject: commit.subject,
           htmlUrl: commit.htmlUrl,
         })),
       )
-      .onConflictDoNothing({
+      .onConflictDoUpdate({
         target: [
           workspaceRepositoryCommits.workspaceId,
           workspaceRepositoryCommits.sha,
         ],
+        set: { authorLogin: sql`excluded.author_login` },
       })
   })
 }

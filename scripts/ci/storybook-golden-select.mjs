@@ -97,6 +97,7 @@ export const requiredStories = [
   "ResetClearsEveryFilter",
   "LoadMorePages",
   "CustomDateRange",
+  "AvatarAndInitialFallback",
   "HeatmapSkeletonMatches",
   "ConnectorRowSkeletonMatches",
   "ConversationListSkeletonMatches",

@@ -286,7 +286,7 @@ const quietMenuButtonClassName = cn(
 
 /** Picks one author of the heatmap window, or all authors. */
 function AuthorFilterMenu(props: {
-  authors: readonly { name: string; count: number }[]
+  authors: readonly { name: string; count: number; login?: string | null }[]
   author: string | undefined
   onAuthorChange: (author: string | undefined) => void
 }) {
@@ -301,7 +301,14 @@ function AuthorFilterMenu(props: {
         className={quietMenuButtonClassName}
         aria-label={`Filter commits by author: ${label}`}
       >
-        {props.author ? <AuthorAvatar name={props.author} /> : null}
+        {props.author ? (
+          <AuthorAvatar
+            name={props.author}
+            login={
+              props.authors.find((item) => item.name === props.author)?.login
+            }
+          />
+        ) : null}
         <span className="truncate">{label}</span>
         <IconChevronDown aria-hidden className="size-4 shrink-0" />
       </RACButton>
@@ -329,7 +336,7 @@ function AuthorFilterMenu(props: {
             className="rounded-md"
           >
             <span className="flex min-w-0 flex-1 items-center gap-2">
-              <AuthorAvatar name={author.name} />
+              <AuthorAvatar name={author.name} login={author.login} />
               <span className="truncate">{author.name}</span>
               <span className="ml-auto text-xs text-muted-foreground tabular-nums">
                 {author.count}

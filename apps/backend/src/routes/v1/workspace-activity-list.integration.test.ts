@@ -210,8 +210,8 @@ describe("workspace activity list filters and pages (Postgres)", () => {
     ])
     // The authors list stays the full list when the author filter is set.
     expect(ada.authors).toEqual([
-      { name: "Ada", count: 3 },
-      { name: "Lin", count: 2 },
+      { name: "Ada", count: 3, login: null },
+      { name: "Lin", count: 2, login: null },
     ])
 
     const range = await read(
@@ -257,9 +257,9 @@ describe("workspace activity list filters and pages (Postgres)", () => {
       `${wiki.slug}/Commit f`,
     ])
     expect(range.authors).toEqual([
-      { name: "Ada", count: 4 },
-      { name: "Lin", count: 2 },
-      { name: "Grace", count: 1 },
+      { name: "Ada", count: 4, login: null },
+      { name: "Lin", count: 2, login: null },
+      { name: "Grace", count: 1, login: null },
     ])
   })
 

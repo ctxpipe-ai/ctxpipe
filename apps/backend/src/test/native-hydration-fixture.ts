@@ -89,9 +89,13 @@ export type NativeHydrationOptions = {
         sha: string
         message: string
         authorName: string
+        /** The GitHub login. Default: `authorName`. `null`: no GitHub user. */
+        authorLogin?: string | null
         date: string
         htmlUrl?: string
       }>
+  /** Called on each request of the GitHub commit list. */
+  onGithubListCommits?: () => void
   slackCaptureIntent?: boolean
   slackResponses?: Record<string, unknown>
   onSlackRequest?: (method: string, body: unknown) => void
@@ -406,7 +410,8 @@ async function createNativeHydrationFixture(
     ),
     http.get(
       "https://api.github.com/repos/fixture/hydration-contract/commits",
-      () => {
+      ({ request }) => {
+        options.onGithubListCommits?.()
         if (options.githubListCommits === "missing") {
           return HttpResponse.json({ message: "Not Found" }, { status: 404 })
         }
@@ -416,19 +421,28 @@ async function createNativeHydrationFixture(
             { status: 500 },
           )
         }
+        // Page like GitHub: `page` (from 1) and `per_page`.
+        const params = new URL(request.url).searchParams
+        const perPage = Number(params.get("per_page") ?? 30)
+        const start = (Number(params.get("page") ?? 1) - 1) * perPage
         return HttpResponse.json(
-          (options.githubListCommits ?? []).map((commit) => ({
-            sha: commit.sha,
-            html_url:
-              commit.htmlUrl ??
-              `https://github.com/fixture/hydration-contract/commit/${commit.sha}`,
-            commit: {
-              message: commit.message,
-              author: { name: commit.authorName, date: commit.date },
-              committer: { date: commit.date },
-            },
-            author: { login: commit.authorName },
-          })),
+          (options.githubListCommits ?? [])
+            .slice(start, start + perPage)
+            .map((commit) => ({
+              sha: commit.sha,
+              html_url:
+                commit.htmlUrl ??
+                `https://github.com/fixture/hydration-contract/commit/${commit.sha}`,
+              commit: {
+                message: commit.message,
+                author: { name: commit.authorName, date: commit.date },
+                committer: { date: commit.date },
+              },
+              author:
+                commit.authorLogin === null
+                  ? null
+                  : { login: commit.authorLogin ?? commit.authorName },
+            })),
         )
       },
     ),

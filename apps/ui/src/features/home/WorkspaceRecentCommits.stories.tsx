@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { HttpResponse, http } from "msw"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 import {
   expectSkeletonMatchesLoaded,
@@ -203,6 +204,90 @@ export const CommitLineAligns: Story = {
       if (next)
         expect(next.getBoundingClientRect().top).toBeCloseTo(lineBox.bottom, 0)
     }
+  },
+}
+
+/** A 1x1 PNG, so the avatar story needs no network. */
+const pixelPng = Uint8Array.from(
+  atob(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+  ),
+  (char) => char.charCodeAt(0),
+)
+
+/** The GitHub avatar of each image request (login, auth header). */
+const avatarRequests: { login: string; authorization: string | null }[] = []
+
+/**
+ * A commit with a GitHub login shows the GitHub avatar of that login. A
+ * commit without a login, or with an avatar that does not load, shows the
+ * initial of the author.
+ */
+export const AvatarAndInitialFallback: Story = {
+  tags: ["workspace-golden"],
+  args: {
+    commits: [
+      { ...docsWorkspaceActivityRecent[0], authorLogin: "ada-gh" },
+      { ...docsWorkspaceActivityRecent[1], authorLogin: null },
+      { ...docsWorkspaceActivityRecent[2], authorLogin: "gone-user" },
+    ],
+  },
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          http.get("https://github.com/:file", ({ params, request }) => {
+            const login = String(params.file).replace(/\.png$/, "")
+            avatarRequests.push({
+              login,
+              authorization: request.headers.get("authorization"),
+            })
+            if (login === "gone-user")
+              return new HttpResponse(null, { status: 404 })
+            return HttpResponse.arrayBuffer(pixelPng.buffer, {
+              headers: { "Content-Type": "image/png" },
+            })
+          }),
+        ],
+      },
+    },
+  },
+  beforeEach: () => {
+    avatarRequests.length = 0
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const row = (subject: string) => {
+      const element = canvas.getByText(subject).parentElement
+      if (!element) throw new Error(`No row for ${subject}`)
+      return element
+    }
+    const ada = row("Document billing ledger rules")
+    const avatar = ada.querySelector("img")
+    if (!avatar) throw new Error("The row with a login has no avatar")
+    expect(avatar).toHaveAttribute(
+      "src",
+      "https://github.com/ada-gh.png?size=40",
+    )
+    expect(avatar).toHaveAttribute("referrerpolicy", "no-referrer")
+    expect(avatar).toHaveAttribute("alt", "")
+    await waitFor(() => expect(avatar.naturalWidth).toBeGreaterThan(0))
+
+    const lin = row("Clarify session cookie policy")
+    expect(lin.querySelector("img")).toBeNull()
+    expect(lin).toHaveTextContent(/^L/)
+
+    const gone = row("Add on-call severity notes")
+    await waitFor(() => expect(gone.querySelector("img")).toBeNull())
+    expect(gone).toHaveTextContent(/^S/)
+
+    // The image requests carry no token.
+    expect(avatarRequests.map((request) => request.login).sort()).toEqual([
+      "ada-gh",
+      "gone-user",
+    ])
+    for (const request of avatarRequests)
+      expect(request.authorization).toBeNull()
   },
 }
 
