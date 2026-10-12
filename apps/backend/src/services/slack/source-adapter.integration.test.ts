@@ -292,6 +292,21 @@ describe("Slack source adapter on the sync frame (Postgres, msw)", () => {
     expect(await status(bothWorkspace)).toMatchObject({ status: "ok" })
   })
 
+  it("checkAccess reports a revoked connection without a throw", async () => {
+    const revoked = await seed.addConnection("slack", {
+      teamId: "T0REVOKED1",
+      status: "revoked",
+    })
+    expect(
+      await slackSourceAdapter.checkAccess?.({
+        orgId: seed.orgId,
+        connectionId: revoked,
+        scope: { channels: [ENG] },
+        env: env(),
+      }),
+    ).toBe("The Slack connection is not installed. Reconnect Slack.")
+  })
+
   it("checkAccess reports a permanent problem behind a transient failure", async () => {
     failures[`conversations.info:${ENG}`] = 503
     channelState[OPS] = { is_member: false }

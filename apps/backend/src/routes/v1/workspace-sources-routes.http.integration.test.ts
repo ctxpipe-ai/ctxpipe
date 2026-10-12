@@ -1,12 +1,18 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
+import { HttpResponse, http } from "msw"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { useMswServer } from "../../../test/msw.js"
 import type { AppEnv } from "../../app/env.js"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { projectWorkspaceSources } from "../../domain/workspace-sources/project.js"
+import { encodeSlackBotTokenForDb } from "../../lib/connection-config.js"
 import { contextStorage } from "../../test/hono-test-logger.js"
 import { seedSourcesOrg } from "../../test/workspace-sources-fixture.js"
+
+// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
+const server = useMswServer()
 
 // The routes import the OpenWorkflow client, which reads DATABASE_URL on import.
 let routes: typeof import("./workspace-sources-routes.js")
@@ -38,8 +44,23 @@ describe("Workspace sources HTTP routes (Postgres + git)", () => {
   })
 
   it("lists sources, lists Used in for a connection, and refuses a change without GitHub", async () => {
+    // The Slack source check reads each channel; the bot is in both.
+    server.use(
+      http.get("https://slack.com/api/conversations.info", ({ request }) =>
+        HttpResponse.json({
+          ok: true,
+          channel: {
+            id: new URL(request.url).searchParams.get("channel"),
+            name: "support",
+            is_member: true,
+          },
+        }),
+      ),
+    )
     const slack = await seed.addConnection("slack", {
       teamName: "Acme Support",
+      status: "installed",
+      botTokenEnc: encodeSlackBotTokenForDb("xoxb-test", parseEnv(process.env)),
     })
     const workspaceId = await seed.addWorkspace("support")
     const repo = await seed.gitRepository()

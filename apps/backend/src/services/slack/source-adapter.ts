@@ -131,7 +131,15 @@ export async function checkSlackSourceAccess(input: {
   scope: SlackSourceScope
   env: Env
 }): Promise<string | null> {
-  const connection = await loadSlackConnection(input)
+  const connection = await withOrgDbContext(input.orgId, () =>
+    getSlackConnectionByConnectionId(input.orgId, input.connectionId),
+  )
+  if (
+    !connection ||
+    connection.status !== "installed" ||
+    !connection.botTokenEnc
+  )
+    return "The Slack connection is not installed. Reconnect Slack."
   // Check each channel: a transient failure of one channel must not hide
   // a permanent problem of another.
   for (const channelId of input.scope.channels) {
