@@ -8,24 +8,6 @@
       "count": 1
     },
     {
-      "file": "src/email/templates/invitation.tsx",
-      "code": 1361,
-      "message": "'React' cannot be used as a value because it was imported using 'import type'.",
-      "count": 17
-    },
-    {
-      "file": "src/email/templates/reset-password.tsx",
-      "code": 1361,
-      "message": "'React' cannot be used as a value because it was imported using 'import type'.",
-      "count": 13
-    },
-    {
-      "file": "src/email/templates/verify-email.tsx",
-      "code": 1361,
-      "message": "'React' cannot be used as a value because it was imported using 'import type'.",
-      "count": 16
-    },
-    {
       "file": "src/models/github-installation.ts",
       "code": 2345,
       "message": "Argument of type 'Error' is not assignable to parameter of type 'string'.",
