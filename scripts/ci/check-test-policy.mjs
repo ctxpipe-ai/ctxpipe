@@ -91,10 +91,6 @@ const MERGED_OWNED_MOCK_EXCEPTION_COUNTS = {
     // vi.mock("../db/client.js", ...)
     "336e734ad929f812aea1df2058902ebd4e00971f5380a2510afdfdeaff5c947d": 1,
   },
-  "apps/ui/src/features/connectors/components/NotionSetupDialog.test.tsx": {
-    // vi.mock("@tanstack/react-query", ...)
-    f3120bceb7ad025b2ed86a5e87ffcaadbf545aaac0168bf1366a56c1a7d81573: 1,
-  },
   "apps/ui/src/features/connectors/components/PagerdutySetupDialog.test.tsx": {
     // vi.mock("@tanstack/react-query", ...)
     e96f0136a528ae00cd84240b9ea2cd116bec5f91b14a7b8c1075eb7fe984df6d: 1,

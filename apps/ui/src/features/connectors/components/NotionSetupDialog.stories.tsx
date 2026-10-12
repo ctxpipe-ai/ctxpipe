@@ -130,6 +130,19 @@ export const RegisterNotionOauth: Story = {
       },
     },
   },
+  play: async ({ canvasElement }) => {
+    const body = within(canvasElement.ownerDocument.body)
+    await body.findByRole("heading", { name: "Register Notion OAuth app" })
+    await expect(body.queryByText("Event URL")).toBeNull()
+    await userEvent.type(
+      await body.findByRole("textbox", { name: "Client ID" }),
+      "client_123",
+    )
+    await userEvent.type(body.getByLabelText("Client secret"), "secret_abc")
+    await userEvent.click(body.getByRole("button", { name: "Save" }))
+    await body.findByText(/Waiting for Notion to send a verification token/)
+    await expect(body.queryByRole("textbox", { name: "Client ID" })).toBeNull()
+  },
 }
 
 export const AddNotionWebhookWaiting: Story = {
@@ -152,6 +165,11 @@ export const AddNotionWebhookWaiting: Story = {
         ],
       },
     },
+  },
+  play: async ({ canvasElement }) => {
+    const body = within(canvasElement.ownerDocument.body)
+    await body.findByText(/Waiting for Notion to send a verification token/)
+    await expect(body.queryByRole("textbox", { name: "Client ID" })).toBeNull()
   },
 }
 
@@ -228,6 +246,11 @@ export const ConnectNotionGlobalEnv: Story = {
       },
     },
   },
+  play: async ({ canvasElement }) => {
+    const body = within(canvasElement.ownerDocument.body)
+    await body.findByRole("button", { name: "Connect Notion" })
+    await expect(body.queryByText("Register Notion OAuth app")).toBeNull()
+  },
 }
 
 const installedStatus = {
@@ -259,9 +282,11 @@ export const AddToWorkspaces: Story = {
   play: async ({ canvasElement }) => {
     addCalls.length = 0
     const body = within(canvasElement.ownerDocument.body)
-    await expect(
-      await body.findByRole("heading", { name: "Add Notion to Workspaces" }),
-    ).toBeVisible()
+    const heading = await body.findByRole("heading", {
+      name: "Add Notion to Workspaces",
+    })
+    // The modal fades in; wait until the step is visible.
+    await waitFor(() => expect(heading).toBeVisible())
     const add = body.getByRole("button", { name: "Add to Workspaces" })
     await expect(add).toBeDisabled()
     await userEvent.click(
