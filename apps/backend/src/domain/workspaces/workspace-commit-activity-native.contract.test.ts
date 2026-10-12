@@ -4,7 +4,10 @@ import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { workspaces } from "../../db/schema/workspaces.js"
-import { upsertWorkspaceCommitProjection } from "../../models/workspace-commits.js"
+import {
+  insertWorkspaceRepositoryCommits,
+  upsertWorkspaceCommitProjection,
+} from "../../models/workspace-commits.js"
 import { workspaceActivityRoutes } from "../../routes/v1/workspace-activity-routes.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { workspaceHttpApp } from "../../test/workspace-http-fixture.js"
@@ -75,6 +78,7 @@ it(
             sha: COMMIT.sha,
             subject: "Add heatmap",
             authorName: "Ada",
+            authorLogin: "Ada",
             committedAt: COMMIT.date,
             htmlUrl: COMMIT.htmlUrl,
             workspaceSlug: "knowledge",
@@ -207,6 +211,73 @@ it(
             }),
           ),
         ).toEqual({ status: "ready" })
+      },
+    )
+  },
+)
+
+it(
+  "stores the GitHub login of each commit, fills it on old rows, and serves it",
+  { timeout: 60_000 },
+  async () => {
+    const withUser = {
+      ...COMMIT,
+      sha: "e".repeat(40),
+      authorName: "Ada Lovelace",
+      authorLogin: "ada-gh",
+    }
+    const noUser = {
+      ...COMMIT,
+      sha: "f".repeat(40),
+      message: "Import from a mail patch",
+      authorName: "Grace",
+      authorLogin: null,
+      date: "2026-08-25T10:00:00.000Z",
+    }
+    await withNativeHydrationFixture(
+      { github: true, githubListCommits: [withUser, noUser] },
+      async (f) => {
+        await f.handle.cancel()
+        const app = workspaceHttpApp(f.org, workspaceActivityRoutes)
+        // A row from before the login column: the next run fills it.
+        await withOrgIdContext(f.org, () =>
+          insertWorkspaceRepositoryCommits({
+            workspaceId: f.workspaceId,
+            commits: [
+              {
+                sha: withUser.sha,
+                committedAt: new Date(withUser.date),
+                authorName: withUser.authorName,
+                subject: withUser.message,
+                htmlUrl: withUser.htmlUrl,
+              },
+            ],
+          }),
+        )
+
+        expect(
+          await withOrgIdContext(f.org, () =>
+            projectWorkspaceCommits({
+              workspaceId: f.workspaceId,
+              env: parseEnv(process.env),
+            }),
+          ),
+        ).toEqual({ status: "ready" })
+
+        const body = await (
+          await app.request("/workspaces/knowledge/activity")
+        ).json()
+        expect(
+          body.recent.map(
+            (commit: { sha: string; authorLogin?: string | null }) => [
+              commit.sha,
+              commit.authorLogin,
+            ],
+          ),
+        ).toEqual([
+          [withUser.sha, "ada-gh"],
+          [noUser.sha, null],
+        ])
       },
     )
   },

@@ -89,6 +89,8 @@ export type NativeHydrationOptions = {
         sha: string
         message: string
         authorName: string
+        /** The GitHub login. Default: `authorName`. `null`: no GitHub user. */
+        authorLogin?: string | null
         date: string
         htmlUrl?: string
       }>
@@ -427,7 +429,10 @@ async function createNativeHydrationFixture(
               author: { name: commit.authorName, date: commit.date },
               committer: { date: commit.date },
             },
-            author: { login: commit.authorName },
+            author:
+              commit.authorLogin === null
+                ? null
+                : { login: commit.authorLogin ?? commit.authorName },
           })),
         )
       },
