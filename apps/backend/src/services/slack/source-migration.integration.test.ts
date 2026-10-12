@@ -1,14 +1,22 @@
+import { execFile } from "node:child_process"
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { dirname, join } from "node:path"
+import { promisify } from "node:util"
 import { eq } from "drizzle-orm"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { connections } from "../../db/schema/connections.js"
+import { movedFiles } from "../../domain/workspace-sources/migration.js"
 import { planSourceMigration } from "../../domain/workspace-sources/migration-plan.js"
 import { seedSourcesOrg } from "../../test/workspace-sources-fixture.js"
 import {
   slackLegacyBindings,
   slackSourceMigrationHook,
 } from "./source-migration.js"
+
+const execFileAsync = promisify(execFile)
 
 // The paths that the mention capture wrote into the bound repository before
 // ADR-050 (`slack/channels/<slug>--<id>/…`). Names and ids are made up.
@@ -24,6 +32,14 @@ const OLD_CAPTURE_PATHS = [
 ]
 const CONTEXT_REPO = "https://github.com/example/context.git"
 
+const MOVES = [
+  { from: "slack/channels/eng--C0ENG0001/", to: "slack/channels/C0ENG0001/" },
+  {
+    from: "slack/channels/private-ops--G0OPS0001/",
+    to: "slack/channels/G0OPS0001/",
+  },
+]
+
 describe("slackLegacyBindings", () => {
   it("maps the captured channels of the bound repository to one source", () => {
     const bindings = slackLegacyBindings({
@@ -37,6 +53,8 @@ describe("slackLegacyBindings", () => {
         connectionId: "con_slack1",
         syncRepositoryUrl: CONTEXT_REPO,
         scope: { channels: ["C0ENG0001", "G0OPS0001"] },
+        ownRepositoryOnly: true,
+        movePaths: MOVES,
       },
     ])
     const plan = planSourceMigration({
@@ -48,17 +66,82 @@ describe("slackLegacyBindings", () => {
           sourcesFile: null,
         },
         {
-          id: "ws_other",
-          workspaceRepositoryUrl: "https://github.com/example/other.git",
+          id: "ws_linker",
+          workspaceRepositoryUrl: "https://github.com/example/linker.git",
           githubConnectionId: null,
           sourcesFile: null,
         },
       ],
-      linked: [],
+      // A Workspace that only links the bound repository does not get it.
+      linked: [{ workspaceId: "ws_linker", gitUrl: CONTEXT_REPO }],
       bindings,
     })
-    expect([...plan.changes.keys()]).toEqual(["ws_context"])
-    expect(plan.report.unmapped).toEqual([])
+    expect(plan.report.moved).toEqual([
+      {
+        workspaceId: "ws_context",
+        provider: "slack",
+        connectionId: "con_slack1",
+      },
+    ])
+    expect(plan.moves.get("ws_context")).toEqual(MOVES)
+    expect(plan.moves.has("ws_linker")).toBe(false)
+  })
+
+  it("moves the old capture directories to the managed paths in real git", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "ctxpipe-slack-mig-"))
+    try {
+      const git = async (...args: string[]) =>
+        (await execFileAsync("git", ["-C", dir, ...args])).stdout
+      await git("init", "-q", "-b", "main")
+      await git("config", "user.email", "dev@example.com")
+      await git("config", "user.name", "Dev")
+      for (const path of OLD_CAPTURE_PATHS) {
+        await mkdir(dirname(join(dir, path)), { recursive: true })
+        await writeFile(
+          join(dir, path),
+          path.endsWith(".png")
+            ? Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0xff])
+            : `# ${path}\n`,
+        )
+      }
+      await git("add", "-A")
+      await git("commit", "-q", "-m", "old captures")
+      const change = await movedFiles({
+        moves: MOVES,
+        paths: OLD_CAPTURE_PATHS,
+        read: async (path) =>
+          (
+            await execFileAsync("git", ["-C", dir, "show", `HEAD:${path}`], {
+              encoding: "buffer",
+            })
+          ).stdout,
+      })
+      for (const file of change.files) {
+        await mkdir(dirname(join(dir, file.path)), { recursive: true })
+        await writeFile(
+          join(dir, file.path),
+          Buffer.from(file.content, "base64"),
+        )
+      }
+      for (const path of change.deletePaths) await rm(join(dir, path))
+      await git("add", "-A")
+      await git("commit", "-q", "-m", "migrate")
+      const renames = (
+        await git("diff", "-M", "--name-status", "HEAD~1", "HEAD")
+      )
+        .trim()
+        .split("\n")
+      expect(renames).toHaveLength(6)
+      for (const line of renames) expect(line).toMatch(/^R100\t/)
+      const tree = (await git("ls-files")).trim().split("\n")
+      expect(tree.filter((path) => path.includes("--"))).toEqual([])
+      expect(tree).toContain(
+        "slack/channels/C0ENG0001/threads/2026/09/1790000000.000100/assets/F0001-diagram.png",
+      )
+      expect(tree).toContain("slack/README.md")
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
   })
 
   it("reports a bound repository without captures as unmapped", () => {

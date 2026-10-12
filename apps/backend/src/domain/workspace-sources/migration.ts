@@ -4,8 +4,10 @@ import {
   listOrgWorkspaces,
 } from "../../models/workspaces.js"
 import {
+  type CommitFile,
   createPullRequestWithFiles,
   getFileContent,
+  getFileContentBytes,
   listFilesInTree,
   listOpenPullRequestsByBranchPrefix,
 } from "../../services/github/installation-write-client.js"
@@ -21,6 +23,31 @@ import { workspaceGithubRepository } from "./repository.js"
 import { SOURCES_FILE_PATH, type SourceProvider } from "./sources-file.js"
 
 const MIGRATION_BRANCH_PREFIX = "ctxpipe/sources/migrate"
+
+/**
+ * The commit change that moves each file under a `from` directory to the
+ * same path under its `to` directory, with the same bytes. Git sees each
+ * move as a rename.
+ */
+export async function movedFiles(input: {
+  moves: ReadonlyArray<{ from: string; to: string }>
+  paths: readonly string[]
+  read: (path: string) => Promise<Buffer>
+}): Promise<{ files: CommitFile[]; deletePaths: string[] }> {
+  const files: CommitFile[] = []
+  const deletePaths: string[] = []
+  for (const path of input.paths) {
+    const move = input.moves.find(({ from }) => path.startsWith(from))
+    if (!move) continue
+    files.push({
+      path: `${move.to}${path.slice(move.from.length)}`,
+      content: (await input.read(path)).toString("base64"),
+      encoding: "base64",
+    })
+    deletePaths.push(path)
+  }
+  return { files, deletePaths }
+}
 
 /**
  * Migrate the connections of one org to Workspace sources (ADR-050): one PR
@@ -68,13 +95,16 @@ export async function runSourceMigration(input: {
         { ...workspace, orgId: input.orgId },
         input.env,
       )
-      if (!repository) return { ...workspace, repository, sourcesFile: null }
-      const declarations = (await listFilesInTree(repository)).filter((file) =>
+      if (!repository)
+        return { ...workspace, repository, sourcesFile: null, paths: [] }
+      const tree = await listFilesInTree(repository)
+      const declarations = tree.filter((file) =>
         isLinkedRepositoryDeclaration(file.path),
       )
       return {
         ...workspace,
         repository,
+        paths: tree.map((file) => file.path),
         sourcesFile:
           (await getFileContent({ ...repository, path: SOURCES_FILE_PATH })) ??
           null,
@@ -121,15 +151,28 @@ export async function runSourceMigration(input: {
         await disableLegacy(workspaceId)
         continue
       }
+      const { repository } = workspace
+      const moved = await movedFiles({
+        moves: plan.moves.get(workspaceId) ?? [],
+        paths: workspace.paths,
+        read: async (path) => {
+          const file = await getFileContentBytes({ ...repository, path })
+          if (file.kind !== "bytes") throw new Error(`Cannot read ${path}`)
+          return file.bytes
+        },
+      })
       const pull = await createPullRequestWithFiles({
         ...workspace.repository,
         baseBranch: workspace.repository.branch,
         featureBranchPrefix: MIGRATION_BRANCH_PREFIX,
         title: "Move connector sources into .ctxpipe/sources.yaml",
-        body: `ctx| now reads the sources of this Workspace from \`${SOURCES_FILE_PATH}\`. This PR adds ${changes.length} source(s) from the existing connector settings, and deletes the repository files that a GitHub source replaces. Old mirrored content stays where it is.`,
+        body: `ctx| now reads the sources of this Workspace from \`${SOURCES_FILE_PATH}\`. This PR adds ${changes.length} source(s) from the existing connector settings, deletes the repository files that a GitHub source replaces, and moves old Slack captures to the managed paths of their source. Other old mirrored content stays where it is.`,
         commitMessage: "Move connector sources into .ctxpipe/sources.yaml",
-        files: [{ path: SOURCES_FILE_PATH, content: text }],
-        deletePaths: plan.deletePaths.get(workspaceId) ?? [],
+        files: [{ path: SOURCES_FILE_PATH, content: text }, ...moved.files],
+        deletePaths: [
+          ...(plan.deletePaths.get(workspaceId) ?? []),
+          ...moved.deletePaths,
+        ],
       })
       pullRequests.push({
         workspaceId,

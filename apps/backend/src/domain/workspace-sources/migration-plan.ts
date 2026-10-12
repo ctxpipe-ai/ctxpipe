@@ -22,6 +22,16 @@ export type LegacySourceBinding =
       /** The connection's old sync repository. */
       syncRepositoryUrl: string
       scope: Record<string, unknown>
+      /**
+       * Map only to the Workspace whose own repository is the sync
+       * repository, not to a Workspace that links it.
+       */
+      ownRepositoryOnly?: boolean
+      /**
+       * Directories that the migration PR moves (same blobs) to the managed
+       * paths of the new source, for example old captures.
+       */
+      movePaths?: ReadonlyArray<{ from: string; to: string }>
     }
   | {
       provider: SourceProvider
@@ -118,6 +128,8 @@ export function planSourceMigration(input: {
   changes: Map<string, SourceChange[]>
   /** The repository files that the GitHub source replaces, per Workspace. */
   deletePaths: Map<string, string[]>
+  /** The directories to move in the migration PR, per Workspace. */
+  moves: Map<string, Array<{ from: string; to: string }>>
   report: SourceMigrationReport
 } {
   const report: SourceMigrationReport = {
@@ -126,6 +138,7 @@ export function planSourceMigration(input: {
     unmapped: [],
   }
   const changes = new Map<string, SourceChange[]>()
+  const moves = new Map<string, Array<{ from: string; to: string }>>()
   const present = new Map(
     input.workspaces.map((workspace) => [
       workspace.id,
@@ -173,7 +186,9 @@ export function planSourceMigration(input: {
     const workspaces = input.workspaces.filter(
       (workspace) =>
         normalizeWorkspaceRepositoryUrl(workspace.workspaceRepositoryUrl) ===
-          target || linkedByWorkspace.get(workspace.id)?.includes(target),
+          target ||
+        (!binding.ownRepositoryOnly &&
+          linkedByWorkspace.get(workspace.id)?.includes(target)),
     )
     if (!workspaces.length) {
       report.unmapped.push({
@@ -184,13 +199,20 @@ export function planSourceMigration(input: {
       })
       continue
     }
-    for (const workspace of workspaces)
-      add(workspace.id, {
+    for (const workspace of workspaces) {
+      const added = add(workspace.id, {
         action: "add",
         provider: binding.provider,
         connectionId: binding.connectionId,
         scope: binding.scope,
       })
+      // Move the files only in the PR that adds the source.
+      if (added && binding.movePaths?.length)
+        moves.set(workspace.id, [
+          ...(moves.get(workspace.id) ?? []),
+          ...binding.movePaths,
+        ])
+    }
   }
 
   const deletePaths = new Map<string, string[]>()
@@ -241,5 +263,5 @@ export function planSourceMigration(input: {
     // Delete the files only in the PR that adds the source.
     if (added && paths.length) deletePaths.set(workspace.id, paths)
   }
-  return { changes, deletePaths, report }
+  return { changes, deletePaths, moves, report }
 }

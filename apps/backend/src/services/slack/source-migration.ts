@@ -9,6 +9,7 @@ import {
   listSlackConnectionsForOrg,
 } from "../../models/slack-connector.js"
 import { listFilesInTree } from "../github/installation-write-client.js"
+import { slackSourceChannelDir } from "./converter.js"
 
 /** The channel id of a capture path: `slack/channels/<slug>--<id>/…`. */
 const CAPTURED_CHANNEL = /^slack\/channels\/[^/]*--([CG][A-Z0-9]{2,31})\//
@@ -44,6 +45,23 @@ export function slackLegacyBindings(input: {
       ...base,
       syncRepositoryUrl: input.syncRepositoryUrl,
       scope: { channels },
+      // Only the bound repository has the captures, so a Workspace that
+      // only links it does not get the source.
+      ownRepositoryOnly: true,
+      // Move each old capture directory to the managed path of its channel.
+      movePaths: [
+        ...new Map(
+          input.paths.flatMap((path) => {
+            const match = CAPTURED_CHANNEL.exec(path)
+            return match?.[1] ? [[match[0], match[1]] as const] : []
+          }),
+        ),
+      ]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([from, channelId]) => ({
+          from,
+          to: slackSourceChannelDir(channelId),
+        })),
     },
   ]
 }
