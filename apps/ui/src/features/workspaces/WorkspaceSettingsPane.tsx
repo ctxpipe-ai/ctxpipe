@@ -463,7 +463,7 @@ export function WorkspaceSettingsPane(props: {
           </section>
         </SettingsGroup>
 
-        <SettingsGroup eyebrow="Connectors">
+        <SettingsGroup eyebrow="Sources">
           <WorkspaceSources
             orgSlug={orgSlug}
             workspaceSlug={workspace.slug}

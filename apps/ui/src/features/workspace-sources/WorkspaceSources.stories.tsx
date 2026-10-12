@@ -85,7 +85,7 @@ export const Loading: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText("Loading sources")
-    await expect(canvas.queryByText(/No connectors yet/)).toBeNull()
+    await expect(canvas.queryByText(/No sources yet/)).toBeNull()
   },
 }
 
@@ -102,9 +102,9 @@ export const Empty: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await canvas.findByText(/No connectors yet/)
+    await canvas.findByText(/No sources yet\. Connect a tool/)
     await expect(
-      canvas.getByRole("heading", { level: 2, name: "Connectors" }),
+      canvas.getByRole("heading", { level: 2, name: "Sources" }),
     ).toBeInTheDocument()
     await expect(
       canvas.getByRole("link", { name: "Add connection" }),
@@ -796,7 +796,7 @@ export const LoadFailed: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await canvas.findByText("Could not load the connectors of this Workspace.")
+    await canvas.findByText("Could not load the sources of this Workspace.")
     await expect(canvas.getByRole("button", { name: "Retry" })).toBeVisible()
   },
 }

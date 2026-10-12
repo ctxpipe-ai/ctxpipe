@@ -30,6 +30,8 @@
 | React Aria | Adobe's accessibility-focused React component primitives |
 | TanStack Start | Full-stack React framework with file-based routing (used in apps/ui) |
 | source connector | Integration that authorises an external system and makes its content available to ctxpipe. Durable connectors are **git-native** (mirror or capture into the **Workspace repository**). MCP clients are not source connectors. See [source-connectors skill](../../.agents/skills/source-connectors/SKILL.md). |
+| Source | What a Workspace reads: a linked code repository, or a scope in a dev tool or a docs tool (Linear teams, PagerDuty services, Notion pages, Confluence spaces, Slack capture). Tool and docs sources are entries in `.ctxpipe/sources.yaml` in the workspace repository ([ADR-050](decisions/ADR-050-workspace-sources-config-file.md)). UI: **Sources** in Workspace settings. Each source reads through a **Connector**. Decided 2026-10-12; replaces the CTX-536 "Connectors" section name. |
+| Connector | An organization-level app connection that gives ctxpipe access to a provider: the GitHub App installation or an OAuth app (Linear, Notion, Slack, Atlassian, PagerDuty). One `connections` row ([ADR-018](decisions/ADR-018-unified-connections-table.md)). UI: the **Connectors** page. Not what a Workspace reads; that is a **Source**. |
 | git-native | Connector pattern: write provider content as files in the **Workspace repository**, then ingest that repository. Config lives in git yaml (via PR); Postgres holds binding and secrets only. GitHub is the current rich adapter for PRs and commits. [ADR-022](decisions/ADR-022-linear-connector-git-native-mirror.md), [ADR-023](decisions/ADR-023-notion-connector-git-native-mirror.md). |
 | context repository | Retired. Before Workspaces, the git repository (often GitHub `ctxpipe-context`) that received connector files under per-connector roots (`linear/`, `notion/`, `slack/`, `github/`, …). The **Workspace repository** receives them now ([ADR-031](decisions/ADR-031-github-pr-scoped-mirror.md) revision). |
 | Cutover | Retired. Dest Workspaces for enabled Linear/Notion/Confluence/Slack git URLs were created **once** by SQL migrate (`INSERT workspaces` + `workspace_linked_repositories`). The `workspace-cutover` job and `org_workspace_cutover` table are gone. **Not** a step in add-workspace; later dests do not auto-mint a Workspace. |
@@ -53,6 +55,7 @@
 | Project chat | **Workspace chat** |
 | Serving store / derived store (when you mean the index) | **Projection** |
 | Write sandbox | **Job sandbox** (retired) |
+| Connectors (as the Workspace settings section) | **Sources**; **Connectors** names only the organization page of connected apps |
 | Cutover (as a product step) | **Create workspace** (GitHub picker); uniqueness = that repo already has a Workspace |
 
 ## Abbreviations
