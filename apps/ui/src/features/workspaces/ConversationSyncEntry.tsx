@@ -40,7 +40,7 @@ function pushedText(sync: ConversationSync): string {
  */
 export function ConversationSyncEntry(props: { sync: ConversationSync }) {
   const { sync } = props
-  const pr = sync.trigger === "create_pr" ? sync.pullRequest : undefined
+  const pr = sync.pullRequest
   const prText = pr ? `PR #${pr.number}` : ""
   const summary = [
     pushedText(sync),

@@ -59,6 +59,7 @@ export const requiredStories = [
   "SyncEntry",
   "CreatePrEntry",
   "ExistingPrEntry",
+  "CreatePrWithoutPrEntry",
   "AgentPushEntry",
   "SweepPushEntry",
   "WaitsForDelay",

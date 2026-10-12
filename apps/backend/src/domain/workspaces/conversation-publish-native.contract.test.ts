@@ -11,11 +11,16 @@ import {
   workspaceSandboxInstances,
   workspaces,
 } from "../../db/schema/workspaces.js"
+import {
+  deleteConversationThreadRecords,
+  listConversationSyncs,
+} from "../../models/conversation-turn-changes.js"
 import type { NativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { conversationSessionBranch } from "./chat-lifecycle.js"
 import {
   pushConversationSession,
+  recordConversationPush,
   shellSingleQuote,
 } from "./conversation-publish.js"
 import { adaptTanstackHandle } from "./job-sandbox.js"
@@ -397,3 +402,50 @@ it(
     )
   },
 )
+
+it("writes no push entry for a conversation that was deleted meanwhile", async () => {
+  await withNativeHydrationFixture({}, async (f) => {
+    const live = `conv_${f.id}_live`
+    const deleted = `conv_${f.id}_deleted`
+    await withOrgDbContext(f.org.id, (db) =>
+      db.insert(conversations).values({
+        id: live,
+        orgId: f.org.id,
+        userId: `user_${f.id}`,
+        workspaceId: f.workspaceId,
+      }),
+    )
+    const record = (conversationId: string) =>
+      withOrgIdContext(f.org, () =>
+        recordConversationPush({
+          orgId: f.org.id,
+          conversationId,
+          trigger: "sweep",
+          pushed: {
+            status: "pushed",
+            branch: "ctxpipe/chat/conv_1/1",
+            sha: "d".repeat(40),
+            files: 1,
+            treeUrl:
+              "https://github.com/fixture/hydration-contract/tree/ctxpipe/chat/conv_1/1",
+          },
+        }),
+      )
+    try {
+      await record(live)
+      // The sweep pushed after the user deleted the conversation.
+      await record(deleted)
+
+      const count = async (conversationId: string) =>
+        (await listConversationSyncs({ orgId: f.org.id, conversationId }))
+          .length
+      expect([await count(live), await count(deleted)]).toEqual([1, 0])
+    } finally {
+      await withOrgDbContext(f.org.id, async (db) => {
+        for (const id of [live, deleted])
+          await deleteConversationThreadRecords(db, id)
+        await db.delete(conversations).where(eq(conversations.id, live))
+      })
+    }
+  })
+})

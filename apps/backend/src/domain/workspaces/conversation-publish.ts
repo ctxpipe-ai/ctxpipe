@@ -389,6 +389,10 @@ export async function recordConversationPush(input: {
 }): Promise<void> {
   const { pushed } = input
   try {
+    // The sweep does not hold off a delete: a deleted conversation gets no
+    // entry that nothing would delete.
+    if (!(await getConversationSession(input.orgId, input.conversationId)))
+      return
     const thread = await workspaceChatPersistence().stores.messages.loadThread(
       input.conversationId,
     )

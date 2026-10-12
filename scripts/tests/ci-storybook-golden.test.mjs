@@ -85,6 +85,10 @@ const required = [
   ],
   [
     "apps/ui/src/features/workspaces/ConversationSyncEntry.stories.tsx",
+    "CreatePrWithoutPrEntry",
+  ],
+  [
+    "apps/ui/src/features/workspaces/ConversationSyncEntry.stories.tsx",
     "AgentPushEntry",
   ],
   [

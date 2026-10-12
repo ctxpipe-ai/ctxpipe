@@ -89,6 +89,19 @@ export const ExistingPrEntry: Story = {
   },
 }
 
+/** The push succeeded, but GitHub did not open the pull request. */
+export const CreatePrWithoutPrEntry: Story = {
+  tags: ["workspace-golden"],
+  args: { sync: { ...base, trigger: "create_pr" } },
+  play: async ({ canvasElement }) => {
+    const entry = within(canvasElement).getByRole("region", {
+      name: `Pushed 3 files to ${branch}`,
+    })
+    await expectLink(entry, branch, treeUrl)
+    await expect(within(entry).getAllByRole("link")).toHaveLength(1)
+  },
+}
+
 export const AgentPushEntry: Story = {
   tags: ["workspace-golden"],
   args: { sync: { ...base, trigger: "agent" } },

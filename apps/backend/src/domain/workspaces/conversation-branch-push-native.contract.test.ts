@@ -670,6 +670,8 @@ it(
           },
         ),
       )
+      // The first Create PR pushes this commit, then GitHub refuses the PR.
+      await s.agentCommit(handle, "two.md", "Add note two")
       const answers: Array<{ status: number; body: unknown }> = []
       for (const mode of [
         "mint",
@@ -693,6 +695,11 @@ it(
         },
       ])
       expect(s.pullRequests).toEqual([])
+      // The commit is on GitHub without a PR: the entry has no PR.
+      expect(await pushEntries(f.org.id, s.conversationId)).toEqual([
+        { trigger: "sync", branch: s.branch, files: 1, turn: 0 },
+        { trigger: "create_pr", branch: s.branch, files: 1, turn: 0 },
+      ])
     })
   },
 )
