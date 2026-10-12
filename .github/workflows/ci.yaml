@@ -146,6 +146,23 @@ jobs:
           bun-version: 1.4.2
       - name: Required chat engine binary
         run: npm install --global opencode-ai@1.18.34
+      # Test files start these images in parallel. A Docker Hub token request
+      # can time out, so pull each image once here, with retries, before the
+      # tests start.
+      - name: Required test container images
+        if: matrix.lane == 'contracts'
+        run: |
+          for image in infisical/agent-vault:latest alpine:3.22 node:22; do
+            n=0
+            until docker pull --quiet "$image"; do
+              n=$((n + 1))
+              if [ "$n" -ge 4 ]; then
+                echo "::error::Outside service unavailable: Docker Hub did not serve $image after 4 attempts"
+                exit 1
+              fi
+              sleep $((n * 10))
+            done
+          done
       - name: Restore native revision index tools
         id: zoekt
         uses: actions/cache@v4
