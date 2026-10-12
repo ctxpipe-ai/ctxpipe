@@ -124,6 +124,30 @@ const required = [
     "apps/ui/src/features/chat/ConversationThread.stories.tsx",
     "ChatProgressLogExpanded",
   ],
+  [
+    "apps/ui/src/features/workspaces/WorkspaceCommandPalette.stories.tsx",
+    "PaletteShortcutTogglesAndRestoresFocus",
+  ],
+  [
+    "apps/ui/src/features/workspaces/WorkspaceCommandPalette.stories.tsx",
+    "PaletteFiltersAtOnce",
+  ],
+  [
+    "apps/ui/src/features/workspaces/WorkspaceCommandPalette.stories.tsx",
+    "PaletteArrowKeysAndEnterKeepPane",
+  ],
+  [
+    "apps/ui/src/features/workspaces/WorkspaceCommandPalette.stories.tsx",
+    "PaletteEscapeClearsThenCloses",
+  ],
+  [
+    "apps/ui/src/features/workspaces/WorkspaceCommandPalette.stories.tsx",
+    "PaletteNoResults",
+  ],
+  [
+    "apps/ui/src/features/workspaces/WorkspaceCommandPalette.stories.tsx",
+    "PaletteLoadingKeepsPages",
+  ],
 ]
 
 test("required golden stories carry the workspace-golden tag and a play", () => {

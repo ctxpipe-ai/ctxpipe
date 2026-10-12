@@ -101,6 +101,12 @@ export const requiredStories = [
   "SelectAllPagesOfASpace",
   "EditsASavedPageList",
   "PlainLinkMovesCurrentNav",
+  "PaletteShortcutTogglesAndRestoresFocus",
+  "PaletteFiltersAtOnce",
+  "PaletteArrowKeysAndEnterKeepPane",
+  "PaletteEscapeClearsThenCloses",
+  "PaletteNoResults",
+  "PaletteLoadingKeepsPages",
 ]
 
 export function isGoldenPlaySuccess(phase) {
