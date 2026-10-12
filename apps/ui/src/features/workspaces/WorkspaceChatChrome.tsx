@@ -83,7 +83,7 @@ function BranchLabel(props: { branch: ConversationBranchChrome }) {
   )
   return (
     <ChromeTooltip
-      trigger={<span data-branch-label="" className={labelClassName} />}
+      trigger={<span className={labelClassName} />}
       content={fullRef}
     >
       {href ? (

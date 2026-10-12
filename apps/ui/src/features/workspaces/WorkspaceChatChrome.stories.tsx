@@ -436,8 +436,9 @@ export const BranchLabel: Story = {
     },
   },
   play: async ({ canvasElement }) => {
-    const label = canvasElement.querySelector("[data-branch-label]")
-    if (!(label instanceof HTMLElement)) throw new Error("Branch label missing")
+    const name = await within(canvasElement).findByText(/a-very-long/)
+    const label = name.parentElement
+    if (!label) throw new Error("Branch label missing")
     expect(label.querySelector("svg.tabler-icon-git-branch")).not.toBeNull()
     expect(label.firstElementChild).toBe(
       label.querySelector("svg.tabler-icon-git-branch"),
