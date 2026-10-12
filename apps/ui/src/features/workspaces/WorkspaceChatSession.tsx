@@ -294,7 +294,7 @@ export function WorkspaceChatSession(props: {
             }
           : null
       }
-      publish={
+      cta={
         conversationAllowsEdits(
           workspace.writeStatus,
           workspace.conversationWritable,

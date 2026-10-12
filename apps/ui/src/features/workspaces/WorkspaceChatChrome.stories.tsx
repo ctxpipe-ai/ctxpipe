@@ -93,7 +93,7 @@ export const DirtyCommitPush: Story = {
       shortName: "chat/1",
       fullRef: "ctxpipe/chat/conv_1/1",
     },
-    publish: {
+    cta: {
       commitPush: {
         visible: true,
         enabled: true,
@@ -127,7 +127,7 @@ export const DirtyCommitPush: Story = {
 export const SyncDisabled: Story = {
   args: {
     ...DirtyCommitPush.args,
-    publish: {
+    cta: {
       commitPush: {
         visible: true,
         enabled: false,
@@ -155,7 +155,7 @@ export const CommittedCreatePrOnly: Story = {
       shortName: "chat/1",
       fullRef: "ctxpipe/chat/conv_1/1",
     },
-    publish: {
+    cta: {
       commitPush: {
         visible: false,
         enabled: false,
@@ -186,7 +186,7 @@ export const CleanNoPublishActions: Story = {
       shortName: "chat/1",
       fullRef: "ctxpipe/chat/conv_1/1",
     },
-    publish: {
+    cta: {
       commitPush: {
         visible: false,
         enabled: false,
@@ -217,7 +217,7 @@ export const Pushing: Story = {
   tags: ["workspace-golden"],
   args: {
     ...DirtyCommitPush.args,
-    publish: {
+    cta: {
       commitPush: {
         visible: true,
         enabled: true,
@@ -247,7 +247,7 @@ export const Pushing: Story = {
 export const CreatingPr: Story = {
   args: {
     ...DirtyCommitPush.args,
-    publish: {
+    cta: {
       commitPush: {
         visible: true,
         enabled: true,
@@ -277,7 +277,7 @@ export const ShowPr: Story = {
       fullRef: "ctxpipe/chat/conv_1/1",
       href: "https://github.com/acme/docs/tree/ctxpipe/chat/conv_1/1",
     },
-    publish: {
+    cta: {
       commitPush: {
         visible: false,
         enabled: false,
@@ -342,7 +342,7 @@ export const CommitPushWithOpenPr: Story = {
       fullRef: "ctxpipe/chat/conv_1/1",
       href: "https://github.com/acme/docs/tree/ctxpipe/chat/conv_1/1",
     },
-    publish: {
+    cta: {
       commitPush: {
         visible: true,
         enabled: true,
@@ -370,7 +370,7 @@ export const CommitPushWithOpenPr: Story = {
       canvas.queryByRole("button", { name: "Create PR" }),
     ).not.toBeInTheDocument()
     await userEvent.click(commitPush)
-    expect(args.publish?.commitPush.onPress).toHaveBeenCalledOnce()
+    expect(args.cta?.commitPush.onPress).toHaveBeenCalledOnce()
   },
 }
 
