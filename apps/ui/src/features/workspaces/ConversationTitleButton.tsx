@@ -1,5 +1,5 @@
 import { useMutation } from "@tanstack/react-query"
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Input, Button as RACButton, TextField } from "react-aria-components"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
@@ -20,6 +20,18 @@ export function ConversationTitleButton(props: {
   const [draft, setDraft] = useState(props.name)
   // Escape unmounts the input, and the unmount must not save.
   const cancelled = useRef(false)
+  // The name when the edit started. The automatic title can change `props.name`
+  // while the input is open, and an unedited draft must not save the old name.
+  const startName = useRef(props.name)
+  // Enter and Escape return focus to the title button. A blur does not.
+  const restoreFocus = useRef(false)
+  const buttonRef = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    if (!isEditing && restoreFocus.current) {
+      restoreFocus.current = false
+      buttonRef.current?.focus()
+    }
+  }, [isEditing])
   const rename = useMutation({
     mutationFn: (name: string) =>
       renameConversation(props.orgSlug, props.conversationId, name),
@@ -35,7 +47,7 @@ export function ConversationTitleButton(props: {
   const save = () => {
     if (cancelled.current || rename.isPending) return
     const name = draft.trim()
-    if (!name || name === props.name) {
+    if (!name || name === startName.current) {
       stop()
       return
     }
@@ -45,9 +57,11 @@ export function ConversationTitleButton(props: {
   if (!isEditing) {
     return (
       <RACButton
+        ref={buttonRef}
         aria-label={`Rename conversation: ${props.name}`}
         onPress={() => {
           cancelled.current = false
+          startName.current = props.name
           setDraft(props.name)
           setIsEditing(true)
         }}
@@ -77,10 +91,12 @@ export function ConversationTitleButton(props: {
           onKeyDown={(event) => {
             if (event.key === "Enter") {
               event.preventDefault()
+              restoreFocus.current = true
               save()
             } else if (event.key === "Escape") {
               event.preventDefault()
               cancelled.current = true
+              restoreFocus.current = true
               stop()
             }
           }}
