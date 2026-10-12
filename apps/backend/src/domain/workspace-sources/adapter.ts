@@ -38,6 +38,11 @@ export type SourceAdapter<
    * them when the scope goes away.
    */
   managedPaths(scope: S): string[]
+  /**
+   * Optional. True when the files cannot be fetched again (captures): a
+   * removed or narrowed scope keeps its files, and the cleanup deletes none.
+   */
+  keepFilesOnRemove?: boolean
   /** Optional. Tell why a scope is outside the connection's reach, or null. */
   checkAccess?(input: {
     orgId: string

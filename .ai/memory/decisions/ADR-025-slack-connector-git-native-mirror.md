@@ -33,7 +33,7 @@ Slack stays capture-only. Workspace sources replace the single bound repository 
 - When no Workspace lists the channel, the capture writes nothing. The in-thread status tells the user to add the channel to a Slack source in the Workspace settings.
 - There is still no backfill and no continuous sync. A sources sync reads nothing from Slack. The Slack app subscribes only to `app_mention`.
 - Migration: the hook reads the channel ids of the captured threads in the old bound repository. When that repository is the own repository of a Workspace, the Workspace gets a Slack source with those channels, and the migration PR moves each old capture directory `slack/channels/<slug>--<id>/` to `slack/channels/<id>/` with the same blobs. A Workspace that only links the repository gets nothing. Otherwise the report names the connection as unmapped. `disableLegacy` sets `enabled: false` on the old binding, so the capture then writes only through sources. Until then, a capture also writes to the old repository, except when a source of the same Workspace already got the thread.
-- Removing a channel from a source deletes its captured threads from that Workspace, as for each managed path of ADR-050.
+- Removing a channel from a source stops new captures into that Workspace but keeps its captured threads, because a capture cannot be fetched again (the adapter sets `keepFilesOnRemove`).
 
 ## Consequences
 

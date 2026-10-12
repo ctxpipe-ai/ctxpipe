@@ -101,6 +101,8 @@ export const slackSourceAdapter: SourceAdapter = {
   provider: "slack",
   managedPaths: (scope) =>
     slackScopeSchema.parse(scope).channels.map(slackSourceChannelDir),
+  // A captured thread cannot be fetched again, so a removed channel keeps it.
+  keepFilesOnRemove: true,
   // Slack is capture-only (ADR-025): a sync reads nothing from Slack. The
   // mention capture writes each thread through the frame with its event.
   fetch: async () => ({ files: [], deletePaths: [] }),

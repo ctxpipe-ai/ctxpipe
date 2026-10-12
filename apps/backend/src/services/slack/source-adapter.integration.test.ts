@@ -9,6 +9,7 @@ import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { diffSlice } from "../../domain/workspace-sources/slice-diff.js"
 import {
+  cleanupRemovedSources,
   type SliceWriter,
   syncConnectionSources,
 } from "../../domain/workspace-sources/sync.js"
@@ -278,6 +279,32 @@ describe("Slack mention capture through Workspace sources (Postgres, msw, git)",
       workspaces: [],
     })
     expect(await commits(engWorkspace)).toBe(0)
+  })
+
+  it("keeps the captured threads of a channel removed from a source", async () => {
+    await capture(ENG)
+    const dir = repos.get(engWorkspace) ?? ""
+    await replaceWorkspaceSourceRows({
+      orgId: seed.orgId,
+      workspaceId: engWorkspace,
+      revision: "f".repeat(40),
+      rows: [],
+    })
+    const writes = await cleanupRemovedSources({
+      orgId: seed.orgId,
+      workspaceId: engWorkspace,
+      revision: "f".repeat(40),
+      removed: [
+        { provider: "slack", connectionId: slack, scope: { channels: [ENG] } },
+      ],
+      adapters: { slack: slackSourceAdapter },
+      write,
+    })
+    // A capture cannot be read again from Slack, so it is never deleted.
+    expect(writes).toEqual([])
+    expect(await readFile(join(dir, threadPath), "utf-8")).toContain(
+      "First reply",
+    )
   })
 
   it("reads nothing from Slack in a sync without a capture", async () => {
