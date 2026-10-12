@@ -9,6 +9,7 @@ import {
 import type { SourceAdapter } from "../../domain/workspace-sources/adapter.js"
 import type { PagerdutySourceScope } from "../../domain/workspace-sources/providers/pagerduty.js"
 import {
+  countSourceFailure,
   type PagerdutySourceSync,
   parsePagerdutyConnectionStored,
 } from "../../lib/connection-config.js"
@@ -51,9 +52,6 @@ export type PagerdutySourceEvent = z.infer<typeof pagerdutySourceEventSchema>
  * cycles goes out of access. Before that, the Workspace keeps its last copy.
  */
 export const PAGERDUTY_SYNC_MAX_TRIES = 3
-
-/** Count a failure at most one time in this window (a burst of webhooks). */
-const FAILURE_COUNT_WINDOW_MS = 60 * 60 * 1000
 
 /** The text that a source of a revoked PagerDuty connection shows. */
 const RECONNECT_DETAIL =
@@ -292,18 +290,19 @@ export const pagerdutySourceAdapter: SourceAdapter<PagerdutySourceScope> = {
         })
         if (service === "not_found" || service === "forbidden") {
           keepPaths.push(root)
-          const previous = failures[key]
-          if (
-            previous?.countedAt &&
-            now.getTime() - Date.parse(previous.countedAt) <
-              FAILURE_COUNT_WINDOW_MS
-          )
-            continue
-          const tries = (previous?.tries ?? 0) + 1
-          const detail = `${missingDetail(serviceId, service)} (${tries} failed syncs)`
-          failures[key] = { tries, detail, countedAt: now.toISOString() }
-          if (tries >= PAGERDUTY_SYNC_MAX_TRIES)
-            unreachable.push({ path: root, status: "out_of_access", detail })
+          const counted = countSourceFailure({
+            failures,
+            key,
+            now,
+            detail: (tries) =>
+              `${missingDetail(serviceId, service)} (${tries} failed syncs)`,
+          })
+          if (counted && counted.tries >= PAGERDUTY_SYNC_MAX_TRIES)
+            unreachable.push({
+              path: root,
+              status: "out_of_access",
+              detail: counted.detail,
+            })
           continue
         }
         const capture: Capture = { files: [], preserve: [] }
