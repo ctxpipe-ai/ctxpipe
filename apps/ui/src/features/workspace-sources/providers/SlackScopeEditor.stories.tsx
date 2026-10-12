@@ -1,7 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { type ComponentProps, useState } from "react"
 import { expect, userEvent, within } from "storybook/test"
-import { slackChannelsHandler } from "@/mocks/slack-handlers"
+import {
+  slackChannelsHandler,
+  slackStoryChannels,
+} from "@/mocks/slack-handlers"
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
 import { SlackScopeEditor } from "./slack"
@@ -121,5 +124,24 @@ export const LoadError: Story = {
       await canvas.findByText("Could not load the Slack channels."),
     ).toBeVisible()
     await expect(canvas.getByRole("button", { name: "Retry" })).toBeVisible()
+  },
+}
+
+/** Slack has more channels than the list holds, so the picker says so. */
+export const ListIsTruncated: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [slackChannelsHandler(slackStoryChannels, { truncated: true })],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(
+      await canvas.findByText(
+        "Showing the first 2000 channels. Search finds channels in this list only.",
+      ),
+    ).toBeVisible()
   },
 }

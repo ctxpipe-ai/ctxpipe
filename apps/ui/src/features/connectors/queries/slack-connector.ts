@@ -111,13 +111,12 @@ export async function deleteSlackConnector(
 export async function fetchSlackChannels(
   orgSlug: string,
   connectionId: string,
-): Promise<SlackChannel[]> {
+): Promise<{ items: SlackChannel[]; truncated: boolean }> {
   const res = await client[":orgSlug"].api.v1.connectors.slack.channels.$get({
     param: { orgSlug },
     query: { connectionId },
   })
-  const body = await readApiJson<{ items: SlackChannel[] }>(res, {
+  return readApiJson<{ items: SlackChannel[]; truncated: boolean }>(res, {
     message: "Failed to load the Slack channels",
   })
-  return body.items
 }

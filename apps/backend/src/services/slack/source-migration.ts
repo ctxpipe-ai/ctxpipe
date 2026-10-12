@@ -3,6 +3,7 @@ import type {
   LegacySourceBinding,
   SourceMigrationHook,
 } from "../../domain/workspace-sources/migration-plan.js"
+import { SLACK_CHANNEL_ID_PATTERN } from "../../domain/workspace-sources/providers/slack.js"
 import {
   disableSlackLegacyBinding,
   getSlackBindingWithRepoByConnectionId,
@@ -12,7 +13,9 @@ import { listFilesInTree } from "../github/installation-write-client.js"
 import { slackSourceChannelDir } from "./converter.js"
 
 /** The channel id of a capture path: `slack/channels/<slug>--<id>/…`. */
-const CAPTURED_CHANNEL = /^slack\/channels\/[^/]*--([CG][A-Z0-9]{2,31})\//
+const CAPTURED_CHANNEL = new RegExp(
+  `^slack/channels/[^/]*--(${SLACK_CHANNEL_ID_PATTERN})/`,
+)
 
 /**
  * Turn the captures of one connection into a source binding (ADR-050).

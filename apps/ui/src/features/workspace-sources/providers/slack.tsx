@@ -70,9 +70,10 @@ export function SlackScopeEditor(props: SourceScopeEditorProps) {
       </div>
     )
 
-  const listedIds = new Set(channelsQuery.data.map((channel) => channel.id))
+  const { items: channels, truncated } = channelsQuery.data
+  const listedIds = new Set(channels.map((channel) => channel.id))
   const query = search.trim().replace(/^#/, "").toLowerCase()
-  const rows = channelRows(channelsQuery.data, selected).filter(
+  const rows = channelRows(channels, selected).filter(
     (channel) => !query || channel.name.toLowerCase().includes(query),
   )
   return (
@@ -85,6 +86,12 @@ export function SlackScopeEditor(props: SourceScopeEditorProps) {
           bot is in them.
         </p>
       </div>
+      {truncated ? (
+        <p className="text-sm text-muted-foreground">
+          Showing the first 2000 channels. Search finds channels in this list
+          only.
+        </p>
+      ) : null}
       <SearchField
         aria-label={`Search ${pickerLabel}`}
         placeholder="Search channels"

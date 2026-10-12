@@ -174,7 +174,11 @@ const listChannelsRoute = createRoute({
     200: {
       content: {
         "application/json": {
-          schema: z.object({ items: z.array(SlackChannelSchema) }),
+          schema: z.object({
+            items: z.array(SlackChannelSchema),
+            /** True when Slack has more channels than the list holds. */
+            truncated: z.boolean(),
+          }),
         },
       },
       description:
@@ -672,11 +676,11 @@ export const slackConnectorRoutes = slackOAuthStartRoutes
       return c.json({ error: installed.error }, installed.status)
     }
     try {
-      const items = await listSlackChannels({
+      const listed = await listSlackChannels({
         env: c.var.env,
         connection: installed.connection,
       })
-      return c.json({ items }, 200)
+      return c.json(listed, 200)
     } catch (error) {
       getLogger().error(
         error instanceof Error ? error : new Error(String(error)),

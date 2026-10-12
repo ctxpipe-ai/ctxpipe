@@ -635,11 +635,14 @@ const SLACK_CHANNEL_LIST_MAX = 2000
  * List the channels that a source can select: the public channels of the
  * team and the private channels that the bot is a member of. Slack returns a
  * private channel only when the bot is in it. Archived channels are left out.
+ * The list stops at SLACK_CHANNEL_LIST_MAX channels, and `truncated` tells
+ * so. `conversations.list` has no name filter, so a search on the server
+ * would read the same pages; the picker searches the listed channels.
  */
 export async function listSlackChannels(input: {
   env: Env
   connection: SlackConnectionShape
-}): Promise<SlackListedChannel[]> {
+}): Promise<{ items: SlackListedChannel[]; truncated: boolean }> {
   const botToken = botTokenFromConnection(input.connection, input.env)
   const channels: SlackListedChannel[] = []
   let cursor: string | undefined
@@ -678,6 +681,9 @@ export async function listSlackChannels(input: {
     const next = page.response_metadata?.next_cursor?.trim()
     cursor = next ? next : undefined
   } while (cursor && channels.length < SLACK_CHANNEL_LIST_MAX)
-  return channels.sort((a, b) => a.name.localeCompare(b.name))
+  return {
+    items: channels.sort((a, b) => a.name.localeCompare(b.name)),
+    truncated: Boolean(cursor),
+  }
 }
 

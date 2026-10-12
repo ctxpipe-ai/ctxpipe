@@ -43,14 +43,50 @@ describe("listSlackChannels", () => {
       botTokenEnc: encodeSlackBotTokenForDb("xoxb-test", env),
       status: "installed",
     } as SlackConnectionShape
-    expect(await listSlackChannels({ env, connection })).toEqual([
-      { id: "C0ALL0001", name: "all-hands", isPrivate: false, isMember: false },
-      { id: "C0ENG0001", name: "eng", isPrivate: false, isMember: true },
-      { id: "G0PRIV001", name: "incidents", isPrivate: true, isMember: true },
-    ])
+    expect(await listSlackChannels({ env, connection })).toEqual({
+      items: [
+        {
+          id: "C0ALL0001",
+          name: "all-hands",
+          isPrivate: false,
+          isMember: false,
+        },
+        { id: "C0ENG0001", name: "eng", isPrivate: false, isMember: true },
+        { id: "G0PRIV001", name: "incidents", isPrivate: true, isMember: true },
+      ],
+      truncated: false,
+    })
     expect(requests.map((query) => query.get("types"))).toEqual([
       "public_channel,private_channel",
       "public_channel,private_channel",
     ])
+  })
+
+  it("stops at 2000 channels and says that the list is not complete", async () => {
+    const env = { AUTH_SECRET: "a-test-secret-of-at-least-32-chars!" } as Env
+    let page = 0
+    server.use(
+      http.get("https://slack.com/api/conversations.list", () => {
+        page += 1
+        return HttpResponse.json({
+          ok: true,
+          channels: Array.from({ length: 200 }, (_, index) => ({
+            id: `C0P${String(page).padStart(2, "0")}${String(index).padStart(4, "0")}`,
+            name: `channel-${page}-${index}`,
+            is_member: true,
+          })),
+          response_metadata: { next_cursor: `page-${page + 1}` },
+        })
+      }),
+    )
+    const connection = {
+      id: "con_slack1",
+      orgId: "org_1",
+      botTokenEnc: encodeSlackBotTokenForDb("xoxb-test", env),
+      status: "installed",
+    } as SlackConnectionShape
+    const listed = await listSlackChannels({ env, connection })
+    expect(listed.items).toHaveLength(2000)
+    expect(listed.truncated).toBe(true)
   })
 })

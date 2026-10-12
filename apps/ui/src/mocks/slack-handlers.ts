@@ -11,6 +11,7 @@ export const slackStoryChannels: SlackChannel[] = [
 
 export function slackChannelsHandler(
   response: SlackChannel[] | "error" | "pending" = slackStoryChannels,
+  options: { truncated?: boolean } = {},
 ) {
   return http.get(/\/api\/v1\/connectors\/slack\/channels(\?|$)/, async () => {
     if (response === "pending") await delay("infinite")
@@ -19,6 +20,9 @@ export function slackChannelsHandler(
         { error: "Could not load the Slack channels" },
         { status: 502 },
       )
-    return HttpResponse.json({ items: response })
+    return HttpResponse.json({
+      items: response,
+      truncated: options.truncated ?? false,
+    })
   })
 }

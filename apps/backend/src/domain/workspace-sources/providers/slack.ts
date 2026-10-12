@@ -6,10 +6,12 @@ import type { SourceScopeDefinition } from "./scope.js"
  * not sources (ADR-025). The id is also a path segment, so it holds only
  * capital letters and digits.
  */
+export const SLACK_CHANNEL_ID_PATTERN = "[CG][A-Z0-9]{2,31}"
+
 const slackChannelId = z
   .string()
   .regex(
-    /^[CG][A-Z0-9]{2,31}$/,
+    new RegExp(`^${SLACK_CHANNEL_ID_PATTERN}$`),
     "Use a Slack channel id, for example C0123ABCD",
   )
 
