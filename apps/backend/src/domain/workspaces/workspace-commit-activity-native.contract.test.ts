@@ -287,3 +287,61 @@ it(
     )
   },
 )
+
+it(
+  "checks a commit without a GitHub user once, so the next run reads one page",
+  { timeout: 60_000 },
+  async () => {
+    // A full page and one more, all without a GitHub user.
+    const commits = Array.from({ length: 101 }, (_, index) => ({
+      ...COMMIT,
+      sha: index.toString(16).padStart(40, "a"),
+      authorName: "Mail patch",
+      authorLogin: null,
+      date: new Date(Date.UTC(2026, 7, 26, 10) - index * 60_000).toISOString(),
+    }))
+    let pageReads = 0
+    await withNativeHydrationFixture(
+      {
+        github: true,
+        githubListCommits: commits,
+        onGithubListCommits: () => {
+          pageReads += 1
+        },
+      },
+      async (f) => {
+        await f.handle.cancel()
+        const project = () =>
+          withOrgIdContext(f.org, () =>
+            projectWorkspaceCommits({
+              workspaceId: f.workspaceId,
+              env: parseEnv(process.env),
+            }),
+          )
+        expect(await project()).toEqual({ status: "ready" })
+        expect(pageReads).toBe(2)
+
+        // A new head starts the next run. Every stored commit is known.
+        await withOrgDbContext(f.org.id, (db) =>
+          db
+            .update(workspaces)
+            .set({ desiredSha: "d".repeat(40) })
+            .where(eq(workspaces.id, f.workspaceId)),
+        )
+        expect(await project()).toEqual({ status: "ready" })
+        expect(pageReads).toBe(3)
+
+        const body = await (
+          await workspaceHttpApp(f.org, workspaceActivityRoutes).request(
+            "/workspaces/knowledge/activity",
+          )
+        ).json()
+        // The API gives null, not "", for a commit without a GitHub user.
+        expect(body.recent[0].authorLogin).toBeNull()
+        expect(body.authors).toEqual([
+          { name: "Mail patch", count: 101, login: null },
+        ])
+      },
+    )
+  },
+)
