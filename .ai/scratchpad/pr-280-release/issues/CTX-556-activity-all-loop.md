@@ -11,18 +11,20 @@
 ## Fix
 
 1. Backend: the org read is `ready` when one workspace is ready. An optional `pendingWorkspaces` list (slug, name) names the pending workspaces, as `failedWorkspaces` does. The read is `pending` only when no workspace is ready.
-2. Backend: the org read starts at most one projection run per pending workspace in each 5-minute window (idempotency key `org-activity-projection:<workspaceId>:<bucket>`).
-3. Backend: `runWorkflowWithWorkerWake` looks for a run with the same idempotency key first. A repeated key returns the earlier run and does not wake the worker again.
-4. UI: under All workspaces, Home shows the data at once, with a quiet note that names the pending workspaces. It polls every 10 s while a workspace is pending, and stops after 18 reads (about 3 minutes).
+2. Backend: the org read and the workspace read start at most one projection run per workspace state in each 5-minute window. The idempotency key is `activity-projection:<workspaceId>:<desiredSha>:<projection status>:<bucket>`.
+3. Backend: `runWorkflowWithWorkerWake` wakes the worker only when the returned run is pending. A repeated key for a running or finished run does not wake it. The 120 s wake debounce limits repeats.
+4. UI: when the org read is ready, All workspaces shows the data at once, with a quiet note that names the pending workspaces. While no workspace is ready, it shows only the loading state. The read without a day polls every 10 s while a workspace is pending, for 3 minutes from when the pending list became non-empty. The read of one day does not poll.
 
 The first approach (start a run for each pending workspace on each read, ec5431c9) was ruled out for the reason in item 2 of the cause.
 
 ## Tests
 
 - `apps/backend/src/routes/v1/workspace-activity-routes.integration.test.ts` (real Postgres): ready with `pendingWorkspaces`; pending only when no workspace is ready; 10 polls start one run per pending workspace. Red before, green after.
-- `apps/backend/src/openworkflow/client.integration.test.ts`: a repeated idempotency key returns the same run and does not deploy the worker again (msw on the Railway API). Red before (2 deploys), green after.
+- `apps/backend/src/openworkflow/client.integration.test.ts`: a repeated key for a finished run returns that run and does not deploy the worker again (msw on the Railway API). Red before (2 deploys), green after.
 - `apps/ui/src/features/workspaces/org-activity-poll.test.ts` (msw, fake intervals): one read in 9 s, then one each 10 s, stops after about 3 minutes. Red before (5 reads in 9 s).
-- Story `Components/Home/Activity/AllWorkspacesPendingNote` (play test counts org reads: 1 in 3 s). It passed in a local golden run. It is not in the golden list, because the activity stories are not golden.
+- `apps/backend/src/routes/v1/workspace-activity-routes.integration.test.ts`: 10 workspace reads start one run. The 10-read tests use a fixed clock in one window.
+- `org-activity-poll.test.ts` also covers a workspace that becomes pending after 20 reads, and a day read that does not poll.
+- Stories `AllWorkspacesPendingNote` (counts org reads: 1 in 3 s) and `AllWorkspacesNoneReady` (loading only, no empty text). Both passed in a local golden run; `AllWorkspacesNoneReady` failed on the earlier component. They are not in the golden list, because the activity stories are not golden.
 - biome and `test:policy` pass. `tsc` errors in backend and UI are in files that this change does not touch.
 
 ## Notes
