@@ -146,10 +146,15 @@ export function OnboardingPageContent({
           fetchOptions: { throw: true },
         })
       }
-      const { role } = await authClient.organization.getActiveMemberRole({
-        query: { organizationSlug: orgSlug },
-        fetchOptions: { throw: true },
-      })
+      // A failed role read must not block the finish. It only skips the
+      // org-complete call, which an owner or admin can make later.
+      const role = await authClient.organization
+        .getActiveMemberRole({
+          query: { organizationSlug: orgSlug },
+          fetchOptions: { throw: true },
+        })
+        .then((result) => result.role)
+        .catch(() => undefined)
       await Promise.all([
         apiFetch("/api/v1/onboarding/user/complete", {
           method: "POST",
