@@ -324,15 +324,20 @@ const activeInView = () => {
  * both.
  */
 const expectActiveSettled = async (name?: RegExp) => {
-  await waitFor(async () => {
-    const item = focusedItem()
-    if (!item) throw new Error("No active item")
-    if (name) expect(item.textContent).toMatch(name)
-    expect((await searchField()).getAttribute("aria-activedescendant")).toBe(
-      item.id,
-    )
-    expect(activeInView()).toBe(true)
-  })
+  // A busy CI runner can take more than the default 1 s to render and
+  // scroll; the wait ends as soon as both are true.
+  await waitFor(
+    async () => {
+      const item = focusedItem()
+      if (!item) throw new Error("No active item")
+      if (name) expect(item.textContent).toMatch(name)
+      expect((await searchField()).getAttribute("aria-activedescendant")).toBe(
+        item.id,
+      )
+      expect(activeInView(), `${item.textContent} is in view`).toBe(true)
+    },
+    { timeout: 5_000 },
+  )
 }
 
 const pressAndExpect = async (key: string, name: RegExp) => {
@@ -346,7 +351,11 @@ export const PaletteArrowKeysWalkEveryItem: Story = {
     msw: { handlers: { page: [workspaceListHandler(manyWorkspaces)] } },
   },
   play: async () => {
-    await screen.findByRole("menuitem", { name: /Team 20/ })
+    await screen.findByRole(
+      "menuitem",
+      { name: /Team 20/ },
+      { timeout: 15_000 },
+    )
     const field = await searchField()
     await waitFor(() => expect(field).toHaveFocus())
     // Down through each workspace, over the section boundary, to the pages.

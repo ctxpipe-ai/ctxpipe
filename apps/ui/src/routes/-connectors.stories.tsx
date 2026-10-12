@@ -46,8 +46,13 @@ export const Loading: Story = {
   render: () => <ConnectorsPageContent orgSlug={orgSlug} />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
+    // The story router renders its first route after an async load.
     expect(
-      canvas.getByRole("navigation", { name: "Main navigation" }),
+      await canvas.findByRole(
+        "navigation",
+        { name: "Main navigation" },
+        { timeout: 15_000 },
+      ),
     ).toBeVisible()
     expect(canvas.getByText("Loading connectors")).toBeInTheDocument()
   },

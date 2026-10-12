@@ -5,9 +5,14 @@ import {
   gitSource,
 } from "@tanstack/ai-sandbox"
 import { VercelHandle } from "@tanstack/ai-sandbox-vercel"
-import { type NetworkPolicy, Sandbox, Snapshot } from "@vercel/sandbox"
+import {
+  APIError,
+  type NetworkPolicy,
+  Sandbox,
+  Snapshot,
+} from "@vercel/sandbox"
 import { eq } from "drizzle-orm"
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { parseEnv } from "../../config/env.js"
 import { closeDb, initDb, withOrgDbContext } from "../../db/client.js"
 import { workspaceSandboxGitTokens } from "../../db/schema/workspaces.js"
@@ -15,6 +20,7 @@ import {
   type SandboxGitTokenStore,
   sandboxGitTokenStore,
 } from "../../models/sandbox-git-tokens.js"
+import { log } from "../../observability/logger.js"
 import { WORKSPACE_CHAT_VERCEL_SETUP } from "./chat-runtime.js"
 import { stopEarlierTurnProcesses } from "./sandbox-process-guards.js"
 import {
@@ -114,19 +120,19 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
-  for (const name of created) {
-    try {
-      const sandbox = await Sandbox.get({ ...credentials, name, resume: false })
-      await sandbox.delete()
-    } catch (error) {
-      report(`[vercel] cleanup ${name}: ${String(error)}`)
-    }
-  }
+  // A test can delete its own sandbox or snapshot first; already gone counts
+  // as deleted, so only a real cleanup fault is reported.
+  for (const name of created)
+    await deleteVercelSandbox({ credentials, name }).catch((error: unknown) =>
+      report(`[vercel] cleanup ${name}: ${String(error)}`),
+    )
   for (const snapshotId of snapshots) {
     try {
-      await (await Snapshot.get({ ...credentials, snapshotId })).delete()
+      const snapshot = await Snapshot.get({ ...credentials, snapshotId })
+      if (snapshot.status !== "deleted") await snapshot.delete()
     } catch (error) {
-      report(`[vercel] cleanup ${snapshotId}: ${String(error)}`)
+      if (!(error instanceof APIError && error.response.status === 404))
+        report(`[vercel] cleanup ${snapshotId}: ${String(error)}`)
     }
   }
   // This run's agent and base builders, with their snapshots.
@@ -465,11 +471,51 @@ describe("hosted conversation provider", { timeout: 600_000 }, () => {
   })
 })
 
+/**
+ * Start a server that answers each request with its method, path and
+ * headers, on a sandbox's public port. Returns the public host.
+ */
+async function startEchoHost(): Promise<string> {
+  const port = 8080
+  const sandbox = await create({
+    runtime: VERCEL_SANDBOX.runtime,
+    ports: [port],
+  })
+  await sandbox.runCommand({
+    cmd: "node",
+    args: [
+      "-e",
+      `require("node:http").createServer((req, res) => { res.setHeader("content-type", "application/json"); res.end(JSON.stringify({ echo: true, method: req.method, url: req.url, headers: req.headers })) }).listen(${port}, "0.0.0.0")`,
+    ],
+    detached: true,
+  })
+  const { url } = await handle(sandbox, [port]).ports.connect(port)
+  const started = Date.now()
+  let last = ""
+  while (Date.now() - started < 60_000) {
+    last = await fetch(`${url}/ready`, {
+      signal: AbortSignal.timeout(5_000),
+    }).then(
+      (response) => response.text(),
+      (error: unknown) => String(error),
+    )
+    if (last.includes('"echo":true')) {
+      report(`[vercel] echo host ready ${Date.now() - started}ms`)
+      return new URL(url).host
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1_000))
+  }
+  throw new Error(
+    `The echo host did not start within 60 s: ${last.slice(0, 300)}`,
+  )
+}
+
 describe("hosted turn credentials", { timeout: 600_000 }, () => {
   it("adds a turn's credentials outside the sandbox on exact paths and the pinned host, and removes them at turn end; the internet stays open", async () => {
-    // An echo service that answers any path stands in for the backend: it
-    // shows the headers that the firewall set. Known debt: this lane depends
-    // on httpbin.org.
+    // An echo service on a second sandbox's public port stands in for the
+    // backend: it shows the headers that the firewall set. A public echo
+    // service (httpbin.org) answered 503 pages and failed this lane.
+    const echoHost = await startEchoHost()
     const githubToken = process.env.GITHUB_TOKEN?.trim()
     if (!githubToken)
       throw new Error("GITHUB_TOKEN is required for the hosted sandbox lane")
@@ -485,7 +531,7 @@ describe("hosted turn credentials", { timeout: 600_000 }, () => {
         return token
       },
     }
-    const firewall = conversationFirewall("httpbin.org")
+    const firewall = conversationFirewall(echoHost)
     const provider = vercelConversationProvider({
       credentials,
       agentPassword: "contract-agent-password",
@@ -516,7 +562,7 @@ describe("hosted turn credentials", { timeout: 600_000 }, () => {
     const echo = async (path: string, extra = "") =>
       (
         await handle.process.exec(
-          `curl -sS --path-as-is ${extra} -H 'Authorization: Bearer ${WORKSPACE_CHAT_FIREWALL_PLACEHOLDER}' 'https://httpbin.org${path}'`,
+          `curl -sS --path-as-is ${extra} -H 'Authorization: Bearer ${WORKSPACE_CHAT_FIREWALL_PLACEHOLDER}' 'https://${echoHost}${path}'`,
         )
       ).stdout
     const until = async (check: () => Promise<boolean>) => {
@@ -584,7 +630,13 @@ describe("hosted turn credentials", { timeout: 600_000 }, () => {
     await firewall.closeTurn(handle.id)
     report(`[vercel] turn credentials removed ${Date.now() - started}ms`)
     report(
-      `[vercel] turn credentials gone after ${await until(async () => !(await echo(model)).includes(turn.modelCapability))}ms`,
+      `[vercel] turn credentials gone after ${await until(async () => {
+        const body = await echo(model)
+        return (
+          !body.includes(turn.modelCapability) &&
+          body.includes(WORKSPACE_CHAT_FIREWALL_PLACEHOLDER)
+        )
+      })}ms`,
     )
     const after = `${await echo(model)}${await echo(turn.bridgePath)}`
     expect(after).not.toContain(turn.modelCapability)
@@ -758,8 +810,25 @@ describe("agent snapshot and Workspace base", { timeout: 900_000 }, () => {
     ).toContain(snapshotId)
 
     started = Date.now()
-    const conversation = await start(conversationFrom(snapshotId))
+    // A failed start from the base goes on from the agent snapshot and only
+    // logs a warning; keep it, so a fallback fails here with its cause and
+    // not later as a missing clone.
+    const warnings: unknown[] = []
+    const warn = vi.spyOn(log, "warn").mockImplementation((entry) => {
+      warnings.push(entry)
+    })
+    const conversation = await start(conversationFrom(snapshotId)).finally(() =>
+      warn.mockRestore(),
+    )
     report(`[vercel] conversation sandbox from base ${Date.now() - started}ms`)
+    const source = (
+      await Sandbox.get({
+        ...credentials,
+        name: conversation.id,
+        resume: false,
+      })
+    ).sourceSnapshotId
+    expect(source, JSON.stringify(warnings)).toBe(snapshotId)
     expect(await conversation.fs.exists("/workspace/.git")).toBe(true)
     expect(await conversation.fs.read("/workspace/README")).toContain(
       "Hello World",

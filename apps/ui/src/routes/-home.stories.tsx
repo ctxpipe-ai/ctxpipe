@@ -34,11 +34,17 @@ const homeRoute = {
 } satisfies StoryRouteParams
 
 export const Loading: Story = {
+  tags: ["workspace-golden"],
   render: () => <OrgHomePageContent orgSlug="acme" />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
+    // The story router renders its first route after an async load.
     expect(
-      canvas.getByRole("navigation", { name: "Main navigation" }),
+      await canvas.findByRole(
+        "navigation",
+        { name: "Main navigation" },
+        { timeout: 15_000 },
+      ),
     ).toBeVisible()
     expect(canvas.getByLabelText("Select workspace")).toBeVisible()
     expect(canvas.getByText("Loading activity")).toBeInTheDocument()
@@ -67,11 +73,17 @@ export const Loading: Story = {
 
 /** The workspace list is still loading: the composer and activity skeleton hold their place. */
 export const WorkspacesLoading: Story = {
+  tags: ["workspace-golden"],
   render: () => <OrgHomePageContent orgSlug="acme" />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
+    // The story router renders its first route after an async load.
     expect(
-      canvas.getByRole("navigation", { name: "Main navigation" }),
+      await canvas.findByRole(
+        "navigation",
+        { name: "Main navigation" },
+        { timeout: 15_000 },
+      ),
     ).toBeVisible()
     expect(await canvas.findByLabelText("Select workspace")).toBeVisible()
     expect(canvas.getByText("Loading activity")).toBeInTheDocument()
@@ -99,11 +111,17 @@ export const WorkspacesLoading: Story = {
 }
 
 export const Empty: Story = {
+  tags: ["workspace-golden"],
   render: () => <OrgHomePageContent orgSlug="acme" />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
+    // The story router renders its first route after an async load.
     expect(
-      canvas.getByRole("navigation", { name: "Main navigation" }),
+      await canvas.findByRole(
+        "navigation",
+        { name: "Main navigation" },
+        { timeout: 15_000 },
+      ),
     ).toBeVisible()
     expect(
       await canvas.findByRole("button", { name: "Create Workspace" }),
@@ -121,11 +139,17 @@ export const Empty: Story = {
 }
 
 export const Populated: Story = {
+  tags: ["workspace-golden"],
   render: () => <OrgHomePageContent orgSlug="acme" />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
+    // The story router renders its first route after an async load.
     expect(
-      canvas.getByRole("navigation", { name: "Main navigation" }),
+      await canvas.findByRole(
+        "navigation",
+        { name: "Main navigation" },
+        { timeout: 15_000 },
+      ),
     ).toBeVisible()
     expect(canvas.getByLabelText("Select workspace")).toBeVisible()
     const activityHeading = await canvas.findByText("Activity")
@@ -148,11 +172,17 @@ export const Populated: Story = {
 }
 
 export const ActivityLoading: Story = {
+  tags: ["workspace-golden"],
   render: () => <OrgHomePageContent orgSlug="acme" />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
+    // The story router renders its first route after an async load.
     expect(
-      canvas.getByRole("navigation", { name: "Main navigation" }),
+      await canvas.findByRole(
+        "navigation",
+        { name: "Main navigation" },
+        { timeout: 15_000 },
+      ),
     ).toBeVisible()
     expect(canvas.getByLabelText("Select workspace")).toBeVisible()
     expect(await canvas.findByText("Loading activity")).toBeInTheDocument()
@@ -170,6 +200,7 @@ export const ActivityLoading: Story = {
 
 /** The composer opens the new conversation, which sends the message. */
 export const FirstMessageOpensConversation: Story = {
+  tags: ["workspace-golden"],
   render: () => <OrgHomePageContent orgSlug="acme" />,
   parameters: {
     storyRoute: homeRoute,
@@ -181,14 +212,27 @@ export const FirstMessageOpensConversation: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
+    // The story router renders its first route after an async load.
     expect(
-      canvas.getByRole("navigation", { name: "Main navigation" }),
+      await canvas.findByRole(
+        "navigation",
+        { name: "Main navigation" },
+        { timeout: 15_000 },
+      ),
     ).toBeVisible()
     expect(await canvas.findByLabelText("Select workspace")).toBeVisible()
-    const input = await canvas.findByPlaceholderText(
-      /what should ctxpipe do in this workspace/i,
+    // The composer mounts again when the workspace list loads, so read the
+    // current text box each time, not the first one found.
+    const input = await waitFor(
+      () => {
+        const box = canvas.getByPlaceholderText(
+          /what should ctxpipe do in this workspace/i,
+        )
+        expect(box).toBeEnabled()
+        return box
+      },
+      { timeout: 15_000 },
     )
-    await waitFor(() => expect(input).toBeEnabled())
     await userEvent.type(input, "What changed this week?")
     await userEvent.click(canvas.getByRole("button", { name: /send/i }))
     await waitFor(() =>
@@ -202,11 +246,17 @@ export const FirstMessageOpensConversation: Story = {
 }
 
 export const NoHistory: Story = {
+  tags: ["workspace-golden"],
   render: () => <OrgHomePageContent orgSlug="acme" />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
+    // The story router renders its first route after an async load.
     expect(
-      canvas.getByRole("navigation", { name: "Main navigation" }),
+      await canvas.findByRole(
+        "navigation",
+        { name: "Main navigation" },
+        { timeout: 15_000 },
+      ),
     ).toBeVisible()
     expect(
       await canvas.findByText("No commits on the default branch yet."),

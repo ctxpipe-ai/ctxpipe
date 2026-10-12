@@ -78,8 +78,13 @@ export const Loading: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
+    // The story router renders its first route after an async load.
     expect(
-      canvas.getByRole("navigation", { name: "Main navigation" }),
+      await canvas.findByRole(
+        "navigation",
+        { name: "Main navigation" },
+        { timeout: 15_000 },
+      ),
     ).toBeVisible()
     expect(canvas.getByText("Loading workspace")).toBeInTheDocument()
   },
@@ -311,8 +316,13 @@ export const ConversationLoading: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
+    // The story router renders its first route after an async load.
     expect(
-      canvas.getByRole("navigation", { name: "Main navigation" }),
+      await canvas.findByRole(
+        "navigation",
+        { name: "Main navigation" },
+        { timeout: 15_000 },
+      ),
     ).toBeVisible()
     expect(canvas.queryByRole("list", { name: "Workspace files" })).toBeNull()
     expect(canvas.queryByText("Loading workspace")).not.toBeInTheDocument()

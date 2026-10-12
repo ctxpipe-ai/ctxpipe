@@ -54,8 +54,11 @@ RUN dart pub global activate scip_dart "${SCIP_DART_VERSION}"
 FROM debian:bookworm-slim AS release-tools
 ARG TARGETARCH=amd64
 ARG SCIP_GO_VERSION=0.2.7
+ARG SCIP_GO_SHA256=5bfe39016ca04f5b3b1cce41d1b63ea120a7d7e93b55407bfb17a6b02d18135a
 ARG SCIP_VERSION=0.9.0
+ARG SCIP_SHA256=fc2e7273e110be9f35924da1066000183791e8bfdb0391355de6eaaa070fec75
 ARG SCIP_JAVA_VERSION=0.13.1
+ARG SCIP_JAVA_SHA256=a694cae143c32c5b6226362fb4bd268a8d13d3cd9b482819b3b0029a9a97b8fe
 ARG SCIP_CLANG_VERSION=0.4.0
 ARG SCIP_CLANG_SHA256=06fd18c576f979a726c651594644ec4a35db4f471f2160b3f72eb89fa6001784
 ARG SCIP_RUBY_VERSION=0.4.7
@@ -64,41 +67,35 @@ ARG RUST_ANALYZER_VERSION=2026-07-27
 ARG RUST_ANALYZER_SHA256=ac4f42ddbbd040d75d847e991894776485783e28beb744b9719a660a99abe115
 RUN test "${TARGETARCH}" = "amd64" || \
     (echo "The full SCIP matrix requires linux/amd64 (scip-clang/scip-ruby upstream limitation)." >&2; exit 1)
+# Each file has a pinned checksum, so only the files themselves come from
+# GitHub. A download retries with a growing delay (about 1 minute in total);
+# when GitHub still fails, the build names the URL.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
   && rm -rf /var/lib/apt/lists/* \
   && mkdir -p /out /tmp/releases \
   && cd /tmp/releases \
-  && download() { curl -fsSL --retry 3 --retry-delay 2 --retry-all-errors --connect-timeout 15 --max-time 600 "$@"; } \
-  && download -O "https://github.com/sourcegraph/scip-go/releases/download/v${SCIP_GO_VERSION}/scip-go-linux-amd64.tar.gz" \
-  && download -O "https://github.com/sourcegraph/scip-go/releases/download/v${SCIP_GO_VERSION}/scip-go-linux-amd64.tar.gz.sha256" \
-  && sha256sum -c scip-go-linux-amd64.tar.gz.sha256 \
-  && tar -xzf scip-go-linux-amd64.tar.gz -C /out scip-go \
-  && download -O "https://github.com/scip-code/scip/releases/download/v${SCIP_VERSION}/scip-linux-amd64.tar.gz" \
-  && download -O "https://github.com/scip-code/scip/releases/download/v${SCIP_VERSION}/scip-linux-amd64.tar.gz.sha256" \
-  && sha256sum -c scip-linux-amd64.tar.gz.sha256 \
-  && tar -xzf scip-linux-amd64.tar.gz -C /out scip \
-  && download -O \
-    "https://github.com/scip-code/scip-java/releases/download/v${SCIP_JAVA_VERSION}/scip-java-v${SCIP_JAVA_VERSION}" \
-  && download -O \
-    "https://github.com/scip-code/scip-java/releases/download/v${SCIP_JAVA_VERSION}/scip-java-v${SCIP_JAVA_VERSION}.sha256" \
-  && sha256sum -c "scip-java-v${SCIP_JAVA_VERSION}.sha256" \
-  && mv "scip-java-v${SCIP_JAVA_VERSION}" /out/scip-java \
-  && download \
-    "https://github.com/sourcegraph/scip-clang/releases/download/v${SCIP_CLANG_VERSION}/scip-clang-x86_64-linux" \
-    -o scip-clang \
-  && echo "${SCIP_CLANG_SHA256}  scip-clang" | sha256sum -c - \
-  && mv scip-clang /out/scip-clang \
-  && download \
-    "https://github.com/sourcegraph/scip-ruby/releases/download/scip-ruby-v${SCIP_RUBY_VERSION}/scip-ruby-x86_64-linux" \
-    -o scip-ruby \
-  && echo "${SCIP_RUBY_SHA256}  scip-ruby" | sha256sum -c - \
-  && mv scip-ruby /out/scip-ruby \
-  && download \
-    "https://github.com/rust-lang/rust-analyzer/releases/download/${RUST_ANALYZER_VERSION}/rust-analyzer-x86_64-unknown-linux-gnu.gz" \
-    -o rust-analyzer.gz \
-  && echo "${RUST_ANALYZER_SHA256}  rust-analyzer.gz" | sha256sum -c - \
+  && fetch() { \
+    curl -fsSL --retry 6 --retry-all-errors --retry-max-time 300 \
+      --connect-timeout 15 --max-time 600 -o "$2" "$1" \
+      || { echo "Outside service unavailable: cannot download $1" >&2; return 1; }; \
+    echo "$3  $2" | sha256sum -c -; \
+  } \
+  && fetch "https://github.com/sourcegraph/scip-go/releases/download/v${SCIP_GO_VERSION}/scip-go-linux-amd64.tar.gz" \
+    scip-go.tar.gz "${SCIP_GO_SHA256}" \
+  && tar -xzf scip-go.tar.gz -C /out scip-go \
+  && fetch "https://github.com/scip-code/scip/releases/download/v${SCIP_VERSION}/scip-linux-amd64.tar.gz" \
+    scip.tar.gz "${SCIP_SHA256}" \
+  && tar -xzf scip.tar.gz -C /out scip \
+  && fetch "https://github.com/scip-code/scip-java/releases/download/v${SCIP_JAVA_VERSION}/scip-java-v${SCIP_JAVA_VERSION}" \
+    /out/scip-java "${SCIP_JAVA_SHA256}" \
+  && fetch "https://github.com/sourcegraph/scip-clang/releases/download/v${SCIP_CLANG_VERSION}/scip-clang-x86_64-linux" \
+    /out/scip-clang "${SCIP_CLANG_SHA256}" \
+  && fetch "https://github.com/sourcegraph/scip-ruby/releases/download/scip-ruby-v${SCIP_RUBY_VERSION}/scip-ruby-x86_64-linux" \
+    /out/scip-ruby "${SCIP_RUBY_SHA256}" \
+  && fetch "https://github.com/rust-lang/rust-analyzer/releases/download/${RUST_ANALYZER_VERSION}/rust-analyzer-x86_64-unknown-linux-gnu.gz" \
+    rust-analyzer.gz "${RUST_ANALYZER_SHA256}" \
   && gzip -dc rust-analyzer.gz > /out/rust-analyzer \
   && chmod +x /out/*
 

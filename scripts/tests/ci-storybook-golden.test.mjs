@@ -232,6 +232,13 @@ const required = [
     "apps/ui/src/features/workspaces/WorkspacePane.stories.tsx",
     "DefaultBranchUntilSandboxReady",
   ],
+  ["apps/ui/src/routes/-home.stories.tsx", "Loading"],
+  ["apps/ui/src/routes/-home.stories.tsx", "WorkspacesLoading"],
+  ["apps/ui/src/routes/-home.stories.tsx", "Empty"],
+  ["apps/ui/src/routes/-home.stories.tsx", "Populated"],
+  ["apps/ui/src/routes/-home.stories.tsx", "ActivityLoading"],
+  ["apps/ui/src/routes/-home.stories.tsx", "FirstMessageOpensConversation"],
+  ["apps/ui/src/routes/-home.stories.tsx", "NoHistory"],
 ]
 
 test("required golden stories carry the workspace-golden tag and a play", () => {
@@ -263,6 +270,25 @@ test("inventory rejects a tagged required story without play-fn", () => {
         },
       }),
     /no play function/,
+  )
+})
+
+test("inventory rejects two tagged stories with one name", () => {
+  assert.throws(
+    () =>
+      selectGoldenStories({
+        entries: {
+          home: {
+            exportName: "Loading",
+            tags: ["workspace-golden", "play-fn"],
+          },
+          other: {
+            exportName: "Loading",
+            tags: ["workspace-golden", "play-fn"],
+          },
+        },
+      }),
+    /More than one golden story is named Loading/,
   )
 })
 
