@@ -1326,7 +1326,19 @@ export const DefaultBranchUntilSandboxReady: Story = {
             ...docsWorkspaceGitBlobs,
             [ledgerPath]: "# Sandbox ledger\n",
           }),
-          conversationGitStatusHandler(),
+          // A clean sandbox: no working body hides the sandbox blob.
+          conversationGitStatusHandler({
+            source: "sandbox",
+            branch: "ctxpipe/chat/conv_new/1",
+            dirty: false,
+            differsFromDefault: false,
+            unpushed: false,
+            published: false,
+            ahead: 0,
+            behind: 0,
+            items: [],
+            worktreeVersion: "wt-0",
+          }),
           conversationFilePutHandler(),
           ...gitFilesHandlers,
         ],
@@ -1355,12 +1367,12 @@ export const DefaultBranchUntilSandboxReady: Story = {
     // Before the sandbox is ready the file comes from the default branch.
     await canvas.findByText(/You can edit when the sandbox is ready/)
     expect(canvas.queryByRole("button", { name: "Save" })).toBeNull()
+    // The read-only file has no editor handle, so read the rendered text.
     await waitFor(() => {
-      expect(pierreEditorHost(canvasElement)?.hasPierreEditor?.()).toBe(true)
+      expect(textInShadows(pierreEditorHost(canvasElement))).toMatch(
+        /Billing ledger/,
+      )
     })
-    expect(pierreEditorHost(canvasElement)?.getPierreText?.()).toMatch(
-      /Billing ledger/,
-    )
 
     await userEvent.click(canvas.getByRole("button", { name: "Sandbox ready" }))
     await waitFor(() => {
@@ -1451,6 +1463,17 @@ function findInShadows(root: ParentNode, selector: string): Element | null {
     if (nested) return nested
   }
   return null
+}
+
+/** The text of `node`, also the text inside each open shadow root. */
+function textInShadows(node: Node | null): string {
+  if (!node) return ""
+  if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? ""
+  let text = ""
+  if (node instanceof Element && node.shadowRoot)
+    text += textInShadows(node.shadowRoot)
+  for (const child of node.childNodes) text += textInShadows(child)
+  return text
 }
 
 type PierreEditorHost = HTMLElement & {
