@@ -46,6 +46,12 @@ const unprojected = {
   slug: `new-${suffix}`,
 }
 const idle = { id: `ws_activity_idle_${suffix}`, slug: `idle-${suffix}` }
+const newOrg = {
+  id: `org_test_activity_new_${suffix}`,
+  slug: `activity-new-${suffix}`,
+  name: "New",
+}
+const fresh = { id: `ws_activity_fresh_${suffix}`, slug: `fresh-${suffix}` }
 const failedOrg = {
   id: `org_test_activity_failed_${suffix}`,
   slug: `activity-failed-${suffix}`,
@@ -146,12 +152,15 @@ describe("workspace activity routes (Postgres)", () => {
 
   afterAll(async () => {
     await getSystemDb().execute(
-      sql`delete from openworkflow.workflow_runs where input->>'orgId' in (${org.id}, ${otherOrg.id}, ${failedOrg.id})`,
+      sql`delete from openworkflow.workflow_runs where input->>'orgId' in (${org.id}, ${otherOrg.id}, ${failedOrg.id}, ${newOrg.id})`,
     )
     await withOrgDbContext(failedOrg.id, (db) =>
       db
         .delete(workspaces)
         .where(inArray(workspaces.id, [readyWorkspace.id, failedWorkspace.id])),
+    )
+    await withOrgDbContext(newOrg.id, (db) =>
+      db.delete(workspaces).where(inArray(workspaces.id, [fresh.id])),
     )
     await withOrgDbContext(org.id, (db) =>
       db
@@ -272,28 +281,42 @@ describe("workspace activity routes (Postgres)", () => {
     ).toEqual(["Commit x"])
   })
 
-  it("is pending while a workspace in the org has no projection", async () => {
+  it("is ready with the pending workspaces listed when one workspace is ready", async () => {
     await seedWorkspace(otherOrg, unprojected, { projected: false })
     const app = workspaceHttpApp(otherOrg, orgActivityRoutes)
     const body = await (await app.request("/workspaces")).json()
-    expect(body.status).toBe("pending")
+    expect(body.status).toBe("ready")
+    expect(body.pendingWorkspaces).toEqual([
+      { slug: unprojected.slug, name: unprojected.slug },
+    ])
     expect(body.recent.map((row: { subject: string }) => row.subject)).toEqual([
       "Commit x",
     ])
   })
 
-  it("starts a projection run for each workspace that keeps the org read pending", async () => {
-    // Without a run, a workspace with no projection stays pending, and the
-    // UI polls the org read without end (CTX-556).
+  it("is pending only when no workspace in the org is ready", async () => {
+    await seedWorkspace(newOrg, fresh, { projected: false })
+    const app = workspaceHttpApp(newOrg, orgActivityRoutes)
+    const body = await (await app.request("/workspaces")).json()
+    expect(body.status).toBe("pending")
+    expect(body.pendingWorkspaces).toEqual([
+      { slug: fresh.slug, name: fresh.slug },
+    ])
+  })
+
+  it("starts one projection run per pending workspace over 10 polls", async () => {
     await seedWorkspace(otherOrg, idle, { projected: false })
     const app = workspaceHttpApp(otherOrg, orgActivityRoutes)
-    expect((await (await app.request("/workspaces")).json()).status).toBe(
-      "pending",
-    )
+    for (let poll = 0; poll < 10; poll += 1) {
+      expect((await app.request("/workspaces")).status).toBe(200)
+    }
     await vi.waitFor(
       async () => expect(await projectionRunCount(idle.id)).toBeGreaterThan(0),
-      { timeout: 5_000 },
+      { timeout: 3_000 },
     )
+    await new Promise((settle) => setTimeout(settle, 500))
+    expect(await projectionRunCount(idle.id)).toBe(1)
+    expect(await projectionRunCount(unprojected.id)).toBe(1)
     // A ready projection is fresh, so the org read starts no run for it.
     expect(await projectionRunCount(otherWorkspace.id)).toBe(0)
   })

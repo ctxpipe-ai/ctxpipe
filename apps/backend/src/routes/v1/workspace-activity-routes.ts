@@ -41,6 +41,10 @@ const WorkspaceActivityResponseSchema = z
     failedWorkspaces: z
       .array(z.object({ slug: z.string(), name: z.string() }))
       .optional(),
+    /** Org read only: the workspaces whose projection is not done yet. */
+    pendingWorkspaces: z
+      .array(z.object({ slug: z.string(), name: z.string() }))
+      .optional(),
   })
   .openapi("WorkspaceActivityResponse")
 
@@ -173,7 +177,7 @@ const getOrgActivityRoute = createRoute({
         "application/json": { schema: WorkspaceActivityResponseSchema },
       },
       description:
-        "Commit heatmap and recent commits of every workspace in the org. With `date`, `recent` holds the commits of that UTC day. `pending` while a workspace projection is not done; `failed` only when every projection failed. `failedWorkspaces` lists each workspace whose projection failed. The read starts a projection run for each pending workspace.",
+        "Commit heatmap and recent commits of every workspace in the org. With `date`, `recent` holds the commits of that UTC day. `ready` when one workspace projection is ready; `pending` only when no projection is ready and one is not done; `failed` only when every projection failed. `failedWorkspaces` and `pendingWorkspaces` list the workspaces whose projection failed or is not done. The read starts at most one projection run per pending workspace in each 5-minute window.",
     },
     400: {
       description: "Invalid query parameter",
@@ -196,8 +200,9 @@ export const orgActivityRoutes = new OpenAPIHono<AppEnv>().openapi(
       workspace: row.workspace,
       status: readProjectionStatus(row.projection),
     }))
-    // A pending workspace stays pending until a projection run ends. Start a
-    // run for each one, so the org read does not stay pending without end.
+    // Home polls this read. Start at most one projection run per pending
+    // workspace in each 5-minute window.
+    const bucket = Math.floor(Date.now() / 300_000)
     for (const row of rows) {
       if (row.status !== "pending") continue
       void enqueueWorkspaceCommitProjection(
@@ -206,19 +211,32 @@ export const orgActivityRoutes = new OpenAPIHono<AppEnv>().openapi(
           error: (err) =>
             getLogger().error(err, { step: "org.activity.enqueue" }),
         },
+        {
+          idempotencyKey: `org-activity-projection:${row.workspace.id}:${bucket}`,
+        },
       )
     }
     const statuses = rows.map((row) => row.status)
-    const status: ActivityStatus = statuses.includes("pending")
-      ? "pending"
-      : statuses.length > 0 && statuses.every((value) => value === "failed")
-        ? "failed"
-        : "ready"
-    const failedWorkspaces = rows
-      .filter((row) => row.status === "failed")
-      .map((row) => ({ slug: row.workspace.slug, name: row.workspace.name }))
+    // The ready workspaces give the data. Pending only when none is ready.
+    const status: ActivityStatus = statuses.includes("ready")
+      ? "ready"
+      : statuses.includes("pending")
+        ? "pending"
+        : statuses.length > 0
+          ? "failed"
+          : "ready"
+    const listed = (value: ActivityStatus) =>
+      rows
+        .filter((row) => row.status === value)
+        .map((row) => ({ slug: row.workspace.slug, name: row.workspace.name }))
+    const failedWorkspaces = listed("failed")
+    const pendingWorkspaces = listed("pending")
     return c.json(
-      { ...(await activityBody({ status, date })), failedWorkspaces },
+      {
+        ...(await activityBody({ status, date })),
+        failedWorkspaces,
+        pendingWorkspaces,
+      },
       200,
     )
   },
