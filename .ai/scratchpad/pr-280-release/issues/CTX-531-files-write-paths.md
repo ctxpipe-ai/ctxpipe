@@ -16,3 +16,7 @@ Status: done on `fix/ctx-531-files-put-git`. The conversation Files routes and t
 
 - `conversation-files.test.ts`, block "conversation sandbox writes", uses real git. It covers the path rules, normal writes (new, nested, and existing files), and a repository with configured programs. Backend status, diff, and rebase commands do not run these programs.
 - Two contract tests do not use sandbox hooks now. A failed commit comes from an index lock. The push barrier is a hook on the fixture remote.
+
+## Follow-ups
+
+- None for this ticket. `workspace-chat-prepare-native` has two Docker cases that also fail on the base commit 833fe29b.
