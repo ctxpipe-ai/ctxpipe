@@ -194,7 +194,7 @@ describe("conversationCtaPlan", () => {
         createPrPending: false,
         prExists: false,
       },
-      want: { sync: false, pullRequest: null, pullRequestIsCta: false },
+      want: { sync: null, pullRequest: null },
     },
     {
       name: "dirty shows only Sync",
@@ -204,7 +204,7 @@ describe("conversationCtaPlan", () => {
         createPrPending: false,
         prExists: false,
       },
-      want: { sync: true, pullRequest: null, pullRequestIsCta: false },
+      want: { sync: "cta", pullRequest: null },
     },
     {
       name: "clean and ahead shows Create PR",
@@ -214,17 +214,17 @@ describe("conversationCtaPlan", () => {
         createPrPending: false,
         prExists: false,
       },
-      want: { sync: false, pullRequest: "create", pullRequestIsCta: true },
+      want: { sync: null, pullRequest: "create" },
     },
     {
-      name: "a running Create PR stays visible",
+      name: "a running Create PR is the only CTA and Sync is subtle",
       input: {
         syncVisible: true,
         createPrVisible: true,
         createPrPending: true,
         prExists: false,
       },
-      want: { sync: true, pullRequest: "create", pullRequestIsCta: true },
+      want: { sync: "subtle", pullRequest: "create" },
     },
     {
       name: "a PR shows Show PR as the CTA",
@@ -234,7 +234,7 @@ describe("conversationCtaPlan", () => {
         createPrPending: false,
         prExists: true,
       },
-      want: { sync: false, pullRequest: "show", pullRequestIsCta: true },
+      want: { sync: null, pullRequest: "show" },
     },
     {
       name: "a PR and dirty show Sync as the CTA and a subtle Show PR",
@@ -244,7 +244,7 @@ describe("conversationCtaPlan", () => {
         createPrPending: false,
         prExists: true,
       },
-      want: { sync: true, pullRequest: "show", pullRequestIsCta: false },
+      want: { sync: "cta", pullRequest: "show" },
     },
   ]
   for (const { name, input, want } of cases) {

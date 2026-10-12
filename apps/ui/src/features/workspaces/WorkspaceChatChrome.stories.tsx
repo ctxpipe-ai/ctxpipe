@@ -91,7 +91,6 @@ export const DirtyCommitPush: Story = {
     title: "Repo layout",
     branch: {
       shortName: "chat/1",
-      fullRef: "ctxpipe/chat/conv_1/1",
     },
     cta: {
       commitPush: {
@@ -153,7 +152,6 @@ export const CommittedCreatePrOnly: Story = {
     title: "Repo layout",
     branch: {
       shortName: "chat/1",
-      fullRef: "ctxpipe/chat/conv_1/1",
     },
     cta: {
       commitPush: {
@@ -184,7 +182,6 @@ export const CleanNoPublishActions: Story = {
     title: "Repo layout",
     branch: {
       shortName: "chat/1",
-      fullRef: "ctxpipe/chat/conv_1/1",
     },
     cta: {
       commitPush: {
@@ -274,7 +271,6 @@ export const ShowPr: Story = {
     title: "Repo layout",
     branch: {
       shortName: "chat/1",
-      fullRef: "ctxpipe/chat/conv_1/1",
       href: "https://github.com/acme/docs/tree/ctxpipe/chat/conv_1/1",
     },
     cta: {
@@ -325,7 +321,6 @@ export const CommitPushWithOpenPr: Story = {
     title: "Repo layout",
     branch: {
       shortName: "chat/1",
-      fullRef: "ctxpipe/chat/conv_1/1",
       href: "https://github.com/acme/docs/tree/ctxpipe/chat/conv_1/1",
     },
     cta: {
@@ -365,7 +360,6 @@ export const MergedCreatePrAgain: Story = {
     ...DirtyCommitPush.args,
     branch: {
       shortName: "chat/1",
-      fullRef: "ctxpipe/chat/conv_1/1",
       href: "https://github.com/acme/docs/tree/ctxpipe/chat/conv_1/1",
     },
   },
@@ -431,8 +425,6 @@ export const BranchLabel: Story = {
     title: "Repo layout",
     branch: {
       shortName: "chat/a-very-long-branch-name-that-does-not-fit-in-the-label",
-      fullRef:
-        "ctxpipe/chat/conv_1/a-very-long-branch-name-that-does-not-fit-in-the-label",
     },
   },
   play: async ({ canvasElement }) => {

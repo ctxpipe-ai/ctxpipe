@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { expect, fn, userEvent, within } from "storybook/test"
+import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 import type { ChatMessage } from "@/features/chat/types"
 import { ConversationSyncEntry } from "@/features/workspaces/ConversationSyncEntry"
 import { ConversationTurnChangesCard } from "@/features/workspaces/ConversationTurnChangesCard"
@@ -420,7 +420,10 @@ export const PushEntryUnderCard: Story = {
   tags: ["workspace-golden"],
   decorators: [
     (Story) => (
-      <div className="flex h-[32rem] w-[26rem] bg-zinc-950">
+      <div
+        data-testid="push-frame"
+        className="flex h-[32rem] w-[26rem] bg-zinc-950"
+      >
         <Story />
       </div>
     ),
@@ -473,12 +476,23 @@ export const PushEntryUnderCard: Story = {
     const entry = await canvas.findByRole("region", {
       name: /^Pushed 1 file to/,
     })
-    const cardBox = card.getBoundingClientRect()
-    const entryBox = entry.getBoundingClientRect()
-    expect(entryBox.top).toBeGreaterThanOrEqual(cardBox.bottom)
-    expect(entryBox.left).toBeCloseTo(cardBox.left, 0)
-    expect(entryBox.right).toBeLessThanOrEqual(cardBox.right + 1)
+    const frame = canvas.getByTestId("push-frame")
+    // The entry sits under the card at a narrow and at a wide width.
+    for (const width of ["26rem", "64rem"]) {
+      frame.style.width = width
+      await waitFor(() => {
+        const cardBox = card.getBoundingClientRect()
+        const entryBox = entry.getBoundingClientRect()
+        expect(entryBox.top).toBeGreaterThanOrEqual(cardBox.bottom)
+        expect(entryBox.left).toBeCloseTo(cardBox.left, 0)
+        expect(entryBox.right).toBeLessThanOrEqual(cardBox.right + 1)
+      })
+    }
+    // The long branch truncates at the narrow width.
+    frame.style.width = "26rem"
     const branch = within(entry).getByText(/conv_long_identifier/)
-    expect(branch.scrollWidth).toBeGreaterThan(branch.clientWidth)
+    await waitFor(() =>
+      expect(branch.scrollWidth).toBeGreaterThan(branch.clientWidth),
+    )
   },
 }
