@@ -845,6 +845,7 @@ async function pushConversationBranch(input: {
     workspaceId: workspace.id,
     env: parseEnv(process.env as Record<string, string | undefined>),
     commit: { subject: cleanTitle(conversation.name) || "Changes from ctx|" },
+    recordSync: true,
   })
   if (pushed.status === "unchanged") return publishError("no_changes")
   if (pushed.status !== "pushed") return publishError(pushed.reason)

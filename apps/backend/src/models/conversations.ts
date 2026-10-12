@@ -28,6 +28,7 @@ import {
   encodeCursor,
   type PageInfo,
 } from "../lib/pagination.js"
+import { deleteConversationSyncs } from "./conversation-syncs.js"
 import { deleteConversationTurnChanges } from "./conversation-turn-changes.js"
 
 function orgSql<T>(fn: () => Promise<T>): Promise<T> {
@@ -656,7 +657,10 @@ export async function deleteConversation(
         ),
       )
       .returning({ id: conversations.id })
-    if (deleted) await deleteConversationTurnChanges(db, conversationId)
+    if (deleted) {
+      await deleteConversationTurnChanges(db, conversationId)
+      await deleteConversationSyncs(db, conversationId)
+    }
     return deleted != null
   })
 }

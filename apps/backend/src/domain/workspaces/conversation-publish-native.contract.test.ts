@@ -11,6 +11,10 @@ import {
   workspaceSandboxInstances,
   workspaces,
 } from "../../db/schema/workspaces.js"
+import {
+  deleteConversationSyncs,
+  listConversationSyncs,
+} from "../../models/conversation-syncs.js"
 import type { NativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { conversationSessionBranch } from "./chat-lifecycle.js"
@@ -20,6 +24,7 @@ import {
 } from "./conversation-publish.js"
 import { adaptTanstackHandle } from "./job-sandbox.js"
 import type { WorkspaceRevision } from "./revision.js"
+import { workspaceChatPersistence } from "./workspace-chat-persistence.js"
 
 /** The conversation's sandbox record, as chat writes it when it creates one. */
 async function recordSandbox(
@@ -150,6 +155,7 @@ it.each([
               status: "pushed",
               branch,
               sha: expect.any(String),
+              files: 1,
               treeUrl: expect.any(String),
               dirty: false,
             })
@@ -303,6 +309,7 @@ it.each(["unchanged", "edited", "rebased"])(
                   status: "pushed",
                   branch,
                   sha: expect.any(String),
+                  files: 1,
                   treeUrl: expect.any(String),
                   dirty: false,
                 },
@@ -320,6 +327,112 @@ it.each(["unchanged", "edited", "rebased"])(
               .delete(conversations)
               .where(eq(conversations.id, conversationId)),
           )
+        }
+      },
+    )
+  },
+)
+
+it(
+  "records a user Sync in the thread, and nothing when there is nothing to push",
+  {
+    timeout: 30_000,
+  },
+  async () => {
+    await withNativeHydrationFixture(
+      { github: true, githubWriteView: "writable", writeStatus: "writable" },
+      async (f) => {
+        const conversationId = `conv_${f.id}`
+        const branch = conversationSessionBranch(conversationId)
+        const raw = await localProcessSandbox().create({ id: conversationId })
+        try {
+          await withOrgDbContext(f.org.id, (db) =>
+            db.insert(conversations).values({
+              id: conversationId,
+              orgId: f.org.id,
+              userId: `user_${f.id}`,
+              workspaceId: f.workspaceId,
+            }),
+          )
+          await raw.process.exec("git init -b main")
+          await raw.process.exec(`git fetch ${shellSingleQuote(f.remote)} main`)
+          await raw.process.exec("git checkout -B main FETCH_HEAD")
+          await raw.fs.write("notes.md", "# Conversation edit\n")
+          await raw.fs.write("docs/plan.md", "# Plan\n")
+          f.git(
+            "config",
+            "--file",
+            process.env.GIT_CONFIG_GLOBAL ?? "missing",
+            "--add",
+            `url.${f.remote}.insteadOf`,
+            "https://github.com/fixture/hydration-contract.git",
+          )
+          await recordSandbox(f, conversationId, raw.id, f.revision)
+          await withOrgIdContext(f.org, () =>
+            workspaceChatPersistence().stores.messages.saveThread(
+              conversationId,
+              [
+                { role: "user", content: "Write the notes" },
+                { role: "assistant", content: "Done" },
+              ],
+            ),
+          )
+          const sync = () =>
+            withOrgIdContext(f.org, () =>
+              withUserIdContext(`user_${f.id}`, () =>
+                pushConversationSession({
+                  handle: adaptTanstackHandle(raw),
+                  conversationId,
+                  orgId: f.org.id,
+                  workspaceId: f.workspaceId,
+                  env: parseEnv(process.env),
+                  commit: { subject: "Sync conversation edit" },
+                  recordSync: true,
+                }),
+              ),
+            )
+          const before = Date.now()
+
+          const pushed = await sync()
+          // Nothing new to push: no second record.
+          const again = await sync()
+
+          expect(pushed).toMatchObject({ status: "pushed", branch, files: 2 })
+          expect(again).toEqual({ status: "unchanged", dirty: false })
+          // A reload reads the record back from Postgres.
+          const syncs = await listConversationSyncs({
+            orgId: f.org.id,
+            conversationId,
+          })
+          expect(syncs).toEqual([
+            {
+              branch,
+              sha: pushed.status === "pushed" ? pushed.sha : "missing",
+              files: 2,
+              treeUrl: expect.stringContaining(branch),
+              turn: 1,
+              syncedAt: expect.any(String),
+            },
+          ])
+          expect(Date.parse(syncs[0]?.syncedAt ?? "")).toBeGreaterThanOrEqual(
+            before - 1000,
+          )
+          // The model input is the stored thread: the Sync is not in it.
+          expect(
+            await withOrgIdContext(f.org, () =>
+              workspaceChatPersistence().stores.messages.loadThread(
+                conversationId,
+              ),
+            ),
+          ).toHaveLength(2)
+        } finally {
+          await raw.destroy()
+          await withOrgDbContext(f.org.id, async (db) => {
+            await deleteConversationSyncs(db, conversationId)
+            await db
+              .delete(conversations)
+              .where(eq(conversations.id, conversationId))
+          })
         }
       },
     )
