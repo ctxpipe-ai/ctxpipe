@@ -1,6 +1,7 @@
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
+import { legacyBindingHandedOver } from "../../domain/workspace-sources/legacy-handover.js"
 import { captureConnectorMirrorTarget } from "../../domain/workspaces/capture-connector-mirror.js"
 import { getNotionBindingWithRepoByConnectionId } from "../../models/notion-connector.js"
 import {
@@ -11,7 +12,6 @@ import {
 import { parseNotionConfigYamlContent } from "../../services/notion/config-yaml.js"
 import { loadNotionConnection } from "../../services/notion/connection-load.js"
 import { captureNotionIncrementalContent } from "../../services/notion/sync.js"
-import { notionLegacyHandedOver } from "../../services/notion/workspace-source-migration.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { runRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
 import { workspaceConnectorMirror } from "./workspace-connector-mirror.js"
@@ -59,7 +59,7 @@ export const notionSyncEntity = defineWorkflow(
             }
             // ADR-050: once Workspace sources own the repository, only they write it.
             if (
-              await notionLegacyHandedOver({
+              await legacyBindingHandedOver("notion", {
                 orgId: input.orgId,
                 connectionId: input.connectionId,
                 repositoryGitUrl: binding.repositoryGitUrl,

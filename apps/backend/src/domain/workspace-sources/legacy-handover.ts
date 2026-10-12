@@ -1,0 +1,63 @@
+import { and, eq } from "drizzle-orm"
+import { withOrgDbContext } from "../../db/client.js"
+import { workspaceSources } from "../../db/schema/workspace_sources.js"
+import { workspaces } from "../../db/schema/workspaces.js"
+import { getLogger } from "../../observability/logger.js"
+import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
+import type { SourceProvider } from "./sources-file.js"
+
+export type LegacyHandoverInput = {
+  orgId: string
+  connectionId: string
+  /** The old sync repository of the legacy binding. */
+  repositoryGitUrl: string
+}
+
+/**
+ * True when a Workspace on this repository has an `ok` source of the same
+ * connection (ADR-050). Then only the Workspace sources sync writes the
+ * provider content there, and the legacy binding must not write.
+ */
+export async function isLegacyBindingHandedOver(
+  provider: SourceProvider,
+  input: LegacyHandoverInput,
+): Promise<boolean> {
+  const target = normalizeWorkspaceRepositoryUrl(input.repositoryGitUrl)
+  const rows = await withOrgDbContext(input.orgId, (db) =>
+    db
+      .selectDistinct({ url: workspaces.workspaceRepositoryUrl })
+      .from(workspaceSources)
+      .innerJoin(workspaces, eq(workspaces.id, workspaceSources.workspaceId))
+      .where(
+        and(
+          eq(workspaceSources.orgId, input.orgId),
+          eq(workspaceSources.provider, provider),
+          eq(workspaceSources.connectionId, input.connectionId),
+          eq(workspaceSources.status, "ok"),
+        ),
+      ),
+  )
+  return rows.some((row) => normalizeWorkspaceRepositoryUrl(row.url) === target)
+}
+
+/**
+ * The legacy sync gate. A failed lookup logs a warning and lets the legacy
+ * sync run, so a database problem never stops the mirror.
+ */
+export async function legacyBindingHandedOver(
+  provider: SourceProvider,
+  input: LegacyHandoverInput,
+  check: typeof isLegacyBindingHandedOver = isLegacyBindingHandedOver,
+): Promise<boolean> {
+  try {
+    return await check(provider, input)
+  } catch (error) {
+    getLogger().warn("The legacy handover check failed; the legacy sync runs", {
+      step: "workspace_sources.legacy_handover",
+      provider,
+      connectionId: input.connectionId,
+      error: error instanceof Error ? error.message : String(error),
+    })
+    return false
+  }
+}

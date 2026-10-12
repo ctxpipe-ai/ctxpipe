@@ -1,5 +1,6 @@
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
+import { legacyBindingHandedOver } from "../../domain/workspace-sources/legacy-handover.js"
 import { captureConnectorMirrorTarget } from "../../domain/workspaces/capture-connector-mirror.js"
 import {
   getPagerdutyBindingWithRepoByConnectionId,
@@ -8,7 +9,6 @@ import {
 import { createLogger, withLogger } from "../../observability/logger.js"
 import { parsePagerdutyConfigYamlContent } from "../../services/pagerduty/config-yaml.js"
 import { capturePagerdutyIncrementalContent } from "../../services/pagerduty/sync.js"
-import { pagerdutyLegacyHandedOver } from "../../services/pagerduty/workspace-source-migration.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { workspaceConnectorMirror } from "./workspace-connector-mirror.js"
 
@@ -64,7 +64,7 @@ export const pagerdutySyncEntity = defineWorkflow(
             }
             // ADR-050: once Workspace sources own the repository, only they write it.
             if (
-              await pagerdutyLegacyHandedOver({
+              await legacyBindingHandedOver("pagerduty", {
                 orgId: input.orgId,
                 connectionId: input.connectionId,
                 repositoryGitUrl: binding.repositoryGitUrl,

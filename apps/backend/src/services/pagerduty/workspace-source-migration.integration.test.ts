@@ -3,6 +3,7 @@ import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { repositories } from "../../db/schema/repositories.js"
 import { applySourceFileChange } from "../../domain/workspace-sources/edit.js"
+import { isLegacyBindingHandedOver } from "../../domain/workspace-sources/legacy-handover.js"
 import { planSourceMigration } from "../../domain/workspace-sources/migration-plan.js"
 import {
   parseSourceEntry,
@@ -14,11 +15,7 @@ import { getPagerdutyConnectionByConnectionId } from "../../models/pagerduty-con
 import { replaceWorkspaceSourceRows } from "../../models/workspace-sources.js"
 import { seedSourcesOrg } from "../../test/workspace-sources-fixture.js"
 import { parsePagerdutyConfigYamlContent } from "./config-yaml.js"
-import {
-  createPagerdutySourceMigrationHook,
-  isPagerdutyBindingHandedOver,
-  pagerdutyLegacyHandedOver,
-} from "./workspace-source-migration.js"
+import { createPagerdutySourceMigrationHook } from "./workspace-source-migration.js"
 
 /** A `pagerduty/config.yaml` as the old PagerDuty settings wrote it. */
 const LEGACY_CONFIG = `version: 1
@@ -184,7 +181,7 @@ describe("PagerDuty source migration hook (Postgres)", () => {
       setupPhase: "live",
     })
     const handedOver = () =>
-      isPagerdutyBindingHandedOver({
+      isLegacyBindingHandedOver("pagerduty", {
         orgId: seed.orgId,
         connectionId: connection,
         repositoryGitUrl: gitUrl,
@@ -224,20 +221,5 @@ describe("PagerDuty source migration hook (Postgres)", () => {
     )
     expect(stored?.enabled).toBe(false)
     expect(stored?.accessToken).toBe("fixture-token")
-  })
-
-  it("lets the legacy sync run when the handover lookup fails", async () => {
-    expect(
-      await pagerdutyLegacyHandedOver(
-        {
-          orgId: seed.orgId,
-          connectionId: "con_any",
-          repositoryGitUrl: "https://github.com/acme/any.git",
-        },
-        async () => {
-          throw new Error("database is down")
-        },
-      ),
-    ).toBe(false)
   })
 })

@@ -1,5 +1,6 @@
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
+import { legacyBindingHandedOver } from "../../domain/workspace-sources/legacy-handover.js"
 import { captureConnectorMirrorTarget } from "../../domain/workspaces/capture-connector-mirror.js"
 import {
   finalizePagerdutyBindingAfterContentWorkflow,
@@ -9,7 +10,6 @@ import {
 import { createLogger, withLogger } from "../../observability/logger.js"
 import { parsePagerdutyConfigYamlContent } from "../../services/pagerduty/config-yaml.js"
 import { capturePagerdutyContent } from "../../services/pagerduty/sync.js"
-import { pagerdutyLegacyHandedOver } from "../../services/pagerduty/workspace-source-migration.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { isWorkflowControlSignal } from "../isSleepSignal.js"
 import { workspaceConnectorMirror } from "./workspace-connector-mirror.js"
@@ -49,7 +49,7 @@ export const pagerdutySyncContent = defineWorkflow(
                 input.connectionId,
               )
               return binding
-                ? pagerdutyLegacyHandedOver({
+                ? legacyBindingHandedOver("pagerduty", {
                     orgId: input.orgId,
                     connectionId: input.connectionId,
                     repositoryGitUrl: binding.repositoryGitUrl,
