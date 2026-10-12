@@ -1,9 +1,10 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import {
   GlobInvalidRequestError,
+  GlobPathNotFoundError,
   assertSafeGlobPattern,
   globFilesInCheckout,
   isSkippedGlobPath,
@@ -142,5 +143,30 @@ describe("globFilesInCheckout", () => {
         path: "src",
       }),
     ).rejects.toThrow(GlobInvalidRequestError)
+  })
+
+  it("answers not found for a cwd under a symlink to .git", async () => {
+    const root = await setupCheckout()
+    await mkdir(join(root, ".git", "hooks"), { recursive: true })
+    await writeFile(join(root, ".git", "hooks", "check.sh"), "echo hi\n")
+    await symlink(".git", join(root, "gl"))
+    await expect(
+      globFilesInCheckout({ checkoutRoot: root, pattern: "*", path: "gl/hooks" }),
+    ).rejects.toThrow(GlobPathNotFoundError)
+  })
+
+  it("answers not found for a cwd under a symlink out of the checkout", async () => {
+    const root = await setupCheckout()
+    const outside = await mkdtemp(join(tmpdir(), "glob-files-outside-"))
+    try {
+      await mkdir(join(outside, "sub"))
+      await writeFile(join(outside, "sub", "notes.txt"), "notes\n")
+      await symlink(outside, join(root, "out"))
+      await expect(
+        globFilesInCheckout({ checkoutRoot: root, pattern: "*", path: "out/sub" }),
+      ).rejects.toThrow(GlobPathNotFoundError)
+    } finally {
+      await rm(outside, { recursive: true, force: true })
+    }
   })
 })

@@ -27,6 +27,8 @@ export type GithubSetupRegistrationStatus =
   | "no_result"
   | "registered"
   | "registration_failed"
+  /** Left for `/.github/setup` to link a GitHub account; callers do nothing. */
+  | "redirected"
 
 export type NotionSetupPopupResult =
   | { status: "no_result" }
@@ -293,6 +295,22 @@ export async function handleGithubSetupPopupResult(
             },
           })
           status = response.ok ? "registered" : "registration_failed"
+          if (response.status === 403) {
+            const body = (await response.json().catch(() => null)) as {
+              why?: string
+            } | null
+            if (body?.why === "github_not_linked") {
+              // Its not-linked view links GitHub, then registers again.
+              status = "redirected"
+              window.location.assign(
+                `/.github/setup?${new URLSearchParams({
+                  installation_id: String(installationId),
+                  orgSlug,
+                  ...(connectionId ? { connectionId } : {}),
+                })}`,
+              )
+            }
+          }
         }
       }
     } catch {

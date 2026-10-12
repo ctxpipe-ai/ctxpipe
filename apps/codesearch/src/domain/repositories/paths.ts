@@ -1,5 +1,5 @@
 import { lstat, realpath, stat } from "node:fs/promises"
-import { resolve, sep } from "node:path"
+import { relative, resolve, sep } from "node:path"
 import { REPO_CACHE_DIR } from "../../config/paths.js"
 
 /** Matches backend `DEFAULT_CHECKOUT_KEY` for the primary branch checkout. */
@@ -33,6 +33,20 @@ export function scipLangShardPath(
   return `${REPO_CACHE_DIR}/${orgId}/${repoId}/checkouts/${checkoutKey}.${langId}.scip`
 }
 
+/** True when a repo-relative path has a `.git` segment, in any letter case. */
+export function hasGitSegment(path: string): boolean {
+  return path.toLowerCase().split(/[\\/]/).includes(".git")
+}
+
+function notFound(): Error {
+  return Object.assign(new Error("Path not found"), { code: "ENOENT" })
+}
+
+/**
+ * Resolves a repo-relative path inside the checkout. A path with a `.git`
+ * segment fails with ENOENT, the same as a missing path, because codesearch
+ * never reads or searches inside `.git`.
+ */
 export function resolveSafePath(
   basePath: string,
   relativePath: string,
@@ -42,6 +56,7 @@ export function resolveSafePath(
   if (fullPath !== base && !fullPath.startsWith(`${base}${sep}`)) {
     throw new Error("Path traversal is not allowed")
   }
+  if (hasGitSegment(relative(base, fullPath))) throw notFound()
   return fullPath
 }
 
@@ -51,7 +66,11 @@ function assertWithinBase(base: string, resolvedPath: string): void {
   }
 }
 
-/** Resolves a repo-relative path and follows symlinks to a readable regular file. */
+/**
+ * Resolves a repo-relative path and follows symlinks to a readable regular
+ * file. A real target inside `.git` fails with ENOENT, the same as a missing
+ * file.
+ */
 export async function resolveSafeReadableFilePath(
   basePath: string,
   relativePath: string,
@@ -66,6 +85,7 @@ export async function resolveSafeReadableFilePath(
     realpath(candidate),
   ])
   assertWithinBase(base, resolved)
+  if (hasGitSegment(relative(base, resolved))) throw notFound()
   const fileStat = await stat(resolved)
   if (!fileStat.isFile()) {
     throw new Error("Not a file")

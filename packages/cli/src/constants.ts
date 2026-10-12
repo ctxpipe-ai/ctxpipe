@@ -10,7 +10,7 @@ export type Scope = "repo" | "user" | "both"
 export const MCP_AUTH_MODES = ["oauth", "api-key"] as const
 export type McpAuthMode = (typeof MCP_AUTH_MODES)[number]
 
-/** Dashboard surfaces for minting keys. UK English matches product UI labels. */
+/** Dashboard screens where the user mints keys. */
 export const MCP_API_KEY_MINT_HINT =
   "Mint organisation keys in Organisation settings; personal keys remain under User account."
 

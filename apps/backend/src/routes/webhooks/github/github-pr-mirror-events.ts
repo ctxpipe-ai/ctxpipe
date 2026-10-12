@@ -71,11 +71,9 @@ async function enqueueMirror(input: {
   candidate?: GithubSyncPullRequestCandidate
   version: string | undefined
 }): Promise<void> {
-  const installations = (
-    await listInstallationsByGithubInstallationId(input.installationId)
-  ).filter(
-    (installation) =>
-      !input.githubConnectionId || installation.id === input.githubConnectionId,
+  const installations = await listInstallationsByGithubInstallationId(
+    input.installationId,
+    input.githubConnectionId,
   )
   for (const installation of installations) {
     const binding = await getGithubPrMirrorBinding(

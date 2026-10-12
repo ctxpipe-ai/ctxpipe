@@ -1,5 +1,5 @@
-import { lstat, readdir, readFile } from "node:fs/promises"
-import { join } from "node:path"
+import { lstat, readdir, readFile, realpath } from "node:fs/promises"
+import { isAbsolute, join, relative, sep } from "node:path"
 import type { OpenAPIHono } from "@hono/zod-openapi"
 import { createRoute, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../app/env.js"
@@ -12,6 +12,7 @@ import {
 } from "../domain/repositories/globFiles.js"
 import {
   DEFAULT_CHECKOUT_KEY,
+  hasGitSegment,
   repoCheckoutPath,
   resolveSafePath,
   resolveSafeReadableFilePath,
@@ -502,6 +503,20 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     let names: string[]
     try {
       dirPath = path ? resolveSafePath(basePath, path) : basePath
+      // A symlinked directory must stay inside the checkout and outside .git.
+      const [base, realDir] = await Promise.all([
+        realpath(basePath),
+        realpath(dirPath),
+      ])
+      const realRelative = relative(base, realDir)
+      if (
+        realRelative === ".." ||
+        realRelative.startsWith(`..${sep}`) ||
+        isAbsolute(realRelative) ||
+        hasGitSegment(realRelative)
+      ) {
+        throw new Error("Path not found")
+      }
       names = await readdir(dirPath)
     } catch {
       return c.json({ error: "Path not found" }, 404)
@@ -627,7 +642,7 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     const result: Record<string, string> = {}
     for (const p of paths) {
       try {
-        const fullPath = resolveSafePath(basePath, p)
+        const fullPath = await resolveSafeReadableFilePath(basePath, p)
         const file = Bun.file(fullPath)
         if (await file.exists()) {
           const buf = await file.arrayBuffer()

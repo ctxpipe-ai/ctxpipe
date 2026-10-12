@@ -109,6 +109,13 @@ Install the App on the GitHub user or organization that owns the source
 repositories. Choose **Only select repositories** unless the deployment
 deliberately needs broad access.
 
+ctx| attaches an installation to an organization only with proof that it
+belongs there. A connection created in the wizard proves it with its own App
+credentials. An installation of an App configured through `GITHUB_APP_ID`
+instead needs the person finishing setup to have a linked GitHub account that
+can see the installation, so it requires GitHub sign-in (`GITHUB_CLIENT_ID` and
+`GITHUB_CLIENT_SECRET`). Without GitHub sign-in, use the wizard.
+
 Then verify the full path:
 
 1. The GitHub connector reaches **Connected**.
@@ -125,6 +132,13 @@ Then verify the full path:
 Check the App's Callback URL and Setup URL against the current
 `AUTH_BASE_URL`. Keep browser, auth, callbacks, API, and MCP on the same public
 backend origin.
+
+### Setup asks to connect a GitHub account
+
+The installation is being attached through the App configured in
+`GITHUB_APP_ID`. Link a GitHub account that can see the installation, or create
+the connection with the self-hosted wizard so its own App credentials prove the
+installation.
 
 ### Repositories do not appear
 

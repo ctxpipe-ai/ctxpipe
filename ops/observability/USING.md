@@ -51,7 +51,7 @@ claude mcp add --transport http langfuse https://langfuse.ctxpipe.ai/api/public/
   --header "Authorization: Basic ${LANGFUSE_AUTH_STRING}"
 ```
 
-Cloud agents need `HYPERDX_ACCESS_KEY` and `LANGFUSE_AUTH_STRING`. Railway MCP uses Cursor OAuth and may be absent headless. HyperDX's first call after idle wakes the service.
+Cloud agents need `HYPERDX_ACCESS_KEY` and `LANGFUSE_AUTH_STRING`. Railway MCP uses Cursor OAuth and may be absent headless (Claude Code's `.mcp.json` uses `railway mcp local` with `RAILWAY_API_TOKEN`). HyperDX's first call after idle wakes the service.
 
 ClickHouse has no public hostname (`clickhouse.railway.internal:8123`). Query it through HyperDX `clickstack_*`. Publishing port 8123 is not done.
 

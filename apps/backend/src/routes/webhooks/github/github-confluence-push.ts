@@ -65,11 +65,9 @@ export async function maybeEnqueueConfluenceSyncOnConfigPush(input: {
 
   const compareConfigPathCache = new Map<string, Promise<boolean>>()
 
-  const installationRows = (
-    await listInstallationsByGithubInstallationId(input.installationId)
-  ).filter(
-    (installation) =>
-      !input.githubConnectionId || installation.id === input.githubConnectionId,
+  const installationRows = await listInstallationsByGithubInstallationId(
+    input.installationId,
+    input.githubConnectionId,
   )
 
   for (const installationRow of installationRows) {

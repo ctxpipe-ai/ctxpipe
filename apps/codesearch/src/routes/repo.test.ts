@@ -1,4 +1,12 @@
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
+import { existsSync } from "node:fs"
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { OpenAPIHono } from "@hono/zod-openapi"
@@ -584,5 +592,102 @@ describe("POST /{repoId}/purge", () => {
     })
     expect(res.status).toBe(404)
     expect(purgeRepositoryFromDiskMock).not.toHaveBeenCalled()
+  })
+})
+
+describe("codesearch never reads or lists inside .git", () => {
+  let tmpDir: string
+  let checkoutDir: string
+
+  beforeEach(async () => {
+    vi.clearAllMocks()
+    getAccessibleRepositoryMock.mockResolvedValue(MOCK_REPO)
+    tmpDir = await mkdtemp(join(tmpdir(), "git-dir-route-test-"))
+    const repoCacheDir = join(tmpDir, "repo-cache")
+    checkoutDir = join(
+      repoCacheDir,
+      "org_mock123",
+      "repo_abcdef27",
+      "checkouts",
+      "default",
+    )
+    Object.defineProperty(paths, "REPO_CACHE_DIR", {
+      value: repoCacheDir,
+      writable: true,
+    })
+    await mkdir(join(checkoutDir, ".git"), { recursive: true })
+    await writeFile(join(checkoutDir, ".git", "config"), "[core]\n")
+    await mkdir(join(checkoutDir, "sub", ".git"), { recursive: true })
+    await writeFile(join(checkoutDir, "sub", ".git", "config"), "[core]\n")
+    await writeFile(join(checkoutDir, "ok.txt"), "ok\n")
+    await symlink(".git", join(checkoutDir, "git-dir"))
+    await symlink(".git/config", join(checkoutDir, "config-link"))
+  })
+
+  afterEach(async () => {
+    vi.unstubAllGlobals()
+    await rm(tmpDir, { recursive: true, force: true })
+  })
+
+  it.each([
+    ".git",
+    ".GIT",
+    "sub/.git",
+    "git-dir",
+  ])("GET /files and POST /glob answer %s like a missing directory", async (path) => {
+    const app = createTestApp()
+    const list = await app.request(
+      `/repo_abcdef27/files?path=${encodeURIComponent(path)}`,
+    )
+    const glob = await app.request("/repo_abcdef27/glob", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ pattern: "*", path }),
+    })
+
+    expect(list.status).toBe(404)
+    expect(glob.status).toBe(404)
+  })
+
+  it.each([
+    ".git/config",
+    ".GIT/config",
+    "sub/.git/config",
+    "config-link",
+  ])("GET /files/{path} answers %s like a missing file", async (path) => {
+    const app = createTestApp()
+    const res = await app.request(
+      `/repo_abcdef27/files/${encodeURIComponent(path)}`,
+    )
+
+    expect(res.status).toBe(404)
+  })
+
+  it("POST /files-query returns no file from .git", async () => {
+    // Vitest runs in Node, so give the route a Bun.file that reads from disk.
+    vi.stubGlobal("Bun", {
+      file: (path: string) => ({
+        exists: async () => existsSync(path),
+        arrayBuffer: async () => new Uint8Array(await readFile(path)).buffer,
+      }),
+    })
+    const app = createTestApp()
+    const res = await app.request("/repo_abcdef27/files-query", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        paths: [
+          "ok.txt",
+          ".git/config",
+          ".GIT/config",
+          "sub/.git/config",
+          "config-link",
+          "git-dir/config",
+        ],
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(Object.keys((await res.json()) as object)).toEqual(["ok.txt"])
   })
 })
