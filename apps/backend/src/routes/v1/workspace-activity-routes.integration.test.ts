@@ -46,6 +46,7 @@ const unprojected = {
   slug: `new-${suffix}`,
 }
 const idle = { id: `ws_activity_idle_${suffix}`, slug: `idle-${suffix}` }
+const polled = { id: `ws_activity_polled_${suffix}`, slug: `polled-${suffix}` }
 const newOrg = {
   id: `org_test_activity_new_${suffix}`,
   slug: `activity-new-${suffix}`,
@@ -87,6 +88,24 @@ async function projectionRunCount(workspaceId: string) {
     sql`select count(*)::int as count from openworkflow.workflow_runs where workflow_name = 'workspace-commit-projection' and input->>'workspaceId' = ${workspaceId}`,
   )
   return result.rows[0]?.count ?? 0
+}
+
+/**
+ * Sends 10 reads at the start of one 5-minute run window, so the reads never
+ * cross a window edge. Only Date is fake.
+ */
+async function pollTenTimesInOneWindow(
+  read: () => Response | Promise<Response>,
+) {
+  const windowStart = Math.floor(Date.now() / 300_000) * 300_000
+  vi.useFakeTimers({ toFake: ["Date"], now: windowStart + 1_000 })
+  try {
+    for (let poll = 0; poll < 10; poll += 1) {
+      expect((await read()).status).toBe(200)
+    }
+  } finally {
+    vi.useRealTimers()
+  }
 }
 
 async function seedWorkspace(
@@ -171,7 +190,12 @@ describe("workspace activity routes (Postgres)", () => {
       db
         .delete(workspaces)
         .where(
-          inArray(workspaces.id, [otherWorkspace.id, unprojected.id, idle.id]),
+          inArray(workspaces.id, [
+            otherWorkspace.id,
+            unprojected.id,
+            idle.id,
+            polled.id,
+          ]),
         ),
     )
     // The routes import the OpenWorkflow client, which connects on import.
@@ -307,9 +331,7 @@ describe("workspace activity routes (Postgres)", () => {
   it("starts one projection run per pending workspace over 10 polls", async () => {
     await seedWorkspace(otherOrg, idle, { projected: false })
     const app = workspaceHttpApp(otherOrg, orgActivityRoutes)
-    for (let poll = 0; poll < 10; poll += 1) {
-      expect((await app.request("/workspaces")).status).toBe(200)
-    }
+    await pollTenTimesInOneWindow(() => app.request("/workspaces"))
     await vi.waitFor(
       async () => expect(await projectionRunCount(idle.id)).toBeGreaterThan(0),
       { timeout: 3_000 },
@@ -319,6 +341,21 @@ describe("workspace activity routes (Postgres)", () => {
     expect(await projectionRunCount(unprojected.id)).toBe(1)
     // A ready projection is fresh, so the org read starts no run for it.
     expect(await projectionRunCount(otherWorkspace.id)).toBe(0)
+  })
+
+  it("starts one projection run over 10 workspace reads", async () => {
+    await seedWorkspace(otherOrg, polled, { projected: false })
+    const app = workspaceHttpApp(otherOrg, workspaceActivityRoutes)
+    await pollTenTimesInOneWindow(() =>
+      app.request(`/workspaces/${polled.slug}/activity`),
+    )
+    await vi.waitFor(
+      async () =>
+        expect(await projectionRunCount(polled.id)).toBeGreaterThan(0),
+      { timeout: 3_000 },
+    )
+    await new Promise((settle) => setTimeout(settle, 500))
+    expect(await projectionRunCount(polled.id)).toBe(1)
   })
 
   it("lists the workspaces whose activity could not load", async () => {

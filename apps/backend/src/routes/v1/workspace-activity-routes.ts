@@ -95,6 +95,25 @@ function readProjectionStatus(
 }
 
 /**
+ * Home polls the activity reads. Start at most one projection run per
+ * workspace state (desired SHA and projection status) in each 5-minute window.
+ */
+function enqueueProjectionOncePerWindow(
+  workspace: { id: string; orgId: string; desiredSha: string | null },
+  projection: WorkspaceCommitProjectionRecord | null,
+  step: string,
+) {
+  const state = `${workspace.desiredSha ?? "none"}:${projection?.backfillStatus ?? "none"}`
+  void enqueueWorkspaceCommitProjection(
+    { orgId: workspace.orgId, workspaceId: workspace.id },
+    { error: (err) => getLogger().error(err, { step }) },
+    {
+      idempotencyKey: `activity-projection:${workspace.id}:${state}:${Math.floor(Date.now() / 300_000)}`,
+    },
+  )
+}
+
+/**
  * Reads the status of one workspace projection, and starts a projection run
  * when the projection is missing, not ready, or behind the desired SHA.
  */
@@ -107,15 +126,12 @@ function readProjectionStatusAndRefresh(
     projection.backfillStatus !== "ready" ||
     (workspace.desiredSha != null &&
       projection.headSha !== workspace.desiredSha)
-  if (stale) {
-    void enqueueWorkspaceCommitProjection(
-      { orgId: workspace.orgId, workspaceId: workspace.id },
-      {
-        error: (err) =>
-          getLogger().error(err, { step: "workspace.activity.enqueue" }),
-      },
+  if (stale)
+    enqueueProjectionOncePerWindow(
+      workspace,
+      projection,
+      "workspace.activity.enqueue",
     )
-  }
   return readProjectionStatus(projection)
 }
 
@@ -197,24 +213,16 @@ export const orgActivityRoutes = new OpenAPIHono<AppEnv>().openapi(
     }
     const { date } = c.req.valid("query")
     const rows = (await listOrgWorkspaceCommitProjections()).map((row) => ({
-      workspace: row.workspace,
+      ...row,
       status: readProjectionStatus(row.projection),
     }))
-    // Home polls this read. Start at most one projection run per pending
-    // workspace in each 5-minute window.
-    const bucket = Math.floor(Date.now() / 300_000)
     for (const row of rows) {
-      if (row.status !== "pending") continue
-      void enqueueWorkspaceCommitProjection(
-        { orgId: row.workspace.orgId, workspaceId: row.workspace.id },
-        {
-          error: (err) =>
-            getLogger().error(err, { step: "org.activity.enqueue" }),
-        },
-        {
-          idempotencyKey: `org-activity-projection:${row.workspace.id}:${bucket}`,
-        },
-      )
+      if (row.status === "pending")
+        enqueueProjectionOncePerWindow(
+          row.workspace,
+          row.projection,
+          "org.activity.enqueue",
+        )
     }
     const statuses = rows.map((row) => row.status)
     // The ready workspaces give the data. Pending only when none is ready.

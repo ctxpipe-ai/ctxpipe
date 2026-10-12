@@ -135,7 +135,13 @@ export async function listWorkspaceCommitDayCounts(
 /** Every workspace in the org with its commit projection (null: none yet). */
 export async function listOrgWorkspaceCommitProjections(): Promise<
   {
-    workspace: { id: string; orgId: string; slug: string; name: string }
+    workspace: {
+      id: string
+      orgId: string
+      desiredSha: string | null
+      slug: string
+      name: string
+    }
     projection: WorkspaceCommitProjectionRecord | null
   }[]
 > {
@@ -147,6 +153,7 @@ export async function listOrgWorkspaceCommitProjections(): Promise<
         workspace: {
           id: workspaces.id,
           orgId: workspaces.orgId,
+          desiredSha: workspaces.desiredSha,
           slug: workspaces.slug,
           name: workspaces.displayName,
         },
