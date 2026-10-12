@@ -24,7 +24,11 @@ import { orgConnectionsOptions } from "@/features/connectors/queries/org-connect
 import type { WorkspaceLinkedRepository } from "@/features/workspaces/types"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
-import { GithubSourceRepositories } from "./GithubSourceRepositories"
+import {
+  GithubSourceRepositories,
+  repositoryNeedsAttention,
+  repositoryRows,
+} from "./GithubSourceRepositories"
 import {
   deleteWorkspaceSource,
   type PendingSourceChange,
@@ -470,13 +474,24 @@ export function WorkspaceSources(props: {
                   change.action === "add" &&
                   !sources.some((item) => item.sourceKey === change.sourceKey),
               )
-              const attention = sources.filter(
-                (item) => item.status !== "ok",
-              ).length
+              // The GitHub group counts repositories, not source entries.
+              const repositories =
+                provider === "github"
+                  ? repositoryRows(linkedRepositories, sources)
+                  : null
+              const attention = repositories
+                ? repositories.filter(repositoryNeedsAttention).length
+                : sources.filter((item) => item.status !== "ok").length
               const connected = connectionsOf(provider).length > 0
               const meta =
                 [
-                  sources.length > 0 ? plural(sources.length, "source") : null,
+                  repositories
+                    ? repositories.length > 0
+                      ? `${repositories.length} ${repositories.length === 1 ? "repository" : "repositories"}`
+                      : null
+                    : sources.length > 0
+                      ? plural(sources.length, "source")
+                      : null,
                   attention > 0
                     ? `${attention} ${attention === 1 ? "needs" : "need"} attention`
                     : null,

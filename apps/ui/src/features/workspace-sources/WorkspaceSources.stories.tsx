@@ -973,3 +973,129 @@ export const PickerShowsConnectionNames: Story = {
     )
   },
 }
+
+/** The GitHub group with no repositories yet. */
+export const GithubNoRepositories: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [workspaceSourcesHandler(workspaceSourceList()), connected],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("No GitHub repositories in this Workspace.")
+    const section = canvasElement.querySelector<HTMLElement>("#source-github")
+    if (!section) throw new Error("Missing GitHub group")
+    const group = within(section)
+    await expect(group.getByText("No GitHub sources yet")).toBeVisible()
+    await expect(group.queryByRole("searchbox")).toBeNull()
+    await expect(
+      group.getByRole("button", { name: "Add repositories" }),
+    ).toBeVisible()
+  },
+}
+
+/** A few repositories: every row shows, with no filter and no "Show all". */
+export const GithubThreeRepositories: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceSourcesHandler(
+            workspaceSourceList({
+              items: [
+                {
+                  ...githubSource,
+                  scope: { repositories: ["acme/api", "acme/web", "acme/cli"] },
+                  scopeSummary: "3 repositories",
+                },
+              ],
+            }),
+          ),
+          connected,
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const list = within(
+      await canvas.findByRole("list", { name: "GitHub repositories" }),
+    )
+    await expect(canvas.getByText("3 repositories")).toBeVisible()
+    await expect(list.getAllByRole("listitem")).toHaveLength(3)
+    await expect(canvas.queryByRole("searchbox")).toBeNull()
+    await expect(canvas.queryByRole("button", { name: /Show all/ })).toBeNull()
+    await expect(
+      canvas.getByRole("button", { name: "Unlink acme/cli" }),
+    ).toBeVisible()
+  },
+}
+
+const manyLinkedRepositories = Array.from({ length: 312 }, (_, index) => {
+  const name = `acme/service-${String(index + 1).padStart(3, "0")}`
+  const withIssues = (index + 1) % 75 === 0
+  return {
+    id: `lnk_many_${index + 1}`,
+    workspaceId: "ws_story1",
+    gitUrl: `https://github.com/${name}`,
+    desiredRef: null,
+    desiredSha: "abc",
+    indexedSha: "abc",
+    createdAt: "2026-10-01T10:00:00.000Z",
+    ...(withIssues
+      ? {
+          indexingStatus: "complete_with_issues" as const,
+          indexingError: "Code intelligence is incomplete for 1 project",
+        }
+      : {}),
+  }
+})
+
+/**
+ * Hundreds of repositories: the meta line counts them, the first 5 show
+ * (rows that need attention first), "Show all" opens a scroll area, and the
+ * filter narrows the list.
+ */
+export const GithubManyRepositories: Story = {
+  args: { linkedRepositories: manyLinkedRepositories },
+  parameters: {
+    msw: {
+      handlers: {
+        page: [workspaceSourcesHandler(workspaceSourceList()), connected],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("312 repositories · 4 need attention")
+    const listElement = canvas.getByRole("list", {
+      name: "GitHub repositories",
+    })
+    const list = within(listElement)
+    await expect(list.getAllByRole("listitem")).toHaveLength(5)
+    await expect(list.getAllByText("Indexed with issues")).toHaveLength(4)
+
+    await userEvent.click(canvas.getByRole("button", { name: "Show all 312" }))
+    await expect(list.getAllByRole("listitem")).toHaveLength(312)
+    await expect(listElement.scrollHeight).toBeGreaterThan(
+      listElement.clientHeight,
+    )
+    await userEvent.click(canvas.getByRole("button", { name: "Show fewer" }))
+    await expect(list.getAllByRole("listitem")).toHaveLength(5)
+
+    const filter = canvas.getByRole("searchbox", {
+      name: "Filter linked repositories",
+    })
+    await userEvent.type(filter, "service-01")
+    await waitFor(() => expect(list.getAllByRole("listitem")).toHaveLength(10))
+    await expect(canvas.queryByRole("button", { name: /Show all/ })).toBeNull()
+    await userEvent.clear(filter)
+    await userEvent.type(filter, "no-such-repository")
+    await expect(
+      await list.findByText("No repositories match that filter."),
+    ).toBeVisible()
+  },
+}
