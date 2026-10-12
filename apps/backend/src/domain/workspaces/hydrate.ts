@@ -8,6 +8,11 @@ import {
   parseLinkedRepositoryMarkdown,
   parseSimpleFrontMatter,
 } from "./layout.js"
+import {
+  mirrorUnitKind,
+  referenceLinks,
+  WORKSPACE_LINK_SCHEME,
+} from "./mirror-units.js"
 import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
 
 export function servingIdForKnowledgePath(
@@ -34,7 +39,10 @@ export type HydrateClaim = {
 export type HydrateUnit = {
   path: string
   servingId: string
-  /** Front-matter `kind` (graph ontology); absent for plain knowledge files. */
+  /**
+   * Front-matter `kind` (graph ontology), else the kind of a connector-mirror
+   * path; absent for plain knowledge files.
+   */
   kind?: string | null
   body: string
   links: string[]
@@ -75,12 +83,18 @@ export function hydrateKnowledgeTree(input: {
   sourcesFile?: string | null
   /** The org's GitHub connection ids. A source with another id links nothing. */
   githubConnectionIds?: ReadonlySet<string>
+  /**
+   * Hosts of the org's Confluence connections. A Confluence URL on another
+   * host makes no edge.
+   */
+  confluenceSiteHosts?: ReadonlySet<string>
 }): {
   units: HydrateUnit[]
   skipped: HydrateSkip[]
   linked: HydrateLinkedRepository[]
 } {
   const units: HydrateUnit[] = []
+  const attributes = new Map<string, Record<string, unknown>>()
   const skipped: HydrateSkip[] = []
   const linked: HydrateLinkedRepository[] = []
   const seenLinked = new Set<string>(
@@ -119,6 +133,7 @@ export function hydrateKnowledgeTree(input: {
       continue
     }
 
+    attributes.set(path, parsed.attributes)
     units.push({
       path,
       servingId: servingIdForKnowledgePath(input.workspaceId, path),
@@ -126,12 +141,26 @@ export function hydrateKnowledgeTree(input: {
         typeof parsed.attributes.kind === "string" &&
         parsed.attributes.kind.trim()
           ? parsed.attributes.kind.trim()
-          : null,
+          : mirrorUnitKind(path),
       body: parsed.body,
       links: markdownLinks(parsed.body),
       claims: parseClaims(parsed.attributes.claims),
       confidence: parseOptionalNumber(parsed.attributes.confidence),
     })
+  }
+
+  const references = referenceLinks({
+    units: units.map((unit) => ({
+      ...unit,
+      attributes: attributes.get(unit.path) ?? {},
+    })),
+    workspaceUrl: input.workspaceUrl,
+    confluenceSiteHosts: input.confluenceSiteHosts,
+    resolveLink: resolveHydrateLink,
+  })
+  for (const unit of units) {
+    const extra = references.get(unit.path)
+    if (extra) unit.links.push(...extra)
   }
 
   // A repository that a file or the Workspace already names is not a skip:
@@ -268,6 +297,10 @@ export function hydrateUnitsToProjectionClaims(
 }
 
 export function resolveHydrateLink(fromDir: string, href: string): string {
+  // Hydrate writes a resolved reference as `workspace:<path>`.
+  if (href.startsWith(WORKSPACE_LINK_SCHEME)) {
+    return href.slice(WORKSPACE_LINK_SCHEME.length)
+  }
   const cleaned = href.split("#")[0] ?? href
   if (!cleaned || cleaned.startsWith("http:") || cleaned.startsWith("https:")) {
     return ""

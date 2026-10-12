@@ -333,6 +333,15 @@ export const workspaceHydrate = defineWorkflow(
             const { files, sourcesFile } = pending.postgres
               ? await readTree()
               : { files: [], sourcesFile: null }
+            // A Confluence URL joins a mirrored page only on the org's site.
+            const confluenceSiteHosts = pending.postgres
+              ? await step.run({ name: "list-confluence-sites" }, async () =>
+                  // A Confluence connection's display name is its site host.
+                  (await listOrgConnections(input.orgId))
+                    .filter((connection) => connection.type === "forge")
+                    .flatMap((connection) => connection.displayName ?? []),
+                )
+              : []
             const parsed = pending.postgres
               ? hydrateKnowledgeTree({
                   workspaceId: workspace.id,
@@ -340,6 +349,7 @@ export const workspaceHydrate = defineWorkflow(
                   files,
                   sourcesFile,
                   githubConnectionIds: new Set(githubConnectionIds),
+                  confluenceSiteHosts: new Set(confluenceSiteHosts),
                 })
               : { units: snapshot.units, linked: [], skipped: [] }
             const agents = files.find((file) => file.path === "AGENTS.md")
