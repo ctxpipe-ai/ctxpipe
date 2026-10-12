@@ -621,29 +621,30 @@ it(
 )
 
 it(
-  "maintains the user's folder-map section from actual Git paths and converges",
+  "admits the folder-list job with its previous tree and converges",
   { timeout: 60_000 },
   async () => {
+    const before =
+      '---\nname: "Docs: beta"\n---\n\n# Working notes\nKeep this introduction.\n\n### Our layout\n- [Guides](guides/) — keep owner label\n- [Gone](removed/) — obsolete\n\n### Style\nKeep this style instruction.\n'
+    const after = before.replace(
+      "- [Gone](removed/) — obsolete\n",
+      "- [Reference](reference/) — API reference\n",
+    )
     await withNativeHydrationFixture(
       {
         github: true,
         githubWriteView: "writable",
         writeStatus: "writable",
+        folderListReply: { changed: true, agentsMd: after },
         files: [
-          {
-            path: "AGENTS.md",
-            body: '---\nname: "Docs: beta"\n---\n\n# Working notes\nKeep this introduction.\n\n## Directory traversal\n- Never write [temporary output](tmp/)\n\n### Our layout\n- [Guides](guides/) — keep owner label\n- [Runtime](code-only/) — keep code folder\n- [Gone](removed/) — obsolete\n\n### Style\nKeep this style instruction.\n',
-          },
+          { path: "AGENTS.md", body: before },
           { path: "guides/intro.md", body: "# Introduction\n" },
           { path: "reference/api.md", body: "# Reference\n" },
-          { path: "a#b(c)?d:e/file.md", body: "# Special folder\n" },
-          { path: "code-only/main.ts", body: "export const value = 1\n" },
         ],
       },
       async (f) => {
         const { BackendPostgres } = await import("openworkflow/postgres")
         const { OpenWorkflow } = await import("openworkflow")
-        const { parse } = await import("yaml")
         const backend = await BackendPostgres.connect(f.databaseUrl, {
           runMigrations: false,
         })
@@ -655,6 +656,7 @@ it(
             orgId: f.org.id,
             workspaceId: f.workspaceId,
             kind: "ops_folder_map" as const,
+            previousSha: f.sha,
           }
           const log = {
             error: (error: Error) => {
@@ -672,14 +674,15 @@ it(
             (run) => (run.input as { jobId?: string })?.jobId === jobId,
           )
           expect(queued).toMatchObject({
-            workflowName: "workspace-write-ops-folder-map",
+            workflowName: "workspace-write-ops-folder-list",
+            input: { previousSha: f.sha },
           })
-          const { workspaceOpsFolderMap } = await import(
-            "../../openworkflow/workflows/workspace-ops-folder-map.js"
+          const { workspaceOpsFolderList } = await import(
+            "../../openworkflow/workflows/workspace-ops-folder-list.js"
           )
           runner.implementWorkflow(
-            workspaceOpsFolderMap.spec,
-            workspaceOpsFolderMap.fn,
+            workspaceOpsFolderList.spec,
+            workspaceOpsFolderList.fn,
           )
           worker = runner.newWorker({ concurrency: 1 })
           await worker.start()
@@ -693,31 +696,9 @@ it(
               { timeout: 30_000 },
             )
             .toBe("completed")
-          const markdown = f.git(
-            "--git-dir",
-            f.remote,
-            "show",
-            "refs/heads/main:AGENTS.md",
-          )
-          expect(parse(markdown.split("---")[1] ?? "")).toEqual({
-            name: "Docs: beta",
-          })
-          expect(markdown.match(/### Our layout/g)).toHaveLength(1)
-          expect(markdown).toContain("- [Guides](guides/) — keep owner label")
-          expect(markdown).toContain(
-            "- [Runtime](code-only/) — keep code folder",
-          )
-          expect(markdown).toContain("- [reference/](reference/)")
-          expect(markdown).toContain("- [a#b(c)?d:e/](a%23b%28c%29%3Fd%3Ae/)")
-          expect(markdown).not.toContain("removed/")
-          expect(markdown).toContain("# Working notes\nKeep this introduction.")
-          expect(markdown).toContain("### Style\nKeep this style instruction.")
-          expect(markdown).toContain(
-            "## Directory traversal\n- Never write [temporary output](tmp/)",
-          )
-          expect(markdown.indexOf("<!-- /ctxpipe:folder-map -->")).toBeLessThan(
-            markdown.indexOf("### Style"),
-          )
+          expect(
+            f.git("--git-dir", f.remote, "show", "refs/heads/main:AGENTS.md"),
+          ).toBe(after.trim())
           expect(
             f.git(
               "--git-dir",
@@ -728,6 +709,7 @@ it(
               "refs/heads/main",
             ),
           ).toBe("AGENTS.md")
+          // The model now returns the file as it is: no second commit.
           const noOpId = `${jobId}_again`
           expect(
             await withOrgIdContext(f.org, () =>

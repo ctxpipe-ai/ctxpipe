@@ -5,6 +5,7 @@ import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { projectWorkspaceSources } from "../../domain/workspace-sources/project.js"
 import { SOURCES_FILE_PATH } from "../../domain/workspace-sources/sources-file.js"
 import { embedHydrateUnits } from "../../domain/workspaces/derived-stores.js"
+import { nativeFolderSetChanged } from "../../domain/workspaces/folder-list.js"
 import { projectWorkspaceGraph } from "../../domain/workspaces/graph-projection.js"
 import {
   applyEffectiveValidFromToUnits,
@@ -12,7 +13,6 @@ import {
   hydrateKnowledgeTree,
 } from "../../domain/workspaces/hydrate.js"
 import { importKeyCleanupRemainder } from "../../domain/workspaces/hydrate-write-jobs.js"
-import { nativeFolderSetChanged } from "../../domain/workspaces/folder-list.js"
 import { planHydrateWrites } from "../../domain/workspaces/hydrate-write-planner.js"
 import { nativeRenameRewriteFiles } from "../../domain/workspaces/native-rename-rewrite.js"
 import {

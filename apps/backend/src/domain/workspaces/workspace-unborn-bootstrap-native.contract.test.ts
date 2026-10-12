@@ -129,7 +129,7 @@ it.each([
             if (mode === "satisfied first writer") {
               writeFileSync(
                 join(human, "AGENTS.md"),
-                "---\nname: Hydration contract\n---\n\n<!-- ctxpipe:folder-map -->\n## Folder Structure\n\nUse knowledge/ and repositories/.\n<!-- /ctxpipe:folder-map -->\n",
+                "---\nname: Hydration contract\n---\n\n## Folder Structure\n\nUse knowledge/ and repositories/.\n",
               )
               mkdirSync(join(human, ".agents/skills/ctxpipe-knowledge"), {
                 recursive: true,

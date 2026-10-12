@@ -49,7 +49,15 @@ export async function nativeFolderSetChanged(
     pack.sha,
     async (directory) => {
       const pathsAt = async (sha: string) =>
-        (await nativeGit(directory, ["ls-tree", "-r", "--name-only", "-z", sha]))
+        (
+          await nativeGit(directory, [
+            "ls-tree",
+            "-r",
+            "--name-only",
+            "-z",
+            sha,
+          ])
+        )
           .toString()
           .split("\0")
           .filter(Boolean)
