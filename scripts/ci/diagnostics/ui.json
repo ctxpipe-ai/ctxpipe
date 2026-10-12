@@ -2,48 +2,6 @@
   "version": 1,
   "diagnostics": [
     {
-      "file": "../backend/src/email/index.ts",
-      "code": 7016,
-      "message": "Could not find a declaration file for module 'react'. '<repo>/node_modules/.pnpm/react@19.2.4/node_modules/react/index.js' implicitly has an 'any' type.\n  If the 'react' package actually exposes this module, consider sending a pull request to amend 'https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/react'",
-      "count": 1
-    },
-    {
-      "file": "../backend/src/email/templates/invitation.tsx",
-      "code": 7016,
-      "message": "Could not find a declaration file for module 'react'. '<repo>/node_modules/.pnpm/react@19.2.4/node_modules/react/index.js' implicitly has an 'any' type.\n  If the 'react' package actually exposes this module, consider sending a pull request to amend 'https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/react'",
-      "count": 1
-    },
-    {
-      "file": "../backend/src/email/templates/invitation.tsx",
-      "code": 7016,
-      "message": "Could not find a declaration file for module 'react/jsx-runtime'. '<repo>/node_modules/.pnpm/react@19.2.4/node_modules/react/jsx-runtime.js' implicitly has an 'any' type.\n  If the 'react' package actually exposes this module, consider sending a pull request to amend 'https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/react'",
-      "count": 1
-    },
-    {
-      "file": "../backend/src/email/templates/invitation.tsx",
-      "code": 7026,
-      "message": "JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.",
-      "count": 8
-    },
-    {
-      "file": "../backend/src/email/templates/reset-password.tsx",
-      "code": 7016,
-      "message": "Could not find a declaration file for module 'react'. '<repo>/node_modules/.pnpm/react@19.2.4/node_modules/react/index.js' implicitly has an 'any' type.\n  If the 'react' package actually exposes this module, consider sending a pull request to amend 'https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/react'",
-      "count": 1
-    },
-    {
-      "file": "../backend/src/email/templates/reset-password.tsx",
-      "code": 7016,
-      "message": "Could not find a declaration file for module 'react/jsx-runtime'. '<repo>/node_modules/.pnpm/react@19.2.4/node_modules/react/jsx-runtime.js' implicitly has an 'any' type.\n  If the 'react' package actually exposes this module, consider sending a pull request to amend 'https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/react'",
-      "count": 1
-    },
-    {
-      "file": "../backend/src/email/templates/reset-password.tsx",
-      "code": 7026,
-      "message": "JSX element implicitly has type 'any' because no interface 'JSX.IntrinsicElements' exists.",
-      "count": 2
-    },
-    {
       "file": "../backend/src/models/github-installation.ts",
       "code": 2345,
       "message": "Argument of type 'Error' is not assignable to parameter of type 'string'.",

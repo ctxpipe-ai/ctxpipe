@@ -3,33 +3,44 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useId, useState } from "react"
 import { authClient } from "@/lib/auth-client"
+import { focusVisibleClassName } from "@/lib/focus-styles"
 import { useUserPreferences } from "@/lib/user-preferences"
-
-const ORG_SLUG_MAX_LENGTH = 32
+import {
+  ORG_SLUG_MAX_LENGTH,
+  orgNameFromEmail,
+  orgSlugFromName,
+} from "./org-name"
 
 type OnboardingCreateOrgSlideProps = {
   onOrgCreated: (newOrgSlug: string) => void
+  /** A work email domain gives the first organization name. */
+  userEmail?: string | null
 }
 
 export function OnboardingCreateOrgSlide({
   onOrgCreated,
+  userEmail,
 }: OnboardingCreateOrgSlideProps) {
   const orgNameFieldId = useId()
   const orgSlugFieldId = useId()
   const queryClient = useQueryClient()
   const [, setPreferences] = useUserPreferences()
-  const [orgName, setOrgName] = useState("")
-  const [orgSlug, setOrgSlug] = useState("")
+  // `null` means the user has not edited the field. Until then the name comes
+  // from the email domain and the slug follows the name.
+  const [typedOrgName, setOrgName] = useState<string | null>(null)
+  const [typedOrgSlug, setOrgSlug] = useState<string | null>(null)
+  const orgName = typedOrgName ?? orgNameFromEmail(userEmail)
+  const orgSlug = typedOrgSlug ?? orgSlugFromName(orgName)
   const [validationError, setValidationError] = useState<string | null>(null)
 
   const createOrg = useMutation({
     mutationFn: async (input: { name: string; slug: string }) => {
       const result = await authClient.organization.create(input)
       if (result.error) {
-        throw new Error(result.error.message ?? "Failed to create organisation")
+        throw new Error(result.error.message ?? "Failed to create organization")
       }
       if (!result.data?.slug) {
-        throw new Error("Failed to create organisation")
+        throw new Error("Failed to create organization")
       }
       return result.data
     },
@@ -57,19 +68,19 @@ export function OnboardingCreateOrgSlide({
   const handleCreateOrg = () => {
     const trimmed = orgName.trim()
     if (!trimmed) {
-      setValidationError("Enter a name for your organisation.")
+      setValidationError("Enter a name for your organization.")
       return
     }
     const slug = orgSlug.trim()
     if (!slug) {
       setValidationError(
-        "Enter the organisation slug. If you are self-hosting, it must match the slug configured for your deployment.",
+        "Enter the organization slug. If you are self-hosting, it must match the slug configured for your deployment.",
       )
       return
     }
     if (slug.length > ORG_SLUG_MAX_LENGTH) {
       setValidationError(
-        `Organisation slug must be at most ${ORG_SLUG_MAX_LENGTH} characters.`,
+        `Organization slug must be at most ${ORG_SLUG_MAX_LENGTH} characters.`,
       )
       return
     }
@@ -80,19 +91,18 @@ export function OnboardingCreateOrgSlide({
   return (
     <>
       <h2 className="mb-4 text-3xl font-semibold text-zinc-100 sm:text-4xl">
-        Create your organisation
+        Create your organization
       </h2>
       <div className="mx-auto mb-10 max-w-3xl">
         <p className="mx-auto mb-6 text-zinc-300">
-          Set up your organisation to start building your context layer. Your
-          team will join here.
+          Set up your organization. Your team will join here.
         </p>
         <div className="mx-auto max-w-md rounded-md border border-border bg-zinc-950/70 p-6 text-left">
           <label
             className="mb-2 block text-sm text-zinc-200"
             htmlFor={orgNameFieldId}
           >
-            Organisation name
+            Organization name
           </label>
           <input
             id={orgNameFieldId}
@@ -119,7 +129,7 @@ export function OnboardingCreateOrgSlide({
             Slug URL
           </label>
           <p className="mb-2 text-xs leading-relaxed text-zinc-400">
-            If you are self-hosting, use the same organisation slug you
+            If you are self-hosting, use the same organization slug you
             configured at deploy time (for example{" "}
             <code className="rounded-md bg-zinc-900 px-1 py-0.5 font-mono text-[11px] text-zinc-300">
               orgSlug
@@ -147,13 +157,14 @@ export function OnboardingCreateOrgSlide({
             <p className="mb-4 text-xs text-red-400">{orgError}</p>
           ) : null}
           <div className="flex justify-end">
+            {/* A native button: the double-click guard (ignoreRepeatClick) needs click events. */}
             <button
               type="button"
               disabled={createOrg.isPending}
-              className="inline-flex h-10 items-center justify-center rounded-md border border-border bg-zinc-100 px-5 text-sm font-medium text-zinc-950 transition-colors hover:bg-zinc-200 disabled:opacity-50"
+              className={`${focusVisibleClassName} inline-flex h-10 items-center justify-center rounded-md border border-border bg-zinc-100 px-5 text-sm font-medium text-zinc-950 transition-colors hover:bg-zinc-200 disabled:opacity-50`}
               onClick={handleCreateOrg}
             >
-              Create organisation
+              Create organization
             </button>
           </div>
         </div>

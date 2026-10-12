@@ -76,6 +76,7 @@ describe("placeSyncs", () => {
     parts: [],
   })
   const sync = (sha: string, turn: number) => ({
+    trigger: "sync" as const,
     branch: "ctxpipe/chat/conv_1/1",
     sha,
     files: 2,

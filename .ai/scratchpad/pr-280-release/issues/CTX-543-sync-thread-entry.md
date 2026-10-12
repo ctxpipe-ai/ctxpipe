@@ -44,7 +44,18 @@ stays.
 - Story `Pages/Workspaces/SyncAddsThreadEntry` (golden): Sync, then the entry
   shows after the last reply, with the link, and no toast.
 
-## Open points
+## Every push (CTO follow-up)
 
-- An agent push (`push_conversation_branch`) and Create PR do not write a Sync
-  record. Only the user's Sync button does.
+Each push that puts conversation commits on GitHub writes one record through
+the same model, with a `trigger`:
+
+| Path | Trigger | Entry |
+| --- | --- | --- |
+| `POST /conversations/{id}/push` (Sync) | `sync` | Synced N files to `branch` |
+| `POST /conversations/{id}/pull-request` (Create PR; also when it updates an open PR, and when the PR fails to open after the push) | `create_pr` | Pushed N files to `branch` and opened PR #n / for PR #n |
+| Agent tool `push_conversation_branch` | `agent` | The agent pushed N files to `branch` |
+| `pushBeforeSandboxDelete` (sweep, retry, rescue to the next branch) | `sweep` | ctx\| pushed N files to `branch` |
+
+The Workspace write broker pushes only to the default branch (mirrors,
+extraction, bootstrap), not conversation commits, so it writes no record.
+Create PR without a push (the branch is already on GitHub) writes no record.

@@ -97,6 +97,7 @@ describe("conversation turn changes (Postgres)", () => {
 
   it("keeps the first entry of a synced commit and masks credentials", async () => {
     const sync = (turn: number, syncedAt: string): ConversationSync => ({
+      trigger: "sync",
       branch: "ctxpipe/chat/conv_1/1",
       sha: "c".repeat(40),
       files: 2,

@@ -23,7 +23,7 @@ import type {
   ConversationGitStatusResponse,
   ConversationPullRequestResponse,
 } from "./types"
-import type { ConversationPublishChrome } from "./WorkspaceChatChrome"
+import type { ConversationCtaChrome } from "./WorkspaceChatChrome"
 
 export function conversationPushMutationKey(
   orgSlug: string,
@@ -136,6 +136,15 @@ export function useConversationPublish(input: {
         result,
       )
     },
+    // The push can succeed also when the pull request fails to open.
+    onSettled: () => {
+      void queryClient.invalidateQueries({
+        queryKey: workspaceKeys.conversationTurnChanges(
+          orgSlug,
+          conversationId,
+        ),
+      })
+    },
   })
 
   const pushPending = useIsMutating({ mutationKey: pushKey }) > 0
@@ -146,7 +155,7 @@ export function useConversationPublish(input: {
   )
   const commitEnabled = conversationCommitPushEnabled(status)
 
-  const chrome: ConversationPublishChrome = {
+  const chrome: ConversationCtaChrome = {
     commitPush: {
       visible: commitEnabled || pushPending,
       enabled: commitEnabled,

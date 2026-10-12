@@ -1,9 +1,9 @@
 import {
   IconCloudUpload,
-  IconExternalLink,
+  IconGitBranch,
   IconGitPullRequest,
 } from "@tabler/icons-react"
-import type { ReactElement, ReactNode } from "react"
+import { type ReactElement, type ReactNode, useRef } from "react"
 import { Link as AriaLink } from "react-aria-components"
 import { OverlayNavMenuButton } from "@/components/OverlayNavButton"
 import { Button } from "@/components/ui/Button"
@@ -13,6 +13,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/Tooltip"
+import { OnboardingHint } from "@/features/hints/OnboardingHint"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
 import type { Workspace } from "./types"
@@ -21,12 +22,11 @@ import {
   workspaceChromeOuterClassName,
   workspaceChromeOuterFlushClassName,
   workspaceChromeTabClassName,
-  workspaceChromeTabIdleClassName,
   workspaceChromeTabStripClassName,
 } from "./workspaceChrome"
 import { writeStatusLabel } from "./writeStatusLabel"
 
-export type ConversationPublishChrome = {
+export type ConversationCtaChrome = {
   commitPush: {
     visible: boolean
     enabled: boolean
@@ -71,27 +71,65 @@ export type ConversationBranchChrome = {
   href?: string | null
 }
 
+/** The branch name as a label with a git-branch icon. The tooltip has the full ref. */
+function BranchLabel(props: { branch: ConversationBranchChrome }) {
+  const { shortName, fullRef, href } = props.branch
+  const labelClassName =
+    "ml-2 inline-flex min-w-0 max-w-40 shrink items-center gap-1 rounded-md border border-border bg-zinc-800 px-1.5 py-0.5 font-mono text-xs font-normal text-muted-foreground"
+  const content = (
+    <>
+      <IconGitBranch className="size-3 shrink-0" stroke={1.8} aria-hidden />
+      <span className="truncate">{shortName}</span>
+    </>
+  )
+  return (
+    <ChromeTooltip
+      trigger={<span className={labelClassName} />}
+      content={fullRef}
+    >
+      {href ? (
+        <AriaLink
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={fullRef}
+          className={cn(
+            "inline-flex min-w-0 items-center gap-1 rounded-sm hover:text-teal-400",
+            focusVisibleClassName,
+          )}
+        >
+          {content}
+        </AriaLink>
+      ) : (
+        content
+      )}
+    </ChromeTooltip>
+  )
+}
+
 /**
  * Conversation column chrome: card surface with the conversation name as an
  * active tab (conversation is one pane; files/graph/settings are the other).
  */
 export function WorkspaceChatChrome(props: {
   workspace: Workspace
+  /** Shows the one-time Create PR hint for a new user of this organization. */
+  hintOrgSlug?: string
   title: ReactNode
   headerExtra?: ReactNode
   branch?: ConversationBranchChrome | null
-  publish?: ConversationPublishChrome | null
+  cta?: ConversationCtaChrome | null
   children: ReactNode
 }) {
   const write = writeStatusLabel(
     props.workspace.writeStatus,
     props.workspace.readOnlyReason,
   )
-  const publishHasActions = Boolean(
-    props.publish &&
-      (props.publish.commitPush.visible || props.publish.pullRequest.visible),
+  const ctaHasActions = Boolean(
+    props.cta &&
+      (props.cta.commitPush.visible || props.cta.pullRequest.visible),
   )
-  const showWriteBadge = !props.publish && write.tone !== "writable"
+  const showWriteBadge = !props.cta && write.tone !== "writable"
   return (
     <div
       className={cn(
@@ -114,7 +152,7 @@ export function WorkspaceChatChrome(props: {
           <div
             className={cn(
               workspaceChromeTabClassName,
-              "max-w-[min(100%,24rem)]",
+              "max-w-[min(100%,24rem)] px-3",
             )}
           >
             {typeof props.title === "string" ? (
@@ -122,29 +160,10 @@ export function WorkspaceChatChrome(props: {
             ) : (
               props.title
             )}
-            {props.branch ? (
-              props.branch.href ? (
-                <AriaLink
-                  href={props.branch.href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="ml-2 truncate font-mono text-xs text-muted-foreground hover:text-teal-400"
-                  aria-label={props.branch.fullRef}
-                >
-                  {props.branch.shortName}
-                </AriaLink>
-              ) : (
-                <span
-                  title={props.branch.fullRef}
-                  className="ml-2 truncate font-mono text-xs text-muted-foreground"
-                >
-                  {props.branch.shortName}
-                </span>
-              )
-            ) : null}
+            {props.branch ? <BranchLabel branch={props.branch} /> : null}
           </div>
-          {props.headerExtra || showWriteBadge || publishHasActions ? (
-            <div className="ml-auto flex min-w-0 items-end gap-0.5">
+          {props.headerExtra || showWriteBadge || ctaHasActions ? (
+            <div className="ml-auto flex min-w-0 items-end gap-1">
               {showWriteBadge ? (
                 <span className="inline-flex h-[37px] shrink-0 items-center">
                   <ChromeTooltip
@@ -165,10 +184,11 @@ export function WorkspaceChatChrome(props: {
                   </ChromeTooltip>
                 </span>
               ) : null}
-              {publishHasActions && props.publish ? (
-                <ConversationPublishActions
-                  publish={props.publish}
+              {ctaHasActions && props.cta ? (
+                <ConversationCtaActions
+                  cta={props.cta}
                   className={workspaceChromeTabStripClassName}
+                  hintOrgSlug={props.hintOrgSlug}
                 />
               ) : null}
               {props.headerExtra}
@@ -183,38 +203,31 @@ export function WorkspaceChatChrome(props: {
 }
 
 /**
- * Sync and Create PR use the pane triggers' idle tab style. The class wins
- * over the ghost variant, so it must also set the disabled and pending text.
+ * The CTA button: Sync, Create PR and Show PR use the primary Button variant
+ * (light face, dark text, hover and pressed states). This only shrinks it to
+ * 28px, centered on the 32px trigger row.
  */
-const publishButtonClassName = (state: {
-  isDisabled: boolean
-  isPending: boolean
-}) =>
-  cn(
-    workspaceChromeTabIdleClassName,
-    "gap-1.5 text-xs font-normal pressed:bg-teal-900/30",
-    state.isDisabled &&
-      "cursor-default hover:bg-transparent hover:text-zinc-400",
-    state.isDisabled && !state.isPending && "opacity-50",
-    state.isPending && "text-transparent hover:text-transparent",
-  )
+const ctaClassName =
+  "my-1 h-7 -translate-y-px gap-1.5 border-0 px-2.5 text-xs font-normal leading-none"
 
 /**
- * Sync (commit and push), Create PR, and Show PR. They look the same as the
- * pane triggers. `className` lets the tools pane show the actions only when
+ * Sync (commit and push), Create PR, and Show PR as CTA buttons. `className` lets the tools pane show the actions only when
  * the conversation column is hidden, so the page shows each action once.
  */
-export function ConversationPublishActions(props: {
-  publish: ConversationPublishChrome
+export function ConversationCtaActions(props: {
+  cta: ConversationCtaChrome
   className?: string
+  /** Only the conversation header passes it, so the hint shows once. */
+  hintOrgSlug?: string
 }) {
-  const { commitPush, pullRequest } = props.publish
+  const { commitPush, pullRequest } = props.cta
+  const createPrRef = useRef<HTMLButtonElement>(null)
   const showCommit = commitPush.visible
   const showPrLink = pullRequest.action === "show" && Boolean(pullRequest.href)
   const showCreatePr = pullRequest.visible && pullRequest.action === "create"
   if (!showCommit && !showPrLink && !showCreatePr) return null
   return (
-    <div className={cn("flex shrink-0 items-end gap-0.5", props.className)}>
+    <div className={cn("flex shrink-0 items-end gap-1", props.className)}>
       {showCommit ? (
         // A span trigger: the tooltip shows on hover also while Sync is disabled.
         <ChromeTooltip
@@ -222,7 +235,7 @@ export function ConversationPublishActions(props: {
           content="Commit and push your changes to the conversation branch"
         >
           <Button
-            variant="ghost"
+            variant="primary"
             isDisabled={!commitPush.enabled || commitPush.pending}
             isPending={commitPush.pending}
             onPress={commitPush.onPress}
@@ -231,7 +244,7 @@ export function ConversationPublishActions(props: {
                 ? "Syncing: commit and push in progress"
                 : "Sync: commit and push your changes"
             }
-            className={publishButtonClassName}
+            className={ctaClassName}
           >
             <IconCloudUpload className="size-4" stroke={1.6} aria-hidden />
             {commitPush.pending ? "Syncing…" : "Sync"}
@@ -239,37 +252,41 @@ export function ConversationPublishActions(props: {
         </ChromeTooltip>
       ) : null}
       {showPrLink ? (
-        <AriaLink
+        <Button
+          variant="primary"
           href={pullRequest.href ?? undefined}
           target="_blank"
           rel="noopener noreferrer"
           aria-label="Show PR (opens in a new tab)"
-          className={cn(
-            workspaceChromeTabIdleClassName,
-            focusVisibleClassName,
-            "relative gap-1.5 pr-4 text-xs font-normal",
-          )}
+          className={ctaClassName}
         >
           <IconGitPullRequest className="size-4" stroke={1.6} aria-hidden />
           Show PR
-          <IconExternalLink
-            data-external-badge
-            className="absolute top-1 right-1 size-2.5"
-            stroke={2}
-            aria-hidden
-          />
-        </AriaLink>
-      ) : showCreatePr ? (
-        <Button
-          variant="ghost"
-          isDisabled={pullRequest.pending}
-          isPending={pullRequest.pending}
-          onPress={pullRequest.onPress}
-          className={publishButtonClassName}
-        >
-          <IconGitPullRequest className="size-4" stroke={1.6} aria-hidden />
-          {pullRequest.pending ? "Creating PR…" : "Create PR"}
         </Button>
+      ) : showCreatePr ? (
+        <>
+          <Button
+            ref={createPrRef}
+            variant="primary"
+            isDisabled={pullRequest.pending}
+            isPending={pullRequest.pending}
+            onPress={pullRequest.onPress}
+            className={ctaClassName}
+          >
+            <IconGitPullRequest className="size-4" stroke={1.6} aria-hidden />
+            {pullRequest.pending ? "Creating PR…" : "Create PR"}
+          </Button>
+          {props.hintOrgSlug ? (
+            <OnboardingHint
+              id="create-pr"
+              orgSlug={props.hintOrgSlug}
+              triggerRef={createPrRef}
+            >
+              Changes stay on this conversation's branch until you create a pull
+              request.
+            </OnboardingHint>
+          ) : null}
+        </>
       ) : null}
     </div>
   )

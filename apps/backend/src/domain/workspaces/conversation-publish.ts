@@ -3,6 +3,11 @@ import { open } from "node:fs/promises"
 import { join } from "node:path"
 import type { Env } from "../../config/env.js"
 import {
+  type ConversationPushTrigger,
+  type ConversationSync,
+  saveConversationSync,
+} from "../../models/conversation-turn-changes.js"
+import {
   getConversationSession,
   recordConversationSessionPush,
 } from "../../models/conversations.js"
@@ -46,6 +51,7 @@ import {
   sameWorkspaceRevision,
   type WorkspaceRevision,
 } from "./revision.js"
+import { workspaceChatPersistence } from "./workspace-chat-persistence.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "./write-status.js"
 
 export type ConversationSandboxBinding = {
@@ -366,6 +372,51 @@ export async function pushConversationSession(input: {
       conversationId: input.conversationId,
     })
     return { status: "failed", reason: "push_failed", dirty }
+  }
+}
+
+/**
+ * The thread shows each push of the conversation's commits after the last
+ * user turn. The commits are already on GitHub, so a failure to record the
+ * push is logged and the push succeeds.
+ */
+export async function recordConversationPush(input: {
+  orgId: string
+  conversationId: string
+  pushed: Extract<SessionPushResult, { status: "pushed" }>
+  trigger: ConversationPushTrigger
+  pullRequest?: ConversationSync["pullRequest"]
+}): Promise<void> {
+  const { pushed } = input
+  try {
+    // The sweep does not hold off a delete: a deleted conversation gets no
+    // entry that nothing would delete.
+    if (!(await getConversationSession(input.orgId, input.conversationId)))
+      return
+    const thread = await workspaceChatPersistence().stores.messages.loadThread(
+      input.conversationId,
+    )
+    await saveConversationSync({
+      orgId: input.orgId,
+      conversationId: input.conversationId,
+      sync: {
+        trigger: input.trigger,
+        ...(input.pullRequest ? { pullRequest: input.pullRequest } : {}),
+        branch: pushed.branch,
+        sha: pushed.sha,
+        files: pushed.files,
+        treeUrl: pushed.treeUrl,
+        turn: thread.filter((message) => message.role === "user").length,
+        syncedAt: new Date().toISOString(),
+      },
+    })
+  } catch (error) {
+    log.warn({
+      step: "conversation-sync-record",
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+      conversationId: input.conversationId,
+    })
   }
 }
 

@@ -32,7 +32,15 @@ export function openCodeExtractableUserText(message: {
 export function messagesForOpenCodeChat<
   T extends { role?: string; content?: unknown; parts?: unknown[] },
 >(messages: readonly T[] | undefined, prompt: string): T[] {
-  const list = messages ? [...messages] : []
+  // An AG-UI assistant anchor without text has no `content`, and
+  // `convertMessagesToModelMessages` keeps it so. OpenCode `buildPrompt`
+  // reads each earlier turn and accepts only `null` for "no text".
+  const list = (messages ?? []).map((message) =>
+    message.content === undefined &&
+    !("parts" in message && message.parts != null)
+      ? { ...message, content: null }
+      : message,
+  )
   const text = prompt.trim()
   if (!text) return list
   const last = list.at(-1)

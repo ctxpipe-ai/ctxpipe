@@ -522,6 +522,7 @@ export const SyncAddsThreadEntry: Story = {
                   syncs: synced
                     ? [
                         {
+                          trigger: "sync",
                           branch,
                           sha: "8eb1704c2d1f0a5b6e3c9d7f4a2b1c0d9e8f7a6b",
                           files: 3,
@@ -743,11 +744,11 @@ export const SingleCreatePrPaneClosed: Story = {
       },
       { timeout: 15_000 },
     )
-    // The pane triggers sit at the top right of the conversation too, with no border.
+    // The pane triggers sit at the top right of the conversation too, with no visible border.
     for (const name of ["Files", "Graph", "Settings"])
       expect(
-        getComputedStyle(page.getByRole("button", { name })).borderTopWidth,
-      ).toBe("0px")
+        getComputedStyle(page.getByRole("button", { name })).borderTopColor,
+      ).toBe("rgba(0, 0, 0, 0)")
   },
 }
 
@@ -774,24 +775,22 @@ export const CreatePrMatchesPaneTriggers: Story = {
       { timeout: 15_000 },
     )
     const files = page.getByRole("button", { name: "Files" })
-    const look = (element: HTMLElement) => {
-      const style = getComputedStyle(element)
-      const icon = element.querySelector("svg")?.getBoundingClientRect()
-      const box = element.getBoundingClientRect()
-      return {
-        height: box.height,
-        bottom: box.bottom,
-        paddingLeft: style.paddingLeft,
-        paddingRight: style.paddingRight,
-        color: style.color,
-        borderTopWidth: style.borderTopWidth,
-        borderRadius: style.borderTopLeftRadius,
-        iconWidth: icon?.width,
-        iconHeight: icon?.height,
-      }
-    }
-    expect(look(createPr)).toEqual(look(files))
-    // Only the text differs: publish buttons use a smaller, normal weight.
+    await waitFor(() => expect(files).toBeVisible())
+    // Both sit in the same header row.
+    expect(createPr.closest("[data-workspace-surface]")).toBe(
+      files.closest("[data-workspace-surface]"),
+    )
+    expect(createPr.closest("[data-workspace-surface]")).not.toBeNull()
+    // The CTA button is smaller than a trigger, and both centers align.
+    const cta = createPr.getBoundingClientRect()
+    const trigger = files.getBoundingClientRect()
+    expect(cta.height).toBeLessThan(trigger.height)
+    expect(cta.top + cta.height / 2).toBeCloseTo(
+      trigger.top + trigger.height / 2,
+      0,
+    )
+    // Triggers are square.
+    expect(trigger.width).toBe(trigger.height)
     expect(getComputedStyle(createPr).fontSize).toBe("12px")
     expect(getComputedStyle(createPr).fontWeight).toBe("400")
   },
@@ -820,15 +819,87 @@ export const DiffTriggerPaneClosed: Story = {
       { timeout: 15_000 },
     )
     const files = page.getByRole("button", { name: "Files" })
-    expect(diff).toBeVisible()
+    // The trigger fades in for 100 ms when it mounts.
+    await waitFor(() => expect(diff).toBeVisible())
     expect(diff.parentElement).toBe(files.parentElement)
     expect(diff.className).toBe(files.className)
-    expect(getComputedStyle(diff).borderTopWidth).toBe("0px")
     expect(diff.querySelector("svg.tabler-icon-file-diff")).not.toBeNull()
     await userEvent.click(diff)
     const tab = await page.findByRole("tab", { name: "Diff", selected: true })
     // The tab fades in for 100 ms when the pane mounts.
     await waitFor(() => expect(tab).toBeVisible())
+  },
+}
+
+/**
+ * The Diff trigger shows with no changes on the branch, and its pane has an
+ * empty state.
+ */
+export const DiffTriggerNoChanges: Story = {
+  tags: ["workspace-golden"],
+  args: { conversationId: "conv_1", paneParam: "files" },
+  parameters: {
+    storyRoute: workspaceRoute({ conversationId: "conv_1", pane: "files" }),
+    msw: {
+      handlers: {
+        page: [...workspaceShellHandlers(), conversationGitDiffHandler([])],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const page = within(canvasElement.ownerDocument.body)
+    await userEvent.click(
+      await page.findByRole("tab", { name: "Diff" }, { timeout: 15_000 }),
+    )
+    expect(await page.findByText("No changes on this branch")).toBeVisible()
+  },
+}
+
+/**
+ * A tab switch moves no tab. Each trigger keeps its box (x, y, width and
+ * height) when another trigger becomes active. The tab that becomes active
+ * keeps its x and width; it grows only to join the card.
+ */
+export const PaneTabsStayInPlace: Story = {
+  tags: ["workspace-golden"],
+  args: { conversationId: "conv_1", paneParam: "files" },
+  parameters: {
+    storyRoute: workspaceRoute({ conversationId: "conv_1", pane: "files" }),
+    msw: {
+      handlers: {
+        page: [...workspaceShellHandlers(), conversationGitDiffHandler()],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const page = within(canvasElement.ownerDocument.body)
+    const names = ["Files", "Diff", "Graph", "Settings"]
+    for (const name of names)
+      await page.findByRole("tab", { name }, { timeout: 15_000 })
+    const boxes = () =>
+      Object.fromEntries(
+        names.map((name) => {
+          const r = page.getByRole("tab", { name }).getBoundingClientRect()
+          return [name, { x: r.x, y: r.y, width: r.width, height: r.height }]
+        }),
+      )
+    // Let the fade-in of the tabs finish before the first read.
+    await new Promise((resolve) => window.setTimeout(resolve, 200))
+    for (const next of ["Diff", "Graph", "Settings", "Files"]) {
+      const before = boxes()
+      await userEvent.click(page.getByRole("tab", { name: next }))
+      await page.findByRole("tab", { name: next, selected: true })
+      await new Promise((resolve) => window.setTimeout(resolve, 200))
+      const after = boxes()
+      for (const name of names) {
+        expect(after[name]?.x).toBe(before[name]?.x)
+        expect(after[name]?.width).toBe(before[name]?.width)
+        // The tab that becomes active, or stops being active, joins the card.
+        if (name !== next && before[name]?.height === after[name]?.height) {
+          expect(after[name]?.y).toBe(before[name]?.y)
+        }
+      }
+    }
   },
 }
 

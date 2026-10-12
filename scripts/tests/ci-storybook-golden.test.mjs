@@ -60,6 +60,34 @@ const required = [
     "ChangeMarkers",
   ],
   [
+    "apps/ui/src/features/workspaces/WorkspaceChatChrome.stories.tsx",
+    "CtaButtonStyle",
+  ],
+  [
+    "apps/ui/src/features/workspaces/WorkspaceChatChrome.stories.tsx",
+    "BranchLabel",
+  ],
+  [
+    "apps/ui/src/features/workspaces/WorkspaceSurface.stories.tsx",
+    "DiffTriggerNoChanges",
+  ],
+  [
+    "apps/ui/src/features/workspaces/WorkspaceSurface.stories.tsx",
+    "PaneTabsStayInPlace",
+  ],
+  [
+    "apps/ui/src/features/workspaces/WorkspacePane.stories.tsx",
+    "TextTabsKeepPadding",
+  ],
+  [
+    "apps/ui/src/features/workspaces/ConversationTitleButton.stories.tsx",
+    "UneditedSaveKeepsAutomaticTitle",
+  ],
+  [
+    "apps/ui/src/features/workspaces/ConversationTitleButton.stories.tsx",
+    "EscapeReturnsFocus",
+  ],
+  [
     "apps/ui/src/features/workspaces/WorkspaceSurface.stories.tsx",
     "SharedPublishPending",
   ],
@@ -70,6 +98,30 @@ const required = [
   [
     "apps/ui/src/features/workspaces/WorkspaceSurface.stories.tsx",
     "SyncAddsThreadEntry",
+  ],
+  [
+    "apps/ui/src/features/workspaces/ConversationSyncEntry.stories.tsx",
+    "SyncEntry",
+  ],
+  [
+    "apps/ui/src/features/workspaces/ConversationSyncEntry.stories.tsx",
+    "CreatePrEntry",
+  ],
+  [
+    "apps/ui/src/features/workspaces/ConversationSyncEntry.stories.tsx",
+    "ExistingPrEntry",
+  ],
+  [
+    "apps/ui/src/features/workspaces/ConversationSyncEntry.stories.tsx",
+    "CreatePrWithoutPrEntry",
+  ],
+  [
+    "apps/ui/src/features/workspaces/ConversationSyncEntry.stories.tsx",
+    "AgentPushEntry",
+  ],
+  [
+    "apps/ui/src/features/workspaces/ConversationSyncEntry.stories.tsx",
+    "SweepPushEntry",
   ],
   [
     "apps/ui/src/components/ui/LoadingIndicators.stories.tsx",

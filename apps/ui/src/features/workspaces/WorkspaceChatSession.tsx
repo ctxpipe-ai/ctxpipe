@@ -268,6 +268,7 @@ export function WorkspaceChatSession(props: {
   return (
     <WorkspaceChatChrome
       workspace={workspace}
+      hintOrgSlug={orgSlug}
       title={
         <ConversationTitleButton
           orgSlug={orgSlug}
@@ -294,7 +295,7 @@ export function WorkspaceChatSession(props: {
             }
           : null
       }
-      publish={
+      cta={
         conversationAllowsEdits(
           workspace.writeStatus,
           workspace.conversationWritable,

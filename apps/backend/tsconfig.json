@@ -14,7 +14,7 @@
     "noEmit": true,
     "noErrorTruncation": true,
     "skipLibCheck": true,
-    "jsx": "react"
+    "jsx": "react-jsx"
   },
   "include": [
     "src/**/*",

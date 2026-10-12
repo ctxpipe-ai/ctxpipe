@@ -33,6 +33,22 @@ import { formatLineCount } from "./conversationDiff"
 import { conversationGitDiffOptions } from "./queries"
 import type { ChangedFile, ConversationGitDiffItem } from "./types"
 
+/** The empty Diff pane. It needs no request, so it also shows before the sandbox is ready. */
+export function ConversationDiffEmpty(props: { base: string | null }) {
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center gap-1 p-6 text-center">
+      <p className="text-sm font-medium text-foreground">
+        No changes on this branch
+      </p>
+      <p className="text-sm text-muted-foreground">
+        {props.base
+          ? `This conversation has no changes against ${props.base}.`
+          : "This conversation has no changes."}
+      </p>
+    </div>
+  )
+}
+
 export function WorkspaceConversationDiffPane(props: {
   orgSlug: string
   conversationId: string
@@ -110,16 +126,7 @@ export function ConversationDiffList(props: {
   const allExpanded = files.length > 0 && expanded.size === files.length
 
   if (files.length === 0) {
-    return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-1 p-6 text-center">
-        <p className="text-sm font-medium text-foreground">No changes</p>
-        <p className="text-sm text-muted-foreground">
-          {props.base
-            ? `This conversation has no changes against ${props.base}.`
-            : "This conversation has no changes."}
-        </p>
-      </div>
-    )
+    return <ConversationDiffEmpty base={props.base} />
   }
 
   return (

@@ -1,8 +1,11 @@
 import {
+  chatParamsFromRequestBody,
   convertMessagesToModelMessages,
   type ModelMessage,
   type UIMessage,
+  uiMessagesToWire,
 } from "@tanstack/ai"
+import { buildPrompt } from "@tanstack/ai-opencode"
 import { describe, expect, it } from "vitest"
 import {
   messagesForOpenCodeChat,
@@ -135,5 +138,60 @@ describe("messagesForOpenCodeChat", () => {
       "providerMessages" in patch ? patch.providerMessages : undefined
     expect(providerMessages).toBeDefined()
     expect(openCodeTrailingUserText(providerMessages ?? [])).toBe("next turn")
+  })
+
+  it("gives OpenCode an earlier assistant turn that has no text", async () => {
+    // The browser sends an assistant turn without text (a tool call only, or
+    // a failed turn) as an AG-UI anchor without `content`.
+    const history: UIMessage[] = [
+      {
+        id: "u1",
+        role: "user",
+        parts: [{ type: "text", content: "Run the tests" }],
+      },
+      {
+        id: "a1",
+        role: "assistant",
+        parts: [
+          {
+            type: "tool-call",
+            id: "call-1",
+            name: "bash",
+            arguments: "{}",
+            state: "input-complete",
+          },
+        ],
+      },
+      {
+        id: "u2",
+        role: "user",
+        parts: [{ type: "text", content: "And now?" }],
+      },
+    ]
+    const params = await chatParamsFromRequestBody({
+      threadId: "conv_example",
+      runId: "run-1",
+      messages: uiMessagesToWire(history),
+      tools: [],
+      context: [],
+    })
+    const onConfig = openCodeTrailingUserMiddleware("And now?").onConfig
+    if (!onConfig) throw new Error("expected onConfig")
+    const result = await onConfig(
+      { phase: "init" } as Parameters<typeof onConfig>[0],
+      {
+        messages: convertMessagesToModelMessages(params.messages),
+        systemPrompts: [],
+        tools: [],
+      },
+    )
+    const messages =
+      result && typeof result === "object" && "messages" in result
+        ? result.messages
+        : undefined
+    if (!messages) throw new Error("expected messages")
+    expect(buildPrompt(messages, undefined).prompt).toBe(
+      "Previous conversation:\nUser: Run the tests\n\nAnd now?",
+    )
   })
 })

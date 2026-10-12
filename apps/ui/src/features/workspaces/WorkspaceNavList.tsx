@@ -1,10 +1,11 @@
 import { IconPlus } from "@tabler/icons-react"
 import { useSuspenseQuery } from "@tanstack/react-query"
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { SideNavRowSkeleton } from "@/components/SideNav/SideNavRowSkeleton"
 import type { SideNavLocation } from "@/components/SideNav/sideNavLocation"
 import { Button } from "@/components/ui/Button"
 import { Skeleton, SkeletonSuspense } from "@/components/ui/Skeleton"
+import { OnboardingHint } from "@/features/hints/OnboardingHint"
 import { isWorkspaceNavOpen } from "./nav"
 import { workspaceListOptions } from "./queries"
 import { WorkspaceCreateModal } from "./WorkspaceCreateModal"
@@ -69,6 +70,7 @@ function WorkspaceNavListReady(props: {
   const [expandedIds, setExpandedIds] = useState<string[]>([])
   const [syncedSlug, setSyncedSlug] = useState<string | undefined>(undefined)
   const [createOpen, setCreateOpen] = useState(false)
+  const addRef = useRef<HTMLSpanElement>(null)
   const currentWorkspace = workspaces.find(
     (workspace) => workspace.slug === currentWorkspaceSlug,
   )
@@ -88,18 +90,30 @@ function WorkspaceNavListReady(props: {
           <p className="text-[10px] font-normal uppercase tracking-tighter text-muted-foreground">
             Workspaces
           </p>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="Add Workspace"
-            onPress={() => setCreateOpen(true)}
-          >
-            <IconPlus
-              className="size-4 text-muted-foreground"
-              stroke={1.4}
-              aria-hidden
-            />
-          </Button>
+          <span ref={addRef} className="inline-flex">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Add Workspace"
+              onPress={() => setCreateOpen(true)}
+            >
+              <IconPlus
+                className="size-4 text-muted-foreground"
+                stroke={1.4}
+                aria-hidden
+              />
+            </Button>
+          </span>
+          {n > 0 ? (
+            <OnboardingHint
+              id="add-workspace"
+              orgSlug={orgSlug}
+              triggerRef={addRef}
+              placement="right"
+            >
+              Add a Workspace for each team or product.
+            </OnboardingHint>
+          ) : null}
           <WorkspaceCreateModal
             orgSlug={orgSlug}
             isOpen={createOpen}

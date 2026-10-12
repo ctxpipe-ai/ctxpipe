@@ -184,8 +184,12 @@ export type ConversationTurnChanges = {
   files: ChangedFile[]
 }
 
-/** One Sync: the user pushed the conversation's commits to its branch. */
+/** One push of the conversation's commits to its branch. */
 export type ConversationSync = {
+  /** What pushed: the user's Sync or Create PR, the agent, or the sweep. */
+  trigger: "sync" | "create_pr" | "agent" | "sweep"
+  /** Create PR: the pull request; `opened` when this push opened it. */
+  pullRequest?: { number: number; url: string; opened: boolean }
   branch: string
   sha: string
   /** The number of files that the pushed commits changed. */
