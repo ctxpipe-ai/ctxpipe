@@ -95,10 +95,9 @@ function WorkspaceLandingRedirect(props: { orgSlug: string }) {
   const { orgSlug } = props
   const { data } = useSuspenseQuery(workspaceListOptions(orgSlug))
   const workspace = landingWorkspace(data)
+  // With no Workspace, Home shows the setup guide (CTX-552).
   if (!workspace) {
-    return (
-      <Navigate to="/$orgSlug/workspaces/new" params={{ orgSlug }} replace />
-    )
+    return <Navigate to="/$orgSlug" params={{ orgSlug }} replace />
   }
   return (
     <Navigate
