@@ -238,7 +238,7 @@ export const RenameBeatsAutomaticTitle: Story = {
               ),
             () => {
               renameStory.turnReads += 1
-              return HttpResponse.json({ items: [] })
+              return HttpResponse.json({ items: [], syncs: [] })
             },
           ),
           ...workspaceShellHandlers(),

@@ -21,9 +21,10 @@ import type {
   ConversationListInfiniteData,
   ConversationListItem,
 } from "@/features/chat/types"
+import { ConversationSyncEntry } from "./ConversationSyncEntry"
 import { ConversationTitleButton } from "./ConversationTitleButton"
 import { ConversationTurnChangesCard } from "./ConversationTurnChangesCard"
-import { placeTurnChanges } from "./conversationDiff"
+import { placeSyncs, placeTurnChanges } from "./conversationDiff"
 import {
   conversationAllowsEdits,
   conversationBranchShortName,
@@ -233,6 +234,10 @@ export function WorkspaceChatSession(props: {
       ),
     [messages, turnChanges.data],
   )
+  const syncEntries = useMemo(
+    () => placeSyncs(messages as ChatMessage[], turnChanges.data?.syncs ?? []),
+    [messages, turnChanges.data],
+  )
 
   const handleSendMessage = async (
     params: { text: string },
@@ -321,21 +326,29 @@ export function WorkspaceChatSession(props: {
         error={error ?? sendError}
         status={status}
         waitLabel={workspaceChatWaitLabel(sandboxPhase)}
-        renderAfterMessage={(messageId) =>
-          turnCards.get(messageId)?.map((changes) => (
-            <ConversationTurnChangesCard
-              key={changes.runId}
-              changes={changes}
-              onOpenDiff={(path) =>
-                props.onOpenPane?.({
-                  kind: "diff",
-                  turn: changes.runId,
-                  ...(path ? { path } : {}),
-                })
-              }
-            />
-          ))
-        }
+        renderAfterMessage={(messageId) => {
+          const after = [
+            ...(turnCards.get(messageId)?.map((changes) => (
+              <ConversationTurnChangesCard
+                key={changes.runId}
+                changes={changes}
+                onOpenDiff={(path) =>
+                  props.onOpenPane?.({
+                    kind: "diff",
+                    turn: changes.runId,
+                    ...(path ? { path } : {}),
+                  })
+                }
+              />
+            )) ?? []),
+            ...(syncEntries
+              .get(messageId)
+              ?.map((sync) => (
+                <ConversationSyncEntry key={sync.sha} sync={sync} />
+              )) ?? []),
+          ]
+          return after.length > 0 ? after : null
+        }}
         onOpenFile={
           props.onOpenPane
             ? (path) => props.onOpenPane?.({ kind: "file", path })

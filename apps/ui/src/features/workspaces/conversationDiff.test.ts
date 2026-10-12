@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   formatLineCount,
   groupChangedFilesByFolder,
+  placeSyncs,
   placeTurnChanges,
 } from "./conversationDiff"
 
@@ -56,6 +57,38 @@ describe("placeTurnChanges", () => {
       [record("run_live", 1)],
     )
     expect([...placed.keys()]).toEqual(["a1"])
+  })
+})
+
+describe("placeSyncs", () => {
+  const user = (id: string) => ({ id, role: "user" as const, parts: [] })
+  const reply = (id: string) => ({
+    id,
+    role: "assistant" as const,
+    parts: [],
+  })
+  const sync = (sha: string, turn: number) => ({
+    branch: "ctxpipe/chat/conv_1/1",
+    sha,
+    files: 2,
+    treeUrl: "https://github.com/acme/docs/tree/ctxpipe/chat/conv_1/1",
+    turn,
+    syncedAt: "2026-08-16T10:00:00.000Z",
+  })
+
+  it("puts each Sync after the last shown message of its user turn", () => {
+    const placed = placeSyncs(
+      [user("u1"), reply("a1"), reply("a1b"), user("u2"), reply("a2")],
+      [sync("s1", 1), sync("s2", 1), sync("s3", 2), sync("s0", 0)],
+    )
+    // a1 and a1b are one shown reply. A Sync before the first user message
+    // has no place.
+    expect(
+      [...placed].map(([id, items]) => [id, items.map((item) => item.sha)]),
+    ).toEqual([
+      ["a1", ["s1", "s2"]],
+      ["a2", ["s3"]],
+    ])
   })
 })
 

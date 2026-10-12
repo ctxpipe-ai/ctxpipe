@@ -1,5 +1,9 @@
 import type { ChatMessage } from "@/features/chat/types"
-import type { ChangedFile, ConversationTurnChanges } from "./types"
+import type {
+  ChangedFile,
+  ConversationSync,
+  ConversationTurnChanges,
+} from "./types"
 
 export type ChangedFolder = {
   folder: string
@@ -45,16 +49,11 @@ function messageRunId(message: ChatMessage): string | undefined {
 }
 
 /**
- * Places each turn's card after the last shown message of its run. The keys
- * are the ids the thread shows (it joins replies that follow each other into
- * the first one). A run with no message that carries its id (a failed turn,
- * or a reply that is still live) goes after the last message of its user
- * turn.
+ * The last shown message of each run and of each user turn. The keys are the
+ * ids the thread shows (it joins replies that follow each other into the
+ * first one).
  */
-export function placeTurnChanges(
-  messages: ChatMessage[],
-  records: ConversationTurnChanges[],
-): Map<string, ConversationTurnChanges[]> {
+function lastShownMessages(messages: ChatMessage[]) {
   const lastForRun = new Map<string, string>()
   const lastForUserTurn = new Map<number, string>()
   let shownId: string | undefined
@@ -70,11 +69,44 @@ export function placeTurnChanges(
     if (runId) lastForRun.set(runId, shownId)
     if (userTurn > 0) lastForUserTurn.set(userTurn, shownId)
   }
-  const placed = new Map<string, ConversationTurnChanges[]>()
+  return { lastForRun, lastForUserTurn }
+}
+
+function placeAfter<T>(
+  records: T[],
+  placeOf: (record: T) => string | undefined,
+): Map<string, T[]> {
+  const placed = new Map<string, T[]>()
   for (const record of records) {
-    const id = lastForRun.get(record.runId) ?? lastForUserTurn.get(record.turn)
+    const id = placeOf(record)
     if (!id) continue
     placed.set(id, [...(placed.get(id) ?? []), record])
   }
   return placed
+}
+
+/**
+ * Places each turn's card after the last shown message of its run. A run
+ * with no message that carries its id (a failed turn, or a reply that is
+ * still live) goes after the last message of its user turn.
+ */
+export function placeTurnChanges(
+  messages: ChatMessage[],
+  records: ConversationTurnChanges[],
+): Map<string, ConversationTurnChanges[]> {
+  const { lastForRun, lastForUserTurn } = lastShownMessages(messages)
+  return placeAfter(
+    records,
+    (record) =>
+      lastForRun.get(record.runId) ?? lastForUserTurn.get(record.turn),
+  )
+}
+
+/** Places each Sync after the last shown message of its user turn. */
+export function placeSyncs(
+  messages: ChatMessage[],
+  syncs: ConversationSync[],
+): Map<string, ConversationSync[]> {
+  const { lastForUserTurn } = lastShownMessages(messages)
+  return placeAfter(syncs, (sync) => lastForUserTurn.get(sync.turn))
 }
