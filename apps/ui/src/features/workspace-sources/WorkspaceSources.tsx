@@ -475,7 +475,7 @@ export function WorkspaceSources(props: {
               </ConnectorGroup>
             ) : null}
             {groups.map((provider) => {
-              const { Icon, ScopeEditor } = SOURCE_PROVIDER_UI[provider]
+              const { Icon } = SOURCE_PROVIDER_UI[provider]
               const label = sourceProviderLabel(provider)
               const sources = items.filter((item) => item.provider === provider)
               const pendingAdds = pendingChanges.filter(
@@ -527,10 +527,7 @@ export function WorkspaceSources(props: {
                         <IconPlus className="size-4" aria-hidden />
                         Add repositories
                       </Button>
-                    ) : provider !== "github" &&
-                      connected &&
-                      canEdit &&
-                      ScopeEditor ? (
+                    ) : provider !== "github" && connected && canEdit ? (
                       <Button
                         variant="quiet"
                         aria-label={`Add ${label} source`}
@@ -571,7 +568,7 @@ export function WorkspaceSources(props: {
                           source={source}
                           pending={pendingOf(source.sourceKey)}
                           onEdit={
-                            canEdit && ScopeEditor
+                            canEdit
                               ? () =>
                                   setEditor({ kind: "edit", provider, source })
                               : null

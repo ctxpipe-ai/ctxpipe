@@ -81,20 +81,6 @@ export const NotUsedInAnyWorkspace: Story = {
   },
 }
 
-export const NoEditorHidesAdd: Story = {
-  args: { provider: "pagerduty" },
-  parameters: {
-    msw: { handlers: { page: [connectionUsageHandler([])] } },
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await canvas.findByText("Not used in any Workspace")
-    await expect(
-      canvas.queryByRole("button", { name: "Add to a Workspace" }),
-    ).toBeNull()
-  },
-}
-
 export const UsedInOneWorkspace: Story = {
   parameters: {
     msw: {
