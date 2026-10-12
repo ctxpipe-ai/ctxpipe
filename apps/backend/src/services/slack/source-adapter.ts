@@ -8,8 +8,10 @@ import {
   type SlackSourceScope,
   slackScopeSchema,
 } from "../../domain/workspace-sources/providers/slack.js"
+import { saveConnectionSourceSync } from "../../models/connection-source-sync.js"
 import {
   getSlackConnectionByConnectionId,
+  getSlackSourceSync,
   type SlackConnection,
 } from "../../models/slack-connector.js"
 import { log } from "../../observability/logger.js"
@@ -48,6 +50,8 @@ import { buildThreadFiles } from "./sync.js"
  */
 const SLACK_SOURCE_BACKFILL_SECONDS = 30 * 24 * 60 * 60
 const SLACK_SOURCE_MAX_THREADS = 100
+export const SLACK_SYNC_MAX_TRIES = 3
+const FAILURE_COUNT_WINDOW_MS = 60 * 60 * 1000
 
 /** A Slack error that does not go away when the sync tries again. */
 function permanentChannelProblem(
@@ -201,14 +205,39 @@ export async function fetchSlackSources(input: {
     result.files.push(file)
   }
   const profileCache = new Map<string, SlackUserProfile>()
+  const sourceSync = await withOrgDbContext(input.orgId, () =>
+    getSlackSourceSync(input.orgId, input.connectionId),
+  )
+  const failures = { ...sourceSync.failures }
+  const now = new Date()
 
   for (const channelId of channels) {
     if (event && event.channelId !== channelId) continue
     const managedPath = slackSourceChannelDir(channelId)
+    const key = `channel:${channelId}`
+    // Count a permanent problem at most one time an hour (a burst of
+    // webhooks). After SLACK_SYNC_MAX_TRIES counted syncs, its sources get
+    // the status and stop syncing; the files stay.
     const fail = (problem: {
       status: "out_of_access" | "invalid"
       detail: string
-    }) => result.unreachable.push({ path: managedPath, ...problem })
+    }) => {
+      const previous = failures[key]
+      if (
+        previous?.countedAt &&
+        now.getTime() - Date.parse(previous.countedAt) < FAILURE_COUNT_WINDOW_MS
+      )
+        return
+      const tries = (previous?.tries ?? 0) + 1
+      const detail = `${problem.detail} (failed ${tries} syncs)`
+      failures[key] = { tries, detail, countedAt: now.toISOString() }
+      if (tries >= SLACK_SYNC_MAX_TRIES)
+        result.unreachable.push({
+          path: managedPath,
+          status: problem.status,
+          detail,
+        })
+    }
     try {
       const read = await readChannel({ env: input.env, connection, channelId })
       if (read.problem) {
@@ -294,6 +323,7 @@ export async function fetchSlackSources(input: {
         ])
         result.deletePaths.push(...before.filter((path) => !next.has(path)))
       }
+      delete failures[key]
     } catch (error) {
       const problem = permanentChannelProblem(error, channelId)
       if (problem) {
@@ -310,6 +340,20 @@ export async function fetchSlackSources(input: {
       })
     }
   }
+  // A full sync sees each channel, so it drops the counts of removed ones.
+  const current = new Set(channels.map((id) => `channel:${id}`))
+  await saveConnectionSourceSync({
+    type: "slack",
+    orgId: input.orgId,
+    connectionId: input.connectionId,
+    sourceSync: {
+      failures: Object.fromEntries(
+        Object.entries(failures).filter(
+          ([key]) => event !== null || current.has(key),
+        ),
+      ),
+    },
+  })
   return result
 }
 

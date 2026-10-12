@@ -16,6 +16,7 @@ import {
   type WorkspaceSliceWrite,
 } from "../../domain/workspace-sources/sync.js"
 import { encodeSlackBotTokenForDb } from "../../lib/connection-config.js"
+import { saveConnectionSourceSync } from "../../models/connection-source-sync.js"
 import {
   listWorkspaceSourceRows,
   replaceWorkspaceSourceRows,
@@ -146,6 +147,12 @@ describe("Slack source adapter on the sync frame (Postgres, msw)", () => {
     failures = {}
     channelState = {}
     installSlack()
+    await saveConnectionSourceSync({
+      type: "slack",
+      orgId: seed.orgId,
+      connectionId: slack,
+      sourceSync: { failures: {} },
+    })
     revision += 1
     const at = (n: number) => String(revision * 10 + n).padStart(40, "0")
     const row = (sourceKey: string, channels: string[]) => ({
@@ -253,9 +260,23 @@ describe("Slack source adapter on the sync frame (Postgres, msw)", () => {
     ).toEqual([OPS])
   })
 
-  it("marks only the source of a channel that the bot left, and keeps its files", async () => {
+  /** Sync `times` times, two hours apart, so that each failure counts. */
+  async function syncSpaced(times: number, from = 0) {
+    let last: Awaited<ReturnType<typeof sync>> | undefined
+    for (let i = 0; i < times; i++) {
+      vi.setSystemTime(NOW + (from + i) * 2 * 60 * 60 * 1000)
+      last = await sync()
+    }
+    return last as Awaited<ReturnType<typeof sync>>
+  }
+
+  it("marks only the source of a channel that the bot left after three counted syncs, and keeps its files", async () => {
     failures[`conversations.info:${OPS}`] = "channel_not_found"
-    const { paths, writes } = await sync()
+    await sync()
+    // A burst in the same hour counts one time.
+    await sync()
+    expect(await status(bothWorkspace)).toMatchObject({ status: "ok" })
+    const { paths, writes } = await syncSpaced(2, 1)
     expect(paths(engWorkspace)).toHaveLength(2)
     expect(await status(engWorkspace)).toMatchObject({ status: "ok" })
     expect(await status(bothWorkspace)).toMatchObject({
@@ -267,14 +288,24 @@ describe("Slack source adapter on the sync frame (Postgres, msw)", () => {
     )
   })
 
-  it("marks an archived channel invalid", async () => {
+  it("marks an archived channel invalid after three counted syncs", async () => {
     channelState[OPS] = { is_archived: true }
-    await sync()
+    await syncSpaced(3)
     expect(await status(bothWorkspace)).toMatchObject({
       status: "invalid",
-      statusDetail: "Channel #ops is archived",
+      statusDetail: expect.stringContaining("Channel #ops is archived"),
     })
     expect(await status(engWorkspace)).toMatchObject({ status: "ok" })
+  })
+
+  it("starts the count again after a good sync", async () => {
+    channelState[OPS] = { is_member: false }
+    await syncSpaced(2)
+    channelState = {}
+    await syncSpaced(1, 2)
+    channelState[OPS] = { is_member: false }
+    await syncSpaced(2, 3)
+    expect(await status(bothWorkspace)).toMatchObject({ status: "ok" })
   })
 
   it("skips a channel with a transient failure and deletes nothing", async () => {
