@@ -190,10 +190,13 @@ export function referenceLinks(input: {
     const workspace = linearWorkspaceOfUrl(url)
     if (workspace) linearWorkspaces.add(workspace)
   }
+  const confluenceHosts = new Set(
+    [...(input.confluenceSiteHosts ?? [])].map((host) => host.toLowerCase()),
+  )
   const sites: ProviderSites = {
-    confluenceHosts: new Set(
-      [...(input.confluenceSiteHosts ?? [])].map((host) => host.toLowerCase()),
-    ),
+    // A page id is unique only in its site, and a mirror path names no site.
+    // With two or more sites, a Confluence URL could join the wrong page.
+    confluenceHosts: confluenceHosts.size === 1 ? confluenceHosts : new Set(),
     linearWorkspaces,
   }
 
@@ -238,10 +241,14 @@ export function referenceLinks(input: {
         if (blob) targets.add(blob)
       })
     }
-    // An identifier inside a URL is the URL's, so the URL check decides it.
+    // An identifier inside a Linear link (its text or its URL) is the
+    // link's, so the URL check decides it.
     const text = urls.reduce(
       (body, url) => body.replaceAll(url, " "),
-      unit.body,
+      unit.body.replace(
+        /\[[^\]]*\]\((https?:\/\/linear\.app\/[^)\s]*)\)/gi,
+        " ",
+      ),
     )
     guarded("Linear identifier", () => {
       for (const identifier of findLinearIdentifiers(text, [...teamKeys])) {

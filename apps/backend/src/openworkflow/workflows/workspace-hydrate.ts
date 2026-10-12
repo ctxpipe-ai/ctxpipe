@@ -25,10 +25,7 @@ import {
   type WorkspaceRevision,
   workspaceRevisionSchema,
 } from "../../domain/workspaces/revision.js"
-import {
-  listOrgConfluenceSiteHosts,
-  listOrgConnections,
-} from "../../models/org-connections.js"
+import { listOrgConnections } from "../../models/org-connections.js"
 import { getMigrationExportSha } from "../../models/workspace-write-jobs.js"
 import { reserveHydrateWrites } from "../../models/workspace-write-planning.js"
 import {
@@ -295,7 +292,10 @@ export const workspaceHydrate = defineWorkflow(
             // A Confluence URL joins a mirrored page only on the org's site.
             const confluenceSiteHosts = pending.postgres
               ? await step.run({ name: "list-confluence-sites" }, async () =>
-                  listOrgConfluenceSiteHosts(input.orgId),
+                  // A Confluence connection's display name is its site host.
+                  (await listOrgConnections(input.orgId))
+                    .filter((connection) => connection.type === "forge")
+                    .flatMap((connection) => connection.displayName ?? []),
                 )
               : []
             const parsed = pending.postgres

@@ -26,7 +26,7 @@ each link from a mirror unit to another unit of the same Workspace.
 - `referenceLinks` indexes each unit by keys from `referenceResolver.ts`:
   the Linear `identifier` and `url`, the Confluence page id in the file
   name, and the Slack thread in the path. It then resolves the URLs in the
-  body and in the Linear `githubReferences`, the bare Linear identifiers of
+  body, the bare Linear identifiers of
   known teams, and the `github.com/<workspace repo>/blob/<ref>/<path>` URLs.
   Each resolved target becomes a `workspace:<path>` link. A reference to a
   thing that the Workspace does not hold gives no link. A `/` link that a
@@ -43,10 +43,13 @@ each link from a mirror unit to another unit of the same Workspace.
   cannot fail on one bad URL (for example `…/blob/main/50%.md`).
 - A blob URL joins only the path after a one-segment ref. A ref that holds
   `/` stays external, so no shorter path matches by mistake.
-- A Confluence URL joins only on a site host of the org's Confluence
-  connections (`confluenceSiteHost`, step `list-confluence-sites`). A
-  connection without a site host gives no Confluence URL edges. Relative
-  page links from the converter do not need it.
+- A Confluence URL joins only on the site host of the org's Confluence
+  connection (its display name, step `list-confluence-sites`). With no
+  site host, or with two or more, Confluence URLs make no edges, because
+  a page id is unique only in its site. Relative page links from the
+  converter do not need a site host.
+- A Linear link whose URL is in another Linear workspace makes no edge,
+  also when its text is an identifier such as `[ENG-2](…)`.
 - A Linear URL joins only in a Linear workspace that the Linear mirror
   files name in their `url`. A Linear identifier inside a URL counts only
   through that URL.

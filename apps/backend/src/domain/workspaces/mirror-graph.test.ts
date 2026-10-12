@@ -270,6 +270,13 @@ describe("reference resolution guards", () => {
 
     const noSite = hydrate([own], new Set())
     expect(noSite.edges.filter((edge) => edge.from === own.path)).toEqual([])
+
+    // A page id is unique only in its site, and the mirror path names no site.
+    const twoSites = hydrate(
+      [own],
+      new Set(["acme.atlassian.net", "acme-eu.atlassian.net"]),
+    )
+    expect(twoSites.edges.filter((edge) => edge.from === own.path)).toEqual([])
   })
 
   it("joins a Linear URL only in the Linear workspace that the mirror names", () => {
@@ -281,9 +288,14 @@ describe("reference resolution guards", () => {
       "knowledge/other-linear.md",
       "[ticket](https://linear.app/other/issue/ENG-2/fix-rounding)",
     )
-    const { edges, fixture } = hydrate([own, other])
+    const labelled = knowledge(
+      "knowledge/other-linear-labelled.md",
+      "[ENG-2](https://linear.app/other/issue/ENG-2)",
+    )
+    const { edges, fixture } = hydrate([own, other, labelled])
     expect(edges).toContainEqual({ from: own.path, to: fixture.eng2.path })
     expect(edges.filter((edge) => edge.from === other.path)).toEqual([])
+    expect(edges.filter((edge) => edge.from === labelled.path)).toEqual([])
   })
 
   it("keeps the meaning of a `/` link that a person wrote", () => {

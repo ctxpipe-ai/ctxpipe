@@ -5,7 +5,6 @@ import {
   linearConnectionConfigStoredSchema,
   notionConnectionConfigSchema,
   pagerdutyConnectionConfigStoredSchema,
-  tryParseForgeConnectionConfig,
 } from "../lib/connection-config.js"
 import { isEmptyLinearSetupDraft } from "./linear-connector.js"
 import { isEmptyNotionSetupDraft } from "./notion-connector.js"
@@ -93,31 +92,4 @@ export async function listOrgConnections(
       ...item,
       displayName: connectionDisplayName(item.type, config),
     }))
-}
-
-/**
- * The site hosts of the org's Confluence connections, lowercase, for
- * example `acme.atlassian.net`. A connection without a site host adds none.
- */
-export async function listOrgConfluenceSiteHosts(
-  orgId: string,
-): Promise<string[]> {
-  const rows = await withOrgDbContext(orgId, async () =>
-    getOrgDb()
-      .select({ type: connections.type, config: connections.config })
-      .from(connections)
-      .where(eq(connections.orgId, orgId)),
-  )
-  const hosts = new Set<string>()
-  for (const row of rows) {
-    if (row.type !== "forge") continue
-    const raw = tryParseForgeConnectionConfig(row.config)?.confluenceSiteHost
-    const host = raw
-      ?.trim()
-      .replace(/^https?:\/\//i, "")
-      .split("/")[0]
-      ?.toLowerCase()
-    if (host) hosts.add(host)
-  }
-  return [...hosts]
 }
