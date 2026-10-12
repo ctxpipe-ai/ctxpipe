@@ -1,8 +1,10 @@
+import { sql } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
 import { BackendPostgres } from "openworkflow/postgres"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { parseEnv } from "../../config/env.js"
+import { getSystemDb } from "../../db/client.js"
 import { encryptConnectionSecret } from "../../lib/connection-secrets.js"
 import {
   listWorkspaceSourceRows,
@@ -168,7 +170,7 @@ describe("Scheduled full sync of Workspace sources (Postgres)", () => {
       scope: { spaces: ["HR"] },
       status: "out_of_access",
     })
-    // Slack has no sync adapter here: nothing to fetch.
+    // Slack sources capture on demand: a full sync writes nothing.
     await addSource({
       connectionId: slack,
       slug: "daily-slack",
@@ -268,5 +270,86 @@ describe("Scheduled full sync of Workspace sources (Postgres)", () => {
         run.idempotencyKey?.includes(after.toISOString().slice(0, 10)),
       ),
     ).toEqual([])
+  })
+
+  it("queues one scheduler run for each day, also after a worker restart more than one day after that run was queued", async () => {
+    const { scheduleDailySourcesSync } = await import(
+      "../../openworkflow/workflows/workspace-sources-daily-sync.js"
+    )
+    const day = new Date(Date.now() + 40 * DAY_MS)
+    const dayKey = day.toISOString().slice(0, 10)
+    const schedulerRuns = async () =>
+      (await backend.listWorkflowRuns({ limit: 1000 })).data.filter(
+        (run) =>
+          run.workflowName === "workspace-sources-daily-sync" &&
+          (run.input as { day?: string }).day === dayKey,
+      )
+
+    // The run of the previous day queues this run at its start.
+    await scheduleDailySourcesSync(day)
+    // The idempotency key of OpenWorkflow ends 24 hours after the queue time.
+    await getSystemDb().execute(sql`
+      update openworkflow.workflow_runs
+      set created_at = created_at - interval '2 days'
+      where namespace_id = ${namespaceId}
+        and workflow_name = 'workspace-sources-daily-sync'
+        and input->>'day' = ${dayKey}
+    `)
+    // A worker restart later on that day.
+    await scheduleDailySourcesSync(new Date(day.getTime() + 60 * 60 * 1000))
+
+    expect(await schedulerRuns()).toHaveLength(1)
+  })
+
+  it("does not count a Sync now toward the bounded failure tries", async () => {
+    const connection = await seed.addConnection("pagerduty", pagerdutyConfig())
+    const workspaceId = await addSource({
+      connectionId: connection,
+      slug: "sync-now-gone",
+      provider: "pagerduty",
+      scope: { services: [CHECKOUT, GONE] },
+    })
+    const env = parseEnv(process.env)
+    const start = Date.now() + 20 * DAY_MS
+
+    // More clicks than the try limit, each more than one hour apart.
+    for (let click = 0; click <= PAGERDUTY_SYNC_MAX_TRIES; click += 1) {
+      const now = new Date(start + click * 2 * 60 * 60 * 1000)
+      expect(
+        await enqueue.requestConnectionSourcesSync({
+          orgId: seed.orgId,
+          connectionId: connection,
+          now,
+        }),
+      ).toBe(true)
+      const queued = (await queuedSyncs([connection])).find(
+        (run) =>
+          run.idempotencyKey ===
+          `workspace-sources:${connection}:sync-now:${Math.floor(now.getTime() / 60_000)}`,
+      )
+      const input = queued?.input as {
+        orgId: string
+        connectionId: string
+        manual?: boolean
+      }
+      expect(input.manual).toBe(true)
+      vi.useFakeTimers({ toFake: ["Date"] })
+      vi.setSystemTime(now)
+      await syncConnectionSources({
+        orgId: input.orgId,
+        connectionId: input.connectionId,
+        env,
+        adapter: SOURCE_ADAPTERS.pagerduty ?? (undefined as never),
+        manual: input.manual,
+        write: async () => undefined,
+      })
+      vi.useRealTimers()
+    }
+
+    const [row] = await listWorkspaceSourceRows({
+      orgId: seed.orgId,
+      workspaceId,
+    })
+    expect(row?.status).toBe("ok")
   })
 })

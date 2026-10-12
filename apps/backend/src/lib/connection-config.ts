@@ -291,18 +291,21 @@ export type SourceSyncFailures = z.infer<typeof sourceSyncFailuresSchema>
 /**
  * Count one more failed sync cycle of `key` in `failures` (changed in
  * place), and give the new entry. A key that was counted in the last hour
- * is not counted again (a burst of webhook syncs), and gives null.
+ * is not counted again (a burst of webhook syncs), and gives null. With
+ * `count: false` (a "Sync now" sync), nothing changes, and it gives null.
  */
 export function countSourceFailure(input: {
   failures: SourceSyncFailures
   key: string
   now: Date
   detail: (tries: number) => string
+  count: boolean
 }): { tries: number; detail: string } | null {
   const previous = input.failures[input.key]
   if (
-    previous?.countedAt &&
-    input.now.getTime() - Date.parse(previous.countedAt) < 60 * 60 * 1000
+    !input.count ||
+    (previous?.countedAt &&
+      input.now.getTime() - Date.parse(previous.countedAt) < 60 * 60 * 1000)
   )
     return null
   const tries = (previous?.tries ?? 0) + 1

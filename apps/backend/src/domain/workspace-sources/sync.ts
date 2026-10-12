@@ -70,6 +70,11 @@ export async function syncConnectionSources(input: {
   adapter: SourceAdapter
   write: SliceWriter
   event?: unknown
+  /**
+   * A "Sync now" sync. Its failures do not count toward the bounded tries,
+   * so that repeated clicks cannot mark a root out of reach.
+   */
+  manual?: boolean
   /** The blobs of one Workspace now, so that the adapter can skip unchanged files. */
   readExisting?: (
     workspaceId: string,
@@ -121,6 +126,7 @@ export async function syncConnectionSources(input: {
     scopes,
     env: input.env,
     event: input.event,
+    countFailures: !input.manual,
     existing: input.readExisting
       ? await readExistingManaged(byWorkspace, input.readExisting)
       : undefined,

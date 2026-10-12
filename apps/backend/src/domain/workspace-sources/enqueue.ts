@@ -22,6 +22,8 @@ export async function enqueueConnectionSourcesSync(input: {
   connectionId: string
   provider: SourceProvider
   event?: unknown
+  /** A "Sync now" sync: its failures do not count toward the bounded tries. */
+  manual?: true
   /**
    * A key for one provider change. A second enqueue with the same key (a
    * repeated webhook delivery) starts no new run.
@@ -35,16 +37,12 @@ export async function enqueueConnectionSourcesSync(input: {
   await runWorkflowWithWorkerWake(
     workspaceSourcesSync.spec,
     { kind: "connection", ...workflowInput },
-    dedupeKey || availableAt
-      ? {
-          ...(dedupeKey
-            ? {
-                idempotencyKey: `workspace-sources:${input.connectionId}:${dedupeKey}`,
-              }
-            : {}),
-          ...(availableAt ? { availableAt } : {}),
-        }
-      : undefined,
+    {
+      idempotencyKey: dedupeKey
+        ? `workspace-sources:${input.connectionId}:${dedupeKey}`
+        : undefined,
+      availableAt,
+    },
   )
 }
 
@@ -67,14 +65,8 @@ export async function enqueueDailySourcesSyncs(now: Date): Promise<number> {
   const dayStart = Date.parse(`${day}T00:00:00.000Z`)
   let queued = 0
   for (const connection of await listConnectionsWithOkSources()) {
-    const provider = sourceProviderSchema.safeParse(connection.provider)
-    // Slack sources capture on demand: a full Slack sync writes nothing.
-    if (
-      !provider.success ||
-      provider.data === "slack" ||
-      !hasAdapter(provider.data)
-    )
-      continue
+    const provider = fullSyncProvider(connection.provider)
+    if (!provider) continue
     const offset =
       createHash("sha256")
         .update(connection.connectionId)
@@ -85,7 +77,7 @@ export async function enqueueDailySourcesSyncs(now: Date): Promise<number> {
       await enqueueConnectionSourcesSync({
         orgId: connection.orgId,
         connectionId: connection.connectionId,
-        provider: provider.data,
+        provider,
         dedupeKey: `daily:${day}`,
         availableAt: new Date(at),
       })
@@ -117,13 +109,14 @@ export async function requestConnectionSourcesSync(input: {
     status: "ok",
   })
   const provider = rows
-    .map((row) => sourceProviderSchema.safeParse(row.source.provider))
-    .find((parsed) => parsed.success && hasAdapter(parsed.data))
-  if (!provider?.success) return false
+    .map((row) => fullSyncProvider(row.source.provider))
+    .find((found) => found !== null)
+  if (!provider) return false
   await enqueueConnectionSourcesSync({
     orgId: input.orgId,
     connectionId: input.connectionId,
-    provider: provider.data,
+    provider,
+    manual: true,
     dedupeKey: `sync-now:${Math.floor(input.now.getTime() / 60_000)}`,
   })
   return true
@@ -131,8 +124,19 @@ export async function requestConnectionSourcesSync(input: {
 
 /** A provider without a sync adapter (GitHub) has nothing to sync or clean up. */
 function hasAdapter(provider: string | null): boolean {
+  return provider !== null && Object.hasOwn(SOURCE_ADAPTERS, provider)
+}
+
+/**
+ * The provider of a source when a full sync of it writes files. GitHub has
+ * no sync adapter. Slack sources capture on demand, so a full Slack sync
+ * writes nothing.
+ */
+function fullSyncProvider(provider: string | null): SourceProvider | null {
   const parsed = sourceProviderSchema.safeParse(provider)
-  return parsed.success && SOURCE_ADAPTERS[parsed.data] !== undefined
+  return parsed.success && parsed.data !== "slack" && hasAdapter(parsed.data)
+    ? parsed.data
+    : null
 }
 
 /**

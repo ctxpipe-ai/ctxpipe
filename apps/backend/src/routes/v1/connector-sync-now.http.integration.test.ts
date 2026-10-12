@@ -10,6 +10,7 @@ import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { members } from "../../db/schema/auth.js"
 import { connections } from "../../db/schema/connections.js"
 import { workspaces } from "../../db/schema/workspaces.js"
+import type { SourceProvider } from "../../domain/workspace-sources/sources-file.js"
 import { replaceWorkspaceSourceRows } from "../../models/workspace-sources.js"
 import {
   contextStorage,
@@ -68,7 +69,7 @@ describe("POST /connectors/{connectionId}/sync (Postgres)", () => {
     )
   }
 
-  async function addConnection(type: "pagerduty" | "notion") {
+  async function addConnection(type: "pagerduty" | "notion" | "slack") {
     const id = `con_${type}_${Math.random().toString(36).slice(2)}`
     await withOrgDbContext(seed.orgId, (db) =>
       db
@@ -78,7 +79,13 @@ describe("POST /connectors/{connectionId}/sync (Postgres)", () => {
     return id
   }
 
-  async function addSource(connectionId: string) {
+  async function addSource(
+    connectionId: string,
+    source: { provider: SourceProvider; scope: Record<string, unknown> } = {
+      provider: "pagerduty",
+      scope: { services: ["PSVC001"] },
+    },
+  ) {
     const workspaceId = `ws_sync_now_${Math.random().toString(36).slice(2)}`
     await withOrgDbContext(seed.orgId, (db) =>
       db.insert(workspaces).values({
@@ -97,9 +104,9 @@ describe("POST /connectors/{connectionId}/sync (Postgres)", () => {
       rows: [
         {
           sourceKey: "on-call",
-          provider: "pagerduty",
+          provider: source.provider,
           connectionId,
-          scope: { services: ["PSVC001"] },
+          scope: source.scope,
           status: "ok",
           statusDetail: null,
         },
@@ -160,8 +167,23 @@ describe("POST /connectors/{connectionId}/sync (Postgres)", () => {
       orgId: seed.orgId,
       connectionId,
       provider: "pagerduty",
+      // A manual sync does not count toward the bounded failure tries.
+      manual: true,
     })
     expect((runs[0]?.input as { event?: unknown }).event).toBeUndefined()
+  })
+
+  it("gives 404 for a Slack connection: Slack sources capture, they do not sync", async () => {
+    const connectionId = await addConnection("slack")
+    await addSource(connectionId, {
+      provider: "slack",
+      scope: { channels: ["C0FIXTURE1"] },
+    })
+
+    const res = await syncNow(connectionId)
+
+    expect(res.status).toBe(404)
+    expect(await queuedSyncs(connectionId)).toEqual([])
   })
 
   it("gives 404 for a connection without an ok source", async () => {

@@ -21,6 +21,8 @@ export const workspaceSourcesSyncInputSchema = z.discriminatedUnion("kind", [
       provider: sourceProviderSchema,
       /** A provider webhook event; only the matching sources sync. */
       event: z.unknown().optional(),
+      /** "Sync now": its failures do not count toward the bounded tries. */
+      manual: z.literal(true).optional(),
     })
     .strict(),
   z
@@ -74,6 +76,7 @@ export const workspaceSourcesSync = defineWorkflow(
         adapter,
         write,
         event: input.event,
+        manual: input.manual,
         readExisting: (workspaceId) =>
           readWorkspaceBlobs({ orgId: input.orgId, workspaceId, env }),
       }),
