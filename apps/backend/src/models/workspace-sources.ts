@@ -1,5 +1,6 @@
 import { and, eq, inArray } from "drizzle-orm"
-import { withOrgDbContext } from "../db/client.js"
+import { getSystemDb, withOrgDbContext } from "../db/client.js"
+import { organizations } from "../db/schema/auth.js"
 import { repositories } from "../db/schema/repositories.js"
 import { workspaceSources } from "../db/schema/workspace_sources.js"
 import {
@@ -130,6 +131,40 @@ export async function listConnectionSourceRows(input: {
       )
       .orderBy(workspaces.slug, workspaceSources.sourceKey),
   )
+}
+
+/**
+ * The connections of each organization that have at least one `ok` source,
+ * with the provider of those sources. Rows are org-isolated, so the read
+ * goes through each organization in turn.
+ */
+export async function listConnectionsWithOkSources(): Promise<
+  Array<{ orgId: string; connectionId: string; provider: string }>
+> {
+  const orgs = await getSystemDb()
+    .select({ id: organizations.id })
+    .from(organizations)
+  const found: Array<{ orgId: string; connectionId: string; provider: string }> =
+    []
+  for (const { id } of orgs) {
+    const rows = await withOrgDbContext(id, (db) =>
+      db
+        .selectDistinct({
+          connectionId: workspaceSources.connectionId,
+          provider: workspaceSources.provider,
+        })
+        .from(workspaceSources)
+        .where(eq(workspaceSources.status, "ok")),
+    )
+    for (const row of rows)
+      if (row.connectionId && row.provider)
+        found.push({
+          orgId: id,
+          connectionId: row.connectionId,
+          provider: row.provider,
+        })
+  }
+  return found
 }
 
 /**

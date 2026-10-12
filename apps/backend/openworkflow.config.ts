@@ -8,6 +8,7 @@ import { shutdownOtel } from "./src/observability/otel.js"
 import { parseOpenWorkflowConcurrency } from "./src/openworkflow/codesearchCapacity.js"
 import { openWorkflowNamespaceId } from "./src/openworkflow/namespace.js"
 import { scheduleSweepsForOrgsNeedingIt } from "./src/openworkflow/workflows/conversation-sandbox-sweep.js"
+import { scheduleDailySourcesSync } from "./src/openworkflow/workflows/workspace-sources-daily-sync.js"
 import { backfillGithubAppSecretsFromEnv } from "./src/scripts/backfillGithubConnectionSecrets.js"
 
 const databaseUrl = process.env.DATABASE_URL
@@ -21,6 +22,14 @@ void scheduleSweepsForOrgsNeedingIt().catch((error: unknown) =>
   log.error({
     step: "conversation-sandbox-sweep-backstop",
     message: `Startup sandbox sweep failed: ${String(error)}`,
+  }),
+)
+// Start the daily Workspace sources sync chain. The key is per day, so a
+// restart on the same day queues nothing new.
+void scheduleDailySourcesSync(new Date()).catch((error: unknown) =>
+  log.error({
+    step: "workspace-sources-daily-sync-start",
+    message: `Scheduling the daily sources sync failed: ${String(error)}`,
   }),
 )
 
