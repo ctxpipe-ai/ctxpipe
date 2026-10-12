@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -20,6 +21,8 @@ import {
   fingerprintConversationWorktree,
   listConversationSandboxPaths,
   readConversationSandboxFile,
+  removeConversationSandboxPath,
+  renameConversationSandboxPath,
   sanitizeGitRemoteError,
   splitGitNulPaths,
   writeConversationSandboxFile,
@@ -631,5 +634,232 @@ describe("conversation sandbox paths", () => {
     expect(conversationPathIsSafe("../secret")).toBe(false)
     expect(conversationPathIsSafe("/etc/passwd")).toBe(false)
     expect(conversationPathIsSafe("foo/../bar")).toBe(false)
+  })
+})
+
+describe("conversation sandbox writes", { timeout: 15_000 }, () => {
+  it("refuses writes, renames and deletes into git metadata", async () => {
+    await withWorktree(
+      (directory) => {
+        writeFileSync(join(directory, "notes.md"), "notes\n")
+        mkdirSync(join(directory, "vendor/lib/.git"), { recursive: true })
+      },
+      async ({ directory, handle }) => {
+        const config = readFileSync(join(directory, ".git/config"), "utf8")
+        for (const path of [
+          ".git/config",
+          ".git/hooks/x",
+          ".GIT/config",
+          "vendor/lib/.git/config",
+        ]) {
+          await expect(
+            writeConversationSandboxFile({ handle, path, body: "x\n" }),
+          ).rejects.toThrow(/Unsafe path/)
+        }
+        await expect(
+          renameConversationSandboxPath({
+            handle,
+            from: "notes.md",
+            to: ".git/hooks/x",
+          }),
+        ).rejects.toThrow(/Unsafe path/)
+        await expect(
+          removeConversationSandboxPath({ handle, path: ".git/config" }),
+        ).rejects.toThrow(/Unsafe path/)
+        expect(readFileSync(join(directory, ".git/config"), "utf8")).toBe(
+          config,
+        )
+        expect(existsSync(join(directory, ".git/hooks/x"))).toBe(false)
+        expect(readFileSync(join(directory, "notes.md"), "utf8")).toBe(
+          "notes\n",
+        )
+      },
+    )
+  })
+
+  it("refuses writes through a symlink", async () => {
+    const outside = mkdtempSync(join(tmpdir(), "ctxpipe-outside-"))
+    try {
+      writeFileSync(join(outside, "target.md"), "outside\n")
+      await withWorktree(
+        (directory) => {
+          writeFileSync(join(directory, "notes.md"), "notes\n")
+          symlinkSync(outside, join(directory, "linked-dir"))
+          symlinkSync(join(outside, "target.md"), join(directory, "linked.md"))
+        },
+        async ({ handle }) => {
+          for (const path of [
+            "linked-dir/target.md",
+            "linked-dir/new/file.md",
+            "linked.md",
+          ]) {
+            await expect(
+              writeConversationSandboxFile({ handle, path, body: "x\n" }),
+            ).rejects.toThrow(/Unsafe path/)
+          }
+          await expect(
+            renameConversationSandboxPath({
+              handle,
+              from: "notes.md",
+              to: "linked-dir/notes.md",
+            }),
+          ).rejects.toThrow(/Unsafe path/)
+          expect(readFileSync(join(outside, "target.md"), "utf8")).toBe(
+            "outside\n",
+          )
+          expect(existsSync(join(outside, "new"))).toBe(false)
+          expect(existsSync(join(outside, "notes.md"))).toBe(false)
+        },
+      )
+    } finally {
+      rmSync(outside, { recursive: true, force: true })
+    }
+  })
+
+  it("writes new, nested, and existing files", async () => {
+    await withWorktree(
+      (directory) => {
+        writeFileSync(join(directory, "notes.md"), "old\n")
+      },
+      async ({ directory, handle }) => {
+        await writeConversationSandboxFile({
+          handle,
+          path: "notes.md",
+          body: "new\n",
+        })
+        await writeConversationSandboxFile({
+          handle,
+          path: "docs/deep/guide.md",
+          body: "guide\n",
+        })
+        await writeConversationSandboxFile({
+          handle,
+          path: ".github/workflows/ci.yml",
+          body: "on: push\n",
+        })
+        expect(readFileSync(join(directory, "notes.md"), "utf8")).toBe("new\n")
+        expect(
+          readFileSync(join(directory, "docs/deep/guide.md"), "utf8"),
+        ).toBe("guide\n")
+        expect(
+          readFileSync(join(directory, ".github/workflows/ci.yml"), "utf8"),
+        ).toBe("on: push\n")
+      },
+    )
+  })
+
+  it("runs no program from the repository config in backend git commands", async () => {
+    await withWorktree(
+      (directory) => {
+        writeFileSync(join(directory, "notes.md"), "notes\n")
+        writeFileSync(
+          join(directory, ".gitattributes"),
+          "*.md filter=planted.one diff=planted\n",
+        )
+      },
+      async ({ directory, handle, git }) => {
+        const ran = join(directory, ".git", "ran")
+        const program = (name: string, then: string) => {
+          const script = join(directory, ".git", `${name}.sh`)
+          writeFileSync(
+            script,
+            `#!/bin/sh\necho ${name} >> '${ran}'\n${then}\n`,
+            {
+              mode: 0o755,
+            },
+          )
+          return script
+        }
+        const runs = () =>
+          existsSync(ran) ? readFileSync(ran, "utf8").trim().split("\n") : []
+        git("config", "core.fsmonitor", program("fsmonitor", "exit 1"))
+        git("config", "core.hooksPath", join(directory, ".git", "planted"))
+        git("config", "diff.external", program("external", "exit 0"))
+        git("config", "diff.planted.textconv", program("textconv", 'cat "$1"'))
+        git("config", "filter.planted.one.clean", program("clean", "cat"))
+        git("config", "filter.planted.one.smudge", program("smudge", "cat"))
+        git("config", "filter.planted.one.required", "true")
+        writeFileSync(join(directory, "notes.md"), "changed\n")
+        // A plain git command runs the planted programs.
+        git("status", "--porcelain")
+        git("diff", "HEAD")
+        git("diff", "--no-ext-diff", "HEAD")
+        expect(runs()).toEqual(
+          expect.arrayContaining([
+            "fsmonitor",
+            "clean",
+            "external",
+            "textconv",
+          ]),
+        )
+        rmSync(ran)
+        const sandbox = adaptTanstackHandle({
+          process: { exec: handle.exec },
+          fs: handle.fs,
+          destroy: async () => {},
+        })
+        const status = await conversationSandboxStatus({
+          handle: sandbox,
+          defaultBranch: "main",
+          sessionBranch: "ctxpipe/session",
+        })
+        expect(status.items).toEqual([
+          expect.objectContaining({ path: "notes.md", status: "modified" }),
+        ])
+        await conversationWorktreeVersion(sandbox)
+        const diff = await sandbox.exec(
+          "git diff --no-ext-diff --no-textconv HEAD",
+        )
+        expect(diff.stdout).toContain("+changed")
+        expect(runs()).toEqual([])
+        const hooks = await sandbox.exec("git config core.hooksPath")
+        expect(hooks.stdout.trim()).toBe("/dev/null")
+      },
+    )
+  })
+
+  it("runs no merge driver from the repository config in a backend rebase", async () => {
+    await withWorktree(
+      (directory) => {
+        writeFileSync(join(directory, "notes.md"), "1\n2\n3\n4\n5\n")
+        writeFileSync(
+          join(directory, ".gitattributes"),
+          "*.md merge=planted.m\n",
+        )
+      },
+      async ({ directory, handle, git }) => {
+        const ran = join(directory, ".git", "ran")
+        const script = join(directory, ".git", "merge.sh")
+        writeFileSync(script, `#!/bin/sh\necho merge >> '${ran}'\nexit 0\n`, {
+          mode: 0o755,
+        })
+        git("config", "merge.planted.m.driver", `${script} %A %O %B`)
+        git("checkout", "-q", "-b", "side")
+        writeFileSync(join(directory, "notes.md"), "one\n2\n3\n4\n5\n")
+        git("commit", "-q", "-am", "Side")
+        git("checkout", "-q", "main")
+        writeFileSync(join(directory, "notes.md"), "1\n2\n3\n4\nfive\n")
+        git("commit", "-q", "-am", "Main")
+        git("checkout", "-q", "side")
+        // A plain git merge runs the planted driver.
+        git("merge-tree", "--write-tree", "main", "side")
+        expect(existsSync(ran)).toBe(true)
+        rmSync(ran)
+        const sandbox = adaptTanstackHandle({
+          process: { exec: handle.exec },
+          fs: handle.fs,
+          destroy: async () => {},
+        })
+        const rebased = await sandbox.exec(
+          "git -c user.name=t -c user.email=t@example.test rebase -q main",
+        )
+        expect(rebased.exitCode).toBe(0)
+        expect(existsSync(ran)).toBe(false)
+        // The built-in text merge keeps both changes.
+        expect(readFileSync(join(directory, "notes.md"), "utf8")).toBe(
+          "one\n2\n3\n4\nfive\n",
+        )
+      },
+    )
   })
 })

@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 import type { SandboxHandle, SandboxProvider } from "@tanstack/ai-sandbox"
 import { log } from "../../observability/logger.js"
+import { SANDBOX_GIT_GUARD } from "./job-sandbox.js"
 
 export const SANDBOX_LIFECYCLE_MARK_PATH =
   "/tmp/ctxpipe-sandbox-lifecycle.jsonl"
@@ -73,7 +74,7 @@ export async function timeSandboxLifecycle<T>(
 }
 
 export function classifySandboxCommand(command: string): string {
-  const cmd = command.trim()
+  const cmd = command.replace(SANDBOX_GIT_GUARD, "").trim()
   if (cmd.includes("opencode serve")) return "opencode-serve"
   if (cmd.includes("git cat-file -e")) return "git-cat-file"
   if (cmd.includes("git checkout --detach")) return "git-checkout-detach"
