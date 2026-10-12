@@ -245,6 +245,40 @@ describe("Slack mention capture through Workspace sources (Postgres, msw, git)",
     }
   })
 
+  it("leaves out only the status reply of the capture", async () => {
+    replies.push({
+      ts: "1790000800.000100",
+      user: BOT,
+      text: "Earlier bot note",
+    })
+    await capture(ENG)
+    const thread = await readFile(
+      join(repos.get(engWorkspace) ?? "", threadPath),
+      "utf-8",
+    )
+    expect(thread).toContain("Earlier bot note")
+    expect(thread).not.toContain("ctx| agent working")
+  })
+
+  it(
+    "keeps the truncated flag of a thread over 500 messages",
+    {
+      timeout: 60_000,
+    },
+    async () => {
+      replies = Array.from({ length: 501 }, (_, index) => ({
+        ts: `${1790000000 + index}.000100`,
+        user: "U0PERSON1",
+        text: `Message ${index}`,
+      }))
+      const result = await capture(ENG)
+      expect(result).toMatchObject({
+        kind: "captured",
+        capture: { status: "completed", truncated: true, messageCount: 500 },
+      })
+    },
+  )
+
   it("writes only into the Workspace of a channel that one source lists", async () => {
     const result = await capture(OPS)
     expect(result.kind === "captured" && result.workspaces).toEqual([
