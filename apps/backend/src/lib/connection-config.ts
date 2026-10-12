@@ -666,6 +666,17 @@ export type PagerdutySetupPhase = (typeof PAGERDUTY_SETUP_PHASES)[number]
 export const PAGERDUTY_REGIONS = ["us", "eu"] as const
 export type PagerdutyRegion = (typeof PAGERDUTY_REGIONS)[number]
 
+/**
+ * The Workspace sources sync state of a PagerDuty connection (ADR-050). It
+ * counts the sync cycles in which a selected service failed for good, so a
+ * deleted or unreadable service stops after a bounded number of tries.
+ */
+export const pagerdutySourceSyncSchema = z.object({
+  /** Keyed `service:<id>`. */
+  failures: sourceSyncFailuresSchema,
+})
+export type PagerdutySourceSync = z.infer<typeof pagerdutySourceSyncSchema>
+
 /** Stored in `connections.config` for `type === "pagerduty"`. */
 export const pagerdutyConnectionConfigStoredSchema = z
   .object({
@@ -689,6 +700,7 @@ export const pagerdutyConnectionConfigStoredSchema = z
     webhookSecretEnc: z.string().min(1).optional(),
     oauthClientId: z.string().min(1).optional(),
     oauthClientSecretEnc: z.string().min(1).optional(),
+    sourceSync: pagerdutySourceSyncSchema.optional(),
   })
   .transform((config) => ({
     ...config,

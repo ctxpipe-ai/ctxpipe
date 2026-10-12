@@ -4,10 +4,7 @@ import type { SourceScopeDefinition } from "./scope.js"
 /** A PagerDuty service id, for example `PSVC001`. */
 export const pagerdutyServiceIdSchema = z
   .string()
-  .regex(
-    /^[A-Z0-9]{1,32}$/,
-    "Use a PagerDuty service id, for example PSVC001",
-  )
+  .regex(/^[A-Z0-9]{1,32}$/, "Use a PagerDuty service id, for example PSVC001")
 
 export const pagerdutySourceScopeSchema = z
   .object({

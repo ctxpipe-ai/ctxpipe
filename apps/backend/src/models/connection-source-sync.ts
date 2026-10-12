@@ -4,6 +4,7 @@ import { connections } from "../db/schema/connections.js"
 import type {
   ForgeSourceSync,
   NotionSourceSync,
+  PagerdutySourceSync,
 } from "../lib/connection-config.js"
 
 /**
@@ -15,6 +16,7 @@ export async function saveConnectionSourceSync(
   input: { orgId: string; connectionId: string } & (
     | { type: "forge"; sourceSync: ForgeSourceSync }
     | { type: "notion"; sourceSync: NotionSourceSync }
+    | { type: "pagerduty"; sourceSync: PagerdutySourceSync }
   ),
 ): Promise<void> {
   await withOrgDbContext(input.orgId, (db) =>

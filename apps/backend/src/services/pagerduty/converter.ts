@@ -5,6 +5,18 @@ export const PAGERDUTY_MANAGED_ROOT = "pagerduty"
 export const PAGERDUTY_CONFIG_PATH = `${PAGERDUTY_MANAGED_ROOT}/config.yaml`
 export const PAGERDUTY_MAX_ADDITIONAL_ALERT_SUMMARIES = 4
 
+/** The incident folder of the legacy per-connection mirror. */
+export const PAGERDUTY_LEGACY_INCIDENTS_ROOT = `${PAGERDUTY_MANAGED_ROOT}/incidents/`
+
+/**
+ * The incident folder of one service in a Workspace source (ADR-034, ADR-050).
+ * The sources sync gives ownership by path prefix, so each service has its
+ * own folder.
+ */
+export function pagerdutyServiceIncidentsRoot(serviceId: string): string {
+  return `${PAGERDUTY_MANAGED_ROOT}/services/${serviceId}/incidents/`
+}
+
 const ROUTING_KEY_PATTERN = /routing[_-]?key/i
 
 export type PagerdutyMirrorFile = {
@@ -88,19 +100,25 @@ function stableSlug(title: string, id: string): string {
 export function pagerdutyIncidentMarkdownPath(
   number: number,
   id: string,
+  root = PAGERDUTY_LEGACY_INCIDENTS_ROOT,
 ): string {
-  return `${PAGERDUTY_MANAGED_ROOT}/incidents/${number}--${id}.md`
+  return `${root}${number}--${id}.md`
 }
 
 export function pagerdutyIncidentAssetPrefix(
   number: number,
   id: string,
+  root = PAGERDUTY_LEGACY_INCIDENTS_ROOT,
 ): string {
-  return `${PAGERDUTY_MANAGED_ROOT}/incidents/${number}--${id}/`
+  return `${root}${number}--${id}/`
 }
 
-export function pagerdutyIncidentAssetDir(number: number, id: string): string {
-  return `${pagerdutyIncidentAssetPrefix(number, id)}assets/`
+export function pagerdutyIncidentAssetDir(
+  number: number,
+  id: string,
+  root = PAGERDUTY_LEGACY_INCIDENTS_ROOT,
+): string {
+  return `${pagerdutyIncidentAssetPrefix(number, id, root)}assets/`
 }
 
 function yamlScalar(value: string): string {
@@ -131,8 +149,9 @@ function definitionList(details: Record<string, unknown>): string[] {
 
 export function pagerdutyAlertAssetCandidates(
   incident: PagerdutyIncidentForMirror,
+  root = PAGERDUTY_LEGACY_INCIDENTS_ROOT,
 ): PagerdutyAlertAssetCandidate[] {
-  const prefix = pagerdutyIncidentAssetDir(incident.number, incident.id)
+  const prefix = pagerdutyIncidentAssetDir(incident.number, incident.id, root)
   const candidates: PagerdutyAlertAssetCandidate[] = []
   const [trigger, ...rest] = incident.alerts
   const mirrored = trigger
@@ -303,10 +322,11 @@ export function renderPagerdutyIncidentMarkdown(
 
 export function pagerdutyIncidentMirrorFiles(
   incident: PagerdutyIncidentForMirror,
+  root = PAGERDUTY_LEGACY_INCIDENTS_ROOT,
 ): PagerdutyMirrorFile[] {
   return [
     {
-      path: pagerdutyIncidentMarkdownPath(incident.number, incident.id),
+      path: pagerdutyIncidentMarkdownPath(incident.number, incident.id, root),
       content: renderPagerdutyIncidentMarkdown(incident),
     },
   ]
@@ -315,12 +335,13 @@ export function pagerdutyIncidentMirrorFiles(
 export function pagerdutyManagedPathsForIncidentId(
   paths: string[],
   incidentId: string,
+  root = PAGERDUTY_LEGACY_INCIDENTS_ROOT,
 ): string[] {
   const fileSuffix = `--${incidentId}.md`
   const dirNeedle = `--${incidentId}/`
   return paths.filter(
     (path) =>
-      path.startsWith(`${PAGERDUTY_MANAGED_ROOT}/incidents/`) &&
+      path.startsWith(root) &&
       (path.endsWith(fileSuffix) || path.includes(dirNeedle)),
   )
 }

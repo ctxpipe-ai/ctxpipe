@@ -491,6 +491,40 @@ function mapIncident(
   }
 }
 
+/**
+ * Read one service. `not_found` (404) and `forbidden` (403) are permanent:
+ * the service is gone, or the OAuth grant cannot read it. Other failures
+ * throw, so a caller can retry them.
+ */
+export async function getPagerdutyService(input: {
+  accessToken: string
+  region: PagerdutyRegion
+  serviceId: string
+}): Promise<PagerdutyServiceSummary | "not_found" | "forbidden"> {
+  const response = await pagerdutyFetch({
+    region: input.region,
+    accessToken: input.accessToken,
+    path: `/services/${encodeURIComponent(input.serviceId)}`,
+  })
+  if (response.status === 401) {
+    throw new PagerdutyAuthorizationRevokedError()
+  }
+  if (response.status === 404) return "not_found"
+  if (response.status === 403) return "forbidden"
+  if (!response.ok) {
+    throw new Error(`PagerDuty service get failed (${response.status})`)
+  }
+  const body = (await response.json()) as {
+    service?: { id?: string; name?: string; html_url?: string }
+  }
+  if (typeof body.service?.id !== "string") return "not_found"
+  return {
+    id: body.service.id,
+    name: body.service.name ?? body.service.id,
+    url: body.service.html_url,
+  }
+}
+
 export async function listPagerdutyIncidentIdsForService(input: {
   accessToken: string
   region: PagerdutyRegion
