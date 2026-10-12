@@ -115,6 +115,8 @@ export const requiredStories = [
   "PaletteHoverAndKeysShareOneHighlight",
   "PaletteEnterAfterDeleteRunsFirstMatch",
   "PaletteShortcutClosesAfterSyncRender",
+  "NewPathsKeepExpandedFolders",
+  "DefaultBranchUntilSandboxReady",
 ]
 
 export function isGoldenPlaySuccess(phase) {
