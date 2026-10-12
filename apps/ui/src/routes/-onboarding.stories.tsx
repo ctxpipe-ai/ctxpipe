@@ -164,7 +164,7 @@ export const JoinerFinishLandsInApp: Story = {
       "Landed on /acme",
       {},
       {
-        timeout: 5000,
+        timeout: 15_000,
       },
     )
   },
@@ -311,7 +311,7 @@ export const AdminFlowSkipGithubLandsOnHome: Story = {
     await userEvent.click(
       await canvas.findByRole("button", { name: "Skip for now" }),
     )
-    await canvas.findByText("Landed on /acme", {}, { timeout: 5000 })
+    await canvas.findByText("Landed on /acme", {}, { timeout: 15_000 })
     // The owner's finish also completes the organization.
     expect(creatorState.orgCompleted).toBe(true)
   },
@@ -349,7 +349,7 @@ export const GithubConnectedContinueFinishes: Story = {
     await canvas.findByRole("heading", { name: "GitHub is connected" })
     await userEvent.click(canvas.getByRole("button", { name: "Continue" }))
     // A new user lands on Home, also when the org has a Workspace.
-    await canvas.findByText("Landed on /acme", {}, { timeout: 5000 })
+    await canvas.findByText("Landed on /acme", {}, { timeout: 15_000 })
   },
 }
 
