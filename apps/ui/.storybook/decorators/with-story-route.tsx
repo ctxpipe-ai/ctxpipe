@@ -21,7 +21,7 @@ export type StoryRouteParams =
       /** More paths that also render the story, so a play can follow a navigation. */
       alsoAt?: string[]
     }
-  | { pattern: "orgIndex"; orgSlug: string }
+  | { pattern: "orgIndex"; orgSlug: string; search?: string }
   | { pattern: "orgConnectors"; orgSlug: string; search?: string }
   | { pattern: "orgRepositories"; orgSlug: string }
   | { pattern: "orgWorkspaceNew"; orgSlug: string }
@@ -214,7 +214,7 @@ function createStoryRouter(
             ? spec.conversationId
               ? `/${spec.orgSlug}/ws/${spec.workspaceSlug}/${spec.conversationId}${workspaceSearch}`
               : `/${spec.orgSlug}/ws/${spec.workspaceSlug}${workspaceSearch}`
-            : `/${spec.orgSlug}`
+            : `/${spec.orgSlug}${spec.pattern === "orgIndex" ? (spec.search ?? "") : ""}`
   return createRouter({
     routeTree,
     history: createMemoryHistory({ initialEntries: [initialPath] }),

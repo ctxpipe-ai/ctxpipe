@@ -1,18 +1,30 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { useRouterState } from "@tanstack/react-router"
 import { HttpResponse, http } from "msw"
 import { expect, userEvent, waitFor, within } from "storybook/test"
+import type { WorkspaceActivityCommit } from "@/features/workspaces/types"
 import {
   docsWorkspaceActivity,
   docsWorkspaceActivityRecent,
 } from "@/features/workspaces/workspace-fixtures"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
+import { utcDayBefore } from "./activity-search"
 import { WorkspaceActivity } from "./WorkspaceActivity"
 
+/** The query of each workspace activity request. */
+const activityReads: URLSearchParams[] = []
+/** The query of each org activity request. */
+const orgActivityReads: URLSearchParams[] = []
 /** The `date` query of each workspace activity request (`null`: no date). */
-const activityDates: (string | null)[] = []
-/** The `date` query of each org activity request (`null`: no date). */
-const orgActivityDates: (string | null)[] = []
+const activityDates = {
+  includes: (date: string | null) =>
+    activityReads.some((read) => read.get("date") === date),
+}
+const orgActivityDates = {
+  includes: (date: string | null) =>
+    orgActivityReads.some((read) => read.get("date") === date),
+}
 
 const handbookCommit = {
   sha: "f00ba47777",
@@ -24,45 +36,80 @@ const handbookCommit = {
   workspaceName: "Handbook",
 }
 
+/**
+ * The activity read like the backend: `date`, `author`, `since`, and `until`
+ * filter `recent`; `limit` (default 5) and `cursor` (here an offset) page it.
+ */
 function activityResponse(
-  date: string | null,
-  recent: typeof docsWorkspaceActivityRecent,
+  params: URLSearchParams,
+  commits: readonly WorkspaceActivityCommit[],
 ) {
-  if (date === null)
-    return HttpResponse.json({ ...docsWorkspaceActivity, recent })
+  const date = params.get("date")
+  const author = params.get("author")
+  const since = params.get("since")
+  const until = params.get("until")
+  const matching = commits.filter((commit) => {
+    const day = commit.committedAt.slice(0, 10)
+    return (
+      (!date || day === date) &&
+      (!author || commit.authorName === author) &&
+      (!since || day >= since) &&
+      (!until || day <= until)
+    )
+  })
+  const limit = Number(params.get("limit") ?? 5)
+  const offset = Number(params.get("cursor") ?? 0)
+  const next = offset + limit
   return HttpResponse.json({
     ...docsWorkspaceActivity,
-    recent: recent.filter((commit) => commit.committedAt.startsWith(date)),
+    recent: matching.slice(offset, next),
+    nextCursor: next < matching.length ? String(next) : null,
   })
 }
 
 /** Docs has one commit on Aug 22. The org adds one Handbook commit that day. */
-const activityByDayHandlers = [
-  http.get(
-    ({ request }) =>
-      /\/api\/v1\/workspaces\/[^/]+\/activity$/.test(
-        new URL(request.url).pathname,
-      ),
-    ({ request }) => {
-      const date = new URL(request.url).searchParams.get("date")
-      activityDates.push(date)
-      return activityResponse(date, docsWorkspaceActivityRecent)
-    },
-  ),
-  http.get(
-    ({ request }) => /\/api\/v1\/activity$/.test(new URL(request.url).pathname),
-    ({ request }) => {
-      const date = new URL(request.url).searchParams.get("date")
-      orgActivityDates.push(date)
-      return activityResponse(
-        date,
-        [handbookCommit, ...docsWorkspaceActivityRecent].sort((a, b) =>
-          b.committedAt.localeCompare(a.committedAt),
+function activityHandlers(docsCommits: readonly WorkspaceActivityCommit[]) {
+  return [
+    http.get(
+      ({ request }) =>
+        /\/api\/v1\/workspaces\/[^/]+\/activity$/.test(
+          new URL(request.url).pathname,
         ),
-      )
-    },
-  ),
-]
+      ({ request }) => {
+        const params = new URL(request.url).searchParams
+        activityReads.push(params)
+        return activityResponse(params, docsCommits)
+      },
+    ),
+    http.get(
+      ({ request }) =>
+        /\/api\/v1\/activity$/.test(new URL(request.url).pathname),
+      ({ request }) => {
+        const params = new URL(request.url).searchParams
+        orgActivityReads.push(params)
+        return activityResponse(
+          params,
+          [handbookCommit, ...docsCommits].sort((a, b) =>
+            b.committedAt.localeCompare(a.committedAt),
+          ),
+        )
+      },
+    ),
+  ]
+}
+
+const activityByDayHandlers = activityHandlers(docsWorkspaceActivityRecent)
+
+/** Shows the search string of the story router, so a play can read the URL. */
+function UrlProbe() {
+  const search = useRouterState({ select: (state) => state.location.search })
+  return <output data-testid="url-search">{JSON.stringify(search)}</output>
+}
+
+function urlSearch(canvasElement: HTMLElement): Record<string, unknown> {
+  const probe = within(canvasElement).getByTestId("url-search")
+  return JSON.parse(probe.textContent ?? "{}")
+}
 
 const meta = {
   title: "Components/Home/Activity",
@@ -71,6 +118,7 @@ const meta = {
     (Story) => (
       <div className="w-full max-w-2xl space-y-10 p-8">
         <Story />
+        <UrlProbe />
       </div>
     ),
     ...entryPageInnerDecorators,
@@ -88,8 +136,8 @@ const meta = {
     workspaceSlug: "docs",
   },
   beforeEach: () => {
-    activityDates.length = 0
-    orgActivityDates.length = 0
+    activityReads.length = 0
+    orgActivityReads.length = 0
   },
 } satisfies Meta<typeof WorkspaceActivity>
 
@@ -119,7 +167,7 @@ function clickDay(canvasElement: HTMLElement, date: string) {
 
 /**
  * A click on a day shows only the commits of that day and outlines the day.
- * Reset view shows the latest commits again.
+ * The day goes into the URL. Reset shows the latest commits again.
  */
 export const DayFiltersRecent: Story = {
   play: async ({ canvasElement }) => {
@@ -129,13 +177,13 @@ export const DayFiltersRecent: Story = {
     ).toBeVisible()
     expect(canvas.getByText("Recent")).toBeVisible()
     expect(
-      canvas.queryByRole("button", { name: "Reset view" }),
+      canvas.queryByRole("button", { name: "Reset" }),
     ).not.toBeInTheDocument()
 
     clickDay(canvasElement, "2026-08-22")
 
     expect(await canvas.findByText("Aug 22, 2026")).toBeVisible()
-    await waitFor(() => expect(activityDates).toContain("2026-08-22"))
+    await waitFor(() => expect(activityDates.includes("2026-08-22")).toBe(true))
     expect(await canvas.findByText("Add on-call severity notes")).toBeVisible()
     expect(
       canvas.queryByText("Document billing ledger rules"),
@@ -145,15 +193,21 @@ export const DayFiltersRecent: Story = {
         dayCell(canvasElement, "2026-08-22", "selected-day"),
       ).not.toBeNull(),
     )
+    await waitFor(() =>
+      expect(urlSearch(canvasElement)).toEqual({ day: "2026-08-22" }),
+    )
 
-    await userEvent.click(canvas.getByRole("button", { name: "Reset view" }))
+    await userEvent.click(canvas.getByRole("button", { name: "Reset" }))
 
     expect(await canvas.findByText("Recent")).toBeVisible()
-    expect(canvas.getByText("Document billing ledger rules")).toBeVisible()
     expect(
-      canvas.queryByRole("button", { name: "Reset view" }),
+      await canvas.findByText("Document billing ledger rules"),
+    ).toBeVisible()
+    expect(
+      canvas.queryByRole("button", { name: "Reset" }),
     ).not.toBeInTheDocument()
     expect(dayCell(canvasElement, "2026-08-22", "selected-day")).toBeNull()
+    await waitFor(() => expect(urlSearch(canvasElement)).toEqual({}))
   },
 }
 
@@ -172,10 +226,196 @@ export const KeyboardSelectsEmptyDay: Story = {
     await userEvent.keyboard("{Enter}")
 
     expect(await canvas.findByText("No commits on this day.")).toBeVisible()
-    const dated = activityDates.filter((date) => date !== null)
+    const dated = activityReads
+      .map((read) => read.get("date"))
+      .filter((date) => date !== null)
     expect(dated).toHaveLength(1)
     expect(dated[0]).toMatch(/^\d{4}-\d{2}-\d{2}$/)
-    expect(canvas.getByRole("button", { name: "Reset view" })).toBeVisible()
+    expect(canvas.getByRole("button", { name: "Reset" })).toBeVisible()
+  },
+}
+
+/**
+ * The author menu lists the authors of the window, each with an avatar. A
+ * pick reads only the commits of that author and goes into the URL.
+ */
+export const AuthorFiltersRecent: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const page = within(canvasElement.ownerDocument.body)
+    expect(
+      await canvas.findByText("Document billing ledger rules"),
+    ).toBeVisible()
+
+    await userEvent.click(
+      canvas.getByRole("button", {
+        name: "Filter commits by author: All authors",
+      }),
+    )
+    const lin = await page.findByRole("menuitemradio", { name: /Lin/ })
+    expect(lin).toHaveTextContent("L")
+    expect(lin).toHaveTextContent("6")
+    await userEvent.click(lin)
+
+    expect(
+      await canvas.findByRole("button", {
+        name: "Filter commits by author: Lin",
+      }),
+    ).toBeVisible()
+    await waitFor(() =>
+      expect(activityReads.some((read) => read.get("author") === "Lin")).toBe(
+        true,
+      ),
+    )
+    expect(
+      await canvas.findByText("Clarify session cookie policy"),
+    ).toBeVisible()
+    expect(
+      canvas.queryByText("Document billing ledger rules"),
+    ).not.toBeInTheDocument()
+    await waitFor(() =>
+      expect(urlSearch(canvasElement)).toEqual({ author: "Lin" }),
+    )
+
+    // A day works together with the author.
+    clickDay(canvasElement, "2026-08-22")
+    expect(
+      await canvas.findByText("No commits match these filters."),
+    ).toBeVisible()
+    await waitFor(() =>
+      expect(urlSearch(canvasElement)).toEqual({
+        author: "Lin",
+        day: "2026-08-22",
+      }),
+    )
+  },
+}
+
+/** A date range preset sends `since` and goes into the URL. */
+export const DateRangeFiltersRecent: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const page = within(canvasElement.ownerDocument.body)
+    expect(
+      await canvas.findByText("Document billing ledger rules"),
+    ).toBeVisible()
+
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Filter commits by date: Any time" }),
+    )
+    await userEvent.click(
+      await page.findByRole("menuitemradio", { name: "Last 30 days" }),
+    )
+
+    const since = utcDayBefore(29)
+    expect(
+      await canvas.findByRole("button", {
+        name: "Filter commits by date: Last 30 days",
+      }),
+    ).toBeVisible()
+    await waitFor(() =>
+      expect(activityReads.some((read) => read.get("since") === since)).toBe(
+        true,
+      ),
+    )
+    await waitFor(() => expect(urlSearch(canvasElement)).toEqual({ since }))
+  },
+}
+
+/**
+ * A reload keeps the filters: the view comes from the URL. One Reset clears
+ * the author, the day, and the date range.
+ */
+export const ResetClearsEveryFilter: Story = {
+  parameters: {
+    storyRoute: {
+      pattern: "orgIndex",
+      orgSlug: "acme",
+      search: "?author=Ada&day=2026-08-26&since=2026-08-01&until=2026-08-31",
+    } satisfies StoryRouteParams,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    expect(await canvas.findByText("Aug 26, 2026")).toBeVisible()
+    expect(
+      canvas.getByRole("button", { name: "Filter commits by author: Ada" }),
+    ).toBeVisible()
+    expect(
+      canvas.getByRole("button", {
+        name: "Filter commits by date: Aug 1, 2026 – Aug 31, 2026",
+      }),
+    ).toBeVisible()
+    expect(
+      await canvas.findByText("Document billing ledger rules"),
+    ).toBeVisible()
+    const first = activityReads.find((read) => read.has("limit"))
+    expect(first?.get("author")).toBe("Ada")
+    expect(first?.get("date")).toBe("2026-08-26")
+    expect(first?.get("since")).toBe("2026-08-01")
+    expect(first?.get("until")).toBe("2026-08-31")
+
+    await userEvent.click(canvas.getByRole("button", { name: "Reset" }))
+
+    expect(await canvas.findByText("Recent")).toBeVisible()
+    expect(
+      canvas.getByRole("button", {
+        name: "Filter commits by author: All authors",
+      }),
+    ).toBeVisible()
+    expect(
+      canvas.getByRole("button", { name: "Filter commits by date: Any time" }),
+    ).toBeVisible()
+    expect(
+      await canvas.findByText("Clarify session cookie policy"),
+    ).toBeVisible()
+    await waitFor(() => expect(urlSearch(canvasElement)).toEqual({}))
+  },
+}
+
+/** Twelve Docs commits, one per day back from Aug 26. */
+const twelveCommits: WorkspaceActivityCommit[] = Array.from(
+  { length: 12 },
+  (_, index) => ({
+    sha: `${String(index).padStart(2, "0")}aa${"0".repeat(36)}`,
+    subject: `Commit number ${index + 1}`,
+    authorName: index % 2 ? "Lin" : "Ada",
+    committedAt: new Date(Date.UTC(2026, 7, 26 - index, 12)).toISOString(),
+    htmlUrl: null,
+    workspaceSlug: "docs",
+    workspaceName: "Docs",
+  }),
+)
+
+function beadTops(canvasElement: HTMLElement): number[] {
+  return [...canvasElement.querySelectorAll("[data-commit-line]")].map(
+    (line) => line.getBoundingClientRect().top,
+  )
+}
+
+/**
+ * The list shows ten commits. Load more reads the next page with the cursor
+ * and adds it under the rows; the rows above and the commit line do not move.
+ */
+export const LoadMorePages: Story = {
+  parameters: {
+    msw: { handlers: { page: activityHandlers(twelveCommits) } },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    expect(await canvas.findByText("Commit number 10")).toBeVisible()
+    expect(canvas.queryByText("Commit number 11")).not.toBeInTheDocument()
+    expect(canvas.getAllByRole("listitem")).toHaveLength(10)
+    const before = beadTops(canvasElement)
+
+    await userEvent.click(canvas.getByRole("button", { name: "Load more" }))
+
+    expect(await canvas.findByText("Commit number 12")).toBeVisible()
+    expect(canvas.getAllByRole("listitem")).toHaveLength(12)
+    expect(beadTops(canvasElement).slice(0, 10)).toEqual(before)
+    expect(activityReads.some((read) => read.get("cursor") === "10")).toBe(true)
+    expect(
+      canvas.queryByRole("button", { name: "Load more" }),
+    ).not.toBeInTheDocument()
   },
 }
 
@@ -199,8 +439,9 @@ export const AllWorkspaces: Story = {
     const filter = canvas.getByRole("button", {
       name: "Show activity for: Docs",
     })
-    expect(orgActivityDates).toEqual([])
-    expect(canvas.queryByText(/^Docs · /)).not.toBeInTheDocument()
+    expect(orgActivityReads).toEqual([])
+    // Only the scope menu says "Docs"; one workspace shows no workspace names.
+    expect(canvas.getAllByText("Docs")).toHaveLength(1)
 
     await userEvent.click(filter)
     await userEvent.click(
@@ -213,20 +454,25 @@ export const AllWorkspaces: Story = {
       }),
     ).toBeVisible()
     expect(await canvas.findByText("Add release checklist")).toBeVisible()
-    expect(canvas.getByText(/^Handbook · Lin · /)).toBeVisible()
-    expect(canvas.getAllByText(/^Docs · Ada · /)[0]).toBeVisible()
-    expect(orgActivityDates).toContain(null)
+    expect(canvas.getByText("Handbook")).toBeVisible()
+    expect(canvas.getAllByText("Docs")[0]).toBeVisible()
+    expect(orgActivityDates.includes(null)).toBe(true)
+    await waitFor(() =>
+      expect(urlSearch(canvasElement)).toEqual({ scope: "*" }),
+    )
 
     clickDay(canvasElement, "2026-08-22")
 
     expect(await canvas.findByText("Aug 22, 2026")).toBeVisible()
-    await waitFor(() => expect(orgActivityDates).toContain("2026-08-22"))
+    await waitFor(() =>
+      expect(orgActivityDates.includes("2026-08-22")).toBe(true),
+    )
     expect(await canvas.findByText("Add release checklist")).toBeVisible()
     expect(canvas.getByText("Add on-call severity notes")).toBeVisible()
     expect(
       canvas.queryByText("Document billing ledger rules"),
     ).not.toBeInTheDocument()
-    expect(activityDates).not.toContain("2026-08-22")
+    expect(activityDates.includes("2026-08-22")).toBe(false)
   },
 }
 
@@ -331,9 +577,10 @@ export const AllWorkspacesPendingNote: Story = {
       ),
     ).toBeVisible()
     expect(canvas.getByText("Document billing ledger rules")).toBeVisible()
-    // The slow poll waits 10 s, so a 3 s window holds one request only.
+    // The slow poll waits 10 s, so a 3 s window holds one heatmap read and
+    // one list read only.
     await new Promise((settle) => setTimeout(settle, 3_000))
-    expect(pendingOrgReads).toBe(1)
+    expect(pendingOrgReads).toBe(2)
   },
 }
 
