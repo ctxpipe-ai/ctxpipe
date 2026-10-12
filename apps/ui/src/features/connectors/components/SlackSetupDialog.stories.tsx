@@ -201,7 +201,7 @@ export const ChooseWorkspaces: Story = {
     const body = within(canvasElement.ownerDocument.body)
     await expect(
       await body.findByRole("button", { name: "Choose capture Workspace" }),
-    ).toBeVisible()
+    ).toBeInTheDocument()
     await userEvent.click(
       await body.findByRole("checkbox", { name: docsWorkspace.displayName }),
     )

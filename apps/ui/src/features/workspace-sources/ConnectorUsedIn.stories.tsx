@@ -82,7 +82,7 @@ export const NotUsedInAnyWorkspace: Story = {
 }
 
 export const NoEditorHidesAdd: Story = {
-  args: { provider: "notion" },
+  args: { provider: "pagerduty" },
   parameters: {
     msw: { handlers: { page: [connectionUsageHandler([])] } },
   },
