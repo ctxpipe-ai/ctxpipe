@@ -64,6 +64,8 @@ export type WorkspaceActivityCommit = {
   sha: string
   subject: string
   authorName: string
+  /** The GitHub login of the author. `null`: no GitHub user. */
+  authorLogin?: string | null
   committedAt: string
   htmlUrl: string | null
   workspaceSlug: string
