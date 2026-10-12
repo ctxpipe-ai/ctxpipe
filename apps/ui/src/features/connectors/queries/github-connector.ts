@@ -118,6 +118,18 @@ export async function fetchGithubSetupLinkState(
   return githubSetupLinkStateFromSummaries([data])
 }
 
+/**
+ * "linked" when any GitHub connection of the organization has an
+ * installation. The key is under the installation prefix, so a GitHub setup
+ * result refreshes it.
+ */
+export function githubSetupLinkOptions(orgSlug: string) {
+  return queryOptions({
+    queryKey: [...githubConnectorKeys.installation(orgSlug), "setup-link"],
+    queryFn: () => fetchGithubSetupLinkState(orgSlug),
+  })
+}
+
 export type CreateGithubDraftBody = {
   githubAppId: string
   appSlug: string

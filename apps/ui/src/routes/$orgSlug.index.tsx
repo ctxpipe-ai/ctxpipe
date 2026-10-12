@@ -1,8 +1,15 @@
 import { useQuery } from "@tanstack/react-query"
 import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/Button"
+import { chatDraftKey, writeChatDraft } from "@/features/chat/chat-draft"
 import { HomeComposer } from "@/features/home/HomeComposer"
+import {
+  ASK_PROMPT,
+  SetupGuideCard,
+  SetupGuideSkeleton,
+} from "@/features/home/setup-guide/SetupGuide"
+import { useSetupGuide } from "@/features/home/setup-guide/useSetupGuide"
 import { WorkspaceActivity } from "@/features/home/WorkspaceActivity"
 import { OrgOutletError } from "@/features/org/OrgOutletError"
 import {
@@ -39,6 +46,8 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
   const selected =
     listQuery.data?.items.find((item) => item.id === selectedId) ?? landing
   const workspaces = listQuery.data?.items ?? []
+  const guide = useSetupGuide(orgSlug)
+  const [composerKey, setComposerKey] = useState(0)
 
   useEffect(() => {
     if (preferences.selectedOrganizationSlug !== orgSlug) {
@@ -53,36 +62,67 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
     return <Navigate to="/.auth/sign-in" replace />
   }
 
+  const composer = (
+    <HomeComposer
+      orgSlug={orgSlug}
+      workspaces={workspaces}
+      selected={selected}
+      onSelectWorkspace={setSelectedId}
+      inputKey={composerKey}
+    />
+  )
+  // Ask: store the prompt as the draft of the current Workspace, then mount
+  // a new text box, which reads that draft and takes focus.
+  const ask = selected
+    ? () => {
+        writeChatDraft(chatDraftKey(orgSlug, selected.id), ASK_PROMPT)
+        setComposerKey((key) => key + 1)
+      }
+    : undefined
+  const guideCard =
+    guide.status === "ready" ? (
+      <SetupGuideCard orgSlug={orgSlug} guide={guide} onAsk={ask} />
+    ) : guide.mayShow ? (
+      <SetupGuideSkeleton collapsed={guide.collapsed} />
+    ) : null
+  const hasWorkspace = sessionPending || listQuery.isPending || selected
+  // With no Workspace, the setup guide takes the composer's place. Without
+  // the guide (an established user), keep the composer and the create button.
+  const guideShows =
+    guide.status === "ready" ? guide.view.kind !== "hidden" : guide.mayShow
+  const body = hasWorkspace ? (
+    <>
+      {composer}
+      {guideCard}
+      <WorkspaceActivity
+        orgSlug={orgSlug}
+        workspaceSlug={sessionPending ? null : (selected?.slug ?? null)}
+        workspaces={workspaces}
+      />
+    </>
+  ) : guideShows ? (
+    guideCard
+  ) : (
+    <>
+      {composer}
+      <Button
+        variant="primary"
+        onPress={() => {
+          void navigate({
+            to: "/$orgSlug/workspaces/new",
+            params: { orgSlug },
+          })
+        }}
+      >
+        Create Workspace
+      </Button>
+    </>
+  )
+
   return (
     <div className="flex min-h-full min-w-0 flex-1 flex-col text-foreground">
       <div className="mx-auto box-border w-full max-w-2xl p-8">
-        <div className="space-y-10">
-          <HomeComposer
-            orgSlug={orgSlug}
-            workspaces={workspaces}
-            selected={selected}
-            onSelectWorkspace={setSelectedId}
-          />
-          {sessionPending || listQuery.isPending || selected ? (
-            <WorkspaceActivity
-              orgSlug={orgSlug}
-              workspaceSlug={sessionPending ? null : (selected?.slug ?? null)}
-              workspaces={workspaces}
-            />
-          ) : (
-            <Button
-              variant="primary"
-              onPress={() => {
-                void navigate({
-                  to: "/$orgSlug/workspaces/new",
-                  params: { orgSlug },
-                })
-              }}
-            >
-              Create a workspace
-            </Button>
-          )}
-        </div>
+        <div className="space-y-10">{body}</div>
       </div>
     </div>
   )

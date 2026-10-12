@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { focusVisibleClassName } from "@/lib/focus-styles"
 
 type OnboardingWelcomeSlideProps = {
   onGetStarted: () => void
@@ -52,21 +53,22 @@ export function OnboardingWelcomeSlide({
           ))}
       </h1>
       <p
-        className={`mx-auto max-w-2xl text-balance text-zinc-300 ${
+        className={`mx-auto max-w-xl text-balance text-zinc-300 ${
           showDetails ? "opacity-100" : "opacity-0"
         }`}
       >
-        ctx| is the self-learning context layer for autonomous AI agent fleets
-        for engineering orgs, and their humans, too.
+        Your team's knowledge, in a git repository you own. ctx| keeps it
+        current and puts an agent to work in it.
       </p>
       <div
         className={`mt-8 ${
           showDetails ? "opacity-100" : "pointer-events-none opacity-0"
         }`}
       >
+        {/* A native button: the double-click guard (ignoreRepeatClick) needs click events. */}
         <button
           type="button"
-          className="inline-flex h-11 items-center justify-center rounded-md border border-border bg-zinc-100 px-6 text-sm font-medium text-zinc-950 transition-colors hover:bg-zinc-200"
+          className={`${focusVisibleClassName} inline-flex h-11 items-center justify-center rounded-md border border-border bg-zinc-100 px-6 text-sm font-medium text-zinc-950 transition-colors hover:bg-zinc-200`}
           onClick={() => onGetStarted()}
         >
           Get started

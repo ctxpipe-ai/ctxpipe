@@ -1,11 +1,14 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
+import { expect, fn, userEvent, within } from "storybook/test"
 import { OnboardingGithubSlide } from "@/components/onboarding/OnboardingGithubSlide"
 import { githubConnectorBootstrapHandler } from "@/features/connectors/mocks/github-bootstrap-msw"
-import { workspaceListHandler } from "@/mocks/workspace-handlers"
+import {
+  githubInstallationLinkedHandler,
+  githubInstallationNoneHandler,
+} from "@/mocks/handlers"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
-import { docsWorkspace } from "@/features/workspaces/workspace-fixtures"
 
 const orgSlug = "acme"
 
@@ -21,21 +24,6 @@ const bootstrapHosted = githubConnectorBootstrapHandler({
     "https://github.com/apps/ctxpipe-agent/installations/new",
 })
 
-const installationNull = http.get(
-  ({ request }) =>
-    new URL(request.url).pathname === `/${orgSlug}/api/v1/github/installation`,
-  () => HttpResponse.json(null),
-)
-
-const hostedBootstrapJson = {
-  publicApiOrigin: `https://${orgSlug}.example.com`,
-  suggestedWebhookUrlTemplate: `https://${orgSlug}.example.com/api/v1/webhook/github/<connectionId>`,
-  githubAppConfiguredInEnv: true,
-  rowsNeedingSecrets: 0,
-  hostedDefaultAppInstallUrl:
-    "https://github.com/apps/ctxpipe-agent/installations/new",
-} as const
-
 const installationLoading = http.get(
   ({ request }) =>
     new URL(request.url).pathname === `/${orgSlug}/api/v1/github/installation`,
@@ -45,42 +33,12 @@ const installationLoading = http.get(
   },
 )
 
-const installationInstalled = http.get(
-  ({ request }) =>
-    new URL(request.url).pathname === `/${orgSlug}/api/v1/github/installation`,
-  () =>
-    HttpResponse.json({
-      id: "story-install",
-      appSlug: "ctxpipe",
-      accountSlug: "acme",
-    }),
-)
-
-const workspacesLoading = http.get(
-  ({ request }) => /\/api\/v1\/workspaces$/.test(new URL(request.url).pathname),
-  async () => {
-    await delay("infinite")
-    return HttpResponse.json({ items: [], lastUsedWorkspaceId: null })
-  },
-)
-
-const bootstrapLoading = http.get(
-  ({ request }) => {
-    const p = new URL(request.url).pathname
-    return p === `/${orgSlug}/api/v1/github/installation/connector-bootstrap`
-  },
-  async () => {
-    await delay("real")
-    return HttpResponse.json(hostedBootstrapJson)
-  },
-)
-
 const meta = {
   title: "Components/Onboarding/GithubSlide",
   component: OnboardingGithubSlide,
   decorators: [
     (Story) => (
-      <div className="max-w-xl rounded-none border border-border bg-zinc-950 p-8 text-center">
+      <div className="max-w-xl rounded-md border border-border bg-zinc-950 p-8 text-center">
         <Story />
       </div>
     ),
@@ -93,126 +51,83 @@ const meta = {
       orgSlug,
     } satisfies StoryRouteParams,
   },
+  args: {
+    orgSlug,
+    onFinish: fn(),
+  },
 } satisfies Meta<typeof OnboardingGithubSlide>
 
 export default meta
 
 type Story = StoryObj<typeof meta>
 
+/** "Skip for now" finishes onboarding without GitHub. */
 export const HostedNoInstallation: Story = {
-  args: {
-    orgSlug,
-    onContinue: () => {},
-  },
   parameters: {
     msw: {
       handlers: {
-        page: [bootstrapHosted, installationNull],
+        page: [bootstrapHosted, githubInstallationNoneHandler],
       },
     },
+  },
+  play: async ({ args, canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(
+      await canvas.findByRole("button", { name: "Connect GitHub" }),
+    ).toBeEnabled()
+    await userEvent.click(canvas.getByRole("button", { name: "Skip for now" }))
+    await expect(args.onFinish).toHaveBeenCalledTimes(1)
   },
 }
 
 export const SelfHostedNoInstallation: Story = {
-  args: {
-    orgSlug,
-    onContinue: () => {},
-  },
   parameters: {
     msw: {
       handlers: {
-        page: [bootstrapSelfHosted, installationNull],
+        page: [bootstrapSelfHosted, githubInstallationNoneHandler],
       },
     },
   },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(
+      await canvas.findByRole("button", { name: "Set up GitHub App" }),
+    ).toBeEnabled()
+  },
 }
 
-export const InstallationLoading: Story = {
-  args: {
-    orgSlug,
-    onContinue: () => {},
-  },
+export const Checking: Story = {
   parameters: {
     msw: {
       handlers: {
         page: [bootstrapHosted, installationLoading],
       },
     },
-    docs: {
-      description: {
-        story:
-          'Installation status never completes (`delay("infinite")`) so the slide stays in a loading state.',
-      },
-    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(
+      await canvas.findByRole("button", { name: "Checking..." }),
+    ).toBeDisabled()
   },
 }
 
-export const BootstrapLoading: Story = {
-  args: {
-    orgSlug,
-    onContinue: () => {},
-  },
+/** GitHub was already linked on arrival: one "Continue" finishes onboarding. */
+export const Connected: Story = {
   parameters: {
     msw: {
       handlers: {
-        page: [bootstrapLoading, installationNull],
-      },
-    },
-    docs: {
-      description: {
-        story:
-          'Connector bootstrap uses `delay("real")`, then returns hosted install URL data while installation is still absent.',
+        page: [bootstrapHosted, githubInstallationLinkedHandler],
       },
     },
   },
-}
-
-export const InstalledEmpty: Story = {
-  args: {
-    orgSlug,
-    onContinue: () => {},
-  },
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          bootstrapHosted,
-          installationInstalled,
-          workspaceListHandler([]),
-        ],
-      },
-    },
-  },
-}
-
-export const InstalledPopulated: Story = {
-  args: {
-    orgSlug,
-    onContinue: () => {},
-  },
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          bootstrapHosted,
-          installationInstalled,
-          workspaceListHandler([docsWorkspace]),
-        ],
-      },
-    },
-  },
-}
-
-export const InstalledLoading: Story = {
-  args: {
-    orgSlug,
-    onContinue: () => {},
-  },
-  parameters: {
-    msw: {
-      handlers: {
-        page: [bootstrapHosted, installationInstalled, workspacesLoading],
-      },
-    },
+  play: async ({ args, canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByRole("heading", { name: "GitHub is connected" })
+    expect(
+      canvas.queryByRole("button", { name: "Skip for now" }),
+    ).not.toBeInTheDocument()
+    await userEvent.click(canvas.getByRole("button", { name: "Continue" }))
+    await expect(args.onFinish).toHaveBeenCalledTimes(1)
   },
 }

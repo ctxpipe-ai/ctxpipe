@@ -2,12 +2,14 @@ import { useSuspenseQuery } from "@tanstack/react-query"
 import { createFileRoute, Navigate } from "@tanstack/react-router"
 import { Suspense } from "react"
 import { PageBodySkeleton } from "@/components/ui/Skeleton"
+import { isWithinGuideWindow } from "@/features/home/setup-guide/guide-state"
 import {
   landingWorkspace,
   workspaceListOptions,
 } from "@/features/workspaces/queries"
 import { useListOrganizations, useSession } from "@/lib/auth-client"
 import { fetchSsrOrganizations, fetchSsrSession } from "@/lib/auth-ssr"
+import { sessionUser } from "@/lib/session-user"
 import { useUserPreferences } from "@/lib/user-preferences"
 
 export const Route = createFileRoute("/")({
@@ -53,11 +55,8 @@ export function IndexRoutePage() {
   }
   if (!session) return <Navigate to="/.auth/sign-in" replace />
 
-  const user = session.user as {
-    id: string
-    onboardingCompletedAt?: string | null
-  }
-  if (!user.onboardingCompletedAt) {
+  const user = sessionUser(session)
+  if (!user?.onboardingCompletedAt) {
     return <Navigate to="/onboarding" search={{ orgSlug: undefined }} replace />
   }
 
@@ -84,6 +83,13 @@ export function IndexRoutePage() {
     )
   }
 
+  // A new user lands on Home, where the setup guide is (CTX-552).
+  if (isWithinGuideWindow(user.onboardingCompletedAt, Date.now())) {
+    return (
+      <Navigate to="/$orgSlug" params={{ orgSlug: selected.slug }} replace />
+    )
+  }
+
   return (
     <Suspense fallback={null}>
       <WorkspaceLandingRedirect orgSlug={selected.slug} />
@@ -95,10 +101,9 @@ function WorkspaceLandingRedirect(props: { orgSlug: string }) {
   const { orgSlug } = props
   const { data } = useSuspenseQuery(workspaceListOptions(orgSlug))
   const workspace = landingWorkspace(data)
+  // With no Workspace, Home shows the setup guide (CTX-552).
   if (!workspace) {
-    return (
-      <Navigate to="/$orgSlug/workspaces/new" params={{ orgSlug }} replace />
-    )
+    return <Navigate to="/$orgSlug" params={{ orgSlug }} replace />
   }
   return (
     <Navigate

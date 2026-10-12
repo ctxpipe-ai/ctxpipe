@@ -28,8 +28,10 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/Tooltip"
+import { OnboardingHint } from "@/features/hints/OnboardingHint"
 import { GraphWaitState } from "@/features/knowledge-graph/GraphWaitState"
 import { focusVisibleClassName } from "@/lib/focus-styles"
+import { useMarkWorkspaceExplored } from "@/lib/useOrgGuide"
 import { useUrgentValue } from "@/lib/useUrgentValue"
 import { cn } from "@/lib/utils"
 import { conversationAllowsEdits } from "./conversationPublish"
@@ -96,6 +98,7 @@ export function WorkspacePane(props: {
   cta?: ConversationCtaChrome | null
 }) {
   const queryClient = useQueryClient()
+  const markExplored = useMarkWorkspaceExplored(props.orgSlug)
   const urlPaneKey = serializePane(props.pane)
   const [pane, setPane] = useUrgentValue(props.pane, urlPaneKey)
   const activeFile = pane.kind === "file" ? pane.path : null
@@ -128,6 +131,7 @@ export function WorkspacePane(props: {
   }
 
   const selectPane = (next: ParsedPane) => {
+    markExplored()
     setPane(next)
     prefetchPane(next)
     props.onPane(next)
@@ -651,6 +655,7 @@ export function WorkspacePaneTriggers(props: {
   onExpand?: () => void
 }) {
   const queryClient = useQueryClient()
+  const markExplored = useMarkWorkspaceExplored(props.orgSlug)
   const prefetch = (pane: ParsedPane) => {
     prefetchWorkspacePane(
       queryClient,
@@ -665,10 +670,15 @@ export function WorkspacePaneTriggers(props: {
     workspace: props.workspace,
     conversationId: props.conversationId,
   })
+  const stripRef = useRef<HTMLDivElement>(null)
   return (
     <TooltipProvider delay={200}>
+      <OnboardingHint id="panes" orgSlug={props.orgSlug} triggerRef={stripRef}>
+        Files is the knowledge repository. Graph shows how its files link.
+      </OnboardingHint>
       {/* Hide pane mounts the triggers. They fade in, so the user sees where the pane went. */}
       <div
+        ref={stripRef}
         className={cn(
           workspaceChromeTabStripClassName,
           "animate-in fade-in duration-100 ease-out",
@@ -683,6 +693,7 @@ export function WorkspacePaneTriggers(props: {
             onIntent={() => prefetch(tab.pane)}
             onClick={() => {
               prefetch(tab.pane)
+              markExplored()
               props.onOpen(tab.pane)
             }}
           />
