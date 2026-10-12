@@ -1,4 +1,5 @@
 import { and, eq, sql } from "drizzle-orm"
+import { parse as parseYaml } from "yaml"
 import type { Env } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import {
@@ -12,16 +13,17 @@ import type {
 } from "../../domain/workspace-sources/migration-plan.js"
 import {
   type PagerdutySourceScope,
+  pagerdutyServiceIdSchema,
   pagerdutySourceScopeSchema,
 } from "../../domain/workspace-sources/providers/pagerduty.js"
 import { parsePagerdutyConnectionStored } from "../../lib/connection-config.js"
 import { loadPagerdutyScopeFromRepo } from "./config-from-repo.js"
 import type { ParsedPagerdutyRepoConfig } from "./config-yaml.js"
+import { pagerdutyServiceIncidentsRoot } from "./converter.js"
 
 /**
  * Map the old `pagerduty/config.yaml` scope to a source scope: the selected
- * service ids. The incidents that the old mirror wrote stay in
- * `pagerduty/incidents/`; the source writes new copies under
+ * service ids. The source writes under
  * `pagerduty/services/<serviceId>/incidents/`.
  */
 export function pagerdutyScopeFromLegacyConfig(
@@ -35,6 +37,53 @@ export function pagerdutyScopeFromLegacyConfig(
     : {
         unmapped: `The PagerDuty scope does not map to a source: ${parsed.error.issues[0]?.message ?? "invalid"}`,
       }
+}
+
+/** The service id in the front matter of an incident file, or null. */
+function frontMatterServiceId(markdown: string): string | null {
+  const match = /^---\n([\s\S]*?)\n---(?:\n|$)/.exec(markdown)
+  if (!match?.[1]) return null
+  let front: unknown
+  try {
+    front = parseYaml(match[1])
+  } catch {
+    return null
+  }
+  const id = pagerdutyServiceIdSchema.safeParse(
+    (front as { service_id?: unknown } | null)?.service_id,
+  )
+  return id.success ? id.data : null
+}
+
+/**
+ * The moves of the old mirror files (ADR-034): each
+ * `pagerduty/incidents/<number>--<id>.md` and its asset folder go to
+ * `pagerduty/services/<service_id>/incidents/`, by blob sha. Only the
+ * incident Markdown is read, for its `service_id` front matter. A file
+ * without a readable service id stays where it is.
+ */
+export async function planPagerdutyLegacyMoves(input: {
+  files: ReadonlyArray<{ path: string; sha: string }>
+  read: (path: string) => Promise<string | null | undefined>
+}): Promise<Array<{ from: string; to: string; sha: string }>> {
+  const moves: Array<{ from: string; to: string; sha: string }> = []
+  for (const file of input.files) {
+    const stem = /^pagerduty\/incidents\/([^/]+)\.md$/.exec(file.path)?.[1]
+    if (!stem) continue
+    const serviceId = frontMatterServiceId((await input.read(file.path)) ?? "")
+    if (!serviceId) continue
+    const root = pagerdutyServiceIncidentsRoot(serviceId)
+    moves.push({ from: file.path, to: `${root}${stem}.md`, sha: file.sha })
+    const assets = `pagerduty/incidents/${stem}/`
+    for (const asset of input.files)
+      if (asset.path.startsWith(assets))
+        moves.push({
+          from: asset.path,
+          to: `${root}${stem}/${asset.path.slice(assets.length)}`,
+          sha: asset.sha,
+        })
+  }
+  return moves
 }
 
 /** Turn off the legacy binding of a connection (migration `--apply`). */
@@ -61,8 +110,9 @@ export async function disablePagerdutyLegacySync(input: {
  * ADR-050 migration: the live `pagerduty/config.yaml` scope of each
  * PagerDuty connection's sync repository becomes a source entry in each
  * Workspace that links that repository. `readScope` reads the old file.
- * The migration does not move or delete the old `pagerduty/incidents/`
- * files.
+ * In a Workspace whose repository is that sync repository, the migration
+ * commit moves the old `pagerduty/incidents/` files into their service
+ * folders (see {@link planPagerdutyLegacyMoves}).
  */
 export function createPagerdutySourceMigrationHook(
   readScope: (input: {
@@ -78,6 +128,7 @@ export function createPagerdutySourceMigrationHook(
   return {
     provider: "pagerduty",
     disableLegacy: disablePagerdutyLegacySync,
+    legacyMoves: planPagerdutyLegacyMoves,
     async listLegacyBindings({ orgId, env }) {
       const rows = await withOrgDbContext(orgId, (db) =>
         db

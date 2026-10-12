@@ -587,6 +587,44 @@ describe("commitFiles", () => {
     expect(github.updates).toEqual([{ sha: "commit-1" }])
   })
 
+  it("moves a file by its blob sha, with no blob post and no content", async () => {
+    const github = installGithubGit()
+
+    await commitFiles({
+      orgId: "org_test",
+      repositoryName: "acme/docs",
+      env: {} as never,
+      branch: "ctxpipe/config",
+      message: "Move incidents",
+      files: [
+        {
+          path: "pagerduty/services/PSVC001/incidents/1--PINC1.md",
+          content: "",
+          sha: "blob-old",
+        },
+      ],
+      deletePaths: ["pagerduty/incidents/1--PINC1.md"],
+    })
+
+    expect(github.blobs).toEqual([])
+    expect(github.trees).toHaveLength(1)
+    expect(github.trees[0]?.tree).toEqual([
+      {
+        path: "pagerduty/incidents/1--PINC1.md",
+        mode: "100644",
+        type: "blob",
+        sha: null,
+      },
+      {
+        path: "pagerduty/services/PSVC001/incidents/1--PINC1.md",
+        mode: "100644",
+        type: "blob",
+        sha: "blob-old",
+      },
+    ])
+    expect(github.commits).toHaveLength(1)
+  })
+
   it("counts a delete toward the 50-entry tree cap", async () => {
     const github = installGithubGit()
 

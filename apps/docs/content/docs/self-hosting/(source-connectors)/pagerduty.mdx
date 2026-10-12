@@ -174,10 +174,13 @@ pnpm --filter @ctxpipe/backend migrate-workspace-sources --org <orgId> --apply
 
 The first command only prints the plan. With `--apply`, each Workspace that
 links the old sync repository gets a pull request that adds the merged
-services as a source, and the old per-connection sync stops. The incident
-files of the old sync stay in `pagerduty/incidents/`. The migration does not
-move or delete them. New incidents go to
-`pagerduty/services/<serviceId>/incidents/`.
+services as a source, and the old per-connection sync stops. When the
+Workspace repository is the old sync repository, the same pull request moves
+each file in `pagerduty/incidents/` to
+`pagerduty/services/<serviceId>/incidents/`, with its assets. The service id
+comes from the `service_id` front matter of the file. Git keeps the history of
+each moved file, and no file is copied. A file without a readable `service_id`
+stays in `pagerduty/incidents/`.
 
 ## US and EU accounts
 
