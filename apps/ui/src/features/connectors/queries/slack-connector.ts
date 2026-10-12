@@ -35,6 +35,17 @@ export type SlackConnectorStatus = {
 export const slackConnectorKeys = {
   status: (orgSlug: string, connectionId?: string) =>
     ["slack-connector-status", orgSlug, connectionId ?? "default"] as const,
+  channels: (orgSlug: string, connectionId: string) =>
+    ["slack-channels", orgSlug, connectionId] as const,
+}
+
+/** A channel that a Slack source can select. */
+export type SlackChannel = {
+  id: string
+  name: string
+  isPrivate: boolean
+  /** The bot is in the channel, so it can read it. */
+  isMember: boolean
 }
 
 function connectionQuery(connectionId?: string) {
@@ -118,4 +129,18 @@ export async function deleteSlackConnector(
     ...connectionQuery(connectionId),
   })
   await readApiJson<void>(res, { message: "Failed to remove Slack connector" })
+}
+
+export async function fetchSlackChannels(
+  orgSlug: string,
+  connectionId: string,
+): Promise<SlackChannel[]> {
+  const res = await client[":orgSlug"].api.v1.connectors.slack.channels.$get({
+    param: { orgSlug },
+    query: { connectionId },
+  })
+  const body = await readApiJson<{ items: SlackChannel[] }>(res, {
+    message: "Failed to load the Slack channels",
+  })
+  return body.items
 }

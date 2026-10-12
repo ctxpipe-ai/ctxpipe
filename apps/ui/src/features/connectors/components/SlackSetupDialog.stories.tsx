@@ -1,5 +1,11 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
+import { expect, fn, userEvent, waitFor, within } from "storybook/test"
+import { CHOOSE_WORKSPACES_HINT } from "@/features/workspace-sources/ChooseWorkspacesStep"
+import { docsWorkspace } from "@/features/workspaces/workspace-fixtures"
+import { slackChannelsHandler } from "@/mocks/slack-handlers"
+import { workspaceListHandler } from "@/mocks/workspace-handlers"
+import { workspaceSourceChangeHandlers } from "@/mocks/workspace-sources-handlers"
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
 import { SlackSetupDialog } from "./SlackSetupDialog"
@@ -162,7 +168,15 @@ export const ConnectGitHub: Story = {
   },
 }
 
-export const ChooseRepository: Story = {
+const addCalls: { method: string; path: string; body: unknown }[] = []
+const onOpenChange = fn()
+
+/**
+ * After Slack and GitHub, the dialog maps the connection into Workspaces,
+ * each with its own channels. No capture repository is needed.
+ */
+export const ChooseWorkspaces: Story = {
+  args: { onOpenChange },
   parameters: {
     msw: {
       handlers: {
@@ -172,20 +186,78 @@ export const ChooseRepository: Story = {
             setupPhase: "draft",
             syncTarget: null,
           }),
+          workspaceListHandler([docsWorkspace]),
+          slackChannelsHandler(),
+          ...workspaceSourceChangeHandlers(addCalls),
+        ],
+      },
+    },
+  },
+  beforeEach: () => {
+    addCalls.length = 0
+    onOpenChange.mockClear()
+  },
+  play: async ({ canvasElement }) => {
+    const body = within(canvasElement.ownerDocument.body)
+    await expect(
+      await body.findByRole("button", { name: "Choose capture Workspace" }),
+    ).toBeVisible()
+    await userEvent.click(
+      await body.findByRole("checkbox", { name: docsWorkspace.displayName }),
+    )
+    await expect(body.getByText(CHOOSE_WORKSPACES_HINT)).toBeVisible()
+    const add = body.getByRole("button", { name: "Add to Workspaces" })
+    await expect(add).toBeDisabled()
+    await userEvent.click(
+      await body.findByRole("checkbox", { name: /incidents/ }),
+    )
+    await userEvent.click(add)
+    await waitFor(() => expect(addCalls).toHaveLength(1))
+    await expect(addCalls[0]).toMatchObject({
+      method: "POST",
+      path: `/${orgSlug}/api/v1/workspaces/docs/sources`,
+      body: {
+        source: {
+          provider: "slack",
+          connectionId,
+          scope: { channels: ["G0INC0001"] },
+        },
+      },
+    })
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false))
+  },
+}
+
+/** The optional @mention capture repository opens from the Workspaces step and comes back. */
+export const CaptureWorkspace: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          statusHandler(installedStatus),
+          workspaceListHandler([docsWorkspace]),
+          slackChannelsHandler(),
           ...configurationHandlers,
         ],
       },
     },
   },
-}
-
-export const Live: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [statusHandler(installedStatus), ...configurationHandlers],
-      },
-    },
+  play: async ({ canvasElement }) => {
+    const body = within(canvasElement.ownerDocument.body)
+    await expect(await body.findByText(/capture it into/)).toHaveTextContent(
+      "acme/ctxpipe-context",
+    )
+    await expect(body.getByText(/\/invite @ctxpipe/)).toBeVisible()
+    await userEvent.click(
+      body.getByRole("button", { name: "Change capture Workspace" }),
+    )
+    await expect(
+      await body.findByRole("heading", { name: "Choose a capture Workspace" }),
+    ).toBeVisible()
+    await userEvent.click(body.getByRole("button", { name: "Back" }))
+    await expect(
+      await body.findByRole("button", { name: "Add to Workspaces" }),
+    ).toBeVisible()
   },
 }
 

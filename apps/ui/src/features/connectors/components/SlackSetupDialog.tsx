@@ -1,17 +1,15 @@
 "use client"
 
 import HyperDX from "@hyperdx/browser"
-import {
-  IconBrandSlack,
-  IconCircleCheckFilled,
-  IconExternalLink,
-} from "@tabler/icons-react"
+import { IconBrandSlack, IconExternalLink } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useCallback, useEffect, useState } from "react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
 import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
+import { ChooseWorkspacesStep } from "@/features/workspace-sources/ChooseWorkspacesStep"
+import { useAddToWorkspaces } from "@/features/workspace-sources/useAddToWorkspaces"
 import { workspaceListOptions } from "@/features/workspaces/queries"
 import type { Workspace } from "@/features/workspaces/types"
 import { orgConnectionsKeys } from "../queries/org-connections"
@@ -44,7 +42,7 @@ const SLACK_DOCS_URL =
 const SLACK_SETUP_STEPS = [
   { id: "authorize", label: "Authorize Slack workspace" },
   { id: "github", label: "Connect GitHub" },
-  { id: "target", label: "Choose workspace" },
+  { id: "workspaces", label: "Choose Workspaces" },
 ] as const
 
 type SlackSetupDialogProps = {
@@ -67,6 +65,7 @@ export function SlackSetupDialog({
   const [selectedWorkspace, setSelectedWorkspace] = useState<Workspace | null>(
     null,
   )
+  // The optional @mention capture repository (ADR-025) has its own view.
   const [manualView, setManualView] = useState<"target" | null>(null)
   const [targetInitialized, setTargetInitialized] = useState(false)
 
@@ -92,6 +91,13 @@ export function SlackSetupDialog({
     enabled: isOpen,
     staleTime: 0,
     refetchOnWindowFocus: "always",
+  })
+
+  const adding = useAddToWorkspaces({
+    orgSlug,
+    connectionId: connectionId ?? "",
+    provider: "slack",
+    onAdded: () => onOpenChange(false),
   })
 
   useEffect(() => {
@@ -209,7 +215,7 @@ export function SlackSetupDialog({
       )
     },
     onSuccess: async () => {
-      toast.success("Workspace destination saved. Slack capture is now live.")
+      toast.success("Capture Workspace saved. @mention capture is on.")
       setManualView(null)
       await Promise.all([
         queryClient.invalidateQueries({
@@ -236,12 +242,13 @@ export function SlackSetupDialog({
     isError: statusQuery.isError,
   })
   const setupView =
-    manualView === "target" && baseView === "live" ? "target" : baseView
-  const setupFocusOverride =
-    setupView === "target" && baseView === "live" ? 2 : null
+    manualView === "target" && baseView === "workspaces" ? "target" : baseView
 
   const setOpen = (open: boolean) => {
-    if (!open) setManualView(null)
+    if (!open) {
+      setManualView(null)
+      adding.reset()
+    }
     onOpenChange(open)
   }
 
@@ -249,7 +256,7 @@ export function SlackSetupDialog({
     <Modal
       isOpen={isOpen}
       onOpenChange={setOpen}
-      isDismissable
+      isDismissable={!adding.isPending}
       className="max-w-[min(92vw,720px)]"
     >
       <div className="p-6">
@@ -263,8 +270,8 @@ export function SlackSetupDialog({
                 Set up Slack connector
               </h2>
               <p className="mt-2 text-sm text-muted-foreground">
-                Capture specific Slack threads into a context repository by
-                mentioning the bot.
+                Authorize Slack, then choose the Workspaces that sync threads
+                from their channels.
               </p>
               <a
                 href={SLACK_DOCS_URL}
@@ -291,7 +298,6 @@ export function SlackSetupDialog({
             <ConnectorSetupStepper
               steps={SLACK_SETUP_STEPS}
               currentIndex={setupStepIndex}
-              focusOverride={setupFocusOverride}
             />
           </div>
         ) : null}
@@ -362,88 +368,73 @@ export function SlackSetupDialog({
               })
             }}
           />
-        ) : setupView === "live" ? (
-          <div className="space-y-5">
-            <div className="flex items-start gap-3">
-              <IconCircleCheckFilled
-                className="mt-0.5 size-5 shrink-0 text-emerald-500"
-                aria-hidden
-              />
-              <div>
-                <h3 className="text-base font-medium text-foreground">
-                  Slack is connected
-                </h3>
-                <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                  Captured threads are committed to{" "}
-                  <span className="text-foreground">
-                    {status?.syncTarget?.repositoryName}
-                  </span>
-                  .
-                </p>
-              </div>
-            </div>
-            <div className="border border-border bg-card/30 p-4">
-              <h4 className="text-sm font-medium text-foreground">
-                How to capture a thread
+        ) : setupView === "workspaces" && connectionId ? (
+          <div className="flex flex-col gap-5">
+            <ChooseWorkspacesStep
+              orgSlug={orgSlug}
+              provider="slack"
+              connectionId={connectionId}
+              value={adding.value}
+              onChange={adding.setValue}
+            />
+            <section
+              aria-label="Thread capture on mention"
+              className="border border-border bg-card/30 p-4 text-sm"
+            >
+              <h4 className="font-medium text-foreground">
+                Thread capture on @mention
               </h4>
-              <ol className="mt-3 space-y-3 text-sm text-muted-foreground">
-                <li className="flex gap-3">
-                  <span className="flex size-5 shrink-0 items-center justify-center border border-border text-xs text-foreground">
-                    1
-                  </span>
-                  <p>
-                    Invite the bot to the channel:{" "}
+              <p className="mt-2 text-muted-foreground">
+                {status?.syncTarget ? (
+                  <>
+                    Mention {formatSlackBotMention(status.botHandle)} in a
+                    thread to capture it into{" "}
+                    <span className="text-foreground">
+                      {status.syncTarget.repositoryName}
+                    </span>
+                    . Invite the bot to a channel first with{" "}
                     <code className="rounded-md bg-muted px-1 py-0.5 text-[11px]">
-                      /invite {formatSlackBotMention(status?.botHandle)}
+                      /invite {formatSlackBotMention(status.botHandle)}
                     </code>
-                  </p>
-                </li>
-                <li className="flex gap-3">
-                  <span className="flex size-5 shrink-0 items-center justify-center border border-border text-xs text-foreground">
-                    2
-                  </span>
-                  <p>
-                    Mention {formatSlackBotMention(status?.botHandle)} in an
-                    existing thread to run ctx|. Say{" "}
-                    <code className="rounded-md bg-muted px-1 py-0.5 text-[11px]">
-                      capture this
-                    </code>{" "}
-                    or mention the bot with no extra text to snapshot the thread
-                    into git. Later mentions on the same thread update the same
-                    snapshot. Mention the bot in a thread, not at the top of the
-                    channel.
-                  </p>
-                </li>
-              </ol>
-              <p className="mt-3 text-sm text-muted-foreground">
-                Use this for decisions, incidents, and design debates you want
-                as auditable engineering context. For live workspace search, use
-                Slack MCP. Uninstalling the Slack app does not delete git
-                history.
+                    .
+                  </>
+                ) : (
+                  "Optional. Choose a Workspace to capture one thread when someone mentions the bot in it."
+                )}
               </p>
-            </div>
-            <div className="flex flex-wrap justify-end gap-2 border-t border-border pt-4">
               <Button
                 variant="secondary"
-                className="rounded-md"
+                className="mt-3 rounded-md"
                 onPress={() => setManualView("target")}
               >
-                Change workspace
+                {status?.syncTarget
+                  ? "Change capture Workspace"
+                  : "Choose capture Workspace"}
               </Button>
-              <Button className="rounded-md" onPress={() => setOpen(false)}>
-                Done
+            </section>
+            <div className="flex justify-end gap-2 border-t border-border pt-4">
+              <Button variant="quiet" onPress={() => setOpen(false)}>
+                Skip for now
+              </Button>
+              <Button
+                variant="primary"
+                isDisabled={!adding.canAdd}
+                isPending={adding.isPending}
+                onPress={adding.add}
+              >
+                Add to Workspaces
               </Button>
             </div>
           </div>
-        ) : (
+        ) : setupView === "target" ? (
           <div className="space-y-4">
             <div>
               <h3 className="text-base font-medium text-foreground">
-                Select a workspace for Slack content
+                Choose a capture Workspace
               </h3>
               <p className="mt-2 text-sm text-muted-foreground">
-                Captured Slack threads are committed to that workspace
-                repository.
+                When someone mentions the bot in a thread, ctx| commits that
+                thread to this Workspace repository.
               </p>
             </div>
             <ConnectorWorkspaceDestinationPicker
@@ -452,27 +443,28 @@ export function SlackSetupDialog({
               onSelect={setSelectedWorkspace}
             />
             <div className="flex justify-between border-t border-border pt-4">
-              {manualView === "target" && baseView === "live" ? (
-                <Button
-                  variant="secondary"
-                  className="rounded-md"
-                  onPress={() => setManualView(null)}
-                >
-                  Cancel
-                </Button>
-              ) : (
-                <span />
-              )}
+              <Button
+                variant="secondary"
+                className="rounded-md"
+                onPress={() => setManualView(null)}
+              >
+                Back
+              </Button>
               <Button
                 className="rounded-md"
                 isPending={saveMutation.isPending}
                 isDisabled={!selectedWorkspace || saveMutation.isPending}
                 onPress={() => saveMutation.mutate()}
               >
-                {baseView === "live" ? "Save workspace" : "Save & continue"}
+                Save capture Workspace
               </Button>
             </div>
           </div>
+        ) : (
+          <p className="text-sm text-destructive">
+            The Slack connection identifier is missing. Close this dialog and
+            reopen setup from the connector card.
+          </p>
         )}
       </div>
     </Modal>

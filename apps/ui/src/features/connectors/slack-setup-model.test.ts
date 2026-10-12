@@ -45,17 +45,14 @@ describe("getSlackSetupView", () => {
     ).toBe("github")
   })
 
-  it("asks for a context repository while the connector is still a draft", () => {
-    expect(getSlackSetupView({ status, isPending: false })).toBe("target")
-  })
-
-  it("shows the capture instructions once the connector is live", () => {
+  it("asks for Workspaces once Slack and GitHub are connected, with or without a capture repository", () => {
+    expect(getSlackSetupView({ status, isPending: false })).toBe("workspaces")
     expect(
       getSlackSetupView({
         status: { ...status, setupPhase: "live" },
         isPending: false,
       }),
-    ).toBe("live")
+    ).toBe("workspaces")
   })
 
   it("shows a loading state while pending, regardless of status", () => {
@@ -73,15 +70,17 @@ describe("getSlackSetupStepIndex", () => {
     expect(getSlackSetupStepIndex(undefined)).toBe(0)
     expect(getSlackSetupStepIndex({ ...status, isGithubLinked: false })).toBe(1)
     expect(getSlackSetupStepIndex(status)).toBe(2)
-    expect(getSlackSetupStepIndex({ ...status, setupPhase: "live" })).toBe(3)
+    expect(getSlackSetupStepIndex({ ...status, setupPhase: "live" })).toBe(2)
   })
 })
 
 describe("getSlackSetupPhaseLabel", () => {
   it("uses human-readable connector status labels", () => {
+    // A connection holds auth only (ADR-050): installed is connected,
+    // also without a mention capture repository.
     expect(
       getSlackSetupPhaseLabel({ setupPhase: "draft", isInstalled: true }),
-    ).toBe("Setup required")
+    ).toBe("Connected")
     expect(
       getSlackSetupPhaseLabel({ setupPhase: "live", isInstalled: true }),
     ).toBe("Connected")

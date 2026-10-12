@@ -62,13 +62,16 @@ export function SlackConnectionCard({
     },
   })
 
-  const live = Boolean(status?.isInstalled && status.setupPhase === "live")
+  // A connection holds auth only (ADR-050); Workspace sources map channels.
+  // The mention capture repository is optional.
+  const installed = Boolean(status?.isInstalled)
+  const capturing = installed && status?.setupPhase === "live"
   const health = resolveConnectorHealth({
     installationStatus: status?.installationStatus,
     statusError: isError,
     checking: isPending || !status,
-    connected: Boolean(live),
-    draft: status?.setupPhase === "draft",
+    connected: installed,
+    draft: !installed,
   })
 
   return (
@@ -86,7 +89,7 @@ export function SlackConnectionCard({
         health={health}
         remove={{
           description:
-            "This deletes the Slack connection and context repository binding. Captured content already committed to Git is not deleted automatically.",
+            "This removes the Slack connection. Its Workspace sources stop syncing and @mention capture stops. The sources.yaml entries and the files already committed to Git stay.",
           onConfirm: () => removeMutation.mutate(),
         }}
         workspace={connectorDash(status?.teamName)}
@@ -97,11 +100,9 @@ export function SlackConnectionCard({
             ? "Retry"
             : isPending || !status
               ? undefined
-              : live
+              : installed
                 ? "Manage"
-                : status.isInstalled
-                  ? "Continue setup"
-                  : "Set up"
+                : "Set up"
         }
         onAction={
           isError
@@ -116,15 +117,15 @@ export function SlackConnectionCard({
             Status request failed. Retry, or open setup if this persists.
           </p>
         ) : null}
-        {live ? (
+        {capturing ? (
           <p className="text-sm text-muted-foreground">
             Invite the bot with{" "}
             <code className="rounded-md bg-muted px-1 py-0.5 text-[11px]">
-              /invite {formatSlackBotMention(status.botHandle)}
+              /invite {formatSlackBotMention(status?.botHandle)}
             </code>
             , then mention{" "}
             <code className="rounded-md bg-muted px-1 py-0.5 text-[11px]">
-              {formatSlackBotMention(status.botHandle)}
+              {formatSlackBotMention(status?.botHandle)}
             </code>{" "}
             in a thread to capture it, or say capture this.
           </p>
