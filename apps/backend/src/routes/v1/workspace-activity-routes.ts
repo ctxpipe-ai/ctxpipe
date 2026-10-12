@@ -85,14 +85,14 @@ function decodeCursor(cursor: string): WorkspaceCommitListFilters["after"] {
     const value: unknown = JSON.parse(
       Buffer.from(cursor, "base64url").toString("utf8"),
     )
-    if (
-      Array.isArray(value) &&
-      value.length === 3 &&
-      value.every((part) => typeof part === "string")
-    ) {
-      const committedAt = new Date(value[0])
+    const parsed = z
+      .tuple([z.string(), z.string(), z.string()])
+      .safeParse(value)
+    if (parsed.success) {
+      const [time, sha, workspaceId] = parsed.data
+      const committedAt = new Date(time)
       if (!Number.isNaN(committedAt.getTime()))
-        return { committedAt, sha: value[1], workspaceId: value[2] }
+        return { committedAt, sha, workspaceId }
     }
   } catch {
     // A cursor that does not decode is a bad request.
