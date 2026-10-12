@@ -28,13 +28,30 @@ each link from a mirror unit to another unit of the same Workspace.
   name, and the Slack thread in the path. It then resolves the URLs in the
   body and in the Linear `githubReferences`, the bare Linear identifiers of
   known teams, and the `github.com/<workspace repo>/blob/<ref>/<path>` URLs.
-  Each resolved target becomes a Workspace-root link (`/<path>`). A
-  reference to a thing that the Workspace does not hold gives no link.
-- `resolveHydrateLink` reads a leading `/` as the Workspace root.
+  Each resolved target becomes a `workspace:<path>` link. A reference to a
+  thing that the Workspace does not hold gives no link. A `/` link that a
+  person wrote keeps its old meaning.
 - The Confluence converter keeps an `http(s)` anchor as a Markdown link. It
   writes a `<ri:page>` link to a mirrored page of the same space as a
   relative link, and other `<ri:page>` links as text.
-- Claims upgrade does not write claims into mirror files or for `/` links.
+- Claims upgrade does not write claims into mirror files or for
+  `workspace:` links.
+
+## Review fixes
+
+- A reference that fails to parse is skipped with a warning, so hydrate
+  cannot fail on one bad URL (for example `…/blob/main/50%.md`).
+- A blob URL joins only the path after a one-segment ref. A ref that holds
+  `/` stays external, so no shorter path matches by mistake.
+- A Confluence URL joins only on a site host of the org's Confluence
+  connections (`confluenceSiteHost`, step `list-confluence-sites`). A
+  connection without a site host gives no Confluence URL edges. Relative
+  page links from the converter do not need it.
+- A Linear URL joins only in a Linear workspace that the Linear mirror
+  files name in their `url`. A Linear identifier inside a URL counts only
+  through that URL.
+- `extractLinear.ts` reads `linear/**/issues/**/*.md` and
+  `linear/**/teams/*.md`, and emits one Issue for each identifier.
 
 ## Tests
 
@@ -52,6 +69,5 @@ each link from a mirror unit to another unit of the same Workspace.
   page-id key from the path and the Notion URL in `referenceLinks`.
 - Existing Workspaces get the kinds and edges at the next hydrate.
 - Front-matter relations (Linear `projectId`, `teamId`) are not edges yet.
-- The code-graph extractor `extractLinear.ts` still uses the old globs
-  `linear/issues/**` and `linear/teams/**`. With the new team layout,
-  `linear/teams/**/*.md` also matches issues and projects.
+- `chat-projection.contract.test.ts` "static chat tools resolve the
+  authorized projection only when invoked" fails also on the base commit.
