@@ -1113,9 +1113,7 @@ export const LogKeepsStreamOrder: Story = {
       await canvas.findByText(firstTurnAnswer, undefined, {
         timeout: SEND_WAIT_MS,
       })
-      await userEvent.click(
-        canvas.getByRole("button", { name: /2 thoughts/i }),
-      )
+      await userEvent.click(canvas.getByRole("button", { name: /2 thoughts/i }))
       const region = canvas.getByRole("region", { name: "Activity log" })
       const rows = within(region)
         .getAllByRole("listitem")

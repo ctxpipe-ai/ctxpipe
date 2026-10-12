@@ -25,6 +25,14 @@ const required = [
   ],
   [
     "apps/ui/src/features/workspaces/WorkspaceChat.stories.tsx",
+    "FollowUpShowsSandboxSetupFirst",
+  ],
+  [
+    "apps/ui/src/features/workspaces/WorkspaceChat.stories.tsx",
+    "LogKeepsStreamOrder",
+  ],
+  [
+    "apps/ui/src/features/workspaces/WorkspaceChat.stories.tsx",
     "SocketCleansUpOnLeave",
   ],
   [
@@ -135,6 +143,14 @@ const required = [
   [
     "apps/ui/src/features/chat/ConversationThread.stories.tsx",
     "ChatProgressLogExpanded",
+  ],
+  [
+    "apps/ui/src/features/chat/ConversationThread.stories.tsx",
+    "ChatProgressSpacing",
+  ],
+  [
+    "apps/ui/src/features/chat/ConversationThread.stories.tsx",
+    "OpeningLogKeepsScroll",
   ],
   [
     "apps/ui/src/features/workspaces/WorkspaceCommandPalette.stories.tsx",
