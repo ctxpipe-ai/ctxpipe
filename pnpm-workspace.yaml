@@ -13,4 +13,5 @@ patchedDependencies:
   '@langchain/langgraph@1.4.7': patches/@langchain__langgraph@1.4.7.patch
   # Temporary (ADR-044). Ticket 01, upstream PR pending: assistant-only parts, SSE readiness and completion, abort on dispose.
   # Ticket 15: a 1 s limit on each adapter teardown step; accepted 2026-10-06; upstream issue: https://github.com/TanStack/ai/issues/1638.
+  # CTX-576: open a tool call when its input is known, not at the empty "pending" state.
   '@tanstack/ai-opencode@0.4.14': patches/@tanstack__ai-opencode@0.4.14.patch
