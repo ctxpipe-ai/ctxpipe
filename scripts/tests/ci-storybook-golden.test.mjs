@@ -66,9 +66,22 @@ const required = [
   [
     "apps/ui/src/features/workspaces/WorkspaceChatChrome.stories.tsx",
     "BranchLabel",
+  ],
+  [
+    "apps/ui/src/features/workspaces/WorkspaceChatChrome.stories.tsx",
     "SyncCtaWithSubtleShowPr",
+  ],
+  [
+    "apps/ui/src/features/workspaces/WorkspaceChatChrome.stories.tsx",
     "DirtyShowsOnlySync",
+  ],
+  [
+    "apps/ui/src/features/chat/ConversationThread.stories.tsx",
     "PushEntryUnderCard",
+  ],
+  [
+    "apps/ui/src/features/workspaces/WorkspaceSurface.stories.tsx",
+    "PublishPrErrorToast",
   ],
   [
     "apps/ui/src/features/workspaces/WorkspaceSurface.stories.tsx",

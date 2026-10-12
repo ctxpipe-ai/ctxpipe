@@ -285,7 +285,6 @@ export function WorkspaceChatSession(props: {
         prepareQuery.isSuccess && gitStatus?.branch
           ? {
               shortName: conversationBranchShortName(gitStatus.branch),
-              fullRef: gitStatus.branch,
               href: gitStatus.published
                 ? conversationGithubTreeHref(
                     workspace.workspaceRepositoryUrl,
