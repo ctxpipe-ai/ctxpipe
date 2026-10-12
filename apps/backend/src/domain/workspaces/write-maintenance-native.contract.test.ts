@@ -625,20 +625,17 @@ it(
   { timeout: 60_000 },
   async () => {
     const before =
-      '---\nname: "Docs: beta"\n---\n\n# Working notes\nKeep this introduction.\n\n### Our layout\n- [Guides](guides/) — keep owner label\n- [Gone](removed/) — obsolete\n\n### Style\nKeep this style instruction.\n'
+      '---\nname: "Docs: beta"\n---\n\n# Working notes\nKeep this introduction.\n\n### Our layout\n- [Guides](guides/) — keep owner label\n\n### Style\nKeep this style instruction.\n'
     const after = before.replace(
-      "- [Gone](removed/) — obsolete\n",
-      "- [Reference](reference/) — API reference\n",
+      "keep owner label\n",
+      "keep owner label\n- `reference/`\n",
     )
     await withNativeHydrationFixture(
       {
         github: true,
         githubWriteView: "writable",
         writeStatus: "writable",
-        folderListReply: {
-          replaceBlock: 3,
-          list: "- [Guides](guides/) — keep owner label\n- [Reference](reference/) — API reference",
-        },
+        folderListReply: { listBlock: 3 },
         files: [
           { path: "AGENTS.md", body: before },
           { path: "guides/intro.md", body: "# Introduction\n" },

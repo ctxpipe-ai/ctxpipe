@@ -45,7 +45,7 @@ export const workspaceOpsFolderListInputSchema = z
     displayName: z.string().trim().min(1).optional(),
     /**
      * Set when hydrate saw a changed folder set since this revision. The job
-     * uses it only as a flag to run the model step; it does not read that tree.
+     * reads that tree's folders to know which list lines name gone folders.
      */
     previousSha: z
       .string()
@@ -104,7 +104,12 @@ export const workspaceOpsFolderList = defineWorkflow(
           >
           for (;;) {
             const candidate = await step.run({ name: "acquire-revision" }, () =>
-              acquireWorkspaceWriteRevision(input, revision, env),
+              acquireWorkspaceWriteRevision(
+                input,
+                revision,
+                env,
+                input.previousSha,
+              ),
             )
             if (candidate) {
               acquired = candidate
@@ -127,17 +132,19 @@ export const workspaceOpsFolderList = defineWorkflow(
               withGitDirectory(
                 revision.sha,
                 async (directory) => {
-                  const paths = (
-                    await nativeGit(directory, [
-                      "ls-tree",
-                      "-r",
-                      "--name-only",
-                      "-z",
-                      revision.sha,
-                    ])
-                  )
-                    .toString()
-                    .split("\0")
+                  const pathsAt = async (sha: string) =>
+                    (
+                      await nativeGit(directory, [
+                        "ls-tree",
+                        "-r",
+                        "--name-only",
+                        "-z",
+                        sha,
+                      ])
+                    )
+                      .toString()
+                      .split("\0")
+                  const paths = await pathsAt(revision.sha)
                   const existingAgentsMd = paths.includes("AGENTS.md")
                     ? (
                         await nativeGit(directory, [
@@ -151,7 +158,10 @@ export const workspaceOpsFolderList = defineWorkflow(
                     requestedDisplayName: input.displayName,
                     existingAgentsMd,
                     paths,
-                    updateList: input.previousSha !== undefined,
+                    // The acquired pack also holds the previous tree.
+                    ...(input.previousSha
+                      ? { previousPaths: await pathsAt(input.previousSha) }
+                      : {}),
                   })
                 },
                 acquired.pack,

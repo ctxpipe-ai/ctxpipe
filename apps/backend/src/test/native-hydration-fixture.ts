@@ -39,8 +39,8 @@ export type NativeHydrationOptions = {
     files: Array<{ path: string; content: string | null }>
   }
   semanticMergeDelayMs?: number
-  /** The model's reply to the AGENTS.md folder-list step. */
-  folderListReply?: { replaceBlock: number | "append" | "none"; list: string }
+  /** The model's tool-call arguments for the AGENTS.md folder-list step. */
+  folderListReply?: Record<string, unknown>
   /**
    * A real chat agent (OpenCode) runs against this fixture: streamed model
    * requests get a short streamed reply, and loopback HTTP (the agent, the
