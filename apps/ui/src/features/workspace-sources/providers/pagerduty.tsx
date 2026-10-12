@@ -12,7 +12,10 @@ import { SearchField } from "@/components/ui/SearchField"
 import { Skeleton, SkeletonLine } from "@/components/ui/Skeleton"
 import { Tag, TagGroup } from "@/components/ui/TagGroup"
 import { PagerdutyMark } from "@/features/connectors/components/PagerdutyMark"
-import { searchPagerdutyServices } from "@/features/connectors/queries/pagerduty-connector"
+import {
+  pagerdutyConnectorKeys,
+  searchPagerdutyServices,
+} from "@/features/connectors/queries/pagerduty-connector"
 import type {
   SourceProviderUi,
   SourceScopeEditorProps,
@@ -40,8 +43,11 @@ export function pagerdutyServiceIdsToScope(
  */
 export function PagerdutyScopeEditor(props: SourceScopeEditorProps) {
   const { orgSlug, connectionId, initialScope, onChange, label } = props
-  const [ids, setIds] = useState(() => pagerdutyScopeToServiceIds(initialScope))
-  const [names, setNames] = useState<Record<string, string>>({})
+  // The selection keeps the name of each service checked in the picker. An
+  // initial id has no name until the results show it.
+  const [selected, setSelected] = useState<
+    Array<{ id: string; name?: string }>
+  >(() => pagerdutyScopeToServiceIds(initialScope).map((id) => ({ id })))
   const [search, setSearch] = useState("")
   const [query, setQuery] = useState("")
   useEffect(() => {
@@ -49,7 +55,7 @@ export function PagerdutyScopeEditor(props: SourceScopeEditorProps) {
     return () => clearTimeout(timer)
   }, [search])
   const servicesQuery = useInfiniteQuery({
-    queryKey: ["pagerduty-source-services", orgSlug, connectionId, query],
+    queryKey: pagerdutyConnectorKeys.services(orgSlug, connectionId, query),
     queryFn: ({ pageParam }) =>
       searchPagerdutyServices(orgSlug, {
         q: query,
@@ -62,22 +68,11 @@ export function PagerdutyScopeEditor(props: SourceScopeEditorProps) {
         ? pages.reduce((sum, page) => sum + page.items.length, 0)
         : null,
   })
-  const pages = servicesQuery.data?.pages
-  const results = pages?.flatMap((page) => page.items) ?? []
-  // Keep the names of the services seen, so a selection out of the results
-  // still shows its name.
-  useEffect(() => {
-    if (!pages) return
-    setNames((known) => {
-      const next = { ...known }
-      for (const page of pages)
-        for (const service of page.items) next[service.id] = service.name
-      return next
-    })
-  }, [pages])
-  const update = (next: string[]) => {
-    setIds(next)
-    onChange(pagerdutyServiceIdsToScope(next))
+  const results = servicesQuery.data?.pages.flatMap((page) => page.items) ?? []
+  const inResults = (id: string) => results.some((service) => service.id === id)
+  const update = (next: Array<{ id: string; name?: string }>) => {
+    setSelected(next)
+    onChange(pagerdutyServiceIdsToScope(next.map((service) => service.id)))
   }
   const heading = label
     ? `PagerDuty services for ${label}`
@@ -120,17 +115,11 @@ export function PagerdutyScopeEditor(props: SourceScopeEditorProps) {
           <div className="flex flex-col gap-3">
             <CheckboxGroup
               aria-label="PagerDuty services"
-              value={ids.filter((id) =>
-                results.some((service) => service.id === id),
-              )}
+              value={selected.map((service) => service.id).filter(inResults)}
               onChange={(keys) =>
                 update([
-                  ...ids.filter(
-                    (id) => !results.some((service) => service.id === id),
-                  ),
-                  ...results
-                    .map((service) => service.id)
-                    .filter((id) => keys.includes(id)),
+                  ...selected.filter((service) => !inResults(service.id)),
+                  ...results.filter((service) => keys.includes(service.id)),
                 ])
               }
             >
@@ -153,11 +142,19 @@ export function PagerdutyScopeEditor(props: SourceScopeEditorProps) {
           </div>
         )}
       </div>
-      {ids.length ? (
+      {selected.length ? (
         <TagGroup
           label="Selected"
-          items={ids.map((id) => ({ id, name: names[id] ?? id }))}
-          onRemove={(keys) => update(ids.filter((id) => !keys.has(id)))}
+          items={selected.map((service) => ({
+            id: service.id,
+            name:
+              service.name ??
+              results.find((result) => result.id === service.id)?.name ??
+              service.id,
+          }))}
+          onRemove={(keys) =>
+            update(selected.filter((service) => !keys.has(service.id)))
+          }
         >
           {(service) => (
             <Tag id={service.id} textValue={service.name}>

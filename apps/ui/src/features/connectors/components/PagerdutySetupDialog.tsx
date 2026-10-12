@@ -6,6 +6,7 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
 import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
+import { AddToWorkspacesStep } from "@/features/workspace-sources/AddToWorkspacesStep"
 import {
   consumePagerdutySetupPopupResult,
   PAGERDUTY_SETUP_RESULT_KEY,
@@ -24,7 +25,6 @@ import { ConnectorSetupStepper } from "./ConnectorSetupStepper"
 import { PagerdutyConnectStep } from "./PagerdutyConnectStep"
 import { PagerdutyMark } from "./PagerdutyMark"
 import { PagerdutyRegisterOauthStep } from "./PagerdutyRegisterOauthStep"
-import { AddPagerdutyToWorkspacesStep } from "./pagerduty-setup/AddPagerdutyToWorkspacesStep"
 
 type PagerdutySetupDialogProps = {
   orgSlug: string
@@ -176,9 +176,13 @@ export function PagerdutySetupDialog({
     }
     if (!workspacesDone) {
       return (
-        <AddPagerdutyToWorkspacesStep
+        <AddToWorkspacesStep
           orgSlug={orgSlug}
+          provider="pagerduty"
           connectionId={connectionId}
+          label="PagerDuty"
+          description="the services for each"
+          items="the services"
           replacedConfigPullUrl={status.pendingConfigPullUrl}
           onDone={() => setWorkspacesDone(true)}
         />
