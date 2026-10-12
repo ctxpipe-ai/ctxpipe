@@ -7,6 +7,7 @@ import {
   useState,
 } from "react"
 import { Button as AriaButton } from "react-aria-components"
+import { useStickToBottomContext } from "use-stick-to-bottom"
 import {
   Conversation,
   ConversationContent,
@@ -121,7 +122,7 @@ function LogEntry(props: { entry: ActivityEntry }) {
     <li className="flex min-w-0 items-start gap-2">
       <IconSlot>{chipIcon(tool.bucket)}</IconSlot>
       <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2">
-        <span className="text-muted-foreground">{tool.action}</span>
+        <span className="font-medium text-muted-foreground">{tool.action}</span>
         {tool.detail ? (
           <span className="min-w-0 break-all font-mono text-muted-foreground/80">
             {tool.detail}
@@ -132,11 +133,17 @@ function LogEntry(props: { entry: ActivityEntry }) {
   )
 }
 
-/** The counters line. It opens the log of every thought and tool call. */
-function ActivityLog(props: { entries: ActivityEntry[] }) {
+/**
+ * The counters line. It opens the log of every thought and tool call. The
+ * status line comes after it, at the same gap as the log items.
+ */
+function ActivityLog(props: { entries: ActivityEntry[]; status: ReactNode }) {
   const { entries } = props
   const [expanded, setExpanded] = useState(false)
   const logId = useId()
+  // The open log makes the thread taller. Stop the stick to the bottom, so
+  // the thread does not scroll away from the counters.
+  const { stopScroll } = useStickToBottomContext()
   const tools = entries.flatMap((entry) =>
     entry.kind === "tool" ? [entry.tool] : [],
   )
@@ -146,12 +153,15 @@ function ActivityLog(props: { entries: ActivityEntry[] }) {
   })
 
   return (
-    <div className="flex w-full min-w-0 flex-col gap-1">
+    <div className="flex w-full min-w-0 flex-col gap-2">
       <AriaButton
         aria-expanded={expanded}
         aria-controls={expanded ? logId : undefined}
         aria-label={chips.map((chip) => chip.label).join(", ")}
-        onPress={() => setExpanded(!expanded)}
+        onPress={() => {
+          if (!expanded) stopScroll()
+          setExpanded(!expanded)
+        }}
         className={cn(
           focusVisibleClassName,
           "flex w-full min-w-0 flex-wrap items-center gap-x-3 gap-y-1 rounded-md text-left text-xs leading-relaxed text-muted-foreground",
@@ -181,6 +191,7 @@ function ActivityLog(props: { entries: ActivityEntry[] }) {
           </ol>
         </section>
       ) : null}
+      {props.status}
     </div>
   )
 }
@@ -210,9 +221,27 @@ function renderAssistantParts(
       (part.type === "text" && Boolean(partText(part))) ||
       part.type === "source-url",
   )
+  // The status line stays until the run ends, also while text streams.
+  const thoughts = entries.flatMap((entry) =>
+    entry.kind === "thought" ? [entry.thought] : [],
+  )
+  const status =
+    options.working && entries.length > 0 ? (
+      <StatusLine
+        key={`${message.id}-status`}
+        label={thoughts.at(-1)?.title ?? options.systemStatus ?? "Thinking"}
+      />
+    ) : null
+  const statusAfterReply = replyParts.length > 0
   const nodes: ReactElement[] = []
   if (entries.length > 0) {
-    nodes.push(<ActivityLog key={`${message.id}-activity`} entries={entries} />)
+    nodes.push(
+      <ActivityLog
+        key={`${message.id}-activity`}
+        entries={entries}
+        status={statusAfterReply ? null : status}
+      />,
+    )
   }
   replyParts.forEach((part, index) => {
     const key = `${message.id}-reply-${index}`
@@ -242,18 +271,7 @@ function renderAssistantParts(
       </p>,
     )
   })
-  // The status line stays until the run ends, also while text streams.
-  if (options.working && entries.length > 0) {
-    const thoughts = entries.flatMap((entry) =>
-      entry.kind === "thought" ? [entry.thought] : [],
-    )
-    nodes.push(
-      <StatusLine
-        key={`${message.id}-status`}
-        label={thoughts.at(-1)?.title ?? options.systemStatus ?? "Thinking"}
-      />,
-    )
-  }
+  if (status && statusAfterReply) nodes.push(status)
   return nodes
 }
 

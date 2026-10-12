@@ -94,7 +94,7 @@ index c3f62754a7a2e2dbf6cc4482e188b4bf5d10b37d..e46983d0b02d5a9583fbb8f097c74278
  			}
  		};
 diff --git a/dist/esm/stream/translate.js b/dist/esm/stream/translate.js
-index a63df2314be1bf53f30f08bf21b6d56a6408122f..cfd9b3eaf920c5266fda97969e2c3e3c035851c6 100644
+index a63df2314be1bf53f30f08bf21b6d56a6408122f..82de16155a6ae9c3a616a6a00460c661135c4dd0 100644
 --- a/dist/esm/stream/translate.js
 +++ b/dist/esm/stream/translate.js
 @@ -62,6 +62,14 @@ function messageError(message) {
@@ -112,7 +112,18 @@ index a63df2314be1bf53f30f08bf21b6d56a6408122f..cfd9b3eaf920c5266fda97969e2c3e3c
  	let runStarted = false;
  	/** Tool calls started but with no result yet, keyed by callID. */
  	const unresolvedToolCalls = /* @__PURE__ */ new Set();
-@@ -249,11 +257,37 @@ async function* translateOpencodeStream(events, ctx) {
+@@ -229,6 +237,10 @@ async function* translateOpencodeStream(events, ctx) {
+ 		unresolvedToolCalls.add(part.callID);
+ 	}
+ 	function* handleToolPart(part) {
++		// ctxpipe patch (upstream PR pending): a "pending" tool part has an
++		// empty input while the model streams the arguments. Open the call
++		// when the input is known, so TOOL_CALL_ARGS carries it.
++		if (part.state.status === "pending") return;
+ 		yield* closeText();
+ 		yield* closeReasoning();
+ 		yield* openToolCall(part);
+@@ -249,11 +261,37 @@ async function* translateOpencodeStream(events, ctx) {
  		};
  	}
  	function* handleEvent(event) {
