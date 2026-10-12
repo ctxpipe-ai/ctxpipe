@@ -55,6 +55,7 @@ export const requiredStories = [
   "TurnCardCollapsed",
   "TurnCardExpanded",
   "TurnCardOpensDiff",
+  "SyncAddsThreadEntry",
   "WaitsForDelay",
   "FastLoadSkipsSkeleton",
   "VisibleSkeletonHoldsMinimum",

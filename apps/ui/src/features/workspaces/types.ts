@@ -184,8 +184,21 @@ export type ConversationTurnChanges = {
   files: ChangedFile[]
 }
 
+/** One Sync: the user pushed the conversation's commits to its branch. */
+export type ConversationSync = {
+  branch: string
+  sha: string
+  /** The number of files that the pushed commits changed. */
+  files: number
+  treeUrl: string
+  /** The number of user messages in the thread at the time of the Sync. */
+  turn: number
+  syncedAt: string
+}
+
 export type ConversationTurnChangesResponse = {
   items: ConversationTurnChanges[]
+  syncs: ConversationSync[]
 }
 
 export type ConversationFileMutation = {

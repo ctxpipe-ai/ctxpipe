@@ -98,6 +98,13 @@ export function useConversationPublish(input: {
             ? { ...old, unpushed: false, published: true, dirty: false }
             : old,
       )
+      // The thread shows the stored Sync entry.
+      void queryClient.invalidateQueries({
+        queryKey: workspaceKeys.conversationTurnChanges(
+          orgSlug,
+          conversationId,
+        ),
+      })
     },
   })
   const createPrMutation = useMutation({

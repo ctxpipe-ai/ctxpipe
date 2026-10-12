@@ -150,6 +150,7 @@ it.each([
               status: "pushed",
               branch,
               sha: expect.any(String),
+              files: 1,
               treeUrl: expect.any(String),
               dirty: false,
             })
@@ -303,6 +304,7 @@ it.each(["unchanged", "edited", "rebased"])(
                   status: "pushed",
                   branch,
                   sha: expect.any(String),
+                  files: 1,
                   treeUrl: expect.any(String),
                   dirty: false,
                 },
@@ -313,6 +315,76 @@ it.each(["unchanged", "edited", "rebased"])(
           expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(
             revision.sha,
           )
+        } finally {
+          await raw.destroy()
+          await withOrgDbContext(f.org.id, (db) =>
+            db
+              .delete(conversations)
+              .where(eq(conversations.id, conversationId)),
+          )
+        }
+      },
+    )
+  },
+)
+
+it(
+  "counts the files a push changed, a rename as one file",
+  {
+    timeout: 30_000,
+  },
+  async () => {
+    await withNativeHydrationFixture(
+      { github: true, githubWriteView: "writable", writeStatus: "writable" },
+      async (f) => {
+        const conversationId = `conv_${f.id}`
+        const raw = await localProcessSandbox().create({ id: conversationId })
+        try {
+          await withOrgDbContext(f.org.id, (db) =>
+            db.insert(conversations).values({
+              id: conversationId,
+              orgId: f.org.id,
+              userId: `user_${f.id}`,
+              workspaceId: f.workspaceId,
+            }),
+          )
+          await raw.process.exec("git init -b main")
+          await raw.process.exec(`git fetch ${shellSingleQuote(f.remote)} main`)
+          await raw.process.exec("git checkout -B main FETCH_HEAD")
+          f.git(
+            "config",
+            "--file",
+            process.env.GIT_CONFIG_GLOBAL ?? "missing",
+            "--add",
+            `url.${f.remote}.insteadOf`,
+            "https://github.com/fixture/hydration-contract.git",
+          )
+          await recordSandbox(f, conversationId, raw.id, f.revision)
+          const push = () =>
+            withOrgIdContext(f.org, () =>
+              withUserIdContext(`user_${f.id}`, () =>
+                pushConversationSession({
+                  handle: adaptTanstackHandle(raw),
+                  conversationId,
+                  orgId: f.org.id,
+                  workspaceId: f.workspaceId,
+                  env: parseEnv(process.env),
+                  commit: { subject: "Sync conversation edit" },
+                }),
+              ),
+            )
+          await raw.fs.write("notes.md", "# Conversation edit\n")
+          await raw.fs.write(
+            "docs/plan.md",
+            "# Plan\n\nA long enough body so that Git finds the rename.\n",
+          )
+
+          const first = await push()
+          await raw.process.exec("git mv docs/plan.md docs/plan-v2.md")
+          const renamed = await push()
+
+          expect(first).toMatchObject({ status: "pushed", files: 2 })
+          expect(renamed).toMatchObject({ status: "pushed", files: 1 })
         } finally {
           await raw.destroy()
           await withOrgDbContext(f.org.id, (db) =>

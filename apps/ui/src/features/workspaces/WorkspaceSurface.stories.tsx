@@ -478,6 +478,112 @@ export const PublishErrorsToast: Story = {
 }
 
 /**
+ * A successful Sync shows no toast. The thread reads the stored Sync again
+ * and shows it after the last turn, with a link to the branch on GitHub.
+ */
+export const SyncAddsThreadEntry: Story = {
+  tags: ["workspace-golden"],
+  args: { conversationId: "conv_1" },
+  decorators: [
+    (Story) => (
+      <>
+        <Story />
+        <Toaster />
+      </>
+    ),
+  ],
+  parameters: {
+    storyRoute: workspaceRoute({ conversationId: "conv_1" }),
+    msw: {
+      handlers: {
+        page: (() => {
+          let synced = false
+          const branch = "ctxpipe/chat/conv_1/1"
+          const treeUrl = `https://github.com/acme/docs/tree/${branch}`
+          return [
+            http.post(
+              ({ request }) =>
+                /\/api\/v1\/conversations\/[^/]+\/push$/.test(
+                  new URL(request.url).pathname,
+                ),
+              () => {
+                synced = true
+                return HttpResponse.json({ branch, treeUrl })
+              },
+            ),
+            http.get(
+              ({ request }) =>
+                /\/api\/v1\/conversations\/conv_1\/turns$/.test(
+                  new URL(request.url).pathname,
+                ),
+              () =>
+                HttpResponse.json({
+                  items: [],
+                  syncs: synced
+                    ? [
+                        {
+                          branch,
+                          sha: "8eb1704c2d1f0a5b6e3c9d7f4a2b1c0d9e8f7a6b",
+                          files: 3,
+                          treeUrl,
+                          turn: 1,
+                          syncedAt: "2026-08-16T10:05:00.000Z",
+                        },
+                      ]
+                    : [],
+                }),
+            ),
+            ...workspaceShellHandlers(),
+          ]
+        })(),
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const page = within(canvasElement.ownerDocument.body)
+    const sync = await waitFor(
+      () => {
+        const button = page.getByRole("button", {
+          name: "Sync: commit and push your changes",
+        })
+        expect(button).toBeEnabled()
+        return button
+      },
+      { timeout: 15_000 },
+    )
+    await page.findByText("How is billing structured?", undefined, {
+      timeout: 15_000,
+    })
+    expect(
+      page.queryByRole("region", { name: /^Synced/ }),
+    ).not.toBeInTheDocument()
+    await userEvent.click(sync)
+    const entry = await page.findByRole(
+      "region",
+      { name: "Synced 3 files to ctxpipe/chat/conv_1/1" },
+      { timeout: 10_000 },
+    )
+    const link = within(entry).getByRole("link", {
+      name: "ctxpipe/chat/conv_1/1 on GitHub (opens in a new tab)",
+    })
+    expect(link).toHaveAttribute(
+      "href",
+      "https://github.com/acme/docs/tree/ctxpipe/chat/conv_1/1",
+    )
+    expect(link).toHaveAttribute("target", "_blank")
+    // The entry follows the reply of the last turn.
+    const reply = page.getByText(/Billing lives in knowledge/)
+    expect(
+      reply.compareDocumentPosition(entry) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+    // A successful Sync has no toast.
+    expect(
+      canvasElement.ownerDocument.querySelector("[data-sonner-toast]"),
+    ).toBeNull()
+  },
+}
+
+/**
  * Sync shows once: in the conversation header while the tools pane is open
  * beside it, and in the pane header when the pane is maximized. Both share
  * one pending push.

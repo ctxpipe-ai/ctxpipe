@@ -23,6 +23,7 @@ import {
   workspaceSandboxInstances,
   workspaces,
 } from "../../db/schema/workspaces.js"
+import { listConversationSyncs } from "../../models/conversation-turn-changes.js"
 import { getConversationSession } from "../../models/conversations.js"
 import { getSandboxInstance } from "../../models/workspaces.js"
 import { conversationRoutes } from "../../routes/v1/conversations.js"
@@ -538,6 +539,19 @@ it(
         status: 400,
         body: { error: "no_changes" },
       })
+      // Each successful Sync is in the thread; Create PR and a Sync with
+      // nothing to push add no entry.
+      expect(
+        (
+          await listConversationSyncs({
+            orgId: f.org.id,
+            conversationId: s.conversationId,
+          })
+        ).map(({ branch, files, turn }) => ({ branch, files, turn })),
+      ).toEqual([
+        { branch: s.branch, files: 2, turn: 0 },
+        { branch: s.branch, files: 1, turn: 0 },
+      ])
       // Without a live sandbox Create PR uses the branch on GitHub.
       await s.asUser(() => destroySandboxesForConversation(s.conversationId))
       expect((await s.createPr("Write the notes")).status).toBe(200)

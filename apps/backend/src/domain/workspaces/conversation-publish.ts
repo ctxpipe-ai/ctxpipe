@@ -120,7 +120,14 @@ export type SessionPublishFailure =
   | "push_failed"
 
 export type SessionPushResult =
-  | { status: "pushed"; branch: string; sha: string; treeUrl: string }
+  | {
+      status: "pushed"
+      branch: string
+      sha: string
+      /** The number of files that the pushed commits changed. */
+      files: number
+      treeUrl: string
+    }
   | { status: "unchanged" }
   | { status: "skipped"; reason: SessionPublishSkip }
   | { status: "failed"; reason: SessionPublishFailure }
@@ -424,6 +431,12 @@ async function brokerPush(input: {
     )
     if (packed.exitCode !== 0)
       throw new Error("Cannot capture the conversation Git delta")
+    const changed = await run(
+      `git diff --no-ext-diff --name-only -z -M ${shellSingleQuote(packBase)} ${shellSingleQuote(sha)}`,
+    )
+    if (changed.exitCode !== 0)
+      throw new Error("Cannot count the conversation's changed files")
+    const files = changed.stdout.split("\0").filter(Boolean).length
     const size = await run(`wc -c < ${shellSingleQuote(agentPack)}`)
     const packBytes = Number(size.stdout.trim())
     if (
@@ -510,6 +523,7 @@ async function brokerPush(input: {
       status: "pushed",
       branch,
       sha,
+      files,
       treeUrl: conversationGithubTreeUrl({
         repositoryName: target.repositoryName,
         branch,

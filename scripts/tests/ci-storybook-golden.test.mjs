@@ -68,6 +68,10 @@ const required = [
     "StableRequestBudget",
   ],
   [
+    "apps/ui/src/features/workspaces/WorkspaceSurface.stories.tsx",
+    "SyncAddsThreadEntry",
+  ],
+  [
     "apps/ui/src/components/ui/LoadingIndicators.stories.tsx",
     "LoadingUnderReducedMotion",
   ],
