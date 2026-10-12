@@ -596,21 +596,9 @@
       "count": 1
     },
     {
-      "file": "src/features/connectors/components/SlackConnectionCard.tsx",
-      "code": 18048,
-      "message": "'status' is possibly 'undefined'.",
-      "count": 2
-    },
-    {
       "file": "src/features/connectors/components/SlackSetupDialog.stories.tsx",
       "code": 2345,
       "message": "Argument of type 'unknown' is not assignable to parameter of type 'JsonBodyType'.",
-      "count": 1
-    },
-    {
-      "file": "src/features/connectors/components/SlackSetupDialog.test.tsx",
-      "code": 2741,
-      "message": "Property 'botHandle' is missing in type '{ isInstalled: true; installationStatus: string; teamName: string; isGithubLinked: true; setupPhase: \"draft\"; syncTarget: null; }' but required in type '{ isInstalled: boolean; installationStatus: string; teamName: string; botHandle: string; isGithubLinked: boolean; setupPhase: \"draft\" | \"live\"; syncTarget: { repositoryId: string; repositoryName: string; branch: string; githubConnectionId: string | null; } | null; }'.",
       "count": 1
     },
     {
