@@ -136,6 +136,15 @@ export function useConversationPublish(input: {
         result,
       )
     },
+    // The push can succeed also when the pull request fails to open.
+    onSettled: () => {
+      void queryClient.invalidateQueries({
+        queryKey: workspaceKeys.conversationTurnChanges(
+          orgSlug,
+          conversationId,
+        ),
+      })
+    },
   })
 
   const pushPending = useIsMutating({ mutationKey: pushKey }) > 0

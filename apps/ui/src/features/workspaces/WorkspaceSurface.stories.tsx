@@ -522,6 +522,7 @@ export const SyncAddsThreadEntry: Story = {
                   syncs: synced
                     ? [
                         {
+                          trigger: "sync",
                           branch,
                           sha: "8eb1704c2d1f0a5b6e3c9d7f4a2b1c0d9e8f7a6b",
                           files: 3,

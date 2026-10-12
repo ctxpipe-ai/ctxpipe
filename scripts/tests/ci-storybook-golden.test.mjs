@@ -72,6 +72,26 @@ const required = [
     "SyncAddsThreadEntry",
   ],
   [
+    "apps/ui/src/features/workspaces/ConversationSyncEntry.stories.tsx",
+    "SyncEntry",
+  ],
+  [
+    "apps/ui/src/features/workspaces/ConversationSyncEntry.stories.tsx",
+    "CreatePrEntry",
+  ],
+  [
+    "apps/ui/src/features/workspaces/ConversationSyncEntry.stories.tsx",
+    "ExistingPrEntry",
+  ],
+  [
+    "apps/ui/src/features/workspaces/ConversationSyncEntry.stories.tsx",
+    "AgentPushEntry",
+  ],
+  [
+    "apps/ui/src/features/workspaces/ConversationSyncEntry.stories.tsx",
+    "SweepPushEntry",
+  ],
+  [
     "apps/ui/src/components/ui/LoadingIndicators.stories.tsx",
     "LoadingUnderReducedMotion",
   ],
