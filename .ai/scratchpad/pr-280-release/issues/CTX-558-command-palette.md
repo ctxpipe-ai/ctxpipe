@@ -59,7 +59,36 @@ Source: `apps/ui/src/features/workspaces/WorkspaceCommandPalette.tsx` and its st
 
 ## Tests
 
-Golden plays in `WorkspaceCommandPalette.stories.tsx`: `PaletteShortcutTogglesAndRestoresFocus`, `PaletteFiltersAtOnce`, `PaletteArrowKeysAndEnterKeepPane` (also checks `?pane=files` and `selectNav`), `PaletteEscapeClearsThenCloses`, `PaletteNoResults`, `PaletteLoadingKeepsPages`.
+Golden plays in `WorkspaceCommandPalette.stories.tsx`: `PaletteShortcutTogglesAndRestoresFocus`, `PaletteShortcutClosesAfterSyncRender`, `PaletteArrowKeysWalkEveryItem`, `PaletteHoverAndKeysShareOneHighlight`, `PaletteEnterAfterDeleteRunsFirstMatch`, `PaletteSkeletonHandsOverOnce`, `PaletteFiltersAtOnce`, `PaletteArrowKeysAndEnterKeepPane` (also checks `?pane=files` and `selectNav`), `PaletteEscapeClearsThenCloses`, `PaletteNoResults`, `PaletteLoadingKeepsPages`.
+
+## Review and keyboard fixes
+
+- The Workspaces section shows only after the skeleton hold ends, so there is one header. The skeleton header waits for the same delay as the bones.
+- A hidden live region (`output`) announces "N results", "No results for “…”" and "Loading workspaces".
+- Sections use the shared `MenuSection title`. The footer says "Esc Clear" with a query and "Esc Close" without one.
+- Bug found by hand in the workspace page: Cmd+K did not close the open palette. Autocomplete sends a copy of each key from the field to the menu. The copy passed the window listener again and opened the palette again. The listener now stops the key, and it is one stable listener (`useEffectEvent`).
+- Bug found by hand in the workspace page: Escape after Tab closed the dialog with text in the field. The field wrapper now clears the search on Escape before React Aria sees the key.
+- Hover did not move the active item, so the hover fill and the keyboard item showed two highlights. A layer in each item now moves the active item on hover, and the hover fill is off.
+- React Aria clears the active item when text is deleted. Enter then runs the first match.
+
+## Keys checked by hand
+
+Playwright with real key presses in Storybook dev: the isolated palette (`Open`, `PaletteLoadingKeepsPages`) and the full workspace page (`Pages/Workspaces/Compose`, with SideNav). The host dev stack was not used.
+
+| Key | Result |
+|-----|--------|
+| Cmd+K / Ctrl+K (page) | Opens; again closes (fixed); focus goes back to the element that had it (composer or Search button) |
+| Arrow Down / Up | Move through each item, from the last workspace to Home and back; the list wraps at both ends |
+| Home / End | First / last item (the caret does not move) |
+| Page Up / Page Down | Move by a page; an item stays active; the dialog stays open |
+| Typing | First match is active at once; typing after an arrow press makes the first match active |
+| Backspace | React Aria clears the active item; Enter still runs the first match |
+| Enter | Runs the active item, closes, keeps `?pane=` |
+| Escape | Clears the search (also after Tab, fixed), then closes |
+| Tab / Shift+Tab | Focus stays in the field |
+| Mouse hover then arrows | One highlight; arrows go on from the hovered item |
+| Long list (20 workspaces) | The active item scrolls into view at each step |
+| While loading | Arrows wrap over Home and Connectors; typing and Enter run a page |
 
 ## Follow-up
 
