@@ -126,6 +126,8 @@ export const requiredStories = [
   "DeleteWorkspaceShowsNoError",
   "DeleteLastWorkspaceShowsNoError",
   "DeleteFromConversationShowsNoError",
+  "NewPathsKeepExpandedFolders",
+  "DefaultBranchUntilSandboxReady",
 ]
 
 export function isGoldenPlaySuccess(phase) {

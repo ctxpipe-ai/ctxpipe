@@ -224,6 +224,14 @@ const required = [
     "apps/ui/src/features/workspaces/WorkspaceSurface.stories.tsx",
     "DeleteFromConversationShowsNoError",
   ],
+  [
+    "apps/ui/src/features/workspaces/WorkspaceFileTree.stories.tsx",
+    "NewPathsKeepExpandedFolders",
+  ],
+  [
+    "apps/ui/src/features/workspaces/WorkspacePane.stories.tsx",
+    "DefaultBranchUntilSandboxReady",
+  ],
 ]
 
 test("required golden stories carry the workspace-golden tag and a play", () => {

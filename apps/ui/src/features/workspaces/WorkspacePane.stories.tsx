@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useSearch } from "@tanstack/react-router"
 import { HttpResponse, http } from "msw"
 import { type ComponentProps, useState } from "react"
@@ -38,6 +39,7 @@ import {
   tabsIncludingPanePath,
 } from "./fileTabs"
 import { type ParsedPane, parsePane, serializePane } from "./pane"
+import { workspaceKeys } from "./queries"
 import { useConversationPublish } from "./useConversationPublish"
 import { WorkspacePane, WorkspacePaneTriggers } from "./WorkspacePane"
 import {
@@ -1169,7 +1171,11 @@ export const SandboxLoading: Story = {
     } satisfies StoryRouteParams,
     msw: {
       handlers: {
-        page: [conversationGitTreeMissingHandler(), ...gitFilesHandlers],
+        // The Workspace has no indexed default branch to show yet.
+        page: [
+          conversationGitTreeMissingHandler(),
+          workspaceGitTreeHandler({ sha: "", paths: [] }),
+        ],
       },
     },
   },
@@ -1236,6 +1242,154 @@ export const CachedSandboxWhile409: Story = {
     expect(canvas.queryByText("cached-note.md")).not.toBeInTheDocument()
     expect(canvas.queryByText("Updating…")).not.toBeInTheDocument()
     expect(canvas.queryByText("repositories")).not.toBeInTheDocument()
+  },
+}
+
+// The new conversation's sandbox starts when the story presses "Sandbox ready".
+const startingSandbox = { ready: false }
+
+const startingSandboxTreeHandler = http.get(
+  ({ request }) =>
+    /\/api\/v1\/conversations\/[^/]+\/files\/tree$/.test(
+      new URL(request.url).pathname,
+    ),
+  () =>
+    startingSandbox.ready
+      ? HttpResponse.json({
+          ...docsWorkspaceGitTree,
+          paths: [...docsWorkspaceGitTree.paths, "sandbox-note.md"].sort(),
+          branch: "ctxpipe/chat/conv_new/1",
+          worktreeVersion: "wt-0",
+        })
+      : HttpResponse.json({ error: "missing_sandbox" }, { status: 409 }),
+)
+
+function StartingSandboxPlayground(
+  props: ComponentProps<typeof WorkspacePane>,
+) {
+  const queryClient = useQueryClient()
+  return (
+    <>
+      <Button
+        variant="quiet"
+        onPress={() => {
+          startingSandbox.ready = true
+          // The chat session sets this when the sandbox is ready.
+          queryClient.setQueryData(
+            workspaceKeys.chatPrepare(
+              props.orgSlug,
+              props.conversationId ?? "",
+              props.workspace.id,
+            ),
+            null,
+          )
+        }}
+      >
+        Sandbox ready
+      </Button>
+      <WorkspacePanePlayground {...props} />
+    </>
+  )
+}
+
+/**
+ * A new conversation shows the default branch until its sandbox is ready.
+ * Then the sandbox tree replaces it, with the open folders and the open file.
+ */
+export const DefaultBranchUntilSandboxReady: Story = {
+  tags: ["workspace-golden"],
+  args: {
+    conversationId: "conv_new",
+    pane: { kind: "files" },
+  },
+  beforeEach: () => {
+    startingSandbox.ready = false
+    clearAllConversationGitTreeSnapshots()
+  },
+  render: (args) => <StartingSandboxPlayground {...args} />,
+  parameters: {
+    storyRoute: {
+      pattern: "orgWorkspace",
+      orgSlug: "acme",
+      workspaceSlug: "docs",
+      conversationId: "conv_new",
+      pane: "files",
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: [
+          startingSandboxTreeHandler,
+          conversationGitBlobHandler({
+            ...docsWorkspaceGitBlobs,
+            [ledgerPath]: "# Sandbox ledger\n",
+          }),
+          // A clean sandbox: no working body hides the sandbox blob.
+          conversationGitStatusHandler({
+            source: "sandbox",
+            branch: "ctxpipe/chat/conv_new/1",
+            dirty: false,
+            differsFromDefault: false,
+            unpushed: false,
+            published: false,
+            ahead: 0,
+            behind: 0,
+            items: [],
+            worktreeVersion: "wt-0",
+          }),
+          conversationFilePutHandler(),
+          ...gitFilesHandlers,
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement)
+    const row = (path: string) =>
+      findInShadows(canvasElement, `button[data-item-path='${path}']`)
+    const folder = (path: string) => row(`${path}/`) ?? row(path)
+    await waitFor(() => {
+      expect(folder("knowledge")).toBeTruthy()
+    })
+    expect(canvas.queryByText("Loading your files")).not.toBeInTheDocument()
+    await userEvent.click(folder("knowledge") as HTMLElement)
+    await waitFor(() => {
+      expect(folder("knowledge/billing")).toBeTruthy()
+    })
+    await userEvent.click(folder("knowledge/billing") as HTMLElement)
+    await waitFor(() => {
+      expect(row(ledgerPath)).toBeTruthy()
+    })
+    await userEvent.click(row(ledgerPath) as HTMLElement)
+    await expect(args.onPreviewFile).toHaveBeenCalledWith(ledgerPath)
+    // Before the sandbox is ready the file comes from the default branch.
+    await canvas.findByText(/You can edit when the sandbox is ready/)
+    expect(canvas.queryByRole("button", { name: "Save" })).toBeNull()
+    // The read-only file has no editor handle, so read the rendered text.
+    await waitFor(() => {
+      expect(textInShadows(pierreEditorHost(canvasElement))).toMatch(
+        /Billing ledger/,
+      )
+    })
+
+    await userEvent.click(canvas.getByRole("button", { name: "Sandbox ready" }))
+    await waitFor(() => {
+      expect(row("sandbox-note.md")).toBeTruthy()
+    })
+    // The open folders and the selected file stay.
+    expect(row(ledgerPath)).toBeTruthy()
+    expect(folder("knowledge/billing")).toHaveAttribute("aria-expanded", "true")
+    expect(row(ledgerPath)).toHaveAttribute("aria-selected", "true")
+    await waitFor(() => {
+      expect(
+        canvas.queryByText(/You can edit when the sandbox is ready/),
+      ).not.toBeInTheDocument()
+    })
+    await canvas.findByRole("button", { name: "Save" })
+    await waitFor(() => {
+      expect(pierreEditorHost(canvasElement)?.getPierreText?.()).toMatch(
+        /Sandbox ledger/,
+      )
+    })
   },
 }
 
@@ -1306,6 +1460,17 @@ function findInShadows(root: ParentNode, selector: string): Element | null {
     if (nested) return nested
   }
   return null
+}
+
+/** The text of `node`, also the text inside each open shadow root. */
+function textInShadows(node: Node | null): string {
+  if (!node) return ""
+  if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? ""
+  let text = ""
+  if (node instanceof Element && node.shadowRoot)
+    text += textInShadows(node.shadowRoot)
+  for (const child of node.childNodes) text += textInShadows(child)
+  return text
 }
 
 type PierreEditorHost = HTMLElement & {
