@@ -151,9 +151,12 @@ export async function runSourceMigration(input: {
         continue
       }
       const moves = await legacyMovesFor(workspace)
+      // `branch` is the default branch. For createPullRequestWithFiles,
+      // `branch` is the head of the pull request, so do not pass it.
+      const { branch: baseBranch, ...target } = workspace.repository
       const pull = await createPullRequestWithFiles({
-        ...workspace.repository,
-        baseBranch: workspace.repository.branch,
+        ...target,
+        baseBranch,
         featureBranchPrefix: MIGRATION_BRANCH_PREFIX,
         title: "Move connector sources into .ctxpipe/sources.yaml",
         body: `ctx| now reads the sources of this Workspace from \`${SOURCES_FILE_PATH}\`. This PR adds ${changes.length} source(s) from the existing connector settings, and deletes the repository files that a GitHub source replaces. Old mirrored content stays where it is, except files that a connector moves into its new managed path (git keeps their history).`,

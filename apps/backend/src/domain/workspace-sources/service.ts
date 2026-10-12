@@ -225,9 +225,12 @@ export async function changeWorkspaceSource(input: {
 
   const verb = { add: "Add", edit: "Change", remove: "Remove" }[change.action]
   const label = next.provider ? SOURCE_SCOPES[next.provider].label : "unknown"
+  // `branch` is the default branch. For createPullRequestWithFiles, `branch`
+  // is the head of the pull request, so do not pass it.
+  const { branch: baseBranch, ...target } = repository
   const pull = await createPullRequestWithFiles({
-    ...repository,
-    baseBranch: repository.branch,
+    ...target,
+    baseBranch,
     featureBranchPrefix: `${SOURCE_BRANCH_PREFIX}${change.action}/${next.provider ?? "unknown"}/${next.sourceKey}`,
     title: `${verb} the ${label} source "${next.sourceKey}"`,
     body: `ctx| changes \`${SOURCES_FILE_PATH}\`. When you merge this pull request, the Workspace syncs the new sources.`,
