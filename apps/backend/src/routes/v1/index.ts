@@ -43,6 +43,7 @@ import {
 } from "./org-atlassian-oauth.js"
 import { pendingAtlassianClaimRoutes } from "./pending-atlassian-claim.js"
 import { repositoryRoutes } from "./repositories.js"
+import { orgActivityRoutes } from "./workspace-activity-routes.js"
 import { workspaceChatOpenaiRoutes } from "./workspace-chat-openai.js"
 import { connectionUsageRoutes } from "./workspace-sources-routes.js"
 import { workspaceRoutes } from "./workspaces.js"
@@ -83,6 +84,7 @@ function createOrgScopedV1<BasePath extends string>(
     .use("*", withNetworkOrgContext)
     .route("/repositories", repositoryRoutes)
     .route("/workspaces", workspaceRoutes)
+    .route("/activity", orgActivityRoutes)
     .route("/conversations", conversationRoutes)
     .route("/github/installation", githubInstallationReadRoutes)
     .route("/github/installation", githubInstallationAdminScoped)

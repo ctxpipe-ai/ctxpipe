@@ -80,6 +80,7 @@ export const requiredStories = [
   "ChooseWorkspacesMulti",
   "SelectAllPagesOfASpace",
   "EditsASavedPageList",
+  "PlainLinkMovesCurrentNav",
 ]
 
 export function isGoldenPlaySuccess(phase) {

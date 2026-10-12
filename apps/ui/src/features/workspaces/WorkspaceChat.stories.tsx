@@ -201,6 +201,135 @@ export const RenameConversation: Story = {
   },
 }
 
+/** The turn-change reads of `RenameBeatsAutomaticTitle`. A turn end reads them. */
+const renameStory = { turnReads: 0 }
+
+/**
+ * The user renames, then the turn streams the automatic title. The header
+ * keeps the user's name and never shows the automatic title.
+ */
+export const RenameBeatsAutomaticTitle: Story = {
+  args: { conversationId: "conv_1" },
+  beforeEach: () => {
+    renameStory.turnReads = 0
+  },
+  parameters: {
+    storyRoute: RenameConversation.parameters?.storyRoute,
+    msw: {
+      handlers: {
+        page: [
+          http.patch(
+            ({ request }) =>
+              /\/api\/v1\/conversations\/conv_1$/.test(
+                new URL(request.url).pathname,
+              ),
+            async ({ request }) => {
+              const body = (await request.json()) as { name: string }
+              return HttpResponse.json({
+                ...docsConversationDetail.conversation,
+                name: body.name,
+              })
+            },
+          ),
+          http.get(
+            ({ request }) =>
+              /\/api\/v1\/conversations\/conv_1\/turns$/.test(
+                new URL(request.url).pathname,
+              ),
+            () => {
+              renameStory.turnReads += 1
+              return HttpResponse.json({ items: [] })
+            },
+          ),
+          ...workspaceShellHandlers(),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const body = within(canvasElement.ownerDocument.body)
+    const socket = installAguiWebSocket((threadId, runId) => {
+      const events = conversationAguiTextEvents({
+        threadId,
+        runId,
+        messageId: "msg_rename",
+        text: "The ledger package holds billing.",
+      })
+      return [
+        ...events.slice(0, -1),
+        {
+          type: "CUSTOM",
+          name: "rename-conversation",
+          value: { name: "Automatic title" },
+        },
+        ...events.slice(-1),
+      ]
+    })
+    let showedAutomaticTitle = false
+    const observer = new MutationObserver(() => {
+      if (canvasElement.textContent?.includes("Automatic title"))
+        showedAutomaticTitle = true
+    })
+    observer.observe(canvasElement, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+      attributes: true,
+    })
+    try {
+      await userEvent.click(
+        await canvas.findByRole("button", {
+          name: "Rename conversation: Repo layout",
+        }),
+      )
+      const dialog = await body.findByRole("dialog", {
+        name: "Rename conversation",
+      })
+      const input = within(dialog).getByRole("textbox", { name: "Name" })
+      await userEvent.clear(input)
+      await userEvent.type(input, "Billing layout")
+      await userEvent.click(
+        within(dialog).getByRole("button", { name: "Rename" }),
+      )
+      await waitFor(() => {
+        expect(body.queryByRole("dialog")).not.toBeInTheDocument()
+      })
+
+      await userEvent.type(
+        await canvas.findByPlaceholderText(/continue the conversation/i),
+        "Where is billing?",
+      )
+      const readsBeforeSend = renameStory.turnReads
+      await userEvent.click(canvas.getByRole("button", { name: /send/i }))
+      expect(
+        await canvas.findByText(
+          "The ledger package holds billing.",
+          undefined,
+          {
+            timeout: SEND_WAIT_MS,
+          },
+        ),
+      ).toBeVisible()
+      // The turn end reads the turn changes again. The rename chunk is before
+      // the turn end, so the session has handled it now.
+      await waitFor(
+        () => expect(renameStory.turnReads).toBeGreaterThan(readsBeforeSend),
+        { timeout: SEND_WAIT_MS },
+      )
+      expect(
+        canvas.getByRole("button", {
+          name: "Rename conversation: Billing layout",
+        }),
+      ).toBeInTheDocument()
+      expect(showedAutomaticTitle).toBe(false)
+    } finally {
+      observer.disconnect()
+      socket.restore()
+    }
+  },
+}
+
 function SocketCleanupHarness() {
   const [mounted, setMounted] = useState(false)
   return (

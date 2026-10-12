@@ -38,6 +38,8 @@ export const docsWorkspaceActivityRecent: WorkspaceActivityCommit[] = [
     authorName: "Ada",
     committedAt: "2026-08-26T10:00:00.000Z",
     htmlUrl: "https://github.com/acme/docs/commit/abc123def456",
+    workspaceSlug: "docs",
+    workspaceName: "Docs",
   },
   {
     sha: "b7c91aa0123",
@@ -45,6 +47,8 @@ export const docsWorkspaceActivityRecent: WorkspaceActivityCommit[] = [
     authorName: "Lin",
     committedAt: "2026-08-25T16:12:00.000Z",
     htmlUrl: "https://github.com/acme/docs/commit/b7c91aa0123",
+    workspaceSlug: "docs",
+    workspaceName: "Docs",
   },
   {
     sha: "c0ffee11111",
@@ -52,6 +56,8 @@ export const docsWorkspaceActivityRecent: WorkspaceActivityCommit[] = [
     authorName: "Sam",
     committedAt: "2026-08-22T09:40:00.000Z",
     htmlUrl: "https://github.com/acme/docs/commit/c0ffee11111",
+    workspaceSlug: "docs",
+    workspaceName: "Docs",
   },
   {
     sha: "d00dad22222",
@@ -59,6 +65,8 @@ export const docsWorkspaceActivityRecent: WorkspaceActivityCommit[] = [
     authorName: "Ada",
     committedAt: "2026-08-18T14:05:00.000Z",
     htmlUrl: null,
+    workspaceSlug: "docs",
+    workspaceName: "Docs",
   },
   {
     sha: "e111aaa3333",
@@ -66,6 +74,8 @@ export const docsWorkspaceActivityRecent: WorkspaceActivityCommit[] = [
     authorName: "Jules",
     committedAt: "2026-08-12T11:20:00.000Z",
     htmlUrl: "https://github.com/acme/docs/commit/e111aaa3333",
+    workspaceSlug: "docs",
+    workspaceName: "Docs",
   },
 ]
 

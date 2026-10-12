@@ -1,6 +1,6 @@
 "use client"
 
-import { useRouter } from "@tanstack/react-router"
+import { useRouterState } from "@tanstack/react-router"
 import {
   createContext,
   type ReactNode,
@@ -31,10 +31,11 @@ const defaultNav: SideNavLocation = { orgSlug: null, primary: "other" }
 const ShellLayoutContext = createContext<ShellLayoutContextValue | null>(null)
 
 export function ShellLayoutProvider(props: { children: ReactNode }) {
-  const router = useRouter()
   const [{ selectedOrganizationSlug }] = useUserPreferences()
   const [navOpen, setNavOpen] = useState(false)
-  const pathname = router.state?.location.pathname ?? ""
+  // Subscribe to the committed location, so that a plain link also moves the
+  // active item. `selectNav` still moves it first, in the press handler.
+  const pathname = useRouterState({ select: (s) => s.location.pathname })
   const committedNav = parseSideNavLocation(pathname, selectedOrganizationSlug)
   const [nav, setNav] = useUrgentValue(
     committedNav,

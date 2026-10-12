@@ -55,7 +55,7 @@ async function diffEntries(
   if (from === to) return []
   const stdout = await gitOk(
     handle,
-    'git diff --raw --no-abbrev --numstat -z -M "$CTXPIPE_FROM" "$CTXPIPE_TO"',
+    'git diff --no-ext-diff --no-textconv --raw --no-abbrev --numstat -z -M "$CTXPIPE_FROM" "$CTXPIPE_TO"',
     { CTXPIPE_FROM: from, CTXPIPE_TO: to },
   )
   const tokens = splitGitNulPaths(stdout)
@@ -325,12 +325,12 @@ export async function conversationTurnFiles(
   const [upstream, differsFromNewBase] = await Promise.all([
     gitOk(
       handle,
-      'git diff --name-only --no-renames -z "$CTXPIPE_OLD_BASE" "$CTXPIPE_NEW_BASE"',
+      'git diff --no-ext-diff --no-textconv --name-only --no-renames -z "$CTXPIPE_OLD_BASE" "$CTXPIPE_NEW_BASE"',
       env,
     ),
     gitOk(
       handle,
-      'git diff --name-only --no-renames -z "$CTXPIPE_NEW_BASE" "$CTXPIPE_END"',
+      'git diff --no-ext-diff --no-textconv --name-only --no-renames -z "$CTXPIPE_NEW_BASE" "$CTXPIPE_END"',
       env,
     ),
   ])

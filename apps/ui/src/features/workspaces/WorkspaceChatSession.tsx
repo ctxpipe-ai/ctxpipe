@@ -117,6 +117,9 @@ export function WorkspaceChatSession(props: {
   const [draftSeed, setDraftSeed] = useState<string | null>(null)
   // The first message of a new conversation while its turn runs.
   const firstMessageRef = useRef<string | null>(null)
+  // The conversation that the user renamed in this session. Its automatic
+  // title can arrive later and must not replace the user's name.
+  const userRenamedRef = useRef<string | null>(null)
   useEffect(() => {
     setHeaderTitle(title)
   }, [title])
@@ -195,7 +198,7 @@ export function WorkspaceChatSession(props: {
     onError: firstSendFailed,
     onChunk: (chunk) => {
       const name = renameFromChunk(chunk)
-      if (name) applyRename(name)
+      if (name && userRenamedRef.current !== conversationId) applyRename(name)
       const phase = sandboxPhaseFromChunk(chunk)
       if (phase) setSandboxPhase(phase)
       if (chunk.type === "RUN_FINISHED" || chunk.type === "RUN_ERROR") {
@@ -269,7 +272,10 @@ export function WorkspaceChatSession(props: {
           orgSlug={orgSlug}
           conversationId={conversationId}
           name={headerTitle}
-          onRenamed={applyRename}
+          onRenamed={(name) => {
+            userRenamedRef.current = conversationId
+            applyRename(name)
+          }}
         />
       }
       headerExtra={props.headerExtra}
@@ -329,6 +335,11 @@ export function WorkspaceChatSession(props: {
               }
             />
           ))
+        }
+        onOpenFile={
+          props.onOpenPane
+            ? (path) => props.onOpenPane?.({ kind: "file", path })
+            : undefined
         }
       />
       <MessageInputBox

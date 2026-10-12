@@ -1,6 +1,7 @@
 import type { Env } from "../../config/env.js"
 import { confluenceSourceMigrationHook } from "../../services/confluence/workspace-source-migration.js"
 import { linearSourceMigrationHook } from "../../services/linear/source-migration.js"
+import { notionSourceMigrationHook } from "../../services/notion/workspace-source-migration.js"
 import { slackSourceMigrationHook } from "../../services/slack/source-migration.js"
 import { parseLinkedRepositoryMarkdown } from "../workspaces/layout.js"
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
@@ -51,6 +52,7 @@ export const SOURCE_MIGRATION_HOOKS: Partial<
 > = {
   confluence: confluenceSourceMigrationHook,
   linear: linearSourceMigrationHook,
+  notion: notionSourceMigrationHook,
   slack: slackSourceMigrationHook,
 }
 

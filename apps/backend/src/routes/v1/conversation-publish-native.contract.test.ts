@@ -217,23 +217,23 @@ it.each([
             expect(other.handle.id).not.toBe(raw.id)
           }
           if (scenario.startsWith("relink_after_push")) {
-            await raw.fs.write(
-              ".git/hooks/reference-transaction",
+            // The remote holds the push after it takes the session branch.
+            // The sandbox's own hooks do not run for backend git commands.
+            writeFileSync(
+              join(f.remote, "hooks", "post-receive"),
               `#!/bin/sh
-if [ "$1" = committed ]; then
-  while read old new ref; do
-    case "$ref" in refs/remotes/origin/ctxpipe/chat/*)
-      touch ${shellSingleQuote(published)}
-      for retry in $(seq 1 750); do
-        [ -f ${shellSingleQuote(release)} ] && break
-        sleep 0.02
-      done
-    esac
-  done
-fi
+while read old new ref; do
+  case "$ref" in refs/heads/ctxpipe/chat/*)
+    touch ${shellSingleQuote(published)}
+    for retry in $(seq 1 750); do
+      [ -f ${shellSingleQuote(release)} ] && break
+      sleep 0.02
+    done
+  esac
+done
 `,
+              { mode: 0o755 },
             )
-            await raw.process.exec("chmod 700 .git/hooks/reference-transaction")
           }
           const app = new OpenAPIHono<AppEnv>()
           app.use(contextStorage())

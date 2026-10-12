@@ -126,8 +126,3 @@ export interface NotionSyncTarget {
   createdAt: string
   updatedAt: string
 }
-
-export interface NotionConnectorConfig {
-  resources: NotionResource[]
-  syncTarget: NotionSyncTarget | null
-}

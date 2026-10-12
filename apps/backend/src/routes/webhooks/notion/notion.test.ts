@@ -477,6 +477,30 @@ describe("Notion webhook", () => {
     expect(runWorkflowMock).not.toHaveBeenCalled()
   })
 
+  it("still enqueues the legacy sync when the Workspace sources lookup fails", async () => {
+    // The mocked database has no query builder, so the sources lookup fails.
+    const body = JSON.stringify({
+      id: "event_sources_down",
+      integration_id: "bot_1",
+      type: "page.content_updated",
+      entity: { id: "page_1", type: "page" },
+    })
+
+    const response = await testApp().request("/api/v1/webhook/notion", {
+      method: "POST",
+      headers: { "x-notion-signature": sign(body, webhookSecret) },
+      body,
+    })
+
+    expect(response.status).toBe(200)
+    expect(runWorkflowMock).toHaveBeenCalledTimes(1)
+    expect(runWorkflowMock).toHaveBeenCalledWith(
+      { name: "notion-sync-entity" },
+      expect.objectContaining({ connectionId: "con_1" }),
+      { idempotencyKey: "notion:con_1:event_sources_down" },
+    )
+  })
+
   it("enqueues one job per org when one integration is connected twice", async () => {
     connectionsMock.mockResolvedValue([
       candidate({ id: "con_a", orgId: "org_a" }),

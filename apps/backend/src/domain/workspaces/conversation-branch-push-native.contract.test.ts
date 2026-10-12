@@ -499,11 +499,8 @@ it(
       expect((await s.commitPush()).status).toBe(200)
       expect(s.remoteLog()).toBe("Chat changes\nChat changes\nAdd note one")
       // A failing commit answers a typed error; Git's own output stays in the log.
-      await handle.fs.write(
-        ".git/hooks/pre-commit",
-        "#!/bin/sh\necho SECRET-HOOK-OUTPUT >&2\nexit 1\n",
-      )
-      await handle.process.exec("chmod 700 .git/hooks/pre-commit")
+      // A held index lock stops the commit: the backend's git runs no hooks.
+      await handle.fs.write(".git/index.lock", "")
       await handle.fs.write("refused.md", "# Refused\n")
       const refused = await s.commitPush()
       const refusedBody = await refused.text()
@@ -513,8 +510,8 @@ it(
           body: { error: "push_failed" },
         },
       )
-      expect(refusedBody).not.toContain("SECRET-HOOK-OUTPUT")
-      await handle.process.exec("rm .git/hooks/pre-commit refused.md")
+      expect(refusedBody).not.toContain("index.lock")
+      await handle.process.exec("rm .git/index.lock refused.md")
       // Create PR pushes the agent's unpushed commit and keeps every commit.
       await s.agentCommit(handle, "two.md", "Add note two")
       const created = await s.createPr("Write the notes")

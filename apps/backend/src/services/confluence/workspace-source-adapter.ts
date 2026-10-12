@@ -2,10 +2,8 @@ import { z } from "zod"
 import type { SourceAdapter } from "../../domain/workspace-sources/adapter.js"
 import type { ConfluenceSourceScope } from "../../domain/workspace-sources/providers/confluence.js"
 import type { ForgeSourceSync } from "../../lib/connection-config.js"
-import {
-  getForgeInstallationByConnectionId,
-  saveForgeSourceSync,
-} from "../../models/atlassian-connector.js"
+import { getForgeInstallationByConnectionId } from "../../models/atlassian-connector.js"
+import { saveConnectionSourceSync } from "../../models/connection-source-sync.js"
 import { getLogger } from "../../observability/logger.js"
 import type { GitFileChange } from "../git/file-change.js"
 import { listConfluenceSpaces } from "./client.js"
@@ -194,7 +192,8 @@ export const confluenceSourceAdapter: SourceAdapter<ConfluenceSourceScope> = {
       for (const space of scope.spaces) syncedSpaces.add(space.key)
       each.push(captured.files)
     }
-    await saveForgeSourceSync({
+    await saveConnectionSourceSync({
+      type: "forge",
       orgId,
       connectionId,
       sourceSync: {

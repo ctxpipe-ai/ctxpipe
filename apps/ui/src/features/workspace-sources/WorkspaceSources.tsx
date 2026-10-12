@@ -1,4 +1,9 @@
-import { IconPencil, IconPlus, IconTrash } from "@tabler/icons-react"
+import {
+  IconAlertTriangle,
+  IconPencil,
+  IconPlus,
+  IconTrash,
+} from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   SOURCE_PROVIDERS,
@@ -6,7 +11,7 @@ import {
   type SourceProvider,
   type SourceStatus,
 } from "backend/domain/workspace-sources/sources-file"
-import { useState } from "react"
+import { type ComponentType, type ReactNode, useState } from "react"
 import { Heading, Link } from "react-aria-components"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
@@ -14,12 +19,16 @@ import { Dialog } from "@/components/ui/Dialog"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { Link as TextLink } from "@/components/ui/Link"
 import { Modal } from "@/components/ui/Modal"
-import { Skeleton, SkeletonLine } from "@/components/ui/Skeleton"
+import { Skeleton, SkeletonLine, SkeletonText } from "@/components/ui/Skeleton"
 import { orgConnectionsOptions } from "@/features/connectors/queries/org-connections"
 import type { WorkspaceLinkedRepository } from "@/features/workspaces/types"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
-import { GithubSourceRepositories } from "./GithubSourceRepositories"
+import {
+  GithubSourceRepositories,
+  repositoryNeedsAttention,
+  repositoryRows,
+} from "./GithubSourceRepositories"
 import {
   deleteWorkspaceSource,
   type PendingSourceChange,
@@ -39,8 +48,8 @@ import {
   sourceProviderLabel,
 } from "./source-provider-ui"
 
-const pillBase =
-  "inline-flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs"
+// The same dot + word shape as `ConnectorHealthIndicator` on the Connectors page.
+const statusBase = "inline-flex shrink-0 items-center gap-1.5 font-mono text-xs"
 
 const STATUS_TAG: Record<
   SourceStatus,
@@ -48,24 +57,60 @@ const STATUS_TAG: Record<
 > = {
   ok: {
     label: "OK",
-    className: `${pillBase} border-teal-400/30 bg-teal-400/10 text-teal-200`,
-    dotClassName: "size-1.5 rounded-full bg-teal-300",
+    className: `${statusBase} text-emerald-400`,
+    dotClassName: "size-1.5 rounded-full bg-emerald-400",
   },
   invalid: {
     label: "Not valid",
-    className: `${pillBase} border-red-400/30 bg-red-400/10 text-red-200`,
-    dotClassName: "size-1.5 rounded-full bg-red-300",
+    className: `${statusBase} text-red-400`,
+    dotClassName: "size-1.5 rounded-full bg-red-400",
   },
   connection_missing: {
     label: "Connection missing",
-    className: `${pillBase} border-amber-400/30 bg-amber-400/10 text-amber-200`,
-    dotClassName: "size-1.5 rounded-full bg-amber-300",
+    className: `${statusBase} text-amber-400`,
+    dotClassName: "size-1.5 rounded-full bg-amber-400",
   },
   out_of_access: {
     label: "Out of access",
-    className: `${pillBase} border-amber-400/30 bg-amber-400/10 text-amber-200`,
-    dotClassName: "size-1.5 rounded-full bg-amber-300",
+    className: `${statusBase} text-amber-400`,
+    dotClassName: "size-1.5 rounded-full bg-amber-400",
   },
+}
+
+function plural(count: number, noun: string) {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`
+}
+
+/**
+ * The summary line under the heading, for example
+ * "3 sources from 2 connectors · 1 needs attention".
+ */
+function connectorsSummary(
+  items: WorkspaceSource[],
+  pendingChanges: PendingSourceChange[],
+  linkedRepositoryCount: number,
+) {
+  const connectors = new Set(
+    items.flatMap((item) =>
+      item.connectionId && item.connectionName ? [item.connectionId] : [],
+    ),
+  ).size
+  const attention = items.filter((item) => item.status !== "ok").length
+  return [
+    items.length > 0
+      ? `${plural(items.length, "source")} from ${plural(connectors, "connector")}`
+      : linkedRepositoryCount > 0
+        ? `${linkedRepositoryCount} linked ${linkedRepositoryCount === 1 ? "repository" : "repositories"}`
+        : "No sources yet",
+    attention > 0
+      ? `${attention} ${attention === 1 ? "needs" : "need"} attention`
+      : null,
+    pendingChanges.length > 0
+      ? `${plural(pendingChanges.length, "change")} awaiting merge`
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" · ")
 }
 
 function AwaitingMergeLink(props: { change: PendingSourceChange }) {
@@ -92,8 +137,8 @@ function SourceRow(props: {
   const { source, pending, onEdit, onRemove } = props
   const tag = STATUS_TAG[source.status]
   return (
-    <li className="flex items-start gap-3 rounded-md px-2 py-2">
-      <div className="min-w-0 flex-1">
+    <li className="flex items-start gap-2 py-1">
+      <div className="min-w-0 flex-1 py-0.5">
         <p className="truncate text-sm text-foreground">
           {source.scopeSummary}
         </p>
@@ -108,38 +153,40 @@ function SourceRow(props: {
         ) : null}
         {pending ? <AwaitingMergeLink change={pending} /> : null}
       </div>
-      <span className={tag.className}>
-        <span className={tag.dotClassName} aria-hidden />
-        {tag.label}
-      </span>
-      {onEdit ? (
-        <Button
-          variant="quiet"
-          size="icon-sm"
-          aria-label={`Edit ${source.sourceKey}`}
-          onPress={onEdit}
-        >
-          <IconPencil className="size-4 text-muted-foreground" aria-hidden />
-        </Button>
-      ) : null}
-      {onRemove ? (
-        <Button
-          variant="quiet"
-          size="icon-sm"
-          aria-label={`Remove ${source.sourceKey}`}
-          onPress={onRemove}
-        >
-          <IconTrash className="size-4 text-muted-foreground" aria-hidden />
-        </Button>
-      ) : null}
+      <div className="flex h-8 shrink-0 items-center gap-1">
+        <span className={cn(tag.className, "mr-1")}>
+          <span className={tag.dotClassName} aria-hidden />
+          {tag.label}
+        </span>
+        {onEdit ? (
+          <Button
+            variant="quiet"
+            size="icon-sm"
+            aria-label={`Edit ${source.sourceKey}`}
+            onPress={onEdit}
+          >
+            <IconPencil className="size-4 text-muted-foreground" aria-hidden />
+          </Button>
+        ) : null}
+        {onRemove ? (
+          <Button
+            variant="quiet"
+            size="icon-sm"
+            aria-label={`Remove ${source.sourceKey}`}
+            onPress={onRemove}
+          >
+            <IconTrash className="size-4 text-muted-foreground" aria-hidden />
+          </Button>
+        ) : null}
+      </div>
     </li>
   )
 }
 
 function PendingAddRow(props: { change: PendingSourceChange }) {
   return (
-    <li className="flex items-start gap-3 rounded-md px-2 py-2">
-      <div className="min-w-0 flex-1">
+    <li className="flex items-start gap-2 py-1">
+      <div className="min-w-0 flex-1 py-0.5">
         <p className="truncate text-sm text-foreground">New source</p>
         <p className="truncate text-xs text-muted-foreground">
           <code className="font-mono">{props.change.sourceKey}</code>
@@ -172,7 +219,7 @@ function GithubSourceNotes(props: {
       {notes.map((source) => {
         const pending = pendingOf(source.sourceKey)
         return (
-          <li key={source.sourceKey} className="px-2 py-1">
+          <li key={source.sourceKey} className="py-1">
             <p className="truncate text-xs text-muted-foreground">
               {source.connectionName ?? "No connection"} ·{" "}
               <code className="font-mono">{source.sourceKey}</code>
@@ -193,6 +240,43 @@ function GithubSourceNotes(props: {
   )
 }
 
+/**
+ * One provider group: an icon tile, a name with a muted meta line, an
+ * optional action, and the rows under the name.
+ */
+function ConnectorGroup(props: {
+  id?: string
+  Icon: ComponentType<{ className?: string }>
+  title: string
+  meta: string
+  action?: ReactNode
+  children?: ReactNode
+}) {
+  const { id, Icon, title, meta, action, children } = props
+  return (
+    <div
+      id={id}
+      ref={id ? scrollIntoViewWhenHashMatches : undefined}
+      className="scroll-mt-4 py-3"
+    >
+      <div className="flex items-center gap-3">
+        <span
+          className="ctx-node size-8 shrink-0 rounded-md text-foreground"
+          aria-hidden
+        >
+          <Icon className="size-4" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <h3 className="truncate text-sm text-foreground">{title}</h3>
+          <p className="truncate text-xs text-muted-foreground">{meta}</p>
+        </div>
+        {action}
+      </div>
+      {children ? <div className="mt-1 pl-11">{children}</div> : null}
+    </div>
+  )
+}
+
 /** Scroll to the provider section that the URL hash names. */
 function scrollIntoViewWhenHashMatches(element: HTMLElement | null) {
   if (element && window.location.hash === `#${element.id}`)
@@ -201,17 +285,20 @@ function scrollIntoViewWhenHashMatches(element: HTMLElement | null) {
 
 function SourcesSkeleton() {
   return (
-    <div className="mt-4 flex flex-col gap-6" aria-busy>
+    <div className="mt-3 flex flex-col" aria-busy>
       <span className="sr-only">Loading sources</span>
       {[0, 1].map((group) => (
-        <div key={group}>
-          <div className="flex h-8 items-center gap-2">
-            <Skeleton className="size-5 shrink-0" />
-            <SkeletonLine className="h-3.5 w-24" />
+        <div key={group} className="py-3">
+          <div className="flex items-center gap-3">
+            <Skeleton className="size-8 shrink-0 rounded-md" />
+            <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+              <SkeletonLine className="h-3.5 w-24" />
+              <SkeletonLine className="h-3 w-16" />
+            </div>
           </div>
-          <div className="mt-2 flex flex-col gap-2 px-2 py-2">
-            <SkeletonLine className="h-3.5 w-48" />
-            <SkeletonLine className="h-3 w-32" />
+          <div className="mt-2 flex flex-col gap-1.5 py-1 pl-11">
+            <SkeletonLine className="h-3.5 w-40" />
+            <SkeletonLine className="h-3 w-28" />
           </div>
         </div>
       ))}
@@ -220,8 +307,8 @@ function SourcesSkeleton() {
 }
 
 /**
- * The "Sources" section of the Workspace settings pane: the entries of
- * `.ctxpipe/sources.yaml`, grouped by provider. Each provider section has the
+ * The "Connectors" section of the Workspace settings pane: the entries of
+ * `.ctxpipe/sources.yaml`, grouped by provider. Each provider group has the
  * anchor `source-<provider>`.
  */
 export function WorkspaceSources(props: {
@@ -288,20 +375,26 @@ export function WorkspaceSources(props: {
     groups.length === 0 && unknownProvider.length === 0 && !data?.fileError
 
   return (
-    <section className="mt-10 max-w-lg" aria-labelledby="workspace-sources">
-      <h2
-        id="workspace-sources"
-        className="text-sm font-medium text-foreground"
-      >
-        Sources
+    <section className="max-w-lg" aria-labelledby="workspace-connectors">
+      {/* The settings group eyebrow names this section on screen. */}
+      <h2 id="workspace-connectors" className="sr-only">
+        Connectors
       </h2>
-      <p className="mt-1 text-sm text-muted-foreground">
-        What this Workspace syncs. The list comes from{" "}
-        <code className="font-mono text-xs">
-          {data?.path ?? ".ctxpipe/sources.yaml"}
-        </code>
-        .
-      </p>
+      {sourcesQuery.isPending ? (
+        <SkeletonText className="text-sm" boneClassName="h-3.5 w-48" />
+      ) : data && !isEmpty ? (
+        <p className="text-sm text-muted-foreground">
+          {connectorsSummary(items, pendingChanges, linkedRepositories.length)}
+        </p>
+      ) : null}
+      {data && isEmpty ? null : (
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          Saved in{" "}
+          <code className="font-mono">
+            {data?.path ?? ".ctxpipe/sources.yaml"}
+          </code>
+        </p>
+      )}
 
       {sourcesQuery.isPending ? (
         <SourcesSkeleton />
@@ -318,13 +411,13 @@ export function WorkspaceSources(props: {
               </Button>
             }
           >
-            Could not load the sources of this Workspace.
+            Could not load the connectors of this Workspace.
           </InlineAlert>
         </div>
       ) : isEmpty ? (
-        <div className="mt-4 flex max-w-md flex-col gap-3">
+        <div className="flex flex-col gap-3">
           <p className="text-sm text-muted-foreground">
-            No sources yet. Connect a tool, then add it to this Workspace.
+            No connectors yet. Connect a tool, then add it to this Workspace.
           </p>
           <div>
             <Link
@@ -334,7 +427,7 @@ export function WorkspaceSources(props: {
                 focusVisibleClassName,
               )}
             >
-              Connect a source
+              Add connection
             </Link>
           </div>
         </div>
@@ -350,123 +443,152 @@ export function WorkspaceSources(props: {
               </InlineAlert>
             </div>
           ) : null}
-          {unknownProvider.length > 0 ? (
-            <div className="mt-6">
-              <h3 className="text-sm text-foreground">Entries not valid</h3>
-              <ul className="mt-2 flex flex-col gap-1">
-                {unknownProvider.map((source) => (
-                  <SourceRow
-                    key={source.sourceKey}
-                    source={source}
-                    pending={pendingOf(source.sourceKey)}
-                    onEdit={null}
-                    onRemove={canEdit ? () => setRemoving(source) : null}
-                  />
-                ))}
-              </ul>
-            </div>
-          ) : null}
-          {groups.map((provider) => {
-            const { Icon, ScopeEditor } = SOURCE_PROVIDER_UI[provider]
-            const label = sourceProviderLabel(provider)
-            const sources = items.filter((item) => item.provider === provider)
-            const pendingAdds = pendingChanges.filter(
-              (change) =>
-                change.provider === provider &&
-                change.action === "add" &&
-                !sources.some((item) => item.sourceKey === change.sourceKey),
-            )
-            const connected = connectionsOf(provider).length > 0
-            return (
-              <div
-                key={provider}
-                id={sourceAnchorId(provider)}
-                ref={scrollIntoViewWhenHashMatches}
-                className="mt-6 scroll-mt-4"
+          <div className="mt-3 flex flex-col divide-y divide-white/[0.06]">
+            {unknownProvider.length > 0 ? (
+              <ConnectorGroup
+                Icon={IconAlertTriangle}
+                title="Entries not valid"
+                meta={
+                  unknownProvider.length === 1
+                    ? "1 entry"
+                    : `${unknownProvider.length} entries`
+                }
               >
-                <div className="flex h-8 items-center gap-2">
-                  <Icon className="size-5 shrink-0 text-foreground" />
-                  <h3 className="min-w-0 flex-1 truncate text-sm text-foreground">
-                    {label}
-                  </h3>
-                  {provider === "github" && connected && canEdit ? (
-                    <Button
-                      variant="quiet"
-                      onPress={() => setGithubAddOpen(true)}
-                    >
-                      <IconPlus className="size-4" aria-hidden />
-                      Add repositories
-                    </Button>
-                  ) : provider !== "github" &&
-                    connected &&
-                    canEdit &&
-                    ScopeEditor ? (
-                    <Button
-                      variant="quiet"
-                      aria-label={`Add ${label} source`}
-                      onPress={() => setEditor({ kind: "add", provider })}
-                    >
-                      <IconPlus className="size-4" aria-hidden />
-                      Add source
-                    </Button>
-                  ) : null}
-                </div>
-                {provider === "github" ? (
-                  <>
-                    <GithubSourceRepositories
-                      orgSlug={orgSlug}
-                      workspaceSlug={workspaceSlug}
-                      workspaceRepositoryUrl={workspaceRepositoryUrl}
-                      linkedRepositories={linkedRepositories}
-                      sources={sources}
-                      connections={connectionsOf(provider)}
-                      canEdit={canEdit}
-                      directCommitAllowed={directCommitAllowed}
-                      addOpen={githubAddOpen}
-                      onAddOpenChange={setGithubAddOpen}
+                <ul className="flex flex-col">
+                  {unknownProvider.map((source) => (
+                    <SourceRow
+                      key={source.sourceKey}
+                      source={source}
+                      pending={pendingOf(source.sourceKey)}
+                      onEdit={null}
+                      onRemove={canEdit ? () => setRemoving(source) : null}
                     />
-                    <GithubSourceNotes
-                      sources={sources}
-                      pendingAdds={pendingAdds}
-                      pendingOf={pendingOf}
-                    />
-                  </>
-                ) : sources.length === 0 && pendingAdds.length === 0 ? (
-                  <p className="px-2 py-2 text-sm text-muted-foreground">
-                    No {label} sources in this Workspace.
-                  </p>
-                ) : (
-                  <ul className="mt-1 flex flex-col gap-1">
-                    {sources.map((source) => (
-                      <SourceRow
-                        key={source.sourceKey}
-                        source={source}
-                        pending={pendingOf(source.sourceKey)}
-                        onEdit={
-                          canEdit && ScopeEditor
-                            ? () =>
-                                setEditor({ kind: "edit", provider, source })
-                            : null
-                        }
-                        onRemove={canEdit ? () => setRemoving(source) : null}
+                  ))}
+                </ul>
+              </ConnectorGroup>
+            ) : null}
+            {groups.map((provider) => {
+              const { Icon, ScopeEditor } = SOURCE_PROVIDER_UI[provider]
+              const label = sourceProviderLabel(provider)
+              const sources = items.filter((item) => item.provider === provider)
+              const pendingAdds = pendingChanges.filter(
+                (change) =>
+                  change.provider === provider &&
+                  change.action === "add" &&
+                  !sources.some((item) => item.sourceKey === change.sourceKey),
+              )
+              // The GitHub group counts repositories, not source entries.
+              const repositories =
+                provider === "github"
+                  ? repositoryRows(linkedRepositories, sources)
+                  : null
+              const attention = repositories
+                ? repositories.filter(repositoryNeedsAttention).length
+                : sources.filter((item) => item.status !== "ok").length
+              const connected = connectionsOf(provider).length > 0
+              const meta =
+                [
+                  repositories
+                    ? repositories.length > 0
+                      ? `${repositories.length} ${repositories.length === 1 ? "repository" : "repositories"}`
+                      : null
+                    : sources.length > 0
+                      ? plural(sources.length, "source")
+                      : null,
+                  attention > 0
+                    ? `${attention} ${attention === 1 ? "needs" : "need"} attention`
+                    : null,
+                  pendingAdds.length > 0
+                    ? `${pendingAdds.length} awaiting merge`
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ") || `No ${label} sources yet`
+              return (
+                <ConnectorGroup
+                  key={provider}
+                  id={sourceAnchorId(provider)}
+                  Icon={Icon}
+                  title={label}
+                  meta={meta}
+                  action={
+                    provider === "github" && connected && canEdit ? (
+                      <Button
+                        variant="quiet"
+                        onPress={() => setGithubAddOpen(true)}
+                      >
+                        <IconPlus className="size-4" aria-hidden />
+                        Add repositories
+                      </Button>
+                    ) : provider !== "github" &&
+                      connected &&
+                      canEdit &&
+                      ScopeEditor ? (
+                      <Button
+                        variant="quiet"
+                        aria-label={`Add ${label} source`}
+                        onPress={() => setEditor({ kind: "add", provider })}
+                      >
+                        <IconPlus className="size-4" aria-hidden />
+                        Add
+                      </Button>
+                    ) : null
+                  }
+                >
+                  {provider === "github" ? (
+                    <>
+                      <GithubSourceRepositories
+                        orgSlug={orgSlug}
+                        workspaceSlug={workspaceSlug}
+                        workspaceRepositoryUrl={workspaceRepositoryUrl}
+                        linkedRepositories={linkedRepositories}
+                        sources={sources}
+                        connections={connectionsOf(provider)}
+                        canEdit={canEdit}
+                        directCommitAllowed={directCommitAllowed}
+                        addOpen={githubAddOpen}
+                        onAddOpenChange={setGithubAddOpen}
                       />
-                    ))}
-                    {pendingAdds.map((change) => (
-                      <PendingAddRow key={change.sourceKey} change={change} />
-                    ))}
-                  </ul>
-                )}
-              </div>
-            )
-          })}
+                      <GithubSourceNotes
+                        sources={sources}
+                        pendingAdds={pendingAdds}
+                        pendingOf={pendingOf}
+                      />
+                    </>
+                  ) : sources.length === 0 &&
+                    pendingAdds.length === 0 ? null : (
+                    <ul className="flex flex-col">
+                      {sources.map((source) => (
+                        <SourceRow
+                          key={source.sourceKey}
+                          source={source}
+                          pending={pendingOf(source.sourceKey)}
+                          onEdit={
+                            canEdit && ScopeEditor
+                              ? () =>
+                                  setEditor({ kind: "edit", provider, source })
+                              : null
+                          }
+                          onRemove={canEdit ? () => setRemoving(source) : null}
+                        />
+                      ))}
+                      {pendingAdds.map((change) => (
+                        <PendingAddRow key={change.sourceKey} change={change} />
+                      ))}
+                    </ul>
+                  )}
+                </ConnectorGroup>
+              )
+            })}
+          </div>
           <Link
             href={`/${orgSlug}/connectors`}
             className={cn(
-              "mt-6 inline-block rounded-md text-sm text-teal-400 underline-offset-4 transition-colors hover:text-teal-300 hover:underline",
+              "mt-3 inline-block rounded-md text-sm text-teal-400 underline-offset-4 transition-colors hover:text-teal-300 hover:underline",
               focusVisibleClassName,
             )}
           >
-            Connect another source
+            Add another connection
           </Link>
         </>
       )}

@@ -198,7 +198,11 @@ function renderUserParts(message: ChatMessage): ReactElement[] {
 
 function renderAssistantParts(
   message: ChatMessage,
-  options: { working: boolean; systemStatus: string | null },
+  options: {
+    working: boolean
+    systemStatus: string | null
+    onOpenFile?: (path: string) => void
+  },
 ): ReactElement[] {
   const entries = activityLog(message.parts)
   const replyParts = message.parts.filter(
@@ -214,7 +218,11 @@ function renderAssistantParts(
     const key = `${message.id}-reply-${index}`
     if (part.type === "text") {
       nodes.push(
-        <MessageResponse key={key} isAnimating={options.working}>
+        <MessageResponse
+          key={key}
+          isAnimating={options.working}
+          onOpenFile={options.onOpenFile}
+        >
           {partText(part)}
         </MessageResponse>,
       )
@@ -267,6 +275,8 @@ export function ConversationThread(props: {
    * live (for example, the files a turn changed).
    */
   renderAfterMessage?: (messageId: string) => ReactNode
+  /** Opens a workspace file from a file path in an answer. */
+  onOpenFile?: (path: string) => void
 }) {
   const { messages, error, status, waitLabel, contentClassName } = props
   const turns = groupAssistantTurns(messages)
@@ -299,6 +309,7 @@ export function ConversationThread(props: {
                   ? renderAssistantParts(message, {
                       working,
                       systemStatus: waitLabel ?? null,
+                      onOpenFile: props.onOpenFile,
                     })
                   : renderUserParts(message)
 

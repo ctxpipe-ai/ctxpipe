@@ -1,7 +1,7 @@
 import { IconAlertCircle, IconGitBranch, IconPencil } from "@tabler/icons-react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { useState } from "react"
+import { type ReactNode, useState } from "react"
 import { Heading, Link } from "react-aria-components"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
@@ -40,7 +40,7 @@ function writeTag(
   const tagged = writeStatusLabel(status, readOnlyReason)
   if (tagged.tone === "writable") {
     return {
-      label: tagged.label,
+      label: "Can save changes",
       className: "border-teal-400/30 bg-teal-400/10 text-teal-200",
     }
   }
@@ -63,13 +63,13 @@ function hydrateTag(status: string): {
 } {
   if (status === "ready") {
     return {
-      label: "Hydrate ready",
+      label: "Ready",
       className: "border-teal-400/30 bg-teal-400/10 text-teal-200",
     }
   }
   if (status === "failed") {
     return {
-      label: "Hydrate failed",
+      label: "Loading failed",
       className: "border-rose-400/30 bg-rose-400/10 text-rose-200",
     }
   }
@@ -113,6 +113,16 @@ function StatusTag({
       />
       {label}
     </span>
+  )
+}
+
+/** One settings group: a hairline, a mono eyebrow, then the content. */
+function SettingsGroup(props: { eyebrow: string; children: ReactNode }) {
+  return (
+    <div className="border-t border-white/[0.06] pt-4">
+      <p className="ctx-label text-muted-foreground">{props.eyebrow}</p>
+      <div className="mt-6">{props.children}</div>
+    </div>
   )
 }
 
@@ -372,101 +382,118 @@ export function WorkspaceSettingsPane(props: {
       ) : null}
       {projectionLag ? (
         <p className="mt-3 max-w-lg text-sm text-muted-foreground">
-          Serving still uses{" "}
-          <code className="font-mono text-xs">{projectionLag}</code> until
-          hydrate of the new remote succeeds.
+          Answers still come from{" "}
+          <code className="font-mono text-xs">{projectionLag}</code> until the
+          new repository finishes loading.
         </p>
       ) : null}
 
-      <form
-        id="workspace-settings"
-        className="mt-8 flex max-w-lg flex-col gap-4"
-        onSubmit={(event) => {
-          event.preventDefault()
-          saveMutation.mutate()
-        }}
-      >
-        <TextField
-          label="Display name"
-          value={displayName}
-          onChange={setDisplayName}
-        />
-        <TextField
-          label="Slug"
-          value={slug}
-          onChange={setSlug}
-          description="URL segment. Relink does not change it. The old slug 404s."
-        />
-      </form>
-
-      <section className="mt-10 max-w-lg">
-        <h2 className="text-sm font-medium text-foreground">
-          Workspace repository
-        </h2>
-        <div className="mt-3 flex items-center gap-3 rounded-md border border-border px-3 py-2">
-          <span
-            className="ctx-node size-8 shrink-0 rounded-md text-muted-foreground"
-            aria-hidden
-          >
-            <IconGitBranch className="size-4" />
-          </span>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm text-foreground">{repoTitle}</p>
-            {repoWebUrl ? (
-              <a
-                href={repoWebUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="truncate text-xs text-muted-foreground hover:text-foreground"
-              >
-                {workspace.workspaceRepositoryUrl}
-              </a>
-            ) : (
-              <p className="truncate font-mono text-xs text-muted-foreground">
-                {workspace.workspaceRepositoryUrl}
-              </p>
-            )}
-          </div>
-          <Button
-            variant="quiet"
-            size="icon-sm"
-            aria-label="Edit workspace repository"
-            onPress={() => {
-              setRelinkError(null)
-              setRelinkOpen(true)
+      <div className="mt-8 flex max-w-lg flex-col gap-12">
+        <SettingsGroup eyebrow="General">
+          <form
+            id="workspace-settings"
+            className="flex flex-col gap-6"
+            onSubmit={(event) => {
+              event.preventDefault()
+              saveMutation.mutate()
             }}
           >
-            <IconPencil className="size-4 text-muted-foreground" aria-hidden />
-          </Button>
-        </div>
-      </section>
+            <TextField
+              label="Name"
+              value={displayName}
+              onChange={setDisplayName}
+              description="Shown in the sidebar and to your team."
+            />
+            <TextField
+              label="URL name"
+              value={slug}
+              onChange={setSlug}
+              description="Used in this Workspace's web address. If you change it, old links stop working."
+            />
+          </form>
+        </SettingsGroup>
 
-      <WorkspaceSources
-        orgSlug={orgSlug}
-        workspaceSlug={workspace.slug}
-        linkedRepositories={workspace.linkedRepositories}
-        workspaceRepositoryUrl={workspace.workspaceRepositoryUrl}
-      />
+        <SettingsGroup eyebrow="Repositories">
+          <section>
+            <h2 className="text-sm font-medium text-foreground">
+              Main repository
+            </h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              The GitHub repository where this Workspace keeps its files.
+            </p>
+            <div className="mt-3 flex items-center gap-3 rounded-md border border-border px-3 py-2">
+              <span
+                className="ctx-node size-8 shrink-0 rounded-md text-muted-foreground"
+                aria-hidden
+              >
+                <IconGitBranch className="size-4" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm text-foreground">{repoTitle}</p>
+                {repoWebUrl ? (
+                  <a
+                    href={repoWebUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="truncate text-xs text-muted-foreground hover:text-foreground"
+                  >
+                    {workspace.workspaceRepositoryUrl}
+                  </a>
+                ) : (
+                  <p className="truncate font-mono text-xs text-muted-foreground">
+                    {workspace.workspaceRepositoryUrl}
+                  </p>
+                )}
+              </div>
+              <Button
+                variant="quiet"
+                size="icon-sm"
+                aria-label="Edit main repository"
+                onPress={() => {
+                  setRelinkError(null)
+                  setRelinkOpen(true)
+                }}
+              >
+                <IconPencil
+                  className="size-4 text-muted-foreground"
+                  aria-hidden
+                />
+              </Button>
+            </div>
+          </section>
+        </SettingsGroup>
 
-      <section className="mt-16 max-w-lg">
-        <h2 className="text-sm font-medium text-foreground">
-          Delete Workspace
-        </h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          This removes the Workspace, its conversations, and serving knowledge.
-          The git remote is not deleted.
-        </p>
-        <Button
-          variant="outline"
-          className="mt-4"
-          onPress={() => {
-            setConfirmName("")
-            setDeleteOpen(true)
-          }}
-        >
-          Delete Workspace
-        </Button>
-      </section>
+        <SettingsGroup eyebrow="Connectors">
+          <WorkspaceSources
+            orgSlug={orgSlug}
+            workspaceSlug={workspace.slug}
+            linkedRepositories={workspace.linkedRepositories}
+            workspaceRepositoryUrl={workspace.workspaceRepositoryUrl}
+          />
+        </SettingsGroup>
+
+        <SettingsGroup eyebrow="Danger zone">
+          <section>
+            <h2 className="text-sm font-medium text-foreground">
+              Delete this Workspace
+            </h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Deletes this Workspace and its conversations. Your GitHub
+              repository and its files stay.
+            </p>
+            <Button
+              variant="outline"
+              className="mt-4"
+              onPress={() => {
+                setConfirmName("")
+                setDeleteOpen(true)
+              }}
+            >
+              Delete Workspace
+            </Button>
+          </section>
+        </SettingsGroup>
+      </div>
 
       <Modal
         isOpen={relinkOpen}
@@ -483,11 +510,11 @@ export function WorkspaceSettingsPane(props: {
             slot="title"
             className="my-0 text-lg font-medium leading-6 text-foreground"
           >
-            Workspace repository
+            Main repository
           </Heading>
           <p className="mt-1 text-sm text-muted-foreground">
-            Relink keeps this Workspace and its conversations. Knowledge on the
-            old remote is left as-is.
+            You keep this Workspace and its conversations. Files in the old
+            repository stay where they are.
           </p>
           <div className="mt-5">
             <WorkspaceRepositoryPicker
@@ -530,8 +557,8 @@ export function WorkspaceSettingsPane(props: {
                 <strong className="font-medium text-foreground">
                   {workspace.displayName}
                 </strong>{" "}
-                to confirm. This removes the Workspace, its conversations, and
-                serving knowledge. The git remote is not deleted.
+                to confirm. This deletes the Workspace and its conversations.
+                Your GitHub repository stays.
               </p>
               <form
                 className="mt-4"

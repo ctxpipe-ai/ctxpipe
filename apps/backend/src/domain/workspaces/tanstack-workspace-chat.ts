@@ -68,7 +68,7 @@ import { checkoutSessionBranch } from "./conversation-session-branch.js"
 import { nameConversationIfUnnamed } from "./conversation-title.js"
 import { openDockerRunVault } from "./docker-run-vault.js"
 import { hostedSandboxAccess } from "./hosted-sandbox-access.js"
-import { adaptTanstackHandle } from "./job-sandbox.js"
+import { adaptTanstackHandle, SANDBOX_GIT_GUARD } from "./job-sandbox.js"
 import type { JobSandboxHandle } from "./job-worktree.js"
 import {
   createDeltaMasker,
@@ -671,7 +671,7 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
     getCurrentBranch: async () => {
       if (!activeSandbox) throw new Error("Chat sandbox is not ready")
       const current = await activeSandbox.process.exec(
-        "git branch --show-current",
+        `${SANDBOX_GIT_GUARD}git branch --show-current`,
       )
       if (current.exitCode !== 0)
         throw new Error("Chat working branch is unavailable")

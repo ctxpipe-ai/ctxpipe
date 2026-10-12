@@ -266,7 +266,7 @@ export async function conversationWorktreeVersion(
 ): Promise<string> {
   const [head, trackedDiff, untrackedRaw] = await Promise.all([
     execGitOk(handle.exec, "git rev-parse HEAD"),
-    execGitOk(handle.exec, "git diff HEAD"),
+    execGitOk(handle.exec, "git diff --no-ext-diff --no-textconv HEAD"),
     execGitOk(handle.exec, "git ls-files --others --exclude-standard -z"),
   ])
   const untracked: Array<{ path: string; digest: string }> = []
@@ -287,14 +287,34 @@ export async function conversationWorktreeVersion(
   })
 }
 
+/**
+ * A write, a rename, or a delete changes only the worktree files: the same
+ * rule as the read, without the tree list, so that a new file is possible.
+ * The path must not be in git metadata (a `.git` part at any depth), and no
+ * part of it that exists can be a symlink.
+ */
+async function assertConversationPathWritable(
+  handle: JobSandboxHandle,
+  path: string,
+): Promise<void> {
+  const inGitMetadata = path
+    .split("/")
+    .some((part) => part.toLowerCase() === ".git")
+  if (conversationPathIsSafe(path) && !inGitMetadata) {
+    const checked = await execGit(handle.exec, `${STOP_AT_SYMLINK}printf ok`, {
+      CTXPIPE_FILE_PATH: path,
+    })
+    if (checked.exitCode === 0 && checked.stdout === "ok") return
+  }
+  throw new Error(`Unsafe path: ${path}`)
+}
+
 export async function writeConversationSandboxFile(input: {
   handle: JobSandboxHandle
   path: string
   body: string
 }): Promise<void> {
-  if (!conversationPathIsSafe(input.path)) {
-    throw new Error(`Unsafe path: ${input.path}`)
-  }
+  await assertConversationPathWritable(input.handle, input.path)
   const parent = input.path.split("/").slice(0, -1).join("/")
   // The Docker and Vercel handles build `mkdir -p` and the write from the
   // path: without a slash before the name, `mkdir -p` makes a directory with
@@ -307,9 +327,7 @@ export async function removeConversationSandboxPath(input: {
   handle: JobSandboxHandle
   path: string
 }): Promise<void> {
-  if (!conversationPathIsSafe(input.path)) {
-    throw new Error(`Unsafe path: ${input.path}`)
-  }
+  await assertConversationPathWritable(input.handle, input.path)
   await input.handle.fs.remove(input.path)
 }
 
@@ -325,6 +343,8 @@ export async function renameConversationSandboxPath(input: {
     throw new Error(`Unsafe path: ${input.from} → ${input.to}`)
   }
   if (input.from === input.to) return
+  await assertConversationPathWritable(input.handle, input.from)
+  await assertConversationPathWritable(input.handle, input.to)
   const paths = await listConversationSandboxPaths(input.handle)
   const matches = paths.filter(
     (path) => path === input.from || path.startsWith(`${input.from}/`),
@@ -377,7 +397,10 @@ export async function conversationSandboxStatus(input: {
       input.handle.exec,
       "git status --porcelain --untracked-files=all",
     ),
-    execGitOk(input.handle.exec, "git diff --numstat HEAD"),
+    execGitOk(
+      input.handle.exec,
+      "git diff --no-ext-diff --no-textconv --numstat HEAD",
+    ),
     execGit(
       input.handle.exec,
       `git rev-list --left-right --count "${CONVERSATION_BASE}...HEAD"`,
@@ -394,7 +417,7 @@ export async function conversationSandboxStatus(input: {
     // base branch, compare with HEAD.
     execGitOk(
       input.handle.exec,
-      `base=$(git merge-base "${CONVERSATION_BASE}" HEAD 2>/dev/null || git rev-parse HEAD) && git diff --no-renames --name-status --diff-filter=ADM -z "$base"`,
+      `base=$(git merge-base "${CONVERSATION_BASE}" HEAD 2>/dev/null || git rev-parse HEAD) && git diff --no-ext-diff --no-textconv --no-renames --name-status --diff-filter=ADM -z "$base"`,
       { CTXPIPE_DEFAULT_BRANCH: input.defaultBranch },
     ),
   ])

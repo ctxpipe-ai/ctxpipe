@@ -115,7 +115,7 @@ export function WorkspaceRepositoryPicker(props: {
       >
         <TabList
           aria-label="How to choose the repository"
-          className="m-0 rounded-full bg-zinc-800 p-1"
+          className="m-0 rounded-md bg-zinc-800 p-1"
         >
           <Tab id="select">Select GitHub</Tab>
           <Tab id="create">Create on GitHub</Tab>

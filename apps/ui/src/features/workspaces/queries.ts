@@ -56,8 +56,10 @@ export const workspaceKeys = {
     ["workspace-graph", orgSlug, slug] as const,
   chatPrepare: (orgSlug: string, conversationId: string, workspaceId: string) =>
     ["workspace-chat-prepare", orgSlug, conversationId, workspaceId] as const,
-  activity: (orgSlug: string, workspaceSlug: string) =>
-    ["workspace-activity", orgSlug, workspaceSlug] as const,
+  activity: (orgSlug: string, workspaceSlug: string, date: string | null) =>
+    ["workspace-activity", orgSlug, workspaceSlug, date] as const,
+  orgActivity: (orgSlug: string, date: string | null) =>
+    ["org-activity", orgSlug, date] as const,
   conversationGitTree: (orgSlug: string, conversationId: string) =>
     ["conversation-git-tree", orgSlug, conversationId] as const,
   conversationGitBlob: (
@@ -383,25 +385,53 @@ export function workspaceGraphOptions(orgSlug: string, workspaceSlug: string) {
 export async function fetchWorkspaceActivity(
   orgSlug: string,
   workspaceSlug: string,
+  date: string | null = null,
 ): Promise<WorkspaceActivityResponse> {
   const client = await getApiClient()
   const res = await client[":orgSlug"].api.v1.workspaces[
     ":workspaceSlug"
   ].activity.$get({
     param: { orgSlug, workspaceSlug },
+    query: date ? { date } : {},
   })
   return readApiJson<WorkspaceActivityResponse>(res, {
     message: "Failed to load workspace activity",
   })
 }
 
-export function workspaceActivityOptions(
+async function fetchOrgActivity(
   orgSlug: string,
-  workspaceSlug: string,
+  date: string | null,
+): Promise<WorkspaceActivityResponse> {
+  const client = await getApiClient()
+  const res = await client[":orgSlug"].api.v1.activity.$get({
+    param: { orgSlug },
+    query: date ? { date } : {},
+  })
+  return readApiJson<WorkspaceActivityResponse>(res, {
+    message: "Failed to load activity",
+  })
+}
+
+/**
+ * The commit activity of one workspace, or (`workspaceSlug: null`) of every
+ * workspace in the org. `date` (`YYYY-MM-DD`, UTC) limits `recent` to the
+ * commits of that day.
+ */
+export function activityOptions(
+  orgSlug: string,
+  workspaceSlug: string | null,
+  date: string | null = null,
 ) {
   return queryOptions({
-    queryKey: workspaceKeys.activity(orgSlug, workspaceSlug),
-    queryFn: () => fetchWorkspaceActivity(orgSlug, workspaceSlug),
+    queryKey:
+      workspaceSlug === null
+        ? workspaceKeys.orgActivity(orgSlug, date)
+        : workspaceKeys.activity(orgSlug, workspaceSlug, date),
+    queryFn: () =>
+      workspaceSlug === null
+        ? fetchOrgActivity(orgSlug, date)
+        : fetchWorkspaceActivity(orgSlug, workspaceSlug, date),
     refetchInterval: (query) =>
       query.state.data?.status === "pending" ? pollWhileOk(2000)(query) : false,
   })

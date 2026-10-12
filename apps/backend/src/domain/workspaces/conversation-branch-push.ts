@@ -112,7 +112,7 @@ export function conversationBranchPushTool(input: {
 const STOP_UNFINISHED_GIT_WORK = `if [ -d "$(git rev-parse --git-path rebase-merge)" ] || [ -d "$(git rev-parse --git-path rebase-apply)" ]; then git rebase --abort; fi
 T=$(git rev-parse --git-path ctxpipe-revision-transition)
 if [ -f "$T" ] && [ "$(sed -n 5p "$T")" != complete ]; then rm -f "$T"; fi
-[ -z "$(git diff --name-only --diff-filter=U)" ] || git reset -q
+[ -z "$(git diff --no-ext-diff --no-textconv --name-only --diff-filter=U)" ] || git reset -q
 true`
 
 /**
