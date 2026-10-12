@@ -413,6 +413,9 @@ async function fetchOrgActivity(
   })
 }
 
+/** When the org activity read first listed a pending workspace, per query. */
+const orgActivityPendingSince = new WeakMap<object, number>()
+
 /**
  * The commit activity of one workspace, or (`workspaceSlug: null`) of every
  * workspace in the org. `date` (`YYYY-MM-DD`, UTC) limits `recent` to the
@@ -434,13 +437,18 @@ export function activityOptions(
         : fetchWorkspaceActivity(orgSlug, workspaceSlug, date),
     refetchInterval: (query) => {
       const data = query.state.data
-      // All workspaces shows the ready data at once. Poll slowly while a
-      // workspace is pending, and stop after about 3 minutes (18 reads).
+      // The read of one day does not poll. The read without a day polls.
+      if (date !== null) return false
+      // All workspaces: poll slowly while a workspace is pending, for about
+      // 3 minutes from when the pending list became non-empty.
       if (workspaceSlug === null) {
-        return (data?.pendingWorkspaces?.length ?? 0) > 0 &&
-          query.state.dataUpdateCount < 18
-          ? pollWhileOk(10_000)(query)
-          : false
+        if (!data?.pendingWorkspaces?.length) {
+          orgActivityPendingSince.delete(query)
+          return false
+        }
+        const since = orgActivityPendingSince.get(query) ?? Date.now()
+        orgActivityPendingSince.set(query, since)
+        return Date.now() - since < 180_000 ? pollWhileOk(10_000)(query) : false
       }
       return data?.status === "pending" ? pollWhileOk(2000)(query) : false
     },

@@ -58,10 +58,10 @@ export function WorkspaceActivity(props: {
     enabled: scope !== null && selectedDate !== null,
   })
 
-  // All workspaces shows the data of the ready workspaces at once.
+  // The org read is ready when one workspace is ready. Then All workspaces
+  // shows that data at once, with a note for the pending workspaces.
   const loading = useSkeletonHold(
-    query.isPending ||
-      (scope !== ALL_WORKSPACES && query.data?.status === "pending"),
+    query.isPending || query.data?.status === "pending",
   )
   const dayLoading = useSkeletonHold(
     selectedDate !== null && dayQuery.isPending,

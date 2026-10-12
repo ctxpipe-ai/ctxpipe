@@ -301,7 +301,6 @@ export const AllWorkspacesPendingNote: Story = {
               pendingOrgReads += 1
               return HttpResponse.json({
                 ...docsWorkspaceActivity,
-                status: "pending",
                 pendingWorkspaces: [{ slug: "handbook", name: "Handbook" }],
               })
             },
@@ -335,5 +334,59 @@ export const AllWorkspacesPendingNote: Story = {
     // The slow poll waits 10 s, so a 3 s window holds one request only.
     await new Promise((settle) => setTimeout(settle, 3_000))
     expect(pendingOrgReads).toBe(1)
+  },
+}
+
+/** All workspaces shows only the loading state while no workspace is ready. */
+export const AllWorkspacesNoneReady: Story = {
+  args: {
+    workspaces: [
+      { slug: "docs", displayName: "Docs" },
+      { slug: "handbook", displayName: "Handbook" },
+    ],
+  },
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          http.get(
+            ({ request }) =>
+              /\/api\/v1\/activity$/.test(new URL(request.url).pathname),
+            () =>
+              HttpResponse.json({
+                status: "pending",
+                days: [],
+                recent: [],
+                pendingWorkspaces: [
+                  { slug: "docs", name: "Docs" },
+                  { slug: "handbook", name: "Handbook" },
+                ],
+              }),
+          ),
+          ...activityByDayHandlers,
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const page = within(canvasElement.ownerDocument.body)
+    expect(
+      await canvas.findByText("Document billing ledger rules"),
+    ).toBeVisible()
+
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Show activity for: Docs" }),
+    )
+    await userEvent.click(
+      await page.findByRole("menuitemradio", { name: "All workspaces" }),
+    )
+
+    expect(await canvas.findByText("Loading activity")).toBeInTheDocument()
+    await new Promise((settle) => setTimeout(settle, 1_000))
+    expect(
+      canvas.queryByText("No commits on the default branch yet."),
+    ).not.toBeInTheDocument()
+    expect(canvas.queryByText(/is still loading/)).not.toBeInTheDocument()
   },
 }
