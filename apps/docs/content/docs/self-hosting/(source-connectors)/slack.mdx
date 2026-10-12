@@ -82,10 +82,11 @@ Slack verifies the URL with a signed `url_verification` challenge. ctx| checks
 
 Subscribe the bot to:
 
-- **`app_mention`**
-
-Do **not** subscribe to `message.channels` / `message.groups` for the connector
-ingest path. Continuous message fan-out is not used.
+- **`app_mention`**: thread capture on mention.
+- **`message.channels`** and **`message.groups`**: Workspace sources. A new
+  message in a thread of a source channel syncs that thread. ctx| ignores
+  messages that are not in a thread, and messages in channels that no
+  Workspace source selects.
 
 **Turn Socket Mode off.** If Socket Mode is enabled, Slack will not POST to the
 Request URL (“You won’t need a Request URL”) and mentions never reach ctx|.
