@@ -96,6 +96,7 @@ export const requiredStories = [
   "AuthorFiltersRecent",
   "ResetClearsEveryFilter",
   "LoadMorePages",
+  "CustomDateRange",
   "HeatmapSkeletonMatches",
   "ConnectorRowSkeletonMatches",
   "ConversationListSkeletonMatches",

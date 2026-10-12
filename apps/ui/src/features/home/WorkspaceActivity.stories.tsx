@@ -307,7 +307,7 @@ export const DateRangeFiltersRecent: Story = {
       canvas.getByRole("button", { name: "Filter commits by date: Any time" }),
     )
     await userEvent.click(
-      await page.findByRole("menuitemradio", { name: "Last 30 days" }),
+      await page.findByRole("option", { name: "Last 30 days" }),
     )
 
     const since = utcDayBefore(29)
@@ -322,6 +322,61 @@ export const DateRangeFiltersRecent: Story = {
       ),
     )
     await waitFor(() => expect(urlSearch(canvasElement)).toEqual({ since }))
+  },
+}
+
+/**
+ * A custom range: type the first and the last day in the range picker. The
+ * list reads `since` and `until`, and both go into the URL.
+ */
+export const CustomDateRange: Story = {
+  tags: ["workspace-golden"],
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const page = within(canvasElement.ownerDocument.body)
+    expect(
+      await canvas.findByText("Document billing ledger rules"),
+    ).toBeVisible()
+
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Filter commits by date: Any time" }),
+    )
+    const dialog = await page.findByRole("dialog", { name: "Date range" })
+    const range = within(dialog).getByRole("group", { name: "Custom range" })
+    const segments = within(range).getAllByRole("spinbutton")
+    expect(segments).toHaveLength(6)
+    await userEvent.click(segments[0] as HTMLElement)
+    await userEvent.keyboard("08012026")
+    await userEvent.click(segments[3] as HTMLElement)
+    await userEvent.keyboard("08202026")
+
+    expect(
+      await canvas.findByRole("button", {
+        name: "Filter commits by date: Aug 1, 2026 – Aug 20, 2026",
+      }),
+    ).toBeInTheDocument()
+    await waitFor(() =>
+      expect(
+        activityReads.some(
+          (read) =>
+            read.get("since") === "2026-08-01" &&
+            read.get("until") === "2026-08-20",
+        ),
+      ).toBe(true),
+    )
+    await waitFor(() =>
+      expect(urlSearch(canvasElement)).toEqual({
+        since: "2026-08-01",
+        until: "2026-08-20",
+      }),
+    )
+    await userEvent.keyboard("{Escape}")
+    expect(
+      await canvas.findByText("Refresh payments API claims"),
+    ).toBeVisible()
+    expect(
+      canvas.queryByText("Document billing ledger rules"),
+    ).not.toBeInTheDocument()
   },
 }
 
