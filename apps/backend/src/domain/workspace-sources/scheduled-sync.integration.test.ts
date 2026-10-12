@@ -199,9 +199,7 @@ describe("Scheduled full sync of Workspace sources (Postgres)", () => {
       )
       expect(run.availableAt?.getTime()).toBeLessThan(dayStart + 2 * DAY_MS)
     }
-    expect(new Set(first.map((run) => run.availableAt?.getTime())).size).toBe(
-      2,
-    )
+    expect(new Set(first.map((run) => run.availableAt?.getTime())).size).toBe(2)
 
     await enqueue.enqueueDailySourcesSyncs(new Date(today.getTime() + DAY_MS))
     const second = await queuedSyncs(ids)

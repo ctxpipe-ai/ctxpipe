@@ -144,8 +144,11 @@ export async function listConnectionsWithOkSources(): Promise<
   const orgs = await getSystemDb()
     .select({ id: organizations.id })
     .from(organizations)
-  const found: Array<{ orgId: string; connectionId: string; provider: string }> =
-    []
+  const found: Array<{
+    orgId: string
+    connectionId: string
+    provider: string
+  }> = []
   for (const { id } of orgs) {
     const rows = await withOrgDbContext(id, (db) =>
       db
