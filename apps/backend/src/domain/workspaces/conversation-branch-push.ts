@@ -14,6 +14,7 @@ import { UNPUSHED_COMMITS_COMMAND } from "./conversation-files.js"
 import {
   type PublishTarget,
   pushConversationSession,
+  recordConversationPush,
   resolvePublishTarget,
   type SessionPushResult,
 } from "./conversation-publish.js"
@@ -75,14 +76,23 @@ export function conversationBranchPushTool(input: {
       )
       const outcome = await withOrgIdContext(
         { id: input.orgId, slug: input.orgSlug },
-        () =>
-          pushConversationSession({
+        async () => {
+          const pushed = await pushConversationSession({
             handle,
             conversationId: input.conversationId,
             orgId: input.orgId,
             workspaceId: input.workspaceId,
             env: parseEnv(process.env as Record<string, string | undefined>),
-          }),
+          })
+          if (pushed.status === "pushed")
+            await recordConversationPush({
+              orgId: input.orgId,
+              conversationId: input.conversationId,
+              pushed,
+              trigger: "agent",
+            })
+          return pushed
+        },
       )
       logPush(input.conversationId, outcome)
       const uncommitted = outcome.dirty
@@ -204,8 +214,8 @@ async function pushOrRescue(
   handle: JobSandboxHandle,
   target: PublishTarget,
 ): Promise<SessionPushResult> {
-  const push = (to: PublishTarget) =>
-    pushConversationSession({
+  const push = async (to: PublishTarget) => {
+    const pushed = await pushConversationSession({
       handle,
       conversationId: target.conversationId,
       orgId: target.orgId,
@@ -213,6 +223,15 @@ async function pushOrRescue(
       env: parseEnv(process.env as Record<string, string | undefined>),
       target: to,
     })
+    if (pushed.status === "pushed")
+      await recordConversationPush({
+        orgId: target.orgId,
+        conversationId: target.conversationId,
+        pushed,
+        trigger: "sweep",
+      })
+    return pushed
+  }
   const outcome = await push(target)
   if (outcome.status !== "failed" || outcome.reason !== "session_moved")
     return outcome

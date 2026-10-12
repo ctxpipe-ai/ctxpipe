@@ -29,10 +29,20 @@ export type ConversationTurnChanges = {
 }
 
 /**
- * One Sync: the user pushed the conversation's commits to the session
- * branch. The thread shows it after the last message of user turn `turn`.
+ * What pushed the conversation's commits: the user's Sync, the user's Create
+ * PR, the agent's push tool, or the push before the sweep deletes the
+ * sandbox.
+ */
+export type ConversationPushTrigger = "sync" | "create_pr" | "agent" | "sweep"
+
+/**
+ * One push of the conversation's commits to its session branch. The thread
+ * shows it after the last message of user turn `turn`.
  */
 export type ConversationSync = {
+  trigger: ConversationPushTrigger
+  /** Create PR: the pull request; `opened` when this push opened it. */
+  pullRequest?: { number: number; url: string; opened: boolean }
   branch: string
   sha: string
   /** The number of files that the pushed commits changed. */
@@ -97,7 +107,7 @@ export async function listConversationTurnChanges(input: {
 }
 
 /**
- * A commit that was already synced keeps its first entry: a second push of
+ * A commit that was already pushed keeps its first entry: a second push of
  * the same commit (for example, after the branch was deleted on GitHub) does
  * not move it in the history.
  */
@@ -128,9 +138,9 @@ export async function listConversationSyncs(input: {
   orgId: string
   conversationId: string
 }): Promise<ConversationSync[]> {
-  return ((await listRecords(SYNCS, input)) as ConversationSync[]).sort(
-    (a, b) => a.syncedAt.localeCompare(b.syncedAt),
-  )
+  return ((await listRecords(SYNCS, input)) as ConversationSync[])
+    .map((sync) => ({ ...sync, trigger: sync.trigger ?? "sync" }))
+    .sort((a, b) => a.syncedAt.localeCompare(b.syncedAt))
 }
 
 /**
