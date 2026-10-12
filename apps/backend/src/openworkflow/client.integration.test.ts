@@ -1,6 +1,8 @@
 import { SpanKind, trace } from "@opentelemetry/api"
+import { HttpResponse, http } from "msw"
+import { setupServer } from "msw/node"
 import { defineWorkflow as defineRawWorkflow } from "openworkflow"
-import { afterAll, expect, it } from "vitest"
+import { afterAll, expect, it, vi } from "vitest"
 import { z } from "zod"
 import { describeWithDatabase } from "../../test/db.js"
 import { recordSpans } from "../../test/spans.js"
@@ -88,5 +90,66 @@ describeWithDatabase("runWorkflowWithWorkerWake", () => {
       })
     expect(handle.workflowRun.input).toEqual({ orgId: "org_1" })
     await handle.cancel()
+  })
+  it("does not wake the worker for a repeated key of a finished run", async () => {
+    let deploys = 0
+    const server = setupServer(
+      http.post(
+        "https://backboard.railway.com/graphql/v2",
+        async ({ request }) => {
+          const body = (await request.json()) as { query: string }
+          if (body.query.includes("serviceInstanceDeployV2")) {
+            deploys += 1
+            return HttpResponse.json({
+              data: { serviceInstanceDeployV2: true },
+            })
+          }
+          return HttpResponse.json({
+            data: {
+              project: {
+                services: {
+                  edges: [{ node: { id: "svc_worker", name: "openworkflow" } }],
+                },
+              },
+            },
+          })
+        },
+      ),
+    )
+    server.listen({ onUnhandledRequest: "bypass" })
+    vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", "pr-1")
+    vi.stubEnv("RAILWAY_TOKEN", "railway-token")
+    vi.stubEnv("RAILWAY_PROJECT_ID", "project_1")
+    vi.stubEnv("RAILWAY_ENVIRONMENT_ID", "environment_1")
+    // Only Date is fake, so the test can step past the wake debounce.
+    vi.useFakeTimers({ toFake: ["Date"], now: Date.now() })
+    try {
+      const { runWorkflowWithWorkerWake } = await import("./client.js")
+      const idempotencyKey = `wake-probe:${Math.random().toString(36).slice(2)}`
+      const first = await runWorkflowWithWorkerWake(
+        enqueueProbe.spec,
+        { orgId: "org_1" },
+        { idempotencyKey },
+      )
+      // A new run is pending, so it wakes the worker.
+      await vi.waitFor(() => expect(deploys).toBe(1))
+      await first.cancel()
+
+      // Step past the wake debounce. The same key returns the finished run.
+      vi.setSystemTime(Date.now() + 10 * 60_000)
+      const repeated = await runWorkflowWithWorkerWake(
+        enqueueProbe.spec,
+        { orgId: "org_1" },
+        { idempotencyKey },
+      )
+      expect(repeated.workflowRun.id).toBe(first.workflowRun.id)
+      expect(repeated.workflowRun.status).not.toBe("pending")
+      await new Promise((settle) => setTimeout(settle, 300))
+      expect(deploys).toBe(1)
+    } finally {
+      vi.useRealTimers()
+      vi.unstubAllEnvs()
+      server.close()
+    }
   })
 })

@@ -41,6 +41,10 @@ const WorkspaceActivityResponseSchema = z
     failedWorkspaces: z
       .array(z.object({ slug: z.string(), name: z.string() }))
       .optional(),
+    /** Org read only: the workspaces whose projection is not done yet. */
+    pendingWorkspaces: z
+      .array(z.object({ slug: z.string(), name: z.string() }))
+      .optional(),
   })
   .openapi("WorkspaceActivityResponse")
 
@@ -91,6 +95,25 @@ function readProjectionStatus(
 }
 
 /**
+ * Home polls the activity reads. Start at most one projection run per
+ * workspace state (desired SHA and projection status) in each 5-minute window.
+ */
+function enqueueProjectionOncePerWindow(
+  workspace: { id: string; orgId: string; desiredSha: string | null },
+  projection: WorkspaceCommitProjectionRecord | null,
+  step: string,
+) {
+  const state = `${workspace.desiredSha ?? "none"}:${projection?.backfillStatus ?? "none"}`
+  void enqueueWorkspaceCommitProjection(
+    { orgId: workspace.orgId, workspaceId: workspace.id },
+    { error: (err) => getLogger().error(err, { step }) },
+    {
+      idempotencyKey: `activity-projection:${workspace.id}:${state}:${Math.floor(Date.now() / 300_000)}`,
+    },
+  )
+}
+
+/**
  * Reads the status of one workspace projection, and starts a projection run
  * when the projection is missing, not ready, or behind the desired SHA.
  */
@@ -103,15 +126,12 @@ function readProjectionStatusAndRefresh(
     projection.backfillStatus !== "ready" ||
     (workspace.desiredSha != null &&
       projection.headSha !== workspace.desiredSha)
-  if (stale) {
-    void enqueueWorkspaceCommitProjection(
-      { orgId: workspace.orgId, workspaceId: workspace.id },
-      {
-        error: (err) =>
-          getLogger().error(err, { step: "workspace.activity.enqueue" }),
-      },
+  if (stale)
+    enqueueProjectionOncePerWindow(
+      workspace,
+      projection,
+      "workspace.activity.enqueue",
     )
-  }
   return readProjectionStatus(projection)
 }
 
@@ -173,7 +193,7 @@ const getOrgActivityRoute = createRoute({
         "application/json": { schema: WorkspaceActivityResponseSchema },
       },
       description:
-        "Commit heatmap and recent commits of every workspace in the org. With `date`, `recent` holds the commits of that UTC day. `pending` while a workspace projection is not done; `failed` only when every projection failed. `failedWorkspaces` lists each workspace whose projection failed. The read does not start projection runs.",
+        "Commit heatmap and recent commits of every workspace in the org. With `date`, `recent` holds the commits of that UTC day. `ready` when one workspace projection is ready; `pending` only when no projection is ready and one is not done; `failed` only when every projection failed. `failedWorkspaces` and `pendingWorkspaces` list the workspaces whose projection failed or is not done. The read starts at most one projection run per pending workspace in each 5-minute window.",
     },
     400: {
       description: "Invalid query parameter",
@@ -193,20 +213,38 @@ export const orgActivityRoutes = new OpenAPIHono<AppEnv>().openapi(
     }
     const { date } = c.req.valid("query")
     const rows = (await listOrgWorkspaceCommitProjections()).map((row) => ({
-      workspace: row.workspace,
+      ...row,
       status: readProjectionStatus(row.projection),
     }))
+    for (const row of rows) {
+      if (row.status === "pending")
+        enqueueProjectionOncePerWindow(
+          row.workspace,
+          row.projection,
+          "org.activity.enqueue",
+        )
+    }
     const statuses = rows.map((row) => row.status)
-    const status: ActivityStatus = statuses.includes("pending")
-      ? "pending"
-      : statuses.length > 0 && statuses.every((value) => value === "failed")
-        ? "failed"
-        : "ready"
-    const failedWorkspaces = rows
-      .filter((row) => row.status === "failed")
-      .map((row) => ({ slug: row.workspace.slug, name: row.workspace.name }))
+    // The ready workspaces give the data. Pending only when none is ready.
+    const status: ActivityStatus = statuses.includes("ready")
+      ? "ready"
+      : statuses.includes("pending")
+        ? "pending"
+        : statuses.length > 0
+          ? "failed"
+          : "ready"
+    const listed = (value: ActivityStatus) =>
+      rows
+        .filter((row) => row.status === value)
+        .map((row) => ({ slug: row.workspace.slug, name: row.workspace.name }))
+    const failedWorkspaces = listed("failed")
+    const pendingWorkspaces = listed("pending")
     return c.json(
-      { ...(await activityBody({ status, date })), failedWorkspaces },
+      {
+        ...(await activityBody({ status, date })),
+        failedWorkspaces,
+        pendingWorkspaces,
+      },
       200,
     )
   },

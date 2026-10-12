@@ -45,9 +45,12 @@ export function runWorkflowWithWorkerWake(
     )
     .then((handle) => assertNativeWorkflowVersion(spec, handle))
   // Swallow the side-promise rejection. Callers observe the same failure on `queued`.
+  // A repeated idempotency key can return a run that a worker already holds
+  // or finished. Wake the worker only for a pending run; the wake debounce
+  // limits repeats.
   void queued.then(
-    () => {
-      scheduleEnsureWorkerRunning()
+    (handle) => {
+      if (handle.workflowRun.status === "pending") scheduleEnsureWorkerRunning()
     },
     () => undefined,
   )
