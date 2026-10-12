@@ -1,11 +1,29 @@
-import { IconChevronDown } from "@tabler/icons-react"
+import { parseDate } from "@internationalized/date"
+import { IconCalendar, IconCheck, IconChevronDown } from "@tabler/icons-react"
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
 import { useNavigate, useSearch } from "@tanstack/react-router"
-import type { ReactNode } from "react"
-import { Button as RACButton } from "react-aria-components"
+import { type ReactNode, useState } from "react"
+import {
+  CalendarCell,
+  CalendarGrid,
+  CalendarGridBody,
+  DateInput,
+  DateRangePicker,
+  DateSegment,
+  Dialog,
+  DialogTrigger,
+  Group,
+  Label,
+  ListBox,
+  ListBoxItem,
+  Button as RACButton,
+  RangeCalendar,
+} from "react-aria-components"
 import { Button } from "@/components/ui/Button"
+import { CalendarGridHeader, CalendarHeader } from "@/components/ui/Calendar"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { Menu, MenuItem, MenuTrigger } from "@/components/ui/Menu"
+import { Popover } from "@/components/ui/Popover"
 import { useSkeletonHold } from "@/components/ui/Skeleton"
 import {
   type ActivityCommitFilters,
@@ -344,23 +362,31 @@ function rangeLabel(since: string | undefined, until: string | undefined) {
   return `${formatCalendarDate(since)} – ${formatCalendarDate(until)}`
 }
 
-/** Picks the date range of the commit list. */
+const segmentClassName =
+  "rounded-xs px-0.5 text-zinc-200 tabular-nums outline-0 caret-transparent data-[placeholder]:text-zinc-500 data-[type=literal]:px-0 data-[focused]:bg-teal-400/20 data-[focused]:text-foreground"
+
+/**
+ * Picks the date range of the commit list: a preset, or a custom range of
+ * UTC days in the React Aria range picker.
+ */
 function DateRangeMenu(props: {
   since: string | undefined
   until: string | undefined
   onRangeChange: (range: { since?: string; until?: string }) => void
 }) {
   const ANY_TIME = "any"
+  const [open, setOpen] = useState(false)
   const label = rangeLabel(props.since, props.until)
   const selected =
     !props.since && !props.until
       ? ANY_TIME
       : RANGE_PRESETS.find((item) => item.label === label)?.id
+  const value =
+    props.since && props.until
+      ? { start: parseDate(props.since), end: parseDate(props.until) }
+      : null
   return (
-    <MenuTrigger
-      placement="bottom end"
-      popoverClassName="overflow-hidden rounded-md border-zinc-800 bg-zinc-900"
-    >
+    <DialogTrigger isOpen={open} onOpenChange={setOpen}>
       <RACButton
         className={quietMenuButtonClassName}
         aria-label={`Filter commits by date: ${label}`}
@@ -368,35 +394,136 @@ function DateRangeMenu(props: {
         <span className="truncate">{label}</span>
         <IconChevronDown aria-hidden className="size-4 shrink-0" />
       </RACButton>
-      <Menu
-        aria-label="Date range"
-        className="rounded-md"
-        selectionMode="single"
-        selectedKeys={selected ? [selected] : []}
-        onAction={(key) => {
-          const preset = RANGE_PRESETS.find((item) => item.id === key)
-          props.onRangeChange(
-            preset
-              ? { since: utcDayBefore(preset.days - 1), until: undefined }
-              : { since: undefined, until: undefined },
-          )
-        }}
+      <Popover
+        placement="bottom end"
+        className="w-64 rounded-md border-zinc-800 bg-zinc-900 p-1"
       >
-        <MenuItem id={ANY_TIME} textValue="Any time" className="rounded-md">
-          Any time
-        </MenuItem>
-        {RANGE_PRESETS.map((item) => (
-          <MenuItem
-            key={item.id}
-            id={item.id}
-            textValue={item.label}
-            className="rounded-md"
+        <Dialog aria-label="Date range" className="outline-0">
+          <ListBox
+            aria-label="Date range presets"
+            selectionMode="single"
+            disallowEmptySelection
+            selectedKeys={selected ? [selected] : []}
+            onSelectionChange={(keys) => {
+              const key = keys === "all" ? undefined : [...keys][0]
+              const preset = RANGE_PRESETS.find((item) => item.id === key)
+              props.onRangeChange(
+                preset
+                  ? { since: utcDayBefore(preset.days - 1), until: undefined }
+                  : { since: undefined, until: undefined },
+              )
+              setOpen(false)
+            }}
+            className="outline-0"
           >
-            {item.label}
-          </MenuItem>
-        ))}
-      </Menu>
-    </MenuTrigger>
+            {[{ id: ANY_TIME, label: "Any time" }, ...RANGE_PRESETS].map(
+              (item) => (
+                <ListBoxItem
+                  key={item.id}
+                  id={item.id}
+                  textValue={item.label}
+                  className="flex cursor-default items-center justify-between rounded-md px-2 py-1.5 text-sm text-zinc-300 outline-0 data-[focused]:bg-zinc-800 data-[selected]:text-foreground"
+                >
+                  {({ isSelected }) => (
+                    <>
+                      {item.label}
+                      {isSelected ? (
+                        <IconCheck
+                          aria-hidden
+                          className="size-4 text-teal-400"
+                        />
+                      ) : null}
+                    </>
+                  )}
+                </ListBoxItem>
+              ),
+            )}
+          </ListBox>
+          <div className="mt-1 border-t border-zinc-800 px-2 pt-2 pb-1">
+            <DateRangePicker
+              // Uncontrolled, so a half-typed range stays while the user types.
+              key={`${props.since}:${props.until}`}
+              defaultValue={value}
+              onChange={(range) => {
+                // A year with less than four digits is still being typed.
+                if (
+                  !range ||
+                  range.start.year < 1000 ||
+                  range.end.year < 1000 ||
+                  range.start.compare(range.end) > 0
+                )
+                  return
+                props.onRangeChange({
+                  since: range.start.toString(),
+                  until: range.end.toString(),
+                })
+              }}
+              className="flex flex-col gap-1"
+            >
+              <Label className="text-xs text-muted-foreground">
+                Custom range
+              </Label>
+              <Group className="flex h-8 items-center rounded-md border border-zinc-800 bg-zinc-950 pl-2 text-sm focus-within:border-zinc-600">
+                <DateInput slot="start" className="flex">
+                  {(segment) => (
+                    <DateSegment
+                      segment={segment}
+                      className={segmentClassName}
+                    />
+                  )}
+                </DateInput>
+                <span aria-hidden className="px-1 text-muted-foreground">
+                  –
+                </span>
+                <DateInput slot="end" className="flex">
+                  {(segment) => (
+                    <DateSegment
+                      segment={segment}
+                      className={segmentClassName}
+                    />
+                  )}
+                </DateInput>
+                <RACButton
+                  className={cn(
+                    "ml-auto flex size-8 items-center justify-center rounded-md text-muted-foreground hover:text-foreground",
+                    focusVisibleClassName,
+                  )}
+                >
+                  <IconCalendar aria-hidden className="size-4" />
+                </RACButton>
+              </Group>
+              <Popover
+                placement="bottom end"
+                className="rounded-md border-zinc-800 bg-zinc-900 p-3"
+              >
+                <Dialog className="outline-0">
+                  <RangeCalendar className="w-64">
+                    <CalendarHeader />
+                    <CalendarGrid className="w-full border-collapse">
+                      <CalendarGridHeader />
+                      <CalendarGridBody>
+                        {(date) => (
+                          <CalendarCell
+                            date={date}
+                            className={cn(
+                              "cursor-default rounded-md py-1 text-center text-sm text-zinc-300 tabular-nums outline-0",
+                              "data-[hovered]:bg-zinc-800 data-[outside-month]:text-zinc-600",
+                              "data-[selected]:bg-teal-400/15 data-[selected]:text-foreground",
+                              "data-[selection-start]:bg-teal-400 data-[selection-start]:text-zinc-950 data-[selection-end]:bg-teal-400 data-[selection-end]:text-zinc-950",
+                              focusVisibleClassName,
+                            )}
+                          />
+                        )}
+                      </CalendarGridBody>
+                    </CalendarGrid>
+                  </RangeCalendar>
+                </Dialog>
+              </Popover>
+            </DateRangePicker>
+          </div>
+        </Dialog>
+      </Popover>
+    </DialogTrigger>
   )
 }
 

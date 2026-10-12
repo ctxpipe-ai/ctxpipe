@@ -350,11 +350,6 @@ export const CustomDateRange: Story = {
     await userEvent.click(segments[3] as HTMLElement)
     await userEvent.keyboard("08202026")
 
-    expect(
-      await canvas.findByRole("button", {
-        name: "Filter commits by date: Aug 1, 2026 – Aug 20, 2026",
-      }),
-    ).toBeInTheDocument()
     await waitFor(() =>
       expect(
         activityReads.some(
@@ -370,10 +365,14 @@ export const CustomDateRange: Story = {
         until: "2026-08-20",
       }),
     )
+    // The open popover hides the page from assistive tech, so close it first.
     await userEvent.keyboard("{Escape}")
     expect(
-      await canvas.findByText("Refresh payments API claims"),
+      await canvas.findByRole("button", {
+        name: "Filter commits by date: Aug 1, 2026 – Aug 20, 2026",
+      }),
     ).toBeVisible()
+    expect(await canvas.findByText("Refresh payments API claims")).toBeVisible()
     expect(
       canvas.queryByText("Document billing ledger rules"),
     ).not.toBeInTheDocument()
