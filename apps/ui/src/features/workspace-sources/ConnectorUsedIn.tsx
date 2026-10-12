@@ -5,7 +5,9 @@ import { Link } from "react-aria-components"
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { SkeletonLine } from "@/components/ui/Skeleton"
+import { authClient } from "@/lib/auth-client"
 import { focusVisibleClassName } from "@/lib/focus-styles"
+import { isAdminRole } from "@/lib/session-user"
 import { cn } from "@/lib/utils"
 import { AddToWorkspacesDialog } from "./AddToWorkspacesDialog"
 import { connectionUsageOptions, syncConnectionNow } from "./queries"
@@ -38,7 +40,19 @@ export function ConnectorUsedIn(props: {
   const syncMutation = useMutation({
     mutationFn: () => syncConnectionNow(orgSlug, connectionId),
   })
-  const canSync = SYNCED_PROVIDERS.has(provider) && items.length > 0
+  // The sync route is for an org admin or owner only.
+  const roleQuery = useQuery({
+    queryKey: ["organization-member-role", orgSlug],
+    queryFn: () =>
+      authClient.organization.getActiveMemberRole({
+        query: { organizationSlug: orgSlug },
+        fetchOptions: { throw: true },
+      }),
+  })
+  const canSync =
+    SYNCED_PROVIDERS.has(provider) &&
+    items.length > 0 &&
+    isAdminRole(roleQuery.data?.role)
 
   return (
     <section aria-labelledby={`used-in-${connectionId}`} className="text-sm">

@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 import { workspaceListHandler } from "@/mocks/workspace-handlers"
 import {
+  activeMemberRoleHandler,
   connectionSyncHandler,
   connectionUsageHandler,
   connectionUsageItem,
@@ -195,6 +196,7 @@ export const SyncNow: Story = {
       handlers: {
         page: [
           onCallUsage,
+          activeMemberRoleHandler("admin"),
           connectionSyncHandler({ delayMs: 400, requests: syncRequests }),
         ],
       },
@@ -222,7 +224,11 @@ export const SyncNowFails: Story = {
   parameters: {
     msw: {
       handlers: {
-        page: [onCallUsage, connectionSyncHandler({ status: 404 })],
+        page: [
+          onCallUsage,
+          activeMemberRoleHandler("owner"),
+          connectionSyncHandler({ status: 404 }),
+        ],
       },
     },
   },
@@ -234,5 +240,22 @@ export const SyncNowFails: Story = {
     await expect(
       await canvas.findByText("Could not start the sync."),
     ).toBeVisible()
+  },
+}
+
+export const SyncNowHiddenForMember: Story = {
+  args: { provider: "pagerduty" },
+  parameters: {
+    msw: {
+      handlers: {
+        page: [onCallUsage, activeMemberRoleHandler("member")],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("On call")
+    // Only an org admin or owner can start a sync.
+    await expect(canvas.queryByRole("button", { name: "Sync now" })).toBeNull()
   },
 }
