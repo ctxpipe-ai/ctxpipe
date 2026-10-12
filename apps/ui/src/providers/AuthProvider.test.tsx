@@ -136,4 +136,29 @@ describe("AuthProvider", () => {
       expect(props.organization?.apiKey).toBe(cases[index]?.apiKey)
     }
   })
+
+  it("sends a finished sign-up to the check-your-email page with its destination", async () => {
+    const location = {
+      origin: "http://localhost",
+      pathname: "/.auth/sign-up",
+      href: "",
+    }
+    vi.stubGlobal("window", { location })
+    const { AuthProvider } = await import("./AuthProvider")
+
+    renderToStaticMarkup(
+      <AuthProvider>
+        <div>content</div>
+      </AuthProvider>,
+    )
+    const { navigate } = authUiProviderTanstackMock.mock.calls[0]?.[0] as {
+      navigate: (href: string) => void
+    }
+    navigate("/.auth/sign-in?redirectTo=%2F.auth%2Fconsent")
+
+    expect(location.href).toBe(
+      "/.auth/email-verification?redirectTo=%2F.auth%2Fconsent",
+    )
+    vi.unstubAllGlobals()
+  })
 })
