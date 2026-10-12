@@ -95,7 +95,7 @@ function onboardingSession() {
     reset: () => {
       completedAt = null
     },
-    handlers: (options: { completes: boolean }) => [
+    handlers: (options: { completes: boolean; role?: string }) => [
       http.get("*/.auth/api/v1/auth/get-session", () =>
         HttpResponse.json({
           session: {
@@ -116,6 +116,12 @@ function onboardingSession() {
         if (options.completes) completedAt = new Date().toISOString()
         return HttpResponse.json({ completedAt })
       }),
+      http.post("*/.auth/api/v1/auth/organization/set-active", () =>
+        HttpResponse.json({}),
+      ),
+      http.get("*/.auth/api/v1/auth/organization/get-active-member-role", () =>
+        HttpResponse.json({ role: options.role ?? "member" }),
+      ),
     ],
   }
 }
@@ -134,7 +140,7 @@ async function finishJoiner(canvasElement: HTMLElement) {
 }
 
 const joinerSession = onboardingSession()
-/** A joiner finishes and lands on their Workspace, not on the welcome slide (AUTH-5). */
+/** A joiner finishes and lands on Home, where the setup guide is (AUTH-5). */
 export const JoinerFinishLandsInApp: Story = {
   tags: ["workspace-golden"],
   render: () => <OnboardingJourney urlOrgSlug="acme" />,
@@ -155,7 +161,7 @@ export const JoinerFinishLandsInApp: Story = {
   play: async ({ canvasElement }) => {
     await finishJoiner(canvasElement)
     await within(canvasElement).findByText(
-      "Landed on /acme/ws/docs",
+      "Landed on /acme",
       {},
       {
         timeout: 5000,
@@ -210,12 +216,12 @@ export const JoinerFinishStaysWhenSessionIsStale: Story = {
 /** Handlers for an admin who has no organization on arrival. */
 function creatorHandlers(
   session: ReturnType<typeof onboardingSession>,
-  state: { orgCreated: boolean },
+  state: { orgCreated: boolean; orgCompleted: boolean },
   extra: RequestHandler[],
 ) {
   return [
     authConfigHandler,
-    ...session.handlers({ completes: true }),
+    ...session.handlers({ completes: true, role: "owner" }),
     http.get("*/.auth/api/v1/auth/organization/list", () =>
       HttpResponse.json(
         state.orgCreated
@@ -240,18 +246,16 @@ function creatorHandlers(
       name: "Acme",
       slug: "acme",
     }),
-    http.post("*/.auth/api/v1/auth/organization/set-active", () =>
-      HttpResponse.json({}),
-    ),
-    http.post("*/acme/api/v1/onboarding/complete", () =>
-      HttpResponse.json({ completedAt: new Date().toISOString() }),
-    ),
+    http.post("*/acme/api/v1/onboarding/complete", () => {
+      state.orgCompleted = true
+      return HttpResponse.json({ completedAt: new Date().toISOString() })
+    }),
     ...extra,
   ]
 }
 
 const creatorSession = onboardingSession()
-const creatorState = { orgCreated: false }
+const creatorState = { orgCreated: false, orgCompleted: false }
 /**
  * A new admin steps through the four slides with the slide buttons, skips
  * GitHub, and lands on Home, because the new organization has no Workspace.
@@ -262,6 +266,7 @@ export const AdminFlowSkipGithubLandsOnHome: Story = {
   beforeEach: () => {
     creatorSession.reset()
     creatorState.orgCreated = false
+    creatorState.orgCompleted = false
   },
   parameters: {
     storyRoute: onboardingJourneyRoute,
@@ -307,11 +312,13 @@ export const AdminFlowSkipGithubLandsOnHome: Story = {
       await canvas.findByRole("button", { name: "Skip for now" }),
     )
     await canvas.findByText("Landed on /acme", {}, { timeout: 5000 })
+    // The owner's finish also completes the organization.
+    expect(creatorState.orgCompleted).toBe(true)
   },
 }
 
 const connectedSession = onboardingSession()
-const connectedState = { orgCreated: false }
+const connectedState = { orgCreated: false, orgCompleted: false }
 /** GitHub is already linked on the GitHub slide: "Continue" finishes onboarding. */
 export const GithubConnectedContinueFinishes: Story = {
   tags: ["workspace-golden"],
@@ -319,6 +326,7 @@ export const GithubConnectedContinueFinishes: Story = {
   beforeEach: () => {
     connectedSession.reset()
     connectedState.orgCreated = false
+    connectedState.orgCompleted = false
   },
   parameters: {
     storyRoute: onboardingJourneyRoute,
@@ -340,7 +348,8 @@ export const GithubConnectedContinueFinishes: Story = {
     await userEvent.click(canvas.getByRole("button", { name: "Go to slide 4" }))
     await canvas.findByRole("heading", { name: "GitHub is connected" })
     await userEvent.click(canvas.getByRole("button", { name: "Continue" }))
-    await canvas.findByText("Landed on /acme/ws/docs", {}, { timeout: 5000 })
+    // A new user lands on Home, also when the org has a Workspace.
+    await canvas.findByText("Landed on /acme", {}, { timeout: 5000 })
   },
 }
 

@@ -5,6 +5,7 @@ import { useState } from "react"
 import { GITHUB_FINALISING_MIN_MS } from "@/components/onboarding/constants"
 import { githubSetupLinkOptions } from "@/features/connectors/queries/github-connector"
 import { useGithubConnectFlow } from "@/features/connectors/useGithubConnectFlow"
+import { focusVisibleClassName } from "@/lib/focus-styles"
 
 type OnboardingGithubSlideProps = {
   orgSlug: string | null
@@ -61,10 +62,11 @@ export function OnboardingGithubSlide({
         <p className="mx-auto mb-12 max-w-xl text-balance text-zinc-300">
           Next, create your first Workspace on Home.
         </p>
+        {/* A native button: the double-click guard (ignoreRepeatClick) needs click events. */}
         <button
           type="button"
           disabled={finishing}
-          className={`${primaryClassName} bg-zinc-100 text-zinc-950 hover:bg-zinc-200 disabled:opacity-50`}
+          className={`${focusVisibleClassName} ${primaryClassName} bg-zinc-100 text-zinc-950 hover:bg-zinc-200 disabled:opacity-50`}
           onClick={() => onFinish()}
         >
           Continue
@@ -94,10 +96,11 @@ export function OnboardingGithubSlide({
         {githubSetupError ? githubSetupError : " "}
       </p>
       <div className="flex flex-col items-center gap-6">
+        {/* A native button: the double-click guard (ignoreRepeatClick) needs click events. */}
         <button
           type="button"
           disabled={primaryBusy}
-          className={`${primaryClassName} ${
+          className={`${focusVisibleClassName} ${primaryClassName} ${
             primaryBusy
               ? "cursor-not-allowed bg-zinc-100/80 text-zinc-700"
               : "bg-zinc-100 text-zinc-950 hover:bg-zinc-200"
@@ -116,10 +119,11 @@ export function OnboardingGithubSlide({
                 ? "Set up GitHub App"
                 : "Connect GitHub"}
         </button>
+        {/* A native button: the double-click guard (ignoreRepeatClick) needs click events. */}
         <button
           type="button"
           disabled={isSyncing || finishing}
-          className="text-sm text-zinc-500 underline decoration-zinc-700 underline-offset-4 transition-colors hover:text-zinc-300 disabled:cursor-not-allowed disabled:opacity-50"
+          className={`${focusVisibleClassName} text-sm text-zinc-500 underline decoration-zinc-700 underline-offset-4 transition-colors hover:text-zinc-300 disabled:cursor-not-allowed disabled:opacity-50`}
           onClick={() => onFinish()}
         >
           Skip for now

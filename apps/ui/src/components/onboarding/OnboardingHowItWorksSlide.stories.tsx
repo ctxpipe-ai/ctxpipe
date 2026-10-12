@@ -35,7 +35,7 @@ type Story = StoryObj<typeof meta>
 export const NewOrganization: Story = {
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
-    expect(canvas.getByText("A Workspace")).toBeVisible()
+    expect(await canvas.findByText("A Workspace")).toBeVisible()
     expect(canvas.getByText("Kept current")).toBeVisible()
     expect(canvas.getByText("An agent that works in it")).toBeVisible()
     await userEvent.click(canvas.getByRole("button", { name: "Next" }))

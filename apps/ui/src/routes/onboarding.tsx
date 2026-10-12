@@ -17,6 +17,7 @@ import {
   useListOrganizations,
   useSession,
 } from "@/lib/auth-client"
+import { isAdminRole, sessionUser } from "@/lib/session-user"
 import { useUserPreferences } from "@/lib/user-preferences"
 
 export const Route = createFileRoute("/onboarding")({
@@ -99,23 +100,9 @@ export function OnboardingPageContent({
   }
   if (!session) return <Navigate to="/.auth/sign-in" replace />
 
-  const user = session.user as {
-    id: string
-    onboardingCompletedAt?: string | null
-    email?: string | null
-  }
-  if (user.onboardingCompletedAt && orgSlug) {
-    return (
-      <Navigate
-        to="/"
-        search={{
-          error: undefined,
-          error_description: undefined,
-          pendingAccountClaim: undefined,
-        }}
-        replace
-      />
-    )
+  const user = sessionUser(session)
+  if (user?.onboardingCompletedAt && orgSlug) {
+    return <Navigate to="/$orgSlug" params={{ orgSlug }} replace />
   }
 
   if (organizations && organizations.length > 0) {
@@ -144,34 +131,35 @@ export function OnboardingPageContent({
   const currentSlideName = slides[currentSlide]
   const githubSlideIndexAdmin = ADMIN_SLIDES.indexOf("github")
 
-  const transitionToApp = (navigate: () => void) => {
-    if (completing) return
-    setCompleting(true)
-    navigate()
-  }
-
-  const completeOnboardingThen = async (leave: () => void) => {
+  /**
+   * Finish onboarding for both paths: make the org active, mark the user
+   * (and, for an owner or admin, the org) complete, then open Home.
+   */
+  const finish = async () => {
     if (!orgSlug || completing) return
-    const organization = organizations?.find(
-      (org: { slug: string }) => org.slug === orgSlug,
-    )
+    setCompleting(true)
+    const organization = organizations?.find((org) => org.slug === orgSlug)
     try {
-      if (organization && typeof organization.id === "string") {
+      if (organization) {
         await authClient.organization.setActive({
           organizationId: organization.id,
           fetchOptions: { throw: true },
         })
       }
+      const { role } = await authClient.organization.getActiveMemberRole({
+        query: { organizationSlug: orgSlug },
+        fetchOptions: { throw: true },
+      })
       await Promise.all([
         apiFetch("/api/v1/onboarding/user/complete", {
           method: "POST",
           credentials: "include",
         }).then((res) => readApiJson(res)),
-        client[":orgSlug"].api.v1.onboarding.complete
-          .$post({
-            param: { orgSlug },
-          })
-          .then((res) => readApiJson(res)),
+        isAdminRole(role)
+          ? client[":orgSlug"].api.v1.onboarding.complete
+              .$post({ param: { orgSlug } })
+              .then((res) => readApiJson(res))
+          : null,
       ])
       setPreferences((prev) => ({
         ...prev,
@@ -184,48 +172,10 @@ export function OnboardingPageContent({
       toast.error(FINISH_ERROR)
       return
     }
-    transitionToApp(leave)
-  }
-
-  const completeOnboarding = async () => {
-    await completeOnboardingThen(() => {
-      void router.navigate({
-        to: "/",
-        search: {
-          error: undefined,
-          error_description: undefined,
-          pendingAccountClaim: undefined,
-        },
-        replace: true,
-      })
-    })
-  }
-
-  const completeJoinerOnboarding = async () => {
-    if (completing) return
-    setCompleting(true)
-    try {
-      await apiFetch("/api/v1/onboarding/user/complete", {
-        method: "POST",
-        credentials: "include",
-      }).then((res) => readApiJson(res))
-      if (!(await refetchSessionOnboardingComplete()))
-        throw new Error("The session does not show onboarding as complete")
-    } catch {
-      setCompleting(false)
-      toast.error(FINISH_ERROR)
-      return
-    }
-    transitionToApp(() => {
-      void router.navigate({
-        to: "/",
-        search: {
-          error: undefined,
-          error_description: undefined,
-          pendingAccountClaim: undefined,
-        },
-        replace: true,
-      })
+    void router.navigate({
+      to: "/$orgSlug",
+      params: { orgSlug },
+      replace: true,
     })
   }
 
@@ -264,7 +214,7 @@ export function OnboardingPageContent({
           isPending={completing}
           onNext={() => {
             if (isJoinerLocked) {
-              void completeJoinerOnboarding()
+              void finish()
               return
             }
             goToSlide(currentSlide + 1)
@@ -274,7 +224,7 @@ export function OnboardingPageContent({
 
       {currentSlideName === "create-org" ? (
         <OnboardingCreateOrgSlide
-          userEmail={user.email}
+          userEmail={user?.email}
           onOrgCreated={(slug) => {
             setCreatedOrgSlug(slug)
             void router.navigate({
@@ -291,7 +241,7 @@ export function OnboardingPageContent({
         <OnboardingGithubSlide
           orgSlug={orgSlug}
           finishing={completing}
-          onFinish={() => void completeOnboarding()}
+          onFinish={() => void finish()}
         />
       ) : null}
     </OnboardingPageShell>

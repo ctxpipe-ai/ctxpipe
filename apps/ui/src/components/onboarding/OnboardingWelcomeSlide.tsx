@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { focusVisibleClassName } from "@/lib/focus-styles"
 
 type OnboardingWelcomeSlideProps = {
   onGetStarted: () => void
@@ -64,9 +65,10 @@ export function OnboardingWelcomeSlide({
           showDetails ? "opacity-100" : "pointer-events-none opacity-0"
         }`}
       >
+        {/* A native button: the double-click guard (ignoreRepeatClick) needs click events. */}
         <button
           type="button"
-          className="inline-flex h-11 items-center justify-center rounded-md border border-border bg-zinc-100 px-6 text-sm font-medium text-zinc-950 transition-colors hover:bg-zinc-200"
+          className={`${focusVisibleClassName} inline-flex h-11 items-center justify-center rounded-md border border-border bg-zinc-100 px-6 text-sm font-medium text-zinc-950 transition-colors hover:bg-zinc-200`}
           onClick={() => onGetStarted()}
         >
           Get started

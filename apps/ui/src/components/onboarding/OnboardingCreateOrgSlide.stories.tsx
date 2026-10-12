@@ -161,7 +161,9 @@ export const PrefilledFromWorkEmail: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    const name = canvas.getByRole("textbox", { name: /organization name/i })
+    const name = await canvas.findByRole("textbox", {
+      name: /organization name/i,
+    })
     const slug = canvas.getByRole("textbox", { name: /slug url/i })
     await expect(name).toHaveValue("Initech")
     await expect(slug).toHaveValue("initech")

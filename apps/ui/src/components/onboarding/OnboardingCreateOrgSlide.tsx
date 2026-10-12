@@ -3,6 +3,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useId, useState } from "react"
 import { authClient } from "@/lib/auth-client"
+import { focusVisibleClassName } from "@/lib/focus-styles"
 import { useUserPreferences } from "@/lib/user-preferences"
 import {
   ORG_SLUG_MAX_LENGTH,
@@ -156,10 +157,11 @@ export function OnboardingCreateOrgSlide({
             <p className="mb-4 text-xs text-red-400">{orgError}</p>
           ) : null}
           <div className="flex justify-end">
+            {/* A native button: the double-click guard (ignoreRepeatClick) needs click events. */}
             <button
               type="button"
               disabled={createOrg.isPending}
-              className="inline-flex h-10 items-center justify-center rounded-md border border-border bg-zinc-100 px-5 text-sm font-medium text-zinc-950 transition-colors hover:bg-zinc-200 disabled:opacity-50"
+              className={`${focusVisibleClassName} inline-flex h-10 items-center justify-center rounded-md border border-border bg-zinc-100 px-5 text-sm font-medium text-zinc-950 transition-colors hover:bg-zinc-200 disabled:opacity-50`}
               onClick={handleCreateOrg}
             >
               Create organization

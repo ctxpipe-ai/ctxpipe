@@ -1,6 +1,7 @@
 "use client"
 
 import { IconFolderCode, IconMessage, IconRefresh } from "@tabler/icons-react"
+import { focusVisibleClassName } from "@/lib/focus-styles"
 
 type OnboardingHowItWorksSlideProps = {
   /** "Next" for a new organization; "Get started" finishes a joiner. */
@@ -63,10 +64,11 @@ export function OnboardingHowItWorksSlide({
         Turn ctx| off and your knowledge stays in your repository.
       </p>
       <div className="mt-8">
+        {/* A native button: the double-click guard (ignoreRepeatClick) needs click events. */}
         <button
           type="button"
           disabled={isPending}
-          className="inline-flex h-11 items-center justify-center rounded-md border border-border bg-zinc-100 px-6 text-sm font-medium text-zinc-950 transition-colors hover:bg-zinc-200 disabled:opacity-50"
+          className={`${focusVisibleClassName} inline-flex h-11 items-center justify-center rounded-md border border-border bg-zinc-100 px-6 text-sm font-medium text-zinc-950 transition-colors hover:bg-zinc-200 disabled:opacity-50`}
           onClick={() => onNext()}
         >
           {actionLabel}
