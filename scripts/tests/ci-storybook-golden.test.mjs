@@ -160,6 +160,26 @@ const required = [
     "apps/ui/src/features/workspaces/WorkspaceCommandPalette.stories.tsx",
     "PaletteLoadingKeepsPages",
   ],
+  [
+    "apps/ui/src/features/workspaces/WorkspaceCommandPalette.stories.tsx",
+    "PaletteSkeletonHandsOverOnce",
+  ],
+  [
+    "apps/ui/src/features/workspaces/WorkspaceCommandPalette.stories.tsx",
+    "PaletteArrowKeysWalkEveryItem",
+  ],
+  [
+    "apps/ui/src/features/workspaces/WorkspaceCommandPalette.stories.tsx",
+    "PaletteHoverAndKeysShareOneHighlight",
+  ],
+  [
+    "apps/ui/src/features/workspaces/WorkspaceCommandPalette.stories.tsx",
+    "PaletteEnterAfterDeleteRunsFirstMatch",
+  ],
+  [
+    "apps/ui/src/features/workspaces/WorkspaceCommandPalette.stories.tsx",
+    "PaletteShortcutClosesAfterSyncRender",
+  ],
 ]
 
 test("required golden stories carry the workspace-golden tag and a play", () => {

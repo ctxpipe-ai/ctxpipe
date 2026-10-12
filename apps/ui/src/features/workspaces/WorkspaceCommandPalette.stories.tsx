@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useRouterState } from "@tanstack/react-router"
 import { delay, HttpResponse, http } from "msw"
 import { type ComponentProps, useState } from "react"
+import { flushSync } from "react-dom"
 import { expect, fn, screen, userEvent, waitFor, within } from "storybook/test"
 import { workspaceListHandler } from "@/mocks/workspace-handlers"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
@@ -22,7 +23,13 @@ const longNameWorkspace = {
  * check that focus goes back to it, and the router location so a play can
  * check that `?pane=` stays.
  */
-function PaletteHarness(props: ComponentProps<typeof WorkspaceCommandPalette>) {
+function PaletteHarness(
+  props: ComponentProps<typeof WorkspaceCommandPalette> & {
+    /** Re-render at once, as the app shell does when the palette opens. */
+    syncRender?: boolean
+  },
+) {
+  const { syncRender, ...paletteProps } = props
   const [isOpen, setIsOpen] = useState(props.isOpen)
   const href = useRouterState({ select: (state) => state.location.href })
   return (
@@ -30,13 +37,14 @@ function PaletteHarness(props: ComponentProps<typeof WorkspaceCommandPalette>) {
       <button type="button" onClick={() => setIsOpen(true)}>
         Search
       </button>
-      <output data-testid="location">{href}</output>
+      <span data-testid="location">{href}</span>
       <WorkspaceCommandPalette
-        {...props}
+        {...paletteProps}
         isOpen={isOpen}
         onOpenChange={(open) => {
           props.onOpenChange(open)
-          setIsOpen(Boolean(open))
+          if (syncRender) flushSync(() => setIsOpen(Boolean(open)))
+          else setIsOpen(Boolean(open))
         }}
       />
     </div>
@@ -86,6 +94,11 @@ const searchField = () =>
 const focusedItem = () =>
   screen.getByRole("menu", { name: "Results" }).querySelector("[data-focused]")
 
+const liveStatus = () => within(screen.getByRole("dialog")).getByRole("status")
+
+/** Visibility of an element, as the skeleton delay sets it. */
+const visibility = (element: Element) => getComputedStyle(element).visibility
+
 export const Open: Story = {}
 
 export const PaletteShortcutTogglesAndRestoresFocus: Story = {
@@ -122,6 +135,7 @@ export const PaletteFiltersAtOnce: Story = {
           .map((item) => item.textContent),
       ).toEqual(["Handbookhandbook"]),
     )
+    await expect(liveStatus()).toHaveTextContent("1 result")
     // The slug matches too, and the first match is active for Enter.
     await userEvent.clear(await searchField())
     await userEvent.type(await searchField(), "runbooks")
@@ -163,9 +177,15 @@ export const PaletteEscapeClearsThenCloses: Story = {
   tags: ["workspace-golden"],
   play: async ({ args }) => {
     const field = await searchField()
+    await expect(screen.getByText("Close")).toBeInTheDocument()
     await userEvent.type(field, "docs")
+    await expect(screen.getByText("Clear")).toBeInTheDocument()
+    // Tab keeps focus in the field, and Escape still clears first.
+    await userEvent.keyboard("{Tab}")
+    await expect(field).toHaveFocus()
     await userEvent.keyboard("{Escape}")
     await expect(field).toHaveValue("")
+    await expect(screen.getByText("Close")).toBeInTheDocument()
     await expect(screen.getByRole("dialog")).toBeInTheDocument()
     await userEvent.keyboard("{Escape}")
     await waitFor(() =>
@@ -180,7 +200,10 @@ export const PaletteNoResults: Story = {
   play: async () => {
     await screen.findByRole("menuitem", { name: /Handbook/ })
     await userEvent.type(await searchField(), "zzzz-no-match")
-    await expect(await screen.findByText(/No results for/)).toHaveTextContent(
+    await expect(
+      await screen.findByText(/No results for/, { selector: "p" }),
+    ).toHaveTextContent("No results for “zzzz-no-match”")
+    await expect(liveStatus()).toHaveTextContent(
       "No results for “zzzz-no-match”",
     )
     await expect(
@@ -204,21 +227,214 @@ export const PaletteLoadingKeepsPages: Story = {
     },
   },
   play: async ({ canvasElement }) => {
-    await expect(
-      await screen.findByRole("region", { name: "Loading workspaces" }),
-    ).toHaveAttribute("aria-busy", "true")
+    const loading = await screen.findByRole("region", {
+      name: "Loading workspaces",
+    })
+    await expect(loading).toHaveAttribute("aria-busy", "true")
+    await expect(liveStatus()).toHaveTextContent("Loading workspaces")
+    // The section header waits for the same delay as the bones, so the
+    // region does not show a lone header over blank space.
+    const header = within(loading).getByText("Workspaces")
+    const bone = loading.querySelector("[data-skeleton]")
+    if (!bone) throw new Error("No skeleton bone")
+    await expect(visibility(header)).toBe("hidden")
+    await expect(visibility(bone)).toBe("hidden")
+    await waitFor(() => expect(visibility(bone)).toBe("visible"), {
+      timeout: 2000,
+    })
+    await expect(visibility(header)).toBe("visible")
     // Pages do not need the workspace list, so they stay usable.
     await expect(
       screen.getByRole("menuitem", { name: "Home" }),
     ).toBeInTheDocument()
     await userEvent.type(await searchField(), "conn")
     await waitFor(() => expect(focusedItem()?.textContent).toBe("Connectors"))
+    // Arrow keys move through the pages and wrap while the list loads.
+    await userEvent.clear(await searchField())
+    await userEvent.keyboard("{ArrowDown}")
+    await waitFor(() => expect(focusedItem()?.textContent).toBe("Home"))
+    await userEvent.keyboard("{ArrowDown}")
+    await waitFor(() => expect(focusedItem()?.textContent).toBe("Connectors"))
+    await userEvent.keyboard("{ArrowDown}")
+    await waitFor(() => expect(focusedItem()?.textContent).toBe("Home"))
     // The empty state waits for the workspace list.
     await userEvent.clear(await searchField())
     await userEvent.type(await searchField(), "zzzz")
-    await expect(screen.queryByText(/No results for/)).not.toBeInTheDocument()
+    await expect(
+      screen.queryByText(/No results for/, { selector: "p" }),
+    ).not.toBeInTheDocument()
     await expect(
       within(canvasElement).getByTestId("location"),
     ).toHaveTextContent("/acme/ws/docs?pane=files")
+  },
+}
+
+export const PaletteSkeletonHandsOverOnce: Story = {
+  tags: ["workspace-golden"],
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          http.get("*/api/v1/workspaces", async () => {
+            // Past the skeleton delay, so the bones show and then hold.
+            await delay(1200)
+            return HttpResponse.json({
+              items: [docsWorkspace, readOnlyWorkspace, longNameWorkspace],
+            })
+          }),
+        ],
+      },
+    },
+  },
+  play: async () => {
+    await screen.findByRole("region", { name: "Loading workspaces" })
+    await screen.findByRole("menuitem", { name: /Handbook/ }, { timeout: 4000 })
+    // The list replaces the skeleton in one step: one Workspaces header.
+    await expect(
+      screen.queryByRole("region", { name: "Loading workspaces" }),
+    ).not.toBeInTheDocument()
+    await expect(screen.getAllByText("Workspaces")).toHaveLength(1)
+    await expect(liveStatus()).toHaveTextContent("5 results")
+  },
+}
+
+const manyWorkspaces = Array.from({ length: 20 }, (_, index) => {
+  const number = String(index + 1).padStart(2, "0")
+  return {
+    ...docsWorkspace,
+    id: `ws_team_${number}`,
+    slug: `team-${number}`,
+    displayName: `Team ${number}`,
+  }
+})
+
+/** The active item is fully inside the scroll area of the list. */
+const activeInView = () => {
+  const item = focusedItem()
+  const scroller = item?.closest(".overflow-y-auto")
+  if (!item || !scroller) return false
+  const box = item.getBoundingClientRect()
+  const area = scroller.getBoundingClientRect()
+  return box.top >= area.top - 1 && box.bottom <= area.bottom + 1
+}
+
+const pressAndExpect = async (key: string, name: RegExp) => {
+  await userEvent.keyboard(key)
+  await waitFor(() => expect(focusedItem()?.textContent).toMatch(name))
+  await expect(activeInView()).toBe(true)
+}
+
+export const PaletteArrowKeysWalkEveryItem: Story = {
+  tags: ["workspace-golden"],
+  parameters: {
+    msw: { handlers: { page: [workspaceListHandler(manyWorkspaces)] } },
+  },
+  play: async () => {
+    await screen.findByRole("menuitem", { name: /Team 20/ })
+    const field = await searchField()
+    await waitFor(() => expect(field).toHaveFocus())
+    // Down through each workspace, over the section boundary, to the pages.
+    for (const workspace of manyWorkspaces)
+      await pressAndExpect(
+        "{ArrowDown}",
+        new RegExp(`^${workspace.displayName}`),
+      )
+    await pressAndExpect("{ArrowDown}", /^Home$/)
+    await pressAndExpect("{ArrowDown}", /^Connectors$/)
+    // The list wraps at both ends.
+    await pressAndExpect("{ArrowDown}", /^Team 01/)
+    await pressAndExpect("{ArrowUp}", /^Connectors$/)
+    await pressAndExpect("{ArrowUp}", /^Home$/)
+    await pressAndExpect("{ArrowUp}", /^Team 20/)
+    // Home and End go to the first and the last item.
+    await pressAndExpect("{Home}", /^Team 01/)
+    await pressAndExpect("{End}", /^Connectors$/)
+    // Page keys keep an item active and do not close the dialog.
+    await userEvent.keyboard("{PageUp}")
+    await waitFor(() => expect(focusedItem()).not.toBeNull())
+    await expect(activeInView()).toBe(true)
+    await userEvent.keyboard("{PageDown}")
+    await waitFor(() => expect(focusedItem()).not.toBeNull())
+    await expect(activeInView()).toBe(true)
+    // Tab does not leave the dialog.
+    await userEvent.keyboard("{Tab}")
+    await expect(field).toHaveFocus()
+    await userEvent.keyboard("{Shift>}{Tab}{/Shift}")
+    await expect(field).toHaveFocus()
+    // Typing after an arrow press makes the first match active.
+    await userEvent.type(field, "1")
+    await waitFor(() => expect(focusedItem()?.textContent).toMatch(/^Team 01/))
+    await expect(screen.getByRole("dialog")).toBeInTheDocument()
+  },
+}
+
+export const PaletteHoverAndKeysShareOneHighlight: Story = {
+  tags: ["workspace-golden"],
+  play: async () => {
+    const home = await screen.findByRole("menuitem", { name: "Home" })
+    // The pointer lands on the hover layer that covers the item.
+    const layer = home.querySelector(".absolute")
+    if (!layer) throw new Error("No hover layer")
+    await userEvent.hover(layer)
+    await waitFor(() => expect(focusedItem()).toBe(home))
+    await userEvent.keyboard("{ArrowDown}")
+    const connectors = screen.getByRole("menuitem", { name: "Connectors" })
+    await waitFor(() => expect(focusedItem()).toBe(connectors))
+    // The pointer is still on Home, but only the active item has a fill.
+    await expect(
+      screen.getByRole("menu").querySelectorAll("[data-focused]"),
+    ).toHaveLength(1)
+    await expect(getComputedStyle(home).backgroundColor).toBe(
+      "rgba(0, 0, 0, 0)",
+    )
+    await expect(getComputedStyle(connectors).backgroundColor).not.toBe(
+      "rgba(0, 0, 0, 0)",
+    )
+  },
+}
+
+export const PaletteEnterAfterDeleteRunsFirstMatch: Story = {
+  tags: ["workspace-golden"],
+  play: async ({ canvasElement }) => {
+    await screen.findByRole("menuitem", { name: /Handbook/ })
+    const field = await searchField()
+    await userEvent.type(field, "hand")
+    await waitFor(() => expect(focusedItem()?.textContent).toMatch(/^Handbook/))
+    // React Aria clears the active item when text is deleted.
+    await userEvent.keyboard("{Backspace}")
+    await waitFor(() => expect(focusedItem()).toBeNull())
+    await userEvent.keyboard("{Enter}")
+    await waitFor(() =>
+      expect(within(canvasElement).getByTestId("location")).toHaveTextContent(
+        "/acme/ws/handbook?pane=files",
+      ),
+    )
+  },
+}
+
+export const PaletteShortcutClosesAfterSyncRender: Story = {
+  tags: ["workspace-golden"],
+  args: { isOpen: false },
+  render: (args) => <PaletteHarness {...args} syncRender />,
+  play: async ({ canvasElement }) => {
+    const trigger = await within(canvasElement).findByRole("button", {
+      name: "Search",
+    })
+    trigger.focus()
+    await userEvent.keyboard("{Meta>}k{/Meta}")
+    await searchField()
+    // A shortcut listener that re-registers in the same key press must not
+    // open the palette again after it closes it.
+    await userEvent.keyboard("{Meta>}k{/Meta}")
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+    )
+    await userEvent.keyboard("{Control>}k{/Control}")
+    await searchField()
+    await userEvent.keyboard("{Control>}k{/Control}")
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+    )
+    await waitFor(() => expect(trigger).toHaveFocus())
   },
 }

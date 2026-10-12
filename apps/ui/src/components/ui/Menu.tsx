@@ -82,6 +82,10 @@ export function MenuSeparator(props: SeparatorProps) {
   )
 }
 
+/** Header of a `MenuSection`. A skeleton of a section uses it too. */
+export const menuSectionHeaderClassName =
+  "px-3 py-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-zinc-500 bg-zinc-900/95 border-t border-zinc-800 first:border-t-0"
+
 export interface MenuSectionProps<T> extends AriaMenuSectionProps<T> {
   title?: string
   items?: any
@@ -93,10 +97,7 @@ export function MenuSection<T extends object>(props: MenuSectionProps<T>) {
     <AriaMenuSection {...props} className="py-0.5 first:pt-0 last:pb-0">
       {props.title && (
         <Header
-          className={[
-            "px-3 py-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-zinc-500 bg-zinc-900/95 border-t border-zinc-800 first:border-t-0",
-            props.headerClassName,
-          ]
+          className={[menuSectionHeaderClassName, props.headerClassName]
             .filter(Boolean)
             .join(" ")}
         >

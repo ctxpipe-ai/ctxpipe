@@ -1,12 +1,18 @@
 import { IconFolder, IconHome, IconPlug } from "@tabler/icons-react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { type ReactNode, useEffect, useState } from "react"
+import {
+  type ReactNode,
+  useContext,
+  useEffect,
+  useEffectEvent,
+  useRef,
+  useState,
+} from "react"
 import {
   Autocomplete,
-  Header,
   type Key,
-  MenuSection,
+  MenuStateContext,
   useFilter,
 } from "react-aria-components"
 import { useSelectNav } from "@/components/ShellLayoutContext"
@@ -16,10 +22,19 @@ import {
 } from "@/components/SideNav/prefetch-org-pages"
 import type { SideNavLocation } from "@/components/SideNav/sideNavLocation"
 import { Dialog } from "@/components/ui/Dialog"
-import { Menu, MenuItem } from "@/components/ui/Menu"
+import {
+  Menu,
+  MenuItem,
+  MenuSection,
+  menuSectionHeaderClassName,
+} from "@/components/ui/Menu"
 import { Modal } from "@/components/ui/Modal"
 import { SearchField } from "@/components/ui/SearchField"
-import { SkeletonRow, useSkeletonHold } from "@/components/ui/Skeleton"
+import {
+  SkeletonReveal,
+  SkeletonRow,
+  useSkeletonHold,
+} from "@/components/ui/Skeleton"
 import { prefetchWorkspaceRouteData } from "./ensure-route-data"
 import { fetchWorkspaces, workspaceKeys } from "./queries"
 
@@ -30,8 +45,6 @@ type PaletteProps = {
   onSelectNav?: (next: SideNavLocation) => void
 }
 
-const sectionLabelClassName = "ctx-label px-3 pt-2 pb-1"
-
 /**
  * Cmd+K / Ctrl+K palette: go to a workspace, Home, or Connectors.
  * React Aria Autocomplete keeps focus in the search field and moves a virtual
@@ -41,17 +54,22 @@ const sectionLabelClassName = "ctx-label px-3 pt-2 pb-1"
 export function WorkspaceCommandPalette(props: PaletteProps) {
   const { isOpen, onOpenChange } = props
 
+  // One listener for the life of the palette; it reads the current state.
+  const toggle = useEffectEvent(() => onOpenChange(!isOpen))
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault()
-        onOpenChange(!isOpen)
+        // Stop the key here. Autocomplete sends a copy of each key from the
+        // field to the menu, and that copy would toggle the palette again.
+        event.stopPropagation()
+        toggle()
       }
     }
-    // Capture phase: React Aria stops key events in the open dialog.
+    // Capture phase: this runs before React Aria handles the key.
     window.addEventListener("keydown", onKey, true)
     return () => window.removeEventListener("keydown", onKey, true)
-  }, [isOpen, onOpenChange])
+  }, [])
 
   return (
     <Modal
@@ -85,6 +103,27 @@ function PaletteBody(props: PaletteProps) {
     workspacesQuery.isPending && !workspacesQuery.data,
   )
   const workspaces = workspacesQuery.data?.items ?? []
+
+  const matches = (name: string, slug: string, input: string) =>
+    contains(name, input) || (slug !== "" && contains(slug, input))
+  const results = [
+    ...(workspacesLoading
+      ? []
+      : workspaces.map((workspace) => ({
+          id: `ws:${workspace.slug}`,
+          name: workspace.displayName,
+          slug: workspace.slug,
+        }))),
+    { id: "home", name: "Home", slug: "" },
+    { id: "connectors", name: "Connectors", slug: "" },
+  ].filter((item) => matches(item.name, item.slug, query))
+  const resultCount = results.length
+  const menuRef = useRef<HTMLDivElement>(null)
+  const status = workspacesLoading
+    ? "Loading workspaces"
+    : resultCount === 0
+      ? `No results for “${query}”`
+      : `${resultCount} ${resultCount === 1 ? "result" : "results"}`
 
   const run = (key: Key) => {
     const id = String(key)
@@ -133,25 +172,57 @@ function PaletteBody(props: PaletteProps) {
       inputValue={query}
       onInputChange={setQuery}
       filter={(textValue, input, node) =>
-        contains(textValue, input) ||
-        (typeof node.key === "string" &&
-          node.key.startsWith("ws:") &&
-          contains(node.key.slice(3), input))
+        matches(
+          textValue,
+          String(node.key).startsWith("ws:") ? String(node.key).slice(3) : "",
+          input,
+        )
       }
     >
-      <div className="border-b border-white/10 p-2">
+      <div
+        className="border-b border-white/10 p-2"
+        onKeyDownCapture={(event) => {
+          // Escape clears the search first. Handle it here: in the app
+          // shell, after a Tab press, the key otherwise reaches the modal
+          // and closes it with the text still in the field.
+          if (event.key === "Escape" && query !== "") {
+            event.preventDefault()
+            event.stopPropagation()
+            setQuery("")
+            return
+          }
+          // React Aria clears the active item when the user deletes text.
+          // Enter then runs the first match, as it does after typing.
+          const first = results[0]
+          if (
+            event.key !== "Enter" ||
+            query === "" ||
+            !first ||
+            menuRef.current?.querySelector("[data-focused]")
+          )
+            return
+          event.preventDefault()
+          event.stopPropagation()
+          run(first.id)
+        }}
+      >
         <SearchField
           autoFocus
           aria-label="Search workspaces and pages"
           placeholder="Search workspaces and pages"
         />
       </div>
-      <div className="max-h-96 overflow-y-auto p-1">
+      <output aria-live="polite" className="sr-only">
+        {status}
+      </output>
+      <div ref={menuRef} className="max-h-96 overflow-y-auto p-1">
         {workspacesLoading ? (
           <section aria-busy aria-label="Loading workspaces">
-            <div aria-hidden className={sectionLabelClassName}>
-              Workspaces
-            </div>
+            <SkeletonReveal>
+              <div aria-hidden className={menuSectionHeaderClassName}>
+                Workspaces
+              </div>
+            </SkeletonReveal>
             <SkeletonRow className="h-9 px-3" />
             <SkeletonRow className="h-9 px-3" />
             <SkeletonRow className="h-9 px-3" />
@@ -174,9 +245,8 @@ function PaletteBody(props: PaletteProps) {
             )
           }
         >
-          {workspaces.length > 0 ? (
-            <MenuSection>
-              <Header className={sectionLabelClassName}>Workspaces</Header>
+          {!workspacesLoading && workspaces.length > 0 ? (
+            <MenuSection title="Workspaces">
               {workspaces.map((workspace) => (
                 <PaletteItem
                   key={workspace.slug}
@@ -190,8 +260,7 @@ function PaletteBody(props: PaletteProps) {
               ))}
             </MenuSection>
           ) : null}
-          <MenuSection>
-            <Header className={sectionLabelClassName}>Pages</Header>
+          <MenuSection title="Pages">
             <PaletteItem
               id="home"
               textValue="Home"
@@ -220,7 +289,8 @@ function PaletteBody(props: PaletteProps) {
           <kbd className="font-mono text-foreground">Enter</kbd> Open
         </span>
         <span>
-          <kbd className="font-mono text-foreground">Esc</kbd> Close
+          <kbd className="font-mono text-foreground">Esc</kbd>{" "}
+          {query ? "Clear" : "Close"}
         </span>
       </div>
     </Autocomplete>
@@ -235,7 +305,12 @@ function PaletteItem(props: {
   children: ReactNode
 }) {
   return (
-    <MenuItem id={props.id} textValue={props.textValue} className="h-9 py-0">
+    <MenuItem
+      id={props.id}
+      textValue={props.textValue}
+      className="relative h-9 py-0 hover:bg-transparent"
+    >
+      <HoverMovesActiveItem id={props.id} />
       <span
         aria-hidden
         className="flex size-4 shrink-0 text-muted-foreground [&>svg]:size-4"
@@ -249,5 +324,24 @@ function PaletteItem(props: {
         </span>
       ) : null}
     </MenuItem>
+  )
+}
+
+/**
+ * React Aria does not move the active item on hover after a key press. Move
+ * it here, so the pointer and the keyboard never show two highlights. This
+ * renders inside the item, where the menu state is in context.
+ */
+function HoverMovesActiveItem(props: { id: string }) {
+  const menuState = useContext(MenuStateContext)
+  return (
+    <span
+      aria-hidden
+      className="absolute inset-0"
+      onPointerEnter={() => {
+        menuState?.selectionManager.setFocused(true)
+        menuState?.selectionManager.setFocusedKey(props.id)
+      }}
+    />
   )
 }

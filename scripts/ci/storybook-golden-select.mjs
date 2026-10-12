@@ -110,6 +110,11 @@ export const requiredStories = [
   "PaletteEscapeClearsThenCloses",
   "PaletteNoResults",
   "PaletteLoadingKeepsPages",
+  "PaletteSkeletonHandsOverOnce",
+  "PaletteArrowKeysWalkEveryItem",
+  "PaletteHoverAndKeysShareOneHighlight",
+  "PaletteEnterAfterDeleteRunsFirstMatch",
+  "PaletteShortcutClosesAfterSyncRender",
 ]
 
 export function isGoldenPlaySuccess(phase) {
