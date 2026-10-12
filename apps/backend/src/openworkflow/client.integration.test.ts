@@ -91,7 +91,7 @@ describeWithDatabase("runWorkflowWithWorkerWake", () => {
     expect(handle.workflowRun.input).toEqual({ orgId: "org_1" })
     await handle.cancel()
   })
-  it("wakes the worker once for a repeated idempotency key", async () => {
+  it("does not wake the worker for a repeated key of a finished run", async () => {
     let deploys = 0
     const server = setupServer(
       http.post(
@@ -131,8 +131,11 @@ describeWithDatabase("runWorkflowWithWorkerWake", () => {
         { orgId: "org_1" },
         { idempotencyKey },
       )
+      // A new run is pending, so it wakes the worker.
       await vi.waitFor(() => expect(deploys).toBe(1))
+      await first.cancel()
 
+      // Step past the wake debounce. The same key returns the finished run.
       vi.setSystemTime(Date.now() + 10 * 60_000)
       const repeated = await runWorkflowWithWorkerWake(
         enqueueProbe.spec,
@@ -140,9 +143,9 @@ describeWithDatabase("runWorkflowWithWorkerWake", () => {
         { idempotencyKey },
       )
       expect(repeated.workflowRun.id).toBe(first.workflowRun.id)
+      expect(repeated.workflowRun.status).not.toBe("pending")
       await new Promise((settle) => setTimeout(settle, 300))
       expect(deploys).toBe(1)
-      await first.cancel()
     } finally {
       vi.useRealTimers()
       vi.unstubAllEnvs()
