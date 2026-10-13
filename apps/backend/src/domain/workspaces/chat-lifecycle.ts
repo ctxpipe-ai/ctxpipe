@@ -271,3 +271,12 @@ export function mayForcePushBranch(
     branch.startsWith(`${CHAT_SESSION_BRANCH_PREFIX}/`)
   )
 }
+
+/**
+ * The thread of one ingest shard. It keys the shard's sandbox, and it is also
+ * the name of the shard's lock: a step holds it while it uses the sandbox,
+ * and the org sweep never deletes a sandbox whose lock is held.
+ */
+export function ingestSandboxThreadId(runId: string, shard: number): string {
+  return `ingest:${runId}:${shard}`
+}

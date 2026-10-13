@@ -1,6 +1,10 @@
 "use client"
 
-import { IconChevronRight, IconDotsVertical } from "@tabler/icons-react"
+import {
+  IconChevronRight,
+  IconDotsVertical,
+  IconRefresh,
+} from "@tabler/icons-react"
 import { type ReactNode, useContext, useState } from "react"
 import { DisclosureStateContext } from "react-aria-components"
 import { AlertDialog } from "@/components/ui/AlertDialog"
@@ -10,12 +14,15 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Modal } from "@/components/ui/Modal"
 import { Skeleton, SkeletonChain, SkeletonText } from "@/components/ui/Skeleton"
 import type { ConnectorHealth } from "../connectorHealth"
 import { ConnectorHealthIndicator } from "./ConnectorHealthIndicator"
+
+type ConnectorSyncAction = { start: () => void; isPending: boolean }
 
 function ExpandTrigger({ name }: { name: string }) {
   const state = useContext(DisclosureStateContext)
@@ -38,11 +45,13 @@ function ExpandTrigger({ name }: { name: string }) {
   )
 }
 
-function ConnectorRemoveMenu({
+function ConnectorActionsMenu({
   ariaLabel,
+  sync,
   onRemove,
 }: {
   ariaLabel: string
+  sync?: ConnectorSyncAction
   onRemove: () => void
 }) {
   return (
@@ -59,6 +68,15 @@ function ConnectorRemoveMenu({
         }
       />
       <DropdownMenuContent align="end" className="min-w-40">
+        {sync ? (
+          <>
+            <DropdownMenuItem disabled={sync.isPending} onSelect={sync.start}>
+              <IconRefresh aria-hidden />
+              Sync now
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+          </>
+        ) : null}
         <DropdownMenuItem variant="destructive" onSelect={onRemove}>
           Remove connector
         </DropdownMenuItem>
@@ -109,8 +127,8 @@ export function ConnectorListItem({
   remove,
   workspace,
   scope,
-  syncRepository,
   usedIn,
+  sync,
   actionLabel,
   onAction,
   defaultExpanded = false,
@@ -131,14 +149,15 @@ export function ConnectorListItem({
    * not read as a ctx| Workspace.
    */
   workspace: ReactNode
-  /** Omit both for a connection without a scope or sync repository of its own. */
+  /** Omit for a connection without a scope of its own. */
   scope?: ReactNode
-  syncRepository?: ReactNode
   /**
    * The "Used in" block: the Workspaces that use this connection. Each
    * provider card gives `<ConnectorUsedIn …/>`.
    */
   usedIn?: ReactNode
+  /** "Sync now" in the actions menu; from `useConnectorSync`. */
+  sync?: ConnectorSyncAction
   actionLabel?: string
   onAction?: () => void
   defaultExpanded?: boolean
@@ -187,8 +206,9 @@ export function ConnectorListItem({
             ) : (
               <>
                 <ConnectorHealthIndicator health={health} />
-                <ConnectorRemoveMenu
+                <ConnectorActionsMenu
                   ariaLabel={`${name} connector actions`}
+                  sync={sync}
                   onRemove={() => setRemoveOpen(true)}
                 />
               </>
@@ -209,14 +229,6 @@ export function ConnectorListItem({
                 <div>
                   <dt className="text-muted-foreground">Scope</dt>
                   <dd className="mt-1 text-foreground">{scope}</dd>
-                </div>
-              )}
-              {syncRepository === undefined ? null : (
-                <div className="sm:col-span-2">
-                  <dt className="text-muted-foreground">
-                    Synchronised repository
-                  </dt>
-                  <dd className="mt-1 text-foreground">{syncRepository}</dd>
                 </div>
               )}
             </dl>
@@ -248,21 +260,6 @@ export function ConnectorListItem({
 
 export function connectorDash(value: string | null | undefined): string {
   return value?.trim() ? value : "—"
-}
-
-export function formatSyncRepositoryLine(
-  target: {
-    repositoryName: string
-    branch: string
-  } | null,
-): ReactNode {
-  if (!target) return "—"
-  return (
-    <>
-      {target.repositoryName}
-      <span className="text-muted-foreground"> · branch {target.branch}</span>
-    </>
-  )
 }
 
 /** The collapsed `ConnectorListItem` row while the connections load. */

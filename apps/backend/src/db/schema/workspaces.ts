@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm"
 import {
+  customType,
   index,
   integer,
   jsonb,
@@ -9,6 +10,7 @@ import {
   timestamp,
   unique,
   uniqueIndex,
+  vector,
 } from "drizzle-orm/pg-core"
 import type { UnbornBootstrapBinding } from "../../domain/workspaces/bootstrap-input.js"
 import type { ConnectorMirrorSource } from "../../domain/workspaces/connector-mirror.js"
@@ -21,6 +23,7 @@ import type {
 } from "../../domain/workspaces/write-job-intent.js"
 import type { GitFileChange } from "../../services/git/file-change.js"
 import { connections } from "./connections.js"
+import { EMBEDDING_DIMENSIONS } from "./objects.js"
 import { orgIsolationPolicy } from "./org-rls.js"
 
 /**
@@ -112,6 +115,10 @@ export const workspaceKnowledgeUnits = pgTable.withRLS(
       .references(() => workspaces.id, { onDelete: "cascade" }),
     path: text("path").notNull(),
     kind: text("kind"),
+    /** Front-matter `title`, else the first Markdown heading. */
+    title: text("title"),
+    /** Connector root of a mirror path, else `authored`. Null before the first hydrate that sets it. */
+    source: text("source"),
     body: text("body").notNull(),
     projectionSha: text("projection_sha").notNull(),
     links: jsonb("links").$type<string[]>().notNull().default([]),
@@ -132,6 +139,7 @@ export const workspaceKnowledgeUnits = pgTable.withRLS(
       .notNull()
       .defaultNow(),
     embedding: jsonb("embedding").$type<number[]>(),
+    /** Last commit time of the path; the hydrate time when Git gives none. */
     updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
       .notNull()
       .defaultNow(),
@@ -143,6 +151,60 @@ export const workspaceKnowledgeUnits = pgTable.withRLS(
     ),
     index("workspace_knowledge_units_workspace_id_idx").on(t.workspaceId),
     index("workspace_knowledge_units_org_id_idx").on(t.orgId),
+    orgIsolationPolicy(t.orgId),
+  ],
+)
+
+const tsvector = customType<{ data: string }>({
+  dataType: () => "tsvector",
+})
+
+/**
+ * Search chunks of the active projection's knowledge units (ADR-051). A row
+ * stays across projection SHAs while its unit still has that chunk, so an
+ * unchanged chunk is never written again. The activation transaction inserts
+ * new chunks and deletes gone ones. `unit_id` has no foreign key: units are
+ * replaced in that transaction, and a new chunk copies the embedding of an
+ * old chunk with the same hash before the old one goes.
+ */
+export const workspaceKnowledgeChunks = pgTable.withRLS(
+  "workspace_knowledge_chunks",
+  {
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    unitId: text("unit_id").notNull(),
+    /** SHA-256 of the embedding model id and `text`. */
+    chunkHash: text("chunk_hash").notNull(),
+    /** Index among the chunks of the unit with the same hash. */
+    occurrence: integer("occurrence").notNull(),
+    orgId: text("org_id").notNull(),
+    ordinal: integer("ordinal").notNull(),
+    /** 1-based file lines, inclusive. */
+    startLine: integer("start_line").notNull(),
+    endLine: integer("end_line").notNull(),
+    /** Title and heading path, then the section text. */
+    text: text("text").notNull(),
+    search: tsvector("search")
+      .notNull()
+      .generatedAlwaysAs(sql`to_tsvector('english', "text")`),
+    /** Null until embedded. */
+    embedding: vector("embedding", { dimensions: EMBEDDING_DIMENSIONS }),
+  },
+  (t) => [
+    primaryKey({
+      columns: [t.workspaceId, t.unitId, t.chunkHash, t.occurrence],
+    }),
+    index("workspace_knowledge_chunks_workspace_id_hash_idx").on(
+      t.workspaceId,
+      t.chunkHash,
+    ),
+    index("workspace_knowledge_chunks_org_id_idx").on(t.orgId),
+    index("workspace_knowledge_chunks_search_idx").using("gin", t.search),
+    index("workspace_knowledge_chunks_embedding_idx").using(
+      "hnsw",
+      t.embedding.op("vector_cosine_ops"),
+    ),
     orgIsolationPolicy(t.orgId),
   ],
 )

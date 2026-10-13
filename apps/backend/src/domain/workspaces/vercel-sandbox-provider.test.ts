@@ -2,6 +2,7 @@ import { type NetworkPolicy, Sandbox } from "@vercel/sandbox"
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
+import { ingestNetworkPolicy } from "./ingest-sandbox-egress.js"
 import {
   agentSnapshotTags,
   conversationFirewall,
@@ -289,6 +290,31 @@ describe("conversationFirewall", () => {
     firewall.attach(await Sandbox.get({ ...credentials, name }), gitToken)
     return firewall
   }
+
+  it("keeps an ingest sandbox closed at step start and at step end", async () => {
+    server.use(...vercelApi)
+    policies.length = 0
+    failure = "none"
+    const firewall = conversationFirewall("app.example.test", (input) =>
+      ingestNetworkPolicy({
+        git: [{ token: input.gitToken, repositories: ["acme/source"] }],
+        backendHost: "app.example.test",
+        ...(input.turn ? { step: input.turn } : {}),
+      }),
+    )
+    expect(allowOf(firewall.policy("git-1"))["*"]).toBeUndefined()
+    firewall.attach(
+      await Sandbox.get({ ...credentials, name: "sbx-ingest" }),
+      "git-1",
+    )
+    await firewall.openTurn("sbx-ingest", turn)
+    expect(backendRules(policies.at(-1))).toHaveLength(3)
+    expect(allowOf(policies.at(-1))["*"]).toBeUndefined()
+    await firewall.closeTurn("sbx-ingest")
+    expect(backendRules(policies.at(-1))).toBeUndefined()
+    expect(allowOf(policies.at(-1))["*"]).toBeUndefined()
+    expect(Object.keys(allowOf(policies.at(-1)))).toEqual(["github.com"])
+  })
 
   it("sets the turn's credentials at turn start and removes them at turn end", async () => {
     const firewall = await attached("sbx-1", "git-1")

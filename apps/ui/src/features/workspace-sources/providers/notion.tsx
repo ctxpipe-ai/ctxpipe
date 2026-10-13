@@ -1,5 +1,5 @@
 import { IconBrandNotion } from "@tabler/icons-react"
-import { useQuery } from "@tanstack/react-query"
+import { keepPreviousData, useQuery } from "@tanstack/react-query"
 import {
   canonicalNotionId,
   type NotionSourceScope,
@@ -11,7 +11,6 @@ import { CheckboxGroup } from "@/components/ui/CheckboxGroup"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { SearchField } from "@/components/ui/SearchField"
 import { Skeleton, SkeletonLine } from "@/components/ui/Skeleton"
-import { Tag, TagGroup } from "@/components/ui/TagGroup"
 import {
   notionConnectorKeys,
   searchNotionResources,
@@ -85,6 +84,7 @@ export function NotionScopeEditor(props: SourceScopeEditorProps) {
   const resultsQuery = useQuery({
     queryKey: notionConnectorKeys.resources(orgSlug, connectionId, query),
     queryFn: () => searchNotionResources(orgSlug, query, connectionId),
+    placeholderData: keepPreviousData,
   })
   const results: NotionRootItem[] = (resultsQuery.data ?? []).map(
     (resource) => ({
@@ -93,6 +93,14 @@ export function NotionScopeEditor(props: SourceScopeEditorProps) {
       title: resource.title,
     }),
   )
+  // As in the Linear picker, a selected item stays in the list when the
+  // search does not find it, so the user can always see and clear it.
+  const listed = [
+    ...items.filter(
+      (item) => !results.some((result) => itemKey(result) === itemKey(item)),
+    ),
+    ...results,
+  ]
   const update = (next: NotionRootItem[]) => {
     setItems(next)
     onChange(notionItemsToScope(next))
@@ -129,7 +137,7 @@ export function NotionScopeEditor(props: SourceScopeEditorProps) {
           <InlineAlert variant="error">
             Could not search Notion. Try again.
           </InlineAlert>
-        ) : results.length === 0 ? (
+        ) : listed.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             No pages or databases found. Share them with the ctx| integration in
             Notion, then search again.
@@ -137,24 +145,12 @@ export function NotionScopeEditor(props: SourceScopeEditorProps) {
         ) : (
           <CheckboxGroup
             aria-label="Search results"
-            value={items
-              .filter((item) =>
-                results.some((result) => itemKey(result) === itemKey(item)),
-              )
-              .map(itemKey)}
+            value={items.map(itemKey)}
             onChange={(keys) =>
-              update([
-                ...items.filter(
-                  (item) =>
-                    !results.some(
-                      (result) => itemKey(result) === itemKey(item),
-                    ),
-                ),
-                ...results.filter((result) => keys.includes(itemKey(result))),
-              ])
+              update(listed.filter((item) => keys.includes(itemKey(item))))
             }
           >
-            {results.map((result) => (
+            {listed.map((result) => (
               <Checkbox key={itemKey(result)} value={itemKey(result)}>
                 <span className="min-w-0 truncate">{result.title}</span>
                 <span className="ml-2 text-xs text-muted-foreground">
@@ -165,25 +161,11 @@ export function NotionScopeEditor(props: SourceScopeEditorProps) {
           </CheckboxGroup>
         )}
       </div>
-      {items.length ? (
-        <TagGroup
-          label="Selected"
-          items={items.map((item) => ({ ...item, key: itemKey(item) }))}
-          onRemove={(keys) =>
-            update(items.filter((item) => !keys.has(itemKey(item))))
-          }
-        >
-          {(item) => (
-            <Tag id={item.key} textValue={item.title}>
-              {item.title}
-            </Tag>
-          )}
-        </TagGroup>
-      ) : (
+      {items.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           Select at least one page or database.
         </p>
-      )}
+      ) : null}
     </section>
   )
 }

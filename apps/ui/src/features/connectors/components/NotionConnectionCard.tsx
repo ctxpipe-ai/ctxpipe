@@ -4,6 +4,7 @@ import { IconBrandNotion } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { ConnectorUsedIn } from "@/features/workspace-sources/ConnectorUsedIn"
+import { useConnectorSync } from "@/features/workspace-sources/useConnectorSync"
 import {
   formatSelectedItemCount,
   resolveConnectorHealth,
@@ -16,11 +17,7 @@ import {
   notionConnectorKeys,
 } from "../queries/notion-connector"
 import { orgConnectionsKeys } from "../queries/org-connections"
-import {
-  ConnectorListItem,
-  connectorDash,
-  formatSyncRepositoryLine,
-} from "./ConnectorListItem"
+import { ConnectorListItem, connectorDash } from "./ConnectorListItem"
 
 type NotionConnectionCardProps = {
   orgSlug: string
@@ -77,6 +74,12 @@ export function NotionConnectionCard({
     ? getNotionCardCtaLabel(status, oauthAppQuery.data)
     : null
 
+  const sync = useConnectorSync({
+    orgSlug,
+    connectionId,
+    provider: "notion",
+  })
+
   return (
     <ConnectorListItem
       usedIn={
@@ -86,6 +89,7 @@ export function NotionConnectionCard({
           provider="notion"
         />
       }
+      sync={sync}
       name="Notion"
       icon={<IconBrandNotion className="size-5 text-foreground" aria-hidden />}
       health={health}
@@ -100,7 +104,6 @@ export function NotionConnectionCard({
           ? formatSelectedItemCount(status.selectedResourceCount)
           : "Set in each Workspace"
       }
-      syncRepository={formatSyncRepositoryLine(status?.syncTarget ?? null)}
       actionLabel={isError ? "Retry" : (actionLabel ?? undefined)}
       onAction={
         isError

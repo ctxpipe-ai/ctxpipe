@@ -1,3 +1,4 @@
+import { RequestError } from "octokit"
 import type { Env } from "../../config/env.js"
 import { assertNotInOrgDbContext } from "../../db/client.js"
 import { getRepoReadCloneToken } from "../../models/github-installation.js"
@@ -28,6 +29,15 @@ export async function resolveRepositoryReadCredential(input: {
   const token = await getRepoReadCloneToken(input.orgId, input.env, {
     repoFullName: repositoryName,
     githubConnectionId: input.remote.connectionId,
+  }).catch((error: unknown) => {
+    // GitHub refuses the token when the installation has no repository of
+    // that name (422), for example after a delete, or cannot see it (404).
+    if (
+      error instanceof RequestError &&
+      (error.status === 422 || error.status === 404)
+    )
+      throw new GitRemoteAccessError({ hasCredential: true, stderr: "" })
+    throw error
   })
   if (!token) throw new Error("The connected repository has no read credential")
   return token

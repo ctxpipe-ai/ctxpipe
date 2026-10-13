@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest"
-import { orgNameFromEmail, orgSlugFromName } from "./org-name"
+import {
+  ORG_SLUG_MAX_LENGTH,
+  orgNameFromEmail,
+  orgSlugError,
+  orgSlugFromName,
+} from "./org-name"
 
 describe("orgNameFromEmail", () => {
   it("names the organization after a work domain", () => {
@@ -24,5 +29,32 @@ describe("orgSlugFromName", () => {
     expect(orgSlugFromName("  R&D -- Team! ")).toBe("r-d-team")
     expect(orgSlugFromName("a".repeat(40))).toHaveLength(32)
     expect(orgSlugFromName("")).toBe("")
+  })
+})
+
+describe("orgSlugError", () => {
+  it("accepts what the server accepts", () => {
+    expect(orgSlugError("acme")).toBeNull()
+    expect(orgSlugError("acme-labs-2")).toBeNull()
+  })
+
+  it("refuses what the server refuses", () => {
+    for (const bad of ["-acme", "acme-", "acme--labs", "Acme", "a_b", "a b"]) {
+      expect(orgSlugError(bad), bad).not.toBeNull()
+    }
+    expect(orgSlugError("")).not.toBeNull()
+    expect(orgSlugError("a".repeat(ORG_SLUG_MAX_LENGTH + 1))).not.toBeNull()
+  })
+
+  it("accepts every derived slug", () => {
+    for (const name of [
+      "Acme Labs",
+      "  --Acme!!  ",
+      "A & B / C",
+      `${"a".repeat(31)} bcd`,
+    ]) {
+      const slug = orgSlugFromName(name)
+      expect(orgSlugError(slug), name).toBeNull()
+    }
   })
 })

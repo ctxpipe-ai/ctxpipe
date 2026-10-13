@@ -1,6 +1,26 @@
 # ADR-031: GitHub pull-request scoped mirror
 
-**Status:** Accepted (revised 2026-10-03) (sync repository and scope file superseded by [ADR-050](ADR-050-workspace-sources-config-file.md)) | **Date:** 2026-09-16 | **Tags:** connectors, github, git, graph, ingestion, workspaces
+**Status:** Accepted (revised 2026-10-03, 2026-10-13) (sync repository and scope file superseded by [ADR-050](ADR-050-workspace-sources-config-file.md)) | **Date:** 2026-09-16 | **Tags:** connectors, github, git, graph, ingestion, workspaces
+
+## Revision (2026-10-13): closed pull requests and RESOLVES
+
+- **Policy:** each closed, non-draft pull request is mirrored: merged, or
+  closed without a merge. Open pull requests are not. Every source reports a
+  merged pull request as `closed`, so the policy reads only the state and the
+  draft flag. The webhook, the `issue_comment` path, and the backfill use the
+  same path as before. The backfill page asks GitHub for
+  `states: [MERGED, CLOSED]`, so the 200 most recently updated closed pull
+  requests share the existing page walk and cap. A page of 20 is still one
+  GraphQL request; a pull request closed without a merge adds a REST read
+  only when it overflows a nested list or has a rename, as a merged one does.
+- **Graph:** a pull request closed without a merge keeps its node,
+  `TARGETS Repository`, and `REFERENCES Issue`. It has no change edges and no
+  `File` objects, because it changed nothing on the base branch. A merged pull
+  request has `RESOLVES Issue` in place of `REFERENCES Issue` for each issue
+  it closes ([ADR-033](ADR-033-graph-ontology-v2.md)). A revert pull request
+  only references issues.
+- **Known gap:** a pull request that is reopened after a close keeps its
+  mirrored file until it closes again; open pull requests are not written.
 
 ## Revision (2026-10-03): mirror follows linked repositories
 

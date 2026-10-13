@@ -11,4 +11,9 @@ export const INGESTION_V2_WORKFLOW_NAME = "repository-ingestion-v2"
  */
 export type IngestionV2RunInput = {
   orgId: string
+  /**
+   * A shadow run publishes nothing, and its ingest refs stay 7 days after it
+   * finished for the comparison. The ref clean-up reads this field.
+   */
+  shadow: boolean
 }
