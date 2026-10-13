@@ -184,6 +184,9 @@ async function processPushEvent(
   if (!defaultBranch) {
     return
   }
+  // The host pushes run-scoped ingest refs (ADR-052) for each step. They
+  // change no branch: no tip check, no ingestion, no connector sync.
+  if (ref.startsWith("refs/ctxpipe/")) return
 
   await maybeEnqueueConfluenceSyncOnConfigPush({
     installationId: installation.id,
