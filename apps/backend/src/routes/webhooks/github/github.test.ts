@@ -100,6 +100,7 @@ import {
   registerInstallationOnConnection,
 } from "../../../models/github-installation.js"
 import { findRepositoryByGithubInstallation } from "../../../models/repositories.js"
+import { enqueueWorkspaceTipCheck } from "../../../openworkflow/enqueue-workspace-tip-check.js"
 import { registerGithubWebhookRoute } from "./github.js"
 
 const listInstallationsMock = vi.mocked(listInstallationsByGithubInstallationId)
@@ -350,6 +351,33 @@ describe("POST /api/v1/webhook/github", () => {
       },
       expect.any(Object),
     )
+  })
+
+  it("ignores a push to a run-scoped ingest ref", async () => {
+    listInstallationsMock.mockResolvedValue([
+      { id: "ghi_1", orgId: "org_1", ...baseInstallationRow },
+    ])
+    const body = JSON.stringify({
+      ref: "refs/ctxpipe/ingest/run_1/ws_1/shards/0",
+      after: "step-commit-sha",
+      commits: [],
+      repository: { full_name: "acme/context", default_branch: "main" },
+      installation: { id: 999 },
+    })
+    const sig = await new Webhooks({ secret: webhookSecret }).sign(body)
+    const res = await createTestApp().request("/api/v1/webhook/github", {
+      method: "POST",
+      headers: {
+        "x-github-event": "push",
+        "x-hub-signature-256": sig,
+        "content-type": "application/json",
+      },
+      body,
+    })
+    expect(res.status).toBe(200)
+    expect(vi.mocked(enqueueWorkspaceTipCheck)).not.toHaveBeenCalled()
+    expect(enqueueIngestionMock).not.toHaveBeenCalled()
+    expect(listInstallationsMock).not.toHaveBeenCalled()
   })
 
   it("on push enqueues ingestion for each org linked to the same installation id", async () => {
