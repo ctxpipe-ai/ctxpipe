@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
+import { Button } from "@/components/ui/Button"
 import { ConnectorUsedIn } from "@/features/workspace-sources/ConnectorUsedIn"
 import { useConnectorSync } from "@/features/workspace-sources/useConnectorSync"
 import { getBuildkiteCardCtaLabel } from "../buildkite-setup-model"
@@ -18,7 +19,7 @@ import { ConnectorListItem, connectorDash } from "./ConnectorListItem"
 type BuildkiteConnectionCardProps = {
   orgSlug: string
   connectionId: string
-  onOpenSetup: () => void
+  onOpenSetup: (options?: { replaceWebhook: true }) => void
 }
 
 export function BuildkiteConnectionCard({
@@ -94,6 +95,15 @@ export function BuildkiteConnectionCard({
         <p className="text-sm text-muted-foreground">
           Builds sync once a day until you add the webhook.
         </p>
+      ) : null}
+      {status?.status === "installed" && status.webhookConfigured ? (
+        <Button
+          variant="quiet"
+          className="self-start rounded-md"
+          onPress={() => onOpenSetup({ replaceWebhook: true })}
+        >
+          Replace the webhook token
+        </Button>
       ) : null}
       {isError ? (
         <p className="text-sm text-muted-foreground">

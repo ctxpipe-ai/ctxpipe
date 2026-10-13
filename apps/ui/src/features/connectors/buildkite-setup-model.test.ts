@@ -5,7 +5,11 @@ import {
 } from "./buildkite-setup-model"
 
 const installed = { status: "installed" as const, webhookConfigured: true }
-const noProgress = { webhookSkipped: false, workspacesDone: false }
+const noProgress = {
+  webhookSkipped: false,
+  workspacesDone: false,
+  replaceWebhook: false,
+}
 
 describe("getBuildkiteSetupStep", () => {
   it("starts at connect without a connection, and after a revoke", () => {
@@ -22,6 +26,19 @@ describe("getBuildkiteSetupStep", () => {
       getBuildkiteSetupStep(noWebhook, { ...noProgress, webhookSkipped: true }),
     ).toBe("workspaces")
     expect(getBuildkiteSetupStep(installed, noProgress)).toBe("workspaces")
+  })
+
+  it("asks for the webhook again when the admin replaces its token", () => {
+    expect(
+      getBuildkiteSetupStep(installed, { ...noProgress, replaceWebhook: true }),
+    ).toBe("webhook")
+    expect(
+      getBuildkiteSetupStep(installed, {
+        ...noProgress,
+        replaceWebhook: true,
+        webhookSkipped: true,
+      }),
+    ).toBe("workspaces")
   })
 
   it("is done after the Workspaces step", () => {

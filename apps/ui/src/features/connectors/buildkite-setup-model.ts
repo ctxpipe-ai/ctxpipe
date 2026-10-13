@@ -19,10 +19,19 @@ export type BuildkiteSetupStep =
 
 export function getBuildkiteSetupStep(
   status: SetupStatus | undefined,
-  progress: { webhookSkipped: boolean; workspacesDone: boolean },
+  progress: {
+    webhookSkipped: boolean
+    workspacesDone: boolean
+    /** The admin opened setup to paste the token of the webhook again. */
+    replaceWebhook: boolean
+  },
 ): BuildkiteSetupStep {
   if (!status || status.status === "revoked") return "connect"
-  if (!status.webhookConfigured && !progress.webhookSkipped) return "webhook"
+  if (
+    (!status.webhookConfigured || progress.replaceWebhook) &&
+    !progress.webhookSkipped
+  )
+    return "webhook"
   return progress.workspacesDone ? "done" : "workspaces"
 }
 

@@ -134,6 +134,7 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
   const [buildkiteConnectionId, setBuildkiteConnectionId] = useState<
     string | null
   >(null)
+  const [buildkiteReplaceWebhook, setBuildkiteReplaceWebhook] = useState(false)
   const [githubSelfHostedWizardOpen, setGithubSelfHostedWizardOpen] =
     useState(false)
   const [slackSetupOpen, setSlackSetupOpen] = useState(false)
@@ -304,8 +305,9 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
                   key={row.id}
                   orgSlug={orgSlug}
                   connectionId={row.id}
-                  onOpenSetup={() => {
+                  onOpenSetup={(options) => {
                     setBuildkiteConnectionId(row.id)
+                    setBuildkiteReplaceWebhook(Boolean(options?.replaceWebhook))
                     setBuildkiteSetupOpen(true)
                   }}
                 />
@@ -407,6 +409,7 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
           <AddBuildkiteConnectorButton
             onStart={() => {
               setBuildkiteConnectionId(null)
+              setBuildkiteReplaceWebhook(false)
               setBuildkiteSetupOpen(true)
               setCatalogOpen(false)
             }}
@@ -573,6 +576,7 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
         key={buildkiteConnectionId ?? "buildkite-setup"}
         orgSlug={orgSlug}
         connectionId={buildkiteConnectionId ?? undefined}
+        replaceWebhook={buildkiteReplaceWebhook}
         isOpen={buildkiteSetupOpen}
         onConnectionIdChange={setBuildkiteConnectionId}
         onOpenChange={(open) => {

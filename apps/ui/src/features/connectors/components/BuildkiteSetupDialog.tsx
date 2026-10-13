@@ -33,6 +33,8 @@ const externalLink =
 type BuildkiteSetupDialogProps = {
   orgSlug: string
   connectionId?: string
+  /** Open at the webhook step to paste the token of the webhook again. */
+  replaceWebhook?: boolean
   isOpen: boolean
   onOpenChange: (open: boolean) => void
   onConnectionIdChange: (connectionId: string) => void
@@ -46,6 +48,7 @@ type BuildkiteSetupDialogProps = {
 export function BuildkiteSetupDialog({
   orgSlug,
   connectionId,
+  replaceWebhook = false,
   isOpen,
   onOpenChange,
   onConnectionIdChange,
@@ -53,6 +56,7 @@ export function BuildkiteSetupDialog({
   const queryClient = useQueryClient()
   const [webhookSkipped, setWebhookSkipped] = useState(false)
   const [workspacesDone, setWorkspacesDone] = useState(false)
+  const [replacing, setReplacing] = useState(replaceWebhook)
   const [pullRequestUrls, setPullRequestUrls] = useState<string[]>([])
   if (!isOpen && (webhookSkipped || workspacesDone)) {
     setWebhookSkipped(false)
@@ -69,6 +73,7 @@ export function BuildkiteSetupDialog({
   const step = getBuildkiteSetupStep(status, {
     webhookSkipped,
     workspacesDone,
+    replaceWebhook: replacing,
   })
   const stepIndex =
     step === "done"
@@ -131,6 +136,7 @@ export function BuildkiteSetupDialog({
           orgSlug={orgSlug}
           connectionId={connectionId}
           status={status}
+          onSaved={() => setReplacing(false)}
           onSkip={() => setWebhookSkipped(true)}
         />
       )
@@ -328,6 +334,7 @@ function WebhookStep(props: {
   orgSlug: string
   connectionId: string
   status: BuildkiteConnectorStatus
+  onSaved: () => void
   onSkip: () => void
 }) {
   const queryClient = useQueryClient()
@@ -340,6 +347,7 @@ function WebhookStep(props: {
       }),
     onSuccess: async () => {
       setWebhookToken("")
+      props.onSaved()
       await queryClient.invalidateQueries({
         queryKey: buildkiteConnectorKeys.status(
           props.orgSlug,

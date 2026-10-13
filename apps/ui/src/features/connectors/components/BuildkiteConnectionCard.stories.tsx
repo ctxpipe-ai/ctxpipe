@@ -107,6 +107,34 @@ export const WebhookMissing: Story = {
   },
 }
 
+export const ReplaceWebhookToken: Story = {
+  name: "Webhook saved, its token can be replaced",
+  render: card,
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          buildkiteStatusHandler(
+            buildkiteStoryStatus({ webhookConfigured: true }),
+          ),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement.ownerDocument.body)
+    await expect(await canvas.findByText("Connected")).toBeInTheDocument()
+    onOpenSetup.mockClear()
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Expand Buildkite" }),
+    )
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Replace the webhook token" }),
+    )
+    await expect(onOpenSetup).toHaveBeenCalledWith({ replaceWebhook: true })
+  },
+}
+
 export const RevokedOpensReconnect: Story = {
   name: "Revoked, reconnect opens setup",
   render: card,

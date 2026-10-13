@@ -18,12 +18,13 @@ const orgSlug = "acme"
 const connectionId = "con_story_buildkite"
 
 /** The dialog with its connection id in state, as the Connectors page holds it. */
-function Dialog(props: { connectionId?: string }) {
+function Dialog(props: { connectionId?: string; replaceWebhook?: boolean }) {
   const [id, setId] = useState(props.connectionId)
   return (
     <BuildkiteSetupDialog
       orgSlug={orgSlug}
       connectionId={id}
+      replaceWebhook={props.replaceWebhook}
       isOpen
       onOpenChange={() => {}}
       onConnectionIdChange={setId}
@@ -209,6 +210,28 @@ export const SkipWebhook: Story = {
         name: "Add Buildkite to Workspaces",
       }),
     ).toBeVisible()
+  },
+}
+
+export const ReplaceWebhookToken: Story = {
+  args: { connectionId, replaceWebhook: true },
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          buildkiteStatusHandler(
+            buildkiteStoryStatus({ webhookConfigured: true }),
+          ),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const body = within(canvasElement.ownerDocument.body)
+    await visible(
+      await body.findByRole("heading", { name: "Add the Buildkite webhook" }),
+    )
+    await expect(body.getByLabelText("Webhook token")).toHaveValue("")
   },
 }
 
