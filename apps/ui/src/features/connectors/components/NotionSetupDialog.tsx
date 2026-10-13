@@ -4,6 +4,7 @@ import { IconBrandNotion } from "@tabler/icons-react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 import { Button } from "@/components/ui/Button"
+import { Link } from "@/components/ui/Link"
 import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
 import { AddToWorkspacesStep } from "@/features/workspace-sources/AddToWorkspacesStep"
@@ -47,10 +48,12 @@ export function NotionSetupDialog({
   const [registerSaved, setRegisterSaved] = useState(false)
   const [webhookContinued, setWebhookContinued] = useState(false)
   const [workspacesDone, setWorkspacesDone] = useState(false)
+  const [pullRequestUrls, setPullRequestUrls] = useState<string[]>([])
   if (!isOpen && (registerSaved || webhookContinued || workspacesDone)) {
     setRegisterSaved(false)
     setWebhookContinued(false)
     setWorkspacesDone(false)
+    setPullRequestUrls([])
   }
 
   const oauthAppQuery = useQuery({
@@ -174,7 +177,10 @@ export function NotionSetupDialog({
           description="the pages and databases for each"
           items="the pages"
           replacedConfigPullUrl={status.pendingConfigPullUrl}
-          onDone={() => setWorkspacesDone(true)}
+          onDone={(urls) => {
+            setPullRequestUrls(urls ?? [])
+            setWorkspacesDone(true)
+          }}
         />
       )
     }
@@ -184,10 +190,29 @@ export function NotionSetupDialog({
           <h3 className="text-base font-medium text-foreground">
             Notion is connected
           </h3>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Add Notion to a Workspace from the connector card, or change the
-            pages of a Workspace in its settings.
-          </p>
+          {pullRequestUrls.length ? (
+            <>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Merge the pull request to start the sync.
+              </p>
+              <ul className="mt-2 space-y-1 text-sm">
+                {pullRequestUrls.map((url) => (
+                  <li key={url}>
+                    <Link href={url} target="_blank" rel="noreferrer">
+                      {url
+                        .replace(/^https:\/\/github\.com\//, "")
+                        .replace("/pull/", "#")}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : (
+            <p className="mt-2 text-sm text-muted-foreground">
+              Add Notion to a Workspace from the connector card, or change the
+              pages of a Workspace in its settings.
+            </p>
+          )}
         </div>
         <Button
           variant="secondary"
