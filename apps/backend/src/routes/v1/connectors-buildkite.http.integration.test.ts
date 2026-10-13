@@ -187,10 +187,10 @@ describe("Buildkite connector routes (Postgres + msw)", () => {
     const { connectionId } = (await (
       await connect({ organizationSlug: "acme", apiToken: GOOD_TOKEN })
     ).json()) as { connectionId: string }
-    const status = () =>
-      request(`/buildkite/status?connectionId=${connectionId}`).then(
-        (res) => res.json() as Promise<Record<string, unknown>>,
-      )
+    const status = async () =>
+      (await (
+        await request(`/buildkite/status?connectionId=${connectionId}`)
+      ).json()) as Record<string, unknown>
 
     expect(await status()).toEqual({
       status: "installed",
