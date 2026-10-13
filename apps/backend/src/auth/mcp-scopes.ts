@@ -69,7 +69,8 @@ export function disableToolsOutsideScopes(
   return hidden
 }
 
-function quoteHeaderValue(value: string): string {
+/** Escape a value for a quoted `WWW-Authenticate` parameter (RFC 7235). */
+export function quoteHeaderValue(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')
 }
 
@@ -105,9 +106,4 @@ export function insufficientMcpScopeResponse(
       "WWW-Authenticate": `Bearer error="insufficient_scope", scope="${needed}", resource_metadata="${quoteHeaderValue(input.resourceMetadataUrl)}", error_description="${quoteHeaderValue(description)}"`,
     },
   )
-}
-
-/** Read the granted MCP scopes from the request variables. */
-export function requestMcpScopes(c: Context<AppEnv>): McpScope[] {
-  return grantedMcpScopes(c.get("oauthScopes"))
 }

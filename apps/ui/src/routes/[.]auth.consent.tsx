@@ -45,13 +45,18 @@ export function ConsentPage() {
         )
       : null
 
-  const handleConsent = async (accept: boolean, allowedScopes?: string[]) => {
+  const handleConsent = async (
+    accept: boolean,
+    allowedScopes: string[] = [],
+  ) => {
     setError(null)
     setIsSubmitting(accept ? "allow" : "deny")
 
     const { data, error: requestError } = await authClient.oauth2.consent({
       accept,
-      scope: allowedScopes?.length ? allowedScopes.join(" ") : requestedScope,
+      // Send exactly what the user allowed. Never fall back to the request:
+      // it can hold ctxpipe:write that the user did not tick.
+      scope: accept ? allowedScopes.join(" ") : undefined,
       fetchOptions: {
         throw: false,
         headers:

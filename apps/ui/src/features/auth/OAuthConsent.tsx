@@ -42,6 +42,7 @@ export function OAuthConsent({
   const [allowWrite, setAllowWrite] = useState(false)
   const fixedScopes = scopes.filter((scope) => scope !== WRITE_SCOPE)
   const requestsWrite = scopes.includes(WRITE_SCOPE)
+  const allowedScopes = allowWrite ? scopes : fixedScopes
   return (
     <main className="mx-auto max-w-xl px-6 py-16 text-foreground">
       <section className="space-y-6 rounded-md border border-border bg-card/80 p-6">
@@ -88,7 +89,7 @@ export function OAuthConsent({
           </p>
           <div className="space-y-1">
             <p className="text-muted-foreground">Requested access:</p>
-            {scopes.length > 0 ? (
+            {fixedScopes.length > 0 ? (
               <ul className="list-disc pl-5 text-foreground">
                 {fixedScopes.map((scope) => (
                   <li key={scope}>
@@ -98,7 +99,7 @@ export function OAuthConsent({
                   </li>
                 ))}
               </ul>
-            ) : (
+            ) : requestsWrite ? null : (
               <p>No access requested.</p>
             )}
             {requestsWrite ? (
@@ -128,9 +129,13 @@ export function OAuthConsent({
           </Button>
           <Button
             className="rounded-md"
-            isDisabled={isSubmitting !== null || !organization}
+            isDisabled={
+              isSubmitting !== null ||
+              !organization ||
+              allowedScopes.length === 0
+            }
             isPending={isSubmitting === "allow"}
-            onPress={() => onAllow(allowWrite ? scopes : fixedScopes)}
+            onPress={() => onAllow(allowedScopes)}
           >
             Allow
           </Button>

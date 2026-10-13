@@ -6,8 +6,8 @@ import type { AppEnv } from "../app/env.js"
 import { currentMcpActor, requireCurrentOrgId } from "../auth/context.js"
 import {
   disableToolsOutsideScopes,
+  grantedMcpScopes,
   insufficientMcpScopeResponse,
-  requestMcpScopes,
 } from "../auth/mcp-scopes.js"
 import { mcpOAuthProtectedResourceMetadataUrl } from "../auth/withAuth.js"
 import {
@@ -127,7 +127,7 @@ export async function handleMcpTransportRequest(
     getMcpServerImplementation(c.get("env").AUTH_BASE_URL),
   )
   registerTools(server)
-  const grantedScopes = requestMcpScopes(c)
+  const grantedScopes = grantedMcpScopes(c.get("oauthScopes"))
   const hiddenTools = disableToolsOutsideScopes(server, grantedScopes)
   for (const message of messages) {
     const call = CallToolRequestSchema.safeParse(message)

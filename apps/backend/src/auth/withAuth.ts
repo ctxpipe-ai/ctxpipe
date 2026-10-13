@@ -18,7 +18,7 @@ import {
 import { getLogger } from "../observability/logger.js"
 import { callPrincipalFromContext, resolveCallOrg } from "./call-org.js"
 import { type AuthSession, type AuthUser, getAuth } from "./config.js"
-import { MCP_READ_SCOPE } from "./mcp-scopes.js"
+import { MCP_READ_SCOPE, quoteHeaderValue } from "./mcp-scopes.js"
 import {
   OAUTH_GRANT_CLAIM,
   OAUTH_ORGANIZATION_CLAIM,
@@ -69,7 +69,7 @@ function isMcpRequestPath(pathname: string): boolean {
 function wwwAuthenticateInvalidToken(
   errorDescription: string,
 ): Record<string, string> {
-  const esc = errorDescription.replace(/\\/g, "\\\\").replace(/"/g, '\\"')
+  const esc = quoteHeaderValue(errorDescription)
   return {
     "WWW-Authenticate": `Bearer error="invalid_token", error_description="${esc}"`,
   }
@@ -79,9 +79,9 @@ function wwwAuthenticateInvalidTokenMcp(
   errorDescription: string,
   authBaseUrl: string,
 ): Record<string, string> {
-  const esc = errorDescription.replace(/\\/g, "\\\\").replace(/"/g, '\\"')
+  const esc = quoteHeaderValue(errorDescription)
   const meta = mcpOAuthProtectedResourceMetadataUrl(authBaseUrl)
-  const metaEsc = meta.replace(/\\/g, "\\\\").replace(/"/g, '\\"')
+  const metaEsc = quoteHeaderValue(meta)
   return {
     "WWW-Authenticate": `Bearer error="invalid_token", error_description="${esc}", scope="${MCP_READ_SCOPE}", resource_metadata="${metaEsc}"`,
   }
@@ -97,7 +97,7 @@ function wwwAuthenticateMcpDiscovery(
   authBaseUrl: string,
 ): Record<string, string> {
   const meta = mcpOAuthProtectedResourceMetadataUrl(authBaseUrl)
-  const metaEsc = meta.replace(/\\/g, "\\\\").replace(/"/g, '\\"')
+  const metaEsc = quoteHeaderValue(meta)
   return {
     "WWW-Authenticate": `Bearer scope="${MCP_READ_SCOPE}", resource_metadata="${metaEsc}"`,
   }

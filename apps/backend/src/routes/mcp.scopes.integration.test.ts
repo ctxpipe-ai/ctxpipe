@@ -174,14 +174,22 @@ describe("MCP scopes (Postgres)", () => {
     return clientId
   }
 
-  /** Real OAuth: authorize with `requestedScope`, consent with `grantedScope`, token. */
+  /**
+   * Real OAuth: authorize with `requestedScope` (`null` sends no `scope`),
+   * consent with `grantedScope` (`null` sends no `scope`) when the consent
+   * page shows, then token.
+   */
   async function oauthAccessToken(
-    grantedScope: string,
-    options: { clientId?: string; requestedScope?: string } = {},
+    grantedScope: string | null,
+    options: { clientId?: string; requestedScope?: string | null } = {},
   ) {
     const s = requireSeed()
     const origin = baseUrl
     const clientId = options.clientId ?? (await registerClient())
+    const requestedScope =
+      options.requestedScope === undefined
+        ? "ctxpipe:read ctxpipe:write offline_access"
+        : options.requestedScope
 
     const verifier = randomBytes(32).toString("base64url")
     const challenge = createHash("sha256").update(verifier).digest("base64url")
@@ -192,8 +200,7 @@ describe("MCP scopes (Postgres)", () => {
       response_type: "code",
       client_id: clientId,
       redirect_uri: REDIRECT_URI,
-      scope:
-        options.requestedScope ?? "ctxpipe:read ctxpipe:write offline_access",
+      ...(requestedScope === null ? {} : { scope: requestedScope }),
       state: "scope-test",
       code_challenge: challenge,
       code_challenge_method: "S256",
@@ -203,38 +210,44 @@ describe("MCP scopes (Postgres)", () => {
       headers: { cookie: s.cookie, origin },
       redirect: "manual",
     })
-    const consentLocation = authorize.headers.get("location")
-    if (!consentLocation) {
+    const location = authorize.headers.get("location")
+    if (!location) {
       throw new Error(
         `authorize did not redirect: ${authorize.status} ${await authorize.text()}`,
       )
     }
-    const consentUrl = new URL(consentLocation, baseUrl)
-    expect(consentUrl.pathname).toBe("/.auth/consent")
-
-    const consent = await app.request(
-      `${baseUrl}/.auth/api/v1/auth/oauth2/consent`,
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          cookie: s.cookie,
-          origin,
-          "x-ctxpipe-oauth-organization": s.orgId,
+    const redirectUrl = new URL(location, baseUrl)
+    const consentShown = redirectUrl.pathname === "/.auth/consent"
+    const consentScope = consentShown
+      ? redirectUrl.searchParams.get("scope")
+      : null
+    let callbackUrl = redirectUrl
+    if (consentShown) {
+      const consent = await app.request(
+        `${baseUrl}/.auth/api/v1/auth/oauth2/consent`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            cookie: s.cookie,
+            origin,
+            "x-ctxpipe-oauth-organization": s.orgId,
+          },
+          body: JSON.stringify({
+            accept: true,
+            ...(grantedScope === null ? {} : { scope: grantedScope }),
+            oauth_query: redirectUrl.search.slice(1),
+          }),
         },
-        body: JSON.stringify({
-          accept: true,
-          scope: grantedScope,
-          oauth_query: consentUrl.search.slice(1),
-        }),
-      },
-    )
-    const consentBody = (await consent.json()) as { url?: string }
-    if (!consentBody.url) {
-      throw new Error(`consent failed: ${JSON.stringify(consentBody)}`)
+      )
+      const consentBody = (await consent.json()) as { url?: string }
+      if (!consentBody.url) {
+        throw new Error(`consent failed: ${JSON.stringify(consentBody)}`)
+      }
+      callbackUrl = new URL(consentBody.url)
     }
-    const code = new URL(consentBody.url).searchParams.get("code")
-    if (!code) throw new Error(`consent gave no code: ${consentBody.url}`)
+    const code = callbackUrl.searchParams.get("code")
+    if (!code) throw new Error(`no code: ${callbackUrl.toString()}`)
 
     const token = await app.request(
       `${baseUrl}/.auth/api/v1/auth/oauth2/token`,
@@ -267,6 +280,8 @@ describe("MCP scopes (Postgres)", () => {
       accessToken: tokenBody.access_token,
       refreshToken: tokenBody.refresh_token,
       clientId,
+      consentShown,
+      consentScope,
       expiresIn: tokenBody.expires_in,
       scope: tokenBody.scope,
     }
@@ -501,6 +516,74 @@ describe("MCP scopes (Postgres)", () => {
       clientId,
     })
     expect(unticked.scope?.split(" ")).not.toContain("ctxpipe:write")
+  })
+
+  it("gives no write for a write-only request unless the user ticks it", async () => {
+    // The consent page sends no scope list: no tick was recorded.
+    await expect(
+      oauthAccessToken(null, { requestedScope: "ctxpipe:write" }),
+    ).rejects.toThrow(/consent failed/)
+
+    const ticked = await oauthAccessToken("ctxpipe:write", {
+      requestedScope: "ctxpipe:write",
+    })
+    expect(ticked.scope).toBe("ctxpipe:write")
+  })
+
+  it("leaves write out of a consent with no scope list", async () => {
+    const token = await oauthAccessToken(null)
+    expect(token.scope?.split(" ").sort()).toEqual([
+      "ctxpipe:read",
+      "offline_access",
+    ])
+  })
+
+  it("caps a client that skips consent at read", async () => {
+    const s = requireSeed()
+    const clientId = `skip_consent_${s.userId}`
+    await getSystemDb()
+      .insert(oauthClients)
+      .values({
+        id: generateObjectId("oac"),
+        clientId,
+        name: "Trusted host",
+        redirectUris: [REDIRECT_URI],
+        tokenEndpointAuthMethod: "none",
+        public: true,
+        type: "native",
+        grantTypes: ["authorization_code", "refresh_token"],
+        responseTypes: ["code"],
+        skipConsent: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+
+    const token = await oauthAccessToken("unused", { clientId })
+    expect(token.consentShown).toBe(false)
+    expect(token.scope?.split(" ").sort()).toEqual([
+      "ctxpipe:read",
+      "offline_access",
+    ])
+  })
+
+  it("reads a missing scope as read and does not ask for consent again", async () => {
+    const clientId = await registerClient()
+    const first = await oauthAccessToken("ctxpipe:read offline_access", {
+      clientId,
+      requestedScope: null,
+    })
+    expect(first.consentShown).toBe(true)
+    expect(first.consentScope).toBe("ctxpipe:read offline_access")
+
+    const second = await oauthAccessToken("unused", {
+      clientId,
+      requestedScope: null,
+    })
+    expect(second.consentShown).toBe(false)
+    expect(second.scope?.split(" ").sort()).toEqual([
+      "ctxpipe:read",
+      "offline_access",
+    ])
   })
 
   it.each([

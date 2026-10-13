@@ -188,4 +188,22 @@ describe("OAuthConsent", () => {
     clickAllow()
     expect(onAllow).toHaveBeenCalledWith(["ctxpipe:read", "offline_access"])
   })
+  it("blocks Allow for a write-only request until the user ticks write", () => {
+    const onAllow = renderWithScopes(["ctxpipe:write"])
+
+    expect(container.querySelector("ul")).toBeNull()
+    const allowButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Allow"),
+    )
+    expect(allowButton?.disabled).toBe(true)
+    clickAllow()
+    expect(onAllow).not.toHaveBeenCalled()
+
+    const writeBox = container.querySelector<HTMLInputElement>(
+      'input[type="checkbox"]',
+    )
+    act(() => writeBox?.click())
+    clickAllow()
+    expect(onAllow).toHaveBeenCalledWith(["ctxpipe:write"])
+  })
 })
