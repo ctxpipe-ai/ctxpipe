@@ -1,6 +1,6 @@
 # ADR-048: Conversation sandboxes: stock providers, Postgres ownership, git as durable state
 
-**Status:** Accepted (revised 2026-10-02) | **Date:** 2026-09-09 | **Tags:** tanstack, postgres, sandbox, chat
+**Status:** Accepted (revised 2026-10-02; amended 2026-10-13 by [ADR-052](ADR-052-ingestion-sandbox-skills-patches.md)) | **Date:** 2026-09-09 | **Tags:** tanstack, postgres, sandbox, chat
 
 ## Context
 
@@ -73,6 +73,7 @@ Hosted needs CPU billed only while busy (an agent mostly waits on the model), a 
 - A conversation's saved state is kept **30 days** after last use, then deleted with its row (Vercel delete also revokes the GitHub token); pushed work stays in git.
 - Each organization runs at most **50 sandboxes** at once: live conversation and job rows of a running provider (Docker or Vercel), and Workspace base builds whose lease holds; finished bases run nothing and do not count. Every start (a create, or the resume of a stopped sandbox) counts them under the org lock `org-sandbox-slots`, re-reading the row inside the lock. A create first reserves its row, so concurrent starts in other Workspaces see it, and releases it at once if the create or its setup fails. A resume whose row was deleted meanwhile starts a fresh sandbox instead of reviving the row. Over the limit the start fails with `SandboxCapacityError` (code `sandbox_capacity`): HTTP 429 on prepare, Files, pull-request and MCP, an "at capacity" `RUN_ERROR` in the chat stream, and an alert when a conversation opens. Unsandboxed runs have no sandbox and no limit.
 - Runs nobody is watching stop their sandbox when the run ends (success, error or abort), so they never hold a slot: MCP `ctx_advisor` turns, and HTTP or WebSocket chats whose `source` is not `ui`. Each call site wraps the run (`stopConversationSandboxes`, `stoppingSandboxWhenDone`). The Slack mention agent does not use a workspace chat sandbox.
+- **Ingest sandboxes (amendment 2026-10-13, [ADR-052](ADR-052-ingestion-sandbox-skills-patches.md)):** a second sandbox definition, `workspace-ingest:<image>` with key `ingest:<runId>:<shard>`, uses the same providers, instance store, and lock store. Ingest rows count in the 50 slots. At most **40** ingest sandboxes run for each org at once (committed config), so chat keeps at least 10. A 41st ingest start waits for a slot; a chat start fails only when all 50 slots are full. An ingest sandbox has no idle stop: its run destroys it, and the org sweep destroys an ingest row whose run finished or that is older than the shard limit. Its egress is closed (model proxy, tool bridge, and git fetch only).
 - Opening a conversation prepares its sandbox (warm for a fast first answer) and counts as use. Reading a file never creates a sandbox.
 - Cancel kills the agent process. Docker and Vercel both support it (`killableProcesses`).
 

@@ -25,7 +25,7 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-013](ADR-013-switch-infra-from-pulumi-to-terraform.md) | Terraform as our IAC | Accepted |
 | [ADR-014](ADR-014-parallel-worktree-local-development.md) | Parallel worktree local development | Accepted |
 | [ADR-015](ADR-015-docker-compose-profiles-and-small-scale-deploy.md) | Docker Compose profiles and small-scale container deploy | Accepted |
-| [ADR-016](ADR-016-code-ingestion-react-agent-limits.md) | Code ingestion ReAct agents — recursion limits and context middleware | Accepted |
+| [ADR-016](ADR-016-code-ingestion-react-agent-limits.md) | Code ingestion ReAct agents — recursion limits and context middleware | Superseded by [ADR-052](ADR-052-ingestion-sandbox-skills-patches.md) |
 | [ADR-017](ADR-017-amplitude-analytics.md) | Amplitude analytics (UI + backend) | Superseded by [ADR-038](ADR-038-self-hosted-clickstack-langfuse.md) |
 | [ADR-018](ADR-018-unified-connections-table.md) | Unified `connections` table | Accepted; scope and sync target superseded by ADR-050 |
 | [ADR-019](ADR-019-confluence-forge-self-host-and-per-org-atlassian-3lo.md) | Confluence / Forge self-host, per-org Atlassian 3LO, and provision pipeline | Accepted |
@@ -35,7 +35,7 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-023](ADR-023-notion-connector-git-native-mirror.md) | Notion connector Git-native mirror | Accepted; sync repository superseded by ADR-050 |
 | [ADR-024](ADR-024-markdown-only-local-memory-capture.md) | Markdown-only local memory with candidate-first capture | Accepted (amended by ADR-037) |
 | [ADR-025](ADR-025-slack-connector-git-native-mirror.md) | Slack connector as intent-based git-native capture | Accepted; sync repository superseded by ADR-050 |
-| [ADR-026](ADR-026-claude-plugin-mcp-distribution.md) | Claude plugin for hosted MCP distribution | Accepted |
+| [ADR-026](ADR-026-claude-plugin-mcp-distribution.md) | Claude plugin for hosted MCP distribution | Accepted (amended by ADR-051: org set per grant) |
 | [ADR-027](ADR-027-codesearch-openworkflow-concurrency.md) | Size-based OpenWorkflow concurrency for single-instance codesearch | Accepted |
 | [ADR-028](ADR-028-git-native-connector-assets.md) | Git-native connector assets | Accepted |
 | [ADR-029](ADR-029-railway-us-east-next-to-neon.md) | Railway compute in US East next to Neon | Accepted |
@@ -54,9 +54,11 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-044](ADR-044-workspace-chat-stock-tanstack.md) | Stock TanStack workspace chat | Accepted |
 | [ADR-045](ADR-045-required-recovery-ci.md) | CI proves what ran | Accepted |
 | [ADR-046](ADR-046-workspace-revision-projection-identity.md) | Workspace revision and projection identity | Accepted |
-| [ADR-047](ADR-047-native-durable-write-workflows.md) | Durable write workflows | Accepted (revised 2026-10-06) |
-| [ADR-048](ADR-048-native-postgres-sandbox-ownership.md) | Conversation sandboxes: stock providers, Postgres ownership, git as durable state | Accepted |
+| [ADR-047](ADR-047-native-durable-write-workflows.md) | Durable write workflows | Accepted (revised 2026-10-06; amended by ADR-052) |
+| [ADR-048](ADR-048-native-postgres-sandbox-ownership.md) | Conversation sandboxes: stock providers, Postgres ownership, git as durable state | Accepted (amended by ADR-052: ingest sandboxes) |
 | [ADR-049](ADR-049-self-host-chat-sandbox-stock-docker.md) | Self-host chat sandboxes: stock Docker on DinD and an EC2 host; Agent Vault adds their credentials | Accepted |
 | [ADR-050](ADR-050-workspace-sources-config-file.md) | Workspace sources in a config file; connections hold auth only | Accepted |
+| [ADR-051](ADR-051-mcp-read-surface.md) | MCP read surface: small read tools, slugs, scopes, and an org set per grant | Accepted |
+| [ADR-052](ADR-052-ingestion-sandbox-skills-patches.md) | Ingestion as sandbox skills that write patches | Accepted |
 
-Numbers 035 and 036 are unused. The next new ADR is 051.
+Numbers 035 and 036 are unused. The next new ADR is 053.
