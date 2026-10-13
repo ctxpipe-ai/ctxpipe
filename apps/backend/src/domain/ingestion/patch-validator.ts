@@ -165,6 +165,18 @@ export function fileOwnership(raw: string, sourceUrl: string): FileOwnership {
   return new Set(normalized).size === 1 ? "sole" : "shared"
 }
 
+/** Normalized source URLs a generated file lists; empty for a file ctxpipe does not generate. */
+export function fileSources(raw: string): string[] {
+  const front = splitFrontMatter(raw)
+  const attributes = front ? parseYamlObject(front.yaml) : null
+  if (!attributes || attributes.generated_by !== GENERATED_BY) return []
+  return Array.isArray(attributes.sources)
+    ? attributes.sources
+        .filter((s): s is string => typeof s === "string")
+        .map(normalizeSourceUrl)
+    : []
+}
+
 /** Path check of concept section 3.1; returns a reason or null. */
 function disallowedPathReason(path: string): string | null {
   if (!path || path.includes("\\") || path.startsWith("/"))
@@ -969,13 +981,15 @@ function resolveRelative(from: string, target: string): string | null {
   return joined.replace(/\/$/, "")
 }
 
-function splitFrontMatter(text: string): { yaml: string; body: string } | null {
+export function splitFrontMatter(
+  text: string,
+): { yaml: string; body: string } | null {
   const match = /^---[ \t]*\r?\n((?:.*\n)*?)---[ \t]*(?:\r?\n|$)/.exec(text)
   if (!match) return null
   return { yaml: match[1] ?? "", body: text.slice(match[0].length) }
 }
 
-function parseYamlObject(yaml: string): Record<string, unknown> | null {
+export function parseYamlObject(yaml: string): Record<string, unknown> | null {
   try {
     const value = parseYaml(yaml) ?? {}
     return typeof value === "object" && !Array.isArray(value)

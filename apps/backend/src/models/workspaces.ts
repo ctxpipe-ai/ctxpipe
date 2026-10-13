@@ -1119,6 +1119,29 @@ export async function listWorkspaceKnowledgeUnits(
   })
 }
 
+/** Paths, kinds, and links of the units projected at one revision, in path order. */
+export async function listWorkspaceUnitsAtRevision(
+  workspaceId: string,
+  sha: string,
+): Promise<Array<{ path: string; kind: string | null; links: string[] }>> {
+  return orgSql(async () =>
+    getOrgDb()
+      .select({
+        path: workspaceKnowledgeUnits.path,
+        kind: workspaceKnowledgeUnits.kind,
+        links: workspaceKnowledgeUnits.links,
+      })
+      .from(workspaceKnowledgeUnits)
+      .where(
+        and(
+          eq(workspaceKnowledgeUnits.workspaceId, workspaceId),
+          eq(workspaceKnowledgeUnits.projectionSha, sha),
+        ),
+      )
+      .orderBy(workspaceKnowledgeUnits.path),
+  )
+}
+
 export async function listKnowledgeUnitPaths(
   workspaceId: string,
 ): Promise<string[]> {
