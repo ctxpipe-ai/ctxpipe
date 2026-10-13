@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { ConnectorUsedIn } from "@/features/workspace-sources/ConnectorUsedIn"
+import { useConnectorSync } from "@/features/workspace-sources/useConnectorSync"
 import { resolveConnectorHealth } from "../connectorHealth"
 import { getLinearCardPrimaryCta } from "../linear-setup-model"
 import {
@@ -62,6 +63,12 @@ export function LinearConnectionCard({
     draft: !status?.isInstalled,
   })
 
+  const sync = useConnectorSync({
+    orgSlug,
+    connectionId,
+    provider: "linear",
+  })
+
   return (
     <ConnectorListItem
       usedIn={
@@ -71,6 +78,7 @@ export function LinearConnectionCard({
           provider="linear"
         />
       }
+      sync={sync}
       name="Linear"
       icon={<LinearMark className="size-5 text-foreground" />}
       health={health}
