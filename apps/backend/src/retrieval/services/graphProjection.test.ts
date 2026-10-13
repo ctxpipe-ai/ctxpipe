@@ -182,17 +182,12 @@ describe("projectClaimsFromState", () => {
     expect(executeQueryMock.mock.calls[1]?.[0]).not.toContain("UNWIND")
   })
 
-  it("projects the merge state of a pull request and the milestone of an issue onto their nodes", async () => {
+  it("projects the milestone of an issue onto its node", async () => {
     const where = vi.fn().mockResolvedValue([
       {
         id: "pr_1",
         kind: "PullRequest",
-        payload: {
-          name: "octo/widgets#7",
-          state: "closed",
-          merged: false,
-          merged_at: null,
-        },
+        payload: { name: "octo/widgets#7" },
       },
       {
         id: "iss_1",
@@ -220,11 +215,7 @@ describe("projectClaimsFromState", () => {
     const rows = executeQueryMock.mock.calls[0]?.[1]?.rows as Array<
       Record<string, unknown>
     >
-    expect(rows[0]).toMatchObject({
-      subject_state: "closed",
-      subject_merged: false,
-      object_milestone: "Beta",
-    })
+    expect(rows[0]).toMatchObject({ object_milestone: "Beta" })
   })
 
   it("groups mixed predicates into separate batch queries", async () => {

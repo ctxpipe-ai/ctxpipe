@@ -47,7 +47,7 @@ export const CROSS_REFERENCE_PREDICATES = new Set<string>([
  * A reference-family claim, or a link between two Issues (parent, blocks):
  * either end can be an issue that is not mirrored.
  */
-function resolvesLikeReference(claim: ExtractedClaim): boolean {
+function needsTargetResolution(claim: ExtractedClaim): boolean {
   return (
     CROSS_REFERENCE_PREDICATES.has(claim.predicate) ||
     (claim.subjectKind === "Issue" && claim.objectKind === "Issue")
@@ -483,7 +483,7 @@ export async function resolveReferenceClaims(input: {
   stubs: ExtractedObject[]
 }> {
   const known = new Set(input.objects.map((object) => object.deduplicationKey))
-  const candidates = input.claims.filter(resolvesLikeReference)
+  const candidates = input.claims.filter(needsTargetResolution)
   const summary: ReferenceResolutionSummary = {}
   const stubs: ExtractedObject[] = []
   if (candidates.length === 0) return { claims: input.claims, summary, stubs }
@@ -544,7 +544,7 @@ export async function resolveReferenceClaims(input: {
   }
   const kept: ExtractedClaim[] = []
   for (const claim of input.claims) {
-    if (!resolvesLikeReference(claim)) {
+    if (!needsTargetResolution(claim)) {
       kept.push(claim)
       continue
     }
