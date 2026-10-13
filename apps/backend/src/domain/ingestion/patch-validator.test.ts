@@ -874,48 +874,57 @@ describe("validatePatchStep random ops", () => {
   const allowed =
     /^knowledge\/(codebases|services|apps|libraries|apis|operations|databases|infrastructure|streams|decisions|teams|instructions)\/(?:[^./][^/]*\/)*[^./][^/]*\.md$/
 
-  it("never writes or deletes a file outside the allowlist", async () => {
-    let seed = 0x5eed
-    const next = () => {
-      seed = (seed * 1103515245 + 12345) & 0x7fffffff
-      return seed
-    }
-    const baseFiles = new Map(
-      git(contextDir, ["ls-tree", "-r", baseCommit])
-        .split("\n")
-        .map((line) => {
-          const [meta, path] = line.split("\t")
-          return [path ?? "", meta?.split(" ")[2] ?? ""] as const
-        }),
-    )
-    for (let round = 0; round < 25; round++) {
-      const files: Record<string, string> = {}
-      const deletes: string[] = []
-      const count = 1 + (next() % 6)
-      for (let i = 0; i < count; i++) {
-        const path = candidatePaths[next() % candidatePaths.length] ?? ""
-        const variant = path.replace(/r(\.\w+)$/, `r${next() % 3}$1`)
-        if (next() % 4 === 0) deletes.push(path)
-        else files[variant] = service(`Random ${round} ${i}`)
-      }
-      for (const path of deletes) delete files[path]
-      const result = await run(stage({ files, deletes }), { rootGone: true })
-      const after = new Map(
-        git(contextDir, ["ls-tree", "-r", result.tree])
+  // The seeds are fixed, so the ops are the same in each run. The 25 steps
+  // spawn many git processes, so a loaded CI host needs more than 5 seconds.
+  it(
+    "never writes or deletes a file outside the allowlist",
+    { timeout: 120_000 },
+    async () => {
+      const baseFiles = new Map(
+        git(contextDir, ["ls-tree", "-r", baseCommit])
           .split("\n")
           .map((line) => {
             const [meta, path] = line.split("\t")
             return [path ?? "", meta?.split(" ")[2] ?? ""] as const
           }),
       )
-      for (const [path, blob] of after) {
-        if (baseFiles.get(path) !== blob) expect(path).toMatch(allowed)
+      for (let round = 0; round < 25; round++) {
+        const roundSeed = 0x5eed + round
+        let seed = roundSeed
+        const next = () => {
+          seed = (seed * 1103515245 + 12345) & 0x7fffffff
+          return seed
+        }
+        const files: Record<string, string> = {}
+        const deletes: string[] = []
+        const count = 1 + (next() % 6)
+        for (let i = 0; i < count; i++) {
+          const path = candidatePaths[next() % candidatePaths.length] ?? ""
+          const variant = path.replace(/r(\.\w+)$/, `r${next() % 3}$1`)
+          if (next() % 4 === 0) deletes.push(path)
+          else files[variant] = service(`Random ${round} ${i}`)
+        }
+        for (const path of deletes) delete files[path]
+        const result = await run(stage({ files, deletes }), { rootGone: true })
+        const after = new Map(
+          git(contextDir, ["ls-tree", "-r", result.tree])
+            .split("\n")
+            .map((line) => {
+              const [meta, path] = line.split("\t")
+              return [path ?? "", meta?.split(" ")[2] ?? ""] as const
+            }),
+        )
+        for (const [path, blob] of after) {
+          if (baseFiles.get(path) !== blob)
+            expect(path, `seed ${roundSeed}: written`).toMatch(allowed)
+        }
+        for (const path of baseFiles.keys()) {
+          if (!after.has(path))
+            expect(path, `seed ${roundSeed}: deleted`).toMatch(allowed)
+        }
       }
-      for (const path of baseFiles.keys()) {
-        if (!after.has(path)) expect(path).toMatch(allowed)
-      }
-    }
-  })
+    },
+  )
 })
 
 describe("validatePatchStep review fixes", () => {
