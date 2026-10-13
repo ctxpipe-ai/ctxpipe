@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest"
 import {
-  getOAuthConsentOrganizationId,
+  getOAuthConsentOrganizationIds,
   getOAuthRequestClientId,
   OAUTH_GRANT_CLAIM,
   OAUTH_ORGANIZATION_CLAIM,
   oauthAccessTokenClaims,
+  parseOAuthConsentOrganizationIds,
   readOAuthRequestClientId,
-  resolveOAuthConsentOrganizationId,
+  resolveOAuthConsentOrganizationIds,
   selectOAuthOrganizationBinding,
   withOAuthRequestContext,
 } from "./oauth-organization.js"
@@ -67,48 +68,70 @@ describe("selectOAuthOrganizationBinding", () => {
 })
 
 describe("OAuth consent organization", () => {
-  it("uses the organization submitted by consent instead of mutable active state", () => {
+  it("uses the organizations submitted by consent instead of mutable active state", () => {
     expect(
-      resolveOAuthConsentOrganizationId(
+      resolveOAuthConsentOrganizationIds(
         ["org_acme", "org_consulting"],
         "org_acme",
-        "org_consulting",
+        ["org_consulting"],
       ),
-    ).toBe("org_consulting")
+    ).toEqual(["org_consulting"])
   })
 
-  it("rejects a submitted organization that is not a membership", () => {
+  it("keeps every ticked organization when each is a membership", () => {
     expect(
-      resolveOAuthConsentOrganizationId(
-        ["org_acme"],
+      resolveOAuthConsentOrganizationIds(
+        ["org_acme", "org_consulting"],
+        "org_acme",
+        ["org_acme", "org_consulting"],
+      ),
+    ).toEqual(["org_acme", "org_consulting"])
+  })
+
+  it("rejects the consent when one ticked organization is not a membership", () => {
+    expect(
+      resolveOAuthConsentOrganizationIds(["org_acme"], "org_acme", [
         "org_acme",
         "org_unrelated",
-      ),
+      ]),
     ).toBeNull()
   })
 
   it("rejects accepted consent when no organization was submitted", () => {
     expect(
-      resolveOAuthConsentOrganizationId(["org_acme"], "org_acme", null),
+      resolveOAuthConsentOrganizationIds(["org_acme"], "org_acme", null),
     ).toBeNull()
     expect(
-      resolveOAuthConsentOrganizationId(["org_acme"], "org_acme", undefined),
-    ).toBe("org_acme")
+      resolveOAuthConsentOrganizationIds(["org_acme"], "org_acme", []),
+    ).toBeNull()
+    expect(
+      resolveOAuthConsentOrganizationIds(["org_acme"], "org_acme", undefined),
+    ).toEqual(["org_acme"])
   })
 
-  it("keeps the submitted organization isolated to one consent request", async () => {
-    expect(getOAuthConsentOrganizationId()).toBeUndefined()
+  it("parses one id or a comma-separated list from the consent header", () => {
+    expect(parseOAuthConsentOrganizationIds("org_a")).toEqual(["org_a"])
+    expect(parseOAuthConsentOrganizationIds(" org_a , org_b,org_a ,")).toEqual([
+      "org_a",
+      "org_b",
+    ])
+    expect(parseOAuthConsentOrganizationIds(" , ")).toBeNull()
+    expect(parseOAuthConsentOrganizationIds(undefined)).toBeNull()
+  })
+
+  it("keeps the submitted organizations isolated to one consent request", async () => {
+    expect(getOAuthConsentOrganizationIds()).toBeUndefined()
 
     await withOAuthRequestContext(
-      { submittedOrganizationId: "org_acme", clientId: "client_a" },
+      { submittedOrganizationIds: ["org_acme"], clientId: "client_a" },
       async () => {
         await Promise.resolve()
-        expect(getOAuthConsentOrganizationId()).toBe("org_acme")
+        expect(getOAuthConsentOrganizationIds()).toEqual(["org_acme"])
         expect(getOAuthRequestClientId()).toBe("client_a")
       },
     )
 
-    expect(getOAuthConsentOrganizationId()).toBeUndefined()
+    expect(getOAuthConsentOrganizationIds()).toBeUndefined()
   })
 })
 

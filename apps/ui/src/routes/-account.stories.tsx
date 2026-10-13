@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
-import { expect, within } from "storybook/test"
+import { expect, userEvent, waitFor, within } from "storybook/test"
 import { entryPageInnerDecorators } from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
 import { AccountSettingsBody } from "./[.]auth.account.$accountView"
@@ -52,5 +52,151 @@ export const ApiKeysEmpty: Story = {
     await expect(
       createButton.closest('[data-slot="card-footer"]'),
     ).not.toBeNull()
+  },
+}
+
+const connectedApp = {
+  grantId: "ogr_story_agent",
+  clientId: "client_story_agent",
+  clientName: "Example Agent",
+  scopes: ["openid", "ctxpipe:read"],
+  organizations: [{ id: "org_north", slug: "north-labs", name: "North Labs" }],
+  connectedAt: "2026-09-01T10:00:00.000Z",
+}
+
+const storyOrganizations = [
+  { id: "org_north", name: "North Labs", slug: "north-labs" },
+  { id: "org_south", name: "South Works", slug: "south-works" },
+]
+
+/** A stateful msw backend for one grant: PUT and DELETE change the list. */
+function connectedAppsHandlers() {
+  let apps = [connectedApp]
+  const requests: { method: string; body?: unknown }[] = []
+  return {
+    requests,
+    handlers: [
+      http.get("*/.auth/api/v1/auth/organization/list", () =>
+        HttpResponse.json(storyOrganizations),
+      ),
+      http.get("*/api/v1/me/connected-apps", () => HttpResponse.json({ apps })),
+      http.put(
+        "*/api/v1/me/connected-apps/:grantId/organizations",
+        async ({ request, params }) => {
+          const body = (await request.json()) as { organizationIds: string[] }
+          requests.push({ method: "PUT", body })
+          apps = apps.map((app) =>
+            app.grantId === params.grantId
+              ? {
+                  ...app,
+                  organizations: storyOrganizations.filter((org) =>
+                    body.organizationIds.includes(org.id),
+                  ),
+                }
+              : app,
+          )
+          const updated = apps.find((app) => app.grantId === params.grantId)
+          return HttpResponse.json(updated)
+        },
+      ),
+      http.delete("*/api/v1/me/connected-apps/:grantId", ({ params }) => {
+        requests.push({ method: "DELETE" })
+        apps = apps.filter((app) => app.grantId !== params.grantId)
+        return new HttpResponse(null, { status: 204 })
+      }),
+    ],
+  }
+}
+
+const editBackend = connectedAppsHandlers()
+
+export const ConnectedAppsEditOrgs: Story = {
+  tags: ["workspace-golden"],
+  args: { accountView: "connected-apps" },
+  parameters: {
+    storyRoute: {
+      pattern: "flat",
+      path: "/.auth/account/connected-apps",
+    } satisfies StoryRouteParams,
+    msw: { handlers: { page: editBackend.handlers } },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const body = within(canvasElement.ownerDocument.body)
+    await expect(await canvas.findByText("Example Agent")).toBeVisible()
+    await expect(canvas.getByText("north-labs")).toBeVisible()
+    await userEvent.click(
+      canvas.getByRole("button", {
+        name: "Edit organizations of Example Agent",
+      }),
+    )
+    const dialog = within(await body.findByRole("dialog"))
+    const north = await dialog.findByRole("checkbox", { name: /North Labs/ })
+    const south = dialog.getByRole("checkbox", { name: /South Works/ })
+    await expect(north).toBeChecked()
+    // At least one org: with none ticked, Save is off.
+    await userEvent.click(north)
+    await expect(dialog.getByRole("button", { name: "Save" })).toBeDisabled()
+    await userEvent.click(south)
+    await userEvent.click(dialog.getByRole("button", { name: "Save" }))
+    await waitFor(() =>
+      expect(editBackend.requests).toContainEqual({
+        method: "PUT",
+        body: { organizationIds: ["org_south"] },
+      }),
+    )
+    await expect(await canvas.findByText("south-works")).toBeVisible()
+    await expect(canvas.queryByText("north-labs")).toBeNull()
+  },
+}
+
+const revokeBackend = connectedAppsHandlers()
+
+export const ConnectedAppsRevoke: Story = {
+  tags: ["workspace-golden"],
+  args: { accountView: "connected-apps" },
+  parameters: {
+    storyRoute: {
+      pattern: "flat",
+      path: "/.auth/account/connected-apps",
+    } satisfies StoryRouteParams,
+    msw: { handlers: { page: revokeBackend.handlers } },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const body = within(canvasElement.ownerDocument.body)
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Revoke Example Agent" }),
+    )
+    const dialog = within(await body.findByRole("alertdialog"))
+    await userEvent.click(dialog.getByRole("button", { name: "Revoke app" }))
+    await expect(await canvas.findByText("No connected apps")).toBeVisible()
+    await expect(revokeBackend.requests).toContainEqual({ method: "DELETE" })
+  },
+}
+
+export const ConnectedAppsEmpty: Story = {
+  args: { accountView: "connected-apps" },
+  parameters: {
+    storyRoute: {
+      pattern: "flat",
+      path: "/.auth/account/connected-apps",
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: [
+          http.get("*/api/v1/me/connected-apps", () =>
+            HttpResponse.json({ apps: [] }),
+          ),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(await canvas.findByText("No connected apps")).toBeVisible()
+    await expect(
+      canvas.getByRole("link", { name: "Connected apps" }),
+    ).toBeVisible()
   },
 }

@@ -34,6 +34,7 @@ import {
   githubInstallationReadRoutes,
   githubInstallationRoutes,
 } from "./github-installation.js"
+import { meConnectedAppsRoutes } from "./me-connected-apps.js"
 import { meGithubInstallationsRoutes } from "./me-github-installations.js"
 import { orgOnboardingRoutes, userOnboardingRoutes } from "./onboarding.js"
 import { openaiRoutes } from "./openai.js"
@@ -142,6 +143,7 @@ export function registerV1Routes(app: OpenAPIHono<AppEnv>): OrgScopedV1Rpc {
     .route("/integrations/linear", linearOauthCallbackRoutes)
     .route("/integrations/pagerduty", pagerdutyOauthCallbackRoutes)
     .route("/me/github/installations", meGithubInstallationsRoutes)
+    .route("/me/connected-apps", meConnectedAppsRoutes)
     .route("/connectors/notion", notionOAuthCallbackRoutes)
     .route("/onboarding", userOnboardingRoutes)
 

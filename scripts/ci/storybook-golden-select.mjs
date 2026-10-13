@@ -142,6 +142,11 @@ export const requiredStories = [
   "ActivityLoading",
   "FirstMessageOpensConversation",
   "NoHistory",
+  "ConsentOrgPicker",
+  "ConsentNeedsOneOrg",
+  "ConsentWriteOffByDefault",
+  "ConnectedAppsEditOrgs",
+  "ConnectedAppsRevoke",
 ]
 
 export function isGoldenPlaySuccess(phase) {
