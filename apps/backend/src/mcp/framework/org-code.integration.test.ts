@@ -288,7 +288,9 @@ describe("org-level code search (Postgres + msw codesearch)", () => {
       (request) => request.path === `/${seeded.get(name("alpha"))?.id}/graph`,
     )
     expect(alphaCalls).toHaveLength(1)
-    expect(found.skipped).toEqual(scope.skipped)
+    expect(
+      found.skipped.filter((entry) => entry.reason !== "over_limit"),
+    ).toEqual(scope.skipped)
 
     captured = []
     const text = await searchCodeText(org, scope, {
@@ -410,34 +412,54 @@ describe("org-level code search (Postgres + msw codesearch)", () => {
     expect(structural.results).toHaveLength(2)
   })
 
-  it(`keeps at most ${SCIP_FAN_OUT_LIMIT} requests in flight for 12 repositories`, async () => {
-    let inFlight = 0
-    let peak = 0
-    server.use(
-      ...codesearch({
-        delayMs: () => 30,
-        onFlight: (delta) => {
-          inFlight += delta
-          peak = Math.max(peak, inFlight)
-        },
-      }),
-    )
+  it(`searches the first ${SCIP_FAN_OUT_LIMIT} of 12 repositories and skips the rest as over_limit`, async () => {
+    server.use(...codesearch({}))
     const scope = await resolveCodeScope(org, {
       workspaceId: wideId,
       excludeRepositories: [],
     })
     expect(scope.repositories).toHaveLength(12)
-    const graph = await findSymbolAcrossRepositories(
-      org,
-      scope,
-      { primitive: "find_symbol", symbol: "charge" },
-      { limit: 1_000, maxTokens: 100_000 },
-    )
-    expect(SCIP_FAN_OUT_LIMIT).toBe(10)
-    expect(peak).toBe(SCIP_FAN_OUT_LIMIT)
+    const overLimit = WIDE.slice(10).map((short) => ({
+      repository: name(short),
+      reason: "over_limit",
+    }))
+    for (const search of [
+      () =>
+        findSymbolAcrossRepositories(
+          org,
+          scope,
+          { primitive: "find_symbol", symbol: "charge" },
+          { limit: 1_000, maxTokens: 100_000 },
+        ),
+      () =>
+        structuralSearchAcrossRepositories(
+          org,
+          scope,
+          { pattern: "charge($A)", lang: "typescript" },
+          { limit: 1_000, maxTokens: 100_000 },
+        ),
+    ]) {
+      captured = []
+      const found = await search()
+      expect(SCIP_FAN_OUT_LIMIT).toBe(10)
+      expect(requestedRepositories()).toEqual(WIDE.slice(0, 10).map(name))
+      expect(found.results).toHaveLength(20)
+      expect(found.skipped).toEqual(overLimit)
+      expect(found.hint).toMatch(
+        /repositories.*workspace|workspace.*repositories/,
+      )
+    }
+
+    // Text search is one Zoekt request and keeps the full scope.
+    captured = []
+    const text = await searchCodeText(org, scope, {
+      query: "charge",
+      limit: 1_000,
+      maxTokens: 100_000,
+    })
     expect(requestedRepositories()).toEqual(WIDE.map(name))
-    expect(graph.results).toHaveLength(24)
-    expect(graph.skipped).toEqual([])
+    expect(text.skipped).toEqual([])
+    expect(text.hint).toBeUndefined()
   })
 
   it("merges in a stable order and respects the limit and the token budget", async () => {

@@ -19,7 +19,10 @@ import { RepositoryHandles } from "./repository-handles.js"
 import { McpToolError } from "./tool-errors.js"
 import type { CallOrg } from "./tool-org.js"
 
-/** SCIP and structural search send at most this many requests at once (ADR-051 §7, ADR-027). */
+/**
+ * SCIP and structural search query at most this many repositories in one call
+ * (ADR-051 §7, ADR-027). The rest of the scope is `skipped` as `over_limit`.
+ */
 export const SCIP_FAN_OUT_LIMIT = 10
 
 /** A linked repository that codesearch can search. */
@@ -32,7 +35,7 @@ export type CodeRepository = {
 
 export type SkippedRepository = {
   repository: string
-  reason: "not_indexed" | "failed"
+  reason: "not_indexed" | "failed" | "over_limit"
 }
 
 /**
@@ -50,6 +53,8 @@ export type CodeResults<T> = {
   excluded: string[]
   skipped: SkippedRepository[]
   truncated: boolean
+  /** How to narrow the call when repositories are `over_limit`. */
+  hint?: string
 }
 
 type Budget = { limit: number; maxTokens: number }
@@ -244,11 +249,12 @@ export function structuralSearchAcrossRepositories(
 }
 
 /**
- * Runs `search` for each repository, at most {@link SCIP_FAN_OUT_LIMIT} at
- * once. A repository whose request fails is `skipped`; the call continues.
- * The merge takes rank 0 of each repository in handle order, then rank 1,
- * and so on, so the order does not depend on which answer arrives first,
- * and the cap does not fill with one repository.
+ * Runs `search` in parallel for the first {@link SCIP_FAN_OUT_LIMIT}
+ * repositories in handle order. The rest are `skipped` as `over_limit`. A
+ * repository whose request fails is `skipped`; the call continues. The merge
+ * takes rank 0 of each repository in handle order, then rank 1, and so on,
+ * so the order does not depend on which answer arrives first, and the cap
+ * does not fill with one repository.
  */
 async function fanOut(
   scope: CodeScope,
@@ -256,46 +262,44 @@ async function fanOut(
   kind: "graph" | "structural",
   search: (repository: CodeRepository) => Promise<Record<string, unknown>[]>,
 ): Promise<CodeResults<Record<string, unknown> & { repository: string }>> {
-  const answers: Array<Record<string, unknown>[] | null> = new Array(
-    scope.repositories.length,
-  ).fill(null)
-  let next = 0
-  const worker = async () => {
-    while (next < scope.repositories.length) {
-      const index = next++
-      const repository = scope.repositories[index] as CodeRepository
+  const searched = scope.repositories.slice(0, SCIP_FAN_OUT_LIMIT)
+  const overLimit = scope.repositories.slice(SCIP_FAN_OUT_LIMIT)
+  const answers = await Promise.all(
+    searched.map(async (repository) => {
       try {
-        answers[index] = await search(repository)
+        return await search(repository)
       } catch {
         // The error text can echo the query. Keep it off the wide event.
         log.warn({
           step: `mcp.code_search.${kind}.repository_failed`,
           repositoryId: repository.repositoryId,
         })
+        return null
       }
-    }
-  }
-  await Promise.all(
-    Array.from(
-      { length: Math.min(SCIP_FAN_OUT_LIMIT, scope.repositories.length) },
-      worker,
-    ),
+    }),
   )
 
   const skipped = [...scope.skipped]
-  scope.repositories.forEach((repository, index) => {
+  searched.forEach((repository, index) => {
     if (answers[index] === null)
       skipped.push({ repository: repository.handle, reason: "failed" })
   })
+  for (const repository of overLimit)
+    skipped.push({ repository: repository.handle, reason: "over_limit" })
   const merged: Array<Record<string, unknown> & { repository: string }> = []
   const longest = Math.max(0, ...answers.map((answer) => answer?.length ?? 0))
   for (let rank = 0; rank < longest; rank += 1) {
-    scope.repositories.forEach((repository, index) => {
+    searched.forEach((repository, index) => {
       const item = answers[index]?.[rank]
       if (item) merged.push({ ...item, repository: repository.handle })
     })
   }
-  return capped(merged, scope, skipped, budget)
+  const results = capped(merged, scope, skipped, budget)
+  if (overLimit.length === 0) return results
+  return {
+    ...results,
+    hint: `Searched ${SCIP_FAN_OUT_LIMIT} of ${scope.repositories.length} repositories. Name the repositories to search in \`repositories\`, or narrow the call to one \`workspace\`.`,
+  }
 }
 
 function capped<T>(
