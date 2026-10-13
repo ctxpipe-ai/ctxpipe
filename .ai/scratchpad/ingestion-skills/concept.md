@@ -126,7 +126,7 @@ Source text must go through, so injection cannot be fully prevented. The guards 
 
 Each Workspace of a run gets refs in its own repository: `refs/ctxpipe/ingest/<runId>/<workspaceId>/shards/<shard>` per shard, and `refs/ctxpipe/ingest/<runId>/<workspaceId>/assembled` for the assembled result (git cannot hold a ref next to a ref below it). A shard ref starts at the pinned revision. Each step adds one commit with the validated tree and the trailers `Ctxpipe-Run`, `Ctxpipe-Step`, and `Ctxpipe-Bundle`. The author time comes from the run input, so a replay makes the same SHA. The step output holds only the SHA and counts. The sandbox fetches the ref before the next step.
 
-`assemble` merges the shard refs on the host. An overlap goes to the semantic merge child. The repository-wide skills then commit on the assembled ref.
+`assemble` merges the shard refs on the host: one commit whose parents are the shard tips, with the ops of each shard applied on the pinned revision, pushed with a lease to the assembled ref. Each op must have a valid path. There is no per-step cap; the run cap of a Workspace (300 ops) applies. Two shards that change the same path (case-insensitive) are a conflict: the broker refuses the assemble job, and the run sends the overlap to the semantic merge child. The repository-wide skills then commit on the assembled ref.
 
 ### 7.2 Broker rules
 
@@ -134,6 +134,8 @@ The broker stays the only pusher. A ref push is a new job kind:
 
 - only the `refs/ctxpipe/ingest/<runId>/` names of the job's run, in the job's Workspace repository;
 - no force: the push names the expected old tip (absent for the first commit), and the broker refuses any other;
+- the step names its base commit (`step.json`), and the broker refuses it when it is not the old tip (or the pinned revision for the first commit);
+- the run must be an unfinished ingestion v2 run of the org, and the Workspace must be writable with the job's binding generation;
 - the broker runs the section 3.1 validator against the base commit;
 - no hydrate, no CAS activation, no default-branch change. Hydrate reads only the default branch, so a ref is never served.
 
@@ -146,7 +148,12 @@ The broker stays the only pusher. A ref push is a new job kind:
 - A step that crashed after its push finds its own `Ctxpipe-Step` trailer on the ref tip, skips the model run, and returns that SHA.
 - A step that crashed before its push runs again from the tip and pays for that one step again.
 - A lost sandbox is made again and fetches the ref.
-- The Workspace tip check lists `refs/ctxpipe/ingest/*` with `ls-remote` and deletes the refs of a finished, failed, or cancelled run, and any ingest ref older than 24 hours. Shadow refs stay 7 days for the comparison, and shadow mode runs only on test organizations.
+- The Workspace tip check cleans up refs only for an org with an ingestion v2 run in the last 7 days. It lists `refs/ctxpipe/ingest/*` with `ls-remote` and the read credential, and it asks for the write credential only when a ref must go:
+  - every ref of an unfinished run stays, however old the run is;
+  - the refs of a finished, failed, or cancelled run go (publish deletes them first); a shadow run keeps them for 7 days after its `finished_at`, for the comparison;
+  - the 24-hour age rule applies only to a ref of an unknown run or a ref whose name does not parse. Its age is the commit time of its tip. The fixed author time is never the age of a live run's ref.
+- The run input holds `shadow`. Shadow mode runs only on test organizations.
+- A ref that moved after the listing is skipped, not deleted.
 
 ## 8. Sandbox, limits, and skills
 
