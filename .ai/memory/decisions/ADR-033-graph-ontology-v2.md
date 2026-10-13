@@ -1,6 +1,6 @@
 # ADR-033: Graph ontology v2 — relation families, shared identity, deterministic connector extraction
 
-**Status:** Accepted | **Date:** 2026-09-17 | **Tags:** graph, ingestion, connectors, retrieval
+**Status:** Accepted | **Date:** 2026-09-17 | **Updated:** 2026-10-13 | **Tags:** graph, ingestion, connectors, retrieval
 
 Amends [ADR-032](ADR-032-path-located-graph-edges.md) §2 (predicates) and §4
 (connector nodes). Builds on [ADR-031](ADR-031-github-pr-scoped-mirror.md).
@@ -32,13 +32,23 @@ cross-tool edges require shared identity.
    `PREDICATE_DESCRIPTIONS`):
    containment `PART_OF`; provenance `DECLARED_IN`, `MEMBER_OF_PRIMARY`;
    change `TARGETS`, `ADDED`, `MODIFIED`, `REMOVED`, `RENAMED`; reference
-   `REFERENCES`, `MENTIONS`, `SUPERSEDES`; ownership `OWNS`; cause
+   `REFERENCES`, `RESOLVES`, `MENTIONS`, `SUPERSEDES`; ownership `OWNS`; cause
    `INFLUENCES`. `ABOUT`, `RELATES_TO`, `ASSOCIATED_WITH` are retired. The
    extension traversal walks the reference, cause and ownership families.
    Containment also shapes a monorepo: a `Service`/`App`/`Library` is
    `PART_OF` its nearest enclosing package or the workspace root
    (`svc:…:./`), which is `IMPLEMENTED_IN` the `Repository` like every
    package (`linkPackageHierarchy`).
+   Updated 2026-10-13 (intent trail): `PullRequest RESOLVES Issue` is the
+   reference edge for a merged pull request that closes the issue. The head
+   branch names the issue, or a Linear closing keyword (close, fix, resolve,
+   complete, and their forms, with an optional colon) comes directly before
+   the identifier or its Linear URL. Other mentions stay `REFERENCES`. A pull
+   request closed without a merge has only `TARGETS` and `REFERENCES`.
+   Linear issues link to issues with existing predicates: a sub-issue is
+   `PART_OF` its parent; for a relation that issue A owns, `blocks` gives
+   `B DEPENDS_ON A`, `duplicate` gives `B SUPERSEDES A`, and `related` or
+   `similar` gives `A REFERENCES B`. The milestone is an `Issue` property.
 3. **Identity is shared.** `domain/codeIngestion/referenceResolver.ts` is the
    only place that turns URLs, identifiers and paths into keys:
    `prq:${repoId}:${n}`, `iss:linear:${IDENT}`, `team:linear:${KEY}`,
@@ -51,7 +61,8 @@ cross-tool edges require shared identity.
    Source-repo extractors add `Decision` (ADR files) and `Team OWNS`
    (CODEOWNERS). Reference-family claims whose ends do not resolve are dropped
    once after all roots concatenate (`finalizeExtractedReferences`), with a
-   per-predicate summary log.
+   per-predicate summary log. Since 2026-10-13, claims between two `Issue`s
+   (`PART_OF`, `DEPENDS_ON`) resolve the same way.
 5. **Time is first-class.** `ExtractedClaim` carries optional `validFrom` /
    `validTo`; change edges set `validFrom` to the merge date; containment is
    not asserted for a path a pull request removed.
