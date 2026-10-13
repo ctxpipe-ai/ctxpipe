@@ -145,7 +145,7 @@ describe("workspace-ingest-model capability", () => {
   async function holdShard(
     runId: string,
     shard: number,
-    owner = randomUUID(),
+    owner: string = randomUUID(),
     expiresAt = new Date(Date.now() + 60_000),
   ): Promise<string> {
     const key = ingestSandboxThreadId(runId, shard)
