@@ -49,8 +49,9 @@ const wideId = generateObjectId("ws")
 const seeded = new Map<string, { id: string; zoektRepoId: number }>()
 const owner = `ex${suffix}`
 const name = (short: string) => `${owner}/${short}`
-const WIDE = Array.from({ length: 12 }, (_, index) =>
-  `wide-${String(index).padStart(2, "0")}`,
+const WIDE = Array.from(
+  { length: 12 },
+  (_, index) => `wide-${String(index).padStart(2, "0")}`,
 )
 
 type Captured = { path: string; body: Record<string, unknown> }
@@ -61,9 +62,9 @@ function repositoryOf(id: string): string {
   throw new Error(`unknown repository id ${id}`)
 }
 
-/** Codesearch with request capture. `fail` names repositories that answer 500. */
+/** Codesearch with request capture. `failing` names repositories that answer 500. */
 function codesearch(options: {
-  fail?: string[]
+  failing?: string[]
   delayMs?: (repository: string) => number
   results?: number
   onFlight?: (delta: 1 | -1) => void
@@ -81,8 +82,11 @@ function codesearch(options: {
       await new Promise((resolve) =>
         setTimeout(resolve, options.delayMs?.(repository) ?? 0),
       )
-      if (options.fail?.includes(repository)) {
-        return HttpResponse.json({ error: "scip index broken" }, { status: 500 })
+      if (options.failing?.includes(repository)) {
+        return HttpResponse.json(
+          { error: "scip index broken" },
+          { status: 500 },
+        )
       }
       return HttpResponse.json(build(repository))
     } finally {
@@ -101,13 +105,15 @@ function codesearch(options: {
         })),
       })),
     ),
-    http.post(`${CODESEARCH}/:repoId/structural-search`, ({ request, params }) =>
-      answer(request, String(params.repoId), (repository) => ({
-        matches: Array.from({ length: count }, (_, rank) => ({
-          file: `src/${rank}.ts`,
-          text: `${repository}#${rank}`,
+    http.post(
+      `${CODESEARCH}/:repoId/structural-search`,
+      ({ request, params }) =>
+        answer(request, String(params.repoId), (repository) => ({
+          matches: Array.from({ length: count }, (_, rank) => ({
+            file: `src/${rank}.ts`,
+            text: `${repository}#${rank}`,
+          })),
         })),
-      })),
     ),
     http.post(`${CODESEARCH}/search`, async ({ request }) => {
       const body = (await request.json()) as { RepoIDs: number[] }
@@ -156,7 +162,12 @@ describe("org-level code search (Postgres + msw codesearch)", () => {
     initDb(databaseUrl)
     await getSystemDb()
       .insert(organizations)
-      .values({ id: org.id, name: `Org code ${suffix}`, slug: org.slug, createdAt: new Date() })
+      .values({
+        id: org.id,
+        name: `Org code ${suffix}`,
+        slug: org.slug,
+        createdAt: new Date(),
+      })
     await withOrgDbContext(org.id, async (db) => {
       await db.insert(workspaces).values(
         [
@@ -235,7 +246,10 @@ describe("org-level code search (Postgres + msw codesearch)", () => {
     captured = []
     vi.stubEnv("CODESEARCH_URL", CODESEARCH)
     if (!process.env.AUTH_SECRET || process.env.AUTH_SECRET.length < 32) {
-      vi.stubEnv("AUTH_SECRET", "test-only-auth-secret-with-at-least-32-characters")
+      vi.stubEnv(
+        "AUTH_SECRET",
+        "test-only-auth-secret-with-at-least-32-characters",
+      )
     }
   })
 
@@ -249,7 +263,9 @@ describe("org-level code search (Postgres + msw codesearch)", () => {
       await db.delete(workspaces).where(eq(workspaces.orgId, org.id))
       await db.delete(repositories).where(eq(repositories.orgId, org.id))
     })
-    await getSystemDb().delete(organizations).where(eq(organizations.id, org.id))
+    await getSystemDb()
+      .delete(organizations)
+      .where(eq(organizations.id, org.id))
     await closeDb()
   })
 
@@ -282,8 +298,12 @@ describe("org-level code search (Postgres + msw codesearch)", () => {
     })
     const [search] = captured
     const ids = search?.body.RepoIDs as number[]
-    expect(ids.filter((id) => id === seeded.get(name("alpha"))?.zoektRepoId)).toHaveLength(1)
-    expect(text.results.filter((match) => match.repository === name("alpha"))).toEqual([
+    expect(
+      ids.filter((id) => id === seeded.get(name("alpha"))?.zoektRepoId),
+    ).toHaveLength(1)
+    expect(
+      text.results.filter((match) => match.repository === name("alpha")),
+    ).toEqual([
       {
         repository: name("alpha"),
         path: "src/index.ts",
@@ -295,9 +315,14 @@ describe("org-level code search (Postgres + msw codesearch)", () => {
 
   it("never sends an excluded repository to codesearch", async () => {
     server.use(...codesearch({}))
-    for (const exclude of [name("beta"), `git@github.com:${name("beta")}.git`]) {
+    for (const exclude of [
+      name("beta"),
+      `git@github.com:${name("beta")}.git`,
+    ]) {
       captured = []
-      const scope = await resolveCodeScope(org, { excludeRepositories: [exclude] })
+      const scope = await resolveCodeScope(org, {
+        excludeRepositories: [exclude],
+      })
       expect(scope.excluded).toEqual([name("beta")])
       const graph = await findSymbolAcrossRepositories(
         org,
@@ -311,11 +336,17 @@ describe("org-level code search (Postgres + msw codesearch)", () => {
         { pattern: "charge($A)", lang: "typescript" },
         { limit: 100, maxTokens: 100_000 },
       )
-      await searchCodeText(org, scope, { query: "charge", limit: 100, maxTokens: 100_000 })
+      await searchCodeText(org, scope, {
+        query: "charge",
+        limit: 100,
+        maxTokens: 100_000,
+      })
       expect(captured.length).toBeGreaterThan(0)
       expect(requestedRepositories()).not.toContain(name("beta"))
       expect(graph.excluded).toEqual([name("beta")])
-      expect(graph.results.map((result) => result.repository)).not.toContain(name("beta"))
+      expect(graph.results.map((result) => result.repository)).not.toContain(
+        name("beta"),
+      )
     }
   })
 
@@ -349,15 +380,20 @@ describe("org-level code search (Postgres + msw codesearch)", () => {
   })
 
   it("gives skipped for one failing repository, not an error", async () => {
-    server.use(...codesearch({ fail: [name("gamma")] }))
-    const scope = await resolveCodeScope(org, { workspaceId: ledgerId, excludeRepositories: [] })
+    server.use(...codesearch({ failing: [name("gamma")] }))
+    const scope = await resolveCodeScope(org, {
+      workspaceId: ledgerId,
+      excludeRepositories: [],
+    })
     const graph = await findSymbolAcrossRepositories(
       org,
       scope,
       { primitive: "find_symbol", symbol: "charge" },
       { limit: 100, maxTokens: 100_000 },
     )
-    expect(graph.skipped).toEqual([{ repository: name("gamma"), reason: "failed" }])
+    expect(graph.skipped).toEqual([
+      { repository: name("gamma"), reason: "failed" },
+    ])
     expect(graph.results.map((result) => result.repository)).toEqual([
       name("alpha"),
       name("alpha"),
@@ -368,7 +404,9 @@ describe("org-level code search (Postgres + msw codesearch)", () => {
       { pattern: "charge($A)", lang: "typescript" },
       { limit: 100, maxTokens: 100_000 },
     )
-    expect(structural.skipped).toEqual([{ repository: name("gamma"), reason: "failed" }])
+    expect(structural.skipped).toEqual([
+      { repository: name("gamma"), reason: "failed" },
+    ])
     expect(structural.results).toHaveLength(2)
   })
 
@@ -384,7 +422,10 @@ describe("org-level code search (Postgres + msw codesearch)", () => {
         },
       }),
     )
-    const scope = await resolveCodeScope(org, { workspaceId: wideId, excludeRepositories: [] })
+    const scope = await resolveCodeScope(org, {
+      workspaceId: wideId,
+      excludeRepositories: [],
+    })
     expect(scope.repositories).toHaveLength(12)
     const graph = await findSymbolAcrossRepositories(
       org,
@@ -407,7 +448,10 @@ describe("org-level code search (Postgres + msw codesearch)", () => {
         delayMs: (repository) => (repository === name(WIDE[0] ?? "") ? 60 : 0),
       }),
     )
-    const scope = await resolveCodeScope(org, { workspaceId: wideId, excludeRepositories: [] })
+    const scope = await resolveCodeScope(org, {
+      workspaceId: wideId,
+      excludeRepositories: [],
+    })
     const run = () =>
       findSymbolAcrossRepositories(
         org,
@@ -423,7 +467,9 @@ describe("org-level code search (Postgres + msw codesearch)", () => {
       WIDE.slice(0, 5).map((short) => `${name(short)}#0`),
     )
     expect(first.truncated).toBe(true)
-    for (const request of captured.filter((item) => item.path.endsWith("/graph"))) {
+    for (const request of captured.filter((item) =>
+      item.path.endsWith("/graph"),
+    )) {
       expect(request.body.limit).toBe(5)
     }
 
@@ -435,6 +481,8 @@ describe("org-level code search (Postgres + msw codesearch)", () => {
     )
     expect(small.truncated).toBe(true)
     expect(small.results.length).toBeGreaterThan(0)
-    expect(JSON.stringify(small.results).length / 4).toBeLessThanOrEqual(40 + 20)
+    expect(JSON.stringify(small.results).length / 4).toBeLessThanOrEqual(
+      40 + 20,
+    )
   })
 })

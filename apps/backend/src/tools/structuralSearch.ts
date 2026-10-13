@@ -31,8 +31,7 @@ export async function codesearchStructuralSearchJson(
   body: StructuralSearchBody,
   workspace?: StructuralSearchWorkspace,
 ): Promise<
-  | { ok: true; json: unknown }
-  | { ok: false; status: number; detail: string }
+  { ok: true; json: unknown } | { ok: false; status: number; detail: string }
 > {
   const { pattern, lang, paths, globs, limit } = body
   const source = capturedSourceRevision(repository.orgId, repository.id)
