@@ -43,7 +43,7 @@ Known limit: a browser that has an old `__infra-rid` cookie keeps it until its n
 
 Proposed Railway changes (not made):
 
-- Set the backend `UI_PROXY_URL` on previews to the private UI address (`http://ui.railway.internal:<port>`), not `https://ui-pr-N.up.railway.app`. Each document and asset then skips a hop through the public edge.
+- Set the backend `UI_PROXY_URL` on previews to the private UI address (`http://ui.railway.internal:<port>`), not `https://ui-pr-N.up.railway.app`. Each document and asset then skips a hop through the public edge. Done later: PR Deploy and the roll workflow now set this value and delete the preview UI public domain (`scripts/preview-ui-private.sh`).
 
 ## Proof
 
