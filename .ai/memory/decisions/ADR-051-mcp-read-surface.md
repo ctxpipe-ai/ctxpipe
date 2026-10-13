@@ -119,7 +119,9 @@ We do not port the weighted walk, the advisor planner, its eval, or the old retr
 ### 8. Data layer
 
 - **Knowledge search:** a table `workspace_knowledge_chunks` (unit, Workspace, org, projection SHA, ordinal, text, generated `tsvector`, `vector` with an HNSW index). Hybrid search uses reciprocal rank fusion in SQL, with filters. Chat uses the same function. Embeddings are reused by chunk hash.
-- **Unit columns** `title`, `source`, and `updated_at`, for the filters.
+  - **Chunk rule:** one chunk for each Markdown heading section. A section longer than 512 tokens (about 2,048 characters) splits on blank lines, then on length. Sections do not merge, so an edit changes only the hash of its own chunk.
+  - **Lifecycle:** the chunks of a projection SHA replace the old chunks in the transaction that activates that SHA, like the unit rows. A new chunk copies the embedding of an old chunk with the same hash in that transaction. Hydrate then embeds only the hashes that have no embedding. A unit embedding is the mean of its chunk embeddings.
+- **Unit columns** `title`, `source`, and `updated_at`, for the filters. `title` is the front-matter `title`, else the first heading. `source` is the connector mirror root (`connectorMirrorRoot`), else `authored`. `updated_at` is the time of the last commit that changed the path. Units from before this change keep a null `title` and `source` until their next hydrate.
 - **Grant org set:** `oauth_grant_organizations` (section 3).
 - **Code search:** a wrapper maps org and handles to checkout keys and drops excluded repositories first. SCIP fans out in parallel over at most 10 repositories. [ADR-027](ADR-027-codesearch-openworkflow-concurrency.md) budgets apply.
 

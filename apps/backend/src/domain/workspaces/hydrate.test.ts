@@ -23,14 +23,13 @@ describe("hydrateKnowledgeTree unit metadata", () => {
         },
         {
           path: "notes/heading.md",
-          content: "Intro line.\n\n```\n# not a heading\n```\n## Deep heading ##\nBody.\n",
+          content:
+            "Intro line.\n\n```\n# not a heading\n```\n## Deep heading ##\nBody.\n",
         },
         { path: "notes/none.md", content: "No heading here.\n" },
       ],
     })
-    expect(
-      units.map(({ path, title }) => ({ path, title })),
-    ).toEqual([
+    expect(units.map(({ path, title }) => ({ path, title }))).toEqual([
       { path: "notes/front.md", title: "Front title" },
       { path: "notes/heading.md", title: "Deep heading" },
       { path: "notes/none.md", title: null },
