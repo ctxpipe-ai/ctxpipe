@@ -1,0 +1,148 @@
+# ADR-051: MCP read surface: small read tools, slugs, scopes, and an org set per grant
+
+**Status:** Accepted | **Date:** 2026-10-13 | **Tags:** mcp, oauth, multi-tenant, graph, search, observability
+
+## Context
+
+The public MCP server has one tool, `ctx_advisor`. It runs Workspace chat for each call and returns an answer. This tool comes from the older design, where ctxpipe was an advisor. Now ctxpipe is a context management system. The client agent (Claude Code, Codex, Cursor) is a strong reasoner, and it must drive the search loop itself.
+
+The CTO requirements (CTX-586) are: read and write scopes; a read slice first; several orgs and Workspaces in one session; eager discovery of orgs and Workspaces; search over the context and the linked repositories; no search of the repository that the agent works in; tests and evals for each tool; and correlation ids for each call.
+
+Facts that the design uses:
+
+- The OAuth grant stores one org in `referenceId` (`auth/config.ts`, `auth/oauth-organization.ts`). The JWT carries `https://ctxpipe.ai/organization_id`. Better Auth stores only one `referenceId` for each consent and token ([ADR-026](ADR-026-claude-plugin-mcp-distribution.md) §3).
+- A Workspace graph is immutable for each revision ([ADR-046](ADR-046-workspace-revision-projection-identity.md)). FalkorDB has an index on `(projectionKey, id)`. Today the chat graph tools read all nodes and all edges of the revision for each call.
+- `claim-confidence.ts` decays a signal at read time (validity window and a half-life for each source).
+- Knowledge search runs in memory over all units, with `jsonb` embeddings.
+
+The design is the Linear document "CTX-586 design v2". The plan is `.ai/scratchpad/mcp-tools/plan.md`.
+
+## Decision
+
+### 1. Seven small read-only tools; `ctx_advisor` goes at once
+
+The client agent is the reasoner. ctxpipe returns facts with stable refs. It runs no LLM for each call.
+
+| Tool | Job |
+| -- | -- |
+| `list_workspaces` | Compact list of the orgs and Workspaces that the connection can read. Detail (repositories, sources, readiness) for one named Workspace. |
+| `search_knowledge` | Hybrid search (natural language and keyword) over the knowledge units of one org, in one or more Workspaces, with filters (`kinds`, `pathPrefix`, `sources`, `updatedAfter`, `validAt`). |
+| `search_code` | One search across the linked repositories: `literal`, `regex` (RE2, Zoekt), or `structural` (ast-grep). |
+| `find_symbol` | SCIP lookup: definition, references, callers, callees. |
+| `read_file` | Read a knowledge unit or a repository file by ref, with line ranges. |
+| `list_files` | Folder tree of a Workspace repository or a linked repository. |
+| `get_related` | Units near one or more seeds in the graph **and** relevant to a query: ranked, explained, bounded (section 6). |
+
+- The release that adds these tools removes `ctx_advisor`: its tool code, `mcp/advisorThread.ts`, its tests, its Langfuse session, its progress notifications, and the plugin skill `ctx-advisor`. No release has both, and no release has neither. Workspace chat in the product stays.
+- The plugin goes to 0.2.0 with a `ctxpipe-context` skill and the bare `/mcp` URL.
+- MCP tools and Workspace chat tools call the same domain functions.
+- A later slice adds write tools (`propose_knowledge_change`, `record_learning`, `flag_knowledge`, `get_job`) under `ctxpipe:write`.
+- The removal of `ctx_advisor` deletes no LangChain code. A separate cleanup removes LangGraph first (ticket L1), then moves the host model calls to the TanStack AI setup of chat (L2). [ADR-052](ADR-052-ingestion-sandbox-skills-patches.md) deletes the ingestion agents (L3). The last step removes the LangChain packages and bans their imports (L4).
+
+### 2. Scopes: one endpoint, `ctxpipe:read` and `ctxpipe:write`
+
+- One `/mcp` endpoint. The OAuth scopes are `ctxpipe:read` and `ctxpipe:write`. `tools/list` shows only the tools that the token's scopes allow. Each call checks the scope again.
+- A request with no credential gets 401 with `scope="ctxpipe:read"`. A call without the necessary scope gets 403 `insufficient_scope`, which names the full scope set.
+- Legacy grants and API keys count as read. API keys get `permissions`.
+- On consent, write is an unticked box. A write token has a shorter lifetime.
+- Each tool has a `title` and the annotations `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: false`.
+- Rejected: a second endpoint for write. It needs two connections and duplicate tools.
+
+### 3. Several orgs: an org set per grant, one org per call
+
+- **One tool call = one org.** The required `org` slug argument names it. A session can call several orgs, but no call mixes orgs. So RLS ([ADR-042](ADR-042-postgres-rls-app-role.md)) stays one org per request.
+- **Consent** lists the orgs of the user with check boxes. The org of the current session is ticked. At least one org is necessary.
+- **Storage:** the table `oauth_grant_organizations (grant_id, organization_id, created_at)`. The grant `referenceId` becomes a grant id that points to the set. The JWT carries `https://ctxpipe.ai/grant_id`. The set is not in the JWT, so a change applies on the next call.
+- **Each call:** resolve the `org` slug to an org id. Allow the call only when the org is in the grant set **and** the membership of the user is active (one indexed query). Then set the RLS org context for that request.
+- **Change without a reconnect:** the "Connected apps" page in settings lists each grant (client name, scopes, orgs) with check boxes and "Revoke". A new membership never joins a grant until the user ticks it.
+- **Errors:** an org outside the set, an org without membership, and an unknown org give the same `org_not_found` text. When the user is a member but the org is not ticked, the text also tells the user to allow it in Connected apps. This leaks nothing, because the user is a member.
+- **Legacy grants** (`referenceId` = an org id) read as a one-org set. They need no data migration.
+- **API keys:** an org key stays one org, and the `org` argument must match it. A personal key gets an org set when it is made (the same table, keyed by key id). The `?orgSlug=` URL parameter is only a default for old clients.
+- Rejected: a grant without orgs that uses only live membership (a new membership joins old tokens with no consent; [ADR-026](ADR-026-claude-plugin-mcp-distribution.md) rejects this); one grant for each org (duplicate tools and a reconnect for each org); the org set in the JWT (a removal stays valid until the token expires).
+
+This section amends [ADR-026](ADR-026-claude-plugin-mcp-distribution.md) §3 and §4.
+
+### 4. Identifiers and refs
+
+- **No internal ids** in arguments or results.
+- **Org and Workspace:** two slug arguments, `org` and `workspace` (or `workspaces`). Not one `org/workspace` handle, because a list of handles can mix orgs. `org` is necessary on every tool. `search_knowledge` takes `workspaces` (default: all Workspaces of the org, at most 8). The other tools take one `workspace`.
+- **Repository handle:** the path of the normalized git URL, `owner/name` (for example `example/payments-api`). When two repositories of one org have the same `owner/name` on different hosts, both handles become `host/owner/name`. Each argument that names a repository also accepts a git URL (SSH or HTTPS, with or without `.git`). The server normalizes both forms with `normalizeWorkspaceRepositoryUrl`. Results show only the handle.
+- **Ref:** short and relative to the `org` and `workspace` of the call. A knowledge unit ref is its path in the Workspace repository (`knowledge/services/payments-api.md`). A repository file ref is `<handle>:<path>` (`example/payments-api:src/limits.ts`). The server reads a ref as a repository file only when the part before the first `:` is a linked repository handle of the Workspace. A later resource template maps refs to `ctxpipe://{org}/{workspace}/{+ref}`.
+- `search_code` and `find_symbol` resolve repositories at org level. They search a repository that several Workspaces link only once. A file ref from them is valid in `read_file` with each Workspace of the org that links that repository.
+
+### 5. Discovery, responses, and the current repository
+
+- **Server instructions** are dynamic for each principal: the rules first (the first 512 characters stand alone), then each org of the set with its Workspace slugs, under 2,048 characters in total. The rules say: ctxpipe serves the default branch; do not use it for the working repository; send independent calls in parallel; search knowledge before a design choice; name one org for each call; cite refs.
+- `list_workspaces` has `_meta["anthropic/alwaysLoad"]: true`. List mode is about 20 tokens for each Workspace (slug, title, repository count, readiness), 100 for each page. Detail mode is for one named Workspace (at most about 600 tokens).
+- Resources come later, only for `@`-mention. They do not reach the model on their own.
+- **Parallel calls:** the instructions and the tool descriptions tell the client to send independent calls in parallel.
+- **Responses:** `structuredContent` and compact TOON text. Each response states the served branch and SHA (`served { branch, sha }`). The target is under 4,000 tokens and the hard cap is 24,000 characters. Cursors are opaque and bound to the projection SHA (`stale_cursor` after a change). Errors have `isError: true` and `{ code, message, retryable }`. An unknown Workspace and a Workspace outside the grant give the same error.
+- **Not the current repository:** `excludeRepositories` (handles or git URLs) is necessary on `search_code` and `find_symbol` (`[]` is allowed) and optional on the other tools. `read_file` refuses an excluded repository with `excluded_repository`. Results list what the call excluded.
+- **Stateless:** one `McpServer` for each request. The design fits spec 2025-11-25 and the stateless 2026-07-28 revision.
+
+### 6. `get_related`: graph relevance, bounded
+
+`get_related` finds units that are near the seeds **and** relevant to a query. Plain neighbors are one setting of the same tool (`maxDepth: 1`, no `query`).
+
+- **Parameters:** `seeds` (1 to 10 refs), `query`, `intent` (`general`, `why`, `ownership`, `change`, `dependencies`, `structure`), predicate filters and weights, result kind filters, `direction`, `maxDepth` (1 to 4), `maxFanOut`, `minConfidence`, `validAt` or `validBetween`, `recencyHalfLifeDays`, `restart`, `queryWeight`, `hubPenalty`, `diversity`, `maxPerKind`, `explain`, `includeSeeds`, `limit`, `cursor`, `maxTokens`. The agent sets `intent`; there is no classifier.
+- **Algorithm:**
+  1. Postgres resolves the seed refs to the ids of the published projection. Unknown refs give `unknown_ref`.
+  2. FalkorDB expands the graph with one bounded Cypher query for each hop: predicate, direction, validity, and minimum confidence filters, and the strongest `maxFanOut` edges for each node. The caps are 5,000 nodes, 25,000 edges, 1 s for each hop, and 3 s in total. At a cap, the tool stops and marks `partial: true` with the reason. A hub over 1,000 edges expands only its top edges, and the result lists `cappedHubs`.
+  3. The backend weights each edge: predicate weight for the intent × decay (`decayWorkspaceSignal`) × recency × `degree^-β` (hub penalty).
+  4. With a `query`, Postgres runs one hybrid search over the chunks of the explored units only.
+  5. The backend runs personalized PageRank (power iteration) on the explored subgraph. The seeds and the query hits make the restart vector.
+  6. Score: `ppr^(1 − queryWeight) × (0.1 + queryMatch)^queryWeight`. Then MMR diversity, and a path explanation for each result (the path with the highest weight product).
+  7. The explored subgraph and the ranking are cached in process by projection key and parameter hash for 10 minutes. A cursor holds the key and offset.
+- **Where the work runs:** FalkorDB does the seed lookup and the filtered expansion. The backend does the scoring, so it works the same on each graph engine and an eval can turn off each signal. FalkorDB's built-in PageRank is global, not personalized, so it is not used.
+- **Never load the whole graph.** The chat graph tools move to the same bounded expansion. The projection stores `path`, `degree`, `inDegree`, and `outDegree` on each node. A revision graph is immutable, so the stored degree is always correct. A projection version enters the projection key, so each Workspace graph projects again one time on the next hydrate.
+- **Target:** p95 under 300 ms for depth 2 on a 50,000-edge graph.
+
+### 7. Reuse from PR #350
+
+PR #350 ("Weight graph traversal, link decisions to services, and index graph writes") targets the older objects graph. We do not merge or cherry-pick it. We port these parts into new files (CTO approval of candidates 1 to 7):
+
+1. The signal model of `retrievalScore.ts` (weighted product with a floor, recency for events, specificity `degree^-0.5`, authority by ADR status), with `decayWorkspaceSignal` in place of the old "truth" signal.
+2. The intent presets (`why`, `ownership`, `change`, `structure`, `general`). The regex classifier is not ported.
+3. The node index DDL for each graph engine (`platform/graph/indexes.ts`), applied to `(projectionKey, id)`.
+4. The Cypher rules: no `datetime()` in FalkorDB (compare ISO strings), degree scoped by label, batched `IN $ids`.
+5. The graph eval harness: a synthetic engineering org with real hub shapes, and recall@5 floors for each intent, adapted to `WorkspaceKnowledgeUnit` nodes.
+6. The decision-to-service scoping and the supersession parsing, as a specification for the `decisions` skill of [ADR-052](ADR-052-ingestion-sandbox-skills-patches.md) (not as code).
+7. The `PullRequest CHANGED package` claim, as an idea for the GitHub pull-request mirror.
+
+We do not port the weighted walk, the advisor planner, its eval, or the old retraction code. The ADR-035, ADR-036, and ADR-040 files of PR #350 are not merged; this ADR takes the parts above from them. (Numbers 035 and 036 are unused in this repository, and this repository's ADR-040 is a different decision.)
+
+### 8. Data layer
+
+- **Knowledge search:** a table `workspace_knowledge_chunks` (unit, Workspace, org, projection SHA, ordinal, text, generated `tsvector`, `vector` with an HNSW index). Hybrid search uses reciprocal rank fusion in SQL, with filters. Chat uses the same function. Embeddings are reused by chunk hash.
+- **Unit columns** `title`, `source`, and `updated_at`, for the filters.
+- **Grant org set:** `oauth_grant_organizations` (section 3).
+- **Code search:** a wrapper maps org and handles to checkout keys and drops excluded repositories first. SCIP fans out in parallel over at most 10 repositories. [ADR-027](ADR-027-codesearch-openworkflow-concurrency.md) budgets apply.
+
+### 9. Correlation
+
+- No tool arguments for correlation, because models invent ids.
+- The server reads `_meta` (`traceparent`, `baggage`, `ai.ctxpipe/conversationId`, `ai.ctxpipe/turnId`, `openai/session`) and `x-ctxpipe-*` headers when they are present.
+- ClickHouse always derives a session (30-minute gap) and a turn (60-second gap) for each connection key. Parallel calls of one turn arrive within milliseconds, so the derived turn groups them.
+- Spans get `ctxpipe.mcp.org.slug_hash` for each call. No query text, paths, or handles go on spans.
+
+### 10. Tests and evals
+
+- Contract tests on each PR: the MCP SDK `Client`, real Postgres, msw for codesearch and embedding providers. They cover schemas, scopes, the same error for a foreign and an unknown org, an untick that denies the next call with no reconnect, a removed membership, exclusion by handle and by URL, paging, budgets, the `get_related` caps, and no `ctx_advisor` in `tools/list`.
+- A graph relevance eval with no LLM, on live FalkorDB in CI: recall@5 floors for each intent and a p95 latency budget.
+- MCPJam evals nightly and on a label, against a preview environment with a seeded fixture org. They include parallel calls in one turn and sessions with two orgs.
+
+## Consequences
+
+- The client agent does the reasoning, so a call costs no model tokens on our side, and responses are facts with refs that the agent can cite.
+- One connection reaches all ticked orgs. A removal from an org or an untick cuts access on the next call.
+- Clients that call `ctx_advisor` break at the cutover. Plugin 0.2.0, the server instructions, and the rewritten docs teach the new tools.
+- The new tables and the unit columns need migrations (approved). Each Workspace graph projects again one time.
+- Parallel calls can burst the rate limit and codesearch. A per-principal limit allows bursts (8 in flight), and ADR-027 budgets protect codesearch.
+- The PageRank weights start from the PR #350 values. The graph eval tunes them later.
+
+## Alternatives considered
+
+- **Keep `ctx_advisor` beside the new tools for 60 days:** rejected by the CTO. It goes in the same release.
+- **GraphQL with filters:** rejected. The schema costs many tokens, models need validation loops, the response has no bound, and code search does not fit.
+- **One `org/workspace` handle argument:** rejected, because a list can mix orgs.
+- **Multi-org options B, C, and D:** see section 3.
