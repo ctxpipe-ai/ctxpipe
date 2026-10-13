@@ -14,6 +14,7 @@ import {
   CODE_TOOLS,
   type ExplorerTool,
   explorerToolDefinition,
+  parseCodeToolArgs,
   repositoryIdFromToolArgs,
   runCodeTool,
   stringArg,
@@ -26,12 +27,6 @@ import {
   workspaceChatHybridHits,
 } from "./workspace-chat-retrieval.js"
 import type { WorkspaceGraphPayload } from "./workspace-graph.js"
-
-export {
-  EXPLORER_INPUT_SCHEMAS,
-  repositoryIdFromToolArgs,
-  SCIP_GRAPH_TOOL_NAMES,
-} from "./code-tools.js"
 
 export type WorkspaceChatTanstackTool = {
   name: string
@@ -178,6 +173,13 @@ function wrapExplorerTool(input: {
   return {
     ...explorerToolDefinition(input.tool),
     execute: async (args) => {
+      if (input.tool.name === "list_repositories") {
+        return toToon({
+          repositories: [...input.allowedRepositoryIds].map((id) => ({ id })),
+        })
+      }
+      const parsed = parseCodeToolArgs(input.tool.name, args)
+      if ("error" in parsed) return parsed.error
       if (
         !workspaceChatToolAllowed({
           toolName: input.tool.name,
@@ -190,11 +192,6 @@ function wrapExplorerTool(input: {
           repositoryId: repositoryIdFromToolArgs(args),
         })
       }
-      if (input.tool.name === "list_repositories") {
-        return toToon({
-          repositories: [...input.allowedRepositoryIds].map((id) => ({ id })),
-        })
-      }
       const repositoryId = repositoryIdFromToolArgs(args)
       const repository = input.boundRepositories.find(
         (repo) => repo.id === repositoryId,
@@ -203,7 +200,7 @@ function wrapExplorerTool(input: {
         return toToon({ error: "repository_not_in_workspace", repositoryId })
       return runCodeTool({
         toolName: input.tool.name,
-        args,
+        args: parsed.args,
         orgId: input.orgId,
         checkout: {
           repositoryId: repository.id,

@@ -1,13 +1,14 @@
-import { createHmac, timingSafeEqual } from "node:crypto"
 import { createToolBridgeCore, handleBridgeJsonRpc } from "@tanstack/ai-sandbox"
+import { and, eq, inArray } from "drizzle-orm"
 import { Hono } from "hono"
-import { z } from "zod"
 import {
   repositoryRevisionCheckoutKey,
   workspaceCheckoutKey,
 } from "../../../../../shared/workspace-checkout.js"
+import type { AppEnv } from "../../app/env.js"
+import { withOrgDbContext } from "../../db/client.js"
+import { repositories } from "../../db/schema/repositories.js"
 import { toToon } from "../../lib/agentToolRuntime.js"
-import { getSandboxInstance } from "../../models/workspaces.js"
 import {
   isZoektSearchClientFailure,
   zoektSearchRepository,
@@ -20,149 +21,61 @@ import {
   CODE_TOOLS,
   type CodeCheckout,
   explorerToolDefinition,
+  parseCodeToolArgs,
   repositoryIdFromToolArgs,
   runCodeTool,
   stringArg,
 } from "../workspaces/code-tools.js"
-import { ingestSandboxThreadId } from "../workspaces/ingest-sandbox.js"
+import {
+  verifyWorkspaceIngestToolsCapability,
+  type WorkspaceIngestToolsClaims,
+} from "../workspaces/workspace-chat-run-capability.js"
 import { workspaceChatBearerToken } from "../workspaces/workspace-chat-token.js"
 import type { WorkspaceChatTanstackTool } from "../workspaces/workspace-chat-tools.js"
 
 /**
  * The ingest tool bridge (ADR-052 section 7): the shared codesearch tools,
- * bound read-only to the run's source checkout (`rev:<sha>`) and to the
- * destination Workspace checkouts (`ws:<workspaceId>:<sha>`).
+ * bound read-only to the checkouts of the step's `workspace-ingest-tools`
+ * capability (T03): the source at `rev:<sha>` and the destination Workspace
+ * repositories at `ws:<workspaceId>:<sha>`.
  *
- * The bearer token is run-scoped and signed by the host. It is valid only
- * while the shard's ingest sandbox row exists, so `destroy-sandbox` (or the
- * org sweep) revokes it. The route keeps no state in memory, so any backend
- * replica can serve a call.
+ * The capability is valid while its step holds the shard lock of an
+ * unfinished run, so the next step, `destroy-sandbox`, and a cancelled run
+ * end it. The route keeps no state in memory: each replica can serve a call.
  */
 export const INGEST_TOOL_BRIDGE_PATH = "/api/v1/workspace-ingest/tool-bridge"
 
-const TOKEN_MAX_LENGTH = 16_384
-const SHA = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/
+type BoundCheckout = WorkspaceIngestToolsClaims["checkouts"][number]
 
-const BoundCheckoutSchema = z.object({
-  repositoryId: z.string().regex(/^repo_/),
-  sha: z.string().regex(SHA),
-  /** Absent for the source checkout. */
-  workspaceId: z.string().min(1).optional(),
-})
-
-const IngestToolClaimsSchema = z.object({
-  version: z.literal(1),
-  purpose: z.literal("workspace-ingest-tools"),
-  orgId: z.string().min(1),
-  runId: z.string().min(1),
-  shard: z.number().int().nonnegative(),
-  sandboxKey: z.string().min(1),
-  checkouts: z.array(BoundCheckoutSchema).max(64),
-})
-
-export type IngestToolClaims = z.infer<typeof IngestToolClaimsSchema>
-type BoundCheckout = z.infer<typeof BoundCheckoutSchema>
-
-function checkoutKeyOf(checkout: BoundCheckout): string {
-  return checkout.workspaceId
-    ? workspaceCheckoutKey(checkout.workspaceId, checkout.sha)
-    : repositoryRevisionCheckoutKey(checkout.sha)
+/** The checkout that a claimed key names, or null for an unknown key. */
+function codeCheckout(bound: BoundCheckout): CodeCheckout | null {
+  const { repositoryId, checkoutKey, sha } = bound
+  if (checkoutKey === repositoryRevisionCheckoutKey(sha))
+    return { repositoryId, source: { sha } }
+  const workspaceId = /^ws:([a-zA-Z0-9_-]+):/.exec(checkoutKey)?.[1]
+  if (workspaceId && checkoutKey === workspaceCheckoutKey(workspaceId, sha))
+    return { repositoryId, workspace: { workspaceId, sha } }
+  return null
 }
 
-function sign(encodedPayload: string, authSecret: string): string {
-  return createHmac("sha256", authSecret)
-    .update(encodedPayload)
-    .digest("base64url")
-}
-
-/** The shard's sandbox row exists: the run has not passed `destroy-sandbox`. */
-async function shardSandboxIsLive(claims: {
-  orgId: string
-  runId: string
-  shard: number
-  sandboxKey: string
-}): Promise<boolean> {
-  const row = await getSandboxInstance(claims.sandboxKey, claims.orgId)
-  return (
-    row?.kind === "ingest" &&
-    row.conversationId === ingestSandboxThreadId(claims.runId, claims.shard)
-  )
-}
-
-/**
- * Mint the run's bridge token after `ensure-sandbox`. The checkouts are the
- * source at its pinned SHA and each destination Workspace's repositories at
- * their pinned SHAs.
- */
-export async function mintIngestToolToken(input: {
-  authSecret: string
-  orgId: string
-  runId: string
-  shard: number
-  sandboxKey: string
-  source: { repositoryId: string; sha: string }
-  destinations: ReadonlyArray<{
-    workspaceId: string
-    repositories: ReadonlyArray<{ repositoryId: string; sha: string }>
-  }>
-}): Promise<string> {
-  const claims = IngestToolClaimsSchema.parse({
-    version: 1,
-    purpose: "workspace-ingest-tools",
-    orgId: input.orgId,
-    runId: input.runId,
-    shard: input.shard,
-    sandboxKey: input.sandboxKey,
-    checkouts: [
-      { repositoryId: input.source.repositoryId, sha: input.source.sha },
-      ...input.destinations.flatMap((destination) =>
-        destination.repositories.map((repository) => ({
-          repositoryId: repository.repositoryId,
-          sha: repository.sha,
-          workspaceId: destination.workspaceId,
-        })),
+/** True when each claimed repository is a repository of `orgId`. */
+async function repositoriesOfOrg(
+  orgId: string,
+  repositoryIds: ReadonlySet<string>,
+): Promise<boolean> {
+  const rows = await withOrgDbContext(orgId, (db) =>
+    db
+      .select({ id: repositories.id })
+      .from(repositories)
+      .where(
+        and(
+          eq(repositories.orgId, orgId),
+          inArray(repositories.id, [...repositoryIds]),
+        ),
       ),
-    ],
-  })
-  // Validates each Workspace id and SHA before the token exists.
-  for (const checkout of claims.checkouts) checkoutKeyOf(checkout)
-  if (!(await shardSandboxIsLive(claims)))
-    throw new Error("The ingest shard has no live sandbox for a tool token")
-  const encodedPayload = Buffer.from(JSON.stringify(claims)).toString(
-    "base64url",
   )
-  return `${encodedPayload}.${sign(encodedPayload, input.authSecret)}`
+  return rows.length === repositoryIds.size
 }
-
-/** The claims of a valid token whose shard sandbox still exists, else undefined. */
-export async function verifyIngestToolToken(input: {
-  authSecret: string
-  token: string
-}): Promise<IngestToolClaims | undefined> {
-  if (input.token.length === 0 || input.token.length > TOKEN_MAX_LENGTH)
-    return undefined
-  const [encodedPayload, signature, extra] = input.token.split(".")
-  if (!encodedPayload || !signature || extra !== undefined) return undefined
-  const expected = Buffer.from(sign(encodedPayload, input.authSecret))
-  const actual = Buffer.from(signature)
-  if (expected.length !== actual.length || !timingSafeEqual(expected, actual))
-    return undefined
-  let claims: IngestToolClaims
-  try {
-    claims = IngestToolClaimsSchema.parse(
-      JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8")),
-    )
-  } catch {
-    return undefined
-  }
-  return (await shardSandboxIsLive(claims)) ? claims : undefined
-}
-
-const CHECKOUT_KEY_SCHEMA = {
-  type: "string",
-  minLength: 1,
-  description: "Checkout key from list_checkouts (rev:<sha> or ws:<id>:<sha>)",
-} as const
 
 const LIST_CHECKOUTS_DEFINITION: Omit<WorkspaceChatTanstackTool, "execute"> = {
   name: "list_checkouts",
@@ -171,25 +84,29 @@ const LIST_CHECKOUTS_DEFINITION: Omit<WorkspaceChatTanstackTool, "execute"> = {
   inputSchema: { type: "object", properties: {} },
 }
 
-/** The run's tools. Each call must name a bound repository and checkout key. */
+/** The step's tools. Each call must name a bound repository and checkout key. */
 export function ingestTools(
-  claims: Pick<IngestToolClaims, "orgId" | "checkouts">,
+  orgId: string,
+  checkouts: ReadonlyArray<BoundCheckout & { checkout: CodeCheckout }>,
 ): WorkspaceChatTanstackTool[] {
   const bound = new Map(
-    claims.checkouts.map((checkout) => [
-      `${checkout.repositoryId}\n${checkoutKeyOf(checkout)}`,
-      checkout,
+    checkouts.map((item) => [
+      `${item.repositoryId}\n${item.checkoutKey}`,
+      item.checkout,
     ]),
   )
   const listCheckouts: WorkspaceChatTanstackTool = {
     ...LIST_CHECKOUTS_DEFINITION,
     execute: async () =>
       toToon({
-        checkouts: claims.checkouts.map((checkout) => ({
-          repositoryId: checkout.repositoryId,
-          checkoutKey: checkoutKeyOf(checkout),
-          ...(checkout.workspaceId
-            ? { role: "workspace", workspaceId: checkout.workspaceId }
+        checkouts: checkouts.map(({ repositoryId, checkoutKey, checkout }) => ({
+          repositoryId,
+          checkoutKey,
+          ...("workspace" in checkout
+            ? {
+                role: "workspace",
+                workspaceId: checkout.workspace.workspaceId,
+              }
             : { role: "source" }),
         })),
       }),
@@ -209,39 +126,43 @@ export function ingestTools(
           type: "object",
           properties: {
             ...definition.inputSchema.properties,
-            checkoutKey: CHECKOUT_KEY_SCHEMA,
+            checkoutKey: {
+              type: "string",
+              minLength: 1,
+              description: "Checkout key from list_checkouts",
+            },
           },
           required: [...(definition.inputSchema.required ?? []), "checkoutKey"],
         },
         execute: async (args, execution) => {
           execution?.abortSignal?.throwIfAborted()
+          const { checkoutKey: _key, ...toolArgs } =
+            args && typeof args === "object"
+              ? (args as Record<string, unknown>)
+              : {}
+          const parsed = parseCodeToolArgs(tool.name, toolArgs)
+          if ("error" in parsed) return parsed.error
           const repositoryId = repositoryIdFromToolArgs(args)
           const checkoutKey = stringArg(args, "checkoutKey")
           const checkout = bound.get(`${repositoryId}\n${checkoutKey}`)
-          if (!repositoryId || !checkout)
+          if (!checkout)
             return toToon({
               error: "checkout_not_in_run",
               repositoryId,
               checkoutKey: checkoutKey || null,
             })
-          const { checkoutKey: _key, ...toolArgs } = args as Record<
-            string,
-            unknown
-          >
-          const workspace = checkout.workspaceId
-            ? { workspaceId: checkout.workspaceId, sha: checkout.sha }
-            : undefined
-          const target: CodeCheckout = workspace
-            ? { repositoryId, workspace }
-            : { repositoryId, source: { sha: checkout.sha } }
+          const workspace =
+            "workspace" in checkout && "sha" in checkout.workspace
+              ? checkout.workspace
+              : undefined
           return runCodeTool({
             toolName: tool.name,
-            args: toolArgs,
-            orgId: claims.orgId,
-            checkout: target,
+            args: parsed.args,
+            orgId,
+            checkout,
             search: async (query, detail) => {
               const result = await zoektSearchRepository(
-                { id: repositoryId, orgId: claims.orgId },
+                { id: checkout.repositoryId, orgId },
                 query,
                 detail === "full" ? FULL_SEARCH_OPTS : COMPACT_SEARCH_OPTS,
                 workspace,
@@ -260,25 +181,45 @@ export function ingestTools(
 }
 
 /** Stateless MCP over HTTP for ingest sandboxes: JSON-RPC in, JSON out. */
-export const ingestToolBridgeRoutes = new Hono()
-  .post(INGEST_TOOL_BRIDGE_PATH, async (c) => {
+export const ingestToolBridgeRoutes = new Hono<AppEnv>().post(
+  INGEST_TOOL_BRIDGE_PATH,
+  async (c) => {
     const token = workspaceChatBearerToken(c.req.header("authorization"))
-    const authSecret = process.env.AUTH_SECRET?.trim()
-    const claims =
-      token && authSecret
-        ? await verifyIngestToolToken({ authSecret, token })
-        : undefined
+    const claims = token
+      ? await verifyWorkspaceIngestToolsCapability({
+          authSecret: c.var.env.AUTH_SECRET,
+          token,
+        })
+      : undefined
     if (!claims) return c.text("unauthorized", 401)
+    const checkouts = claims.checkouts.map((item) => ({
+      ...item,
+      checkout: codeCheckout(item),
+    }))
+    if (
+      checkouts.some((item) => !item.checkout) ||
+      !(await repositoriesOfOrg(
+        claims.orgId,
+        new Set(checkouts.map((item) => item.repositoryId)),
+      ))
+    )
+      return c.text("forbidden", 403)
     let message: unknown
     try {
       message = await c.req.json()
     } catch {
       return c.text("invalid JSON body", 400)
     }
-    const core = createToolBridgeCore(ingestTools(claims), {
-      signal: c.req.raw.signal,
-    })
+    const core = createToolBridgeCore(
+      ingestTools(
+        claims.orgId,
+        checkouts.flatMap(({ checkout, ...item }) =>
+          checkout ? [{ ...item, checkout }] : [],
+        ),
+      ),
+      { signal: c.req.raw.signal },
+    )
     const response = await handleBridgeJsonRpc(core, message)
     return response === null ? c.body(null, 202) : c.json(response)
-  })
-  .get(INGEST_TOOL_BRIDGE_PATH, (c) => c.text("method not allowed", 405))
+  },
+)

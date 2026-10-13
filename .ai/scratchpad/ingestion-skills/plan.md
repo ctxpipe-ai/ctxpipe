@@ -80,6 +80,11 @@ Concept: [concept.md](concept.md). Milestone: Workspaces (PR 280). Paths are und
 - **Unblocked:** the live GitHub App check of T08 passed on 2026-10-13 (see `tickets/T08.md`).
 - **Depends on:** T02 to T08.
 - **Acceptance (from the T03 review):** a Docker ingest sandbox starts only where its traffic is forced through Agent Vault (the DinD or AWS sandbox host, or an internal Docker network). `dockerIngestSandboxProvider` checks this at create and refuses an open host, such as host dev. If T09 runs `opencode serve` in the sandbox, it needs `publishPorts` (T03 exposes the option) and the chat wrappers (`withDockerAgentPort`, `withSingleOpencodeServer`, `withOwnerWatchdog`) around the ingest provider.
+- **Tool bridge (from the T04 review):**
+  - Mint the `workspace-ingest-tools` capability once for each step, together with the model capability, with the step's checkouts (`rev:<sha>` for the source, `ws:<workspaceId>:<sha>` for each destination repository).
+  - The bridge route `POST /api/v1/workspace-ingest/tool-bridge` runs in the API process, not in the worker. The worker must give the sandbox the API origin, so `sandboxCallbackHost` (or the public base URL) must point at the API.
+  - OpenCode must still get the TanStack `tanstack` MCP server for the bridge, although T05 sets `mcp: {}`.
+  - The bridge has no rate limit for each shard yet. Add one, or accept the ADR-027 codesearch budgets as the only limit.
 
 ### T10 Skills: `discover-roots`, `libraries`, `ownership` (M) — group C
 

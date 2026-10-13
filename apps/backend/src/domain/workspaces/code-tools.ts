@@ -196,147 +196,135 @@ export function explorerToolDefinition(
   }
 }
 
+const SEARCH_TOOL_NAMES = new Set([
+  "search",
+  "find_symbol_definitions",
+  "find_symbol_references",
+])
+
+function searchQuery(toolName: string, args: unknown): string {
+  if (toolName === "search") return stringArg(args, "query")
+  const symbol = stringArg(args, "symbol")
+  const language = stringArg(args, "language")
+  if (!symbol || !language) return ""
+  return toolName === "find_symbol_definitions"
+    ? buildSymbolDefinitionQuery(symbol, language)
+    : buildSymbolReferencesQuery(symbol, language)
+}
+
 /**
- * Run one checkout tool on an authorized checkout. A source checkout reads
- * with a source revision claim; a Workspace checkout with a Workspace claim.
+ * Validate a tool's input before any repository or checkout check. A search
+ * without a repository or a query gets `search_input_required`; other bad
+ * input throws.
+ */
+export function parseCodeToolArgs(
+  toolName: string,
+  args: unknown,
+): { error: string } | { args: Record<string, unknown> } {
+  if (
+    SEARCH_TOOL_NAMES.has(toolName) &&
+    (!repositoryIdFromToolArgs(args) || !searchQuery(toolName, args))
+  )
+    return { error: toToon({ error: "search_input_required" }) }
+  const schema = EXPLORER_INPUT_SCHEMAS[toolName]
+  if (!schema)
+    throw new Error(`Unsupported Workspace explorer tool: ${toolName}`)
+  return {
+    args: z.fromJSONSchema(schema).parse(args) as Record<string, unknown>,
+  }
+}
+
+/**
+ * Run one checkout tool with input from `parseCodeToolArgs` on an authorized
+ * checkout. A source checkout reads with a source revision claim; a Workspace
+ * checkout with a Workspace claim.
  */
 export async function runCodeTool(input: {
   toolName: string
-  args: unknown
+  args: Record<string, unknown>
   orgId: string
   checkout: CodeCheckout
   search: CodeCheckoutSearch
 }): Promise<unknown> {
-  const { checkout } = input
-  if ("source" in checkout)
-    return withRepositorySourceRevision(
-      {
-        orgId: input.orgId,
-        repositoryId: checkout.repositoryId,
-        sha: checkout.source.sha,
-      },
-      () => runOnCheckout(input, undefined),
-    )
-  return runOnCheckout(input, checkout.workspace)
-}
-
-async function runOnCheckout(
-  input: {
-    toolName: string
-    args: unknown
-    orgId: string
-    checkout: CodeCheckout
-    search: CodeCheckoutSearch
-  },
-  workspace:
-    | ({ workspaceId: string } & ({ sha: string } | { legacy: true }))
-    | undefined,
-): Promise<unknown> {
-  const { toolName, args } = input
-  const repositoryId = input.checkout.repositoryId
+  const { toolName, args, checkout } = input
+  const repositoryId = checkout.repositoryId
   const repository = { id: repositoryId, orgId: input.orgId }
-  const schema = EXPLORER_INPUT_SCHEMAS[toolName] ?? {
-    type: "object" as const,
-    properties: {},
-  }
-  const revision = workspace
-    ? {
-        workspaceId: workspace.workspaceId,
-        ...("sha" in workspace
-          ? { sha: workspace.sha }
-          : { legacy: true as const }),
-      }
-    : {}
-  if (
-    ["search", "find_symbol_definitions", "find_symbol_references"].includes(
-      toolName,
-    )
-  ) {
-    const query =
-      toolName === "search"
-        ? stringArg(args, "query")
-        : toolName === "find_symbol_definitions"
-          ? buildSymbolDefinitionQuery(
-              stringArg(args, "symbol"),
-              stringArg(args, "language"),
-            )
-          : buildSymbolReferencesQuery(
-              stringArg(args, "symbol"),
-              stringArg(args, "language"),
-            )
-    if (!query) return toToon({ error: "search_input_required" })
-    const detail = stringArg(args, "detail") === "full" ? "full" : "compact"
-    const response = await input.search(query, detail)
-    return toToon({
-      repositoryId,
-      query,
-      ...(detail === "full" ? { response } : compactSearchResponse(response)),
-    })
-  }
-  if (toolName === "glob_files") {
-    const parsed = z
-      .fromJSONSchema(schema)
-      .parse(args) as CheckoutGlobRequest & { repositoryId: string }
-    return globCheckoutPaths({
-      pattern: parsed.pattern,
-      path: parsed.path,
-      onlyFiles: parsed.onlyFiles,
-      dot: parsed.dot,
-      limit: parsed.limit,
-      offset: parsed.offset,
-      repositoryId,
-      orgId: input.orgId,
-      ...revision,
-    })
-  }
-  if (toolName === "get_file") {
-    const parsed = z
-      .fromJSONSchema(schema)
-      .parse(args) as CheckoutFileRequest & { repositoryId: string }
-    return readCheckoutFile({
-      path: parsed.path,
-      startLine: parsed.startLine,
-      endLine: parsed.endLine,
-      maxChars: parsed.maxChars,
-      mode: parsed.mode,
-      repositoryId,
-      orgId: input.orgId,
-      ...revision,
-    })
-  }
-  if (toolName === "structural_search") {
-    const parsed = z.fromJSONSchema(schema).parse(args) as {
-      repositoryId: string
-      pattern: string
-      lang?: string
-      paths?: string[]
-      globs?: string[]
-      limit?: number
+  const workspace = "workspace" in checkout ? checkout.workspace : undefined
+  const run = async (): Promise<unknown> => {
+    if (SEARCH_TOOL_NAMES.has(toolName)) {
+      const query = searchQuery(toolName, args)
+      const detail = stringArg(args, "detail") === "full" ? "full" : "compact"
+      const response = await input.search(query, detail)
+      return toToon({
+        repositoryId,
+        query,
+        ...(detail === "full" ? { response } : compactSearchResponse(response)),
+      })
     }
-    return codesearchStructuralSearch(repository, parsed, workspace)
-  }
-  if (SCIP_GRAPH_TOOL_NAMES.has(toolName)) {
-    const parsed = z.fromJSONSchema(schema).parse(args) as Record<
-      string,
-      unknown
-    >
-    const anchor = {
-      symbol: stringArg(parsed, "symbol") || undefined,
-      filePath: stringArg(parsed, "filePath") || undefined,
-      module: stringArg(parsed, "module") || undefined,
+    if (toolName === "glob_files") {
+      const parsed = args as unknown as CheckoutGlobRequest
+      return globCheckoutPaths({
+        pattern: parsed.pattern,
+        path: parsed.path,
+        onlyFiles: parsed.onlyFiles,
+        dot: parsed.dot,
+        limit: parsed.limit,
+        offset: parsed.offset,
+        repositoryId,
+        orgId: input.orgId,
+        ...(workspace ?? {}),
+      })
     }
-    assertStructuralGraphAnchor(anchor)
-    return toToon(
-      await codesearchGraphQuery(
+    if (toolName === "get_file") {
+      const parsed = args as unknown as CheckoutFileRequest
+      return readCheckoutFile({
+        path: parsed.path,
+        startLine: parsed.startLine,
+        endLine: parsed.endLine,
+        maxChars: parsed.maxChars,
+        mode: parsed.mode,
+        repositoryId,
+        orgId: input.orgId,
+        ...(workspace ?? {}),
+      })
+    }
+    if (toolName === "structural_search")
+      return codesearchStructuralSearch(
         repository,
-        {
-          primitive: toolName.slice("graph_".length) as GraphPrimitive,
-          ...anchor,
-          ...(typeof parsed.limit === "number" ? { limit: parsed.limit } : {}),
+        args as {
+          pattern: string
+          lang?: string
+          paths?: string[]
+          globs?: string[]
+          limit?: number
         },
         workspace,
-      ),
-    )
+      )
+    if (SCIP_GRAPH_TOOL_NAMES.has(toolName)) {
+      const anchor = {
+        symbol: stringArg(args, "symbol") || undefined,
+        filePath: stringArg(args, "filePath") || undefined,
+        module: stringArg(args, "module") || undefined,
+      }
+      assertStructuralGraphAnchor(anchor)
+      return toToon(
+        await codesearchGraphQuery(
+          repository,
+          {
+            primitive: toolName.slice("graph_".length) as GraphPrimitive,
+            ...anchor,
+            ...(typeof args.limit === "number" ? { limit: args.limit } : {}),
+          },
+          workspace,
+        ),
+      )
+    }
+    throw new Error(`Unsupported Workspace explorer tool: ${toolName}`)
   }
-  throw new Error(`Unsupported Workspace explorer tool: ${toolName}`)
+  return "source" in checkout
+    ? withRepositorySourceRevision(
+        { orgId: input.orgId, repositoryId, sha: checkout.source.sha },
+        run,
+      )
+    : run()
 }

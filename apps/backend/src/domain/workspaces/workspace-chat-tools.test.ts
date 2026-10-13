@@ -11,11 +11,13 @@ import {
   vi,
 } from "vitest"
 import type { WorkspaceProjectionSnapshot } from "../../models/workspaces.js"
-import type { PublishedProjection } from "./revision.js"
 import {
   EXPLORER_INPUT_SCHEMAS,
   repositoryIdFromToolArgs,
   SCIP_GRAPH_TOOL_NAMES,
+} from "./code-tools.js"
+import type { PublishedProjection } from "./revision.js"
+import {
   workspaceChatToolAllowed,
   workspaceChatTools,
 } from "./workspace-chat-tools.js"
@@ -161,6 +163,15 @@ describe("workspace chat explorer tools (msw codesearch)", () => {
     expect(seen[0]?.claims).toMatchObject({
       workspaceRevisions: [{ repositoryId: "repo_bound", sha: SHA }],
     })
+  })
+
+  it("answers search_input_required to a search with no repository or query", async () => {
+    const search = await tool("search")
+    for (const args of [{ query: "billing" }, { repositoryId: "repo_bound" }])
+      expect(String(await search.execute(args))).toContain(
+        "search_input_required",
+      )
+    expect(seen).toHaveLength(0)
   })
 
   it("refuses a repository outside the Workspace and calls no codesearch", async () => {
