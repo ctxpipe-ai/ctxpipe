@@ -512,7 +512,6 @@ it(
             numbers: [number],
             candidate: {
               state,
-              merged: false,
               draft: false,
               updatedAt: "2026-03-11T00:00:00Z",
             },

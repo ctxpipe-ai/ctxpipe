@@ -17,7 +17,7 @@ const pullRequestPayloadSchema = z.object({
       merged: z.boolean().optional(),
       merged_at: z.string().nullable().optional(),
       draft: z.boolean().optional(),
-      state: z.string().optional(),
+      state: z.enum(["open", "closed"]).optional(),
       updated_at: z.string().optional(),
     })
     .optional(),
@@ -30,7 +30,7 @@ const pullRequestPayloadSchema = z.object({
 const issueCommentPayloadSchema = z.object({
   issue: z.object({
     number: z.number().int().positive(),
-    state: z.string().optional(),
+    closed_at: z.string().nullable().optional(),
     pull_request: z
       .object({ merged_at: z.string().nullable().optional() })
       .optional(),
@@ -51,13 +51,9 @@ const issueCommentPayloadSchema = z.object({
 export function candidateFromPullRequestPayload(
   pull: z.infer<typeof pullRequestPayloadSchema>["pull_request"],
 ): GithubSyncPullRequestCandidate | undefined {
-  if (!pull?.updated_at) return undefined
-  const merged = pull.merged ?? (pull.merged_at != null ? true : undefined)
-  const state =
-    pull.state === "open" || pull.state === "closed" ? pull.state : undefined
-  if (merged === undefined || pull.draft === undefined || !state)
+  if (!pull?.updated_at || !pull.state || pull.draft === undefined)
     return undefined
-  return { state, merged, draft: pull.draft, updatedAt: pull.updated_at }
+  return { state: pull.state, draft: pull.draft, updatedAt: pull.updated_at }
 }
 
 /** A replayed delivery maps to the same run per Workspace. */
@@ -153,9 +149,9 @@ export async function maybeEnqueueGithubPrMirror(input: {
   if (input.eventName === "issue_comment") {
     const parsed = issueCommentPayloadSchema.safeParse(input.payload)
     // Only comments on closed pull requests (merged or not) reach the mirror.
-    if (!parsed.success || !parsed.data.issue.pull_request) return
-    const mergedAt = parsed.data.issue.pull_request.merged_at ?? null
-    if (!mergedAt && parsed.data.issue.state !== "closed") return
+    const closedAt =
+      parsed.data?.issue.pull_request && parsed.data.issue.closed_at
+    if (!parsed.success || !closedAt) return
     const version =
       parsed.data.comment?.updated_at ?? parsed.data.comment?.created_at
     await enqueueMirror({
@@ -163,17 +159,11 @@ export async function maybeEnqueueGithubPrMirror(input: {
       githubConnectionId: input.githubConnectionId,
       repositoryFullName: parsed.data.repository.full_name,
       number: parsed.data.issue.number,
-      // The payload does not tell a draft; the policy checks the fetched pull request again.
-      ...(version
-        ? {
-            candidate: {
-              state: "closed" as const,
-              merged: mergedAt != null,
-              draft: false,
-              updatedAt: version,
-            },
-          }
-        : {}),
+      candidate: {
+        state: "closed",
+        draft: false,
+        updatedAt: version ?? closedAt,
+      },
       version,
     })
   }

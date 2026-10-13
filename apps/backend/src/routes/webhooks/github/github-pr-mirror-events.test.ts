@@ -16,7 +16,6 @@ describe("GitHub pull-request webhook facts", () => {
       }),
     ).toEqual({
       state: "closed",
-      merged: true,
       draft: false,
       updatedAt: "2026-03-02T11:00:00Z",
     })
@@ -29,7 +28,7 @@ describe("GitHub pull-request webhook facts", () => {
         state: "closed",
         updated_at: "t",
       }),
-    ).toEqual({ state: "closed", merged: false, draft: false, updatedAt: "t" })
+    ).toEqual({ state: "closed", draft: false, updatedAt: "t" })
     expect(
       candidateFromPullRequestPayload({
         number: 1,

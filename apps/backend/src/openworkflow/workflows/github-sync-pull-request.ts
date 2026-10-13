@@ -26,7 +26,6 @@ import { workspaceConnectorMirror } from "./workspace-connector-mirror.js"
 
 const GithubSyncPullRequestCandidateSchema = z.object({
   state: z.enum(["open", "closed"]),
-  merged: z.boolean(),
   draft: z.boolean(),
   updatedAt: z.string().min(1),
 })
