@@ -9,6 +9,7 @@ import {
   repositoryIdSchema,
   toToon,
 } from "../lib/agentToolRuntime.js"
+import type { CodesearchHttpOptions } from "../lib/codesearchError.js"
 import { withTransientHttpRetry } from "../lib/withTransientHttpRetry.js"
 import { getRepositoryForOrg } from "../models/repositories.js"
 
@@ -30,6 +31,7 @@ export async function codesearchStructuralSearchJson(
   repository: { id: string; orgId: string },
   body: StructuralSearchBody,
   workspace?: StructuralSearchWorkspace,
+  transport?: CodesearchHttpOptions,
 ): Promise<
   { ok: true; json: unknown } | { ok: false; status: number; detail: string }
 > {
@@ -74,8 +76,9 @@ export async function codesearchStructuralSearchJson(
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({ pattern, lang, paths, globs, limit }),
+        signal: transport?.signal,
       }),
-    { retries: 10, baseDelayMs: 200, maxDelayMs: 30_000 },
+    transport?.retry ?? { retries: 10, baseDelayMs: 200, maxDelayMs: 30_000 },
   )
 
   if (res.status >= 400 && res.status < 500) {

@@ -30,6 +30,7 @@ import {
   findSymbolAcrossRepositories,
   resolveCodeScope,
   SCIP_FAN_OUT_LIMIT,
+  SCIP_PROCESS_LIMIT,
   searchCodeText,
   structuralSearchAcrossRepositories,
 } from "./org-code.js"
@@ -62,9 +63,14 @@ function repositoryOf(id: string): string {
   throw new Error(`unknown repository id ${id}`)
 }
 
-/** Codesearch with request capture. `failing` names repositories that answer 500. */
+/**
+ * Codesearch with request capture. `failing` names repositories that answer
+ * 500. `override` can replace the answer for one repository.
+ */
 function codesearch(options: {
   failing?: string[]
+  override?: (repository: string) => Response | undefined
+  search?: (body: { Q: string }) => Response | undefined
   delayMs?: (repository: string) => number
   results?: number
   onFlight?: (delta: 1 | -1) => void
@@ -82,6 +88,8 @@ function codesearch(options: {
       await new Promise((resolve) =>
         setTimeout(resolve, options.delayMs?.(repository) ?? 0),
       )
+      const replaced = options.override?.(repository)
+      if (replaced) return replaced
       if (options.failing?.includes(repository)) {
         return HttpResponse.json(
           { error: "scip index broken" },
@@ -116,8 +124,10 @@ function codesearch(options: {
         })),
     ),
     http.post(`${CODESEARCH}/search`, async ({ request }) => {
-      const body = (await request.json()) as { RepoIDs: number[] }
+      const body = (await request.json()) as { Q: string; RepoIDs: number[] }
       captured.push({ path: "/search", body })
+      const replaced = options.search?.(body)
+      if (replaced) return replaced
       return HttpResponse.json({
         Result: {
           Files: body.RepoIDs.map((zoektRepoId) => ({
@@ -234,6 +244,8 @@ describe("org-level code search (Postgres + msw codesearch)", () => {
             orgId: org.id,
             repositoryId: id,
             checkoutKey: "default",
+            ref: "main",
+            commitSha: `${short.length.toString(16)}`.padEnd(40, "c"),
           })
           .returning({ zoektRepoId: repositoryCheckouts.zoektRepoId })
         if (!checkout) throw new Error("checkout insert returned no row")
@@ -295,6 +307,7 @@ describe("org-level code search (Postgres + msw codesearch)", () => {
     captured = []
     const text = await searchCodeText(org, scope, {
       query: "charge",
+      mode: "literal",
       limit: 100,
       maxTokens: 100_000,
     })
@@ -340,6 +353,7 @@ describe("org-level code search (Postgres + msw codesearch)", () => {
       )
       await searchCodeText(org, scope, {
         query: "charge",
+        mode: "literal",
         limit: 100,
         maxTokens: 100_000,
       })
@@ -454,6 +468,7 @@ describe("org-level code search (Postgres + msw codesearch)", () => {
     captured = []
     const text = await searchCodeText(org, scope, {
       query: "charge",
+      mode: "literal",
       limit: 1_000,
       maxTokens: 100_000,
     })
@@ -492,7 +507,8 @@ describe("org-level code search (Postgres + msw codesearch)", () => {
     for (const request of captured.filter((item) =>
       item.path.endsWith("/graph"),
     )) {
-      expect(request.body.limit).toBe(5)
+      // One more than the limit, so `truncated` shows that more matches exist.
+      expect(request.body.limit).toBe(6)
     }
 
     const small = await findSymbolAcrossRepositories(
@@ -506,5 +522,247 @@ describe("org-level code search (Postgres + msw codesearch)", () => {
     expect(JSON.stringify(small.results).length / 4).toBeLessThanOrEqual(
       40 + 20,
     )
+  })
+
+  it("states the served branch and SHA of each repository", async () => {
+    const scope = await resolveCodeScope(org, {
+      repositories: [name("alpha")],
+      excludeRepositories: [],
+    })
+    expect(scope.repositories).toEqual([
+      {
+        handle: name("alpha"),
+        repositoryId: seeded.get(name("alpha"))?.id,
+        zoektRepoId: seeded.get(name("alpha"))?.zoektRepoId,
+        branch: "main",
+        sha: "5".padEnd(40, "c"),
+      },
+    ])
+  })
+
+  it("gives skipped when the SCIP index is missing or does not load", async () => {
+    server.use(
+      ...codesearch({
+        override: (repository) =>
+          repository === name("gamma")
+            ? HttpResponse.json({
+                ok: true,
+                primitive: "find_symbol",
+                results: [],
+                note: "SCIP index unavailable for this checkout",
+                index: "missing",
+              })
+            : repository === name("alpha")
+              ? HttpResponse.json({
+                  ok: true,
+                  primitive: "find_symbol",
+                  results: [],
+                  note: "SCIP index could not be loaded",
+                  index: "unreadable",
+                })
+              : undefined,
+      }),
+    )
+    const scope = await resolveCodeScope(org, {
+      workspaceId: ledgerId,
+      excludeRepositories: [],
+    })
+    const graph = await findSymbolAcrossRepositories(
+      org,
+      scope,
+      { primitive: "find_symbol", symbol: "charge" },
+      { limit: 100, maxTokens: 100_000 },
+    )
+    expect(graph.results).toEqual([])
+    expect(graph.skipped).toEqual([
+      { repository: name("alpha"), reason: "failed" },
+      { repository: name("gamma"), reason: "not_indexed" },
+    ])
+  })
+
+  it("gives invalid_argument for a caller error, before or from codesearch", async () => {
+    server.use(
+      ...codesearch({
+        override: () =>
+          HttpResponse.json(
+            { error: "unsupported language: cobol" },
+            { status: 400 },
+          ),
+      }),
+    )
+    const scope = await resolveCodeScope(org, {
+      workspaceId: ledgerId,
+      excludeRepositories: [],
+    })
+    await expect(
+      structuralSearchAcrossRepositories(
+        org,
+        scope,
+        { pattern: "charge($A)", lang: "cobol" },
+        { limit: 100, maxTokens: 100_000 },
+      ),
+    ).rejects.toMatchObject({
+      code: "invalid_argument",
+      message: expect.stringContaining("unsupported language: cobol"),
+    })
+
+    captured = []
+    for (const body of [
+      { primitive: "get_callers" as const, filePath: "src/a.ts" },
+      { primitive: "find_references" as const },
+      { primitive: "trace_path" as const, symbol: "charge" },
+      { primitive: "find_symbol" as const },
+    ]) {
+      await expect(
+        findSymbolAcrossRepositories(org, scope, body, {
+          limit: 100,
+          maxTokens: 100_000,
+        }),
+      ).rejects.toMatchObject({ code: "invalid_argument" })
+    }
+    expect(captured).toEqual([])
+  })
+
+  it("quotes a literal query and refuses a rejected regex without a literal retry", async () => {
+    server.use(
+      ...codesearch({
+        search: (body) =>
+          body.Q === "charge(("
+            ? HttpResponse.json(
+                {
+                  error: "Zoekt rejected the query: missing closing )",
+                  code: "query_rejected",
+                },
+                { status: 400 },
+              )
+            : undefined,
+      }),
+    )
+    const scope = await resolveCodeScope(org, {
+      repositories: [name("alpha")],
+      excludeRepositories: [],
+    })
+    await searchCodeText(org, scope, {
+      query: 'charge("x")',
+      mode: "literal",
+      limit: 10,
+      maxTokens: 100_000,
+    })
+    expect(captured.map((request) => request.body.Q)).toEqual([
+      '"charge(\\"x\\")"',
+    ])
+
+    captured = []
+    await expect(
+      searchCodeText(org, scope, {
+        query: "charge((",
+        mode: "regex",
+        limit: 10,
+        maxTokens: 100_000,
+      }),
+    ).rejects.toMatchObject({ code: "invalid_argument" })
+    expect(captured.map((request) => request.body.Q)).toEqual(["charge(("])
+  })
+
+  it("keeps nextOffset and gives truncated only when more matches exist", async () => {
+    server.use(...codesearch({ results: 3 }))
+    const scope = await resolveCodeScope(org, {
+      repositories: [name("alpha")],
+      excludeRepositories: [],
+    })
+    const run = (limit: number) =>
+      findSymbolAcrossRepositories(
+        org,
+        scope,
+        { primitive: "find_symbol", symbol: "charge" },
+        { limit, maxTokens: 100_000 },
+      )
+    const cut = await run(2)
+    expect(cut).toMatchObject({ truncated: true, nextOffset: 2 })
+    expect(cut.results).toHaveLength(2)
+    const full = await run(3)
+    expect(full).toMatchObject({ truncated: false, nextOffset: null })
+    expect(full.results).toHaveLength(3)
+  })
+
+  it("runs the fan-out in parallel and bounds it for each call and for the process", async () => {
+    let inFlight = 0
+    let peak = 0
+    server.use(
+      ...codesearch({
+        delayMs: () => 40,
+        onFlight: (delta) => {
+          inFlight += delta
+          peak = Math.max(peak, inFlight)
+        },
+      }),
+    )
+    const scope = await resolveCodeScope(org, {
+      workspaceId: wideId,
+      excludeRepositories: [],
+    })
+    const search = () =>
+      findSymbolAcrossRepositories(
+        org,
+        scope,
+        { primitive: "find_symbol", symbol: "charge" },
+        { limit: 100, maxTokens: 100_000 },
+      )
+    await search()
+    expect(peak).toBe(SCIP_FAN_OUT_LIMIT)
+
+    peak = 0
+    const calls = await Promise.all([search(), search(), search()])
+    expect(SCIP_PROCESS_LIMIT).toBeLessThan(3 * SCIP_FAN_OUT_LIMIT)
+    expect(peak).toBe(SCIP_PROCESS_LIMIT)
+    for (const call of calls) {
+      expect(call.skipped.filter((entry) => entry.reason === "failed")).toEqual(
+        [],
+      )
+    }
+  })
+
+  it("stops waiting on codesearch at the call deadline", async () => {
+    server.use(...codesearch({ delayMs: () => 5_000 }))
+    const scope = await resolveCodeScope(org, {
+      workspaceId: ledgerId,
+      excludeRepositories: [],
+    })
+    const started = Date.now()
+    const graph = await findSymbolAcrossRepositories(
+      org,
+      scope,
+      { primitive: "find_symbol", symbol: "charge" },
+      { limit: 100, maxTokens: 100_000, deadlineMs: 200 },
+    )
+    expect(Date.now() - started).toBeLessThan(2_000)
+    expect(graph.skipped).toEqual([
+      { repository: name("alpha"), reason: "failed" },
+      { repository: name("gamma"), reason: "failed" },
+    ])
+  })
+
+  it("keeps the retries of a codesearch outage within the call deadline", async () => {
+    server.use(
+      ...codesearch({
+        override: () => new HttpResponse("Bad Gateway", { status: 502 }),
+      }),
+    )
+    const scope = await resolveCodeScope(org, {
+      workspaceId: ledgerId,
+      excludeRepositories: [],
+    })
+    const started = Date.now()
+    const graph = await findSymbolAcrossRepositories(
+      org,
+      scope,
+      { primitive: "find_symbol", symbol: "charge" },
+      { limit: 100, maxTokens: 100_000, deadlineMs: 1_500 },
+    )
+    expect(Date.now() - started).toBeLessThan(4_000)
+    expect(graph.skipped.map((entry) => entry.reason)).toEqual([
+      "failed",
+      "failed",
+    ])
   })
 })

@@ -2,9 +2,17 @@ import { and, asc, eq } from "drizzle-orm"
 import { withOrgDbContext } from "../../db/client.js"
 import { repositories } from "../../db/schema/repositories.js"
 import { repositoryCheckouts } from "../../db/schema/repository_checkouts.js"
+import {
+  CodesearchHttpError,
+  type CodesearchHttpOptions,
+} from "../../lib/codesearchError.js"
 import { publishedRepositoryCheckoutKey } from "../../models/repositories.js"
 import { log } from "../../observability/logger.js"
-import { codeSearch } from "../../retrieval/services/codeSearch.js"
+import {
+  CodeSearchRejectedError,
+  codeSearch,
+  zoektLiteralQuery,
+} from "../../retrieval/services/codeSearch.js"
 import {
   codesearchGraphQuery,
   type GraphRequestBody,
@@ -25,12 +33,26 @@ import type { CallOrg } from "./tool-org.js"
  */
 export const SCIP_FAN_OUT_LIMIT = 10
 
-/** A linked repository that codesearch can search. */
+/**
+ * SCIP and structural requests in flight for each backend process. Codesearch
+ * has no admission limit for SCIP loads (only an index cache), so this limit
+ * protects it when several calls run at once.
+ */
+export const SCIP_PROCESS_LIMIT = 20
+
+/** Default time for all codesearch requests of one call, retries included. */
+const CALL_DEADLINE_MS = 20_000
+
+/** A short retry budget: an MCP call must not wait minutes on an outage. */
+const MCP_RETRY = { retries: 3, baseDelayMs: 200, maxDelayMs: 2_000 }
+
+/** A linked repository that codesearch can search, and the revision it serves. */
 export type CodeRepository = {
   handle: string
   repositoryId: string
   zoektRepoId: number
-  checkoutKey: string
+  branch: string
+  sha: string | null
 }
 
 export type SkippedRepository = {
@@ -53,11 +75,25 @@ export type CodeResults<T> = {
   excluded: string[]
   skipped: SkippedRepository[]
   truncated: boolean
+  /** Offset of the next page in the merged results, or null at the end. */
+  nextOffset: number | null
   /** How to narrow the call when repositories are `over_limit`. */
   hint?: string
 }
 
-type Budget = { limit: number; maxTokens: number }
+type Budget = {
+  limit: number
+  maxTokens: number
+  /** Time for all codesearch requests of the call. Default 20 s. */
+  deadlineMs?: number
+}
+
+function transportFor(budget: Budget): Required<CodesearchHttpOptions> {
+  return {
+    signal: AbortSignal.timeout(budget.deadlineMs ?? CALL_DEADLINE_MS),
+    retry: MCP_RETRY,
+  }
+}
 
 /**
  * Org + optional Workspace + repository handles → the repositories to search
@@ -108,7 +144,8 @@ export async function resolveCodeScope(
         id: repositories.id,
         gitUrl: repositories.gitUrl,
         zoektRepoId: repositoryCheckouts.zoektRepoId,
-        checkoutKey: repositoryCheckouts.checkoutKey,
+        branch: repositoryCheckouts.ref,
+        sha: repositoryCheckouts.commitSha,
       })
       .from(repositories)
       .innerJoin(
@@ -134,7 +171,8 @@ export async function resolveCodeScope(
       handle,
       repositoryId: row.id,
       zoektRepoId: row.zoektRepoId,
-      checkoutKey: row.checkoutKey,
+      branch: row.branch,
+      sha: row.sha,
     })
   }
 
@@ -150,13 +188,15 @@ export async function resolveCodeScope(
 
 /**
  * Zoekt search over the scope in one request. Matches keep the Zoekt order.
- * A failed request is a retryable `internal` error: Zoekt answers for all
+ * `literal` quotes the text; `regex` sends it as a Zoekt query (RE2). A
+ * rejected query is `invalid_argument`, with no literal retry. A failed
+ * request is a retryable `internal` error: Zoekt answers for all
  * repositories at once, so no single repository is at fault.
  */
 export async function searchCodeText(
   org: CallOrg,
   scope: CodeScope,
-  input: { query: string } & Budget,
+  input: { query: string; mode: "literal" | "regex" } & Budget,
 ): Promise<
   CodeResults<{
     repository: string
@@ -175,12 +215,22 @@ export async function searchCodeText(
   if (scope.repositories.length > 0) {
     try {
       found = await codeSearch(org.id, {
-        query: input.query,
-        repositoryIds: scope.repositories.map(
-          (repository) => repository.repositoryId,
-        ),
+        query:
+          input.mode === "literal"
+            ? zoektLiteralQuery(input.query)
+            : input.query,
+        repositories: scope.repositories.map((repository) => ({
+          id: repository.repositoryId,
+          name: repository.handle,
+          zoektRepoId: repository.zoektRepoId,
+        })),
+        strict: true,
+        transport: transportFor(input),
       })
-    } catch {
+    } catch (error) {
+      if (error instanceof CodeSearchRejectedError) {
+        throw new McpToolError("invalid_argument", `query: ${error.message}`)
+      }
       log.warn({ step: "mcp.code_search.failed", orgId: org.id })
       throw new McpToolError(
         "internal",
@@ -212,18 +262,48 @@ export async function searchCodeText(
   return capped(matches, scope, scope.skipped, input)
 }
 
+/** The anchors that each graph primitive needs (the codesearch `/graph` rules). */
+function checkGraphAnchors(
+  body: Omit<GraphRequestBody, "checkoutKey" | "limit">,
+) {
+  const needs =
+    body.primitive === "trace_path" || body.primitive === "get_containing_scope"
+      ? body.symbol && body.filePath
+        ? null
+        : "symbol and filePath"
+      : body.primitive === "find_symbol" || body.primitive === "get_imports"
+        ? body.symbol || body.filePath || body.module
+          ? null
+          : "symbol, filePath, or module"
+        : body.symbol
+          ? null
+          : "symbol"
+  if (needs) {
+    throw new McpToolError(
+      "invalid_argument",
+      `${body.primitive} needs ${needs}.`,
+    )
+  }
+}
+
 /** One SCIP graph primitive over each repository of the scope. */
-export function findSymbolAcrossRepositories(
+export async function findSymbolAcrossRepositories(
   org: CallOrg,
   scope: CodeScope,
   body: Omit<GraphRequestBody, "checkoutKey" | "limit">,
   budget: Budget,
 ): Promise<CodeResults<Record<string, unknown> & { repository: string }>> {
-  return fanOut(scope, budget, "graph", async (repository) => {
+  checkGraphAnchors(body)
+  return fanOut(scope, budget, "graph", async (repository, transport) => {
     const answer = await codesearchGraphQuery(
       { id: repository.repositoryId, orgId: org.id },
-      { ...body, limit: budget.limit },
+      { ...body, limit: budget.limit + 1 },
+      undefined,
+      transport,
     )
+    // An empty answer without an index is not "no symbol".
+    if (answer.index === "missing") return "not_indexed"
+    if (answer.index === "unreadable") return "failed"
     return Array.isArray(answer.results)
       ? (answer.results as Record<string, unknown>[])
       : []
@@ -231,66 +311,145 @@ export function findSymbolAcrossRepositories(
 }
 
 /** One ast-grep pattern over each repository of the scope. */
-export function structuralSearchAcrossRepositories(
+export async function structuralSearchAcrossRepositories(
   org: CallOrg,
   scope: CodeScope,
   body: Omit<StructuralSearchBody, "limit">,
   budget: Budget,
 ): Promise<CodeResults<Record<string, unknown> & { repository: string }>> {
-  return fanOut(scope, budget, "structural", async (repository) => {
+  return fanOut(scope, budget, "structural", async (repository, transport) => {
     const answer = await codesearchStructuralSearchJson(
       { id: repository.repositoryId, orgId: org.id },
-      { ...body, limit: budget.limit },
+      { ...body, limit: budget.limit + 1 },
+      undefined,
+      transport,
     )
-    if (!answer.ok) throw new Error(`status ${answer.status}`)
+    if (!answer.ok) {
+      throw new CodesearchHttpError(
+        `structural search failed with status ${answer.status}`,
+        answer.status,
+        answer.detail,
+      )
+    }
     const matches = (answer.json as { matches?: unknown }).matches
     return Array.isArray(matches) ? (matches as Record<string, unknown>[]) : []
   })
 }
 
+/** Counting semaphore. A waiter leaves the queue when its signal aborts. */
+class Semaphore {
+  private active = 0
+  private readonly waiters: Array<() => void> = []
+
+  constructor(private readonly size: number) {}
+
+  async acquire(signal: AbortSignal): Promise<() => void> {
+    signal.throwIfAborted()
+    if (this.active < this.size) {
+      this.active += 1
+      return this.releaser()
+    }
+    await new Promise<void>((resolve, reject) => {
+      const wake = () => {
+        signal.removeEventListener("abort", onAbort)
+        resolve()
+      }
+      const onAbort = () => {
+        const at = this.waiters.indexOf(wake)
+        if (at >= 0) this.waiters.splice(at, 1)
+        reject(signal.reason)
+      }
+      this.waiters.push(wake)
+      signal.addEventListener("abort", onAbort, { once: true })
+    })
+    // The slot passes from the releaser to this waiter.
+    return this.releaser()
+  }
+
+  private releaser(): () => void {
+    let done = false
+    return () => {
+      if (done) return
+      done = true
+      const next = this.waiters.shift()
+      if (next) next()
+      else this.active -= 1
+    }
+  }
+}
+
+const scipRequests = new Semaphore(SCIP_PROCESS_LIMIT)
+
+type RepositoryAnswer =
+  | { items: Record<string, unknown>[] }
+  | { skip: SkippedRepository["reason"] }
+  | { invalid: string }
+
 /**
  * Runs `search` in parallel for the first {@link SCIP_FAN_OUT_LIMIT}
- * repositories in handle order. The rest are `skipped` as `over_limit`. A
- * repository whose request fails is `skipped`; the call continues. The merge
- * takes rank 0 of each repository in handle order, then rank 1, and so on,
- * so the order does not depend on which answer arrives first, and the cap
- * does not fill with one repository.
+ * repositories in handle order, within the process limit and the deadline
+ * of the call. The rest are `skipped` as `over_limit`. A failing repository
+ * is `skipped`; the call continues. A 400 from codesearch is a caller error
+ * and gives `invalid_argument`. The merge takes rank 0 of each repository in
+ * handle order, then rank 1, and so on, so the order does not depend on
+ * which answer arrives first, and the cap does not fill with one repository.
  */
 async function fanOut(
   scope: CodeScope,
   budget: Budget,
   kind: "graph" | "structural",
-  search: (repository: CodeRepository) => Promise<Record<string, unknown>[]>,
+  search: (
+    repository: CodeRepository,
+    transport: CodesearchHttpOptions,
+  ) => Promise<Record<string, unknown>[] | "not_indexed" | "failed">,
 ): Promise<CodeResults<Record<string, unknown> & { repository: string }>> {
   const searched = scope.repositories.slice(0, SCIP_FAN_OUT_LIMIT)
   const overLimit = scope.repositories.slice(SCIP_FAN_OUT_LIMIT)
+  const transport = transportFor(budget)
   const answers = await Promise.all(
-    searched.map(async (repository) => {
+    searched.map(async (repository): Promise<RepositoryAnswer> => {
+      let release: (() => void) | undefined
       try {
-        return await search(repository)
-      } catch {
+        release = await scipRequests.acquire(transport.signal)
+        const answer = await search(repository, transport)
+        return typeof answer === "string" ? { skip: answer } : { items: answer }
+      } catch (error) {
+        if (error instanceof CodesearchHttpError && error.status === 400) {
+          return { invalid: error.detail || error.message }
+        }
+        if (error instanceof CodesearchHttpError && error.status === 404) {
+          return { skip: "not_indexed" }
+        }
         // The error text can echo the query. Keep it off the wide event.
         log.warn({
           step: `mcp.code_search.${kind}.repository_failed`,
           repositoryId: repository.repositoryId,
         })
-        return null
+        return { skip: "failed" }
+      } finally {
+        release?.()
       }
     }),
   )
+  const invalid = answers.find((answer) => "invalid" in answer)
+  if (invalid && "invalid" in invalid) {
+    throw new McpToolError("invalid_argument", invalid.invalid)
+  }
 
   const skipped = [...scope.skipped]
   searched.forEach((repository, index) => {
-    if (answers[index] === null)
-      skipped.push({ repository: repository.handle, reason: "failed" })
+    const answer = answers[index]
+    if (answer && "skip" in answer)
+      skipped.push({ repository: repository.handle, reason: answer.skip })
   })
   for (const repository of overLimit)
     skipped.push({ repository: repository.handle, reason: "over_limit" })
   const merged: Array<Record<string, unknown> & { repository: string }> = []
-  const longest = Math.max(0, ...answers.map((answer) => answer?.length ?? 0))
+  const lists = answers.map((answer) => ("items" in answer ? answer.items : []))
+  const longest = Math.max(0, ...lists.map((items) => items.length))
   for (let rank = 0; rank < longest; rank += 1) {
     searched.forEach((repository, index) => {
-      const item = answers[index]?.[rank]
+      const item = lists[index]?.[rank]
       if (item) merged.push({ ...item, repository: repository.handle })
     })
   }
@@ -318,5 +477,6 @@ function capped<T>(
     excluded: scope.excluded,
     skipped,
     truncated: nextOffset !== null,
+    nextOffset,
   }
 }
