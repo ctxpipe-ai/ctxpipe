@@ -5,11 +5,7 @@ import { useId, useState } from "react"
 import { authClient } from "@/lib/auth-client"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { useUserPreferences } from "@/lib/user-preferences"
-import {
-  ORG_SLUG_MAX_LENGTH,
-  orgNameFromEmail,
-  orgSlugFromName,
-} from "./org-name"
+import { orgNameFromEmail, orgSlugError, orgSlugFromName } from "./org-name"
 
 type OnboardingCreateOrgSlideProps = {
   onOrgCreated: (newOrgSlug: string) => void
@@ -59,10 +55,11 @@ export function OnboardingCreateOrgSlide({
     },
   })
 
-  const slugTrimmedPreview = orgSlug.trim()
-  const slugTooLong = slugTrimmedPreview.length > ORG_SLUG_MAX_LENGTH
+  const slugError = orgSlugError(orgSlug)
+  const slugInvalid = orgSlug.trim() !== "" && slugError !== null
   const orgError =
     validationError ??
+    (slugInvalid ? slugError : null) ??
     (createOrg.error instanceof Error ? createOrg.error.message : null)
 
   const handleCreateOrg = () => {
@@ -78,10 +75,8 @@ export function OnboardingCreateOrgSlide({
       )
       return
     }
-    if (slug.length > ORG_SLUG_MAX_LENGTH) {
-      setValidationError(
-        `Organization slug must be at most ${ORG_SLUG_MAX_LENGTH} characters.`,
-      )
+    if (slugError) {
+      setValidationError(slugError)
       return
     }
     setValidationError(null)
@@ -141,7 +136,7 @@ export function OnboardingCreateOrgSlide({
             type="text"
             value={orgSlug}
             disabled={createOrg.isPending}
-            aria-invalid={slugTooLong}
+            aria-invalid={slugInvalid}
             onChange={(e) => {
               setOrgSlug(e.target.value)
               setValidationError(null)
@@ -160,7 +155,7 @@ export function OnboardingCreateOrgSlide({
             {/* A native button: the double-click guard (ignoreRepeatClick) needs click events. */}
             <button
               type="button"
-              disabled={createOrg.isPending}
+              disabled={createOrg.isPending || slugInvalid}
               className={`${focusVisibleClassName} inline-flex h-10 items-center justify-center rounded-md border border-border bg-zinc-100 px-5 text-sm font-medium text-zinc-950 transition-colors hover:bg-zinc-200 disabled:opacity-50`}
               onClick={handleCreateOrg}
             >

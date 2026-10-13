@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { ConnectorUsedIn } from "@/features/workspace-sources/ConnectorUsedIn"
+import { useConnectorSync } from "@/features/workspace-sources/useConnectorSync"
 import {
   formatSelectedItemCount,
   resolveConnectorHealth,
@@ -74,6 +75,12 @@ export function PagerdutyConnectionCard({
       })
     : null
 
+  const sync = useConnectorSync({
+    orgSlug,
+    connectionId,
+    provider: "pagerduty",
+  })
+
   return (
     <ConnectorListItem
       usedIn={
@@ -83,6 +90,7 @@ export function PagerdutyConnectionCard({
           provider="pagerduty"
         />
       }
+      sync={sync}
       name="PagerDuty"
       icon={<PagerdutyMark className="size-5 text-foreground" />}
       health={health}
