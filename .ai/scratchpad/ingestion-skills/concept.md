@@ -124,7 +124,7 @@ Source text must go through, so injection cannot be fully prevented. The guards 
 
 ### 7.1 Refs and commits
 
-Each Workspace of a run gets refs in its own repository: `refs/ctxpipe/ingest/<runId>/<workspaceId>/<shard>` per shard, and `refs/ctxpipe/ingest/<runId>/<workspaceId>` for the assembled result. A shard ref starts at the pinned revision. Each step adds one commit with the validated tree and the trailers `Ctxpipe-Run`, `Ctxpipe-Step`, and `Ctxpipe-Bundle`. The author time comes from the run input, so a replay makes the same SHA. The step output holds only the SHA and counts. The sandbox fetches the ref before the next step.
+Each Workspace of a run gets refs in its own repository: `refs/ctxpipe/ingest/<runId>/<workspaceId>/shards/<shard>` per shard, and `refs/ctxpipe/ingest/<runId>/<workspaceId>/assembled` for the assembled result (git cannot hold a ref next to a ref below it). A shard ref starts at the pinned revision. Each step adds one commit with the validated tree and the trailers `Ctxpipe-Run`, `Ctxpipe-Step`, and `Ctxpipe-Bundle`. The author time comes from the run input, so a replay makes the same SHA. The step output holds only the SHA and counts. The sandbox fetches the ref before the next step.
 
 `assemble` merges the shard refs on the host. An overlap goes to the semantic merge child. The repository-wide skills then commit on the assembled ref.
 
