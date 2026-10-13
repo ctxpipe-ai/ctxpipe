@@ -137,6 +137,28 @@ const units: SeedUnit[] = [
     claims: [{ validFrom: "2026-01-01T10:00:00+10:00" }],
   },
   {
+    id: `unit_badday_${suffix}`,
+    workspaceId: main,
+    path: "decisions/bad-day.md",
+    kind: "Decision",
+    title: "Bad day decision",
+    source: "authored",
+    updatedAt: "2025-01-01T00:00:00Z",
+    body: "# Bad day decision\n\nThe date does not exist. Handbook entry.",
+    claims: [{ validFrom: "2024-02-30" }],
+  },
+  {
+    id: `unit_junk_${suffix}`,
+    workspaceId: main,
+    path: "decisions/junk.md",
+    kind: "Decision",
+    title: "Junk decision",
+    source: "authored",
+    updatedAt: "2025-01-01T00:00:00Z",
+    body: "# Junk decision\n\nThe date has a tail. Handbook entry.",
+    claims: [{ validFrom: "2024-01-01 junk" }],
+  },
+  {
     id: `unit_billing_${suffix}`,
     workspaceId: main,
     path: "systems/billing.md",
@@ -360,6 +382,19 @@ describe("searchKnowledge (Postgres)", () => {
         }),
       ),
     ).toEqual([`unit_stamped_${suffix}`])
+  })
+
+  it("reads a malformed validity bound as no window, not as an error", async () => {
+    const wanted = [`unit_badday_${suffix}`, `unit_junk_${suffix}`]
+    expect(
+      ids(
+        await search({
+          query: "handbook",
+          unitIds: wanted,
+          validAt: new Date("2025-06-01T00:00:00Z"),
+        }),
+      ),
+    ).toEqual(wanted.sort())
   })
 
   it("keeps only the given unit ids (the get_related filter)", async () => {

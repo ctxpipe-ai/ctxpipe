@@ -117,7 +117,7 @@ export async function searchKnowledge(
   if (input.validAt) {
     const bound = (key: "validFrom" | "validTo") =>
       sql.raw(
-        `(CASE WHEN cl->>'${key}' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}' THEN (cl->>'${key}')::timestamptz END)`,
+        `(CASE WHEN cl->>'${key}' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}' AND pg_input_is_valid(cl->>'${key}', 'timestamptz') THEN (cl->>'${key}')::timestamptz END)`,
       )
     const windowed = sql`(${bound("validFrom")} IS NOT NULL OR ${bound("validTo")} IS NOT NULL)`
     const at = sql`${input.validAt.toISOString()}::timestamptz`
@@ -184,6 +184,8 @@ export async function searchKnowledge(
           await db.execute(
             sql`SELECT set_config('hnsw.iterative_scan', 'relaxed_order', true)`,
           )
+        // `relaxed_order` can return rows a little out of order. The outer
+        // `row_number()` sorts them again by distance and then by the key.
         // Only a bare `ORDER BY distance` lets the planner use the HNSW
         // index, so the key breaks ties in the rank window, not here.
         semantic = sql`SELECT ${tieBreakOuter},

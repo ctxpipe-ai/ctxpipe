@@ -23,6 +23,8 @@ const sha = "a".repeat(40)
 const runbook = `unit_runbook_${suffix}`
 const ledger = `unit_ledger_${suffix}`
 const modelServer = embeddingModelServer()
+// This test does not exercise the HNSW scan cap on pgvector below 0.8, where a
+// scope over 10,000 chunks can still lose vector hits.
 
 // All the vectors of the bulk Workspace are nearer to the paraphrase query
 // than the runbook is, and there are more of them than the 20,000 tuples that
