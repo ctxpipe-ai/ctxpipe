@@ -27,6 +27,7 @@ import {
 import { enqueueConfluenceFullSyncAfterConfigPush } from "../../openworkflow/enqueue-confluence-push-sync.js"
 import { enqueueConnectorContentSync } from "../../openworkflow/enqueue-connector-content-sync.js"
 import { enqueueNotionFullSyncAfterConfigPush } from "../../openworkflow/enqueue-notion-push-sync.js"
+import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { confluenceSyncContent } from "../../openworkflow/workflows/confluence-sync-content.js"
 import { linearSyncContent } from "../../openworkflow/workflows/linear-sync-content.js"
 import { notionSyncContent } from "../../openworkflow/workflows/notion-sync-content.js"
@@ -43,7 +44,7 @@ it.each(["notion", "confluence"] as const)(
   { timeout: 30_000 },
   async (provider) => {
     await withNativeHydrationFixture(
-      { namespaceId: "default", github: true },
+      { namespaceId: openWorkflowNamespaceId(), github: true },
       async (f) => {
         await f.handle.cancel()
         const repository = await withOrgIdContext(f.org, () =>
@@ -390,7 +391,11 @@ it.each([
   async (scenario) => {
     const { provider, status, phase } = scenario
     await withNativeHydrationFixture(
-      { namespaceId: "default", github: true, githubWriteView: "writable" },
+      {
+        namespaceId: openWorkflowNamespaceId(),
+        github: true,
+        githubWriteView: "writable",
+      },
       async (f) => {
         await f.handle.cancel()
         await f.runner.cancelWorkflowRun(f.handle.workflowRun.id)

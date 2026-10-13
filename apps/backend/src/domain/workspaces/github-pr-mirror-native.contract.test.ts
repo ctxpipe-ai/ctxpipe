@@ -13,6 +13,7 @@ import { upsertConnectionDirectory } from "../../models/connection-directory.js"
 import { reconcileWorkspaceWriteJob } from "../../models/workspace-write-jobs.js"
 import { listOrgLinkedRepositories } from "../../models/workspaces.js"
 import { enqueueWriteJob } from "../../openworkflow/enqueue-workspace-write-commit.js"
+import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { githubSyncPullRequest } from "../../openworkflow/workflows/github-sync-pull-request.js"
 import { workspaceConnectorMirror } from "../../openworkflow/workflows/workspace-connector-mirror.js"
 import { workspaceHydrate } from "../../openworkflow/workflows/workspace-hydrate.js"
@@ -158,7 +159,7 @@ it(
   async () => {
     await withNativeHydrationFixture(
       {
-        namespaceId: "default",
+        namespaceId: openWorkflowNamespaceId(),
         github: true,
         githubWriteView: "writable",
         writeStatus: "writable",
@@ -403,7 +404,7 @@ it(
   async () => {
     await withNativeHydrationFixture(
       {
-        namespaceId: "default",
+        namespaceId: openWorkflowNamespaceId(),
         github: true,
         githubWriteView: "writable",
         writeStatus: "writable",
@@ -481,7 +482,7 @@ it(
   async () => {
     await withNativeHydrationFixture(
       {
-        namespaceId: "default",
+        namespaceId: openWorkflowNamespaceId(),
         github: true,
         githubWriteView: "writable",
         writeStatus: "writable",

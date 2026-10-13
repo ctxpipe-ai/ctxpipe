@@ -23,6 +23,7 @@ import {
   persistUnitEmbeddings,
 } from "../../models/workspaces.js"
 import { enqueueWorkspaceHydrate } from "../../openworkflow/enqueue-workspace-hydrate.js"
+import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { workspaceHydrate } from "../../openworkflow/workflows/workspace-hydrate.js"
 import { workspaceIndex } from "../../openworkflow/workflows/workspace-index.js"
 import { workspaceRoutes } from "../../routes/v1/workspaces.js"
@@ -368,6 +369,7 @@ it(
       const { databaseUrl, org, workspaceId, workspaceUrl, sha } = f
       await f.publish()
       const queue = await BackendPostgres.connect(databaseUrl, {
+        namespaceId: openWorkflowNamespaceId(),
         runMigrations: false,
       })
       try {
@@ -891,6 +893,7 @@ it(
       await f.publish()
       const { revision } = await replaceGeneration(f)
       const indexQueue = await BackendPostgres.connect(databaseUrl, {
+        namespaceId: openWorkflowNamespaceId(),
         runMigrations: false,
       })
       try {

@@ -15,6 +15,7 @@ import {
 } from "../../models/workspaces.js"
 import { enqueueWorkspaceHydrate } from "../../openworkflow/enqueue-workspace-hydrate.js"
 import { enqueueWriteJob } from "../../openworkflow/enqueue-workspace-write-commit.js"
+import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { workspaceBootstrap } from "../../openworkflow/workflows/workspace-bootstrap.js"
 import { workspaceHydrate } from "../../openworkflow/workflows/workspace-hydrate.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
@@ -182,6 +183,7 @@ it.each([
           })
         }
         const backend = await BackendPostgres.connect(f.databaseUrl, {
+          namespaceId: openWorkflowNamespaceId(),
           runMigrations: false,
         })
         const runner = new OpenWorkflow({ backend })

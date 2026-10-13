@@ -20,6 +20,7 @@ import {
 } from "../../db/schema/workspaces.js"
 import { generateObjectId } from "../../lib/id.js"
 import { getSandboxInstance } from "../../models/workspaces.js"
+import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { scheduleConversationSandboxSweep } from "../../openworkflow/workflows/conversation-sandbox-sweep.js"
 import { startTestAgentVaultEnv } from "../../test/agent-vault-fixture.js"
 import { withNativeChatFixture } from "../../test/native-chat-fixture.js"
@@ -105,6 +106,7 @@ async function running(containerId: string): Promise<boolean | "gone"> {
 /** Sweep runs queued for one org, by when they are due. */
 async function queuedSweeps(orgId: string): Promise<number[]> {
   const backend = await BackendPostgres.connect(databaseUrl(), {
+    namespaceId: openWorkflowNamespaceId(),
     runMigrations: false,
   })
   try {

@@ -5,6 +5,7 @@ import { withOrgDbContext } from "../../db/client.js"
 import { connections } from "../../db/schema/connections.js"
 import { encodeLinearTokensForDb } from "../../lib/connection-config.js"
 import { upsertConnectionDirectory } from "../../models/connection-directory.js"
+import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { linearSyncEntity } from "../../openworkflow/workflows/linear-sync-entity.js"
 import { workspaceConnectorMirror } from "../../openworkflow/workflows/workspace-connector-mirror.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
@@ -25,7 +26,7 @@ it.each([
       "version: 1\nsource: linear\nworkspace:\n  id: provider-workspace\n  name: Fixture\nscope: {}\n"
     await withNativeHydrationFixture(
       {
-        namespaceId: "default",
+        namespaceId: openWorkflowNamespaceId(),
         github: true,
         githubWriteView: "writable",
         writeStatus: "writable",
