@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto"
+import { createHmac, randomUUID } from "node:crypto"
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { SpanKind } from "@opentelemetry/api"
 import {
@@ -31,8 +31,10 @@ import { ingestSandboxThreadId } from "../../domain/workspaces/chat-lifecycle.js
 import {
   mintWorkspaceChatRunCapability,
   mintWorkspaceIngestRunCapability,
+  mintWorkspaceIngestToolsCapability,
   verifyWorkspaceChatRunCapability,
   verifyWorkspaceIngestRunCapability,
+  verifyWorkspaceIngestToolsCapability,
 } from "../../domain/workspaces/workspace-chat-run-capability.js"
 import { generateObjectId } from "../../lib/id.js"
 import { backendOtelMiddleware } from "../../observability/http.js"
@@ -430,5 +432,148 @@ describe("workspace-ingest-model capability", () => {
         token: capability,
       }),
     ).toBeUndefined()
+  })
+
+  /** `payload.signature`, signed with `key` (the raw secret, or a purpose key). */
+  function signed(claims: object, key: string | Buffer): string {
+    const payload = Buffer.from(JSON.stringify(claims)).toString("base64url")
+    return `${payload}.${createHmac("sha256", key).update(payload).digest("base64url")}`
+  }
+  const purposeKey = (purpose: string) =>
+    createHmac("sha256", AUTH_SECRET)
+      .update(`ctxpipe:capability:${purpose}`)
+      .digest()
+  const checkouts = [
+    {
+      repositoryId: "repo_source",
+      checkoutKey: "checkout-source",
+      sha: "c".repeat(40),
+    },
+  ]
+
+  it("signs each purpose with its own key: valid claims signed for another purpose or with the raw secret fail", async () => {
+    const runId = await startRun(orgId)
+    const lockOwner = await holdShard(runId, 0)
+    const model = {
+      version: 1,
+      purpose: "workspace-ingest-model",
+      orgId,
+      orgSlug,
+      runId,
+      shard: 0,
+      step: "skill:root:docs",
+      lockOwner,
+    }
+    const tools = { ...model, purpose: "workspace-ingest-tools", checkouts }
+    const verifyModel = (token: string) =>
+      verifyWorkspaceIngestRunCapability({ authSecret: AUTH_SECRET, token })
+    const verifyTools = (token: string) =>
+      verifyWorkspaceIngestToolsCapability({ authSecret: AUTH_SECRET, token })
+    // The purpose's own key works.
+    expect(
+      await verifyModel(signed(model, purposeKey("workspace-ingest-model"))),
+    ).toMatchObject({ runId })
+    expect(
+      await verifyTools(signed(tools, purposeKey("workspace-ingest-tools"))),
+    ).toMatchObject({ runId, checkouts })
+    // The raw secret (as codesearch JWTs use) and another purpose's key fail.
+    expect(await verifyModel(signed(model, AUTH_SECRET))).toBeUndefined()
+    expect(await verifyTools(signed(tools, AUTH_SECRET))).toBeUndefined()
+    expect(
+      await verifyModel(signed(model, purposeKey("workspace-ingest-tools"))),
+    ).toBeUndefined()
+    expect(
+      await verifyTools(signed(tools, purposeKey("workspace-ingest-model"))),
+    ).toBeUndefined()
+    expect(
+      await verifyTools(signed(tools, purposeKey("workspace-chat-model"))),
+    ).toBeUndefined()
+    // A chat capability signed with the raw secret fails too.
+    const chat = {
+      version: 1,
+      purpose: "workspace-chat-model",
+      orgId,
+      orgSlug,
+      conversationId,
+      lockOwner: chatOwner,
+      revision,
+    }
+    expect(
+      await verifyWorkspaceChatRunCapability({
+        authSecret: AUTH_SECRET,
+        token: signed(chat, AUTH_SECRET),
+        purpose: "workspace-chat-model",
+      }),
+    ).toBeUndefined()
+    expect(
+      await verifyWorkspaceChatRunCapability({
+        authSecret: AUTH_SECRET,
+        token: signed(chat, purposeKey("workspace-chat-model")),
+        purpose: "workspace-chat-model",
+      }),
+    ).toMatchObject({ conversationId })
+  })
+
+  it("binds the tool-bridge capability to the shard lock, the run, and its checkouts", async () => {
+    const runId = await startRun(orgId)
+    const lockOwner = await holdShard(runId, 0)
+    const tools = await mintWorkspaceIngestToolsCapability({
+      authSecret: AUTH_SECRET,
+      orgId,
+      orgSlug,
+      runId,
+      shard: 0,
+      step: "skill:root:docs",
+      lockOwner,
+      checkouts,
+    })
+    expect(
+      await verifyWorkspaceIngestToolsCapability({
+        authSecret: AUTH_SECRET,
+        token: tools,
+      }),
+    ).toMatchObject({ purpose: "workspace-ingest-tools", runId, checkouts })
+    // It is not a model capability: the model proxy refuses it.
+    expect(
+      await verifyWorkspaceIngestRunCapability({
+        authSecret: AUTH_SECRET,
+        token: tools,
+      }),
+    ).toBeUndefined()
+    expect(await complete(tools)).toBe(401)
+    // The next step takes the lock: the capability ends.
+    await holdShard(runId, 0)
+    expect(
+      await verifyWorkspaceIngestToolsCapability({
+        authSecret: AUTH_SECRET,
+        token: tools,
+      }),
+    ).toBeUndefined()
+    // No mint without the lock, nor without a checkout.
+    await expect(
+      mintWorkspaceIngestToolsCapability({
+        authSecret: AUTH_SECRET,
+        orgId,
+        orgSlug,
+        runId,
+        shard: 0,
+        step: "skill:root:docs",
+        lockOwner,
+        checkouts,
+      }),
+    ).rejects.toThrow("The ingest shard lock or run is not valid")
+    const owner = await holdShard(runId, 0)
+    await expect(
+      mintWorkspaceIngestToolsCapability({
+        authSecret: AUTH_SECRET,
+        orgId,
+        orgSlug,
+        runId,
+        shard: 0,
+        step: "skill:root:docs",
+        lockOwner: owner,
+        checkouts: [],
+      }),
+    ).rejects.toThrow()
   })
 })
