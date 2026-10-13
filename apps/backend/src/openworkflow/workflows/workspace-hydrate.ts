@@ -34,9 +34,9 @@ import {
   getLinkedReadBinding,
   getWorkspaceProjectionSnapshot,
   listLinkedRepositories,
+  markKnowledgeEmbeddingsReady,
   persistEmbeddingFailure,
   persistHydrateFailure,
-  persistUnitEmbeddings,
   persistWorkspaceGraphResult,
 } from "../../models/workspaces.js"
 import {
@@ -499,7 +499,7 @@ export const workspaceHydrate = defineWorkflow(
                   workspaceId: workspace.id,
                   embed: generateEmbeddings,
                 })
-                await persistUnitEmbeddings({ revision })
+                await markKnowledgeEmbeddingsReady({ revision })
               } catch (error) {
                 log.error(
                   error instanceof Error

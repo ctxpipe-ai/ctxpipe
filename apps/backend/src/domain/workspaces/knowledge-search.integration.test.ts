@@ -42,7 +42,7 @@ const CONCEPTS: Record<string, number> = {
   ship: 1,
 }
 function embedText(text: string): number[] {
-  const vector = Array<number>(2000).fill(0)
+  const vector: number[] = new Array(2000).fill(0)
   for (const word of text.toLowerCase().match(/[a-z0-9]+/g) ?? []) {
     const concept = CONCEPTS[word]
     if (concept !== undefined) {
@@ -54,7 +54,7 @@ function embedText(text: string): number[] {
     const dim = 8 + (hash % 56)
     vector[dim] = (vector[dim] ?? 0) + 1
   }
-  if (vector.every((value) => value === 0)) vector[63] = 1
+  if (!vector.some((value) => value !== 0)) vector[63] = 1
   return vector
 }
 
@@ -312,7 +312,9 @@ describe("searchKnowledge (Postgres)", () => {
 
   it("returns one hit for each unit, with the line range of the best chunk", async () => {
     const hits = await search({ query: "contacts payments team on call" })
-    const runbook = hits.filter((hit) => hit.unitId === `unit_runbook_${suffix}`)
+    const runbook = hits.filter(
+      (hit) => hit.unitId === `unit_runbook_${suffix}`,
+    )
     expect(runbook).toHaveLength(1)
     expect(runbook[0]).toMatchObject({ startLine: 5, endLine: 7 })
     expect(runbook[0]?.text).toContain("Payment gateway runbook > Contacts")
@@ -438,33 +440,44 @@ describe("searchKnowledge (Postgres)", () => {
     )
     expect(titleOnly).toContain("decisions/rollout.md (lines 1-1)")
     const section = String(
-      await tool?.execute({ query: "contacts payments team on call" }, { context }),
+      await tool?.execute(
+        { query: "contacts payments team on call" },
+        { context },
+      ),
     )
     expect(section).toContain("runbooks/payment-gateway.md (lines 5-7)")
     expect(section).not.toContain("Restart the gateway pods")
   })
 
   it("answers within the bound on 20,000 chunks", async () => {
-    // 2,000 units of 10 chunks each, with random vectors, in one more Workspace.
-    await withOrgDbContext(orgId, async (db) => {
-      await db.execute(sql`
+    // 2,000 units of 10 chunks each, with random vectors, in one more
+    // Workspace. Each HNSW insert is serial, so four transactions share the work.
+    await withOrgDbContext(orgId, (db) =>
+      db.execute(sql`
         INSERT INTO workspace_knowledge_units
           (serving_id, org_id, workspace_id, path, kind, title, source, body, projection_sha, updated_at)
         SELECT 'unit_large_' || g || '_' || ${suffix}, ${orgId}, ${large},
           'bulk/' || g || '.md', 'Note', 'Bulk note ' || g, 'authored',
           'bulk body', ${sha}, now()
         FROM generate_series(1, 2000) AS g
-      `)
-      await db.execute(sql`
-        INSERT INTO workspace_knowledge_chunks
-          (workspace_id, unit_id, chunk_hash, occurrence, org_id, ordinal, start_line, end_line, text, embedding)
-        SELECT ${large}, 'unit_large_' || u || '_' || ${suffix}, md5(u || ':' || c), 0, ${orgId}, c,
-          c * 10 + 1, c * 10 + 9,
-          'Bulk note ' || u || ' section ' || c || ' handbook words ' || md5(u || '-' || c),
-          (SELECT array_agg(random()::real) FROM generate_series(1, 2000) WHERE u > 0 AND c >= 0)::vector
-        FROM generate_series(1, 2000) AS u, generate_series(0, 9) AS c
-      `)
-    })
+      `),
+    )
+    await Promise.all(
+      [0, 1, 2, 3].map((part) =>
+        withOrgDbContext(orgId, (db) =>
+          db.execute(sql`
+            INSERT INTO workspace_knowledge_chunks
+              (workspace_id, unit_id, chunk_hash, occurrence, org_id, ordinal, start_line, end_line, text, embedding)
+            SELECT ${large}, 'unit_large_' || u || '_' || ${suffix}, md5(u || ':' || c), 0, ${orgId}, c,
+              c * 10 + 1, c * 10 + 9,
+              'Bulk note ' || u || ' section ' || c || ' handbook words ' || md5(u || '-' || c),
+              (SELECT array_agg(random()::real) FROM generate_series(1, 2000) WHERE u > 0 AND c >= 0)::vector
+            FROM generate_series(${part * 500 + 1}::int, ${part * 500 + 500}::int) AS u,
+              generate_series(0, 9) AS c
+          `),
+        ),
+      ),
+    )
     const runs: number[] = []
     for (let run = 0; run < 5; run++) {
       const started = performance.now()
@@ -480,7 +493,9 @@ describe("searchKnowledge (Postgres)", () => {
     runs.sort((a, b) => a - b)
     const median = runs[2] ?? Number.POSITIVE_INFINITY
     // Local median: see the P2-3 ticket note. The bound leaves room for a loaded CI host.
-    console.info(`knowledge search median on 20,000 chunks: ${median.toFixed(1)} ms`)
+    console.info(
+      `knowledge search median on 20,000 chunks: ${median.toFixed(1)} ms`,
+    )
     expect(median).toBeLessThan(1_000)
   }, 300_000)
 })

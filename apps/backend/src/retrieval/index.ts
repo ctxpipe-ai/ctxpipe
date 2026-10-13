@@ -15,8 +15,6 @@ export {
 } from "./schema/predicateValidation.js"
 export type { ClaimAggregationRow } from "./services/aggregateClaims.js"
 export { aggregateClaimsByPredicate } from "./services/aggregateClaims.js"
-export type { Bm25SearchResult } from "./services/bm25Search.js"
-export { bm25Search } from "./services/bm25Search.js"
 export { mergeCandidates } from "./services/candidateMerge.js"
 export type {
   AddEvidenceInput,
@@ -49,8 +47,6 @@ export type {
   TraversalResult,
 } from "./services/graphTraversal.js"
 export { graphTraversal } from "./services/graphTraversal.js"
-export type { HybridSearchResult } from "./services/hybridSearch.js"
-export { hybridSearch } from "./services/hybridSearch.js"
 export type {
   HydratedClaim,
   HydratedClaimWithEvidence,
@@ -77,5 +73,3 @@ export {
   corroborationReranker,
   passThroughReranker,
 } from "./services/reranker.js"
-export type { VectorSearchResult } from "./services/vectorSearch.js"
-export { vectorSearch } from "./services/vectorSearch.js"

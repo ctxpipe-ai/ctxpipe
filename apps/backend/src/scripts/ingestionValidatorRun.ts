@@ -400,7 +400,7 @@ async function validateRepository(
           facts.repositoryUnits = {
             kinds: unitKinds(read.units),
             units: read.units.length,
-            withoutEmbedding: read.units.filter((unit) => !unit.embedding)
+            withoutEmbedding: read.units.filter((unit) => !unit.embedded)
               .length,
             presentPaths: read.units.map((unit) => unit.path).sort(),
           }

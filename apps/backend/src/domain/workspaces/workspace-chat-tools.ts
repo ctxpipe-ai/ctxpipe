@@ -7,9 +7,7 @@ import {
   getWorkspaceProjectionSnapshot,
   type WorkspaceProjectionSnapshot,
 } from "../../models/workspaces.js"
-import { hybridSearch } from "../../retrieval/index.js"
 import { codeSearch } from "../../retrieval/services/codeSearch.js"
-import { generateEmbedding } from "../../retrieval/services/modelProvider.js"
 import {
   codesearchGraphQuery,
   type GraphPrimitive,
@@ -31,12 +29,8 @@ import {
   buildSymbolReferencesQuery,
 } from "../../tools/zoektSymbolQuery.js"
 import { readWorkspaceGraph } from "./graph-projection.js"
+import { searchKnowledge } from "./knowledge-search.js"
 import { type PublishedProjection, publishedProjection } from "./revision.js"
-import {
-  formatWorkspaceChatHits,
-  type WorkspaceChatUnit,
-  workspaceChatHybridHits,
-} from "./workspace-chat-retrieval.js"
 import type { WorkspaceGraphPayload } from "./workspace-graph.js"
 
 export type WorkspaceChatTanstackTool = {
@@ -204,11 +198,6 @@ export async function workspaceChatTools(input: {
   orgSlug: string
   workspaceId: string
   snapshot: WorkspaceProjectionSnapshot
-  embedQuery?: (query: string) => Promise<number[]>
-  searchObjects?: (
-    query: string,
-    embedding: number[],
-  ) => Promise<Array<{ objectId: string }>>
 }): Promise<WorkspaceChatTanstackTool[]> {
   const projection = publishedProjection(input.snapshot.projection)
   if (!projection) return []
@@ -238,9 +227,9 @@ export async function workspaceChatTools(input: {
   )
   tools.unshift(
     hybridSearchTool({
-      ...input,
+      orgId: input.orgId,
+      workspaceId: input.workspaceId,
       activeProjectionSha: sha,
-      loadUnits: async () => input.snapshot.units,
     }),
   )
   tools.push(
@@ -252,13 +241,8 @@ export async function workspaceChatTools(input: {
 
 function hybridSearchTool(input: {
   orgId: string
-  loadUnits: () => Promise<WorkspaceChatUnit[]>
+  workspaceId: string
   activeProjectionSha: string | null
-  embedQuery?: (query: string) => Promise<number[]>
-  searchObjects?: (
-    query: string,
-    embedding: number[],
-  ) => Promise<Array<{ objectId: string }>>
 }): WorkspaceChatTanstackTool {
   return {
     ...HYBRID_SEARCH_DEFINITION,
@@ -272,32 +256,21 @@ function hybridSearchTool(input: {
       if (!query.trim() || !input.activeProjectionSha) {
         return "No active Workspace projection."
       }
-      const units = await input.loadUnits()
-      let embedding: number[] | null = null
-      let objectHits: Array<{ objectId: string }> = []
-      if (input.embedQuery) {
-        try {
-          embedding = await input.embedQuery(query)
-          if (input.searchObjects && embedding) {
-            objectHits = await input.searchObjects(query, embedding)
-          }
-        } catch {
-          embedding = null
-        }
-      }
-      const hits = workspaceChatHybridHits({
+      const hits = await searchKnowledge({
+        orgId: input.orgId,
+        workspaceIds: [input.workspaceId],
         query,
-        activeProjectionSha: input.activeProjectionSha,
-        units,
-        embedding,
-        objectHits,
+        limit: 8,
       })
-      return (
-        formatWorkspaceChatHits({
-          activeProjectionSha: input.activeProjectionSha,
-          hits,
-        }) || "No matching knowledge in the active projection."
-      )
+      if (hits.length === 0)
+        return "No matching knowledge in the active projection."
+      return [
+        `Workspace projection context (${input.activeProjectionSha}):`,
+        ...hits.map(
+          (hit) =>
+            `## ${hit.path} (lines ${hit.startLine}-${hit.endLine})\n${hit.text.trim().slice(0, 1200)}`,
+        ),
+      ].join("\n\n")
     },
   }
 }
@@ -573,7 +546,7 @@ function explorerToolDefinition(tool: ExplorerTool) {
 const HYBRID_SEARCH_DEFINITION: Omit<WorkspaceChatTanstackTool, "execute"> = {
   name: "hybrid_search",
   description:
-    "Search this Workspace's active projection (Postgres knowledge and claims). Input: { query }.",
+    "Search the knowledge of this Workspace's active projection (full text and meaning). Each hit is the best section of a file, with its line range. Input: { query }.",
   inputSchema: {
     type: "object",
     properties: { query: { type: "string", minLength: 1 } },
@@ -636,9 +609,6 @@ export const WORKSPACE_CHAT_TOOLS: WorkspaceChatTanstackTool[] = [
     const tools = await workspaceChatTools({
       ...scope,
       snapshot,
-      embedQuery: generateEmbedding,
-      searchObjects: (query, embedding) =>
-        hybridSearch(scope.orgId, { embedding, query }, { limit: 20 }),
     })
     const tool = tools.find((tool) => tool.name === definition.name)
     if (!tool)
