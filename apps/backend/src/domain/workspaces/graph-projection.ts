@@ -33,9 +33,9 @@ import {
  * Increase this number when the node or edge shape changes. A new version
  * gives each revision a new key, so a ready revision has no graph under its
  * key. The graph read then starts a rebuild, which projects it again.
- * Version 2 adds `path`, `degree`, `inDegree`, and `outDegree` to each node.
+ * Version 3 stores validity bounds as fixed-format UTC timestamps.
  */
-const workspaceGraphProjectionVersion = 2
+const workspaceGraphProjectionVersion = 3
 
 export function workspaceGraphRevisionKey(revision: WorkspaceRevision): string {
   return createHash("sha256")
@@ -95,7 +95,11 @@ export async function writeWorkspaceRevisionGraph(
       SET n.workspaceId = $workspaceId, n.kind = node.kind, n.name = node.name, n.summary = node.summary, n.path = node.path`,
       { projectionKey, workspaceId: revision.workspaceId, nodes },
     )
-  const claims = hydrateUnitsToProjectionClaims(units)
+  const claims = hydrateUnitsToProjectionClaims(units).map((claim) => ({
+    ...claim,
+    validFrom: normalizeValidityBound(claim.validFrom),
+    validTo: normalizeValidityBound(claim.validTo),
+  }))
   if (claims.length)
     await graph.executeQuery(workspaceClaimsQuery, { projectionKey, claims })
   // Count the edges that the graph holds. A claim without a target unit
@@ -122,6 +126,18 @@ export async function writeWorkspaceRevisionGraph(
       completedAt: new Date().toISOString(),
     },
   )
+}
+
+/** A non-time value is no bound. A time without an offset uses UTC. */
+function normalizeValidityBound(value: string | null): string | null {
+  const raw = value?.trim()
+  if (!raw || !/^\d{4}-\d{2}-\d{2}/.test(raw)) return null
+  const utc =
+    raw.length > 10 && !/(?:z|[+-]\d{2}(?::?\d{2})?)$/i.test(raw.slice(10))
+      ? `${raw}Z`
+      : raw
+  const time = new Date(utc)
+  return Number.isNaN(time.getTime()) ? null : time.toISOString()
 }
 
 /** Build the derived graph from a captured PostgreSQL projection, never by parsing Git again. */
@@ -195,6 +211,7 @@ export async function withCompleteWorkspaceGraph<T>(
     projectionKey: string
     marker: { get: (key: string) => unknown }
   }) => Promise<T>,
+  options?: { deadline?: number },
 ): Promise<T> {
   const projection = input.projection
   if (projection?.kind !== "active" || projection.stores.graph.kind !== "ready")
@@ -207,6 +224,7 @@ export async function withCompleteWorkspaceGraph<T>(
     const result = await client.executeQuery(
       "MATCH (p:WorkspaceProjection {projectionKey: $projectionKey}) RETURN p.nodeCount AS nodeCount, p.claimCount AS claimCount, p.completedAt AS completedAt",
       { projectionKey },
+      options,
     )
     const marker = result.records[0]
     if (!marker)

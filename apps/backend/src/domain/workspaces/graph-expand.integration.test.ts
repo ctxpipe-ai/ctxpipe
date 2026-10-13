@@ -5,8 +5,11 @@ import {
   getGraphClient,
   withGraphClient,
 } from "../../platform/graph/client.js"
-import { expandWorkspaceGraph } from "./graph-expand.js"
-import { writeWorkspaceRevisionGraph } from "./graph-projection.js"
+import { expandHop, expandWorkspaceGraph } from "./graph-expand.js"
+import {
+  workspaceGraphRevisionKey,
+  writeWorkspaceRevisionGraph,
+} from "./graph-projection.js"
 import { WorkspaceGraphBuildingError } from "./graph-rebuild.js"
 import type { HydrateUnit } from "./hydrate.js"
 import type { PublishedProjection, WorkspaceRevision } from "./revision.js"
@@ -73,7 +76,9 @@ function unit(path: string, claims: Claim[] = []): HydrateUnit {
   } satisfies HydrateUnit
 }
 
-function active(rev: WorkspaceRevision): PublishedProjection {
+function active(
+  rev: WorkspaceRevision,
+): Extract<PublishedProjection, { kind: "active" }> {
   return {
     kind: "active",
     revision: rev,
@@ -119,6 +124,53 @@ describe("expandWorkspaceGraph on FalkorDB", () => {
         ),
         ...leaves.map((path) => unit(path)),
       ])
+      const hop = await withGraphClient(org, () =>
+        expandHop(getGraphClient(), {
+          projectionKey: workspaceGraphRevisionKey(projection.revision),
+          frontier: [id("hub.md")],
+          direction: "out",
+          predicates: undefined,
+          minConfidence: 0,
+          maxFanOut: 50,
+          remainingEdges: 25_000,
+          seenEdges: [],
+          window: {
+            from: "2026-01-01T00:00:00.000Z",
+            to: "2026-01-01T00:00:00.000Z",
+          },
+        }),
+      )
+      expect(hop.edges).toHaveLength(51)
+      expect(hop.edges.filter((edge) => edge.probe)).toHaveLength(1)
+      const limited = await withGraphClient(org, () =>
+        expandHop(getGraphClient(), {
+          projectionKey: workspaceGraphRevisionKey(projection.revision),
+          frontier: [id("hub.md")],
+          direction: "out",
+          predicates: undefined,
+          minConfidence: 0,
+          maxFanOut: 50,
+          remainingEdges: 10,
+          seenEdges: [],
+          window: {
+            from: "2026-01-01T00:00:00.000Z",
+            to: "2026-01-01T00:00:00.000Z",
+          },
+        }),
+      )
+      expect(limited.edges).toHaveLength(11)
+      expect(limited.cappedHubs).toEqual([id("hub.md")])
+      const timed = await expand(projection, {
+        seeds: [id("hub.md")],
+        maxFanOut: 1_000,
+        caps: { hopTimeoutMs: 2 },
+      })
+      expect(timed).toMatchObject({
+        partial: true,
+        partialReason: "hop_timeout",
+      })
+      expect(nodeIds(timed)).toEqual([id("hub.md")])
+
       const result = await expand(projection, {
         seeds: [id("hub.md")],
         maxDepth: 1,
@@ -137,6 +189,25 @@ describe("expandWorkspaceGraph on FalkorDB", () => {
       expect(hub).toMatchObject({ depth: 0, path: "hub.md", outDegree: 2000 })
     },
   )
+
+  it("stops an in-flight query at its server deadline", async () => {
+    await publish([unit("slow.md")])
+    await withGraphClient(org, async () => {
+      const client = getGraphClient()
+      const query =
+        "UNWIND range(1, 1000) AS a UNWIND range(1, 1000) AS b RETURN sum(a * b) AS total"
+      await expect(
+        client.executeQuery(query, {}, { deadline: performance.now() + 10 }),
+      ).rejects.toMatchObject({
+        name: "GraphQueryTimeoutError",
+        cause: expect.objectContaining({
+          message: expect.stringMatching(/timed out|timeout/i),
+        }),
+      })
+      const result = await client.executeQuery("RETURN 1 AS ready")
+      expect(result.records[0]?.get("ready")).toBe(1)
+    })
+  })
 
   it("walks no expired edge unless the time window includes it", async () => {
     const projection = await publish([
@@ -165,6 +236,54 @@ describe("expandWorkspaceGraph on FalkorDB", () => {
       },
     })
     expect(nodeIds(between)).toEqual([id("a.md"), id("now.md"), id("old.md")])
+  })
+
+  it("compares offset times and boundary instants in UTC and ignores non-time bounds", async () => {
+    const projection = await publish([
+      unit("a.md", [
+        {
+          to: "window.md",
+          validFrom: "2026-01-01T01:00:00+01:00",
+          validTo: "2026-01-01T02:00:00+01:00",
+        },
+        { to: "unbounded.md", validFrom: "Q3 2025", validTo: "not-a-time" },
+      ]),
+      unit("window.md"),
+      unit("unbounded.md"),
+    ])
+    const seeds = [id("a.md")]
+    const start = await expand(projection, {
+      seeds,
+      validAt: "2025-12-31T19:00:00-05:00",
+    })
+    expect(start.edges).toHaveLength(2)
+    expect(start.edges[0]).toMatchObject({
+      validFrom: "2026-01-01T00:00:00.000Z",
+      validTo: "2026-01-01T01:00:00.000Z",
+    })
+    expect(start.edges[1]).toMatchObject({ validFrom: null, validTo: null })
+    const end = await expand(projection, {
+      seeds,
+      validAt: "2026-01-01T01:00:00Z",
+    })
+    expect(end.edges.map((edge) => edge.targetId)).toEqual([id("unbounded.md")])
+    const between = await expand(projection, {
+      seeds,
+      validBetween: {
+        from: "2025-12-31T19:00:00-05:00",
+        to: "2026-01-01T00:30:00Z",
+      },
+    })
+    expect(between.edges).toHaveLength(2)
+    await expect(
+      expand(projection, {
+        seeds,
+        validBetween: {
+          from: "2025-12-31T23:00:00-05:00",
+          to: "2026-01-01T00:00:00Z",
+        },
+      }),
+    ).rejects.toThrow("Validity window ends before it starts.")
   })
 
   it("filters by direction, predicate, and minimum confidence", async () => {
@@ -265,9 +384,50 @@ describe("expandWorkspaceGraph on FalkorDB", () => {
       partial: true,
       partialReason: "total_timeout",
     })
-    expect(nodeIds(total)).toEqual([id("a.md")])
+    expect(nodeIds(total)).toEqual([])
     const complete = await expand(projection, { seeds, maxDepth: 2 })
     expect(complete).toMatchObject({ partial: false, partialReason: null })
+  })
+
+  it("limits seed nodes and rejects limits above the hard caps", async () => {
+    const paths = Array.from({ length: 10 }, (_, i) => `seed-${i}.md`)
+    const projection = await publish(paths.map((path) => unit(path)))
+    const seeds = paths.map(id)
+    const result = await expand(projection, {
+      seeds,
+      maxDepth: 0,
+      caps: { maxNodes: 1 },
+    })
+    expect(nodeIds(result)).toEqual([id("seed-0.md")])
+    expect(result).toMatchObject({ partial: true, partialReason: "max_nodes" })
+    for (const caps of [
+      { maxNodes: 5_001 },
+      { maxEdges: 25_001 },
+      { hopTimeoutMs: 1_001 },
+      { totalTimeoutMs: 3_001 },
+    ]) {
+      await expect(expand(projection, { seeds, caps })).rejects.toThrow()
+    }
+  })
+
+  it("counts a shared edge once before the hop row limit", async () => {
+    const projection = await publish([
+      unit("a.md", [{ to: "b.md", confidence: 0.9 }]),
+      unit("b.md", [
+        { to: "c.md", confidence: 0.8 },
+        { to: "d.md", confidence: 0.7 },
+        { to: "e.md", confidence: 0.6 },
+      ]),
+      unit("c.md"),
+      unit("d.md"),
+      unit("e.md"),
+    ])
+    const result = await expand(projection, {
+      seeds: [id("a.md"), id("b.md")],
+      caps: { maxEdges: 2 },
+    })
+    expect(result.edges).toHaveLength(2)
+    expect(result).toMatchObject({ partial: true, partialReason: "max_edges" })
   })
 
   it("gives the same result for two write orders", async () => {

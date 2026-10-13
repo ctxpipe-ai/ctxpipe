@@ -26,7 +26,13 @@ import {
   withNativeHydrationFixture,
 } from "../../test/native-hydration-fixture.js"
 import { workspaceHttpApp } from "../../test/workspace-http-fixture.js"
-import { workspaceClaimsQuery } from "./graph-projection.js"
+import { expandWorkspaceGraph } from "./graph-expand.js"
+import {
+  workspaceClaimsQuery,
+  workspaceGraphRevisionKey,
+} from "./graph-projection.js"
+import { WorkspaceGraphBuildingError } from "./graph-rebuild.js"
+import { publishedProjection } from "./revision.js"
 import { workspaceChatTools } from "./workspace-chat-tools.js"
 
 async function withGraphHydration(
@@ -875,7 +881,7 @@ it(
 )
 
 it(
-  "chat graph neighbors give the strongest valid edges first",
+  "chat graph neighbors list the strongest valid edges by confidence",
   { timeout: 60_000 },
   async () => {
     const claim = (to: string, confidence: number, extra = "") =>
@@ -1030,5 +1036,42 @@ it(
         false,
       )
     })
+  },
+)
+
+it(
+  "bounded expansion rebuilds a projection with missing nodes",
+  { timeout: 90_000 },
+  async () => {
+    await withGraphHydration(
+      { namespaceId: openWorkflowNamespaceId() },
+      async (f, graph) => {
+        await f.publish()
+        const snapshot = await withOrgIdContext(f.org, () =>
+          getWorkspaceProjectionSnapshot(f.workspaceId),
+        )
+        const seed = snapshot.units[0]?.servingId
+        if (!seed) throw new Error("The fixture needs a seed")
+        const input = {
+          orgId: f.org.id,
+          orgSlug: f.org.slug,
+          projection: publishedProjection(snapshot.projection),
+          seeds: [seed],
+        }
+        await graph.query(
+          "MATCH (n:WorkspaceKnowledgeUnit {projectionKey: $projectionKey}) DETACH DELETE n",
+          {
+            params: { projectionKey: workspaceGraphRevisionKey(f.revision) },
+          },
+        )
+        await expect(expandWorkspaceGraph(input)).rejects.toBeInstanceOf(
+          WorkspaceGraphBuildingError,
+        )
+        expect(await readGraphWhenRebuilt(f)).toMatchObject({ status: 200 })
+        const result = await expandWorkspaceGraph(input)
+        expect(result.nodes.map((node) => node.name)).toEqual(["document-000"])
+        expect(result.partial).toBe(false)
+      },
+    )
   },
 )

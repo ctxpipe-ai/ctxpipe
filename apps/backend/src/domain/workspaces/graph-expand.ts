@@ -1,6 +1,12 @@
 import { z } from "zod"
-import type { GraphClient } from "../../platform/graph/client.js"
-import { withCompleteWorkspaceGraph } from "./graph-projection.js"
+import {
+  type GraphClient,
+  GraphQueryTimeoutError,
+} from "../../platform/graph/client.js"
+import {
+  WorkspaceGraphMissingError,
+  withCompleteWorkspaceGraph,
+} from "./graph-projection.js"
 import { readOrRebuild } from "./graph-rebuild.js"
 import type { PublishedProjection } from "./revision.js"
 
@@ -20,23 +26,38 @@ const expandParamsSchema = z
     predicates: z.array(z.string().min(1)).min(1).optional(),
     minConfidence: z.number().min(0).max(1).default(0),
     maxFanOut: z.number().int().min(1).max(1_000).default(50),
-    validAt: z.iso.datetime({ offset: true }).optional(),
+    validAt: z.iso
+      .datetime({ offset: true })
+      .transform((value) => new Date(value).toISOString())
+      .optional(),
     validBetween: z
       .object({
-        from: z.iso.datetime({ offset: true }),
-        to: z.iso.datetime({ offset: true }),
+        from: z.iso
+          .datetime({ offset: true })
+          .transform((value) => new Date(value).toISOString()),
+        to: z.iso
+          .datetime({ offset: true })
+          .transform((value) => new Date(value).toISOString()),
       })
       .optional(),
     caps: z
       .object({
-        maxNodes: z.number().int().min(1),
-        maxEdges: z.number().int().min(0),
-        hopTimeoutMs: z.number().int().min(0),
-        totalTimeoutMs: z.number().int().min(0),
+        maxNodes: z.number().int().min(1).max(defaultCaps.maxNodes),
+        maxEdges: z.number().int().min(0).max(defaultCaps.maxEdges),
+        hopTimeoutMs: z.number().int().min(0).max(defaultCaps.hopTimeoutMs),
+        totalTimeoutMs: z.number().int().min(0).max(defaultCaps.totalTimeoutMs),
       })
       .partial()
       .optional(),
   })
+  .refine(
+    (params) =>
+      !params.validBetween ||
+      params.validBetween.from <= params.validBetween.to,
+    {
+      message: "Validity window ends before it starts.",
+    },
+  )
   .refine((params) => !(params.validAt && params.validBetween), {
     message: "Give validAt or validBetween, not both.",
   })
@@ -96,7 +117,7 @@ const nodeSchema = z.object({
 
 const edgeSchema = z.object({
   fromId: z.string(),
-  matched: z.number(),
+  probe: z.boolean(),
   id: z.string(),
   sourceId: z.string(),
   targetId: z.string(),
@@ -147,93 +168,118 @@ export async function expandWorkspaceGraph(
 ): Promise<GraphExpansion> {
   const params = expandParamsSchema.parse(input)
   const caps = { ...defaultCaps, ...params.caps }
-  const window = params.validBetween ?? {
-    from: params.validAt ?? new Date().toISOString(),
-    to: params.validAt ?? new Date().toISOString(),
-  }
-  return readOrRebuild(input, (graph) =>
-    withCompleteWorkspaceGraph(graph, async ({ client, projectionKey }) => {
-      const started = performance.now()
-      const seedResult = await client.executeQuery(
-        `MATCH (n:WorkspaceKnowledgeUnit {projectionKey: $projectionKey})
-        WHERE n.id IN $seeds RETURN ${nodeFields("")}`,
-        { projectionKey, seeds: params.seeds },
-      )
-      const nodes = new Map<string, ExpandedNode>(
-        rows(nodeSchema, seedResult.records).map((node) => [
-          node.id,
-          { ...node, depth: 0 },
-        ]),
-      )
-      const edges = new Map<string, ExpandedEdge>()
-      const cappedHubs = new Set<string>()
-      let partialReason: GraphExpansion["partialReason"] = null
-      let frontier = [...nodes.keys()]
-      for (
-        let depth = 1;
-        depth <= params.maxDepth && frontier.length;
-        depth++
-      ) {
-        const remaining = caps.totalTimeoutMs - (performance.now() - started)
-        if (remaining <= 0) {
-          partialReason = "total_timeout"
-          break
-        }
-        const hop = await withTimeout(
-          expandHop(client, {
-            projectionKey,
-            frontier,
-            direction: params.direction,
-            predicates: params.predicates,
-            minConfidence: params.minConfidence,
-            maxFanOut: params.maxFanOut,
-            window,
-          }),
-          Math.min(caps.hopTimeoutMs, remaining),
-        )
-        if (hop === "timeout") {
+  const instant = params.validAt ?? new Date().toISOString()
+  const window = params.validBetween ?? { from: instant, to: instant }
+  const deadline = performance.now() + caps.totalTimeoutMs
+  const nodes = new Map<string, ExpandedNode>()
+  const edges = new Map<string, ExpandedEdge>()
+  const cappedHubs = new Set<string>()
+  let partialReason: GraphExpansion["partialReason"] = null
+  let timeoutReason: "total_timeout" | "hop_timeout" = "total_timeout"
+  try {
+    await readOrRebuild(input, (graph) =>
+      withCompleteWorkspaceGraph(
+        graph,
+        async ({ client, projectionKey, marker }) => {
+          const count = await client.executeQuery(
+            "MATCH (n:WorkspaceKnowledgeUnit {projectionKey: $projectionKey}) RETURN count(n) AS nodeCount",
+            { projectionKey },
+            { deadline },
+          )
+          if (
+            Number(count.records[0]?.get("nodeCount")) !==
+            Number(marker.get("nodeCount"))
+          )
+            throw new WorkspaceGraphMissingError(
+              "Workspace graph projection is unavailable.",
+            )
+          const seedResult = await client.executeQuery(
+            `MATCH (n:WorkspaceKnowledgeUnit {projectionKey: $projectionKey})
+        WHERE n.id IN $seeds RETURN ${nodeFields("")} ORDER BY n.id LIMIT $seedLimit`,
+            {
+              projectionKey,
+              seeds: params.seeds,
+              seedLimit: caps.maxNodes + 1,
+            },
+            { deadline },
+          )
+          for (const node of rows(
+            nodeSchema,
+            seedResult.records.slice(0, caps.maxNodes),
+          ))
+            nodes.set(node.id, { ...node, depth: 0 })
           partialReason =
-            caps.hopTimeoutMs < remaining ? "hop_timeout" : "total_timeout"
-          break
-        }
-        for (const edge of hop.edges)
-          if (edge.matched > params.maxFanOut) cappedHubs.add(edge.fromId)
-        const next: string[] = []
-        for (const { fromId, matched, ...edge } of hop.edges) {
-          if (edges.has(edge.id)) continue
-          const otherId =
-            edge.sourceId === fromId ? edge.targetId : edge.sourceId
-          const other = hop.nodes.get(otherId)
-          const isNew = !nodes.has(otherId)
-          if (isNew && nodes.size >= caps.maxNodes) {
-            partialReason = "max_nodes"
-            break
+            seedResult.records.length > caps.maxNodes ? "max_nodes" : null
+          let frontier = [...nodes.keys()]
+          for (
+            let depth = 1;
+            depth <= params.maxDepth && frontier.length && !partialReason;
+            depth++
+          ) {
+            const hopDeadline = Math.min(
+              deadline,
+              performance.now() + caps.hopTimeoutMs,
+            )
+            timeoutReason =
+              hopDeadline < deadline ? "hop_timeout" : "total_timeout"
+            const hop = await expandHop(client, {
+              projectionKey,
+              frontier,
+              direction: params.direction,
+              predicates: params.predicates,
+              minConfidence: params.minConfidence,
+              maxFanOut: params.maxFanOut,
+              window,
+              remainingEdges: caps.maxEdges - edges.size,
+              seenEdges: [...edges.keys()],
+              deadline: hopDeadline,
+            })
+            for (const id of hop.cappedHubs) cappedHubs.add(id)
+            const next: string[] = []
+            for (const { fromId, probe, ...edge } of hop.edges) {
+              if (probe || edges.has(edge.id)) continue
+              const otherId =
+                edge.sourceId === fromId ? edge.targetId : edge.sourceId
+              const other = hop.nodes.get(otherId)
+              const isNew = !nodes.has(otherId)
+              if (isNew && nodes.size >= caps.maxNodes) {
+                partialReason = "max_nodes"
+                break
+              }
+              if (edges.size >= caps.maxEdges) {
+                partialReason = "max_edges"
+                break
+              }
+              edges.set(edge.id, edge)
+              if (isNew && other) {
+                nodes.set(otherId, { ...other, depth })
+                next.push(otherId)
+              }
+            }
+            if (partialReason) break
+            frontier = next
           }
-          if (edges.size >= caps.maxEdges) {
-            partialReason = "max_edges"
-            break
-          }
-          edges.set(edge.id, edge)
-          if (isNew && other) {
-            nodes.set(otherId, { ...other, depth })
-            next.push(otherId)
-          }
-        }
-        if (partialReason) break
-        frontier = next
-      }
-      return {
-        nodes: [...nodes.values()].sort((a, b) => compare(a.id, b.id)),
-        edges: [...edges.values()].sort((a, b) => compare(a.id, b.id)),
-        partial: partialReason !== null,
-        partialReason,
-        cappedHubs: [...cappedHubs].sort(compare),
-      }
-    }),
-  )
+        },
+        { deadline },
+      ),
+    )
+  } catch (error) {
+    if (!(error instanceof GraphQueryTimeoutError)) throw error
+    partialReason = timeoutReason
+  }
+  if (!partialReason && performance.now() >= deadline)
+    partialReason = "total_timeout"
+  return {
+    nodes: [...nodes.values()].sort((a, b) => compare(a.id, b.id)),
+    edges: [...edges.values()].sort((a, b) => compare(a.id, b.id)),
+    partial: partialReason !== null,
+    partialReason,
+    cappedHubs: [...cappedHubs].sort(compare),
+  }
 }
 
-async function expandHop(
+/** Read at most maxFanOut + 1 edges per node and remainingEdges + 1 rows per hop. */
+export async function expandHop(
   client: GraphClient,
   input: {
     projectionKey: string
@@ -242,6 +288,9 @@ async function expandHop(
     predicates: string[] | undefined
     minConfidence: number
     maxFanOut: number
+    remainingEdges: number
+    seenEdges: string[]
+    deadline?: number
     window: { from: string; to: string }
   },
 ) {
@@ -254,27 +303,43 @@ async function expandHop(
   // starts before the window ends and ends after the window starts.
   const result = await client.executeQuery(
     `UNWIND $frontier AS fromId
-    MATCH (f:WorkspaceKnowledgeUnit {projectionKey: $projectionKey, id: fromId})${pattern}(n:WorkspaceKnowledgeUnit {projectionKey: $projectionKey})
-    WHERE r.confidence >= $minConfidence
-      ${input.predicates ? "AND r.predicate IN $predicates" : ""}
-      AND (r.validFrom IS NULL OR r.validFrom <= $windowTo)
-      AND (r.validTo IS NULL OR r.validTo > $windowFrom)
-    WITH fromId, r, n ORDER BY r.confidence DESC, r.id
-    WITH fromId, count(r) AS matched, collect([r, n])[0..$maxFanOut] AS top
-    UNWIND top AS hit
-    WITH fromId, matched, hit[0] AS r, hit[1] AS n
-    RETURN fromId, matched, r.id AS id, startNode(r).id AS sourceId, endNode(r).id AS targetId,
+    CALL {
+      WITH fromId
+      MATCH (f:WorkspaceKnowledgeUnit {projectionKey: $projectionKey, id: fromId})${pattern}(n:WorkspaceKnowledgeUnit {projectionKey: $projectionKey})
+      WHERE r.confidence >= $minConfidence
+        ${input.predicates ? "AND r.predicate IN $predicates" : ""}
+        AND (r.validFrom IS NULL OR r.validFrom <= $windowTo)
+        AND (r.validTo IS NULL OR r.validTo > $windowFrom)
+      RETURN DISTINCT r ORDER BY r.confidence DESC, r.id LIMIT $perNodeLimit
+    }
+    WITH fromId, collect(r) AS top
+    WITH collect({fromId: fromId, top: top}) AS groups
+    WITH groups, [g IN groups WHERE size(g.top) > $maxFanOut | g.fromId] AS cappedHubs
+    UNWIND groups AS g
+    UNWIND range(0, size(g.top) - 1) AS edgeIndex
+    WITH g.fromId AS fromId, g.top[edgeIndex] AS r,
+      edgeIndex >= $maxFanOut AS probe, cappedHubs
+    WHERE probe OR NOT r.id IN $seenEdges
+    WITH r, probe, cappedHubs, min(fromId) AS fromId
+    WITH r, probe, cappedHubs, fromId,
+      CASE WHEN startNode(r).id = fromId THEN endNode(r) ELSE startNode(r) END AS n
+    RETURN fromId, probe, cappedHubs, r.id AS id, startNode(r).id AS sourceId, endNode(r).id AS targetId,
       r.predicate AS predicate, r.confidence AS confidence, r.validFrom AS validFrom,
-      r.validTo AS validTo, r.source AS source, r.lastObservedAt AS lastObservedAt, ${nodeFields("node_")}`,
+      r.validTo AS validTo, r.source AS source, r.lastObservedAt AS lastObservedAt, ${nodeFields("node_")}
+    ORDER BY probe, confidence DESC, id, fromId LIMIT $rowLimit`,
     {
       projectionKey: input.projectionKey,
       frontier: input.frontier,
       predicates: input.predicates ?? [],
       minConfidence: input.minConfidence,
       maxFanOut: input.maxFanOut,
+      perNodeLimit: input.maxFanOut + 1,
+      rowLimit: input.remainingEdges + 1,
+      seenEdges: input.seenEdges,
       windowFrom: input.window.from,
       windowTo: input.window.to,
     },
+    { deadline: input.deadline },
   )
   const nodes = new Map(
     rows(nodeSchema, result.records, "node_").map((node) => [node.id, node]),
@@ -283,22 +348,12 @@ async function expandHop(
   const edges = rows(edgeSchema, result.records).sort(
     (a, b) => b.confidence - a.confidence || compare(a.id, b.id),
   )
-  return { nodes, edges }
-}
-
-async function withTimeout<T>(
-  work: Promise<T>,
-  ms: number,
-): Promise<T | "timeout"> {
-  let timer: ReturnType<typeof setTimeout> | undefined
-  const timeout = new Promise<"timeout">((resolve) => {
-    timer = setTimeout(() => resolve("timeout"), ms)
-  })
-  try {
-    return await Promise.race([work, timeout])
-  } finally {
-    clearTimeout(timer)
-  }
+  const cappedHubs = z
+    .array(z.string())
+    .parse(result.records[0]?.get("cappedHubs") ?? [])
+  if (input.deadline !== undefined && performance.now() >= input.deadline)
+    throw new GraphQueryTimeoutError("Graph query deadline exceeded.")
+  return { nodes, edges, cappedHubs }
 }
 
 const compare = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
