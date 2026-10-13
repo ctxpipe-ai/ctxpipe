@@ -20,6 +20,10 @@ import { generateObjectId } from "../../lib/id.js"
 import { getSandboxInstance } from "../../models/workspaces.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import {
+  INGESTION_V2_WORKFLOW_NAME,
+  type IngestionV2RunInput,
+} from "../ingestion/ingestion-run.js"
+import {
   INGEST_SHARD_LIMIT_MS,
   ORG_INGEST_SANDBOX_LIMIT,
   ORG_RUNNING_SANDBOX_LIMIT,
@@ -221,6 +225,37 @@ describe("ingest sandbox slots (Postgres)", () => {
       }
     })
   })
+  it("stops waiting at once when its signal was aborted before the start", async () => {
+    await withOrg(async (org) => {
+      const full = await fillSlots(org, {
+        ingest: ORG_INGEST_SANDBOX_LIMIT,
+        chat: 0,
+      })
+      try {
+        const sandbox = ingestSandbox({
+          ...org,
+          runId: generateObjectId("run"),
+          shard: 0,
+          isolation: "docker",
+          provider: dockerSandbox({ image: IMAGE }),
+          image: IMAGE,
+          signal: AbortSignal.abort(new Error("step ended")),
+          slotPollMs: 50,
+        })
+        const outcome = await Promise.race([
+          sandbox.ensure().then(
+            () => "started",
+            (error: unknown) => error,
+          ),
+          new Promise((resolve) => setTimeout(() => resolve("waiting"), 2_000)),
+        ])
+        expect(outcome).toBeInstanceOf(Error)
+        expect(await getSandboxInstance(sandbox.key, org.orgId)).toBeNull()
+      } finally {
+        await full.remove()
+      }
+    })
+  })
 })
 
 describe("ingest sandbox sweep (Postgres, unsandboxed)", () => {
@@ -243,6 +278,7 @@ describe("ingest sandbox sweep (Postgres, unsandboxed)", () => {
   async function withUnfinishedRun<T>(
     orgId: string,
     fn: (runId: string) => Promise<T>,
+    workflowName: string = INGESTION_V2_WORKFLOW_NAME,
   ): Promise<T> {
     const backend = await BackendPostgres.connect(databaseUrl(), {
       runMigrations: false,
@@ -250,12 +286,12 @@ describe("ingest sandbox sweep (Postgres, unsandboxed)", () => {
     })
     try {
       const run = await backend.createWorkflowRun({
-        workflowName: "ingest-sandbox-proof",
+        workflowName,
         version: null,
         idempotencyKey: null,
         config: {},
         context: null,
-        input: { orgId },
+        input: { orgId } satisfies IngestionV2RunInput,
         parentStepAttemptNamespaceId: null,
         parentStepAttemptId: null,
         // Never due: no worker claims it.
@@ -362,6 +398,39 @@ describe("ingest sandbox sweep (Postgres, unsandboxed)", () => {
         const sandbox = localIngest(org, runId)
         await sandbox.ensure()
         expect((await sweepConversationSandboxes(org.orgId)).deleted).toBe(1)
+      })
+    })
+  })
+
+  it("does not keep a sandbox alive for an unfinished run of another workflow", async () => {
+    await withOrg(async (org) => {
+      await withUnfinishedRun(
+        org.orgId,
+        async (runId) => {
+          const sandbox = localIngest(org, runId)
+          await sandbox.ensure()
+          expect((await sweepConversationSandboxes(org.orgId)).deleted).toBe(1)
+        },
+        "conversation-sandbox-sweep",
+      )
+    })
+  })
+
+  it("refuses a sandbox for a Workspace of another org", async () => {
+    await withOrg(async (org) => {
+      await withOrg(async (other) => {
+        const sandbox = ingestSandbox({
+          orgId: org.orgId,
+          workspaceId: other.workspaceId,
+          runId: generateObjectId("run"),
+          shard: 0,
+          isolation: "docker",
+          provider: dockerSandbox({ image: IMAGE }),
+          image: IMAGE,
+        })
+        await expect(sandbox.ensure()).rejects.toThrow(/Workspace/)
+        expect(await getSandboxInstance(sandbox.key, org.orgId)).toBeNull()
+        expect(await getSandboxInstance(sandbox.key, other.orgId)).toBeNull()
       })
     })
   })

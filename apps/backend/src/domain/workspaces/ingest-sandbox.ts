@@ -28,11 +28,12 @@ export function ingestSandboxThreadId(runId: string, shard: number): string {
 
 /**
  * The sandbox of one ingest shard (ADR-052): the second stock definition
- * beside chat, `workspace-ingest:<image>`, on the chat store, locks and
- * providers. `provider` is the deployment's provider (`isolation`), built as
- * for chat but with no Workspace base. Docker and Vercel sandboxes take the
- * org's slots (at most 40 ingest of the 50); an unsandboxed run, which only an
- * operator can select, takes none.
+ * beside chat, `workspace-ingest:<image>`, on the chat store and locks.
+ * `provider` is the ingest provider (T03) for the deployment's `isolation`.
+ * Docker and Vercel sandboxes take the org's slots (at most 40 ingest of the
+ * 50). An unsandboxed run, which only an operator can select, takes none.
+ * Waiters have no order: a start takes the first slot it sees free. The
+ * 60-minute shard limit bounds each wait.
  *
  * The sandbox is a cache: git holds each finished step. It has no idle stop.
  * It goes at `destroy()` after the run's last sandbox step, or at the org
@@ -71,11 +72,21 @@ export function ingestSandbox(input: {
     lifecycle: { reuse: "thread", snapshot: "none", destroyOnComplete: false },
   })
   const abortController = new AbortController()
-  input.signal?.addEventListener(
-    "abort",
-    () => abortController.abort(input.signal?.reason),
-    { once: true },
-  )
+  if (input.signal?.aborted) abortController.abort(input.signal.reason)
+  else
+    input.signal?.addEventListener(
+      "abort",
+      () => abortController.abort(input.signal?.reason),
+      { once: true },
+    )
+  if (!running)
+    log.warn({
+      step: "ingest-sandbox",
+      message:
+        "Ingest runs unsandboxed: it takes no sandbox slot and has no closed egress",
+      orgId: input.orgId,
+      runId: input.runId,
+    })
   const ctx = {
     threadId,
     runId: input.runId,

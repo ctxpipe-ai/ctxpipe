@@ -354,12 +354,13 @@ export async function countRunningSandboxes(
 }
 
 /**
- * The OpenWorkflow runs of this org, out of `runIds`, that have not finished
- * (pending, running, or sleeping). An ingest sandbox of any other run id is
- * an orphan.
+ * The runs of `workflowName` in this org (top-level input `orgId`), out of
+ * `runIds`, that have not finished (pending, running, or sleeping). An ingest
+ * sandbox of any other run id is an orphan.
  */
 export async function unfinishedOrgWorkflowRunIds(
   orgId: string,
+  workflowName: string,
   runIds: readonly string[],
 ): Promise<Set<string>> {
   if (!runIds.length) return new Set()
@@ -368,6 +369,8 @@ export async function unfinishedOrgWorkflowRunIds(
     getOrgDb().execute<{ id: string }>(sql`
       select id from openworkflow.workflow_runs
       where namespace_id = ${namespaceId}
+        and workflow_name = ${workflowName}
+        and version is null
         and id in (${sql.join(
           runIds.map((id) => sql`${id}`),
           sql`, `,

@@ -2,8 +2,10 @@ import type {
   SandboxHandle,
   SandboxProvider as TanstackSandboxProvider,
 } from "@tanstack/ai-sandbox"
+import { and, eq } from "drizzle-orm"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { organizations } from "../../db/schema/auth.js"
+import { workspaces } from "../../db/schema/workspaces.js"
 import { listOrgConversationsForSandboxGc } from "../../models/conversations.js"
 import {
   BASE_BUILD_LEASE_MS,
@@ -19,6 +21,7 @@ import {
   unfinishedOrgWorkflowRunIds,
 } from "../../models/workspaces.js"
 import { log } from "../../observability/logger.js"
+import { INGESTION_V2_WORKFLOW_NAME } from "../ingestion/ingestion-run.js"
 import {
   CHAT_SANDBOX_DELETE_AFTER_MS,
   CHAT_SANDBOX_IDLE_STOP_MS,
@@ -190,6 +193,22 @@ function withSandboxSlots(
       const key = input.id
       if (!key) throw new Error("Sandbox create needs its key")
       await underSlots(async () => {
+        // Row-level security hides another org's Workspace.
+        const [workspace] = await withOrgDbContext(orgId, (db) =>
+          db
+            .select({ id: workspaces.id })
+            .from(workspaces)
+            .where(
+              and(
+                eq(workspaces.id, owner.workspaceId),
+                eq(workspaces.orgId, orgId),
+              ),
+            ),
+        )
+        if (!workspace)
+          throw new Error(
+            `Workspace ${owner.workspaceId} does not belong to the sandbox's organization`,
+          )
         const existing = await getSandboxInstance(key, orgId)
         await assertSlotFree(key)
         await persistSandboxInstance(
@@ -500,9 +519,11 @@ export async function sweepConversationSandboxes(
     const ingest = await withOrgDbContext(orgId, () =>
       listSandboxInstances({ kind: "ingest" }),
     )
-    const unfinished = await unfinishedOrgWorkflowRunIds(orgId, [
-      ...new Set(ingest.flatMap((row) => row.latestRunId ?? [])),
-    ])
+    const unfinished = await unfinishedOrgWorkflowRunIds(
+      orgId,
+      INGESTION_V2_WORKFLOW_NAME,
+      [...new Set(ingest.flatMap((row) => row.latestRunId ?? []))],
+    )
     for (const row of ingest) {
       const startedAt = (row.createdAt ?? row.lastHeartbeatAt).getTime()
       if (
