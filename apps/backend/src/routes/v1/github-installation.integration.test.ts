@@ -94,10 +94,10 @@ useMswServer(
 
 describe("POST /github/installation requires GitHub access (Postgres)", () => {
   let seed: SeededOrg
-  // No deployment App: nothing here may reach GitHub as the App.
+  // No deployment App key: nothing here may reach GitHub as the App.
   const env = parseEnv({
     ...(process.env as Record<string, string | undefined>),
-    GITHUB_APP_ID: undefined,
+    GITHUB_APP_ID: "3",
     GITHUB_PRIVATE_KEY: undefined,
   })
 
@@ -272,6 +272,26 @@ describe("POST /github/installation requires GitHub access (Postgres)", () => {
     expect(res.status).toBe(200)
     expect(await attachedInstallationIds()).toEqual([ownAppInstallationId])
     expect(installationLookups).toBe(0)
+  })
+
+  it("requires a GitHub account to attach to a connection that stores the deployment App's credentials", async () => {
+    const copy = await createDraftGithubConnection({
+      orgId: seed.orgId,
+      env,
+      githubAppId: "3",
+      appSlug: "ctxpipe-agent",
+      privateKey: ownAppPrivateKey,
+      webhookSecret: "webhook-secret",
+    })
+
+    const res = await attach({
+      installationId: ownAppInstallationId,
+      connectionId: copy.id,
+    })
+
+    expect(res.status).toBe(403)
+    expect(await res.json()).toMatchObject({ why: "github_not_linked" })
+    expect(await attachedInstallationIds()).toEqual([null])
   })
 
   it("rejects attaching another App's installation to a connection with its own App", async () => {

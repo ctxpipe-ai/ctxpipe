@@ -408,6 +408,15 @@ export function githubRowHasAppCredentials(
   return decodeGithubAppCredentials(stored, env) != null
 }
 
+/** Credentials of an App other than the deployment's. A stored copy of the deployment App's credentials does not count. */
+export function githubRowHasOwnApp(row: ConnectionRow, env: Env): boolean {
+  return (
+    githubRowHasAppCredentials(row, env) &&
+    parseGithubConnectionStored(row.config as Record<string, unknown>)
+      .githubAppId !== env.GITHUB_APP_ID
+  )
+}
+
 export function notionShapeToConfig(
   input: Omit<
     NotionConnectionShape,

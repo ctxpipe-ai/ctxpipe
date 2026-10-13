@@ -182,6 +182,36 @@ describe("GitHub webhooks reach only the connections they belong to (Postgres)",
     })
   })
 
+  it("delivers deployment App events to a connection that stores the deployment App's credentials", async () => {
+    const copy = await createDraftGithubConnection({
+      orgId: seed.orgId,
+      env,
+      githubAppId: "2",
+      appSlug: "ctxpipe-agent",
+      privateKey: env.GITHUB_PRIVATE_KEY ?? "",
+      webhookSecret: deploymentSecret,
+    })
+    await registerInstallationOnConnection({
+      orgId: seed.orgId,
+      connectionId: copy.id,
+      installationId,
+      env,
+    })
+
+    const res = await deliver(
+      "/api/v1/webhook/github",
+      deploymentSecret,
+      "repository",
+      repositoryCreated(installationId),
+    )
+
+    expect(res.status).toBe(200)
+    expect(spans.attributes()).toMatchObject({
+      "ctxpipe.org.id": seed.orgId,
+      "ctxpipe.connection.id": copy.id,
+    })
+  })
+
   it.each([
     ["ignores an installation its own App does not own", installationId, null],
     [

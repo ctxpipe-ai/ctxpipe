@@ -56,6 +56,7 @@ export async function maybeActivateGithubPrMirrorOnConfigPush(input: {
   const installations = await listInstallationsByGithubInstallationId(
     input.installationId,
     input.githubConnectionId,
+    env,
   )
 
   for (const installation of installations) {

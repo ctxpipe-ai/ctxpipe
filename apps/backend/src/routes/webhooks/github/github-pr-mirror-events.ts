@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { parseEnv } from "../../../config/env.js"
 import { listInstallationsByGithubInstallationId } from "../../../models/github-installation.js"
 import { getGithubPrMirrorBinding } from "../../../models/github-pr-mirror.js"
 import { getLogger } from "../../../observability/logger.js"
@@ -74,6 +75,7 @@ async function enqueueMirror(input: {
   const installations = await listInstallationsByGithubInstallationId(
     input.installationId,
     input.githubConnectionId,
+    parseEnv(process.env as Record<string, string | undefined>),
   )
   for (const installation of installations) {
     const binding = await getGithubPrMirrorBinding(
