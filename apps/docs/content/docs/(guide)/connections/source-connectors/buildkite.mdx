@@ -1,0 +1,138 @@
+---
+title: Buildkite connector
+description: Connect a Buildkite organization with an API access token, and sync the latest builds of selected pipelines into a Workspace.
+---
+
+The **Buildkite connector** writes the latest builds of selected pipelines into
+a [Workspace's](/docs/workspaces) GitHub repository. ctx| then indexes them
+like other knowledge files. An agent can see which builds failed, which jobs
+failed, and the commit and pull request of each build.
+
+ctx| only reads from Buildkite. It does not start, retry, or cancel builds.
+
+## What ctx| syncs
+
+You select pipelines for each Workspace. For each pipeline, ctx| writes:
+
+- `pipeline.md`: the name, description, repository, default branch, and a
+  table of the latest builds.
+- One file for each of the latest 25 finished builds: the state, branch,
+  commit, pull request, author, times, message, and the result of each command
+  and trigger step, with a link to its log.
+
+ctx| does not read build logs, environment variables, meta-data, or the
+commands of steps. These can contain secrets.
+
+When the repository of a pipeline is on GitHub, a build file links to its
+commit and pull request. The Workspace graph then joins the build to them.
+
+## Prerequisites
+
+- A Buildkite user that can read the pipelines of the organization.
+- A [Workspace](/docs/workspaces) whose repository the ctx| GitHub App can
+  write to.
+- Optional: permission to add a webhook in the Buildkite organization
+  settings.
+
+## Setup flow
+
+<Steps>
+  <Step>
+    ### Create an API access token
+
+    In Buildkite, open
+    [API Access Tokens](https://buildkite.com/user/api-access-tokens/new).
+    Select only your organization, and only these REST scopes:
+    `read_organizations`, `read_pipelines`, and `read_builds`.
+  </Step>
+
+  <Step>
+    ### Connect Buildkite
+
+    Open **Connectors**, select **Add connection**, then select **Buildkite**.
+    Type the organization slug (the name in your Buildkite URL) and paste the
+    token. ctx| checks the token with Buildkite before it saves it. ctx| keeps
+    the token encrypted and never shows it again.
+  </Step>
+
+  <Step>
+    ### Add the webhook
+
+    The webhook tells ctx| when a build finishes. In Buildkite, open
+    **Settings → Notification Services**, and add a **Webhook**:
+
+    1. Paste the webhook URL that the setup shows.
+    2. For the token, select the signature option
+       (`X-Buildkite-Signature`). ctx| refuses a plain token.
+    3. Under **Events**, select only `build.finished`.
+    4. Select the pipelines, then save the webhook.
+    5. Copy the token of the webhook, and paste it into the setup.
+
+    You can skip this step. Without the webhook, ctx| syncs once a day and
+    when you select **Sync now**.
+  </Step>
+
+  <Step>
+    ### Add Buildkite to Workspaces
+
+    Select the Workspaces, and the pipelines for each. ctx| adds a source to
+    `.ctxpipe/sources.yaml` in each Workspace repository, with a pull request.
+    Merge the pull request to start the sync.
+  </Step>
+</Steps>
+
+## Files in the repository
+
+```text
+buildkite/pipelines/<pipeline-slug>/pipeline.md
+buildkite/pipelines/<pipeline-slug>/builds/<build-number>.md
+```
+
+Do not edit these files. ctx| writes them again on each sync. When a build is
+no longer among the latest 25, ctx| deletes its file in the same commit.
+
+## Keeping content current
+
+- **Webhook:** a signed `build.finished` event starts a sync of the connection
+  at the end of a 10-minute window. More events in the same window start no
+  more syncs, so a busy pipeline gives at most one commit for each Workspace in
+  each window.
+- **Daily sync:** ctx| syncs each connection once a day.
+- **Sync now:** an org admin can select **Sync now** in the menu of the
+  connector card.
+
+## Troubleshooting
+
+### Buildkite refuses the token
+
+The setup shows the reason. Make sure that the token has the three read
+scopes, and that the organization of the token is the organization slug that
+you typed.
+
+### The card shows “Needs reconnect”
+
+Buildkite refused the saved token, for example because someone deleted it.
+ctx| keeps the files and stops the sync. Select **Reconnect Buildkite** on the
+card and paste a new token.
+
+### A source shows “Out of access”
+
+A selected pipeline was deleted or renamed, or the token cannot read it. ctx|
+tries the pipeline in three sync cycles and keeps its files. Then it marks the
+source. Remove the pipeline from the source, or select it again by its new
+name.
+
+### Builds do not arrive after they finish
+
+Make sure that the webhook uses the signature option, sends `build.finished`,
+and includes the pipeline. A build arrives at the end of the 10-minute window
+of its event. The webhook settings in Buildkite show the response of each
+delivery. A `401` response means that the token in ctx| is not the token of the
+webhook. Expand the connector card, select **Replace the webhook token**,
+and paste the token again.
+
+### Removing the connector
+
+Removing the connector deletes the saved tokens. The Workspace sources that
+use it stop syncing. Files in GitHub stay. Delete the webhook in Buildkite
+too, and the API access token if nothing else uses it.
