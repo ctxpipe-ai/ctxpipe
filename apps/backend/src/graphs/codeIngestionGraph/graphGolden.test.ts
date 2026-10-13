@@ -50,9 +50,10 @@ vi.mock("./nodes/repositoryResolution.js", () => ({
     repository === "acme/api" ? SOURCE_REPO : undefined,
 }))
 vi.mock("../../db/client.js", () => ({
-  getOrgDb: () => ({
-    select: () => ({ from: () => ({ where: async () => [] }) }),
-  }),
+  withOrgDbContext: (_orgId: string, handler: (db: unknown) => unknown) =>
+    handler({
+      select: () => ({ from: () => ({ where: async () => [] }) }),
+    }),
 }))
 vi.mock("./nodes/linkLocatedPaths.js", async (importOriginal) => {
   const original =

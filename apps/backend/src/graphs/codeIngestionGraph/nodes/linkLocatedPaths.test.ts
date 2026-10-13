@@ -8,16 +8,17 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock("../../../db/client.js", () => ({
-  getOrgDb: () => ({
-    select: () => {
-      mocks.selectCalls += 1
-      return {
-        from: () => ({
-          where: async () => mocks.rows,
-        }),
-      }
-    },
-  }),
+  withOrgDbContext: (_orgId: string, handler: (db: unknown) => unknown) =>
+    handler({
+      select: () => {
+        mocks.selectCalls += 1
+        return {
+          from: () => ({
+            where: async () => mocks.rows,
+          }),
+        }
+      },
+    }),
 }))
 
 import {

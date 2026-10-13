@@ -64,6 +64,12 @@ Highest-priority confirmed rules for agents. Migrated from former `patterns.md` 
 - **Date:** 2026-08-11
 - **Source:** migrated from patterns.md
 
+### Org DB scope in ingestion extractors
+- **Rule:** `repository-ingestion` runs extractors and `finalizeExtractedReferences` outside `withOrgDbContext`, so a graph read there must open its own short `withOrgDbContext(orgId, …)`; `getOrgDb()` throws, and a surrounding `catch` turns that into a silent empty result. Test such reads with only `withOrgIdContext`, the production seam, never inside a test-made `withOrgDbContext`
+- **Category:** convention
+- **Date:** 2026-10-06
+- **Source:** graph lookups in `linkLocatedPaths.ts` returned nothing in production
+
 ### ADRs
 - **Rule:** in `.ai/memory/decisions/` for major tooling and architecture decisions (single source of truth; no repo `adr/` directories)
 - **Category:** convention
