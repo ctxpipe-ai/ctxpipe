@@ -1,6 +1,6 @@
 # Git-backed Workspaces
 
-Status: accepted (2026-10-02). Consolidates the wayfinder decisions in [`.ai/scratchpad/git-backed-projects/`](../../scratchpad/git-backed-projects/map.md) (history) with the 2026-10-01 release decisions. Items marked *(ticket NN)* are decided but still being implemented on PR 280; see [`.ai/scratchpad/pr-280-release/`](../../scratchpad/pr-280-release/board.md).
+Status: accepted (2026-10-02). Consolidates the wayfinder decisions in [`.ai/scratchpad/git-backed-projects/`](https://github.com/ctxpipe-ai/ctxpipe/tree/b79b865fba1b2c41acea41ffba1231f145a5c522/.ai/scratchpad/git-backed-projects/map.md) (history) with the 2026-10-01 release decisions. Items marked *(ticket NN)* are decided but still being implemented on PR 280; see [`.ai/scratchpad/pr-280-release/`](https://github.com/ctxpipe-ai/ctxpipe/tree/b79b865fba1b2c41acea41ffba1231f145a5c522/.ai/scratchpad/pr-280-release/board.md).
 
 ## Product
 

@@ -6,7 +6,7 @@
 
 The CTX-582 audit shows that no ingestion model call runs in a sandbox. Each call is a LangChain call on the host: ten ReAct agents ([ADR-016](ADR-016-code-ingestion-react-agent-limits.md)) on the codesearch tools, and five smaller calls. Only Workspace chat uses TanStack AI and OpenCode ([ADR-044](ADR-044-workspace-chat-stock-tanstack.md), [ADR-048](ADR-048-native-postgres-sandbox-ownership.md)). The extractors write JSON objects and claims, and the host renders them to files. Instruction units are too granular.
 
-The design is in `.ai/scratchpad/ingestion-skills/concept.md`. The plan is `.ai/scratchpad/ingestion-skills/plan.md`. The CTO decisions are on CTX-584 ("Decisions", 2026-10-12, and "Plan decisions", 2026-10-13).
+The design is the Linear document [CTX-584 concept](https://linear.app/ctxpipe/document/ctx-584-concept-ingestion-as-sandbox-skills-that-write-patches-541d27d6430a). The plan is the Linear document [CTX-584 plan](https://linear.app/ctxpipe/document/ctx-584-plan-ingestion-as-sandbox-skills-that-write-patches-565b1991f047). The CTO decisions are on CTX-584 ("Decisions", 2026-10-12, and "Plan decisions", 2026-10-13).
 
 ## Decision
 

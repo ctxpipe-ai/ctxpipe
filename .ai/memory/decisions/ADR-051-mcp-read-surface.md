@@ -15,7 +15,7 @@ Facts that the design uses:
 - `claim-confidence.ts` decays a signal at read time (validity window and a half-life for each source).
 - Knowledge search runs in memory over all units, with `jsonb` embeddings.
 
-The design is the Linear document "CTX-586 design v2". The plan is `.ai/scratchpad/mcp-tools/plan.md`.
+The design is the Linear document [CTX-586 design v2](https://linear.app/ctxpipe/document/ctx-586-design-v2-public-mcp-tools-for-context-management-read-slice-7ea6fd362674). The plan is the Linear document [CTX-586 plan](https://linear.app/ctxpipe/document/ctx-586-plan-public-mcp-read-tools-58654c0846e9).
 
 ## Decision
 
