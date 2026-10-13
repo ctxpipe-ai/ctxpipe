@@ -56,10 +56,6 @@ export type SlackBindingWithRepo = SlackBinding & {
   githubConnectionId: string | null
 }
 
-/** Capture/write path still uses this name; same shape as {@link SlackBinding}. */
-export type SlackSyncTarget = SlackBinding
-export type SlackSyncTargetWithRepo = SlackBindingWithRepo
-
 function bindingFromConnectionRow(
   row: ConnectionRow,
 ): SlackBinding | undefined {
@@ -350,10 +346,6 @@ export async function getSlackBindingWithRepoByConnectionId(
     }
   })
 }
-
-/** @deprecated Prefer {@link getSlackBindingWithRepoByConnectionId}. */
-export const getSlackSyncTargetWithRepoByConnectionId =
-  getSlackBindingWithRepoByConnectionId
 
 export async function getSlackConnectionByTeamId(
   teamId: string,

@@ -12,6 +12,7 @@ import { encodeSlackBotTokenForDb } from "../../../lib/connection-config.js"
 import { seedSourcesOrg } from "../../../test/workspace-sources-fixture.js"
 
 const secret = "slack-signing-secret-for-sources"
+const requestLog = createLogger()
 let seed: Awaited<ReturnType<typeof seedSourcesOrg>>
 
 function app() {
@@ -20,7 +21,7 @@ function app() {
   hono.use(contextStorage())
   hono.use("*", async (c, next) => {
     c.set("env", env)
-    c.set("log", createLogger())
+    c.set("log", requestLog)
     await next()
   })
   return hono
@@ -108,22 +109,26 @@ describe("Slack webhook starts the mention agent for Workspace sources (Postgres
     await closeOpenWorkflowClient()
   })
 
-  // Setup no longer binds a repository, and the ADR-050 migration turns an
-  // old binding off. The agent routes the capture to the sources of the
-  // channel, or replies that no source has it.
+  // Setup does not write a repository binding, and the ADR-050 migration
+  // sets `enabled: false` on an old binding. The agent routes the capture to
+  // the sources of the channel, or replies that no source has it.
   it.each([
-    { name: "unbound", binding: {} },
+    { name: "unbound", legacyConfig: {} },
     {
       name: "migrated",
-      binding: { repositoryId: "repo_old", branch: "main", enabled: false },
+      legacyConfig: {
+        repositoryId: "repo_old",
+        branch: "main",
+        enabled: false,
+      },
     },
   ])("enqueues the agent for a $name installed connection", async ({
     name,
-    binding,
+    legacyConfig,
   }) => {
     const { connectionId, teamId } = await slackConnection(name, {
       status: "installed",
-      ...binding,
+      ...legacyConfig,
     })
     expect((await mention(teamId, "1790000100.000100")).status).toBe(200)
     await vi.waitFor(async () =>
@@ -137,9 +142,13 @@ describe("Slack webhook starts the mention agent for Workspace sources (Postgres
     const { connectionId, teamId } = await slackConnection("revoked", {
       status: "revoked",
     })
+    const info = vi.spyOn(requestLog, "info")
     expect((await mention(teamId, "1790000200.000100")).status).toBe(200)
-    // The enqueue runs after the response, so give it time to land.
-    await new Promise((resolve) => setTimeout(resolve, 500))
+    // The skip returns before the enqueue starts, so no run can come later.
+    expect(info).toHaveBeenCalledWith(
+      "slack_webhook_mention_skipped_not_installed",
+      expect.objectContaining({ connectionId, connectionStatus: "revoked" }),
+    )
     expect(await runs(connectionId)).toEqual([])
   })
 })
