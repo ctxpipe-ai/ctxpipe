@@ -20,6 +20,7 @@ import {
   bearerUrlRule,
   githubCredentialRules,
   modelProxyCredentialRules,
+  type SandboxCredentialRule,
 } from "./sandbox-credential-rules.js"
 import {
   VERCEL_SANDBOX,
@@ -142,6 +143,29 @@ export type HostedTurnCredentials = {
 }
 
 /**
+ * Each credential rule as a Vercel firewall rule on its host: an exact path
+ * match (when the rule has a path) that sets the credential and pins the
+ * `Host` header.
+ */
+export function hostRules(
+  rules: SandboxCredentialRule[],
+): Record<string, NetworkPolicyRule[]> {
+  const allow: Record<string, NetworkPolicyRule[]> = {}
+  for (const rule of rules) {
+    const entries = allow[rule.host] ?? []
+    allow[rule.host] = entries
+    entries.push({
+      ...(rule.path ? { match: { path: { exact: rule.path } } } : {}),
+      // Set the credential, and the host it is for.
+      transform: [
+        { headers: { host: rule.host, authorization: rule.authorization } },
+      ],
+    })
+  }
+  return allow
+}
+
+/**
  * The firewall of a hosted sandbox. The internet stays open (`"*"`). The
  * firewall adds each credential to the requests that need it, so no
  * credential enters the sandbox: the GitHub read token on GitHub hosts, and
@@ -175,19 +199,7 @@ export function hostedNetworkPolicy(input: {
         ]
       : []),
   ]
-  const allow: Record<string, NetworkPolicyRule[]> = {}
-  for (const rule of rules) {
-    const entries = allow[rule.host] ?? []
-    allow[rule.host] = entries
-    entries.push({
-      ...(rule.path ? { match: { path: { exact: rule.path } } } : {}),
-      // Set the credential, and the host it is for.
-      transform: [
-        { headers: { host: rule.host, authorization: rule.authorization } },
-      ],
-    })
-  }
-  return { allow: { ...allow, "*": [] } }
+  return { allow: { ...hostRules(rules), "*": [] } }
 }
 
 /**
@@ -210,8 +222,18 @@ const firewalls = new Map<
 
 export type ConversationFirewall = ReturnType<typeof conversationFirewall>
 
-/** The hosted firewall of a conversation's sandbox; see `hostedNetworkPolicy`. */
-export function conversationFirewall(backendHost: string) {
+/** The input of a hosted firewall policy. */
+export type HostedPolicyInput = Parameters<typeof hostedNetworkPolicy>[0]
+
+/**
+ * The hosted firewall of a conversation's sandbox; see `hostedNetworkPolicy`.
+ * An ingest shard passes its own `policy` (`ingestNetworkPolicy`); a step is
+ * its "turn".
+ */
+export function conversationFirewall(
+  backendHost: string,
+  policy: (input: HostedPolicyInput) => NetworkPolicy = hostedNetworkPolicy,
+) {
   const stateOf = (name: string) => {
     const state = firewalls.get(name)
     if (!state) throw new Error("The sandbox is not attached")
@@ -223,7 +245,7 @@ export function conversationFirewall(backendHost: string) {
     const run = state.queue.then(async () => {
       if (!state.gitToken) throw new Error("The sandbox has no GitHub token")
       await state.sandbox.update({
-        networkPolicy: hostedNetworkPolicy({
+        networkPolicy: policy({
           gitToken: state.gitToken,
           backendHost,
           turn: state.turn,
@@ -257,8 +279,7 @@ export function conversationFirewall(backendHost: string) {
   }
   return {
     /** The policy for a new sandbox (no turn yet), with this GitHub token. */
-    policy: (gitToken: string) =>
-      hostedNetworkPolicy({ gitToken, backendHost }),
+    policy: (gitToken: string) => policy({ gitToken, backendHost }),
     attach,
     /** Replace the GitHub token, keeping a running turn's rules. */
     async rotateGitToken(sandbox: Sandbox, gitToken: string) {
