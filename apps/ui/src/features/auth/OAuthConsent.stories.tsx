@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, fn, userEvent, within } from "storybook/test"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
+import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { OAuthConsent } from "./OAuthConsent"
 
 const organizations = [
@@ -14,6 +15,10 @@ const meta = {
   decorators: entryPageInnerDecorators,
   parameters: {
     layout: "fullscreen",
+    storyRoute: {
+      pattern: "flat",
+      path: "/.auth/consent",
+    } satisfies StoryRouteParams,
   },
   args: {
     clientId: "claude-plugin",
@@ -33,7 +38,7 @@ export const ConsentOrgPicker: Story = {
   tags: ["workspace-golden"],
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement)
-    const north = canvas.getByRole("checkbox", { name: /North Labs/ })
+    const north = await canvas.findByRole("checkbox", { name: /North Labs/ })
     const south = canvas.getByRole("checkbox", { name: /South Works/ })
     // The current org is ticked; the other org is not.
     await expect(north).toBeChecked()
@@ -51,7 +56,9 @@ export const ConsentNeedsOneOrg: Story = {
   tags: ["workspace-golden"],
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement)
-    await userEvent.click(canvas.getByRole("checkbox", { name: /North Labs/ }))
+    await userEvent.click(
+      await canvas.findByRole("checkbox", { name: /North Labs/ }),
+    )
     await expect(
       canvas.getByText("Select at least one organization."),
     ).toBeVisible()
@@ -66,7 +73,9 @@ export const ConsentWriteOffByDefault: Story = {
   tags: ["workspace-golden"],
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement)
-    const write = canvas.getByRole("checkbox", { name: /Also allow changes/ })
+    const write = await canvas.findByRole("checkbox", {
+      name: /Also allow changes/,
+    })
     await expect(write).not.toBeChecked()
     await userEvent.click(canvas.getByRole("button", { name: "Allow" }))
     await expect(args.onAllow).toHaveBeenLastCalledWith(
@@ -87,9 +96,11 @@ export const ConsentReadOnly: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await expect(
+      await canvas.findByRole("button", { name: "Allow" }),
+    ).toBeEnabled()
+    await expect(
       canvas.queryByRole("checkbox", { name: /Also allow changes/ }),
     ).toBeNull()
-    await expect(canvas.getByRole("button", { name: "Allow" })).toBeEnabled()
   },
 }
 
@@ -97,7 +108,7 @@ export const ConsentWriteOnly: Story = {
   args: { scopes: ["ctxpipe:write"] },
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement)
-    const allow = canvas.getByRole("button", { name: "Allow" })
+    const allow = await canvas.findByRole("button", { name: "Allow" })
     await expect(allow).toBeDisabled()
     await userEvent.click(
       canvas.getByRole("checkbox", { name: /Also allow changes/ }),
@@ -115,7 +126,11 @@ export const ConsentOrgsUnavailable: Story = {
   args: { organizations: [], defaultOrganizationIds: [] },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await expect(canvas.getByText("Organizations unavailable")).toBeVisible()
-    await expect(canvas.getByRole("button", { name: "Allow" })).toBeDisabled()
+    await expect(
+      await canvas.findByText("Organizations unavailable"),
+    ).toBeVisible()
+    await expect(
+      await canvas.findByRole("button", { name: "Allow" }),
+    ).toBeDisabled()
   },
 }

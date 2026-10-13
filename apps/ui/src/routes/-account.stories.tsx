@@ -3,6 +3,11 @@ import { HttpResponse, http } from "msw"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 import { entryPageInnerDecorators } from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
+import {
+  authConfigHandler,
+  organizationListHandler,
+  sessionSignedInHandler,
+} from "../mocks/handlers"
 import { AccountSettingsBody } from "./[.]auth.account.$accountView"
 
 const meta = {
@@ -69,16 +74,27 @@ const storyOrganizations = [
   { id: "org_south", name: "South Works", slug: "south-works" },
 ]
 
-/** A stateful msw backend for one grant: PUT and DELETE change the list. */
+/**
+ * A stateful msw backend for one grant: PUT and DELETE change the list.
+ * `reset` runs before each story render. The handlers replace the default
+ * org list, so they go in `defaults` with the session handlers.
+ */
 function connectedAppsHandlers() {
   let apps = [connectedApp]
   const requests: { method: string; body?: unknown }[] = []
   return {
     requests,
+    reset: () => {
+      apps = [connectedApp]
+      requests.length = 0
+    },
     handlers: [
-      http.get("*/.auth/api/v1/auth/organization/list", () =>
-        HttpResponse.json(storyOrganizations),
-      ),
+      authConfigHandler,
+      sessionSignedInHandler({
+        id: "user_storybook",
+        onboardingCompletedAt: "2025-01-01T00:00:00.000Z",
+      }),
+      organizationListHandler(storyOrganizations),
       http.get("*/api/v1/me/connected-apps", () => HttpResponse.json({ apps })),
       http.put(
         "*/api/v1/me/connected-apps/:grantId/organizations",
@@ -113,12 +129,13 @@ const editBackend = connectedAppsHandlers()
 export const ConnectedAppsEditOrgs: Story = {
   tags: ["workspace-golden"],
   args: { accountView: "connected-apps" },
+  beforeEach: editBackend.reset,
   parameters: {
     storyRoute: {
       pattern: "flat",
       path: "/.auth/account/connected-apps",
     } satisfies StoryRouteParams,
-    msw: { handlers: { page: editBackend.handlers } },
+    msw: { handlers: { defaults: editBackend.handlers } },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -155,12 +172,13 @@ const revokeBackend = connectedAppsHandlers()
 export const ConnectedAppsRevoke: Story = {
   tags: ["workspace-golden"],
   args: { accountView: "connected-apps" },
+  beforeEach: revokeBackend.reset,
   parameters: {
     storyRoute: {
       pattern: "flat",
       path: "/.auth/account/connected-apps",
     } satisfies StoryRouteParams,
-    msw: { handlers: { page: revokeBackend.handlers } },
+    msw: { handlers: { defaults: revokeBackend.handlers } },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
