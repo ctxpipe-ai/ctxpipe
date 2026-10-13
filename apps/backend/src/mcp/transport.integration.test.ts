@@ -140,6 +140,7 @@ describeWithDatabase("MCP OAuth client actor", () => {
             conversationId: "conv-xyz",
             currentProjectName: "my-backend",
           },
+          _meta: { "ai.ctxpipe/turnId": "turn-1" },
         },
       }),
     })
@@ -163,6 +164,15 @@ describeWithDatabase("MCP OAuth client actor", () => {
     })
     const toolSpan = spans.spanNamed("mcp.tool ctx_advisor")
     expect(toolSpan?.status.code).toBe(SpanStatusCode.ERROR)
+    expect(toolSpan?.attributes).toMatchObject({
+      "ctxpipe.mcp.turn.id": "turn-1",
+      "ctxpipe.mcp.turn.source": "meta",
+      "ctxpipe.mcp.correlation.source": "derived",
+      "ctxpipe.mcp.connection.key": expect.stringMatching(/^mck_/),
+    })
+    expect(result._meta?.["ai.ctxpipe/callId"]).toBe(
+      toolSpan?.attributes["ctxpipe.mcp.call.id"],
+    )
     const actorSpans = spans
       .finishedSpans()
       .filter((span) => span.attributes["ctxpipe.actor.type"] != null)
@@ -195,6 +205,7 @@ describeWithDatabase("MCP OAuth client actor", () => {
 function mcpToolResult(body: string): {
   isError?: boolean
   content?: Array<{ type?: string; text?: string }>
+  _meta?: Record<string, unknown>
 } {
   const payloads: unknown[] = []
   const trimmed = body.trim()
@@ -217,10 +228,7 @@ function mcpToolResult(body: string): {
     ) {
       continue
     }
-    return payload.result as {
-      isError?: boolean
-      content?: Array<{ type?: string; text?: string }>
-    }
+    return payload.result as ReturnType<typeof mcpToolResult>
   }
   throw new Error("MCP response did not include a tool result")
 }
