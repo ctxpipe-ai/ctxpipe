@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One owner-migration command: Drizzle, OpenWorkflow, checkpoints,
+# One owner-migration command: Drizzle, OpenWorkflow,
 # GitHub-secret backfill, PagerDuty directory backfill, then GRANT DML / app-role URL.
 # Runtime DATABASE_URL (ctxpipe_app) stays in .env.local; this shell uses the owner URL.
 set -euo pipefail
@@ -16,7 +16,6 @@ export DATABASE_URL
 
 pnpm exec drizzle-kit migrate
 pnpm exec tsx src/db/migrate-openworkflow.ts
-pnpm exec tsx src/db/migrate-checkpoints.ts
 pnpm exec tsx src/db/backfill-github-secrets-cli.ts
 pnpm exec tsx src/db/backfill-pagerduty-connection-directory-cli.ts
 
