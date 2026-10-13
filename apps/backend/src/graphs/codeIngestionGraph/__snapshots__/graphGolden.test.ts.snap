@@ -5,6 +5,7 @@ exports[`graph golden spec > produces the expected triple set from real connecto
   "Decision dec:repo_api:docs/adr/0003-old-handler-layering.md",
   "Decision dec:repo_api:docs/adr/0007-domain-logic-in-services.md",
   "File fil:repo_api:.github/CODEOWNERS",
+  "File fil:repo_api:.github/workflows/ci.yml",
   "File fil:repo_api:docs/adr/0003-old-handler-layering.md",
   "File fil:repo_api:docs/adr/0007-domain-logic-in-services.md",
   "File fil:repo_api:src/domain/user.ts",
@@ -18,6 +19,7 @@ exports[`graph golden spec > produces the expected triple set from real connecto
   "Team team:github:acme/platform",
   "Team team:linear:ENG",
   "Thread thr:slack:C01:1709372400.123456",
+  "Workflow wfl:repo_api:.github/workflows/ci.yml",
 ]
 `;
 
@@ -31,6 +33,8 @@ exports[`graph golden spec > produces the expected triple set from real connecto
   "dec:repo_api:docs/adr/0007-domain-logic-in-services.md SUPERSEDES dec:repo_api:docs/adr/0003-old-handler-layering.md",
   "fil:repo_api:.github/CODEOWNERS PART_OF repo_api",
   "fil:repo_api:.github/CODEOWNERS PART_OF svc:repo_api:./",
+  "fil:repo_api:.github/workflows/ci.yml PART_OF repo_api",
+  "fil:repo_api:.github/workflows/ci.yml PART_OF svc:repo_api:./",
   "fil:repo_api:docs/adr/0003-old-handler-layering.md PART_OF repo_api",
   "fil:repo_api:docs/adr/0003-old-handler-layering.md PART_OF svc:repo_api:./",
   "fil:repo_api:docs/adr/0007-domain-logic-in-services.md PART_OF repo_api",
@@ -41,6 +45,7 @@ exports[`graph golden spec > produces the expected triple set from real connecto
   "fil:repo_api:src/http/createUser.ts PART_OF svc:repo_api:src",
   "iss:linear:ENG-123 REFERENCES prq:repo_api:42",
   "prq:repo_api:42 ADDED fil:repo_api:src/domain/user.ts @2026-03-02",
+  "prq:repo_api:42 MODIFIED fil:repo_api:.github/workflows/ci.yml @2026-03-02",
   "prq:repo_api:42 MODIFIED fil:repo_api:src/http/createUser.ts @2026-03-02",
   "prq:repo_api:42 REFERENCES iss:linear:ENG-123",
   "prq:repo_api:42 REMOVED fil:repo_api:src/legacy.ts @2026-03-02",
@@ -50,5 +55,7 @@ exports[`graph golden spec > produces the expected triple set from real connecto
   "team:linear:ENG OWNS iss:linear:ENG-123",
   "thr:slack:C01:1709372400.123456 REFERENCES iss:linear:ENG-123",
   "thr:slack:C01:1709372400.123456 REFERENCES prq:repo_api:42",
+  "wfl:repo_api:.github/workflows/ci.yml DECLARED_IN fil:repo_api:.github/workflows/ci.yml",
+  "wfl:repo_api:.github/workflows/ci.yml MENTIONS svc:repo_api:src",
 ]
 `;

@@ -74,6 +74,7 @@ vi.mock("./nodes/linkLocatedPaths.js", async (importOriginal) => {
 import { CONNECTOR_EXTRACTORS } from "./nodes/connectorExtractors.js"
 import { extractCodeowners } from "./nodes/extractCodeowners.js"
 import { extractDecisions } from "./nodes/extractDecisions.js"
+import { extractGithubWorkflows } from "./nodes/extractGithubWorkflows.js"
 import {
   linkLocatedPaths,
   resolveReferenceClaims,
@@ -122,6 +123,7 @@ function buildContextRepo(): Map<string, string> {
       { path: "src/http/createUser.ts", status: "modified" },
       { path: "src/domain/user.ts", status: "added" },
       { path: "src/legacy.ts", status: "removed" },
+      { path: ".github/workflows/ci.yml", status: "modified" },
     ],
     reviews: [],
     comments: [],
@@ -202,6 +204,10 @@ function buildSourceRepo(): Map<string, string> {
     ".github/CODEOWNERS",
     "*  @acme/platform\n/src/  @acme/backend @alice\n",
   )
+  files.set(
+    ".github/workflows/ci.yml",
+    'name: CI\non:\n  pull_request:\n    paths: ["src/**"]\njobs:\n  test:\n    runs-on: ubuntu-latest\n',
+  )
   files.set("package.json", '{"name":"api"}')
   return files
 }
@@ -227,6 +233,7 @@ async function extractAll() {
     ...CONNECTOR_EXTRACTORS.map((extractor) => extractor.extract(contextState)),
     extractDecisions(sourceState),
     extractCodeowners(sourceState),
+    extractGithubWorkflows(sourceState),
   ])
   const objects: ExtractedObject[] = [...sourcePackages]
   const claims: ExtractedClaim[] = []
@@ -270,11 +277,11 @@ describe("graph golden spec", () => {
       OWNS: { kept: 3, dropped: 0, stubbed: 0 },
       INFLUENCES: { kept: 2, dropped: 0, stubbed: 0 },
       SUPERSEDES: { kept: 1, dropped: 0, stubbed: 0 },
-      MENTIONS: { kept: 1, dropped: 0, stubbed: 0 },
+      MENTIONS: { kept: 2, dropped: 0, stubbed: 0 },
     })
   })
 
-  it("joins the issue, the pull request, the thread, the file, the service, the team and the decision", async () => {
+  it("joins the issue, the pull request, the thread, the file, the service, the team, the decision and the workflow", async () => {
     const { claims } = await extractAll()
     const lines = tripleLines(claims)
     expect(lines).toContain(
@@ -304,6 +311,15 @@ describe("graph golden spec", () => {
     )
     expect(lines).toContain(
       `dec:${SOURCE_REPO}:docs/adr/0007-domain-logic-in-services.md INFLUENCES svc:${SOURCE_REPO}:./`,
+    )
+    expect(lines).toContain(
+      `prq:${SOURCE_REPO}:42 MODIFIED fil:${SOURCE_REPO}:.github/workflows/ci.yml @2026-03-02`,
+    )
+    expect(lines).toContain(
+      `wfl:${SOURCE_REPO}:.github/workflows/ci.yml DECLARED_IN fil:${SOURCE_REPO}:.github/workflows/ci.yml`,
+    )
+    expect(lines).toContain(
+      `wfl:${SOURCE_REPO}:.github/workflows/ci.yml MENTIONS svc:${SOURCE_REPO}:src`,
     )
     expect(lines.some((line) => line.includes(" ABOUT "))).toBe(false)
   })

@@ -1,6 +1,6 @@
 # ADR-033: Graph ontology v2 — relation families, shared identity, deterministic connector extraction
 
-**Status:** Accepted | **Date:** 2026-09-17 | **Tags:** graph, ingestion, connectors, retrieval
+**Status:** Accepted (amended 2026-10-06) | **Date:** 2026-09-17 | **Tags:** graph, ingestion, connectors, retrieval
 
 Amends [ADR-032](ADR-032-path-located-graph-edges.md) §2 (predicates) and §4
 (connector nodes). Builds on [ADR-031](ADR-031-github-pr-scoped-mirror.md).
@@ -105,6 +105,23 @@ cross-tool edges require shared identity.
    with an empty diff: extractors re-ran, nothing was retracted, and LLM naming
    drift accumulated (TruRec production carried instruction-unit evidence from
    586 distinct ingestion hashes).
+
+## Amendment (2026-10-06): GitHub Actions workflows
+
+12. **`Workflow` is a source-repository kind** (`wfl:${repoId}:${path}`),
+   extracted deterministically from `.github/workflows/*.yml|yaml` during
+   repository ingestion (`extractGithubWorkflows`). Like pull requests it is
+   implicit: no toggle, no new GitHub App permission, no API calls, since the
+   files are already in the indexed checkout. A workflow is `DECLARED_IN` its
+   `File` (so a pull request that changes it joins on that `File`) and
+   `MENTIONS` the `Service`, `App` or `Library` that each `on.<event>.paths`
+   filter or `working-directory` falls in. The workspace root is never
+   mentioned, since every workflow lives in it. Every ingest reads every
+   workflow and matches against the repository's packages on the graph as
+   well as the run's own: a partial ingest runs only the changed roots, after
+   retraction removed the edited workflow's edges. Workflow runs (Actions: Read,
+   `workflow_run` events) are out of scope: they are high-volume history, not
+   structure, and would need a mirror.
 
 ## Rationale
 

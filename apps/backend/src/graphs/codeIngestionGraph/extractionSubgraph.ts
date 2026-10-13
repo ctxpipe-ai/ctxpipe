@@ -2,6 +2,7 @@ import { Annotation, END, START, StateGraph } from "@langchain/langgraph"
 import { CONNECTOR_EXTRACTORS } from "./nodes/connectorExtractors.js"
 import { extractCodeowners } from "./nodes/extractCodeowners.js"
 import { extractDecisions } from "./nodes/extractDecisions.js"
+import { extractGithubWorkflows } from "./nodes/extractGithubWorkflows.js"
 import { extractInstructionUnits } from "./nodes/extractInstructionUnits.js"
 import { extractKind } from "./nodes/extractKind.js"
 import { identifyAPIClients } from "./nodes/identifyAPIClients.js"
@@ -76,6 +77,7 @@ const identifyNodes = [
   ["extractInstructionUnits", extractInstructionUnits],
   ["extractDecisions", extractDecisions],
   ["extractCodeowners", extractCodeowners],
+  ["extractGithubWorkflows", extractGithubWorkflows],
 ] as const
 
 let extractionGraph = new StateGraph(ExtractionStateAnnotation, {
