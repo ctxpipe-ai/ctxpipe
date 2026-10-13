@@ -64,26 +64,29 @@ export function linearIssueIdentifiersForPullRequest(
 }
 
 /**
- * Linear's closing magic words, with an optional colon, followed by the next
- * word: `Fixes ENG-1`, `closes: https://linear.app/acme/issue/ENG-1`.
- */
-const CLOSING_KEYWORD =
-  /\b(?:clos(?:e|es|ed|ing)|fix(?:es|ed|ing)?|resolv(?:e|es|ed|ing)|complet(?:e|es|ed|ing))(?::\s*|\s+)(\S+)/gi
-
-/**
  * Linear identifiers a merged pull request closes: each id in the head branch
  * name, and each id or Linear issue URL directly after a closing keyword in
- * the title or body.
+ * the title or body. A revert pull request closes nothing.
  */
 export function linearIssueIdentifiersResolvedByPullRequest(
   parsed: Pick<ParsedGithubPullRequest, "title" | "bodyExcerpt" | "head">,
   linearTeamKeys: ReadonlyArray<string>,
 ): string[] {
+  if (
+    parsed.head.ref.startsWith("revert-") ||
+    parsed.title.startsWith('Revert "')
+  )
+    return []
+  // Linear's closing keywords and their forms, an optional colon, then the next
+  // word, which can open a Markdown link or code span: `Fixes [ENG-1](…)`.
+  const closingKeyword =
+    /\b(?:clos(?:e|es|ed|ing)|fix(?:es|ed|ing)?|resolv(?:e|es|ed|ing)|complet(?:e|es|ed|ing))(?::\s*|\s+)[[`]?(\S+)/gi
   const found = new Set(findLinearIdentifiers(parsed.head.ref, linearTeamKeys))
   for (const match of `${parsed.title}\n${parsed.bodyExcerpt}`.matchAll(
-    CLOSING_KEYWORD,
+    closingKeyword,
   )) {
-    const word = (match[1] ?? "").replace(/[.,;:!?)]+$/, "")
+    const word =
+      (match[1] ?? "").split(/[\]`]/)[0]?.replace(/[.,;:!?)]+$/, "") ?? ""
     const leading = /^[A-Za-z][A-Za-z0-9]*-\d+/.exec(word)?.[0] ?? ""
     const identifier =
       parseLinearIssueUrl(word) ??

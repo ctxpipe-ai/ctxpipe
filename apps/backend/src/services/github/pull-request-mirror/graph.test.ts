@@ -239,6 +239,67 @@ describe("buildGithubPullRequestGraph", () => {
     })
   })
 
+  it("resolves an issue whose identifier or URL is wrapped in a Markdown link or code span", () => {
+    const file = renderGithubPullRequest({
+      ...snapshot,
+      title: "Retry imports",
+      head: { ref: "alice/retry", sha: "bbb" },
+      body: [
+        "Fixes [ENG-21](https://linear.app/acme/issue/ENG-21/retry)",
+        "Closes `ENG-22`",
+        "Resolves [the issue](https://linear.app/acme/issue/ENG-23)",
+        "See `ENG-24`",
+      ].join("\n"),
+    })
+    const result = parseGithubPullRequestMarkdown(file.content)
+    if (!result) throw new Error("expected frontmatter to parse")
+    const { extractedClaims } = buildGithubPullRequestGraph({
+      parsed: result,
+      markdownPath: file.path,
+      targetHash: "abc123",
+      contextRepositoryId: "repo_ctx",
+      linearTeamKeys: ["ENG"],
+    })
+    const byPredicate = (predicate: string) =>
+      extractedClaims
+        .filter((claim) => claim.predicate === predicate)
+        .map((claim) => claim.objectRef.replace("iss:linear:", ""))
+        .sort()
+    expect(byPredicate("RESOLVES")).toEqual(["ENG-21", "ENG-22"])
+    expect(byPredicate("REFERENCES")).toEqual(["ENG-23", "ENG-24"])
+  })
+
+  it("only references issues from a revert pull request, whatever its title or branch says", () => {
+    for (const revert of [
+      { title: 'Revert "Fixes ENG-9 retry"', ref: "alice/eng-9-retry" },
+      {
+        title: "Undo the retry, fixes ENG-9",
+        ref: "revert-8-alice/eng-9-retry",
+      },
+    ]) {
+      const file = renderGithubPullRequest({
+        ...snapshot,
+        title: revert.title,
+        head: { ref: revert.ref, sha: "bbb" },
+        body: "",
+      })
+      const result = parseGithubPullRequestMarkdown(file.content)
+      if (!result) throw new Error("expected frontmatter to parse")
+      const { extractedClaims } = buildGithubPullRequestGraph({
+        parsed: result,
+        markdownPath: file.path,
+        targetHash: "abc123",
+        contextRepositoryId: "repo_ctx",
+        linearTeamKeys: ["ENG"],
+      })
+      expect(
+        extractedClaims
+          .filter((claim) => claim.objectKind === "Issue")
+          .map((claim) => [claim.predicate, claim.objectRef]),
+      ).toEqual([["REFERENCES", "iss:linear:ENG-9"]])
+    }
+  })
+
   it("only references issues from a pull request closed without a merge, even with a closing keyword", () => {
     const file = renderGithubPullRequest({
       ...snapshot,
