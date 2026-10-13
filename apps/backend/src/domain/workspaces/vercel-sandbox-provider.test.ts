@@ -308,8 +308,7 @@ describe("conversationFirewall", () => {
       "git-1",
     )
     await firewall.openTurn("sbx-ingest", turn)
-    // Three step rules and the deny rule.
-    expect(backendRules(policies.at(-1))).toHaveLength(4)
+    expect(backendRules(policies.at(-1))).toHaveLength(3)
     expect(allowOf(policies.at(-1))["*"]).toBeUndefined()
     await firewall.closeTurn("sbx-ingest")
     expect(backendRules(policies.at(-1))).toBeUndefined()

@@ -33,7 +33,6 @@ import {
   modelProxyCredentialRules,
   type SandboxCredentialRule,
 } from "./sandbox-credential-rules.js"
-import { SANDBOX_EGRESS_DENIED_PATH } from "./sandbox-egress-denied.js"
 import {
   type ConversationFirewall,
   conversationFirewall,
@@ -45,9 +44,8 @@ import {
 } from "./vercel-sandbox-provider.js"
 
 /**
- * False until the T12 live check proves that the Vercel firewall refuses
- * each request that `ingestNetworkPolicy` does not allow. Until then,
- * `vercelIngestSandboxProvider` refuses to start.
+ * False until the hosted egress proxy (T03b) exists and the T12 live check
+ * proves it. Until then, `vercelIngestSandboxProvider` refuses to start.
  */
 export const VERCEL_INGEST_EGRESS_PROVEN = false
 
@@ -193,16 +191,20 @@ function requireAccess(access: AgentVaultAccess | undefined): AgentVaultAccess {
 const INGEST_VAULT_TTL_SECONDS = INGEST_SHARD_LIMIT_MS / 1000 + 15 * 60
 
 /**
- * A direct connection (not through the proxy) must fail. The DinD and AWS
+ * A direct connection (not through the proxy) must fail: HTTP and HTTPS to
+ * a public IPv4 address, and HTTP to a public IPv6 address. The DinD and AWS
  * sandbox hosts drop it with iptables; an internal Docker network has no
- * route. Host dev does neither.
+ * route. Only these hosts are supported; host dev is refused.
  */
 async function assertEgressForcedThroughProxy(
   handle: SandboxHandle,
 ): Promise<void> {
   const probe = await handle.process.exec(
     `command -v curl >/dev/null 2>&1 || { echo no-curl; exit 0; }
-if curl -s --noproxy '*' --connect-timeout 3 -m 5 -o /dev/null http://1.1.1.1/; then echo open; else echo closed; fi`,
+for url in http://1.1.1.1/ https://1.1.1.1/ 'http://[2606:4700:4700::1111]/'; do
+  if curl -sk --noproxy '*' --connect-timeout 3 -m 5 -o /dev/null "$url"; then echo "open $url"; exit 0; fi
+done
+echo closed`,
   )
   if (probe.stdout.trim() !== "closed")
     throw new Error(
@@ -288,10 +290,16 @@ export function dockerIngestSandboxProvider(input: {
     async destroy(destroyInput) {
       try {
         await docker.destroy(destroyInput)
-        await deleteRunVault(requireAccess(input.access), runVaultName(runKey))
       } finally {
-        // A token that is left is logged; the sweep revokes it after the run.
-        await revokeIngestGitTokens(input)
+        try {
+          await deleteRunVault(
+            requireAccess(input.access),
+            runVaultName(runKey),
+          )
+        } finally {
+          // A token that is left is logged; the sweep revokes it after the run.
+          await revokeIngestGitTokens(input)
+        }
       }
     },
   }
@@ -323,15 +331,15 @@ export async function refreshIngestSandboxEgress(input: {
 }
 
 /**
- * The hosted firewall of an ingest sandbox. It has no catch-all (`"*"`):
- * the sandbox reaches GitHub fetch of its repositories, and during a step,
- * the step's model proxy and tool bridge on the backend host. The Vercel
- * firewall has no deny rule for a path: a rule's `match` only limits where
- * its transform applies. Thus each allowed host ends with a rule with no
- * match that forwards each other request to a backend route that answers
- * 403 (a GitHub push, also with a token in the URL, and every other backend
- * route). This depends on Vercel applying the first rule that matches; the
- * T12 live check must prove it.
+ * The hosted firewall of an ingest sandbox, with only what is safe now: no
+ * catch-all (`"*"`), the GitHub read token on the fetch paths of its
+ * repositories, and during a step, the step's credentials on the backend
+ * host by exact path. It is not closed: the Vercel firewall forwards a
+ * request to a path with no rule (without a credential), for example a
+ * push to github.com with a token in the URL. The Vercel API keeps
+ * credential rules and forward rules in separate lists, so an ordered
+ * "deny the rest" rule cannot work. T03b replaces this with a backend egress
+ * proxy; until then `vercelIngestSandboxProvider` refuses to start.
  */
 export function ingestNetworkPolicy(input: {
   git: IngestGitAccess[]
@@ -357,8 +365,6 @@ export function ingestNetworkPolicy(input: {
         ]
       : []),
   ])
-  const forwardURL = `https://${backendHost}${SANDBOX_EGRESS_DENIED_PATH}`
-  for (const rules of Object.values(allow)) rules.push({ forwardURL })
   return { allow }
 }
 
