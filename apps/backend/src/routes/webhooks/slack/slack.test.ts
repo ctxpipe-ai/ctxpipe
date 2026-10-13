@@ -311,6 +311,22 @@ describe("Slack webhook", () => {
     expect(runWorkflowMock).not.toHaveBeenCalled()
   })
 
+  it("ignores mentions for a connection that is not installed", async () => {
+    getConnectionMock.mockResolvedValue({
+      id: "con_1",
+      orgId: "org_1",
+      status: "revoked",
+    })
+
+    const response = await mentionRequest({
+      thread_ts: "1710000000.000001",
+    })
+
+    expect(response.status).toBe(200)
+    expect(runWorkflowMock).not.toHaveBeenCalled()
+    expect(postStatusMock).not.toHaveBeenCalled()
+  })
+
   it("rejects invalid signatures before parsing the payload", async () => {
     verifySignatureMock.mockReturnValue(false)
 
