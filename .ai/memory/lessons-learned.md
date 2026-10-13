@@ -19,9 +19,17 @@ These lessons moved to the instructions that agents always read. Do not add them
 | `rounded-md`, React Aria first, CSS-first responsive layout, selected chrome on the click, no shell remount | [apps/ui/AGENTS.md](../../apps/ui/AGENTS.md) |
 | Pierre for the Files pane | [ADR-040](decisions/ADR-040-pierre-files-pane-chrome.md) |
 | RLS with the `ctxpipe_app` role | [ADR-042](decisions/ADR-042-postgres-rls-app-role.md) |
-| Internal service calls use the provider's private network; only the backend is public; previews match production | Root [AGENTS.md](../../AGENTS.md) Infrastructure networking |
 
 ## Entries
+
+### Infrastructure networking (any provider)
+
+Read this when you set up or change a deployment: Railway production or previews, AWS through `@ctxpipe-ai/aws-cdk`, Docker Compose, or a new host.
+
+- **Internal calls use internal routes.** When one of our services calls another of our services, it uses the provider's private network address (for example `http://${{ui.RAILWAY_PRIVATE_DOMAIN}}:3002` on Railway, a VPC-internal address on AWS, the Compose service name in Docker). It never uses a public domain. A call through a public domain leaves the provider network and comes back through the edge: the provider bills it as egress, and it adds latency and a failure point. In October 2026 the PR 280 preview UI sent about 620 GB of public egress in one week for this reason.
+- **Internal services have no public exposure.** Give a public domain, port or load balancer only to a service that users or outside systems must reach (today: the backend). Every other service (UI server, worker, codesearch, databases, Agent Vault) stays on the private network.
+- **Previews match production.** A preview environment uses the same internal routes and the same public exposure as production. Do not add a public domain to a preview service as a workaround. Each Railway environment has its own private network, so a private domain in a preview reaches that preview's service.
+- **Check after the first deploy.** Confirm that the private network is isolated per environment, and look at the egress metrics (`railway.network.tx` in HyperDX) after the first deploy.
 
 ### Environment variables
 - **Rule:** Use an environment variable only for a value that **differs by deployment** (dev, staging, production) or that **operators or customers must supply** (secrets, base URLs, resource limits for their infrastructure). Do **not** use one to toggle a **product feature** or **internal logic or defaults**; keep those in code or committed config. A public value that is not a secret (for example a JWKS endpoint) is a constant in code, unless an operator or tenant must supply it.

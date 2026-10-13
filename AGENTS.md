@@ -227,15 +227,6 @@ This repository is public. **Never** put the name, slug, email, username, id (`o
 - **Environment variables**: Use only for values that differ by **environment** or that **operators/customers must set** (secrets, base URLs, infra limits). Do not use env for **feature toggles** or **internal logic**; keep those in code or committed config. See [.ai/memory/lessons-learned.md](.ai/memory/lessons-learned.md). **Agents:** Do not add or document **new** environment variables unless they are **required** to complete the assigned task — prefer resolving paths or behavior in committed code rather than expanding operator surface area.
 - **Backend logging**: In `apps/backend`, use **evlog** (`getLogger()` or `log` from `src/observability/logger.ts`) — not `console.*`. See [apps/backend/AGENTS.md](apps/backend/AGENTS.md) (Logging).
 
-## Infrastructure networking
-
-These rules apply to every provider and every environment (Railway production and previews, AWS through `@ctxpipe-ai/aws-cdk`, Docker Compose, and any new host):
-
-- **Internal calls use internal routes.** When one of our services calls another of our services, it uses the provider's private network address (for example `http://${{ui.RAILWAY_PRIVATE_DOMAIN}}:3002` on Railway, a VPC-internal address on AWS, the Compose service name in Docker). It never uses a public domain. A call through a public domain leaves the provider network and comes back through the edge: the provider bills it as egress, and it adds latency and a failure point.
-- **Internal services have no public exposure.** Give a public domain, port or load balancer only to a service that users or outside systems must reach (today: the backend). Every other service (UI server, worker, codesearch, databases, Agent Vault) stays on the private network.
-- **Previews match production.** A preview environment uses the same internal routes and the same public exposure as production. Do not add a public domain to a preview service as a workaround.
-- **Check before you rely on it.** When you set up a new provider or environment, confirm that the private network is isolated per environment, and verify the egress metrics after the first deploy.
-
 ## Testing
 
 Test through the module's public interface with its real collaborators. Fake the **environment**, not our own modules:
