@@ -12,11 +12,11 @@ function workspaceGraphIndexStatements(provider: Provider): string[] {
     return [
       "CREATE INDEX FOR (n:WorkspaceKnowledgeUnit) ON (n.projectionKey, n.id)",
     ]
-  if (provider === "memgraph")
-    return [
-      "CREATE INDEX ON :WorkspaceKnowledgeUnit(projectionKey)",
-      "CREATE INDEX ON :WorkspaceKnowledgeUnit(id)",
-    ]
+  // The Bolt client sends each statement in a managed transaction. Memgraph
+  // refuses index DDL there ("Index manipulation not allowed in multicommand
+  // transactions"), and no live Memgraph test proves an auto-commit path.
+  // Thus Memgraph gets no index until such a path has a test.
+  if (provider === "memgraph") return []
   if (provider === "neo4j-enterprise" || provider === "neo4j-community")
     return [
       "CREATE INDEX workspace_knowledge_unit_key IF NOT EXISTS FOR (n:WorkspaceKnowledgeUnit) ON (n.projectionKey, n.id)",
@@ -32,8 +32,7 @@ export async function ensureWorkspaceGraphIndexes(
 ): Promise<void> {
   for (const statement of workspaceGraphIndexStatements(provider))
     await graph.executeQuery(statement).catch((error: unknown) => {
-      // FalkorDB and Memgraph have no IF NOT EXISTS. A second create gives
-      // one of these errors.
-      if (!/already (indexed|exists)/i.test(String(error))) throw error
+      // FalkorDB has no IF NOT EXISTS. A second create gives this error.
+      if (!/already indexed/i.test(String(error))) throw error
     })
 }

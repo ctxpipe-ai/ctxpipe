@@ -14,7 +14,7 @@ import {
   writeWorkspaceRevisionGraph,
 } from "./graph-projection.js"
 import type { HydrateUnit } from "./hydrate.js"
-import type { WorkspaceRevision } from "./revision.js"
+import { type WorkspaceRevision, workspaceRevisionSchema } from "./revision.js"
 
 const suffix = `${Date.now()}_${Math.random().toString(36).slice(2)}`
 const org = { orgId: `org_test_graph_projection_${suffix}`, orgSlug: "acme" }
@@ -151,9 +151,9 @@ it("writes a revision again with the same result", async () => {
 
 it("does not read a graph of an earlier projection version, so the revision projects again", async () => {
   const rev = revision("e")
-  // Version 1 hashed the revision alone. Write a complete marker under that key.
+  // Version 1 hashed the parsed revision alone. Write a complete marker under that key.
   const legacyKey = createHash("sha256")
-    .update(JSON.stringify(rev))
+    .update(JSON.stringify(workspaceRevisionSchema.parse(rev)))
     .digest("hex")
   expect(workspaceGraphRevisionKey(rev)).not.toBe(legacyKey)
   await falkor
@@ -190,4 +190,43 @@ it("creates the FalkorDB node index, and a second run does not fail", async () =
   } finally {
     if ((await falkor.list()).includes(graphName)) await graph.delete()
   }
+})
+
+it("writes the graph when the graph store refuses to create the index", async () => {
+  const rev = revision("f")
+  await withGraphClient(org, () => {
+    const real = getGraphClient()
+    // Memgraph refuses index DDL in a managed transaction with this error.
+    const refusesIndexes = {
+      ...real,
+      executeQuery: (query: string, params?: Record<string, unknown>) =>
+        query.startsWith("CREATE INDEX")
+          ? Promise.reject(
+              new Error(
+                "Index manipulation not allowed in multicommand transactions.",
+              ),
+            )
+          : real.executeQuery(query, params),
+    }
+    return writeWorkspaceRevisionGraph(refusesIndexes, {
+      revision: rev,
+      units,
+    })
+  })
+  expect(await nodeRows(rev)).toHaveLength(4)
+})
+
+it("sends no index DDL to Memgraph, which refuses it in the managed transactions of the client", async () => {
+  const statements: string[] = []
+  await ensureWorkspaceGraphIndexes(
+    {
+      executeQuery: async (query) => {
+        statements.push(query)
+        return { records: [] }
+      },
+      close: async () => {},
+    },
+    "memgraph",
+  )
+  expect(statements).toEqual([])
 })

@@ -8,6 +8,7 @@ import {
   getWorkspaceProjectionSnapshot,
   persistWorkspaceGraphResult,
 } from "../../models/workspaces.js"
+import { log } from "../../observability/logger.js"
 import {
   type GraphClient,
   getConfig,
@@ -57,8 +58,9 @@ SET r.predicate = claim.predicate, r.confidence = claim.aggregatedConfidence,
     r.source = claim.source, r.lastObservedAt = claim.lastObservedAt`
 
 /**
- * Write the complete graph of one revision. The result does not depend on the
+ * Write the complete graph of one revision. The graph does not depend on the
  * order of the units, and a second write of the same revision replaces the first.
+ * Readers that need a stable order sort by id in Cypher.
  */
 export async function writeWorkspaceRevisionGraph(
   graph: GraphClient,
@@ -66,7 +68,15 @@ export async function writeWorkspaceRevisionGraph(
 ): Promise<void> {
   const { revision, units } = input
   const projectionKey = workspaceGraphRevisionKey(revision)
-  await ensureWorkspaceGraphIndexes(graph, getConfig().provider)
+  // An index makes the claim write fast, but the graph is correct without it.
+  await ensureWorkspaceGraphIndexes(graph, getConfig().provider).catch(
+    (error: unknown) =>
+      log.warn({
+        event: "workspace_graph_index_failed",
+        workspaceId: revision.workspaceId,
+        message: error instanceof Error ? error.message : String(error),
+      }),
+  )
   // Write the revision graph clean. A rebuild after a partial or lost graph
   // must not keep stale nodes, or the read count check never matches.
   await graph.executeQuery(
@@ -77,10 +87,7 @@ export async function writeWorkspaceRevisionGraph(
     "MATCH (n:WorkspaceKnowledgeUnit {projectionKey: $projectionKey}) DETACH DELETE n",
     { projectionKey },
   )
-  // Sort by id, so that each write order gives the same write sequence.
   const nodes = workspaceGraphNodes(units)
-    .map((node, index) => ({ ...node, path: units[index]?.path ?? null }))
-    .sort((a, b) => compareIds(a.id, b.id))
   if (nodes.length)
     await graph.executeQuery(
       `UNWIND $nodes AS node
@@ -88,9 +95,7 @@ export async function writeWorkspaceRevisionGraph(
       SET n.workspaceId = $workspaceId, n.kind = node.kind, n.name = node.name, n.summary = node.summary, n.path = node.path`,
       { projectionKey, workspaceId: revision.workspaceId, nodes },
     )
-  const claims = hydrateUnitsToProjectionClaims(units).sort((a, b) =>
-    compareIds(a.id, b.id),
-  )
+  const claims = hydrateUnitsToProjectionClaims(units)
   if (claims.length)
     await graph.executeQuery(workspaceClaimsQuery, { projectionKey, claims })
   // Count the edges that the graph holds. A claim without a target unit
@@ -119,10 +124,6 @@ export async function writeWorkspaceRevisionGraph(
   )
 }
 
-function compareIds(a: string, b: string): number {
-  return a < b ? -1 : a > b ? 1 : 0
-}
-
 /** Build the derived graph from a captured PostgreSQL projection, never by parsing Git again. */
 export async function projectWorkspaceGraph(
   revision: WorkspaceRevision,
@@ -143,6 +144,21 @@ export async function projectWorkspaceGraph(
       }),
   )
   return persistWorkspaceGraphResult({ revision, result: { kind: "ready" } })
+}
+
+/** True when the graph store holds a complete graph for the revision. */
+export async function hasWorkspaceGraph(input: {
+  orgId: string
+  orgSlug: string
+  revision: WorkspaceRevision
+}): Promise<boolean> {
+  return withGraphClient(input, async () => {
+    const marker = await getGraphClient().executeQuery(
+      "MATCH (p:WorkspaceProjection {projectionKey: $projectionKey}) RETURN p.completedAt AS completedAt",
+      { projectionKey: workspaceGraphRevisionKey(input.revision) },
+    )
+    return marker.records.length > 0
+  })
 }
 
 export class WorkspaceGraphUnavailableError extends Error {

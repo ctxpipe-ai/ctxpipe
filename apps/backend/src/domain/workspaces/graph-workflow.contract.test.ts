@@ -302,27 +302,69 @@ it(
 )
 
 it(
-  "chat graph reads report missing Falkor data for their captured revision",
-  { timeout: 60_000 },
+  "chat graph reads start one rebuild of a lost graph and ask the model to try again",
+  { timeout: 90_000 },
   async () => {
-    await withGraphHydration({}, async (f, graph) => {
-      await f.publish()
-      const snapshot = await withOrgIdContext(f.org, () =>
-        getWorkspaceProjectionSnapshot(f.workspaceId),
-      )
-      const tools = await workspaceChatTools({
-        orgId: f.org.id,
-        orgSlug: f.org.slug,
-        workspaceId: f.workspaceId,
-        snapshot,
-      })
-      const lookup = tools.find((tool) => tool.name === "graph_lookup")
-      if (!lookup) throw new Error("Missing graph lookup tool")
-      await graph.delete()
-      await expect(
-        lookup.execute({ nodeId: snapshot.units[0]?.servingId }),
-      ).rejects.toThrow("Workspace graph projection is unavailable.")
-    })
+    await withGraphHydration(
+      { namespaceId: routeNamespace },
+      async (f, graph) => {
+        await f.publish()
+        const snapshot = await withOrgIdContext(f.org, () =>
+          getWorkspaceProjectionSnapshot(f.workspaceId),
+        )
+        const tools = await workspaceChatTools({
+          orgId: f.org.id,
+          orgSlug: f.org.slug,
+          workspaceId: f.workspaceId,
+          snapshot,
+        })
+        const lookup = tools.find((tool) => tool.name === "graph_lookup")
+        const neighbors = tools.find((tool) => tool.name === "graph_neighbors")
+        if (!lookup || !neighbors) throw new Error("Missing graph tools")
+        const runsBefore = await hydrateRuns(f)
+        await graph.delete()
+        const nodeId = snapshot.units[0]?.servingId
+        const answers = await Promise.all([
+          lookup.execute({ nodeId }),
+          neighbors.execute({ nodeId }),
+        ])
+        for (const answer of answers)
+          expect(String(answer)).toContain("graph_building")
+        expect(await hydrateRuns(f)).toBe(runsBefore + 1)
+        expect(await readGraphWhenRebuilt(f)).toMatchObject({
+          status: 200,
+          body: { nodes: [{ name: "document-000" }] },
+        })
+      },
+    )
+  },
+)
+
+it(
+  "the tip check starts one rebuild of a ready graph that the graph store does not hold",
+  { timeout: 90_000 },
+  async () => {
+    await withGraphHydration(
+      { namespaceId: routeNamespace },
+      async (f, graph) => {
+        await f.publish()
+        const runsBefore = await hydrateRuns(f)
+        // A new projection version, or a replaced graph store, leaves no graph
+        // under the key of the ready revision.
+        await graph.delete()
+        for (let check = 0; check < 2; check++) {
+          const run = await f.runner.runWorkflow(workspaceTipCheck.spec, {
+            orgId: f.org.id,
+          })
+          await run.result({ timeoutMs: 30_000 })
+        }
+        expect(await hydrateRuns(f)).toBe(runsBefore + 1)
+        expect(await readGraphWhenRebuilt(f)).toMatchObject({
+          status: 200,
+          body: { nodes: [{ name: "document-000" }] },
+        })
+      },
+    )
   },
 )
 

@@ -30,7 +30,10 @@ import {
   buildSymbolDefinitionQuery,
   buildSymbolReferencesQuery,
 } from "../../tools/zoektSymbolQuery.js"
-import { readWorkspaceGraph } from "./graph-projection.js"
+import {
+  readOrRebuildWorkspaceGraph,
+  WorkspaceGraphBuildingError,
+} from "./graph-rebuild.js"
 import { type PublishedProjection, publishedProjection } from "./revision.js"
 import {
   formatWorkspaceChatHits,
@@ -217,7 +220,7 @@ export async function workspaceChatTools(input: {
   const boundRepositories = input.snapshot.repositories
   const allowed = new Set(boundRepositories.map((repo) => repo.id))
   const loadGraph = () =>
-    readWorkspaceGraph({
+    readOrRebuildWorkspaceGraph({
       orgId: input.orgId,
       orgSlug: input.orgSlug,
       projection,
@@ -505,11 +508,11 @@ function graphLookupTool(input: {
     execute: async (args) => {
       const nodeId = stringArg(args, "nodeId")
       if (!nodeId) return toToon({ error: "nodeId_required" })
+      const graph = await loadGraphOrRetry(input.loadGraph)
+      if (!("nodes" in graph)) return toToon(graph)
       return toToon({
         projectionSha: input.sha,
-        node:
-          (await input.loadGraph()).nodes.find((node) => node.id === nodeId) ??
-          null,
+        node: graph.nodes.find((node) => node.id === nodeId) ?? null,
       })
     },
   }
@@ -532,7 +535,8 @@ function graphNeighborsTool(input: {
         typeof limitRaw === "number" && Number.isFinite(limitRaw)
           ? Math.min(50, Math.max(1, Math.floor(limitRaw)))
           : 20
-      const graph = await input.loadGraph()
+      const graph = await loadGraphOrRetry(input.loadGraph)
+      if (!("nodes" in graph)) return toToon(graph)
       const neighbors = graph.edges
         .filter((edge) => edge.sourceId === nodeId || edge.targetId === nodeId)
         .slice(0, limit)
@@ -547,6 +551,22 @@ function graphNeighborsTool(input: {
         }))
       return toToon({ projectionSha: input.sha, neighbors })
     },
+  }
+}
+
+/** A graph that is being built gives the model a retry message, not an error. */
+async function loadGraphOrRetry(
+  loadGraph: () => Promise<WorkspaceGraphPayload>,
+): Promise<WorkspaceGraphPayload | { error: string; message: string }> {
+  try {
+    return await loadGraph()
+  } catch (error) {
+    if (!(error instanceof WorkspaceGraphBuildingError)) throw error
+    return {
+      error: "graph_building",
+      message:
+        "The Workspace graph is being built. Use the other tools now, and try the graph tools again in a few minutes.",
+    }
   }
 }
 
