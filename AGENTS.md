@@ -26,7 +26,7 @@ Agent instructions are **distributed**: this file covers repo-wide rules; apps a
 | `hyperdx` | ClickStack logs, traces, metrics, dashboards | `HYPERDX_ACCESS_KEY` = HyperDX personal access key (Bearer). UI `https://hyperdx.ctxpipe.ai`. Ingest token `HYPERDX_API_KEY` is a different secret |
 | `langfuse` | Langfuse **project** MCP (LLM traces / prompts) | `LANGFUSE_AUTH_STRING` = base64(`pk:sk`). URL is `https://langfuse.ctxpipe.ai/api/public/mcp`. See [ops/observability/USING.md](ops/observability/USING.md) |
 
-**Not wired** (intentionally): local Postgres MCP, GitHub MCP, codesearch MCP, Linear/Notion MCP, ClickHouse `mcp-clickhouse` (query through `hyperdx`).
+**Not wired** (intentionally): local Postgres MCP, GitHub MCP, codesearch MCP, Notion MCP, ClickHouse `mcp-clickhouse` (query through `hyperdx`). The Linear MCP is not in the project config either, but the issue tracker needs it: add the Linear MCP (`linear-server`) to your own agent host.
 
 **Ops debugging / logs (preference order):** Product logs and traces are OTLP. Follow [`.cursor/skills/observability/SKILL.md`](.cursor/skills/observability/SKILL.md) and [ops/observability/USING.md](ops/observability/USING.md).
 
@@ -79,11 +79,11 @@ Start most agents fresh, with a short brief that holds only the relevant context
 
 ### Issue tracker
 
-Local markdown under `.ai/scratchpad/<feature>/`. See [`.ai/agents/issue-tracker.md`](.ai/agents/issue-tracker.md).
+Linear, team CTX, project Product development, through the `linear-server` MCP tools. Tickets are issues (an epic with sub-issues for a large effort); plans and specs are Linear documents linked from the epic. Write each issue id as a link. See [`.ai/agents/issue-tracker.md`](.ai/agents/issue-tracker.md).
 
 ### Triage labels
 
-Default role labels (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See [`.ai/agents/triage-labels.md`](.ai/agents/triage-labels.md).
+The Linear `Triage` state, the `Agent` label group (`needs-info`, `ready-for-agent`, `ready-for-human`), and the `Canceled` state. See [`.ai/agents/triage-labels.md`](.ai/agents/triage-labels.md).
 
 ### Domain docs
 
@@ -91,7 +91,7 @@ Single-context via `.ai/memory/` (product context, glossary, ADRs). See [`.ai/ag
 
 ### Public docs
 
-Customer-facing documentation lives in [`apps/docs/content/docs/`](apps/docs/content/docs/). Write plans, tickets, ledgers, reviews, and logs to [`.ai/scratchpad/`](.ai/scratchpad/) or [`.ai/memory/`](.ai/memory/) — never under root `docs/`.
+Customer-facing documentation lives in [`apps/docs/content/docs/`](apps/docs/content/docs/). Put plans, tickets, ledgers, reviews, and logs in Linear (see Issue tracker), and durable knowledge in [`.ai/memory/`](.ai/memory/). Never write them under root `docs/`.
 
 ### Preview environments
 

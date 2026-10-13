@@ -10,7 +10,7 @@ These lessons moved to the instructions that agents always read. Do not add them
 | --- | --- |
 | Do not pull one-off values to globals; environment variables only for deployment or operator values | Root [AGENTS.md](../../AGENTS.md) Code style (details: Environment variables below) |
 | US English and ASD-STE100; UI copy at about 80% strength | Root [AGENTS.md](../../AGENTS.md) Language |
-| Stay on the current feature branch; sub-agent models; agent writing goes to `.ai/scratchpad/` or `.ai/memory/`, not root `docs/` | Root [AGENTS.md](../../AGENTS.md) Git branches, Sub-agent models, Public docs |
+| Stay on the current feature branch; sub-agent models; plans and tickets go to Linear and durable knowledge to `.ai/memory/`, not root `docs/` | Root [AGENTS.md](../../AGENTS.md) Git branches, Sub-agent models, Public docs |
 | `pnpm dev`, `pnpm dev:infra`, `pnpm start`, portless | Root [AGENTS.md](../../AGENTS.md) Local development |
 | Tests fake the environment, not our modules; proof uses a real collaborator | Root [AGENTS.md](../../AGENTS.md) Testing and the [tdd skill](../../.agents/skills/tdd/SKILL.md) |
 | Markdown-only memory with capture skills | [ADR-024](decisions/ADR-024-markdown-only-local-memory-capture.md) and root [AGENTS.md](../../AGENTS.md) Local agent memory |
