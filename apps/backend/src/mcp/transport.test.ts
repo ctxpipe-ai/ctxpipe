@@ -59,6 +59,7 @@ describe("MCP request attribution", () => {
         server.registerTool(
           "ctx_advisor",
           {
+            annotations: { readOnlyHint: true },
             inputSchema: z.object({
               prompt: z.string(),
               conversationId: z.string().optional(),
@@ -173,6 +174,7 @@ describe("MCP request attribution", () => {
         server.registerTool(
           "ctx_advisor",
           {
+            annotations: { readOnlyHint: true },
             inputSchema: z.object({
               prompt: z.string(),
               conversationId: z.string().optional(),
@@ -240,6 +242,7 @@ describe("MCP request attribution", () => {
         server.registerTool(
           "ctx_advisor",
           {
+            annotations: { readOnlyHint: true },
             inputSchema: z.object({
               prompt: z.string(),
               conversationId: z.string().optional(),

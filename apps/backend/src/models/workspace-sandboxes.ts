@@ -12,14 +12,19 @@ import {
 import { getOrgDb, tryGetOrgDbOrgId, withOrgDbContext } from "../db/client.js"
 import { workspaceSandboxInstances } from "../db/schema/workspaces.js"
 import type { WorkspaceRevision } from "../domain/workspaces/revision.js"
+import { openWorkflowNamespaceId } from "../openworkflow/namespace.js"
 import { orgSql } from "./workspace-sql.js"
 
 /**
  * `base`: a Workspace base (ADR-048, "Fast start"): a provider snapshot of a
  * sandbox that cloned the Workspace repository and ran setup. New
  * conversations start from it; it runs nothing itself.
+ *
+ * `ingest`: one shard of an ingestion run (ADR-052). Its `conversationId`
+ * holds the ingest thread (`ingest:<runId>:<shard>`), and `latestRunId` holds
+ * the OpenWorkflow run id.
  */
-export type SandboxInstanceKind = "chat" | "job" | "base"
+export type SandboxInstanceKind = "chat" | "job" | "base" | "ingest"
 
 export type SandboxInstanceRecord = {
   id: string
@@ -114,7 +119,12 @@ const sandboxInstanceColumns = {
 function toSandboxInstanceRecord(
   row: typeof workspaceSandboxInstances.$inferSelect & { leaseHeld: boolean },
 ): SandboxInstanceRecord | null {
-  if (row.kind !== "chat" && row.kind !== "job" && row.kind !== "base")
+  if (
+    row.kind !== "chat" &&
+    row.kind !== "job" &&
+    row.kind !== "base" &&
+    row.kind !== "ingest"
+  )
     return null
   if (
     row.state !== "live" &&
@@ -310,11 +320,13 @@ export function isRunningSandboxProvider(
  * Workspace base builds whose lease holds (their builder runs). A finished
  * base is an image or a snapshot and runs nothing, and a lapsed build is
  * being cleaned up, so neither counts. `excludingId` leaves out the sandbox
- * about to start, so starting it again never counts twice.
+ * about to start, so starting it again never counts twice. `kind` counts
+ * only the running sandboxes of that kind.
  */
 export async function countRunningSandboxes(
   orgId: string,
   excludingId: string,
+  kind?: SandboxInstanceKind,
 ): Promise<number> {
   return withSandboxInstanceDb(orgId, async () => {
     const [row] = await getOrgDb()
@@ -334,10 +346,40 @@ export async function countRunningSandboxes(
             ...RUNNING_SANDBOX_PROVIDERS,
           ]),
           ne(workspaceSandboxInstances.id, excludingId),
+          kind ? eq(workspaceSandboxInstances.kind, kind) : undefined,
         ),
       )
     return row?.running ?? 0
   })
+}
+
+/**
+ * The runs of `workflowName` in this org (top-level input `orgId`), out of
+ * `runIds`, that have not finished (pending, running, or sleeping). An ingest
+ * sandbox of any other run id is an orphan.
+ */
+export async function unfinishedOrgWorkflowRunIds(
+  orgId: string,
+  workflowName: string,
+  runIds: readonly string[],
+): Promise<Set<string>> {
+  if (!runIds.length) return new Set()
+  const namespaceId = openWorkflowNamespaceId()
+  const result = await withSandboxInstanceDb(orgId, () =>
+    getOrgDb().execute<{ id: string }>(sql`
+      select id from openworkflow.workflow_runs
+      where namespace_id = ${namespaceId}
+        and workflow_name = ${workflowName}
+        and version is null
+        and id in (${sql.join(
+          runIds.map((id) => sql`${id}`),
+          sql`, `,
+        )})
+        and input->>'orgId' = ${orgId}
+        and status in ('pending', 'running', 'sleeping')
+    `),
+  )
+  return new Set(result.rows.map((row) => row.id))
 }
 
 export async function getSandboxInstance(

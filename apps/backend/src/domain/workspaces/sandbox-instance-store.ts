@@ -53,21 +53,26 @@ function toTanstackRecord(
  * keeps one sandbox while the default branch moves, so ownership checks compare
  * the Workspace binding, not the commit. The row's revision records the commit
  * the sandbox is on; only the pre-turn update advances it.
+ *
+ * `kind: "ingest"` keeps the rows of ingest shards (ADR-052). Their thread is
+ * `ingest:<runId>:<shard>` (passed as `conversationId`), not a conversation.
  */
 export function postgresSandboxInstanceStore(input: {
   orgId: string
   workspaceId: string
+  kind?: "chat" | "ingest"
   /** Production always passes these; the TanStack conformance suite omits them. */
   conversationId?: string
   revision?: WorkspaceRevision
   image?: string
   provider?: string
 }): SandboxInstanceStore {
+  const kind = input.kind ?? "chat"
   function assertOwnedRecord(key: string, row: SandboxInstanceRecord): void {
     if (
       row.orgId !== input.orgId ||
       row.workspaceId !== input.workspaceId ||
-      row.kind !== "chat" ||
+      row.kind !== kind ||
       (input.conversationId !== undefined &&
         (row.conversationId ?? null) !== input.conversationId) ||
       (input.provider !== undefined && row.provider !== input.provider) ||
@@ -81,7 +86,7 @@ export function postgresSandboxInstanceStore(input: {
 
   return {
     async get(key) {
-      const conversationId = input.conversationId
+      const conversationId = kind === "chat" ? input.conversationId : undefined
       return withOrgDbContext(input.orgId, async (db) => {
         if (conversationId !== undefined) {
           const rows = await timeSandboxLifecycle(
@@ -139,7 +144,7 @@ export function postgresSandboxInstanceStore(input: {
         else workspaceChatInstanceAccess.creates += 1
         const persisted: SandboxInstanceRecord = {
           id: record.key,
-          kind: "chat",
+          kind,
           orgId: input.orgId,
           workspaceId: input.workspaceId,
           conversationId: record.threadId.trim() || null,

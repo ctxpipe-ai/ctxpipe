@@ -77,6 +77,7 @@ function buildApp(
       server.registerTool(
         "search_context",
         {
+          annotations: { readOnlyHint: true },
           inputSchema: z.object({
             query: z.string(),
             path: z.string().optional(),

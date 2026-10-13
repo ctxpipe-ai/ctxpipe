@@ -1,15 +1,28 @@
 import { StreamableHTTPTransport } from "@hono/mcp"
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
-import { CallToolRequestSchema } from "@modelcontextprotocol/sdk/types.js"
+import {
+  CallToolRequestSchema,
+  SUPPORTED_PROTOCOL_VERSIONS,
+} from "@modelcontextprotocol/sdk/types.js"
 import type { Context } from "hono"
 import type { AppEnv } from "../app/env.js"
-import { currentMcpActor, requireCurrentOrgId } from "../auth/context.js"
+import { currentMcpActor, currentOrgIdOrNull } from "../auth/context.js"
+import {
+  disableToolsOutsideScopes,
+  grantedMcpScopes,
+  insufficientMcpScopeResponse,
+} from "../auth/mcp-scopes.js"
+import { mcpOAuthProtectedResourceMetadataUrl } from "../auth/withAuth.js"
 import {
   type AttributionInput,
   applyAttribution,
 } from "../observability/attribution.js"
 import { getLogger } from "../observability/logger.js"
 import { mcpAdvisorThreadId, mcpClientConversationId } from "./advisorThread.js"
+import {
+  serverDiscoverResponse,
+  serverDiscoverResult,
+} from "./framework/server-discover.js"
 import { getMcpServerImplementation } from "./mcp-server-info.js"
 
 function isLoopbackHostname(hostname: string): boolean {
@@ -57,9 +70,18 @@ export function rejectInvalidMcpOrigin(c: Context<AppEnv>): Response | null {
   }
 }
 
+export type McpTransportOptions = {
+  /**
+   * Dynamic server instructions for the principal of the request. The
+   * transport loads them only for `initialize` and `server/discover`.
+   */
+  instructions?: () => Promise<string>
+}
+
 export async function handleMcpTransportRequest(
   c: Context<AppEnv>,
   registerTools: (server: McpServer) => void,
+  options: McpTransportOptions = {},
 ) {
   const startedAt = performance.now()
   let parsedBody: unknown
@@ -117,10 +139,48 @@ export async function handleMcpTransportRequest(
   const toolAttribution = attributionFromToolsCall(messages)
   if (toolAttribution) applyAttribution(toolAttribution)
 
+  const instructions =
+    options.instructions &&
+    rpcMethods.some(
+      (method) => method === "initialize" || method === "server/discover",
+    )
+      ? await options.instructions()
+      : undefined
+  const implementation = getMcpServerImplementation(c.get("env").AUTH_BASE_URL)
   const server = new McpServer(
-    getMcpServerImplementation(c.get("env").AUTH_BASE_URL),
+    implementation,
+    instructions ? { instructions } : undefined,
   )
   registerTools(server)
+  const grantedScopes = grantedMcpScopes(c.get("oauthScopes"))
+  const hiddenTools = disableToolsOutsideScopes(server, grantedScopes)
+  for (const message of messages) {
+    const call = CallToolRequestSchema.safeParse(message)
+    if (!call.success) continue
+    const tool = call.data.params.name
+    const required = hiddenTools.get(tool)
+    if (!required) continue
+    return logResponse(
+      insufficientMcpScopeResponse(c, {
+        granted: grantedScopes,
+        required,
+        tool,
+        resourceMetadataUrl: mcpOAuthProtectedResourceMetadataUrl(
+          c.var.env.AUTH_BASE_URL,
+        ),
+      }),
+    )
+  }
+  // `server/discover` (2026-07-28) comes with no `initialize` and with a
+  // protocol version header that the SDK transport refuses, so answer it here.
+  const discover = serverDiscoverResponse(parsedBody, () =>
+    serverDiscoverResult(server, {
+      implementation,
+      supportedVersions: SUPPORTED_PROTOCOL_VERSIONS,
+      instructions,
+    }),
+  )
+  if (discover) return logResponse(c.json(discover))
   const transport = new StreamableHTTPTransport()
   try {
     await server.connect(transport)
@@ -166,9 +226,10 @@ function attributionFromToolsCall(
     const args = parsed.data.params.arguments ?? {}
     const rawConversationId = mcpClientConversationId(args.conversationId)
     let conversationId: string | undefined
-    if (name === "ctx_advisor" && rawConversationId) {
+    const orgId = currentOrgIdOrNull()
+    if (name === "ctx_advisor" && rawConversationId && orgId) {
       conversationId = mcpAdvisorThreadId({
-        orgId: requireCurrentOrgId(),
+        orgId,
         actor: currentMcpActor(),
         currentProjectName:
           typeof args.currentProjectName === "string"
