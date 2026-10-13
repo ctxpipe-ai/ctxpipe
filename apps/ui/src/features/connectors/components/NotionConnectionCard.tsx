@@ -4,6 +4,7 @@ import { IconBrandNotion } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { ConnectorUsedIn } from "@/features/workspace-sources/ConnectorUsedIn"
+import { useConnectorSync } from "@/features/workspace-sources/useConnectorSync"
 import {
   formatSelectedItemCount,
   resolveConnectorHealth,
@@ -77,6 +78,12 @@ export function NotionConnectionCard({
     ? getNotionCardCtaLabel(status, oauthAppQuery.data)
     : null
 
+  const sync = useConnectorSync({
+    orgSlug,
+    connectionId,
+    provider: "notion",
+  })
+
   return (
     <ConnectorListItem
       usedIn={
@@ -86,6 +93,7 @@ export function NotionConnectionCard({
           provider="notion"
         />
       }
+      sync={sync}
       name="Notion"
       icon={<IconBrandNotion className="size-5 text-foreground" aria-hidden />}
       health={health}

@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { ConnectorUsedIn } from "@/features/workspace-sources/ConnectorUsedIn"
+import { useConnectorSync } from "@/features/workspace-sources/useConnectorSync"
 import {
   getConfluenceCardCurrentIndex,
   getConfluenceCardPrimaryCta,
@@ -88,6 +89,12 @@ export function ConfluenceConnectionCard({
     draft: !status?.isInstalled,
   })
 
+  const sync = useConnectorSync({
+    orgSlug,
+    connectionId,
+    provider: "confluence",
+  })
+
   return (
     <ConnectorListItem
       usedIn={
@@ -97,6 +104,7 @@ export function ConfluenceConnectionCard({
           provider="confluence"
         />
       }
+      sync={sync}
       name="Atlassian Confluence"
       icon={
         <ConfluenceMark className="size-5 text-foreground" variant="outline" />
