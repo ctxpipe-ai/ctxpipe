@@ -1,4 +1,3 @@
-import type { BaseChatModel } from "@langchain/core/language_models/chat_models"
 import { z } from "zod"
 import { assertNotInOrgDbContext } from "../../db/client.js"
 import { mapPool } from "../../lib/mapPool.js"
@@ -93,12 +92,12 @@ export type GetModelOptions = {
   temperature?: number
   /** When false, merges reasoning.effort=none over the tier model spec. */
   reasoning?: boolean
-  /**
-   * Whether the chat model uses streaming transport.
-   * Defaults to `true` (conversation / MCP / UI). Pass `false` for
-   * invoke-only ingestion to use non-stream Converse / chat completions.
-   */
+  /** Legacy transport setting. Host calls always use a single response. */
   streaming?: boolean
+  /** Langfuse generation name for host calls. */
+  name?: string
+  /** Name of the forced structured output tool. */
+  outputName?: string
 }
 
 function uniqueModelChain(ids: string[]): string[] {
@@ -144,14 +143,8 @@ function tierModelSpec(
   return env.MODEL_HIGH_NAME
 }
 
-/**
- * Returns a LangChain chat model for the given tier.
- * Provider-specific chat and HTTP behavior lives under `providers/*ModelProvider.ts`.
- */
-export function getModel(
-  tier: ModelTier,
-  options?: GetModelOptions,
-): BaseChatModel {
+/** Resolve the shared deployment settings for host and legacy calls. */
+export function modelCallSettings(tier: ModelTier, options?: GetModelOptions) {
   const env = modelEnvSchema.parse(process.env)
   const fast = env.MODEL_FAST_NAME
   const medium = env.MODEL_MEDIUM_NAME
@@ -177,6 +170,8 @@ export function getModel(
     apiKey: env.MODEL_PROVIDER_API_KEY?.trim() ?? "",
     temperature: options?.temperature,
     streaming: options?.streaming,
+    name: options?.name,
+    outputName: options?.outputName,
     env: {
       MODEL_PROVIDER_URL: env.MODEL_PROVIDER_URL,
       MODEL_BEDROCK_AWS_REGION: env.MODEL_BEDROCK_AWS_REGION,
@@ -185,13 +180,17 @@ export function getModel(
     },
   }
 
-  let providerFn = openAILikeModelProvider
-  if (env.MODEL_PROVIDER === "bedrock") providerFn = bedrockModelProvider
-  if (env.MODEL_PROVIDER === "azure") providerFn = azureModelProvider
-  if (env.MODEL_PROVIDER === "openrouter") providerFn = openrouterModelProvider
-  const { chat } = providerFn(callOpts)
+  return { provider: env.MODEL_PROVIDER, callOpts }
+}
 
-  return chat
+/** Return a TanStack adapter for one host model call. */
+export function getModel(tier: ModelTier, options?: GetModelOptions) {
+  const { provider, callOpts } = modelCallSettings(tier, options)
+  let providerFn = openAILikeModelProvider
+  if (provider === "bedrock") providerFn = bedrockModelProvider
+  if (provider === "azure") providerFn = azureModelProvider
+  if (provider === "openrouter") providerFn = openrouterModelProvider
+  return providerFn(callOpts).chat
 }
 
 /** Max texts per OpenAI-compatible `/embeddings` request. */

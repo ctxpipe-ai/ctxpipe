@@ -1,11 +1,18 @@
+import type { ToolInputSchema } from "@aws-sdk/client-bedrock-runtime"
 import {
-  ChatBedrockConverse,
-  type ChatBedrockConverseInput,
-} from "@langchain/aws"
-
+  BedrockRuntimeClient,
+  ConverseCommand,
+  type ConverseCommandInput,
+} from "@aws-sdk/client-bedrock-runtime"
+import { NodeHttpHandler } from "@smithy/node-http-handler"
 import type { ModelParams } from "../modelParams.js"
 import { invokeBedrockEmbedding } from "./bedrockEmbeddings.js"
 import { resolveBedrockRegion } from "./bedrockRegion.js"
+import {
+  HostTextAdapter,
+  messageText,
+  STRUCTURED_OUTPUT_TOOL,
+} from "./hostTextAdapter.js"
 import type {
   OpenAiCompatibleFetch,
   ProviderCallOpts,
@@ -16,7 +23,7 @@ function isNonEmptyRecord(value: Record<string, unknown>): boolean {
   return Object.keys(value).length > 0
 }
 
-/** Bedrock Converse chat via `ChatBedrockConverse` inference fields. */
+/** Map canonical parameters to native Bedrock Converse fields. */
 export function lowerBedrockConverseParams(params: ModelParams | undefined):
   | {
       maxTokens?: number
@@ -80,23 +87,72 @@ export function bedrockModelProvider(
   const converseParams = lowerBedrockConverseParams(opts.modelParams)
 
   return {
-    chat: new ChatBedrockConverse({
-      model: primary,
-      region,
-      temperature: opts.temperature,
-      streaming: opts.streaming ?? true,
-      ...(converseParams?.maxTokens !== undefined
-        ? { maxTokens: converseParams.maxTokens }
-        : {}),
-      ...(converseParams?.topP !== undefined
-        ? { topP: converseParams.topP }
-        : {}),
-      ...(converseParams?.additionalModelRequestFields
-        ? {
+    chat: new HostTextAdapter(opts, "bedrock", async (options, schema) => {
+      // Node transport on every runtime, so each call sends one plain HTTP request.
+      const client = new BedrockRuntimeClient({
+        region,
+        requestHandler: new NodeHttpHandler(),
+      })
+      const response = await client
+        .send(
+          new ConverseCommand({
+            modelId: primary,
+            messages: options.messages.map((message) => ({
+              role: message.role === "assistant" ? "assistant" : "user",
+              content: [{ text: messageText(message.content) }],
+            })),
+            ...(schema
+              ? {
+                  toolConfig: {
+                    tools: [
+                      {
+                        toolSpec: {
+                          name: opts.outputName ?? STRUCTURED_OUTPUT_TOOL,
+                          inputSchema: { json: schema } as ToolInputSchema,
+                        },
+                      },
+                    ],
+                    toolChoice: {
+                      tool: { name: opts.outputName ?? STRUCTURED_OUTPUT_TOOL },
+                    },
+                  },
+                }
+              : {}),
+            system: options.systemPrompts?.map((prompt) => ({
+              text: typeof prompt === "string" ? prompt : prompt.content,
+            })),
+            inferenceConfig: {
+              temperature: opts.temperature,
+              maxTokens: converseParams?.maxTokens,
+              topP: converseParams?.topP,
+            },
             additionalModelRequestFields:
-              converseParams.additionalModelRequestFields as ChatBedrockConverseInput["additionalModelRequestFields"],
-          }
-        : {}),
+              converseParams?.additionalModelRequestFields as
+                | ConverseCommandInput["additionalModelRequestFields"]
+                | undefined,
+          }),
+          { abortSignal: options.request?.signal ?? undefined },
+        )
+        .finally(() => client.destroy())
+      const parts = response.output?.message?.content ?? []
+      const toolInput = parts.find(
+        (part) =>
+          part.toolUse?.name === (opts.outputName ?? STRUCTURED_OUTPUT_TOOL),
+      )?.toolUse?.input
+      if (schema && toolInput === undefined)
+        throw new Error("The model did not call the structured output tool")
+      return {
+        text: schema
+          ? JSON.stringify(toolInput)
+          : parts.map((part) => part.text ?? "").join(""),
+        usage: response.usage
+          ? {
+              promptTokens: response.usage.inputTokens ?? 0,
+              completionTokens: response.usage.outputTokens ?? 0,
+              totalTokens: response.usage.totalTokens ?? 0,
+            }
+          : undefined,
+      }
     }),
     fetch: bedrockFetchNotSupported(),
     embed: async (text: string) => {

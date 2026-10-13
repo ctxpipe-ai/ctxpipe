@@ -4,7 +4,7 @@ import { z } from "zod/v3"
 import type { Env } from "../../config/env.js"
 import { createAgent } from "../../graphs/createAgent.js"
 import { getLogger } from "../../observability/logger.js"
-import { getModel } from "../../retrieval/services/modelProvider.js"
+import { getModel } from "../../retrieval/services/legacyModelProvider.js"
 import {
   SLACK_CAPTURE_STATUS_CAPTURED,
   SLACK_CAPTURE_STATUS_FAILED,

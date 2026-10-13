@@ -1,3 +1,4 @@
+import { setTimeout as delay } from "node:timers/promises"
 import { log } from "../observability/logger.js"
 import { memoryFitLogFields } from "./memoryFitError.js"
 
@@ -15,6 +16,8 @@ export class TransientHttpError extends Error {
 }
 
 export type WithTransientHttpRetryOptions = {
+  /** Cancel each retry delay and prevent another attempt. */
+  signal?: AbortSignal
   /** Retries after the first attempt (default 2 → 3 attempts total). */
   retries?: number
   baseDelayMs?: number
@@ -92,6 +95,7 @@ export async function withTransientHttpRetry<T>(
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     try {
+      opts?.signal?.throwIfAborted()
       const result = await run()
       if (
         result instanceof Response &&
@@ -119,7 +123,7 @@ export async function withTransientHttpRetry<T>(
           message: errorMessage(e),
           ...memoryFitLogFields(e),
         })
-        await new Promise((r) => setTimeout(r, delayMs))
+        await delay(delayMs, undefined, { signal: opts?.signal })
         continue
       }
       throw e

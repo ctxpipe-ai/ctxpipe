@@ -1,3 +1,5 @@
+import { chat } from "@tanstack/ai"
+import { z } from "zod"
 import { greenfieldKnowledgePath } from "./layout.js"
 
 /** Distinct connector-target rows: created_at, then id. */
@@ -71,20 +73,13 @@ export function parseUnkeyedCollisionReply(
 
 async function invokeUnkeyedCollisionModel(prompt: string): Promise<string> {
   const { getModel } = await import("../../retrieval/services/modelProvider.js")
-  const model = getModel("fast")
-  const result = await model.invoke(prompt)
-  const content = result.content
-  if (typeof content === "string") return content
-  if (Array.isArray(content)) {
-    return content
-      .map((part) =>
-        typeof part === "object" && part && "text" in part
-          ? String(part.text)
-          : "",
-      )
-      .join("")
-  }
-  return String(content ?? "")
+  const { decision } = await chat({
+    adapter: getModel("fast", { name: "workspace.unkeyed-collision" }),
+    messages: [{ role: "user", content: prompt }],
+    outputSchema: z.object({ decision: z.enum(["merge", "new_name"]) }),
+    stream: false,
+  })
+  return decision
 }
 
 async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {

@@ -1,3 +1,4 @@
+import { chat } from "@tanstack/ai"
 import { fallbackCommitSubject } from "./write-jobs.js"
 
 /** Small model, chosen in code — not an operator env. */
@@ -27,7 +28,7 @@ export async function invokeCommitSubjectModel(
   const { getModel } = await import("../../retrieval/services/modelProvider.js")
   const model = getModel("fast", {
     model: COMMIT_SUBJECT_MODEL,
-    streaming: false,
+    name: "workspace.commit-subject",
   })
   const cancellation = new AbortController()
   const deadline = setTimeout(
@@ -41,21 +42,12 @@ export async function invokeCommitSubjectModel(
     5_000,
   )
   try {
-    const result = await model.invoke(prompt, {
-      signal: cancellation.signal,
+    return await chat({
+      adapter: model,
+      messages: [{ role: "user", content: prompt }],
+      abortController: cancellation,
+      stream: false,
     })
-    const content = result.content
-    if (typeof content === "string") return content
-    if (Array.isArray(content)) {
-      return content
-        .map((part) =>
-          typeof part === "object" && part && "text" in part
-            ? String(part.text)
-            : "",
-        )
-        .join("")
-    }
-    return String(content ?? "")
   } finally {
     clearTimeout(deadline)
   }

@@ -14,7 +14,7 @@ const createAgentMock = vi.hoisted(() => vi.fn())
 vi.mock("../../graphs/createAgent.js", () => ({
   createAgent: createAgentMock,
 }))
-vi.mock("../../retrieval/services/modelProvider.js", () => ({
+vi.mock("../../retrieval/services/legacyModelProvider.js", () => ({
   getModel: getModelMock,
 }))
 

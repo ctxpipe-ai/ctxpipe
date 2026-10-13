@@ -1,4 +1,6 @@
+import { chat } from "@tanstack/ai"
 import { z } from "zod"
+import { abortAfter } from "../../lib/abortAfter.js"
 import { getLogger } from "../../observability/logger.js"
 import {
   type GitPack,
@@ -280,29 +282,29 @@ export async function updateFolderList(input: {
   }
   let listBlock: number | "none"
   try {
-    listBlock = replySchema.parse(
-      await getModel("medium", { streaming: false })
-        .withStructuredOutput<z.infer<typeof replySchema>>(replySchema, {
-          name: "agents_md_folder_list",
-          method: "functionCalling",
-        })
-        .invoke(
-          [
-            { role: "system", content: INSTRUCTIONS },
-            {
-              role: "user",
-              content: JSON.stringify({
-                folders: input.folders.current,
-                blocks: agentsMdBlocks(input.agentsMd).map((block, index) => ({
-                  index,
-                  text: block.text,
-                })),
-              }),
-            },
-          ],
-          { signal: AbortSignal.timeout(60_000) },
-        ),
-    ).listBlock
+    const reply = await chat({
+      adapter: getModel("medium", {
+        name: "workspace.folder-list",
+        outputName: "agents_md_folder_list",
+      }),
+      systemPrompts: [INSTRUCTIONS],
+      messages: [
+        {
+          role: "user",
+          content: JSON.stringify({
+            folders: input.folders.current,
+            blocks: agentsMdBlocks(input.agentsMd).map((block, index) => ({
+              index,
+              text: block.text,
+            })),
+          }),
+        },
+      ],
+      outputSchema: replySchema,
+      abortController: abortAfter(60_000),
+      stream: false,
+    })
+    listBlock = reply.listBlock
   } catch (error) {
     log.warn("The folder list update failed", {
       step: "folder-list",
