@@ -23,9 +23,13 @@ export function ConsentPage() {
   const { data: organizations, isPending: organizationsPending } =
     useListOrganizations()
 
-  // The raw query string of the authorize redirect, from the router so that
-  // a story can set it. Better Auth signs `window.location.search` itself.
-  const searchStr = useLocation({ select: (location) => location.searchStr })
+  // Better Auth signs the browser query string. Storybook uses a memory router.
+  const routerSearch = useLocation({ select: (location) => location.searchStr })
+  const searchStr =
+    typeof window !== "undefined" &&
+    window.location.pathname === "/.auth/consent"
+      ? window.location.search
+      : routerSearch
   const searchParams = new URLSearchParams(searchStr)
 
   const clientId = searchParams.get("client_id")

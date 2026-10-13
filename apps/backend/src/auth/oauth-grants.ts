@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray } from "drizzle-orm"
+import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm"
 import { getSystemDb } from "../db/client.js"
 import {
   members,
@@ -138,7 +138,7 @@ export type ConnectedApp = {
   /** The consent id. */
   id: string
   /**
-   * A consent from before multi-org grants: its reference is one org id.
+   * A consent from before multi-org grants: its reference is one org id or null.
    * The user can revoke it, but not edit its orgs.
    */
   legacy: boolean
@@ -155,26 +155,25 @@ export async function listConnectedApps(
   userId: string,
 ): Promise<ConnectedApp[]> {
   const db = getSystemDb()
-  const consents = (
-    await db
-      .select({
-        id: oauthConsents.id,
-        referenceId: oauthConsents.referenceId,
-        clientId: oauthConsents.clientId,
-        clientName: oauthClients.name,
-        scopes: oauthConsents.scopes,
-        connectedAt: oauthConsents.createdAt,
-      })
-      .from(oauthConsents)
-      // A left join: a consent whose client is gone can still be revoked.
-      .leftJoin(oauthClients, eq(oauthClients.clientId, oauthConsents.clientId))
-      .where(eq(oauthConsents.userId, userId))
-      .orderBy(desc(oauthConsents.updatedAt))
-  ).flatMap(({ referenceId, ...row }) =>
-    referenceId ? [{ ...row, referenceId }] : [],
-  )
+  const consents = await db
+    .select({
+      id: oauthConsents.id,
+      referenceId: oauthConsents.referenceId,
+      clientId: oauthConsents.clientId,
+      clientName: oauthClients.name,
+      scopes: oauthConsents.scopes,
+      connectedAt: oauthConsents.createdAt,
+    })
+    .from(oauthConsents)
+    // A left join: a consent whose client is gone can still be revoked.
+    .leftJoin(oauthClients, eq(oauthClients.clientId, oauthConsents.clientId))
+    .where(eq(oauthConsents.userId, userId))
+    .orderBy(desc(oauthConsents.updatedAt))
+
   if (consents.length === 0) return []
-  const grantIds = consents.map((row) => row.referenceId).filter(isOAuthGrantId)
+  const grantIds = consents.flatMap(({ referenceId }) =>
+    referenceId && isOAuthGrantId(referenceId) ? [referenceId] : [],
+  )
   const memberOrgs = await db
     .select({
       id: organizations.id,
@@ -201,7 +200,7 @@ export async function listConnectedApps(
           .where(inArray(oauthGrantOrganizations.grantId, grantIds))
       : []
   return consents.map(({ referenceId, ...row }) => {
-    const legacy = !isOAuthGrantId(referenceId)
+    const legacy = !referenceId || !isOAuthGrantId(referenceId)
     const orgIds = new Set(
       legacy
         ? [referenceId]
@@ -230,7 +229,7 @@ async function ownConsent(userId: string, consentId: string) {
       and(eq(oauthConsents.id, consentId), eq(oauthConsents.userId, userId)),
     )
     .limit(1)
-  return row?.referenceId ? { ...row, referenceId: row.referenceId } : null
+  return row ?? null
 }
 
 /**
@@ -245,7 +244,8 @@ export async function setConnectedAppOrganizations(input: {
   const { userId } = input
   const consent = await ownConsent(userId, input.consentId)
   if (!consent) return "not_found"
-  if (!isOAuthGrantId(consent.referenceId)) return "legacy"
+  if (!consent.referenceId || !isOAuthGrantId(consent.referenceId))
+    return "legacy"
   const organizationIds = [...new Set(input.organizationIds)]
   const memberships = await getSystemDb()
     .select({ id: members.organizationId })
@@ -273,7 +273,7 @@ export async function revokeConnectedApp(input: {
   const { userId, consentId } = input
   const consent = await ownConsent(userId, consentId)
   if (!consent) return false
-  if (isOAuthGrantId(consent.referenceId)) {
+  if (consent.referenceId && isOAuthGrantId(consent.referenceId)) {
     await revokeOAuthGrant({ grantId: consent.referenceId, userId })
     return true
   }
@@ -283,7 +283,9 @@ export async function revokeConnectedApp(input: {
       .delete(oauthAccessTokens)
       .where(
         and(
-          eq(oauthAccessTokens.referenceId, referenceId),
+          referenceId === null
+            ? isNull(oauthAccessTokens.referenceId)
+            : eq(oauthAccessTokens.referenceId, referenceId),
           eq(oauthAccessTokens.userId, userId),
           eq(oauthAccessTokens.clientId, clientId),
         ),
@@ -292,7 +294,9 @@ export async function revokeConnectedApp(input: {
       .delete(oauthRefreshTokens)
       .where(
         and(
-          eq(oauthRefreshTokens.referenceId, referenceId),
+          referenceId === null
+            ? isNull(oauthRefreshTokens.referenceId)
+            : eq(oauthRefreshTokens.referenceId, referenceId),
           eq(oauthRefreshTokens.userId, userId),
           eq(oauthRefreshTokens.clientId, clientId),
         ),

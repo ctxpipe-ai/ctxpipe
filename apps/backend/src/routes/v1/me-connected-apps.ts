@@ -7,7 +7,6 @@ import {
   revokeConnectedApp,
   setConnectedAppOrganizations,
 } from "../../auth/oauth-grants.js"
-import { requestHasBearerCredential } from "../../auth/withAuth.js"
 
 const ErrorResponseSchema = z
   .object({ error: z.string() })
@@ -96,15 +95,8 @@ const revokeConnectedAppRoute = createRoute({
   },
 })
 
-/**
- * The user who manages the consents. Only a Better Auth browser session can
- * do this (an allow-list): a request with a bearer credential or an
- * `x-api-key` header is refused, whatever that credential resolved to.
- */
+/** The user who manages the consents through a browser session. */
 function sessionUserId(c: Context<AppEnv>): string | null {
-  if (requestHasBearerCredential(c.req.raw) || c.req.header("x-api-key")) {
-    return null
-  }
   if (!c.get("session")) return null
   return c.get("user")?.id ?? null
 }

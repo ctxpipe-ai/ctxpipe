@@ -280,6 +280,30 @@ describe("/api/v1/me/connected-apps (Postgres)", () => {
     expect(app?.organizations.map((org) => org.id)).toEqual([orgA])
   })
 
+  it("lists a null-reference consent as legacy with revoke only", async () => {
+    const { consentId } = await newConsent(userU(), [orgA])
+    await getSystemDb()
+      .update(oauthConsents)
+      .set({ referenceId: null })
+      .where(eq(oauthConsents.id, consentId))
+    expect(
+      (await listApps(seedU)).find((app) => app.id === consentId),
+    ).toMatchObject({
+      legacy: true,
+      organizations: [],
+    })
+    const edit = await request(seedU, `/${consentId}/organizations`, {
+      method: "PUT",
+      body: { organizationIds: [orgB] },
+    })
+    expect(edit.status).toBe(409)
+    const revoke = await request(seedU, `/${consentId}`, { method: "DELETE" })
+    expect(revoke.status).toBe(204)
+    expect((await listApps(seedU)).map((app) => app.id)).not.toContain(
+      consentId,
+    )
+  })
+
   it("sets the org set of an own grant exactly", async () => {
     const { consentId, referenceId } = await newConsent(userU(), [orgA])
     const response = await request(seedU, `/${consentId}/organizations`, {
@@ -424,7 +448,43 @@ describe("/api/v1/me/connected-apps (Postgres)", () => {
       return token
     }
 
+    async function sessionToken(): Promise<string> {
+      const [session] = await getSystemDb()
+        .select({ token: sessions.token })
+        .from(sessions)
+        .where(eq(sessions.userId, userU()))
+        .limit(1)
+      if (!session) throw new Error("Session fixture is missing")
+      return session.token
+    }
+
     const credentials: [string, () => Promise<Record<string, string>>][] = [
+      ...["bearer", "Bearer"].map(
+        (scheme): [string, () => Promise<Record<string, string>>] => [
+          `a ${scheme} session token`,
+          async () => ({ authorization: `${scheme} ${await sessionToken()}` }),
+        ],
+      ),
+      ...(
+        [
+          ["authorization", "Basic example"],
+          ["authorization", ""],
+          ["x-api-key", ""],
+        ] as const
+      ).map(
+        ([name, value]): [string, () => Promise<Record<string, string>>] => [
+          `a cookie with ${name}: ${value}`,
+          async () => ({ cookie: seedU?.cookie ?? "", [name]: value }),
+        ],
+      ),
+      [
+        "an Authorization header without a session",
+        async () => ({ authorization: "Basic example" }),
+      ],
+      [
+        "an empty API key header without a session",
+        async () => ({ "x-api-key": "" }),
+      ],
       [
         "an opaque OAuth token",
         async () => ({ authorization: `Bearer ${await opaqueOAuthToken()}` }),

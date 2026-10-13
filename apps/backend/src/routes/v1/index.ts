@@ -135,6 +135,15 @@ export function registerV1Routes(app: OpenAPIHono<AppEnv>): OrgScopedV1Rpc {
 
   const nonOrgScopedV1 = new OpenAPIHono<AppEnv>()
     .basePath("/api/v1")
+    .use("/me/connected-apps/*", async (c, next) => {
+      if (
+        c.req.raw.headers.has("authorization") ||
+        c.req.raw.headers.has("x-api-key")
+      ) {
+        return c.json({ error: "Sign in to manage connected apps" }, 403)
+      }
+      return next()
+    })
     .use("*", withCookieAuth)
     .use("*", withBearerAuth)
     .use("*", requireAuth)
