@@ -1,5 +1,5 @@
-import { createFileRoute } from "@tanstack/react-router"
-import { useMemo, useState } from "react"
+import { createFileRoute, useLocation } from "@tanstack/react-router"
+import { useState } from "react"
 import { OAuthConsent } from "@/features/auth/OAuthConsent"
 import { authClient, useListOrganizations, useSession } from "@/lib/auth-client"
 import { getOAuthRedirectUri } from "@/lib/auth-continuation"
@@ -23,10 +23,10 @@ export function ConsentPage() {
   const { data: organizations, isPending: organizationsPending } =
     useListOrganizations()
 
-  const searchParams = useMemo(() => {
-    if (typeof window === "undefined") return new URLSearchParams()
-    return new URLSearchParams(window.location.search)
-  }, [])
+  // The raw query string of the authorize redirect, from the router so that
+  // a story can set it. Better Auth signs `window.location.search` itself.
+  const searchStr = useLocation({ select: (location) => location.searchStr })
+  const searchParams = new URLSearchParams(searchStr)
 
   const clientId = searchParams.get("client_id")
   const requestedScope = searchParams.get("scope") ?? undefined

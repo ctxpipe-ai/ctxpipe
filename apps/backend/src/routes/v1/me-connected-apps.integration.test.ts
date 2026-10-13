@@ -1,9 +1,11 @@
+import { createHash } from "node:crypto"
 import { OpenAPIHono } from "@hono/zod-openapi"
-import { eq, inArray } from "drizzle-orm"
+import { and, eq, inArray } from "drizzle-orm"
 import { evlog } from "evlog/hono"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../../test/db.js"
 import type { AppEnv } from "../../app/env.js"
+import { getAuth } from "../../auth/config.js"
 import { setOrganizations } from "../../auth/oauth-grants.js"
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb, initDb } from "../../db/client.js"
@@ -14,6 +16,7 @@ import {
   oauthConsents,
   oauthRefreshTokens,
   organizations,
+  sessions,
 } from "../../db/schema/auth.js"
 import { oauthGrantOrganizations } from "../../db/schema/oauth_grant_organizations.js"
 import { generateObjectId } from "../../lib/id.js"
@@ -118,11 +121,15 @@ describe("/api/v1/me/connected-apps (Postgres)", () => {
   function request(
     seed: SeededOrg | undefined,
     path: string,
-    init: { method?: string; body?: unknown; apiKey?: boolean } = {},
+    init: {
+      method?: string
+      body?: unknown
+      headers?: Record<string, string>
+    } = {},
   ) {
-    const headers: Record<string, string> = init.apiKey
-      ? { "x-api-key": seed?.personalApiKey ?? "" }
-      : { cookie: seed?.cookie ?? "" }
+    const headers: Record<string, string> = init.headers ?? {
+      cookie: seed?.cookie ?? "",
+    }
     if (init.body !== undefined) headers["content-type"] = "application/json"
     return createApp().request(
       `http://backend.test/api/v1/me/connected-apps${path}`,
@@ -134,18 +141,31 @@ describe("/api/v1/me/connected-apps (Postgres)", () => {
     )
   }
 
-  /** A grant of `userId` with a consent, an access token and a refresh token. */
-  async function newGrant(userId: string, orgIds: string[]): Promise<string> {
-    const grantId = generateObjectId("ogr")
-    grantIds.push(grantId)
-    await setOrganizations({ grantId }, orgIds)
+  type Fixture = { consentId: string; referenceId: string }
+
+  /**
+   * A consent of `userId` with an access token and a refresh token. With org
+   * ids, the reference is a new grant with that org set. With `legacyOrgId`,
+   * the reference is that org id (a consent from before multi-org grants).
+   */
+  async function newConsent(
+    userId: string,
+    orgIds: string[],
+    legacyOrgId?: string,
+  ): Promise<Fixture> {
+    const referenceId = legacyOrgId ?? generateObjectId("ogr")
+    if (!legacyOrgId) {
+      grantIds.push(referenceId)
+      await setOrganizations({ grantId: referenceId }, orgIds)
+    }
     const db = getSystemDb()
     const now = new Date()
+    const consentId = generateObjectId("ocs")
     await db.insert(oauthConsents).values({
-      id: generateObjectId("ocs"),
+      id: consentId,
       clientId,
       userId,
-      referenceId: grantId,
+      referenceId,
       scopes: ["openid", "ctxpipe:read"],
       createdAt: now,
       updatedAt: now,
@@ -156,23 +176,23 @@ describe("/api/v1/me/connected-apps (Postgres)", () => {
       token: `refresh_${refreshId}`,
       clientId,
       userId,
-      referenceId: grantId,
+      referenceId,
       expiresAt: new Date(now.getTime() + 3_600_000),
       createdAt: now,
       scopes: ["openid", "ctxpipe:read"],
     })
     await db.insert(oauthAccessTokens).values({
       id: generateObjectId("oat"),
-      token: `access_${grantId}`,
+      token: `access_${consentId}`,
       clientId,
       userId,
-      referenceId: grantId,
+      referenceId,
       refreshId,
       expiresAt: new Date(now.getTime() + 3_600_000),
       createdAt: now,
       scopes: ["openid", "ctxpipe:read"],
     })
-    return grantId
+    return { consentId, referenceId }
   }
 
   async function grantOrgIds(grantId: string): Promise<string[]> {
@@ -183,41 +203,66 @@ describe("/api/v1/me/connected-apps (Postgres)", () => {
     return rows.map((row) => row.id).sort()
   }
 
-  async function tokenCount(grantId: string): Promise<number> {
+  /** Consents, access tokens and refresh tokens of one user and reference. */
+  async function rowCount(userId: string, referenceId: string) {
     const db = getSystemDb()
     const access = await db
       .select({ id: oauthAccessTokens.id })
       .from(oauthAccessTokens)
-      .where(eq(oauthAccessTokens.referenceId, grantId))
+      .where(
+        and(
+          eq(oauthAccessTokens.referenceId, referenceId),
+          eq(oauthAccessTokens.userId, userId),
+        ),
+      )
     const refresh = await db
       .select({ id: oauthRefreshTokens.id })
       .from(oauthRefreshTokens)
-      .where(eq(oauthRefreshTokens.referenceId, grantId))
+      .where(
+        and(
+          eq(oauthRefreshTokens.referenceId, referenceId),
+          eq(oauthRefreshTokens.userId, userId),
+        ),
+      )
     const consents = await db
       .select({ id: oauthConsents.id })
       .from(oauthConsents)
-      .where(eq(oauthConsents.referenceId, grantId))
+      .where(
+        and(
+          eq(oauthConsents.referenceId, referenceId),
+          eq(oauthConsents.userId, userId),
+        ),
+      )
     return access.length + refresh.length + consents.length
   }
 
   type AppJson = {
-    grantId: string
+    id: string
+    legacy: boolean
     clientName: string | null
     scopes: string[]
     organizations: { id: string; slug: string }[]
   }
 
-  it("lists only the grants of the signed-in user, with client name, scopes and orgs", async () => {
-    const own = await newGrant(seedU?.userId ?? "", [orgA, orgB])
-    const foreign = await newGrant(seedV?.userId ?? "", [orgC])
-    const response = await request(seedU, "")
+  async function listApps(seed: SeededOrg | undefined): Promise<AppJson[]> {
+    const response = await request(seed, "")
     expect(response.status).toBe(200)
-    const { apps } = (await response.json()) as { apps: AppJson[] }
-    const ids = apps.map((app) => app.grantId)
-    expect(ids).toContain(own)
-    expect(ids).not.toContain(foreign)
-    const app = apps.find((entry) => entry.grantId === own)
+    return ((await response.json()) as { apps: AppJson[] }).apps
+  }
+
+  const userU = () => seedU?.userId ?? ""
+  const userV = () => seedV?.userId ?? ""
+
+  it("lists only the consents of the signed-in user, with client name, scopes and orgs", async () => {
+    const own = await newConsent(userU(), [orgA, orgB])
+    const foreign = await newConsent(userV(), [orgC])
+    const apps = await listApps(seedU)
+    const ids = apps.map((app) => app.id)
+    expect(ids).toContain(own.consentId)
+    expect(ids).not.toContain(foreign.consentId)
+    const app = apps.find((entry) => entry.id === own.consentId)
     expect(app).toMatchObject({
+      legacy: false,
       clientName: "Example Agent",
       scopes: ["openid", "ctxpipe:read"],
     })
@@ -226,114 +271,193 @@ describe("/api/v1/me/connected-apps (Postgres)", () => {
     )
   })
 
-  it("does not list a legacy consent with an org-id reference", async () => {
-    const now = new Date()
-    const legacyId = generateObjectId("ocs")
-    await getSystemDb()
-      .insert(oauthConsents)
-      .values({
-        id: legacyId,
-        clientId,
-        userId: seedU?.userId ?? "",
-        referenceId: orgA,
-        scopes: ["openid"],
-        createdAt: now,
-        updatedAt: now,
-      })
-    try {
-      const { apps } = (await (await request(seedU, "")).json()) as {
-        apps: AppJson[]
-      }
-      expect(apps.map((app) => app.grantId)).not.toContain(orgA)
-    } finally {
-      await getSystemDb()
-        .delete(oauthConsents)
-        .where(eq(oauthConsents.id, legacyId))
-    }
+  it("lists a legacy consent with its one org", async () => {
+    const legacy = await newConsent(userU(), [], orgA)
+    const app = (await listApps(seedU)).find(
+      (entry) => entry.id === legacy.consentId,
+    )
+    expect(app).toMatchObject({ legacy: true })
+    expect(app?.organizations.map((org) => org.id)).toEqual([orgA])
   })
 
   it("sets the org set of an own grant exactly", async () => {
-    const grantId = await newGrant(seedU?.userId ?? "", [orgA])
-    const response = await request(seedU, `/${grantId}/organizations`, {
+    const { consentId, referenceId } = await newConsent(userU(), [orgA])
+    const response = await request(seedU, `/${consentId}/organizations`, {
       method: "PUT",
       body: { organizationIds: [orgB] },
     })
-    expect(response.status).toBe(200)
-    const app = (await response.json()) as AppJson
-    expect(app.organizations.map((org) => org.id)).toEqual([orgB])
-    expect(await grantOrgIds(grantId)).toEqual([orgB])
+    expect(response.status).toBe(204)
+    expect(await grantOrgIds(referenceId)).toEqual([orgB])
   })
 
   it("refuses an empty org set and keeps the old set", async () => {
-    const grantId = await newGrant(seedU?.userId ?? "", [orgA])
-    const response = await request(seedU, `/${grantId}/organizations`, {
+    const { consentId, referenceId } = await newConsent(userU(), [orgA])
+    const response = await request(seedU, `/${consentId}/organizations`, {
       method: "PUT",
       body: { organizationIds: [] },
     })
     expect(response.status).toBe(400)
-    expect(await grantOrgIds(grantId)).toEqual([orgA])
+    expect(await grantOrgIds(referenceId)).toEqual([orgA])
   })
 
-  it("refuses to add an org the user is not a member of and keeps the old set", async () => {
-    const grantId = await newGrant(seedU?.userId ?? "", [orgA])
-    const response = await request(seedU, `/${grantId}/organizations`, {
+  it("refuses an org the user is not a member of, also one that the set holds already", async () => {
+    // The set holds org C, which the user is not a member of.
+    const { consentId, referenceId } = await newConsent(userU(), [orgA, orgC])
+    const keep = await request(seedU, `/${consentId}/organizations`, {
       method: "PUT",
       body: { organizationIds: [orgA, orgC] },
     })
-    expect(response.status).toBe(400)
-    expect(await grantOrgIds(grantId)).toEqual([orgA])
+    const add = await request(seedU, `/${consentId}/organizations`, {
+      method: "PUT",
+      body: { organizationIds: [orgB, orgC] },
+    })
+    expect(keep.status).toBe(400)
+    expect(add.status).toBe(400)
+    expect(await grantOrgIds(referenceId)).toEqual([orgA, orgC].sort())
   })
 
-  it("gives 404 for the grant of another user and for an unknown grant, and changes nothing", async () => {
-    const foreign = await newGrant(seedV?.userId ?? "", [orgC])
-    const edit = await request(seedU, `/${foreign}/organizations`, {
+  it("refuses to edit the orgs of a legacy consent", async () => {
+    const legacy = await newConsent(userU(), [], orgA)
+    const response = await request(
+      seedU,
+      `/${legacy.consentId}/organizations`,
+      { method: "PUT", body: { organizationIds: [orgA, orgB] } },
+    )
+    expect(response.status).toBe(409)
+    expect(await grantOrgIds(orgA)).toEqual([])
+  })
+
+  it("gives 404 for the consent of another user and for an unknown id, and changes nothing", async () => {
+    const foreign = await newConsent(userV(), [orgC])
+    const edit = await request(seedU, `/${foreign.consentId}/organizations`, {
       method: "PUT",
       body: { organizationIds: [orgA] },
     })
     const unknown = await request(
       seedU,
-      `/${generateObjectId("ogr")}/organizations`,
+      `/${generateObjectId("ocs")}/organizations`,
       { method: "PUT", body: { organizationIds: [orgA] } },
     )
-    const revoke = await request(seedU, `/${foreign}`, { method: "DELETE" })
+    const revoke = await request(seedU, `/${foreign.consentId}`, {
+      method: "DELETE",
+    })
     expect(edit.status).toBe(404)
     expect(unknown.status).toBe(404)
     expect(revoke.status).toBe(404)
     expect(await edit.json()).toEqual(await unknown.json())
-    expect(await grantOrgIds(foreign)).toEqual([orgC])
-    expect(await tokenCount(foreign)).toBe(3)
-  })
-
-  it("gives 404 for a legacy org-id reference", async () => {
-    const response = await request(seedU, `/${orgA}`, { method: "DELETE" })
-    expect(response.status).toBe(404)
+    expect(await grantOrgIds(foreign.referenceId)).toEqual([orgC])
+    expect(await rowCount(userV(), foreign.referenceId)).toBe(3)
   })
 
   it("revokes an own grant: its consent, tokens and org set go, another user's grant stays", async () => {
-    const own = await newGrant(seedU?.userId ?? "", [orgA, orgB])
-    const foreign = await newGrant(seedV?.userId ?? "", [orgC])
-    const response = await request(seedU, `/${own}`, { method: "DELETE" })
+    const own = await newConsent(userU(), [orgA, orgB])
+    const foreign = await newConsent(userV(), [orgC])
+    const response = await request(seedU, `/${own.consentId}`, {
+      method: "DELETE",
+    })
     expect(response.status).toBe(204)
-    expect(await tokenCount(own)).toBe(0)
-    expect(await grantOrgIds(own)).toEqual([])
-    expect(await tokenCount(foreign)).toBe(3)
-    expect(await grantOrgIds(foreign)).toEqual([orgC])
-    const { apps } = (await (await request(seedU, "")).json()) as {
-      apps: AppJson[]
-    }
-    expect(apps.map((app) => app.grantId)).not.toContain(own)
+    expect(await rowCount(userU(), own.referenceId)).toBe(0)
+    expect(await grantOrgIds(own.referenceId)).toEqual([])
+    expect(await rowCount(userV(), foreign.referenceId)).toBe(3)
+    expect(await grantOrgIds(foreign.referenceId)).toEqual([orgC])
+    const ids = (await listApps(seedU)).map((app) => app.id)
+    expect(ids).not.toContain(own.consentId)
   })
 
-  it("refuses a personal API key: only a signed-in session manages grants", async () => {
-    const grantId = await newGrant(seedU?.userId ?? "", [orgA])
-    const list = await request(seedU, "", { apiKey: true })
-    const revoke = await request(seedU, `/${grantId}`, {
+  it("revokes a legacy consent: only this user's consent and tokens for that client go", async () => {
+    const own = await newConsent(userU(), [], orgC)
+    const other = await newConsent(userV(), [], orgC)
+    const response = await request(seedU, `/${own.consentId}`, {
       method: "DELETE",
-      apiKey: true,
     })
-    expect(list.status).toBe(403)
-    expect(revoke.status).toBe(403)
-    expect(await tokenCount(grantId)).toBe(3)
+    expect(response.status).toBe(204)
+    expect(await rowCount(userU(), orgC)).toBe(0)
+    expect(await rowCount(userV(), orgC)).toBe(3)
+    const ids = (await listApps(seedV)).map((app) => app.id)
+    expect(ids).toContain(other.consentId)
+  })
+
+  describe("refuses each credential that is not a signed-in session", () => {
+    async function opaqueOAuthToken(): Promise<string> {
+      const [session] = await getSystemDb()
+        .select({ id: sessions.id })
+        .from(sessions)
+        .where(eq(sessions.userId, userU()))
+        .limit(1)
+      const raw = `opaque_${generateObjectId("tok")}`
+      const { referenceId } = await newConsent(userU(), [orgA])
+      await getSystemDb()
+        .insert(oauthAccessTokens)
+        .values({
+          id: generateObjectId("oat"),
+          token: createHash("sha256").update(raw).digest("base64url"),
+          clientId,
+          sessionId: session?.id,
+          userId: userU(),
+          referenceId,
+          expiresAt: new Date(Date.now() + 3_600_000),
+          createdAt: new Date(),
+          scopes: ["ctxpipe:read"],
+        })
+      return raw
+    }
+
+    /** A JWT from the server's own key with no client and no grant claim. */
+    async function jwtWithoutClient(): Promise<string> {
+      const [session] = await getSystemDb()
+        .select({ id: sessions.id })
+        .from(sessions)
+        .where(eq(sessions.userId, userU()))
+        .limit(1)
+      const env = parseEnv(process.env as Record<string, string | undefined>)
+      const { token } = await getAuth().api.signJWT({
+        body: {
+          payload: {
+            sub: userU(),
+            sid: session?.id,
+            aud: env.AUTH_BASE_URL,
+            // The issuer that withAuth accepts.
+            iss: new URL("/.auth/api/v1/auth", env.AUTH_BASE_URL).toString(),
+          },
+        },
+      })
+      return token
+    }
+
+    const credentials: [string, () => Promise<Record<string, string>>][] = [
+      [
+        "an opaque OAuth token",
+        async () => ({ authorization: `Bearer ${await opaqueOAuthToken()}` }),
+      ],
+      [
+        "a JWT with no client claim",
+        async () => ({ authorization: `Bearer ${await jwtWithoutClient()}` }),
+      ],
+      [
+        "a personal API key",
+        async () => ({ "x-api-key": seedU?.personalApiKey ?? "" }),
+      ],
+    ]
+
+    it.each(
+      credentials,
+    )("%s gets 403 on GET, PUT and DELETE", async (_name, make) => {
+      const headers = await make()
+      const { consentId, referenceId } = await newConsent(userU(), [orgA])
+      const list = await request(seedU, "", { headers })
+      const edit = await request(seedU, `/${consentId}/organizations`, {
+        method: "PUT",
+        body: { organizationIds: [orgB] },
+        headers: { ...headers, "content-type": "application/json" },
+      })
+      const revoke = await request(seedU, `/${consentId}`, {
+        method: "DELETE",
+        headers,
+      })
+      expect([list.status, edit.status, revoke.status]).toEqual([403, 403, 403])
+      expect(await grantOrgIds(referenceId)).toEqual([orgA])
+      expect(await rowCount(userU(), referenceId)).toBe(3)
+    })
   })
 
   it("refuses a request with no credential", async () => {

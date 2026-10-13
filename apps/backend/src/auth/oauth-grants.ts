@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, like } from "drizzle-orm"
+import { and, asc, desc, eq, inArray } from "drizzle-orm"
 import { getSystemDb } from "../db/client.js"
 import {
   members,
@@ -133,63 +133,55 @@ export async function resolveOAuthGrantReference(input: {
   return grantId
 }
 
-/** One OAuth grant of a user, as the Connected apps page shows it. */
+/** One OAuth consent of a user, as the Connected apps page shows it. */
 export type ConnectedApp = {
-  grantId: string
+  /** The consent id. */
+  id: string
+  /**
+   * A consent from before multi-org grants: its reference is one org id.
+   * The user can revoke it, but not edit its orgs.
+   */
+  legacy: boolean
   clientId: string
   clientName: string | null
   scopes: string[]
-  /** The grant's org set ∩ the user's live memberships, in slug order. */
+  /** The consent's orgs ∩ the user's live memberships, in slug order. */
   organizations: { id: string; slug: string; name: string }[]
   connectedAt: Date | null
 }
 
-/**
- * The OAuth grants (`ogr_*` consents) of one user, newest first. A legacy
- * consent (an org-id reference) is not listed: it has no editable org set.
- */
+/** The OAuth consents of one user, newest first, legacy ones too. */
 export async function listConnectedApps(
   userId: string,
-  grantId?: string,
 ): Promise<ConnectedApp[]> {
   const db = getSystemDb()
-  const consents = await db
-    .select({
-      grantId: oauthConsents.referenceId,
-      clientId: oauthConsents.clientId,
-      clientName: oauthClients.name,
-      scopes: oauthConsents.scopes,
-      connectedAt: oauthConsents.createdAt,
-    })
-    .from(oauthConsents)
-    .innerJoin(oauthClients, eq(oauthClients.clientId, oauthConsents.clientId))
-    .where(
-      and(
-        eq(oauthConsents.userId, userId),
-        grantId
-          ? eq(oauthConsents.referenceId, grantId)
-          : like(oauthConsents.referenceId, `${OAUTH_GRANT_ID_PREFIX}\\_%`),
-      ),
-    )
-    .orderBy(desc(oauthConsents.updatedAt))
-  const grants = consents.flatMap((row) =>
-    row.grantId && isOAuthGrantId(row.grantId)
-      ? [{ ...row, grantId: row.grantId }]
-      : [],
+  const consents = (
+    await db
+      .select({
+        id: oauthConsents.id,
+        referenceId: oauthConsents.referenceId,
+        clientId: oauthConsents.clientId,
+        clientName: oauthClients.name,
+        scopes: oauthConsents.scopes,
+        connectedAt: oauthConsents.createdAt,
+      })
+      .from(oauthConsents)
+      // A left join: a consent whose client is gone can still be revoked.
+      .leftJoin(oauthClients, eq(oauthClients.clientId, oauthConsents.clientId))
+      .where(eq(oauthConsents.userId, userId))
+      .orderBy(desc(oauthConsents.updatedAt))
+  ).flatMap(({ referenceId, ...row }) =>
+    referenceId ? [{ ...row, referenceId }] : [],
   )
-  if (grants.length === 0) return []
-  const orgRows = await db
+  if (consents.length === 0) return []
+  const grantIds = consents.map((row) => row.referenceId).filter(isOAuthGrantId)
+  const memberOrgs = await db
     .select({
-      grantId: oauthGrantOrganizations.grantId,
       id: organizations.id,
       slug: organizations.slug,
       name: organizations.name,
     })
-    .from(oauthGrantOrganizations)
-    .innerJoin(
-      organizations,
-      eq(organizations.id, oauthGrantOrganizations.organizationId),
-    )
+    .from(organizations)
     .innerJoin(
       members,
       and(
@@ -197,79 +189,115 @@ export async function listConnectedApps(
         eq(members.userId, userId),
       ),
     )
-    .where(
-      inArray(
-        oauthGrantOrganizations.grantId,
-        grants.map((grant) => grant.grantId),
-      ),
-    )
     .orderBy(asc(organizations.slug))
-  return grants.map((grant) => ({
-    ...grant,
-    organizations: orgRows
-      .filter((row) => row.grantId === grant.grantId)
-      .map(({ id, slug, name }) => ({ id, slug, name })),
-  }))
+  const grantRows =
+    grantIds.length > 0
+      ? await db
+          .select({
+            grantId: oauthGrantOrganizations.grantId,
+            organizationId: oauthGrantOrganizations.organizationId,
+          })
+          .from(oauthGrantOrganizations)
+          .where(inArray(oauthGrantOrganizations.grantId, grantIds))
+      : []
+  return consents.map(({ referenceId, ...row }) => {
+    const legacy = !isOAuthGrantId(referenceId)
+    const orgIds = new Set(
+      legacy
+        ? [referenceId]
+        : grantRows
+            .filter((grant) => grant.grantId === referenceId)
+            .map((grant) => grant.organizationId),
+    )
+    return {
+      ...row,
+      clientName: row.clientName ?? null,
+      legacy,
+      organizations: memberOrgs.filter((org) => orgIds.has(org.id)),
+    }
+  })
+}
+
+/** The user's own consent, or null. */
+async function ownConsent(userId: string, consentId: string) {
+  const [row] = await getSystemDb()
+    .select({
+      clientId: oauthConsents.clientId,
+      referenceId: oauthConsents.referenceId,
+    })
+    .from(oauthConsents)
+    .where(
+      and(eq(oauthConsents.id, consentId), eq(oauthConsents.userId, userId)),
+    )
+    .limit(1)
+  return row?.referenceId ? { ...row, referenceId: row.referenceId } : null
 }
 
 /**
- * Replace the org set of one of the user's grants. Each org that the set
- * adds must be a membership of the user. An org that the set keeps needs no
- * check: the per-call membership check denies it when the user left.
+ * Replace the org set of one of the user's grants. Each org must be a live
+ * membership of the user. A legacy consent has no org set to edit.
  */
 export async function setConnectedAppOrganizations(input: {
   userId: string
-  grantId: string
+  consentId: string
   organizationIds: string[]
-}): Promise<"ok" | "not_found" | "not_member" | "empty"> {
-  const { userId, grantId } = input
+}): Promise<"ok" | "not_found" | "legacy" | "not_member"> {
+  const { userId } = input
+  const consent = await ownConsent(userId, input.consentId)
+  if (!consent) return "not_found"
+  if (!isOAuthGrantId(consent.referenceId)) return "legacy"
   const organizationIds = [...new Set(input.organizationIds)]
-  if (organizationIds.length === 0) return "empty"
-  if (!(await ownsGrant(userId, grantId))) return "not_found"
-  const db = getSystemDb()
-  const current = new Set(
-    (
-      await db
-        .select({ id: oauthGrantOrganizations.organizationId })
-        .from(oauthGrantOrganizations)
-        .where(eq(oauthGrantOrganizations.grantId, grantId))
-    ).map((row) => row.id),
-  )
-  const added = organizationIds.filter((id) => !current.has(id))
-  if (added.length > 0) {
-    const memberships = await db
-      .select({ id: members.organizationId })
-      .from(members)
-      .where(
-        and(eq(members.userId, userId), inArray(members.organizationId, added)),
-      )
-    if (memberships.length !== added.length) return "not_member"
-  }
-  await setOrganizations({ grantId }, organizationIds)
+  const memberships = await getSystemDb()
+    .select({ id: members.organizationId })
+    .from(members)
+    .where(
+      and(
+        eq(members.userId, userId),
+        inArray(members.organizationId, organizationIds),
+      ),
+    )
+  if (memberships.length !== organizationIds.length) return "not_member"
+  await setOrganizations({ grantId: consent.referenceId }, organizationIds)
   return "ok"
 }
 
-/** Revoke one of the user's grants. False when the user has no such grant. */
+/**
+ * Revoke one of the user's consents. A grant goes through `revokeOAuthGrant`.
+ * A legacy consent (an org-id reference that many users share) deletes only
+ * this user's consent and the tokens of that user and client.
+ */
 export async function revokeConnectedApp(input: {
   userId: string
-  grantId: string
+  consentId: string
 }): Promise<boolean> {
-  if (!(await ownsGrant(input.userId, input.grantId))) return false
-  await revokeOAuthGrant(input)
+  const { userId, consentId } = input
+  const consent = await ownConsent(userId, consentId)
+  if (!consent) return false
+  if (isOAuthGrantId(consent.referenceId)) {
+    await revokeOAuthGrant({ grantId: consent.referenceId, userId })
+    return true
+  }
+  const { clientId, referenceId } = consent
+  await getSystemDb().transaction(async (tx) => {
+    await tx
+      .delete(oauthAccessTokens)
+      .where(
+        and(
+          eq(oauthAccessTokens.referenceId, referenceId),
+          eq(oauthAccessTokens.userId, userId),
+          eq(oauthAccessTokens.clientId, clientId),
+        ),
+      )
+    await tx
+      .delete(oauthRefreshTokens)
+      .where(
+        and(
+          eq(oauthRefreshTokens.referenceId, referenceId),
+          eq(oauthRefreshTokens.userId, userId),
+          eq(oauthRefreshTokens.clientId, clientId),
+        ),
+      )
+    await tx.delete(oauthConsents).where(eq(oauthConsents.id, consentId))
+  })
   return true
-}
-
-async function ownsGrant(userId: string, grantId: string): Promise<boolean> {
-  if (!isOAuthGrantId(grantId)) return false
-  const [row] = await getSystemDb()
-    .select({ id: oauthConsents.id })
-    .from(oauthConsents)
-    .where(
-      and(
-        eq(oauthConsents.userId, userId),
-        eq(oauthConsents.referenceId, grantId),
-      ),
-    )
-    .limit(1)
-  return row !== undefined
 }

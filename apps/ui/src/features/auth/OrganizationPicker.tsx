@@ -11,12 +11,11 @@ export function OrganizationPicker(props: {
   organizations: PickerOrganization[]
   value: string[]
   onChange: (organizationIds: string[]) => void
-  label?: string
 }) {
-  const { organizations, value, onChange, label = "Organizations" } = props
+  const { organizations, value, onChange } = props
   return (
     <CheckboxGroup
-      label={label}
+      label="Organizations"
       value={value}
       onChange={onChange}
       isInvalid={value.length === 0}

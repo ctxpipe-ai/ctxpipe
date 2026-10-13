@@ -1,7 +1,6 @@
 import { IconPlugConnected, IconTrash } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
-import { AlertDialog } from "@/components/ui/AlertDialog"
 import { Button } from "@/components/ui/Button"
 import {
   Card,
@@ -26,7 +25,10 @@ import { useListOrganizations } from "@/lib/auth-client"
 import { cn } from "@/lib/utils"
 
 export type ConnectedApp = {
-  grantId: string
+  /** The consent id. */
+  id: string
+  /** From before multi-org grants: one org, revoke only. */
+  legacy: boolean
   clientId: string
   clientName: string | null
   scopes: string[]
@@ -74,12 +76,9 @@ export function ConnectedAppsCard() {
   })
 
   const saveMutation = useMutation({
-    mutationFn: async (input: {
-      grantId: string
-      organizationIds: string[]
-    }) => {
+    mutationFn: async (input: { id: string; organizationIds: string[] }) => {
       const res = await apiFetch(
-        `${CONNECTED_APPS_PATH}/${encodeURIComponent(input.grantId)}/organizations`,
+        `${CONNECTED_APPS_PATH}/${encodeURIComponent(input.id)}/organizations`,
         {
           method: "PUT",
           credentials: "include",
@@ -87,7 +86,7 @@ export function ConnectedAppsCard() {
           body: JSON.stringify({ organizationIds: input.organizationIds }),
         },
       )
-      return readApiJson<ConnectedApp>(res, {
+      await readApiJson<undefined>(res, {
         message: "Could not save the organizations",
       })
     },
@@ -98,9 +97,9 @@ export function ConnectedAppsCard() {
   })
 
   const revokeMutation = useMutation({
-    mutationFn: async (grantId: string) => {
+    mutationFn: async (id: string) => {
       const res = await apiFetch(
-        `${CONNECTED_APPS_PATH}/${encodeURIComponent(grantId)}`,
+        `${CONNECTED_APPS_PATH}/${encodeURIComponent(id)}`,
         { method: "DELETE", credentials: "include" },
       )
       await readApiJson<undefined>(res, {
@@ -168,7 +167,7 @@ export function ConnectedAppsCard() {
                 const name = app.clientName || app.clientId
                 return (
                   <li
-                    key={app.grantId}
+                    key={app.id}
                     className="flex flex-col gap-3 rounded-md border border-border p-3 sm:flex-row sm:items-center"
                   >
                     <div className="min-w-0 flex-1 space-y-1">
@@ -187,18 +186,24 @@ export function ConnectedAppsCard() {
                         )}
                       </p>
                     </div>
-                    <div className="flex shrink-0 gap-2">
-                      <Button
-                        variant="outline"
-                        className="rounded-md"
-                        aria-label={`Edit organizations of ${name}`}
-                        onPress={() => {
-                          saveMutation.reset()
-                          setEditing(app)
-                        }}
-                      >
-                        Edit organizations
-                      </Button>
+                    <div className="flex shrink-0 items-center gap-2">
+                      {app.legacy ? (
+                        <p className="max-w-48 text-xs text-muted-foreground">
+                          Reconnect to choose more organizations
+                        </p>
+                      ) : (
+                        <Button
+                          variant="outline"
+                          className="rounded-md"
+                          aria-label={`Edit organizations of ${name}`}
+                          onPress={() => {
+                            saveMutation.reset()
+                            setEditing(app)
+                          }}
+                        >
+                          Edit organizations
+                        </Button>
+                      )}
                       <Button
                         variant="outline"
                         className="rounded-md"
@@ -229,31 +234,21 @@ export function ConnectedAppsCard() {
             if (!saveMutation.isPending) setEditing(null)
           }}
           onSave={(organizationIds) =>
-            saveMutation.mutate({ grantId: editing.grantId, organizationIds })
+            saveMutation.mutate({ id: editing.id, organizationIds })
           }
         />
       ) : null}
 
       {revoking ? (
-        <Modal
-          isOpen
-          isDismissable={!revokeMutation.isPending}
-          onOpenChange={(open) => {
-            if (!open && !revokeMutation.isPending) setRevoking(null)
+        <RevokeModal
+          name={revoking.clientName || revoking.clientId}
+          isPending={revokeMutation.isPending}
+          error={revokeMutation.error ? errorText(revokeMutation.error) : null}
+          onClose={() => {
+            if (!revokeMutation.isPending) setRevoking(null)
           }}
-        >
-          <AlertDialog
-            title="Revoke app?"
-            variant="destructive"
-            actionLabel={revokeMutation.isPending ? "Revoking…" : "Revoke app"}
-            cancelLabel="Cancel"
-            onAction={() => revokeMutation.mutate(revoking.grantId)}
-          >
-            {revokeMutation.error
-              ? errorText(revokeMutation.error)
-              : `${revoking.clientName || revoking.clientId} loses access at once. To use it again, connect it again.`}
-          </AlertDialog>
-        </Modal>
+          onRevoke={() => revokeMutation.mutate(revoking.id)}
+        />
       ) : null}
     </div>
   )
@@ -322,6 +317,64 @@ function EditOrganizationsModal(props: {
               onPress={() => onSave(value)}
             >
               Save
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+    </Modal>
+  )
+}
+
+/**
+ * Confirm a revoke. The dialog stays open until the request settles: it
+ * closes on success and shows the error on failure.
+ */
+function RevokeModal(props: {
+  name: string
+  isPending: boolean
+  error: string | null
+  onClose: () => void
+  onRevoke: () => void
+}) {
+  const { name, isPending, error, onClose, onRevoke } = props
+  return (
+    <Modal
+      isOpen
+      isDismissable={!isPending}
+      onOpenChange={(open) => {
+        if (!open) onClose()
+      }}
+    >
+      <Dialog role="alertdialog">
+        <div className="flex flex-col gap-5">
+          <DialogHeader>
+            <DialogTitle>Revoke {name}?</DialogTitle>
+            <DialogDescription>
+              The app loses access at once. To use it again, connect it again.
+            </DialogDescription>
+          </DialogHeader>
+          {error ? (
+            <InlineAlert variant="error" title="Could not revoke">
+              {error}
+            </InlineAlert>
+          ) : null}
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="quiet"
+              className="rounded-md"
+              isDisabled={isPending}
+              onPress={onClose}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              className="rounded-md"
+              isPending={isPending}
+              isDisabled={isPending}
+              onPress={onRevoke}
+            >
+              Revoke app
             </Button>
           </div>
         </div>

@@ -7,6 +7,7 @@ import {
   revokeConnectedApp,
   setConnectedAppOrganizations,
 } from "../../auth/oauth-grants.js"
+import { requestHasBearerCredential } from "../../auth/withAuth.js"
 
 const ErrorResponseSchema = z
   .object({ error: z.string() })
@@ -14,7 +15,8 @@ const ErrorResponseSchema = z
 
 const ConnectedAppSchema = z
   .object({
-    grantId: z.string(),
+    id: z.string(),
+    legacy: z.boolean(),
     clientId: z.string(),
     clientName: z.string().nullable(),
     scopes: z.array(z.string()),
@@ -25,11 +27,11 @@ const ConnectedAppSchema = z
   })
   .openapi("ConnectedApp")
 
-const GrantParamsSchema = z.object({
-  grantId: z
+const ConsentParamsSchema = z.object({
+  consentId: z
     .string()
     .min(1)
-    .openapi({ param: { name: "grantId", in: "path" } }),
+    .openapi({ param: { name: "consentId", in: "path" } }),
 })
 
 const errorResponse = (description: string) => ({
@@ -49,17 +51,18 @@ const listConnectedAppsRoute = createRoute({
             .openapi("ConnectedAppList"),
         },
       },
-      description: "The OAuth grants of the signed-in user",
+      description: "The OAuth consents of the signed-in user",
     },
+    401: errorResponse("No credential"),
     403: errorResponse("Not a signed-in user session"),
   },
 })
 
 const setConnectedAppOrganizationsRoute = createRoute({
   method: "put",
-  path: "/{grantId}/organizations",
+  path: "/{consentId}/organizations",
   request: {
-    params: GrantParamsSchema,
+    params: ConsentParamsSchema,
     body: {
       content: {
         "application/json": {
@@ -72,40 +75,37 @@ const setConnectedAppOrganizationsRoute = createRoute({
     },
   },
   responses: {
-    200: {
-      content: { "application/json": { schema: ConnectedAppSchema } },
-      description: "The grant with its new org set",
-    },
+    204: { description: "The grant has the new org set" },
     400: errorResponse("An empty set, or an org the user is not a member of"),
+    401: errorResponse("No credential"),
     403: errorResponse("Not a signed-in user session"),
-    404: errorResponse("No such grant for this user"),
+    404: errorResponse("No such consent for this user"),
+    409: errorResponse("A legacy consent: reconnect to choose more orgs"),
   },
 })
 
 const revokeConnectedAppRoute = createRoute({
   method: "delete",
-  path: "/{grantId}",
-  request: { params: GrantParamsSchema },
+  path: "/{consentId}",
+  request: { params: ConsentParamsSchema },
   responses: {
     204: { description: "Revoked" },
+    401: errorResponse("No credential"),
     403: errorResponse("Not a signed-in user session"),
-    404: errorResponse("No such grant for this user"),
+    404: errorResponse("No such consent for this user"),
   },
 })
 
 /**
- * The user who edits the grants. Only a signed-in user session can do this:
- * an OAuth token, a personal API key, or an org API key cannot change grants.
+ * The user who manages the consents. Only a Better Auth browser session can
+ * do this (an allow-list): a request with a bearer credential or an
+ * `x-api-key` header is refused, whatever that credential resolved to.
  */
 function sessionUserId(c: Context<AppEnv>): string | null {
-  if (
-    c.get("oauthReferenceId") ||
-    c.get("oauthClientId") ||
-    c.get("personalApiKeyId") ||
-    c.get("orgApiKey")
-  ) {
+  if (requestHasBearerCredential(c.req.raw) || c.req.header("x-api-key")) {
     return null
   }
+  if (!c.get("session")) return null
   return c.get("user")?.id ?? null
 }
 
@@ -127,32 +127,33 @@ export const meConnectedAppsRoutes = new OpenAPIHono<AppEnv>()
   .openapi(setConnectedAppOrganizationsRoute, async (c) => {
     const userId = sessionUserId(c)
     if (!userId) return c.json({ error: NOT_SESSION }, 403)
-    const { grantId } = c.req.valid("param")
+    const { consentId } = c.req.valid("param")
     const { organizationIds } = c.req.valid("json")
     const result = await setConnectedAppOrganizations({
       userId,
-      grantId,
+      consentId,
       organizationIds,
     })
     if (result === "not_found") return c.json({ error: NOT_FOUND }, 404)
-    if (result === "empty") {
-      return c.json({ error: "Select at least one organization" }, 400)
+    if (result === "legacy") {
+      return c.json(
+        { error: "Reconnect this app to choose more organizations" },
+        409,
+      )
     }
     if (result === "not_member") {
       return c.json(
-        { error: "You can add only organizations that you are a member of" },
+        { error: "You can select only organizations that you are a member of" },
         400,
       )
     }
-    const [app] = await listConnectedApps(userId, grantId)
-    if (!app) return c.json({ error: NOT_FOUND }, 404)
-    return c.json(toJson(app), 200)
+    return c.body(null, 204)
   })
   .openapi(revokeConnectedAppRoute, async (c) => {
     const userId = sessionUserId(c)
     if (!userId) return c.json({ error: NOT_SESSION }, 403)
-    const { grantId } = c.req.valid("param")
-    const revoked = await revokeConnectedApp({ userId, grantId })
+    const { consentId } = c.req.valid("param")
+    const revoked = await revokeConnectedApp({ userId, consentId })
     if (!revoked) return c.json({ error: NOT_FOUND }, 404)
     return c.body(null, 204)
   })

@@ -147,6 +147,9 @@ export const requiredStories = [
   "ConsentWriteOffByDefault",
   "ConnectedAppsEditOrgs",
   "ConnectedAppsRevoke",
+  "ConnectedAppsRevokeError",
+  "ConsentSendsTickedOrgs",
+  "UserMenuLinksConnectedApps",
 ]
 
 export function isGoldenPlaySuccess(phase) {

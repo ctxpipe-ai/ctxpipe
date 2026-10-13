@@ -1,12 +1,9 @@
 "use client"
 
-import {
-  AuthUIContext,
-  UserAvatar,
-  UserView,
-} from "@daveyplate/better-auth-ui"
+import { AuthUIContext, UserAvatar, UserView } from "@daveyplate/better-auth-ui"
 import {
   IconLogout,
+  IconPlugConnected,
   IconSelector,
   IconSettings,
 } from "@tabler/icons-react"
@@ -47,6 +44,9 @@ export function SideNavUserButton({ expanded }: SideNavUserButtonProps) {
     ? `${accountOptions.basePath}/${accountOptions.viewPaths?.SETTINGS}`
     : null
   const signOutHref = `${basePath}/${viewPaths.SIGN_OUT}`
+  const connectedAppsHref = accountOptions
+    ? `${accountOptions.basePath}/connected-apps`
+    : null
 
   return (
     <DropdownMenu open={dropdownOpen} onOpenChange={setDropdownOpen}>
@@ -111,6 +111,18 @@ export function SideNavUserButton({ expanded }: SideNavUserButtonProps) {
             >
               <IconSettings className="size-4" stroke={1.4} aria-hidden />
               {localization.SETTINGS}
+            </DropdownMenuItem>
+          </Link>
+        ) : null}
+
+        {connectedAppsHref ? (
+          <Link href={connectedAppsHref}>
+            <DropdownMenuItem
+              className="rounded-md"
+              onClick={() => setDropdownOpen(false)}
+            >
+              <IconPlugConnected className="size-4" stroke={1.4} aria-hidden />
+              Connected apps
             </DropdownMenuItem>
           </Link>
         ) : null}

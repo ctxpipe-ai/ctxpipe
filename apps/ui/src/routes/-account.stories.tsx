@@ -61,12 +61,26 @@ export const ApiKeysEmpty: Story = {
 }
 
 const connectedApp = {
-  grantId: "ogr_story_agent",
+  id: "ocs_story_agent",
+  legacy: false,
   clientId: "client_story_agent",
   clientName: "Example Agent",
   scopes: ["openid", "ctxpipe:read"],
   organizations: [{ id: "org_north", slug: "north-labs", name: "North Labs" }],
   connectedAt: "2026-09-01T10:00:00.000Z",
+}
+
+/** A consent from before multi-org grants: one org, revoke only. */
+const legacyApp = {
+  id: "ocs_story_legacy",
+  legacy: true,
+  clientId: "client_story_legacy",
+  clientName: "Old Agent",
+  scopes: ["openid"],
+  organizations: [
+    { id: "org_south", slug: "south-works", name: "South Works" },
+  ],
+  connectedAt: "2026-01-01T10:00:00.000Z",
 }
 
 const storyOrganizations = [
@@ -75,17 +89,19 @@ const storyOrganizations = [
 ]
 
 /**
- * A stateful msw backend for one grant: PUT and DELETE change the list.
- * `reset` runs before each story render. The handlers replace the default
- * org list, so they go in `defaults` with the session handlers.
+ * A stateful msw backend: PUT and DELETE change the list. `reset` runs
+ * before each story render. The handlers replace the default org list, so
+ * they go in `defaults` with the session handlers. `failRevoke` makes
+ * DELETE fail with 500.
  */
-function connectedAppsHandlers() {
-  let apps = [connectedApp]
+function connectedAppsHandlers(options: { failRevoke?: boolean } = {}) {
+  const initial = () => [connectedApp, legacyApp]
+  let apps = initial()
   const requests: { method: string; body?: unknown }[] = []
   return {
     requests,
     reset: () => {
-      apps = [connectedApp]
+      apps = initial()
       requests.length = 0
     },
     handlers: [
@@ -97,12 +113,12 @@ function connectedAppsHandlers() {
       organizationListHandler(storyOrganizations),
       http.get("*/api/v1/me/connected-apps", () => HttpResponse.json({ apps })),
       http.put(
-        "*/api/v1/me/connected-apps/:grantId/organizations",
+        "*/api/v1/me/connected-apps/:id/organizations",
         async ({ request, params }) => {
           const body = (await request.json()) as { organizationIds: string[] }
           requests.push({ method: "PUT", body })
           apps = apps.map((app) =>
-            app.grantId === params.grantId
+            app.id === params.id
               ? {
                   ...app,
                   organizations: storyOrganizations.filter((org) =>
@@ -111,13 +127,18 @@ function connectedAppsHandlers() {
                 }
               : app,
           )
-          const updated = apps.find((app) => app.grantId === params.grantId)
-          return HttpResponse.json(updated)
+          return new HttpResponse(null, { status: 204 })
         },
       ),
-      http.delete("*/api/v1/me/connected-apps/:grantId", ({ params }) => {
+      http.delete("*/api/v1/me/connected-apps/:id", ({ params }) => {
         requests.push({ method: "DELETE" })
-        apps = apps.filter((app) => app.grantId !== params.grantId)
+        if (options.failRevoke) {
+          return HttpResponse.json(
+            { error: "The server could not revoke the app" },
+            { status: 500 },
+          )
+        }
+        apps = apps.filter((app) => app.id !== params.id)
         return new HttpResponse(null, { status: 204 })
       }),
     ],
@@ -142,6 +163,13 @@ export const ConnectedAppsEditOrgs: Story = {
     const body = within(canvasElement.ownerDocument.body)
     await expect(await canvas.findByText("Example Agent")).toBeVisible()
     await expect(canvas.getByText("north-labs")).toBeVisible()
+    // The legacy consent offers a reconnect hint in place of Edit.
+    await expect(
+      canvas.getByText("Reconnect to choose more organizations"),
+    ).toBeVisible()
+    await expect(
+      canvas.queryByRole("button", { name: "Edit organizations of Old Agent" }),
+    ).toBeNull()
     await userEvent.click(
       canvas.getByRole("button", {
         name: "Edit organizations of Example Agent",
@@ -162,8 +190,8 @@ export const ConnectedAppsEditOrgs: Story = {
         body: { organizationIds: ["org_south"] },
       }),
     )
-    await expect(await canvas.findByText("south-works")).toBeVisible()
-    await expect(canvas.queryByText("north-labs")).toBeNull()
+    await waitFor(() => expect(canvas.queryByText("north-labs")).toBeNull())
+    await expect(canvas.getAllByText("south-works")).toHaveLength(2)
   },
 }
 
@@ -188,8 +216,40 @@ export const ConnectedAppsRevoke: Story = {
     )
     const dialog = within(await body.findByRole("alertdialog"))
     await userEvent.click(dialog.getByRole("button", { name: "Revoke app" }))
-    await expect(await canvas.findByText("No connected apps")).toBeVisible()
+    await waitFor(() => expect(canvas.queryByText("Example Agent")).toBeNull())
+    await expect(canvas.getByText("Old Agent")).toBeVisible()
     await expect(revokeBackend.requests).toContainEqual({ method: "DELETE" })
+    await expect(body.queryByRole("alertdialog")).toBeNull()
+  },
+}
+
+const failingRevokeBackend = connectedAppsHandlers({ failRevoke: true })
+
+export const ConnectedAppsRevokeError: Story = {
+  tags: ["workspace-golden"],
+  args: { accountView: "connected-apps" },
+  beforeEach: failingRevokeBackend.reset,
+  parameters: {
+    storyRoute: {
+      pattern: "flat",
+      path: "/.auth/account/connected-apps",
+    } satisfies StoryRouteParams,
+    msw: { handlers: { defaults: failingRevokeBackend.handlers } },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const body = within(canvasElement.ownerDocument.body)
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Revoke Example Agent" }),
+    )
+    const dialog = within(await body.findByRole("alertdialog"))
+    await userEvent.click(dialog.getByRole("button", { name: "Revoke app" }))
+    // The dialog stays open and shows the error.
+    await expect(
+      await dialog.findByText("The server could not revoke the app"),
+    ).toBeVisible()
+    await expect(body.getByRole("alertdialog")).toBeVisible()
+    await expect(canvas.getByText("Example Agent")).toBeVisible()
   },
 }
 

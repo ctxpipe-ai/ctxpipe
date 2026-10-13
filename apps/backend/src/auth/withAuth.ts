@@ -122,7 +122,7 @@ function wwwAuthenticateForMcpRoute(
   )
 }
 
-function requestHasBearerCredential(raw: Request): boolean {
+export function requestHasBearerCredential(raw: Request): boolean {
   const h = raw.headers.get("authorization")
   if (!h?.startsWith("Bearer ")) return false
   return h.slice("Bearer ".length).trim().length > 0
