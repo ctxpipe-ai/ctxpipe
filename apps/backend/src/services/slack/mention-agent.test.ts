@@ -34,7 +34,7 @@ describe("formatSlackMentionStatusText", () => {
     expect(
       formatSlackMentionStatusText({ kind: "failed", errorCode: "no_source" }),
     ).toBe(
-      "Nothing captured: no Workspace has this channel. Add the channel to a Slack source in the Workspace settings, then mention me again.",
+      "Nothing captured: no Workspace has this channel. Add the channel to a Slack source in the Workspace settings. If that opens a pull request, merge it. Then mention me again.",
     )
   })
 
