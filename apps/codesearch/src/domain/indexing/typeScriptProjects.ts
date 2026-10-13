@@ -1,13 +1,19 @@
 import { existsSync } from "node:fs"
 import {
+  lstat,
   mkdir,
   readdir,
   readFile,
   rm,
+  stat,
   symlink,
   writeFile,
 } from "node:fs/promises"
-import { dirname, join, relative } from "node:path"
+import { dirname, join, relative, resolve, sep } from "node:path"
+import {
+  replaceCheckoutFile,
+  resolveContainedRealPath,
+} from "../repositories/paths.js"
 import { SKIP_DIRS } from "./detectLanguages.js"
 
 export type TypeScriptProject = {
@@ -113,7 +119,11 @@ export async function scanTypeScriptWorkspace(
     }
   }
 
-  const rootManifest = await readJson(join(checkoutPath, "package.json"))
+  const realManifest = await resolveContainedRealPath(
+    checkoutPath,
+    "package.json",
+  ).catch(() => null)
+  const rootManifest = realManifest ? await readJson(realManifest) : null
   const monorepo =
     existsSync(join(checkoutPath, "pnpm-workspace.yaml")) ||
     existsSync(join(checkoutPath, "lerna.json")) ||
@@ -166,11 +176,17 @@ export async function prepareTypeScriptWorkspace(
     )
   }
   try {
+    // Use lstat, so a symlink at node_modules is left alone and never used.
     const nodeModules = join(checkoutPath, "node_modules")
-    if (existsSync(join(nodeModules, LINKED_MARKER))) {
+    let nodeModulesStat = await lstat(nodeModules).catch(() => null)
+    if (
+      nodeModulesStat?.isDirectory() &&
+      existsSync(join(nodeModules, LINKED_MARKER))
+    ) {
       await rm(nodeModules, { recursive: true, force: true })
+      nodeModulesStat = null
     }
-    if (workspace.packages.length > 0 && !existsSync(nodeModules)) {
+    if (workspace.packages.length > 0 && nodeModulesStat === null) {
       created.push(nodeModules)
       await mkdir(nodeModules, { recursive: true })
       await writeFile(join(nodeModules, LINKED_MARKER), "")
@@ -188,29 +204,38 @@ export async function prepareTypeScriptWorkspace(
       }
     }
 
+    // Keep a package.json only when it is a file inside the checkout.
+    // Replace anything else, such as a symlink that ends outside.
     const rootManifest = join(checkoutPath, "package.json")
-    const existing = existsSync(rootManifest)
-      ? await readFile(rootManifest, "utf8")
-      : null
+    const realManifest = await resolveContainedRealPath(
+      checkoutPath,
+      "package.json",
+    ).catch(() => null)
+    const existing =
+      realManifest && (await stat(realManifest)).isFile()
+        ? await readFile(realManifest, "utf8")
+        : null
     if (existing === null || existing === ROOT_PACKAGE_MARKER) {
       created.push(rootManifest)
-      await writeFile(rootManifest, ROOT_PACKAGE_MARKER)
+      await replaceCheckoutFile(rootManifest, ROOT_PACKAGE_MARKER)
     }
 
     const configPaths = new Map<string, string>()
     for (const project of workspace.projects) {
       const projectDir = join(checkoutPath, project.dir)
       const ownConfig = join(projectDir, project.config)
-      if (project.nested.length === 0) {
+      const { config, narrowed } = await derivedConfig(
+        checkoutPath,
+        project,
+        false,
+      )
+      if (project.nested.length === 0 && !narrowed) {
         configPaths.set(project.dir, ownConfig)
         continue
       }
       const derived = join(projectDir, DERIVED_CONFIG)
       created.push(derived)
-      await writeFile(
-        derived,
-        JSON.stringify(await derivedConfig(checkoutPath, project, false)),
-      )
+      await replaceCheckoutFile(derived, JSON.stringify(config))
       configPaths.set(project.dir, derived)
     }
     const standaloneConfig = async (dir: string) => {
@@ -218,10 +243,8 @@ export async function prepareTypeScriptWorkspace(
       if (!project) throw new Error(`Unknown TypeScript project: ${dir}`)
       const path = join(checkoutPath, dir, STANDALONE_CONFIG)
       created.push(path)
-      await writeFile(
-        path,
-        JSON.stringify(await derivedConfig(checkoutPath, project, true)),
-      )
+      const { config } = await derivedConfig(checkoutPath, project, true)
+      await replaceCheckoutFile(path, JSON.stringify(config))
       return path
     }
     return { configPaths, standaloneConfig, cleanup }
@@ -231,13 +254,52 @@ export async function prepareTypeScriptWorkspace(
   }
 }
 
+/**
+ * The project's own `files`, `include` and `references`, without entries
+ * that resolve outside the checkout. `narrowed` is true when an entry was
+ * dropped. Entries inherited through `extends` are not checked.
+ */
+function entriesInsideCheckout(
+  checkoutPath: string,
+  projectDir: string,
+  own: Record<string, unknown>,
+): { entries: Record<string, unknown[]>; narrowed: boolean } {
+  const root = resolve(checkoutPath)
+  const inside = (path: unknown) => {
+    if (typeof path !== "string") return false
+    const full = resolve(projectDir, path)
+    return full === root || full.startsWith(`${root}${sep}`)
+  }
+  const entries: Record<string, unknown[]> = {}
+  let narrowed = false
+  for (const key of ["files", "include", "references"]) {
+    const list = own[key]
+    if (!Array.isArray(list)) continue
+    const kept = list.filter((item) =>
+      key === "references"
+        ? typeof item === "object" &&
+          item !== null &&
+          inside((item as { path?: unknown }).path)
+        : inside(item),
+    )
+    if (kept.length !== list.length) narrowed = true
+    entries[key] = kept
+  }
+  return { entries, narrowed }
+}
+
 async function derivedConfig(
   checkoutPath: string,
   project: TypeScriptProject,
   standalone: boolean,
-): Promise<Record<string, unknown>> {
+): Promise<{ config: Record<string, unknown>; narrowed: boolean }> {
   const projectDir = join(checkoutPath, project.dir)
   const own = (await readJson(join(projectDir, project.config))) ?? {}
+  const { entries, narrowed } = entriesInsideCheckout(
+    checkoutPath,
+    projectDir,
+    own,
+  )
   // `exclude` replaces the inherited one, so keep the project's own list.
   // Inherited excludes (via `extends`) and TypeScript's defaults are replaced
   // by the defaults below, which can only add files to the project.
@@ -264,17 +326,27 @@ async function derivedConfig(
   if (standalone) {
     const { extends: _base, ...rest } = own
     return {
-      ...rest,
-      exclude,
-      compilerOptions: {
-        ...jsconfigOptions,
-        ...(typeof own.compilerOptions === "object" ? own.compilerOptions : {}),
+      config: {
+        ...rest,
+        ...entries,
+        exclude,
+        compilerOptions: {
+          ...jsconfigOptions,
+          ...(typeof own.compilerOptions === "object"
+            ? own.compilerOptions
+            : {}),
+        },
       },
+      narrowed,
     }
   }
   return {
-    extends: `./${project.config}`,
-    exclude,
-    ...(jsconfigOptions ? { compilerOptions: jsconfigOptions } : {}),
+    config: {
+      extends: `./${project.config}`,
+      ...entries,
+      exclude,
+      ...(jsconfigOptions ? { compilerOptions: jsconfigOptions } : {}),
+    },
+    narrowed,
   }
 }

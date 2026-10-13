@@ -4,7 +4,6 @@ import type { AppEnv } from "../app/env.js"
 import {
   DEFAULT_CHECKOUT_KEY,
   repoCheckoutPath,
-  resolveSafePath,
 } from "../domain/repositories/paths.js"
 import { getAccessibleRepository } from "../domain/repositories/service.js"
 import {
@@ -105,12 +104,9 @@ export function registerStructuralSearchRoutes(app: OpenAPIHono<AppEnv>) {
     )
     let resolvedSearchPaths: { checkoutPath: string; paths: string[] }
     try {
-      const searchPaths = (body.paths?.length ? body.paths : ["."]).map(
-        (path) => resolveSafePath(checkoutPath, path),
-      )
       resolvedSearchPaths = await resolveStructuralSearchPaths(
         checkoutPath,
-        searchPaths,
+        body.paths?.length ? body.paths : ["."],
       )
     } catch {
       return c.json({ error: "Invalid repository path" }, 400)

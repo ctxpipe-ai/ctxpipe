@@ -4,6 +4,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs"
 import { readlink } from "node:fs/promises"
@@ -166,5 +167,89 @@ describe("prepareTypeScriptWorkspace", () => {
     await untouched.cleanup()
     expect(existsSync(join(installed, "node_modules/real/index.js"))).toBe(true)
     expect(existsSync(join(installed, "node_modules/core"))).toBe(false)
+  })
+
+  it.each([
+    "package.json",
+    "tsconfig.ctxpipe-scip.json",
+    "tsconfig.ctxpipe-scip-standalone.json",
+  ])("never writes through a symlink at %s", async (name) => {
+    for (const targetExists of [true, false]) {
+      const outside = checkout(targetExists ? { "data.txt": "outside\n" } : {})
+      const target = join(outside, "data.txt")
+      const root = checkout({
+        "tsconfig.json": "{}",
+        "packages/a/tsconfig.json": "{}",
+      })
+      symlinkSync(target, join(root, name))
+      const prepared = await prepareTypeScriptWorkspace(
+        root,
+        await scanTypeScriptWorkspace(root),
+      )
+      await prepared.standaloneConfig("")
+
+      if (targetExists) {
+        expect(readFileSync(target, "utf8")).toBe("outside\n")
+      } else {
+        expect(existsSync(target)).toBe(false)
+      }
+      await prepared.cleanup()
+      expect(existsSync(target)).toBe(targetExists)
+    }
+  })
+
+  it("never creates node_modules through a symlink", async () => {
+    const outside = checkout({})
+    const root = checkout({
+      "package.json": '{"workspaces":["packages/*"]}',
+      "packages/core/package.json": '{"name":"core"}',
+      "packages/core/tsconfig.json": "{}",
+    })
+    symlinkSync(join(outside, "missing"), join(root, "node_modules"))
+    const prepared = await prepareTypeScriptWorkspace(
+      root,
+      await scanTypeScriptWorkspace(root),
+    )
+    await prepared.cleanup()
+    expect(existsSync(join(outside, "missing"))).toBe(false)
+  })
+
+  it("keeps only files, include and references that stay inside the checkout", async () => {
+    const root = checkout({
+      "tsconfig.json": JSON.stringify({
+        include: ["src/**/*", "/abs/**/*", "../outside/**/*"],
+        files: ["main.ts", "/abs/data.ts", "../../data.ts"],
+        references: [{ path: "./packages/a" }, { path: "../other" }],
+      }),
+      "packages/a/tsconfig.json": "{}",
+      "packages/b/tsconfig.json": JSON.stringify({
+        include: ["src", "../../../outside"],
+      }),
+    })
+    const prepared = await prepareTypeScriptWorkspace(
+      root,
+      await scanTypeScriptWorkspace(root),
+    )
+    const read = (path: string | undefined) =>
+      JSON.parse(readFileSync(path as string, "utf8"))
+
+    expect(read(prepared.configPaths.get(""))).toMatchObject({
+      include: ["src/**/*"],
+      files: ["main.ts"],
+      references: [{ path: "./packages/a" }],
+    })
+    expect(read(await prepared.standaloneConfig(""))).toMatchObject({
+      include: ["src/**/*"],
+      files: ["main.ts"],
+      references: [{ path: "./packages/a" }],
+    })
+    expect(read(prepared.configPaths.get("packages/b"))).toMatchObject({
+      extends: "./tsconfig.json",
+      include: ["src"],
+    })
+    expect(prepared.configPaths.get("packages/a")).toBe(
+      join(root, "packages/a/tsconfig.json"),
+    )
+    await prepared.cleanup()
   })
 })
