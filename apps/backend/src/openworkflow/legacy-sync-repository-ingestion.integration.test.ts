@@ -10,7 +10,7 @@ import {
 import { workspaceSources } from "../db/schema/workspace_sources.js"
 import { workspaces } from "../db/schema/workspaces.js"
 import { generateObjectId } from "../lib/id.js"
-import { enqueueRepositoryIngestionWorkflow } from "./enqueue-repository-ingestion.js"
+import { enqueueLegacySyncRepositoryIngestion } from "./legacy-sync-repository-ingestion.js"
 
 const suffix = `${Date.now()}_${Math.random().toString(36).slice(2)}`
 const orgId = `org_test_legacy_gate_${suffix}`
@@ -27,7 +27,7 @@ async function startedRuns(repositoryId: string) {
   return rows.filter((row) => row.workflowRunId !== null)
 }
 
-describe("enqueueRepositoryIngestionWorkflow (Postgres)", () => {
+describe("enqueueLegacySyncRepositoryIngestion (Postgres)", () => {
   beforeAll(async () => {
     if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required")
     initDb(process.env.DATABASE_URL)
@@ -96,31 +96,29 @@ describe("enqueueRepositoryIngestionWorkflow (Postgres)", () => {
   for (const provider of providers) {
     it(`${provider}: a connection with Workspace sources starts no run`, async () => {
       const { connectionId, repositoryId } = await seed(provider, true)
-      const result = await enqueueRepositoryIngestionWorkflow(
+      await enqueueLegacySyncRepositoryIngestion(
         {
           orgId,
           repositoryId,
-          legacySyncConnectionId: connectionId,
+          connectionId,
           targetBranch: "main",
         },
         { error: () => {} },
       )
-      expect(result).toBeNull()
       expect(await startedRuns(repositoryId)).toEqual([])
     })
 
     it(`${provider}: a connection without sources still starts one run`, async () => {
       const { connectionId, repositoryId } = await seed(provider, false)
-      const result = await enqueueRepositoryIngestionWorkflow(
+      await enqueueLegacySyncRepositoryIngestion(
         {
           orgId,
           repositoryId,
-          legacySyncConnectionId: connectionId,
+          connectionId,
           targetBranch: "main",
         },
         { error: () => {} },
       )
-      expect(result?.workflowRunId).toEqual(expect.any(String))
       expect(await startedRuns(repositoryId)).toHaveLength(1)
     })
   }
@@ -128,15 +126,15 @@ describe("enqueueRepositoryIngestionWorkflow (Postgres)", () => {
   it("does not treat the sources of another connection as a gate", async () => {
     const gated = await seed("linear", true)
     const other = await seed("linear", false)
-    const result = await enqueueRepositoryIngestionWorkflow(
+    await enqueueLegacySyncRepositoryIngestion(
       {
         orgId,
         repositoryId: gated.repositoryId,
-        legacySyncConnectionId: other.connectionId,
+        connectionId: other.connectionId,
         targetBranch: "main",
       },
       { error: () => {} },
     )
-    expect(result).not.toBeNull()
+    expect(await startedRuns(gated.repositoryId)).toHaveLength(1)
   })
 })

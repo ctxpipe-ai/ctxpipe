@@ -21,7 +21,7 @@ import { parseNotionConfigYamlContent } from "../../services/notion/config-yaml.
 import { loadNotionConnection } from "../../services/notion/connection-load.js"
 import { captureNotionContent } from "../../services/notion/sync.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
-import { runRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
+import { enqueueLegacySyncRepositoryIngestion } from "../legacy-sync-repository-ingestion.js"
 import { parsedNotionRepoScopeSchema } from "../notion-scope-repo-schema.js"
 import { workspaceConnectorMirror } from "./workspace-connector-mirror.js"
 
@@ -184,9 +184,9 @@ export const notionSyncContent = defineWorkflow(
             : null
         if (captured.status !== "failed") {
           await step.run({ name: "ingest-notion-content" }, () =>
-            runRepositoryIngestionWorkflow(
+            enqueueLegacySyncRepositoryIngestion(
               {
-                legacySyncConnectionId: input.connectionId,
+                connectionId: input.connectionId,
                 orgId: input.orgId,
                 repositoryId: context.binding.repositoryId,
                 targetBranch: context.binding.branch,

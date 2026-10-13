@@ -31,7 +31,7 @@ import { getLogger } from "../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
 import { enqueueConnectorConfigSync } from "../../openworkflow/enqueue-connector-config-sync.js"
 import { enqueueConnectorContentSync } from "../../openworkflow/enqueue-connector-content-sync.js"
-import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
+import { enqueueLegacySyncRepositoryIngestion } from "../../openworkflow/legacy-sync-repository-ingestion.js"
 import { notionSyncConfig } from "../../openworkflow/workflows/notion-sync-config.js"
 import { notionSyncContent } from "../../openworkflow/workflows/notion-sync-content.js"
 import { getPullRequestHeadBranch } from "../../services/github/installation-write-client.js"
@@ -1242,9 +1242,9 @@ notionConnectorRoutes
     })
 
     if (saved.repositoryIngestion) {
-      await enqueueRepositoryIngestionWorkflow(
+      await enqueueLegacySyncRepositoryIngestion(
         {
-          legacySyncConnectionId: installed.connection.id,
+          connectionId: installed.connection.id,
           repositoryId: saved.repositoryIngestion.repositoryId,
           orgId: saved.repositoryIngestion.orgId,
           ...(saved.repositoryIngestion.targetBranch !== undefined

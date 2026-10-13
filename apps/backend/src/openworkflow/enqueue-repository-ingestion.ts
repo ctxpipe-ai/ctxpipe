@@ -11,7 +11,6 @@ import {
   prepareRepositoryIngestionRequest,
   type RepositoryIngestionIntent,
 } from "../models/repository-ingestion-requests.js"
-import { connectionHasWorkspaceSources } from "../models/workspace-sources.js"
 import { createLogger, withLogger } from "../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "./client.js"
 import { isWorkflowControlSignal } from "./isSleepSignal.js"
@@ -28,12 +27,6 @@ export type RepositoryIngestionEnqueueInput = RepositoryIngestionIntent & {
   fullReingest?: boolean
   /** Used only to resolve the correct repository tip after a duplicate run. */
   githubConnectionId?: string | null
-  /**
-   * Set by a connector sync that ingests its legacy sync repository. A
-   * connection that has Workspace sources syncs through its Workspace, so no
-   * run starts for it.
-   */
-  legacySyncConnectionId?: string
 }
 
 export type ConnectorRepositoryIngestionInput = Omit<
@@ -50,16 +43,7 @@ export type RepositoryIngestionChildStep = Parameters<
 export async function enqueueRepositoryIngestionWorkflow(
   input: RepositoryIngestionEnqueueInput,
   log: { error: (err: Error) => void },
-): Promise<{ workflowRunId: string } | null> {
-  if (
-    input.legacySyncConnectionId &&
-    (await connectionHasWorkspaceSources({
-      orgId: input.orgId,
-      connectionId: input.legacySyncConnectionId,
-    }))
-  ) {
-    return null
-  }
+): Promise<{ workflowRunId: string }> {
   const intent = await prepareRepositoryIngestionRequest({
     orgId: input.orgId,
     repositoryId: input.repositoryId,

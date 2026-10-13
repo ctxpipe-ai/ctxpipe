@@ -30,7 +30,7 @@ import {
 } from "../../models/pagerduty-connector.js"
 import { getLogger } from "../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
-import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
+import { enqueueLegacySyncRepositoryIngestion } from "../../openworkflow/legacy-sync-repository-ingestion.js"
 import { pagerdutySyncConfig } from "../../openworkflow/workflows/pagerduty-sync-config.js"
 import { pagerdutySyncContent } from "../../openworkflow/workflows/pagerduty-sync-content.js"
 import { getPullRequestHeadBranch } from "../../services/github/installation-write-client.js"
@@ -957,9 +957,9 @@ export const pagerdutyConnectorRoutes = new OpenAPIHono<AppEnv>()
     })
 
     if (saved.repositoryIngestion) {
-      await enqueueRepositoryIngestionWorkflow(
+      await enqueueLegacySyncRepositoryIngestion(
         {
-          legacySyncConnectionId: installed.connection.id,
+          connectionId: installed.connection.id,
           repositoryId: saved.repositoryIngestion.repositoryId,
           orgId: saved.repositoryIngestion.orgId,
           ...(saved.repositoryIngestion.targetBranch !== undefined
