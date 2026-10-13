@@ -25,6 +25,7 @@ import {
 } from "../ingestion/ingestion-run.js"
 import {
   INGEST_SHARD_LIMIT_MS,
+  ingestSandboxThreadId,
   ORG_INGEST_SANDBOX_LIMIT,
   ORG_RUNNING_SANDBOX_LIMIT,
 } from "./chat-lifecycle.js"
@@ -33,7 +34,7 @@ import {
   sweepConversationSandboxes,
   withConversationSandboxSlots,
 } from "./conversation-sandbox-lifecycle.js"
-import { ingestSandbox, ingestSandboxThreadId } from "./ingest-sandbox.js"
+import { ingestSandbox } from "./ingest-sandbox.js"
 import type { WorkspaceRevision } from "./revision.js"
 import { postgresSandboxInstanceStore } from "./sandbox-instance-store.js"
 import { postgresSandboxLocks } from "./sandbox-lock-store.js"

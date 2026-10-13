@@ -1,5 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
+import { ingestSandboxThreadId } from "../../domain/workspaces/chat-lifecycle.js"
 import {
   observeWorkspaceChatCompletionStream,
   recordWorkspaceChatProxyCompletion,
@@ -9,7 +10,10 @@ import {
   beginWorkspaceChatProxyGeneration,
   workspaceChatTurnId,
 } from "../../domain/workspaces/workspace-chat-otel.js"
-import { verifyWorkspaceChatRunCapability } from "../../domain/workspaces/workspace-chat-run-capability.js"
+import {
+  verifyWorkspaceChatRunCapability,
+  verifyWorkspaceIngestRunCapability,
+} from "../../domain/workspaces/workspace-chat-run-capability.js"
 import {
   verifyWorkspaceChatToken,
   workspaceChatBearerToken,
@@ -90,22 +94,37 @@ function contractFromEnv(env: AppEnv["Variables"]["env"]) {
   })
 }
 
+/**
+ * The caller of a model call: a chat turn, or an ingest step (ADR-052). An
+ * ingest step is attributed to its shard thread, `ingest:<run>:<shard>`.
+ */
 async function chatTokenFromRequest(
   c: Parameters<Parameters<OpenAPIHono<AppEnv>["openapi"]>[1]>[0],
-) {
+): Promise<
+  | { orgId: string; orgSlug?: string; conversationId: string; runId?: string }
+  | undefined
+> {
   const presented = workspaceChatBearerToken(c.req.header("authorization"))
   if (!presented) return undefined
-  return (
-    verifyWorkspaceChatToken({
-      authSecret: c.var.env.AUTH_SECRET,
-      token: presented,
-    }) ??
+  const authSecret = c.var.env.AUTH_SECRET
+  const chat =
+    verifyWorkspaceChatToken({ authSecret, token: presented }) ??
     (await verifyWorkspaceChatRunCapability({
-      authSecret: c.var.env.AUTH_SECRET,
+      authSecret,
       token: presented,
       purpose: "workspace-chat-model",
     }))
-  )
+  if (chat) return chat
+  const ingest = await verifyWorkspaceIngestRunCapability({
+    authSecret,
+    token: presented,
+  })
+  if (!ingest) return undefined
+  return {
+    orgId: ingest.orgId,
+    orgSlug: ingest.orgSlug,
+    conversationId: ingestSandboxThreadId(ingest.runId, ingest.shard),
+  }
 }
 
 export const workspaceChatOpenaiRoutes = new OpenAPIHono<AppEnv>()
