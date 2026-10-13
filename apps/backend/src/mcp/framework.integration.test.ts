@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
@@ -10,9 +11,16 @@ import { z } from "zod"
 import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../test/db.js"
 import { recordSpans } from "../../test/spans.js"
 import type { AppEnv } from "../app/env.js"
+import { setOrganizations } from "../auth/oauth-grants.js"
 import { parseEnv } from "../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../db/client.js"
-import { members, organizations } from "../db/schema/auth.js"
+import {
+  members,
+  oauthAccessTokens,
+  oauthClients,
+  organizations,
+} from "../db/schema/auth.js"
+import { oauthGrantOrganizations } from "../db/schema/oauth_grant_organizations.js"
 import { workspaceSources } from "../db/schema/workspace_sources.js"
 import {
   workspaceLinkedRepositories,
@@ -206,8 +214,9 @@ function createApp({ shippedTools = false } = {}) {
   return app
 }
 
+/** `credential`: an `x-api-key` value, or the request headers to send. */
 async function connect(
-  apiKey = seed.orgApiKey,
+  credential: string | Record<string, string> = seed.orgApiKey,
   path = "/mcp",
   shippedTools = false,
 ): Promise<Client> {
@@ -216,7 +225,12 @@ async function connect(
   await client.connect(
     new StreamableHTTPClientTransport(new URL(`http://localhost${path}`), {
       fetch: async (url, init) => app.request(String(url), init),
-      requestInit: { headers: { "x-api-key": apiKey } },
+      requestInit: {
+        headers:
+          typeof credential === "string"
+            ? { "x-api-key": credential }
+            : credential,
+      },
     }),
   )
   // Real clients list the tools first. Then the SDK Client checks each
@@ -741,6 +755,65 @@ describe("MCP tool framework (Postgres + MCP SDK Client)", () => {
       unknown.content?.[0]?.text?.replace(`missing-${suffix}`, "<org>"),
     )
     await client.close()
+  })
+
+  it("points an OAuth connection to Connected apps on org_not_found, with the same text for an unknown org", async () => {
+    const clientId = `client_fw_${suffix}`
+    const grantId = generateObjectId("ogr")
+    const token = `opaque_${generateObjectId("tok")}`
+    const db = getSystemDb()
+    await db.insert(oauthClients).values({
+      id: generateObjectId("oac"),
+      clientId,
+      redirectUris: ["http://localhost/callback"],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    try {
+      await setOrganizations({ grantId }, [seed.orgId])
+      await db.insert(oauthAccessTokens).values({
+        id: generateObjectId("oat"),
+        token: createHash("sha256").update(token).digest("base64url"),
+        clientId,
+        userId: seed.userId,
+        referenceId: grantId,
+        expiresAt: new Date(Date.now() + 3_600_000),
+        createdAt: new Date(),
+        scopes: ["ctxpipe:read"],
+      })
+      const client = await connect({ authorization: `Bearer ${token}` })
+      // The seed user is a member of otherOrgs[1], but the grant leaves it out.
+      const outside = await call(client, "probe_workspace", {
+        org: otherOrgs[1]?.slug,
+        workspace: "operations",
+      })
+      const unknown = await call(client, "probe_workspace", {
+        org: `no-such-org-${suffix}`,
+        workspace: "operations",
+      })
+      expect(failure(outside)).toMatchObject({ code: "org_not_found" })
+      const text = outside.content?.[0]?.text ?? ""
+      expect(text).toContain("Connected apps")
+      expect(text).toContain("/.auth/account/connected-apps")
+      expect(text.replace(otherOrgs[1]?.slug ?? "", "<org>")).toBe(
+        unknown.content?.[0]?.text?.replace(`no-such-org-${suffix}`, "<org>"),
+      )
+      await client.close()
+
+      // An API key is not an OAuth connection: no Connected apps hint.
+      const keyClient = await connect()
+      const keyResult = await call(keyClient, "probe_workspace", {
+        org: `no-such-org-${suffix}`,
+        workspace: "operations",
+      })
+      expect(keyResult.content?.[0]?.text).not.toContain("Connected apps")
+      await keyClient.close()
+    } finally {
+      await db
+        .delete(oauthGrantOrganizations)
+        .where(eq(oauthGrantOrganizations.grantId, grantId))
+      await db.delete(oauthClients).where(eq(oauthClients.clientId, clientId))
+    }
   })
 
   it("serves a principal with several orgs on the bare /mcp URL: instructions list each org, calls name one", async () => {

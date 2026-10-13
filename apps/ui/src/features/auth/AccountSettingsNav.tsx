@@ -6,6 +6,7 @@ const NAV_ITEMS = [
   { view: "settings", label: "Account" },
   { view: "security", label: "Security" },
   { view: "api-keys", label: "API Keys" },
+  { view: "connected-apps", label: "Connected apps" },
   { view: "organizations", label: "Organisations" },
 ] as const
 

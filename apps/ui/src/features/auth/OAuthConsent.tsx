@@ -2,12 +2,13 @@ import { useState } from "react"
 import { Button } from "@/components/ui/Button"
 import { Checkbox } from "@/components/ui/Checkbox"
 import { InlineAlert } from "@/components/ui/InlineAlert"
+import { OrganizationPicker } from "@/features/auth/OrganizationPicker"
 
 const WRITE_SCOPE = "ctxpipe:write"
 
 const SCOPE_TEXT: Record<string, string> = {
   "ctxpipe:read":
-    "Read context: knowledge, code and the knowledge graph of this organization.",
+    "Read context: knowledge, code and the knowledge graph of the selected organizations.",
   openid: "Confirm who you are.",
   profile: "See your name and picture.",
   email: "See your email address.",
@@ -15,6 +16,7 @@ const SCOPE_TEXT: Record<string, string> = {
 }
 
 export type OAuthConsentOrganization = {
+  id: string
   name: string
   slug: string
 }
@@ -22,8 +24,8 @@ export type OAuthConsentOrganization = {
 export function OAuthConsent({
   clientId,
   scopes,
-  organization,
-  changeOrganizationHref = null,
+  organizations,
+  defaultOrganizationIds,
   error = null,
   isSubmitting = null,
   onAllow,
@@ -31,15 +33,21 @@ export function OAuthConsent({
 }: {
   clientId: string | null
   scopes: string[]
-  organization: OAuthConsentOrganization | null
-  changeOrganizationHref?: string | null
+  /** The orgs of the user. Empty when they could not be loaded. */
+  organizations: OAuthConsentOrganization[]
+  /** Ticked at first: the current org. */
+  defaultOrganizationIds: string[]
   error?: string | null
   isSubmitting?: "allow" | "deny" | null
-  /** Receives the scopes the user allows: write only when ticked. */
-  onAllow: (allowedScopes: string[]) => void
+  /**
+   * Receives the scopes the user allows (write only when ticked) and the
+   * ticked orgs (at least one).
+   */
+  onAllow: (allowedScopes: string[], organizationIds: string[]) => void
   onDeny: () => void
 }) {
   const [allowWrite, setAllowWrite] = useState(false)
+  const [organizationIds, setOrganizationIds] = useState(defaultOrganizationIds)
   const fixedScopes = scopes.filter((scope) => scope !== WRITE_SCOPE)
   const requestsWrite = scopes.includes(WRITE_SCOPE)
   const allowedScopes = allowWrite ? scopes : fixedScopes
@@ -48,37 +56,24 @@ export function OAuthConsent({
       <section className="space-y-6 rounded-md border border-border bg-card/80 p-6">
         <div className="space-y-2">
           <p className="ctx-label">OAuth connection</p>
-          <h1 className="text-xl font-medium">Authorise client</h1>
+          <h1 className="text-xl font-medium">Authorize client</h1>
           <p className="text-sm text-muted-foreground">
-            The client below is requesting access to ctx| data from this
-            organisation. The choice is bound to this connection and will not
-            change when you switch organisations later.
+            The client below asks for access to ctx| data. It can reach only the
+            organizations you select. You can change them later in Connected
+            apps.
           </p>
         </div>
 
-        {organization ? (
-          <div className="space-y-1">
-            <p className="text-sm text-muted-foreground">Organisation</p>
-            <p className="font-medium text-foreground">{organization.name}</p>
-            <p className="font-mono text-xs text-muted-foreground">
-              {organization.slug}
-            </p>
-            {changeOrganizationHref ? (
-              <div className="pt-1">
-                <Button
-                  href={changeOrganizationHref}
-                  variant="quiet"
-                  className="rounded-md px-0 text-zinc-300"
-                >
-                  Change organisation
-                </Button>
-              </div>
-            ) : null}
-          </div>
+        {organizations.length > 0 ? (
+          <OrganizationPicker
+            organizations={organizations}
+            value={organizationIds}
+            onChange={setOrganizationIds}
+          />
         ) : (
-          <InlineAlert variant="error" title="Organisation unavailable">
-            The organisation for this request could not be verified. Reload the
-            page before allowing access.
+          <InlineAlert variant="error" title="Organizations unavailable">
+            We could not load your organizations. Reload the page before you
+            allow access.
           </InlineAlert>
         )}
 
@@ -104,8 +99,8 @@ export function OAuthConsent({
             )}
             {requestsWrite ? (
               <Checkbox isSelected={allowWrite} onChange={setAllowWrite}>
-                Also allow changes: propose and record knowledge in this
-                organization. Leave this off for read-only access.
+                Also allow changes: propose and record knowledge in the selected
+                organizations. Leave this off for read-only access.
               </Checkbox>
             ) : null}
           </div>
@@ -131,11 +126,11 @@ export function OAuthConsent({
             className="rounded-md"
             isDisabled={
               isSubmitting !== null ||
-              !organization ||
+              organizationIds.length === 0 ||
               allowedScopes.length === 0
             }
             isPending={isSubmitting === "allow"}
-            onPress={() => onAllow(allowedScopes)}
+            onPress={() => onAllow(allowedScopes, organizationIds)}
           >
             Allow
           </Button>
