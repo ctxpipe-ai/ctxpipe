@@ -5,7 +5,7 @@ description: Find or add ctxpipe telemetry. Use for a request id, trace, log, me
 
 # Observability
 
-Hosted stack: Railway project `ctxpipe-observability`. URLs, accounts, dashboards, MCP clients, and laptop OTLP: [USING.md](../../../ops/observability/USING.md). Attribute history: [ADR-011](../../../.ai/memory/decisions/ADR-011-backend-observability-otel.md).
+Hosted stack: Railway project `observability`. URLs, accounts, dashboards, MCP clients, and laptop OTLP: [USING.md](../../../ops/observability/USING.md). Attribute history: [ADR-011](../../../.ai/memory/decisions/ADR-011-backend-observability-otel.md).
 
 ## Find a signal
 
