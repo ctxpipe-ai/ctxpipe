@@ -1,6 +1,6 @@
 import type { Env } from "../../config/env.js"
 import { getRepoWriteCloneToken } from "../../models/github-installation.js"
-import { unfinishedOrgWorkflowRunIds } from "../../models/workspace-sandboxes.js"
+import { ingestionRunStates } from "../../models/ingestion-runs.js"
 import { persistSemanticHandoff } from "../../models/workspace-write-jobs.js"
 import {
   getWorkspaceWriteAdmission,
@@ -20,11 +20,14 @@ import { readUnbornRemoteBranch } from "../../services/git/unborn-tree.js"
 import {
   cleanUpIngestRefs,
   deleteRunIngestRefs,
+  findStepCommit,
+  IngestRefRefusedError,
   type IngestRemote,
   type PushIngestStepInput,
+  parseIngestRef,
+  pushIngestAssemble,
   pushIngestStep,
 } from "../ingestion/ingest-refs.js"
-import { INGESTION_V2_WORKFLOW_NAME } from "../ingestion/ingestion-run.js"
 import type { UnbornBootstrapBinding } from "./bootstrap-input.js"
 import { getUnbornBootstrapWorkspace } from "./bootstrap-unborn.js"
 import {
@@ -560,26 +563,62 @@ export async function pushUnbornWorkspaceCommit(
   }
 }
 
+/** The job of a ref push: its run, its Workspace, and the Workspace binding it read. */
+export type IngestBrokerJob = {
+  runId: string
+  workspaceId: string
+  /** The Workspace generation that the run resolved. A relink changes it. */
+  generation: number
+}
+
+type AdmittedIngestRemote = {
+  url: string
+  connectionId: string
+  repositoryName: string
+}
+
 /**
- * The remote of the job's Workspace repository with a write credential. An
- * ingest ref job names a Workspace, never a URL, so it can only reach that
- * repository (ADR-052 section 6).
+ * Admission of an ingest ref job, before any credential (ADR-052 section 6).
+ * The job names a run and a Workspace, never a URL, so it can only reach the
+ * Workspace repository. The run must be an unfinished ingestion v2 run of the
+ * org. The Workspace must be writable, with the same binding as the job.
  */
-async function workspaceIngestRemote(
+async function admitIngestJob(
   orgId: string,
   workspaceId: string,
+  job?: IngestBrokerJob,
+): Promise<AdmittedIngestRemote> {
+  if (job) {
+    const run = (await ingestionRunStates(orgId, [job.runId])).get(job.runId)
+    if (!run?.unfinished)
+      throw new IngestRefRefusedError(
+        "The job's run is not an unfinished ingestion run of the org",
+      )
+  }
+  const workspace = await getWorkspaceWriteAdmission(workspaceId, orgId)
+  if (!workspace)
+    throw new IngestRefRefusedError("The Workspace is not bound in the org")
+  if (workspace.writeStatus !== "writable")
+    throw new IngestRefRefusedError("The Workspace is not writable")
+  if (job && workspace.revision.generation !== job.generation)
+    throw new IngestRefRefusedError("The Workspace binding changed")
+  const { url, connectionId } = workspace.revision.remote
+  const repositoryName = githubRepoFullNameFromWorkspaceUrl(url)
+  if (!repositoryName || !connectionId)
+    throw new IngestRefRefusedError(
+      "Ingest refs require a connected GitHub repository",
+    )
+  return { url, connectionId, repositoryName }
+}
+
+async function ingestWriteRemote(
+  orgId: string,
+  remote: AdmittedIngestRemote,
   env: Env,
 ): Promise<IngestRemote> {
-  const remote = (await getWorkspaceWriteAdmission(workspaceId))?.revision
-    .remote
-  const repositoryName = remote
-    ? githubRepoFullNameFromWorkspaceUrl(remote.url)
-    : null
-  if (!remote || !repositoryName || !remote.connectionId)
-    throw new Error("Ingest refs require a connected GitHub repository")
   const token = await getRepoWriteCloneToken(orgId, env, {
     githubConnectionId: remote.connectionId,
-    repoFullName: repositoryName,
+    repoFullName: remote.repositoryName,
   }).catch((error: unknown) => {
     const reason = writeAccessDenialReason(error)
     if (reason) throw new WorkspaceWriteAccessUnavailableError(reason)
@@ -595,52 +634,116 @@ async function workspaceIngestRemote(
   }
 }
 
-/** The ingest ref job kind: push one validated step commit to a run-scoped ref. */
+async function ingestReadRemote(
+  orgId: string,
+  remote: AdmittedIngestRemote,
+  env: Env,
+): Promise<IngestRemote> {
+  const token = await resolveRepositoryReadCredential({
+    orgId,
+    env,
+    remote: { url: remote.url, connectionId: remote.connectionId },
+  })
+  return {
+    url: remote.url,
+    env: gitRemoteEnvironment({ url: remote.url, token }),
+  }
+}
+
+/** The ingest step job kind: push one validated step commit to a run-scoped ref. */
 export async function pushWorkspaceIngestStep(
-  input: Omit<PushIngestStepInput, "remote"> & { orgId: string },
+  input: Omit<PushIngestStepInput, "remote" | "job"> & {
+    orgId: string
+    job: IngestBrokerJob
+  },
   env: Env,
 ) {
-  const remote = await workspaceIngestRemote(
+  const admitted = await admitIngestJob(
     input.orgId,
     input.job.workspaceId,
-    env,
+    input.job,
   )
+  const remote = await ingestWriteRemote(input.orgId, admitted, env)
   return pushIngestStep({ ...input, remote })
 }
 
-/** Deletes the run's refs in one Workspace repository. Idempotent. */
-export async function deleteWorkspaceIngestRefs(
-  input: { orgId: string; runId: string; workspaceId: string },
+/** The assemble job kind: merge the shard tips into the assembled ref. */
+export async function pushWorkspaceIngestAssemble(
+  input: Omit<Parameters<typeof pushIngestAssemble>[0], "remote" | "job"> & {
+    orgId: string
+    job: IngestBrokerJob
+  },
   env: Env,
-): Promise<string[]> {
-  const remote = await workspaceIngestRemote(
+) {
+  const admitted = await admitIngestJob(
     input.orgId,
-    input.workspaceId,
-    env,
+    input.job.workspaceId,
+    input.job,
   )
-  return deleteRunIngestRefs({ ...input, remote })
+  const remote = await ingestWriteRemote(input.orgId, admitted, env)
+  return pushIngestAssemble({ ...input, remote })
 }
 
-/** The stale ingest ref clean-up of the Workspace tip check. */
-export async function cleanUpWorkspaceIngestRefs(
-  input: { orgId: string; workspaceId: string; now: Date; shadow: boolean },
+/**
+ * Resume: the commit of `step` on the tip of `ref`, when a step crashed after
+ * its push; else null. T09 calls it before the model run of each step.
+ */
+export async function findWorkspaceStepCommit(
+  input: { orgId: string; job: IngestBrokerJob; ref: string; step: string },
+  env: Env,
+): Promise<string | null> {
+  const target = parseIngestRef(input.ref)
+  if (
+    target?.runId !== input.job.runId ||
+    target.workspaceId !== input.job.workspaceId
+  )
+    throw new IngestRefRefusedError(
+      "The ref is not an ingest ref of the job's run and Workspace",
+    )
+  const admitted = await admitIngestJob(
+    input.orgId,
+    input.job.workspaceId,
+    input.job,
+  )
+  return findStepCommit({
+    remote: await ingestReadRemote(input.orgId, admitted, env),
+    ref: input.ref,
+    runId: input.job.runId,
+    step: input.step,
+  })
+}
+
+/** Deletes the run's refs in its Workspace repository. Idempotent. */
+export async function deleteWorkspaceIngestRefs(
+  input: { orgId: string; job: IngestBrokerJob },
   env: Env,
 ): Promise<string[]> {
-  const remote = await workspaceIngestRemote(
+  const admitted = await admitIngestJob(
     input.orgId,
-    input.workspaceId,
-    env,
+    input.job.workspaceId,
+    input.job,
   )
+  return deleteRunIngestRefs({
+    remote: await ingestWriteRemote(input.orgId, admitted, env),
+    runId: input.job.runId,
+    workspaceId: input.job.workspaceId,
+  })
+}
+
+/**
+ * The stale ingest ref clean-up of the Workspace tip check. It lists with the
+ * read credential and asks for the write credential only to delete.
+ */
+export async function cleanUpWorkspaceIngestRefs(
+  input: { orgId: string; workspaceId: string; now: Date },
+  env: Env,
+): Promise<string[]> {
+  const admitted = await admitIngestJob(input.orgId, input.workspaceId)
   const { deleted } = await cleanUpIngestRefs({
-    remote,
+    remote: await ingestReadRemote(input.orgId, admitted, env),
+    pushRemote: () => ingestWriteRemote(input.orgId, admitted, env),
     now: input.now,
-    shadow: input.shadow,
-    unfinishedRunIds: (runIds) =>
-      unfinishedOrgWorkflowRunIds(
-        input.orgId,
-        INGESTION_V2_WORKFLOW_NAME,
-        runIds,
-      ),
+    runStates: (runIds) => ingestionRunStates(input.orgId, runIds),
   })
   return deleted
 }

@@ -288,8 +288,11 @@ export async function getDesiredWorkspaceRevision(
 }
 
 /** Revision and write access must come from the same PostgreSQL row version. */
-export async function getWorkspaceWriteAdmission(workspaceId: string) {
-  const row = await getWorkspaceById(workspaceId)
+export async function getWorkspaceWriteAdmission(
+  workspaceId: string,
+  orgId?: string,
+) {
+  const row = await getWorkspaceById(workspaceId, orgId)
   const revision = row ? desiredWorkspaceRevision(row) : null
   return row && revision
     ? {

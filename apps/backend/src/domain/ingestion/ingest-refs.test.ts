@@ -445,11 +445,13 @@ describe("cleanUpIngestRefs", () => {
     shadow,
   })
 
-  async function seed(runs: Record<string, Date>) {
-    const refs: Record<string, string> = {}
-    for (const [runId, authorTime] of Object.entries(runs)) {
+  async function seed<K extends string>(
+    runs: Record<K, Date>,
+  ): Promise<Record<K, string>> {
+    const refs = {} as Record<K, string>
+    for (const runId of Object.keys(runs) as K[]) {
       refs[runId] = ingestRefName({ runId, workspaceId: WORKSPACE })
-      await step({ runId, ref: refs[runId], authorTime })
+      await step({ runId, ref: refs[runId], authorTime: runs[runId] })
     }
     return refs
   }
@@ -520,7 +522,7 @@ describe("cleanUpIngestRefs", () => {
       run_gone_old: ago(25 * HOUR),
       run_gone_new: ago(HOUR),
     })
-    const oldTip = remoteRefs(remote).get(refs.run_gone_old ?? "")
+    const oldTip = remoteRefs(remote).get(refs.run_gone_old)
     git(remote, ["update-ref", "refs/ctxpipe/ingest/odd", oldTip ?? ""])
     const { result } = cleanUp({})
     expect((await result).deleted.sort()).toEqual(
