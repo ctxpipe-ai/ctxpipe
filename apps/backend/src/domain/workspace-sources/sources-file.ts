@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { buildkiteSourceScope } from "./providers/buildkite.js"
 import { confluenceSourceScope } from "./providers/confluence.js"
 import { githubSourceScope } from "./providers/github.js"
 import { linearSourceScope } from "./providers/linear.js"
@@ -22,6 +23,7 @@ export const SOURCE_PROVIDERS = [
   "notion",
   "slack",
   "pagerduty",
+  "buildkite",
 ] as const
 
 export const sourceProviderSchema = z.enum(SOURCE_PROVIDERS)
@@ -35,6 +37,7 @@ export const SOURCE_SCOPES: Record<SourceProvider, SourceScopeDefinition> = {
   notion: notionSourceScope,
   slack: slackSourceScope,
   pagerduty: pagerdutySourceScope,
+  buildkite: buildkiteSourceScope,
 }
 
 export const SOURCE_STATUSES = [

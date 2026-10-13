@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { buildkitePipelineFiles } from "../../services/buildkite/converter.js"
 import { toConfluenceMarkdownFile } from "../../services/confluence/converter.js"
 import {
   type LinearIssueForMirror,
@@ -403,5 +404,48 @@ describe("Slack, PagerDuty, and Linear project-root mirror units", () => {
     expect(unit(projectIssue.path).kind).toBe("Issue")
     expect(unit(projectPage.path).kind).toBe("Project")
     expect(edges).toContainEqual({ from: projectIssue.path, to: thread.path })
+  })
+})
+
+describe("Buildkite mirror units", () => {
+  const [pipeline, build] = buildkitePipelineFiles({
+    organizationSlug: "acme",
+    pipeline: {
+      id: "pipeline-uuid",
+      slug: "web-app",
+      name: "Web App",
+      description: null,
+      url: "https://buildkite.com/acme/web-app",
+      repository: "git@github.com:acme/web-app.git",
+      defaultBranch: "main",
+      createdAt: null,
+      archivedAt: null,
+    },
+    builds: [
+      {
+        id: "build-uuid",
+        number: 42,
+        url: "https://buildkite.com/acme/web-app/builds/42",
+        state: "failed",
+        branch: "main",
+        commit: "abc1234def5678",
+        message: "Fix the deploy",
+        createdAt: null,
+        startedAt: null,
+        finishedAt: null,
+        creatorName: null,
+        authorName: null,
+        pullRequest: null,
+        jobs: [],
+      },
+    ],
+  })
+
+  it("gives the pipeline and its builds kinds, and links them", () => {
+    if (!pipeline || !build) throw new Error("no Buildkite files")
+    const { unit, edges } = hydrate([pipeline, build])
+    expect(unit(pipeline.path).kind).toBe("Pipeline")
+    expect(unit(build.path).kind).toBe("Build")
+    expect(edges).toContainEqual({ from: build.path, to: pipeline.path })
   })
 })
