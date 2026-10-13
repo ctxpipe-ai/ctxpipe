@@ -3,7 +3,14 @@ import { apiFetch, readApiJson } from "@/lib/api-result"
 
 export type OrgConnectionListItem = {
   id: string
-  type: "github" | "forge" | "slack" | "linear" | "notion" | "pagerduty"
+  type:
+    | "github"
+    | "forge"
+    | "slack"
+    | "linear"
+    | "notion"
+    | "pagerduty"
+    | "buildkite"
   /** The account, site, or workspace name that the provider gives. */
   displayName: string | null
   createdAt: string
@@ -21,6 +28,7 @@ const TYPE_ORDER: Record<OrgConnectionListItem["type"], number> = {
   notion: 3,
   slack: 4,
   pagerduty: 5,
+  buildkite: 6,
 }
 
 /** GitHub first — every other connector syncs through it. Then createdAt. */
