@@ -245,12 +245,18 @@ export function runVaultName(runKey: string): string {
 /**
  * Create the run's vault with `rules` and a proxy session for the sandbox.
  * Throws {@link AgentVaultUnavailableError} when Agent Vault does not answer.
+ *
+ * `unmatchedHosts` is what the proxy does with a request that no rule
+ * matches: `passthrough` (the default) forwards it with no credential, and
+ * `deny` refuses it with a 403. A rule with a path matches that exact path
+ * only, so `deny` also refuses the other paths of a rule's host.
  */
 export async function openRunVault(input: {
   access: AgentVaultAccess
   runKey: string
   ttlSeconds: number
   rules: RunVaultRule[]
+  unmatchedHosts?: "passthrough" | "deny"
 }): Promise<RunVault> {
   const { access } = input
   const name = runVaultName(input.runKey)
@@ -272,12 +278,25 @@ export async function openRunVault(input: {
       }),
     )
   }
-  const session = await asOwner(access, async (client) => {
+  const session = await asOwner(access, async (client, token) => {
     try {
       await client.createVault({ name })
     } catch (error) {
       // A retry of the same run reuses its vault.
       if ((error as { status?: number }).status !== 409) throw error
+    }
+    if (input.unmatchedHosts) {
+      // Before the session: the sandbox never has the vault with no policy.
+      const policy = await avFetch(access, `/v1/vaults/${name}/settings`, {
+        method: "PATCH",
+        token,
+        body: { unmatched_host_policy: input.unmatchedHosts },
+      })
+      if (!policy.ok)
+        throw Object.assign(
+          new Error("Setting the vault's unmatched host policy failed"),
+          { status: policy.status },
+        )
     }
     return client.vault(name).sessions?.create({ ttlSeconds: input.ttlSeconds })
   })

@@ -9,6 +9,7 @@ import {
 import { workspaceChatDockerImage } from "./chat-runtime.js"
 import {
   bearerUrlRule,
+  githubCredentialRules,
   type SandboxCredentialRule,
 } from "./sandbox-credential-rules.js"
 import { WORKSPACE_CHAT_FIREWALL_PLACEHOLDER as PLACEHOLDER } from "./workspace-chat-opencode-contract.js"
@@ -159,6 +160,116 @@ curl -sS -o /dev/null -w "%{http_code}" http://${upstream}:8080/echo/model/x`,
 curl -sS -o /dev/null -w "%{http_code}" https://example.com/`,
           )
           expect(result.stdout).toBe("200")
+        } finally {
+          await vault.close()
+        }
+      })
+    },
+  )
+
+  it(
+    "a closed vault forwards only its rules: the model proxy, the tool bridge and Git; other hosts and paths fail",
+    { timeout: 240_000 },
+    async () => {
+      // The sandbox network is internal, as the DinD and AWS hosts force with
+      // iptables: Agent Vault is the only way out.
+      await withAgentVault({ image, closed: true }, async (fixture) => {
+        const upstream = fixture.upstream
+        const base = `http://${upstream}:8080`
+        const basic = `Basic ${Buffer.from(`x-access-token:${fixture.gitToken}`).toString("base64")}`
+        const rules: SandboxCredentialRule[] = [
+          bearerUrlRule(
+            "model-proxy-chat",
+            `${base}/echo/model/v1/chat/completions`,
+            "model-capability",
+          ),
+          bearerUrlRule("tool-bridge", `${base}/echo/bridge`, "bridge-token"),
+          ...["info/refs", "git-upload-pack"].map((path, index) => ({
+            name: `git-${index}`,
+            host: `${upstream}:8080`,
+            path: `/git/repo.git/${path}`,
+            authorization: basic,
+          })),
+          // The real GitHub hosts, with a token GitHub refuses: GitHub (not
+          // Agent Vault) answers.
+          ...githubCredentialRules("ghs_not_a_real_token"),
+        ]
+        const vault = await openRunVault({
+          access: fixture.access,
+          runKey: `test:${crypto.randomUUID()}`,
+          ttlSeconds: 600,
+          rules,
+          unmatchedHosts: "deny",
+        })
+        try {
+          const code = (args: string) =>
+            `curl -sS -m 20 -o /dev/null -w "%{http_code}" ${args} 2>/dev/null || true`
+          const result = await fixture.sandbox(
+            vault.env,
+            `${writeProxyCaCommand(vault.caPem)}
+echo "== model"
+curl -sS -m 20 ${base}/echo/model/v1/chat/completions
+echo
+echo "== bridge"
+curl -sS -m 20 ${base}/echo/bridge
+echo
+echo "== git"
+git ls-remote ${base}/git/repo.git 2>&1 || true
+echo "== github"
+curl -sS -m 20 https://api.github.com/user 2>&1 || true
+echo
+echo "== example"
+${code("https://example.com/")}
+echo
+echo "== example-http"
+${code("http://example.com/")}
+echo
+echo "== other-path"
+${code(`${base}/echo/other`)}
+echo
+echo "== git-push"
+${code(`-X POST ${base}/git/repo.git/git-receive-pack`)}
+echo
+echo "== direct"
+${code("--noproxy '*' https://example.com/")}
+echo
+echo "== direct-ip"
+${code("--noproxy '*' http://1.1.1.1/")}
+`,
+          )
+          expect(result.exitCode, `${result.stdout}\n${result.stderr}`).toBe(0)
+          const sections = Object.fromEntries(
+            result.stdout
+              .split("== ")
+              .filter(Boolean)
+              .map((section) => {
+                const [name, ...rest] = section.split("\n")
+                return [name, rest.join("\n").trim()]
+              }),
+          )
+          const output = `${result.stdout}\n${result.stderr}`
+          expect(
+            JSON.parse(sections.model ?? "{}").headers?.authorization,
+            output,
+          ).toBe("Bearer model-capability")
+          expect(
+            JSON.parse(sections.bridge ?? "{}").headers?.authorization,
+            output,
+          ).toBe("Bearer bridge-token")
+          expect(sections.git, output).toContain("refs/heads/main")
+          // GitHub refuses the fake token: proof that the request got there.
+          expect(sections.github, output).toContain("Bad credentials")
+          // Hosts and paths with no rule: Agent Vault refuses them.
+          for (const name of [
+            "example",
+            "example-http",
+            "other-path",
+            "git-push",
+          ])
+            expect(sections[name], `${name}\n${output}`).toBe("403")
+          // No way around the proxy: no route and no DNS.
+          for (const name of ["direct", "direct-ip"])
+            expect(sections[name], `${name}\n${output}`).toBe("000")
         } finally {
           await vault.close()
         }

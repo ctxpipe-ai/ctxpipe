@@ -81,7 +81,7 @@ export type AgentVaultFixture = {
   gitToken: string
   /** Agent Vault's container name, which the test network resolves. */
   agentVaultName: string
-  /** Run `script` in a fresh chat-image container on the test network. */
+  /** Run `script` in a fresh chat-image container on the sandbox network. */
   sandbox: (
     env: Record<string, string>,
     script: string,
@@ -101,13 +101,18 @@ async function ipOn(container: string, network: string): Promise<string> {
 /**
  * A real Agent Vault (`infisical/agent-vault:latest`) on its own network, as
  * Compose runs it: the proxy may dial only the upstream (the backend's place).
+ *
+ * With `closed`, sandboxes run on an internal network where Agent Vault is
+ * the only other container, as the DinD and AWS sandbox hosts force with
+ * iptables: a sandbox has no route and no DNS to anything but the proxy.
  */
 export async function withAgentVault<T>(
-  input: { image: string },
+  input: { image: string; closed?: boolean },
   fn: (fixture: AgentVaultFixture) => Promise<T>,
 ): Promise<T> {
   const id = randomUUID().slice(0, 8)
   const network = `ctxpipe-av-test-${id}`
+  const closedNetwork = `ctxpipe-av-closed-${id}`
   const vaultName = `ctxpipe-av-test-${id}`
   const upstreamName = `ctxpipe-av-upstream-${id}`
   const gitToken = `ghs_${randomBytes(12).toString("hex")}`
@@ -241,7 +246,12 @@ exec node /tmp/upstream.cjs`,
         throw new Error("Agent Vault did not become healthy")
       await new Promise((resolve) => setTimeout(resolve, 250))
     }
-    const proxyHost = await ipOn(vaultName, network)
+    if (input.closed) {
+      await docker("network", "create", "--internal", closedNetwork)
+      await docker("network", "connect", closedNetwork, vaultName)
+    }
+    const sandboxNetwork = input.closed ? closedNetwork : network
+    const proxyHost = await ipOn(vaultName, sandboxNetwork)
     return await fn({
       access: {
         address,
@@ -253,7 +263,7 @@ exec node /tmp/upstream.cjs`,
       gitToken,
       agentVaultName: vaultName,
       sandbox: async (env, script) => {
-        const args = ["run", "--rm", "--network", network]
+        const args = ["run", "--rm", "--network", sandboxNetwork]
         for (const [key, value] of Object.entries(env))
           args.push("-e", `${key}=${value}`)
         args.push(input.image, "sh", "-c", script)
@@ -282,6 +292,8 @@ exec node /tmp/upstream.cjs`,
   } finally {
     await docker("rm", "-f", "-v", vaultName, upstreamName).catch(() => "")
     await docker("network", "rm", network).catch(() => "")
+    if (input.closed)
+      await docker("network", "rm", closedNetwork).catch(() => "")
     await rm(tls, { recursive: true, force: true })
   }
 }
