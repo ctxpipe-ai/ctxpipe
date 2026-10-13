@@ -1,6 +1,6 @@
 # ADR-037: Committed memory reaches the graph
 
-**Status:** Accepted | **Date:** 2026-09-24 | **Tags:** memory, cli, hooks, ingestion, graph
+**Status:** Accepted (amended 2026-10-13 by [ADR-051](ADR-051-mcp-read-surface.md): `ctx_advisor` removed) | **Date:** 2026-09-24 | **Tags:** memory, cli, hooks, ingestion, graph
 
 **Amends:** [ADR-024](ADR-024-markdown-only-local-memory-capture.md) (commit policy, work summaries) and [ADR-033](ADR-033-graph-ontology-v2.md) §8 (instruction sources).
 
@@ -61,6 +61,9 @@ is what the team reviews and merges.
    store. `ctx_advisor` search (vector and BM25) is scoped to the organization,
    not a repository, so a merged lesson from one repository reaches agents in
    every other.
+   **Amendment (2026-10-13, [ADR-051](ADR-051-mcp-read-surface.md)):**
+   `ctx_advisor` is removed. Agents find lessons with `search_knowledge`, which
+   is also scoped to the organization (one or more Workspaces of it).
 7. **A correction of ctx| is an ordinary lesson.** It is recorded in Git and
    ingested at tier 2 like any other lesson. There is no server-side feedback
    store.
