@@ -134,15 +134,11 @@ export const buildkiteSourceAdapter: SourceAdapter<BuildkiteSourceScope> = {
           builds: await listBuildkiteBuilds(request),
         })
         delete failures[failureKey(pipelineSlug)]
-        if (!existing) {
-          files.push(...pipelineFiles)
-          continue
-        }
         // A patch: the changed files, and the builds that rolled off.
         const desired = new Set(pipelineFiles.map((file) => file.path))
-        files.push(...withoutUnchanged(pipelineFiles, existing))
+        files.push(...withoutUnchanged(pipelineFiles, existing ?? []))
         deletePaths.push(
-          ...existing
+          ...(existing ?? [])
             .map((file) => file.path)
             .filter((path) => path.startsWith(root) && !desired.has(path)),
         )
@@ -178,9 +174,7 @@ export const buildkiteSourceAdapter: SourceAdapter<BuildkiteSourceScope> = {
     const kept = keepPaths.filter(
       (path) => !unreachable.some((lost) => lost.path === path),
     )
-    return existing
-      ? { files, deletePaths, keepPaths: kept, unreachable }
-      : { files, keepPaths: kept, unreachable }
+    return { files, deletePaths, keepPaths: kept, unreachable }
   },
   async checkAccess({ orgId, connectionId, scope, env }) {
     const connection = await loadConnection(orgId, connectionId, env)

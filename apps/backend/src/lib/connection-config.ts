@@ -896,10 +896,8 @@ export type BuildkiteSourceSync = z.infer<typeof buildkiteSourceSyncSchema>
 export const buildkiteConnectionConfigStoredSchema = z
   .object({
     organizationSlug: z.string().min(1),
-    organizationName: z.string().min(1),
     apiTokenEnc: z.string().min(1),
     webhookTokenEnc: z.string().min(1).optional(),
-    ownerUserId: z.string().min(1),
     status: z.enum(["installed", "revoked"]).optional(),
     sourceSync: buildkiteSourceSyncSchema.optional(),
   })

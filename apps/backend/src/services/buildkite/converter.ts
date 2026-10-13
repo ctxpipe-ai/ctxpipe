@@ -6,18 +6,14 @@ export type BuildkitePipelineForMirror = {
   id: string
   slug: string
   name: string
-  description: string | null
   url: string
   repository: string | null
   defaultBranch: string | null
-  createdAt: string | null
-  archivedAt: string | null
 }
 
 export type BuildkiteJobForMirror = {
   name: string
   state: string
-  exitStatus: number | null
   softFailed: boolean
   url: string | null
 }
@@ -29,15 +25,10 @@ export type BuildkiteBuildForMirror = {
   state: string
   branch: string | null
   commit: string | null
-  message: string | null
   createdAt: string | null
-  startedAt: string | null
   finishedAt: string | null
-  /** The person who started the build in Buildkite, if one did. */
   creatorName: string | null
-  /** The commit author that the source control webhook gave. */
-  authorName: string | null
-  pullRequest: { number: string; repository: string | null } | null
+  pullRequestNumber: string | null
   jobs: BuildkiteJobForMirror[]
 }
 
@@ -53,14 +44,9 @@ function yamlScalar(value: string): string {
   return JSON.stringify(value)
 }
 
-/** One Markdown table cell: no line breaks, and an escaped `|`. */
-function cell(value: string): string {
-  return value.replace(/\s*\n\s*/g, " ").replace(/\|/g, "\\|")
-}
-
 /** Link text without the brackets that would end it. */
 function linkText(value: string): string {
-  return cell(value).replace(/[[\]]/g, "\\$&")
+  return value.replace(/\s*\n\s*/g, " ").replace(/[[\]]/g, "\\$&")
 }
 
 /**
@@ -74,10 +60,6 @@ export function githubRepositoryUrl(remote: string | null): string | null {
       /^(?:git@github\.com:|(?:https?|ssh):\/\/(?:git@)?github\.com\/)([\w.-]+)\/([\w.-]+?)(?:\.git)?\/?$/,
     )
   return match ? `https://github.com/${match[1]}/${match[2]}` : null
-}
-
-function firstLine(text: string | null): string {
-  return text?.trim().split("\n")[0]?.trim() ?? ""
 }
 
 function frontMatter(
@@ -98,10 +80,9 @@ function frontMatter(
 function renderPipelineMarkdown(input: {
   organizationSlug: string
   pipeline: BuildkitePipelineForMirror
-  builds: BuildkiteBuildForMirror[]
 }): string {
-  const { pipeline, builds } = input
-  const lines = [
+  const { pipeline } = input
+  return [
     ...frontMatter([
       ["source", "buildkite"],
       ["organization", input.organizationSlug],
@@ -110,34 +91,23 @@ function renderPipelineMarkdown(input: {
       ["url", pipeline.url],
       ["repository", pipeline.repository],
       ["default_branch", pipeline.defaultBranch],
-      ["created_at", pipeline.createdAt],
-      ["archived_at", pipeline.archivedAt],
     ]),
     `# ${pipeline.name}`,
     "",
-  ]
-  if (pipeline.description?.trim()) lines.push(pipeline.description.trim(), "")
-  lines.push(`- Buildkite: [${linkText(pipeline.name)}](${pipeline.url})`)
-  if (pipeline.repository) lines.push(`- Repository: ${pipeline.repository}`)
-  if (pipeline.defaultBranch)
-    lines.push(`- Default branch: ${pipeline.defaultBranch}`)
-  if (pipeline.archivedAt) lines.push(`- Archived: ${pipeline.archivedAt}`)
-  lines.push("", "## Latest builds", "")
-  if (!builds.length) {
-    lines.push("No finished builds.", "")
-    return lines.join("\n")
-  }
-  lines.push(
-    "| Build | State | Branch | Commit | Finished |",
-    "| --- | --- | --- | --- | --- |",
-    ...builds.map(
-      (build) =>
-        `| [#${build.number}](builds/${build.number}.md) | ${cell(build.state)} | ${cell(build.branch ?? "")} | ${cell(build.commit?.slice(0, 7) ?? "")} | ${cell(build.finishedAt ?? "")} |`,
-    ),
+    `- Buildkite: [${linkText(pipeline.name)}](${pipeline.url})`,
+    ...(pipeline.repository ? [`- Repository: ${pipeline.repository}`] : []),
+    ...(pipeline.defaultBranch
+      ? [`- Default branch: ${pipeline.defaultBranch}`]
+      : []),
     "",
-  )
-  return lines.join("\n")
+  ].join("\n")
 }
+
+/** A job that failed the build. A soft fail does not fail the build. */
+const FAILED_STATES = new Map([
+  ["failed", ""],
+  ["timed_out", " (timed out)"],
+])
 
 function renderBuildMarkdown(input: {
   organizationSlug: string
@@ -145,16 +115,17 @@ function renderBuildMarkdown(input: {
   build: BuildkiteBuildForMirror
 }): string {
   const { pipeline, build } = input
-  const repository = githubRepositoryUrl(
-    build.pullRequest?.repository ?? pipeline.repository,
-  )
+  // A pull request is in the repository of the pipeline, also when its
+  // branch is in a fork.
+  const repository = githubRepositoryUrl(pipeline.repository)
   const commitUrl =
     repository && build.commit ? `${repository}/commit/${build.commit}` : null
   const pullRequestUrl =
-    repository && build.pullRequest && /^\d+$/.test(build.pullRequest.number)
-      ? `${repository}/pull/${build.pullRequest.number}`
+    repository &&
+    build.pullRequestNumber &&
+    /^\d+$/.test(build.pullRequestNumber)
+      ? `${repository}/pull/${build.pullRequestNumber}`
       : null
-  const title = firstLine(build.message)
   const lines = [
     ...frontMatter([
       ["source", "buildkite"],
@@ -169,10 +140,9 @@ function renderBuildMarkdown(input: {
       ["commit_url", commitUrl],
       ["pull_request_url", pullRequestUrl],
       ["created_at", build.createdAt],
-      ["started_at", build.startedAt],
       ["finished_at", build.finishedAt],
     ]),
-    `# ${pipeline.name} build #${build.number}${title ? `: ${title}` : ""}`,
+    `# ${pipeline.name} build #${build.number}`,
     "",
     `- Pipeline: [${linkText(pipeline.name)}](../pipeline.md)`,
     `- Buildkite: [#${build.number}](${build.url})`,
@@ -185,45 +155,23 @@ function renderBuildMarkdown(input: {
         ? `- Commit: [${build.commit.slice(0, 7)}](${commitUrl})`
         : `- Commit: ${build.commit}`,
     )
-  if (build.pullRequest)
+  if (build.pullRequestNumber)
     lines.push(
       pullRequestUrl
-        ? `- Pull request: [#${build.pullRequest.number}](${pullRequestUrl})`
-        : `- Pull request: #${build.pullRequest.number}`,
+        ? `- Pull request: [#${build.pullRequestNumber}](${pullRequestUrl})`
+        : `- Pull request: #${build.pullRequestNumber}`,
     )
-  if (build.authorName) lines.push(`- Author: ${build.authorName}`)
-  if (build.creatorName) lines.push(`- Started by: ${build.creatorName}`)
-  if (build.startedAt) lines.push(`- Started: ${build.startedAt}`)
-  if (build.finishedAt) lines.push(`- Finished: ${build.finishedAt}`)
-  lines.push("")
-  const message = build.message?.trim()
-  if (message && message !== title) lines.push("## Message", "", message, "")
-
-  lines.push("## Jobs", "")
-  if (!build.jobs.length) {
-    lines.push("No command or trigger steps.", "")
-    return lines.join("\n")
-  }
+  if (build.creatorName) lines.push(`- Created by: ${build.creatorName}`)
+  lines.push("", "## Failed jobs", "")
   const failed = build.jobs.filter(
-    (job) => job.state === "failed" || job.state === "timed_out",
+    (job) => FAILED_STATES.has(job.state) && !job.softFailed,
   )
-  if (failed.length)
-    lines.push(
-      `${failed.length} of ${build.jobs.length} jobs failed: ${failed.map((job) => job.name).join(", ")}.`,
-      "",
-    )
-  lines.push(
-    "| Job | State | Exit status |",
-    "| --- | --- | --- |",
-    ...build.jobs.map((job) => {
-      const name = job.url
-        ? `[${linkText(job.name)}](${job.url})`
-        : cell(job.name)
-      const state = job.softFailed ? `${job.state} (soft fail)` : job.state
-      return `| ${name} | ${cell(state)} | ${job.exitStatus ?? ""} |`
-    }),
-    "",
-  )
+  if (!failed.length) lines.push("No job failed.")
+  for (const job of failed) {
+    const name = job.url ? `[${linkText(job.name)}](${job.url})` : job.name
+    lines.push(`- ${name}${FAILED_STATES.get(job.state)}`)
+  }
+  lines.push("")
   return lines.join("\n")
 }
 
@@ -235,10 +183,7 @@ export function buildkitePipelineFiles(input: {
 }): GitFileChange[] {
   const root = buildkitePipelineRoot(input.pipeline.slug)
   return [
-    {
-      path: `${root}pipeline.md`,
-      content: renderPipelineMarkdown(input),
-    },
+    { path: `${root}pipeline.md`, content: renderPipelineMarkdown(input) },
     ...input.builds.map((build) => ({
       path: `${root}builds/${build.number}.md`,
       content: renderBuildMarkdown({ ...input, build }),

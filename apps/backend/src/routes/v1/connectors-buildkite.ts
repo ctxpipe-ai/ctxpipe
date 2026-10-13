@@ -19,7 +19,7 @@ const error = (description: string) => ({
   description,
 })
 const UNKNOWN_CONNECTION = "Unknown Buildkite connection"
-const RECONNECT =
+const RECONNECT_MESSAGE =
   "Buildkite does not accept the API access token of this connection. Reconnect Buildkite."
 
 const connectRoute = createRoute({
@@ -46,15 +46,7 @@ const connectRoute = createRoute({
           schema: z.object({ connectionId: z.string() }),
         },
       },
-      description: "The token of the connection is replaced",
-    },
-    201: {
-      content: {
-        "application/json": {
-          schema: z.object({ connectionId: z.string() }),
-        },
-      },
-      description: "A connection is created",
+      description: "The connection is created, or its token is replaced",
     },
     400: error("Buildkite refused the token or the organization"),
     401: error("Unauthorized"),
@@ -74,7 +66,6 @@ const statusRoute = createRoute({
           schema: z.object({
             status: z.enum(["installed", "revoked"]),
             organizationSlug: z.string(),
-            organizationName: z.string(),
             /** Add a webhook with this URL in Buildkite. */
             webhookUrl: z.string(),
             webhookConfigured: z.boolean(),
@@ -127,7 +118,7 @@ const pipelinesRoute = createRoute({
       },
       description: "The pipelines of the organization, for the scope picker",
     },
-    400: error(RECONNECT),
+    400: error(RECONNECT_MESSAGE),
     401: error("Unauthorized"),
     404: error(UNKNOWN_CONNECTION),
   },
@@ -150,9 +141,8 @@ const deleteRoute = createRoute({
  */
 export const buildkiteConnectorRoutes = new OpenAPIHono<AppEnv>()
   .openapi(connectRoute, async (c) => {
-    const user = c.get("user")
     const orgId = c.get("orgId")
-    if (!user || !orgId) return c.json({ error: "Unauthorized" }, 401)
+    if (!orgId) return c.json({ error: "Unauthorized" }, 401)
     const body = c.req.valid("json")
     const access = await verifyBuildkiteAccess({
       apiToken: body.apiToken,
@@ -162,15 +152,11 @@ export const buildkiteConnectorRoutes = new OpenAPIHono<AppEnv>()
     const saved = await saveBuildkiteConnection({
       orgId,
       env: c.var.env,
-      ownerUserId: user.id,
       connectionId: body.connectionId,
-      organization: access.organization,
+      organizationSlug: body.organizationSlug,
       apiToken: body.apiToken,
     })
-    if (saved.ok)
-      return body.connectionId
-        ? c.json({ connectionId: saved.connectionId }, 200)
-        : c.json({ connectionId: saved.connectionId }, 201)
+    if (saved.ok) return c.json({ connectionId: saved.connectionId }, 200)
     return saved.status === 404
       ? c.json({ error: UNKNOWN_CONNECTION }, 404)
       : c.json(
@@ -195,7 +181,6 @@ export const buildkiteConnectorRoutes = new OpenAPIHono<AppEnv>()
       {
         status: connection.status,
         organizationSlug: connection.organizationSlug,
-        organizationName: connection.organizationName,
         webhookUrl: `${c.var.env.AUTH_BASE_URL.replace(/\/$/, "")}/api/v1/webhook/buildkite/${connection.id}`,
         webhookConfigured: connection.hasWebhookToken,
       },
@@ -237,7 +222,7 @@ export const buildkiteConnectorRoutes = new OpenAPIHono<AppEnv>()
       )
     } catch (caught) {
       if (caught instanceof BuildkiteUnauthorizedError)
-        return c.json({ error: RECONNECT }, 400)
+        return c.json({ error: RECONNECT_MESSAGE }, 400)
       throw caught
     }
   })

@@ -26,7 +26,6 @@ export type BuildkiteConnection = {
   id: string
   orgId: string
   organizationSlug: string
-  organizationName: string
   apiToken: string
   /** The ciphertext, to compare and set when the token stops working. */
   apiTokenEnc: string
@@ -41,7 +40,6 @@ function toConnection(row: ConnectionRow, env: Env): BuildkiteConnection {
     id: row.id,
     orgId: row.orgId,
     organizationSlug: config.organizationSlug,
-    organizationName: config.organizationName,
     apiToken: decryptConnectionSecret(config.apiTokenEnc, env),
     apiTokenEnc: config.apiTokenEnc,
     hasWebhookToken: Boolean(config.webhookTokenEnc),
@@ -50,7 +48,7 @@ function toConnection(row: ConnectionRow, env: Env): BuildkiteConnection {
   }
 }
 
-const isBuildkiteRow = (orgId: string, connectionId: string) =>
+const buildkiteRowWhere = (orgId: string, connectionId: string) =>
   and(
     eq(connections.id, connectionId),
     eq(connections.orgId, orgId),
@@ -66,7 +64,7 @@ export async function getBuildkiteConnection(
     db
       .select()
       .from(connections)
-      .where(isBuildkiteRow(orgId, connectionId))
+      .where(buildkiteRowWhere(orgId, connectionId))
       .limit(1),
   )
   return row ? toConnection(row, env) : undefined
@@ -81,7 +79,7 @@ export async function getBuildkiteConnectionStatus(
     db
       .select({ config: connections.config })
       .from(connections)
-      .where(isBuildkiteRow(orgId, connectionId))
+      .where(buildkiteRowWhere(orgId, connectionId))
       .limit(1),
   )
   return row
@@ -97,9 +95,8 @@ export async function getBuildkiteConnectionStatus(
 export async function saveBuildkiteConnection(input: {
   orgId: string
   env: Env
-  ownerUserId: string
   connectionId?: string
-  organization: { slug: string; name: string }
+  organizationSlug: string
   apiToken: string
 }): Promise<
   { ok: true; connectionId: string } | { ok: false; status: 404 | 409 }
@@ -114,10 +111,8 @@ export async function saveBuildkiteConnection(input: {
           orgId: input.orgId,
           type: CONNECTION_TYPE_BUILDKITE,
           config: {
-            organizationSlug: input.organization.slug,
-            organizationName: input.organization.name,
+            organizationSlug: input.organizationSlug,
             apiTokenEnc,
-            ownerUserId: input.ownerUserId,
             status: "installed",
           } satisfies BuildkiteConnectionConfigStored,
         })
@@ -127,22 +122,21 @@ export async function saveBuildkiteConnection(input: {
     const [current] = await db
       .select()
       .from(connections)
-      .where(isBuildkiteRow(input.orgId, input.connectionId))
+      .where(buildkiteRowWhere(input.orgId, input.connectionId))
       .limit(1)
     if (!current) return 404 as const
     const config = buildkiteConnectionConfigStoredSchema.parse(current.config)
-    if (config.organizationSlug !== input.organization.slug) return 409 as const
+    if (config.organizationSlug !== input.organizationSlug) return 409 as const
     const [updated] = await db
       .update(connections)
       .set({
         config: sql`${connections.config} || ${JSON.stringify({
-          organizationName: input.organization.name,
           apiTokenEnc,
           status: "installed",
         })}::jsonb`,
         updatedAt: new Date(),
       })
-      .where(isBuildkiteRow(input.orgId, input.connectionId))
+      .where(buildkiteRowWhere(input.orgId, input.connectionId))
       .returning()
     return updated
   })
@@ -170,7 +164,7 @@ export async function saveBuildkiteWebhookToken(input: {
         config: sql`jsonb_set(${connections.config}, '{webhookTokenEnc}', ${JSON.stringify(webhookTokenEnc)}::jsonb)`,
         updatedAt: new Date(),
       })
-      .where(isBuildkiteRow(input.orgId, input.connectionId))
+      .where(buildkiteRowWhere(input.orgId, input.connectionId))
       .returning({ id: connections.id }),
   )
   return updated.length > 0
@@ -195,7 +189,7 @@ export async function markBuildkiteConnectionRevoked(input: {
       })
       .where(
         and(
-          isBuildkiteRow(input.orgId, input.connectionId),
+          buildkiteRowWhere(input.orgId, input.connectionId),
           sql`${connections.config}->>'apiTokenEnc' = ${input.apiTokenEnc}`,
         ),
       ),
@@ -209,7 +203,7 @@ export async function deleteBuildkiteConnection(
   const deleted = await withOrgDbContext(orgId, (db) =>
     db
       .delete(connections)
-      .where(isBuildkiteRow(orgId, connectionId))
+      .where(buildkiteRowWhere(orgId, connectionId))
       .returning({ id: connections.id }),
   )
   if (deleted.length) await deleteConnectionDirectory(connectionId)

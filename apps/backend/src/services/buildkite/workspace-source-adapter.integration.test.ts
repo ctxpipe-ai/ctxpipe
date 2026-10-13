@@ -105,9 +105,7 @@ let env: ReturnType<typeof parseEnv>
 
 const installed = () => ({
   organizationSlug: "acme",
-  organizationName: "Acme",
   apiTokenEnc: encryptConnectionSecret("fixture-api-token", env),
-  ownerUserId: "user_fixture",
   status: "installed",
 })
 
@@ -214,7 +212,7 @@ describe("Buildkite source adapter (Postgres + msw)", () => {
       .get(web)
       ?.files.map((file) => file.content)
       .join("\n")
-    expect(text).toContain("# web-app build #12: Build 12")
+    expect(text).toContain("# web-app build #12")
     expect(text).not.toContain("do-not-mirror")
   })
 

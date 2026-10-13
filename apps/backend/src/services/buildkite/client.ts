@@ -8,7 +8,6 @@ const BUILDKITE_API = "https://api.buildkite.com/v2"
 
 /** The REST scopes that the API access token must have (ADR-053). */
 export const BUILDKITE_REQUIRED_SCOPES = [
-  "read_organizations",
   "read_pipelines",
   "read_builds",
 ] as const
@@ -69,21 +68,14 @@ async function readJson<T>(
 
 const nullableString = z.string().nullish().default(null)
 
-const organizationSchema = z.object({ slug: z.string(), name: z.string() })
-
 const pipelineSchema = z.object({
   id: z.string(),
   slug: z.string(),
   name: z.string(),
-  description: nullableString,
   web_url: z.string(),
   repository: nullableString,
   default_branch: nullableString,
-  created_at: nullableString,
-  archived_at: nullableString,
 })
-
-const personSchema = z.object({ name: nullableString }).nullish()
 
 // Only the fields that the mirror renders. Zod drops the rest, so the build
 // env, meta-data, and job commands never reach a file.
@@ -94,22 +86,15 @@ const buildSchema = z.object({
   state: z.string(),
   branch: nullableString,
   commit: nullableString,
-  message: nullableString,
   created_at: nullableString,
-  started_at: nullableString,
   finished_at: nullableString,
-  creator: personSchema,
-  author: personSchema,
-  pull_request: z
-    .object({ id: z.string(), repository: nullableString })
-    .nullish(),
+  creator: z.object({ name: nullableString }).nullish(),
+  pull_request: z.object({ id: z.string() }).nullish(),
   jobs: z
     .array(
       z.object({
-        type: z.string(),
         name: nullableString,
         state: nullableString,
-        exit_status: z.number().int().nullish().default(null),
         soft_failed: z.boolean().nullish(),
         web_url: nullableString,
       }),
@@ -124,12 +109,9 @@ function toPipeline(
     id: pipeline.id,
     slug: pipeline.slug,
     name: pipeline.name,
-    description: pipeline.description,
     url: pipeline.web_url,
     repository: pipeline.repository,
     defaultBranch: pipeline.default_branch,
-    createdAt: pipeline.created_at,
-    archivedAt: pipeline.archived_at,
   }
 }
 
@@ -141,42 +123,27 @@ function toBuild(build: z.infer<typeof buildSchema>): BuildkiteBuildForMirror {
     state: build.state,
     branch: build.branch,
     commit: build.commit,
-    message: build.message,
     createdAt: build.created_at,
-    startedAt: build.started_at,
     finishedAt: build.finished_at,
     creatorName: build.creator?.name ?? null,
-    authorName: build.author?.name ?? null,
-    pullRequest: build.pull_request
-      ? {
-          number: build.pull_request.id,
-          repository: build.pull_request.repository,
-        }
-      : null,
-    // Wait steps and block steps have no result to show.
-    jobs: build.jobs
-      .filter((job) => job.type === "script" || job.type === "trigger")
-      .map((job) => ({
-        name: job.name?.trim() || "Unnamed step",
-        state: job.state ?? "unknown",
-        exitStatus: job.exit_status,
-        softFailed: job.soft_failed ?? false,
-        url: job.web_url,
-      })),
+    pullRequestNumber: build.pull_request?.id ?? null,
+    jobs: build.jobs.map((job) => ({
+      name: job.name?.trim() || "Unnamed step",
+      state: job.state ?? "unknown",
+      softFailed: job.soft_failed ?? false,
+      url: job.web_url,
+    })),
   }
 }
 
 /**
- * Check that the token is valid, has the read scopes, and can read the
- * organization. Gives the organization, or the reason to show the admin.
+ * Check that the token is valid, has the read scopes, and can list the
+ * pipelines of the organization. Gives the reason to show the admin.
  */
 export async function verifyBuildkiteAccess(input: {
   apiToken: string
   organizationSlug: string
-}): Promise<
-  | { ok: true; organization: { slug: string; name: string } }
-  | { ok: false; error: string }
-> {
+}): Promise<{ ok: true } | { ok: false; error: string }> {
   let token: { scopes: string[] }
   try {
     token = await readJson(
@@ -202,17 +169,17 @@ export async function verifyBuildkiteAccess(input: {
     }
   const response = await buildkiteGet({
     apiToken: input.apiToken,
-    path: `/organizations/${encodeURIComponent(input.organizationSlug)}`,
+    path: `/organizations/${encodeURIComponent(input.organizationSlug)}/pipelines`,
+    search: { per_page: "1" },
   })
   if (response.status === 403 || response.status === 404)
     return {
       ok: false,
       error: `The token cannot read the Buildkite organization "${input.organizationSlug}". Check the slug, and the organizations of the token.`,
     }
-  return {
-    ok: true,
-    organization: await readJson(response, organizationSchema, "organization"),
-  }
+  if (!response.ok)
+    throw new Error(`Buildkite pipeline list failed (${response.status})`)
+  return { ok: true }
 }
 
 /** The pipelines of the organization, for the scope picker. */

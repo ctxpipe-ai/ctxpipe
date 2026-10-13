@@ -20,11 +20,11 @@ const API = "https://api.buildkite.com/v2"
 const requests: string[] = []
 const server = setupServer()
 
-const job = (n: number) => ({
+const job = (n: number, state = "passed") => ({
   type: "script",
   name: `Step ${n}`,
-  state: "passed",
-  exit_status: 0,
+  state,
+  web_url: `https://buildkite.com/acme/web-app/builds/2#job-${n}`,
 })
 
 beforeAll(() => server.listen({ onUnhandledRequest: "error" }))
@@ -54,7 +54,13 @@ describe("listBuildkiteBuilds", () => {
             number: 2,
             web_url: "u2",
             state: "failed",
-            jobs: [job(1), job(2), job(3), { type: "waiter" }],
+            creator: { name: "Sam Rivera", email: "not-mirrored@example.com" },
+            pull_request: {
+              id: "17",
+              repository: "git@github.com:fork/web-app.git",
+            },
+            env: { DEPLOY_TOKEN: "not-mirrored" },
+            jobs: [job(1, "failed"), job(2), job(3), { type: "waiter" }],
           },
           { id: "b1", number: 1, web_url: "u1", state: "passed", jobs: [] },
         ])
@@ -66,7 +72,12 @@ describe("listBuildkiteBuilds", () => {
     expect(requests).toEqual([
       `${API}/organizations/acme/pipelines/web-app/builds?state=finished&per_page=25`,
     ])
-    expect(builds.map((build) => build.jobs.length)).toEqual([3, 0])
+    expect(builds.map((build) => build.jobs.length)).toEqual([4, 0])
+    expect(builds[0]).toMatchObject({
+      creatorName: "Sam Rivera",
+      pullRequestNumber: "17",
+    })
+    expect(JSON.stringify(builds)).not.toContain("not-mirrored")
   })
 
   it("waits for the rate limit reset and sends the same request again", async () => {
@@ -108,24 +119,24 @@ describe("verifyBuildkiteAccess", () => {
   const token = (scopes: string[]) =>
     http.get(`${API}/access-token`, () => HttpResponse.json({ scopes }))
 
-  it("gives the organization of a token with the read scopes", async () => {
+  it("accepts a token with the read scopes that lists the pipelines", async () => {
     server.use(
-      token(["read_organizations", "read_pipelines", "read_builds", "x"]),
-      http.get(`${API}/organizations/acme`, () =>
-        HttpResponse.json({ slug: "acme", name: "Acme Inc", id: "o1" }),
-      ),
+      token(["read_pipelines", "read_builds", "x"]),
+      http.get(`${API}/organizations/acme/pipelines`, ({ request }) => {
+        requests.push(new URL(request.url).search)
+        return HttpResponse.json([{ slug: "web-app", name: "Web App" }])
+      }),
     )
-    expect(await verify()).toEqual({
-      ok: true,
-      organization: { slug: "acme", name: "Acme Inc" },
-    })
+    expect(await verify()).toEqual({ ok: true })
+    // One pipeline is enough to prove access to the organization.
+    expect(requests).toEqual(["?per_page=1"])
   })
 
   it("names the missing scopes", async () => {
     server.use(token(["read_pipelines"]))
     expect(await verify()).toEqual({
       ok: false,
-      error: "Give the token these scopes: read_organizations, read_builds.",
+      error: "Give the token these scopes: read_builds.",
     })
   })
 
@@ -143,8 +154,8 @@ describe("verifyBuildkiteAccess", () => {
 
   it("refuses an organization that the token cannot read", async () => {
     server.use(
-      token(["read_organizations", "read_pipelines", "read_builds"]),
-      http.get(`${API}/organizations/acme`, () =>
+      token(["read_pipelines", "read_builds"]),
+      http.get(`${API}/organizations/acme/pipelines`, () =>
         HttpResponse.json({ message: "Not Found" }, { status: 404 }),
       ),
     )

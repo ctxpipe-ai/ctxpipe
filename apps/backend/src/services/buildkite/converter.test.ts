@@ -10,12 +10,9 @@ const pipeline: BuildkitePipelineForMirror = {
   id: "0b8f7c34-pipeline",
   slug: "web-app",
   name: "Web App",
-  description: "Builds and deploys the web app.",
   url: "https://buildkite.com/acme/web-app",
   repository: "git@github.com:acme/web-app.git",
   defaultBranch: "main",
-  createdAt: "2026-01-02T03:04:05.000Z",
-  archivedAt: null,
 }
 
 const build: BuildkiteBuildForMirror = {
@@ -25,35 +22,20 @@ const build: BuildkiteBuildForMirror = {
   state: "failed",
   branch: "feature/login",
   commit: "abc1234def5678",
-  message: "Fix the login form\n\nThe submit button | was hidden.",
   createdAt: "2026-10-12T10:00:00.000Z",
-  startedAt: "2026-10-12T10:00:05.000Z",
   finishedAt: "2026-10-12T10:07:00.000Z",
-  creatorName: null,
-  authorName: "Sam Rivera",
-  pullRequest: { number: "17", repository: null },
+  creatorName: "Sam Rivera",
+  pullRequestNumber: "17",
   jobs: [
     {
       name: ":rspec: Unit [tests]",
       state: "failed",
-      exitStatus: 1,
       softFailed: false,
       url: "https://buildkite.com/acme/web-app/builds/42#job-1",
     },
-    {
-      name: "Lint | format",
-      state: "passed",
-      exitStatus: 0,
-      softFailed: false,
-      url: null,
-    },
-    {
-      name: "Flaky check",
-      state: "failed",
-      exitStatus: 2,
-      softFailed: true,
-      url: null,
-    },
+    { name: "Lint | format", state: "passed", softFailed: false, url: null },
+    { name: "Flaky check", state: "failed", softFailed: true, url: null },
+    { name: "Deploy | prod", state: "timed_out", softFailed: false, url: null },
   ],
 }
 
@@ -73,7 +55,7 @@ describe("buildkitePipelineFiles", () => {
     ])
   })
 
-  it("renders the pipeline with an index of its builds", () => {
+  it("renders the name, repository, default branch, and link of the pipeline", () => {
     expect(file("buildkite/pipelines/web-app/pipeline.md")).toBe(
       [
         "---",
@@ -84,28 +66,19 @@ describe("buildkitePipelineFiles", () => {
         'url: "https://buildkite.com/acme/web-app"',
         'repository: "git@github.com:acme/web-app.git"',
         'default_branch: "main"',
-        'created_at: "2026-01-02T03:04:05.000Z"',
         "---",
         "",
         "# Web App",
-        "",
-        "Builds and deploys the web app.",
         "",
         "- Buildkite: [Web App](https://buildkite.com/acme/web-app)",
         "- Repository: git@github.com:acme/web-app.git",
         "- Default branch: main",
         "",
-        "## Latest builds",
-        "",
-        "| Build | State | Branch | Commit | Finished |",
-        "| --- | --- | --- | --- | --- |",
-        "| [#42](builds/42.md) | failed | feature/login | abc1234 | 2026-10-12T10:07:00.000Z |",
-        "",
       ].join("\n"),
     )
   })
 
-  it("renders a build with its GitHub links and failed jobs", () => {
+  it("renders a build with its GitHub links, creator, and failed jobs", () => {
     expect(file("buildkite/pipelines/web-app/builds/42.md")).toBe(
       [
         "---",
@@ -121,11 +94,10 @@ describe("buildkitePipelineFiles", () => {
         'commit_url: "https://github.com/acme/web-app/commit/abc1234def5678"',
         'pull_request_url: "https://github.com/acme/web-app/pull/17"',
         'created_at: "2026-10-12T10:00:00.000Z"',
-        'started_at: "2026-10-12T10:00:05.000Z"',
         'finished_at: "2026-10-12T10:07:00.000Z"',
         "---",
         "",
-        "# Web App build #42: Fix the login form",
+        "# Web App build #42",
         "",
         "- Pipeline: [Web App](../pipeline.md)",
         "- Buildkite: [#42](https://buildkite.com/acme/web-app/builds/42)",
@@ -133,26 +105,25 @@ describe("buildkitePipelineFiles", () => {
         "- Branch: feature/login",
         "- Commit: [abc1234](https://github.com/acme/web-app/commit/abc1234def5678)",
         "- Pull request: [#17](https://github.com/acme/web-app/pull/17)",
-        "- Author: Sam Rivera",
-        "- Started: 2026-10-12T10:00:05.000Z",
-        "- Finished: 2026-10-12T10:07:00.000Z",
+        "- Created by: Sam Rivera",
         "",
-        "## Message",
+        "## Failed jobs",
         "",
-        "Fix the login form\n\nThe submit button | was hidden.",
-        "",
-        "## Jobs",
-        "",
-        "2 of 3 jobs failed: :rspec: Unit [tests], Flaky check.",
-        "",
-        "| Job | State | Exit status |",
-        "| --- | --- | --- |",
-        "| [:rspec: Unit \\[tests\\]](https://buildkite.com/acme/web-app/builds/42#job-1) | failed | 1 |",
-        "| Lint \\| format | passed | 0 |",
-        "| Flaky check | failed (soft fail) | 2 |",
+        // A soft-failed job does not fail the build, so it is not listed.
+        "- [:rspec: Unit \\[tests\\]](https://buildkite.com/acme/web-app/builds/42#job-1)",
+        "- Deploy | prod (timed out)",
         "",
       ].join("\n"),
     )
+  })
+
+  it("says when no job failed", () => {
+    const [, buildFile] = buildkitePipelineFiles({
+      organizationSlug: "acme",
+      pipeline,
+      builds: [{ ...build, state: "passed", jobs: [] }],
+    })
+    expect(buildFile?.content).toContain("## Failed jobs\n\nNo job failed.\n")
   })
 
   it("leaves out the links of a repository that is not on GitHub", () => {
@@ -167,15 +138,6 @@ describe("buildkitePipelineFiles", () => {
     expect(buildFile?.content).not.toContain("commit_url")
     expect(buildFile?.content).toContain("- Commit: abc1234def5678")
     expect(buildFile?.content).toContain("- Pull request: #17")
-  })
-
-  it("says when a pipeline has no finished builds", () => {
-    const [pipelineFile] = buildkitePipelineFiles({
-      organizationSlug: "acme",
-      pipeline,
-      builds: [],
-    })
-    expect(pipelineFile?.content).toContain("No finished builds.")
   })
 })
 

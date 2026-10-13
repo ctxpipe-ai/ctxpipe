@@ -38,21 +38,16 @@ const GOOD_TOKEN = "bkua_good_token_fixture"
 const server = setupServer(
   http.get(`${API}/access-token`, ({ request }) =>
     request.headers.get("authorization") === `Bearer ${GOOD_TOKEN}`
-      ? HttpResponse.json({
-          scopes: ["read_organizations", "read_pipelines", "read_builds"],
-        })
+      ? HttpResponse.json({ scopes: ["read_pipelines", "read_builds"] })
       : HttpResponse.json({ message: "Unauthorized" }, { status: 401 }),
   ),
-  http.get(`${API}/organizations/:slug`, ({ params }) =>
+  http.get(`${API}/organizations/:slug/pipelines`, ({ params }) =>
     params.slug === "acme"
-      ? HttpResponse.json({ slug: "acme", name: "Acme Inc" })
+      ? HttpResponse.json([
+          { slug: "web-app", name: "Web App" },
+          { slug: "deploy", name: "Deploy" },
+        ])
       : HttpResponse.json({ message: "Not Found" }, { status: 404 }),
-  ),
-  http.get(`${API}/organizations/acme/pipelines`, () =>
-    HttpResponse.json([
-      { slug: "web-app", name: "Web App" },
-      { slug: "deploy", name: "Deploy" },
-    ]),
   ),
 )
 
@@ -144,7 +139,7 @@ describe("Buildkite connector routes (Postgres + msw)", () => {
       apiToken: GOOD_TOKEN,
     })
 
-    expect(res.status).toBe(201)
+    expect(res.status).toBe(200)
     const { connectionId } = (await res.json()) as { connectionId: string }
     expect(JSON.stringify(await storedConfig(connectionId))).not.toContain(
       GOOD_TOKEN,
@@ -156,7 +151,7 @@ describe("Buildkite connector routes (Postgres + msw)", () => {
       expect.objectContaining({
         id: connectionId,
         type: "buildkite",
-        displayName: "Acme Inc",
+        displayName: "acme",
       }),
     )
     const [directory] = await getSystemDb()
@@ -195,7 +190,6 @@ describe("Buildkite connector routes (Postgres + msw)", () => {
     expect(await status()).toEqual({
       status: "installed",
       organizationSlug: "acme",
-      organizationName: "Acme Inc",
       webhookUrl: `${env.AUTH_BASE_URL.replace(/\/$/, "")}/api/v1/webhook/buildkite/${connectionId}`,
       webhookConfigured: false,
     })
@@ -235,8 +229,8 @@ describe("Buildkite connector routes (Postgres + msw)", () => {
       await connect({ organizationSlug: "acme", apiToken: GOOD_TOKEN })
     ).json()) as { connectionId: string }
     server.use(
-      http.get(`${API}/organizations/other`, () =>
-        HttpResponse.json({ slug: "other", name: "Other" }),
+      http.get(`${API}/organizations/other/pipelines`, () =>
+        HttpResponse.json([]),
       ),
     )
 

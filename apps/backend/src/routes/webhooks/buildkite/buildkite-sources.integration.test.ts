@@ -74,10 +74,8 @@ describe("Buildkite webhook routes to Workspace sources (Postgres)", () => {
     env = parseEnv(process.env)
     connectionId = await seed.addConnection("buildkite", {
       organizationSlug: "acme",
-      organizationName: "Acme",
       apiTokenEnc: encryptConnectionSecret("fixture-api-token", env),
       webhookTokenEnc: encryptConnectionSecret(webhookToken, env),
-      ownerUserId: "user_fixture",
       status: "installed",
     })
     await getSystemDb().insert(connectionDirectory).values({
