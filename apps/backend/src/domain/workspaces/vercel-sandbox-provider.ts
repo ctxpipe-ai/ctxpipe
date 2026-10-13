@@ -19,6 +19,7 @@ import { revokeGithubToken } from "./clone-credentials.js"
 import {
   bearerUrlRule,
   githubCredentialRules,
+  githubFetchCredentialRules,
   modelProxyCredentialRules,
 } from "./sandbox-credential-rules.js"
 import {
@@ -142,7 +143,8 @@ export type HostedTurnCredentials = {
 }
 
 /**
- * The firewall of a hosted sandbox. The internet stays open (`"*"`). The
+ * The firewall of a hosted sandbox. For chat, the internet stays open
+ * (`"*"`); an ingest sandbox has no catch-all (see `ingestRepositories`). The
  * firewall adds each credential to the requests that need it, so no
  * credential enters the sandbox: the GitHub read token on GitHub hosts, and
  * during a turn, the turn's credentials on the backend host by path.
@@ -157,10 +159,19 @@ export function hostedNetworkPolicy(input: {
   gitToken: string
   backendHost?: string
   turn?: HostedTurnCredentials
+  /**
+   * An ingest sandbox (ADR-052): the `owner/name` of the run's source and
+   * destination repositories. The internet is closed (no `"*"`): GitHub
+   * fetch of these repositories only, and during a step, the step's model
+   * proxy and tool bridge. No GitHub push, codeload, or REST API.
+   */
+  ingestRepositories?: string[]
 }): NetworkPolicy {
-  const { turn, backendHost } = input
+  const { turn, backendHost, ingestRepositories } = input
   const rules = [
-    ...githubCredentialRules(input.gitToken),
+    ...(ingestRepositories
+      ? githubFetchCredentialRules(input.gitToken, ingestRepositories)
+      : githubCredentialRules(input.gitToken)),
     ...(backendHost && turn
       ? [
           bearerUrlRule(
@@ -187,7 +198,7 @@ export function hostedNetworkPolicy(input: {
       ],
     })
   }
-  return { allow: { ...allow, "*": [] } }
+  return { allow: ingestRepositories ? allow : { ...allow, "*": [] } }
 }
 
 /**
@@ -210,8 +221,16 @@ const firewalls = new Map<
 
 export type ConversationFirewall = ReturnType<typeof conversationFirewall>
 
-/** The hosted firewall of a conversation's sandbox; see `hostedNetworkPolicy`. */
-export function conversationFirewall(backendHost: string) {
+/**
+ * The hosted firewall of a conversation's sandbox; see `hostedNetworkPolicy`.
+ * With `ingestRepositories`, the firewall of an ingest shard's sandbox: a
+ * step opens and closes a "turn" with the step's credentials.
+ */
+export function conversationFirewall(
+  backendHost: string,
+  options: { ingestRepositories?: string[] } = {},
+) {
+  const { ingestRepositories } = options
   const stateOf = (name: string) => {
     const state = firewalls.get(name)
     if (!state) throw new Error("The sandbox is not attached")
@@ -227,6 +246,7 @@ export function conversationFirewall(backendHost: string) {
           gitToken: state.gitToken,
           backendHost,
           turn: state.turn,
+          ingestRepositories,
         }),
       })
     })
@@ -258,7 +278,7 @@ export function conversationFirewall(backendHost: string) {
   return {
     /** The policy for a new sandbox (no turn yet), with this GitHub token. */
     policy: (gitToken: string) =>
-      hostedNetworkPolicy({ gitToken, backendHost }),
+      hostedNetworkPolicy({ gitToken, backendHost, ingestRepositories }),
     attach,
     /** Replace the GitHub token, keeping a running turn's rules. */
     async rotateGitToken(sandbox: Sandbox, gitToken: string) {

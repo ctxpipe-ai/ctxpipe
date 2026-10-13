@@ -226,6 +226,77 @@ describe("hostedNetworkPolicy", () => {
   })
 })
 
+describe("hostedNetworkPolicy for an ingest sandbox", () => {
+  const repositories = ["acme/source", "acme/context"]
+  const basic = `Basic ${Buffer.from("x-access-token:git-1").toString("base64")}`
+
+  it("closes the internet: GitHub fetch of the run's repositories only, and no catch-all", () => {
+    const allow = allowOf(
+      hostedNetworkPolicy({
+        gitToken: "git-1",
+        backendHost: "app.example.test",
+        ingestRepositories: repositories,
+      }),
+    )
+    expect(allow["*"]).toBeUndefined()
+    // No codeload, no REST API, and no backend rule outside a step.
+    expect(Object.keys(allow)).toEqual(["github.com"])
+    const github = allow["github.com"] ?? []
+    expect(github.map((rule) => rule.match?.path?.exact).sort()).toEqual(
+      [
+        "/acme/context.git/git-upload-pack",
+        "/acme/context.git/info/refs",
+        "/acme/source.git/git-upload-pack",
+        "/acme/source.git/info/refs",
+      ].sort(),
+    )
+    for (const rule of github)
+      expect(rule.transform).toEqual(pinned("github.com", basic))
+    // A push and another repository get no rule.
+    for (const path of [
+      "/acme/context.git/git-receive-pack",
+      "/acme/other.git/git-upload-pack",
+      "/acme/context.git/../other.git/git-upload-pack",
+    ])
+      expect(ruleFor(github, path), path).toBeUndefined()
+  })
+
+  it("adds the step's model proxy and tool bridge on exact paths, still with no catch-all", () => {
+    const allow = allowOf(
+      hostedNetworkPolicy({
+        gitToken: "git-1",
+        backendHost: "app.example.test",
+        turn,
+        ingestRepositories: repositories,
+      }),
+    )
+    expect(allow["*"]).toBeUndefined()
+    expect(Object.keys(allow).sort()).toEqual(
+      ["app.example.test", "github.com"].sort(),
+    )
+    const rules = allow["app.example.test"] ?? []
+    expect(rules).toHaveLength(3)
+    expect(ruleFor(rules, turn.bridgePath)?.transform).toEqual(
+      pinned("app.example.test", "Bearer bridge-token"),
+    )
+    expect(
+      ruleFor(rules, `${turn.modelProxyPath}/chat/completions`)?.transform,
+    ).toEqual(pinned("app.example.test", "Bearer model-capability"))
+  })
+
+  it("keeps the chat policy open with the same input and no ingest repositories", () => {
+    const allow = allowOf(
+      hostedNetworkPolicy({
+        gitToken: "git-1",
+        backendHost: "app.example.test",
+        turn,
+      }),
+    )
+    expect(allow["*"]).toEqual([])
+    expect(allow["api.github.com"]).toBeDefined()
+  })
+})
+
 describe("conversationFirewall", () => {
   const policies: NetworkPolicy[] = []
   /** `fail`: the API answers an error; `applied-then-fail`: it records first. */
@@ -289,6 +360,27 @@ describe("conversationFirewall", () => {
     firewall.attach(await Sandbox.get({ ...credentials, name }), gitToken)
     return firewall
   }
+
+  it("keeps an ingest sandbox closed at step start and at step end", async () => {
+    server.use(...vercelApi)
+    policies.length = 0
+    failure = "none"
+    const firewall = conversationFirewall("app.example.test", {
+      ingestRepositories: ["acme/source"],
+    })
+    expect(allowOf(firewall.policy("git-1"))["*"]).toBeUndefined()
+    firewall.attach(
+      await Sandbox.get({ ...credentials, name: "sbx-ingest" }),
+      "git-1",
+    )
+    await firewall.openTurn("sbx-ingest", turn)
+    expect(backendRules(policies.at(-1))).toHaveLength(3)
+    expect(allowOf(policies.at(-1))["*"]).toBeUndefined()
+    await firewall.closeTurn("sbx-ingest")
+    expect(backendRules(policies.at(-1))).toBeUndefined()
+    expect(allowOf(policies.at(-1))["*"]).toBeUndefined()
+    expect(Object.keys(allowOf(policies.at(-1)))).toEqual(["github.com"])
+  })
 
   it("sets the turn's credentials at turn start and removes them at turn end", async () => {
     const firewall = await attached("sbx-1", "git-1")
