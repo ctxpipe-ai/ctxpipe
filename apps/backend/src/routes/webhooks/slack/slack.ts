@@ -3,7 +3,6 @@ import { z } from "zod"
 import type { AppEnv } from "../../../app/env.js"
 import {
   getSlackConnectionByTeamId,
-  getSlackSyncTargetByConnectionId,
   revokeSlackConnectionByTeamId,
 } from "../../../models/slack-connector.js"
 import { getLogger } from "../../../observability/logger.js"
@@ -127,12 +126,13 @@ export function registerSlackWebhookRoute(app: OpenAPIHono<AppEnv>) {
     }
     noteResolvedWebhookConnections([connection])
 
-    const target = await getSlackSyncTargetByConnectionId(connection.id)
-    if (!target || target.orgId !== connection.orgId || !target.enabled) {
-      getLogger().info("slack_webhook_mention_skipped_not_live", {
+    // The agent routes the capture to the Workspace sources of the channel
+    // (ADR-050), so a connection needs no repository binding here.
+    if (connection.status !== "installed") {
+      getLogger().info("slack_webhook_mention_skipped_not_installed", {
         connectionId: connection.id,
         teamId,
-        enabled: target?.enabled ?? false,
+        connectionStatus: connection.status,
       })
       return c.json({ ok: true }, 200)
     }

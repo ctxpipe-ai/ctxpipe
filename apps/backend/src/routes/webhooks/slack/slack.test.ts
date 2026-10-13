@@ -5,7 +5,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../../../app/env.js"
 
 const getConnectionMock = vi.hoisted(() => vi.fn())
-const getTargetMock = vi.hoisted(() => vi.fn())
 const revokeMock = vi.hoisted(() => vi.fn())
 const runWorkflowMock = vi.hoisted(() => vi.fn())
 const verifySignatureMock = vi.hoisted(() => vi.fn())
@@ -13,7 +12,6 @@ const postStatusMock = vi.hoisted(() => vi.fn())
 
 vi.mock("../../../models/slack-connector.js", () => ({
   getSlackConnectionByTeamId: getConnectionMock,
-  getSlackSyncTargetByConnectionId: getTargetMock,
   revokeSlackConnectionByTeamId: revokeMock,
 }))
 vi.mock("../../../openworkflow/client.js", () => ({
@@ -89,12 +87,10 @@ describe("Slack webhook", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     verifySignatureMock.mockReturnValue(true)
-    getConnectionMock.mockResolvedValue({ id: "con_1", orgId: "org_1" })
-    getTargetMock.mockResolvedValue({
-      connectionId: "con_1",
+    getConnectionMock.mockResolvedValue({
+      id: "con_1",
       orgId: "org_1",
-      enabled: true,
-      setupPhase: "live",
+      status: "installed",
     })
     runWorkflowMock.mockResolvedValue(undefined)
     revokeMock.mockResolvedValue(true)
@@ -315,31 +311,16 @@ describe("Slack webhook", () => {
     expect(runWorkflowMock).not.toHaveBeenCalled()
   })
 
-  it.each([
-    { enabled: false },
-    { enabled: false, repositoryId: "repo_1" },
-  ])("ignores mentions for disabled or unbound targets %#", async (target) => {
-    getTargetMock.mockResolvedValue(
-      "repositoryId" in target
-        ? {
-            connectionId: "con_1",
-            orgId: "org_1",
-            ...target,
-          }
-        : { connectionId: "con_1", orgId: "org_1", enabled: false },
-    )
+  it("ignores mentions for a connection that is not installed", async () => {
+    getConnectionMock.mockResolvedValue({
+      id: "con_1",
+      orgId: "org_1",
+      status: "revoked",
+    })
 
-    const response = await mentionRequest()
-
-    expect(response.status).toBe(200)
-    expect(runWorkflowMock).not.toHaveBeenCalled()
-    expect(postStatusMock).not.toHaveBeenCalled()
-  })
-
-  it("ignores mentions when no capture binding exists", async () => {
-    getTargetMock.mockResolvedValue(undefined)
-
-    const response = await mentionRequest()
+    const response = await mentionRequest({
+      thread_ts: "1710000000.000001",
+    })
 
     expect(response.status).toBe(200)
     expect(runWorkflowMock).not.toHaveBeenCalled()
