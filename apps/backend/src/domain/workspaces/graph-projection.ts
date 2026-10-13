@@ -177,30 +177,50 @@ export class WorkspaceGraphMissingError extends Error {
   override readonly name = "WorkspaceGraphMissingError"
 }
 
-/** Read one immutable derived graph; missing/corrupt data never becomes an empty Postgres fallback. */
-export async function readWorkspaceGraph(input: {
+type WorkspaceGraphReadInput = {
   orgId: string
   orgSlug: string
   projection: PublishedProjection | null
-}) {
+}
+
+/**
+ * Run `read` on the graph of the published revision when the graph store
+ * holds its completion marker. A graph without the marker gives
+ * `WorkspaceGraphMissingError`.
+ */
+export async function withCompleteWorkspaceGraph<T>(
+  input: WorkspaceGraphReadInput,
+  read: (graph: {
+    client: GraphClient
+    projectionKey: string
+    marker: { get: (key: string) => unknown }
+  }) => Promise<T>,
+): Promise<T> {
   const projection = input.projection
   if (projection?.kind !== "active" || projection.stores.graph.kind !== "ready")
     throw new WorkspaceGraphUnavailableError(
       "Workspace graph projection is unavailable.",
     )
-  const revision = projection.revision
-  const projectionKey = workspaceGraphRevisionKey(revision)
+  const projectionKey = workspaceGraphRevisionKey(projection.revision)
   return withGraphClient(input, async () => {
-    const graph = getGraphClient()
-    const marker = await graph.executeQuery(
+    const client = getGraphClient()
+    const result = await client.executeQuery(
       "MATCH (p:WorkspaceProjection {projectionKey: $projectionKey}) RETURN p.nodeCount AS nodeCount, p.claimCount AS claimCount, p.completedAt AS completedAt",
       { projectionKey },
     )
-    const complete = marker.records[0]
-    if (!complete)
+    const marker = result.records[0]
+    if (!marker)
       throw new WorkspaceGraphMissingError(
         "Workspace graph projection is unavailable.",
       )
+    return read({ client, projectionKey, marker })
+  })
+}
+
+/** Read one immutable derived graph; missing/corrupt data never becomes an empty Postgres fallback. */
+export async function readWorkspaceGraph(input: WorkspaceGraphReadInput) {
+  return withCompleteWorkspaceGraph(input, async (store) => {
+    const { client: graph, projectionKey, marker: complete } = store
     const nodeResult = await graph.executeQuery(
       `MATCH (n:WorkspaceKnowledgeUnit {projectionKey: $projectionKey})
       RETURN n.id AS id, n.kind AS kind, n.name AS name, n.summary AS summary ORDER BY n.id`,

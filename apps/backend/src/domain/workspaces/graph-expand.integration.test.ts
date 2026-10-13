@@ -1,0 +1,311 @@
+import { FalkorDB } from "falkordb"
+import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import {
+  closeGraphDb,
+  getGraphClient,
+  withGraphClient,
+} from "../../platform/graph/client.js"
+import { expandWorkspaceGraph } from "./graph-expand.js"
+import { writeWorkspaceRevisionGraph } from "./graph-projection.js"
+import { WorkspaceGraphBuildingError } from "./graph-rebuild.js"
+import type { HydrateUnit } from "./hydrate.js"
+import type { PublishedProjection, WorkspaceRevision } from "./revision.js"
+
+const suffix = `${Date.now()}_${Math.random().toString(36).slice(2)}`
+const org = { orgId: `org_test_graph_expand_${suffix}`, orgSlug: "acme" }
+let falkor: FalkorDB
+
+beforeAll(async () => {
+  if (!process.env.GRAPH_DB_URI)
+    throw new Error("GRAPH_DB_URI is required for the FalkorDB proof")
+  falkor = await FalkorDB.connect({ url: process.env.GRAPH_DB_URI })
+})
+
+afterAll(async () => {
+  if (!falkor) return
+  if ((await falkor.list()).includes(org.orgId))
+    await falkor.selectGraph(org.orgId).delete()
+  await falkor.close()
+  await closeGraphDb()
+})
+
+let revisions = 0
+function revision(): WorkspaceRevision {
+  revisions += 1
+  return {
+    workspaceId: `ws_${suffix}`,
+    generation: revisions,
+    remote: { url: "https://git.example.test/acme/kb.git", connectionId: null },
+    defaultBranch: "main",
+    sha: String(revisions % 10).repeat(40),
+    access: "read",
+  }
+}
+
+type Claim = {
+  to: string
+  predicate?: string
+  confidence?: number
+  validFrom?: string | null
+  validTo?: string | null
+}
+
+const id = (path: string) => `ku_${path.replace(/\W/g, "_")}`
+
+function unit(path: string, claims: Claim[] = []): HydrateUnit {
+  return {
+    path,
+    servingId: id(path),
+    kind: null,
+    body: `# ${path}\n`,
+    links: [],
+    claims: claims.map((claim) => ({
+      to: claim.to,
+      predicate: claim.predicate ?? "DEPENDS_ON",
+      confidence: claim.confidence ?? 0.8,
+      validFrom: claim.validFrom ?? null,
+      validTo: claim.validTo ?? null,
+      source: null,
+    })),
+    title: path,
+    source: "authored",
+    updatedAt: null,
+  } satisfies HydrateUnit
+}
+
+function active(rev: WorkspaceRevision): PublishedProjection {
+  return {
+    kind: "active",
+    revision: rev,
+    stores: {
+      embeddings: { kind: "ready" },
+      graph: { kind: "ready" },
+      index: { kind: "ready" },
+    },
+  }
+}
+
+async function publish(units: readonly HydrateUnit[]) {
+  const rev = revision()
+  await withGraphClient(org, () =>
+    writeWorkspaceRevisionGraph(getGraphClient(), { revision: rev, units }),
+  )
+  return active(rev)
+}
+
+const expand = (
+  projection: PublishedProjection,
+  params: Omit<
+    Parameters<typeof expandWorkspaceGraph>[0],
+    "orgId" | "orgSlug" | "projection"
+  >,
+) => expandWorkspaceGraph({ ...org, projection, ...params })
+
+const edgeIds = (result: { edges: Array<{ id: string }> }) =>
+  result.edges.map((edge) => edge.id)
+const nodeIds = (result: { nodes: Array<{ id: string }> }) =>
+  result.nodes.map((node) => node.id)
+
+describe("expandWorkspaceGraph on FalkorDB", () => {
+  it(
+    "keeps the top 50 edges by confidence of a 2,000-edge hub and lists the hub",
+    { timeout: 60_000 },
+    async () => {
+      const leaves = Array.from({ length: 2000 }, (_, i) => `leaf-${i}.md`)
+      const projection = await publish([
+        unit(
+          "hub.md",
+          leaves.map((to, i) => ({ to, confidence: (i + 1) / 2000 })),
+        ),
+        ...leaves.map((path) => unit(path)),
+      ])
+      const result = await expand(projection, {
+        seeds: [id("hub.md")],
+        maxDepth: 1,
+        maxFanOut: 50,
+      })
+      const top = leaves.slice(-50).map(id).sort()
+      expect(result.partial).toBe(false)
+      expect(result.cappedHubs).toEqual([id("hub.md")])
+      expect(result.edges).toHaveLength(50)
+      expect(result.edges.map((edge) => edge.targetId).sort()).toEqual(top)
+      expect(Math.min(...result.edges.map((e) => e.confidence))).toBe(
+        1951 / 2000,
+      )
+      expect(nodeIds(result)).toEqual([id("hub.md"), ...top].sort())
+      const hub = result.nodes.find((node) => node.id === id("hub.md"))
+      expect(hub).toMatchObject({ depth: 0, path: "hub.md", outDegree: 2000 })
+    },
+  )
+
+  it("walks no expired edge unless the time window includes it", async () => {
+    const projection = await publish([
+      unit("a.md", [
+        { to: "old.md", validTo: "2020-01-01T00:00:00.000Z" },
+        { to: "now.md", validFrom: "2019-01-01T00:00:00.000Z" },
+        { to: "later.md", validFrom: "2999-01-01T00:00:00.000Z" },
+      ]),
+      unit("old.md"),
+      unit("now.md"),
+      unit("later.md"),
+    ])
+    const seeds = [id("a.md")]
+    const now = await expand(projection, { seeds })
+    expect(nodeIds(now)).toEqual([id("a.md"), id("now.md")])
+    const past = await expand(projection, {
+      seeds,
+      validAt: "2019-06-01T00:00:00.000Z",
+    })
+    expect(nodeIds(past)).toEqual([id("a.md"), id("now.md"), id("old.md")])
+    const between = await expand(projection, {
+      seeds,
+      validBetween: {
+        from: "2018-01-01T00:00:00.000Z",
+        to: "2026-01-01T00:00:00.000Z",
+      },
+    })
+    expect(nodeIds(between)).toEqual([id("a.md"), id("now.md"), id("old.md")])
+  })
+
+  it("filters by direction, predicate, and minimum confidence", async () => {
+    const projection = await publish([
+      unit("a.md", [
+        { to: "b.md", predicate: "DEPENDS_ON", confidence: 0.9 },
+        { to: "c.md", predicate: "OWNED_BY", confidence: 0.9 },
+        { to: "d.md", predicate: "DEPENDS_ON", confidence: 0.2 },
+      ]),
+      unit("b.md"),
+      unit("c.md"),
+      unit("d.md"),
+      unit("e.md", [{ to: "a.md", predicate: "DEPENDS_ON", confidence: 0.9 }]),
+    ])
+    const seeds = [id("a.md")]
+    expect(nodeIds(await expand(projection, { seeds }))).toEqual(
+      ["a.md", "b.md", "c.md", "d.md", "e.md"].map(id),
+    )
+    expect(
+      nodeIds(await expand(projection, { seeds, direction: "out" })),
+    ).toEqual(["a.md", "b.md", "c.md", "d.md"].map(id))
+    const incoming = await expand(projection, { seeds, direction: "in" })
+    expect(nodeIds(incoming)).toEqual(["a.md", "e.md"].map(id))
+    expect(incoming.edges[0]).toMatchObject({
+      sourceId: id("e.md"),
+      targetId: id("a.md"),
+    })
+    expect(
+      nodeIds(
+        await expand(projection, {
+          seeds,
+          predicates: ["DEPENDS_ON"],
+          minConfidence: 0.5,
+        }),
+      ),
+    ).toEqual(["a.md", "b.md", "e.md"].map(id))
+  })
+
+  it("stops at maxDepth and gives each node its hop", async () => {
+    const projection = await publish([
+      unit("a.md", [{ to: "b.md" }]),
+      unit("b.md", [{ to: "c.md" }]),
+      unit("c.md", [{ to: "d.md" }]),
+      unit("d.md"),
+    ])
+    const seeds = [id("a.md")]
+    const lookup = await expand(projection, { seeds, maxDepth: 0 })
+    expect(lookup.nodes).toEqual([
+      expect.objectContaining({ id: id("a.md"), depth: 0, kind: "KnowledgeUnit" }),
+    ])
+    expect(lookup.edges).toEqual([])
+    const two = await expand(projection, { seeds, maxDepth: 2 })
+    expect(two.nodes.map((node) => [node.id, node.depth])).toEqual([
+      [id("a.md"), 0],
+      [id("b.md"), 1],
+      [id("c.md"), 2],
+    ])
+    expect(edgeIds(two)).toEqual([`${id("a.md")}:0`, `${id("b.md")}:0`])
+    const unknown = await expand(projection, { seeds: ["ku_missing"] })
+    expect(unknown).toMatchObject({ nodes: [], edges: [], partial: false })
+  })
+
+  it("marks the result partial at each cap", async () => {
+    const projection = await publish([
+      unit("a.md", [
+        { to: "b.md", confidence: 0.9 },
+        { to: "c.md", confidence: 0.8 },
+        { to: "d.md", confidence: 0.7 },
+      ]),
+      unit("b.md", [{ to: "c.md" }]),
+      unit("c.md"),
+      unit("d.md"),
+    ])
+    const seeds = [id("a.md")]
+    const nodes = await expand(projection, {
+      seeds,
+      maxDepth: 2,
+      caps: { maxNodes: 3 },
+    })
+    expect(nodes).toMatchObject({ partial: true, partialReason: "max_nodes" })
+    expect(nodeIds(nodes)).toEqual(["a.md", "b.md", "c.md"].map(id))
+    const edges = await expand(projection, {
+      seeds,
+      maxDepth: 2,
+      caps: { maxEdges: 2 },
+    })
+    expect(edges).toMatchObject({ partial: true, partialReason: "max_edges" })
+    expect(edgeIds(edges)).toEqual([`${id("a.md")}:0`, `${id("a.md")}:1`])
+    const total = await expand(projection, {
+      seeds,
+      caps: { totalTimeoutMs: 0 },
+    })
+    expect(total).toMatchObject({
+      partial: true,
+      partialReason: "total_timeout",
+    })
+    expect(nodeIds(total)).toEqual([id("a.md")])
+    const complete = await expand(projection, { seeds, maxDepth: 2 })
+    expect(complete).toMatchObject({ partial: false, partialReason: null })
+  })
+
+  it("gives the same result for two write orders", async () => {
+    const units = [
+      unit("a.md", [
+        { to: "b.md", confidence: 0.5 },
+        { to: "c.md", confidence: 0.5 },
+        { to: "d.md", confidence: 0.5 },
+      ]),
+      unit("b.md", [{ to: "c.md", confidence: 0.5 }]),
+      unit("c.md", [{ to: "a.md", confidence: 0.5 }]),
+      unit("d.md"),
+    ]
+    const forward = await publish(units)
+    const backward = await publish([...units].reverse())
+    const params = { seeds: [id("a.md")], maxDepth: 2, maxFanOut: 2 }
+    const first = await expand(forward, params)
+    expect(await expand(backward, params)).toEqual(first)
+    // a.md and c.md each have three matching edges at their hop.
+    expect(first.cappedHubs).toEqual([id("a.md"), id("c.md")])
+    expect(edgeIds(first)).toEqual([
+      `${id("a.md")}:0`,
+      `${id("a.md")}:1`,
+      `${id("b.md")}:0`,
+    ])
+  })
+
+  it("gives the building error while the graph phase is pending", async () => {
+    const rev = revision()
+    await expect(
+      expand(
+        {
+          kind: "active",
+          revision: rev,
+          stores: {
+            embeddings: { kind: "ready" },
+            graph: { kind: "pending" },
+            index: { kind: "ready" },
+          },
+        },
+        { seeds: [id("a.md")] },
+      ),
+    ).rejects.toBeInstanceOf(WorkspaceGraphBuildingError)
+  })
+})
