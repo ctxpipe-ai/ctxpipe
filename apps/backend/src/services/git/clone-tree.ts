@@ -224,7 +224,13 @@ export async function listMarkdownFilesAtGitSha(input: {
   /** Exact non-Markdown paths to read in the same fetch. */
   extraPaths?: readonly string[]
 }): Promise<
-  Array<{ path: string; content: string; introducingCommitTimestamp?: string }>
+  Array<{
+    path: string
+    content: string
+    introducingCommitTimestamp?: string
+    /** Time of the newest commit that changed the path. */
+    lastCommitTimestamp?: string
+  }>
 > {
   return withFetchedGitSha(input, async (dir) => {
     const entries = (await listTreeEntries(dir)).filter(
@@ -241,8 +247,9 @@ export async function listMarkdownFilesAtGitSha(input: {
       `${entries.map((entry) => entry.sha).join("\n")}\n`,
     )
     const introduced = new Map<string, string>()
+    const lastChanged = new Map<string, string>()
     if (input.includeIntroducingCommits) {
-      // One history walk for all paths; raw -z keeps tabs/newlines in filenames intact.
+      // One history walk for all paths, newest first; raw -z keeps tabs/newlines in filenames intact.
       const { stdout: history } = await gitExec(
         [
           "-C",
@@ -252,13 +259,14 @@ export async function listMarkdownFilesAtGitSha(input: {
           "--format=%x00%ct",
           "--raw",
           "-z",
-          "--diff-filter=A",
+          // Adds give the introducing commit; edits give the last change.
+          "--diff-filter=AMT",
           "--no-renames",
           "FETCH_HEAD",
           "--",
           "*.md",
         ],
-        { timeout: 60_000, maxBuffer: 64 * 1024 * 1024 },
+        { timeout: 60_000, maxBuffer: 128 * 1024 * 1024 },
       )
       const records = history.toString("utf8").split("\0")
       let timestamp: string | undefined
@@ -266,12 +274,20 @@ export async function listMarkdownFilesAtGitSha(input: {
         const record = records[i] ?? ""
         if (/^[0-9]+$/.test(record))
           timestamp = new Date(Number(record) * 1000).toISOString()
-        else if (/^\n?:[0-7]{6} [0-7]{6} [0-9a-f]+ [0-9a-f]+ A$/.test(record)) {
-          const path = records[++i]
-          if (!path || !timestamp)
-            throw new Error("Invalid introducing-commit record")
-          if (!introduced.has(path)) introduced.set(path, timestamp)
-        } else if (record) throw new Error("Invalid Git history response")
+        else {
+          const status =
+            /^\n?:[0-7]{6} [0-7]{6} [0-9a-f]+ [0-9a-f]+ ([A-Z])[0-9]*$/.exec(
+              record,
+            )?.[1]
+          if (status) {
+            const path = records[++i]
+            if (!path || !timestamp)
+              throw new Error("Invalid introducing-commit record")
+            if (!lastChanged.has(path)) lastChanged.set(path, timestamp)
+            if (status === "A" && !introduced.has(path))
+              introduced.set(path, timestamp)
+          } else if (record) throw new Error("Invalid Git history response")
+        }
       }
     }
     let offset = 0
@@ -300,6 +316,9 @@ export async function listMarkdownFilesAtGitSha(input: {
         content: stdout.subarray(start, end).toString("utf8"),
         ...(introduced.has(entry.path)
           ? { introducingCommitTimestamp: introduced.get(entry.path) }
+          : {}),
+        ...(lastChanged.has(entry.path)
+          ? { lastCommitTimestamp: lastChanged.get(entry.path) }
           : {}),
       }
     })

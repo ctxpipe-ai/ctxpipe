@@ -291,7 +291,7 @@ describe("ingest sandbox sweep (Postgres, unsandboxed)", () => {
         idempotencyKey: null,
         config: {},
         context: null,
-        input: { orgId } satisfies IngestionV2RunInput,
+        input: { orgId, shadow: true } satisfies IngestionV2RunInput,
         parentStepAttemptNamespaceId: null,
         parentStepAttemptId: null,
         // Never due: no worker claims it.

@@ -15,11 +15,13 @@ import {
   destroySandboxesForWorkspace,
   jobSandboxesDueForDestroy,
 } from "../../domain/workspaces/workspace-sandbox-cleanup.js"
+import { cleanUpWorkspaceIngestRefs } from "../../domain/workspaces/write-broker.js"
 import { resumePausedWriteJobs } from "../../domain/workspaces/write-job-resume.js"
 import {
   nextPersistedWriteProbe,
   probeWorkspaceWriteAccess,
 } from "../../domain/workspaces/write-status.js"
+import { orgHasRecentIngestionRun } from "../../models/ingestion-runs.js"
 import {
   claimPausedWriteJob,
   ensureOrgFirstWorkspace,
@@ -304,6 +306,34 @@ export const workspaceTipCheck = defineWorkflow(
       for (const workspaceId of idleJobs) {
         await destroySandboxesForWorkspace(workspaceId, "job")
       }
+      // Stale run-scoped ingest refs (ADR-052), only for an org with an
+      // ingestion v2 run in the last 7 days. A failure here must not fail the
+      // tip check; the next check tries again.
+      if (
+        await orgHasRecentIngestionRun(
+          input.orgId,
+          new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000),
+        )
+      )
+        for (const workspace of workspaces) {
+          if (
+            !workspace.githubConnectionId ||
+            noAccess.has(workspace.id) ||
+            (writeStatusById.get(workspace.id) ?? workspace.writeStatus) !==
+              "writable"
+          )
+            continue
+          await cleanUpWorkspaceIngestRefs(
+            { orgId: input.orgId, workspaceId: workspace.id, now },
+            env,
+          ).catch((error: unknown) => {
+            log.warn({
+              event: "workspace_ingest_ref_cleanup_failed",
+              workspaceId: workspace.id,
+              message: error instanceof Error ? error.message : String(error),
+            })
+          })
+        }
       return { updated: updated.length, linkedUpdated }
     })
   },

@@ -97,6 +97,7 @@ async function withChatProjection(
           revision,
           units: parsed.units,
           skipped: [],
+          embeddingModel: "fixture-embedding",
           remotes: [],
           displayName: null,
         }),
@@ -279,6 +280,7 @@ it(
         revision: next,
         units: [],
         skipped: [],
+        embeddingModel: "fixture-embedding",
         remotes: [{ git: "https://example.test/other", branch: "release" }],
         displayName: null,
       })

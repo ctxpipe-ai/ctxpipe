@@ -89,15 +89,26 @@ export async function listOrgWorkspaceSlugs(org: CallOrg): Promise<string[]> {
  * first. Two stores hold links during the ADR-050 migration: the GitHub
  * sources of `.ctxpipe/sources.yaml` (the `workspace_sources` projection,
  * `ok` rows only) and the legacy `workspace_linked_repositories` table, which
- * ADR-050 phase 3 retires. Only this function reads them.
+ * ADR-050 phase 3 retires. Only this function reads them. With
+ * `workspaceId`, only the links of that Workspace.
  */
-export async function listOrgRepositoryUrls(org: CallOrg): Promise<string[]> {
+export async function listOrgRepositoryUrls(
+  org: CallOrg,
+  workspaceId?: string,
+): Promise<string[]> {
   const [legacy, sources] = await withOrgDbContext(org.id, (db) =>
     Promise.all([
       db
         .select({ gitUrl: workspaceLinkedRepositories.gitUrl })
         .from(workspaceLinkedRepositories)
-        .where(eq(workspaceLinkedRepositories.orgId, org.id))
+        .where(
+          and(
+            eq(workspaceLinkedRepositories.orgId, org.id),
+            workspaceId
+              ? eq(workspaceLinkedRepositories.workspaceId, workspaceId)
+              : undefined,
+          ),
+        )
         .orderBy(asc(workspaceLinkedRepositories.createdAt)),
       db
         .select({ scope: workspaceSources.scope })
@@ -107,6 +118,9 @@ export async function listOrgRepositoryUrls(org: CallOrg): Promise<string[]> {
             eq(workspaceSources.orgId, org.id),
             eq(workspaceSources.provider, "github"),
             eq(workspaceSources.status, "ok"),
+            workspaceId
+              ? eq(workspaceSources.workspaceId, workspaceId)
+              : undefined,
           ),
         )
         .orderBy(asc(workspaceSources.createdAt)),

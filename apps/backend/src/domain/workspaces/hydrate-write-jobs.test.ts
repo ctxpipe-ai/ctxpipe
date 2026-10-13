@@ -14,6 +14,9 @@ import {
 const unit = (overrides: Partial<HydrateUnit>): HydrateUnit => ({
   path: "knowledge/a.md",
   servingId: "kn_a",
+  title: null,
+  source: "authored",
+  updatedAt: null,
   body: "See [ledger](../billing/ledger.md).",
   links: ["../billing/ledger.md"],
   claims: [],
