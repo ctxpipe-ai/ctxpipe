@@ -1,0 +1,312 @@
+import { createHash } from "node:crypto"
+import { McpError } from "@modelcontextprotocol/sdk/types.js"
+import {
+  type Context,
+  context,
+  createTraceState,
+  type Link,
+  type SpanContext,
+  SpanStatusCode,
+  trace,
+} from "@opentelemetry/api"
+import { getContext } from "hono/context-storage"
+import type { AppEnv } from "../app/env.js"
+import { generateObjectId } from "../lib/id.js"
+import {
+  type AttributionInput,
+  applyAttribution,
+  contextWithForkedAttributionBag,
+} from "../observability/attribution.js"
+
+/**
+ * Correlation for one MCP tool call (ADR-051 section 9).
+ *
+ * The model never sends correlation ids as tool arguments. The server reads
+ * them from `_meta` and from `x-ctxpipe-*` headers. Each value is a short
+ * opaque token, or the server ignores it. ClickHouse derives a session and a
+ * turn for each connection key when the client sends no ids
+ * (`ops/observability/clickhouse/schema/mcp-call-correlation.sql`).
+ */
+
+export type CorrelationSource =
+  | "meta"
+  | "header"
+  | "baggage"
+  | "openai"
+  | "codex"
+
+export type CorrelatedId = { id: string; source: CorrelationSource }
+
+export type McpCorrelation = {
+  conversation?: CorrelatedId
+  turn?: CorrelatedId
+  /** Client span context from a valid `_meta.traceparent`. */
+  parent?: SpanContext
+  clientName?: string
+}
+
+type Headers = Record<string, string | string[] | undefined>
+
+const OPAQUE_ID = /^[A-Za-z0-9._:@-]{1,128}$/
+const TRACEPARENT =
+  /^([0-9a-f]{2})-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})$/
+
+function opaqueId(value: unknown): string | undefined {
+  return typeof value === "string" && OPAQUE_ID.test(value) ? value : undefined
+}
+
+function header(headers: Headers, name: string): string | undefined {
+  const value = headers[name]
+  return Array.isArray(value) ? value[0] : value
+}
+
+function baggageEntries(raw: unknown): Map<string, string> {
+  const entries = new Map<string, string>()
+  if (typeof raw !== "string") return entries
+  for (const member of raw.split(",")) {
+    const [pair] = member.split(";")
+    const index = pair?.indexOf("=") ?? -1
+    if (!pair || index < 1) continue
+    try {
+      entries.set(
+        pair.slice(0, index).trim(),
+        decodeURIComponent(pair.slice(index + 1).trim()),
+      )
+    } catch {
+      // A bad percent escape: ignore this member only.
+    }
+  }
+  return entries
+}
+
+function codexTurnMetadata(raw: string | undefined): Record<string, unknown> {
+  if (!raw) return {}
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    return typeof parsed === "object" && parsed !== null
+      ? (parsed as Record<string, unknown>)
+      : {}
+  } catch {
+    return {}
+  }
+}
+
+function first(
+  candidates: ReadonlyArray<[unknown, CorrelationSource]>,
+): CorrelatedId | undefined {
+  for (const [value, source] of candidates) {
+    const id = opaqueId(value)
+    if (id) return { id, source }
+  }
+  return undefined
+}
+
+/** W3C trace context from `_meta.traceparent`; `undefined` when not valid. */
+export function clientSpanContext(
+  traceparent: unknown,
+  tracestate: unknown,
+): SpanContext | undefined {
+  if (typeof traceparent !== "string") return undefined
+  const match = TRACEPARENT.exec(traceparent.trim())
+  if (!match) return undefined
+  const [, version, traceId, spanId, flags] = match
+  if (!version || !traceId || !spanId || !flags || version === "ff") {
+    return undefined
+  }
+  if (/^0+$/.test(traceId) || /^0+$/.test(spanId)) return undefined
+  let traceState: SpanContext["traceState"]
+  if (typeof tracestate === "string" && tracestate.length <= 512) {
+    traceState = createTraceState(tracestate)
+  }
+  return {
+    traceId,
+    spanId,
+    traceFlags: Number.parseInt(flags, 16) & 1,
+    isRemote: true,
+    ...(traceState ? { traceState } : {}),
+  }
+}
+
+function clientName(meta: Record<string, unknown>, headers: Headers) {
+  const info = meta["io.modelcontextprotocol/clientInfo"]
+  const fromInfo =
+    typeof info === "object" && info !== null && "name" in info
+      ? info.name
+      : undefined
+  const fromAgent = header(headers, "user-agent")?.split(/[/\s]/)[0]
+  const name = typeof fromInfo === "string" ? fromInfo : fromAgent
+  const cleaned = name
+    ?.replace(/[^A-Za-z0-9._ -]/g, "")
+    .trim()
+    .slice(0, 64)
+  return cleaned || undefined
+}
+
+/** Read correlation from request `_meta` and HTTP headers. Pure. */
+export function readMcpCorrelation(input: {
+  meta?: Record<string, unknown>
+  headers?: Headers
+}): McpCorrelation {
+  const meta = input.meta ?? {}
+  const headers = input.headers ?? {}
+  const baggage = baggageEntries(meta.baggage)
+  const codex = codexTurnMetadata(header(headers, "x-codex-turn-metadata"))
+  const conversation = first([
+    [meta["ai.ctxpipe/conversationId"], "meta"],
+    [header(headers, "x-ctxpipe-conversation-id"), "header"],
+    [baggage.get("ai.ctxpipe.conversationId"), "baggage"],
+    [meta["openai/session"], "openai"],
+    [codex.session_id ?? codex.sessionId, "codex"],
+  ])
+  const turn = first([
+    [meta["ai.ctxpipe/turnId"], "meta"],
+    [header(headers, "x-ctxpipe-turn-id"), "header"],
+    [baggage.get("ai.ctxpipe.turnId"), "baggage"],
+    [codex.turn_id ?? codex.turnId, "codex"],
+  ])
+  const parent = clientSpanContext(meta.traceparent, meta.tracestate)
+  const name = clientName(meta, headers)
+  return {
+    ...(conversation ? { conversation } : {}),
+    ...(turn ? { turn } : {}),
+    ...(parent ? { parent } : {}),
+    ...(name ? { clientName: name } : {}),
+  }
+}
+
+function sha256Hex(value: string): string {
+  return createHash("sha256").update(value).digest("hex")
+}
+
+/**
+ * Stable key for one client of one principal. It holds no secret and no raw
+ * id: it is a hash of the principal id and the client identity (OAuth client
+ * id, else the client name).
+ */
+export function mcpConnectionKey(input: {
+  principal: string
+  client: string
+}): string {
+  return `mck_${sha256Hex(`${input.principal}\n${input.client}`).slice(0, 32)}`
+}
+
+function currentPrincipal(): { principal: string; oauthClientId?: string } {
+  try {
+    const vars = getContext<AppEnv>().var
+    const oauthClientId = vars.oauthClientId ?? undefined
+    if (vars.orgApiKey) {
+      return { principal: `key:${vars.orgApiKey.id}`, oauthClientId }
+    }
+    if (vars.user?.id) {
+      return { principal: `user:${vars.user.id}`, oauthClientId }
+    }
+  } catch {
+    // Not in a Hono request.
+  }
+  return { principal: "anonymous" }
+}
+
+type ToolCallExtra = {
+  _meta?: Record<string, unknown>
+  requestInfo?: { headers?: Headers }
+}
+
+type ToolResult = {
+  content: Array<{ type: "text"; text: string }> | unknown[]
+  isError?: boolean
+  _meta?: Record<string, unknown>
+}
+
+export type McpToolCall = {
+  callId: string
+  connectionKey: string
+  correlation: McpCorrelation
+}
+
+/**
+ * Run one MCP tool call with correlation. The tool framework calls this for
+ * each `tools/call`. It starts the `mcp.tool <name>` span (a child of the
+ * client trace when `_meta.traceparent` is valid, with a link to the HTTP
+ * server span), puts the correlation attributes on the span and the request
+ * log, and adds `_meta["ai.ctxpipe/callId"]` to the result.
+ *
+ * Do not pass tool arguments here. Query text, paths and repository URLs
+ * must not go on spans.
+ */
+export async function runMcpToolCall<R extends ToolResult>(
+  input: { toolName: string; extra: ToolCallExtra; orgSlug?: string },
+  fn: (call: McpToolCall) => Promise<R>,
+): Promise<R> {
+  const correlation = readMcpCorrelation({
+    meta: input.extra._meta,
+    headers: input.extra.requestInfo?.headers,
+  })
+  const { principal, oauthClientId } = currentPrincipal()
+  const connectionKey = mcpConnectionKey({
+    principal,
+    client: oauthClientId
+      ? `oauth:${oauthClientId}`
+      : `name:${correlation.clientName ?? "unknown"}`,
+  })
+  const callId = generateObjectId("call")
+  const toolName = input.toolName.slice(0, 100)
+  const attributes: AttributionInput = {
+    "ctxpipe.mcp.tool": toolName,
+    "ctxpipe.mcp.call.id": callId,
+    "ctxpipe.mcp.connection.key": connectionKey,
+    "ctxpipe.mcp.client.name": correlation.clientName,
+    "ctxpipe.mcp.conversation.id": correlation.conversation?.id,
+    "ctxpipe.mcp.conversation.source": correlation.conversation?.source,
+    "ctxpipe.mcp.turn.id": correlation.turn?.id,
+    "ctxpipe.mcp.turn.source": correlation.turn?.source,
+    "ctxpipe.mcp.correlation.source": correlation.conversation
+      ? "client"
+      : "derived",
+    "ctxpipe.mcp.org.slug_hash": input.orgSlug
+      ? sha256Hex(input.orgSlug).slice(0, 16)
+      : undefined,
+  }
+
+  const active = context.active()
+  const server = trace.getSpanContext(active)
+  const links: Link[] = server ? [{ context: server }] : []
+  const parentContext: Context = correlation.parent
+    ? trace.setSpanContext(active, correlation.parent)
+    : active
+  const callContext = contextWithForkedAttributionBag(parentContext)
+  const withMeta = (result: R): R => ({
+    ...result,
+    _meta: { ...result._meta, "ai.ctxpipe/callId": callId },
+  })
+
+  return trace
+    .getTracer("ctxpipe-backend")
+    .startActiveSpan(
+      `mcp.tool ${toolName}`,
+      { links },
+      callContext,
+      async (span) => {
+        applyAttribution(attributes)
+        try {
+          return withMeta(await fn({ callId, connectionKey, correlation }))
+        } catch (error) {
+          const exception =
+            error instanceof Error ? error : new Error(String(error))
+          span.recordException(exception)
+          span.setStatus({
+            code: SpanStatusCode.ERROR,
+            message: exception.message,
+          })
+          // The SDK sends an McpError as a protocol error. Keep that path.
+          if (error instanceof McpError) throw error
+          // Same shape as the SDK tool error, plus the call id.
+          return withMeta({
+            content: [{ type: "text", text: exception.message }],
+            isError: true,
+          } as R)
+        } finally {
+          span.end()
+        }
+      },
+    )
+}
