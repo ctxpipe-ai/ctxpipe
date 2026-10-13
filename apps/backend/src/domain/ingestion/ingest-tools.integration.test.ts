@@ -1,11 +1,10 @@
-import { localProcessSandbox } from "@tanstack/ai-sandbox-local-process"
+import { createHmac, randomUUID } from "node:crypto"
+import { OpenAPIHono } from "@hono/zod-openapi"
 import { eq } from "drizzle-orm"
-import { Hono } from "hono"
 import { HttpResponse, http } from "msw"
-import { setupServer } from "msw/node"
+import { BackendPostgres } from "openworkflow/postgres"
 import {
   afterAll,
-  afterEach,
   beforeAll,
   beforeEach,
   describe,
@@ -13,7 +12,9 @@ import {
   it,
   vi,
 } from "vitest"
-import { withOrgIdContext } from "../../auth/withAuth.js"
+import { useMswServer } from "../../../test/msw.js"
+import type { AppEnv } from "../../app/env.js"
+import { parseEnv } from "../../config/env.js"
 import {
   closeDb,
   getSystemDb,
@@ -21,18 +22,25 @@ import {
   withOrgDbContext,
 } from "../../db/client.js"
 import { organizations } from "../../db/schema/auth.js"
-import { workspaces } from "../../db/schema/workspaces.js"
+import { repositories } from "../../db/schema/repositories.js"
+import { sandboxLocks } from "../../db/schema/sandbox-locks.js"
 import { generateObjectId } from "../../lib/id.js"
-import { ingestSandbox } from "../workspaces/ingest-sandbox.js"
-import { destroySandboxesForWorkspace } from "../workspaces/workspace-sandbox-cleanup.js"
+import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
+import { registerV1Routes } from "../../routes/v1/index.js"
+import { ingestSandboxThreadId } from "../workspaces/chat-lifecycle.js"
 import {
-  INGEST_TOOL_BRIDGE_PATH,
-  ingestToolBridgeRoutes,
-  mintIngestToolToken,
-} from "./ingest-tools.js"
+  mintWorkspaceIngestRunCapability,
+  mintWorkspaceIngestToolsCapability,
+} from "../workspaces/workspace-chat-run-capability.js"
+import { mintWorkspaceChatToken } from "../workspaces/workspace-chat-token.js"
+import {
+  INGESTION_V2_WORKFLOW_NAME,
+  type IngestionV2RunInput,
+} from "./ingestion-run.js"
 
 const CODESEARCH = "http://codesearch.ingest-tools.test"
 const AUTH_SECRET = "ingest-tools-test-secret-0123456789abcdef"
+const BRIDGE = "/api/v1/workspace-ingest/tool-bridge"
 const SOURCE_SHA = "a".repeat(40)
 const CONTEXT_SHA = "b".repeat(40)
 const OTHER_SHA = "c".repeat(40)
@@ -45,14 +53,20 @@ function jwtClaims(header: string | null): Record<string, unknown> {
   return JSON.parse(Buffer.from(payload, "base64url").toString("utf8"))
 }
 
-const server = setupServer(
+async function record(request: Request): Promise<unknown> {
+  const body = await request.json()
+  seen.push({
+    path: new URL(request.url).pathname,
+    claims: jwtClaims(request.headers.get("authorization")),
+    body,
+  })
+  return body
+}
+
+// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
+useMswServer(
   http.post(`${CODESEARCH}/:repositoryId/files-query`, async ({ request }) => {
-    const body = (await request.json()) as { paths: string[] }
-    seen.push({
-      path: new URL(request.url).pathname,
-      claims: jwtClaims(request.headers.get("authorization")),
-      body,
-    })
+    const body = (await record(request)) as { paths: string[] }
     return HttpResponse.json({
       [body.paths[0] ?? ""]: Buffer.from("export const billing = 1\n").toString(
         "base64",
@@ -60,21 +74,16 @@ const server = setupServer(
     })
   }),
   http.post(`${CODESEARCH}/search`, async ({ request }) => {
-    seen.push({
-      path: new URL(request.url).pathname,
-      claims: jwtClaims(request.headers.get("authorization")),
-      body: await request.json(),
-    })
+    await record(request)
     return HttpResponse.json({
       Result: {
         Files: [
           {
-            FileName: "systems/billing.md",
-            Repository: "context",
+            FileName: "src/billing.ts",
             LineMatches: [
               {
                 LineNumber: 1,
-                Line: Buffer.from("# Billing").toString("base64"),
+                Line: Buffer.from("export const billing").toString("base64"),
               },
             ],
           },
@@ -82,12 +91,40 @@ const server = setupServer(
       },
     })
   }),
+  http.post(
+    `${CODESEARCH}/:repositoryId/structural-search`,
+    async ({ request }) => {
+      await record(request)
+      return HttpResponse.json({ matches: [{ file: "src/billing.ts" }] })
+    },
+  ),
+  http.post(`${CODESEARCH}/:repositoryId/graph`, async ({ request }) => {
+    await record(request)
+    return HttpResponse.json({ nodes: [{ symbol: "billing" }] })
+  }),
 )
 
-const app = new Hono().route("/", ingestToolBridgeRoutes)
+const env = parseEnv({
+  NODE_ENV: "test",
+  DATABASE_URL: "postgres://localhost:5432/ctxpipe_test",
+  GRAPH_DB_URI: "redis://localhost:6379",
+  AUTH_BASE_URL: "https://backend.example.com",
+  AUTH_SECRET,
+  PORT: "3000",
+})
+
+function app(): OpenAPIHono<AppEnv> {
+  const routes = new OpenAPIHono<AppEnv>()
+  routes.use("*", async (c, next) => {
+    c.set("env", env)
+    await next()
+  })
+  registerV1Routes(routes)
+  return routes
+}
 
 async function rpc(token: string | undefined, message: unknown) {
-  return app.request(INGEST_TOOL_BRIDGE_PATH, {
+  return app().request(BRIDGE, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -96,6 +133,8 @@ async function rpc(token: string | undefined, message: unknown) {
     body: JSON.stringify(message),
   })
 }
+
+const LIST = { jsonrpc: "2.0", id: 1, method: "tools/list" }
 
 async function callTool(token: string, name: string, args: unknown) {
   const response = await rpc(token, {
@@ -114,26 +153,160 @@ async function callTool(token: string, name: string, args: unknown) {
   }
 }
 
-beforeAll(() => {
+function signed(claims: object, purpose: string): string {
+  const key = createHmac("sha256", AUTH_SECRET)
+    .update(`ctxpipe:capability:${purpose}`)
+    .digest()
+  const payload = Buffer.from(JSON.stringify(claims)).toString("base64url")
+  return `${payload}.${createHmac("sha256", key).update(payload).digest("base64url")}`
+}
+
+function claimsOf(token: string): Record<string, unknown> {
+  return JSON.parse(
+    Buffer.from(token.split(".")[0] ?? "", "base64url").toString("utf8"),
+  )
+}
+
+type Org = { orgId: string; orgSlug: string; source: string; context: string }
+const orgs: Org[] = []
+let backend: BackendPostgres
+
+async function createOrg(): Promise<Org> {
+  const orgId = generateObjectId("org")
+  const org = {
+    orgId,
+    orgSlug: `ingest-tools-${orgId.slice(-8)}`,
+    source: generateObjectId("repo"),
+    context: generateObjectId("repo"),
+  }
+  await getSystemDb().insert(organizations).values({
+    id: orgId,
+    slug: org.orgSlug,
+    name: "Ingest tools proof",
+    createdAt: new Date(),
+  })
+  await withOrgDbContext(orgId, (db) =>
+    db.insert(repositories).values([
+      {
+        id: org.source,
+        orgId,
+        name: "source",
+        gitUrl: "https://example.test/source.git",
+      },
+      {
+        id: org.context,
+        orgId,
+        name: "context",
+        gitUrl: "https://example.test/context.git",
+      },
+    ]),
+  )
+  orgs.push(org)
+  return org
+}
+
+async function startRun(orgId: string): Promise<string> {
+  const run = await backend.createWorkflowRun({
+    workflowName: INGESTION_V2_WORKFLOW_NAME,
+    version: null,
+    idempotencyKey: null,
+    config: {},
+    context: null,
+    input: { orgId, shadow: true } satisfies IngestionV2RunInput,
+    parentStepAttemptNamespaceId: null,
+    parentStepAttemptId: null,
+    // Never due: no worker claims it.
+    availableAt: new Date(Date.now() + 365 * 24 * 60 * 60_000),
+    deadlineAt: null,
+  })
+  return run.id
+}
+
+async function holdShard(orgId: string, runId: string, shard: number) {
+  const owner = randomUUID()
+  await withOrgDbContext(orgId, (db) =>
+    db
+      .insert(sandboxLocks)
+      .values({
+        orgId,
+        key: ingestSandboxThreadId(runId, shard),
+        owner,
+        expiresAt: new Date(Date.now() + 60_000),
+      })
+      .onConflictDoUpdate({
+        target: [sandboxLocks.orgId, sandboxLocks.key],
+        set: { owner },
+      }),
+  )
+  return owner
+}
+
+const workspaceId = generateObjectId("ws")
+
+function checkoutsOf(org: Pick<Org, "source" | "context">) {
+  return [
+    {
+      repositoryId: org.source,
+      checkoutKey: `rev:${SOURCE_SHA}`,
+      sha: SOURCE_SHA,
+    },
+    {
+      repositoryId: org.context,
+      checkoutKey: `ws:${workspaceId}:${CONTEXT_SHA}`,
+      sha: CONTEXT_SHA,
+    },
+  ]
+}
+
+/** A step of a live run that holds shard 0, and its tools capability. */
+async function step(org: Org, checkouts = checkoutsOf(org)) {
+  const runId = await startRun(org.orgId)
+  const lockOwner = await holdShard(org.orgId, runId, 0)
+  const input = {
+    authSecret: AUTH_SECRET,
+    orgId: org.orgId,
+    orgSlug: org.orgSlug,
+    runId,
+    shard: 0,
+    step: "skill:root:apis",
+    lockOwner,
+  }
+  return {
+    runId,
+    lockOwner,
+    input,
+    token: await mintWorkspaceIngestToolsCapability({ ...input, checkouts }),
+  }
+}
+
+beforeAll(async () => {
   const url = process.env.DATABASE_URL
   if (!url) throw new Error("DATABASE_URL is required for ingest tools")
   initDb(url)
-  server.listen({ onUnhandledRequest: "error" })
+  backend = await BackendPostgres.connect(url, {
+    runMigrations: false,
+    namespaceId: openWorkflowNamespaceId(),
+  })
 })
 
 beforeEach(() => {
   vi.stubEnv("CODESEARCH_URL", CODESEARCH)
   vi.stubEnv("AUTH_SECRET", AUTH_SECRET)
   seen.length = 0
-})
-
-afterEach(() => {
-  server.resetHandlers()
-  vi.unstubAllEnvs()
+  return () => vi.unstubAllEnvs()
 })
 
 afterAll(async () => {
-  server.close()
+  for (const org of orgs) {
+    await withOrgDbContext(org.orgId, async (db) => {
+      await db.delete(sandboxLocks).where(eq(sandboxLocks.orgId, org.orgId))
+      await db.delete(repositories).where(eq(repositories.orgId, org.orgId))
+    })
+    await getSystemDb()
+      .delete(organizations)
+      .where(eq(organizations.id, org.orgId))
+  }
+  await backend.stop()
   const { closeOpenWorkflowClient } = await import(
     "../../openworkflow/client.js"
   )
@@ -141,228 +314,183 @@ afterAll(async () => {
   await closeDb()
 })
 
-/** A real org, Workspace, and unsandboxed ingest shard with a live row. */
-async function withShard<T>(
-  fn: (input: {
-    orgId: string
-    workspaceId: string
-    runId: string
-    sandbox: ReturnType<typeof ingestSandbox>
-    token: string
-  }) => Promise<T>,
-): Promise<T> {
-  const orgId = generateObjectId("org")
-  const workspaceId = generateObjectId("ws")
-  const runId = generateObjectId("run")
-  await getSystemDb().insert(organizations).values({
-    id: orgId,
-    slug: orgId,
-    name: "Ingest tools proof",
-    createdAt: new Date(),
-  })
-  await withOrgDbContext(orgId, (db) =>
-    db.insert(workspaces).values({
-      id: workspaceId,
-      orgId,
-      slug: "context",
-      displayName: "Context",
-      workspaceRepositoryUrl: "https://example.test/context.git",
-    }),
-  )
-  const sandbox = ingestSandbox({
-    orgId,
-    workspaceId,
-    runId,
-    shard: 0,
-    isolation: "unsandboxed",
-    provider: localProcessSandbox(),
-    image: "local",
-  })
-  try {
-    await sandbox.ensure()
-    const token = await mintIngestToolToken({
-      authSecret: AUTH_SECRET,
-      orgId,
-      runId,
-      shard: 0,
-      sandboxKey: sandbox.key,
-      source: { repositoryId: "repo_source", sha: SOURCE_SHA },
-      destinations: [
-        {
-          workspaceId,
-          repositories: [{ repositoryId: "repo_context", sha: CONTEXT_SHA }],
-        },
-      ],
-    })
-    return await fn({ orgId, workspaceId, runId, sandbox, token })
-  } finally {
-    await withOrgIdContext({ id: orgId, slug: orgId }, () =>
-      destroySandboxesForWorkspace(workspaceId),
+describe("ingest tool bridge through registerV1Routes (Postgres, msw codesearch)", () => {
+  it("lists the capability's checkouts and only read-only code tools", async () => {
+    const org = await createOrg()
+    const { token } = await step(org)
+    const listed = await rpc(token, LIST)
+    expect(listed.status).toBe(200)
+    const names = (
+      (await listed.json()) as { result: { tools: Array<{ name: string }> } }
+    ).result.tools.map((tool) => tool.name)
+    expect(names).toEqual(
+      expect.arrayContaining([
+        "list_checkouts",
+        "get_file",
+        "search",
+        "structural_search",
+        "graph_find_symbol",
+      ]),
     )
-    await withOrgDbContext(orgId, (db) =>
-      db.delete(workspaces).where(eq(workspaces.orgId, orgId)),
-    )
-    await getSystemDb().delete(organizations).where(eq(organizations.id, orgId))
-  }
-}
-
-describe("ingest tool bridge (Postgres, msw codesearch)", () => {
-  it("lists the run's checkouts and only read-only code tools", async () => {
-    await withShard(async ({ token, workspaceId }) => {
-      const listed = await rpc(token, {
-        jsonrpc: "2.0",
-        id: 1,
-        method: "tools/list",
-      })
-      expect(listed.status).toBe(200)
-      const names = (
-        (await listed.json()) as { result: { tools: Array<{ name: string }> } }
-      ).result.tools.map((tool) => tool.name)
-      expect(names).toContain("list_checkouts")
-      expect(names).toContain("get_file")
-      expect(names).toContain("search")
-      expect(names).not.toContain("hybrid_search")
-      expect(names).not.toContain("list_repositories")
-
-      const checkouts = await callTool(token, "list_checkouts", {})
-      expect(checkouts.text).toContain(`rev:${SOURCE_SHA}`)
-      expect(checkouts.text).toContain(`ws:${workspaceId}:${CONTEXT_SHA}`)
-    })
+    expect(names).not.toContain("hybrid_search")
+    expect(names).not.toContain("list_repositories")
+    const checkouts = await callTool(token, "list_checkouts", {})
+    expect(checkouts.text).toContain(`rev:${SOURCE_SHA}`)
+    expect(checkouts.text).toContain(`ws:${workspaceId}:${CONTEXT_SHA}`)
   })
 
-  it("reads the source checkout with a source revision claim", async () => {
-    await withShard(async ({ token }) => {
-      const result = await callTool(token, "get_file", {
-        repositoryId: "repo_source",
-        checkoutKey: `rev:${SOURCE_SHA}`,
-        path: "src/billing.ts",
-      })
+  it("runs get_file, search, structural_search, and a graph tool on the source checkout with its revision claim", async () => {
+    const org = await createOrg()
+    const { token } = await step(org)
+    const at = { repositoryId: org.source, checkoutKey: `rev:${SOURCE_SHA}` }
+    const file = await callTool(token, "get_file", { ...at, path: "a.ts" })
+    expect(file.text).toContain("export const billing = 1")
+    const search = await callTool(token, "search", { ...at, query: "billing" })
+    expect(search.text).toContain("src/billing.ts")
+    const structural = await callTool(token, "structural_search", {
+      ...at,
+      pattern: "export const $A = $B",
+    })
+    expect(structural.text).toContain("src/billing.ts")
+    const graph = await callTool(token, "graph_find_symbol", {
+      ...at,
+      symbol: "billing",
+    })
+    expect(graph.text).toContain("billing")
+    for (const result of [file, search, structural, graph])
       expect(result.isError).toBe(false)
-      expect(result.text).toContain("export const billing = 1")
-      expect(seen).toHaveLength(1)
-      expect(seen[0]?.path).toBe("/repo_source/files-query")
-      expect(seen[0]?.claims).toMatchObject({
-        repositoryRevisions: [{ repositoryId: "repo_source", sha: SOURCE_SHA }],
+    expect(seen.map((item) => item.path)).toEqual([
+      `/${org.source}/files-query`,
+      "/search",
+      `/${org.source}/structural-search`,
+      `/${org.source}/graph`,
+    ])
+    for (const item of seen) {
+      expect(item.claims).toMatchObject({
+        orgId: org.orgId,
+        repositoryRevisions: [{ repositoryId: org.source, sha: SOURCE_SHA }],
       })
-      expect(seen[0]?.claims).not.toHaveProperty("workspaceId")
-    })
+      expect(item.claims).not.toHaveProperty("workspaceId")
+    }
+    expect(seen[1]?.body).not.toHaveProperty("RepoIDs")
   })
 
   it("searches a destination Workspace checkout with its Workspace revision claim", async () => {
-    await withShard(async ({ token, workspaceId }) => {
-      const result = await callTool(token, "search", {
-        repositoryId: "repo_context",
-        checkoutKey: `ws:${workspaceId}:${CONTEXT_SHA}`,
-        query: "billing",
-      })
-      expect(result.isError).toBe(false)
-      expect(result.text).toContain("systems/billing.md")
-      expect(seen).toHaveLength(1)
-      expect(seen[0]?.path).toBe("/search")
-      expect(seen[0]?.claims).toMatchObject({
-        workspaceId,
-        workspaceRevisions: [
-          { repositoryId: "repo_context", sha: CONTEXT_SHA },
-        ],
-      })
-      expect(seen[0]?.claims).not.toHaveProperty("repositoryRevisions")
-      expect(seen[0]?.body).not.toHaveProperty("RepoIDs")
+    const org = await createOrg()
+    const { token } = await step(org)
+    const result = await callTool(token, "search", {
+      repositoryId: org.context,
+      checkoutKey: `ws:${workspaceId}:${CONTEXT_SHA}`,
+      query: "billing",
     })
+    expect(result.isError).toBe(false)
+    expect(seen).toHaveLength(1)
+    expect(seen[0]?.claims).toMatchObject({
+      workspaceId,
+      workspaceRevisions: [{ repositoryId: org.context, sha: CONTEXT_SHA }],
+    })
+    expect(seen[0]?.claims).not.toHaveProperty("repositoryRevisions")
+    expect(seen[0]?.body).not.toHaveProperty("RepoIDs")
   })
 
-  it("refuses a checkout key or repository outside the run, and calls no codesearch", async () => {
-    await withShard(async ({ token, workspaceId }) => {
-      for (const args of [
-        { repositoryId: "repo_source", checkoutKey: `rev:${OTHER_SHA}` },
-        {
-          repositoryId: "repo_context",
-          checkoutKey: `ws:${workspaceId}:${OTHER_SHA}`,
-        },
-        {
-          repositoryId: "repo_context",
-          checkoutKey: `ws:ws_other:${CONTEXT_SHA}`,
-        },
-        { repositoryId: "repo_other", checkoutKey: `rev:${SOURCE_SHA}` },
-        { repositoryId: "repo_source", checkoutKey: "default" },
-        { repositoryId: "repo_source" },
-      ]) {
-        const result = await callTool(token, "get_file", {
-          ...args,
-          path: "README.md",
-        })
-        expect(result.text).toContain("checkout_not_in_run")
-      }
-      expect(seen).toHaveLength(0)
-    })
+  it("refuses a checkout key or repository outside the capability, and calls no codesearch", async () => {
+    const org = await createOrg()
+    const { token } = await step(org)
+    for (const args of [
+      { repositoryId: org.source, checkoutKey: `rev:${OTHER_SHA}` },
+      {
+        repositoryId: org.context,
+        checkoutKey: `ws:${workspaceId}:${OTHER_SHA}`,
+      },
+      { repositoryId: org.context, checkoutKey: `ws:ws_other:${CONTEXT_SHA}` },
+      { repositoryId: org.context, checkoutKey: `rev:${SOURCE_SHA}` },
+      { repositoryId: "repo_other", checkoutKey: `rev:${SOURCE_SHA}` },
+      { repositoryId: org.source },
+    ]) {
+      const result = await callTool(token, "get_file", {
+        ...args,
+        path: "README.md",
+      })
+      expect(result.text).toContain("checkout_not_in_run")
+    }
+    expect(seen).toHaveLength(0)
   })
 
-  it("answers 401 to a missing, forged, or wrong-secret token", async () => {
-    await withShard(async ({ token, orgId, runId, sandbox }) => {
-      const list = { jsonrpc: "2.0", id: 1, method: "tools/list" }
-      expect((await rpc(undefined, list)).status).toBe(401)
-      expect((await rpc(`${token}x`, list)).status).toBe(401)
-      const foreign = await mintIngestToolToken({
-        authSecret: "another-secret-0123456789abcdef0123456789",
-        orgId,
-        runId,
-        shard: 0,
-        sandboxKey: sandbox.key,
-        source: { repositoryId: "repo_source", sha: SOURCE_SHA },
-        destinations: [],
-      })
-      expect((await rpc(foreign, list)).status).toBe(401)
-    })
-  })
-
-  it("refuses to mint a token for a shard that has no sandbox", async () => {
-    await withShard(async ({ orgId, workspaceId, runId }) => {
-      const unstarted = ingestSandbox({
-        orgId,
-        workspaceId,
-        runId,
-        shard: 1,
-        isolation: "unsandboxed",
-        provider: localProcessSandbox(),
-        image: "local",
-      })
-      await expect(
-        mintIngestToolToken({
-          authSecret: AUTH_SECRET,
-          orgId,
-          runId,
-          shard: 1,
-          sandboxKey: unstarted.key,
-          source: { repositoryId: "repo_source", sha: SOURCE_SHA },
-          destinations: [],
-        }),
-      ).rejects.toThrow(/sandbox/i)
-    })
-  })
-
-  it("answers 401 after destroy-sandbox revokes the run's token", async () => {
-    await withShard(async ({ token, sandbox }) => {
-      const before = await callTool(token, "get_file", {
-        repositoryId: "repo_source",
-        checkoutKey: `rev:${SOURCE_SHA}`,
-        path: "src/billing.ts",
-      })
-      expect(before.isError).toBe(false)
-      await sandbox.destroy()
-      const after = await rpc(token, {
-        jsonrpc: "2.0",
-        id: 2,
-        method: "tools/call",
-        params: {
-          name: "get_file",
-          arguments: {
-            repositoryId: "repo_source",
-            checkoutKey: `rev:${SOURCE_SHA}`,
-            path: "src/billing.ts",
+  it("answers 401 to a missing token, a changed payload with its old signature, a chat token, and a model capability", async () => {
+    const org = await createOrg()
+    const { token, input } = await step(org)
+    const [payload, signature] = token.split(".")
+    const changed = Buffer.from(
+      JSON.stringify({
+        ...claimsOf(token),
+        checkouts: [
+          {
+            repositoryId: org.source,
+            checkoutKey: `rev:${OTHER_SHA}`,
+            sha: OTHER_SHA,
           },
-        },
-      })
-      expect(after.status).toBe(401)
-      expect(seen).toHaveLength(1)
+        ],
+      }),
+    ).toString("base64url")
+    expect(payload).not.toBe(changed)
+    const chat = mintWorkspaceChatToken({
+      authSecret: AUTH_SECRET,
+      orgId: org.orgId,
+      orgSlug: org.orgSlug,
+      conversationId: generateObjectId("conv"),
     })
+    const model = await mintWorkspaceIngestRunCapability(input)
+    for (const presented of [undefined, `${changed}.${signature}`, chat, model])
+      expect((await rpc(presented, LIST)).status).toBe(401)
+    expect((await rpc(token, LIST)).status).toBe(200)
+  })
+
+  it("answers 401 to a well-signed capability of another run, shard, or org", async () => {
+    const org = await createOrg()
+    const other = await createOrg()
+    const { token } = await step(org)
+    const claims = claimsOf(token)
+    for (const change of [
+      { runId: await startRun(org.orgId) },
+      { shard: 1 },
+      { orgId: other.orgId, orgSlug: other.orgSlug },
+    ])
+      expect(
+        (
+          await rpc(
+            signed({ ...claims, ...change }, "workspace-ingest-tools"),
+            LIST,
+          )
+        ).status,
+      ).toBe(401)
+    expect(
+      (await rpc(signed(claims, "workspace-ingest-tools"), LIST)).status,
+    ).toBe(200)
+  })
+
+  it("answers 403 when a claimed repository is not the capability org's", async () => {
+    const org = await createOrg()
+    const other = await createOrg()
+    // A live step of `other` whose capability names `org`'s repositories.
+    const { token } = await step(other, checkoutsOf(org))
+    expect((await rpc(token, LIST)).status).toBe(403)
+    expect(seen).toHaveLength(0)
+  })
+
+  it("answers 401 after the step lets the shard lock go, and after the run is cancelled", async () => {
+    const org = await createOrg()
+    const released = await step(org)
+    expect((await rpc(released.token, LIST)).status).toBe(200)
+    await withOrgDbContext(org.orgId, (db) =>
+      db
+        .delete(sandboxLocks)
+        .where(eq(sandboxLocks.key, ingestSandboxThreadId(released.runId, 0))),
+    )
+    expect((await rpc(released.token, LIST)).status).toBe(401)
+
+    const cancelled = await step(org)
+    expect((await rpc(cancelled.token, LIST)).status).toBe(200)
+    await backend.cancelWorkflowRun({ workflowRunId: cancelled.runId })
+    expect((await rpc(cancelled.token, LIST)).status).toBe(401)
   })
 })
