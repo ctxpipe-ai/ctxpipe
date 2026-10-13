@@ -54,6 +54,32 @@ describe("repositoryIngestionOrchestrator workflow", () => {
     enqueueFollowUpIfTipAheadMock.mockResolvedValue({ enqueued: false })
   })
 
+  it("passes fullReingest and deterministicOnly to the ingestion child", async () => {
+    const runWorkflow = vi.fn().mockResolvedValue({})
+    const step = { runWorkflow, run: vi.fn() }
+
+    await repositoryIngestionOrchestrator.fn({
+      input: {
+        repositoryId: "repo_1",
+        orgId: "org_1",
+        fullReingest: false,
+        deterministicOnly: true,
+      },
+      step,
+    } as never)
+
+    expect(runWorkflow).toHaveBeenCalledWith(
+      { name: "repository-ingestion" },
+      {
+        repositoryId: "repo_1",
+        orgId: "org_1",
+        fullReingest: false,
+        deterministicOnly: true,
+      },
+      { name: "repository-ingestion-child" },
+    )
+  })
+
   it("returns child result on success", async () => {
     const runWorkflow = vi.fn().mockResolvedValue({
       repositoryId: "repo_1",

@@ -81,8 +81,10 @@ You can connect GitHub during onboarding, or later from the **Connectors** page.
   source-repository extract) and records `ADDED` / `MODIFIED` / `REMOVED` /
   `RENAMED` edges from the pull request dated at merge, `PullRequest TARGETS`
   the source repository, `File PART_OF` the owning service when that
-  repository is already classified, and `PullRequest REFERENCES Issue` when
-  the title, body, or branch names a Linear issue.
+  repository is already classified, one `PullRequest CHANGED` edge to each
+  service, app, or library that holds a changed path (also dated at merge),
+  and `PullRequest REFERENCES Issue` when the title, body, or branch names a
+  Linear issue.
 
 Selecting GitHub repositories also captures **merged** pull requests into the
 organization context repository (`ctxpipe-context`, or the repo already used

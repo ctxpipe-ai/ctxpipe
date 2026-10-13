@@ -144,7 +144,57 @@ describe("buildGithubPullRequestGraph", () => {
     ).toBe(false)
   })
 
-  it("uses convention-shaped evidence ids carrying both repository ids and the warehouse path", () => {
+  it("emits one CHANGED edge per package that holds a changed path, removed paths too, dated at merge", () => {
+    const { file, result } = parsed()
+    const { extractedClaims } = buildGithubPullRequestGraph({
+      parsed: result,
+      markdownPath: file.path,
+      targetHash: "abc123",
+      contextRepositoryId: "repo_ctx",
+      sourceRepositoryId: "repo_api",
+      packageRoots: [
+        {
+          kind: "Service",
+          repositoryId: "repo_api",
+          root: "src",
+          deduplicationKey: "svc:repo_api:src",
+        },
+        {
+          kind: "Library",
+          repositoryId: "repo_api",
+          root: "src/domain",
+          deduplicationKey: "lib:repo_api:src/domain",
+        },
+        {
+          kind: "Service",
+          repositoryId: "repo_other",
+          root: "src",
+          deduplicationKey: "svc:repo_other:src",
+        },
+      ],
+    })
+
+    const changed = extractedClaims.filter(
+      (claim) => claim.predicate === "CHANGED",
+    )
+    expect(
+      changed.map((claim) => [claim.objectKind, claim.objectRef]).sort(),
+    ).toEqual([
+      ["Library", "lib:repo_api:src/domain"],
+      ["Service", "svc:repo_api:src"],
+    ])
+    for (const claim of changed) {
+      expect(claim).toMatchObject({
+        subjectKind: "PullRequest",
+        subjectRef: "prq:repo_api:8",
+        confidence: 0.95,
+        extractionMethod: "deterministic",
+        validFrom: "2026-03-02",
+      })
+    }
+  })
+
+  it("emits no CHANGED edge when no package holds a changed path", () => {
     const { file, result } = parsed()
     const { extractedClaims } = buildGithubPullRequestGraph({
       parsed: result,
@@ -153,6 +203,32 @@ describe("buildGithubPullRequestGraph", () => {
       contextRepositoryId: "repo_ctx",
       sourceRepositoryId: "repo_api",
     })
+
+    expect(extractedClaims.some((claim) => claim.predicate === "CHANGED")).toBe(
+      false,
+    )
+  })
+
+  it("uses convention-shaped evidence ids carrying both repository ids and the warehouse path", () => {
+    const { file, result } = parsed()
+    const { extractedClaims } = buildGithubPullRequestGraph({
+      parsed: result,
+      markdownPath: file.path,
+      targetHash: "abc123",
+      contextRepositoryId: "repo_ctx",
+      sourceRepositoryId: "repo_api",
+      packageRoots: [
+        {
+          kind: "Service",
+          repositoryId: "repo_api",
+          root: "src",
+          deduplicationKey: "svc:repo_api:src",
+        },
+      ],
+    })
+    expect(extractedClaims.some((claim) => claim.predicate === "CHANGED")).toBe(
+      true,
+    )
     for (const claim of extractedClaims) {
       expect(
         isConventionalEvidenceSourceId(claim.sourceId, "repo_ctx", "abc123"),

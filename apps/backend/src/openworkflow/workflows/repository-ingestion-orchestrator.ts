@@ -22,6 +22,7 @@ const repositoryIngestionOrchestratorInputSchema = z.object({
   indexingReason: z.string().nullable().optional(),
   githubConnectionId: z.string().nullable().optional(),
   fullReingest: z.boolean().optional(),
+  deterministicOnly: z.boolean().optional(),
 })
 
 export const repositoryIngestionOrchestrator = defineWorkflow(
@@ -54,6 +55,9 @@ export const repositoryIngestionOrchestrator = defineWorkflow(
                 : {}),
               ...(input.fullReingest !== undefined
                 ? { fullReingest: input.fullReingest }
+                : {}),
+              ...(input.deterministicOnly !== undefined
+                ? { deterministicOnly: input.deterministicOnly }
                 : {}),
             },
             { name: "repository-ingestion-child" },

@@ -23,7 +23,18 @@ jobs:
     env:
       DATABASE_URL: postgresql://ctxpipe:ctxpipe@localhost:5433/ctxpipe
       AUTH_SECRET: test-only-auth-secret-with-at-least-32-characters
+      # Turns on the live graph tests and the graph retrieval eval.
+      GRAPH_DB_URI: redis://localhost:6379
     services:
+      falkordb:
+        image: falkordb/falkordb:latest
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
       postgres:
         image: pgvector/pgvector:pg17
         env:

@@ -66,8 +66,9 @@ export function linearIssueIdentifiersForPullRequest(
 /**
  * Deterministic graph for one mirrored pull request (ADR-031, ADR-033):
  * `PullRequest TARGETS Repository`, `PullRequest ADDED|MODIFIED|REMOVED|RENAMED File`,
- * `File PART_OF Repository|package` for paths still present, and
- * `PullRequest REFERENCES Issue` for Linear identifiers in the PR text.
+ * `PullRequest CHANGED Service|App|Library` once for each package that holds
+ * a changed path, `File PART_OF Repository|package` for paths still present,
+ * and `PullRequest REFERENCES Issue` for Linear identifiers in the PR text.
  * Change edges carry `validFrom` = merge date.
  */
 export function buildGithubPullRequestGraph(input: {
@@ -139,6 +140,7 @@ export function buildGithubPullRequestGraph(input: {
   const packages = (input.packageRoots ?? []).filter(
     (entry) => entry.repositoryId === input.sourceRepositoryId,
   )
+  const changedPackages = new Map<string, PackageRoot>()
 
   for (const file of parsed.files) {
     const path = asLocatedPath(file.path) ?? file.path.replace(/\\/g, "/")
@@ -155,6 +157,10 @@ export function buildGithubPullRequestGraph(input: {
       payload: { path, repository: parsed.repository },
     })
 
+    // A removed path also changes the package that held it.
+    const pkg = matchPackageForPath(path, packages)
+    if (pkg) changedPackages.set(pkg.deduplicationKey, pkg)
+
     if (input.sourceRepositoryId && file.status !== "removed") {
       claims.push({
         subjectRef: fileKey,
@@ -168,7 +174,6 @@ export function buildGithubPullRequestGraph(input: {
         confidence: 0.95,
         provenance: { path: input.markdownPath, file: path },
       })
-      const pkg = matchPackageForPath(path, packages)
       if (pkg) {
         claims.push({
           subjectRef: fileKey,
@@ -202,6 +207,24 @@ export function buildGithubPullRequestGraph(input: {
         previousPath: file.previousPath,
         status: file.status,
       },
+      ...(mergedOn ? { validFrom: mergedOn } : {}),
+    })
+  }
+
+  // One hop from a package to the pull requests that changed it, so a "what
+  // changed" walk does not need to cross every file of the package.
+  for (const pkg of changedPackages.values()) {
+    claims.push({
+      subjectRef: pullKey,
+      subjectKind: "PullRequest",
+      objectRef: pkg.deduplicationKey,
+      objectKind: pkg.kind,
+      predicate: "CHANGED",
+      sourceId: sourceId(["CHANGED", pkg.root]),
+      sourceType: "git",
+      extractionMethod: "deterministic",
+      confidence: 0.95,
+      provenance: { path: input.markdownPath, root: pkg.root },
       ...(mergedOn ? { validFrom: mergedOn } : {}),
     })
   }

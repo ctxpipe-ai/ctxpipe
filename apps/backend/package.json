@@ -26,6 +26,7 @@
     "graph-quality-report": "bun run src/scripts/graphQualityReport.ts",
     "repo-graph-size-check": "bun run src/scripts/repoGraphSizeCheck.ts",
     "reindex-repositories": "bun run src/scripts/reindexRepositories.ts",
+    "advisor-eval": "bun run src/scripts/advisorEval.ts",
     "verify-instruction-ingestion": "bun run src/scripts/verifyInstructionIngestion.ts",
     "verify-connector-assets-runtime": "bun run src/scripts/verifyConnectorAssetRuntime.ts",
     "codegen:linear": "graphql-codegen --config codegen.linear.yml"

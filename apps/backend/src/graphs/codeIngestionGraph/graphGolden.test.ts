@@ -268,7 +268,7 @@ describe("graph golden spec", () => {
     expect(summary).toEqual({
       REFERENCES: { kept: 4, dropped: 0, stubbed: 0 },
       OWNS: { kept: 3, dropped: 0, stubbed: 0 },
-      INFLUENCES: { kept: 2, dropped: 0, stubbed: 0 },
+      INFLUENCES: { kept: 3, dropped: 0, stubbed: 0 },
       SUPERSEDES: { kept: 1, dropped: 0, stubbed: 0 },
       MENTIONS: { kept: 1, dropped: 0, stubbed: 0 },
     })
@@ -304,6 +304,9 @@ describe("graph golden spec", () => {
     )
     expect(lines).toContain(
       `dec:${SOURCE_REPO}:docs/adr/0007-domain-logic-in-services.md INFLUENCES svc:${SOURCE_REPO}:./`,
+    )
+    expect(lines).toContain(
+      `dec:${SOURCE_REPO}:docs/adr/0007-domain-logic-in-services.md INFLUENCES svc:${SOURCE_REPO}:src`,
     )
     expect(lines.some((line) => line.includes(" ABOUT "))).toBe(false)
   })

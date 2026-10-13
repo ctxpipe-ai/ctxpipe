@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import { deriveLogicalSourceKey } from "../../retrieval/services/logicalSourceKey.js"
 import {
   buildEvidenceSourceId,
+  evidenceSourceRepositoryId,
   isConventionalEvidenceSourceId,
 } from "./evidenceSourceId.js"
 
@@ -62,5 +63,19 @@ describe("buildEvidenceSourceId", () => {
         targetHash: "h",
       }),
     ).toThrow()
+  })
+})
+
+describe("evidenceSourceRepositoryId", () => {
+  it("reads the repository that owns the evidence, also when the claim is about another repository", () => {
+    const id = buildEvidenceSourceId({
+      extractor: "githubPull",
+      repositoryId: "repo_ctx",
+      segments: ["repo_api", "github/pulls/acme/api/8--10.md", "TARGETS"],
+      targetHash: "abc123",
+    })
+
+    expect(evidenceSourceRepositoryId(id)).toBe("repo_ctx")
+    expect(evidenceSourceRepositoryId("manual")).toBeNull()
   })
 })

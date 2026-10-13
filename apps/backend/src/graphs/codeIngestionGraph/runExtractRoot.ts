@@ -69,6 +69,16 @@ export async function runIdentifyPhaseForRoot(
   state: CodeIngestionState,
   root: string,
   kindPartial: Partial<CodeIngestionState>,
+  options: {
+    /** Skip the LLM extractors. The deterministic extractors still run. */
+    deterministicOnly?: boolean
+    /**
+     * Objects from the extract-kind step of every root. Decision scoping
+     * (ADR-036) reads the packages from them. The default is the objects of
+     * this root only.
+     */
+    packageObjects?: ExtractedObject[]
+  } = {},
 ): Promise<{
   extractedObjects: ExtractedObject[]
   extractedClaims: ExtractedClaim[]
@@ -84,16 +94,21 @@ export async function runIdentifyPhaseForRoot(
   }
 
   const parts = await Promise.all([
-    identifyAPIClients(rootState),
-    identifyAPIs(rootState),
-    identifyDatabases(rootState),
-    identifyInfrastructure(rootState),
-    identifyStreams(rootState),
-    identifyServiceDependencies(rootState),
-    identifyLibraries(rootState),
-    identifyPatterns(rootState),
-    extractInstructionUnits(rootState),
-    extractDecisions(rootState),
+    ...(options.deterministicOnly
+      ? []
+      : [
+          identifyAPIClients,
+          identifyAPIs,
+          identifyDatabases,
+          identifyInfrastructure,
+          identifyStreams,
+          identifyServiceDependencies,
+          identifyLibraries,
+          identifyPatterns,
+          extractInstructionUnits,
+        ]
+    ).map((extract) => extract(rootState)),
+    extractDecisions(rootState, options.packageObjects),
     extractCodeowners(rootState),
     ...CONNECTOR_EXTRACTORS.map((extractor) => extractor.extract(rootState)),
   ])
@@ -155,6 +170,9 @@ export async function finalizeExtractedReferences(input: {
  * Prefer splitting across OW steps via {@link runExtractKindForRoot} +
  * {@link runIdentifyPhaseForRoot} + {@link finalizeExtractedReferences}
  * when durability at the kind boundary is needed.
+ *
+ * Decision scoping sees only the packages of this root. For a repository
+ * with more than one root, use the split steps and give `packageObjects`.
  */
 export async function runExtractForRoot(
   state: CodeIngestionState,

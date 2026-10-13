@@ -510,7 +510,8 @@ export async function markRepositoryIndexingFailed(input: {
 
 export async function markRepositoryIndexingReady(input: {
   repositoryId: string
-  targetHash: string
+  /** Commit that every extractor has read. A deterministic-only run gives the previous value. */
+  targetHash: string | null
 }) {
   const db = getOrgDb()
   await db
@@ -533,7 +534,8 @@ export async function markRepositoryIndexingReady(input: {
 
 export async function markRepositoryIndexingReadyWithIssues(input: {
   repositoryId: string
-  targetHash: string
+  /** Commit that every extractor has read. A deterministic-only run gives the previous value. */
+  targetHash: string | null
   error: unknown
 }) {
   const db = getOrgDb()

@@ -39,22 +39,28 @@ vi.mock("../../platform/graph/client.js", () => ({
   withGraphClient: withGraphClientMock,
 }))
 
+// Index DDL would add queries to the mocked graph client that these tests count.
+vi.mock("../../platform/graph/indexes.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../platform/graph/indexes.js")>()),
+  ensureNodeIdIndexes: vi.fn(async () => undefined),
+}))
+
 vi.mock("../../observability/logger.js", () => ({
   getLogger: getLoggerMock,
   flushWorkflowLog: flushWorkflowLogMock,
   log: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 }))
 
+import type { ClaimForProjection } from "../schema/claimForProjection.js"
 import {
   deleteObjectsFromGraph,
   groupClaimsForBatchProjection,
   PROJECT_CLAIM_BATCH_SIZE,
-  projectClaimsFromState,
-  retractClaimsFromGraph,
-  refreshClaimProjections,
   type PreparedProjectionRow,
+  projectClaimsFromState,
+  refreshClaimProjections,
+  retractClaimsFromGraph,
 } from "./graphProjection.js"
-import type { ClaimForProjection } from "../schema/claimForProjection.js"
 
 function makeClaim(
   overrides: Partial<ClaimForProjection> & Pick<ClaimForProjection, "id">,
@@ -94,7 +100,11 @@ describe("groupClaimsForBatchProjection", () => {
         objectProps: { id: "db_1", kind: "Database" },
       },
       {
-        claim: makeClaim({ id: "c3", predicate: "EXPOSES_API", objectId: "api_c" }),
+        claim: makeClaim({
+          id: "c3",
+          predicate: "EXPOSES_API",
+          objectId: "api_c",
+        }),
         subjectProps: { id: "svc_a", kind: "Service" },
         objectProps: { id: "api_c", kind: "API" },
       },
@@ -209,20 +219,24 @@ describe("retractClaimsFromGraph / deleteObjectsFromGraph", () => {
     executeQueryMock.mockResolvedValue({ records: [] })
   })
 
-  it("retracts many claim edges with one UNWIND query", async () => {
+  it("retracts many claim edges in one scan, not one scan per claim", async () => {
     await retractClaimsFromGraph(["c1", "c2", "c1"])
     expect(executeQueryMock).toHaveBeenCalledTimes(1)
-    expect(executeQueryMock.mock.calls[0]?.[0]).toContain("UNWIND $claimIds")
+    const query = String(executeQueryMock.mock.calls[0]?.[0])
+    expect(query).toContain("r.claim_id IN $claimIds")
+    expect(query).not.toContain("UNWIND")
     expect(executeQueryMock.mock.calls[0]?.[1]).toEqual({
       claimIds: ["c1", "c2"],
       orgId: "org_1",
     })
   })
 
-  it("deletes many object nodes with one UNWIND query", async () => {
+  it("deletes many object nodes in one scan, not one scan per node", async () => {
     await deleteObjectsFromGraph(["o1", "o2"])
     expect(executeQueryMock).toHaveBeenCalledTimes(1)
-    expect(executeQueryMock.mock.calls[0]?.[0]).toContain("UNWIND $ids")
+    const query = String(executeQueryMock.mock.calls[0]?.[0])
+    expect(query).toContain("n.id IN $ids")
+    expect(query).not.toContain("UNWIND")
     expect(executeQueryMock.mock.calls[0]?.[1]).toEqual({
       ids: ["o1", "o2"],
       orgId: "org_1",

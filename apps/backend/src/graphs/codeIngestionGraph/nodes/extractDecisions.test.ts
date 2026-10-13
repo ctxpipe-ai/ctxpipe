@@ -33,7 +33,7 @@ const BOLD = `# ADR-031: GitHub pull-request scoped mirror
 
 ## Context
 
-Review conversation is GitHub API metadata, not git objects. This is superseded by ADR-7.
+Review conversation is GitHub API metadata, not git objects. This ADR is superseded by ADR-7.
 
 ## Decision
 
@@ -125,6 +125,86 @@ describe("parseDecisionMarkdown", () => {
     })
     expect(parseDecisionMarkdown("no heading here", "x.md")).toBeNull()
   })
+
+  it("reads supersession written as links, in the status header or front matter", () => {
+    const parse = (content: string) => parseDecisionMarkdown(content, "x.md")
+
+    expect(
+      parse(`# ADR-021: Local agent memory
+
+**Status:** Superseded by [ADR-024](ADR-024-markdown-only-local-memory.md) | **Date:** 2026-05-25 | **Tags:** memory
+`),
+    ).toMatchObject({ status: "superseded", supersededBy: ["ADR-24"] })
+    expect(
+      parse(`# ADR-004: Local development with Docker Compose
+
+**Status:** Superseded | **Superseded by:** [ADR-015](ADR-015-compose-profiles.md) | **Date:** 2026-02-13
+`),
+    ).toMatchObject({ status: "superseded", supersededBy: ["ADR-15"] })
+    expect(
+      parse(`# ADR-004: Local development with Docker Compose
+
+**Status:** Superseded | **Superseded by:** [ADR-015](ADR-015-compose-profiles.md)
+`),
+    ).toMatchObject({ status: "superseded", supersededBy: ["ADR-15"] })
+    expect(
+      parse(`# ADR-024: Markdown-only local memory
+
+**Status:** Accepted | **Date:** 2026-08-11 | **Tags:** memory
+
+**Supersedes:** [ADR-021](ADR-021-local-agent-memory.md)
+`),
+    ).toMatchObject({ status: "accepted", supersedes: ["ADR-21"] })
+    expect(
+      parse(`---
+status: "superseded by [ADR-0005](0005-example.md)"
+---
+
+# Use plain JUnit5 for advanced test assertions
+`),
+    ).toMatchObject({ status: "superseded", supersededBy: ["ADR-5"] })
+    expect(
+      parse(`# ADR-014: Parallel worktree local development
+
+**Status:** Accepted | **Date:** 2026-03-20
+
+## Related
+
+- [ADR-004](ADR-004.md) (Compose layout superseded by [ADR-015](ADR-015.md))
+`),
+    ).toMatchObject({ status: "accepted", supersedes: [], supersededBy: [] })
+  })
+
+  it("reads supersession in prose only from a sentence about this ADR", () => {
+    const parse = (content: string) => parseDecisionMarkdown(content, "x.md")
+
+    expect(
+      parse(`# ADR-036: Decision scope and status
+
+**Status:** Accepted | **Date:** 2026-09-23
+
+## Context
+
+The parser read only plain "superseded by ADR-24" in prose. ADR-004 set the
+Compose layout. This was superseded by ADR-015, and ADR-021 is superseded by
+ADR-024. Thus ADR-024 supersedes ADR-021.
+`),
+    ).toMatchObject({ supersedes: [], supersededBy: [] })
+    expect(
+      parse(`# Queue layout
+
+This ADR is superseded by [ADR-024](ADR-024-queues.md). This decision
+supersedes ADR-9.
+`),
+    ).toMatchObject({ supersedes: ["ADR-9"], supersededBy: ["ADR-24"] })
+    expect(
+      parse(`# Queue layout
+
+This record has been superseded by ADR-12. The queue lost jobs. Superseded
+by ADR-14.
+`),
+    ).toMatchObject({ supersededBy: ["ADR-12", "ADR-14"] })
+  })
 })
 
 describe("extractDecisions", () => {
@@ -192,6 +272,100 @@ describe("extractDecisions", () => {
         isConventionalEvidenceSourceId(claim.sourceId, "repo_api", "abc"),
       ).toBe(true)
     }
+  })
+
+  it("scopes a decision to its package, else to the services it references, else to every service in the repository", async () => {
+    const adrs: Record<string, string> = {
+      ".ai/memory/decisions/ADR-010-graph-db.md":
+        "# ADR-010: Graph DB\n\n**Status:** Accepted\n\nThe backend (`apps/backend/src/platform/graph/client.ts`) owns graph access. See [UI notes](../../../apps/ui/README.md) and [FalkorDB](https://www.falkordb.com/).\n",
+      ".ai/memory/decisions/ADR-013-terraform.md":
+        "# ADR-013: Terraform\n\n**Status:** Accepted\n\nAll infrastructure is Terraform. See [HashiCorp](https://www.terraform.io/).\n",
+      "apps/backend/docs/adr/0002-bun.md":
+        "# Bun runtime\n\nStatus: Accepted\n\nThe UI build (`apps/ui/vite.config.ts`) stays on Node.\n",
+    }
+    mocks.globFiles.mockResolvedValue({
+      entries: Object.keys(adrs).map((path) => ({ type: "file", path })),
+    })
+    mocks.fetchFiles.mockImplementation(
+      async (_repo: string, _org: string, paths: string[]) =>
+        Object.fromEntries(paths.map((path) => [path, adrs[path]])),
+    )
+
+    const { extractedClaims = [] } = await extractDecisions(
+      state({
+        extractedObjects: [service("apps/backend"), service("apps/ui")],
+      }),
+    )
+
+    const influences = extractedClaims
+      .filter((c) => c.predicate === "INFLUENCES")
+      .map((c) => [c.subjectRef.split(":").pop(), c.objectRef, c.confidence])
+      .sort()
+    expect(influences).toEqual([
+      [
+        ".ai/memory/decisions/ADR-010-graph-db.md",
+        "svc:repo_api:apps/backend",
+        0.8,
+      ],
+      [".ai/memory/decisions/ADR-010-graph-db.md", "svc:repo_api:apps/ui", 0.8],
+      [
+        ".ai/memory/decisions/ADR-013-terraform.md",
+        "svc:repo_api:apps/backend",
+        0.6,
+      ],
+      [
+        ".ai/memory/decisions/ADR-013-terraform.md",
+        "svc:repo_api:apps/ui",
+        0.6,
+      ],
+      ["apps/backend/docs/adr/0002-bun.md", "svc:repo_api:apps/backend", 0.9],
+    ])
+  })
+
+  it("scopes decisions by the packages of every root when it runs once per root", async () => {
+    const adrs: Record<string, string> = {
+      ".ai/memory/decisions/ADR-010-graph-db.md":
+        "# ADR-010: Graph DB\n\n**Status:** Accepted\n\nThe backend (`apps/backend/src/platform/graph/client.ts`) owns graph access.\n",
+      "apps/ui/docs/adr/0001-react-aria.md":
+        "# React Aria\n\nStatus: Accepted\n\nUse React Aria for widgets.\n",
+    }
+    mocks.globFiles.mockResolvedValue({
+      entries: Object.keys(adrs).map((path) => ({ type: "file", path })),
+    })
+    mocks.fetchFiles.mockImplementation(
+      async (_repo: string, _org: string, paths: string[]) =>
+        Object.fromEntries(paths.map((path) => [path, adrs[path]])),
+    )
+    const roots = ["apps/backend", "apps/ui", "apps/worker"]
+    const packages = roots.map(service)
+
+    // The workflow runs the identify phase once per root. The state of each
+    // root holds only its own package.
+    const runs = await Promise.all(
+      roots.map((root) =>
+        extractDecisions(
+          state({ roots: [root], extractedObjects: [service(root)] }),
+          packages,
+        ),
+      ),
+    )
+
+    const influences = [
+      ...new Set(
+        runs.flatMap(({ extractedClaims = [] }) =>
+          extractedClaims
+            .filter((c) => c.predicate === "INFLUENCES")
+            .map(
+              (c) =>
+                `${c.subjectRef.split(":").pop()} ${c.objectRef} ${c.confidence}`,
+            ),
+        ),
+      ),
+    ].sort()
+    expect(influences).toEqual([
+      ".ai/memory/decisions/ADR-010-graph-db.md svc:repo_api:apps/backend 0.8",
+      "apps/ui/docs/adr/0001-react-aria.md svc:repo_api:apps/ui 0.9",
+    ])
   })
 
   it("restricts to changed paths on partial ingest and skips connector-only diffs", async () => {

@@ -67,12 +67,11 @@ describe("ontology consistency (ADR-033)", () => {
     }
   })
 
-  it("the extension traversal walks only reference, cause and ownership predicates that exist", () => {
+  it("the extension traversal walks only predicates that exist, and never containment", () => {
     const rels = new Set(getGraphEdgeTypes())
     for (const predicate of EXTENSION_TRAVERSAL_PREDICATES) {
       expect(rels.has(predicate), predicate).toBe(true)
     }
     expect(EXTENSION_TRAVERSAL_PREDICATES).not.toContain("PART_OF")
-    expect(EXTENSION_TRAVERSAL_PREDICATES).not.toContain("DECLARED_IN")
   })
 })
