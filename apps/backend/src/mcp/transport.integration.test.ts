@@ -104,7 +104,7 @@ describeWithDatabase("MCP OAuth client actor", () => {
       c.set("session", {
         id: "sess_oauth",
       } as AppEnv["Variables"]["session"])
-      c.set("oauthOrganizationId", orgId)
+      c.set("oauthReferenceId", orgId)
       c.set("oauthClientId", "client_oauth")
       c.set("orgApiKey", null)
       c.set("personalApiKeyId", null)
