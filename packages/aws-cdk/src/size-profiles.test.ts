@@ -2,9 +2,12 @@ import * as cdk from "aws-cdk-lib";
 import { Template } from "aws-cdk-lib/assertions";
 import { describe, expect, it } from "vitest";
 import { CtxPipe } from "./ctxpipe";
-import type { CtxPipeSize } from "./types";
+import type { CtxPipeBackendProps, CtxPipeSize } from "./types";
 
-function synthForSize(size: CtxPipeSize): Template {
+function synthForSize(
+  size: CtxPipeSize,
+  backend?: CtxPipeBackendProps,
+): Template {
   const app = new cdk.App();
   const stack = new cdk.Stack(app, "TestStack", {
     env: { account: "123456789012", region: "us-east-1" },
@@ -12,6 +15,7 @@ function synthForSize(size: CtxPipeSize): Template {
   new CtxPipe(stack, "CtxPipe", {
     orgSlug: "acme",
     size,
+    backend,
     customDomain: {
       domainName: "app.example.com",
       hostedZoneId: "Z0123456789ABCDEF",
@@ -33,7 +37,10 @@ function neptuneInstanceClasses(template: Template): string[] {
   );
 }
 
-function codesearchTaskCpuMemory(template: Template): {
+function taskCpuMemory(
+  template: Template,
+  containerName: string,
+): {
   cpu: string;
   memory: string;
 } {
@@ -44,17 +51,17 @@ function codesearchTaskCpuMemory(template: Template): {
       Memory?: string;
       ContainerDefinitions?: Array<{ Name?: string }>;
     };
-    const hasCodesearch = properties.ContainerDefinitions?.some(
-      (container) => container.Name === "codesearch",
+    const hasContainer = properties.ContainerDefinitions?.some(
+      (container) => container.Name === containerName,
     );
-    if (hasCodesearch) {
+    if (hasContainer) {
       return {
         cpu: properties.Cpu ?? "",
         memory: properties.Memory ?? "",
       };
     }
   }
-  throw new Error("codesearch task definition not found"  );
+  throw new Error(`${containerName} task definition not found`);
 }
 
 function containerEnvironment(
@@ -152,12 +159,62 @@ describe("SIZE_PROFILES codesearch task size", () => {
   ] as const)(
     "size %s uses codesearch cpu %s memory %s",
     (size, cpu, memory) => {
-      expect(codesearchTaskCpuMemory(synthForSize(size))).toEqual({
+      expect(taskCpuMemory(synthForSize(size), "codesearch")).toEqual({
         cpu,
         memory,
       });
     },
   );
+});
+
+describe("backend capacity", () => {
+  it.each([
+    ["small", "1024", "2048", 1],
+    ["medium", "1024", "2048", 1],
+    ["large", "1024", "2048", 2],
+  ] as const)(
+    "size %s runs backend cpu %s memory %s x%s",
+    (size, cpu, memory, count) => {
+      const template = synthForSize(size);
+      expect(taskCpuMemory(template, "backend")).toEqual({ cpu, memory });
+      expect(desiredCountForContainer(template, "backend")).toBe(count);
+    },
+  );
+
+  it("overrides the profile's backend without resizing the databases", () => {
+    const template = synthForSize("small", {
+      cpu: 2048,
+      memoryLimitMiB: 4096,
+      desiredCount: 3,
+    });
+    expect(taskCpuMemory(template, "backend")).toEqual({
+      cpu: "2048",
+      memory: "4096",
+    });
+    expect(desiredCountForContainer(template, "backend")).toBe(3);
+    expect(taskCpuMemory(template, "worker")).toEqual({
+      cpu: "512",
+      memory: "1024",
+    });
+    template.hasResourceProperties("AWS::RDS::DBInstance", {
+      DBInstanceClass: "db.t4g.medium",
+    });
+  });
+
+  it("keeps profile values for fields the override leaves out", () => {
+    const template = synthForSize("large", { desiredCount: 4 });
+    expect(taskCpuMemory(template, "backend")).toEqual({
+      cpu: "1024",
+      memory: "2048",
+    });
+    expect(desiredCountForContainer(template, "backend")).toBe(4);
+  });
+
+  it.each([0, 1.5])("rejects backend.desiredCount %s", (desiredCount) => {
+    expect(() => synthForSize("small", { desiredCount })).toThrow(
+      "backend.desiredCount must be an integer of at least 1",
+    );
+  });
 });
 
 describe("SIZE_PROFILES codesearch admission env", () => {

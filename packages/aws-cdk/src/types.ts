@@ -136,4 +136,21 @@ export interface CtxPipeProps {
    * Defaults to "small" when omitted.
    */
   readonly size?: CtxPipeSize;
+  /**
+   * Backend service capacity. Each field overrides the `size` profile's
+   * backend value, so the backend can grow without resizing Aurora or Neptune.
+   */
+  readonly backend?: CtxPipeBackendProps;
+}
+
+export interface CtxPipeBackendProps {
+  /**
+   * Fargate CPU units for each backend task (1024 = 1 vCPU). Must form a
+   * supported Fargate pair with `memoryLimitMiB`; ECS rejects others at deploy.
+   */
+  readonly cpu?: number;
+  /** Memory for each backend task, in MiB. */
+  readonly memoryLimitMiB?: number;
+  /** Number of backend tasks behind the load balancer. At least 1. */
+  readonly desiredCount?: number;
 }
