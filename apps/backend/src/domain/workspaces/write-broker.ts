@@ -1,5 +1,6 @@
 import type { Env } from "../../config/env.js"
 import { getRepoWriteCloneToken } from "../../models/github-installation.js"
+import { unfinishedOrgWorkflowRunIds } from "../../models/workspace-sandboxes.js"
 import { persistSemanticHandoff } from "../../models/workspace-write-jobs.js"
 import {
   getWorkspaceWriteAdmission,
@@ -16,6 +17,14 @@ import {
   withGitDirectory,
 } from "../../services/git/pack.js"
 import { readUnbornRemoteBranch } from "../../services/git/unborn-tree.js"
+import {
+  cleanUpIngestRefs,
+  deleteRunIngestRefs,
+  type IngestRemote,
+  type PushIngestStepInput,
+  pushIngestStep,
+} from "../ingestion/ingest-refs.js"
+import { INGESTION_V2_WORKFLOW_NAME } from "../ingestion/ingestion-run.js"
 import type { UnbornBootstrapBinding } from "./bootstrap-input.js"
 import { getUnbornBootstrapWorkspace } from "./bootstrap-unborn.js"
 import {
@@ -549,4 +558,89 @@ export async function pushUnbornWorkspaceCommit(
       )
     return { kind: "paused" }
   }
+}
+
+/**
+ * The remote of the job's Workspace repository with a write credential. An
+ * ingest ref job names a Workspace, never a URL, so it can only reach that
+ * repository (ADR-052 section 6).
+ */
+async function workspaceIngestRemote(
+  orgId: string,
+  workspaceId: string,
+  env: Env,
+): Promise<IngestRemote> {
+  const remote = (await getWorkspaceWriteAdmission(workspaceId))?.revision
+    .remote
+  const repositoryName = remote
+    ? githubRepoFullNameFromWorkspaceUrl(remote.url)
+    : null
+  if (!remote || !repositoryName || !remote.connectionId)
+    throw new Error("Ingest refs require a connected GitHub repository")
+  const token = await getRepoWriteCloneToken(orgId, env, {
+    githubConnectionId: remote.connectionId,
+    repoFullName: repositoryName,
+  }).catch((error: unknown) => {
+    const reason = writeAccessDenialReason(error)
+    if (reason) throw new WorkspaceWriteAccessUnavailableError(reason)
+    throw error
+  })
+  if (!token)
+    throw new WorkspaceWriteAccessUnavailableError(
+      WRITE_STATUS_REASONS.contentsWriteDenied,
+    )
+  return {
+    url: remote.url,
+    env: gitRemoteEnvironment({ url: remote.url, token }),
+  }
+}
+
+/** The ingest ref job kind: push one validated step commit to a run-scoped ref. */
+export async function pushWorkspaceIngestStep(
+  input: Omit<PushIngestStepInput, "remote"> & { orgId: string },
+  env: Env,
+) {
+  const remote = await workspaceIngestRemote(
+    input.orgId,
+    input.job.workspaceId,
+    env,
+  )
+  return pushIngestStep({ ...input, remote })
+}
+
+/** Deletes the run's refs in one Workspace repository. Idempotent. */
+export async function deleteWorkspaceIngestRefs(
+  input: { orgId: string; runId: string; workspaceId: string },
+  env: Env,
+): Promise<string[]> {
+  const remote = await workspaceIngestRemote(
+    input.orgId,
+    input.workspaceId,
+    env,
+  )
+  return deleteRunIngestRefs({ ...input, remote })
+}
+
+/** The stale ingest ref clean-up of the Workspace tip check. */
+export async function cleanUpWorkspaceIngestRefs(
+  input: { orgId: string; workspaceId: string; now: Date; shadow: boolean },
+  env: Env,
+): Promise<string[]> {
+  const remote = await workspaceIngestRemote(
+    input.orgId,
+    input.workspaceId,
+    env,
+  )
+  const { deleted } = await cleanUpIngestRefs({
+    remote,
+    now: input.now,
+    shadow: input.shadow,
+    unfinishedRunIds: (runIds) =>
+      unfinishedOrgWorkflowRunIds(
+        input.orgId,
+        INGESTION_V2_WORKFLOW_NAME,
+        runIds,
+      ),
+  })
+  return deleted
 }

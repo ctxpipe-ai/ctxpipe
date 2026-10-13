@@ -3,6 +3,7 @@ import { z } from "zod"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
+import { INGESTION_V2_SHADOW } from "../../domain/ingestion/ingestion-run.js"
 import { githubRepositoriesWithoutAccess } from "../../domain/workspace-sources/github-access.js"
 import {
   resolveLinkedReadRevision,
@@ -15,6 +16,7 @@ import {
   destroySandboxesForWorkspace,
   jobSandboxesDueForDestroy,
 } from "../../domain/workspaces/workspace-sandbox-cleanup.js"
+import { cleanUpWorkspaceIngestRefs } from "../../domain/workspaces/write-broker.js"
 import { resumePausedWriteJobs } from "../../domain/workspaces/write-job-resume.js"
 import {
   nextPersistedWriteProbe,
@@ -303,6 +305,32 @@ export const workspaceTipCheck = defineWorkflow(
       })
       for (const workspaceId of idleJobs) {
         await destroySandboxesForWorkspace(workspaceId, "job")
+      }
+      // Stale run-scoped ingest refs (ADR-052). A failure here must not fail
+      // the tip check; the next check tries again.
+      for (const workspace of workspaces) {
+        if (
+          !workspace.githubConnectionId ||
+          noAccess.has(workspace.id) ||
+          (writeStatusById.get(workspace.id) ?? workspace.writeStatus) !==
+            "writable"
+        )
+          continue
+        await cleanUpWorkspaceIngestRefs(
+          {
+            orgId: input.orgId,
+            workspaceId: workspace.id,
+            now,
+            shadow: INGESTION_V2_SHADOW,
+          },
+          env,
+        ).catch((error: unknown) => {
+          log.warn({
+            event: "workspace_ingest_ref_cleanup_failed",
+            workspaceId: workspace.id,
+            message: error instanceof Error ? error.message : String(error),
+          })
+        })
       }
       return { updated: updated.length, linkedUpdated }
     })
