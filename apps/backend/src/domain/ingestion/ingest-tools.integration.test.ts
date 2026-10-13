@@ -71,7 +71,12 @@ const server = setupServer(
           {
             FileName: "systems/billing.md",
             Repository: "context",
-            LineMatches: [],
+            LineMatches: [
+              {
+                LineNumber: 1,
+                Line: Buffer.from("# Billing").toString("base64"),
+              },
+            ],
           },
         ],
       },
