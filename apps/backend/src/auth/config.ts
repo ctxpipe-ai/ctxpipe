@@ -27,6 +27,7 @@ import { schema } from "../db/schema.js"
 import { generateObjectId } from "../lib/id.js"
 import { log } from "../observability/logger.js"
 import { invitationEmailLink } from "./invitation-email-url.js"
+import { MCP_READ_SCOPE, MCP_WRITE_SCOPE } from "./mcp-scopes.js"
 import {
   getOAuthConsentOrganizationId,
   OAUTH_ORGANIZATION_CLAIM,
@@ -388,6 +389,16 @@ export function createBetterAuth() {
         allowDynamicClientRegistration: true,
         allowUnauthenticatedClientRegistration: true,
         validAudiences: [env.AUTH_BASE_URL, `${env.AUTH_BASE_URL}/mcp`],
+        scopes: [
+          "openid",
+          "profile",
+          "email",
+          "offline_access",
+          MCP_READ_SCOPE,
+          MCP_WRITE_SCOPE,
+        ],
+        /** A write grant gets a shorter access token than the 4h default. */
+        scopeExpirations: { [MCP_WRITE_SCOPE]: "1h" },
         /** 4h — MCP hosts should still refresh via refresh_token before expiry. */
         accessTokenExpiresIn: 14_400,
         silenceWarnings: { oauthAuthServerConfig: true },

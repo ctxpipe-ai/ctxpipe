@@ -23,6 +23,7 @@ import {
 } from "../observability/attribution.js"
 import { getLogger } from "../observability/logger.js"
 import { type AuthSession, type AuthUser, getAuth } from "./config.js"
+import { MCP_READ_SCOPE } from "./mcp-scopes.js"
 import { OAUTH_ORGANIZATION_CLAIM } from "./oauth-organization.js"
 
 /** Seconds — small skew between issuers, clients, and this server (Better Auth / jose guidance). */
@@ -84,7 +85,7 @@ function wwwAuthenticateInvalidTokenMcp(
   const meta = mcpOAuthProtectedResourceMetadataUrl(authBaseUrl)
   const metaEsc = meta.replace(/\\/g, "\\\\").replace(/"/g, '\\"')
   return {
-    "WWW-Authenticate": `Bearer error="invalid_token", error_description="${esc}", resource_metadata="${metaEsc}"`,
+    "WWW-Authenticate": `Bearer error="invalid_token", error_description="${esc}", scope="${MCP_READ_SCOPE}", resource_metadata="${metaEsc}"`,
   }
 }
 
@@ -100,7 +101,7 @@ function wwwAuthenticateMcpDiscovery(
   const meta = mcpOAuthProtectedResourceMetadataUrl(authBaseUrl)
   const metaEsc = meta.replace(/\\/g, "\\\\").replace(/"/g, '\\"')
   return {
-    "WWW-Authenticate": `Bearer resource_metadata="${metaEsc}"`,
+    "WWW-Authenticate": `Bearer scope="${MCP_READ_SCOPE}", resource_metadata="${metaEsc}"`,
   }
 }
 
@@ -225,6 +226,7 @@ async function resolveOpaqueAccessToken(token: string): Promise<{
   user: AuthUser
   oauthOrganizationId: string | null
   oauthClientId: string | null
+  oauthScopes: string[]
 } | null> {
   const db = getSystemDb()
   const hashed = hashOpaqueAccessToken(token)
@@ -246,6 +248,7 @@ async function resolveOpaqueAccessToken(token: string): Promise<{
         ...principal,
         oauthOrganizationId: record.referenceId ?? null,
         oauthClientId: record.clientId ?? null,
+        oauthScopes: record.scopes,
       }
     : null
 }
@@ -450,6 +453,7 @@ async function authenticateBearer(
       c.set("user", opaque.user)
       c.set("oauthOrganizationId", opaque.oauthOrganizationId)
       c.set("oauthClientId", opaque.oauthClientId)
+      c.set("oauthScopes", opaque.oauthScopes)
       applyPrincipalAttribution(c)
       return next()
     }
@@ -633,6 +637,10 @@ async function authenticateBearer(
     c.set("session", tokenSessionContext.session)
     c.set("user", tokenSessionContext.user)
     c.set("oauthOrganizationId", oauthOrganizationClaim ?? null)
+    c.set(
+      "oauthScopes",
+      typeof payload.scope === "string" ? payload.scope.split(" ") : [],
+    )
     const clientIdClaim = payload.client_id ?? payload.azp
     if (typeof clientIdClaim === "string" && clientIdClaim.length > 0) {
       c.set("oauthClientId", clientIdClaim)

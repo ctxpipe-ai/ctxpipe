@@ -9,6 +9,7 @@ import type { Context, Hono } from "hono"
 import type { AppEnv } from "../app/env.js"
 import { atlassianLinkCallbackFirst } from "../auth/atlassian-link-callback.js"
 import { getAuth } from "../auth/config.js"
+import { MCP_SCOPES } from "../auth/mcp-scopes.js"
 import {
   logOAuthError,
   prepareBetterAuthRequest,
@@ -16,14 +17,6 @@ import {
 import { withOAuthConsentOrganizationId } from "../auth/oauth-organization.js"
 import { getSystemDb } from "../db/client.js"
 import { invitations, organizations } from "../db/schema/auth.js"
-
-function isNonEmptyStringArray(value: unknown): value is string[] {
-  return (
-    Array.isArray(value) &&
-    value.length > 0 &&
-    value.every((item) => typeof item === "string")
-  )
-}
 
 function authorizationServersForProtectedResourceMetadata(
   env: AppEnv["Variables"]["env"],
@@ -57,16 +50,12 @@ async function getMcpProtectedResourceMetadata(
     resource: `${c.var.env.AUTH_BASE_URL}/mcp`,
     authorization_servers,
   })
-  const merged: Record<string, unknown> = {
+  // Advertise only the MCP scopes. A client with no 401 scope challenge asks
+  // for every advertised scope, so the list stays minimal (no OIDC scopes).
+  return {
     ...(metadata as Record<string, unknown>),
+    scopes_supported: [...MCP_SCOPES],
   }
-  if (
-    !isNonEmptyStringArray(merged.scopes_supported) &&
-    isNonEmptyStringArray(authServerMeta.scopes_supported)
-  ) {
-    merged.scopes_supported = authServerMeta.scopes_supported
-  }
-  return merged
 }
 
 export function registerAuthRoutes(app: Hono<AppEnv>) {

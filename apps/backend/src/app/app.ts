@@ -105,6 +105,7 @@ export function createApp() {
     c.set("session", null)
     c.set("oauthOrganizationId", null)
     c.set("oauthClientId", null)
+    c.set("oauthScopes", null)
     c.set("orgApiKey", null)
     c.set("personalApiKeyId", null)
     c.set("orgSlug", null)

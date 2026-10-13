@@ -1,0 +1,389 @@
+import { createHash, randomBytes } from "node:crypto"
+import { Client } from "@modelcontextprotocol/sdk/client/index.js"
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
+import { eq } from "drizzle-orm"
+import { evlog } from "evlog/hono"
+import { Hono } from "hono"
+import { contextStorage } from "hono/context-storage"
+import { decodeJwt } from "jose"
+import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../test/db.js"
+import type { AppEnv } from "../app/env.js"
+import {
+  requireAuth,
+  withCookieAuth,
+  withMcpBearerAuth,
+  withNetworkOrgContext,
+  withOrgApiKeyAuth,
+} from "../auth/withAuth.js"
+import { parseEnv } from "../config/env.js"
+import { getSystemDb } from "../db/client.js"
+import { oauthAccessTokens, oauthClients, sessions } from "../db/schema/auth.js"
+import { generateObjectId } from "../lib/id.js"
+import { registerMcpTools } from "../mcp/tools.js"
+import { handleMcpTransportRequest } from "../mcp/transport.js"
+import { withTestRequestLogger } from "../test/hono-test-logger.js"
+import { registerAuthRoutes } from "./auth.js"
+
+const WRITE_TOOL = "scope_test_write"
+const REDIRECT_URI = "http://127.0.0.1:4567/callback"
+
+/**
+ * The production `/mcp` chain with the production tools plus one write tool.
+ * No write tool ships yet, so the test adds one to prove the write gate.
+ */
+function createApp() {
+  const env = parseEnv(process.env as Record<string, string | undefined>)
+  const app = new Hono<AppEnv>()
+  app.use(contextStorage())
+  app.use(withTestRequestLogger)
+  app.use(evlog())
+  app.use("*", async (c, next) => {
+    c.set("env", env)
+    c.set("user", null)
+    c.set("session", null)
+    c.set("oauthOrganizationId", null)
+    c.set("oauthClientId", null)
+    c.set("oauthScopes", null)
+    c.set("orgApiKey", null)
+    c.set("personalApiKeyId", null)
+    c.set("orgSlug", null)
+    c.set("orgId", null)
+    await next()
+  })
+  registerAuthRoutes(app)
+  app.all(
+    "/mcp",
+    withMcpBearerAuth,
+    withCookieAuth,
+    withOrgApiKeyAuth,
+    requireAuth,
+    withNetworkOrgContext,
+    (c) =>
+      handleMcpTransportRequest(c, (server) => {
+        registerMcpTools(server)
+        server.registerTool(
+          WRITE_TOOL,
+          {
+            title: "Scope test write",
+            description: "Changes nothing. Proves the write scope gate.",
+            annotations: { readOnlyHint: false },
+          },
+          async () => ({ content: [{ type: "text", text: "written" }] }),
+        )
+      }),
+  )
+  return { app, baseUrl: env.AUTH_BASE_URL.replace(/\/$/, "") }
+}
+
+describe("MCP scopes (Postgres)", () => {
+  let seed: SeededOrg | undefined
+  let app: Hono<AppEnv>
+  let baseUrl = ""
+
+  beforeAll(async () => {
+    if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required")
+    seed = await seedOrg()
+    ;({ app, baseUrl } = createApp())
+  })
+
+  afterAll(async () => {
+    if (seed) await cleanupSeededOrg(seed)
+  })
+
+  function requireSeed(): SeededOrg {
+    if (!seed) throw new Error("seedOrg did not run")
+    return seed
+  }
+
+  function appFetch(input: string | URL | Request, init?: RequestInit) {
+    const request = new Request(input, init)
+    return Promise.resolve(app.request(request))
+  }
+
+  async function listToolNames(
+    url: string,
+    headers: Record<string, string>,
+  ): Promise<string[]> {
+    const client = new Client({ name: "scope-test", version: "1.0.0" })
+    await client.connect(
+      new StreamableHTTPClientTransport(new URL(url), {
+        fetch: appFetch,
+        requestInit: { headers },
+      }),
+    )
+    try {
+      const { tools } = await client.listTools()
+      return tools.map((tool) => tool.name).sort()
+    } finally {
+      await client.close()
+    }
+  }
+
+  function callTool(
+    url: string,
+    headers: Record<string, string>,
+    name: string,
+  ) {
+    return app.request(url, {
+      method: "POST",
+      headers: {
+        ...headers,
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name, arguments: {} },
+      }),
+    })
+  }
+
+  /** Real OAuth: register, authorize, consent with `grantedScope`, token. */
+  async function oauthAccessToken(grantedScope: string) {
+    const s = requireSeed()
+    const origin = baseUrl
+    const register = await app.request(
+      `${baseUrl}/.auth/api/v1/auth/oauth2/register`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json", origin },
+        body: JSON.stringify({
+          client_name: "Scope test host",
+          redirect_uris: [REDIRECT_URI],
+          token_endpoint_auth_method: "none",
+          grant_types: ["authorization_code", "refresh_token"],
+          response_types: ["code"],
+        }),
+      },
+    )
+    expect(register.status).toBe(200)
+    const { client_id: clientId } = (await register.json()) as {
+      client_id: string
+    }
+
+    const verifier = randomBytes(32).toString("base64url")
+    const challenge = createHash("sha256").update(verifier).digest("base64url")
+    const authorizeUrl = new URL(
+      `${baseUrl}/.auth/api/v1/auth/oauth2/authorize`,
+    )
+    authorizeUrl.search = new URLSearchParams({
+      response_type: "code",
+      client_id: clientId,
+      redirect_uri: REDIRECT_URI,
+      scope: "ctxpipe:read ctxpipe:write offline_access",
+      state: "scope-test",
+      code_challenge: challenge,
+      code_challenge_method: "S256",
+      resource: `${baseUrl}/mcp`,
+    }).toString()
+    const authorize = await app.request(authorizeUrl.toString(), {
+      headers: { cookie: s.cookie, origin },
+      redirect: "manual",
+    })
+    const consentLocation = authorize.headers.get("location")
+    if (!consentLocation) {
+      throw new Error(
+        `authorize did not redirect: ${authorize.status} ${await authorize.text()}`,
+      )
+    }
+    const consentUrl = new URL(consentLocation, baseUrl)
+    expect(consentUrl.pathname).toBe("/.auth/consent")
+
+    const consent = await app.request(
+      `${baseUrl}/.auth/api/v1/auth/oauth2/consent`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          cookie: s.cookie,
+          origin,
+          "x-ctxpipe-oauth-organization": s.orgId,
+        },
+        body: JSON.stringify({
+          accept: true,
+          scope: grantedScope,
+          oauth_query: consentUrl.search.slice(1),
+        }),
+      },
+    )
+    const consentBody = (await consent.json()) as { url?: string }
+    if (!consentBody.url) {
+      throw new Error(`consent failed: ${JSON.stringify(consentBody)}`)
+    }
+    const code = new URL(consentBody.url).searchParams.get("code")
+    if (!code) throw new Error(`consent gave no code: ${consentBody.url}`)
+
+    const token = await app.request(
+      `${baseUrl}/.auth/api/v1/auth/oauth2/token`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/x-www-form-urlencoded",
+          origin,
+        },
+        body: new URLSearchParams({
+          grant_type: "authorization_code",
+          code,
+          redirect_uri: REDIRECT_URI,
+          client_id: clientId,
+          code_verifier: verifier,
+          resource: `${baseUrl}/mcp`,
+        }).toString(),
+      },
+    )
+    const tokenBody = (await token.json()) as {
+      access_token?: string
+      expires_in?: number
+      scope?: string
+    }
+    if (!tokenBody.access_token) {
+      throw new Error(`token failed: ${JSON.stringify(tokenBody)}`)
+    }
+    return {
+      accessToken: tokenBody.access_token,
+      expiresIn: tokenBody.expires_in,
+      scope: tokenBody.scope,
+    }
+  }
+
+  /** A token row from before the ctxpipe scopes existed. */
+  async function legacyOpaqueToken(): Promise<string> {
+    const s = requireSeed()
+    const db = getSystemDb()
+    const [session] = await db
+      .select({ id: sessions.id })
+      .from(sessions)
+      .where(eq(sessions.userId, s.userId))
+      .limit(1)
+    if (!session) throw new Error("sign-up did not store a session")
+    const clientId = `legacy_${s.userId}`
+    const token = `legacy_opaque_${s.userId}`
+    await db.insert(oauthClients).values({
+      id: generateObjectId("oac"),
+      clientId,
+      redirectUris: [REDIRECT_URI],
+      scopes: ["openid", "profile", "email", "offline_access"],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      userId: s.userId,
+    })
+    await db.insert(oauthAccessTokens).values({
+      id: generateObjectId("oat"),
+      token: createHash("sha256").update(token).digest("base64url"),
+      clientId,
+      sessionId: session.id,
+      userId: s.userId,
+      referenceId: s.orgId,
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      createdAt: new Date(),
+      scopes: ["openid", "offline_access"],
+    })
+    return token
+  }
+
+  function expectInsufficientScope(response: Response) {
+    expect(response.status).toBe(403)
+    const challenge = response.headers.get("www-authenticate") ?? ""
+    expect(challenge).toContain('error="insufficient_scope"')
+    expect(challenge).toContain('scope="ctxpipe:read ctxpipe:write"')
+    expect(challenge).toContain(
+      `resource_metadata="${baseUrl}/.well-known/oauth-protected-resource/mcp"`,
+    )
+  }
+
+  it("challenges a request with no credential for the read scope", async () => {
+    const response = await app.request(`${baseUrl}/mcp`, { method: "POST" })
+    expect(response.status).toBe(401)
+    expect(response.headers.get("www-authenticate")).toBe(
+      `Bearer scope="ctxpipe:read", resource_metadata="${baseUrl}/.well-known/oauth-protected-resource/mcp"`,
+    )
+  })
+
+  it("puts the read scope on the challenge for a token it cannot validate", async () => {
+    const response = await app.request(`${baseUrl}/mcp`, {
+      method: "POST",
+      headers: { authorization: "Bearer not-a-known-token" },
+    })
+    expect(response.status).toBe(401)
+    const challenge = response.headers.get("www-authenticate") ?? ""
+    expect(challenge).toContain('error="invalid_token"')
+    expect(challenge).toContain('scope="ctxpipe:read"')
+  })
+
+  it("advertises only the MCP scopes in the protected resource metadata", async () => {
+    const response = await app.request(
+      `${baseUrl}/.well-known/oauth-protected-resource/mcp`,
+    )
+    expect(response.status).toBe(200)
+    const body = (await response.json()) as { scopes_supported?: string[] }
+    expect(body.scopes_supported).toEqual(["ctxpipe:read", "ctxpipe:write"])
+  })
+
+  it("issues a read-only token when the user leaves write unticked", async () => {
+    const token = await oauthAccessToken("ctxpipe:read offline_access")
+    expect(token.scope?.split(" ").sort()).toEqual([
+      "ctxpipe:read",
+      "offline_access",
+    ])
+    expect(decodeJwt(token.accessToken).scope).toBe(
+      "ctxpipe:read offline_access",
+    )
+    const headers = { authorization: `Bearer ${token.accessToken}` }
+
+    expect(await listToolNames(`${baseUrl}/mcp`, headers)).toEqual([
+      "ctx_advisor",
+    ])
+    expectInsufficientScope(
+      await callTool(`${baseUrl}/mcp`, headers, WRITE_TOOL),
+    )
+  })
+
+  it("lists and runs a write tool for a token with the write scope", async () => {
+    const token = await oauthAccessToken(
+      "ctxpipe:read ctxpipe:write offline_access",
+    )
+    expect(token.scope?.split(" ")).toContain("ctxpipe:write")
+    expect(token.expiresIn).toBeLessThanOrEqual(3600)
+    const headers = { authorization: `Bearer ${token.accessToken}` }
+
+    expect(await listToolNames(`${baseUrl}/mcp`, headers)).toEqual([
+      "ctx_advisor",
+      WRITE_TOOL,
+    ])
+    const response = await callTool(`${baseUrl}/mcp`, headers, WRITE_TOOL)
+    expect(response.status).toBe(200)
+    expect(await response.text()).toContain("written")
+  })
+
+  it("reads a grant from before the ctxpipe scopes as read", async () => {
+    const headers = { authorization: `Bearer ${await legacyOpaqueToken()}` }
+    expect(await listToolNames(`${baseUrl}/mcp`, headers)).toEqual([
+      "ctx_advisor",
+    ])
+    expectInsufficientScope(
+      await callTool(`${baseUrl}/mcp`, headers, WRITE_TOOL),
+    )
+  })
+
+  it.each([
+    [
+      "a personal API key",
+      (s: SeededOrg) => ({ "x-api-key": s.personalApiKey }),
+    ],
+    [
+      "a personal API key as a bearer",
+      (s: SeededOrg) => ({ authorization: `Bearer ${s.personalApiKey}` }),
+    ],
+    ["an org API key", (s: SeededOrg) => ({ "x-api-key": s.orgApiKey })],
+    ["a session cookie", (s: SeededOrg) => ({ cookie: s.cookie })],
+  ])("gives %s the read scope only", async (_label, headersFor) => {
+    const s = requireSeed()
+    const headers = headersFor(s)
+    const url = `${baseUrl}/mcp?orgSlug=${s.orgSlug}`
+    expect(await listToolNames(url, headers)).toEqual(["ctx_advisor"])
+    expectInsufficientScope(await callTool(url, headers, WRITE_TOOL))
+  })
+})

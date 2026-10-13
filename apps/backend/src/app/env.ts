@@ -16,6 +16,8 @@ export type AppEnv = EvlogVariables & {
     session: AuthSession | null
     oauthOrganizationId: string | null
     oauthClientId: string | null
+    /** Scopes of the OAuth access token. `null` when the principal is not an OAuth grant. */
+    oauthScopes: string[] | null
     orgApiKey: OrgApiKeyPrincipal | null
     /** Personal `x-api-key` id. Never the secret. */
     personalApiKeyId: string | null
