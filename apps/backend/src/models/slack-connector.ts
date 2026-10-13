@@ -366,17 +366,6 @@ export async function getSlackConnectionByTeamId(
   return match ? slackConnectionToShape(match) : undefined
 }
 
-export async function getSlackBindingByConnectionId(
-  connectionId: string,
-): Promise<SlackBinding | undefined> {
-  const row = await loadConnectionViaDirectory(connectionId)
-  if (row?.type !== CONNECTION_TYPE_SLACK) return undefined
-  return bindingFromConnectionRow(row)
-}
-
-/** @deprecated Prefer {@link getSlackBindingByConnectionId}. */
-export const getSlackSyncTargetByConnectionId = getSlackBindingByConnectionId
-
 export class SlackRepositoryNotFoundError extends Error {
   constructor() {
     super("Repository not found for organization")
