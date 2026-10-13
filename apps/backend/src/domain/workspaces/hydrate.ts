@@ -51,11 +51,13 @@ export type HydrateUnit = {
   claims: HydrateClaim[]
   confidence?: number | null
   /** Front-matter `title`, else the text of the first Markdown heading. */
-  title?: string | null
+  title: string | null
   /** The connector root of a mirror path (`linear`, …), else `authored`. */
-  source?: string
+  source: string
   /** ISO time of the last commit that changed the path, when known. */
-  updatedAt?: string | null
+  updatedAt: string | null
+  /** File line of the first body line, after front matter. Read from Git only. */
+  bodyStartLine?: number
 }
 
 export const HYDRATE_SKIP_REASONS = [
@@ -161,6 +163,10 @@ export function hydrateKnowledgeTree(input: {
       title: unitTitle(parsed.attributes.title, parsed.body),
       source: connectorMirrorRoot(path) ?? "authored",
       updatedAt: file.lastCommitTimestamp ?? null,
+      bodyStartLine:
+        file.content.slice(0, file.content.length - parsed.body.length).split(
+          "\n",
+        ).length,
     })
   }
 
