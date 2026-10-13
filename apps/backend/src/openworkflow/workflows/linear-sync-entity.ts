@@ -204,6 +204,7 @@ export const linearSyncEntity = defineWorkflow(
           await step.run({ name: "ingest-linear-entity" }, () =>
             runRepositoryIngestionWorkflow(
               {
+                legacySyncConnectionId: input.connectionId,
                 repositoryId: context.target.repositoryId,
                 orgId: input.orgId,
                 targetBranch: context.target.branch,

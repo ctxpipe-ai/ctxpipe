@@ -959,6 +959,7 @@ export const pagerdutyConnectorRoutes = new OpenAPIHono<AppEnv>()
     if (saved.repositoryIngestion) {
       await enqueueRepositoryIngestionWorkflow(
         {
+          legacySyncConnectionId: installed.connection.id,
           repositoryId: saved.repositoryIngestion.repositoryId,
           orgId: saved.repositoryIngestion.orgId,
           ...(saved.repositoryIngestion.targetBranch !== undefined

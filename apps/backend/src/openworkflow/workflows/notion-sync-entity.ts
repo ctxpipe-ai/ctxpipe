@@ -151,6 +151,7 @@ export const notionSyncEntity = defineWorkflow(
           await step.run({ name: "ingest-notion-content" }, () =>
             runRepositoryIngestionWorkflow(
               {
+                legacySyncConnectionId: input.connectionId,
                 orgId: input.orgId,
                 repositoryId: context.binding.repositoryId,
                 targetBranch: context.binding.branch,

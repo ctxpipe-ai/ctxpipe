@@ -757,6 +757,7 @@ export const slackConnectorRoutes = slackOAuthStartRoutes
       if (target.repositoryIngestion) {
         await enqueueRepositoryIngestionWorkflow(
           {
+            legacySyncConnectionId: installed.connection.id,
             orgId: target.repositoryIngestion.orgId,
             repositoryId: target.repositoryIngestion.repositoryId,
             ...(target.repositoryIngestion.targetBranch !== undefined

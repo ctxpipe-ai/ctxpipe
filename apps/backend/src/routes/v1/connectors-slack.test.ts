@@ -327,6 +327,7 @@ describe("Slack connector routes", () => {
     expect(response.status).toBe(200)
     expect(enqueueIngestionMock).toHaveBeenCalledWith(
       {
+        legacySyncConnectionId: "con_1",
         orgId: "org_1",
         repositoryId: "repo_new",
         targetBranch: "main",

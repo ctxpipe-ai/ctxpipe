@@ -990,6 +990,7 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
     if (saved.repositoryIngestion) {
       await enqueueRepositoryIngestionWorkflow(
         {
+          legacySyncConnectionId: installed.connection.id,
           orgId: saved.repositoryIngestion.orgId,
           repositoryId: saved.repositoryIngestion.repositoryId,
           ...(saved.repositoryIngestion.targetBranch !== undefined
