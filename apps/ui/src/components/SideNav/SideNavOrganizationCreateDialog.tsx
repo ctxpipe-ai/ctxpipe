@@ -14,9 +14,7 @@ import { Modal } from "@/components/ui/Modal"
 import { authClient } from "@/lib/auth-client"
 import { useUserPreferences } from "@/lib/user-preferences"
 import { cn } from "@/lib/utils"
-
-const ORG_SLUG_MAX_LENGTH = 32
-const ORG_SLUG_PATTERN = /^[a-z0-9-]+$/
+import { orgSlugError } from "../onboarding/org-name"
 
 type SideNavOrganizationCreateDialogProps = {
   isOpen: boolean
@@ -88,10 +86,11 @@ export function SideNavOrganizationCreateDialog({
     },
   })
 
-  const slugTrimmedPreview = orgSlug.trim()
-  const slugTooLong = slugTrimmedPreview.length > ORG_SLUG_MAX_LENGTH
+  const slugError = orgSlugError(orgSlug)
+  const slugInvalid = orgSlug.trim() !== "" && slugError !== null
   const orgError =
     validationError ??
+    (slugInvalid ? slugError : null) ??
     (createOrg.error instanceof Error ? createOrg.error.message : null)
 
   const handleOpenChange = (open: boolean) => {
@@ -107,20 +106,8 @@ export function SideNavOrganizationCreateDialog({
       return
     }
     const slug = orgSlug.trim()
-    if (!slug) {
-      setValidationError("Enter an organisation slug.")
-      return
-    }
-    if (slug.length > ORG_SLUG_MAX_LENGTH) {
-      setValidationError(
-        `Organisation slug must be at most ${ORG_SLUG_MAX_LENGTH} characters.`,
-      )
-      return
-    }
-    if (!ORG_SLUG_PATTERN.test(slug)) {
-      setValidationError(
-        "Organisation slug may only contain lowercase letters, numbers, and hyphens.",
-      )
+    if (slugError) {
+      setValidationError(slugError)
       return
     }
     setValidationError(null)
@@ -175,7 +162,7 @@ export function SideNavOrganizationCreateDialog({
               type="text"
               value={orgSlug}
               disabled={createOrg.isPending}
-              aria-invalid={slugTooLong}
+              aria-invalid={slugInvalid}
               onChange={(e) => {
                 setOrgSlug(e.target.value)
                 setValidationError(null)
@@ -206,7 +193,7 @@ export function SideNavOrganizationCreateDialog({
                     ? "!text-transparent [&_svg]:text-zinc-950"
                     : "text-zinc-950",
                 )}
-                isDisabled={createOrg.isPending}
+                isDisabled={createOrg.isPending || slugInvalid}
                 isPending={createOrg.isPending}
                 onPress={() => handleCreate()}
               >
