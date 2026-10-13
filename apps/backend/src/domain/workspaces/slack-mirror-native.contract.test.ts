@@ -7,6 +7,7 @@ import { connections } from "../../db/schema/connections.js"
 import { encodeSlackBotTokenForDb } from "../../lib/connection-config.js"
 import { upsertConnectionDirectory } from "../../models/connection-directory.js"
 import { replaceWorkspaceSourceRows } from "../../models/workspace-sources.js"
+import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { slackMentionAgent } from "../../openworkflow/workflows/slack-mention-agent.js"
 import { workspaceConnectorMirror } from "../../openworkflow/workflows/workspace-connector-mirror.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
@@ -28,7 +29,9 @@ it.each([
     await withNativeHydrationFixture(
       {
         // A source write is admitted on the production namespace.
-        ...(mode === "source" ? { namespaceId: "default" } : {}),
+        ...(mode === "source"
+          ? { namespaceId: openWorkflowNamespaceId() }
+          : {}),
         slackCaptureIntent: mode === "intent",
         github: true,
         githubWriteView: "writable",

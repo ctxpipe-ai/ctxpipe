@@ -361,7 +361,7 @@ it(
   async () => {
     await withNativeHydrationFixture(
       {
-        namespaceId: "default",
+        namespaceId: openWorkflowNamespaceId(),
         github: true,
         githubWriteView: "writable",
         writeStatus: "writable",

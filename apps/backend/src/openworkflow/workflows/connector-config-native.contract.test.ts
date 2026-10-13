@@ -119,7 +119,7 @@ it.each(
     const pullUpdates: unknown[] = []
     await withNativeHydrationFixture(
       {
-        namespaceId: "default",
+        namespaceId: openWorkflowNamespaceId(),
         github: true,
         githubWriteView: "writable",
         githubContentFiles: close
