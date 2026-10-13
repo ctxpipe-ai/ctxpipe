@@ -257,6 +257,36 @@ export const WORKSPACE_CHAT_OPENCODE_AGENT_PROMPT = [
   "Publish your commits with push_conversation_branch when the user should see the work on GitHub, or when they ask; never use git push.",
 ].join(" ")
 
+/**
+ * The model provider block of an OpenCode config: the ctxpipe model proxy,
+ * and the run token or the placeholder that the firewall or Agent Vault
+ * replaces. Chat and ingest use the same block.
+ */
+export function workspaceChatOpenCodeProvider(input: {
+  modelBase: string
+  proxyAddsCredentials?: boolean
+}) {
+  return {
+    enabled_providers: ["ctxpipe"] as const,
+    provider: {
+      ctxpipe: {
+        npm: "@ai-sdk/openai-compatible" as const,
+        name: "ctxpipe" as const,
+        options: {
+          baseURL: WORKSPACE_CHAT_OPENCODE_PROXY_URL_ENV,
+          apiKey: input.proxyAddsCredentials
+            ? WORKSPACE_CHAT_FIREWALL_PLACEHOLDER
+            : ("{env:CTXPIPE_OPENCODE_RUN_TOKEN}" as const),
+        },
+        models: {
+          [input.modelBase]: { name: input.modelBase },
+        },
+      },
+    },
+    model: workspaceChatOpenCodeModel(input.modelBase),
+  }
+}
+
 export function workspaceChatOpenCodeConfig(input: {
   modelBase: string
   mcp?: { name: string; url: string; token: string }
@@ -306,23 +336,7 @@ export function workspaceChatOpenCodeConfig(input: {
 } {
   return {
     $schema: "https://opencode.ai/config.json",
-    enabled_providers: ["ctxpipe"],
-    provider: {
-      ctxpipe: {
-        npm: "@ai-sdk/openai-compatible",
-        name: "ctxpipe",
-        options: {
-          baseURL: WORKSPACE_CHAT_OPENCODE_PROXY_URL_ENV,
-          apiKey: input.proxyAddsCredentials
-            ? WORKSPACE_CHAT_FIREWALL_PLACEHOLDER
-            : "{env:CTXPIPE_OPENCODE_RUN_TOKEN}",
-        },
-        models: {
-          [input.modelBase]: { name: input.modelBase },
-        },
-      },
-    },
-    model: workspaceChatOpenCodeModel(input.modelBase),
+    ...workspaceChatOpenCodeProvider(input),
     // Subagents burn TTFT. Web search uses OpenCode's own search service,
     // not ours, so it stays off. A hosted or Docker agent may read web
     // pages: its network is open and holds no credential. An unsandboxed

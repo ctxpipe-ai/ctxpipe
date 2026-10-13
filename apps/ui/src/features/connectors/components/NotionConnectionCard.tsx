@@ -17,11 +17,7 @@ import {
   notionConnectorKeys,
 } from "../queries/notion-connector"
 import { orgConnectionsKeys } from "../queries/org-connections"
-import {
-  ConnectorListItem,
-  connectorDash,
-  formatSyncRepositoryLine,
-} from "./ConnectorListItem"
+import { ConnectorListItem, connectorDash } from "./ConnectorListItem"
 
 type NotionConnectionCardProps = {
   orgSlug: string
@@ -108,7 +104,6 @@ export function NotionConnectionCard({
           ? formatSelectedItemCount(status.selectedResourceCount)
           : "Set in each Workspace"
       }
-      syncRepository={formatSyncRepositoryLine(status?.syncTarget ?? null)}
       actionLabel={isError ? "Retry" : (actionLabel ?? undefined)}
       onAction={
         isError

@@ -4,13 +4,21 @@ import { config } from "dotenv"
 import { eq } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
+import { BackendPostgres } from "openworkflow/postgres"
 import { afterAll, beforeAll, beforeEach, expect, it, vi } from "vitest"
 import { parseEnv } from "../../config/env.js"
 import { closeDb, getSystemDb, initDb } from "../../db/client.js"
 import { organizations } from "../../db/schema/auth.js"
 import { sandboxGitTokenStore } from "../../models/sandbox-git-tokens.js"
+import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
+import {
+  INGESTION_V2_WORKFLOW_NAME,
+  type IngestionV2RunInput,
+} from "../ingestion/ingestion-run.js"
+import { ingestSandboxThreadId } from "./chat-lifecycle.js"
 import {
   recordedRunGitToken,
+  revokeFinishedIngestGitTokens,
   revokeIdleRunGitTokens,
   revokeRunGitTokens,
 } from "./run-git-tokens.js"
@@ -55,6 +63,7 @@ afterAll(async () => {
   github.close()
   const store = sandboxGitTokenStore(orgId, parseEnv(process.env))
   for (const row of await store.list("run:")) await store.take(row.key)
+  for (const row of await store.list("ingest:")) await store.take(row.key)
   await getSystemDb().delete(organizations).where(eq(organizations.id, orgId))
   await closeDb()
 })
@@ -155,4 +164,65 @@ it("revokes only one turn's tokens, keeps a token whose revoke failed, and the s
     vi.useRealTimers()
   }
   expect(await store.list(`run:${conversationId}:`)).toEqual([])
+})
+
+it("keeps an ingest shard's tokens apart from chat, and the sweep revokes them only after the run", async () => {
+  const backend = await BackendPostgres.connect(
+    process.env.DATABASE_URL as string,
+    { runMigrations: false, namespaceId: openWorkflowNamespaceId() },
+  )
+  try {
+    const run = await backend.createWorkflowRun({
+      workflowName: INGESTION_V2_WORKFLOW_NAME,
+      version: null,
+      idempotencyKey: null,
+      config: {},
+      context: null,
+      input: { orgId, shadow: true } satisfies IngestionV2RunInput,
+      parentStepAttemptNamespaceId: null,
+      parentStepAttemptId: null,
+      // Never due: no worker claims it.
+      availableAt: new Date(Date.now() + 365 * 24 * 60 * 60_000),
+      deadlineAt: null,
+    })
+    const running = ingestSandboxThreadId(run.id, 0)
+    const orphan = ingestSandboxThreadId(`run_gone_${suffix}`, 2)
+    for (const ingestThreadId of [running, orphan])
+      await recordedRunGitToken({
+        orgId,
+        ingestThreadId,
+        label: "git",
+        mint: async () => `ghs_${ingestThreadId.replaceAll(":", "_")}`,
+      })
+    const store = sandboxGitTokenStore(orgId, parseEnv(process.env))
+    expect(await store.list("run:")).toEqual([])
+
+    // The chat sweep does not touch ingest tokens, also when they are old.
+    vi.useFakeTimers({ toFake: ["Date"], now: Date.now() + 3 * 60_000 })
+    try {
+      expect(await revokeIdleRunGitTokens({ orgId })).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+    expect(revoked).toEqual([])
+
+    // An unknown run's tokens go; an unfinished run keeps its tokens.
+    expect(await revokeFinishedIngestGitTokens({ orgId })).toBe(false)
+    expect(revoked).toEqual([`token ghs_${orphan.replaceAll(":", "_")}`])
+    expect(await store.list(`${orphan}:`)).toEqual([])
+    expect(await store.list(`${running}:`)).toHaveLength(1)
+
+    // A failed revoke leaves the token for the next sweep.
+    await backend.cancelWorkflowRun({ workflowRunId: run.id })
+    revoked.length = 0
+    revokeStatus = 500
+    expect(await revokeFinishedIngestGitTokens({ orgId })).toBe(true)
+    expect(await store.list(`${running}:`)).toHaveLength(1)
+    revokeStatus = 204
+    expect(await revokeFinishedIngestGitTokens({ orgId })).toBe(false)
+    expect(revoked.at(-1)).toBe(`token ghs_${running.replaceAll(":", "_")}`)
+    expect(await store.list("ingest:")).toEqual([])
+  } finally {
+    await backend.stop()
+  }
 })

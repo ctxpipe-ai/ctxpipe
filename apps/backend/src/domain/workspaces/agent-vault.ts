@@ -243,6 +243,28 @@ export function runVaultName(runKey: string): string {
 }
 
 /**
+ * Add `rules` to the run's vault, or replace the rules with the same names
+ * (Agent Vault keys a service by its name). With `replace`, the vault keeps
+ * no other rule. A later step of the same run calls this from any process:
+ * the session of the sandbox stays the same.
+ */
+export async function setRunVaultRules(
+  access: AgentVaultAccess,
+  runKey: string,
+  rules: RunVaultRule[],
+  options: { replace?: boolean } = {},
+): Promise<void> {
+  if (rules.length === 0 && !options.replace) return
+  const { credentials, services } = servicesFor(rules)
+  await asOwner(access, async (client) => {
+    const vault = client.vault(runVaultName(runKey))
+    await vault.credentials?.set(credentials)
+    if (options.replace) await vault.services?.replaceAll(services)
+    else await vault.services?.set(services)
+  })
+}
+
+/**
  * Create the run's vault with `rules` and a proxy session for the sandbox.
  * Throws {@link AgentVaultUnavailableError} when Agent Vault does not answer.
  *
@@ -261,15 +283,8 @@ export async function openRunVault(input: {
   const { access } = input
   const name = runVaultName(input.runKey)
   const proxyAt = await proxyHost(access)
-  const addRules = async (rules: RunVaultRule[]) => {
-    if (rules.length === 0) return
-    const { credentials, services } = servicesFor(rules)
-    await asOwner(access, async (client) => {
-      const vault = client.vault(name)
-      await vault.credentials?.set(credentials)
-      await vault.services?.set(services)
-    })
-  }
+  const addRules = (rules: RunVaultRule[]) =>
+    setRunVaultRules(access, input.runKey, rules)
   const close = async () => {
     await deleteRunVault(access, name).catch((error: unknown) =>
       log.warn({

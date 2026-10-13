@@ -54,6 +54,7 @@ export function ConfluenceSetupWizard({
 }: ConfluenceSetupWizardProps) {
   const [waitForInstall, setWaitForInstall] = useState(initialWaitForInstall)
   const [workspacesDone, setWorkspacesDone] = useState(false)
+  const [pullRequestUrls, setPullRequestUrls] = useState<string[]>([])
   const [manualStepIndex, setManualStepIndex] = useState<number | null>(null)
   const prevServerStepIndexRef = useRef<number | null>(null)
   const queryClient = useQueryClient()
@@ -181,6 +182,7 @@ export function ConfluenceSetupWizard({
         if (!open) {
           setWaitForInstall(false)
           setWorkspacesDone(false)
+          setPullRequestUrls([])
           setManualStepIndex(null)
           prevServerStepIndexRef.current = null
         }
@@ -313,8 +315,9 @@ export function ConfluenceSetupWizard({
                 orgSlug={orgSlug}
                 atlassianConnectionId={atlassianConnectionId}
                 replacedConfigPullUrl={status.pendingConfigPullUrl}
-                onDone={() => {
+                onDone={(urls) => {
                   setManualStepIndex(null)
+                  setPullRequestUrls(urls ?? [])
                   setWorkspacesDone(true)
                 }}
               />
@@ -326,7 +329,10 @@ export function ConfluenceSetupWizard({
               </p>
             ) : null}
             {bodyId === "complete" ? (
-              <SetupCompleteStep onClose={() => onOpenChange(false)} />
+              <SetupCompleteStep
+                pullRequestUrls={pullRequestUrls}
+                onClose={() => onOpenChange(false)}
+              />
             ) : null}
           </div>
         )}
