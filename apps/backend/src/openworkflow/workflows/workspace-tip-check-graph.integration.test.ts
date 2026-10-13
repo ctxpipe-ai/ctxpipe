@@ -9,7 +9,7 @@ import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.
 import { workspaceTipCheck } from "./workspace-tip-check.js"
 
 it(
-  "checks at most 20 Workspace graphs per run and reaches every Workspace",
+  "enqueues one rebuild for each ready Workspace whose graph is missing",
   { timeout: 90_000 },
   async () => {
     await withNativeHydrationFixture({}, async (f) => {
@@ -70,13 +70,11 @@ it(
           })
           return [...new Set(ids)]
         }
-        for (const expected of [20, 25]) {
-          const run = await f.runner.runWorkflow(workspaceTipCheck.spec, {
-            orgId: f.org.id,
-          })
-          await run.result({ timeoutMs: 30_000 })
-          expect(await rebuilds()).toHaveLength(expected)
-        }
+        const run = await f.runner.runWorkflow(workspaceTipCheck.spec, {
+          orgId: f.org.id,
+        })
+        await run.result({ timeoutMs: 30_000 })
+        expect(await rebuilds()).toHaveLength(rows.length)
       } finally {
         await queue.stop()
         await withOrgDbContext(f.org.id, (db) =>
