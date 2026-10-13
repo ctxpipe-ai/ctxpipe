@@ -166,6 +166,7 @@ export function connectionUsageItem(
     workspaceId: `ws_${overrides.workspaceSlug}`,
     stat: "1 source",
     sources: [],
+    pendingChanges: [],
     ...overrides,
   }
 }

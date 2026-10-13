@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/Button"
 import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
 import { AddToWorkspacesStep } from "@/features/workspace-sources/AddToWorkspacesStep"
+import { PullRequestsToMerge } from "@/features/workspace-sources/PullRequestsToMerge"
 import {
   consumePagerdutySetupPopupResult,
   PAGERDUTY_SETUP_RESULT_KEY,
@@ -47,7 +48,11 @@ export function PagerdutySetupDialog({
 }: PagerdutySetupDialogProps) {
   const queryClient = useQueryClient()
   const [workspacesDone, setWorkspacesDone] = useState(false)
-  if (!isOpen && workspacesDone) setWorkspacesDone(false)
+  const [pullRequestUrls, setPullRequestUrls] = useState<string[]>([])
+  if (!isOpen && workspacesDone) {
+    setWorkspacesDone(false)
+    setPullRequestUrls([])
+  }
 
   useEffect(() => {
     if (!isOpen) return
@@ -184,7 +189,10 @@ export function PagerdutySetupDialog({
           description="the services for each"
           items="the services"
           replacedConfigPullUrl={status.pendingConfigPullUrl}
-          onDone={() => setWorkspacesDone(true)}
+          onDone={(urls) => {
+            setPullRequestUrls(urls ?? [])
+            setWorkspacesDone(true)
+          }}
         />
       )
     }
@@ -194,10 +202,14 @@ export function PagerdutySetupDialog({
           <h3 className="text-base font-medium text-foreground">
             PagerDuty is connected
           </h3>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Add PagerDuty to a Workspace from the connector card, or change the
-            services of a Workspace in its settings.
-          </p>
+          {pullRequestUrls.length ? (
+            <PullRequestsToMerge urls={pullRequestUrls} />
+          ) : (
+            <p className="mt-2 text-sm text-muted-foreground">
+              Add PagerDuty to a Workspace from the connector card, or change
+              the services of a Workspace in its settings.
+            </p>
+          )}
         </div>
         <Button
           variant="secondary"

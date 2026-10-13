@@ -15,11 +15,7 @@ import {
   fetchPagerdutyConnectorStatus,
   pagerdutyConnectorKeys,
 } from "../queries/pagerduty-connector"
-import {
-  ConnectorListItem,
-  connectorDash,
-  formatSyncRepositoryLine,
-} from "./ConnectorListItem"
+import { ConnectorListItem, connectorDash } from "./ConnectorListItem"
 import { PagerdutyMark } from "./PagerdutyMark"
 
 type PagerdutyConnectionCardProps = {
@@ -105,7 +101,6 @@ export function PagerdutyConnectionCard({
           ? formatSelectedItemCount(status.selectedServiceCount)
           : "Set in each Workspace"
       }
-      syncRepository={formatSyncRepositoryLine(status?.syncTarget ?? null)}
       actionLabel={isError ? "Retry" : (actionLabel ?? undefined)}
       onAction={
         isError

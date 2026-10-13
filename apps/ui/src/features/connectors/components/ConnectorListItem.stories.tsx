@@ -38,7 +38,6 @@ const shared = {
   },
   workspace: "acme",
   scope: "12 repositories",
-  syncRepository: "—",
   actionLabel: "Link to a workspace",
   onAction: () => {},
 }

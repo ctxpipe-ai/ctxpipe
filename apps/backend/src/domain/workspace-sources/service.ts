@@ -6,7 +6,10 @@ import {
   listWorkspaceSourceRows,
   type WorkspaceSourceRow,
 } from "../../models/workspace-sources.js"
-import type { WorkspaceRecord } from "../../models/workspaces.js"
+import {
+  listOrgWorkspaces,
+  type WorkspaceRecord,
+} from "../../models/workspaces.js"
 import { getLogger } from "../../observability/logger.js"
 import { enqueueWorkspaceWriteCommit } from "../../openworkflow/enqueue-workspace-write-commit.js"
 import type {
@@ -70,7 +73,9 @@ function editPolicy(workspace: WorkspaceRecord) {
   }
 }
 
-async function pendingChanges(workspace: WorkspaceRecord) {
+async function pendingChanges(
+  workspace: Parameters<typeof workspaceGithubRepository>[0] & { id: string },
+) {
   const repository = workspaceGithubRepository(workspace)
   if (!repository) return []
   try {
@@ -266,6 +271,7 @@ export async function listConnectionUsage(
       workspaceName,
       stat: "",
       sources: [],
+      pendingChanges: [],
     }
     item.sources.push({
       sourceKey: source.sourceKey,
@@ -298,8 +304,37 @@ export async function listConnectionUsage(
         workspaceName: usage.workspaceName,
         sources: byWorkspace.get(usage.workspaceId)?.sources ?? [],
         stat,
+        pendingChanges: [],
       })
     }
+  }
+  // An open source pull request waits for a merge. Show it, so the user does
+  // not add the source again. The branch names the provider, not the
+  // connection, so each connection of that provider shows it.
+  const providers = new Set(
+    Object.entries(SOURCE_SCOPES)
+      .filter(([, scope]) => scope.connectionType === connection.type)
+      .map(([provider]) => provider),
+  )
+  const workspaces = await listOrgWorkspaces(orgId)
+  const pending = await Promise.all(
+    workspaces.map((workspace) => pendingChanges({ ...workspace, orgId })),
+  )
+  for (const [index, workspace] of workspaces.entries()) {
+    const changes = (pending[index] ?? []).filter((change) =>
+      providers.has(change.provider),
+    )
+    if (!changes.length) continue
+    const item = byWorkspace.get(workspace.id) ?? {
+      workspaceId: workspace.id,
+      workspaceSlug: workspace.slug,
+      workspaceName: workspace.displayName,
+      stat: "",
+      sources: [],
+      pendingChanges: [],
+    }
+    item.pendingChanges = changes
+    byWorkspace.set(workspace.id, item)
   }
   return { items: [...byWorkspace.values()] }
 }
