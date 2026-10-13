@@ -14,13 +14,18 @@ import {
   ingestOpenCodeEnv,
 } from "./ingest-opencode.js"
 import {
+  collectIngestStep,
   INGEST_AGENT_USER,
   prepareIngestSandbox,
-  type RunAsRoot,
   sealIngestCheckout,
   startIngestStep,
 } from "./ingest-prepare.js"
-import { dockerRunAsRoot, vercelRunAsRoot } from "./ingest-root.js"
+import {
+  dockerRootExec,
+  type RootExec,
+  runAsRoot,
+  vercelRootExec,
+} from "./ingest-root.js"
 import { validatePatchStep } from "./patch-validator.js"
 import {
   INGEST_CONTEXT_ROOT,
@@ -133,10 +138,13 @@ function quote(value: string) {
 
 type Box = {
   handle: SandboxHandle
-  asRoot: RunAsRoot
-  agentUser: string | null
+  root: RootExec
+  /** Run as root; throws on a nonzero exit. */
+  asRoot: (script: string) => Promise<void>
   /** Run as the default user; throws on a nonzero exit. */
   sh: (command: string) => Promise<string>
+  /** Write a file as the agent. */
+  agentWrite: (path: string, content: string) => Promise<void>
   /** Run as the agent, in /ctxpipe/out, with `env`. */
   agent: (
     command: string,
@@ -164,8 +172,8 @@ async function withBox(
     }
     // Vercel-like: root through the default user's sudo, as the Vercel SDK
     // `sudo` option does. Docker: an exec as uid 0.
-    const asRoot = options.vercelLike
-      ? vercelRunAsRoot({
+    const root = options.vercelLike
+      ? vercelRootExec({
           runCommand: async ({ args, sudo }) => {
             const r = await handle.process.exec(
               `${sudo ? "sudo -n " : ""}sh -c ${quote(args[1] ?? "")}`,
@@ -177,12 +185,11 @@ async function withBox(
             }
           },
         })
-      : dockerRunAsRoot(handle.id)
-    const agentUser = options.vercelLike ? INGEST_AGENT_USER : null
+      : dockerRootExec(handle.id)
+    const asRoot = (script: string) => runAsRoot(root, script)
     const bundle = await readIngestSkillBundle()
-    await prepareIngestSandbox(handle, asRoot, {
+    await prepareIngestSandbox(handle, root, {
       bundle,
-      agentUser,
       opencodeConfig: ingestOpenCodeConfig({
         modelBase: "stub",
         skills: bundle.skills,
@@ -190,8 +197,14 @@ async function withBox(
       }),
     })
     const agent = (command: string, env: Record<string, string> = AGENT_ENV) =>
-      handle.process.exec(ingestAgentCommand({ agentUser, env, command }))
-    await fn({ handle, asRoot, agentUser, sh, agent })
+      root(ingestAgentCommand({ env, command }))
+    const agentWrite = async (path: string, content: string) => {
+      const r = await agent(
+        `mkdir -p ${quote(path.slice(0, path.lastIndexOf("/")))} && printf %s ${quote(Buffer.from(content).toString("base64"))} | base64 -d > ${quote(path)}`,
+      )
+      if (r.exitCode !== 0) throw new Error(`agent write ${path}: ${r.stderr}`)
+    }
+    await fn({ handle, root, asRoot, sh, agent, agentWrite })
   } finally {
     await provider.destroy({ id: handle.id })
   }
@@ -213,7 +226,7 @@ async function sealed(
   await box.sh(
     `mkdir -p ${from} && cd ${from} && git init -q -b main && git add -A && git commit -q --allow-empty -m base`,
   )
-  return sealIngestCheckout(box.asRoot, { kind, id, from })
+  return sealIngestCheckout(box.root, { kind, id, from })
 }
 
 async function headOf(box: Box, dir: string) {
@@ -309,12 +322,16 @@ async function proveReadOnly(box: Box) {
   const source = await sealed(box, "source", "src_readonly", {
     "README.md": "# Source\n",
   })
-  await startIngestStep(box.handle, box.asRoot, {
+  await startIngestStep(box.root, {
     workspaceId: "ws_readonly",
     baseCommit: await headOf(box, context),
-    agentUser: box.agentUser,
   })
-  for (const command of refusedWrites(context, source)) {
+  expect((await box.agent("id -un")).stdout.trim()).toBe(INGEST_AGENT_USER)
+  for (const command of [
+    ...refusedWrites(context, source),
+    // The default user's clone, which root copies from.
+    "touch /tmp/clone-context-ws_readonly/knowledge/services/x.md",
+  ]) {
     const result = await box.agent(command)
     expect(result.exitCode, command).not.toBe(0)
   }
@@ -337,9 +354,8 @@ describe("ingest sandbox layout", () => {
       // Prepare always copies the bundle again.
       await box.asRoot(`rm ${INGEST_SKILLS_ROOT}/bin/ctxpipe-finish`)
       const bundle = await readIngestSkillBundle()
-      await prepareIngestSandbox(box.handle, box.asRoot, {
+      await prepareIngestSandbox(box.handle, box.root, {
         bundle,
-        agentUser: null,
         opencodeConfig: {},
       })
       await box.sh(`test -x ${INGEST_SKILLS_ROOT}/bin/ctxpipe-finish`)
@@ -369,7 +385,7 @@ describe("ingest sandbox layout", () => {
       await box.sh(
         "cd /tmp/links && ln -s /etc/shadow shadow && ln -s /etc etc && git add -A && git commit -q -m links",
       )
-      const dir = await sealIngestCheckout(box.asRoot, {
+      const dir = await sealIngestCheckout(box.root, {
         kind: "source",
         id: "src_links",
         from: "/tmp/links",
@@ -385,10 +401,7 @@ describe("ingest sandbox layout", () => {
   it("fails clearly on an untested OpenCode version", async () => {
     await withBox({}, async (box) => {
       await expect(
-        assertIngestOpenCodeVersion(box.handle, {
-          agentUser: null,
-          env: AGENT_ENV,
-        }),
+        assertIngestOpenCodeVersion(box.root, AGENT_ENV),
       ).resolves.toBe("1.18.34")
       await box.sh("mkdir -p /tmp/fake-bin")
       await box.handle.fs.write(
@@ -397,9 +410,9 @@ describe("ingest sandbox layout", () => {
       )
       await box.sh("chmod 755 /tmp/fake-bin/opencode")
       await expect(
-        assertIngestOpenCodeVersion(box.handle, {
-          agentUser: null,
-          env: { ...AGENT_ENV, PATH: `/tmp/fake-bin:${AGENT_ENV.PATH ?? BASE_PATH}` },
+        assertIngestOpenCodeVersion(box.root, {
+          ...AGENT_ENV,
+          PATH: `/tmp/fake-bin:${AGENT_ENV.PATH ?? BASE_PATH}`,
         }),
       ).rejects.toThrow(/OpenCode 9\.9\.9 is not tested.*1\.18\.34/)
     })
@@ -412,10 +425,9 @@ describe("ingest agent isolation", () => {
       const clean = await sealed(box, "source", "src_clean", {})
       const hostile = await sealed(box, "source", "src_hostile", HOSTILE)
       await sealed(box, "context", "ws_iso", {})
-      await startIngestStep(box.handle, box.asRoot, {
+      await startIngestStep(box.root, {
         workspaceId: "ws_iso",
         baseCommit: await headOf(box, `${INGEST_CONTEXT_ROOT}/ws_iso`),
-        agentUser: null,
       })
       await startStub(box)
 
@@ -466,18 +478,16 @@ describe("ingest agent isolation", () => {
     await withBox({}, async (box) => {
       const context = await sealed(box, "context", "ws_home", {})
       const step = () =>
-        startIngestStep(box.handle, box.asRoot, {
+        startIngestStep(box.root, {
           workspaceId: "ws_home",
           baseCommit: "",
-          agentUser: null,
         })
       await expect(step()).rejects.toThrow(/full SHA/)
       const baseCommit = await headOf(box, context)
       const start = () =>
-        startIngestStep(box.handle, box.asRoot, {
+        startIngestStep(box.root, {
           workspaceId: "ws_home",
           baseCommit,
-          agentUser: null,
         })
       await start()
       await startStub(box)
@@ -503,6 +513,90 @@ describe("ingest agent isolation", () => {
   }, 600_000)
 })
 
+/** Process ids whose real uid is the agent's, seen as the default user. */
+const AGENT_PIDS = `uid=$(id -u ${INGEST_AGENT_USER}); for d in /proc/[0-9]*; do u=$(sed -n 's/^Uid:[[:space:]]*\\([0-9]*\\).*/\\1/p' "$d/status" 2>/dev/null); [ "$u" = "$uid" ] && echo "\${d#/proc/}"; done; true`
+
+describe("agent processes between steps", () => {
+  it("stops a background re-planter before the next step and before collect", async () => {
+    await withBox({}, async (box) => {
+      const context = await sealed(box, "context", "ws_procs", {})
+      const baseCommit = await headOf(box, context)
+      await startIngestStep(box.root, { workspaceId: "ws_procs", baseCommit })
+      // Step N leaves a loop that leaves its session and plants config,
+      // a plugin, and a fake patch.json again and again.
+      const loop = [
+        "while :; do",
+        `mkdir -p ${INGEST_HOME}/config/opencode/plugin 2>/dev/null;`,
+        `echo '# HOSTILE' > ${INGEST_HOME}/config/opencode/AGENTS.md 2>/dev/null;`,
+        `echo 'export default async () => ({})' > ${INGEST_HOME}/config/opencode/plugin/p.js 2>/dev/null;`,
+        `echo hostile > ${INGEST_OUT_ROOT}/patch.json 2>/dev/null;`,
+        "sleep 0.05; done",
+      ].join(" ")
+      const started = await box.agent(
+        `setsid nohup sh -c ${quote(loop)} >/dev/null 2>&1 < /dev/null &`,
+      )
+      expect(started.exitCode, started.stderr).toBe(0)
+      await box.sh("sleep 0.5")
+      // Control: the loop runs and plants.
+      expect((await box.sh(AGENT_PIDS)).trim()).not.toBe("")
+      await box.sh(`test -f ${INGEST_HOME}/config/opencode/AGENTS.md`)
+
+      // Collect stops it, so the packed output cannot change afterwards.
+      await collectIngestStep(box.handle, box.root)
+      expect((await box.sh(AGENT_PIDS)).trim()).toBe("")
+      const packed = await box.sh(`sha256sum ${INGEST_OUT_ROOT}/patch.json`)
+      await box.sh("sleep 0.5")
+      expect(await box.sh(`sha256sum ${INGEST_OUT_ROOT}/patch.json`)).toBe(
+        packed,
+      )
+
+      // A loop that survives into the next step start is stopped too.
+      await box.agent(
+        `setsid nohup sh -c ${quote(loop)} >/dev/null 2>&1 < /dev/null &`,
+      )
+      await box.sh("sleep 0.5")
+      await startIngestStep(box.root, { workspaceId: "ws_procs", baseCommit })
+      await box.sh("sleep 0.5")
+      expect((await box.sh(AGENT_PIDS)).trim()).toBe("")
+      expect(
+        (await box.sh(`ls -A ${INGEST_HOME} ${INGEST_OUT_ROOT}`)).trim(),
+      ).toBe(`${INGEST_HOME}:\n\n${INGEST_OUT_ROOT}:\nfiles`)
+    })
+  }, 300_000)
+
+  it("refuses a fetch ref outside the run's ingest refs", async () => {
+    await withBox({}, async (box) => {
+      const context = await sealed(box, "context", "ws_ref", {})
+      const baseCommit = await headOf(box, context)
+      for (const ref of [
+        "--upload-pack=touch /tmp/pwned",
+        "refs/heads/main",
+        "refs/ctxpipe/ingest/../../heads/main",
+      ])
+        await expect(
+          startIngestStep(box.root, {
+            workspaceId: "ws_ref",
+            baseCommit,
+            fetch: { remote: "/tmp/none.git", ref },
+          }),
+        ).rejects.toThrow(/not an ingest ref/)
+      await expect(
+        startIngestStep(box.root, {
+          workspaceId: "ws_ref",
+          baseCommit,
+          fetch: {
+            remote: "--upload-pack=touch /tmp/pwned",
+            ref: "refs/ctxpipe/ingest/run1/ws_ref/0",
+          },
+        }),
+      ).rejects.toThrow()
+      expect(
+        (await box.handle.process.exec("test -e /tmp/pwned")).exitCode,
+      ).not.toBe(0)
+    })
+  }, 300_000)
+})
+
 describe("stage helpers in the sandbox", () => {
   it("make patch.json at the fetched base commit that the host validator accepts", async () => {
     await withBox({}, async (box) => {
@@ -526,7 +620,7 @@ describe("stage helpers in the sandbox", () => {
       await box.sh(
         "cd /tmp/work && git init -q -b main && git add -A && git commit -q -m pinned && git push -q /tmp/remote.git main",
       )
-      await sealIngestCheckout(box.asRoot, {
+      await sealIngestCheckout(box.root, {
         kind: "context",
         id: WORKSPACE_ID,
         from: "/tmp/work",
@@ -544,10 +638,9 @@ describe("stage helpers in the sandbox", () => {
       // A local remote stands in for GitHub; root fetches only from a
       // repository that the agent cannot change.
       await box.asRoot("chown -R root:root /tmp/remote.git")
-      await startIngestStep(box.handle, box.asRoot, {
+      await startIngestStep(box.root, {
         workspaceId: WORKSPACE_ID,
         baseCommit,
-        agentUser: null,
         fetch: {
           remote: "/tmp/remote.git",
           ref: "refs/ctxpipe/ingest/run1/ws_contract/0",
@@ -573,12 +666,12 @@ describe("stage helpers in the sandbox", () => {
           `${INGEST_OUT_ROOT}/files/knowledge/services/billing.md`,
         ),
       ).toBe(OWNED("Billing", "Step one prose."))
-      await box.handle.fs.write(
+      await box.agentWrite(
         `${INGEST_OUT_ROOT}/files/knowledge/services/billing.md`,
         OWNED("Billing", "The service bills orders."),
       )
       await helper("ctxpipe-stage knowledge/services/payments.md")
-      await box.handle.fs.write(
+      await box.agentWrite(
         `${INGEST_OUT_ROOT}/files/knowledge/services/payments.md`,
         "---\nkind: Service\nname: Payments\n---\n# Payments\n\nThe service takes payments.\n",
       )
@@ -589,18 +682,29 @@ describe("stage helpers in the sandbox", () => {
         "1 create, 1 update, 1 delete",
       )
 
-      // Bring the context repository and the step folder to the host.
+      // A file that only the default user can read, and an agent symlink
+      // to it in the staged tree. Root packs the output without reading it.
       await box.sh(
-        `git -C ${CONTEXT_DIR} bundle create /tmp/context.bundle HEAD && git -C ${CONTEXT_DIR} bundle verify /tmp/context.bundle >/dev/null && tar -C ${INGEST_OUT_ROOT} -cf /tmp/step.tar .`,
+        "printf TOP-SECRET-VALUE > /tmp/secret && chmod 600 /tmp/secret",
+      )
+      const link = await box.agent(
+        `ln -s /tmp/secret ${INGEST_OUT_ROOT}/files/knowledge/services/leak.md`,
+      )
+      expect(link.exitCode, link.stderr).toBe(0)
+      const output = await collectIngestStep(box.handle, box.root)
+      expect(Buffer.from(output).toString("latin1")).not.toContain(
+        "TOP-SECRET-VALUE",
+      )
+
+      // Bring the context repository and the step output to the host.
+      await box.sh(
+        `git -C ${CONTEXT_DIR} bundle create /tmp/context.bundle HEAD && git -C ${CONTEXT_DIR} bundle verify /tmp/context.bundle >/dev/null`,
       )
       writeFileSync(
         join(host, "context.bundle"),
         await box.handle.fs.readBytes("/tmp/context.bundle"),
       )
-      writeFileSync(
-        join(host, "step.tar"),
-        await box.handle.fs.readBytes("/tmp/step.tar"),
-      )
+      writeFileSync(join(host, "step.tar"), output)
       const repo = join(host, "context")
       execFileSync("git", ["init", "-q", "--bare", repo])
       execFileSync("git", [
@@ -628,13 +732,17 @@ describe("stage helpers in the sandbox", () => {
         bundle: (await readIngestSkillBundle()).name,
         sourcePathExists: async () => true,
       })
-      expect(result.rejections).toEqual([])
+      expect(result.rejections).toEqual([
+        expect.objectContaining({
+          path: "knowledge/services/leak.md",
+          rule: "path",
+        }),
+      ])
       expect(result.accepted).toEqual([
         { op: "update", path: "knowledge/services/billing.md" },
         { op: "delete", path: "knowledge/services/old.md" },
         { op: "create", path: "knowledge/services/payments.md" },
       ])
-      expect(result.status).toBe("complete")
     })
   }, 300_000)
 })

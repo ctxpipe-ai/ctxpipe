@@ -1,8 +1,9 @@
-import type { SandboxHandle } from "@tanstack/ai-sandbox"
 import {
   WORKSPACE_CHAT_OPENCODE_CLI,
   workspaceChatOpenCodeProvider,
 } from "../workspaces/workspace-chat-opencode-contract.js"
+import { INGEST_AGENT_USER } from "./ingest-prepare.js"
+import type { RootExec } from "./ingest-root.js"
 import {
   INGEST_CONTEXT_ROOT,
   INGEST_HOME,
@@ -100,20 +101,17 @@ function quote(value: string): string {
 }
 
 /**
- * A shell command that runs `command` as the agent, in /ctxpipe/out, with
- * only `env`. On Vercel the agent is a user with no sudo rights; the default
- * user starts it with `sudo -u`. On Docker the agent is the default user.
+ * A shell command for root that runs `command` as the agent user, in
+ * /ctxpipe/out, with only `env`. Run it with the sandbox's `RootExec`.
  */
 export function ingestAgentCommand(input: {
-  agentUser: string | null
   env: Record<string, string>
   command: string
 }): string {
   const env = Object.entries(input.env)
     .map(([key, value]) => quote(`${key}=${value}`))
     .join(" ")
-  const run = `env -i ${env} sh -c ${quote(`cd ${INGEST_OUT_ROOT} && ${input.command}`)}`
-  return input.agentUser ? `sudo -n -u ${input.agentUser} -- ${run}` : run
+  return `runuser -u ${INGEST_AGENT_USER} -- env -i ${env} sh -c ${quote(`cd ${INGEST_OUT_ROOT} && ${input.command}`)}`
 }
 
 /** The one OpenCode version whose isolation flags the contract test proves. */
@@ -128,11 +126,11 @@ export const INGEST_OPENCODE_VERSION = WORKSPACE_CHAT_OPENCODE_CLI.replace(
  * then a checkout's AGENTS.md or .opencode/ reaches the agent.
  */
 export async function assertIngestOpenCodeVersion(
-  handle: Pick<SandboxHandle, "process">,
-  agent: { agentUser: string | null; env: Record<string, string> },
+  root: RootExec,
+  env: Record<string, string>,
 ): Promise<string> {
-  const result = await handle.process.exec(
-    ingestAgentCommand({ ...agent, command: "opencode --version" }),
+  const result = await root(
+    ingestAgentCommand({ env, command: "opencode --version" }),
   )
   const version = result.stdout.trim()
   if (result.exitCode !== 0 || version !== INGEST_OPENCODE_VERSION)

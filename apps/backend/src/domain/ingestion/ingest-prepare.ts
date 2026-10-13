@@ -1,5 +1,6 @@
 import { dirname } from "node:path/posix"
 import type { SandboxHandle } from "@tanstack/ai-sandbox"
+import { type RootExec, runAsRoot } from "./ingest-root.js"
 import {
   INGEST_CONTEXT_ROOT,
   INGEST_HOME,
@@ -15,30 +16,29 @@ import {
 /*
  * Prepare an ingest sandbox (ADR-052). Root owns /ctxpipe, the skill bundle,
  * the OpenCode config, the source and context checkouts, the context index,
- * and step.json. The agent runs as a user with no sudo. It owns only
- * /ctxpipe/out and /ctxpipe/home, and both are emptied before each step.
+ * and step.json. The agent runs as `ctxpipe-agent`, a user with no sudo that
+ * prepare makes; root starts each agent command with `runuser`. The agent
+ * owns only /ctxpipe/out and /ctxpipe/home. Before each step and before the
+ * host collects a step's output, root stops every process of the agent.
  */
 
-/** Runs a shell script as root in the sandbox (see `ingest-root.ts`). */
-export type RunAsRoot = (script: string) => Promise<void>
+/** The agent user on every provider. It is in no sudoers file. */
+export const INGEST_AGENT_USER = "ctxpipe-agent"
+
+/** The step output that root packs for the host to read. */
+export const INGEST_STEP_OUTPUT = `${INGEST_ROOT}/step-output.tar`
 
 type Sandbox = Pick<SandboxHandle, "fs" | "process">
 
-/** The Vercel agent user. Prepare makes it; it is in no sudoers file. */
-export const INGEST_AGENT_USER = "ctxpipe-agent"
-
 /**
- * The user the agent runs as. Docker: the image's nonroot user, which has no
- * sudo. Vercel: the default user has passwordless sudo, so the agent is a
- * separate user. Unsandboxed mode runs the agent on the backend host, so
- * ingest refuses it.
+ * Ingest runs only in a Docker or Vercel sandbox. Unsandboxed mode runs the
+ * agent on the backend host, so ingest refuses it.
  */
-export function ingestAgentUser(provider: string): string | null {
-  if (provider === "docker") return null
-  if (provider === "vercel") return INGEST_AGENT_USER
-  throw new Error(
-    `Ingest needs a Docker or Vercel sandbox. The ${provider} provider runs the agent on the backend host.`,
-  )
+export function assertIngestProvider(provider: string): void {
+  if (provider !== "docker" && provider !== "vercel")
+    throw new Error(
+      `Ingest needs a Docker or Vercel sandbox. The ${provider} provider runs the agent on the backend host.`,
+    )
 }
 
 function quote(value: string): string {
@@ -56,19 +56,28 @@ async function run(handle: Sandbox, command: string): Promise<string> {
   return result.stdout
 }
 
-/** `user:group` for chown: the agent user, else the default user's ids. */
-async function agentOwner(
-  handle: Sandbox,
-  agentUser: string | null,
-): Promise<string> {
-  if (agentUser) return `${agentUser}:${agentUser}`
-  const owner = (
-    await run(handle, 'printf "%s:%s" "$(id -u)" "$(id -g)"')
-  ).trim()
-  if (!/^\d+:\d+$/.test(owner))
-    throw new Error(`Ingest sandbox: unexpected user ids ${owner}`)
-  return owner
+/**
+ * Stop every process of the agent user, again and again until none is left,
+ * so a process that forks while it is stopped is also stopped. The real uid
+ * in /proc/<pid>/status counts; a process cannot hide it.
+ */
+const STOP_AGENT_PROCESSES = `uid=$(id -u ${INGEST_AGENT_USER})
+found() {
+  for d in /proc/[0-9]*; do
+    u=$(sed -n 's/^Uid:[[:space:]]*\\([0-9]*\\).*/\\1/p' "$d/status" 2>/dev/null || true)
+    if [ "$u" = "$uid" ]; then echo "\${d#/proc/}"; fi
+  done
+  true
 }
+i=0
+while [ "$i" -lt 100 ]; do
+  left=$(found)
+  [ -z "$left" ] && break
+  for p in $left; do kill -KILL "$p" 2>/dev/null; done
+  sleep 0.1
+  i=$((i + 1))
+done
+if [ -n "$(found)" ]; then echo "Agent processes are left: $(found)" >&2; exit 1; fi`
 
 /**
  * Root writes the file itself from base64 in the script, so no path the agent
@@ -76,18 +85,22 @@ async function agentOwner(
  * limit for one command argument.
  */
 async function writeAsRoot(
-  asRoot: RunAsRoot,
+  root: RootExec,
   path: string,
   content: string,
 ): Promise<void> {
   const data = Buffer.from(content)
   const part = `${path}.part`
-  await asRoot(`rm -f ${quote(part)} && : > ${quote(part)}`)
+  await runAsRoot(root, `rm -f ${quote(part)} && : > ${quote(part)}`)
   for (let at = 0; at < data.length; at += 48 * 1024)
-    await asRoot(
+    await runAsRoot(
+      root,
       `printf %s ${quote(data.subarray(at, at + 48 * 1024).toString("base64"))} | base64 -d >> ${quote(part)}`,
     )
-  await asRoot(`chmod 644 ${quote(part)} && mv ${quote(part)} ${quote(path)}`)
+  await runAsRoot(
+    root,
+    `chmod 644 ${quote(part)} && mv ${quote(part)} ${quote(path)}`,
+  )
 }
 
 /** Fail when a root-owned copy holds a symlink or another special file. */
@@ -96,24 +109,16 @@ function refuseSpecialFiles(path: string): string {
 }
 
 /**
- * Run once for each sandbox: make the agent user (Vercel), the /ctxpipe
- * layout, the skill bundle, and the OpenCode config. The bundle is always
- * copied again.
+ * Run once for each sandbox: make the agent user, the /ctxpipe layout, the
+ * skill bundle, and the OpenCode config. The bundle is always copied again.
  */
 export async function prepareIngestSandbox(
   handle: Sandbox,
-  asRoot: RunAsRoot,
-  input: {
-    bundle: IngestSkillBundle
-    agentUser: string | null
-    opencodeConfig: unknown
-  },
+  root: RootExec,
+  input: { bundle: IngestSkillBundle; opencodeConfig: unknown },
 ): Promise<void> {
-  if (input.agentUser !== null && !PLAIN_ID.test(input.agentUser))
-    throw new Error("Ingest prepare: the agent user is not a plain name")
-  const owner = await agentOwner(handle, input.agentUser)
-  // The default user writes a private staging copy; root copies it, checks
-  // the copy, and moves it into place.
+  // The default user (never the agent) writes a private staging copy; root
+  // copies it, checks the copy, and moves it into place.
   const staging = (await run(handle, "mktemp -d")).trim()
   const folders = new Set(input.bundle.files.map((f) => dirname(f.path)))
   await run(
@@ -129,18 +134,16 @@ export async function prepareIngestSandbox(
   const executables = input.bundle.files
     .filter((f) => f.executable)
     .map((f) => quote(`${next}/${f.path}`))
-  await asRoot(
+  const agent = INGEST_AGENT_USER
+  await runAsRoot(
+    root,
     [
       "set -e",
-      ...(input.agentUser
-        ? [
-            `id -u ${input.agentUser} >/dev/null 2>&1 || useradd --system --user-group --no-create-home --shell /bin/sh ${input.agentUser}`,
-          ]
-        : []),
+      `id -u ${agent} >/dev/null 2>&1 || useradd --system --user-group --no-create-home --shell /bin/sh ${agent}`,
       `mkdir -p ${INGEST_ROOT} ${INGEST_CONTEXT_ROOT} ${INGEST_SOURCE_ROOT} ${INGEST_OPENCODE_ROOT} ${INGEST_OUT_ROOT} ${INGEST_HOME}`,
       `chown root:root ${INGEST_ROOT} ${INGEST_CONTEXT_ROOT} ${INGEST_SOURCE_ROOT} ${INGEST_OPENCODE_ROOT}`,
       `chmod 755 ${INGEST_ROOT} ${INGEST_CONTEXT_ROOT} ${INGEST_SOURCE_ROOT} ${INGEST_OPENCODE_ROOT}`,
-      `chown -R ${owner} ${INGEST_OUT_ROOT} ${INGEST_HOME}`,
+      `chown -R ${agent}:${agent} ${INGEST_OUT_ROOT} ${INGEST_HOME}`,
       `rm -rf ${next}`,
       `cp -R ${quote(staging)} ${next}`,
       refuseSpecialFiles(next),
@@ -153,7 +156,7 @@ export async function prepareIngestSandbox(
     ].join("\n"),
   )
   await writeAsRoot(
-    asRoot,
+    root,
     `${INGEST_OPENCODE_ROOT}/opencode.json`,
     JSON.stringify(input.opencodeConfig, null, 2),
   )
@@ -166,7 +169,7 @@ export async function prepareIngestSandbox(
  * it as the agent through a system `safe.directory` entry.
  */
 export async function sealIngestCheckout(
-  asRoot: RunAsRoot,
+  root: RootExec,
   input: {
     kind: "context" | "source"
     /** The Workspace id (context) or the source handle (source). */
@@ -180,7 +183,8 @@ export async function sealIngestCheckout(
     throw new Error(`Ingest ${input.kind}: the id is not a plain id`)
   const target = `${input.kind === "context" ? INGEST_CONTEXT_ROOT : INGEST_SOURCE_ROOT}/${input.id}`
   const next = `${target}.next`
-  await asRoot(
+  await runAsRoot(
+    root,
     [
       "set -e",
       `rm -rf ${next}`,
@@ -203,19 +207,21 @@ export async function sealIngestCheckout(
   return target
 }
 
+/** A run-scoped ingest ref (ADR-052 section 6). */
+const INGEST_REF =
+  /^refs\/ctxpipe\/ingest\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+){0,2}$/
+
 /**
- * Start a step: as root, fetch the shard ref, put the context checkout at
- * the step's base commit, place the context index, empty the agent's
- * /ctxpipe/out and /ctxpipe/home, and write /ctxpipe/step.json for the stage
- * helpers.
+ * Start a step, as root: stop every agent process, fetch the shard ref, put
+ * the context checkout at the step's base commit, place the context index,
+ * empty /ctxpipe/out and /ctxpipe/home, and write /ctxpipe/step.json for the
+ * stage helpers.
  */
 export async function startIngestStep(
-  handle: Sandbox,
-  asRoot: RunAsRoot,
+  root: RootExec,
   input: {
     workspaceId: string
     baseCommit: string
-    agentUser: string | null
     /** The shard ref to fetch first; absent when the commit is already there. */
     fetch?: { remote: string; ref: string }
     /** The T07 `<workspaceId>.index.json` content. */
@@ -226,32 +232,59 @@ export async function startIngestStep(
     throw new Error("Ingest step: the Workspace id is not a plain id")
   if (!/^[0-9a-f]{40,64}$/.test(input.baseCommit))
     throw new Error("Ingest step: the base commit is not a full SHA")
-  const owner = await agentOwner(handle, input.agentUser)
+  if (input.fetch && !INGEST_REF.test(input.fetch.ref))
+    throw new Error("Ingest step: the ref is not an ingest ref")
   const context = `${INGEST_CONTEXT_ROOT}/${input.workspaceId}`
-  await asRoot(
+  const agent = INGEST_AGENT_USER
+  await runAsRoot(
+    root,
     [
       "set -e",
+      STOP_AGENT_PROCESSES,
       ...(input.fetch
         ? [
-            `git -C ${context} fetch -q ${quote(input.fetch.remote)} ${quote(input.fetch.ref)}`,
+            `git -C ${context} fetch -q -- ${quote(input.fetch.remote)} ${quote(input.fetch.ref)}`,
           ]
         : []),
       `git -C ${context} checkout -q --detach ${input.baseCommit}`,
       `test "$(git -C ${context} rev-parse HEAD)" = ${input.baseCommit}`,
-      `rm -rf ${INGEST_OUT_ROOT} ${INGEST_HOME}`,
+      `rm -rf ${INGEST_OUT_ROOT} ${INGEST_HOME} ${INGEST_STEP_OUTPUT}`,
       `mkdir -p ${INGEST_OUT_ROOT}/files ${INGEST_HOME}`,
-      `chown -R ${owner} ${INGEST_OUT_ROOT} ${INGEST_HOME}`,
+      `chown -R ${agent}:${agent} ${INGEST_OUT_ROOT} ${INGEST_HOME}`,
       `chmod 755 ${INGEST_OUT_ROOT} ${INGEST_HOME}`,
     ].join("\n"),
   )
   if (input.index !== undefined)
-    await writeAsRoot(asRoot, `${context}.index.json`, input.index)
+    await writeAsRoot(root, `${context}.index.json`, input.index)
   await writeAsRoot(
-    asRoot,
+    root,
     INGEST_STEP_FILE,
     JSON.stringify({
       workspaceId: input.workspaceId,
       baseCommit: input.baseCommit,
     }),
   )
+}
+
+/**
+ * Collect a finished step, as root: stop every agent process so the output
+ * cannot change, then pack /ctxpipe/out into a root-owned tar. `tar` without
+ * `-h` stores a symlink as a link and never reads its target, so the host
+ * patch validator sees it and rejects it. Returns the tar bytes.
+ */
+export async function collectIngestStep(
+  handle: Sandbox,
+  root: RootExec,
+): Promise<Uint8Array> {
+  await runAsRoot(
+    root,
+    [
+      "set -e",
+      STOP_AGENT_PROCESSES,
+      `rm -f ${INGEST_STEP_OUTPUT}`,
+      `tar -C ${INGEST_OUT_ROOT} -cf ${INGEST_STEP_OUTPUT} .`,
+      `chmod 644 ${INGEST_STEP_OUTPUT}`,
+    ].join("\n"),
+  )
+  return handle.fs.readBytes(INGEST_STEP_OUTPUT)
 }

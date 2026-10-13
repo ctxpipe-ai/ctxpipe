@@ -1,18 +1,21 @@
 import { PassThrough } from "node:stream"
+import type { ExecResult } from "@tanstack/ai-sandbox"
 import Docker from "dockerode"
-import type { RunAsRoot } from "./ingest-prepare.js"
 
 /*
- * Root commands for ingest prepare. The agent runs as the sandbox user, so
- * only prepare can make `/ctxpipe/skills` and the context checkouts that the
- * user cannot change. Docker runs an exec as uid 0 in the container; Vercel
- * uses the SDK's `sudo` option. Both run the same script.
+ * Root commands for an ingest sandbox. Only root prepares /ctxpipe and starts
+ * agent commands (as the agent user, through `runuser`). Docker runs an exec
+ * as uid 0 in the container; Vercel uses the SDK's `sudo` option. Both run
+ * the same scripts.
  */
 
-export function dockerRunAsRoot(
+/** Runs a shell script as root in the sandbox. */
+export type RootExec = (script: string) => Promise<ExecResult>
+
+export function dockerRootExec(
   containerId: string,
   docker: Docker = new Docker({ timeout: 120_000 }),
-): RunAsRoot {
+): RootExec {
   return async (script) => {
     const exec = await docker.getContainer(containerId).exec({
       Cmd: ["sh", "-c", script],
@@ -23,19 +26,21 @@ export function dockerRunAsRoot(
     const stream = await exec.start({})
     const stdout = new PassThrough()
     const stderr = new PassThrough()
-    const chunks: Buffer[] = []
-    stderr.on("data", (chunk: Buffer) => chunks.push(chunk))
-    stdout.resume()
+    const out: Buffer[] = []
+    const err: Buffer[] = []
+    stdout.on("data", (chunk: Buffer) => out.push(chunk))
+    stderr.on("data", (chunk: Buffer) => err.push(chunk))
     docker.modem.demuxStream(stream, stdout, stderr)
     await new Promise<void>((resolve, reject) => {
       stream.on("end", resolve)
       stream.on("error", reject)
     })
     const { ExitCode } = await exec.inspect()
-    if (ExitCode !== 0)
-      throw new Error(
-        `Ingest root command failed (exit ${ExitCode}): ${Buffer.concat(chunks).toString("utf8").slice(-500)}`,
-      )
+    return {
+      stdout: Buffer.concat(out).toString("utf8"),
+      stderr: Buffer.concat(err).toString("utf8"),
+      exitCode: ExitCode ?? -1,
+    }
   }
 }
 
@@ -50,16 +55,26 @@ type VercelCommandSandbox = {
   }>
 }
 
-export function vercelRunAsRoot(sandbox: VercelCommandSandbox): RunAsRoot {
+export function vercelRootExec(sandbox: VercelCommandSandbox): RootExec {
   return async (script) => {
     const finished = await sandbox.runCommand({
       cmd: "sh",
       args: ["-c", script],
       sudo: true,
     })
-    if (finished.exitCode !== 0)
-      throw new Error(
-        `Ingest root command failed (exit ${finished.exitCode}): ${(await finished.output("stderr")).slice(-500)}`,
-      )
+    const [stdout, stderr] = await Promise.all([
+      finished.output("stdout"),
+      finished.output("stderr"),
+    ])
+    return { stdout, stderr, exitCode: finished.exitCode ?? -1 }
   }
+}
+
+/** Run as root; throw with the stderr on a nonzero exit. */
+export async function runAsRoot(root: RootExec, script: string): Promise<void> {
+  const result = await root(script)
+  if (result.exitCode !== 0)
+    throw new Error(
+      `Ingest root command failed (exit ${result.exitCode}): ${result.stderr.slice(-500)}`,
+    )
 }

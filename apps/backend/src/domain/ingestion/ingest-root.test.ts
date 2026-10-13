@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest"
 import { ingestAgentCommand } from "./ingest-opencode.js"
-import { INGEST_AGENT_USER, ingestAgentUser } from "./ingest-prepare.js"
-import { vercelRunAsRoot } from "./ingest-root.js"
+import { assertIngestProvider } from "./ingest-prepare.js"
+import { runAsRoot, vercelRootExec } from "./ingest-root.js"
 
 /*
- * The hosted path runs the same root script as Docker, through the Vercel
- * SDK's `sudo` option. The Docker contract test runs that script for real;
- * this test proves the Vercel call. No Vercel sandbox runs here.
+ * The hosted path runs the same root scripts as Docker, through the Vercel
+ * SDK's `sudo` option. The Docker contract test runs those scripts for real,
+ * also in an image whose default user has passwordless sudo as on Vercel;
+ * this test proves the Vercel call. No Vercel sandbox runs here (T12).
  */
 
 type Call = { cmd: string; args?: string[]; sudo?: boolean }
@@ -21,53 +22,56 @@ function fakeSandbox(exitCode: number, stderr = "") {
         return {
           exitCode,
           output: async (stream: "stdout" | "stderr") =>
-            stream === "stderr" ? stderr : "",
+            stream === "stderr" ? stderr : "out",
         }
       },
     },
   }
 }
 
-describe("vercelRunAsRoot", () => {
+describe("vercelRootExec", () => {
   it("runs the script with sudo through sh", async () => {
     const { calls, sandbox } = fakeSandbox(0)
-    await vercelRunAsRoot(sandbox)("mkdir -p /ctxpipe")
+    expect(await vercelRootExec(sandbox)("mkdir -p /ctxpipe")).toEqual({
+      stdout: "out",
+      stderr: "",
+      exitCode: 0,
+    })
     expect(calls).toEqual([
       { cmd: "sh", args: ["-c", "mkdir -p /ctxpipe"], sudo: true },
     ])
   })
 
-  it("throws with the stderr when the script fails", async () => {
+  it("throws with the stderr when a root script fails", async () => {
     const { sandbox } = fakeSandbox(1, "sudo: not allowed")
-    await expect(vercelRunAsRoot(sandbox)("true")).rejects.toThrow(
+    await expect(runAsRoot(vercelRootExec(sandbox), "true")).rejects.toThrow(
       /exit 1.*sudo: not allowed/,
     )
   })
 })
 
-describe("ingestAgentUser", () => {
-  it("runs the Vercel agent as a separate user and the Docker agent as the image user", () => {
-    expect(ingestAgentUser("vercel")).toBe(INGEST_AGENT_USER)
-    expect(ingestAgentUser("docker")).toBeNull()
+describe("assertIngestProvider", () => {
+  it("accepts Docker and Vercel", () => {
+    expect(() => assertIngestProvider("docker")).not.toThrow()
+    expect(() => assertIngestProvider("vercel")).not.toThrow()
   })
 
   it("refuses ingest in unsandboxed mode", () => {
-    expect(() => ingestAgentUser("local-process")).toThrow(
+    expect(() => assertIngestProvider("local-process")).toThrow(
       /needs a Docker or Vercel sandbox/,
     )
   })
 })
 
 describe("ingestAgentCommand", () => {
-  it("starts the Vercel agent through sudo -u with only the given env", () => {
+  it("runs the command as the agent user with only the given env", () => {
     expect(
       ingestAgentCommand({
-        agentUser: INGEST_AGENT_USER,
         env: { HOME: "/ctxpipe/home" },
         command: "opencode --version",
       }),
     ).toBe(
-      "sudo -n -u ctxpipe-agent -- env -i 'HOME=/ctxpipe/home' sh -c 'cd /ctxpipe/out && opencode --version'",
+      "runuser -u ctxpipe-agent -- env -i 'HOME=/ctxpipe/home' sh -c 'cd /ctxpipe/out && opencode --version'",
     )
   })
 })
