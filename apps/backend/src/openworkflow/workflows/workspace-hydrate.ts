@@ -44,7 +44,10 @@ import {
   getLogger,
   withLogger,
 } from "../../observability/logger.js"
-import { generateEmbeddings } from "../../retrieval/services/modelProvider.js"
+import {
+  embeddingModelId,
+  generateEmbeddings,
+} from "../../retrieval/services/modelProvider.js"
 import { listMarkdownFilesAtGitSha } from "../../services/git/clone-tree.js"
 import { readGitPackFromRemote } from "../../services/git/pack.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
@@ -154,9 +157,12 @@ export const workspaceHydrate = defineWorkflow(
             const desiredSha = revision.sha
             const snapshot = await getWorkspaceProjectionSnapshot(workspace.id)
             const projection = publishedProjection(snapshot.projection)
+            // A projection made before knowledge chunks existed is
+            // published again, once, so that it gets its chunks.
             const active =
               projection?.kind === "active" &&
-              sameWorkspaceRevision(projection.revision, revision)
+              sameWorkspaceRevision(projection.revision, revision) &&
+              !snapshot.chunksMissing
                 ? projection
                 : null
             const pending = {
@@ -406,6 +412,7 @@ export const workspaceHydrate = defineWorkflow(
                   displayName,
                   remotes: parsed.linked,
                   skipped: parsed.skipped,
+                  embeddingModel: embeddingModelId(),
                   units: applyEffectiveValidFromToUnits(
                     parsed.units,
                     new Map(
@@ -489,7 +496,7 @@ export const workspaceHydrate = defineWorkflow(
             if (activated && pending.embeddings) {
               try {
                 await embedKnowledgeChunks({
-                  revision,
+                  workspaceId: workspace.id,
                   embed: generateEmbeddings,
                 })
                 await persistUnitEmbeddings({ revision })

@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process"
 import { writeFileSync } from "node:fs"
 import { join } from "node:path"
-import { and, asc, eq } from "drizzle-orm"
+import { and, asc, eq, sql } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
 import { expect, it } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
@@ -11,7 +11,11 @@ import {
   workspaceKnowledgeUnits,
   workspaces,
 } from "../../db/schema/workspaces.js"
-import { captureWorkspaceRevision } from "../../models/workspaces.js"
+import {
+  captureWorkspaceRevision,
+  getWorkspaceProjection,
+  persistUnitEmbeddings,
+} from "../../models/workspaces.js"
 import { workspaceHydrate } from "../../openworkflow/workflows/workspace-hydrate.js"
 import {
   type NativeHydrationFixture,
@@ -20,6 +24,7 @@ import {
 
 const FIRST_COMMIT = "2026-03-01T10:00:00.000Z"
 const SECOND_COMMIT = "2026-04-02T11:30:00.000Z"
+const THIRD_COMMIT = "2026-05-03T12:00:00.000Z"
 
 /** Count the texts the model embeds; each text gets its own vector value. */
 function countEmbeddings(f: NativeHydrationFixture) {
@@ -42,14 +47,19 @@ function countEmbeddings(f: NativeHydrationFixture) {
   return inputs
 }
 
+const chunks = workspaceKnowledgeChunks
+
 function readChunks(f: NativeHydrationFixture, orgId = f.org.id) {
-  const chunks = workspaceKnowledgeChunks
   return withOrgDbContext(orgId, (db) =>
     db
       .select({
+        ctid: sql<string>`ctid::text`,
         unitId: chunks.unitId,
-        projectionSha: chunks.projectionSha,
+        chunkHash: chunks.chunkHash,
+        occurrence: chunks.occurrence,
         ordinal: chunks.ordinal,
+        startLine: chunks.startLine,
+        endLine: chunks.endLine,
         text: chunks.text,
         embedding: chunks.embedding,
       })
@@ -58,6 +68,9 @@ function readChunks(f: NativeHydrationFixture, orgId = f.org.id) {
       .orderBy(asc(chunks.unitId), asc(chunks.ordinal)),
   )
 }
+type ChunkRow = Awaited<ReturnType<typeof readChunks>>[number]
+const chunkKey = (row: ChunkRow) =>
+  `${row.unitId}/${row.chunkHash}/${row.occurrence}`
 
 function readUnits(f: NativeHydrationFixture) {
   const units = workspaceKnowledgeUnits
@@ -79,11 +92,10 @@ function readUnits(f: NativeHydrationFixture) {
 /** Commit one changed file at a fixed time and capture its revision. */
 async function commitChange(
   f: NativeHydrationFixture,
-  path: string,
-  body: string,
+  input: { path: string; body: string; previousSha: string; date: string },
 ) {
-  writeFileSync(join(f.directory, path), body)
-  f.git("add", "--", path)
+  writeFileSync(join(f.directory, input.path), input.body)
+  f.git("add", "--", input.path)
   execFileSync(
     "git",
     [
@@ -99,8 +111,8 @@ async function commitChange(
       cwd: f.directory,
       env: {
         ...process.env,
-        GIT_AUTHOR_DATE: SECOND_COMMIT,
-        GIT_COMMITTER_DATE: SECOND_COMMIT,
+        GIT_AUTHOR_DATE: input.date,
+        GIT_COMMITTER_DATE: input.date,
       },
     },
   )
@@ -112,7 +124,7 @@ async function commitChange(
       expected: {
         generation: 1,
         url: f.workspaceUrl,
-        sha: f.sha,
+        sha: input.previousSha,
         defaultBranch: "main",
         githubConnectionId: null,
       },
@@ -121,6 +133,18 @@ async function commitChange(
   )
   if (!revision) throw new Error("Fixture revision was not captured")
   return { nextSha, revision }
+}
+
+async function hydrate(
+  f: NativeHydrationFixture,
+  revision: Parameters<typeof workspaceHydrate.fn>[0]["input"]["revision"],
+) {
+  const run = await f.runner.runWorkflow(workspaceHydrate.spec, {
+    orgId: f.org.id,
+    workspaceId: f.workspaceId,
+    revision,
+  })
+  return run.result({ timeoutMs: 30_000 })
 }
 
 const ALPHA = "# Alpha\nAlpha text."
@@ -213,8 +237,8 @@ it(
 )
 
 it(
-  "embeds only the changed chunk on the next hydrate and keeps old chunks until the switch",
-  { timeout: 90_000 },
+  "writes only changed chunks on the next hydrate and embeds only their new text",
+  { timeout: 120_000 },
   async () =>
     withNativeHydrationFixture(
       {
@@ -227,66 +251,91 @@ it(
       async (f) => {
         const inputs = countEmbeddings(f)
         await f.publish()
-        // `b.md` repeats the first section of `a.md`: one hash, one model input.
-        expect([...inputs].sort()).toEqual([ALPHA, BETA, GAMMA])
         const first = await readChunks(f)
-        expect(first.map(({ projectionSha }) => projectionSha)).toEqual(
-          Array(4).fill(f.sha),
+        expect(first).toHaveLength(4)
+        // `b.md` has the same title and section as the first chunk of `a.md`:
+        // one hash, one model input.
+        expect([...inputs].sort()).toEqual(
+          [...new Set(first.map(({ text }) => text))].sort(),
+        )
+        expect(inputs).toHaveLength(3)
+        expect(inputs).toContain("Alpha > Beta\n\n## Beta\nBeta text.")
+        expect(
+          first.map(({ startLine, endLine }) => [startLine, endLine]),
+        ).toEqual(
+          expect.arrayContaining([
+            [1, 2],
+            [3, 4],
+            [5, 6],
+          ]),
         )
         expect(first.every(({ embedding }) => embedding?.length === 2000)).toBe(
           true,
         )
-        const vectorOf = (rows: typeof first, text: string) =>
-          rows.find((row) => row.text === text)?.embedding?.[0]
 
+        // Same line count: no other chunk moves.
         const changed = "## Beta\nBeta text, now longer."
-        const { nextSha, revision } = await commitChange(
-          f,
-          "a.md",
-          `${ALPHA}\n${changed}\n${GAMMA}\n`,
-        )
-        // The new revision is captured but not active: search still has the old chunks.
-        expect(await readChunks(f)).toEqual(first)
-
-        inputs.length = 0
-        const next = await f.runner.runWorkflow(workspaceHydrate.spec, {
-          orgId: f.org.id,
-          workspaceId: f.workspaceId,
-          revision,
+        const second = await commitChange(f, {
+          path: "a.md",
+          body: `${ALPHA}\n${changed}\n${GAMMA}\n`,
+          previousSha: f.sha,
+          date: SECOND_COMMIT,
         })
-        expect(await next.result({ timeoutMs: 30_000 })).toMatchObject({
+        // Captured but not active: search still has the old chunks.
+        expect(await readChunks(f)).toEqual(first)
+        inputs.length = 0
+        expect(await hydrate(f, second.revision)).toMatchObject({
           hydrated: true,
           units: 2,
         })
-        expect(inputs).toEqual([changed])
+        expect(inputs).toEqual([`Alpha > Beta\n\n${changed}`])
+        const afterEdit = await readChunks(f)
+        const firstByKey = new Map(first.map((row) => [chunkKey(row), row]))
+        const kept = afterEdit.filter((row) => firstByKey.has(chunkKey(row)))
+        expect(kept).toHaveLength(3)
+        // No write at all: the same tuple, the same vector.
+        for (const row of kept)
+          expect(row).toEqual(firstByKey.get(chunkKey(row)))
 
-        const second = await readChunks(f)
-        expect(second.map(({ projectionSha }) => projectionSha)).toEqual(
-          Array(4).fill(nextSha),
+        // One more line in the first section moves the later chunks of
+        // `a.md`: their lines change, their vectors stay, nothing is embedded
+        // but the edited chunk.
+        const third = await commitChange(f, {
+          path: "a.md",
+          body: `${ALPHA}\nMore.\n${changed}\n${GAMMA}\n`,
+          previousSha: second.nextSha,
+          date: THIRD_COMMIT,
+        })
+        inputs.length = 0
+        expect(await hydrate(f, third.revision)).toMatchObject({
+          hydrated: true,
+        })
+        expect(inputs).toEqual(["Alpha\n\n# Alpha\nAlpha text.\nMore."])
+        const afterMove = await readChunks(f)
+        const editByKey = new Map(afterEdit.map((row) => [chunkKey(row), row]))
+        const movedBeta = afterMove.find((row) => row.text.endsWith(changed))
+        expect(movedBeta).toMatchObject({ startLine: 4, endLine: 5 })
+        expect(movedBeta?.embedding).toEqual(
+          movedBeta && editByKey.get(chunkKey(movedBeta))?.embedding,
         )
-        expect(second.map(({ text }) => text).sort()).toEqual(
-          [ALPHA, ALPHA, changed, GAMMA].sort(),
-        )
-        for (const text of [ALPHA, GAMMA])
-          expect(vectorOf(second, text)).toBe(vectorOf(first, text))
-        expect(vectorOf(second, changed)).toBe(4 / 1000)
 
         const units = await readUnits(f)
         expect(
           units.map(({ path, updatedAt }) => ({ path, updatedAt })),
         ).toEqual([
-          { path: "a.md", updatedAt: new Date(SECOND_COMMIT) },
+          { path: "a.md", updatedAt: new Date(THIRD_COMMIT) },
           { path: "b.md", updatedAt: new Date(FIRST_COMMIT) },
         ])
         // A unit embedding is the mean of its chunk embeddings.
-        const a = units[0]?.embedding
+        const aChunks = afterMove.filter(
+          (row) =>
+            row.unitId === afterMove.find((r) => r.ordinal === 2)?.unitId,
+        )
         const mean =
-          ((vectorOf(second, ALPHA) ?? 0) +
-            (vectorOf(second, changed) ?? 0) +
-            (vectorOf(second, GAMMA) ?? 0)) /
-          3
-        expect(a?.length).toBe(2000)
-        expect(a?.[0]).toBeCloseTo(mean, 5)
+          aChunks.reduce((sum, row) => sum + (row.embedding?.[0] ?? 0), 0) /
+          aChunks.length
+        expect(units[0]?.embedding?.length).toBe(2000)
+        expect(units[0]?.embedding?.[0]).toBeCloseTo(mean, 5)
       },
     ),
 )
@@ -304,11 +353,12 @@ it(
         const inputs = countEmbeddings(f)
         await f.publish()
         const before = await readChunks(f)
-        const { revision } = await commitChange(
-          f,
-          "a.md",
-          `${ALPHA}\n${BETA}\n`,
-        )
+        const { revision } = await commitChange(f, {
+          path: "a.md",
+          body: `${ALPHA}\n${BETA}\n`,
+          previousSha: f.sha,
+          date: SECOND_COMMIT,
+        })
         await withOrgDbContext(f.org.id, (db) =>
           db
             .update(workspaces)
@@ -316,17 +366,100 @@ it(
             .where(eq(workspaces.id, f.workspaceId)),
         )
         inputs.length = 0
-        const stale = await f.runner.runWorkflow(workspaceHydrate.spec, {
-          orgId: f.org.id,
-          workspaceId: f.workspaceId,
-          revision,
-        })
-        expect(await stale.result({ timeoutMs: 30_000 })).toMatchObject({
+        expect(await hydrate(f, revision)).toMatchObject({
           hydrated: false,
           reason: "cas_discarded",
         })
         expect(inputs).toEqual([])
         expect(await readChunks(f)).toEqual(before)
+      },
+    ),
+)
+
+it(
+  "publishes chunks for a projection made before chunks existed, with no new commit",
+  { timeout: 90_000 },
+  async () =>
+    withNativeHydrationFixture(
+      { files: [{ path: "a.md", body: `${ALPHA}\n${BETA}\n` }] },
+      async (f) => {
+        const inputs = countEmbeddings(f)
+        await f.publish()
+        // The state that the migration leaves: no chunks, no title or source.
+        await withOrgDbContext(f.org.id, async (db) => {
+          await db.delete(chunks).where(eq(chunks.workspaceId, f.workspaceId))
+          await db
+            .update(workspaceKnowledgeUnits)
+            .set({ title: null, source: null, embedding: null })
+            .where(eq(workspaceKnowledgeUnits.workspaceId, f.workspaceId))
+        })
+        inputs.length = 0
+        expect(await hydrate(f, await f.resolveRevision())).toMatchObject({
+          hydrated: true,
+          units: 1,
+        })
+        expect(inputs).toHaveLength(2)
+        const after = await readChunks(f)
+        expect(after).toHaveLength(2)
+        expect(after.every(({ embedding }) => embedding?.length === 2000)).toBe(
+          true,
+        )
+        expect(await readUnits(f)).toMatchObject([
+          { path: "a.md", title: "Alpha", source: "authored" },
+        ])
+        expect((await readUnits(f))[0]?.embedding).toHaveLength(2000)
+        await withOrgIdContext(f.org, async () => {
+          expect(await getWorkspaceProjection(f.workspaceId)).toMatchObject({
+            kind: "active",
+            stores: { embeddings: { kind: "ready" } },
+          })
+        })
+        // Now complete: the next run of the same revision does nothing.
+        inputs.length = 0
+        expect(await hydrate(f, await f.resolveRevision())).toMatchObject({
+          hydrated: false,
+        })
+        expect(inputs).toEqual([])
+      },
+    ),
+)
+
+it(
+  "does not mark embeddings ready while a chunk has no vector or a unit has no chunk",
+  { timeout: 60_000 },
+  async () =>
+    withNativeHydrationFixture(
+      { files: [{ path: "a.md", body: `${ALPHA}\n${BETA}\n` }] },
+      async (f) => {
+        countEmbeddings(f)
+        await f.publish()
+        await withOrgIdContext(f.org, async () => {
+          const active = await getWorkspaceProjection(f.workspaceId)
+          if (active.kind !== "active")
+            throw new Error("Expected active revision")
+          const [one] = await readChunks(f)
+          if (!one) throw new Error("Expected a chunk")
+          await withOrgDbContext(f.org.id, (db) =>
+            db
+              .update(chunks)
+              .set({ embedding: null })
+              .where(
+                and(
+                  eq(chunks.workspaceId, f.workspaceId),
+                  eq(chunks.chunkHash, one.chunkHash),
+                ),
+              ),
+          )
+          await expect(
+            persistUnitEmbeddings({ revision: active.revision }),
+          ).rejects.toThrow("Knowledge chunks are not all embedded")
+          await withOrgDbContext(f.org.id, (db) =>
+            db.delete(chunks).where(eq(chunks.workspaceId, f.workspaceId)),
+          )
+          await expect(
+            persistUnitEmbeddings({ revision: active.revision }),
+          ).rejects.toThrow("Knowledge chunks are not all embedded")
+        })
       },
     ),
 )
@@ -345,27 +478,24 @@ it(
         expect(await readChunks(f, otherOrg)).toEqual([])
         await expect(
           withOrgDbContext(otherOrg, (db) =>
-            db.insert(workspaceKnowledgeChunks).values({
+            db.insert(chunks).values({
               unitId: "kn_foreign",
               orgId: f.org.id,
               workspaceId: f.workspaceId,
-              projectionSha: f.sha,
-              ordinal: 0,
-              text: "Foreign",
               chunkHash: "0".repeat(64),
+              occurrence: 0,
+              ordinal: 0,
+              startLine: 1,
+              endLine: 1,
+              text: "Foreign",
             }),
           ),
         ).rejects.toThrow()
         const deleted = await withOrgDbContext(otherOrg, (db) =>
           db
-            .delete(workspaceKnowledgeChunks)
-            .where(
-              and(
-                eq(workspaceKnowledgeChunks.workspaceId, f.workspaceId),
-                eq(workspaceKnowledgeChunks.projectionSha, f.sha),
-              ),
-            )
-            .returning({ unitId: workspaceKnowledgeChunks.unitId }),
+            .delete(chunks)
+            .where(eq(chunks.workspaceId, f.workspaceId))
+            .returning({ unitId: chunks.unitId }),
         )
         expect(deleted).toEqual([])
         expect(await readChunks(f)).toHaveLength(1)

@@ -104,7 +104,10 @@ describe("knowledgeChunkRows", () => {
   it("puts the title and heading path first, keys repeats by occurrence, and offsets lines past front matter", () => {
     const rows = knowledgeChunkRows(
       [
-        { ...unit("kn_a", "# A\nOne.\n## B\nTwo.\n", "Guide"), bodyStartLine: 4 },
+        {
+          ...unit("kn_a", "# A\nOne.\n## B\nTwo.\n", "Guide"),
+          bodyStartLine: 4,
+        },
         unit("kn_b", "Same.\n\n# H\nSame.\n", null),
         unit("kn_c", "", "Empty"),
       ],

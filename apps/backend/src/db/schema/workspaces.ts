@@ -23,6 +23,7 @@ import type {
 } from "../../domain/workspaces/write-job-intent.js"
 import type { GitFileChange } from "../../services/git/file-change.js"
 import { connections } from "./connections.js"
+import { EMBEDDING_DIMENSIONS } from "./objects.js"
 import { orgIsolationPolicy } from "./org-rls.js"
 
 /**
@@ -159,36 +160,41 @@ const tsvector = customType<{ data: string }>({
 })
 
 /**
- * Search chunks of a knowledge unit (ADR-051). Rows of one projection SHA
- * replace the rows of the previous SHA in the transaction that activates it.
- * `unit_id` has no foreign key: old chunks must outlive their unit rows in that
- * transaction, so that new chunks can copy their embeddings by `chunk_hash`.
+ * Search chunks of the active projection's knowledge units (ADR-051). A row
+ * stays across projection SHAs while its unit still has that chunk, so an
+ * unchanged chunk is never written again. The activation transaction inserts
+ * new chunks and deletes gone ones. `unit_id` has no foreign key: units are
+ * replaced in that transaction, and a new chunk copies the embedding of an
+ * old chunk with the same hash before the old one goes.
  */
 export const workspaceKnowledgeChunks = pgTable.withRLS(
   "workspace_knowledge_chunks",
   {
-    unitId: text("unit_id").notNull(),
-    orgId: text("org_id").notNull(),
     workspaceId: text("workspace_id")
       .notNull()
       .references(() => workspaces.id, { onDelete: "cascade" }),
-    projectionSha: text("projection_sha").notNull(),
+    unitId: text("unit_id").notNull(),
+    /** SHA-256 of the embedding model id and `text`. */
+    chunkHash: text("chunk_hash").notNull(),
+    /** Index among the chunks of the unit with the same hash. */
+    occurrence: integer("occurrence").notNull(),
+    orgId: text("org_id").notNull(),
     ordinal: integer("ordinal").notNull(),
+    /** 1-based file lines, inclusive. */
+    startLine: integer("start_line").notNull(),
+    endLine: integer("end_line").notNull(),
+    /** Title and heading path, then the section text. */
     text: text("text").notNull(),
     search: tsvector("search")
       .notNull()
       .generatedAlwaysAs(sql`to_tsvector('english', "text")`),
-    /** Same model and dimensions as `objects.embedding`. Null until embedded. */
-    embedding: vector("embedding", { dimensions: 2000 }),
-    /** SHA-256 of `text`; equal hashes share one embedding. */
-    chunkHash: text("chunk_hash").notNull(),
+    /** Null until embedded. */
+    embedding: vector("embedding", { dimensions: EMBEDDING_DIMENSIONS }),
   },
   (t) => [
-    primaryKey({ columns: [t.unitId, t.projectionSha, t.ordinal] }),
-    index("workspace_knowledge_chunks_workspace_id_sha_idx").on(
-      t.workspaceId,
-      t.projectionSha,
-    ),
+    primaryKey({
+      columns: [t.workspaceId, t.unitId, t.chunkHash, t.occurrence],
+    }),
     index("workspace_knowledge_chunks_workspace_id_hash_idx").on(
       t.workspaceId,
       t.chunkHash,

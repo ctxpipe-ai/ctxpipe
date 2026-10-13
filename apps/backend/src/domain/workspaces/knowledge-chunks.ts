@@ -25,11 +25,7 @@ export function markdownLines(
     const plain = { line, heading: null, level: 0 }
     if (fence) {
       const close = /^ {0,3}(`+|~+)[ \t]*$/.exec(line)?.[1]
-      if (
-        close &&
-        close[0] === fence.char &&
-        close.length >= fence.length
-      )
+      if (close && close[0] === fence.char && close.length >= fence.length)
         fence = null
       return plain
     }

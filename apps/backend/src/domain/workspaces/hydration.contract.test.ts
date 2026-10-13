@@ -757,6 +757,9 @@ it(
       const duplicate = {
         servingId: "kn_fixture_duplicate",
         path: "duplicate.md",
+        title: null,
+        source: "authored",
+        updatedAt: null,
         body: "Never published",
         links: [],
         claims: [],
@@ -770,6 +773,7 @@ it(
             remotes: [],
             units: [duplicate, duplicate],
             skipped: [],
+            embeddingModel: "fixture-embedding",
           }),
         ),
       ).rejects.toMatchObject({ cause: { code: "23505" } })

@@ -163,10 +163,9 @@ export function hydrateKnowledgeTree(input: {
       title: unitTitle(parsed.attributes.title, parsed.body),
       source: connectorMirrorRoot(path) ?? "authored",
       updatedAt: file.lastCommitTimestamp ?? null,
-      bodyStartLine:
-        file.content.slice(0, file.content.length - parsed.body.length).split(
-          "\n",
-        ).length,
+      bodyStartLine: file.content
+        .slice(0, file.content.length - parsed.body.length)
+        .split("\n").length,
     })
   }
 

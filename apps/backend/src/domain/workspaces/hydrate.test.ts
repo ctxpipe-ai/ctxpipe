@@ -219,6 +219,9 @@ describe("applyEffectiveValidFromToUnits", () => {
           {
             path: "knowledge/a.md",
             servingId: "kn_a",
+            title: null,
+            source: "authored",
+            updatedAt: null,
             body: "A",
             links: [],
             claims: [
@@ -251,6 +254,9 @@ describe("hydrateUnitsToProjectionClaims", () => {
         {
           path: "knowledge/payments/api.md",
           servingId: api,
+          title: null,
+          source: "authored",
+          updatedAt: null,
           body: "See [ledger](../billing/ledger.md).",
           links: ["../billing/ledger.md"],
           claims: [
@@ -267,6 +273,9 @@ describe("hydrateUnitsToProjectionClaims", () => {
         {
           path: "knowledge/billing/ledger.md",
           servingId: ledger,
+          title: null,
+          source: "authored",
+          updatedAt: null,
           body: "Ledger",
           links: [],
           claims: [],

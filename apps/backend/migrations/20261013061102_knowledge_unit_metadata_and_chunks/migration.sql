@@ -1,18 +1,21 @@
 CREATE TABLE "workspace_knowledge_chunks" (
+	"workspace_id" text,
 	"unit_id" text,
+	"chunk_hash" text,
+	"occurrence" integer,
 	"org_id" text NOT NULL,
-	"workspace_id" text NOT NULL,
-	"projection_sha" text,
-	"ordinal" integer,
+	"ordinal" integer NOT NULL,
+	"start_line" integer NOT NULL,
+	"end_line" integer NOT NULL,
 	"text" text NOT NULL,
 	"search" tsvector GENERATED ALWAYS AS (to_tsvector('english', "text")) STORED NOT NULL,
 	"embedding" vector(2000),
-	"chunk_hash" text NOT NULL,
-	CONSTRAINT "workspace_knowledge_chunks_pkey" PRIMARY KEY("unit_id","projection_sha","ordinal")
+	CONSTRAINT "workspace_knowledge_chunks_pkey" PRIMARY KEY("workspace_id","unit_id","chunk_hash","occurrence")
 );
 --> statement-breakpoint
 ALTER TABLE "workspace_knowledge_chunks" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
-CREATE INDEX "workspace_knowledge_chunks_workspace_id_sha_idx" ON "workspace_knowledge_chunks" ("workspace_id","projection_sha");--> statement-breakpoint
+ALTER TABLE "workspace_knowledge_units" ADD COLUMN "title" text;--> statement-breakpoint
+ALTER TABLE "workspace_knowledge_units" ADD COLUMN "source" text;--> statement-breakpoint
 CREATE INDEX "workspace_knowledge_chunks_workspace_id_hash_idx" ON "workspace_knowledge_chunks" ("workspace_id","chunk_hash");--> statement-breakpoint
 CREATE INDEX "workspace_knowledge_chunks_org_id_idx" ON "workspace_knowledge_chunks" ("org_id");--> statement-breakpoint
 CREATE INDEX "workspace_knowledge_chunks_search_idx" ON "workspace_knowledge_chunks" USING gin ("search");--> statement-breakpoint

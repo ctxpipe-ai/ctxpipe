@@ -1,9 +1,9 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "4ef15f90-bace-459b-80ac-e2ad01d7621f",
+  "id": "bc4a5e62-ad4c-41b0-8db6-e4f6d9d26957",
   "prevIds": [
-    "427f2a3d-26e6-4616-9dda-614ad0fe614e"
+    "6b869e36-92ce-4569-96fe-94a9a56ec28a"
   ],
   "ddl": [
     {
@@ -5423,7 +5423,46 @@
       "default": null,
       "generated": null,
       "identity": null,
+      "name": "workspace_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "workspace_knowledge_chunks"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
       "name": "unit_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "workspace_knowledge_chunks"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "chunk_hash",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "workspace_knowledge_chunks"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "occurrence",
       "entityType": "columns",
       "schema": "public",
       "table": "workspace_knowledge_chunks"
@@ -5442,27 +5481,14 @@
       "table": "workspace_knowledge_chunks"
     },
     {
-      "type": "text",
+      "type": "integer",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "workspace_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "workspace_knowledge_chunks"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "projection_sha",
+      "name": "ordinal",
       "entityType": "columns",
       "schema": "public",
       "table": "workspace_knowledge_chunks"
@@ -5475,7 +5501,20 @@
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "ordinal",
+      "name": "start_line",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "workspace_knowledge_chunks"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "end_line",
       "entityType": "columns",
       "schema": "public",
       "table": "workspace_knowledge_chunks"
@@ -5518,19 +5557,6 @@
       "generated": null,
       "identity": null,
       "name": "embedding",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "workspace_knowledge_chunks"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "chunk_hash",
       "entityType": "columns",
       "schema": "public",
       "table": "workspace_knowledge_chunks"
@@ -8170,34 +8196,6 @@
           "opclass": null
         },
         {
-          "value": "projection_sha",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "workspace_knowledge_chunks_workspace_id_sha_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "workspace_knowledge_chunks"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "workspace_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
           "value": "chunk_hash",
           "isExpression": false,
           "asc": true,
@@ -9516,9 +9514,10 @@
     },
     {
       "columns": [
+        "workspace_id",
         "unit_id",
-        "projection_sha",
-        "ordinal"
+        "chunk_hash",
+        "occurrence"
       ],
       "nameExplicit": false,
       "name": "workspace_knowledge_chunks_pkey",

@@ -744,6 +744,7 @@ it.each(["pending", "failed"])(
             remotes: [],
             units: [],
             skipped: [],
+            embeddingModel: "fixture-embedding",
           }),
         ).toBe(true)
         if (state === "failed") {
