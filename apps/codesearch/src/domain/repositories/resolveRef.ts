@@ -1,5 +1,5 @@
 import { log } from "../../observability/logger.js"
-import { authenticatedGitUrl } from "../../utils/git.js"
+import { credentialFreeGitUrl, gitCommandEnv } from "../../utils/git.js"
 
 async function runCommand(
   cmd: string[],
@@ -33,10 +33,12 @@ async function resolveDefaultBranch(
   gitUrl: string,
   githubToken?: string,
 ): Promise<string> {
-  const authUrl = authenticatedGitUrl(gitUrl, githubToken)
   let stdout: string
   try {
-    stdout = await runCommand(["git", "ls-remote", "--symref", authUrl, "HEAD"])
+    stdout = await runCommand(
+      ["git", "ls-remote", "--symref", credentialFreeGitUrl(gitUrl), "HEAD"],
+      gitCommandEnv(gitUrl, githubToken),
+    )
   } catch (error) {
     log.error({
       step: "resolveDefaultBranch",
@@ -58,13 +60,10 @@ async function resolveBranchHash(
   branch: string,
   githubToken?: string,
 ): Promise<string> {
-  const authUrl = authenticatedGitUrl(gitUrl, githubToken)
-  const stdout = await runCommand([
-    "git",
-    "ls-remote",
-    authUrl,
-    `refs/heads/${branch}`,
-  ])
+  const stdout = await runCommand(
+    ["git", "ls-remote", credentialFreeGitUrl(gitUrl), `refs/heads/${branch}`],
+    gitCommandEnv(gitUrl, githubToken),
+  )
   const firstLine = stdout.split("\n")[0] ?? ""
   const hash = firstLine.split("\t")[0]
   if (!hash) {
