@@ -4,6 +4,7 @@ import {
   installLinearGraphql,
   type LinearGraphqlCall,
   linearIssueData,
+  linearRelationData,
 } from "../../../test/linear-graphql.js"
 import { useMswServer } from "../../../test/msw.js"
 import type { Env } from "../../config/env.js"
@@ -125,6 +126,13 @@ beforeEach(() => {
                     hasNextPage: true,
                     endCursor: "comment-cursor",
                   },
+                  parent: { id: "issue-0", identifier: "PRO-0" },
+                  projectMilestone: { id: "milestone-1", name: "Beta" },
+                  relations: {
+                    nodes: [{ type: "blocks", identifier: "PRO-2" }],
+                    hasNextPage: true,
+                    endCursor: "relation-cursor",
+                  },
                 }),
               ],
               pageInfo: { hasNextPage: true, endCursor: "issue-cursor" },
@@ -146,6 +154,15 @@ beforeEach(() => {
               updatedAt: "2026-08-01T00:00:00.000Z",
               user: null,
             },
+          ]),
+        },
+      }
+    }
+    if (call.name === "IssueRelationsPage") {
+      return {
+        issue: {
+          relations: emptyLinearPage([
+            linearRelationData({ type: "duplicate", identifier: "OPS-3" }),
           ]),
         },
       }
@@ -229,6 +246,12 @@ describe("fetchLinearMirrorPage", () => {
         queryId: "issue-1",
         after: "comment-cursor",
       },
+      {
+        connection: "issue-relations",
+        entityId: "issue-1",
+        queryId: "issue-1",
+        after: "relation-cursor",
+      },
     ])
     expect(
       page.files.some((file) => file.path.includes("pro-1--issue-1")),
@@ -273,6 +296,25 @@ describe("walkLinearMirrorPages", () => {
       file.path.includes("pro-1--issue-1"),
     )
     expect(issue?.content).toContain("Third")
+  })
+
+  it("follows the issue relations past the first page and records parent and milestone", async () => {
+    const result = await walked([teamScope])
+
+    expect(result.failures).toEqual([])
+    expect(
+      calls.filter((call) => call.name === "IssueRelationsPage"),
+    ).toHaveLength(1)
+    const issue = result.files.find((file) =>
+      file.path.includes("pro-1--issue-1"),
+    )
+    expect(issue?.content).toContain("parent: PRO-0\nparentId: issue-0\n")
+    expect(issue?.content).toContain(
+      "milestone: Beta\nmilestoneId: milestone-1\n",
+    )
+    expect(issue?.content).toContain(
+      "relations:\n  - type: blocks\n    identifier: PRO-2\n  - type: duplicate\n    identifier: OPS-3\n",
+    )
   })
 
   it("refetches a comment page without repeating the stored issue page", async () => {

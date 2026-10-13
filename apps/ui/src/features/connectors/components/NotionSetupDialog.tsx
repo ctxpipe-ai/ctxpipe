@@ -4,10 +4,10 @@ import { IconBrandNotion } from "@tabler/icons-react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 import { Button } from "@/components/ui/Button"
-import { Link } from "@/components/ui/Link"
 import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
 import { AddToWorkspacesStep } from "@/features/workspace-sources/AddToWorkspacesStep"
+import { PullRequestsToMerge } from "@/features/workspace-sources/PullRequestsToMerge"
 import { useNotionOAuthConnect } from "../hooks/useNotionOAuthConnect"
 import {
   getNotionSetupCurrentIndex,
@@ -191,22 +191,7 @@ export function NotionSetupDialog({
             Notion is connected
           </h3>
           {pullRequestUrls.length ? (
-            <>
-              <p className="mt-2 text-sm text-muted-foreground">
-                Merge the pull request to start the sync.
-              </p>
-              <ul className="mt-2 space-y-1 text-sm">
-                {pullRequestUrls.map((url) => (
-                  <li key={url}>
-                    <Link href={url} target="_blank" rel="noreferrer">
-                      {url
-                        .replace(/^https:\/\/github\.com\//, "")
-                        .replace("/pull/", "#")}
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </>
+            <PullRequestsToMerge urls={pullRequestUrls} />
           ) : (
             <p className="mt-2 text-sm text-muted-foreground">
               Add Notion to a Workspace from the connector card, or change the
