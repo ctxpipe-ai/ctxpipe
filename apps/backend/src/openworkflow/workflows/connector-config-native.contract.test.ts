@@ -24,6 +24,7 @@ import {
 import { getLinearBindingWithRepoByConnectionId } from "../../models/linear-connector.js"
 import { getNotionBindingWithRepoByConnectionId } from "../../models/notion-connector.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
+import { openWorkflowNamespaceId } from "../namespace.js"
 import { confluenceSyncConfig } from "./confluence-sync-config.js"
 import {
   type LinearConfigSyncInput,
@@ -118,7 +119,7 @@ it.each(
     const pullUpdates: unknown[] = []
     await withNativeHydrationFixture(
       {
-        namespaceId: "default",
+        namespaceId: openWorkflowNamespaceId(),
         github: true,
         githubWriteView: "writable",
         githubContentFiles: close
@@ -258,6 +259,7 @@ it.each(
           }
           const pool = new Pool({ connectionString: f.databaseUrl })
           const backend = await BackendPostgres.connect(f.databaseUrl, {
+            namespaceId: openWorkflowNamespaceId(),
             runMigrations: false,
           })
           try {

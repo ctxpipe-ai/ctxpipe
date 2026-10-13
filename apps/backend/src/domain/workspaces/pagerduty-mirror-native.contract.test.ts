@@ -7,6 +7,7 @@ import { encodePagerdutyTokensForDb } from "../../lib/connection-config.js"
 import { upsertConnectionDirectory } from "../../models/connection-directory.js"
 import { getPagerdutyBindingWithRepoByConnectionId } from "../../models/pagerduty-connector.js"
 import { reconcileWorkspaceWriteJob } from "../../models/workspace-write-jobs.js"
+import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { pagerdutySyncContent } from "../../openworkflow/workflows/pagerduty-sync-content.js"
 import { pagerdutySyncEntity } from "../../openworkflow/workflows/pagerduty-sync-entity.js"
 import { workspaceConnectorMirror } from "../../openworkflow/workflows/workspace-connector-mirror.js"
@@ -32,7 +33,7 @@ it.each(["entity", "full", "no_workspace", "read_only", "not_live"] as const)(
   async (mode) => {
     await withNativeHydrationFixture(
       {
-        namespaceId: "default",
+        namespaceId: openWorkflowNamespaceId(),
         github: true,
         githubWriteView: "writable",
         writeStatus: mode === "read_only" ? "read_only" : "writable",

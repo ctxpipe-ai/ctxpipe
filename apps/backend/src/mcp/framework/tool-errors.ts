@@ -41,11 +41,22 @@ export class McpToolError extends Error {
   }
 }
 
-/** Same text for an unknown org and an org outside the connection. */
-export function orgNotFound(slug: string): McpToolError {
+/**
+ * Same text for an unknown org and an org outside the connection. For an
+ * OAuth connection, `connectedAppsUrl` tells the user where to add an org to
+ * the connection. The hint depends only on the kind of connection, not on
+ * the org, so it does not tell whether the org exists.
+ */
+export function orgNotFound(
+  slug: string,
+  connectedAppsUrl: string | null = null,
+): McpToolError {
+  const hint = connectedAppsUrl
+    ? ` If the user expects this org, they can add it to this connection in ctxpipe Connected apps: ${connectedAppsUrl}`
+    : ""
   return new McpToolError(
     "org_not_found",
-    `No org "${slug}" for this connection. Call list_workspaces.`,
+    `No org "${slug}" for this connection. Call list_workspaces.${hint}`,
   )
 }
 

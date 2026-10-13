@@ -221,7 +221,8 @@ const IngestCapabilityClaimsSchema = z.object({
 
 /**
  * The claims of a step's tool-bridge capability (T04): the checkouts that
- * the bridge may read, each at its pinned commit.
+ * the bridge may read, each at its pinned commit. The capability length cap
+ * limits the number of checkouts; the mint fails above it.
  */
 export const WorkspaceIngestToolsClaimsSchema = z.object({
   ...ingestShardClaims,
@@ -234,8 +235,7 @@ export const WorkspaceIngestToolsClaimsSchema = z.object({
         sha: z.string().regex(/^[0-9a-f]{40}$/),
       }),
     )
-    .min(1)
-    .max(64),
+    .min(1),
 })
 
 export type WorkspaceIngestToolsClaims = z.infer<

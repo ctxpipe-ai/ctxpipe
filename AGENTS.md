@@ -60,15 +60,22 @@ After completing requested code changes, commit and push the current feature bra
 
 ### Sub-agent models
 
-When spawning a sub-agent (Cursor Task, Claude Code Agent, or any other harness), always set the model explicitly. Use the harness's own name for each model and its effort setting. The token total is the limit, not the number of agents in parallel.
+When spawning a sub-agent (Cursor Task, Claude Code Agent, a T3 delegated task, or any other harness), always set the model explicitly. Use the harness's own name for each model and its effort setting. The token total is the limit, not the number of agents in parallel. Use a second model family (Codex GPT) for reviews and mechanical work, so that review findings come from different blind spots. When the Codex plan has no tokens left, use the Claude fallback in the same row.
 
-- **First build of a ticket:** Opus. Set the effort from the estimated complexity: low for a small, clear change; medium for most tickets; high for a design-heavy or security-sensitive change.
-- **First review round:** Opus at high effort on all three axes.
-- **Follow-up review rounds:** Sonnet at medium effort. Check only that the listed findings are fixed and that the fix adds no new problem. Exception: a re-review of a security fix (auth, sandboxes, egress, tokens, org isolation) stays on Opus at high effort.
-- **Review fixes:** Sonnet. Set the effort from the estimated complexity. Exception: a fix that needs a security design goes to Opus at medium effort.
-- **Status checks, file search and log triage:** Haiku at low effort.
+| Work | Model and effort | Fallback |
+| --- | --- | --- |
+| First build of a ticket that is design-heavy or security-sensitive | Opus; effort from the estimated complexity (low, medium, high) | — |
+| Plumbing build or mechanical review fix | Codex GPT-6-Luna (simple) or GPT-6-Astra (larger); effort from the estimated complexity | Sonnet, same effort |
+| Review fix that needs a security design | Opus, medium | — |
+| First review round, Standards axis | Codex GPT-6.1-Sol | Opus, high |
+| First review round, Spec axis | Opus, high | — |
+| First review round, Simplicity axis | Codex GPT-6-Sol, high | Opus, high |
+| Security-sensitive diff (auth, sandboxes, egress, tokens, org isolation) | Opus, high, **and** Codex GPT-6.1-Sol, as two separate reviews | Opus, high only |
+| Follow-up review round (check that the listed findings are fixed and the fix adds no new problem) | Codex GPT-6-Luna, medium | Sonnet, medium |
+| Re-review of a security fix | Opus, high | — |
+| Status checks, file search, log triage | Haiku, low | — |
 
-Start most agents fresh, with a short brief that holds only the relevant context: the branch, the findings to fix or check, and the files. Do not resume a long-context builder for a list of fixes. Resume a builder only for a question that needs its context.
+Start most agents fresh, with a short brief that holds only the relevant context: the branch, the findings to fix or check, and the files. A Codex agent shares no history, so give it the same brief file. Reviewers do not see each other's findings. Do not resume a long-context builder for a list of fixes. Resume a builder only for a question that needs its context.
 
 ### Issue tracker
 

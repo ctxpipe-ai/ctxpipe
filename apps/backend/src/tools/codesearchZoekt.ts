@@ -35,12 +35,24 @@ export function isZoektSearchClientFailure(
 
 const ZOEKT_FETCH_TIMEOUT_MS = 10_000
 
+/**
+ * Zoekt search in one repository. A captured source revision or a
+ * `workspace` revision scopes the search to that checkout by claim; without
+ * one, `zoektRepoId` selects the published checkout.
+ */
 export async function zoektSearchRepository(
-  repository: ZoektRepositoryRow,
+  repository: Pick<ZoektRepositoryRow, "id" | "orgId"> & {
+    zoektRepoId?: number
+  },
   Q: string,
   opts: Record<string, unknown>,
+  workspace?: { workspaceId: string; sha: string },
 ): Promise<ZoektSearchResult> {
   const source = capturedSourceRevision(repository.orgId, repository.id)
+  if (source && workspace)
+    throw new Error("Extraction tool cannot select a workspace projection")
+  if (!source && !workspace && repository.zoektRepoId === undefined)
+    throw new Error("Zoekt search needs a checkout")
   const env = parseEnv(process.env as Record<string, string | undefined>)
   const token = await signUpstreamJwt({
     env,
@@ -53,6 +65,14 @@ export async function zoektSearchRepository(
         ? {
             repositoryRevisions: [
               { repositoryId: source.repositoryId, sha: source.sha },
+            ],
+          }
+        : {}),
+      ...(workspace
+        ? {
+            workspaceId: workspace.workspaceId,
+            workspaceRevisions: [
+              { repositoryId: repository.id, sha: workspace.sha },
             ],
           }
         : {}),
@@ -69,7 +89,7 @@ export async function zoektSearchRepository(
         },
         body: JSON.stringify({
           Q,
-          ...(source ? {} : { RepoIDs: [repository.zoektRepoId] }),
+          ...(source || workspace ? {} : { RepoIDs: [repository.zoektRepoId] }),
           Opts: opts,
         }),
         signal: AbortSignal.timeout(ZOEKT_FETCH_TIMEOUT_MS),
