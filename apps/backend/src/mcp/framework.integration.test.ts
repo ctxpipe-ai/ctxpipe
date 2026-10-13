@@ -11,7 +11,7 @@ import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../test/db.js"
 import type { AppEnv } from "../app/env.js"
 import { parseEnv } from "../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../db/client.js"
-import { organizations } from "../db/schema/auth.js"
+import { members, organizations } from "../db/schema/auth.js"
 import {
   workspaceLinkedRepositories,
   workspaces,
@@ -200,11 +200,14 @@ function createApp() {
   return app
 }
 
-async function connect(apiKey = seed.orgApiKey): Promise<Client> {
+async function connect(
+  apiKey = seed.orgApiKey,
+  path = "/mcp",
+): Promise<Client> {
   const app = createApp()
   const client = new Client({ name: "framework-test", version: "1.0.0" })
   await client.connect(
-    new StreamableHTTPClientTransport(new URL("http://localhost/mcp"), {
+    new StreamableHTTPClientTransport(new URL(`http://localhost${path}`), {
       fetch: async (url, init) => app.request(String(url), init),
       requestInit: { headers: { "x-api-key": apiKey } },
     }),
@@ -286,6 +289,27 @@ describe("MCP tool framework (Postgres + MCP SDK Client)", () => {
         })),
       )
     })
+    // The user is a member of org B (otherOrgs[1]) but not of otherOrgs[0].
+    await getSystemDb()
+      .insert(members)
+      .values({
+        id: `mem_fw_${suffix}`,
+        organizationId: otherOrgs[1]?.id ?? "",
+        userId: seed.userId,
+        role: "member",
+        createdAt: new Date(),
+      })
+    await withOrgDbContext(otherOrgs[1]?.id ?? "", (db) =>
+      db.insert(workspaces).values({
+        id: generateObjectId("ws"),
+        orgId: otherOrgs[1]?.id ?? "",
+        slug: "operations",
+        displayName: "Operations",
+        workspaceRepositoryUrl: `/tmp/fw-${suffix}-operations`,
+        desiredDefaultBranch: "main",
+        activeProjectionSha: sha2,
+      }),
+    )
     // A Workspace with a slug that only another org has.
     await withOrgDbContext(otherOrgs[0]?.id ?? "", (db) =>
       db.insert(workspaces).values({
@@ -585,6 +609,86 @@ describe("MCP tool framework (Postgres + MCP SDK Client)", () => {
     const after = await call(client, "probe_wait", { org: seed.orgSlug })
     expect(after.structuredContent).toEqual({ done: true })
     await client.close()
+  })
+
+  it("takes the org of a call from the org argument, not from ?orgSlug= on the URL", async () => {
+    const orgB = otherOrgs[1]?.slug ?? ""
+    const client = await connect(
+      seed.personalApiKey,
+      `/mcp?orgSlug=${seed.orgSlug}`,
+    )
+    const inB = await call(client, "probe_workspace", {
+      org: orgB,
+      workspace: "operations",
+    })
+    expect(inB.structuredContent).toEqual({
+      org: orgB,
+      workspace: "operations",
+      served: { branch: "main", sha: sha2 },
+    })
+    // The URL org does not leak into a call that names another org.
+    const notInB = await call(client, "probe_workspace", {
+      org: orgB,
+      workspace: "payments",
+    })
+    expect(failure(notInB)).toMatchObject({ code: "workspace_not_found" })
+    const inA = await call(client, "probe_workspace", {
+      org: seed.orgSlug,
+      workspace: "payments",
+    })
+    expect(inA.structuredContent).toMatchObject({ org: seed.orgSlug })
+    await client.close()
+  })
+
+  it("gives org_not_found to a user principal for an org outside its set, with the same text as an unknown org", async () => {
+    const client = await connect(
+      seed.personalApiKey,
+      `/mcp?orgSlug=${seed.orgSlug}`,
+    )
+    const foreignSlug = otherOrgs[0]?.slug ?? ""
+    const foreign = await call(client, "probe_workspace", {
+      org: foreignSlug,
+      workspace: "secret-plans",
+    })
+    const unknown = await call(client, "probe_workspace", {
+      org: `missing-${suffix}`,
+      workspace: "secret-plans",
+    })
+    expect(failure(foreign)).toMatchObject({ code: "org_not_found" })
+    expect(foreign.content?.[0]?.text?.replace(foreignSlug, "<org>")).toBe(
+      unknown.content?.[0]?.text?.replace(`missing-${suffix}`, "<org>"),
+    )
+    await client.close()
+  })
+
+  it("serves a principal with several orgs on the bare /mcp URL: instructions list each org, calls name one", async () => {
+    const client = await connect(seed.personalApiKey)
+    const instructions = client.getInstructions() ?? ""
+    expect(instructions).toContain(`\n- ${seed.orgSlug}: payments, platform`)
+    expect(instructions).toContain(`\n- ${otherOrgs[1]?.slug}: operations`)
+    expect(instructions).not.toContain(otherOrgs[0]?.slug ?? "")
+    const result = await call(client, "probe_workspace", {
+      org: otherOrgs[1]?.slug,
+      workspace: "operations",
+    })
+    expect(result.isError).toBeFalsy()
+    await client.close()
+  })
+
+  it("refuses a ?orgSlug= that the principal cannot use with 404, as before", async () => {
+    const response = await createApp().request(
+      `/mcp?orgSlug=${otherOrgs[0]?.slug}`,
+      {
+        method: "POST",
+        headers: {
+          accept: "application/json, text/event-stream",
+          "content-type": "application/json",
+          "x-api-key": seed.personalApiKey,
+        },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+      },
+    )
+    expect(response.status).toBe(404)
   })
 
   it("maps an unexpected error to a retryable internal error with no detail", async () => {

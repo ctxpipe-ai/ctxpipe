@@ -205,20 +205,20 @@ describe("MCP conformance (Vitest-integrated)", () => {
       expect(tools[1]?.outputSchema?.properties).toHaveProperty("text")
       const result = await client.callTool({
         name: "conformance_read",
-        arguments: { org: "acme", text: "hello" },
+        arguments: { text: "hello" },
       })
-      expect(result.structuredContent).toEqual({ text: "hello", org: "acme" })
-      expect(result.content).toEqual([
-        { type: "text", text: "text: hello\norg: acme" },
-      ])
-      const foreign = await client.callTool({
+      expect(result.structuredContent).toEqual({ text: "hello" })
+      expect(result.content).toEqual([{ type: "text", text: "text: hello" }])
+      const failed = await client.callTool({
         name: "conformance_read",
-        arguments: { org: "beta", text: "hello" },
+        arguments: { text: "fail" },
       })
-      expect(foreign.isError).toBe(true)
-      expect(foreign.structuredContent).toBeUndefined()
-      expect(foreign._meta?.["ai.ctxpipe/error"]).toMatchObject({
-        code: "org_not_found",
+      expect(failed.isError).toBe(true)
+      expect(failed.structuredContent).toBeUndefined()
+      expect(failed._meta?.["ai.ctxpipe/error"]).toEqual({
+        code: "invalid_argument",
+        message: "The text is fail.",
+        retryable: false,
       })
     } finally {
       await client.close()

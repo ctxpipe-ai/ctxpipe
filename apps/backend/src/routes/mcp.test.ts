@@ -8,7 +8,6 @@ const {
   withOrgApiKeyAuthMock,
   withMcpBearerAuthMock,
   requireAuthMock,
-  withNetworkOrgContextMock,
   registerMcpToolsMock,
   loggerSetMock,
   loggerInfoMock,
@@ -18,7 +17,6 @@ const {
   withOrgApiKeyAuthMock: vi.fn(),
   withMcpBearerAuthMock: vi.fn(),
   requireAuthMock: vi.fn(),
-  withNetworkOrgContextMock: vi.fn(),
   registerMcpToolsMock: vi.fn(),
   loggerSetMock: vi.fn(),
   loggerInfoMock: vi.fn(),
@@ -30,7 +28,7 @@ vi.mock("../auth/withAuth.js", () => ({
   withOrgApiKeyAuth: withOrgApiKeyAuthMock,
   withMcpBearerAuth: withMcpBearerAuthMock,
   requireAuth: requireAuthMock,
-  withNetworkOrgContext: withNetworkOrgContextMock,
+  withOrgIdContext: (_org: unknown, next: () => Promise<unknown>) => next(),
 }))
 
 vi.mock("../mcp/tools.js", () => ({
@@ -71,7 +69,6 @@ describe("MCP route auth and org validation", () => {
     withOrgApiKeyAuthMock.mockImplementation(async (_c, next) => next())
     withMcpBearerAuthMock.mockImplementation(async (_c, next) => next())
     requireAuthMock.mockImplementation(async (_c, next) => next())
-    withNetworkOrgContextMock.mockImplementation(async (_c, next) => next())
   })
 
   it("rejects unauthenticated requests", async () => {
@@ -87,11 +84,9 @@ describe("MCP route auth and org validation", () => {
     expect(registerMcpToolsMock).not.toHaveBeenCalled()
   })
 
+  // The org resolution itself is proved on real Postgres in
+  // mcp/framework.integration.test.ts. With no principal, no org resolves.
   it("rejects unknown orgSlug with not found", async () => {
-    withNetworkOrgContextMock.mockImplementationOnce(async (c) =>
-      c.json({ error: "Not found" }, 404),
-    )
-
     const app = createTestApp()
     const response = await app.request("/mcp?orgSlug=missing", {
       method: "POST",
@@ -150,7 +145,7 @@ describe("MCP route auth and org validation", () => {
 
   it("returns 405 instead of opening an SSE stream for stateless GET", async () => {
     const app = createTestApp()
-    const response = await app.request("/mcp?orgSlug=acme")
+    const response = await app.request("/mcp")
 
     expect(response.status).toBe(405)
     expect(response.headers.get("allow")).toBe("POST, DELETE")
@@ -159,7 +154,7 @@ describe("MCP route auth and org validation", () => {
 
   it("returns an empty 202 response for notification-only POSTs", async () => {
     const app = createTestApp()
-    const response = await app.request("/mcp?orgSlug=acme", {
+    const response = await app.request("/mcp", {
       method: "POST",
       headers: {
         accept: "application/json, text/event-stream",
@@ -176,9 +171,9 @@ describe("MCP route auth and org validation", () => {
     expect(response.headers.get("content-type")).toBeNull()
   })
 
-  it("reaches MCP handler for authenticated requests with valid orgSlug", async () => {
+  it("reaches MCP handler for authenticated requests without a default org", async () => {
     const app = createTestApp()
-    const response = await app.request("/mcp?orgSlug=acme", { method: "POST" })
+    const response = await app.request("/mcp", { method: "POST" })
 
     expect(registerMcpToolsMock).toHaveBeenCalledTimes(1)
     expect([200, 204, 400, 406]).toContain(response.status)
@@ -186,7 +181,7 @@ describe("MCP route auth and org validation", () => {
 
   it("logs bounded MCP metadata without request payloads or JSON-RPC ids", async () => {
     const app = createTestApp()
-    const response = await app.request("/mcp?orgSlug=acme", {
+    const response = await app.request("/mcp", {
       method: "POST",
       headers: {
         accept: "application/json, text/event-stream",

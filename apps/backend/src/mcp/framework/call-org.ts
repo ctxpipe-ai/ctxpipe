@@ -1,31 +1,35 @@
+import { getContext } from "hono/context-storage"
+import type { AppEnv } from "../../app/env.js"
 import {
-  requireCurrentOrgId,
-  requireCurrentOrgSlug,
-} from "../../auth/context.js"
+  type CallOrg,
+  callPrincipalFromContext,
+  listCallOrgs as listPrincipalOrgs,
+  resolveCallOrg as resolvePrincipalOrg,
+} from "../../auth/call-org.js"
 import { orgNotFound } from "./tool-errors.js"
 
-export type CallOrg = { id: string; slug: string }
+export type { CallOrg }
 
-/**
- * The orgs that this connection can read. Today a connection has one org,
- * which `withNetworkOrgContext` resolves from the grant, the API key, or
- * `?orgSlug=`. The multi-org grant (CTX-586 P1-2a) replaces this body with
- * the grant org set ∩ live membership; callers do not change.
- */
+function principal() {
+  return callPrincipalFromContext(getContext<AppEnv>())
+}
+
+/** The orgs that the principal of this request can name in a tool call. */
 export async function listCallOrgs(): Promise<CallOrg[]> {
-  return [{ id: requireCurrentOrgId(), slug: requireCurrentOrgSlug() }]
+  return listPrincipalOrgs(principal())
 }
 
 /**
- * The org that the `org` argument of one tool call names (ADR-051 §3). An
- * unknown org and an org outside the connection give the same
- * `org_not_found` error.
+ * The org that the `org` argument of one tool call names (ADR-051 §3). The
+ * principal's allowed orgs ∩ live membership decide; `?orgSlug=` on the URL
+ * has no effect. An unknown org and an org outside the connection give the
+ * same `org_not_found` error.
  */
 export async function resolveCallOrg(slug: string): Promise<CallOrg> {
   const wanted = slug.trim().toLowerCase()
-  const org = (await listCallOrgs()).find(
-    (candidate) => candidate.slug.toLowerCase() === wanted,
-  )
-  if (!org) throw orgNotFound(slug)
-  return org
+  const result = wanted
+    ? await resolvePrincipalOrg(principal(), wanted)
+    : { ok: false as const }
+  if (!result.ok) throw orgNotFound(slug)
+  return result.org
 }

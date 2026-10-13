@@ -5,6 +5,7 @@ import { contextStorage } from "hono/context-storage"
 import { z } from "zod"
 import type { AppEnv } from "../app/env.js"
 import { buildServerInstructions } from "../mcp/framework/instructions.js"
+import { McpToolError } from "../mcp/framework/tool-errors.js"
 import {
   defineMcpReadTool,
   registerMcpReadTools,
@@ -38,16 +39,20 @@ app.use("*", async (c, next) => {
 app.get("/.status", (c) => c.json({ status: "ok" }))
 app.use("/mcp", (c, next) => rejectInvalidMcpOrigin(c) ?? next())
 // A read tool through the framework registry: annotations, output schema,
-// structuredContent, TOON text, and an optional `org` argument.
+// structuredContent, TOON text, and tool errors. The server has no
+// database, so the calls omit the optional `org` argument.
 const frameworkEcho = defineMcpReadTool({
   name: "conformance_read",
   title: "Conformance Read",
-  description: "Return the text and the org of the call.",
+  description: "Return the text. The text `fail` gives a tool error.",
   org: "optional",
   inputShape: { text: z.string() },
-  outputSchema: z.object({ text: z.string(), org: z.string().nullable() }),
-  async run({ text }, { org }) {
-    return { text, org: org?.slug ?? null }
+  outputSchema: z.object({ text: z.string() }),
+  async run({ text }) {
+    if (text === "fail") {
+      throw new McpToolError("invalid_argument", "The text is fail.")
+    }
+    return { text }
   },
 })
 
