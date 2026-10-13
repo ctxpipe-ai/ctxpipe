@@ -535,6 +535,39 @@ describe("Notion markdown conversion", () => {
     expect(file.content).not.toContain("https://example.com")
   })
 
+  it("renders a table block and its rows as a Markdown table", () => {
+    const row = (id: string, cells: string[]) => ({
+      id,
+      type: "table_row",
+      table_row: { cells: cells.map((cell) => [{ plain_text: cell }]) },
+    })
+    const file = toNotionMarkdownFile({
+      resource: { externalId: "page-1", title: "Planning" },
+      page,
+      blocks: [
+        {
+          id: "table-1",
+          type: "table",
+          table: { table_width: 2, has_column_header: true },
+          has_children: true,
+          children: [
+            row("row-1", ["Status", "Meaning"]),
+            row("row-2", ["401", "Token a|b is\ninvalid"]),
+          ],
+        },
+      ],
+    })
+
+    expect(file.content).toContain(
+      [
+        "| Status | Meaning |",
+        "| --- | --- |",
+        "| 401 | Token a\\|b is invalid |",
+      ].join("\n"),
+    )
+    expect(file.content).not.toContain("[table")
+  })
+
   it("keeps bookmark blocks as ordinary links", () => {
     const file = toNotionMarkdownFile({
       resource: { externalId: "page-1", title: "Planning" },

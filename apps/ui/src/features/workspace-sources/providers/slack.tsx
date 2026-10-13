@@ -24,9 +24,9 @@ function initialChannels(scope: Record<string, unknown>): string[] {
 }
 
 /**
- * The rows of the picker: the listed channels, plus each selected channel
- * that Slack no longer lists (archived, or the bot left), so the user can
- * remove it.
+ * The rows of the picker: each selected channel that Slack no longer lists
+ * (archived, or the bot left), so the user can remove it, then the channels
+ * that the bot is in, then the others.
  */
 function channelRows(
   listed: readonly SlackChannel[],
@@ -36,7 +36,11 @@ function channelRows(
   const missing = selected
     .filter((id) => !known.has(id))
     .map((id) => ({ id, name: id, isPrivate: false, isMember: false }))
-  return [...missing, ...listed]
+  return [
+    ...missing,
+    ...listed.filter((channel) => channel.isMember),
+    ...listed.filter((channel) => !channel.isMember),
+  ]
 }
 
 /** Pick the Slack channels whose captured threads go to one Workspace. */
@@ -81,9 +85,8 @@ export function SlackScopeEditor(props: SourceScopeEditorProps) {
       <div>
         <p className="text-sm font-medium text-foreground">{pickerLabel}</p>
         <p className="mt-1 text-sm text-muted-foreground">
-          When someone @mentions the ctx| bot in a thread of these channels, the
-          thread is saved to this Workspace. Private channels show only when the
-          bot is in them.
+          Mention the ctx| bot in a thread of a selected channel to save that
+          thread. Private channels show only when the bot is in them.
         </p>
       </div>
       {truncated ? (
@@ -115,12 +118,11 @@ export function SlackScopeEditor(props: SourceScopeEditorProps) {
             ? "Slack does not list this channel now. It is archived, or the ctx| bot left it."
             : channel.isMember
               ? null
-              : "Invite the ctx| bot to this channel first."
+              : "Invite the bot to this channel before you mention it there."
           return (
             <Checkbox
               key={channel.id}
               value={channel.id}
-              isDisabled={listed && !channel.isMember}
               className="w-full cursor-pointer items-start border-b border-border px-3 py-2 last:border-b-0 hover:bg-foreground/[0.03]"
             >
               <span className="min-w-0">
