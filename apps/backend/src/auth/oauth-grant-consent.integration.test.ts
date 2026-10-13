@@ -259,6 +259,7 @@ describe("OAuth grant consent flow (Postgres)", () => {
   it("sets the grant to exactly the orgs that the consent ticks", async () => {
     const orgA = seed?.orgId ?? ""
     const clientId = await registerClient()
+    let grantId = ""
     try {
       const flow = pkce()
       const consentUrl = await authorize(clientId, flow.challenge)
@@ -268,10 +269,13 @@ describe("OAuth grant consent flow (Postgres)", () => {
         callback.searchParams.get("code") ?? "",
         flow.verifier,
       )
-      const grantId = (await accessTokenReference(issued.access_token)) ?? ""
+      grantId = (await accessTokenReference(issued.access_token)) ?? ""
       expect(isOAuthGrantId(grantId)).toBe(true)
       expect(await grantOrgIdsOf(grantId)).toEqual([orgA, orgB].sort())
     } finally {
+      await getSystemDb()
+        .delete(oauthGrantOrganizations)
+        .where(eq(oauthGrantOrganizations.grantId, grantId))
       await getSystemDb()
         .delete(oauthClients)
         .where(eq(oauthClients.clientId, clientId))

@@ -73,7 +73,7 @@ describe("multi-org grants (Postgres)", () => {
     })
     await db.insert(members).values({
       id: generateObjectId("member"),
-      organizationIds: [orgB.id],
+      organizationId: orgB.id,
       userId,
       role: "member",
       createdAt: new Date(),
@@ -139,7 +139,7 @@ describe("multi-org grants (Postgres)", () => {
       .insert(members)
       .values({
         id: generateObjectId("member"),
-        organizationIds: [orgB.id],
+        organizationId: orgB.id,
         userId,
         role: "member",
         createdAt: new Date(),
@@ -329,7 +329,7 @@ describe("multi-org grants (Postgres)", () => {
       db.insert(oauthGrantOrganizations).values({
         grantId: generateObjectId("ogr"),
         apiKeyId: key.id,
-        organizationIds: [orgA.id],
+        organizationId: orgA.id,
       }),
     ).rejects.toThrow()
     const grantId = generateObjectId("ogr")
