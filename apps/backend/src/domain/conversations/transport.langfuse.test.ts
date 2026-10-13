@@ -66,7 +66,7 @@ it("tags the live create-stream generation from the request bag, not baggage", a
     } as AppEnv["Variables"]["env"])
     c.set("user", { id: "user_1" } as AppEnv["Variables"]["user"])
     c.set("session", null)
-    c.set("oauthOrganizationId", null)
+    c.set("oauthReferenceId", null)
     c.set("oauthClientId", null)
     c.set("orgApiKey", null)
     c.set("orgSlug", "acme")

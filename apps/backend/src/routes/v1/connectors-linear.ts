@@ -31,7 +31,7 @@ import { getLogger } from "../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
 import { enqueueConnectorConfigSync } from "../../openworkflow/enqueue-connector-config-sync.js"
 import { enqueueConnectorContentSync } from "../../openworkflow/enqueue-connector-content-sync.js"
-import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
+import { enqueueLegacySyncRepositoryIngestion } from "../../openworkflow/legacy-sync-repository-ingestion.js"
 import { linearSyncConfig } from "../../openworkflow/workflows/linear-sync-config.js"
 import { linearSyncContent } from "../../openworkflow/workflows/linear-sync-content.js"
 import {
@@ -988,8 +988,9 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
       throw error
     }
     if (saved.repositoryIngestion) {
-      await enqueueRepositoryIngestionWorkflow(
+      await enqueueLegacySyncRepositoryIngestion(
         {
+          connectionId: installed.connection.id,
           orgId: saved.repositoryIngestion.orgId,
           repositoryId: saved.repositoryIngestion.repositoryId,
           ...(saved.repositoryIngestion.targetBranch !== undefined

@@ -31,7 +31,7 @@ import {
 } from "../../services/linear/content.js"
 import { captureLinearContent } from "../../services/linear/sync.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
-import { runRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
+import { enqueueLegacySyncRepositoryIngestion } from "../legacy-sync-repository-ingestion.js"
 import { workspaceConnectorMirror } from "./workspace-connector-mirror.js"
 
 const LinearSyncContentInputSchema = z.object({
@@ -232,8 +232,9 @@ export const linearSyncContent = defineWorkflow(
 
         if (result.status !== "failed") {
           await step.run({ name: "ingest-linear-content" }, () =>
-            runRepositoryIngestionWorkflow(
+            enqueueLegacySyncRepositoryIngestion(
               {
+                connectionId: input.connectionId,
                 repositoryId: context.target.repositoryId,
                 orgId: input.orgId,
                 targetBranch: context.target.branch,

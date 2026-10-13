@@ -8,7 +8,8 @@ export function greenfieldKnowledgePath(area: string, unit: string): string {
   return `knowledge/${slugSegment(area)}/${slugSegment(unit)}.md`
 }
 
-const KIND_AREAS: Record<string, string> = {
+/** Knowledge folder for each object kind. */
+export const KNOWLEDGE_KIND_FOLDERS: Readonly<Record<string, string>> = {
   Service: "services",
   App: "apps",
   Library: "libraries",
@@ -20,10 +21,12 @@ const KIND_AREAS: Record<string, string> = {
   Stream: "streams",
   InstructionUnit: "instructions",
   Repository: "codebases",
+  Decision: "decisions",
+  Team: "teams",
 }
 
 export function knowledgeAreaFromObjectKind(kind: string): string {
-  const mapped = KIND_AREAS[kind.trim()]
+  const mapped = KNOWLEDGE_KIND_FOLDERS[kind.trim()]
   if (mapped) return mapped
   const slug = slugSegment(kind)
   return slug === "item" ? "topics" : slug
@@ -31,15 +34,6 @@ export function knowledgeAreaFromObjectKind(kind: string): string {
 
 export function isImportedKnowledgePath(path: string): boolean {
   return path.startsWith("knowledge/imported/")
-}
-
-export function isConnectorMirrorPath(path: string): boolean {
-  return (
-    path.startsWith("linear/") ||
-    path.startsWith("notion/") ||
-    path.startsWith("confluence/") ||
-    path.startsWith("slack/")
-  )
 }
 
 export function isLinkedRepositoryDeclaration(path: string): boolean {

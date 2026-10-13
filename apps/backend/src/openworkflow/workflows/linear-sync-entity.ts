@@ -20,7 +20,7 @@ import {
 import { parseLinearConfigYamlContent } from "../../services/linear/config-yaml.js"
 import { captureLinearIncrementalContent } from "../../services/linear/sync.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
-import { runRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
+import { enqueueLegacySyncRepositoryIngestion } from "../legacy-sync-repository-ingestion.js"
 import { workspaceConnectorMirror } from "./workspace-connector-mirror.js"
 
 const LinearSyncEntityInputSchema = z.object({
@@ -202,8 +202,9 @@ export const linearSyncEntity = defineWorkflow(
 
         if (result.written > 0 || result.deleted > 0) {
           await step.run({ name: "ingest-linear-entity" }, () =>
-            runRepositoryIngestionWorkflow(
+            enqueueLegacySyncRepositoryIngestion(
               {
+                connectionId: input.connectionId,
                 repositoryId: context.target.repositoryId,
                 orgId: input.orgId,
                 targetBranch: context.target.branch,

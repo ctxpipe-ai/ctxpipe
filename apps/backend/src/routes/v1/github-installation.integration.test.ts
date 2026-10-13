@@ -113,7 +113,7 @@ describe("POST /github/installation requires GitHub access (Postgres)", () => {
       c.set("env", env)
       c.set("user", null)
       c.set("session", null)
-      c.set("oauthOrganizationId", null)
+      c.set("oauthReferenceId", null)
       c.set("oauthClientId", null)
       c.set("orgApiKey", null)
       c.set("personalApiKeyId", null)

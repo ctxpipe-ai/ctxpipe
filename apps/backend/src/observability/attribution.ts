@@ -21,6 +21,14 @@ export const ATTRIBUTION_KEYS = [
   "ctxpipe.repository.id",
   "ctxpipe.workspace.id",
   "ctxpipe.connection.id",
+  "ctxpipe.mcp.call.id",
+  "ctxpipe.mcp.connection.key",
+  "ctxpipe.mcp.client.name",
+  "ctxpipe.mcp.conversation.id",
+  "ctxpipe.mcp.conversation.source",
+  "ctxpipe.mcp.turn.id",
+  "ctxpipe.mcp.turn.source",
+  "ctxpipe.mcp.correlation.source",
 ] as const
 
 export type AttributionKey = (typeof ATTRIBUTION_KEYS)[number]
@@ -67,6 +75,19 @@ export function contextWithAttributionBag(parent: Context): {
 } {
   const bag = new Map<string, string>()
   return { context: parent.setValue(ATTRIBUTION_BAG, bag), bag }
+}
+
+/**
+ * Give one unit of work (for example one MCP tool call of a batch) its own
+ * bag. The bag starts with a copy of the parent entries, so request
+ * attribution stays, and entries set later do not go to sibling calls.
+ */
+export function contextWithForkedAttributionBag(parent: Context): Context {
+  const { context: forked, bag } = contextWithAttributionBag(parent)
+  for (const [key, value] of attributionBagFromContext(parent) ?? []) {
+    bag.set(key, value)
+  }
+  return forked
 }
 
 function attributionBagFromContext(
