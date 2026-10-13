@@ -5,6 +5,12 @@ import type { Context } from "hono"
 import type { AppEnv } from "../app/env.js"
 import { currentMcpActor, requireCurrentOrgId } from "../auth/context.js"
 import {
+  disableToolsOutsideScopes,
+  grantedMcpScopes,
+  insufficientMcpScopeResponse,
+} from "../auth/mcp-scopes.js"
+import { mcpOAuthProtectedResourceMetadataUrl } from "../auth/withAuth.js"
+import {
   type AttributionInput,
   applyAttribution,
 } from "../observability/attribution.js"
@@ -121,6 +127,25 @@ export async function handleMcpTransportRequest(
     getMcpServerImplementation(c.get("env").AUTH_BASE_URL),
   )
   registerTools(server)
+  const grantedScopes = grantedMcpScopes(c.get("oauthScopes"))
+  const hiddenTools = disableToolsOutsideScopes(server, grantedScopes)
+  for (const message of messages) {
+    const call = CallToolRequestSchema.safeParse(message)
+    if (!call.success) continue
+    const tool = call.data.params.name
+    const required = hiddenTools.get(tool)
+    if (!required) continue
+    return logResponse(
+      insufficientMcpScopeResponse(c, {
+        granted: grantedScopes,
+        required,
+        tool,
+        resourceMetadataUrl: mcpOAuthProtectedResourceMetadataUrl(
+          c.var.env.AUTH_BASE_URL,
+        ),
+      }),
+    )
+  }
   const transport = new StreamableHTTPTransport()
   try {
     await server.connect(transport)

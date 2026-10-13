@@ -18,6 +18,7 @@ import {
 import { getLogger } from "../observability/logger.js"
 import { callPrincipalFromContext, resolveCallOrg } from "./call-org.js"
 import { type AuthSession, type AuthUser, getAuth } from "./config.js"
+import { MCP_READ_SCOPE, quoteHeaderValue } from "./mcp-scopes.js"
 import {
   OAUTH_GRANT_CLAIM,
   OAUTH_ORGANIZATION_CLAIM,
@@ -68,7 +69,7 @@ function isMcpRequestPath(pathname: string): boolean {
 function wwwAuthenticateInvalidToken(
   errorDescription: string,
 ): Record<string, string> {
-  const esc = errorDescription.replace(/\\/g, "\\\\").replace(/"/g, '\\"')
+  const esc = quoteHeaderValue(errorDescription)
   return {
     "WWW-Authenticate": `Bearer error="invalid_token", error_description="${esc}"`,
   }
@@ -78,11 +79,11 @@ function wwwAuthenticateInvalidTokenMcp(
   errorDescription: string,
   authBaseUrl: string,
 ): Record<string, string> {
-  const esc = errorDescription.replace(/\\/g, "\\\\").replace(/"/g, '\\"')
+  const esc = quoteHeaderValue(errorDescription)
   const meta = mcpOAuthProtectedResourceMetadataUrl(authBaseUrl)
-  const metaEsc = meta.replace(/\\/g, "\\\\").replace(/"/g, '\\"')
+  const metaEsc = quoteHeaderValue(meta)
   return {
-    "WWW-Authenticate": `Bearer error="invalid_token", error_description="${esc}", resource_metadata="${metaEsc}"`,
+    "WWW-Authenticate": `Bearer error="invalid_token", error_description="${esc}", scope="${MCP_READ_SCOPE}", resource_metadata="${metaEsc}"`,
   }
 }
 
@@ -96,9 +97,9 @@ function wwwAuthenticateMcpDiscovery(
   authBaseUrl: string,
 ): Record<string, string> {
   const meta = mcpOAuthProtectedResourceMetadataUrl(authBaseUrl)
-  const metaEsc = meta.replace(/\\/g, "\\\\").replace(/"/g, '\\"')
+  const metaEsc = quoteHeaderValue(meta)
   return {
-    "WWW-Authenticate": `Bearer resource_metadata="${metaEsc}"`,
+    "WWW-Authenticate": `Bearer scope="${MCP_READ_SCOPE}", resource_metadata="${metaEsc}"`,
   }
 }
 
@@ -223,6 +224,7 @@ async function resolveOpaqueAccessToken(token: string): Promise<{
   user: AuthUser
   oauthReferenceId: string | null
   oauthClientId: string | null
+  oauthScopes: string[]
 } | null> {
   const db = getSystemDb()
   const hashed = hashOpaqueAccessToken(token)
@@ -244,6 +246,7 @@ async function resolveOpaqueAccessToken(token: string): Promise<{
         ...principal,
         oauthReferenceId: record.referenceId ?? null,
         oauthClientId: record.clientId ?? null,
+        oauthScopes: record.scopes,
       }
     : null
 }
@@ -463,6 +466,7 @@ async function authenticateBearer(
       c.set("user", opaque.user)
       c.set("oauthReferenceId", opaque.oauthReferenceId)
       c.set("oauthClientId", opaque.oauthClientId)
+      c.set("oauthScopes", opaque.oauthScopes)
       applyPrincipalAttribution(c)
       return next()
     }
@@ -642,6 +646,10 @@ async function authenticateBearer(
     c.set("session", tokenSessionContext.session)
     c.set("user", tokenSessionContext.user)
     c.set("oauthReferenceId", oauthReferenceClaim)
+    c.set(
+      "oauthScopes",
+      typeof payload.scope === "string" ? payload.scope.split(" ") : [],
+    )
     const clientIdClaim = payload.client_id ?? payload.azp
     if (typeof clientIdClaim === "string" && clientIdClaim.length > 0) {
       c.set("oauthClientId", clientIdClaim)

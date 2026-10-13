@@ -1,5 +1,18 @@
+import { useState } from "react"
 import { Button } from "@/components/ui/Button"
+import { Checkbox } from "@/components/ui/Checkbox"
 import { InlineAlert } from "@/components/ui/InlineAlert"
+
+const WRITE_SCOPE = "ctxpipe:write"
+
+const SCOPE_TEXT: Record<string, string> = {
+  "ctxpipe:read":
+    "Read context: knowledge, code and the knowledge graph of this organization.",
+  openid: "Confirm who you are.",
+  profile: "See your name and picture.",
+  email: "See your email address.",
+  offline_access: "Stay connected when you are not signed in.",
+}
 
 export type OAuthConsentOrganization = {
   name: string
@@ -22,9 +35,14 @@ export function OAuthConsent({
   changeOrganizationHref?: string | null
   error?: string | null
   isSubmitting?: "allow" | "deny" | null
-  onAllow: () => void
+  /** Receives the scopes the user allows: write only when ticked. */
+  onAllow: (allowedScopes: string[]) => void
   onDeny: () => void
 }) {
+  const [allowWrite, setAllowWrite] = useState(false)
+  const fixedScopes = scopes.filter((scope) => scope !== WRITE_SCOPE)
+  const requestsWrite = scopes.includes(WRITE_SCOPE)
+  const allowedScopes = allowWrite ? scopes : fixedScopes
   return (
     <main className="mx-auto max-w-xl px-6 py-16 text-foreground">
       <section className="space-y-6 rounded-md border border-border bg-card/80 p-6">
@@ -70,18 +88,26 @@ export function OAuthConsent({
             <span className="font-mono">{clientId ?? "unknown"}</span>
           </p>
           <div className="space-y-1">
-            <p className="text-muted-foreground">Requested scopes:</p>
-            {scopes.length > 0 ? (
+            <p className="text-muted-foreground">Requested access:</p>
+            {fixedScopes.length > 0 ? (
               <ul className="list-disc pl-5 text-foreground">
-                {scopes.map((scope) => (
-                  <li key={scope} className="font-mono text-xs">
-                    {scope}
+                {fixedScopes.map((scope) => (
+                  <li key={scope}>
+                    {SCOPE_TEXT[scope] ?? (
+                      <span className="font-mono text-xs">{scope}</span>
+                    )}
                   </li>
                 ))}
               </ul>
-            ) : (
-              <p>No scopes requested.</p>
+            ) : requestsWrite ? null : (
+              <p>No access requested.</p>
             )}
+            {requestsWrite ? (
+              <Checkbox isSelected={allowWrite} onChange={setAllowWrite}>
+                Also allow changes: propose and record knowledge in this
+                organization. Leave this off for read-only access.
+              </Checkbox>
+            ) : null}
           </div>
         </div>
 
@@ -103,9 +129,13 @@ export function OAuthConsent({
           </Button>
           <Button
             className="rounded-md"
-            isDisabled={isSubmitting !== null || !organization}
+            isDisabled={
+              isSubmitting !== null ||
+              !organization ||
+              allowedScopes.length === 0
+            }
             isPending={isSubmitting === "allow"}
-            onPress={onAllow}
+            onPress={() => onAllow(allowedScopes)}
           >
             Allow
           </Button>
