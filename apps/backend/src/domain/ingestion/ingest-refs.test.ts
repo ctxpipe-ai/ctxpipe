@@ -8,9 +8,11 @@ import {
   cleanUpIngestRefs,
   deleteRunIngestRefs,
   findStepCommit,
+  IngestAssembleConflictError,
   IngestRefRefusedError,
   ingestRefName,
   parseIngestRef,
+  pushIngestAssemble,
   pushIngestStep,
 } from "./ingest-refs.js"
 
@@ -95,6 +97,7 @@ function step(
     workspaceId?: string
     authorTime?: Date
     remoteUrl?: string
+    baseCommit?: string
   } = {},
 ) {
   return pushIngestStep({
@@ -107,6 +110,7 @@ function step(
       ingestRefName({ runId: RUN, workspaceId: WORKSPACE, shard: "0" }),
     oldTip: input.oldTip ?? null,
     pinnedRevision: pinned,
+    baseCommit: input.baseCommit ?? input.oldTip ?? pinned,
     remote: { url: input.remoteUrl ?? remote },
     commit: {
       step: input.step ?? "skill:services:apis:ws_alpha",
@@ -322,6 +326,29 @@ describe("pushIngestStep", () => {
     ).toBe(won[0]?.value.sha)
   })
 
+  it("refuses a step whose base commit is not the old tip", async () => {
+    const first = await step()
+    const ref = ingestRefName({
+      runId: RUN,
+      workspaceId: WORKSPACE,
+      shard: "0",
+    })
+    await expect(
+      step({
+        oldTip: first.sha,
+        baseCommit: pinned,
+        step: "skill:services:libraries:ws_alpha",
+      }),
+    ).rejects.toBeInstanceOf(IngestRefRefusedError)
+    await expect(
+      step({
+        ref: ingestRefName({ runId: RUN, workspaceId: WORKSPACE, shard: "1" }),
+        baseCommit: first.sha,
+      }),
+    ).rejects.toBeInstanceOf(IngestRefRefusedError)
+    expect(remoteRefs(remote).get(ref)).toBe(first.sha)
+  })
+
   it("refuses a ref outside the run's names", async () => {
     const before = remoteRefs(remote)
     for (const ref of [
@@ -405,72 +432,241 @@ describe("deleteRunIngestRefs", () => {
 describe("cleanUpIngestRefs", () => {
   const now = new Date("2026-10-10T12:00:00Z")
   const ago = (ms: number) => new Date(now.getTime() - ms)
+  const DAY = 24 * HOUR
+  type State = { unfinished: boolean; finishedAt: Date | null; shadow: boolean }
+  const live = (shadow = false): State => ({
+    unfinished: true,
+    finishedAt: null,
+    shadow,
+  })
+  const done = (finishedAt: Date, shadow = false): State => ({
+    unfinished: false,
+    finishedAt,
+    shadow,
+  })
 
-  async function seed() {
-    const refs = {
-      finished: ingestRefName({ runId: "run_done", workspaceId: WORKSPACE }),
-      running: ingestRefName({ runId: "run_live", workspaceId: WORKSPACE }),
-      stale: ingestRefName({ runId: "run_stuck", workspaceId: WORKSPACE }),
+  async function seed(runs: Record<string, Date>) {
+    const refs: Record<string, string> = {}
+    for (const [runId, authorTime] of Object.entries(runs)) {
+      refs[runId] = ingestRefName({ runId, workspaceId: WORKSPACE })
+      await step({ runId, ref: refs[runId], authorTime })
     }
-    await step({ runId: "run_done", ref: refs.finished, authorTime: ago(HOUR) })
-    await step({ runId: "run_live", ref: refs.running, authorTime: ago(HOUR) })
-    await step({
-      runId: "run_stuck",
-      ref: refs.stale,
-      authorTime: ago(25 * HOUR),
-    })
     return refs
   }
 
-  it("deletes a finished run's refs and refs over 24 hours, and keeps a running run's refs", async () => {
-    const main = remoteRefs(remote).get("refs/heads/main")
-    const refs = await seed()
+  function cleanUp(
+    states: Record<string, State>,
+    extra: { onStates?: () => Promise<void> } = {},
+  ) {
     const asked: string[][] = []
-    const result = await cleanUpIngestRefs({
+    let minted = 0
+    const result = cleanUpIngestRefs({
       remote: { url: remote },
+      pushRemote: async () => {
+        minted += 1
+        return { url: remote }
+      },
       now,
-      shadow: false,
-      unfinishedRunIds: async (ids) => {
+      runStates: async (ids) => {
         asked.push([...ids].sort())
-        return new Set(ids.filter((id) => id !== "run_done"))
+        await extra.onStates?.()
+        return new Map(
+          ids.flatMap((id) => (states[id] ? [[id, states[id]] as const] : [])),
+        )
       },
     })
-    expect(asked).toEqual([["run_done", "run_live", "run_stuck"]])
-    expect(result.deleted.sort()).toEqual([refs.finished, refs.stale].sort())
-    const after = remoteRefs(remote)
-    expect(after.has(refs.running)).toBe(true)
-    expect(after.has(refs.finished)).toBe(false)
-    expect(after.has(refs.stale)).toBe(false)
-    expect(after.get("refs/heads/main")).toBe(main)
-  })
+    return { result, asked, minted: () => minted }
+  }
 
-  it("keeps shadow refs for 7 days, also after the run has finished", async () => {
-    const refs = await seed()
-    const old = ingestRefName({ runId: "run_old", workspaceId: WORKSPACE })
-    await step({ runId: "run_old", ref: old, authorTime: ago(8 * 24 * HOUR) })
-    const result = await cleanUpIngestRefs({
-      remote: { url: remote },
-      now,
-      shadow: true,
-      unfinishedRunIds: async () => new Set(["run_live"]),
+  it("keeps every ref of an unfinished run, whatever its author time", async () => {
+    const refs = await seed({
+      run_live: ago(30 * DAY),
+      run_shadow_live: ago(30 * DAY),
     })
-    expect(result.deleted).toEqual([old])
+    const { result, minted } = cleanUp({
+      run_live: live(),
+      run_shadow_live: live(true),
+    })
+    expect((await result).deleted).toEqual([])
+    expect(minted()).toBe(0)
     const after = remoteRefs(remote)
     for (const ref of Object.values(refs)) expect(after.has(ref)).toBe(true)
   })
 
-  it("does nothing and asks for no run when the remote has no ingest refs", async () => {
-    let asked = false
-    const result = await cleanUpIngestRefs({
-      remote: { url: remote },
-      now,
-      shadow: false,
-      unfinishedRunIds: async () => {
-        asked = true
-        return new Set()
+  it("deletes a finished run's refs and keeps a shadow run's refs for 7 days after it finished", async () => {
+    const main = remoteRefs(remote).get("refs/heads/main")
+    const refs = await seed({
+      run_done: ago(HOUR),
+      run_shadow_recent: ago(30 * DAY),
+      run_shadow_old: ago(HOUR),
+    })
+    const { result, asked, minted } = cleanUp({
+      run_done: done(ago(HOUR)),
+      run_shadow_recent: done(ago(6 * DAY), true),
+      run_shadow_old: done(ago(8 * DAY), true),
+    })
+    expect((await result).deleted.sort()).toEqual(
+      [refs.run_done, refs.run_shadow_old].sort(),
+    )
+    expect(asked).toEqual([["run_done", "run_shadow_old", "run_shadow_recent"]])
+    expect(minted()).toBe(1)
+    const after = remoteRefs(remote)
+    expect(after.has(refs.run_shadow_recent)).toBe(true)
+    expect(after.get("refs/heads/main")).toBe(main)
+  })
+
+  it("applies the 24-hour rule only to refs of an unknown run or with a bad name", async () => {
+    const refs = await seed({
+      run_gone_old: ago(25 * HOUR),
+      run_gone_new: ago(HOUR),
+    })
+    const oldTip = remoteRefs(remote).get(refs.run_gone_old ?? "")
+    git(remote, ["update-ref", "refs/ctxpipe/ingest/odd", oldTip ?? ""])
+    const { result } = cleanUp({})
+    expect((await result).deleted.sort()).toEqual(
+      [refs.run_gone_old, "refs/ctxpipe/ingest/odd"].sort(),
+    )
+    expect(remoteRefs(remote).has(refs.run_gone_new)).toBe(true)
+  })
+
+  it("skips a ref that moved after the listing and deletes the others", async () => {
+    const refs = await seed({ run_a: ago(HOUR), run_b: ago(HOUR) })
+    const tip = remoteRefs(remote).get(refs.run_a)
+    const { result } = cleanUp(
+      { run_a: done(ago(HOUR)), run_b: done(ago(HOUR)) },
+      {
+        // A late step of run_a advances its ref during the clean-up.
+        onStates: async () => {
+          await step({
+            runId: "run_a",
+            ref: refs.run_a,
+            oldTip: tip,
+            step: "skill:services:late:ws_alpha",
+            files: { "knowledge/services/ledger.md": service("Ledger") },
+          })
+        },
+      },
+    )
+    const outcome = await result
+    expect(outcome.deleted).toEqual([refs.run_b])
+    expect(outcome.skipped).toEqual([refs.run_a])
+    expect(remoteRefs(remote).has(refs.run_a)).toBe(true)
+  })
+
+  it("does nothing, asks for no run, and mints no token when the remote has no ingest refs", async () => {
+    const { result, asked, minted } = cleanUp({})
+    expect((await result).deleted).toEqual([])
+    expect(asked).toEqual([])
+    expect(minted()).toBe(0)
+  })
+})
+
+describe("pushIngestAssemble", () => {
+  const ASSEMBLED = ingestRefName({ runId: RUN, workspaceId: WORKSPACE })
+
+  async function shards(files: Array<Record<string, string>>) {
+    const tips: Array<{ shard: string; tip: string }> = []
+    for (const [index, shardFiles] of files.entries()) {
+      const shard = String(index)
+      const result = await step({
+        ref: ingestRefName({ runId: RUN, workspaceId: WORKSPACE, shard }),
+        step: `skill:root-${shard}:apis:ws_alpha`,
+        files: shardFiles,
+      })
+      tips.push({ shard, tip: result.sha })
+    }
+    return tips
+  }
+
+  function assemble(
+    tips: Array<{ shard: string; tip: string }>,
+    remoteUrl = remote,
+  ) {
+    return pushIngestAssemble({
+      job: { runId: RUN, workspaceId: WORKSPACE },
+      pinnedRevision: pinned,
+      shards: tips,
+      oldTip: null,
+      remote: { url: remoteUrl },
+      commit: {
+        step: "assemble:ws_alpha",
+        bundle: "bundle-1",
+        authorTime: AUTHOR_TIME,
       },
     })
-    expect(result.deleted).toEqual([])
-    expect(asked).toBe(false)
+  }
+
+  it("merges three shards into one commit whose parents are the shard tips", async () => {
+    const tips = await shards([
+      { "knowledge/services/a.md": service("A") },
+      { "knowledge/services/b.md": service("B") },
+      { "knowledge/services/c.md": service("C") },
+    ])
+    const main = remoteRefs(remote).get("refs/heads/main")
+    const result = await assemble(tips)
+    expect(remoteRefs(remote).get(ASSEMBLED)).toBe(result.sha)
+    expect(remoteRefs(remote).get("refs/heads/main")).toBe(main)
+    expect(result.ops).toBe(3)
+    expect(
+      git(remote, ["log", "-1", "--format=%P", result.sha]).split(" "),
+    ).toEqual(tips.map((t) => t.tip))
+    expect(
+      git(remote, ["ls-tree", "-r", "--name-only", result.sha]).split("\n"),
+    ).toEqual([
+      "AGENTS.md",
+      "knowledge/services/a.md",
+      "knowledge/services/b.md",
+      "knowledge/services/billing.md",
+      "knowledge/services/c.md",
+    ])
+    expect(
+      git(remote, [
+        "log",
+        "-1",
+        "--format=%(trailers:only,unfold)",
+        result.sha,
+      ]),
+    ).toContain("Ctxpipe-Step: assemble:ws_alpha")
+
+    // A repository-wide skill then commits a normal step on the assembled ref.
+    const next = await step({
+      ref: ASSEMBLED,
+      oldTip: result.sha,
+      step: "skill:repository:ownership:ws_alpha",
+      files: { "knowledge/services/d.md": service("D") },
+    })
+    expect(git(remote, ["rev-parse", `${next.sha}^`])).toBe(result.sha)
+  })
+
+  it("makes the same SHA when assemble is replayed", async () => {
+    const tips = await shards([
+      { "knowledge/services/a.md": service("A") },
+      { "knowledge/services/b.md": service("B") },
+    ])
+    const first = await assemble(tips)
+    const again = await assemble(tips)
+    expect(again.sha).toBe(first.sha)
+    expect(remoteRefs(remote).get(ASSEMBLED)).toBe(first.sha)
+  })
+
+  it("refuses two shards that change one path and pushes nothing", async () => {
+    const tips = await shards([
+      { "knowledge/services/a.md": service("A") },
+      { "knowledge/services/a.md": service("A from another root") },
+    ])
+    await expect(assemble(tips)).rejects.toThrow(IngestAssembleConflictError)
+    await expect(assemble(tips)).rejects.toThrow(/knowledge\/services\/a\.md/)
+    expect(remoteRefs(remote).has(ASSEMBLED)).toBe(false)
+  })
+
+  it("refuses a shard tip that is not the shard ref's tip", async () => {
+    const tips = await shards([{ "knowledge/services/a.md": service("A") }])
+    await expect(
+      assemble([{ shard: "0", tip: pinned }]),
+    ).rejects.toBeInstanceOf(IngestRefRefusedError)
+    await expect(
+      assemble([...tips, { shard: "7", tip: tips[0]?.tip ?? "" }]),
+    ).rejects.toBeInstanceOf(IngestRefRefusedError)
+    expect(remoteRefs(remote).has(ASSEMBLED)).toBe(false)
   })
 })

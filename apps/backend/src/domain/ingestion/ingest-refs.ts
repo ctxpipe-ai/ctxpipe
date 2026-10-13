@@ -1,7 +1,10 @@
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { setTimeout as sleep } from "node:timers/promises"
 import {
+  disallowedPathReason,
+  MAX_WORKSPACE_OPS,
   type PatchStepInput,
   type PatchStepResult,
   validatePatchStep,
@@ -24,9 +27,8 @@ export const INGEST_REF_ROOT = "refs/ctxpipe/ingest/"
 
 const SEGMENT = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/
 const DAY_MS = 24 * 60 * 60 * 1000
-const STALE_MS = DAY_MS
-const SHADOW_STALE_MS = 7 * DAY_MS
 const STEP_AUTHOR = { name: "ctxpipe", email: "ingest@ctxpipe.ai" }
+const PUSH_ATTEMPTS = 3
 
 export type IngestRefTarget = {
   runId: string
@@ -37,7 +39,7 @@ export type IngestRefTarget = {
 /** A remote and the git environment (credentials) to reach it. */
 export type IngestRemote = { url: string; env?: NodeJS.ProcessEnv }
 
-/** The broker refused the push. Do not retry the same job. */
+/** The broker refused the job. Do not retry the same job. */
 export class IngestRefRefusedError extends Error {
   constructor(message: string) {
     super(message)
@@ -45,14 +47,21 @@ export class IngestRefRefusedError extends Error {
   }
 }
 
+/** Two shards change the same path. The semantic merge child resolves it. */
+export class IngestAssembleConflictError extends IngestRefRefusedError {
+  constructor(readonly paths: string[]) {
+    super(`Two shards change the same path: ${paths.join(", ")}`)
+    this.name = "IngestAssembleConflictError"
+  }
+}
+
 export function ingestRefName(target: IngestRefTarget): string {
-  const segments = [target.runId, target.workspaceId, target.shard ?? ""]
   if (
     !SEGMENT.test(target.runId) ||
     !SEGMENT.test(target.workspaceId) ||
     (target.shard !== undefined && !SEGMENT.test(target.shard))
   )
-    throw new Error(`Unsafe ingest ref segment: ${segments.join("/")}`)
+    throw new Error("Unsafe ingest ref segment")
   return target.shard === undefined
     ? `${INGEST_REF_ROOT}${target.runId}/${target.workspaceId}/assembled`
     : `${INGEST_REF_ROOT}${target.runId}/${target.workspaceId}/shards/${target.shard}`
@@ -73,46 +82,56 @@ export type IngestStepCommit = {
   /** The step name, for example `skill:<root>:<skill>:<workspaceId>`. */
   step: string
   bundle: string
-  /** From the run input, so that a replay makes the same SHA. */
+  /** From the run input, so that a replay makes the same SHA. Never an age. */
   authorTime: Date
 }
 
+export type IngestJob = { runId: string; workspaceId: string }
+
 export type PushIngestStepInput = {
   /** The run and the Workspace of the job. The ref must belong to both. */
-  job: { runId: string; workspaceId: string }
+  job: IngestJob
   ref: string
   /** The ref tip that the job expects; null when the ref must not exist. */
   oldTip: string | null
   /** The base of the first commit on a ref. */
   pinnedRevision: string
+  /** The commit that the sandbox staged against (`step.json`). */
+  baseCommit: string
   remote: IngestRemote
   commit: IngestStepCommit
   patch: Omit<PatchStepInput, "repoDir" | "baseCommit" | "bundle">
 }
 
-/**
- * The ref job: validate the staged step against the base commit, commit the
- * accepted tree with fixed author data and trailers, and push it only when the
- * remote ref is at the expected old tip. A replay of a pushed step returns the
- * same SHA and pushes nothing.
- */
-export async function pushIngestStep(
-  input: PushIngestStepInput,
-): Promise<{ sha: string; validation: PatchStepResult }> {
-  const target = parseIngestRef(input.ref)
+function assertJobRef(job: IngestJob, ref: string): IngestRefTarget {
+  const target = parseIngestRef(ref)
   if (
     !target ||
-    target.runId !== input.job.runId ||
-    target.workspaceId !== input.job.workspaceId
+    target.runId !== job.runId ||
+    target.workspaceId !== job.workspaceId
   )
     throw new IngestRefRefusedError(
       "The ref is not an ingest ref of the job's run and Workspace",
     )
+  return target
+}
+
+/**
+ * The step job: validate the staged step against the base commit, commit the
+ * accepted tree with fixed author data and trailers, and push it only when the
+ * remote ref is at the expected old tip. A replay of a pushed step returns the
+ * same SHA.
+ */
+export async function pushIngestStep(
+  input: PushIngestStepInput,
+): Promise<{ sha: string; validation: PatchStepResult }> {
+  assertJobRef(input.job, input.ref)
+  const base = input.oldTip ?? input.pinnedRevision
+  if (input.baseCommit !== base)
+    throw new IngestRefRefusedError(
+      "The step was staged against another commit than the old tip",
+    )
   return withScratchRepository(async (repoDir) => {
-    const current = await remoteTip(repoDir, input.remote, input.ref)
-    if (current === null && input.oldTip !== null)
-      throw new IngestRefRefusedError("The ref does not exist")
-    const base = input.oldTip ?? input.pinnedRevision
     await fetchCommits(repoDir, input.remote, [base], { blobs: true })
     const validation = await validatePatchStep({
       ...input.patch,
@@ -122,37 +141,110 @@ export async function pushIngestStep(
     })
     const sha = await commitStep(repoDir, {
       tree: validation.tree,
-      parent: base,
+      parents: [base],
       runId: input.job.runId,
       ...input.commit,
     })
-    if (current === sha) return { sha, validation }
-    if (current !== input.oldTip)
-      throw new IngestRefRefusedError("The ref is not at the expected old tip")
-    try {
+    await pushWithLease(repoDir, input.remote, input.ref, input.oldTip, sha)
+    return { sha, validation }
+  })
+}
+
+/**
+ * The assemble job: one commit whose parents are the shard tips, on the
+ * pinned revision plus the ops of each shard. Each op must be a valid path
+ * against the pinned revision. Two shards that change one path are a conflict:
+ * the broker refuses, and the run sends them to the semantic merge child.
+ * There is no per-step op cap; the run cap of a Workspace applies.
+ */
+export async function pushIngestAssemble(input: {
+  job: IngestJob
+  pinnedRevision: string
+  /** The shard tips from the step outputs. */
+  shards: Array<{ shard: string; tip: string }>
+  /** The assembled ref tip that the job expects; null for a new ref. */
+  oldTip: string | null
+  remote: IngestRemote
+  commit: IngestStepCommit
+}): Promise<{ sha: string; ops: number }> {
+  const ref = ingestRefName({
+    runId: input.job.runId,
+    workspaceId: input.job.workspaceId,
+  })
+  const shards = [...input.shards].sort((a, b) =>
+    a.shard.localeCompare(b.shard, "en", { numeric: true }),
+  )
+  return withScratchRepository(async (repoDir) => {
+    const listed = new Map(
+      (await listIngestRefs(repoDir, input.remote)).map((r) => [r.name, r.sha]),
+    )
+    for (const { shard, tip } of shards) {
+      const name = ingestRefName({ ...input.job, shard })
+      if (listed.get(name) !== tip)
+        throw new IngestRefRefusedError(
+          `The shard ref ${shard} is not at the given tip`,
+        )
+    }
+    const tips = shards.map((s) => s.tip)
+    await fetchCommits(repoDir, input.remote, [input.pinnedRevision], {
+      blobs: true,
+    })
+    if (tips.length)
       await runGit(
         repoDir,
-        [
-          "push",
-          "--porcelain",
-          `--force-with-lease=${input.ref}:${input.oldTip ?? ""}`,
-          "--",
-          input.remote.url,
-          `${sha}:${input.ref}`,
-        ],
+        ["fetch", "--quiet", "--no-tags", "--", input.remote.url, ...tips],
         { env: input.remote.env },
       )
-    } catch (error) {
-      // A rival push won the race. The lease refused this one.
-      const after = await remoteTip(repoDir, input.remote, input.ref)
-      if (after === sha) return { sha, validation }
-      if (after !== input.oldTip)
+
+    const changes = new Map<string, { shard: string; line: string }>()
+    const conflicts = new Set<string>()
+    for (const { shard, tip } of shards) {
+      const descends = await runGit(repoDir, [
+        "merge-base",
+        "--is-ancestor",
+        input.pinnedRevision,
+        tip,
+      ]).then(
+        () => true,
+        () => false,
+      )
+      if (!descends)
         throw new IngestRefRefusedError(
-          "The ref moved away from the expected old tip",
+          `The shard ${shard} does not start at the pinned revision`,
         )
-      throw error
+      for (const change of await diffTree(repoDir, input.pinnedRevision, tip)) {
+        const reason = disallowedPathReason(change.path)
+        if (reason) throw new IngestRefRefusedError(`${change.path}: ${reason}`)
+        const key = change.path.toLowerCase()
+        if (changes.has(key)) conflicts.add(change.path)
+        else changes.set(key, { shard, line: change.indexLine })
+      }
     }
-    return { sha, validation }
+    if (conflicts.size) throw new IngestAssembleConflictError([...conflicts])
+    if (changes.size > MAX_WORKSPACE_OPS)
+      throw new IngestRefRefusedError(
+        `The shards write ${changes.size} ops; a Workspace takes at most ${MAX_WORKSPACE_OPS} in a run`,
+      )
+
+    const indexEnv = { GIT_INDEX_FILE: join(repoDir, "assemble.index") }
+    await runGit(repoDir, ["read-tree", input.pinnedRevision], {
+      env: indexEnv,
+    })
+    await runGit(repoDir, ["update-index", "-z", "--index-info"], {
+      env: indexEnv,
+      input: [...changes.values()].map((c) => c.line).join(""),
+    })
+    const tree = (await runGit(repoDir, ["write-tree"], { env: indexEnv }))
+      .toString()
+      .trim()
+    const sha = await commitStep(repoDir, {
+      tree,
+      parents: tips.length ? tips : [input.pinnedRevision],
+      runId: input.job.runId,
+      ...input.commit,
+    })
+    await pushWithLease(repoDir, input.remote, ref, input.oldTip, sha)
+    return { sha, ops: changes.size }
   })
 }
 
@@ -189,52 +281,62 @@ export async function deleteRunIngestRefs(input: {
         ref.target?.runId === input.runId &&
         ref.target.workspaceId === input.workspaceId,
     )
-    await deleteRefs(repoDir, input.remote, refs)
-    return refs.map((ref) => ref.name)
+    return (await deleteRefs(repoDir, input.remote, refs)).deleted
   })
 }
 
+/** What the clean-up needs to know about one run. */
+export type IngestRunState = {
+  unfinished: boolean
+  finishedAt: Date | null
+  shadow: boolean
+}
+
 /**
- * Stale-ref clean-up for the Workspace tip check (concept section 7.4). It
- * deletes the refs of a run that is not unfinished and every ref older than
- * 24 hours. In shadow mode, refs stay 7 days for the comparison. The age is
- * the commit time of the tip, which is the run's author time.
+ * Stale-ref clean-up for the Workspace tip check (concept section 7.4):
+ * - an unfinished run keeps all of its refs;
+ * - a finished run loses its refs, but a shadow run keeps them for 7 days
+ *   after it finished;
+ * - a ref of an unknown run, or with a name that does not parse, goes when
+ *   its tip commit is older than 24 hours. No live run depends on such a ref,
+ *   so its commit time is a safe age.
+ * The listing uses `remote` (a read credential). `pushRemote` gives the write
+ * credential and is called only when there is a ref to delete.
  */
 export async function cleanUpIngestRefs(input: {
   remote: IngestRemote
+  pushRemote?: () => Promise<IngestRemote>
   now: Date
-  shadow: boolean
-  unfinishedRunIds: (runIds: string[]) => Promise<Set<string>>
-}): Promise<{ deleted: string[] }> {
+  runStates: (runIds: string[]) => Promise<Map<string, IngestRunState>>
+}): Promise<{ deleted: string[]; skipped: string[] }> {
   return withScratchRepository(async (repoDir) => {
     const refs = await listIngestRefs(repoDir, input.remote)
-    if (!refs.length) return { deleted: [] }
-    const shas = [...new Set(refs.map((ref) => ref.sha))]
-    await fetchCommits(repoDir, input.remote, shas, { blobs: false })
-    const times = new Map(
-      (await runGit(repoDir, ["log", "--no-walk", "--format=%H %ct", ...shas]))
-        .toString()
-        .trim()
-        .split("\n")
-        .map((line) => {
-          const [sha = "", time = "0"] = line.split(" ")
-          return [sha, Number(time) * 1000] as const
-        }),
-    )
+    if (!refs.length) return { deleted: [], skipped: [] }
     const runIds = [
       ...new Set(refs.flatMap((ref) => (ref.target ? [ref.target.runId] : []))),
     ]
-    const unfinished = input.shadow
-      ? new Set<string>()
-      : await input.unfinishedRunIds(runIds)
+    const states = runIds.length
+      ? await input.runStates(runIds)
+      : new Map<string, IngestRunState>()
+    const orphans = refs.filter(
+      (ref) => !ref.target || !states.has(ref.target.runId),
+    )
+    const commitTimes = await tipTimes(
+      repoDir,
+      input.remote,
+      orphans.map((ref) => ref.sha),
+    )
+    const now = input.now.getTime()
     const stale = refs.filter((ref) => {
-      const age = input.now.getTime() - (times.get(ref.sha) ?? 0)
-      if (!ref.target) return age > STALE_MS
-      if (input.shadow) return age > SHADOW_STALE_MS
-      return !unfinished.has(ref.target.runId) || age > STALE_MS
+      const state = ref.target ? states.get(ref.target.runId) : undefined
+      if (!state) return now - (commitTimes.get(ref.sha) ?? now) > DAY_MS
+      if (state.unfinished) return false
+      if (!state.shadow) return true
+      return !state.finishedAt || now - state.finishedAt.getTime() > 7 * DAY_MS
     })
-    await deleteRefs(repoDir, input.remote, stale)
-    return { deleted: stale.map((ref) => ref.name) }
+    if (!stale.length) return { deleted: [], skipped: [] }
+    const pushRemote = (await input.pushRemote?.()) ?? input.remote
+    return deleteRefs(repoDir, pushRemote, stale)
   })
 }
 
@@ -259,26 +361,82 @@ async function listIngestRefs(
     })
 }
 
+/**
+ * Deletes each ref with a lease on its listed tip. A ref that moved since the
+ * listing is skipped, not deleted, and does not stop the other deletes.
+ */
 async function deleteRefs(
   repoDir: string,
   remote: IngestRemote,
   refs: ListedRef[],
+): Promise<{ deleted: string[]; skipped: string[] }> {
+  const deleted: string[] = []
+  const skipped: string[] = []
+  for (const ref of refs) {
+    try {
+      await runGit(
+        repoDir,
+        [
+          "push",
+          "--porcelain",
+          `--force-with-lease=${ref.name}:${ref.sha}`,
+          "--",
+          remote.url,
+          `:${ref.name}`,
+        ],
+        { env: remote.env },
+      )
+      deleted.push(ref.name)
+    } catch (error) {
+      const tip = await remoteTip(repoDir, remote, ref.name)
+      if (tip === null) deleted.push(ref.name)
+      else if (tip !== ref.sha) skipped.push(ref.name)
+      else throw error
+    }
+  }
+  return { deleted, skipped }
+}
+
+/**
+ * Pushes `sha` to `ref` only when the remote ref is at `oldTip` (absent for
+ * null). `sha` has `oldTip` as a parent, so the push is a fast-forward. When
+ * the ref is already at `sha` (a replay), nothing changes.
+ */
+async function pushWithLease(
+  repoDir: string,
+  remote: IngestRemote,
+  ref: string,
+  oldTip: string | null,
+  sha: string,
 ): Promise<void> {
-  if (!refs.length) return
-  // The lease deletes a ref only at the listed tip, so a ref that a step
-  // advanced in the meantime stays.
-  await runGit(
-    repoDir,
-    [
-      "push",
-      "--porcelain",
-      ...refs.map((ref) => `--force-with-lease=${ref.name}:${ref.sha}`),
-      "--",
-      remote.url,
-      ...refs.map((ref) => `:${ref.name}`),
-    ],
-    { env: remote.env },
-  )
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      await runGit(
+        repoDir,
+        [
+          "push",
+          "--porcelain",
+          `--force-with-lease=${ref}:${oldTip ?? ""}`,
+          "--",
+          remote.url,
+          `${sha}:${ref}`,
+        ],
+        { env: remote.env },
+      )
+      return
+    } catch (error) {
+      const tip = await remoteTip(repoDir, remote, ref)
+      if (tip === sha) return
+      if (tip !== oldTip)
+        throw new IngestRefRefusedError(
+          "The ref is not at the expected old tip",
+        )
+      // The ref did not move: a rival push held the ref lock, or the remote
+      // failed. Try again; the lease still guards the ref.
+      if (attempt >= PUSH_ATTEMPTS) throw error
+      await sleep(100 * attempt)
+    }
+  }
 }
 
 async function remoteTip(
@@ -318,9 +476,64 @@ async function fetchCommits(
   )
 }
 
+async function tipTimes(
+  repoDir: string,
+  remote: IngestRemote,
+  shas: string[],
+): Promise<Map<string, number>> {
+  const unique = [...new Set(shas)]
+  if (!unique.length) return new Map()
+  await fetchCommits(repoDir, remote, unique, { blobs: false })
+  const out = await runGit(repoDir, [
+    "log",
+    "--no-walk",
+    "--format=%H %ct",
+    ...unique,
+  ])
+  return new Map(
+    out
+      .toString()
+      .trim()
+      .split("\n")
+      .map((line) => {
+        const [sha = "", time = "0"] = line.split(" ")
+        return [sha, Number(time) * 1000] as const
+      }),
+  )
+}
+
+/** Changed paths from `from` to `to`, as `update-index -z --index-info` lines. */
+async function diffTree(
+  repoDir: string,
+  from: string,
+  to: string,
+): Promise<Array<{ path: string; indexLine: string }>> {
+  const out = (
+    await runGit(repoDir, ["diff-tree", "-r", "-z", "--no-renames", from, to])
+  ).toString()
+  const fields = out.split("\0")
+  const changes: Array<{ path: string; indexLine: string }> = []
+  for (let i = 0; i + 1 < fields.length; i += 2) {
+    const meta = fields[i] ?? ""
+    const path = fields[i + 1] ?? ""
+    // ":<old mode> <new mode> <old sha> <new sha> <status>"
+    const [, newMode = "", , newSha = "", status = ""] = meta
+      .slice(1)
+      .split(" ")
+    changes.push({
+      path,
+      indexLine:
+        status === "D"
+          ? `0 ${"0".repeat(newSha.length)}\t${path}\0`
+          : `${newMode} ${newSha}\t${path}\0`,
+    })
+  }
+  return changes
+}
+
 async function commitStep(
   repoDir: string,
-  input: IngestStepCommit & { tree: string; parent: string; runId: string },
+  input: IngestStepCommit & { tree: string; parents: string[]; runId: string },
 ): Promise<string> {
   for (const value of [input.runId, input.step, input.bundle])
     if (!/^[\x21-\x7e]{1,200}$/.test(value))
@@ -329,7 +542,12 @@ async function commitStep(
   const message = `Ingest step ${input.step}\n\nCtxpipe-Run: ${input.runId}\nCtxpipe-Step: ${input.step}\nCtxpipe-Bundle: ${input.bundle}\n`
   const out = await runGit(
     repoDir,
-    ["commit-tree", "--no-gpg-sign", input.tree, "-p", input.parent],
+    [
+      "commit-tree",
+      "--no-gpg-sign",
+      input.tree,
+      ...input.parents.flatMap((parent) => ["-p", parent]),
+    ],
     {
       input: message,
       env: {
