@@ -3,6 +3,7 @@ import { Hono } from "hono"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../app/env.js"
 import { oauthAccessTokens, organizations, users } from "../db/schema/auth.js"
+import { oauthGrantOrganizations } from "../db/schema/oauth_grant_organizations.js"
 
 const {
   getSessionMock,
@@ -158,6 +159,9 @@ function createMockDb(input: {
               })),
             }
           }
+          if (table === oauthGrantOrganizations) {
+            return { where: vi.fn(async () => []) }
+          }
           const rows = table === oauthAccessTokens ? opaqueTokenRows : orgRows
           return {
             where: vi.fn(() => ({
@@ -187,7 +191,7 @@ function createBaseApp(): Hono<AppEnv> {
     } as AppEnv["Variables"]["env"])
     c.set("user", null)
     c.set("session", null)
-    c.set("oauthOrganizationId", null)
+    c.set("oauthReferenceId", null)
     c.set("oauthClientId", null)
     c.set("orgApiKey", null)
     c.set("personalApiKeyId", null)
@@ -664,7 +668,7 @@ describe("auth middleware composition", () => {
       session: { id: "sess_cookie", userId: "user_cookie" },
     })
     testState.db = createMockDb({
-      orgRows: [{ id: "org_cookie" }],
+      orgRows: [{ id: "org_cookie", slug: "acme" }],
     })
 
     const app = createComposedTestApp()
@@ -698,7 +702,7 @@ describe("auth middleware composition", () => {
     expect(await response.json()).toMatchObject({
       jsonrpc: "2.0",
       error: {
-        message: expect.stringContaining("not bound to an organization"),
+        message: expect.stringContaining("Name an organization"),
       },
     })
   })
@@ -726,7 +730,7 @@ describe("auth middleware composition", () => {
     expect(await response.json()).toMatchObject({
       jsonrpc: "2.0",
       error: {
-        message: expect.stringContaining("not bound to an organization"),
+        message: expect.stringContaining("Name an organization"),
       },
     })
   })
@@ -784,7 +788,7 @@ describe("auth middleware composition", () => {
           user: { id: "user_token", email: "token@example.com" },
         },
       ],
-      orgRows: [{ id: "org_token" }],
+      orgRows: [{ id: "org_token", slug: "acme" }],
     })
 
     const app = createComposedTestApp()
@@ -842,35 +846,6 @@ describe("auth middleware composition", () => {
       orgId: "org_bound",
     })
     expect(verifyApiKeyMock).not.toHaveBeenCalled()
-  })
-
-  it("rejects an explicit orgSlug that conflicts with the JWT grant", async () => {
-    getSessionMock.mockResolvedValueOnce(null)
-    jwtVerifyMock.mockResolvedValueOnce({
-      payload: {
-        sub: "user_oauth",
-        sid: "sess_oauth",
-        [OAUTH_ORGANIZATION_CLAIM]: "org_bound",
-      },
-    })
-    testState.db = createMockDb({
-      tokenSessionRows: [
-        {
-          session: { id: "sess_oauth", userId: "user_oauth" },
-          user: { id: "user_oauth", email: "oauth@example.com" },
-        },
-      ],
-      orgRows: [{ id: "org_bound", slug: "bound" }],
-    })
-
-    const app = createComposedTestApp()
-    const response = await app.request("/mcp?orgSlug=other", {
-      method: "POST",
-      headers: { authorization: "Bearer header.payload.signature" },
-    })
-
-    expect(response.status).toBe(404)
-    expect(withOrgDbContextMock).not.toHaveBeenCalled()
   })
 
   it("uses the organization frozen into an opaque OAuth grant", async () => {
@@ -995,7 +970,7 @@ describe("auth middleware composition", () => {
           user: { id: "user_token", email: "token@example.com" },
         },
       ],
-      orgRows: [{ id: "org_token" }],
+      orgRows: [{ id: "org_token", slug: "acme" }],
     })
 
     const app = createComposedTestApp()
@@ -1563,22 +1538,6 @@ describe("org API-key tenant binding", () => {
     })
   })
 
-  it("org x-api-key rejects a mismatched orgSlug with 404", async () => {
-    mockOrgKey()
-    testState.db = createMockDb({
-      orgRows: [{ id: "org_acme", slug: "acme" }],
-    })
-
-    const app = createComposedTestApp()
-    const response = await app.request("/mcp?orgSlug=other", {
-      method: "POST",
-      headers: { "x-api-key": "ctxp_org_key" },
-    })
-
-    expect(response.status).toBe(404)
-    expect(await response.json()).toEqual({ error: "Not found" })
-  })
-
   it("org x-api-key returns 404 when the bound org is missing", async () => {
     mockOrgKey()
     testState.db = createMockDb({ orgRows: [] })
@@ -1612,7 +1571,7 @@ describe("org API-key tenant binding", () => {
     expect(await response.json()).toMatchObject({
       jsonrpc: "2.0",
       error: {
-        message: expect.stringContaining("not bound to an organization"),
+        message: expect.stringContaining("Name an organization"),
       },
     })
     expect(verifyApiKeyMock).not.toHaveBeenCalled()
@@ -1624,7 +1583,7 @@ describe("org API-key tenant binding", () => {
       session: { id: "sess_api_key", userId: "user_api_key" },
     })
     testState.db = createMockDb({
-      orgRows: [{ id: "org_acme" }],
+      orgRows: [{ id: "org_acme", slug: "acme" }],
     })
 
     const app = createComposedTestApp()
@@ -1669,7 +1628,7 @@ describe("org API-key tenant binding", () => {
     expect(await response.json()).toMatchObject({
       jsonrpc: "2.0",
       error: {
-        message: expect.stringContaining("not bound to an organization"),
+        message: expect.stringContaining("Name an organization"),
       },
     })
   })

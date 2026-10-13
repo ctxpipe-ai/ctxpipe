@@ -46,8 +46,6 @@ export const oauthGrantOrganizations = pgTable(
       t.apiKeyId,
       t.organizationId,
     ),
-    index("oauth_grant_organizations_organization_id_idx").on(
-      t.organizationId,
-    ),
+    index("oauth_grant_organizations_organization_id_idx").on(t.organizationId),
   ],
 )

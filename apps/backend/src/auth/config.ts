@@ -27,9 +27,11 @@ import { schema } from "../db/schema.js"
 import { generateObjectId } from "../lib/id.js"
 import { log } from "../observability/logger.js"
 import { invitationEmailLink } from "./invitation-email-url.js"
+import { findOrCreateOAuthGrant } from "./oauth-grants.js"
 import {
   getOAuthConsentOrganizationId,
-  OAUTH_ORGANIZATION_CLAIM,
+  getOAuthRequestClientId,
+  oauthAccessTokenClaims,
   resolveOAuthConsentReferenceId,
   selectOAuthOrganizationBinding,
 } from "./oauth-organization.js"
@@ -364,25 +366,29 @@ export function createBetterAuth() {
               db,
               user.id,
             )
-            const referenceId = resolveOAuthConsentReferenceId(
+            const organizationId = resolveOAuthConsentReferenceId(
               membershipIds,
               typeof session.activeOrganizationId === "string"
                 ? session.activeOrganizationId
                 : null,
               getOAuthConsentOrganizationId(),
             )
-            if (!referenceId) {
+            if (!organizationId) {
               throw new APIError("BAD_REQUEST", {
                 error: "organization_required",
                 error_description:
                   "Select a ctxpipe organization before authorizing this client.",
               })
             }
-            return referenceId
+            return findOrCreateOAuthGrant({
+              userId: user.id,
+              clientId: getOAuthRequestClientId(),
+              organizationId,
+            })
           },
         },
         customAccessTokenClaims({ referenceId }) {
-          return referenceId ? { [OAUTH_ORGANIZATION_CLAIM]: referenceId } : {}
+          return oauthAccessTokenClaims(referenceId)
         },
         issuer,
         allowDynamicClientRegistration: true,
