@@ -60,7 +60,13 @@ After completing requested code changes, commit and push the current feature bra
 
 ### Sub-agent models
 
-When spawning a sub-agent (Cursor Task, Claude Code Agent, or any other harness), always set the model explicitly: **Opus at medium effort** for implementation and explore; **Opus at high effort** for review and grilling. Use the harness's own name for Opus and its effort setting.
+When spawning a sub-agent (Cursor Task, Claude Code Agent, or any other harness), always set the model explicitly. Use the harness's own name for each model and its effort setting. The token total is the limit, not the number of agents in parallel.
+
+- **Opus at high effort:** the Standards and Spec review axes, security re-reviews, and grilling.
+- **Opus at medium effort:** implementation that is design-heavy or security-sensitive (auth, sandboxes, egress, data model, ranking).
+- **Sonnet at high effort:** the Simplicity review axis.
+- **Sonnet at medium effort:** plumbing tickets, mechanical review-fix rounds, docs, and ticket notes. Start a fresh agent from a short brief. Do not resume a long-context builder for a list of small fixes.
+- **Haiku at low effort:** status checks, file search, and log triage.
 
 ### Issue tracker
 
@@ -84,7 +90,7 @@ Customer-facing documentation lives in [`apps/docs/content/docs/`](apps/docs/con
 
 ### Adversarial review
 
-Every adversarial review of a diff is three Opus (high effort) axes — **Standards**, **Spec**, and **Simplicity** — via [`code-review`](.agents/skills/code-review/SKILL.md). Do not run the review as spec-only. Simplicity names the job, the thinnest machine, and leftover machinery; spec-match is not a defense. See [`simplicity-audit`](.agents/skills/simplicity-audit/SKILL.md).
+Every adversarial review of a diff is three axes — **Standards** and **Spec** on Opus (high effort), **Simplicity** on Sonnet (high effort) — via [`code-review`](.agents/skills/code-review/SKILL.md). Do not run the review as spec-only. Simplicity names the job, the thinnest machine, and leftover machinery; spec-match is not a defense. See [`simplicity-audit`](.agents/skills/simplicity-audit/SKILL.md).
 
 ## Architecture decisions & ADRs
 
