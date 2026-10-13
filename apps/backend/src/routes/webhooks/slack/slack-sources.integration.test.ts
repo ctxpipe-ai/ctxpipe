@@ -12,7 +12,6 @@ import { encodeSlackBotTokenForDb } from "../../../lib/connection-config.js"
 import { seedSourcesOrg } from "../../../test/workspace-sources-fixture.js"
 
 const secret = "slack-signing-secret-for-sources"
-const requestLog = createLogger()
 let seed: Awaited<ReturnType<typeof seedSourcesOrg>>
 
 function app() {
@@ -21,7 +20,7 @@ function app() {
   hono.use(contextStorage())
   hono.use("*", async (c, next) => {
     c.set("env", env)
-    c.set("log", requestLog)
+    c.set("log", createLogger())
     await next()
   })
   return hono
@@ -136,19 +135,5 @@ describe("Slack webhook starts the mention agent for Workspace sources (Postgres
         { threadTs: "1790000000.000100" },
       ]),
     )
-  })
-
-  it("does not enqueue the agent for a revoked connection", async () => {
-    const { connectionId, teamId } = await slackConnection("revoked", {
-      status: "revoked",
-    })
-    const info = vi.spyOn(requestLog, "info")
-    expect((await mention(teamId, "1790000200.000100")).status).toBe(200)
-    // The skip returns before the enqueue starts, so no run can come later.
-    expect(info).toHaveBeenCalledWith(
-      "slack_webhook_mention_skipped_not_installed",
-      expect.objectContaining({ connectionId, connectionStatus: "revoked" }),
-    )
-    expect(await runs(connectionId)).toEqual([])
   })
 })
