@@ -56,10 +56,6 @@ export type SlackBindingWithRepo = SlackBinding & {
   githubConnectionId: string | null
 }
 
-/** Capture/write path still uses this name; same shape as {@link SlackBinding}. */
-export type SlackSyncTarget = SlackBinding
-export type SlackSyncTargetWithRepo = SlackBindingWithRepo
-
 function bindingFromConnectionRow(
   row: ConnectionRow,
 ): SlackBinding | undefined {
@@ -190,8 +186,14 @@ export async function upsertSlackConnectionFromOAuth(input: {
   botHandle?: string | null
   appId?: string | null
 }): Promise<SlackConnection> {
-  const existingForTeam = await getSlackConnectionByTeamId(input.teamId)
-  if (existingForTeam && existingForTeam.orgId !== input.orgId) {
+  // The directory row names the owner org. The callback runs in the org
+  // transaction of the state, so it cannot open the transaction of that org.
+  const claimed = await listConnectionDirectoryBySlackTeamId(input.teamId)
+  if (
+    claimed.some(
+      (row) => row.type === CONNECTION_TYPE_SLACK && row.orgId !== input.orgId,
+    )
+  ) {
     throw new SlackTeamAlreadyConnectedError()
   }
 
@@ -220,11 +222,7 @@ export async function upsertSlackConnectionFromOAuth(input: {
       teamId: input.teamId,
       teamName: input.teamName ?? existingStored?.teamName ?? null,
       botUserId: input.botUserId ?? existingStored?.botUserId ?? null,
-      botHandle:
-        input.botHandle ??
-        existingStored?.botHandle ??
-        existingForTeam?.botHandle ??
-        null,
+      botHandle: input.botHandle ?? existingStored?.botHandle ?? null,
       appId: input.appId ?? existingStored?.appId ?? null,
       ownerUserId: input.ownerUserId,
       status: "installed",
@@ -351,10 +349,6 @@ export async function getSlackBindingWithRepoByConnectionId(
   })
 }
 
-/** @deprecated Prefer {@link getSlackBindingWithRepoByConnectionId}. */
-export const getSlackSyncTargetWithRepoByConnectionId =
-  getSlackBindingWithRepoByConnectionId
-
 export async function getSlackConnectionByTeamId(
   teamId: string,
 ): Promise<SlackConnection | undefined> {
@@ -365,17 +359,6 @@ export async function getSlackConnectionByTeamId(
   const match = rows.find((row) => row?.type === CONNECTION_TYPE_SLACK)
   return match ? slackConnectionToShape(match) : undefined
 }
-
-export async function getSlackBindingByConnectionId(
-  connectionId: string,
-): Promise<SlackBinding | undefined> {
-  const row = await loadConnectionViaDirectory(connectionId)
-  if (row?.type !== CONNECTION_TYPE_SLACK) return undefined
-  return bindingFromConnectionRow(row)
-}
-
-/** @deprecated Prefer {@link getSlackBindingByConnectionId}. */
-export const getSlackSyncTargetByConnectionId = getSlackBindingByConnectionId
 
 export class SlackRepositoryNotFoundError extends Error {
   constructor() {

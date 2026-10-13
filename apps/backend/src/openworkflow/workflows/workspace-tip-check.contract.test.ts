@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process"
+import { mkdirSync, writeFileSync } from "node:fs"
 import { mkdtemp } from "node:fs/promises"
 import { createServer } from "node:http"
 import { tmpdir } from "node:os"
@@ -11,7 +12,11 @@ import { describe, expect, it } from "vitest"
 import { withOrgDbContext } from "../../db/client.js"
 import { workspaces, workspaceWriteJobs } from "../../db/schema/workspaces.js"
 import { WRITE_STATUS_REASONS } from "../../domain/workspaces/write-status.js"
-import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
+import { GIT_REMOTE_ACCESS_MESSAGES } from "../../services/git/clone-tree.js"
+import {
+  type NativeHydrationFixture,
+  withNativeHydrationFixture,
+} from "../../test/native-hydration-fixture.js"
 import { workspaceTipCheck } from "./workspace-tip-check.js"
 
 it(
@@ -140,6 +145,122 @@ it(
           writeStatus: "read_only",
           readOnlyReason:
             "This repository is not in the GitHub App installation. An installation owner or admin must add it, then refresh.",
+        })
+      },
+    )
+  },
+)
+
+/** Merge a sources file into the Workspace remote, as a merged PR does. */
+function pushSourcesFile(f: NativeHydrationFixture): string {
+  mkdirSync(join(f.directory, ".ctxpipe"), { recursive: true })
+  writeFileSync(
+    join(f.directory, ".ctxpipe/sources.yaml"),
+    [
+      "version: 1",
+      "sources:",
+      "  - id: issues",
+      "    provider: linear",
+      "    connection: con_elsewhere",
+      "    teams: [ENG]",
+      "",
+    ].join("\n"),
+  )
+  f.git("add", ".ctxpipe/sources.yaml")
+  f.git(
+    "-c",
+    "user.name=Human",
+    "-c",
+    "user.email=human@example.test",
+    "commit",
+    "-m",
+    "Add the Linear source",
+  )
+  f.git("push", f.remote, "HEAD:refs/heads/main")
+  return f.git("rev-parse", "HEAD")
+}
+
+it(
+  "cron hydrates a moved Workspace when GitHub cannot find the repository of another Workspace",
+  { timeout: 90_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      { github: true, githubWriteView: "writable" },
+      async (f) => {
+        await f.publish()
+        // A second Workspace on the same connection. Its repository was
+        // deleted, so GitHub refuses a token for it.
+        const goneId = `ws_gone_${f.id}`
+        await withOrgDbContext(f.org.id, (db) =>
+          db.insert(workspaces).values({
+            id: goneId,
+            orgId: f.org.id,
+            slug: "gone",
+            displayName: "Gone",
+            workspaceRepositoryUrl:
+              "https://github.com/fixture/deleted-repo.git",
+            githubConnectionId: f.connectionId,
+            desiredDefaultBranch: "main",
+          }),
+        )
+        f.server.use(
+          http.post(
+            "https://api.github.com/app/installations/123456789/access_tokens",
+            async ({ request }) => {
+              const body = await request.clone().text()
+              const names = (body ? JSON.parse(body) : {}).repositories
+              if (!names?.includes("deleted-repo")) return undefined
+              return HttpResponse.json(
+                {
+                  message:
+                    "There is at least one repository that does not exist or is not accessible to the parent installation.",
+                },
+                { status: 422 },
+              )
+            },
+          ),
+        )
+        const sha = pushSourcesFile(f)
+
+        const handle = await f.runner.runWorkflow(workspaceTipCheck.spec, {
+          orgId: f.org.id,
+        })
+        expect(await handle.result({ timeoutMs: 30_000 })).toMatchObject({
+          updated: 1,
+        })
+        const backend = await BackendPostgres.connect(f.databaseUrl, {
+          runMigrations: false,
+        })
+        try {
+          const hydrates = (
+            await backend.listWorkflowRuns({ limit: 1000 })
+          ).data.filter((run) => {
+            const input = run.input as {
+              workspaceId?: string
+              revision?: { sha?: string }
+            }
+            return (
+              run.workflowName === "workspace-hydrate" &&
+              input?.workspaceId === f.workspaceId &&
+              input.revision?.sha === sha
+            )
+          })
+          expect(hydrates).toHaveLength(1)
+        } finally {
+          await backend.stop()
+        }
+        const [gone] = await withOrgDbContext(f.org.id, (db) =>
+          db
+            .select({
+              hydrateStatus: workspaces.hydrateStatus,
+              hydrateError: workspaces.hydrateError,
+            })
+            .from(workspaces)
+            .where(eq(workspaces.id, goneId)),
+        )
+        expect(gone).toEqual({
+          hydrateStatus: "failed",
+          hydrateError: GIT_REMOTE_ACCESS_MESSAGES.denied,
         })
       },
     )

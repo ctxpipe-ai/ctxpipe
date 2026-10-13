@@ -1,7 +1,7 @@
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import type { Env } from "../../config/env.js"
 import { getSystemDb } from "../../db/client.js"
-import { getLogger } from "../../observability/logger.js"
+import { log } from "../../observability/logger.js"
 import { enqueueWorkspaceWriteCommit } from "../../openworkflow/enqueue-workspace-write-commit.js"
 import {
   listTreeBlobs,
@@ -61,7 +61,15 @@ export async function writeWorkspaceSlice(
         mergeFiles: change.files,
         mergeDeletePaths: change.deletePaths,
       },
-      getLogger(),
+      // The sources sync workflow has no request logger.
+      {
+        error: (error) =>
+          log.error({
+            step: "workspace_sources.write_slice",
+            workspaceId: write.workspaceId,
+            message: error.message,
+          }),
+      },
     ),
   )
   return { queued: admitted.started }
