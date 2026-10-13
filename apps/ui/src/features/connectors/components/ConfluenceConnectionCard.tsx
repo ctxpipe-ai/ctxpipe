@@ -21,10 +21,7 @@ import {
 } from "../queries/atlassian-connector"
 import { orgConnectionsKeys } from "../queries/org-connections"
 import { ConfluenceMark } from "./ConfluenceMark"
-import {
-  ConnectorListItem,
-  formatSyncRepositoryLine,
-} from "./ConnectorListItem"
+import { ConnectorListItem } from "./ConnectorListItem"
 
 type ConfluenceConnectionCardProps = {
   orgSlug: string
@@ -121,7 +118,6 @@ export function ConfluenceConnectionCard({
           ? formatSelectedItemCount(status.selectedSpaceCount)
           : "Set in each Workspace"
       }
-      syncRepository={formatSyncRepositoryLine(status?.syncTarget ?? null)}
       actionLabel={
         isError
           ? "Retry"
