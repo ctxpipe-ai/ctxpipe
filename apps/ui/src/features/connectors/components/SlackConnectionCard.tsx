@@ -13,11 +13,7 @@ import {
   slackConnectorKeys,
 } from "../queries/slack-connector"
 import { formatSlackBotMention } from "../slack-setup-model"
-import {
-  ConnectorListItem,
-  connectorDash,
-  formatSyncRepositoryLine,
-} from "./ConnectorListItem"
+import { ConnectorListItem, connectorDash } from "./ConnectorListItem"
 import { SlackSetupDialog } from "./SlackSetupDialog"
 
 type SlackConnectionCardProps = {
@@ -94,7 +90,6 @@ export function SlackConnectionCard({
         }}
         workspace={connectorDash(status?.teamName)}
         scope="—"
-        syncRepository={formatSyncRepositoryLine(status?.syncTarget ?? null)}
         actionLabel={
           isError
             ? "Retry"

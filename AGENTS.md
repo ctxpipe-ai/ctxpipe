@@ -60,7 +60,15 @@ After completing requested code changes, commit and push the current feature bra
 
 ### Sub-agent models
 
-When spawning a sub-agent (Cursor Task, Claude Code Agent, or any other harness), always set the model explicitly: **Opus at medium effort** for implementation and explore; **Opus at high effort** for review and grilling. Use the harness's own name for Opus and its effort setting.
+When spawning a sub-agent (Cursor Task, Claude Code Agent, or any other harness), always set the model explicitly. Use the harness's own name for each model and its effort setting. The token total is the limit, not the number of agents in parallel.
+
+- **First build of a ticket:** Opus. Set the effort from the estimated complexity: low for a small, clear change; medium for most tickets; high for a design-heavy or security-sensitive change.
+- **First review round:** Opus at high effort on all three axes.
+- **Follow-up review rounds:** Sonnet at medium effort. Check only that the listed findings are fixed and that the fix adds no new problem. Exception: a re-review of a security fix (auth, sandboxes, egress, tokens, org isolation) stays on Opus at high effort.
+- **Review fixes:** Sonnet. Set the effort from the estimated complexity. Exception: a fix that needs a security design goes to Opus at medium effort.
+- **Status checks, file search and log triage:** Haiku at low effort.
+
+Start most agents fresh, with a short brief that holds only the relevant context: the branch, the findings to fix or check, and the files. Do not resume a long-context builder for a list of fixes. Resume a builder only for a question that needs its context.
 
 ### Issue tracker
 
@@ -84,7 +92,7 @@ Customer-facing documentation lives in [`apps/docs/content/docs/`](apps/docs/con
 
 ### Adversarial review
 
-Every adversarial review of a diff is three Opus (high effort) axes — **Standards**, **Spec**, and **Simplicity** — via [`code-review`](.agents/skills/code-review/SKILL.md). Do not run the review as spec-only. Simplicity names the job, the thinnest machine, and leftover machinery; spec-match is not a defense. See [`simplicity-audit`](.agents/skills/simplicity-audit/SKILL.md).
+Every adversarial review of a diff is three axes — **Standards**, **Spec**, and **Simplicity** — via [`code-review`](.agents/skills/code-review/SKILL.md). Do not run the review as spec-only. Simplicity names the job, the thinnest machine, and leftover machinery; spec-match is not a defense. See [`simplicity-audit`](.agents/skills/simplicity-audit/SKILL.md).
 
 ## Architecture decisions & ADRs
 

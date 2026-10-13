@@ -43,6 +43,7 @@ Concept: [concept.md](concept.md). Milestone: Workspaces (PR 280). Paths are und
 - **Goal:** TanStack server tools for codesearch, bound read-only to the run's source checkout key and the destination Workspace checkout keys. Run-scoped token, revoked at `destroy-sandbox`.
 - **Files:** `domain/workspaces/workspace-chat-tools.ts` (extract the shared tool set), a new `ingest-tools.ts`.
 - **Tests:** msw for codesearch: a call with another checkout key is refused; a call after revoke fails with 401.
+- **From the T03 review:** verify bridge calls with the `workspace-ingest-tools` capability (T03). The bridge checks that each claimed repository (`repositoryId`) belongs to `claims.orgId` before it reads a checkout.
 
 ### T05 Skill bundle packaging (M) — group B
 
@@ -76,8 +77,9 @@ Concept: [concept.md](concept.md). Milestone: Workspaces (PR 280). Paths are und
 - **Files:** `openworkflow/workflows/repository-ingestion-v2.ts`, `ingestion-shard.ts`, the trigger in `repository-ingestion-orchestrator.ts` (shadow switch in committed config).
 - **Tests:** integration plus Docker contract plus msw for the model: a run on a small fixture repository with two destination Workspaces writes refs in both and publishes nothing; a killed worker after a step's push resumes, and msw counts no second model call for that step; step outputs stay under 16 KB.
 - **Run contract (T08 depends on it):** the parent run's input has a top-level `orgId` and `shadow` (`IngestionV2RunInput`). The ref clean-up, the broker's run binding, and the ingest sandbox sweep read both from `openworkflow.workflow_runs`; every workflow version counts. Ref jobs go through the broker wrappers in `write-broker.ts` (`pushWorkspaceIngestStep`, `pushWorkspaceIngestAssemble`, `findWorkspaceStepCommit`, `deleteWorkspaceIngestRefs`) with the Workspace `generation` that `resolve` read; T09 never builds a URL or a token.
-- **Blocked:** the merge of T09 waits for the live GitHub App check of T08 (push and delete of `refs/ctxpipe/ingest/x` with an installation token, on a preview).
+- **Unblocked:** the live GitHub App check of T08 passed on 2026-10-13 (see `tickets/T08.md`).
 - **Depends on:** T02 to T08.
+- **Acceptance (from the T03 review):** a Docker ingest sandbox starts only where its traffic is forced through Agent Vault (the DinD or AWS sandbox host, or an internal Docker network). `dockerIngestSandboxProvider` checks this at create and refuses an open host, such as host dev. If T09 runs `opencode serve` in the sandbox, it needs `publishPorts` (T03 exposes the option) and the chat wrappers (`withDockerAgentPort`, `withSingleOpencodeServer`, `withOwnerWatchdog`) around the ingest provider.
 
 ### T10 Skills: `discover-roots`, `libraries`, `ownership` (M) — group C
 
@@ -92,10 +94,18 @@ Concept: [concept.md](concept.md). Milestone: Workspaces (PR 280). Paths are und
 - **Tests:** `InMemorySpanExporter`: a shadow run emits one root span with the SHA and bundle hash, and step spans with op and reject counts.
 - **Depends on:** T09.
 
+### T03b Hosted ingest egress proxy (M) — before T12
+
+- **Goal:** closed egress for hosted (Vercel) ingest sandboxes. The Vercel firewall cannot deny a path: its API keeps credential rules and forward rules in separate lists, so an ordered "deny the rest" rule does not hold. Instead, the policy forwards all of `github.com` and the backend paths (`forwardURL`) to a backend egress handler, built with `defineSandboxProxy` from `@vercel/sandbox/proxy` (it verifies the request's OIDC token and gives the `sandboxId`). The handler maps the `sandboxId` to its ingest shard, applies the path and method allowlist (Git fetch of the shard's repositories, the step's model proxy and tool bridge), adds the credential on the server side, and proxies the request to GitHub or the backend route. Every other request gets 403. Use `subnets.deny` for private ranges.
+- **Files:** `ingest-sandbox-egress.ts` (`ingestNetworkPolicy`, `VERCEL_INGEST_EGRESS_PROVEN`), a new backend proxy route.
+- **Tests:** unit and msw: the handler refuses a wrong `sandboxId`, a push, another repository, and an unlisted backend path; it adds the credential only on allowed requests. T12 must prove it live.
+- **T12 must prove (live, Vercel):** a push to github.com (also with a token in the URL) is refused; SSH on port 22, a raw IP, a CONNECT to another SNI on an allowed IP, and DNS exfiltration fail; `subnets.deny` holds if Vercel supports it; Git fetch, the model proxy, and the tool bridge work.
+
 ### T12 Foundation proof (M) — group E
 
 - **Goal:** run three public repositories (small, medium, monorepo) on Docker and on Vercel in shadow mode, on a test organization.
 - **Tests:** the Vercel contract lane, a local Docker run, and a worker-kill test. Record time, cost, and reject counts in the scratchpad.
+- **Must prove (from the T03 review):** the T03b list (live Vercel egress through the backend egress proxy). Until it passes, `vercelIngestSandboxProvider` refuses to start (`VERCEL_INGEST_EGRESS_PROVEN` in `ingest-sandbox-egress.ts`).
 - **Depends on:** T09 to T11.
 
 ## Phase 3: port and compare

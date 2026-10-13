@@ -46,7 +46,7 @@ describe("graphTraversal query dialect", () => {
     expect(query).toContain("]) = size(relationships(path))")
     expect(query).toContain("type(rel) IN [")
     expect(query).toContain(
-      "'REFERENCES','MENTIONS','INFLUENCES','SUPERSEDES','OWNS'",
+      "'REFERENCES','RESOLVES','MENTIONS','INFLUENCES','SUPERSEDES','OWNS'",
     )
   })
 })

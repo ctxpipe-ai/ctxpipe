@@ -953,6 +953,8 @@ export async function listOrgWorkspaces(
     Pick<
       WorkspaceRecord,
       | "id"
+      | "slug"
+      | "displayName"
       | "workspaceRepositoryUrl"
       | "desiredGeneration"
       | "desiredSha"
@@ -972,6 +974,8 @@ export async function listOrgWorkspaces(
     getOrgDb()
       .select({
         id: workspaces.id,
+        slug: workspaces.slug,
+        displayName: workspaces.displayName,
         workspaceRepositoryUrl: workspaces.workspaceRepositoryUrl,
         desiredGeneration: workspaces.desiredGeneration,
         desiredSha: workspaces.desiredSha,

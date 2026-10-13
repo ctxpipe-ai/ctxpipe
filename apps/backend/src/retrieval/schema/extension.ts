@@ -20,7 +20,7 @@ export const ExtensionNodeType = z.enum([
  * - provenance: DECLARED_IN, MEMBER_OF_PRIMARY
  * - containment: PART_OF
  * - change: ADDED, MODIFIED, REMOVED, RENAMED, TARGETS
- * - reference: REFERENCES, MENTIONS, SUPERSEDES
+ * - reference: REFERENCES, RESOLVES, MENTIONS, SUPERSEDES
  * - ownership: OWNS
  * - cause: INFLUENCES
  */
@@ -36,6 +36,7 @@ export const ExtensionRelType = z.enum([
   "REMOVED",
   "RENAMED",
   "REFERENCES",
+  "RESOLVES",
   "OWNS",
   "SUPERSEDES",
 ])

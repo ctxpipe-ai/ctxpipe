@@ -226,6 +226,10 @@ export const AddToWorkspaces: Story = {
     await expect(
       await body.findByRole("heading", { name: "PagerDuty is connected" }),
     ).toBeVisible()
+    // The sync starts after the merge, so the last step links the pull request.
+    await expect(
+      body.getByRole("link", { name: "acme/docs#7" }),
+    ).toHaveAttribute("href", "https://github.com/acme/docs/pull/7")
     await expect(addCalls).toEqual([
       {
         method: "POST",
