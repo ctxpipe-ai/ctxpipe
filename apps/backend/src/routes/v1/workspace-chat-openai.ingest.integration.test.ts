@@ -146,7 +146,7 @@ describe("workspace-ingest-model capability", () => {
       idempotencyKey: null,
       config: {},
       context: null,
-      input: { orgId: runOrgId } satisfies IngestionV2RunInput,
+      input: { orgId: runOrgId, shadow: true } satisfies IngestionV2RunInput,
       parentStepAttemptNamespaceId: null,
       parentStepAttemptId: null,
       // Never due: no worker claims it.

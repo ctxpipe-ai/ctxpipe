@@ -178,7 +178,7 @@ it("keeps an ingest shard's tokens apart from chat, and the sweep revokes them o
       idempotencyKey: null,
       config: {},
       context: null,
-      input: { orgId } satisfies IngestionV2RunInput,
+      input: { orgId, shadow: true } satisfies IngestionV2RunInput,
       parentStepAttemptNamespaceId: null,
       parentStepAttemptId: null,
       // Never due: no worker claims it.
