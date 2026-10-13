@@ -7,7 +7,7 @@ description: Find the code roots of the source repository (packages, services, a
 
 Placeholder skill. It proves the bundle packaging. A later ticket gives the full skill.
 
-1. Run `node /ctxpipe/skills/discover-roots/scripts/discover-roots.mjs <source checkout>`.
+1. Run `node /ctxpipe/skills/discover-roots/scripts/discover-roots.mjs /ctxpipe/source/<handle>`. The source checkout is read-only.
 2. The script writes JSON that matches `schema.json` to stdout.
 3. Do not add a root that the script did not find.
 

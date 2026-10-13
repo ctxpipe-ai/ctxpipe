@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
+import { ingestAgentCommand } from "./ingest-opencode.js"
+import { INGEST_AGENT_USER, ingestAgentUser } from "./ingest-prepare.js"
 import { vercelRunAsRoot } from "./ingest-root.js"
-import { ingestLayoutScript } from "./skill-bundle.js"
 
 /*
  * The hosted path runs the same root script as Docker, through the Vercel
@@ -44,15 +45,29 @@ describe("vercelRunAsRoot", () => {
   })
 })
 
-describe("ingestLayoutScript", () => {
-  it("makes /ctxpipe root-owned with only /ctxpipe/out for the sandbox user", () => {
-    const script = ingestLayoutScript("1000:1000")
-    expect(script).toContain("chown root:root /ctxpipe /ctxpipe/context")
-    expect(script).toContain("chmod 755 /ctxpipe /ctxpipe/context")
-    expect(script).toContain("chown 1000:1000 /ctxpipe/out")
+describe("ingestAgentUser", () => {
+  it("runs the Vercel agent as a separate user and the Docker agent as the image user", () => {
+    expect(ingestAgentUser("vercel")).toBe(INGEST_AGENT_USER)
+    expect(ingestAgentUser("docker")).toBeNull()
   })
 
-  it("refuses an owner that is not uid:gid", () => {
-    expect(() => ingestLayoutScript("node; rm -rf /")).toThrow(/uid:gid/)
+  it("refuses ingest in unsandboxed mode", () => {
+    expect(() => ingestAgentUser("local-process")).toThrow(
+      /needs a Docker or Vercel sandbox/,
+    )
+  })
+})
+
+describe("ingestAgentCommand", () => {
+  it("starts the Vercel agent through sudo -u with only the given env", () => {
+    expect(
+      ingestAgentCommand({
+        agentUser: INGEST_AGENT_USER,
+        env: { HOME: "/ctxpipe/home" },
+        command: "opencode --version",
+      }),
+    ).toBe(
+      "sudo -n -u ctxpipe-agent -- env -i 'HOME=/ctxpipe/home' sh -c 'cd /ctxpipe/out && opencode --version'",
+    )
   })
 })

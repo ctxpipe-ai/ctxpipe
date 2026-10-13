@@ -3,9 +3,11 @@
 // staged tree and patch.json that the host patch validator reads
 // (apps/backend/src/domain/ingestion/patch-validator.ts).
 //
-// The host writes <root>/out/step.json before each step:
-//   { "stepDir": "<root>/out/<step>", "contextDir": "<root>/context/<workspaceId>" }
-// The context directory is a git checkout at the step's base commit.
+// Prepare (as root) writes <root>/step.json before each step:
+//   { "workspaceId": "<id>", "baseCommit": "<sha>" }
+// The context checkout <root>/context/<workspaceId> is read-only and is at
+// the step's base commit. The step output goes to <root>/out, which the host
+// empties before each step. `--root <dir>` changes the root (default /ctxpipe).
 
 import { execFileSync } from "node:child_process"
 import {
@@ -19,30 +21,39 @@ import {
 } from "node:fs"
 import { dirname, isAbsolute, join, posix, relative, sep } from "node:path"
 
-const root = process.env.CTXPIPE_ROOT || "/ctxpipe"
+/** The helper's own arguments, without `--root <dir>`. */
+export function parseArgs(argv = process.argv.slice(2)) {
+  const at = argv.indexOf("--root")
+  if (at === -1) return { root: "/ctxpipe", args: argv }
+  const root = argv[at + 1]
+  if (!root) fail("Give a folder after --root")
+  return { root, args: [...argv.slice(0, at), ...argv.slice(at + 2)] }
+}
 
 export function fail(message) {
   process.stderr.write(`${message}\n`)
   process.exit(1)
 }
 
-export function currentStep() {
-  const file = join(root, "out", "step.json")
+export function currentStep(root) {
+  const file = join(root, "step.json")
   if (!existsSync(file)) fail(`No step is active: ${file} does not exist`)
-  const { stepDir, contextDir } = JSON.parse(readFileSync(file, "utf8"))
-  const out = join(root, "out")
+  const { workspaceId, baseCommit } = JSON.parse(readFileSync(file, "utf8"))
   if (
-    typeof stepDir !== "string" ||
-    typeof contextDir !== "string" ||
-    relative(out, stepDir).startsWith("..") ||
-    isAbsolute(relative(out, stepDir))
+    typeof workspaceId !== "string" ||
+    !/^[A-Za-z0-9_-]+$/.test(workspaceId) ||
+    typeof baseCommit !== "string" ||
+    !/^[0-9a-f]{40,64}$/.test(baseCommit)
   )
-    fail(`${file} does not name a step folder under ${out}`)
+    fail(`${file} does not name a Workspace and a base commit`)
+  const stepDir = join(root, "out")
   return {
+    baseCommit,
     stepDir,
-    contextDir,
+    contextDir: join(root, "context", workspaceId),
     filesDir: join(stepDir, "files"),
     deletesFile: join(stepDir, "deletes.json"),
+    stagedFile: join(stepDir, "staged.json"),
   }
 }
 
@@ -70,9 +81,15 @@ function git(contextDir, args, input) {
   })
 }
 
-/** The blob id of `path` at the context checkout's HEAD, or null. */
+/** The blob id of `path` at the step's base commit, or null. */
 export function baseBlob(step, path) {
-  const out = git(step.contextDir, ["ls-tree", "-z", "HEAD", "--", path])
+  const out = git(step.contextDir, [
+    "ls-tree",
+    "-z",
+    step.baseCommit,
+    "--",
+    path,
+  ])
     .toString("utf8")
     .split("\0")
     .find((line) => line.endsWith(`\t${path}`))
@@ -91,15 +108,23 @@ export function contentBlob(step, file) {
     .trim()
 }
 
-export function readDeletes(step) {
-  if (!existsSync(step.deletesFile)) return {}
-  return JSON.parse(readFileSync(step.deletesFile, "utf8"))
+function readJson(file) {
+  return existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : {}
 }
 
-export function writeDeletes(step, deletes) {
-  mkdirSync(step.stepDir, { recursive: true })
-  writeFileSync(step.deletesFile, `${JSON.stringify(deletes, null, 2)}\n`)
+function writeJson(file, value) {
+  mkdirSync(dirname(file), { recursive: true })
+  writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`)
 }
+
+/** Deletes: path to { baseBlob, reason }. */
+export const readDeletes = (step) => readJson(step.deletesFile)
+export const writeDeletes = (step, deletes) =>
+  writeJson(step.deletesFile, deletes)
+
+/** The base blob that ctxpipe-stage recorded: path to blob id, or null for a new file. */
+export const readStaged = (step) => readJson(step.stagedFile)
+export const writeStaged = (step, staged) => writeJson(step.stagedFile, staged)
 
 export function stagedFile(step, path) {
   return join(step.filesDir, ...path.split("/"))

@@ -1,6 +1,6 @@
 import { PassThrough } from "node:stream"
 import Docker from "dockerode"
-import type { RunAsRoot } from "./skill-bundle.js"
+import type { RunAsRoot } from "./ingest-prepare.js"
 
 /*
  * Root commands for ingest prepare. The agent runs as the sandbox user, so

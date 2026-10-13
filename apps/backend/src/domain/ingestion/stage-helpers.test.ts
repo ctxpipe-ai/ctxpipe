@@ -26,7 +26,6 @@ let root: string
 let contextDir: string
 let stepDir: string
 let baseCommit: string
-let step = 0
 
 function git(cwd: string, args: string[]): string {
   return execFileSync("git", args, {
@@ -54,8 +53,8 @@ function owned(name: string, body = `# ${name}\n\nOwned prose.\n`) {
 function helper(name: string, ...args: string[]) {
   const result = spawnSync(
     process.execPath,
-    [join(INGEST_SKILLS_DIR, "bin", name), ...args],
-    { encoding: "utf8", env: { ...process.env, CTXPIPE_ROOT: root } },
+    [join(INGEST_SKILLS_DIR, "bin", name), "--root", root, ...args],
+    { encoding: "utf8" },
   )
   return {
     status: result.status,
@@ -113,12 +112,13 @@ beforeAll(() => {
 })
 
 beforeEach(() => {
-  step += 1
-  stepDir = join(root, "out", `step-${step}`)
+  // Prepare empties the step output before each step.
+  stepDir = join(root, "out")
+  rmSync(stepDir, { recursive: true, force: true })
   mkdirSync(join(stepDir, "files"), { recursive: true })
   writeFileSync(
-    join(root, "out", "step.json"),
-    JSON.stringify({ stepDir, contextDir }),
+    join(root, "step.json"),
+    JSON.stringify({ workspaceId: "ws_fixture", baseCommit }),
   )
 })
 
@@ -239,8 +239,50 @@ describe("stage helpers", () => {
     expect(result.out).toContain("both staged and deleted")
   })
 
+  it("read blobs at the base commit when the checkout moved on", async () => {
+    write(
+      join(contextDir, "knowledge/services/billing.md"),
+      owned("Billing", "# Billing\n\nA later commit.\n"),
+    )
+    git(contextDir, ["commit", "-q", "-am", "later"])
+    try {
+      ok("ctxpipe-stage", "knowledge/services/billing.md")
+      expect(
+        readFileSync(staged("knowledge/services/billing.md"), "utf8"),
+      ).toBe(owned("Billing"))
+      writeFileSync(
+        staged("knowledge/services/billing.md"),
+        owned("Billing", "# Billing\n\nThe service bills orders.\n"),
+      )
+      ok("ctxpipe-finish")
+      expect(patch().ops).toEqual([
+        {
+          op: "update",
+          path: "knowledge/services/billing.md",
+          baseBlob: git(contextDir, [
+            "rev-parse",
+            `${baseCommit}:knowledge/services/billing.md`,
+          ]),
+        },
+      ])
+      expect((await validate()).rejections).toEqual([])
+    } finally {
+      git(contextDir, ["reset", "-q", "--hard", baseCommit])
+    }
+  })
+
+  it("refuse a step.json without a base commit", () => {
+    writeFileSync(
+      join(root, "step.json"),
+      JSON.stringify({ workspaceId: "ws_fixture" }),
+    )
+    const result = helper("ctxpipe-finish")
+    expect(result.status).toBe(1)
+    expect(result.out).toContain("base commit")
+  })
+
   it("refuse to run when no step is active", () => {
-    rmSync(join(root, "out", "step.json"))
+    rmSync(join(root, "step.json"))
     const result = helper("ctxpipe-finish")
     expect(result.status).toBe(1)
     expect(result.out).toContain("No step is active")

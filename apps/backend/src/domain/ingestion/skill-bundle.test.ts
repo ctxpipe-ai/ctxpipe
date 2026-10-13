@@ -62,6 +62,22 @@ describe("readIngestSkillBundle", () => {
     expect((await readIngestSkillBundle(dir)).name).not.toBe(before.name)
   })
 
+  it("fails when a skill folder name differs from its SKILL.md name", async () => {
+    const dir = copyBundle()
+    cpSync(join(dir, "discover-roots"), join(dir, "find-roots"), {
+      recursive: true,
+    })
+    await expect(readIngestSkillBundle(dir)).rejects.toThrow(
+      /find-roots.*discover-roots/,
+    )
+  })
+
+  it("fails when a SKILL.md has no name", async () => {
+    const dir = copyBundle()
+    writeFileSync(join(dir, "discover-roots/SKILL.md"), "# No front matter\n")
+    await expect(readIngestSkillBundle(dir)).rejects.toThrow(/name/)
+  })
+
   it("changes the name when a file is added", async () => {
     const dir = copyBundle()
     const before = await readIngestSkillBundle(dir)

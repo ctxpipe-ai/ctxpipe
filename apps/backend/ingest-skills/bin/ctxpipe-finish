@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // ctxpipe-finish: write patch.json for the staged tree and the recorded
-// deletes. Unchanged staged files make no op.
+// deletes. The base blob of a file is the one ctxpipe-stage recorded, else
+// the blob at the base commit. Unchanged staged files make no op.
 import { writeFileSync } from "node:fs"
 import { join } from "node:path"
 import {
@@ -8,23 +9,32 @@ import {
   contentBlob,
   currentStep,
   fail,
+  parseArgs,
   readDeletes,
+  readStaged,
   stagedFile,
   stagedPaths,
 } from "./stage-lib.mjs"
 
-const step = currentStep()
+const { root } = parseArgs()
+const step = currentStep(root)
+const recorded = readStaged(step)
 const ops = []
 const staged = new Set(stagedPaths(step))
 for (const path of staged) {
-  const blob = baseBlob(step, path)
+  const blob = path in recorded ? recorded[path] : baseBlob(step, path)
   if (!blob) ops.push({ op: "create", path })
   else if (contentBlob(step, stagedFile(step, path)) !== blob)
     ops.push({ op: "update", path, baseBlob: blob })
 }
 for (const [path, entry] of Object.entries(readDeletes(step))) {
   if (staged.has(path)) fail(`${path} is both staged and deleted`)
-  ops.push({ op: "delete", path, baseBlob: entry.baseBlob, reason: entry.reason })
+  ops.push({
+    op: "delete",
+    path,
+    baseBlob: entry.baseBlob,
+    reason: entry.reason,
+  })
 }
 ops.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
 writeFileSync(

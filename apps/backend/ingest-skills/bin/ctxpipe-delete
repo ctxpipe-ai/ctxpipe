@@ -6,17 +6,18 @@ import {
   contextPath,
   currentStep,
   fail,
+  parseArgs,
   readDeletes,
   removeStaged,
   writeDeletes,
 } from "./stage-lib.mjs"
 
-const args = process.argv.slice(2)
+const { root, args } = parseArgs()
 const at = args.indexOf("--reason")
 const reason = at === -1 ? "" : (args[at + 1] ?? "").trim()
 if (!reason) fail('Give a reason: ctxpipe-delete <path> --reason "<text>"')
-const target = args.find((arg, index) => index !== at && index !== at + 1)
-const step = currentStep()
+const target = args.find((_, index) => index !== at && index !== at + 1)
+const step = currentStep(root)
 const path = contextPath(step, target)
 const blob = baseBlob(step, path)
 if (!blob) fail(`${path} is not a file in the context checkout`)
