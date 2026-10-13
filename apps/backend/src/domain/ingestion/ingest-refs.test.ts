@@ -98,7 +98,10 @@ function step(
   } = {},
 ) {
   return pushIngestStep({
-    job: { runId: input.runId ?? RUN, workspaceId: input.workspaceId ?? WORKSPACE },
+    job: {
+      runId: input.runId ?? RUN,
+      workspaceId: input.workspaceId ?? WORKSPACE,
+    },
     ref:
       input.ref ??
       ingestRefName({ runId: RUN, workspaceId: WORKSPACE, shard: "0" }),
@@ -147,7 +150,11 @@ beforeEach(() => {
 
 describe("ingest ref names", () => {
   it("names shard and assembled refs that git can hold together", () => {
-    const shard = ingestRefName({ runId: RUN, workspaceId: WORKSPACE, shard: "2" })
+    const shard = ingestRefName({
+      runId: RUN,
+      workspaceId: WORKSPACE,
+      shard: "2",
+    })
     const assembled = ingestRefName({ runId: RUN, workspaceId: WORKSPACE })
     expect(shard).toBe(`refs/ctxpipe/ingest/${RUN}/${WORKSPACE}/shards/2`)
     expect(assembled).toBe(`refs/ctxpipe/ingest/${RUN}/${WORKSPACE}/assembled`)
@@ -183,7 +190,11 @@ describe("pushIngestStep", () => {
     const before = remoteRefs(remote).get("refs/heads/main")
     const result = await step()
 
-    const ref = ingestRefName({ runId: RUN, workspaceId: WORKSPACE, shard: "0" })
+    const ref = ingestRefName({
+      runId: RUN,
+      workspaceId: WORKSPACE,
+      shard: "0",
+    })
     expect(remoteRefs(remote).get(ref)).toBe(result.sha)
     expect(remoteRefs(remote).get("refs/heads/main")).toBe(before)
     expect(git(remote, ["rev-parse", `${result.sha}^`])).toBe(pinned)
@@ -261,7 +272,11 @@ describe("pushIngestStep", () => {
 
   it("refuses a wrong old tip and does not move the ref", async () => {
     const first = await step()
-    const ref = ingestRefName({ runId: RUN, workspaceId: WORKSPACE, shard: "0" })
+    const ref = ingestRefName({
+      runId: RUN,
+      workspaceId: WORKSPACE,
+      shard: "0",
+    })
 
     // The ref exists, but the job says it is absent.
     await expect(
@@ -287,6 +302,26 @@ describe("pushIngestStep", () => {
     ).toBe(false)
   })
 
+  it("lets one of two racing pushes win and refuses the other", async () => {
+    const results = await Promise.allSettled([
+      step({ step: "skill:services:apis:ws_alpha" }),
+      step({
+        step: "skill:services:libraries:ws_alpha",
+        files: { "knowledge/services/ledger.md": service("Ledger") },
+      }),
+    ])
+    const won = results.flatMap((r) => (r.status === "fulfilled" ? [r] : []))
+    const lost = results.flatMap((r) => (r.status === "rejected" ? [r] : []))
+    expect(won).toHaveLength(1)
+    expect(lost).toHaveLength(1)
+    expect(lost[0]?.reason).toBeInstanceOf(IngestRefRefusedError)
+    expect(
+      remoteRefs(remote).get(
+        ingestRefName({ runId: RUN, workspaceId: WORKSPACE, shard: "0" }),
+      ),
+    ).toBe(won[0]?.value.sha)
+  })
+
   it("refuses a ref outside the run's names", async () => {
     const before = remoteRefs(remote)
     for (const ref of [
@@ -304,7 +339,11 @@ describe("pushIngestStep", () => {
 
 describe("findStepCommit", () => {
   it("finds a step's commit on the tip after a crash after the push", async () => {
-    const ref = ingestRefName({ runId: RUN, workspaceId: WORKSPACE, shard: "0" })
+    const ref = ingestRefName({
+      runId: RUN,
+      workspaceId: WORKSPACE,
+      shard: "0",
+    })
     const pushed = await step()
     // The worker died before the step output was recorded. The retry asks the ref.
     await expect(
