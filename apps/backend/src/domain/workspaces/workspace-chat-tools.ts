@@ -8,6 +8,7 @@ import {
 } from "../../models/workspaces.js"
 import { codeSearch } from "../../retrieval/services/codeSearch.js"
 import { listRepositoriesTool } from "../../tools/listRepositories.js"
+import { decayWorkspaceSignal } from "./claim-confidence.js"
 import {
   CODE_TOOLS,
   type ExplorerTool,
@@ -18,12 +19,13 @@ import {
   stringArg,
 } from "./code-tools.js"
 import {
-  readOrRebuildWorkspaceGraph,
-  WorkspaceGraphBuildingError,
-} from "./graph-rebuild.js"
+  expandWorkspaceGraph,
+  type GraphExpandParams,
+  type GraphExpansion,
+} from "./graph-expand.js"
+import { WorkspaceGraphBuildingError } from "./graph-rebuild.js"
 import { searchKnowledge } from "./knowledge-search.js"
 import { type PublishedProjection, publishedProjection } from "./revision.js"
-import type { WorkspaceGraphPayload } from "./workspace-graph.js"
 
 export type WorkspaceChatTanstackTool = {
   name: string
@@ -68,11 +70,12 @@ export async function workspaceChatTools(input: {
     projection.kind === "active" ? projection.revision.sha : projection.sha
   const boundRepositories = input.snapshot.repositories
   const allowed = new Set(boundRepositories.map((repo) => repo.id))
-  const loadGraph = () =>
-    readOrRebuildWorkspaceGraph({
+  const expand = (params: GraphExpandParams) =>
+    expandWorkspaceGraph({
       orgId: input.orgId,
       orgSlug: input.orgSlug,
       projection,
+      ...params,
     })
   const explorer = [
     listRepositoriesTool as unknown as ExplorerTool,
@@ -96,8 +99,8 @@ export async function workspaceChatTools(input: {
     }),
   )
   tools.push(
-    graphLookupTool({ loadGraph, sha }),
-    graphNeighborsTool({ loadGraph, sha }),
+    graphLookupTool({ expand, sha }),
+    graphNeighborsTool({ expand, sha }),
   )
   return tools
 }
@@ -203,29 +206,38 @@ function wrapExplorerTool(input: {
   }
 }
 
-function graphLookupTool(input: {
-  loadGraph: () => Promise<WorkspaceGraphPayload>
+type ChatGraphTool = {
+  expand: (params: GraphExpandParams) => Promise<GraphExpansion>
   sha: string
-}): WorkspaceChatTanstackTool {
+}
+
+function graphLookupTool(input: ChatGraphTool): WorkspaceChatTanstackTool {
   return {
     ...GRAPH_LOOKUP_DEFINITION,
     execute: async (args) => {
       const nodeId = stringArg(args, "nodeId")
       if (!nodeId) return toToon({ error: "nodeId_required" })
-      const graph = await loadGraphOrRetry(input.loadGraph)
+      const graph = await expandOrRetry(() =>
+        input.expand({ seeds: [nodeId], maxDepth: 0 }),
+      )
       if (!("nodes" in graph)) return toToon(graph)
+      const node = graph.nodes[0]
       return toToon({
         projectionSha: input.sha,
-        node: graph.nodes.find((node) => node.id === nodeId) ?? null,
+        node: node
+          ? {
+              id: node.id,
+              kind: node.kind,
+              name: node.name,
+              summary: node.summary,
+            }
+          : null,
       })
     },
   }
 }
 
-function graphNeighborsTool(input: {
-  loadGraph: () => Promise<WorkspaceGraphPayload>
-  sha: string
-}): WorkspaceChatTanstackTool {
+function graphNeighborsTool(input: ChatGraphTool): WorkspaceChatTanstackTool {
   return {
     ...GRAPH_NEIGHBORS_DEFINITION,
     execute: async (args) => {
@@ -239,31 +251,45 @@ function graphNeighborsTool(input: {
         typeof limitRaw === "number" && Number.isFinite(limitRaw)
           ? Math.min(50, Math.max(1, Math.floor(limitRaw)))
           : 20
-      const graph = await loadGraphOrRetry(input.loadGraph)
+      // The expansion keeps the `limit` strongest valid edges of the node.
+      const graph = await expandOrRetry(() =>
+        input.expand({ seeds: [nodeId], maxDepth: 1, maxFanOut: limit }),
+      )
       if (!("nodes" in graph)) return toToon(graph)
       const neighbors = graph.edges
-        .filter((edge) => edge.sourceId === nodeId || edge.targetId === nodeId)
-        .slice(0, limit)
         .map((edge) => ({
-          node: graph.nodes.find(
-            (node) =>
-              node.id ===
-              (edge.sourceId === nodeId ? edge.targetId : edge.sourceId),
-          ),
-          predicate: edge.predicate,
-          confidence: edge.confidence,
+          edge,
+          confidence: decayWorkspaceSignal({ ...edge }),
         }))
+        .sort((a, b) => b.confidence - a.confidence)
+        .map(({ edge, confidence }) => {
+          const node = graph.nodes.find(
+            (candidate) =>
+              candidate.id ===
+              (edge.sourceId === nodeId ? edge.targetId : edge.sourceId),
+          )
+          return {
+            node: node && {
+              id: node.id,
+              kind: node.kind,
+              name: node.name,
+              summary: node.summary,
+            },
+            predicate: edge.predicate,
+            confidence,
+          }
+        })
       return toToon({ projectionSha: input.sha, neighbors })
     },
   }
 }
 
 /** A graph that is being built gives the model a retry message, not an error. */
-async function loadGraphOrRetry(
-  loadGraph: () => Promise<WorkspaceGraphPayload>,
-): Promise<WorkspaceGraphPayload | { error: string; message: string }> {
+async function expandOrRetry(
+  expand: () => Promise<GraphExpansion>,
+): Promise<GraphExpansion | { error: string; message: string }> {
   try {
-    return await loadGraph()
+    return await expand()
   } catch (error) {
     if (!(error instanceof WorkspaceGraphBuildingError)) throw error
     return {
