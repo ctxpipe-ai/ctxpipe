@@ -561,3 +561,9 @@ These lessons moved to the instructions that agents always read. Do not add them
 - **Category:** convention
 - **Date:** 2026-10-10
 - **Source:** team lead, after a failed PR deploy deleted a live preview and re-created it with the production GitHub App
+
+### New test files cannot spy on owned code
+- **Rule:** CI (`scripts/ci/check-test-policy.mjs`, in the Biome job) treats each new test file as proof. A proof must not call `vi.mock`, `vi.doMock` or `vi.spyOn` on code of this repository, and that includes a spy on a request logger. `vi.spyOn` is permitted only on `Date`, `Math`, `globalThis` and `console`. Under the backend Vitest setup, the context of an evlog `createLogger()` stays empty, so a log event is not a usable end point either. Assert a real result: a database row, a git commit, or an HTTP call that msw records. Before you push a new test, run `git fetch origin 7dfa6b93a5baedc3eb2c86dd1056662e89cace00 --no-tags && node scripts/ci/check-test-policy.mjs`.
+- **Category:** testing
+- **Date:** 2026-10-13
+- **Source:** PR 280 Slack webhook fix (#415): a log spy in a new integration test made the PR 280 CI fail

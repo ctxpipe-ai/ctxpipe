@@ -149,7 +149,7 @@ export const ChooseWorkspaces: Story = {
   play: async ({ canvasElement }) => {
     const body = within(canvasElement.ownerDocument.body)
     await expect(
-      await body.findByRole("region", { name: "Thread capture on mention" }),
+      await body.findByRole("region", { name: "How capture works" }),
     ).toBeInTheDocument()
     await userEvent.click(
       await body.findByRole("checkbox", { name: docsWorkspace.displayName }),
@@ -193,7 +193,7 @@ export const CaptureWorkspace: Story = {
   play: async ({ canvasElement }) => {
     const body = within(canvasElement.ownerDocument.body)
     await expect(
-      await body.findByText(/capture it into each Workspace/),
+      await body.findByText(/saves the thread to each Workspace with that/),
     ).toBeVisible()
     await expect(body.getByText(/\/invite @ctxpipe/)).toBeVisible()
     await expect(
