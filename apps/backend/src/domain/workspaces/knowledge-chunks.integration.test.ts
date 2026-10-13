@@ -14,7 +14,7 @@ import {
 import {
   captureWorkspaceRevision,
   getWorkspaceProjection,
-  persistUnitEmbeddings,
+  markKnowledgeEmbeddingsReady,
 } from "../../models/workspaces.js"
 import { workspaceHydrate } from "../../openworkflow/workflows/workspace-hydrate.js"
 import {
@@ -81,7 +81,6 @@ function readUnits(f: NativeHydrationFixture) {
         title: units.title,
         source: units.source,
         updatedAt: units.updatedAt,
-        embedding: units.embedding,
       })
       .from(units)
       .where(eq(units.workspaceId, f.workspaceId))
@@ -326,16 +325,6 @@ it(
           { path: "a.md", updatedAt: new Date(THIRD_COMMIT) },
           { path: "b.md", updatedAt: new Date(FIRST_COMMIT) },
         ])
-        // A unit embedding is the mean of its chunk embeddings.
-        const aChunks = afterMove.filter(
-          (row) =>
-            row.unitId === afterMove.find((r) => r.ordinal === 2)?.unitId,
-        )
-        const mean =
-          aChunks.reduce((sum, row) => sum + (row.embedding?.[0] ?? 0), 0) /
-          aChunks.length
-        expect(units[0]?.embedding?.length).toBe(2000)
-        expect(units[0]?.embedding?.[0]).toBeCloseTo(mean, 5)
       },
     ),
 )
@@ -390,7 +379,7 @@ it(
           await db.delete(chunks).where(eq(chunks.workspaceId, f.workspaceId))
           await db
             .update(workspaceKnowledgeUnits)
-            .set({ title: null, source: null, embedding: null })
+            .set({ title: null, source: null })
             .where(eq(workspaceKnowledgeUnits.workspaceId, f.workspaceId))
         })
         inputs.length = 0
@@ -407,7 +396,6 @@ it(
         expect(await readUnits(f)).toMatchObject([
           { path: "a.md", title: "Alpha", source: "authored" },
         ])
-        expect((await readUnits(f))[0]?.embedding).toHaveLength(2000)
         await withOrgIdContext(f.org, async () => {
           expect(await getWorkspaceProjection(f.workspaceId)).toMatchObject({
             kind: "active",
@@ -451,13 +439,13 @@ it(
               ),
           )
           await expect(
-            persistUnitEmbeddings({ revision: active.revision }),
+            markKnowledgeEmbeddingsReady({ revision: active.revision }),
           ).rejects.toThrow("Knowledge chunks are not all embedded")
           await withOrgDbContext(f.org.id, (db) =>
             db.delete(chunks).where(eq(chunks.workspaceId, f.workspaceId)),
           )
           await expect(
-            persistUnitEmbeddings({ revision: active.revision }),
+            markKnowledgeEmbeddingsReady({ revision: active.revision }),
           ).rejects.toThrow("Knowledge chunks are not all embedded")
         })
       },

@@ -18,9 +18,9 @@ import {
   getWorkspaceProjection,
   getWorkspaceProjectionSnapshot,
   listWorkspaceKnowledgeUnits,
+  markKnowledgeEmbeddingsReady,
   persistEmbeddingFailure,
   persistHydrateFailure,
-  persistUnitEmbeddings,
 } from "../../models/workspaces.js"
 import { enqueueWorkspaceHydrate } from "../../openworkflow/enqueue-workspace-hydrate.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
@@ -472,7 +472,7 @@ it(
             index: { kind: "failed" },
           },
         })
-        await persistUnitEmbeddings({ revision: active.revision })
+        await markKnowledgeEmbeddingsReady({ revision: active.revision })
         expect(await getWorkspaceProjection(workspaceId)).toMatchObject({
           kind: "active",
           stores: {
@@ -939,11 +939,11 @@ it(
       await withOrgIdContext(org, async () => {
         const [unit] = (await getWorkspaceProjectionSnapshot(workspaceId)).units
         if (!unit) throw new Error("Expected the active knowledge unit")
-        expect(await persistUnitEmbeddings({ revision })).toBe(false)
+        expect(await markKnowledgeEmbeddingsReady({ revision })).toBe(false)
         expect(
           (await getWorkspaceProjectionSnapshot(workspaceId)).units[0]
-            ?.embedding,
-        ).toEqual(Array(2000).fill(0.01))
+            ?.embedded,
+        ).toBe(true)
       })
     }),
 )
