@@ -8,10 +8,12 @@ import { contextStorage } from "hono/context-storage"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { z } from "zod"
 import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../test/db.js"
+import { recordSpans } from "../../test/spans.js"
 import type { AppEnv } from "../app/env.js"
 import { parseEnv } from "../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../db/client.js"
 import { members, organizations } from "../db/schema/auth.js"
+import { workspaceSources } from "../db/schema/workspace_sources.js"
 import {
   workspaceLinkedRepositories,
   workspaces,
@@ -21,14 +23,12 @@ import { registerMcpRoutes } from "../routes/mcp.js"
 import { withTestRequestLogger } from "../test/hono-test-logger.js"
 import { pageWithinBudget } from "./framework/budget.js"
 import {
-  listOrgWorkspaceSlugs,
   loadOrgRepositoryHandles,
   requireServed,
   resolveCallWorkspace,
 } from "./framework/call-workspace.js"
 import { decodeCursor, encodeCursor } from "./framework/cursor.js"
 import {
-  buildServerInstructions,
   INSTRUCTIONS_HEAD_CHARS,
   INSTRUCTIONS_MAX_CHARS,
   loadServerInstructions,
@@ -44,10 +44,12 @@ const suffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 
 const sha1 = "a".repeat(40)
 const sha2 = "b".repeat(40)
 
+const spans = recordSpans()
 let seed: SeededOrg
 const otherOrgs = [
   { id: `org_fw_other_a_${suffix}`, slug: `fw-other-a-${suffix}` },
   { id: `org_fw_other_b_${suffix}`, slug: `fw-other-b-${suffix}` },
+  { id: `org_fw_other_d_${suffix}`, slug: `fw-other-d-${suffix}` },
 ]
 const readyWorkspaceId = generateObjectId("ws")
 
@@ -293,17 +295,46 @@ describe("MCP tool framework (Postgres + MCP SDK Client)", () => {
           gitUrl,
         })),
       )
+      // ADR-050: GitHub sources in .ctxpipe/sources.yaml link repositories
+      // too. Only an `ok` source counts.
+      await db.insert(workspaceSources).values([
+        {
+          id: generateObjectId("wsrc"),
+          orgId: seed.orgId,
+          workspaceId: readyWorkspaceId,
+          sourceKey: "github",
+          provider: "github",
+          scope: {
+            repositories: ["example/sourced-api", "Example/Payments-API"],
+          },
+          status: "ok",
+          revision: sha1,
+        },
+        {
+          id: generateObjectId("wsrc"),
+          orgId: seed.orgId,
+          workspaceId: readyWorkspaceId,
+          sourceKey: "github-broken",
+          provider: "github",
+          scope: { repositories: ["example/broken"] },
+          status: "out_of_access",
+          revision: sha1,
+        },
+      ])
     })
-    // The user is a member of org B (otherOrgs[1]) but not of otherOrgs[0].
+    // The user is a member of orgs B and D (otherOrgs[1] and [2]) but not
+    // of otherOrgs[0].
     await getSystemDb()
       .insert(members)
-      .values({
-        id: `mem_fw_${suffix}`,
-        organizationId: otherOrgs[1]?.id ?? "",
-        userId: seed.userId,
-        role: "member",
-        createdAt: new Date(),
-      })
+      .values(
+        [otherOrgs[1], otherOrgs[2]].map((org, index) => ({
+          id: `mem_fw_${index}_${suffix}`,
+          organizationId: org?.id ?? "",
+          userId: seed.userId,
+          role: "member",
+          createdAt: new Date(),
+        })),
+      )
     await withOrgDbContext(otherOrgs[1]?.id ?? "", (db) =>
       db.insert(workspaces).values({
         id: generateObjectId("ws"),
@@ -360,25 +391,64 @@ describe("MCP tool framework (Postgres + MCP SDK Client)", () => {
     await client.close()
   })
 
-  it("sends the same instructions on server/discover", async () => {
+  it("answers server/discover from a 2026-07-28 client with no initialize, in the spec shape", async () => {
     const client = await connect()
-    const discovered = await client.request(
-      { method: "server/discover", params: {} },
-      z.looseObject({
-        supportedVersions: z.array(z.string()),
-        serverInfo: z.looseObject({ name: z.string() }),
-        capabilities: z.looseObject({ tools: z.looseObject({}) }),
-        instructions: z.string(),
+    const response = await createApp().request("/mcp", {
+      method: "POST",
+      headers: {
+        accept: "application/json, text/event-stream",
+        "content-type": "application/json",
+        "mcp-protocol-version": "2026-07-28",
+        "x-api-key": seed.orgApiKey,
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "discover-1",
+        method: "server/discover",
+        params: {
+          _meta: {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientInfo": {
+              name: "ExampleClient",
+              version: "1.0.0",
+            },
+            "io.modelcontextprotocol/clientCapabilities": {},
+          },
+        },
       }),
-    )
-    expect(discovered.instructions).toBe(client.getInstructions())
-    expect(discovered.serverInfo.name).toBe("ctxpipe")
-    expect(discovered.supportedVersions).toContain("2025-11-25")
+    })
+    expect(response.status).toBe(200)
+    const body = (await response.json()) as {
+      jsonrpc: string
+      id: string
+      result: Record<string, unknown>
+    }
+    expect(body).toMatchObject({ jsonrpc: "2.0", id: "discover-1" })
+    expect(body.result).toEqual({
+      resultType: "complete",
+      supportedVersions: expect.arrayContaining(["2025-11-25"]),
+      // The same capabilities as initialize. This fails when the SDK
+      // changes how it reports capabilities.
+      capabilities: client.getServerCapabilities(),
+      _meta: {
+        "io.modelcontextprotocol/serverInfo": expect.objectContaining({
+          name: "ctxpipe",
+          version: expect.any(String),
+        }),
+      },
+      instructions: client.getInstructions(),
+    })
     await client.close()
   })
 
-  it("keeps instructions under 2,048 characters with 50 Workspaces in 3 orgs", async () => {
-    const orgs = [{ id: seed.orgId, slug: seed.orgSlug }, ...otherOrgs]
+  it("keeps instructions under 2,048 characters with 50 Workspaces in 3 orgs, through the SDK Client", async () => {
+    // The personal key reaches orgs A, B and D. Realistic slug lengths.
+    const orgs = [
+      { id: seed.orgId, slug: seed.orgSlug },
+      otherOrgs[1],
+      otherOrgs[2],
+    ].filter((org): org is { id: string; slug: string } => Boolean(org))
+    const areas = ["payments", "identity", "search", "platform", "analytics"]
     const counts = [16, 17, 17]
     const created: string[] = []
     for (const [index, org] of orgs.entries()) {
@@ -388,7 +458,7 @@ describe("MCP tool framework (Postgres + MCP SDK Client)", () => {
         return {
           id,
           orgId: org.id,
-          slug: `team-${index}-${String(n).padStart(2, "0")}`,
+          slug: `${areas[n % areas.length]}-service-team-${index}-${n}`,
           displayName: `Team ${n}`,
           workspaceRepositoryUrl: `/tmp/fw-${suffix}-${index}-${n}`,
         }
@@ -396,18 +466,22 @@ describe("MCP tool framework (Postgres + MCP SDK Client)", () => {
       await withOrgDbContext(org.id, (db) => db.insert(workspaces).values(rows))
     }
     try {
-      const instructions = buildServerInstructions(
-        await Promise.all(
-          orgs.map(async (org) => ({
-            slug: org.slug,
-            workspaces: await listOrgWorkspaceSlugs(org),
-          })),
-        ),
-      )
+      const client = await connect(seed.personalApiKey)
+      const instructions = client.getInstructions() ?? ""
+      await client.close()
       expect(instructions.length).toBeLessThan(INSTRUCTIONS_MAX_CHARS)
-      for (const org of orgs) expect(instructions).toContain(`- ${org.slug}:`)
-      expect(instructions).toContain("team-2-16")
-      expect(instructions).not.toContain("more Workspaces")
+      for (const org of orgs) expect(instructions).toContain(`\n- ${org.slug}:`)
+      expect(instructions).not.toContain(otherOrgs[0]?.slug ?? "")
+      // 50 new Workspaces + payments, platform and operations.
+      const shown = (instructions.match(/-service-team-\d+-\d+/g) ?? []).length
+      const more = Number(
+        instructions.match(/\[and (\d+) more Workspaces/)?.[1] ?? 0,
+      )
+      expect(shown + 3 + more).toBe(53)
+      // Each org shows Workspaces, so a large org hides no other org.
+      for (const index of [0, 1, 2]) {
+        expect(instructions).toContain(`-service-team-${index}-0`)
+      }
     } finally {
       for (const org of orgs) {
         await withOrgDbContext(org.id, (db) =>
@@ -535,6 +609,7 @@ describe("MCP tool framework (Postgres + MCP SDK Client)", () => {
       repositories: [
         "github.com/example/ledger",
         "gitlab.example.com/example/ledger",
+        "example/sourced-api",
       ],
       excluded: ["example/payments-api"],
     })
@@ -682,20 +757,41 @@ describe("MCP tool framework (Postgres + MCP SDK Client)", () => {
     await client.close()
   })
 
-  it("refuses a ?orgSlug= that the principal cannot use with 404, as before", async () => {
-    const response = await createApp().request(
-      `/mcp?orgSlug=${otherOrgs[0]?.slug}`,
-      {
-        method: "POST",
-        headers: {
-          accept: "application/json, text/event-stream",
-          "content-type": "application/json",
-          "x-api-key": seed.personalApiKey,
-        },
-        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
-      },
+  it.each([
+    ["an org outside the connection", () => otherOrgs[0]?.slug ?? ""],
+    ["an unknown org", () => `no-such-org-${suffix}`],
+    ["a slug with bad characters", () => "bad%0Aslug"],
+  ])("accepts and ignores a ?orgSlug= for %s: tools/list and calls that name an allowed org work", async (_case, slug) => {
+    const client = await connect(seed.personalApiKey, `/mcp?orgSlug=${slug()}`)
+    const { tools } = await client.listTools()
+    expect(tools.map((tool) => tool.name)).toContain("probe_workspace")
+    const result = await call(client, "probe_workspace", {
+      org: otherOrgs[1]?.slug,
+      workspace: "operations",
+    })
+    expect(result.structuredContent).toMatchObject({
+      org: otherOrgs[1]?.slug,
+    })
+    await client.close()
+  })
+
+  it("puts the org of the call on the tool span, not the ?orgSlug= default", async () => {
+    const client = await connect(
+      seed.personalApiKey,
+      `/mcp?orgSlug=${seed.orgSlug}`,
     )
-    expect(response.status).toBe(404)
+    spans.reset()
+    await call(client, "probe_workspace", {
+      org: otherOrgs[1]?.slug,
+      workspace: "operations",
+    })
+    const span = spans.spanNamed("mcp.tool probe_workspace")
+    expect(span).toBeDefined()
+    expect(spans.attributes(span)).toMatchObject({
+      "ctxpipe.org.id": otherOrgs[1]?.id,
+      "ctxpipe.org.slug": otherOrgs[1]?.slug,
+    })
+    await client.close()
   })
 
   it("adds a call id to a failed framework tool call too", async () => {
@@ -719,7 +815,7 @@ describe("MCP tool framework (Postgres + MCP SDK Client)", () => {
       const result = await call(client, "ctx_advisor", args)
       expect(failure(result)).toEqual({
         code: "org_required",
-        message: expect.stringContaining("org argument"),
+        message: expect.stringContaining("/mcp?orgSlug="),
         retryable: false,
       })
       expect(result._meta?.["ai.ctxpipe/callId"]).toMatch(/^call_/)

@@ -3,34 +3,70 @@ import type {
   Implementation,
   ServerCapabilities,
 } from "@modelcontextprotocol/sdk/types.js"
-import { z } from "zod"
 
-const ServerDiscoverRequestSchema = z.object({
-  method: z.literal("server/discover"),
-  params: z.optional(z.looseObject({})),
-})
+/** `DiscoverResult` of the 2026-07-28 revision (`server/discover`). */
+export type ServerDiscoverResult = {
+  resultType: "complete"
+  supportedVersions: string[]
+  capabilities: ServerCapabilities
+  _meta: { "io.modelcontextprotocol/serverInfo": Implementation }
+  instructions?: string
+}
 
 /**
- * `server/discover` of the stateless MCP revision (2026-07-28): a client
- * reads the server info, capabilities, and instructions with no
- * `initialize`. The SDK has no handler for it yet.
+ * The discover result for a server with its tools registered. The SDK keeps
+ * `getCapabilities` private; `initialize` uses the same value, and the
+ * framework integration test fails when the two differ.
+ * `supportedVersions` lists only the versions that the transport serves, so a
+ * 2026-07-28 client falls back to `initialize`.
  */
-export function registerServerDiscover(
+export function serverDiscoverResult(
   server: McpServer,
   input: {
     implementation: Implementation
     supportedVersions: readonly string[]
     instructions: string | undefined
   },
-): void {
-  server.server.setRequestHandler(ServerDiscoverRequestSchema, async () => ({
+): ServerDiscoverResult {
+  const capabilities = (
+    server.server as unknown as { getCapabilities(): ServerCapabilities }
+  ).getCapabilities()
+  return {
+    resultType: "complete",
     supportedVersions: [...input.supportedVersions],
-    // Read at request time, after the tools register their capability.
-    // The SDK keeps this method private; `initialize` uses the same value.
-    capabilities: (
-      server.server as unknown as { getCapabilities(): ServerCapabilities }
-    ).getCapabilities(),
-    serverInfo: input.implementation,
+    capabilities,
+    _meta: { "io.modelcontextprotocol/serverInfo": input.implementation },
     ...(input.instructions ? { instructions: input.instructions } : {}),
+  }
+}
+
+function isDiscoverRequest(
+  message: unknown,
+): message is { id: string | number } {
+  return (
+    typeof message === "object" &&
+    message !== null &&
+    "method" in message &&
+    message.method === "server/discover" &&
+    "id" in message &&
+    (typeof message.id === "string" || typeof message.id === "number")
+  )
+}
+
+/**
+ * The JSON-RPC response when the body holds only `server/discover`
+ * requests, else null (the SDK transport handles the body).
+ */
+export function serverDiscoverResponse(
+  body: unknown,
+  result: () => ServerDiscoverResult,
+): unknown {
+  const messages = Array.isArray(body) ? body : [body]
+  if (messages.length === 0 || !messages.every(isDiscoverRequest)) return null
+  const responses = messages.map((message) => ({
+    jsonrpc: "2.0" as const,
+    id: message.id,
+    result: result(),
   }))
+  return Array.isArray(body) ? responses : responses[0]
 }

@@ -24,6 +24,7 @@ import { parseEnv } from "../config/env.js"
 import { type Db, initDb, isRailwayPrPreview } from "../db/client.js"
 import { members, users } from "../db/schema/auth.js"
 import { schema } from "../db/schema.js"
+import { isValidSlug } from "../domain/workspaces/slug.js"
 import { generateObjectId } from "../lib/id.js"
 import { log } from "../observability/logger.js"
 import { invitationEmailLink } from "./invitation-email-url.js"
@@ -35,6 +36,14 @@ import {
   resolveOAuthConsentOrganizationId,
   selectOAuthOrganizationBinding,
 } from "./oauth-organization.js"
+
+function assertOrganizationSlug(slug: string | undefined): void {
+  if (slug === undefined || isValidSlug(slug)) return
+  throw new APIError("BAD_REQUEST", {
+    message:
+      "The organization slug may contain only lowercase letters, numbers, and single hyphens between them, at most 64 characters.",
+  })
+}
 
 export type BetterAuthInstance = ReturnType<typeof createBetterAuth>
 export type AuthUser = BetterAuthInstance["$Infer"]["Session"]["user"]
@@ -311,6 +320,14 @@ export function createBetterAuth() {
         // accepting session must still match the exact invited email address.
         requireEmailVerificationOnInvitation: false,
         organizationHooks: {
+          // The MCP server instructions show org slugs to the model, so a
+          // slug must not carry line breaks or other text (ADR-051 §5).
+          async beforeCreateOrganization({ organization }) {
+            assertOrganizationSlug(organization.slug)
+          },
+          async beforeUpdateOrganization({ organization }) {
+            assertOrganizationSlug(organization.slug)
+          },
           async beforeDeleteOrganization({ organization }) {
             const { purgeOrgDataBeforeAuthDelete } = await import(
               "../domain/repositoryDeletion.js"

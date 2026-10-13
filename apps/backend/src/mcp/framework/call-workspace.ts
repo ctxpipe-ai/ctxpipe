@@ -1,9 +1,11 @@
 import { and, asc, eq, sql } from "drizzle-orm"
 import { withOrgDbContext } from "../../db/client.js"
+import { workspaceSources } from "../../db/schema/workspace_sources.js"
 import {
   workspaceLinkedRepositories,
   workspaces,
 } from "../../db/schema/workspaces.js"
+import { githubScopeSchema } from "../../domain/workspace-sources/providers/github.js"
 import { workspaceRevisionSchema } from "../../domain/workspaces/revision.js"
 import { isValidSlug } from "../../domain/workspaces/slug.js"
 import { RepositoryHandles } from "./repository-handles.js"
@@ -83,6 +85,43 @@ export async function listOrgWorkspaceSlugs(org: CallOrg): Promise<string[]> {
 }
 
 /**
+ * Git URLs of every repository that a Workspace of the org links, oldest
+ * first. Two stores hold links during the ADR-050 migration: the GitHub
+ * sources of `.ctxpipe/sources.yaml` (the `workspace_sources` projection,
+ * `ok` rows only) and the legacy `workspace_linked_repositories` table, which
+ * ADR-050 phase 3 retires. Only this function reads them.
+ */
+export async function listOrgRepositoryUrls(org: CallOrg): Promise<string[]> {
+  const [legacy, sources] = await withOrgDbContext(org.id, (db) =>
+    Promise.all([
+      db
+        .select({ gitUrl: workspaceLinkedRepositories.gitUrl })
+        .from(workspaceLinkedRepositories)
+        .where(eq(workspaceLinkedRepositories.orgId, org.id))
+        .orderBy(asc(workspaceLinkedRepositories.createdAt)),
+      db
+        .select({ scope: workspaceSources.scope })
+        .from(workspaceSources)
+        .where(
+          and(
+            eq(workspaceSources.orgId, org.id),
+            eq(workspaceSources.provider, "github"),
+            eq(workspaceSources.status, "ok"),
+          ),
+        )
+        .orderBy(asc(workspaceSources.createdAt)),
+    ]),
+  )
+  const fromSources = sources.flatMap((row) => {
+    const scope = githubScopeSchema.safeParse(row.scope)
+    return scope.success
+      ? scope.data.repositories.map((name) => `https://github.com/${name}`)
+      : []
+  })
+  return [...legacy.map((row) => row.gitUrl), ...fromSources]
+}
+
+/**
  * Handles for every repository that a Workspace of the org links. Handles
  * are unique in the org, so a ref from one Workspace is valid in another
  * Workspace that links the same repository.
@@ -90,12 +129,5 @@ export async function listOrgWorkspaceSlugs(org: CallOrg): Promise<string[]> {
 export async function loadOrgRepositoryHandles(
   org: CallOrg,
 ): Promise<RepositoryHandles> {
-  const rows = await withOrgDbContext(org.id, (db) =>
-    db
-      .select({ gitUrl: workspaceLinkedRepositories.gitUrl })
-      .from(workspaceLinkedRepositories)
-      .where(eq(workspaceLinkedRepositories.orgId, org.id))
-      .orderBy(asc(workspaceLinkedRepositories.createdAt)),
-  )
-  return RepositoryHandles.from(rows.map((row) => row.gitUrl))
+  return RepositoryHandles.from(await listOrgRepositoryUrls(org))
 }

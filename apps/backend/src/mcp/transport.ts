@@ -13,7 +13,10 @@ import {
 } from "../observability/attribution.js"
 import { getLogger } from "../observability/logger.js"
 import { mcpAdvisorThreadId, mcpClientConversationId } from "./advisorThread.js"
-import { registerServerDiscover } from "./framework/server-discover.js"
+import {
+  serverDiscoverResponse,
+  serverDiscoverResult,
+} from "./framework/server-discover.js"
 import { getMcpServerImplementation } from "./mcp-server-info.js"
 
 function isLoopbackHostname(hostname: string): boolean {
@@ -142,12 +145,17 @@ export async function handleMcpTransportRequest(
     implementation,
     instructions ? { instructions } : undefined,
   )
-  registerServerDiscover(server, {
-    implementation,
-    supportedVersions: SUPPORTED_PROTOCOL_VERSIONS,
-    instructions,
-  })
   registerTools(server)
+  // `server/discover` (2026-07-28) comes with no `initialize` and with a
+  // protocol version header that the SDK transport refuses, so answer it here.
+  const discover = serverDiscoverResponse(parsedBody, () =>
+    serverDiscoverResult(server, {
+      implementation,
+      supportedVersions: SUPPORTED_PROTOCOL_VERSIONS,
+      instructions,
+    }),
+  )
+  if (discover) return logResponse(c.json(discover))
   const transport = new StreamableHTTPTransport()
   try {
     await server.connect(transport)
