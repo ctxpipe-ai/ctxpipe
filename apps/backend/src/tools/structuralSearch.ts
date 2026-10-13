@@ -12,18 +12,28 @@ import {
 import { withTransientHttpRetry } from "../lib/withTransientHttpRetry.js"
 import { getRepositoryForOrg } from "../models/repositories.js"
 
-export async function codesearchStructuralSearch(
+export type StructuralSearchBody = {
+  pattern: string
+  lang?: string
+  paths?: string[]
+  globs?: string[]
+  limit?: number
+}
+
+type StructuralSearchWorkspace = { workspaceId: string } & (
+  | { sha: string }
+  | { legacy: true }
+)
+
+/** The parsed codesearch answer, or the status and detail of a 4xx. A 5xx throws. */
+export async function codesearchStructuralSearchJson(
   repository: { id: string; orgId: string },
-  body: {
-    pattern: string
-    lang?: string
-    paths?: string[]
-    globs?: string[]
-    limit?: number
-  },
-  workspace?: { workspaceId: string } & ({ sha: string } | { legacy: true }),
-): Promise<string> {
-  const repositoryId = repository.id
+  body: StructuralSearchBody,
+  workspace?: StructuralSearchWorkspace,
+): Promise<
+  | { ok: true; json: unknown }
+  | { ok: false; status: number; detail: string }
+> {
   const { pattern, lang, paths, globs, limit } = body
   const source = capturedSourceRevision(repository.orgId, repository.id)
   if (source && workspace)
@@ -71,12 +81,11 @@ export async function codesearchStructuralSearch(
 
   if (res.status >= 400 && res.status < 500) {
     const detail = await res.text().catch(() => "")
-    return toToon({
-      error: "structural_search_client_error",
-      repositoryId,
+    return {
+      ok: false,
       status: res.status,
       detail: detail.trim() || `client_error_${res.status}`,
-    })
+    }
   }
   if (!res.ok) {
     const detail = await res.text().catch(() => "")
@@ -84,8 +93,26 @@ export async function codesearchStructuralSearch(
       `structural_search failed with status ${res.status}${detail ? `: ${detail}` : ""}`,
     )
   }
+  return { ok: true, json: await res.json() }
+}
 
-  return toToon(await res.json())
+export async function codesearchStructuralSearch(
+  repository: { id: string; orgId: string },
+  body: StructuralSearchBody,
+  workspace?: StructuralSearchWorkspace,
+): Promise<string> {
+  const answer = await codesearchStructuralSearchJson(
+    repository,
+    body,
+    workspace,
+  )
+  if (answer.ok) return toToon(answer.json)
+  return toToon({
+    error: "structural_search_client_error",
+    repositoryId: repository.id,
+    status: answer.status,
+    detail: answer.detail,
+  })
 }
 
 export const structuralSearchTool = tool(
