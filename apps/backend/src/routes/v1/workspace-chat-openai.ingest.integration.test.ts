@@ -1,5 +1,11 @@
 import { randomUUID } from "node:crypto"
 import { OpenAPIHono } from "@hono/zod-openapi"
+import { SpanKind } from "@opentelemetry/api"
+import {
+  InMemorySpanExporter,
+  SimpleSpanProcessor,
+} from "@opentelemetry/sdk-trace-base"
+import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
 import { eq } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
 import { BackendPostgres } from "openworkflow/postgres"
@@ -29,6 +35,7 @@ import {
   verifyWorkspaceIngestRunCapability,
 } from "../../domain/workspaces/workspace-chat-run-capability.js"
 import { generateObjectId } from "../../lib/id.js"
+import { backendOtelMiddleware } from "../../observability/http.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import {
   contextStorage,
@@ -37,6 +44,10 @@ import {
 import { workspaceChatOpenaiRoutes } from "./workspace-chat-openai.js"
 
 const AUTH_SECRET = "abcdefghijklmnopqrstuvwxyz123456"
+const exporter = new InMemorySpanExporter()
+const tracer = new NodeTracerProvider({
+  spanProcessors: [new SimpleSpanProcessor(exporter)],
+})
 const MODEL_PROVIDER_URL = "http://model-provider.test/v1"
 
 function databaseUrl(): string {
@@ -72,6 +83,7 @@ function app(): OpenAPIHono<AppEnv> {
     "/:orgSlug/api/v1/workspace-chat/openai",
   )
   routes.use(contextStorage())
+  routes.use("*", backendOtelMiddleware())
   routes.use(withTestRequestLogger)
   routes.use("*", async (c, next) => {
     c.set("env", env)
@@ -162,6 +174,7 @@ describe("workspace-ingest-model capability", () => {
   }
 
   beforeAll(async () => {
+    tracer.register()
     initDb(databaseUrl())
     backend = await BackendPostgres.connect(databaseUrl(), {
       runMigrations: false,
@@ -222,6 +235,7 @@ describe("workspace-ingest-model capability", () => {
       .where(eq(organizations.id, otherOrgId))
     await backend.stop()
     await closeDb()
+    await tracer.shutdown()
   })
 
   it("calls the model proxy while the step holds the shard lock of an unfinished run", async () => {
@@ -233,6 +247,7 @@ describe("workspace-ingest-model capability", () => {
       orgSlug,
       runId,
       shard: 0,
+      step: "skill:root:docs",
       lockOwner,
     })
     expect(
@@ -245,10 +260,23 @@ describe("workspace-ingest-model capability", () => {
       orgId,
       runId,
       shard: 0,
+      step: "skill:root:docs",
       lockOwner,
     })
     expect(await listModels(capability)).toBe(200)
+    exporter.reset()
     expect(await complete(capability)).toBe(200)
+    // Attributed to the run, the shard, and the step; never to a conversation.
+    const span = exporter
+      .getFinishedSpans()
+      .find((item) => item.kind === SpanKind.SERVER)
+    expect(span?.attributes).toMatchObject({
+      "ctxpipe.org.id": orgId,
+      "ctxpipe.ingest.run.id": runId,
+      "ctxpipe.ingest.shard": "0",
+      "ctxpipe.ingest.step": "skill:root:docs",
+    })
+    expect(span?.attributes["ctxpipe.conversation.id"]).toBeUndefined()
   })
 
   it("does not accept a chat capability as ingest, nor an ingest capability as chat", async () => {
@@ -260,6 +288,7 @@ describe("workspace-ingest-model capability", () => {
       orgSlug,
       runId,
       shard: 0,
+      step: "skill:root:docs",
       lockOwner,
     })
     const chat = await mintWorkspaceChatRunCapability({
@@ -297,6 +326,7 @@ describe("workspace-ingest-model capability", () => {
       orgSlug,
       runId,
       shard: 1,
+      step: "skill:root:docs",
       lockOwner,
     })
     expect(await complete(capability)).toBe(200)
@@ -324,6 +354,7 @@ describe("workspace-ingest-model capability", () => {
       orgSlug,
       runId,
       shard: 0,
+      step: "skill:root:docs",
       lockOwner,
     })
     expect(await complete(capability)).toBe(200)
@@ -341,6 +372,7 @@ describe("workspace-ingest-model capability", () => {
         orgSlug,
         runId,
         shard: 0,
+        step: "skill:root:docs",
         lockOwner: randomUUID(),
       }),
     ).rejects.toThrow("The ingest shard lock or run is not valid")
@@ -354,6 +386,7 @@ describe("workspace-ingest-model capability", () => {
         orgSlug,
         runId: foreignRun,
         shard: 0,
+        step: "skill:root:docs",
         lockOwner: foreignOwner,
       }),
     ).rejects.toThrow("The ingest shard lock or run is not valid")
@@ -366,6 +399,7 @@ describe("workspace-ingest-model capability", () => {
         orgSlug,
         runId: "run_unknown",
         shard: 0,
+        step: "skill:root:docs",
         lockOwner: unknownOwner,
       }),
     ).rejects.toThrow("The ingest shard lock or run is not valid")
@@ -380,6 +414,7 @@ describe("workspace-ingest-model capability", () => {
       orgSlug,
       runId,
       shard: 0,
+      step: "skill:root:docs",
       lockOwner,
     })
     const [payload, signature] = capability.split(".")

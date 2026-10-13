@@ -1,6 +1,5 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
-import { ingestSandboxThreadId } from "../../domain/workspaces/chat-lifecycle.js"
 import {
   observeWorkspaceChatCompletionStream,
   recordWorkspaceChatProxyCompletion,
@@ -96,14 +95,20 @@ function contractFromEnv(env: AppEnv["Variables"]["env"]) {
 
 /**
  * The caller of a model call: a chat turn, or an ingest step (ADR-052). An
- * ingest step is attributed to its shard thread, `ingest:<run>:<shard>`.
+ * ingest step has no conversation: it is attributed to its run, shard, and
+ * step.
  */
+type ModelCaller = {
+  orgId: string
+  orgSlug?: string
+  conversationId?: string
+  runId?: string
+  ingest?: { runId: string; shard: number; step: string }
+}
+
 async function chatTokenFromRequest(
   c: Parameters<Parameters<OpenAPIHono<AppEnv>["openapi"]>[1]>[0],
-): Promise<
-  | { orgId: string; orgSlug?: string; conversationId: string; runId?: string }
-  | undefined
-> {
+): Promise<ModelCaller | undefined> {
   const presented = workspaceChatBearerToken(c.req.header("authorization"))
   if (!presented) return undefined
   const authSecret = c.var.env.AUTH_SECRET
@@ -123,7 +128,7 @@ async function chatTokenFromRequest(
   return {
     orgId: ingest.orgId,
     orgSlug: ingest.orgSlug,
-    conversationId: ingestSandboxThreadId(ingest.runId, ingest.shard),
+    ingest: { runId: ingest.runId, shard: ingest.shard, step: ingest.step },
   }
 }
 
@@ -146,6 +151,11 @@ export const workspaceChatOpenaiRoutes = new OpenAPIHono<AppEnv>()
     applyAttribution({
       "ctxpipe.org.id": token.orgId,
       "ctxpipe.conversation.id": token.conversationId,
+      "ctxpipe.ingest.run.id": token.ingest?.runId,
+      "ctxpipe.ingest.shard": token.ingest
+        ? String(token.ingest.shard)
+        : undefined,
+      "ctxpipe.ingest.step": token.ingest?.step,
       ...(token.orgSlug ? { "ctxpipe.org.slug": token.orgSlug } : {}),
     })
     const env = c.var.env
@@ -181,11 +191,18 @@ export const workspaceChatOpenaiRoutes = new OpenAPIHono<AppEnv>()
           }
         : {}),
     }
-    const turnId = workspaceChatTurnId(token)
-    beginWorkspaceChatProxyGeneration(turnId, {
-      model: contract.modelBase,
-      messages: body.messages,
-    })
+    // An ingest step has no chat turn to add a generation to.
+    const turnId = token.conversationId
+      ? workspaceChatTurnId({
+          conversationId: token.conversationId,
+          runId: token.runId,
+        })
+      : undefined
+    if (turnId)
+      beginWorkspaceChatProxyGeneration(turnId, {
+        model: contract.modelBase,
+        messages: body.messages,
+      })
     const startedAt = Date.now()
     let ttfbMs: number | null = null
     const observer = observeWorkspaceChatCompletionStream()
@@ -211,6 +228,8 @@ export const workspaceChatOpenaiRoutes = new OpenAPIHono<AppEnv>()
       method: "POST",
       path: "/v1/chat/completions",
       conversationId: token.conversationId,
+      ingestRunId: token.ingest?.runId,
+      ingestStep: token.ingest?.step,
       orgId: token.orgId,
     })
     if (env.MODEL_PROVIDER === "bedrock") {

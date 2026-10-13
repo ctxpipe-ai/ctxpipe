@@ -192,6 +192,8 @@ const IngestCapabilityClaimsSchema = z.object({
   orgSlug: z.string().min(1),
   runId: z.string().min(1),
   shard: z.number().int().nonnegative(),
+  /** The workflow step that holds the lock, for attribution only. */
+  step: z.string().min(1),
   lockOwner: z.string().uuid(),
 })
 
@@ -245,6 +247,8 @@ export async function mintWorkspaceIngestRunCapability(input: {
   orgSlug: string
   runId: string
   shard: number
+  /** The workflow step, for attribution (not checked). */
+  step: string
   /** The owner of the shard lock that the step holds. */
   lockOwner: string
 }): Promise<string> {
@@ -255,6 +259,7 @@ export async function mintWorkspaceIngestRunCapability(input: {
     orgSlug: input.orgSlug.trim(),
     runId: input.runId,
     shard: input.shard,
+    step: input.step,
     lockOwner: input.lockOwner,
   })
   if (!(await ingestShardIsHeld(claims)))
