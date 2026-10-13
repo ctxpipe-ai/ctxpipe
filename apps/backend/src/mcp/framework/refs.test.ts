@@ -31,6 +31,28 @@ describe("parseRef", () => {
     ).toMatchObject({ kind: "file", handle: "gitlab.example.com/example/api" })
   })
 
+  it("reads the host/owner/name form of a short handle as that repository", () => {
+    expect(
+      parseRef("github.com/example/payments-api:src/limits.ts", handles),
+    ).toMatchObject({
+      kind: "file",
+      handle: "example/payments-api",
+      path: "src/limits.ts",
+    })
+  })
+
+  it("matches a handle in another letter case", () => {
+    expect(
+      parseRef("Example/Payments-API:src/limits.ts", handles),
+    ).toMatchObject({ kind: "file", handle: "example/payments-api" })
+  })
+
+  it("refuses a short handle that names two repositories", () => {
+    expect(() => parseRef("example/api:README.md", handles)).toThrowError(
+      expect.objectContaining({ code: "ambiguous_repository" }),
+    )
+  })
+
   it("matches the longest handle prefix first", () => {
     const nested = RepositoryHandles.from([
       "https://gitlab.example.com/group/app",

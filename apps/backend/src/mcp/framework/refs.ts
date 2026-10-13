@@ -1,4 +1,7 @@
-import type { RepositoryHandles } from "./repository-handles.js"
+import type {
+  HandledRepository,
+  RepositoryHandles,
+} from "./repository-handles.js"
 import { McpToolError } from "./tool-errors.js"
 
 /**
@@ -26,20 +29,29 @@ function checkPath(path: string, ref: string): string {
   return path
 }
 
+/**
+ * The part before the first `:` names a repository only when `resolve`
+ * finds it, so `owner/name`, `host/owner/name`, and another letter case all
+ * work. A handle has no `:`. A prefix that names no linked repository makes
+ * the whole ref a unit path.
+ */
 export function parseRef(ref: string, handles: RepositoryHandles): ParsedRef {
-  // Longest handle first, so a handle that is a prefix of another handle
-  // does not take its refs.
-  const lower = ref.toLowerCase()
-  const repository = handles
-    .list()
-    .sort((a, b) => b.handle.length - a.handle.length)
-    .find((entry) => lower.startsWith(`${entry.handle.toLowerCase()}:`))
-  if (repository) {
-    return {
-      kind: "file",
-      handle: repository.handle,
-      url: repository.url,
-      path: checkPath(ref.slice(repository.handle.length + 1), ref),
+  const colon = ref.indexOf(":")
+  if (colon > 0) {
+    let repository: HandledRepository | null = null
+    try {
+      repository = handles.resolve(ref.slice(0, colon))
+    } catch (error) {
+      if (!(error instanceof McpToolError)) throw error
+      if (error.code !== "repository_not_found") throw error
+    }
+    if (repository) {
+      return {
+        kind: "file",
+        handle: repository.handle,
+        url: repository.url,
+        path: checkPath(ref.slice(colon + 1), ref),
+      }
     }
   }
   return { kind: "unit", path: checkPath(ref, ref) }
