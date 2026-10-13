@@ -1,6 +1,6 @@
 # ADR-016: Code ingestion ReAct agents — recursion limits and context middleware
 
-**Status:** Accepted | **Date:** 2026-02-15 | **Tags:** backend, langchain, langgraph, code-ingestion, agents
+**Status:** Superseded by [ADR-052](ADR-052-ingestion-sandbox-skills-patches.md) (the agents stay until its phase 5) | **Date:** 2026-02-15 | **Tags:** backend, langchain, langgraph, code-ingestion, agents
 
 ## Context
 

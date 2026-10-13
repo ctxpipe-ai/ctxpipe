@@ -14,7 +14,10 @@ import {
   logOAuthError,
   prepareBetterAuthRequest,
 } from "../auth/oauth-gateway-request.js"
-import { withOAuthConsentOrganizationId } from "../auth/oauth-organization.js"
+import {
+  readOAuthRequestClientId,
+  withOAuthRequestContext,
+} from "../auth/oauth-organization.js"
 import { getSystemDb } from "../db/client.js"
 import { invitations, organizations } from "../db/schema/auth.js"
 
@@ -130,11 +133,16 @@ export function registerAuthRoutes(app: Hono<AppEnv>) {
     const isOAuthConsent = c.req.path.endsWith("/oauth2/consent")
     const submittedOrganizationId =
       c.req.header("x-ctxpipe-oauth-organization")?.trim() || null
-    const response = isOAuthConsent
-      ? await withOAuthConsentOrganizationId(submittedOrganizationId, () =>
-          auth.handler(prepared.request),
-        )
-      : await auth.handler(prepared.request)
+    const clientId = await readOAuthRequestClientId(prepared.request)
+    const response = await withOAuthRequestContext(
+      {
+        submittedOrganizationId: isOAuthConsent
+          ? submittedOrganizationId
+          : undefined,
+        clientId,
+      },
+      () => auth.handler(prepared.request),
+    )
     if (response.status >= 400) {
       await logOAuthError(prepared.request, response, prepared.oauthTokenHints)
     }

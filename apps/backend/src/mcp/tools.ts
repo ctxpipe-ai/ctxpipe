@@ -1,5 +1,4 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
-import { context, SpanStatusCode, trace } from "@opentelemetry/api"
 import { createError } from "evlog"
 import { z } from "zod"
 import { currentMcpActor, requireCurrentOrgId } from "../auth/context.js"
@@ -19,10 +18,10 @@ import {
   getOrgFirstWorkspace,
   listOrgWorkspaces,
 } from "../models/workspaces.js"
-import { copyAttributionToSpan } from "../observability/attribution.js"
 import { runWithLangfuseContext } from "../observability/langfuse.js"
 import { mcpAdvisorUserPrompt } from "./advisorRuntimeContext.js"
 import { mcpAdvisorThreadId, mcpClientConversationId } from "./advisorThread.js"
+import { runMcpToolCall } from "./correlation.js"
 
 /**
  * Register MCP tools. Tools should call into domain/ services so REST and MCP
@@ -98,7 +97,7 @@ export function registerMcpTools(server: McpServer): void {
       }),
     },
     async ({ prompt, currentProjectName, conversationId }, extra) =>
-      withCtxAdvisorToolSpan(async () => {
+      runMcpToolCall({ toolName: "ctx_advisor", extra }, async () => {
         const actor = currentMcpActor()
         const orgId = requireCurrentOrgId()
         const [items, first] = await Promise.all([
@@ -194,26 +193,4 @@ export function registerMcpTools(server: McpServer): void {
         }
       }),
   )
-}
-
-function withCtxAdvisorToolSpan<T>(fn: () => Promise<T>): Promise<T> {
-  return trace
-    .getTracer("ctxpipe-backend")
-    .startActiveSpan("mcp.tool ctx_advisor", async (span) => {
-      copyAttributionToSpan(span, context.active())
-      try {
-        return await fn()
-      } catch (error) {
-        const exception =
-          error instanceof Error ? error : new Error(String(error))
-        span.recordException(exception)
-        span.setStatus({
-          code: SpanStatusCode.ERROR,
-          message: exception.message,
-        })
-        throw error
-      } finally {
-        span.end()
-      }
-    })
 }

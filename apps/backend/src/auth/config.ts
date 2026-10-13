@@ -28,10 +28,12 @@ import { generateObjectId } from "../lib/id.js"
 import { log } from "../observability/logger.js"
 import { invitationEmailLink } from "./invitation-email-url.js"
 import { MCP_READ_SCOPE, MCP_WRITE_SCOPE } from "./mcp-scopes.js"
+import { resolveOAuthGrantReference } from "./oauth-grants.js"
 import {
   getOAuthConsentOrganizationId,
-  OAUTH_ORGANIZATION_CLAIM,
-  resolveOAuthConsentReferenceId,
+  getOAuthRequestClientId,
+  oauthAccessTokenClaims,
+  resolveOAuthConsentOrganizationId,
   selectOAuthOrganizationBinding,
 } from "./oauth-organization.js"
 
@@ -365,25 +367,31 @@ export function createBetterAuth() {
               db,
               user.id,
             )
-            const referenceId = resolveOAuthConsentReferenceId(
+            const submittedOrganizationId = getOAuthConsentOrganizationId()
+            const organizationId = resolveOAuthConsentOrganizationId(
               membershipIds,
               typeof session.activeOrganizationId === "string"
                 ? session.activeOrganizationId
                 : null,
-              getOAuthConsentOrganizationId(),
+              submittedOrganizationId,
             )
-            if (!referenceId) {
+            if (!organizationId) {
               throw new APIError("BAD_REQUEST", {
                 error: "organization_required",
                 error_description:
                   "Select a ctxpipe organization before authorizing this client.",
               })
             }
-            return referenceId
+            return resolveOAuthGrantReference({
+              userId: user.id,
+              clientId: getOAuthRequestClientId(),
+              organizationId,
+              consent: submittedOrganizationId !== undefined,
+            })
           },
         },
         customAccessTokenClaims({ referenceId }) {
-          return referenceId ? { [OAUTH_ORGANIZATION_CLAIM]: referenceId } : {}
+          return oauthAccessTokenClaims(referenceId)
         },
         issuer,
         allowDynamicClientRegistration: true,

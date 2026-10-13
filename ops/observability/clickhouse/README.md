@@ -53,3 +53,18 @@ If the process is up and the bucket later fails, hot inserts still land locally.
 Run `tiering/otel.sql` as `otel`, `tiering/langfuse.sql` as `langfuse`, and `schema/deployment-environment.sql` as `otel`, after `system.storage_policies` shows volume `cold`. Apply a new table's statement on its own.
 
 Do not deploy a config that drops disk `s3_cold` while parts sit on `s3_cold_cache`. Move those partitions to volume `default` first. A backup that omits `disks/s3_cold/` cannot read the bucket.
+
+## MCP call correlation
+
+`schema/mcp-call-correlation.sql` creates the parameterized view `otel.mcp_tool_calls`. It has one row for each `mcp.tool <name>` span. For each connection key (`ctxpipe.mcp.connection.key`) it derives a session (a new session after a gap of more than 30 minutes) and a turn (a new turn after a gap of more than 60 seconds). `ConversationId` and `TurnId` use the client ids when the client sent them, with the environment and the connection key in front, so tenants do not merge. Otherwise they use `DerivedSessionId` and `DerivedTurnId`. See [ADR-051](../../../.ai/memory/decisions/ADR-051-mcp-read-surface.md) section 9.
+
+Always give a time range:
+
+```sql
+SELECT Tool, ConversationId, TurnId, count()
+FROM otel.mcp_tool_calls(from = now() - INTERVAL 1 DAY, to = now())
+WHERE DeploymentEnvironment = 'production'
+GROUP BY ALL
+```
+
+Run the file as `otel`. `CREATE OR REPLACE VIEW` is safe to repeat. Before you apply a change, run `bash schema/mcp-call-correlation.check.sh`. It runs the view in `clickhouse-local` from the image in the `Dockerfile` on fixture spans, and it fails when a session or turn is wrong. CI does not run it.

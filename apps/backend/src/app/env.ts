@@ -14,7 +14,7 @@ export type AppEnv = EvlogVariables & {
     env: Env
     user: AuthUser | null
     session: AuthSession | null
-    oauthOrganizationId: string | null
+    oauthReferenceId: string | null
     oauthClientId: string | null
     /** Scopes of the OAuth access token. `null` when the principal is not an OAuth grant. */
     oauthScopes: string[] | null

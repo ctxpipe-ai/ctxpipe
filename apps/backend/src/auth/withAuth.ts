@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 import { createHash } from "node:crypto"
-import { and, desc, eq } from "drizzle-orm"
+import { desc, eq } from "drizzle-orm"
 import type { Context, MiddlewareHandler, Next } from "hono"
 import {
   createLocalJWKSet,
@@ -10,21 +10,19 @@ import {
 } from "jose"
 import type { AppEnv } from "../app/env.js"
 import { getSystemDb } from "../db/client.js"
-import {
-  members,
-  oauthAccessTokens,
-  organizations,
-  sessions,
-  users,
-} from "../db/schema/auth.js"
+import { oauthAccessTokens, sessions, users } from "../db/schema/auth.js"
 import {
   applyAttribution,
   attributesForOrgApiKey,
 } from "../observability/attribution.js"
 import { getLogger } from "../observability/logger.js"
+import { callPrincipalFromContext, resolveCallOrg } from "./call-org.js"
 import { type AuthSession, type AuthUser, getAuth } from "./config.js"
 import { MCP_READ_SCOPE } from "./mcp-scopes.js"
-import { OAUTH_ORGANIZATION_CLAIM } from "./oauth-organization.js"
+import {
+  OAUTH_GRANT_CLAIM,
+  OAUTH_ORGANIZATION_CLAIM,
+} from "./oauth-organization.js"
 
 /** Seconds — small skew between issuers, clients, and this server (Better Auth / jose guidance). */
 const JWT_CLOCK_TOLERANCE_SECONDS = 60
@@ -224,7 +222,7 @@ async function resolveBearerPrincipal(
 async function resolveOpaqueAccessToken(token: string): Promise<{
   session: AuthSession | null
   user: AuthUser
-  oauthOrganizationId: string | null
+  oauthReferenceId: string | null
   oauthClientId: string | null
   oauthScopes: string[]
 } | null> {
@@ -246,7 +244,7 @@ async function resolveOpaqueAccessToken(token: string): Promise<{
   return principal
     ? {
         ...principal,
-        oauthOrganizationId: record.referenceId ?? null,
+        oauthReferenceId: record.referenceId ?? null,
         oauthClientId: record.clientId ?? null,
         oauthScopes: record.scopes,
       }
@@ -323,7 +321,7 @@ function applyPrincipalAttribution(c: Context<AppEnv>): void {
   }
   if (!userId && !oauthClientId) return
   const actorType =
-    oauthClientId || c.get("oauthOrganizationId") ? "oauth_client" : "user"
+    oauthClientId || c.get("oauthReferenceId") ? "oauth_client" : "user"
   applyAttribution({
     "ctxpipe.actor.type": actorType,
     ...(userId ? { "enduser.id": userId } : {}),
@@ -429,6 +427,21 @@ export const withOrgApiKeyAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   return next()
 }
 
+/**
+ * The grant reference of a JWT access token: the grant id claim, else the
+ * legacy org id claim, else null. `false` when a claim is present but invalid.
+ */
+function readOAuthReferenceClaim(
+  payload: Record<string, unknown>,
+): string | null | false {
+  for (const claim of [OAUTH_GRANT_CLAIM, OAUTH_ORGANIZATION_CLAIM]) {
+    const value = payload[claim]
+    if (value === undefined) continue
+    return typeof value === "string" && value.length > 0 ? value : false
+  }
+  return null
+}
+
 async function authenticateBearer(
   c: Context<AppEnv>,
   next: Next,
@@ -451,7 +464,7 @@ async function authenticateBearer(
       c.set("personalApiKeyId", null)
       c.set("session", opaque.session)
       c.set("user", opaque.user)
-      c.set("oauthOrganizationId", opaque.oauthOrganizationId)
+      c.set("oauthReferenceId", opaque.oauthReferenceId)
       c.set("oauthClientId", opaque.oauthClientId)
       c.set("oauthScopes", opaque.oauthScopes)
       applyPrincipalAttribution(c)
@@ -608,12 +621,8 @@ async function authenticateBearer(
       wwwAuthenticateForMcpRoute(c, "The access token subject is invalid"),
     )
   }
-  const oauthOrganizationClaim = payload[OAUTH_ORGANIZATION_CLAIM]
-  if (
-    oauthOrganizationClaim !== undefined &&
-    (typeof oauthOrganizationClaim !== "string" ||
-      oauthOrganizationClaim.length === 0)
-  ) {
+  const oauthReferenceClaim = readOAuthReferenceClaim(payload)
+  if (oauthReferenceClaim === false) {
     return c.json(
       { error: "Unauthorized" },
       401,
@@ -636,7 +645,7 @@ async function authenticateBearer(
     c.set("personalApiKeyId", null)
     c.set("session", tokenSessionContext.session)
     c.set("user", tokenSessionContext.user)
-    c.set("oauthOrganizationId", oauthOrganizationClaim ?? null)
+    c.set("oauthReferenceId", oauthReferenceClaim)
     c.set(
       "oauthScopes",
       typeof payload.scope === "string" ? payload.scope.split(" ") : [],
@@ -748,75 +757,25 @@ export const withNetworkOrgContext: MiddlewareHandler<AppEnv> = async (
   c,
   next,
 ) => {
-  const orgApiKey = c.get("orgApiKey")
-  const userId = c.get("user")?.id
+  // Until the P1-3 tools pass their `org` argument, the request URL names
+  // the org. Tools call `resolveCallOrg` with that argument instead.
   const rawOrgSlug = c.req.param("orgSlug") ?? c.req.query("orgSlug")
-  const orgSlug = rawOrgSlug?.trim() || undefined
-  const oauthOrganizationId = c.get("oauthOrganizationId")
-  const systemDb = getSystemDb()
-  let resolved: { id: string; slug: string } | undefined
-
-  if (orgApiKey) {
-    const orgRows = await systemDb
-      .select({ id: organizations.id, slug: organizations.slug })
-      .from(organizations)
-      .where(eq(organizations.id, orgApiKey.orgId))
-      .limit(1)
-    resolved = orgRows[0]
-    if (!resolved || (orgSlug && resolved.slug !== orgSlug)) {
-      return c.json({ error: "Not found" }, 404)
-    }
-  } else if (!userId) {
-    return c.json({ error: "Not found" }, 404)
-  } else if (oauthOrganizationId) {
-    const orgRows = await systemDb
-      .select({ id: organizations.id, slug: organizations.slug })
-      .from(organizations)
-      .innerJoin(
-        members,
-        and(
-          eq(members.organizationId, organizations.id),
-          eq(members.userId, userId),
-        ),
-      )
-      .where(eq(organizations.id, oauthOrganizationId))
-      .limit(1)
-
-    resolved = orgRows[0]
-    if (!resolved || (orgSlug && resolved.slug !== orgSlug)) {
-      return c.json({ error: "Not found" }, 404)
-    }
-  } else if (orgSlug) {
-    const orgRows = await systemDb
-      .select({ id: organizations.id })
-      .from(organizations)
-      .innerJoin(
-        members,
-        and(
-          eq(members.organizationId, organizations.id),
-          eq(members.userId, userId),
-        ),
-      )
-      .where(eq(organizations.slug, orgSlug))
-      .limit(1)
-    const org = orgRows[0]
-    if (!org) return c.json({ error: "Not found" }, 404)
-    resolved = { id: org.id, slug: orgSlug }
-  } else {
+  const result = await resolveCallOrg(callPrincipalFromContext(c), rawOrgSlug)
+  if (!result.ok && result.error === "org_required") {
     return c.json(
       {
         jsonrpc: "2.0",
         error: {
           code: -32600,
           message:
-            "This OAuth grant is not bound to an organization. Reconnect ctxpipe and select an organization, or use /mcp?orgSlug=<orgSlug> for a manual connection.",
+            "Name an organization: use /mcp?orgSlug=<orgSlug>. Reconnect ctxpipe to select one organization instead.",
         },
         id: null,
       },
       400,
     )
   }
-
+  const resolved = result.ok ? result.org : undefined
   if (!resolved) return c.json({ error: "Not found" }, 404)
   c.set("orgSlug", resolved.slug)
   c.set("orgId", resolved.id)
