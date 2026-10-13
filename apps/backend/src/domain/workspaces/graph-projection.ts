@@ -154,10 +154,17 @@ export async function hasWorkspaceGraph(input: {
 }): Promise<boolean> {
   return withGraphClient(input, async () => {
     const marker = await getGraphClient().executeQuery(
-      "MATCH (p:WorkspaceProjection {projectionKey: $projectionKey}) RETURN p.completedAt AS completedAt",
+      "MATCH (p:WorkspaceProjection {projectionKey: $projectionKey}) RETURN p.nodeCount AS nodeCount, p.claimCount AS claimCount, p.completedAt AS completedAt",
       { projectionKey: workspaceGraphRevisionKey(input.revision) },
     )
-    return marker.records.length > 0
+    const record = marker.records[0]
+    // The read path needs the same three fields; a marker without them is lost.
+    return (
+      record !== undefined &&
+      z.number().safeParse(record.get("nodeCount")).success &&
+      z.number().safeParse(record.get("claimCount")).success &&
+      z.string().safeParse(record.get("completedAt")).success
+    )
   })
 }
 

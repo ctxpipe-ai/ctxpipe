@@ -93,9 +93,19 @@ export const workspaceTipCheck = defineWorkflow(
       await withOrgDbContext(input.orgId, () =>
         ensureOrgFirstWorkspace(input.orgId),
       )
-      const workspaces = await withOrgDbContext(input.orgId, () =>
+      const allWorkspaces = await withOrgDbContext(input.orgId, () =>
         listOrgWorkspaces(input.orgId),
       )
+      // The write probe refreshes updatedAt for each selected Workspace.
+      // Select the oldest rows so later runs reach the rest. Keep graph and
+      // remote checks in the same batch so no separate cursor is needed.
+      const workspaces = [...allWorkspaces]
+        .sort(
+          (a, b) =>
+            a.updatedAt.getTime() - b.updatedAt.getTime() ||
+            a.id.localeCompare(b.id),
+        )
+        .slice(0, 20)
       const quietLog = { error: () => undefined }
       const writeStatusById = new Map<string, string>()
       const writeCommitsToEnqueue: EnqueueWorkspaceWriteCommitInput[] = []
@@ -301,7 +311,7 @@ export const workspaceTipCheck = defineWorkflow(
       // Also restarts the sandbox sweep chain if it was ever lost.
       await scheduleConversationSandboxSweep(input.orgId, now)
       const idleJobs = jobSandboxesDueForDestroy({
-        workspaces: workspaces.map((row) => ({
+        workspaces: allWorkspaces.map((row) => ({
           id: row.id,
           lastJobAt: row.lastJobAt,
         })),
@@ -340,7 +350,7 @@ export const workspaceTipCheck = defineWorkflow(
         }
       // A ready graph that the graph store does not hold gets one rebuild, for
       // example after a new projection version. The checks run one at a time,
-      // and the worker limits the hydrate runs. A failure here must not fail
+      // within the batch. A failure here must not fail
       // the tip check; the next check tries again.
       for (const workspace of workspaces)
         await rebuildWorkspaceGraphWhenMissing({
