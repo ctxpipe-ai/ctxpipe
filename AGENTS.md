@@ -62,11 +62,13 @@ After completing requested code changes, commit and push the current feature bra
 
 When spawning a sub-agent (Cursor Task, Claude Code Agent, or any other harness), always set the model explicitly. Use the harness's own name for each model and its effort setting. The token total is the limit, not the number of agents in parallel.
 
-- **Opus at high effort:** the Standards and Spec review axes, security re-reviews, and grilling.
-- **Opus at medium effort:** implementation that is design-heavy or security-sensitive (auth, sandboxes, egress, data model, ranking).
-- **Sonnet at high effort:** the Simplicity review axis.
-- **Sonnet at medium effort:** plumbing tickets, mechanical review-fix rounds, docs, and ticket notes. Start a fresh agent from a short brief. Do not resume a long-context builder for a list of small fixes.
-- **Haiku at low effort:** status checks, file search, and log triage.
+- **First build of a ticket:** Opus. Set the effort from the estimated complexity: low for a small, clear change; medium for most tickets; high for a design-heavy or security-sensitive change.
+- **First review round:** Opus at high effort on all three axes.
+- **Follow-up review rounds:** Sonnet at medium effort. Check only that the listed findings are fixed and that the fix adds no new problem. Exception: a re-review of a security fix (auth, sandboxes, egress, tokens, org isolation) stays on Opus at high effort.
+- **Review fixes:** Sonnet. Set the effort from the estimated complexity. Exception: a fix that needs a security design goes to Opus at medium effort.
+- **Status checks, file search and log triage:** Haiku at low effort.
+
+Start most agents fresh, with a short brief that holds only the relevant context: the branch, the findings to fix or check, and the files. Do not resume a long-context builder for a list of fixes. Resume a builder only for a question that needs its context.
 
 ### Issue tracker
 
@@ -90,7 +92,7 @@ Customer-facing documentation lives in [`apps/docs/content/docs/`](apps/docs/con
 
 ### Adversarial review
 
-Every adversarial review of a diff is three axes — **Standards** and **Spec** on Opus (high effort), **Simplicity** on Sonnet (high effort) — via [`code-review`](.agents/skills/code-review/SKILL.md). Do not run the review as spec-only. Simplicity names the job, the thinnest machine, and leftover machinery; spec-match is not a defense. See [`simplicity-audit`](.agents/skills/simplicity-audit/SKILL.md).
+Every adversarial review of a diff is three axes — **Standards**, **Spec**, and **Simplicity** — via [`code-review`](.agents/skills/code-review/SKILL.md). Do not run the review as spec-only. Simplicity names the job, the thinnest machine, and leftover machinery; spec-match is not a defense. See [`simplicity-audit`](.agents/skills/simplicity-audit/SKILL.md).
 
 ## Architecture decisions & ADRs
 
