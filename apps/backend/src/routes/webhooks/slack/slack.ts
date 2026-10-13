@@ -132,7 +132,7 @@ export function registerSlackWebhookRoute(app: OpenAPIHono<AppEnv>) {
       getLogger().info("slack_webhook_mention_skipped_not_installed", {
         connectionId: connection.id,
         teamId,
-        status: connection.status,
+        connectionStatus: connection.status,
       })
       return c.json({ ok: true }, 200)
     }
