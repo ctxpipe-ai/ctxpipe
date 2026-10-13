@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { parseEnv } from "../../../config/env.js"
 import { normalizeWorkspaceRepositoryUrl } from "../../../domain/workspaces/slug.js"
 import { listInstallationsByGithubInstallationId } from "../../../models/github-installation.js"
 import { listGithubPrMirrorWorkspaceIds } from "../../../models/github-pr-mirror.js"
@@ -85,6 +86,7 @@ async function enqueueMirror(input: {
   const installations = await listInstallationsByGithubInstallationId(
     input.installationId,
     input.githubConnectionId,
+    parseEnv(process.env as Record<string, string | undefined>),
   )
   const failures: unknown[] = []
   for (const installation of installations) {

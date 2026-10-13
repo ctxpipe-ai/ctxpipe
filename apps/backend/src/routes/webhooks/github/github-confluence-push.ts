@@ -68,6 +68,7 @@ export async function maybeEnqueueConfluenceSyncOnConfigPush(input: {
   const installationRows = await listInstallationsByGithubInstallationId(
     input.installationId,
     input.githubConnectionId,
+    input.env,
   )
 
   for (const installationRow of installationRows) {

@@ -861,7 +861,11 @@ describe("POST /api/v1/webhook/github/:connectionId", () => {
 
     expect(response.status).toBe(200)
     expect(findRepoMock).toHaveBeenCalledOnce()
-    expect(listInstallationsMock).toHaveBeenCalledWith(999, "con_abc")
+    expect(listInstallationsMock).toHaveBeenCalledWith(
+      999,
+      "con_abc",
+      expect.anything(),
+    )
     expect(findRepoMock).toHaveBeenCalledWith("org_1", "acme/app", "con_abc")
     expect(enqueueIngestionMock).toHaveBeenCalledOnce()
   })
