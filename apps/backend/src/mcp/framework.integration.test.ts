@@ -1,0 +1,601 @@
+import { Client } from "@modelcontextprotocol/sdk/client/index.js"
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
+import { eq, inArray } from "drizzle-orm"
+import { evlog } from "evlog/hono"
+import { Hono } from "hono"
+import { contextStorage } from "hono/context-storage"
+import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { z } from "zod"
+import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../test/db.js"
+import type { AppEnv } from "../app/env.js"
+import { parseEnv } from "../config/env.js"
+import { getSystemDb, withOrgDbContext } from "../db/client.js"
+import { organizations } from "../db/schema/auth.js"
+import {
+  workspaceLinkedRepositories,
+  workspaces,
+} from "../db/schema/workspaces.js"
+import { generateObjectId } from "../lib/id.js"
+import { registerMcpRoutes } from "../routes/mcp.js"
+import { withTestRequestLogger } from "../test/hono-test-logger.js"
+import { pageWithinBudget } from "./framework/budget.js"
+import {
+  listOrgWorkspaceSlugs,
+  loadOrgRepositoryHandles,
+  requireServed,
+  resolveCallWorkspace,
+} from "./framework/call-workspace.js"
+import { decodeCursor, encodeCursor } from "./framework/cursor.js"
+import {
+  buildServerInstructions,
+  INSTRUCTIONS_HEAD_CHARS,
+  INSTRUCTIONS_MAX_CHARS,
+  loadServerInstructions,
+} from "./framework/instructions.js"
+import {
+  defineMcpReadTool,
+  READ_TOOL_ANNOTATIONS,
+  registerMcpReadTools,
+} from "./framework/tool-registry.js"
+import { TOOL_ERROR_META_KEY } from "./framework/tool-result.js"
+
+const suffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
+const sha1 = "a".repeat(40)
+const sha2 = "b".repeat(40)
+
+let seed: SeededOrg
+const otherOrgs = [
+  { id: `org_fw_other_a_${suffix}`, slug: `fw-other-a-${suffix}` },
+  { id: `org_fw_other_b_${suffix}`, slug: `fw-other-b-${suffix}` },
+]
+const readyWorkspaceId = generateObjectId("ws")
+
+let gate: { opened: Promise<void>; open: () => void } = newGate()
+function newGate() {
+  let open: () => void = () => {}
+  const opened = new Promise<void>((resolve) => {
+    open = resolve
+  })
+  return { opened, open }
+}
+
+const servedSchema = z.object({ branch: z.string(), sha: z.string() })
+
+const describeWorkspace = defineMcpReadTool({
+  name: "probe_workspace",
+  title: "Probe Workspace",
+  description: "Test tool: resolve one Workspace of the org.",
+  org: "required",
+  alwaysLoad: true,
+  inputShape: { workspace: z.string() },
+  outputSchema: z.object({
+    org: z.string(),
+    workspace: z.string(),
+    served: servedSchema,
+  }),
+  async run({ workspace }, { org }) {
+    const resolved = await resolveCallWorkspace(org, workspace)
+    return {
+      org: org.slug,
+      workspace: resolved.slug,
+      served: requireServed(resolved),
+    }
+  },
+})
+
+const probeRepositories = defineMcpReadTool({
+  name: "probe_repositories",
+  title: "Probe repositories",
+  description: "Test tool: list repository handles after exclusion.",
+  org: "required",
+  inputShape: { excludeRepositories: z.array(z.string()) },
+  outputSchema: z.object({
+    repositories: z.array(z.string()),
+    excluded: z.array(z.string()),
+  }),
+  async run({ excludeRepositories }, { org }) {
+    const handles = await loadOrgRepositoryHandles(org)
+    const exclusion = handles.exclusion(excludeRepositories)
+    return {
+      repositories: handles
+        .list()
+        .filter((repository) => !exclusion.isExcluded(repository.url))
+        .map((repository) => repository.handle),
+      excluded: exclusion.excluded,
+    }
+  },
+})
+
+const ITEMS = Array.from({ length: 7 }, (_, index) => `item-${index}`)
+const probePage = defineMcpReadTool({
+  name: "probe_page",
+  title: "Probe page",
+  description: "Test tool: page a fixed list with a cursor bound to the SHA.",
+  org: "required",
+  inputShape: { workspace: z.string(), cursor: z.string().optional() },
+  outputSchema: z.object({
+    items: z.array(z.string()),
+    cursor: z.string().optional(),
+  }),
+  async run({ workspace, cursor }, { org }) {
+    const served = requireServed(await resolveCallWorkspace(org, workspace))
+    const scope = `probe_page:${workspace}`
+    const offset = cursor ? decodeCursor(cursor, { sha: served.sha, scope }) : 0
+    const page = pageWithinBudget(ITEMS, {
+      offset,
+      limit: 3,
+      maxTokens: 4_000,
+      measure: (item) => item,
+    })
+    return {
+      items: page.page,
+      ...(page.nextOffset === null
+        ? {}
+        : {
+            cursor: encodeCursor({
+              sha: served.sha,
+              scope,
+              offset: page.nextOffset,
+            }),
+          }),
+    }
+  },
+})
+
+const probeWait = defineMcpReadTool({
+  name: "probe_wait",
+  title: "Probe wait",
+  description: "Test tool: wait for the test gate.",
+  org: "required",
+  inputShape: {},
+  outputSchema: z.object({ done: z.boolean() }),
+  async run() {
+    await gate.opened
+    return { done: true }
+  },
+})
+
+const probeCrash = defineMcpReadTool({
+  name: "probe_crash",
+  title: "Probe crash",
+  description: "Test tool: throw an unexpected error.",
+  org: "optional",
+  inputShape: {},
+  outputSchema: z.object({ done: z.boolean() }),
+  async run() {
+    throw new Error("database password=hunter2 leaked")
+  },
+})
+
+const TOOLS = [
+  describeWorkspace,
+  probeRepositories,
+  probePage,
+  probeWait,
+  probeCrash,
+]
+
+function createApp() {
+  const app = new Hono<AppEnv>()
+  app.use(contextStorage())
+  app.use(withTestRequestLogger)
+  app.use(evlog())
+  app.use("*", async (c, next) => {
+    c.set("env", parseEnv(process.env as Record<string, string | undefined>))
+    c.set("user", null)
+    c.set("session", null)
+    c.set("oauthOrganizationId", null)
+    c.set("oauthClientId", null)
+    c.set("orgApiKey", null)
+    c.set("personalApiKeyId", null)
+    c.set("orgSlug", null)
+    c.set("orgId", null)
+    await next()
+  })
+  registerMcpRoutes(app, {
+    registerTools: (server: McpServer) => registerMcpReadTools(server, TOOLS),
+    instructions: loadServerInstructions,
+  })
+  return app
+}
+
+async function connect(apiKey = seed.orgApiKey): Promise<Client> {
+  const app = createApp()
+  const client = new Client({ name: "framework-test", version: "1.0.0" })
+  await client.connect(
+    new StreamableHTTPClientTransport(new URL("http://localhost/mcp"), {
+      fetch: async (url, init) => app.request(String(url), init),
+      requestInit: { headers: { "x-api-key": apiKey } },
+    }),
+  )
+  // Real clients list the tools first. Then the SDK Client checks each
+  // result against the output schema of the tool.
+  await client.listTools()
+  return client
+}
+
+type ToolResult = {
+  isError?: boolean
+  structuredContent?: Record<string, unknown>
+  content?: Array<{ type: string; text?: string }>
+  _meta?: Record<string, unknown>
+}
+
+async function call(
+  client: Client,
+  name: string,
+  args: Record<string, unknown>,
+): Promise<ToolResult> {
+  return (await client.callTool({ name, arguments: args })) as ToolResult
+}
+
+/** The `{ code, message, retryable }` of a failed call. */
+function failure(result: ToolResult): Record<string, unknown> | undefined {
+  expect(result.isError).toBe(true)
+  expect(result.structuredContent).toBeUndefined()
+  return result._meta?.[TOOL_ERROR_META_KEY] as
+    | Record<string, unknown>
+    | undefined
+}
+
+describe("MCP tool framework (Postgres + MCP SDK Client)", () => {
+  beforeAll(async () => {
+    if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required")
+    seed = await seedOrg()
+    await getSystemDb()
+      .insert(organizations)
+      .values(
+        otherOrgs.map((org) => ({
+          id: org.id,
+          name: org.slug,
+          slug: org.slug,
+          createdAt: new Date(),
+        })),
+      )
+    await withOrgDbContext(seed.orgId, async (db) => {
+      await db.insert(workspaces).values([
+        {
+          id: readyWorkspaceId,
+          orgId: seed.orgId,
+          slug: "payments",
+          displayName: "Payments",
+          workspaceRepositoryUrl: `/tmp/fw-${suffix}-payments`,
+          desiredDefaultBranch: "main",
+          activeProjectionSha: sha1,
+        },
+        {
+          id: generateObjectId("ws"),
+          orgId: seed.orgId,
+          slug: "platform",
+          displayName: "Platform",
+          workspaceRepositoryUrl: `/tmp/fw-${suffix}-platform`,
+          desiredDefaultBranch: "main",
+        },
+      ])
+      await db.insert(workspaceLinkedRepositories).values(
+        [
+          "https://github.com/example/payments-api",
+          "git@github.com:example/ledger.git",
+          "https://gitlab.example.com/example/ledger.git",
+        ].map((gitUrl) => ({
+          id: generateObjectId("wlr"),
+          orgId: seed.orgId,
+          workspaceId: readyWorkspaceId,
+          gitUrl,
+        })),
+      )
+    })
+    // A Workspace with a slug that only another org has.
+    await withOrgDbContext(otherOrgs[0]?.id ?? "", (db) =>
+      db.insert(workspaces).values({
+        id: generateObjectId("ws"),
+        orgId: otherOrgs[0]?.id ?? "",
+        slug: "secret-plans",
+        displayName: "Secret plans",
+        workspaceRepositoryUrl: `/tmp/fw-${suffix}-secret`,
+        desiredDefaultBranch: "main",
+        activeProjectionSha: sha1,
+      }),
+    )
+  })
+
+  afterAll(async () => {
+    if (!seed) return
+    for (const org of [{ id: seed.orgId }, ...otherOrgs]) {
+      await withOrgDbContext(org.id, (db) =>
+        db.delete(workspaces).where(eq(workspaces.orgId, org.id)),
+      )
+    }
+    await getSystemDb()
+      .delete(organizations)
+      .where(
+        inArray(
+          organizations.id,
+          otherOrgs.map((org) => org.id),
+        ),
+      )
+    await cleanupSeededOrg(seed)
+  })
+
+  it("sends dynamic instructions on initialize: rules first, then the org and its Workspace slugs", async () => {
+    const client = await connect()
+    const instructions = client.getInstructions() ?? ""
+    expect(instructions.length).toBeLessThan(INSTRUCTIONS_MAX_CHARS)
+    expect(instructions.slice(0, INSTRUCTIONS_HEAD_CHARS)).toContain(
+      "ctxpipe serves the default branch; do not use it for your current repository",
+    )
+    expect(instructions).toContain(`\n- ${seed.orgSlug}: payments, platform`)
+    expect(instructions).not.toContain(otherOrgs[0]?.slug)
+    expect(instructions).not.toContain("secret-plans")
+    await client.close()
+  })
+
+  it("sends the same instructions on server/discover", async () => {
+    const client = await connect()
+    const discovered = await client.request(
+      { method: "server/discover", params: {} },
+      z.looseObject({
+        supportedVersions: z.array(z.string()),
+        serverInfo: z.looseObject({ name: z.string() }),
+        capabilities: z.looseObject({ tools: z.looseObject({}) }),
+        instructions: z.string(),
+      }),
+    )
+    expect(discovered.instructions).toBe(client.getInstructions())
+    expect(discovered.serverInfo.name).toBe("ctxpipe")
+    expect(discovered.supportedVersions).toContain("2025-11-25")
+    await client.close()
+  })
+
+  it("keeps instructions under 2,048 characters with 50 Workspaces in 3 orgs", async () => {
+    const orgs = [{ id: seed.orgId, slug: seed.orgSlug }, ...otherOrgs]
+    const counts = [16, 17, 17]
+    const created: string[] = []
+    for (const [index, org] of orgs.entries()) {
+      const rows = Array.from({ length: counts[index] ?? 0 }, (_, n) => {
+        const id = generateObjectId("ws")
+        created.push(id)
+        return {
+          id,
+          orgId: org.id,
+          slug: `team-${index}-${String(n).padStart(2, "0")}`,
+          displayName: `Team ${n}`,
+          workspaceRepositoryUrl: `/tmp/fw-${suffix}-${index}-${n}`,
+        }
+      })
+      await withOrgDbContext(org.id, (db) => db.insert(workspaces).values(rows))
+    }
+    try {
+      const instructions = buildServerInstructions(
+        await Promise.all(
+          orgs.map(async (org) => ({
+            slug: org.slug,
+            workspaces: await listOrgWorkspaceSlugs(org),
+          })),
+        ),
+      )
+      expect(instructions.length).toBeLessThan(INSTRUCTIONS_MAX_CHARS)
+      for (const org of orgs) expect(instructions).toContain(`- ${org.slug}:`)
+      expect(instructions).toContain("team-2-16")
+      expect(instructions).not.toContain("more Workspaces")
+    } finally {
+      for (const org of orgs) {
+        await withOrgDbContext(org.id, (db) =>
+          db.delete(workspaces).where(inArray(workspaces.id, created)),
+        )
+      }
+    }
+  })
+
+  it("lists the tools in a stable order with title, annotations, schemas, and alwaysLoad", async () => {
+    const first = await connect()
+    const second = await connect()
+    const [a, b] = await Promise.all([first.listTools(), second.listTools()])
+    expect(a.tools.map((tool) => tool.name)).toEqual(
+      TOOLS.map((tool) => tool.name),
+    )
+    expect(b.tools.map((tool) => tool.name)).toEqual(
+      a.tools.map((tool) => tool.name),
+    )
+    const [probe] = a.tools
+    expect(probe?.title).toBe("Probe Workspace")
+    expect(probe?.annotations).toEqual(READ_TOOL_ANNOTATIONS)
+    expect(probe?._meta).toEqual({ "anthropic/alwaysLoad": true })
+    expect(Object.keys(probe?.inputSchema.properties ?? {})).toEqual([
+      "org",
+      "workspace",
+    ])
+    expect(probe?.inputSchema.required).toEqual(["org", "workspace"])
+    expect(probe?.outputSchema?.properties).toHaveProperty("served")
+    expect(a.tools[1]?._meta).toBeUndefined()
+    expect(
+      a.tools.find((tool) => tool.name === "probe_crash")?.inputSchema.required,
+    ).toBeUndefined()
+    await Promise.all([first.close(), second.close()])
+  })
+
+  it("resolves org and Workspace slugs and returns structuredContent with TOON text", async () => {
+    const client = await connect()
+    const result = await call(client, "probe_workspace", {
+      org: seed.orgSlug.toUpperCase(),
+      workspace: "Payments",
+    })
+    expect(result.isError).toBeFalsy()
+    expect(result.structuredContent).toEqual({
+      org: seed.orgSlug,
+      workspace: "payments",
+      served: { branch: "main", sha: sha1 },
+    })
+    expect(result.content?.[0]?.text).toBe(
+      `org: ${seed.orgSlug}\nworkspace: payments\nserved:\n  branch: main\n  sha: ${sha1}`,
+    )
+    await client.close()
+  })
+
+  it("gives the same org_not_found for an unknown org and an org outside the connection", async () => {
+    const client = await connect()
+    const foreign = await call(client, "probe_workspace", {
+      org: otherOrgs[0]?.slug,
+      workspace: "secret-plans",
+    })
+    const unknown = await call(client, "probe_workspace", {
+      org: `no-such-org-${suffix}`,
+      workspace: "secret-plans",
+    })
+    expect(failure(foreign)).toMatchObject({
+      code: "org_not_found",
+      retryable: false,
+    })
+    const normalize = (text: string | undefined) =>
+      text
+        ?.replace(otherOrgs[0]?.slug ?? "", "<org>")
+        .replace(`no-such-org-${suffix}`, "<org>")
+    expect(normalize(foreign.content?.[0]?.text)).toBe(
+      normalize(unknown.content?.[0]?.text),
+    )
+    await client.close()
+  })
+
+  it("gives the same workspace_not_found for an unknown Workspace and a Workspace of another org", async () => {
+    const client = await connect()
+    const foreign = await call(client, "probe_workspace", {
+      org: seed.orgSlug,
+      workspace: "secret-plans",
+    })
+    const unknown = await call(client, "probe_workspace", {
+      org: seed.orgSlug,
+      workspace: "no-such-workspace",
+    })
+    expect(failure(foreign)).toMatchObject({
+      code: "workspace_not_found",
+    })
+    expect(foreign.content?.[0]?.text?.replace("secret-plans", "<ws>")).toBe(
+      unknown.content?.[0]?.text?.replace("no-such-workspace", "<ws>"),
+    )
+    await client.close()
+  })
+
+  it("gives retryable workspace_not_ready before the first projection", async () => {
+    const client = await connect()
+    const result = await call(client, "probe_workspace", {
+      org: seed.orgSlug,
+      workspace: "platform",
+    })
+    expect(failure(result)).toMatchObject({
+      code: "workspace_not_ready",
+      retryable: true,
+    })
+    await client.close()
+  })
+
+  it.each([
+    ["handle", "example/payments-api"],
+    ["HTTPS", "https://github.com/example/payments-api"],
+    ["HTTPS with .git", "https://github.com/example/payments-api.git"],
+    ["SSH", "git@github.com:example/payments-api.git"],
+  ])("excludes the same repository by %s", async (_form, input) => {
+    const client = await connect()
+    const result = await call(client, "probe_repositories", {
+      org: seed.orgSlug,
+      excludeRepositories: [input],
+    })
+    expect(result.structuredContent).toEqual({
+      repositories: [
+        "github.com/example/ledger",
+        "gitlab.example.com/example/ledger",
+      ],
+      excluded: ["example/payments-api"],
+    })
+    await client.close()
+  })
+
+  it("walks a cursor and gives stale_cursor after a new projection", async () => {
+    const client = await connect()
+    const seen: string[] = []
+    let cursor: string | undefined
+    const first = await call(client, "probe_page", {
+      org: seed.orgSlug,
+      workspace: "payments",
+    })
+    seen.push(...((first.structuredContent?.items as string[]) ?? []))
+    cursor = first.structuredContent?.cursor as string | undefined
+    const second = await call(client, "probe_page", {
+      org: seed.orgSlug,
+      workspace: "payments",
+      cursor,
+    })
+    seen.push(...((second.structuredContent?.items as string[]) ?? []))
+    cursor = second.structuredContent?.cursor as string | undefined
+    expect(seen).toEqual(ITEMS.slice(0, 6))
+    expect(cursor).toBeDefined()
+
+    const other = await call(client, "probe_page", {
+      org: seed.orgSlug,
+      workspace: "platform",
+      cursor,
+    })
+    expect(failure(other)).toMatchObject({
+      code: "workspace_not_ready",
+    })
+
+    await withOrgDbContext(seed.orgId, (db) =>
+      db
+        .update(workspaces)
+        .set({ activeProjectionSha: sha2 })
+        .where(eq(workspaces.id, readyWorkspaceId)),
+    )
+    try {
+      const stale = await call(client, "probe_page", {
+        org: seed.orgSlug,
+        workspace: "payments",
+        cursor,
+      })
+      expect(failure(stale)).toMatchObject({
+        code: "stale_cursor",
+        retryable: false,
+      })
+    } finally {
+      await withOrgDbContext(seed.orgId, (db) =>
+        db
+          .update(workspaces)
+          .set({ activeProjectionSha: sha1 })
+          .where(eq(workspaces.id, readyWorkspaceId)),
+      )
+    }
+    await client.close()
+  })
+
+  it("allows 8 parallel calls for one principal and refuses the ninth", async () => {
+    gate = newGate()
+    const client = await connect()
+    const running = Array.from({ length: 8 }, () =>
+      call(client, "probe_wait", { org: seed.orgSlug }),
+    )
+    // Let the eight calls reach the tool before the ninth.
+    await new Promise((resolve) => setTimeout(resolve, 200))
+    const ninth = await call(client, "probe_wait", { org: seed.orgSlug })
+    expect(failure(ninth)).toMatchObject({
+      code: "too_many_requests",
+      retryable: true,
+    })
+    gate.open()
+    const results = await Promise.all(running)
+    expect(results.every((result) => !result.isError)).toBe(true)
+    const after = await call(client, "probe_wait", { org: seed.orgSlug })
+    expect(after.structuredContent).toEqual({ done: true })
+    await client.close()
+  })
+
+  it("maps an unexpected error to a retryable internal error with no detail", async () => {
+    const client = await connect()
+    const result = await call(client, "probe_crash", {})
+    expect(failure(result)).toEqual({
+      code: "internal",
+      message: "ctxpipe could not complete the call. Try again.",
+      retryable: true,
+    })
+    expect(JSON.stringify(result)).not.toContain("hunter2")
+    await client.close()
+  })
+})

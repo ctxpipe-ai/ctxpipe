@@ -1,6 +1,9 @@
 import { StreamableHTTPTransport } from "@hono/mcp"
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
-import { CallToolRequestSchema } from "@modelcontextprotocol/sdk/types.js"
+import {
+  CallToolRequestSchema,
+  SUPPORTED_PROTOCOL_VERSIONS,
+} from "@modelcontextprotocol/sdk/types.js"
 import type { Context } from "hono"
 import type { AppEnv } from "../app/env.js"
 import { currentMcpActor, requireCurrentOrgId } from "../auth/context.js"
@@ -10,6 +13,7 @@ import {
 } from "../observability/attribution.js"
 import { getLogger } from "../observability/logger.js"
 import { mcpAdvisorThreadId, mcpClientConversationId } from "./advisorThread.js"
+import { registerServerDiscover } from "./framework/server-discover.js"
 import { getMcpServerImplementation } from "./mcp-server-info.js"
 
 function isLoopbackHostname(hostname: string): boolean {
@@ -57,9 +61,18 @@ export function rejectInvalidMcpOrigin(c: Context<AppEnv>): Response | null {
   }
 }
 
+export type McpTransportOptions = {
+  /**
+   * Dynamic server instructions for the principal of the request. The
+   * transport loads them only for `initialize` and `server/discover`.
+   */
+  instructions?: () => Promise<string>
+}
+
 export async function handleMcpTransportRequest(
   c: Context<AppEnv>,
   registerTools: (server: McpServer) => void,
+  options: McpTransportOptions = {},
 ) {
   const startedAt = performance.now()
   let parsedBody: unknown
@@ -117,9 +130,23 @@ export async function handleMcpTransportRequest(
   const toolAttribution = attributionFromToolsCall(messages)
   if (toolAttribution) applyAttribution(toolAttribution)
 
+  const instructions =
+    options.instructions &&
+    rpcMethods.some(
+      (method) => method === "initialize" || method === "server/discover",
+    )
+      ? await options.instructions()
+      : undefined
+  const implementation = getMcpServerImplementation(c.get("env").AUTH_BASE_URL)
   const server = new McpServer(
-    getMcpServerImplementation(c.get("env").AUTH_BASE_URL),
+    implementation,
+    instructions ? { instructions } : undefined,
   )
+  registerServerDiscover(server, {
+    implementation,
+    supportedVersions: SUPPORTED_PROTOCOL_VERSIONS,
+    instructions,
+  })
   registerTools(server)
   const transport = new StreamableHTTPTransport()
   try {

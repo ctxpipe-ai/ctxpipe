@@ -1,0 +1,153 @@
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
+import type {
+  CallToolResult,
+  ToolAnnotations,
+} from "@modelcontextprotocol/sdk/types.js"
+import { z } from "zod"
+import { currentMcpActor } from "../../auth/context.js"
+import { withOrgIdContext } from "../../auth/withAuth.js"
+import { getLogger } from "../../observability/logger.js"
+import { type CallOrg, resolveCallOrg } from "./call-org.js"
+import { withInFlightLimit } from "./in-flight.js"
+import { McpToolError } from "./tool-errors.js"
+import { toolFailure, toolSuccess } from "./tool-result.js"
+
+/** Every read tool has these annotations (ADR-051 §2). */
+export const READ_TOOL_ANNOTATIONS = {
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: false,
+} as const satisfies ToolAnnotations
+
+export const orgArgument = z
+  .string()
+  .min(1)
+  .max(64)
+  .describe(
+    "Org slug from the server instructions or list_workspaces. One org for each call.",
+  )
+
+type OrgMode = "required" | "optional"
+
+type ToolInput<Shape extends z.ZodRawShape, Mode extends OrgMode> = z.infer<
+  z.ZodObject<Shape>
+> &
+  (Mode extends "required" ? { org: string } : { org?: string })
+
+type ToolContext<Mode extends OrgMode> = {
+  /** The resolved org; null only when `org` is optional and omitted. */
+  org: Mode extends "required" ? CallOrg : CallOrg | null
+}
+
+export type McpReadToolDefinition<
+  Shape extends z.ZodRawShape,
+  Output extends z.ZodObject,
+  Mode extends OrgMode,
+> = {
+  name: string
+  title: string
+  /** Under 1,000 characters, rule first. */
+  description: string
+  /** `required` on every tool except `list_workspaces`. */
+  org: Mode
+  /** Arguments other than `org`; the registry adds `org` first. */
+  inputShape: Shape
+  outputSchema: Output
+  /** `_meta["anthropic/alwaysLoad"]`: the client loads the schema at once. */
+  alwaysLoad?: boolean
+  run(
+    input: ToolInput<Shape, Mode>,
+    context: ToolContext<Mode>,
+  ): Promise<z.infer<Output>>
+}
+
+export type McpReadTool = {
+  name: string
+  register(server: McpServer): void
+}
+
+function principalKey(): string {
+  const actor = currentMcpActor()
+  return actor.type === "user"
+    ? `user:${actor.userId}`
+    : `org-service:${actor.orgId}`
+}
+
+/**
+ * One read tool. The registry checks the in-flight limit, resolves `org`,
+ * runs the tool in the RLS context of that org, and maps errors to
+ * `{ code, message, retryable }` results.
+ */
+export function defineMcpReadTool<
+  Shape extends z.ZodRawShape,
+  Output extends z.ZodObject,
+  Mode extends OrgMode,
+>(definition: McpReadToolDefinition<Shape, Output, Mode>): McpReadTool {
+  const inputSchema = z.object({
+    org: definition.org === "required" ? orgArgument : orgArgument.optional(),
+    ...definition.inputShape,
+  })
+  const call = async (
+    args: Record<string, unknown>,
+  ): Promise<CallToolResult> => {
+    try {
+      return await withInFlightLimit(principalKey(), async () => {
+        const slug = typeof args.org === "string" ? args.org : undefined
+        const org = slug === undefined ? null : await resolveCallOrg(slug)
+        const input = args as ToolInput<Shape, Mode>
+        const context = { org } as ToolContext<Mode>
+        const output = org
+          ? await withOrgIdContext(org, () => definition.run(input, context))
+          : await definition.run(input, context)
+        return toolSuccess(output as Record<string, unknown>)
+      })
+    } catch (error) {
+      if (error instanceof McpToolError) return toolFailure(error)
+      getLogger().error(
+        error instanceof Error ? error : new Error(String(error)),
+        { step: "mcp.tool", mcp: { tool: definition.name } },
+      )
+      return toolFailure(
+        new McpToolError(
+          "internal",
+          "ctxpipe could not complete the call. Try again.",
+        ),
+      )
+    }
+  }
+  return {
+    name: definition.name,
+    register(server) {
+      server.registerTool(
+        definition.name,
+        {
+          title: definition.title,
+          description: definition.description,
+          inputSchema,
+          outputSchema: definition.outputSchema,
+          annotations: READ_TOOL_ANNOTATIONS,
+          ...(definition.alwaysLoad
+            ? { _meta: { "anthropic/alwaysLoad": true } }
+            : {}),
+        },
+        (args: Record<string, unknown>) => call(args),
+      )
+    },
+  }
+}
+
+/** Register the tools in list order, so `tools/list` order is stable. */
+export function registerMcpReadTools(
+  server: McpServer,
+  tools: readonly McpReadTool[],
+): void {
+  const names = new Set<string>()
+  for (const tool of tools) {
+    if (names.has(tool.name)) {
+      throw new Error(`MCP tool ${tool.name} is registered twice`)
+    }
+    names.add(tool.name)
+    tool.register(server)
+  }
+}

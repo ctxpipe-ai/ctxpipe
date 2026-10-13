@@ -4,6 +4,11 @@ import { Hono } from "hono"
 import { contextStorage } from "hono/context-storage"
 import { z } from "zod"
 import type { AppEnv } from "../app/env.js"
+import { buildServerInstructions } from "../mcp/framework/instructions.js"
+import {
+  defineMcpReadTool,
+  registerMcpReadTools,
+} from "../mcp/framework/tool-registry.js"
 import {
   handleMcpTransportRequest,
   rejectInvalidMcpOrigin,
@@ -32,20 +37,42 @@ app.use("*", async (c, next) => {
 })
 app.get("/.status", (c) => c.json({ status: "ok" }))
 app.use("/mcp", (c, next) => rejectInvalidMcpOrigin(c) ?? next())
+// A read tool through the framework registry: annotations, output schema,
+// structuredContent, TOON text, and an optional `org` argument.
+const frameworkEcho = defineMcpReadTool({
+  name: "conformance_read",
+  title: "Conformance Read",
+  description: "Return the text and the org of the call.",
+  org: "optional",
+  inputShape: { text: z.string() },
+  outputSchema: z.object({ text: z.string(), org: z.string().nullable() }),
+  async run({ text }, { org }) {
+    return { text, org: org?.slug ?? null }
+  },
+})
+
 app.all("/mcp", (c) =>
-  handleMcpTransportRequest(c, (server) => {
-    server.registerTool(
-      "conformance_echo",
-      {
-        title: "Conformance Echo",
-        description: "Return text for deterministic MCP conformance checks.",
-        inputSchema: z.object({ text: z.string() }),
-      },
-      async ({ text }) => ({
-        content: [{ type: "text", text }],
-      }),
-    )
-  }),
+  handleMcpTransportRequest(
+    c,
+    (server) => {
+      server.registerTool(
+        "conformance_echo",
+        {
+          title: "Conformance Echo",
+          description: "Return text for deterministic MCP conformance checks.",
+          inputSchema: z.object({ text: z.string() }),
+        },
+        async ({ text }) => ({
+          content: [{ type: "text", text }],
+        }),
+      )
+      registerMcpReadTools(server, [frameworkEcho])
+    },
+    {
+      instructions: async () =>
+        buildServerInstructions([{ slug: "acme", workspaces: ["payments"] }]),
+    },
+  ),
 )
 
 let shuttingDown = false

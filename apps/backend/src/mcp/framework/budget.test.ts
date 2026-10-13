@@ -6,7 +6,7 @@ import {
   truncateText,
 } from "./budget.js"
 import { McpToolError } from "./tool-errors.js"
-import { toolFailure, toolSuccess } from "./tool-result.js"
+import { TOOL_ERROR_META_KEY, toolFailure, toolSuccess } from "./tool-result.js"
 
 const measure = (item: string) => item
 
@@ -123,7 +123,8 @@ describe("toolFailure", () => {
   it("returns isError with code, message, and retryable", () => {
     const result = toolFailure(new McpToolError("stale_cursor", "Start again."))
     expect(result.isError).toBe(true)
-    expect(result.structuredContent).toEqual({
+    expect(result.structuredContent).toBeUndefined()
+    expect(result._meta?.[TOOL_ERROR_META_KEY]).toEqual({
       code: "stale_cursor",
       message: "Start again.",
       retryable: false,

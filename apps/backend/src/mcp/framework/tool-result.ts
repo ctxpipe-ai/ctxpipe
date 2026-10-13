@@ -21,6 +21,14 @@ export function toolSuccess(
   }
 }
 
+/** `_meta` key of the machine-readable error of a failed tool call. */
+export const TOOL_ERROR_META_KEY = "ai.ctxpipe/error"
+
+/**
+ * `isError: true` with `{ code, message, retryable }` as TOON text and in
+ * `_meta`. Not in `structuredContent`: the MCP SDK Client checks
+ * `structuredContent` against the output schema of the tool, also on errors.
+ */
 export function toolFailure(error: McpToolError): CallToolResult {
   const structured = {
     code: error.code,
@@ -30,6 +38,6 @@ export function toolFailure(error: McpToolError): CallToolResult {
   return {
     isError: true,
     content: [{ type: "text", text: encode({ error: structured }) }],
-    structuredContent: structured,
+    _meta: { [TOOL_ERROR_META_KEY]: structured },
   }
 }
