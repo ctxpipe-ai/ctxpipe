@@ -110,6 +110,44 @@ describe("renderLinearIssue", () => {
     expect(file.content).toContain("https://example.com/design")
   })
 
+  it("records the parent issue, the milestone, and the issue relations", () => {
+    const base = {
+      id: "issue-5",
+      identifier: "ENG-46",
+      title: "Retry the import",
+      url: "https://linear.app/acme/issue/ENG-46",
+      priorityLabel: "Low",
+      labels: [],
+      createdAt: new Date("2026-08-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-08-02T00:00:00.000Z"),
+      comments: [],
+      attachments: [],
+    }
+    const file = renderLinearIssue({
+      ...base,
+      parentId: "issue-1",
+      parent: "ENG-42",
+      milestoneId: "milestone-1",
+      milestone: "Beta",
+      relations: [
+        { type: "blocks", identifier: "ENG-47" },
+        { type: "duplicate", identifier: "OPS-3" },
+      ],
+    })
+    expect(file.content).toContain("parent: ENG-42\nparentId: issue-1\n")
+    expect(file.content).toContain(
+      "milestone: Beta\nmilestoneId: milestone-1\n",
+    )
+    expect(file.content).toContain(
+      "relations:\n  - type: blocks\n    identifier: ENG-47\n  - type: duplicate\n    identifier: OPS-3\n",
+    )
+
+    const bare = renderLinearIssue(base)
+    expect(bare.content).toContain("parent: null\nparentId: null\n")
+    expect(bare.content).toContain("milestone: null\nmilestoneId: null\n")
+    expect(bare.content).toContain("relations: []\n")
+  })
+
   it("rewrites captured uploads to sibling asset paths and keeps GitHub attachments as references", () => {
     const file = renderLinearIssue(
       {

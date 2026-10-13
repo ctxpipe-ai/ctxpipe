@@ -105,6 +105,13 @@ export function linearIssueData(
       hasNextPage?: boolean
       endCursor?: string | null
     }
+    parent?: { id: string; identifier: string } | null
+    projectMilestone?: { id: string; name: string } | null
+    relations?: {
+      nodes: Array<{ type: string; identifier: string }>
+      hasNextPage?: boolean
+      endCursor?: string | null
+    }
   } = {},
 ) {
   return {
@@ -133,8 +140,17 @@ export function linearIssueData(
         }
       : null,
     cycle: null,
+    parent: input.parent ?? null,
+    projectMilestone: input.projectMilestone ?? null,
     assignee: null,
     creator: actor,
+    relations: {
+      nodes: (input.relations?.nodes ?? []).map(linearRelationData),
+      pageInfo: {
+        hasNextPage: input.relations?.hasNextPage ?? false,
+        endCursor: input.relations?.endCursor ?? null,
+      },
+    },
     labels: emptyLinearPage(),
     comments: {
       nodes: (input.comments?.nodes ?? []).map((comment) => ({
@@ -180,5 +196,18 @@ export function linearIssueData(
         creator: null,
       })),
     ),
+  }
+}
+
+export function linearRelationData(relation: {
+  type: string
+  identifier: string
+}) {
+  return {
+    type: relation.type,
+    relatedIssue: {
+      id: `issue-${relation.identifier.toLowerCase()}`,
+      identifier: relation.identifier,
+    },
   }
 }
