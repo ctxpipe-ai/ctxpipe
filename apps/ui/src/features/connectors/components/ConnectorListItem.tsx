@@ -1,6 +1,10 @@
 "use client"
 
-import { IconChevronRight, IconDotsVertical } from "@tabler/icons-react"
+import {
+  IconChevronRight,
+  IconDotsVertical,
+  IconRefresh,
+} from "@tabler/icons-react"
 import { type ReactNode, useContext, useState } from "react"
 import { DisclosureStateContext } from "react-aria-components"
 import { AlertDialog } from "@/components/ui/AlertDialog"
@@ -10,12 +14,15 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Modal } from "@/components/ui/Modal"
 import { Skeleton, SkeletonChain, SkeletonText } from "@/components/ui/Skeleton"
 import type { ConnectorHealth } from "../connectorHealth"
 import { ConnectorHealthIndicator } from "./ConnectorHealthIndicator"
+
+type ConnectorSyncAction = { start: () => void; isPending: boolean }
 
 function ExpandTrigger({ name }: { name: string }) {
   const state = useContext(DisclosureStateContext)
@@ -38,11 +45,13 @@ function ExpandTrigger({ name }: { name: string }) {
   )
 }
 
-function ConnectorRemoveMenu({
+function ConnectorActionsMenu({
   ariaLabel,
+  sync,
   onRemove,
 }: {
   ariaLabel: string
+  sync?: ConnectorSyncAction
   onRemove: () => void
 }) {
   return (
@@ -59,6 +68,15 @@ function ConnectorRemoveMenu({
         }
       />
       <DropdownMenuContent align="end" className="min-w-40">
+        {sync ? (
+          <>
+            <DropdownMenuItem disabled={sync.isPending} onSelect={sync.start}>
+              <IconRefresh aria-hidden />
+              Sync now
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+          </>
+        ) : null}
         <DropdownMenuItem variant="destructive" onSelect={onRemove}>
           Remove connector
         </DropdownMenuItem>
@@ -111,6 +129,7 @@ export function ConnectorListItem({
   scope,
   syncRepository,
   usedIn,
+  sync,
   actionLabel,
   onAction,
   defaultExpanded = false,
@@ -139,6 +158,8 @@ export function ConnectorListItem({
    * provider card gives `<ConnectorUsedIn …/>`.
    */
   usedIn?: ReactNode
+  /** "Sync now" in the actions menu; from `useConnectorSync`. */
+  sync?: ConnectorSyncAction
   actionLabel?: string
   onAction?: () => void
   defaultExpanded?: boolean
@@ -187,8 +208,9 @@ export function ConnectorListItem({
             ) : (
               <>
                 <ConnectorHealthIndicator health={health} />
-                <ConnectorRemoveMenu
+                <ConnectorActionsMenu
                   ariaLabel={`${name} connector actions`}
+                  sync={sync}
                   onRemove={() => setRemoveOpen(true)}
                 />
               </>

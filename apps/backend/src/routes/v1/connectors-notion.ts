@@ -911,9 +911,8 @@ export const notionOAuthCallbackRoutes = new OpenAPIHono<AppEnv>().openapi(
     if (!state.connectionId) {
       return c.json({ error: "Invalid Notion OAuth state" }, 400)
     }
-    const stored = await getNotionStoredConfigByConnectionId(
-      state.orgId,
-      state.connectionId,
+    const stored = await withOrgDbContext(state.orgId, () =>
+      getNotionStoredConfigByConnectionId(state.orgId, state.connectionId),
     )
     if (!stored) {
       return c.json({ error: "Unknown Notion connection" }, 404)

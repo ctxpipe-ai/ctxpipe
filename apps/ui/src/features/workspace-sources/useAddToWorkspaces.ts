@@ -19,7 +19,8 @@ export function useAddToWorkspaces(input: {
   orgSlug: string
   provider: SourceProvider
   connectionId: string
-  onAdded?: () => void
+  /** After the add, with the pull request of each Workspace that got one. */
+  onAdded?: (pullRequestUrls: string[]) => void
 }) {
   const { orgSlug, provider, connectionId, onAdded } = input
   const queryClient = useQueryClient()
@@ -42,13 +43,16 @@ export function useAddToWorkspaces(input: {
         void queryClient.invalidateQueries({
           queryKey: workspaceSourceKeys.list(orgSlug, request.workspaceSlug),
         })
+      const pullRequestUrls = results.flatMap((result) =>
+        result.outcome === "pull_request" ? [result.pullRequestUrl] : [],
+      )
       toast.success(
-        results.some((result) => result.outcome === "pull_request")
+        pullRequestUrls.length
           ? "Pull request opened. The source starts to sync after the merge."
           : "Source added",
       )
       setValue(emptyChooseWorkspaces())
-      onAdded?.()
+      onAdded?.(pullRequestUrls)
     },
     onError: (error: Error) => toast.error(error.message),
   })
