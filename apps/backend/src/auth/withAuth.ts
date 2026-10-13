@@ -757,8 +757,8 @@ export const withNetworkOrgContext: MiddlewareHandler<AppEnv> = async (
   c,
   next,
 ) => {
-  // Until the P1-3 tools pass their `org` argument, the request URL names
-  // the org. Tools call `resolveCallOrg` with that argument instead.
+  // REST routes take the org from the URL. `/mcp` does not use this
+  // middleware: MCP read tools name the org in their `org` argument.
   const rawOrgSlug = c.req.param("orgSlug") ?? c.req.query("orgSlug")
   const result = await resolveCallOrg(callPrincipalFromContext(c), rawOrgSlug)
   if (!result.ok && result.error === "org_required") {
@@ -775,19 +775,31 @@ export const withNetworkOrgContext: MiddlewareHandler<AppEnv> = async (
       400,
     )
   }
-  const resolved = result.ok ? result.org : undefined
-  if (!resolved) return c.json({ error: "Not found" }, 404)
-  c.set("orgSlug", resolved.slug)
-  c.set("orgId", resolved.id)
-  applyAttribution({
-    "ctxpipe.org.id": resolved.id,
-    "ctxpipe.org.slug": resolved.slug,
-  })
-  // Short org SQL only. Do not hold a request-wide transaction across HTTP,
-  // MCP, or sandbox I/O — those gateways call `assertNotInOrgDbContext()`.
-  return withOrgIdContext({ id: resolved.id, slug: resolved.slug }, () =>
-    next(),
-  )
+  if (!result.ok) return c.json({ error: "Not found" }, 404)
+  return bindRequestOrg(c, result.org, next)
+}
+
+/**
+ * Make `org` the org of the request: the Hono variables, the org context
+ * for short org SQL, and (unless `attribute` is false) the request
+ * attribution. Do not hold a request-wide transaction across HTTP, MCP, or
+ * sandbox I/O — those gateways call `assertNotInOrgDbContext()`.
+ */
+export function bindRequestOrg(
+  c: Context<AppEnv>,
+  org: OrgContext,
+  next: Next,
+  { attribute = true }: { attribute?: boolean } = {},
+) {
+  c.set("orgSlug", org.slug)
+  c.set("orgId", org.id)
+  if (attribute) {
+    applyAttribution({
+      "ctxpipe.org.id": org.id,
+      "ctxpipe.org.slug": org.slug,
+    })
+  }
+  return withOrgIdContext({ id: org.id, slug: org.slug }, () => next())
 }
 
 type OrgContext = { id: string; slug: string }
