@@ -68,8 +68,9 @@ Source text must go through to the files, so injection cannot be fully prevented
 
 ### 7. Sandbox, limits, and codesearch
 
-- **Definition:** a second `defineSandbox` beside the chat one: `workspace-ingest:<image>`, key `ingest:<runId>:<shard>`, `reuse: "thread"`, `snapshot: "none"`. It uses the chat stores and providers ([ADR-048](ADR-048-native-postgres-sandbox-ownership.md)). The image is the agent image plus `ast-grep`, `ripgrep`, and the bundle scripts. The sandbox is a cache; git holds each finished step.
-- **Prepare:** a blobless clone of the source with 180 days of history, the read-only destination checkouts, the bundle in `/ctxpipe/skills`, and the context index.
+- **Definition:** a second `defineSandbox` beside the chat one: `workspace-ingest:<image>`, key `ingest:<runId>:<shard>`, `reuse: "thread"`, `snapshot: "none"`. It uses the chat stores and providers ([ADR-048](ADR-048-native-postgres-sandbox-ownership.md)). The image is the agent image plus `ast-grep` and `ripgrep`. The backend image holds the skill bundle, and prepare copies it into the sandbox. The sandbox is a cache; git holds each finished step.
+- **Prepare:** a blobless clone of the source with 180 days of history in `/ctxpipe/source/<handle>`, the destination checkouts in `/ctxpipe/context/<workspaceId>`, the bundle in `/ctxpipe/skills`, and the OpenCode config in `/ctxpipe/opencode`. Root owns all of them. Before each step, root fetches the shard ref, puts the context checkout at the step's base commit, places the context index, writes `/ctxpipe/step.json`, and empties `/ctxpipe/out` and `/ctxpipe/home`. Only these two folders belong to the agent.
+- **Agent user:** the agent is `ctxpipe-agent`, a user with no sudo that prepare makes on Docker and on Vercel. Root starts each agent command with `runuser`. Root stops every agent process before each step and before it packs a step's output. Ingest refuses unsandboxed mode. Prepare stops when the sandbox OpenCode is not the version whose isolation flags the contract test proves.
 - **Lease and end:** one lock for each shard. A lost lease stops the step, and OpenWorkflow retries it. A `destroy-sandbox` step runs after the last sandbox step. The org sandbox sweep is the last safety check. `destroy-sandbox` also revokes the run's bridge token and git tokens.
 - **Limits** (committed config, not environment variables): at most **40 ingest sandboxes** for each org, inside the 50 slots, so chat keeps 10. One shard: 60 minutes and 20 roots. One step: 10 minutes and at most 2 retries; then its root is `partial`, with no retraction. Clone cap 2 GB. Staged tree cap 2 MiB.
 - **Capability and egress:** capability purpose `workspace-ingest-model`, bound to org, run, shard, and lock owner. Read-only git tokens for the source and destination repositories, revoked at destroy.
@@ -99,6 +100,7 @@ Source text must go through to the files, so injection cannot be fully prevented
 - N destination Workspaces cost N model runs.
 - Injection through passed-through text is limited, never zero.
 - Ingestion can use 40 of the 50 slots of an org, so chat can wait for a slot during a large ingestion.
+- Open risk (T12 must prove it): on a real Vercel sandbox, `ctxpipe-agent` cannot use `sudo`, and root prepare through the SDK `sudo` option works. Only a Docker image with the same sudo setup proves it now.
 - Risks to prove first: the GitHub App can push and delete `refs/ctxpipe/*`, and a default clone does not fetch them; Agent Vault refuses other hosts for an ingest vault on Docker.
 
 ## Alternatives considered

@@ -1,0 +1,26 @@
+#!/usr/bin/env node
+// ctxpipe-delete <path> --reason "<text>": record the delete of a context
+// file. A staged copy of the file is removed.
+import {
+  baseBlob,
+  contextPath,
+  currentStep,
+  fail,
+  parseArgs,
+  readDeletes,
+  removeStaged,
+  writeDeletes,
+} from "./stage-lib.mjs"
+
+const { root, args } = parseArgs()
+const at = args.indexOf("--reason")
+const reason = at === -1 ? "" : (args[at + 1] ?? "").trim()
+if (!reason) fail('Give a reason: ctxpipe-delete <path> --reason "<text>"')
+const target = args.find((_, index) => index !== at && index !== at + 1)
+const step = currentStep(root)
+const path = contextPath(step, target)
+const blob = baseBlob(step, path)
+if (!blob) fail(`${path} is not a file in the context checkout`)
+removeStaged(step, path)
+writeDeletes(step, { ...readDeletes(step), [path]: { baseBlob: blob, reason } })
+process.stdout.write(`Delete recorded: ${path}\n`)
