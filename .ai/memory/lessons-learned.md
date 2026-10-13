@@ -371,10 +371,10 @@ These lessons moved to the instructions that agents always read. Do not add them
 - **Source:** SideNav polish session (generalized; two entries)
 
 ### Do not squash migrations already applied to PR Neon
-- **Rule:** PR preview DBs are reused (`preview/pr-N` from production, not reset each deploy). Deleting applied Drizzle folders and regenerating the same DDL under a new tag re-runs `CREATE UNIQUE INDEX` and fails with `42P07`. Keep the original folders, or make the replacement DDL idempotent (`IF NOT EXISTS`) like `clean_lyja` / `smart_nextwave`. Never squash unreleased history that a long-lived PR branch may already have applied.
+- **Rule:** PR preview DBs are reused (`preview/pr-N` from production, not reset each deploy). Deleting applied Drizzle folders and regenerating the same DDL under a new tag re-runs `CREATE UNIQUE INDEX` and fails with `42P07`. Keep the original folders, or make the replacement DDL idempotent (`IF NOT EXISTS`) like `clean_lyja` / `smart_nextwave`. Never squash unreleased history that a long-lived PR branch may already have applied. To fix a wrong data step in a migration that never reached `main`, you may edit that migration in place, because production never ran it. A preview database that already ran it keeps its old result; treat that as test data, not as a reason for a second migration.
 - **Category:** convention
-- **Date:** 2026-08-19
-- **Source:** slack-connector PR deploy (`connections_slack_team_id_uq` already exists)
+- **Date:** 2026-08-19 (in-place edit rule added 2026-10-12)
+- **Source:** slack-connector PR deploy (`connections_slack_team_id_uq` already exists); team lead decision on the PR 280 Workspace-link migration fix
 
 ### Slack Events API bot green-dot is an app-settings toggle
 - **Rule:** HTTP Events API bots are grey until **Always Show My Bot as Online** is on in [api.slack.com/apps](https://api.slack.com/apps) → **App Home** / **Bot Users** (Marketplace apps: Live App Settings). Slack then sets `always_active: true`; clients show a green dot even though `presence` stays `away`. `users.setPresence` cannot force a bot online. Socket Mode does **not** restore RTM-style connected=green and is the wrong production delivery path (Marketplace requires HTTP). Leave Socket Mode **off** for ctxpipe (`POST /api/v1/webhook/slack`). The toggle is a liveness lie — same one Claude/Cursor use — not a second event-delivery protocol.
@@ -567,3 +567,9 @@ These lessons moved to the instructions that agents always read. Do not add them
 - **Category:** testing
 - **Date:** 2026-10-13
 - **Source:** PR 280 Slack webhook fix (#415): a log spy in a new integration test made the PR 280 CI fail
+
+### Ingestion performance: memory first, then wall time, then cost
+- **Rule:** When ingestion performance goals conflict, rank them: (1) peak memory and no out-of-memory failure, (2) wall time, (3) model cost. Fix with code and committed config only; do not add bigger instances or more workers. When the data shows that only infrastructure can remove a bottleneck, write that down as a recommendation with its cost. Measure a change with the ingestion validator and `graphQualityReport --compare`, and accept no quality regression.
+- **Category:** product
+- **Date:** 2026-10-10
+- **Source:** team lead decision for the PR 280 ingestion performance work; it applies to ingestion v2 (ADR-052) too
