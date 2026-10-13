@@ -97,6 +97,7 @@ function snapshot(
         : { revision: { sha: SHA }, stores: {} }),
     } as PublishedProjection,
     units: [],
+    chunksMissing: false,
     repositories: [
       {
         id: "repo_bound",
