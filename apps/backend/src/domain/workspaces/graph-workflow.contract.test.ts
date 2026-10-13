@@ -298,7 +298,7 @@ it(
   { timeout: 90_000 },
   async () => {
     await withGraphHydration(
-      { namespaceId: routeNamespace },
+      { namespaceId: openWorkflowNamespaceId() },
       async (f, graph) => {
         await f.publish()
         const snapshot = await withOrgIdContext(f.org, () =>
@@ -337,7 +337,7 @@ it(
   { timeout: 90_000 },
   async () => {
     await withGraphHydration(
-      { namespaceId: routeNamespace },
+      { namespaceId: openWorkflowNamespaceId() },
       async (f, graph) => {
         await f.publish()
         const runsBefore = await hydrateRuns(f)

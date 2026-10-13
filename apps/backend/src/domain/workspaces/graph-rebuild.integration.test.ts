@@ -1,6 +1,6 @@
+import { createHash } from "node:crypto"
 import { symlinkSync } from "node:fs"
 import { join } from "node:path"
-import { createHash } from "node:crypto"
 import { eq } from "drizzle-orm"
 import { BackendPostgres } from "openworkflow/postgres"
 import { expect, it } from "vitest"
@@ -8,8 +8,9 @@ import { withOrgIdContext } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { workspaces } from "../../db/schema/workspaces.js"
 import { getWorkspaceProjection } from "../../models/workspaces.js"
-import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
+import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { getGraphClient, withGraphClient } from "../../platform/graph/client.js"
+import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import {
   hasWorkspaceGraph,
   workspaceGraphRevisionKey,
@@ -61,6 +62,7 @@ it(
       )
       const queue = await BackendPostgres.connect(f.databaseUrl, {
         runMigrations: false,
+        namespaceId: openWorkflowNamespaceId(),
       })
       try {
         const org = { orgId: f.org.id, orgSlug: f.org.slug }
