@@ -1,12 +1,10 @@
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
+import { isConnectorMirrorPath } from "../../domain/codeIngestion/connectorMirrorPaths.js"
 import { planStoredExtraction } from "../../domain/workspaces/captured-extraction.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import { workspaceExtractionSchema } from "../../domain/workspaces/extraction.js"
-import {
-  isConnectorMirrorPath,
-  isLinkedRepositoryDeclaration,
-} from "../../domain/workspaces/layout.js"
+import { isLinkedRepositoryDeclaration } from "../../domain/workspaces/layout.js"
 import {
   sameWorkspaceRevision,
   workspaceRevisionSchema,

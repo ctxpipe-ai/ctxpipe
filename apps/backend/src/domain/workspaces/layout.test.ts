@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
   greenfieldKnowledgePath,
-  isConnectorMirrorPath,
   isImportedKnowledgePath,
   isLinkedRepositoryDeclaration,
   knowledgeAreaFromObjectKind,
@@ -20,6 +19,8 @@ describe("knowledge layout", () => {
     expect(knowledgeAreaFromObjectKind("Service")).toBe("services")
     expect(knowledgeAreaFromObjectKind("API")).toBe("apis")
     expect(knowledgeAreaFromObjectKind("Repository")).toBe("codebases")
+    expect(knowledgeAreaFromObjectKind("Decision")).toBe("decisions")
+    expect(knowledgeAreaFromObjectKind("Team")).toBe("teams")
     expect(knowledgeAreaFromObjectKind("InstructionUnit")).toBe("instructions")
     expect(knowledgeAreaFromObjectKind("")).toBe("topics")
     expect(knowledgeAreaFromObjectKind("CustomKind")).toBe("customkind")
@@ -62,14 +63,5 @@ describe("knowledge layout", () => {
         confidence: 0.7,
       },
     ])
-  })
-})
-
-describe("isConnectorMirrorPath", () => {
-  it("uses the shared list of connector mirror roots", () => {
-    expect(isConnectorMirrorPath("github/pulls/example/api/1--1.md")).toBe(true)
-    expect(isConnectorMirrorPath("pagerduty/incidents/12--P1.md")).toBe(true)
-    expect(isConnectorMirrorPath("linear/issues/eng-1.md")).toBe(true)
-    expect(isConnectorMirrorPath("knowledge/services/github.md")).toBe(false)
   })
 })

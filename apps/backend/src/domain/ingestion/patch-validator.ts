@@ -1,9 +1,9 @@
 import { spawn } from "node:child_process"
-import type { Dirent } from "node:fs"
 import { lstat, readdir, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, posix } from "node:path"
 import { isDeepStrictEqual } from "node:util"
+import { fromMarkdown } from "mdast-util-from-markdown"
 import {
   parseDocument,
   parse as parseYaml,
@@ -12,6 +12,7 @@ import {
 } from "yaml"
 import { z } from "zod"
 import { isConnectorMirrorPath } from "../codeIngestion/connectorMirrorPaths.js"
+import { KNOWLEDGE_KIND_FOLDERS } from "../workspaces/layout.js"
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
 
 /**
@@ -63,22 +64,16 @@ export type PatchStepInput = {
   workspaceOpsBefore?: number
   /** The step's root is gone, so the delete cap does not apply. */
   rootGone?: boolean
+  /** Repositories that the Workspace knows (sources and linked repositories). */
+  linkableRepositories?: readonly string[]
 }
 
-export const KNOWLEDGE_FOLDER_KINDS = {
-  codebases: "Repository",
-  services: "Service",
-  apps: "App",
-  libraries: "Library",
-  apis: "API",
-  operations: "Operation",
-  databases: "Database",
-  infrastructure: "Infrastructure",
-  streams: "Stream",
-  decisions: "Decision",
-  teams: "Team",
-  instructions: "InstructionArea",
-} as const
+/** The 12 allowlist folders and their kinds. Patterns are not extracted (ADR-052). */
+const FOLDER_KINDS: ReadonlyMap<string, string> = new Map(
+  Object.entries(KNOWLEDGE_KIND_FOLDERS)
+    .filter(([kind]) => kind !== "Pattern")
+    .map(([kind, folder]) => [folder, kind]),
+)
 
 const GENERATED_BY = "ctxpipe-extract"
 const HOST_FIELDS = [
@@ -90,6 +85,8 @@ const HOST_FIELDS = [
 ] as const
 const CONFIDENCE = { script: 0.7, model: 0.5 } as const
 const MAX_FILE_BYTES = 64 * 1024
+const MAX_STAGED_BYTES = 2 * 1024 * 1024
+const MAX_PATCH_JSON_BYTES = 1024 * 1024
 const MAX_STEP_OPS = 30
 const MAX_WORKSPACE_OPS = 300
 const MAX_DELETE_SHARE = 0.2
@@ -169,7 +166,7 @@ export function fileOwnership(raw: string, sourceUrl: string): FileOwnership {
 }
 
 /** Path check of concept section 3.1; returns a reason or null. */
-export function disallowedPathReason(path: string): string | null {
+function disallowedPathReason(path: string): string | null {
   if (!path || path.includes("\\") || path.startsWith("/"))
     return "The path must be a relative POSIX path"
   const segments = path.split("/")
@@ -177,6 +174,9 @@ export function disallowedPathReason(path: string): string | null {
     return "The path has an empty, '.', or '..' segment"
   if (segments.some((s) => s.startsWith(".")))
     return "Dot paths are not allowed"
+  if (path !== path.normalize("NFC"))
+    return "The path must be in Unicode NFC form"
+  // The allowlist below also rejects mirror roots; this check gives a clearer reason.
   if (isConnectorMirrorPath(path))
     return "Connector mirror folders belong to their connector"
   const base = segments.at(-1) ?? ""
@@ -185,7 +185,7 @@ export function disallowedPathReason(path: string): string | null {
   if (
     segments.length < 3 ||
     segments[0] !== "knowledge" ||
-    !Object.hasOwn(KNOWLEDGE_FOLDER_KINDS, segments[1] ?? "")
+    !FOLDER_KINDS.has(segments[1] ?? "")
   )
     return "Only the knowledge folders of the allowlist are allowed"
   if (!base.endsWith(".md")) return "Only Markdown files are allowed"
@@ -231,11 +231,17 @@ export async function validatePatchStep(
     rejections.push({ path, rule, reason })
   }
   const sourceUrl = normalizeSourceUrl(input.source.url)
-  const sourceHost = new URL(sourceUrl).host.toLowerCase()
 
   const baseEntries = await listTree(input.repoDir, input.baseCommit)
   const meta = await readPatchJson(input.stagedDir, reject)
-  const staged = await readStagedFiles(join(input.stagedDir, "files"), reject)
+  const rejectedBeforeOps = rejections.length
+  const staged = await readStagedFiles(input.stagedDir, reject)
+  const stagedRejections = rejections.length - rejectedBeforeOps
+  const knownRepositories = new Set(
+    [sourceUrl, ...(input.linkableRepositories ?? [])]
+      .map((url) => repositoryKey(normalizeSourceUrl(url)))
+      .filter((key): key is string => key !== null),
+  )
 
   const stagedPaths = new Set(staged.map((f) => f.path))
   const ops: StagedOp[] = []
@@ -257,6 +263,17 @@ export async function validatePatchStep(
     ops.push({ op: "delete", path: entry.path })
   }
   ops.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
+
+  const baseDirectories = parentFolders(baseEntries.keys())
+  const foldedBase = new Map(
+    [...baseEntries.keys()].map((path) => [foldPath(path), path]),
+  )
+  const foldedStaged = new Map<string, number>()
+  for (const op of ops) {
+    if (op.op === "delete") continue
+    const key = foldPath(op.path)
+    foldedStaged.set(key, (foldedStaged.get(key) ?? 0) + 1)
+  }
 
   const opLimit = Math.max(
     0,
@@ -283,7 +300,6 @@ export async function validatePatchStep(
   }
   const context: CheckContext = {
     sourceUrl,
-    sourceHost,
     source: input.source,
     skill: input.skill,
     bundle: input.bundle,
@@ -303,6 +319,20 @@ export async function validatePatchStep(
     const pathReason = disallowedPathReason(op.path)
     if (pathReason) {
       reject(op.path, "path", pathReason)
+      continue
+    }
+    const conflict =
+      op.op === "create"
+        ? treeConflict(
+            op.path,
+            baseEntries,
+            baseDirectories,
+            foldedBase,
+            foldedStaged,
+          )
+        : null
+    if (conflict) {
+      reject(op.path, "path", conflict)
       continue
     }
     const baseBlob = baseEntries.get(op.path)
@@ -331,6 +361,14 @@ export async function validatePatchStep(
           op.path,
           "ownership",
           "Only a file that the source alone owns can be deleted",
+        )
+        continue
+      }
+      if (humanBlocks(before ?? "").length > 0) {
+        reject(
+          op.path,
+          "human_section",
+          "A file with a human section can not be deleted",
         )
         continue
       }
@@ -372,15 +410,10 @@ export async function validatePatchStep(
       if (op.op === "delete") present.delete(op.path)
       else present.add(op.path)
     }
-    const directories = new Set<string>()
-    for (const path of present) {
-      const parts = path.split("/")
-      for (let i = 1; i < parts.length; i++)
-        directories.add(parts.slice(0, i).join("/"))
-    }
+    const directories = parentFolders(present)
     const failed = new Map<Candidate, string>()
     for (const op of accepted) {
-      const reason = linkProblem(op, present, directories, sourceHost)
+      const reason = linkProblem(op, present, directories, knownRepositories)
       if (reason) failed.set(op, reason)
     }
     if (failed.size === 0) break
@@ -389,8 +422,16 @@ export async function validatePatchStep(
   }
 
   const tree = await applyOps(input.repoDir, input.baseCommit, accepted)
+  const acceptedPaths = new Set(accepted.map((op) => op.path))
+  const result = await listTree(input.repoDir, tree)
+  for (const path of new Set([...result.keys(), ...baseEntries.keys()])) {
+    if (result.get(path) !== baseEntries.get(path) && !acceptedPaths.has(path))
+      throw new Error(
+        "The result tree changes a path that no accepted op names",
+      )
+  }
   const opRejections = rejections.filter((r) => r.rule !== "patch_json").length
-  const total = ops.length
+  const total = ops.length + stagedRejections
   return {
     tree,
     accepted: accepted.map(({ op, path }) => ({ op, path })),
@@ -401,7 +442,6 @@ export async function validatePatchStep(
 
 type CheckContext = {
   sourceUrl: string
-  sourceHost: string
   source: { url: string; sha: string }
   skill: string
   bundle: string
@@ -464,8 +504,8 @@ async function checkFullWrite(
   if (!parsed.success)
     return { rule: "front_matter", reason: zodReason(parsed.error) }
   const attributes = parsed.data
-  const folder = op.path.split("/")[1] as keyof typeof KNOWLEDGE_FOLDER_KINDS
-  const kind = KNOWLEDGE_FOLDER_KINDS[folder]
+  const folder = op.path.split("/")[1] ?? ""
+  const kind = FOLDER_KINDS.get(folder)
   if (attributes.kind !== kind)
     return {
       rule: "front_matter",
@@ -485,8 +525,10 @@ async function checkFullWrite(
       return { rule: "front_matter", reason: `Only the host sets ${field}` }
   }
 
-  const blocks = humanBlocks(text)
-  if (before !== undefined && !isDeepStrictEqual(blocks, humanBlocks(before)))
+  if (
+    !isDeepStrictEqual(humanBlocks(text), humanBlocks(before ?? "")) ||
+    markerCount(text) !== markerCount(before ?? "")
+  )
     return {
       rule: "human_section",
       reason: "The human section must not change",
@@ -558,7 +600,7 @@ async function checkAdditiveWrite(
     if (key === "claims") continue
     if (!isDeepStrictEqual(baseAttributes[key], newAttributes[key]))
       return additive(
-        `This source can not change ${key} in a file it does not own alone`,
+        "Only claims can change in a file that the source does not own alone",
       )
   }
   const baseClaims = baseAttributes.claims ?? []
@@ -585,6 +627,11 @@ async function checkAdditiveWrite(
     )
 
   const addedText = [related, ...added.map((c) => JSON.stringify(c))].join("\n")
+  if (markerCount(addedText) > 0)
+    return {
+      rule: "human_section",
+      reason: "Only a human can add a human section",
+    }
   const content = contentProblem(addedText)
   if (content) return content
   const injection = injectionProblem(addedText)
@@ -630,7 +677,7 @@ async function evidenceProblem(
     if (!(await context.evidenceExists(claim.evidence.path)))
       return {
         rule: "evidence",
-        reason: `The evidence path ${claim.evidence.path} does not exist at the source revision`,
+        reason: "An evidence path does not exist at the source revision",
       }
   }
   return null
@@ -665,23 +712,39 @@ function addedRelatedLines(base: string, next: string): string | null {
   return lines.trim()
 }
 
+const HUMAN_BLOCK = new RegExp(
+  `${escapeRegExp(HUMAN_OPEN)}[\\s\\S]*?${escapeRegExp(HUMAN_CLOSE)}`,
+  "g",
+)
+const HUMAN_MARKER = new RegExp(
+  `${escapeRegExp(HUMAN_OPEN)}|${escapeRegExp(HUMAN_CLOSE)}`,
+  "g",
+)
+
 function humanBlocks(text: string): string[] {
-  return [
-    ...text.matchAll(/<!-- ctxpipe:human -->[\s\S]*?<!-- \/ctxpipe:human -->/g),
-  ].map((m) => m[0])
+  return [...text.matchAll(HUMAN_BLOCK)].map((m) => m[0])
+}
+
+function markerCount(text: string): number {
+  return [...text.matchAll(HUMAN_MARKER)].length
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 }
 
 function contentProblem(text: string): CheckFailure | null {
   const fail = (reason: string): CheckFailure => ({ rule: "content", reason })
   if (text.includes("\u0000")) return fail("The file has a NUL character")
-  if (/[؜‎‏‪-‮⁦-⁩]/.test(text))
+  if (/[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/.test(text))
     return fail("The file has a bidirectional control character")
-  if (/[​-‍⁠﻿]/.test(text)) return fail("The file has a zero-width character")
+  if (/[\u200B-\u200D\u2060\uFEFF]/.test(text))
+    return fail("The file has a zero-width character")
   // biome-ignore lint/suspicious/noControlCharactersInRegex: the check finds control characters
   if (/[\u0001-\u0008\u000B\u000C\u000E-\u001F\u007F]/.test(text))
     return fail("The file has a control character")
-  const tokens = [...text.matchAll(/<!-- (\/?)ctxpipe:human -->/g)].map(
-    (m) => m[1],
+  const tokens = [...text.matchAll(HUMAN_MARKER)].map((m) =>
+    m[0] === HUMAN_OPEN ? "" : "/",
   )
   if (
     tokens.some((t, i) => t !== (i % 2 === 0 ? "" : "/")) ||
@@ -708,17 +771,29 @@ const DENIED_HEADINGS = [
 ]
 
 function deniedHeading(body: string): CheckFailure | null {
-  for (const match of withoutCode(body).matchAll(
-    /^ {0,3}#{1,6}[ \t]+(.*)$/gm,
-  )) {
-    const heading = (match[1] ?? "").replace(/[ \t#]+$/, "").trim()
+  for (const heading of markdownHeadings(body)) {
     if (DENIED_HEADINGS.some((pattern) => pattern.test(heading)))
       return {
         rule: "heading_denylist",
-        reason: `The heading "${heading.slice(0, 80)}" addresses agents or models`,
+        reason: "A heading addresses agents or models",
       }
   }
   return null
+}
+
+type MarkdownNode = { type: string; value?: string; children?: MarkdownNode[] }
+
+/** Every heading, also setext headings and headings in lists and block quotes. */
+function markdownHeadings(body: string): string[] {
+  const headings: string[] = []
+  const plain = (node: MarkdownNode): string =>
+    node.value ?? (node.children ?? []).map(plain).join("")
+  const visit = (node: MarkdownNode) => {
+    if (node.type === "heading") headings.push(plain(node).trim())
+    for (const child of node.children ?? []) visit(child)
+  }
+  visit(fromMarkdown(body) as MarkdownNode)
+  return headings
 }
 
 const INJECTION_PHRASES = [
@@ -741,11 +816,10 @@ function injectionProblem(text: string): CheckFailure | null {
     .join("\n")
     .replace(/\s+/g, " ")
   for (const pattern of INJECTION_PHRASES) {
-    const hit = pattern.exec(outside)
-    if (hit)
+    if (pattern.test(outside))
       return {
         rule: "suspected_injection",
-        reason: `The text "${hit[0].slice(0, 80)}" looks like an instruction to an agent`,
+        reason: "The text looks like an instruction to an agent",
       }
   }
   return null
@@ -789,8 +863,12 @@ function markdownLinks(body: string): string[] {
     links.push(m[1] ?? "")
   for (const m of prose.matchAll(/<([a-z][a-z0-9+.-]*:[^>\s]*)>/gi))
     links.push(m[1] ?? "")
+  for (const m of prose.matchAll(
+    /(?<![\w.@/:-])www\.[a-z0-9-]+(?:\.[a-z0-9-]+)+[^\s<>()]*/gi,
+  ))
+    links.push(`http://${m[0].replace(/[.,;:!?]+$/, "")}`)
   for (const m of prose.matchAll(/\b(?:https?|ftp|file):\/\/[^\s<>()\]"'`]+/gi))
-    links.push(m[0])
+    links.push(m[0].replace(/[.,;:!?]+$/, ""))
   for (const m of prose.matchAll(/(?<![\w/:])\/\/[a-z0-9.-]+\.[a-z]{2,}/gi))
     links.push(m[0])
   return links
@@ -800,33 +878,79 @@ function linkProblem(
   op: Candidate,
   present: ReadonlySet<string>,
   directories: ReadonlySet<string>,
-  sourceHost: string,
+  knownRepositories: ReadonlySet<string>,
 ): string | null {
   for (const target of op.claimTargets) {
     const resolved = resolveRelative(op.path, target)
     if (!resolved || !present.has(resolved))
-      return `The claim target ${target} does not resolve to a file`
+      return "A claim target does not resolve to a file"
   }
   for (const link of op.links) {
     if (link === "" || link.startsWith("#")) continue
-    if (link.startsWith("//")) return `The link ${link} has no scheme`
+    if (link.startsWith("//")) return "A link has no scheme"
     if (/^[a-z][a-z0-9+.-]*:/i.test(link)) {
-      let host: string
+      let url: URL
       try {
-        const url = new URL(link)
-        if (url.protocol !== "https:" && url.protocol !== "http:")
-          return `The link ${link} is not an http link`
-        host = url.host.toLowerCase()
+        url = new URL(link)
       } catch {
-        return `The link ${link} is not a valid URL`
+        return "A link is not a valid URL"
       }
-      if (host !== sourceHost) return `External links go only to ${sourceHost}`
+      if (url.protocol !== "https:" && url.protocol !== "http:")
+        return "A link is not an http link"
+      const key = repositoryKey(link)
+      if (!key || !knownRepositories.has(key))
+        return "External links go only to repositories that the Workspace knows"
       continue
     }
     const resolved = resolveRelative(op.path, link)
     if (!resolved || !(present.has(resolved) || directories.has(resolved)))
-      return `The link ${link} does not resolve`
+      return "A relative link does not resolve"
   }
+  return null
+}
+
+/** `host/owner/repository` in lower case, or null. */
+function repositoryKey(url: string): string | null {
+  try {
+    const parsed = new URL(url)
+    const [owner, repository] = parsed.pathname.split("/").filter(Boolean)
+    if (!owner || !repository) return null
+    return `${parsed.host}/${owner}/${repository.replace(/\.git$/i, "")}`.toLowerCase()
+  } catch {
+    return null
+  }
+}
+
+function foldPath(path: string): string {
+  return path.normalize("NFC").toLowerCase()
+}
+
+function parentFolders(paths: Iterable<string>): Set<string> {
+  const folders = new Set<string>()
+  for (const path of paths) {
+    const parts = path.split("/")
+    for (let i = 1; i < parts.length; i++)
+      folders.add(parts.slice(0, i).join("/"))
+  }
+  return folders
+}
+
+/** A create must not replace a base file or folder, or collide in case or form. */
+function treeConflict(
+  path: string,
+  baseEntries: ReadonlyMap<string, string>,
+  baseFolders: ReadonlySet<string>,
+  foldedBase: ReadonlyMap<string, string>,
+  foldedStaged: ReadonlyMap<string, number>,
+): string | null {
+  const parts = path.split("/")
+  for (let i = 1; i < parts.length; i++)
+    if (baseEntries.has(parts.slice(0, i).join("/")))
+      return "A parent of the path is a file at the base commit"
+  if (baseFolders.has(path)) return "The path is a folder at the base commit"
+  const key = foldPath(path)
+  if (foldedBase.has(key) || (foldedStaged.get(key) ?? 0) > 1)
+    return "The path differs from another path only in case or Unicode form"
   return null
 }
 
@@ -866,11 +990,14 @@ function normalizeSourceUrl(url: string): string {
   return normalizeWorkspaceRepositoryUrl(url).replace(/\.git$/i, "")
 }
 
+/** Gives the field and the issue code only, so no staged text goes into a reason. */
 function zodReason(error: z.ZodError): string {
   const issue = error.issues[0]
   if (!issue) return "The front matter does not match the schema"
-  const at = issue.path.length ? `${issue.path.join(".")}: ` : ""
-  return `${at}${issue.message}`
+  const at = issue.path.length
+    ? `${issue.path.map((p) => String(p).slice(0, 40)).join(".")}: `
+    : ""
+  return `${at}${issue.code}`
 }
 
 async function readPatchJson(
@@ -881,13 +1008,17 @@ async function readPatchJson(
     string,
     z.infer<typeof PatchJsonSchema>["ops"][number]
   >()
-  let raw: string
-  try {
-    raw = await readFile(join(stagedDir, "patch.json"), "utf8")
-  } catch {
-    reject("patch.json", "patch_json", "The step has no patch.json")
+  const file = join(stagedDir, "patch.json")
+  const stat = await lstat(file).catch(() => null)
+  if (!stat?.isFile() || stat.size > MAX_PATCH_JSON_BYTES) {
+    reject(
+      "patch.json",
+      "patch_json",
+      "patch.json must be a regular file of at most 1 MiB",
+    )
     return entries
   }
+  const raw = await readFile(file, "utf8")
   let parsed: z.infer<typeof PatchJsonSchema>
   try {
     parsed = PatchJsonSchema.parse(JSON.parse(raw))
@@ -904,25 +1035,40 @@ async function readPatchJson(
 }
 
 async function readStagedFiles(
-  root: string,
+  stagedDir: string,
   reject: (path: string, rule: PatchRule, reason: string) => void,
 ): Promise<Array<{ path: string; content: Buffer }>> {
   const files: Array<{ path: string; content: Buffer }> = []
+  const root = join(stagedDir, "files")
+  const rootStat = await lstat(root).catch(() => null)
+  if (!rootStat) return files
+  if (!rootStat.isDirectory()) {
+    reject("files", "path", "The files folder must be a real folder")
+    return files
+  }
+  let total = 0
   const walk = async (dir: string, prefix: string): Promise<void> => {
-    let entries: Dirent[]
-    try {
-      entries = await readdir(dir, { withFileTypes: true })
-    } catch {
-      return
-    }
-    for (const entry of entries) {
-      const path = prefix ? `${prefix}/${entry.name}` : entry.name
-      const full = join(dir, entry.name)
+    const entries = await readdir(dir)
+    entries.sort()
+    for (const name of entries) {
+      const path = prefix ? `${prefix}/${name}` : name
+      const full = join(dir, name)
       const stat = await lstat(full)
       if (stat.isDirectory()) await walk(full, path)
-      else if (stat.isFile())
+      else if (!stat.isFile())
+        reject(path, "path", "Only regular files can be staged")
+      else if (stat.size > MAX_FILE_BYTES)
+        reject(
+          path,
+          "size_cap",
+          `The file is larger than ${MAX_FILE_BYTES} bytes`,
+        )
+      else if (total + stat.size > MAX_STAGED_BYTES)
+        reject(path, "size_cap", "The staged tree is larger than 2 MiB")
+      else {
+        total += stat.size
         files.push({ path, content: await readFile(full) })
-      else reject(path, "path", "Only regular files can be staged")
+      }
     }
   }
   await walk(root, "")
