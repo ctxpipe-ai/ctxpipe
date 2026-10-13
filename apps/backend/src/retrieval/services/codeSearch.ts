@@ -6,7 +6,10 @@ import { repositories } from "../../db/schema/repositories.js"
 import { repositoryCheckouts } from "../../db/schema/repository_checkouts.js"
 import { publishedProjection } from "../../domain/workspaces/revision.js"
 import { codesearchBaseUrl } from "../../lib/agentToolRuntime.js"
-import { readCodesearchError } from "../../lib/codesearchError.js"
+import {
+  type CodesearchHttpOptions,
+  readCodesearchError,
+} from "../../lib/codesearchError.js"
 import { withTransientHttpRetry } from "../../lib/withTransientHttpRetry.js"
 import { publishedRepositoryCheckoutKey } from "../../models/repositories.js"
 import { getWorkspaceSearchProjection } from "../../models/workspaces.js"
@@ -18,6 +21,11 @@ import { log } from "../../observability/logger.js"
  */
 export function zoektLiteralQuery(text: string): string {
   return `"${text.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`
+}
+
+/** Zoekt rejected the query. Only `strict` calls get it; others retry as a literal. */
+export class CodeSearchRejectedError extends Error {
+  override readonly name = "CodeSearchRejectedError"
 }
 
 export type CodeSearchResult = {
@@ -139,6 +147,11 @@ export async function codeSearch(
     repositoryIds?: string[]
     workspaceId?: string
     workspaceSnapshot?: Awaited<ReturnType<typeof getWorkspaceSearchProjection>>
+    /** Repositories that the caller already resolved; skips the checkout query. */
+    repositories?: Array<{ id: string; name: string; zoektRepoId: number }>
+    /** Throw {@link CodeSearchRejectedError} on a rejected query, with no literal retry. */
+    strict?: boolean
+    transport?: CodesearchHttpOptions
   },
 ): Promise<CodeSearchResult[]> {
   const workspace = params.workspaceId
@@ -152,33 +165,35 @@ export async function codeSearch(
     ? and(baseWhere, inArray(repositories.id, params.repositoryIds))
     : baseWhere
 
-  const repos = workspace
-    ? workspace.repositories.filter(
-        (repo) =>
-          !params.repositoryIds?.length ||
-          params.repositoryIds.includes(repo.id),
-      )
-    : await withOrgDbContext(orgId, async (db) =>
-        db
-          .select({
-            id: repositories.id,
-            name: repositories.name,
-            gitUrl: repositories.gitUrl,
-            zoektRepoId: repositoryCheckouts.zoektRepoId,
-          })
-          .from(repositories)
-          .innerJoin(
-            repositoryCheckouts,
-            and(
-              eq(repositoryCheckouts.repositoryId, repositories.id),
-              eq(
-                repositoryCheckouts.checkoutKey,
-                publishedRepositoryCheckoutKey(),
+  const repos = params.repositories
+    ? params.repositories
+    : workspace
+      ? workspace.repositories.filter(
+          (repo) =>
+            !params.repositoryIds?.length ||
+            params.repositoryIds.includes(repo.id),
+        )
+      : await withOrgDbContext(orgId, async (db) =>
+          db
+            .select({
+              id: repositories.id,
+              name: repositories.name,
+              gitUrl: repositories.gitUrl,
+              zoektRepoId: repositoryCheckouts.zoektRepoId,
+            })
+            .from(repositories)
+            .innerJoin(
+              repositoryCheckouts,
+              and(
+                eq(repositoryCheckouts.repositoryId, repositories.id),
+                eq(
+                  repositoryCheckouts.checkoutKey,
+                  publishedRepositoryCheckoutKey(),
+                ),
               ),
-            ),
-          )
-          .where(where),
-      )
+            )
+            .where(where),
+        )
 
   if (repos.length === 0) return []
 
@@ -225,8 +240,13 @@ export async function codeSearch(
             Q: query,
             RepoIDs: repoIds,
           }),
+          signal: params.transport?.signal,
         }),
-      { retries: 10, baseDelayMs: 200, maxDelayMs: 30_000 },
+      params.transport?.retry ?? {
+        retries: 10,
+        baseDelayMs: 200,
+        maxDelayMs: 30_000,
+      },
     )
 
   const readRejection = async (response: Response) => {
@@ -238,6 +258,9 @@ export async function codeSearch(
   let query = params.query
   let res = await postSearch(query)
   let rejected = await readRejection(res)
+  if (rejected && params.strict) {
+    throw new CodeSearchRejectedError(rejected.message)
+  }
   if (rejected) {
     const literal = zoektLiteralQuery(params.query)
     if (literal !== params.query) {

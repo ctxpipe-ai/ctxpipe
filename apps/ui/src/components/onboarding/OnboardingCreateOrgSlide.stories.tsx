@@ -75,6 +75,39 @@ export const ValidationError: Story = {
   },
 }
 
+export const InvalidSlug: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: createOrgBaseMsw,
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.type(
+      canvas.getByRole("textbox", { name: /organization name/i }),
+      "Acme Labs",
+    )
+    const slug = canvas.getByRole("textbox", { name: /slug url/i })
+    // The slug follows the name until the user types in it.
+    await expect(slug).toHaveValue("acme-labs")
+    await expect(
+      canvas.getByRole("button", { name: /create organization/i }),
+    ).toBeEnabled()
+    await userEvent.clear(slug)
+    await userEvent.type(slug, "-acme")
+    await waitFor(() =>
+      expect(
+        canvas.getByText(/do not start or end with a hyphen/i),
+      ).toBeVisible(),
+    )
+    await expect(
+      canvas.getByRole("button", { name: /create organization/i }),
+    ).toBeDisabled()
+  },
+}
+
 export const CreateFailed: Story = {
   parameters: {
     msw: {

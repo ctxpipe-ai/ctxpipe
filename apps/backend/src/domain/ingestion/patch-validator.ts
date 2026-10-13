@@ -88,7 +88,7 @@ const MAX_FILE_BYTES = 64 * 1024
 const MAX_STAGED_BYTES = 2 * 1024 * 1024
 const MAX_PATCH_JSON_BYTES = 1024 * 1024
 const MAX_STEP_OPS = 30
-const MAX_WORKSPACE_OPS = 300
+export const MAX_WORKSPACE_OPS = 300
 const MAX_DELETE_SHARE = 0.2
 const HUMAN_OPEN = "<!-- ctxpipe:human -->"
 const HUMAN_CLOSE = "<!-- /ctxpipe:human -->"
@@ -178,7 +178,7 @@ export function fileSources(raw: string): string[] {
 }
 
 /** Path check of concept section 3.1; returns a reason or null. */
-function disallowedPathReason(path: string): string | null {
+export function disallowedPathReason(path: string): string | null {
   if (!path || path.includes("\\") || path.startsWith("/"))
     return "The path must be a relative POSIX path"
   const segments = path.split("/")

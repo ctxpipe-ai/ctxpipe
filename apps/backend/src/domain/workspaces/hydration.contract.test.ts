@@ -470,14 +470,7 @@ it(
             index: { kind: "failed" },
           },
         })
-        const { units } = await getWorkspaceProjectionSnapshot(workspaceId)
-        await persistUnitEmbeddings({
-          revision: active.revision,
-          embeddings: units.map((unit) => ({
-            servingId: unit.servingId,
-            embedding: Array(2000).fill(0.01),
-          })),
-        })
+        await persistUnitEmbeddings({ revision: active.revision })
         expect(await getWorkspaceProjection(workspaceId)).toMatchObject({
           kind: "active",
           stores: {
@@ -764,6 +757,9 @@ it(
       const duplicate = {
         servingId: "kn_fixture_duplicate",
         path: "duplicate.md",
+        title: null,
+        source: "authored",
+        updatedAt: null,
         body: "Never published",
         links: [],
         claims: [],
@@ -777,6 +773,7 @@ it(
             remotes: [],
             units: [duplicate, duplicate],
             skipped: [],
+            embeddingModel: "fixture-embedding",
           }),
         ),
       ).rejects.toMatchObject({ cause: { code: "23505" } })
@@ -939,10 +936,7 @@ it(
       await withOrgIdContext(org, async () => {
         const [unit] = (await getWorkspaceProjectionSnapshot(workspaceId)).units
         if (!unit) throw new Error("Expected the active knowledge unit")
-        await persistUnitEmbeddings({
-          revision,
-          embeddings: [{ servingId: unit.servingId, embedding: [0.99] }],
-        })
+        expect(await persistUnitEmbeddings({ revision })).toBe(false)
         expect(
           (await getWorkspaceProjectionSnapshot(workspaceId)).units[0]
             ?.embedding,

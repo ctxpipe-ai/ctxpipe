@@ -12,6 +12,55 @@ import {
   workspaceGraphNodes,
 } from "./workspace-graph.js"
 
+describe("hydrateKnowledgeTree unit metadata", () => {
+  it("takes the title from front matter, else the first heading", () => {
+    const { units } = hydrateKnowledgeTree({
+      workspaceId: "ws_1",
+      files: [
+        {
+          path: "notes/front.md",
+          content: "---\ntitle: Front title\n---\n# Heading title\nBody.\n",
+        },
+        {
+          path: "notes/heading.md",
+          content:
+            "Intro line.\n\n```\n# not a heading\n```\n## Deep heading ##\nBody.\n",
+        },
+        { path: "notes/none.md", content: "No heading here.\n" },
+      ],
+    })
+    expect(units.map(({ path, title }) => ({ path, title }))).toEqual([
+      { path: "notes/front.md", title: "Front title" },
+      { path: "notes/heading.md", title: "Deep heading" },
+      { path: "notes/none.md", title: null },
+    ])
+  })
+
+  it("sets source to the connector root or authored, and updatedAt from the last commit", () => {
+    const { units } = hydrateKnowledgeTree({
+      workspaceId: "ws_1",
+      files: [
+        {
+          path: "linear/issues/PAY-1.md",
+          content: "# PAY-1\n",
+          lastCommitTimestamp: "2026-01-02T03:04:05.000Z",
+        },
+        { path: "knowledge/payments.md", content: "# Payments\n" },
+      ],
+    })
+    expect(
+      units.map(({ path, source, updatedAt }) => ({ path, source, updatedAt })),
+    ).toEqual([
+      {
+        path: "linear/issues/PAY-1.md",
+        source: "linear",
+        updatedAt: "2026-01-02T03:04:05.000Z",
+      },
+      { path: "knowledge/payments.md", source: "authored", updatedAt: null },
+    ])
+  })
+})
+
 describe("hydrateKnowledgeTree", () => {
   it("uses a stable serving id per Workspace + path and skips malformed files", () => {
     const a = servingIdForKnowledgePath("ws_1", "knowledge/payments/api.md")
@@ -170,6 +219,9 @@ describe("applyEffectiveValidFromToUnits", () => {
           {
             path: "knowledge/a.md",
             servingId: "kn_a",
+            title: null,
+            source: "authored",
+            updatedAt: null,
             body: "A",
             links: [],
             claims: [
@@ -202,6 +254,9 @@ describe("hydrateUnitsToProjectionClaims", () => {
         {
           path: "knowledge/payments/api.md",
           servingId: api,
+          title: null,
+          source: "authored",
+          updatedAt: null,
           body: "See [ledger](../billing/ledger.md).",
           links: ["../billing/ledger.md"],
           claims: [
@@ -218,6 +273,9 @@ describe("hydrateUnitsToProjectionClaims", () => {
         {
           path: "knowledge/billing/ledger.md",
           servingId: ledger,
+          title: null,
+          source: "authored",
+          updatedAt: null,
           body: "Ledger",
           links: [],
           claims: [],
