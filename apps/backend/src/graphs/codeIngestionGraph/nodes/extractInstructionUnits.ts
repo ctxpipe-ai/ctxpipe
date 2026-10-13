@@ -7,7 +7,7 @@
 import { createHash } from "node:crypto"
 import { HumanMessage, SystemMessage } from "@langchain/core/messages"
 import { mergeConfigs } from "@langchain/core/runnables"
-import { getConfig } from "@langchain/langgraph"
+import { AsyncLocalStorageProviderSingleton } from "@langchain/core/singletons"
 import slugify from "@sindresorhus/slugify"
 import { z } from "zod/v3"
 import { requireCurrentOrgId } from "../../../auth/context.js"
@@ -624,7 +624,7 @@ Rules:
         `File path: ${input.path}\nrepositoryId: ${input.repositoryId}\ntargetHash: ${input.targetHash}\n\n---\n${input.content}`,
       ),
     ],
-    mergeConfigs(getConfig()),
+    mergeConfigs(AsyncLocalStorageProviderSingleton.getRunnableConfig()),
   )
 
   return res
