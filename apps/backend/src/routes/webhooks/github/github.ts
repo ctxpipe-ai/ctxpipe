@@ -180,6 +180,9 @@ async function processPushEvent(
     before,
     after,
   } = parsed.data
+  // Each ingest step pushes a run-scoped ref (ADR-052). Such a push changes
+  // no branch, so it starts no tip check, ingestion, or connector sync.
+  if (ref.startsWith("refs/ctxpipe/")) return
   const defaultBranch = repo.default_branch
   if (!defaultBranch) {
     return
