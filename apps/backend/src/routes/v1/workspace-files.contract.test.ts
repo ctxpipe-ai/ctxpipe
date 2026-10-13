@@ -16,6 +16,7 @@ import { workspaces } from "../../db/schema/workspaces.js"
 import type { WorkspaceRevision } from "../../domain/workspaces/revision.js"
 import { destroyWorkspaceSandbox } from "../../domain/workspaces/workspace-sandbox-cleanup.js"
 import { persistSandboxInstance } from "../../models/workspaces.js"
+import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { withNativeIndexFixture } from "../../test/native-index-fixture.js"
 import { workspaceHttpApp } from "../../test/workspace-http-fixture.js"
 import { workspaceFilesRoutes } from "./workspace-files-routes.js"
@@ -339,7 +340,7 @@ it.each(["writable", "read_only", "unknown"])(
         })
         const queue = await BackendPostgres.connect(
           parseEnv(process.env).DATABASE_URL,
-          { runMigrations: false },
+          { namespaceId: openWorkflowNamespaceId(), runMigrations: false },
         )
         try {
           const response = await app.request(

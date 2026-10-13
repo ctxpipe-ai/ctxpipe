@@ -2,31 +2,14 @@ import { mkdirSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { OpenWorkflow } from "openworkflow"
 import { BackendPostgres } from "openworkflow/postgres"
-import { afterAll, expect, it, vi } from "vitest"
+import { expect, it } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
+import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { workspaceHydrate } from "../../openworkflow/workflows/workspace-hydrate.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { bootstrapWorkspaceFiles } from "./bootstrap.js"
 import { resolveWorkspaceReadRevision } from "./resolve-revision.js"
-
-// Hydrate queues maintenance jobs on the shared OpenWorkflow client. A worker
-// claims every open run of its namespace, also runs it does not implement, and
-// waits up to one second after each such claim. On a database where a dev
-// server or an earlier test left open runs in "default", the worker of this
-// file reached its own jobs only after those runs. Give the client a namespace
-// of its own before it loads.
-const namespaceId = vi.hoisted(() => {
-  const previous = process.env.OPENWORKFLOW_NAMESPACE_ID
-  const namespace = `hydrate-planner-${process.pid}-${Date.now()}`
-  process.env.OPENWORKFLOW_NAMESPACE_ID = namespace
-  return { namespace, previous }
-})
-afterAll(() => {
-  if (namespaceId.previous === undefined)
-    delete process.env.OPENWORKFLOW_NAMESPACE_ID
-  else process.env.OPENWORKFLOW_NAMESPACE_ID = namespaceId.previous
-})
 
 it(
   "hydration durably admits each remaining maintenance concern once",
@@ -48,7 +31,7 @@ it(
       async (f) => {
         const backend = await BackendPostgres.connect(f.databaseUrl, {
           runMigrations: false,
-          namespaceId: namespaceId.namespace,
+          namespaceId: openWorkflowNamespaceId(),
         })
 
         try {
@@ -112,7 +95,7 @@ it(
       async (f) => {
         const backend = await BackendPostgres.connect(f.databaseUrl, {
           runMigrations: false,
-          namespaceId: namespaceId.namespace,
+          namespaceId: openWorkflowNamespaceId(),
         })
         const runner = new OpenWorkflow({ backend })
         const { workspaceClaimsUpgrade } = await import(
@@ -261,7 +244,7 @@ it.each([
         )
         const backend = await BackendPostgres.connect(f.databaseUrl, {
           runMigrations: false,
-          namespaceId: namespaceId.namespace,
+          namespaceId: openWorkflowNamespaceId(),
         })
         try {
           await f.worker.start()
@@ -333,7 +316,7 @@ it(
       async (f) => {
         const backend = await BackendPostgres.connect(f.databaseUrl, {
           runMigrations: false,
-          namespaceId: namespaceId.namespace,
+          namespaceId: openWorkflowNamespaceId(),
         })
         try {
           await f.publish()
@@ -418,7 +401,7 @@ it(
       async (f) => {
         const backend = await BackendPostgres.connect(f.databaseUrl, {
           runMigrations: false,
-          namespaceId: namespaceId.namespace,
+          namespaceId: openWorkflowNamespaceId(),
         })
         try {
           await f.publish()

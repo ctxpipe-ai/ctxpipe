@@ -1,6 +1,7 @@
 import { expect, it } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { reconcileWorkspaceWriteJob } from "../../models/workspace-write-jobs.js"
+import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { workspaceOpsFolderList } from "../../openworkflow/workflows/workspace-ops-folder-list.js"
 import {
   type NativeHydrationFixture,
@@ -197,6 +198,7 @@ it(
         const { BackendPostgres } = await import("openworkflow/postgres")
         const { OpenWorkflow } = await import("openworkflow")
         const backend = await BackendPostgres.connect(f.databaseUrl, {
+          namespaceId: openWorkflowNamespaceId(),
           runMigrations: false,
         })
         const runner = new OpenWorkflow({ backend })

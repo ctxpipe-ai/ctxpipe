@@ -1,7 +1,7 @@
 import { rename, unlink, writeFile } from "node:fs/promises"
 import { sql } from "drizzle-orm"
 import { FalkorDB } from "falkordb"
-import { expect, it, vi } from "vitest"
+import { expect, it } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { getSystemDb } from "../../db/client.js"
 import {
@@ -10,6 +10,7 @@ import {
   getWorkspaceProjectionSnapshot,
   persistWorkspaceGraphResult,
 } from "../../models/workspaces.js"
+import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { workspaceHydrate } from "../../openworkflow/workflows/workspace-hydrate.js"
 import { workspaceTipCheck } from "../../openworkflow/workflows/workspace-tip-check.js"
 import {
@@ -27,15 +28,6 @@ import {
 import { workspaceHttpApp } from "../../test/workspace-http-fixture.js"
 import { workspaceClaimsQuery } from "./graph-projection.js"
 import { workspaceChatTools } from "./workspace-chat-tools.js"
-
-// The graph route enqueues on the shared OpenWorkflow client. Give that client a
-// namespace of its own before it loads, so that a local dev worker on the shared
-// database cannot take the rebuild run.
-const routeNamespace = vi.hoisted(() => {
-  const namespace = `graph-contract-${process.pid}-${Date.now()}`
-  process.env.OPENWORKFLOW_NAMESPACE_ID = namespace
-  return namespace
-})
 
 async function withGraphHydration(
   options: NativeHydrationOptions,
@@ -209,7 +201,7 @@ it(
   async () => {
     // The fixture worker uses the namespace of the shared client, so it runs the rebuild.
     await withGraphHydration(
-      { namespaceId: routeNamespace },
+      { namespaceId: openWorkflowNamespaceId() },
       async (f, graph) => {
         await f.publish()
         const runsBefore = await hydrateRuns(f)
@@ -234,7 +226,7 @@ it(
   { timeout: 90_000 },
   async () => {
     await withGraphHydration(
-      { namespaceId: routeNamespace },
+      { namespaceId: openWorkflowNamespaceId() },
       async (f, graph, db) => {
         await f.publish()
         await graph.delete()
@@ -878,7 +870,7 @@ it(
   { timeout: 90_000 },
   async () => {
     await withGraphHydration(
-      { namespaceId: routeNamespace },
+      { namespaceId: openWorkflowNamespaceId() },
       async (f, graph) => {
         await f.publish()
         // A node under the same revision key that the projection does not have.

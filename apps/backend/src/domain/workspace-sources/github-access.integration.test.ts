@@ -9,6 +9,7 @@ import { withOrgDbContext } from "../../db/client.js"
 import { repositories } from "../../db/schema/repositories.js"
 import { workspaceSources } from "../../db/schema/workspace_sources.js"
 import { workspaceLinkedRepositories } from "../../db/schema/workspaces.js"
+import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { workspaceHydrate } from "../../openworkflow/workflows/workspace-hydrate.js"
 import { workspaceTipCheck } from "../../openworkflow/workflows/workspace-tip-check.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
@@ -107,6 +108,7 @@ it(
           })
           // GitHub has no sync adapter, so the projection queues no sync.
           const backend = await BackendPostgres.connect(f.databaseUrl, {
+            namespaceId: openWorkflowNamespaceId(),
             runMigrations: false,
           })
           try {
