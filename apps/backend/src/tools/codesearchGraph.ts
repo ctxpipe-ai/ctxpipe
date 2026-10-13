@@ -7,6 +7,7 @@ import type { ZoektRepositoryRow } from "./codesearchZoekt.js"
 
 export type GraphPrimitive =
   | "find_symbol"
+  | "find_references"
   | "get_callers"
   | "get_callees"
   | "get_imports"
