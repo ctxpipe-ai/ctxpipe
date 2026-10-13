@@ -1,5 +1,7 @@
+import type { SandboxHandle } from "@tanstack/ai-sandbox"
 import {
   WORKSPACE_CHAT_FIREWALL_PLACEHOLDER,
+  WORKSPACE_CHAT_OPENCODE_CLI,
   WORKSPACE_CHAT_OPENCODE_PROVIDER_ID,
   WORKSPACE_CHAT_OPENCODE_PROXY_URL_ENV,
   workspaceChatOpenCodeModel,
@@ -103,4 +105,28 @@ export function ingestOpenCodeEnv(input: {
     OPENCODE_DISABLE_AUTOUPDATE: "1",
     PATH: `${INGEST_SKILLS_ROOT}/bin:${input.path}`,
   }
+}
+
+/** The one OpenCode version whose isolation flags the contract test proves. */
+export const INGEST_OPENCODE_VERSION = WORKSPACE_CHAT_OPENCODE_CLI.replace(
+  "opencode-ai@",
+  "",
+)
+
+/**
+ * Stop before an ingest run when the sandbox has another OpenCode version.
+ * A new version can rename or drop the isolation flags without an error, and
+ * then a checkout's AGENTS.md or .opencode/ reaches the agent.
+ */
+export async function assertIngestOpenCodeVersion(
+  handle: Pick<SandboxHandle, "process">,
+  env: Record<string, string>,
+): Promise<string> {
+  const result = await handle.process.exec("opencode --version", { env })
+  const version = result.stdout.trim()
+  if (result.exitCode !== 0 || version !== INGEST_OPENCODE_VERSION)
+    throw new Error(
+      `Ingest sandbox: OpenCode ${version || `(exit ${result.exitCode})`} is not tested. The ingest isolation flags are proven only on OpenCode ${INGEST_OPENCODE_VERSION}.`,
+    )
+  return version
 }

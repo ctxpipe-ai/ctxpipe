@@ -81,40 +81,99 @@ async function run(handle: BundleTarget, command: string): Promise<string> {
   return result.stdout
 }
 
+/** Runs a shell script as root in the sandbox (see `ingest-root.ts`). */
+export type RunAsRoot = (script: string) => Promise<void>
+
 /**
- * Copy the bundle to `/ctxpipe/skills`. A sandbox that already holds the same
- * bundle keeps it. The marker file is written last, so a copy that stopped
- * part way is made again.
+ * The `/ctxpipe` layout: root owns `/ctxpipe`, `/ctxpipe/skills`, and
+ * `/ctxpipe/context`, so the sandbox user (the agent) cannot change them.
+ * Only `/ctxpipe/out` belongs to the sandbox user.
+ */
+export function ingestLayoutScript(owner: string): string {
+  if (!/^\d+:\d+$/.test(owner))
+    throw new Error("Ingest layout: the owner must be uid:gid")
+  return [
+    "set -e",
+    `mkdir -p ${INGEST_ROOT} ${INGEST_CONTEXT_ROOT} ${INGEST_OUT_ROOT}`,
+    `chown root:root ${INGEST_ROOT} ${INGEST_CONTEXT_ROOT}`,
+    `chmod 755 ${INGEST_ROOT} ${INGEST_CONTEXT_ROOT}`,
+    `chown ${owner} ${INGEST_OUT_ROOT}`,
+    `chmod 755 ${INGEST_OUT_ROOT}`,
+  ].join("\n")
+}
+
+async function sandboxOwner(handle: BundleTarget): Promise<string> {
+  return (await run(handle, 'printf "%s:%s" "$(id -u)" "$(id -g)"')).trim()
+}
+
+/**
+ * Copy the bundle to `/ctxpipe/skills`, owned by root and read-only for the
+ * sandbox user. A sandbox that already holds the same bundle keeps it. The
+ * marker file is written last, so a copy that stopped part way is made again.
  */
 export async function installIngestSkillBundle(
   handle: BundleTarget,
   bundle: IngestSkillBundle,
+  asRoot: RunAsRoot,
 ): Promise<{ installed: boolean }> {
   const marker = `${INGEST_SKILLS_ROOT}/.bundle`
   const current = await run(handle, `cat ${quote(marker)} 2>/dev/null || true`)
   if (current.trim() === bundle.name) return { installed: false }
-  const folders = new Set<string>([INGEST_SKILLS_ROOT])
+  // The sandbox user writes a staging copy; root moves it into place.
+  const staging = `/tmp/ctxpipe-${bundle.name}-${Date.now()}`
+  const folders = new Set<string>([staging])
   for (const file of bundle.files) {
     const parts = file.path.split("/").slice(0, -1)
     for (let i = 1; i <= parts.length; i++)
-      folders.add(`${INGEST_SKILLS_ROOT}/${parts.slice(0, i).join("/")}`)
+      folders.add(`${staging}/${parts.slice(0, i).join("/")}`)
   }
-  await run(
-    handle,
-    `rm -rf ${quote(INGEST_SKILLS_ROOT)} && mkdir -p ${[...folders].map(quote).join(" ")}`,
-  )
+  await run(handle, `mkdir -p ${[...folders].map(quote).join(" ")}`)
   for (const file of bundle.files)
     await handle.fs.write(
-      `${INGEST_SKILLS_ROOT}/${file.path}`,
+      `${staging}/${file.path}`,
       new Uint8Array(file.content),
     )
+  await handle.fs.write(`${staging}/.bundle`, `${bundle.name}\n`)
   const executables = bundle.files
     .filter((f) => f.executable)
     .map((f) => quote(`${INGEST_SKILLS_ROOT}/${f.path}`))
-  if (executables.length > 0)
-    await run(handle, `chmod 755 ${executables.join(" ")}`)
-  await handle.fs.write(marker, `${bundle.name}\n`)
+  await asRoot(
+    [
+      ingestLayoutScript(await sandboxOwner(handle)),
+      `rm -rf ${INGEST_SKILLS_ROOT}`,
+      `mv ${quote(staging)} ${INGEST_SKILLS_ROOT}`,
+      `chown -R root:root ${INGEST_SKILLS_ROOT}`,
+      `chmod -R u=rwX,go=rX ${INGEST_SKILLS_ROOT}`,
+      ...(executables.length > 0 ? [`chmod 755 ${executables.join(" ")}`] : []),
+    ].join("\n"),
+  )
   return { installed: true }
+}
+
+/**
+ * Move a destination Workspace checkout that prepare cloned as the sandbox
+ * user to `/ctxpipe/context/<workspaceId>`, owned by root. Git reads it as the
+ * sandbox user through a system `safe.directory` entry.
+ */
+export async function sealIngestContext(
+  handle: BundleTarget,
+  asRoot: RunAsRoot,
+  input: { from: string; workspaceId: string },
+): Promise<string> {
+  if (!/^[A-Za-z0-9_-]+$/.test(input.workspaceId))
+    throw new Error("Ingest context: the Workspace id is not a plain id")
+  const target = `${INGEST_CONTEXT_ROOT}/${input.workspaceId}`
+  await asRoot(
+    [
+      ingestLayoutScript(await sandboxOwner(handle)),
+      `rm -rf ${target}`,
+      `mv ${quote(input.from)} ${target}`,
+      `chown -R root:root ${target}`,
+      `chmod -R u=rwX,go=rX ${target}`,
+      `git config --system --get-all safe.directory | grep -qxF ${target} || git config --system --add safe.directory ${target}`,
+    ].join("\n"),
+  )
+  return target
 }
 
 /**

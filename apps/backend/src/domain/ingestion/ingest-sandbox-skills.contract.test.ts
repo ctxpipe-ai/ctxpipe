@@ -7,17 +7,21 @@ import { dockerSandbox } from "@tanstack/ai-sandbox-docker"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { workspaceChatDockerImage } from "../workspaces/chat-runtime.js"
 import {
+  assertIngestOpenCodeVersion,
   INGEST_AGENT_CWD,
   INGEST_OPENCODE_AGENT_PROMPT,
   ingestOpenCodeConfig,
   ingestOpenCodeEnv,
 } from "./ingest-opencode.js"
+import { dockerRunAsRoot } from "./ingest-root.js"
 import { validatePatchStep } from "./patch-validator.js"
 import {
   INGEST_CONTEXT_ROOT,
   INGEST_SKILLS_ROOT,
   installIngestSkillBundle,
+  type RunAsRoot,
   readIngestSkillBundle,
+  sealIngestContext,
   startIngestStep,
 } from "./skill-bundle.js"
 
@@ -35,7 +39,7 @@ import {
 const SOURCE_URL = "https://github.com/example-org/checkout-api"
 const WORKSPACE_ID = "ws_contract"
 const CONTEXT_DIR = `${INGEST_CONTEXT_ROOT}/${WORKSPACE_ID}`
-const SOURCE_DIR = "/ctxpipe/source"
+const SOURCE_DIR = "/tmp/source"
 const CLEAN_DIR = "/tmp/clean-repo"
 const HOME = "/home/node/ctxpipe-ingest"
 const STUB_PORT = 47811
@@ -94,6 +98,7 @@ http.createServer((req, res) => {
 
 const provider = dockerSandbox({ image: workspaceChatDockerImage() })
 let handle: SandboxHandle
+let asRoot: RunAsRoot
 let host: string
 
 function quote(value: string) {
@@ -166,6 +171,7 @@ function agentEnv(): Record<string, string> {
 beforeAll(async () => {
   host = mkdtempSync(join(tmpdir(), "ingest-contract-"))
   handle = await provider.create({ id: `ingest-skills-${Date.now()}` })
+  asRoot = dockerRunAsRoot(handle.id)
 }, 120_000)
 
 afterAll(async () => {
@@ -176,7 +182,7 @@ afterAll(async () => {
 describe("ingest skill bundle in the Docker sandbox", () => {
   it("copies the bundle to /ctxpipe/skills once per bundle name", async () => {
     const bundle = await readIngestSkillBundle()
-    expect(await installIngestSkillBundle(handle, bundle)).toEqual({
+    expect(await installIngestSkillBundle(handle, bundle, asRoot)).toEqual({
       installed: true,
     })
     expect(
@@ -189,22 +195,78 @@ describe("ingest skill bundle in the Docker sandbox", () => {
     expect((await sh(`cat ${INGEST_SKILLS_ROOT}/.bundle`)).trim()).toBe(
       bundle.name,
     )
-    expect(await installIngestSkillBundle(handle, bundle)).toEqual({
+    expect(await installIngestSkillBundle(handle, bundle, asRoot)).toEqual({
       installed: false,
     })
     // A partial copy (no marker) is made again.
-    await sh(
+    await asRoot(
       `rm ${INGEST_SKILLS_ROOT}/.bundle ${INGEST_SKILLS_ROOT}/bin/ctxpipe-finish`,
     )
-    expect(await installIngestSkillBundle(handle, bundle)).toEqual({
+    expect(await installIngestSkillBundle(handle, bundle, asRoot)).toEqual({
       installed: true,
     })
     await sh(`test -x ${INGEST_SKILLS_ROOT}/bin/ctxpipe-finish`)
   }, 120_000)
 
+  it("keeps the skills and the context checkout read-only for the agent", async () => {
+    await installIngestSkillBundle(
+      handle,
+      await readIngestSkillBundle(),
+      asRoot,
+    )
+    await writeTree("/tmp/ro-clone", { "knowledge/services/a.md": OWNED("A") })
+    await commitAll("/tmp/ro-clone")
+    await sealIngestContext(handle, asRoot, {
+      from: "/tmp/ro-clone",
+      workspaceId: "ws_readonly",
+    })
+    const ctx = `${INGEST_CONTEXT_ROOT}/ws_readonly`
+    const refused = [
+      `echo x >> ${INGEST_SKILLS_ROOT}/discover-roots/SKILL.md`,
+      `rm -f ${INGEST_SKILLS_ROOT}/bin/ctxpipe-stage`,
+      `touch ${INGEST_SKILLS_ROOT}/discover-roots/extra.md`,
+      `chmod u+w ${INGEST_SKILLS_ROOT}/discover-roots/SKILL.md`,
+      `mv ${INGEST_SKILLS_ROOT} /tmp/moved-skills`,
+      `echo x >> ${ctx}/knowledge/services/a.md`,
+      `touch ${ctx}/knowledge/services/b.md`,
+      `rm -rf ${ctx}/.git`,
+      `touch ${INGEST_CONTEXT_ROOT}/ws_new`,
+      `touch /ctxpipe/evil`,
+    ]
+    for (const command of refused) {
+      const result = await handle.process.exec(command)
+      expect(result.exitCode, command).not.toBe(0)
+    }
+    expect(await handle.fs.read(`${ctx}/knowledge/services/a.md`)).toBe(
+      OWNED("A"),
+    )
+    // Only /ctxpipe/out is writable.
+    await sh(`mkdir -p ${INGEST_AGENT_CWD}/x && touch ${INGEST_AGENT_CWD}/x/ok`)
+    // The sandbox user can still read the checkout with git.
+    expect(await sh(`git -C ${ctx} ls-files`)).toContain(
+      "knowledge/services/a.md",
+    )
+  }, 120_000)
+
+  it("fails clearly on an untested OpenCode version", async () => {
+    const env = agentEnv()
+    await expect(assertIngestOpenCodeVersion(handle, env)).resolves.toBe(
+      "1.18.34",
+    )
+    await sh("mkdir -p /tmp/fake-bin")
+    await handle.fs.write("/tmp/fake-bin/opencode", "#!/bin/sh\necho 9.9.9\n")
+    await sh("chmod 755 /tmp/fake-bin/opencode")
+    await expect(
+      assertIngestOpenCodeVersion(handle, {
+        ...env,
+        PATH: `/tmp/fake-bin:${env.PATH}`,
+      }),
+    ).rejects.toThrow(/OpenCode 9\.9\.9 is not tested.*1\.18\.34/)
+  }, 120_000)
+
   it("keeps the agent's prompt, tools, and skills when a checkout is hostile", async () => {
     const bundle = await readIngestSkillBundle()
-    await installIngestSkillBundle(handle, bundle)
+    await installIngestSkillBundle(handle, bundle, asRoot)
     await writeTree(SOURCE_DIR, {
       ...HOSTILE,
       "package.json": '{"name":"fixture"}\n',
@@ -267,17 +329,25 @@ describe("ingest skill bundle in the Docker sandbox", () => {
   }, 600_000)
 
   it("stage helpers make patch.json that the host validator accepts", async () => {
-    await installIngestSkillBundle(handle, await readIngestSkillBundle())
+    await installIngestSkillBundle(
+      handle,
+      await readIngestSkillBundle(),
+      asRoot,
+    )
     const kept: Record<string, string> = {}
     for (let i = 0; i < 6; i++)
       kept[`knowledge/services/kept-${i}.md`] = OWNED(`Kept ${i}`)
-    await writeTree(CONTEXT_DIR, {
+    await writeTree("/tmp/context-clone", {
       ...kept,
       ...HOSTILE,
       "knowledge/services/billing.md": OWNED("Billing"),
       "knowledge/services/old.md": OWNED("Old"),
     })
-    await commitAll(CONTEXT_DIR)
+    await commitAll("/tmp/context-clone")
+    await sealIngestContext(handle, asRoot, {
+      from: "/tmp/context-clone",
+      workspaceId: WORKSPACE_ID,
+    })
     const stepDir = await startIngestStep(handle, {
       step: "skill:packages/api:apis:ws_contract",
       workspaceId: WORKSPACE_ID,
