@@ -6,8 +6,11 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && npm install --global opencode-ai@1.18.34 \
     && npm cache clean --force \
-    && mkdir -p /workspace /home/node/.config /home/node/.local/share /home/node/.local/state /home/node/.cache \
-    && chown -R 1000:1000 /workspace /home/node
+    && mkdir -p /workspace /ctxpipe /home/node/.config /home/node/.local/share /home/node/.local/state /home/node/.cache \
+    && chown -R 1000:1000 /workspace /ctxpipe /home/node
+
+# /ctxpipe holds the ingest skill bundle, the read-only checkouts, and the
+# staged step output of an ingest sandbox (ADR-052).
 
 # No credential helper and no token: the run's Agent Vault proxy adds the
 # GitHub credential to each request outside the sandbox.
