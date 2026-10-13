@@ -83,7 +83,9 @@ export function BuildkiteScopeEditor(props: SourceScopeEditorProps) {
           </div>
         ) : pipelinesQuery.isError ? (
           <InlineAlert variant="error">
-            {pipelinesQuery.error.message}
+            {pipelinesQuery.error instanceof Error
+              ? pipelinesQuery.error.message
+              : "Could not load Buildkite pipelines. Try again."}
           </InlineAlert>
         ) : listed.length === 0 ? (
           <p className="text-sm text-muted-foreground">
