@@ -381,6 +381,39 @@ describe("resolveReferenceClaims", () => {
     ])
   })
 
+  it("resolves a parent or blocking issue like a reference: stub for a known team, drop otherwise", async () => {
+    const engTeam: ExtractedObject = {
+      kind: "Team",
+      deduplicationKey: "team:linear:ENG",
+      name: "Eng",
+    }
+    const issueLink = (
+      predicate: string,
+      subjectRef: string,
+      objectRef: string,
+    ): ExtractedClaim => ({
+      ...referenceClaim(subjectRef, objectRef),
+      objectKind: "Issue",
+      predicate,
+    })
+    const { claims, summary, stubs } = await resolveReferenceClaims({
+      orgId: "org_1",
+      objects: [issue, engTeam],
+      claims: [
+        issueLink("PART_OF", issue.deduplicationKey, "iss:linear:ENG-100"),
+        issueLink("DEPENDS_ON", "iss:linear:OPS-9", issue.deduplicationKey),
+      ],
+    })
+    expect(claims.map((claim) => claim.predicate)).toEqual(["PART_OF"])
+    expect(summary).toEqual({
+      PART_OF: { kept: 1, dropped: 0, stubbed: 1 },
+      DEPENDS_ON: { kept: 0, dropped: 1, stubbed: 0 },
+    })
+    expect(stubs.map((stub) => stub.deduplicationKey)).toEqual([
+      "iss:linear:ENG-100",
+    ])
+  })
+
   it("does not stub a Linear issue whose team is unknown", async () => {
     const { claims, summary, stubs } = await resolveReferenceClaims({
       orgId: "org_1",

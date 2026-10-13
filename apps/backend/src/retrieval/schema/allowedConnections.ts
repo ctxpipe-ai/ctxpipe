@@ -90,6 +90,8 @@ export const EXTENSION_ALLOWED_CONNECTIONS: Array<{
     predicate: "PART_OF",
     objectKind,
   })),
+  // a Linear sub-issue under its parent issue
+  { subjectKind: "Issue", predicate: "PART_OF", objectKind: "Issue" },
   // a monorepo package nested in an outer package or the workspace root
   ...PACKAGE_KINDS.flatMap((subjectKind) =>
     PACKAGE_KINDS.map((objectKind) => ({
@@ -98,6 +100,8 @@ export const EXTENSION_ALLOWED_CONNECTIONS: Array<{
       objectKind,
     })),
   ),
+  // a Linear issue blocked by another issue
+  { subjectKind: "Issue", predicate: "DEPENDS_ON", objectKind: "Issue" },
   // change
   {
     subjectKind: "PullRequest",
@@ -112,6 +116,7 @@ export const EXTENSION_ALLOWED_CONNECTIONS: Array<{
   { subjectKind: "Issue", predicate: "REFERENCES", objectKind: "PullRequest" },
   { subjectKind: "PullRequest", predicate: "REFERENCES", objectKind: "Issue" },
   { subjectKind: "PullRequest", predicate: "RESOLVES", objectKind: "Issue" },
+  { subjectKind: "Issue", predicate: "REFERENCES", objectKind: "Issue" },
   { subjectKind: "Thread", predicate: "REFERENCES", objectKind: "PullRequest" },
   { subjectKind: "Thread", predicate: "REFERENCES", objectKind: "Issue" },
   { subjectKind: "Thread", predicate: "REFERENCES", objectKind: "Decision" },
@@ -119,6 +124,7 @@ export const EXTENSION_ALLOWED_CONNECTIONS: Array<{
   { subjectKind: "Thread", predicate: "MENTIONS", objectKind: "File" },
   { subjectKind: "Decision", predicate: "MENTIONS", objectKind: "File" },
   { subjectKind: "Decision", predicate: "SUPERSEDES", objectKind: "Decision" },
+  { subjectKind: "Issue", predicate: "SUPERSEDES", objectKind: "Issue" },
   // ownership
   { subjectKind: "Team", predicate: "OWNS", objectKind: "Issue" },
   ...PACKAGE_KINDS.map((objectKind) => ({
@@ -133,7 +139,8 @@ export const EXTENSION_ALLOWED_CONNECTIONS: Array<{
 /** One-line semantics per predicate, surfaced to the retrieval planner. */
 export const PREDICATE_DESCRIPTIONS: Record<string, string> = {
   IMPLEMENTED_IN: "a Service, App or Library lives in this Repository",
-  DEPENDS_ON: "runtime dependency on a Service, Database or Library",
+  DEPENDS_ON:
+    "runtime dependency on a Service, Database or Library; an Issue depends on the Issue that blocks it",
   EXPOSES_API: "a Service serves this API",
   CONSUMES_API: "a Service or API calls this API or Operation",
   HAS_OPERATION: "an API has this Operation (method + path)",
@@ -150,7 +157,7 @@ export const PREDICATE_DESCRIPTIONS: Record<string, string> = {
   DECLARED_IN:
     "provenance: the InstructionUnit or Decision is stated in this File",
   PART_OF:
-    "containment: the File is inside this Repository, Service, App or Library; a monorepo Service, App or Library is nested in this outer one or the workspace root",
+    "containment: the File is inside this Repository, Service, App or Library; a monorepo Service, App or Library is nested in this outer one or the workspace root; an Issue is a sub-issue of this parent Issue",
   TARGETS: "the PullRequest's base Repository",
   ADDED:
     "change event: the PullRequest added this File (valid_from = merge date)",
@@ -161,13 +168,14 @@ export const PREDICATE_DESCRIPTIONS: Record<string, string> = {
   RENAMED:
     "change event: the PullRequest renamed a file to this File (valid_from = merge date)",
   REFERENCES:
-    "explicit cross-tool link by URL or identifier: Issue and PullRequest reference each other; a Thread references a PullRequest, Issue or Decision",
+    "explicit cross-tool link by URL or identifier: Issue and PullRequest reference each other; an Issue references a related Issue; a Thread references a PullRequest, Issue or Decision",
   RESOLVES:
     "a merged PullRequest closes this Issue: the head branch names it, or a closing keyword (fixes, closes, resolves, completes) comes directly before it (valid_from = merge date)",
   MENTIONS: "lexical mention of a File in an Issue, Thread or Decision",
   OWNS: "ownership: a Team owns a Service, App or Library (CODEOWNERS) or an Issue (tracker team)",
   INFLUENCES: "a Decision (ADR) shapes this Service",
-  SUPERSEDES: "a Decision replaces an earlier Decision",
+  SUPERSEDES:
+    "a Decision replaces an earlier Decision; an Issue replaces the Issue that duplicates it",
 }
 
 export type AllowedConnections = {

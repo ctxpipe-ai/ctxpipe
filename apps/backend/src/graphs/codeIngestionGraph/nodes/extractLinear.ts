@@ -54,6 +54,11 @@ export type ParsedLinearIssue = {
   team: string | null
   teamKey: string | null
   project: string | null
+  milestone: string | null
+  /** Parent issue identifier. */
+  parent: string | null
+  /** Relations this issue owns: Linear `type` and the related issue identifier. */
+  relations: Array<{ type: string; identifier: string }>
   labels: string[]
   createdAt: string | null
   updatedAt: string | null
@@ -91,6 +96,16 @@ export function parseLinearIssueMarkdown(
           : []
       })
     : []
+  const rawParent = asString(data.parent)
+  const relations = Array.isArray(data.relations)
+    ? data.relations.flatMap((entry) => {
+        const row = asRecord(entry)
+        const type = row ? asString(row.type) : null
+        const raw = row ? asString(row.identifier) : null
+        const related = raw ? normalizeLinearIdentifier(raw) : null
+        return type && related ? [{ type, identifier: related }] : []
+      })
+    : []
   return {
     id: asString(data.id),
     identifier,
@@ -101,6 +116,9 @@ export function parseLinearIssueMarkdown(
     team: asString(data.team),
     teamKey,
     project: asString(data.project),
+    milestone: asString(data.milestone),
+    parent: rawParent ? normalizeLinearIdentifier(rawParent) : null,
+    relations,
     labels: asStringArray(data.labels),
     createdAt: asString(data.createdAt),
     updatedAt: asString(data.updatedAt),
@@ -158,6 +176,29 @@ function teamObject(input: {
   }
 }
 
+/**
+ * A Linear relation that issue `self` owns, as `[subject, predicate, object]`:
+ * `blocks` makes the other issue depend on `self`, `duplicate` makes the other
+ * issue supersede `self`, and `related` / `similar` are references.
+ */
+function relationTriple(
+  type: string,
+  self: string,
+  other: string,
+): [string, "DEPENDS_ON" | "SUPERSEDES" | "REFERENCES", string] | null {
+  switch (type) {
+    case "blocks":
+      return [other, "DEPENDS_ON", self]
+    case "duplicate":
+      return [other, "SUPERSEDES", self]
+    case "related":
+    case "similar":
+      return [self, "REFERENCES", other]
+    default:
+      return null
+  }
+}
+
 function filePaths(globbed: {
   entries: Array<{ type: string; path: string }>
 }) {
@@ -168,8 +209,9 @@ function filePaths(globbed: {
 
 /**
  * Connector extractor for `linear/` (ADR-033): `Issue` and `Team` nodes,
- * `Team OWNS Issue`, and `Issue REFERENCES PullRequest` from the GitHub
- * attachment URLs Linear already records. Deterministic; no LLM.
+ * `Team OWNS Issue`, `Issue REFERENCES PullRequest` from the GitHub
+ * attachment URLs Linear already records, `Issue PART_OF Issue` for the
+ * parent, and an Issue-to-Issue claim per issue relation. Deterministic; no LLM.
  */
 export async function extractLinear(
   state: CodeIngestionState,
@@ -255,6 +297,7 @@ export async function extractLinear(
         team: parsed.team,
         team_key: parsed.teamKey,
         project: parsed.project,
+        milestone: parsed.milestone,
         labels: parsed.labels,
         created_at: parsed.createdAt,
         updated_at: parsed.updatedAt,
@@ -284,6 +327,43 @@ export async function extractLinear(
         extractionMethod: "deterministic",
         confidence: 0.95,
         provenance: { path },
+      })
+    }
+
+    if (parsed.parent) {
+      claims.push({
+        subjectRef: issueKey,
+        subjectKind: "Issue",
+        objectRef: issueDedupKey(parsed.parent),
+        objectKind: "Issue",
+        predicate: "PART_OF",
+        sourceId: sourceId(path, "PART_OF", parsed.parent),
+        sourceType: "git",
+        extractionMethod: "deterministic",
+        confidence: 0.95,
+        provenance: { path },
+      })
+    }
+
+    for (const relation of parsed.relations) {
+      const triple = relationTriple(
+        relation.type,
+        parsed.identifier,
+        relation.identifier,
+      )
+      if (!triple) continue
+      const [subject, predicate, object] = triple
+      claims.push({
+        subjectRef: issueDedupKey(subject),
+        subjectKind: "Issue",
+        objectRef: issueDedupKey(object),
+        objectKind: "Issue",
+        predicate,
+        sourceId: sourceId(path, predicate, relation.identifier),
+        sourceType: "git",
+        extractionMethod: "deterministic",
+        confidence: 0.95,
+        provenance: { path, relation: relation.type },
       })
     }
 

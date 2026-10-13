@@ -182,7 +182,7 @@ describe("projectClaimsFromState", () => {
     expect(executeQueryMock.mock.calls[1]?.[0]).not.toContain("UNWIND")
   })
 
-  it("projects whether a pull request merged onto its node", async () => {
+  it("projects the merge state of a pull request and the milestone of an issue onto their nodes", async () => {
     const where = vi.fn().mockResolvedValue([
       {
         id: "pr_1",
@@ -194,7 +194,11 @@ describe("projectClaimsFromState", () => {
           merged_at: null,
         },
       },
-      { id: "repo_1", kind: "Repository", payload: { name: "widgets" } },
+      {
+        id: "iss_1",
+        kind: "Issue",
+        payload: { name: "ACME-12: Retry", milestone: "Beta" },
+      },
     ])
     getOrgDbMock.mockReturnValue({
       select: vi.fn().mockReturnValue({
@@ -207,9 +211,9 @@ describe("projectClaimsFromState", () => {
           id: "c1",
           subjectId: "pr_1",
           subjectKind: "PullRequest",
-          objectId: "repo_1",
-          objectKind: "Repository",
-          predicate: "TARGETS",
+          objectId: "iss_1",
+          objectKind: "Issue",
+          predicate: "RESOLVES",
         }),
       ]),
     )
@@ -219,6 +223,7 @@ describe("projectClaimsFromState", () => {
     expect(rows[0]).toMatchObject({
       subject_state: "closed",
       subject_merged: false,
+      object_milestone: "Beta",
     })
   })
 

@@ -82,4 +82,17 @@ describe("ontology consistency (ADR-033)", () => {
     expect(isAllowedConnection("PullRequest", "RESOLVES", "Issue")).toBe(true)
     expect(isAllowedConnection("Issue", "RESOLVES", "PullRequest")).toBe(false)
   })
+
+  it("an issue can sit under a parent issue, depend on, supersede, or reference another issue", () => {
+    for (const predicate of [
+      "PART_OF",
+      "DEPENDS_ON",
+      "SUPERSEDES",
+      "REFERENCES",
+    ]) {
+      expect(isAllowedConnection("Issue", predicate, "Issue"), predicate).toBe(
+        true,
+      )
+    }
+  })
 })

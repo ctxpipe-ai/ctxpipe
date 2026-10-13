@@ -43,6 +43,17 @@ export const CROSS_REFERENCE_PREDICATES = new Set<string>([
   "INFLUENCES",
 ])
 
+/**
+ * A reference-family claim, or a link between two Issues (parent, blocks):
+ * either end can be an issue that is not mirrored.
+ */
+function resolvesLikeReference(claim: ExtractedClaim): boolean {
+  return (
+    CROSS_REFERENCE_PREDICATES.has(claim.predicate) ||
+    (claim.subjectKind === "Issue" && claim.objectKind === "Issue")
+  )
+}
+
 const LINEAR_TEAM_KEY_PREFIX = "team:linear:"
 const DEDUP_LOOKUP_CHUNK = 500
 
@@ -455,8 +466,9 @@ function stubForReference(
 }
 
 /**
- * Drop reference-family claims whose subject or object is neither an object of
- * this run nor an existing graph object (looked up by deduplication key).
+ * Drop reference-family claims and Issue-to-Issue claims whose subject or
+ * object is neither an object of this run nor an existing graph object (looked
+ * up by deduplication key), unless a stub can stand in for that end.
  * Run once after all roots are concatenated; sibling roots' objects are not in
  * the database yet on a first ingest.
  */
@@ -471,9 +483,7 @@ export async function resolveReferenceClaims(input: {
   stubs: ExtractedObject[]
 }> {
   const known = new Set(input.objects.map((object) => object.deduplicationKey))
-  const candidates = input.claims.filter((claim) =>
-    CROSS_REFERENCE_PREDICATES.has(claim.predicate),
-  )
+  const candidates = input.claims.filter(resolvesLikeReference)
   const summary: ReferenceResolutionSummary = {}
   const stubs: ExtractedObject[] = []
   if (candidates.length === 0) return { claims: input.claims, summary, stubs }
@@ -534,7 +544,7 @@ export async function resolveReferenceClaims(input: {
   }
   const kept: ExtractedClaim[] = []
   for (const claim of input.claims) {
-    if (!CROSS_REFERENCE_PREDICATES.has(claim.predicate)) {
+    if (!resolvesLikeReference(claim)) {
       kept.push(claim)
       continue
     }
