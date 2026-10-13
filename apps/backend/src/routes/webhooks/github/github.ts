@@ -5,7 +5,7 @@ import type { AppEnv } from "../../../app/env.js"
 import type { Env } from "../../../config/env.js"
 import { withOrgDbContext } from "../../../db/client.js"
 import { parseGithubConnectionStored } from "../../../lib/connection-config.js"
-import { githubRowHasAppCredentials } from "../../../models/connection-rows.js"
+import { githubRowHasOwnApp } from "../../../models/connection-rows.js"
 import {
   getGithubConnectionRowByConnectionId,
   getWebhookSecretForGithubConnection,
@@ -106,7 +106,7 @@ async function registerInstallationFromConnectionWebhook(
   // webhook secret is whatever its creator saved, so a signed event proves
   // nothing either: the connection's own App must own the installation.
   if (
-    !githubRowHasAppCredentials(row, ctx.env) ||
+    !githubRowHasOwnApp(row, ctx.env) ||
     !(await githubAppOwnsInstallation(row, installationId, ctx.env))
   ) {
     ctx.log.info("github_installation_webhook_installation_not_owned", {
@@ -135,6 +135,7 @@ async function enqueueIngestionForInstallationRepos(
   const installationRows = await listInstallationsByGithubInstallationId(
     installationId,
     opts?.githubConnectionId,
+    ctx.env,
   )
   if (installationRows.length === 0) {
     return
@@ -255,7 +256,7 @@ async function processPushEvent(
 
 async function processRepositoryEvent(
   payload: unknown,
-  { log }: GithubWebhookContext,
+  { log, env }: GithubWebhookContext,
   githubConnectionId?: string,
 ) {
   const parsed = repositoryCreatedSchema.safeParse(payload)
@@ -267,6 +268,7 @@ async function processRepositoryEvent(
   const installationRows = await listInstallationsByGithubInstallationId(
     installation.id,
     githubConnectionId,
+    env,
   )
 
   noteResolvedWebhookConnections(installationRows)
