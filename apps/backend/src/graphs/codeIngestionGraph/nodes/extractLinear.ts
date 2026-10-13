@@ -297,7 +297,8 @@ export async function extractLinear(
         team: parsed.team,
         team_key: parsed.teamKey,
         project: parsed.project,
-        milestone: parsed.milestone,
+        // The projection skips a null key, so an empty value clears a removed milestone.
+        milestone: parsed.milestone ?? "",
         labels: parsed.labels,
         created_at: parsed.createdAt,
         updated_at: parsed.updatedAt,

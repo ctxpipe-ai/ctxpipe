@@ -292,6 +292,13 @@ describe("extractLinear", () => {
     )
   })
 
+  it("gives an issue without a milestone an empty milestone, so the projection clears an old one", async () => {
+    const { extractedObjects = [] } = await extractLinear(state())
+    expect(
+      extractedObjects.find((object) => object.kind === "Issue")?.payload,
+    ).toMatchObject({ milestone: "" })
+  })
+
   it("links the parent issue and related issues and keeps the milestone on the Issue", async () => {
     const original = fixtures[ISSUE_PATH] ?? ""
     fixtures[ISSUE_PATH] = original.replace(
