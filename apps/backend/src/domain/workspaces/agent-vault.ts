@@ -291,7 +291,7 @@ export async function openRunVault(input: {
     if (input.unmatchedHosts)
       await setUnmatchedHostPolicy(access, name, input.unmatchedHosts)
     await addRules(input.rules)
-    const session = await asOwner(access, (client) =>
+    const session = await asOwner(access, async (client) =>
       client.vault(name).sessions?.create({ ttlSeconds: input.ttlSeconds }),
     )
     if (!session?.containerConfig)
