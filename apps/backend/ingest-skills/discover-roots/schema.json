@@ -3,17 +3,31 @@
   "title": "discover-roots result",
   "type": "object",
   "additionalProperties": false,
-  "required": ["roots"],
+  "required": ["roots", "ambiguous"],
   "properties": {
     "roots": {
       "type": "array",
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["path", "manifests"],
+        "required": ["path", "manifests", "evidence"],
         "properties": {
           "path": { "type": "string" },
-          "manifests": { "type": "array", "items": { "type": "string" } }
+          "manifests": { "type": "array", "items": { "type": "string" } },
+          "evidence": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "ambiguous": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["manifest", "reason", "candidates"],
+        "properties": {
+          "manifest": { "type": ["string", "null"] },
+          "reason": { "type": "string" },
+          "candidates": { "type": "array", "items": { "type": "string" } }
         }
       }
     }
