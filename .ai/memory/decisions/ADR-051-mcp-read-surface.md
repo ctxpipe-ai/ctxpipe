@@ -10,7 +10,7 @@ The CTO requirements (CTX-586) are: read and write scopes; a read slice first; s
 
 Facts that the design uses:
 
-- The OAuth grant stores one org in `referenceId` (`auth/config.ts`, `auth/oauth-organization.ts`). The JWT carries `https://ctxpipe.ai/organization_id`. Better Auth stores only one `referenceId` for each consent and token ([ADR-026](ADR-026-claude-plugin-mcp-distribution.md) §3).
+- The OAuth grant stores one org in `referenceId` (`auth/config.ts`, `auth/oauth-organization.ts`). The JWT carries `https://ctxpipe.ai/organization_id`. Better Auth stores only one `referenceId` for each consent and token ([ADR-026](ADR-026-claude-plugin-mcp-distribution.md) Decision item 3).
 - A Workspace graph is immutable for each revision ([ADR-046](ADR-046-workspace-revision-projection-identity.md)). FalkorDB has an index on `(projectionKey, id)`. Today the chat graph tools read all nodes and all edges of the revision for each call.
 - `claim-confidence.ts` decays a signal at read time (validity window and a half-life for each source).
 - Knowledge search runs in memory over all units, with `jsonb` embeddings.
@@ -34,10 +34,14 @@ The client agent is the reasoner. ctxpipe returns facts with stable refs. It run
 | `get_related` | Units near one or more seeds in the graph **and** relevant to a query: ranked, explained, bounded (section 6). |
 
 - The release that adds these tools removes `ctx_advisor`: its tool code, `mcp/advisorThread.ts`, its tests, its Langfuse session, its progress notifications, and the plugin skill `ctx-advisor`. No release has both, and no release has neither. Workspace chat in the product stays.
-- The plugin goes to 0.2.0 with a `ctxpipe-context` skill and the bare `/mcp` URL.
+- The plugin goes to 0.2.0. A `ctxpipe-context` skill replaces the `ctx-advisor` skill. The plugin URL stays `https://app.ctxpipe.ai/mcp`, with no `?orgSlug=` ([ADR-026](ADR-026-claude-plugin-mcp-distribution.md) Decision item 2).
 - MCP tools and Workspace chat tools call the same domain functions.
 - A later slice adds write tools (`propose_knowledge_change`, `record_learning`, `flag_knowledge`, `get_job`) under `ctxpipe:write`.
-- The removal of `ctx_advisor` deletes no LangChain code. A separate cleanup removes LangGraph first (ticket L1), then moves the host model calls to the TanStack AI setup of chat (L2). [ADR-052](ADR-052-ingestion-sandbox-skills-patches.md) deletes the ingestion agents (L3). The last step removes the LangChain packages and bans their imports (L4).
+- The removal of `ctx_advisor` deletes no LangChain code. A separate cleanup has four steps, in this order:
+  - L1 removes LangGraph.
+  - L2 moves the host model calls to the TanStack AI setup of chat.
+  - L3 deletes the ingestion agents ([ADR-052](ADR-052-ingestion-sandbox-skills-patches.md) phase 5).
+  - L4 removes the LangChain packages and bans their imports.
 
 ### 2. Scopes: one endpoint, `ctxpipe:read` and `ctxpipe:write`
 
@@ -50,22 +54,23 @@ The client agent is the reasoner. ctxpipe returns facts with stable refs. It run
 
 ### 3. Several orgs: an org set per grant, one org per call
 
-- **One tool call = one org.** The required `org` slug argument names it. A session can call several orgs, but no call mixes orgs. So RLS ([ADR-042](ADR-042-postgres-rls-app-role.md)) stays one org per request.
+- **One tool call = one org.** The `org` slug argument names it. `org` is necessary on every tool except `list_workspaces`. On `list_workspaces` it is optional; without it, the tool lists each org of the grant set. A session can call several orgs, but no call mixes orgs. So RLS ([ADR-042](ADR-042-postgres-rls-app-role.md)) stays one org per request.
 - **Consent** lists the orgs of the user with check boxes. The org of the current session is ticked. At least one org is necessary.
-- **Storage:** the table `oauth_grant_organizations (grant_id, organization_id, created_at)`. The grant `referenceId` becomes a grant id that points to the set. The JWT carries `https://ctxpipe.ai/grant_id`. The set is not in the JWT, so a change applies on the next call.
+- **Storage:** the table `oauth_grant_organizations (grant_id, api_key_id, organization_id, created_at)`. A grant row sets `grant_id`; a personal API key row sets `api_key_id` (see API keys below). The grant `referenceId` becomes a grant id that points to the set. The JWT carries `https://ctxpipe.ai/grant_id`. The set is not in the JWT, so a change applies on the next call.
 - **Each call:** resolve the `org` slug to an org id. Allow the call only when the org is in the grant set **and** the membership of the user is active (one indexed query). Then set the RLS org context for that request.
 - **Change without a reconnect:** the "Connected apps" page in settings lists each grant (client name, scopes, orgs) with check boxes and "Revoke". A new membership never joins a grant until the user ticks it.
 - **Errors:** an org outside the set, an org without membership, and an unknown org give the same `org_not_found` text. When the user is a member but the org is not ticked, the text also tells the user to allow it in Connected apps. This leaks nothing, because the user is a member.
 - **Legacy grants** (`referenceId` = an org id) read as a one-org set. They need no data migration.
-- **API keys:** an org key stays one org, and the `org` argument must match it. A personal key gets an org set when it is made (the same table, keyed by key id). The `?orgSlug=` URL parameter is only a default for old clients.
+- **API keys:** an org key stays one org, and the `org` argument must match it. A personal key gets an org set when it is made. The set is in the same table, in a nullable `api_key_id` column beside a nullable `grant_id` column. In each row, exactly one of `grant_id` and `api_key_id` is set (a check constraint). An existing personal key with no rows acts as the set of all current memberships of its user. This is the same power that it has today. The live membership check still applies on each call.
+- **`?orgSlug=`:** the `/mcp` URL parameter no longer selects the org. The server accepts it and ignores it, so old client configurations do not fail. A later release removes it.
 - Rejected: a grant without orgs that uses only live membership (a new membership joins old tokens with no consent; [ADR-026](ADR-026-claude-plugin-mcp-distribution.md) rejects this); one grant for each org (duplicate tools and a reconnect for each org); the org set in the JWT (a removal stays valid until the token expires).
 
-This section amends [ADR-026](ADR-026-claude-plugin-mcp-distribution.md) §3 and §4.
+This section amends [ADR-026](ADR-026-claude-plugin-mcp-distribution.md) Decision items 3 and 4, and [ADR-030](ADR-030-organization-owned-mcp-api-keys.md) for personal keys.
 
 ### 4. Identifiers and refs
 
 - **No internal ids** in arguments or results.
-- **Org and Workspace:** two slug arguments, `org` and `workspace` (or `workspaces`). Not one `org/workspace` handle, because a list of handles can mix orgs. `org` is necessary on every tool. `search_knowledge` takes `workspaces` (default: all Workspaces of the org, at most 8). The other tools take one `workspace`.
+- **Org and Workspace:** two slug arguments, `org` and `workspace` (or `workspaces`). Not one `org/workspace` handle, because a list of handles can mix orgs. `org` is necessary on every tool except `list_workspaces` (section 3). `search_knowledge` takes `workspaces` (default: all Workspaces of the org, at most 8). The other tools take one `workspace`.
 - **Repository handle:** the path of the normalized git URL, `owner/name` (for example `example/payments-api`). When two repositories of one org have the same `owner/name` on different hosts, both handles become `host/owner/name`. Each argument that names a repository also accepts a git URL (SSH or HTTPS, with or without `.git`). The server normalizes both forms with `normalizeWorkspaceRepositoryUrl`. Results show only the handle.
 - **Ref:** short and relative to the `org` and `workspace` of the call. A knowledge unit ref is its path in the Workspace repository (`knowledge/services/payments-api.md`). A repository file ref is `<handle>:<path>` (`example/payments-api:src/limits.ts`). The server reads a ref as a repository file only when the part before the first `:` is a linked repository handle of the Workspace. A later resource template maps refs to `ctxpipe://{org}/{workspace}/{+ref}`.
 - `search_code` and `find_symbol` resolve repositories at org level. They search a repository that several Workspaces link only once. A file ref from them is valid in `read_file` with each Workspace of the org that links that repository.
@@ -73,10 +78,10 @@ This section amends [ADR-026](ADR-026-claude-plugin-mcp-distribution.md) §3 and
 ### 5. Discovery, responses, and the current repository
 
 - **Server instructions** are dynamic for each principal: the rules first (the first 512 characters stand alone), then each org of the set with its Workspace slugs, under 2,048 characters in total. The rules say: ctxpipe serves the default branch; do not use it for the working repository; send independent calls in parallel; search knowledge before a design choice; name one org for each call; cite refs.
-- `list_workspaces` has `_meta["anthropic/alwaysLoad"]: true`. List mode is about 20 tokens for each Workspace (slug, title, repository count, readiness), 100 for each page. Detail mode is for one named Workspace (at most about 600 tokens).
+- `list_workspaces` has `_meta["anthropic/alwaysLoad"]: true`. List mode is about 20 tokens for each Workspace (slug, title, repository count, readiness), with 100 Workspaces per page. Detail mode is for one named Workspace (at most about 600 tokens).
 - Resources come later, only for `@`-mention. They do not reach the model on their own.
 - **Parallel calls:** the instructions and the tool descriptions tell the client to send independent calls in parallel.
-- **Responses:** `structuredContent` and compact TOON text. Each response states the served branch and SHA (`served { branch, sha }`). The target is under 4,000 tokens and the hard cap is 24,000 characters. Cursors are opaque and bound to the projection SHA (`stale_cursor` after a change). Errors have `isError: true` and `{ code, message, retryable }`. An unknown Workspace and a Workspace outside the grant give the same error.
+- **Responses:** `structuredContent` and compact TOON text. Each response states the served branch and SHA (`served { branch, sha }`). Each tool has a token budget: `search_code` 5,000; `read_file` 6,000; `get_related` 3,000 by default and 8,000 at most (`maxTokens`); each other tool 4,000. The hard cap for each response is 24,000 characters. Cursors are opaque and bound to the projection SHA (`stale_cursor` after a change). Errors have `isError: true` and `{ code, message, retryable }`. An unknown Workspace and a Workspace outside the grant give the same error.
 - **Not the current repository:** `excludeRepositories` (handles or git URLs) is necessary on `search_code` and `find_symbol` (`[]` is allowed) and optional on the other tools. `read_file` refuses an excluded repository with `excluded_repository`. Results list what the call excluded.
 - **Stateless:** one `McpServer` for each request. The design fits spec 2025-11-25 and the stateless 2026-07-28 revision.
 
@@ -109,7 +114,7 @@ PR #350 ("Weight graph traversal, link decisions to services, and index graph wr
 6. The decision-to-service scoping and the supersession parsing, as a specification for the `decisions` skill of [ADR-052](ADR-052-ingestion-sandbox-skills-patches.md) (not as code).
 7. The `PullRequest CHANGED package` claim, as an idea for the GitHub pull-request mirror.
 
-We do not port the weighted walk, the advisor planner, its eval, or the old retraction code. The ADR-035, ADR-036, and ADR-040 files of PR #350 are not merged; this ADR takes the parts above from them. (Numbers 035 and 036 are unused in this repository, and this repository's ADR-040 is a different decision.)
+We do not port the weighted walk, the advisor planner, its eval, or the old retraction code. PR #350 has its own ADR-035, ADR-036, and ADR-040 files. They are not merged; this ADR takes the parts above from them. (Numbers 035 and 036 are unused in this repository, and this repository's ADR-040 is a different decision.)
 
 ### 8. Data layer
 

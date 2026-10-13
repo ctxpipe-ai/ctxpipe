@@ -1,6 +1,6 @@
 # ADR-030: Organization-owned MCP API keys
 
-**Status:** Accepted (amended 2026-09-27: OpenCode HOME hashing) | **Date:** 2026-09-14 | **Tags:** mcp, auth, api-keys, better-auth, organizations
+**Status:** Accepted (amended 2026-09-27: OpenCode HOME hashing; amended 2026-10-13 by [ADR-051](ADR-051-mcp-read-surface.md): `org` argument, personal-key org sets, `ctx_advisor` removed) | **Date:** 2026-09-14 | **Tags:** mcp, auth, api-keys, better-auth, organizations
 
 ## Context
 
@@ -26,6 +26,13 @@ narrow compatibility path without turning API keys into general REST bearer
 credentials or allowing an API key to shadow a valid OAuth access token.
 
 ## Decision
+
+**Amendment (2026-10-13, [ADR-051](ADR-051-mcp-read-surface.md) section 3):**
+
+- An org key stays one org. Each MCP call names its org with the `org` tool argument, and the argument must match the key's org.
+- A personal key no longer needs `?orgSlug=`. The server accepts that parameter and ignores it. A later release removes it.
+- A personal key gets an org set when it is made (`oauth_grant_organizations`, `api_key_id` column). An existing personal key with no set acts as the set of all current memberships of its user.
+- `ctx_advisor` is removed, so the advisor items below (item 5 and its amendment) apply only until that release. The MCP read tools run no chat thread.
 
 1. **True org-owned keys.** Better Auth `apiKey()` registers two configs:
    - `configId: "default"`, `references: "user"`, `enableSessionForAPIKeys: true`
