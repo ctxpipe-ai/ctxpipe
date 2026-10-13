@@ -76,6 +76,7 @@ Concept: [concept.md](concept.md). Milestone: Workspaces (PR 280). Paths are und
 - **Files:** `openworkflow/workflows/repository-ingestion-v2.ts`, `ingestion-shard.ts`, the trigger in `repository-ingestion-orchestrator.ts` (shadow switch in committed config).
 - **Tests:** integration plus Docker contract plus msw for the model: a run on a small fixture repository with two destination Workspaces writes refs in both and publishes nothing; a killed worker after a step's push resumes, and msw counts no second model call for that step; step outputs stay under 16 KB.
 - **Depends on:** T02 to T08.
+- **Acceptance (from the T03 review):** a Docker ingest sandbox starts only where its traffic is forced through Agent Vault (the DinD or AWS sandbox host, or an internal Docker network). `dockerIngestSandboxProvider` checks this at create and refuses an open host, such as host dev. If T09 runs `opencode serve` in the sandbox, it needs `publishPorts` (T03 exposes the option) and the chat wrappers (`withDockerAgentPort`, `withSingleOpencodeServer`, `withOwnerWatchdog`) around the ingest provider.
 
 ### T10 Skills: `discover-roots`, `libraries`, `ownership` (M) — group C
 
@@ -94,6 +95,7 @@ Concept: [concept.md](concept.md). Milestone: Workspaces (PR 280). Paths are und
 
 - **Goal:** run three public repositories (small, medium, monorepo) on Docker and on Vercel in shadow mode, on a test organization.
 - **Tests:** the Vercel contract lane, a local Docker run, and a worker-kill test. Record time, cost, and reject counts in the scratchpad.
+- **Must prove (from the T03 review):** a live Vercel check of `ingestNetworkPolicy`: from an ingest sandbox, `git push` to github.com (also with a token in the URL), an unlisted path on the backend host, and another host are refused, and Git fetch, the model proxy, and the tool bridge work. Until this passes, `vercelIngestSandboxProvider` refuses to start (`VERCEL_INGEST_EGRESS_PROVEN` in `ingest-sandbox-egress.ts`).
 - **Depends on:** T09 to T11.
 
 ## Phase 3: port and compare
