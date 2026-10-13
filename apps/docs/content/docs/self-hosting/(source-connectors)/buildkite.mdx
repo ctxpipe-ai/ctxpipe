@@ -34,8 +34,8 @@ token:
 The setup and the connector card show the full URL. ctxpipe verifies the
 `X-Buildkite-Signature` HMAC-SHA256 of the timestamp and the raw request body,
 and refuses a signature older than five minutes. A webhook that sends the plain
-`X-Buildkite-Token` is refused. A failed enqueue returns `503`, so Buildkite
-delivers the event again.
+`X-Buildkite-Token` is refused. A failed enqueue returns `503`. The next event
+in the window or the daily sync then gets the build.
 
 All traffic stays on your deployment. Buildkite sends the webhook to your
 `AUTH_BASE_URL`, and your backend and worker call `api.buildkite.com`.
@@ -43,8 +43,8 @@ All traffic stays on your deployment. Buildkite sends the webhook to your
 ## Verify the connector
 
 1. Open **Connectors → Add connection → Buildkite**.
-2. Paste an API access token with `read_organizations`, `read_pipelines`, and
-   `read_builds`, and the organization slug.
+2. Paste an API access token with `read_pipelines` and `read_builds`, and the
+   organization slug.
 3. Add the webhook in Buildkite with the signature option and the
    `build.finished` event, then save its token in the setup.
 4. In **Add Buildkite to Workspaces**, select a Workspace and at least one

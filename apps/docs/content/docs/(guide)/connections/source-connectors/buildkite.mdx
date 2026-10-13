@@ -14,11 +14,14 @@ ctx| only reads from Buildkite. It does not start, retry, or cancel builds.
 
 You select pipelines for each Workspace. For each pipeline, ctx| writes:
 
-- `pipeline.md`: the name, description, repository, default branch, and a
-  table of the latest builds.
+- `pipeline.md`: the name, repository, default branch, and link.
 - One file for each of the latest 25 finished builds: the state, branch,
-  commit, pull request, author, times, message, and the result of each command
-  and trigger step, with a link to its log.
+  commit, pull request, the person who created the build, and the jobs that
+  failed, with a link to each. A soft-failed job does not fail the build, so
+  it is not listed.
+
+A finished build is passed, failed, canceled, or blocked. A blocked build
+waits at a block step; its file changes when someone unblocks it.
 
 ctx| does not read build logs, environment variables, meta-data, or the
 commands of steps. These can contain secrets.
@@ -43,7 +46,7 @@ commit and pull request. The Workspace graph then joins the build to them.
     In Buildkite, open
     [API Access Tokens](https://buildkite.com/user/api-access-tokens/new).
     Select only your organization, and only these REST scopes:
-    `read_organizations`, `read_pipelines`, and `read_builds`.
+    `read_pipelines` and `read_builds`.
   </Step>
 
   <Step>
@@ -105,7 +108,7 @@ no longer among the latest 25, ctx| deletes its file in the same commit.
 
 ### Buildkite refuses the token
 
-The setup shows the reason. Make sure that the token has the three read
+The setup shows the reason. Make sure that the token has the two read
 scopes, and that the organization of the token is the organization slug that
 you typed.
 

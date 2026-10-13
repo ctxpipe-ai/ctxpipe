@@ -44,7 +44,7 @@ async function handleBuildkiteWebhook(c: Context<AppEnv>) {
 
   // ADR-050: one sources sync of the connection at the end of the window. A
   // later event in the same window has the same key and queues nothing. A
-  // failed enqueue returns 5xx, so Buildkite delivers the event again.
+  // failed enqueue returns 5xx; a later event or the daily sync gets the build.
   const windowStart = Math.floor(Date.now() / SYNC_WINDOW_MS) * SYNC_WINDOW_MS
   try {
     await enqueueConnectionSourcesSync({
