@@ -24,9 +24,9 @@ function initialChannels(scope: Record<string, unknown>): string[] {
 }
 
 /**
- * The rows of the picker: the listed channels, plus each selected channel
- * that Slack no longer lists (archived, or the bot left), so the user can
- * remove it.
+ * The rows of the picker: each selected channel that Slack no longer lists
+ * (archived, or the bot left), so the user can remove it, then the channels
+ * that the bot is in, then the others.
  */
 function channelRows(
   listed: readonly SlackChannel[],
@@ -36,7 +36,11 @@ function channelRows(
   const missing = selected
     .filter((id) => !known.has(id))
     .map((id) => ({ id, name: id, isPrivate: false, isMember: false }))
-  return [...missing, ...listed]
+  return [
+    ...missing,
+    ...listed.filter((channel) => channel.isMember),
+    ...listed.filter((channel) => !channel.isMember),
+  ]
 }
 
 /** Pick the Slack channels whose captured threads go to one Workspace. */
@@ -72,6 +76,7 @@ export function SlackScopeEditor(props: SourceScopeEditorProps) {
 
   const { items: channels, truncated } = channelsQuery.data
   const listedIds = new Set(channels.map((channel) => channel.id))
+  const someWithoutBot = channels.some((channel) => !channel.isMember)
   const query = search.trim().replace(/^#/, "").toLowerCase()
   const rows = channelRows(channels, selected).filter(
     (channel) => !query || channel.name.toLowerCase().includes(query),
@@ -81,11 +86,26 @@ export function SlackScopeEditor(props: SourceScopeEditorProps) {
       <div>
         <p className="text-sm font-medium text-foreground">{pickerLabel}</p>
         <p className="mt-1 text-sm text-muted-foreground">
-          When someone @mentions the ctx| bot in a thread of these channels, the
-          thread is saved to this Workspace. Private channels show only when the
-          bot is in them.
+          Mention the ctx| bot in a thread of a selected channel to save that
+          thread. You can select only a channel that the bot is in. Private
+          channels show only when the bot is in them.
         </p>
       </div>
+      {someWithoutBot ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
+          <p>
+            To use another channel, invite the bot to it in Slack, then refresh.
+          </p>
+          <Button
+            variant="secondary"
+            className="rounded-md"
+            isPending={channelsQuery.isFetching}
+            onPress={() => void channelsQuery.refetch()}
+          >
+            Refresh
+          </Button>
+        </div>
+      ) : null}
       {truncated ? (
         <p className="text-sm text-muted-foreground">
           Showing the first 2000 channels. Search finds channels in this list
@@ -115,7 +135,7 @@ export function SlackScopeEditor(props: SourceScopeEditorProps) {
             ? "Slack does not list this channel now. It is archived, or the ctx| bot left it."
             : channel.isMember
               ? null
-              : "Invite the ctx| bot to this channel first."
+              : "The bot is not in this channel."
           return (
             <Checkbox
               key={channel.id}
