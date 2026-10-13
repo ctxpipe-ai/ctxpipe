@@ -4,7 +4,6 @@ import {
   persistWorkspaceGraphResult,
 } from "../../models/workspaces.js"
 import { log } from "../../observability/logger.js"
-import { enqueueWorkspaceGraphRebuild } from "../../openworkflow/enqueue-workspace-hydrate.js"
 import {
   hasWorkspaceGraph,
   readWorkspaceGraph,
@@ -39,6 +38,11 @@ export async function rebuildLostWorkspaceGraph(
       workspaceId: revision.workspaceId,
     })
     try {
+      // A lazy import: the OpenWorkflow client connects to the database when
+      // it loads, and chat tools import this module.
+      const { enqueueWorkspaceGraphRebuild } = await import(
+        "../../openworkflow/enqueue-workspace-hydrate.js"
+      )
       await enqueueWorkspaceGraphRebuild({
         orgId,
         revision,
