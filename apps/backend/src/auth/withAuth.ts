@@ -710,6 +710,25 @@ export const requireOrgAdminOrOwner: MiddlewareHandler<AppEnv> = async (
   return c.json({ error: "Forbidden" }, 403)
 }
 
+/**
+ * The request names no organization the principal can use. MCP clients only
+ * show a bare 404 as "endpoint not found", so `/mcp` gets a JSON-RPC error
+ * saying what to fix; other routes keep the bare 404.
+ */
+function orgUnavailable(c: Context<AppEnv>, mcpMessage: string): Response {
+  if (!isMcpRequestPath(c.req.path)) {
+    return c.json({ error: "Not found" }, 404)
+  }
+  return jsonRpcInvalidRequest(c, mcpMessage)
+}
+
+function jsonRpcInvalidRequest(c: Context<AppEnv>, message: string): Response {
+  return c.json(
+    { jsonrpc: "2.0", error: { code: -32600, message }, id: null },
+    400,
+  )
+}
+
 export const withNetworkOrgContext: MiddlewareHandler<AppEnv> = async (
   c,
   next,
@@ -729,8 +748,17 @@ export const withNetworkOrgContext: MiddlewareHandler<AppEnv> = async (
       .where(eq(organizations.id, orgApiKey.orgId))
       .limit(1)
     resolved = orgRows[0]
-    if (!resolved || (orgSlug && resolved.slug !== orgSlug)) {
-      return c.json({ error: "Not found" }, 404)
+    if (!resolved) {
+      return orgUnavailable(
+        c,
+        "The organization this API key belongs to no longer exists.",
+      )
+    }
+    if (orgSlug && resolved.slug !== orgSlug) {
+      return orgUnavailable(
+        c,
+        `This API key belongs to a different organization than orgSlug "${orgSlug}" in the MCP URL. Use a key from that organization, or remove orgSlug from the URL.`,
+      )
     }
   } else if (!userId) {
     return c.json({ error: "Not found" }, 404)
@@ -749,8 +777,17 @@ export const withNetworkOrgContext: MiddlewareHandler<AppEnv> = async (
       .limit(1)
 
     resolved = orgRows[0]
-    if (!resolved || (orgSlug && resolved.slug !== orgSlug)) {
-      return c.json({ error: "Not found" }, 404)
+    if (!resolved) {
+      return orgUnavailable(
+        c,
+        "You no longer have access to the organization selected when you signed in. Reconnect ctxpipe and select an organization.",
+      )
+    }
+    if (orgSlug && resolved.slug !== orgSlug) {
+      return orgUnavailable(
+        c,
+        `This sign-in is for a different organization ("${resolved.slug}") than orgSlug "${orgSlug}" in the MCP URL. Reconnect ctxpipe and select "${orgSlug}", or remove orgSlug from the URL to use the organization chosen at sign-in.`,
+      )
     }
   } else if (orgSlug) {
     const orgRows = await systemDb
@@ -766,20 +803,18 @@ export const withNetworkOrgContext: MiddlewareHandler<AppEnv> = async (
       .where(eq(organizations.slug, orgSlug))
       .limit(1)
     const org = orgRows[0]
-    if (!org) return c.json({ error: "Not found" }, 404)
+    if (!org) {
+      // One message whether or not the org exists: no enumeration oracle.
+      return orgUnavailable(
+        c,
+        `You do not have access to an organization with orgSlug "${orgSlug}" in the MCP URL. Check the orgSlug, or remove it and reconnect ctxpipe to choose an organization at sign-in.`,
+      )
+    }
     resolved = { id: org.id, slug: orgSlug }
   } else {
-    return c.json(
-      {
-        jsonrpc: "2.0",
-        error: {
-          code: -32600,
-          message:
-            "This OAuth grant is not bound to an organization. Reconnect ctxpipe and select an organization, or use /mcp?orgSlug=<orgSlug> for a manual connection.",
-        },
-        id: null,
-      },
-      400,
+    return jsonRpcInvalidRequest(
+      c,
+      "This OAuth grant is not bound to an organization. Reconnect ctxpipe and select an organization, or use /mcp?orgSlug=<orgSlug> for a manual connection.",
     )
   }
 

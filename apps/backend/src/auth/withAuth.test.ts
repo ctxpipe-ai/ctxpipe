@@ -712,8 +712,16 @@ describe("auth middleware composition", () => {
       method: "POST",
     })
 
-    expect(response.status).toBe(404)
-    expect(await response.json()).toEqual({ error: "Not found" })
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({
+      jsonrpc: "2.0",
+      error: {
+        code: -32600,
+        message: expect.stringContaining(
+          'do not have access to an organization with orgSlug "private-org"',
+        ),
+      },
+    })
     expect(withOrgDbContextMock).not.toHaveBeenCalled()
   })
 
@@ -814,7 +822,16 @@ describe("auth middleware composition", () => {
       headers: { authorization: "Bearer header.payload.signature" },
     })
 
-    expect(response.status).toBe(404)
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({
+      jsonrpc: "2.0",
+      error: {
+        code: -32600,
+        message: expect.stringContaining(
+          'different organization ("bound") than orgSlug "other"',
+        ),
+      },
+    })
     expect(withOrgDbContextMock).not.toHaveBeenCalled()
   })
 
@@ -1508,7 +1525,7 @@ describe("org API-key tenant binding", () => {
     })
   })
 
-  it("org x-api-key rejects a mismatched orgSlug with 404", async () => {
+  it("org x-api-key rejects a mismatched orgSlug on /mcp with a JSON-RPC error", async () => {
     mockOrgKey()
     testState.db = createMockDb({
       orgRows: [{ id: "org_acme", slug: "acme" }],
@@ -1520,11 +1537,19 @@ describe("org API-key tenant binding", () => {
       headers: { "x-api-key": "ctxp_org_key" },
     })
 
-    expect(response.status).toBe(404)
-    expect(await response.json()).toEqual({ error: "Not found" })
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({
+      jsonrpc: "2.0",
+      error: {
+        code: -32600,
+        message: expect.stringContaining(
+          'different organization than orgSlug "other"',
+        ),
+      },
+    })
   })
 
-  it("org x-api-key returns 404 when the bound org is missing", async () => {
+  it("org x-api-key on /mcp returns a JSON-RPC error when the bound org is missing", async () => {
     mockOrgKey()
     testState.db = createMockDb({ orgRows: [] })
 
@@ -1534,8 +1559,14 @@ describe("org API-key tenant binding", () => {
       headers: { "x-api-key": "ctxp_org_key" },
     })
 
-    expect(response.status).toBe(404)
-    expect(await response.json()).toEqual({ error: "Not found" })
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({
+      jsonrpc: "2.0",
+      error: {
+        code: -32600,
+        message: expect.stringContaining("no longer exists"),
+      },
+    })
   })
 
   it("user x-api-key still requires orgSlug", async () => {
