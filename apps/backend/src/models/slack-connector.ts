@@ -186,8 +186,14 @@ export async function upsertSlackConnectionFromOAuth(input: {
   botHandle?: string | null
   appId?: string | null
 }): Promise<SlackConnection> {
-  const existingForTeam = await getSlackConnectionByTeamId(input.teamId)
-  if (existingForTeam && existingForTeam.orgId !== input.orgId) {
+  // The directory row names the owner org. The callback runs in the org
+  // transaction of the state, so it cannot open the transaction of that org.
+  const claimed = await listConnectionDirectoryBySlackTeamId(input.teamId)
+  if (
+    claimed.some(
+      (row) => row.type === CONNECTION_TYPE_SLACK && row.orgId !== input.orgId,
+    )
+  ) {
     throw new SlackTeamAlreadyConnectedError()
   }
 
@@ -216,11 +222,7 @@ export async function upsertSlackConnectionFromOAuth(input: {
       teamId: input.teamId,
       teamName: input.teamName ?? existingStored?.teamName ?? null,
       botUserId: input.botUserId ?? existingStored?.botUserId ?? null,
-      botHandle:
-        input.botHandle ??
-        existingStored?.botHandle ??
-        existingForTeam?.botHandle ??
-        null,
+      botHandle: input.botHandle ?? existingStored?.botHandle ?? null,
       appId: input.appId ?? existingStored?.appId ?? null,
       ownerUserId: input.ownerUserId,
       status: "installed",
