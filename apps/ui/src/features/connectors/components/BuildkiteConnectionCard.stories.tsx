@@ -71,7 +71,8 @@ export const Connected: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
     await expect(await canvas.findByText("Connected")).toBeInTheDocument()
-    await expect(canvas.getByText("Acme")).toBeInTheDocument()
+    // The organization slug is the account name.
+    await expect(canvas.getByText("acme")).toBeInTheDocument()
     await expect(
       canvas.queryByRole("button", { name: /Add the webhook/ }),
     ).toBeNull()

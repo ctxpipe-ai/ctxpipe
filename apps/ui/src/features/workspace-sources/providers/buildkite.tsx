@@ -61,8 +61,8 @@ export function BuildkiteScopeEditor(props: SourceScopeEditorProps) {
     <section aria-label={heading} className="flex flex-col gap-3">
       <h3 className="text-sm font-medium text-foreground">{heading}</h3>
       <p className="text-sm text-muted-foreground">
-        ctx| syncs each pipeline with its latest 25 finished builds and their
-        job results.
+        ctx| syncs each pipeline with its latest 25 finished builds and the jobs
+        that failed.
       </p>
       <SearchField
         aria-label={`Filter Buildkite pipelines for ${label ?? "this source"}`}
@@ -70,7 +70,7 @@ export function BuildkiteScopeEditor(props: SourceScopeEditorProps) {
         value={filter}
         onChange={setFilter}
       />
-      <div className="max-h-[min(280px,calc(var(--visual-viewport-height)*0.4))] min-h-0 overflow-auto border border-border p-3">
+      <div className="max-h-[min(280px,calc(var(--visual-viewport-height)*0.4))] min-h-0 overflow-auto rounded-md border border-border p-3">
         {pipelinesQuery.isPending ? (
           <div className="flex flex-col gap-2" aria-busy>
             <span className="sr-only">Loading Buildkite pipelines</span>

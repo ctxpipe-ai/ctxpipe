@@ -85,6 +85,16 @@ export const ConnectWithToken: Story = {
     const slug = await visible(await body.findByLabelText("Organization slug"))
     const connect = body.getByRole("button", { name: "Connect Buildkite" })
     await expect(connect).toBeDisabled()
+    // Only the two read scopes that the sync uses.
+    await expect(body.getByText("read_pipelines")).toBeVisible()
+    await expect(body.getByText("read_builds")).toBeVisible()
+    await expect(body.queryByText("read_organizations")).toBeNull()
+    await expect(
+      body.getByRole("link", { name: /API access token/ }),
+    ).toHaveAttribute(
+      "href",
+      "https://buildkite.com/user/api-access-tokens/new",
+    )
     await userEvent.type(slug, "acme")
     await userEvent.type(
       body.getByLabelText("API access token"),

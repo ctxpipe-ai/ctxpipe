@@ -537,7 +537,7 @@ export const BuildkiteFromCatalog: Story = {
             {
               id: "conn_buildkite_1",
               type: "buildkite",
-              displayName: "Acme",
+              displayName: "acme",
               createdAt: "2025-01-01T00:00:00.000Z",
               updatedAt: "2025-01-02T00:00:00.000Z",
             },

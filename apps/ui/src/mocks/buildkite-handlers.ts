@@ -16,7 +16,6 @@ export const buildkiteStoryStatus = (
 ): BuildkiteConnectorStatus => ({
   status: "installed",
   organizationSlug: "acme",
-  organizationName: "Acme",
   webhookUrl:
     "https://app.example.com/api/v1/webhook/buildkite/con_story_buildkite",
   webhookConfigured: false,

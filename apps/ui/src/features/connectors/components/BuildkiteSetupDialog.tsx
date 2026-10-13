@@ -58,10 +58,6 @@ export function BuildkiteSetupDialog({
   const [workspacesDone, setWorkspacesDone] = useState(false)
   const [replacing, setReplacing] = useState(replaceWebhook)
   const [pullRequestUrls, setPullRequestUrls] = useState<string[]>([])
-  if (!isOpen && (webhookSkipped || workspacesDone)) {
-    setWebhookSkipped(false)
-    setWorkspacesDone(false)
-  }
 
   const statusQuery = useQuery({
     queryKey: buildkiteConnectorKeys.status(orgSlug, connectionId ?? ""),
@@ -272,7 +268,7 @@ function ConnectStep(props: {
         </h3>
         <p className="mt-2 text-sm text-muted-foreground">
           Create an{" "}
-          <a
+          <Link
             href="https://buildkite.com/user/api-access-tokens/new"
             className={externalLink}
             target="_blank"
@@ -280,16 +276,12 @@ function ConnectStep(props: {
           >
             API access token
             <IconExternalLink className="ml-1 inline size-3.5" aria-hidden />
-          </a>{" "}
+          </Link>{" "}
           for your organization with only the{" "}
           <code className="font-mono text-xs text-foreground">
-            read_organizations
-          </code>
-          ,{" "}
-          <code className="font-mono text-xs text-foreground">
             read_pipelines
-          </code>
-          , and{" "}
+          </code>{" "}
+          and{" "}
           <code className="font-mono text-xs text-foreground">read_builds</code>{" "}
           scopes. ctx| only reads with it, and keeps it encrypted.
         </p>
@@ -372,7 +364,7 @@ function WebhookStep(props: {
       <ol className="list-decimal space-y-3 pl-5 text-sm text-muted-foreground">
         <li>
           In Buildkite, open{" "}
-          <a
+          <Link
             href={`https://buildkite.com/organizations/${encodeURIComponent(props.status.organizationSlug)}/services`}
             className={externalLink}
             target="_blank"
@@ -380,7 +372,7 @@ function WebhookStep(props: {
           >
             Notification Services
             <IconExternalLink className="ml-1 inline size-3.5" aria-hidden />
-          </a>{" "}
+          </Link>{" "}
           and add a{" "}
           <strong className="font-medium text-foreground">Webhook</strong>.
         </li>

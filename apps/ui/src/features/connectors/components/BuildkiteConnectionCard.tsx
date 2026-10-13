@@ -80,7 +80,7 @@ export function BuildkiteConnectionCard({
           "This removes the Buildkite connection and its saved tokens. The Workspace sources that use it stop syncing. Files already in GitHub stay in place. Delete the webhook in Buildkite too.",
         onConfirm: () => removeMutation.mutate(),
       }}
-      workspace={connectorDash(status?.organizationName)}
+      workspace={connectorDash(status?.organizationSlug)}
       scope="Set in each Workspace"
       actionLabel={isError ? "Retry" : (actionLabel ?? undefined)}
       onAction={
