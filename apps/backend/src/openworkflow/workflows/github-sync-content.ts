@@ -10,6 +10,7 @@ import {
   getLogger,
   withLogger,
 } from "../../observability/logger.js"
+import { mirrorGithubIssuesForConfig } from "../../services/github/issue-mirror/sync.js"
 import { loadGithubPrMirrorConfigFromRepo } from "../../services/github/pull-request-mirror/config-from-repo.js"
 import { syncGithubPullRequestsForConfig } from "../../services/github/pull-request-mirror/sync.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
@@ -79,6 +80,13 @@ export const githubSyncContent = defineWorkflow(
             config: context.config,
           }),
       )
+      const issues = await mirrorGithubIssuesForConfig({
+        orgId: input.orgId,
+        env,
+        binding: context.binding,
+        config: context.config,
+        runStep: (name, run) => step.run({ name }, run),
+      })
       await withLogger(
         createLogger({
           workflow: "github-sync-content",
@@ -92,7 +100,7 @@ export const githubSyncContent = defineWorkflow(
               orgId: input.orgId,
               repositoryId: context.binding.repositoryId,
               targetBranch: context.binding.branch,
-              indexingReason: "Mirroring GitHub pull requests",
+              indexingReason: "Mirroring GitHub pull requests and issues",
             },
             {
               error: (error) =>
@@ -110,7 +118,7 @@ export const githubSyncContent = defineWorkflow(
           patch: { setupPhase: "live" },
         }),
       )
-      return result
+      return { ...result, issues }
     } catch (error) {
       if (isWorkflowControlSignal(error)) throw error
       await withOrgDbContext(input.orgId, () =>

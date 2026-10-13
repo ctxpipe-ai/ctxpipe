@@ -85,6 +85,7 @@ export const EXTENSION_ALLOWED_CONNECTIONS: Array<{
   { subjectKind: "Decision", predicate: "DECLARED_IN", objectKind: "File" },
   // containment
   { subjectKind: "File", predicate: "PART_OF", objectKind: "Repository" },
+  { subjectKind: "Issue", predicate: "PART_OF", objectKind: "Repository" },
   ...PACKAGE_KINDS.map((objectKind) => ({
     subjectKind: "File",
     predicate: "PART_OF",
@@ -149,7 +150,7 @@ export const PREDICATE_DESCRIPTIONS: Record<string, string> = {
   DECLARED_IN:
     "provenance: the InstructionUnit or Decision is stated in this File",
   PART_OF:
-    "containment: the File is inside this Repository, Service, App or Library; a monorepo Service, App or Library is nested in this outer one or the workspace root",
+    "containment: the File is inside this Repository, Service, App or Library; a GitHub Issue is filed in this Repository; a monorepo Service, App or Library is nested in this outer one or the workspace root",
   TARGETS: "the PullRequest's base Repository",
   ADDED:
     "change event: the PullRequest added this File (valid_from = merge date)",

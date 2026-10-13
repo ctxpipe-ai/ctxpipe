@@ -1,4 +1,5 @@
 import type { CodeIngestionState } from "../schemas.js"
+import { extractGithubIssues } from "./extractGithubIssues.js"
 import { extractGithubPullRequests } from "./extractGithubPullRequests.js"
 import { extractLinear } from "./extractLinear.js"
 import { extractSlackThreads } from "./extractSlackThreads.js"
@@ -16,6 +17,7 @@ export type ConnectorExtractor = {
  */
 export const CONNECTOR_EXTRACTORS: ReadonlyArray<ConnectorExtractor> = [
   { extract: extractGithubPullRequests },
+  { extract: extractGithubIssues },
   { extract: extractLinear },
   { extract: extractSlackThreads },
 ]

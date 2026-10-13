@@ -79,6 +79,7 @@ export async function ensureGithubPrMirror(input: {
   if (
     current &&
     sameRepositoryList(current.repositories, repositories) &&
+    current.issues &&
     contentStarted
   ) {
     return { status: "unchanged" }
@@ -90,6 +91,7 @@ export async function ensureGithubPrMirror(input: {
       env: input.env,
       binding,
       repositories,
+      current,
     })
     await runWorkflowWithWorkerWake(
       githubSyncContent.spec,

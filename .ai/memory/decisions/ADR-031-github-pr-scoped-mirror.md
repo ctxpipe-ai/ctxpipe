@@ -1,6 +1,6 @@
 # ADR-031: GitHub pull-request scoped mirror
 
-**Status:** Accepted | **Date:** 2026-09-16 | **Tags:** connectors, github, git, graph, ingestion
+**Status:** Accepted (amended 2026-10-05) | **Date:** 2026-09-16 | **Tags:** connectors, github, git, graph, ingestion
 
 ## Context
 
@@ -50,6 +50,55 @@ typed change edges.
 6. Webhook `pull_request` (and review / PR conversation events) are **entity**
    signals for this mirror. They are not a fallback for source-repo reindex;
    default-branch `push` still owns that ([apps/backend README](../../../apps/backend/README.md)).
+
+## Amendment (2026-10-05): issues
+
+7. Issues are captured implicitly, like pull requests: every issue of the
+   selected repositories, with no toggle. Per-repository or label filtering
+   waits for workspaces. Issues use the same binding, picker scope
+   (`pullRequests.repositories`) and lifecycle as pull requests. `github/config.yaml` gains
+   `issues: { maxIssuesPerRepository }`. Its presence marks a yaml written
+   after issue capture shipped; the startup sweep (key `v2`) rewrites a yaml
+   without it. That rewrite also re-runs the pull-request backfill once per
+   binding. No new connection type, toggle or table.
+8. Content is `github/issues/<owner>/<repo>/<number>.md`: frontmatter
+   (`type: issue`, state, up to 100 labels, assignees, timestamps), body, and
+   every comment. The number is the path id; GitHub never reuses or changes it.
+9. Reads are GraphQL: one request per 50 issues with the first 100 comments
+   inlined, plus one per further 100 comments of one issue. The backfill is
+   one durable step per repository (`issues-<repo>`) that reads, renders and
+   commits that repository: open and closed, newest updated first, default
+   200. Not a step per page: OpenWorkflow caps a run at 1,000 steps, and the
+   cap bounds a step to a few requests and one repository's files in memory.
+   A repository the App cannot read (GraphQL `FORBIDDEN` without
+   **Issues: Read**, `NOT_FOUND` without access) is skipped, so pull-request
+   capture still completes. Any other error fails the run, and the next sync
+   retries it. When the owner accepts new App permissions
+   (`installation.new_permissions_accepted`), a full sync runs with a freshly
+   minted installation token (a cached one keeps its old permissions), so
+   issues skipped before **Issues: Read** was granted are backfilled.
+   Removing a repository from scope does not yet delete its mirrored files
+   (pull requests and issues alike). Issues outside the newest-N window are
+   never pruned: webhooks keep them current.
+10. Live updates: `issues` actions that change the file (opened, edited,
+    closed, reopened, labeled, unlabeled, assigned, unassigned) and
+    plain-issue `issue_comment` run `github-sync-issue`, keyed by
+    `X-GitHub-Delivery` so every event runs once. Not yet: removing
+    deleted or transferred issues, and copying embedded images as assets
+    ([ADR-028](ADR-028-git-native-connector-assets.md)); images stay links,
+    as in the pull-request mirror.
+11. Graph: `Issue` keyed `iss:${sourceRepositoryId}:${number}`, `Issue PART_OF
+    Repository`, and `Issue REFERENCES PullRequest` for each pull request
+    GitHub links as closing it (`closedByPullRequestsReferences`, merged
+    included, in the same request; frontmatter `closedBy`; at most 10 per
+    issue, since more is rare). That link holds
+    across repositories and does not depend on pull-request files being
+    re-extracted. An issue of a repository that is not connected is skipped.
+    A mirrored pull request that writes `#N`, `owner/repo#N` or an issue URL
+    of its own repository, outside code, records `PullRequest REFERENCES
+    Issue`; dependency-update pull requests (Dependabot, Renovate) are not
+    scanned, since they quote other repositories' `#N`. No stubs: issues and pull requests share one number sequence, so
+    a `#N` that is a pull request resolves to no issue and is dropped.
 
 ## Rationale
 

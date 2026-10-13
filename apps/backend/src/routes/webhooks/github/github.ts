@@ -62,6 +62,8 @@ type GithubWebhookContext = {
 type ProcessGithubWebhookOpts = {
   /** Present when a connection-specific secret authenticated the request. */
   connectionId?: string
+  /** `X-GitHub-Delivery` header: one id per event. */
+  deliveryId?: string
 }
 
 async function githubConnectionAllowsWebhookPayload(input: {
@@ -352,6 +354,12 @@ export async function processGithubWebhookPayload(
       return
     case "installation":
       await processInstallationEvent(opts?.connectionId, payload, ctx)
+      await maybeEnqueueGithubPrMirror({
+        eventName,
+        payload,
+        githubConnectionId: opts?.connectionId,
+        deliveryId: opts?.deliveryId,
+      })
       return
     case "installation_repositories":
       await processInstallationRepositoriesEvent(
@@ -364,10 +372,12 @@ export async function processGithubWebhookPayload(
     case "pull_request_review":
     case "pull_request_review_comment":
     case "issue_comment":
+    case "issues":
       await maybeEnqueueGithubPrMirror({
         eventName,
         payload,
         githubConnectionId: opts?.connectionId,
+        deliveryId: opts?.deliveryId,
       })
       return
     default:
@@ -418,7 +428,7 @@ export function registerGithubWebhookRoute(app: OpenAPIHono<AppEnv>) {
       eventName,
       payload,
       { log, env },
-      { connectionId },
+      { connectionId, deliveryId: c.req.header("x-github-delivery") },
     )
     return c.body(null, 200)
   })
@@ -456,7 +466,12 @@ export function registerGithubWebhookRoute(app: OpenAPIHono<AppEnv>) {
       return c.json({ error: "Unauthorized" }, 401)
     }
 
-    await processGithubWebhookPayload(eventName, payload, { log, env })
+    await processGithubWebhookPayload(
+      eventName,
+      payload,
+      { log, env },
+      { deliveryId: c.req.header("x-github-delivery") },
+    )
     return c.body(null, 200)
   })
 }

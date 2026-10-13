@@ -208,9 +208,11 @@ export type ParsedGithubPullRequest = {
   requiredChecks: GithubPrRequiredCheck[]
   /** Description text after the title heading, before reviews / conversation (≤ 2000 chars). */
   bodyExcerpt: string
+  /** The whole description, for reference scanning. */
+  body: string
 }
 
-function bodyExcerptAfterFrontmatter(rest: string): string {
+function bodyAfterFrontmatter(rest: string): string {
   let body = rest.replace(/^\s+/, "")
   if (body.startsWith("# ")) {
     const newline = body.indexOf("\n")
@@ -218,7 +220,7 @@ function bodyExcerptAfterFrontmatter(rest: string): string {
   }
   const cut = body.search(/\n## (Reviews|Conversation)\b/)
   if (cut !== -1) body = body.slice(0, cut)
-  return body.trim().slice(0, 2_000)
+  return body.trim()
 }
 
 export function parseGithubPullRequestMarkdown(
@@ -235,6 +237,7 @@ export function parseGithubPullRequestMarkdown(
   const data = asRecord(parsed)
   if (!data) return null
   if (data.source !== "github" || data.type !== "pull_request") return null
+  const body = bodyAfterFrontmatter(content.slice(match[0].length))
 
   const id = asNumber(data.id)
   const number = asNumber(data.number)
@@ -292,6 +295,7 @@ export function parseGithubPullRequestMarkdown(
     mergedAt: asString(data.mergedAt),
     files: parseFiles(data.files),
     requiredChecks: parseChecks(data.requiredChecks),
-    bodyExcerpt: bodyExcerptAfterFrontmatter(content.slice(match[0].length)),
+    bodyExcerpt: body.slice(0, 2_000),
+    body,
   }
 }

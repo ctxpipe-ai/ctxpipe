@@ -132,8 +132,8 @@ export function ConnectorContextRepositoryGuidance({
           <code className="bg-muted px-1 py-0.5 text-[11px]">
             {foundRepositoryName}
           </code>
-          . ctx| will write pull-request capture and later connector content
-          here when you save.
+          . ctx| will write pull-request and issue capture and later connector
+          content here when you save.
         </p>
       ) : (
         <p className="mt-3 text-sm text-muted-foreground">
@@ -141,8 +141,9 @@ export function ConnectorContextRepositoryGuidance({
           <code className="bg-muted px-1 py-0.5 text-[11px]">
             {CONNECTOR_CONTEXT_REPOSITORY_NAME}
           </code>{" "}
-          once, then reuse it for pull-request capture and later connectors. You
-          can choose another name if your team has its own convention.
+          once, then reuse it for pull-request and issue capture and later
+          connectors. You can choose another name if your team has its own
+          convention.
         </p>
       )}
       <AboutContextRepositoryLink />
