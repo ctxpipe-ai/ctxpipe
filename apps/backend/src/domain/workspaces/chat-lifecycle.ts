@@ -15,6 +15,13 @@ export const CHAT_SANDBOX_DELETE_AFTER_MS =
   CHAT_SANDBOX_RETENTION_MS - 24 * 60 * 60 * 1000
 /** Conversation sandboxes one organization may run at once. */
 export const ORG_RUNNING_SANDBOX_LIMIT = 50
+/**
+ * Ingest sandboxes one organization may run at once, inside its 50 slots, so
+ * chat keeps 10 (ADR-052).
+ */
+export const ORG_INGEST_SANDBOX_LIMIT = 40
+/** One ingest shard runs at most this long; the sweep then deletes its sandbox. */
+export const INGEST_SHARD_LIMIT_MS = 60 * 60_000
 export const JOB_SANDBOX_IDLE_MS = 60 * 60 * 1000
 export const CHAT_HEARTBEAT_INTERVAL_MS = 60 * 1000
 export const CHAT_SESSION_BRANCH_PREFIX = "ctxpipe/chat"

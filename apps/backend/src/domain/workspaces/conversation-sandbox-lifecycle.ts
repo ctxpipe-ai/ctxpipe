@@ -16,12 +16,15 @@ import {
   persistSandboxInstance,
   type RunningSandboxProvider,
   SandboxInstanceOwnershipConflict,
+  unfinishedOrgWorkflowRunIds,
 } from "../../models/workspaces.js"
 import { log } from "../../observability/logger.js"
 import {
   CHAT_SANDBOX_DELETE_AFTER_MS,
   CHAT_SANDBOX_IDLE_STOP_MS,
   CHAT_SANDBOX_RETENTION_MS,
+  INGEST_SHARD_LIMIT_MS,
+  ORG_INGEST_SANDBOX_LIMIT,
   ORG_RUNNING_SANDBOX_LIMIT,
 } from "./chat-lifecycle.js"
 import { pushBeforeSandboxDelete } from "./conversation-branch-push.js"
@@ -66,7 +69,8 @@ export class SandboxCapacityError extends Error {
  * one) takes one of the organization's running slots, counted from our
  * sandbox table under an org-wide lock. A create reserves its row before the
  * provider call, so concurrent starts in other Workspaces see it, and gives
- * the slot back at once if the create or its setup fails.
+ * the slot back at once if the create or its setup fails. At capacity the
+ * start fails with `SandboxCapacityError`.
  */
 export function withConversationSandboxSlots(
   provider: TanstackSandboxProvider,
@@ -79,18 +83,94 @@ export function withConversationSandboxSlots(
     revision: WorkspaceRevision
   },
 ): TanstackSandboxProvider {
+  return withSandboxSlots(
+    provider,
+    { ...owner, kind: "chat" },
+    () => new SandboxCapacityError(),
+  )
+}
+
+/** All of the org's ingest slots (or all of its slots) are in use now. */
+export class IngestSandboxSlotsFull extends Error {
+  constructor() {
+    super(
+      `The organization already runs ${ORG_INGEST_SANDBOX_LIMIT} ingest sandboxes or ${ORG_RUNNING_SANDBOX_LIMIT} sandboxes in total`,
+    )
+    this.name = "IngestSandboxSlotsFull"
+  }
+}
+
+/**
+ * The same slots for one ingest shard (ADR-052). An ingest start also counts
+ * against the org's ingest limit (40 of the 50), so chat keeps 10 slots. At
+ * capacity the start fails with `IngestSandboxSlotsFull` before it holds a
+ * sandbox; the caller waits outside its locks and tries again.
+ */
+export function withIngestSandboxSlots(
+  provider: TanstackSandboxProvider,
+  owner: {
+    orgId: string
+    workspaceId: string
+    /** The ingest thread, `ingest:<runId>:<shard>`. */
+    threadId: string
+    runId: string
+    provider: RunningSandboxProvider
+    image: string
+  },
+): TanstackSandboxProvider {
+  return withSandboxSlots(
+    provider,
+    {
+      kind: "ingest",
+      orgId: owner.orgId,
+      workspaceId: owner.workspaceId,
+      conversationId: owner.threadId,
+      runId: owner.runId,
+      provider: owner.provider,
+      image: owner.image,
+      revision: null,
+    },
+    () => new IngestSandboxSlotsFull(),
+    async (key) =>
+      (await countRunningSandboxes(owner.orgId, key, "ingest")) <
+      ORG_INGEST_SANDBOX_LIMIT,
+  )
+}
+
+/**
+ * At capacity a start fails with `full()`. `kindFree` adds a limit for the
+ * sandbox's own kind.
+ */
+function withSandboxSlots(
+  provider: TanstackSandboxProvider,
+  owner: {
+    kind: "chat" | "ingest"
+    orgId: string
+    workspaceId: string
+    conversationId: string
+    runId?: string
+    provider: RunningSandboxProvider
+    image: string
+    revision: WorkspaceRevision | null
+  },
+  full: () => Error,
+  kindFree?: (key: string) => Promise<boolean>,
+): TanstackSandboxProvider {
   const { orgId } = owner
   const underSlots = <T>(fn: () => Promise<T>) =>
     postgresSandboxLocks(orgId).withLock("org-sandbox-slots", fn)
   const assertSlotFree = async (key: string) => {
-    if ((await countRunningSandboxes(orgId, key)) >= ORG_RUNNING_SANDBOX_LIMIT)
-      throw new SandboxCapacityError()
+    if (
+      (await countRunningSandboxes(orgId, key)) >= ORG_RUNNING_SANDBOX_LIMIT ||
+      (kindFree && !(await kindFree(key)))
+    )
+      throw full()
   }
   /** Drop a reservation whose create never finished; a finished one is kept. */
   const release = async (key: string) => {
     try {
       await deleteSandboxInstance(key, orgId, {
-        kind: "chat",
+        kind: owner.kind,
         workspaceId: owner.workspaceId,
         conversationId: owner.conversationId,
         provider: owner.provider,
@@ -108,14 +188,14 @@ export function withConversationSandboxSlots(
     async create(input) {
       // Stock `ensure` always passes the sandbox key as the create id.
       const key = input.id
-      if (!key) throw new Error("Conversation sandbox create needs its key")
+      if (!key) throw new Error("Sandbox create needs its key")
       await underSlots(async () => {
         const existing = await getSandboxInstance(key, orgId)
         await assertSlotFree(key)
         await persistSandboxInstance(
           {
             id: key,
-            kind: "chat",
+            kind: owner.kind,
             orgId,
             workspaceId: owner.workspaceId,
             conversationId: owner.conversationId,
@@ -123,6 +203,7 @@ export function withConversationSandboxSlots(
             providerSandboxId: null,
             image: owner.image,
             revision: owner.revision,
+            latestRunId: owner.runId ?? null,
             state: "live",
             lastHeartbeatAt: new Date(),
           },
@@ -156,7 +237,7 @@ export function withConversationSandboxSlots(
         await withOrgDbContext(orgId, () =>
           listSandboxInstances({
             conversationId: owner.conversationId,
-            kind: "chat",
+            kind: owner.kind,
           }),
         )
       ).find((row) => row.providerSandboxId === input.id)
@@ -295,7 +376,9 @@ export async function orgsWithSandboxes(): Promise<string[]> {
  *   read holds the conversation);
  * - delete a sandbox and its saved state a day before that state would
  *   expire (29 days after its last use), when its conversation is gone, or
- *   when an earlier delete failed; committed work is pushed first.
+ *   when an earlier delete failed; committed work is pushed first;
+ * - delete an ingest sandbox whose run finished or that is older than the
+ *   shard limit (60 minutes).
  * Returns when the next sweep is due (an idle stop, a deletion, a retry), or
  * null when no sandbox is left. Workspace bases always schedule the next
  * sweep (see below).
@@ -409,6 +492,62 @@ export async function sweepConversationSandboxes(
       dueAt(retryAt)
     }
   }
+  // Ingest shards (ADR-052) have no idle stop. A shard's sandbox goes when its
+  // run has finished or is unknown, when it is older than the shard limit, or
+  // when an earlier delete failed. The shard lock (its thread id) keeps the
+  // sandbox of a step that runs.
+  try {
+    const ingest = await withOrgDbContext(orgId, () =>
+      listSandboxInstances({ kind: "ingest" }),
+    )
+    const unfinished = await unfinishedOrgWorkflowRunIds(orgId, [
+      ...new Set(ingest.flatMap((row) => row.latestRunId ?? [])),
+    ])
+    for (const row of ingest) {
+      const startedAt = (row.createdAt ?? row.lastHeartbeatAt).getTime()
+      if (
+        row.state !== "destroy_failed" &&
+        row.latestRunId &&
+        unfinished.has(row.latestRunId) &&
+        now.getTime() - startedAt < INGEST_SHARD_LIMIT_MS
+      ) {
+        dueAt(startedAt + INGEST_SHARD_LIMIT_MS)
+        continue
+      }
+      try {
+        const outcome = await withSandboxLockIfFree(
+          orgId,
+          row.conversationId ?? row.id,
+          () => destroyUnusedSandbox(row.id, orgId, row.lastHeartbeatAt),
+        )
+        const result = outcome.busy ? "busy" : outcome.value
+        if (result === "destroyed") {
+          deleted += 1
+          continue
+        }
+        log.info({
+          step: "conversation-sandbox-sweep",
+          message: `Ingest sandbox kept for the next sweep (${result})`,
+          sandboxId: row.id,
+          reason: result,
+        })
+      } catch (error) {
+        log.error({
+          step: "conversation-sandbox-sweep",
+          message: `Deleting an ingest sandbox failed: ${String(error)}`,
+          sandboxId: row.id,
+        })
+      }
+      dueAt(retryAt)
+    }
+  } catch (error) {
+    log.error({
+      step: "conversation-sandbox-sweep",
+      message: `Reading the ingest sandboxes failed: ${String(error)}`,
+      orgId,
+    })
+    dueAt(retryAt)
+  }
   // Bases whose conversations are gone (deleted above, or long ago) go too.
   // Skipped when the agent image cannot be read: a daemon blip never deletes
   // the base new conversations should use.
@@ -464,7 +603,7 @@ export async function sweepConversationSandboxes(
   if (stopped || deleted)
     log.info({
       step: "conversation-sandbox-sweep",
-      message: `Stopped ${stopped} idle and deleted ${deleted} expired conversation sandboxes`,
+      message: `Stopped ${stopped} idle and deleted ${deleted} expired sandboxes`,
       orgId,
       stopped,
       deleted,
