@@ -244,20 +244,23 @@ export function runVaultName(runKey: string): string {
 
 /**
  * Add `rules` to the run's vault, or replace the rules with the same names
- * (Agent Vault keys a service by its name). A later step of the same run
- * calls this from any process: the session of the sandbox stays the same.
+ * (Agent Vault keys a service by its name). With `replace`, the vault keeps
+ * no other rule. A later step of the same run calls this from any process:
+ * the session of the sandbox stays the same.
  */
 export async function setRunVaultRules(
   access: AgentVaultAccess,
   runKey: string,
   rules: RunVaultRule[],
+  options: { replace?: boolean } = {},
 ): Promise<void> {
-  if (rules.length === 0) return
+  if (rules.length === 0 && !options.replace) return
   const { credentials, services } = servicesFor(rules)
   await asOwner(access, async (client) => {
     const vault = client.vault(runVaultName(runKey))
     await vault.credentials?.set(credentials)
-    await vault.services?.set(services)
+    if (options.replace) await vault.services?.replaceAll(services)
+    else await vault.services?.set(services)
   })
 }
 
