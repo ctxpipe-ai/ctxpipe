@@ -261,7 +261,9 @@ describe("ingest tool bridge (Postgres, msw codesearch)", () => {
       expect(seen[0]?.path).toBe("/search")
       expect(seen[0]?.claims).toMatchObject({
         workspaceId,
-        workspaceRevisions: [{ repositoryId: "repo_context", sha: CONTEXT_SHA }],
+        workspaceRevisions: [
+          { repositoryId: "repo_context", sha: CONTEXT_SHA },
+        ],
       })
       expect(seen[0]?.claims).not.toHaveProperty("repositoryRevisions")
       expect(seen[0]?.body).not.toHaveProperty("RepoIDs")

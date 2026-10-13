@@ -89,9 +89,7 @@ export async function zoektSearchRepository(
         },
         body: JSON.stringify({
           Q,
-          ...(source || workspace
-            ? {}
-            : { RepoIDs: [repository.zoektRepoId] }),
+          ...(source || workspace ? {} : { RepoIDs: [repository.zoektRepoId] }),
           Opts: opts,
         }),
         signal: AbortSignal.timeout(ZOEKT_FETCH_TIMEOUT_MS),

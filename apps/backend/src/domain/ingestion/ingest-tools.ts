@@ -1,8 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto"
-import {
-  createToolBridgeCore,
-  handleBridgeJsonRpc,
-} from "@tanstack/ai-sandbox"
+import { createToolBridgeCore, handleBridgeJsonRpc } from "@tanstack/ai-sandbox"
 import { Hono } from "hono"
 import { z } from "zod"
 import {
@@ -15,7 +12,10 @@ import {
   isZoektSearchClientFailure,
   zoektSearchRepository,
 } from "../../tools/codesearchZoekt.js"
-import { COMPACT_SEARCH_OPTS, FULL_SEARCH_OPTS } from "../../tools/zoektCompact.js"
+import {
+  COMPACT_SEARCH_OPTS,
+  FULL_SEARCH_OPTS,
+} from "../../tools/zoektCompact.js"
 import {
   CODE_TOOLS,
   type CodeCheckout,
@@ -211,10 +211,7 @@ export function ingestTools(
             ...definition.inputSchema.properties,
             checkoutKey: CHECKOUT_KEY_SCHEMA,
           },
-          required: [
-            ...(definition.inputSchema.required ?? []),
-            "checkoutKey",
-          ],
+          required: [...(definition.inputSchema.required ?? []), "checkoutKey"],
         },
         execute: async (args, execution) => {
           execution?.abortSignal?.throwIfAborted()
