@@ -7,6 +7,7 @@ import {
   withCookieAuth,
   withNetworkOrgContext,
 } from "../../auth/withAuth.js"
+import { sandboxEgressDeniedRoutes } from "../../domain/workspaces/sandbox-egress-denied.js"
 import { workspaceChatToolBridgeRoutes } from "../../domain/workspaces/workspace-chat-callback.js"
 import { atlassianOauthCallbackRoutes } from "./atlassian-oauth-callback.js"
 import { orgCapabilitiesRoutes } from "./capabilities.js"
@@ -148,6 +149,8 @@ export function registerV1Routes(app: OpenAPIHono<AppEnv>): OrgScopedV1Rpc {
   app.route("/", workspaceChatOpenai)
   // Per-run tool bridges for remote (Vercel) sandboxes; bearer token per run.
   app.route("/", workspaceChatToolBridgeRoutes)
+  // Hosted ingest sandboxes: the firewall sends each request with no rule here.
+  app.route("/", sandboxEgressDeniedRoutes)
   app.route("/", orgScopedMounted)
   app.route("/", nonOrgScopedV1)
   return orgScopedMounted as unknown as OrgScopedV1Rpc
