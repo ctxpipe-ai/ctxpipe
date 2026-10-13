@@ -309,6 +309,8 @@ describe("extractLinear", () => {
         "    identifier: OPS-7",
         "  - type: related",
         "    identifier: ENG-125",
+        "  - type: related",
+        "    identifier: ENG-124",
         "  - type: similar",
         "    identifier: ENG-126",
         "  - type: unknown-kind",
@@ -332,8 +334,10 @@ describe("extractLinear", () => {
         ["iss:linear:ENG-124", "DEPENDS_ON", "iss:linear:ENG-123"],
         ["iss:linear:OPS-7", "SUPERSEDES", "iss:linear:ENG-123"],
         ["iss:linear:ENG-123", "REFERENCES", "iss:linear:ENG-125"],
-        ["iss:linear:ENG-123", "REFERENCES", "iss:linear:ENG-126"],
+        ["iss:linear:ENG-123", "REFERENCES", "iss:linear:ENG-124"],
       ])
+      const sourceIds = extractedClaims.map((claim) => claim.sourceId)
+      expect(new Set(sourceIds).size).toBe(sourceIds.length)
       for (const claim of extractedClaims) {
         expect(
           isConventionalEvidenceSourceId(claim.sourceId, "repo_ctx", "abc"),

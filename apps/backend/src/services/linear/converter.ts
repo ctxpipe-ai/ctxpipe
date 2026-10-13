@@ -35,6 +35,9 @@ export type LinearResolvedAsset =
       reason: string
     }
 
+/** A relation an issue owns: Linear `type` and the related issue identifier. */
+export type LinearIssueRelation = { type: string; identifier: string }
+
 export type LinearIssueForMirror = {
   id: string
   identifier: string
@@ -55,8 +58,7 @@ export type LinearIssueForMirror = {
   parentId?: string | null
   milestone?: string | null
   milestoneId?: string | null
-  /** Relations this issue owns: Linear `type` and the related issue identifier. */
-  relations?: Array<{ type: string; identifier: string }>
+  relations?: LinearIssueRelation[]
   assigneeId?: string | null
   assignee?: string | null
   creatorId?: string | null

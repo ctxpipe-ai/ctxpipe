@@ -1,5 +1,6 @@
 import { HttpResponse, type HttpResponseInit, http } from "msw"
 import type { SetupServer } from "msw/node"
+import type { LinearIssueRelation } from "../src/services/linear/converter.js"
 
 export type LinearGraphqlCall = {
   name: string
@@ -108,7 +109,7 @@ export function linearIssueData(
     parent?: { id: string; identifier: string } | null
     projectMilestone?: { id: string; name: string } | null
     relations?: {
-      nodes: Array<{ type: string; identifier: string }>
+      nodes: LinearIssueRelation[]
       hasNextPage?: boolean
       endCursor?: string | null
     }
@@ -199,10 +200,7 @@ export function linearIssueData(
   }
 }
 
-export function linearRelationData(relation: {
-  type: string
-  identifier: string
-}) {
+export function linearRelationData(relation: LinearIssueRelation) {
   return {
     type: relation.type,
     relatedIssue: {

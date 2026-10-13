@@ -10,6 +10,7 @@ import {
   parseGithubPullRequestUrl,
   pullRequestDedupKey,
 } from "../../../domain/codeIngestion/referenceResolver.js"
+import type { LinearIssueRelation } from "../../../services/linear/converter.js"
 import type {
   CodeIngestionState,
   ExtractedClaim,
@@ -57,8 +58,7 @@ export type ParsedLinearIssue = {
   milestone: string | null
   /** Parent issue identifier. */
   parent: string | null
-  /** Relations this issue owns: Linear `type` and the related issue identifier. */
-  relations: Array<{ type: string; identifier: string }>
+  relations: LinearIssueRelation[]
   labels: string[]
   createdAt: string | null
   updatedAt: string | null
@@ -179,7 +179,8 @@ function teamObject(input: {
 /**
  * A Linear relation that issue `self` owns, as `[subject, predicate, object]`:
  * `blocks` makes the other issue depend on `self`, `duplicate` makes the other
- * issue supersede `self`, and `related` / `similar` are references.
+ * issue supersede `self`, and `related` is a reference. Linear suggests
+ * `similar` relations itself, so they are skipped like unknown types.
  */
 function relationTriple(
   type: string,
@@ -192,7 +193,6 @@ function relationTriple(
     case "duplicate":
       return [other, "SUPERSEDES", self]
     case "related":
-    case "similar":
       return [self, "REFERENCES", other]
     default:
       return null
@@ -265,11 +265,11 @@ export async function extractLinear(
   const objects: ExtractedObject[] = []
   const claims: ExtractedClaim[] = []
   const repositoryIds: RepositoryIdCache = new Map()
-  const sourceId = (path: string, predicate: string, target: string) =>
+  const sourceId = (path: string, predicate: string, ...targets: string[]) =>
     buildEvidenceSourceId({
       extractor: "linearIssue",
       repositoryId: state.repositoryId,
-      segments: [path, predicate, target],
+      segments: [path, predicate, ...targets],
       targetHash: state.targetHash,
     })
 
@@ -330,41 +330,42 @@ export async function extractLinear(
       })
     }
 
+    /** `target` is the other issue of this file's link; `relation` its Linear type. */
+    const issueLink = (
+      [subject, predicate, object]: [
+        string,
+        "PART_OF" | "DEPENDS_ON" | "SUPERSEDES" | "REFERENCES",
+        string,
+      ],
+      target: string,
+      relation?: string,
+    ): ExtractedClaim => ({
+      subjectRef: issueDedupKey(subject),
+      subjectKind: "Issue",
+      objectRef: issueDedupKey(object),
+      objectKind: "Issue",
+      predicate,
+      sourceId: relation
+        ? sourceId(path, predicate, relation, target)
+        : sourceId(path, predicate, target),
+      sourceType: "git",
+      extractionMethod: "deterministic",
+      confidence: 0.95,
+      provenance: relation ? { path, relation } : { path },
+    })
     if (parsed.parent) {
-      claims.push({
-        subjectRef: issueKey,
-        subjectKind: "Issue",
-        objectRef: issueDedupKey(parsed.parent),
-        objectKind: "Issue",
-        predicate: "PART_OF",
-        sourceId: sourceId(path, "PART_OF", parsed.parent),
-        sourceType: "git",
-        extractionMethod: "deterministic",
-        confidence: 0.95,
-        provenance: { path },
-      })
+      claims.push(
+        issueLink([parsed.identifier, "PART_OF", parsed.parent], parsed.parent),
+      )
     }
-
     for (const relation of parsed.relations) {
       const triple = relationTriple(
         relation.type,
         parsed.identifier,
         relation.identifier,
       )
-      if (!triple) continue
-      const [subject, predicate, object] = triple
-      claims.push({
-        subjectRef: issueDedupKey(subject),
-        subjectKind: "Issue",
-        objectRef: issueDedupKey(object),
-        objectKind: "Issue",
-        predicate,
-        sourceId: sourceId(path, predicate, relation.identifier),
-        sourceType: "git",
-        extractionMethod: "deterministic",
-        confidence: 0.95,
-        provenance: { path, relation: relation.type },
-      })
+      if (triple)
+        claims.push(issueLink(triple, relation.identifier, relation.type))
     }
 
     for (const reference of parsed.githubPullRequests) {

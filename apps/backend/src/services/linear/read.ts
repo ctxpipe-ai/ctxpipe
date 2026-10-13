@@ -1,6 +1,6 @@
 import type { TypedDocumentNode } from "@graphql-typed-document-node/core"
 import type { LinearClient } from "@linear/sdk"
-import type { LinearIssueForMirror } from "./converter.js"
+import type { LinearIssueForMirror, LinearIssueRelation } from "./converter.js"
 import type {
   LinearActorFragment,
   LinearAttachmentNodeFragment,
@@ -213,7 +213,7 @@ export type LinearFollowPage =
     }
   | {
       connection: "issue-relations"
-      relations: NonNullable<LinearIssueForMirror["relations"]>
+      relations: LinearIssueRelation[]
       nextAfter: string | null
     }
   | {
@@ -883,7 +883,7 @@ function mapUpdate(update: {
 function mapRelation(relation: {
   type: string
   relatedIssue: { identifier: string }
-}): { type: string; identifier: string } {
+}): LinearIssueRelation {
   return { type: relation.type, identifier: relation.relatedIssue.identifier }
 }
 
