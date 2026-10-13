@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto"
-import { and, eq } from "drizzle-orm"
+import { and, eq, inArray } from "drizzle-orm"
 import { Hono } from "hono"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../test/db.js"
@@ -7,11 +7,14 @@ import type { AppEnv } from "../app/env.js"
 import { parseEnv } from "../config/env.js"
 import { getSystemDb } from "../db/client.js"
 import {
+  members,
   oauthAccessTokens,
   oauthClients,
   oauthConsents,
+  organizations,
 } from "../db/schema/auth.js"
 import { oauthGrantOrganizations } from "../db/schema/oauth_grant_organizations.js"
+import { generateObjectId } from "../lib/id.js"
 import { registerAuthRoutes } from "../routes/auth.js"
 import {
   contextStorage,
@@ -29,17 +32,48 @@ describe("OAuth grant consent flow (Postgres)", () => {
   let seed: SeededOrg | undefined
   let base = ""
   const redirectUri = "http://localhost:4567/callback"
+  // Org B: the seed user is a member. Org C: the seed user is not a member.
+  const suffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
+  const orgB = generateObjectId("org")
+  const orgC = generateObjectId("org")
 
   beforeAll(async () => {
     if (!process.env.DATABASE_URL) {
       throw new Error("DATABASE_URL is required for this integration test")
     }
     seed = await seedOrg()
+    const db = getSystemDb()
+    await db.insert(organizations).values([
+      {
+        id: orgB,
+        name: `Consent B ${suffix}`,
+        slug: `consent-b-${suffix}`,
+        createdAt: new Date(),
+      },
+      {
+        id: orgC,
+        name: `Consent C ${suffix}`,
+        slug: `consent-c-${suffix}`,
+        createdAt: new Date(),
+      },
+    ])
+    await db.insert(members).values({
+      id: generateObjectId("member"),
+      organizationId: orgB,
+      userId: seed.userId,
+      role: "member",
+      createdAt: new Date(),
+    })
     base = `${parseEnv(process.env as Record<string, string | undefined>).AUTH_BASE_URL.replace(/\/$/, "")}/.auth/api/v1/auth`
   })
 
   afterAll(async () => {
-    if (seed) await cleanupSeededOrg(seed)
+    if (seed) {
+      await getSystemDb()
+        .delete(organizations)
+        .where(inArray(organizations.id, [orgB, orgC]))
+      await cleanupSeededOrg(seed)
+    }
   })
 
   function createApp() {
@@ -118,19 +152,23 @@ describe("OAuth grant consent flow (Postgres)", () => {
     return redirectOf(response)
   }
 
-  async function consent(consentUrl: URL, organizationId: string) {
-    const response = await createApp().request(`${base}/oauth2/consent`, {
+  /** `organizationIds`: the ticked orgs, comma-separated in one header. */
+  function consentRequest(consentUrl: URL, organizationIds: string) {
+    return createApp().request(`${base}/oauth2/consent`, {
       method: "POST",
       headers: headers({
         "content-type": "application/json",
-        "x-ctxpipe-oauth-organization": organizationId,
+        "x-ctxpipe-oauth-organization": organizationIds,
       }),
       body: JSON.stringify({
         accept: true,
         oauth_query: consentUrl.search.slice(1),
       }),
     })
-    return redirectOf(response)
+  }
+
+  async function consent(consentUrl: URL, organizationIds: string) {
+    return redirectOf(await consentRequest(consentUrl, organizationIds))
   }
 
   async function token(clientId: string, code: string, verifier: string) {
@@ -204,6 +242,61 @@ describe("OAuth grant consent flow (Postgres)", () => {
       await getSystemDb()
         .delete(oauthGrantOrganizations)
         .where(eq(oauthGrantOrganizations.organizationId, orgId))
+      await getSystemDb()
+        .delete(oauthClients)
+        .where(eq(oauthClients.clientId, clientId))
+    }
+  })
+
+  async function grantOrgIdsOf(grantId: string): Promise<string[]> {
+    const rows = await getSystemDb()
+      .select({ organizationId: oauthGrantOrganizations.organizationId })
+      .from(oauthGrantOrganizations)
+      .where(eq(oauthGrantOrganizations.grantId, grantId))
+    return rows.map((row) => row.organizationId).sort()
+  }
+
+  it("sets the grant to exactly the orgs that the consent ticks", async () => {
+    const orgA = seed?.orgId ?? ""
+    const clientId = await registerClient()
+    let grantId = ""
+    try {
+      const flow = pkce()
+      const consentUrl = await authorize(clientId, flow.challenge)
+      const callback = await consent(consentUrl, `${orgA}, ${orgB}`)
+      const issued = await token(
+        clientId,
+        callback.searchParams.get("code") ?? "",
+        flow.verifier,
+      )
+      grantId = (await accessTokenReference(issued.access_token)) ?? ""
+      expect(isOAuthGrantId(grantId)).toBe(true)
+      expect(await grantOrgIdsOf(grantId)).toEqual([orgA, orgB].sort())
+    } finally {
+      await getSystemDb()
+        .delete(oauthGrantOrganizations)
+        .where(eq(oauthGrantOrganizations.grantId, grantId))
+      await getSystemDb()
+        .delete(oauthClients)
+        .where(eq(oauthClients.clientId, clientId))
+    }
+  })
+
+  it("refuses a consent that ticks an org the user is not a member of, and makes no grant", async () => {
+    const orgA = seed?.orgId ?? ""
+    const clientId = await registerClient()
+    try {
+      const flow = pkce()
+      const consentUrl = await authorize(clientId, flow.challenge)
+      const response = await consentRequest(consentUrl, `${orgA},${orgC}`)
+      expect(response.status).toBe(400)
+      expect(await grantRowsForOrg(orgC)).toEqual([])
+      const consents = await getSystemDb()
+        .select({ id: oauthConsents.id })
+        .from(oauthConsents)
+        .where(eq(oauthConsents.clientId, clientId))
+      expect(consents).toEqual([])
+    } finally {
       await getSystemDb()
         .delete(oauthClients)
         .where(eq(oauthClients.clientId, clientId))

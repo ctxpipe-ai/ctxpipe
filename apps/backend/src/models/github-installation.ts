@@ -31,6 +31,7 @@ import {
   type ConnectionRow,
   type GitHubInstallationShape,
   githubConnectionToShape,
+  githubRowHasOwnApp,
   githubShapeToConfig,
   mergeGithubConnectionConfig,
 } from "./connection-rows.js"
@@ -543,11 +544,14 @@ export async function orgHasAnyGithubConnection(
  * Connections a GitHub webhook for `githubInstallationId` reaches. A
  * connection-specific webhook reaches only that connection. The deployment
  * webhook reaches only connections that use the deployment's App: a
- * connection with its own App credentials gets events from its own endpoint.
+ * connection with credentials of another App gets events from its own
+ * endpoint. A stored copy of the deployment App's credentials is the
+ * deployment's App.
  */
 export async function listInstallationsByGithubInstallationId(
   githubInstallationId: number,
-  githubConnectionId?: string,
+  githubConnectionId: string | undefined,
+  env: Env,
 ): Promise<GitHubInstallationShape[]> {
   const directoryRows =
     await listConnectionDirectoryByGithubInstallationId(githubInstallationId)
@@ -558,18 +562,11 @@ export async function listInstallationsByGithubInstallationId(
   )
   return rows
     .filter((row): row is ConnectionRow => row?.type === CONNECTION_TYPE_GITHUB)
-    .filter((row) => {
-      if (githubConnectionId) return row.id === githubConnectionId
-      const stored = parseGithubConnectionStored(
-        row.config as Record<string, unknown>,
-      )
-      return !(
-        stored.githubAppId &&
-        stored.appSlug &&
-        stored.privateKeyEnc &&
-        stored.webhookSecretEnc
-      )
-    })
+    .filter((row) =>
+      githubConnectionId
+        ? row.id === githubConnectionId
+        : !githubRowHasOwnApp(row, env),
+    )
     .map(githubConnectionToShape)
 }
 

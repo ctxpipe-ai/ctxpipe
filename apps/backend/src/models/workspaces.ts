@@ -366,7 +366,11 @@ export type WorkspaceProjectionSnapshot = {
     checkoutKey: string
   }>
   units: Array<
-    HydrateUnit & { projectionSha: string; embedding: number[] | null }
+    HydrateUnit & {
+      projectionSha: string
+      /** The unit has chunks, and each chunk has an embedding. */
+      embedded: boolean
+    }
   >
   /** A unit of the active projection with text has no chunk rows (made before chunks existed). */
   chunksMissing: boolean
@@ -405,7 +409,16 @@ async function readWorkspaceProjectionSnapshot(
             'links', ${qualified(workspaceKnowledgeUnits.links)},
             'claims', ${qualified(workspaceKnowledgeUnits.claims)},
             'projectionSha', ${qualified(workspaceKnowledgeUnits.projectionSha)},
-            'embedding', ${qualified(workspaceKnowledgeUnits.embedding)}
+            'embedded', exists (
+              select 1 from ${workspaceKnowledgeChunks} as c
+              where c.workspace_id = ${qualified(workspaceKnowledgeUnits.workspaceId)}
+                and c.unit_id = ${qualified(workspaceKnowledgeUnits.servingId)}
+            ) and not exists (
+              select 1 from ${workspaceKnowledgeChunks} as c
+              where c.workspace_id = ${qualified(workspaceKnowledgeUnits.workspaceId)}
+                and c.unit_id = ${qualified(workspaceKnowledgeUnits.servingId)}
+                and c.embedding is null
+            )
           ) order by ${qualified(workspaceKnowledgeUnits.path)})
           from ${workspaceKnowledgeUnits}
           where ${qualified(workspaceKnowledgeUnits.workspaceId)} = ${qualified(workspaces.id)}
@@ -1959,11 +1972,10 @@ export async function embedKnowledgeChunks(input: {
 }
 
 /**
- * Publish unit embeddings for the active revision: each unit takes the mean of
- * its chunk embeddings, so units need no model calls of their own. Refuses to
- * mark embeddings ready while a chunk has no embedding or a unit has no chunk.
+ * Mark the embeddings of the active revision ready. Refuses while a chunk has
+ * no embedding or a unit with text has no chunk.
  */
-export async function persistUnitEmbeddings(input: {
+export async function markKnowledgeEmbeddingsReady(input: {
   revision: WorkspaceRevision
 }): Promise<boolean> {
   return orgSql(() =>
@@ -1991,16 +2003,6 @@ export async function persistUnitEmbeddings(input: {
       ).rows
       if (incomplete?.incomplete)
         throw new Error("Knowledge chunks are not all embedded")
-      await tx.execute(sql`
-        UPDATE workspace_knowledge_units AS u
-        SET embedding = (
-          SELECT to_jsonb(avg(c.embedding)::real[])
-          FROM workspace_knowledge_chunks AS c
-          WHERE c.workspace_id = u.workspace_id AND c.unit_id = u.serving_id
-        )
-        WHERE u.workspace_id = ${input.revision.workspaceId}
-          AND u.projection_sha = ${input.revision.sha}
-      `)
       await tx
         .update(workspaces)
         .set({

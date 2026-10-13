@@ -31,10 +31,10 @@ import { invitationEmailLink } from "./invitation-email-url.js"
 import { MCP_READ_SCOPE, MCP_WRITE_SCOPE } from "./mcp-scopes.js"
 import { resolveOAuthGrantReference } from "./oauth-grants.js"
 import {
-  getOAuthConsentOrganizationId,
+  getOAuthConsentOrganizationIds,
   getOAuthRequestClientId,
   oauthAccessTokenClaims,
-  resolveOAuthConsentOrganizationId,
+  resolveOAuthConsentOrganizationIds,
   selectOAuthOrganizationBinding,
 } from "./oauth-organization.js"
 
@@ -384,15 +384,15 @@ export function createBetterAuth() {
               db,
               user.id,
             )
-            const submittedOrganizationId = getOAuthConsentOrganizationId()
-            const organizationId = resolveOAuthConsentOrganizationId(
+            const submittedOrganizationIds = getOAuthConsentOrganizationIds()
+            const organizationIds = resolveOAuthConsentOrganizationIds(
               membershipIds,
               typeof session.activeOrganizationId === "string"
                 ? session.activeOrganizationId
                 : null,
-              submittedOrganizationId,
+              submittedOrganizationIds,
             )
-            if (!organizationId) {
+            if (!organizationIds) {
               throw new APIError("BAD_REQUEST", {
                 error: "organization_required",
                 error_description:
@@ -402,8 +402,8 @@ export function createBetterAuth() {
             return resolveOAuthGrantReference({
               userId: user.id,
               clientId: getOAuthRequestClientId(),
-              organizationId,
-              consent: submittedOrganizationId !== undefined,
+              organizationIds,
+              consent: submittedOrganizationIds !== undefined,
             })
           },
         },

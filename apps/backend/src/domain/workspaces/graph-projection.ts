@@ -8,12 +8,15 @@ import {
   getWorkspaceProjectionSnapshot,
   persistWorkspaceGraphResult,
 } from "../../models/workspaces.js"
+import { log } from "../../observability/logger.js"
 import {
+  type GraphClient,
   getConfig,
   getGraphClient,
   withGraphClient,
 } from "../../platform/graph/client.js"
-import { hydrateUnitsToProjectionClaims } from "./hydrate.js"
+import { ensureWorkspaceGraphIndexes } from "../../platform/graph/indexes.js"
+import { type HydrateUnit, hydrateUnitsToProjectionClaims } from "./hydrate.js"
 import {
   type PublishedProjection,
   publishedProjection,
@@ -26,9 +29,22 @@ import {
   workspaceGraphNodes,
 } from "./workspace-graph.js"
 
+/**
+ * Increase this number when the node or edge shape changes. A new version
+ * gives each revision a new key, so a ready revision has no graph under its
+ * key. The graph read then starts a rebuild, which projects it again.
+ * Version 2 adds `path`, `degree`, `inDegree`, and `outDegree` to each node.
+ */
+const workspaceGraphProjectionVersion = 2
+
 export function workspaceGraphRevisionKey(revision: WorkspaceRevision): string {
   return createHash("sha256")
-    .update(JSON.stringify(workspaceRevisionSchema.parse(revision)))
+    .update(
+      JSON.stringify({
+        projectionVersion: workspaceGraphProjectionVersion,
+        revision: workspaceRevisionSchema.parse(revision),
+      }),
+    )
     .digest("hex")
 }
 
@@ -41,6 +57,73 @@ SET r.predicate = claim.predicate, r.confidence = claim.aggregatedConfidence,
     r.validFrom = claim.validFrom, r.validTo = claim.validTo,
     r.source = claim.source, r.lastObservedAt = claim.lastObservedAt`
 
+/**
+ * Write the complete graph of one revision. The graph does not depend on the
+ * order of the units, and a second write of the same revision replaces the first.
+ * Readers that need a stable order sort by id in Cypher.
+ */
+export async function writeWorkspaceRevisionGraph(
+  graph: GraphClient,
+  input: { revision: WorkspaceRevision; units: readonly HydrateUnit[] },
+): Promise<void> {
+  const { revision, units } = input
+  const projectionKey = workspaceGraphRevisionKey(revision)
+  // An index makes the claim write fast, but the graph is correct without it.
+  await ensureWorkspaceGraphIndexes(graph, getConfig().provider).catch(
+    (error: unknown) =>
+      log.warn({
+        event: "workspace_graph_index_failed",
+        workspaceId: revision.workspaceId,
+        message: error instanceof Error ? error.message : String(error),
+      }),
+  )
+  // Write the revision graph clean. A rebuild after a partial or lost graph
+  // must not keep stale nodes, or the read count check never matches.
+  await graph.executeQuery(
+    "MATCH (p:WorkspaceProjection {projectionKey: $projectionKey}) DELETE p",
+    { projectionKey },
+  )
+  await graph.executeQuery(
+    "MATCH (n:WorkspaceKnowledgeUnit {projectionKey: $projectionKey}) DETACH DELETE n",
+    { projectionKey },
+  )
+  const nodes = workspaceGraphNodes(units)
+  if (nodes.length)
+    await graph.executeQuery(
+      `UNWIND $nodes AS node
+      MERGE (n:WorkspaceKnowledgeUnit {projectionKey: $projectionKey, id: node.id})
+      SET n.workspaceId = $workspaceId, n.kind = node.kind, n.name = node.name, n.summary = node.summary, n.path = node.path`,
+      { projectionKey, workspaceId: revision.workspaceId, nodes },
+    )
+  const claims = hydrateUnitsToProjectionClaims(units)
+  if (claims.length)
+    await graph.executeQuery(workspaceClaimsQuery, { projectionKey, claims })
+  // Count the edges that the graph holds. A claim without a target unit
+  // writes no edge, so it does not count.
+  if (nodes.length)
+    await graph.executeQuery(
+      `MATCH (n:WorkspaceKnowledgeUnit {projectionKey: $projectionKey})
+      OPTIONAL MATCH (n)-[o:WorkspaceSignal {projectionKey: $projectionKey}]->()
+      WITH n, count(o) AS outDegree
+      OPTIONAL MATCH (n)<-[i:WorkspaceSignal {projectionKey: $projectionKey}]-()
+      WITH n, outDegree, count(i) AS inDegree
+      SET n.outDegree = outDegree, n.inDegree = inDegree, n.degree = outDegree + inDegree`,
+      { projectionKey },
+    )
+  await graph.executeQuery(
+    `MERGE (p:WorkspaceProjection {projectionKey: $projectionKey})
+      SET p.workspaceId = $workspaceId, p.revision = $revision, p.nodeCount = $nodeCount, p.claimCount = $claimCount, p.completedAt = $completedAt`,
+    {
+      projectionKey,
+      workspaceId: revision.workspaceId,
+      revision: JSON.stringify(revision),
+      nodeCount: nodes.length,
+      claimCount: claims.length,
+      completedAt: new Date().toISOString(),
+    },
+  )
+}
+
 /** Build the derived graph from a captured PostgreSQL projection, never by parsing Git again. */
 export async function projectWorkspaceGraph(
   revision: WorkspaceRevision,
@@ -52,61 +135,37 @@ export async function projectWorkspaceGraph(
     !sameWorkspaceRevision(projection.revision, revision)
   )
     return false
-  const orgId = requireCurrentOrgId()
-  const orgSlug = requireCurrentOrgSlug()
-  const projectionKey = workspaceGraphRevisionKey(revision)
-  await withGraphClient({ orgId, orgSlug }, async () => {
-    const graph = getGraphClient()
-    // Each claim finds its two units by projectionKey and id. Without this
-    // index, a large repository keeps FalkorDB busy for many minutes.
-    // This statement is FalkorDB syntax. Neptune openCypher has no CREATE INDEX.
-    if (getConfig().provider === "falkordb")
-      await graph
-        .executeQuery(
-          "CREATE INDEX FOR (n:WorkspaceKnowledgeUnit) ON (n.projectionKey, n.id)",
-        )
-        .catch((error: unknown) => {
-          // FalkorDB has no IF NOT EXISTS. A second create gives this error.
-          if (!/already indexed/i.test(String(error))) throw error
-        })
-    // Write the revision graph clean. A rebuild after a partial or lost graph
-    // must not keep stale nodes, or the read count check never matches.
-    await graph.executeQuery(
-      "MATCH (p:WorkspaceProjection {projectionKey: $projectionKey}) DELETE p",
-      { projectionKey },
+  await withGraphClient(
+    { orgId: requireCurrentOrgId(), orgSlug: requireCurrentOrgSlug() },
+    () =>
+      writeWorkspaceRevisionGraph(getGraphClient(), {
+        revision,
+        units: snapshot.units,
+      }),
+  )
+  return persistWorkspaceGraphResult({ revision, result: { kind: "ready" } })
+}
+
+/** True when the graph store holds a complete graph for the revision. */
+export async function hasWorkspaceGraph(input: {
+  orgId: string
+  orgSlug: string
+  revision: WorkspaceRevision
+}): Promise<boolean> {
+  return withGraphClient(input, async () => {
+    const marker = await getGraphClient().executeQuery(
+      "MATCH (p:WorkspaceProjection {projectionKey: $projectionKey}) RETURN p.nodeCount AS nodeCount, p.claimCount AS claimCount, p.completedAt AS completedAt",
+      { projectionKey: workspaceGraphRevisionKey(input.revision) },
     )
-    await graph.executeQuery(
-      "MATCH (n:WorkspaceKnowledgeUnit {projectionKey: $projectionKey}) DETACH DELETE n",
-      { projectionKey },
-    )
-    const nodes = workspaceGraphNodes(snapshot.units)
-    if (nodes.length)
-      await graph.executeQuery(
-        `UNWIND $nodes AS node
-        MERGE (n:WorkspaceKnowledgeUnit {projectionKey: $projectionKey, id: node.id})
-        SET n.workspaceId = $workspaceId, n.kind = node.kind, n.name = node.name, n.summary = node.summary`,
-        { projectionKey, workspaceId: revision.workspaceId, nodes },
-      )
-    const claims = hydrateUnitsToProjectionClaims(snapshot.units)
-    if (claims.length)
-      await graph.executeQuery(workspaceClaimsQuery, {
-        projectionKey,
-        claims,
-      })
-    await graph.executeQuery(
-      `MERGE (p:WorkspaceProjection {projectionKey: $projectionKey})
-        SET p.workspaceId = $workspaceId, p.revision = $revision, p.nodeCount = $nodeCount, p.claimCount = $claimCount, p.completedAt = $completedAt`,
-      {
-        projectionKey,
-        workspaceId: revision.workspaceId,
-        revision: JSON.stringify(revision),
-        nodeCount: nodes.length,
-        claimCount: claims.length,
-        completedAt: new Date().toISOString(),
-      },
+    const record = marker.records[0]
+    // The read path needs the same three fields; a marker without them is lost.
+    return (
+      record !== undefined &&
+      z.number().safeParse(record.get("nodeCount")).success &&
+      z.number().safeParse(record.get("claimCount")).success &&
+      z.string().safeParse(record.get("completedAt")).success
     )
   })
-  return persistWorkspaceGraphResult({ revision, result: { kind: "ready" } })
 }
 
 export class WorkspaceGraphUnavailableError extends Error {

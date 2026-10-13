@@ -23,6 +23,7 @@ import {
   workspaces,
 } from "../../db/schema/workspaces.js"
 import { generateObjectId } from "../../lib/id.js"
+import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import {
   BASE_BUILD_LEASE_MS,
   countRunningSandboxes,
@@ -276,7 +277,10 @@ async function withGitRemote<T>(
 async function queuedBaseBuilds(workspaceId: string): Promise<number> {
   const url = process.env.DATABASE_URL
   if (!url) throw new Error("DATABASE_URL is required")
-  const backend = await BackendPostgres.connect(url, { runMigrations: false })
+  const backend = await BackendPostgres.connect(url, {
+    namespaceId: openWorkflowNamespaceId(),
+    runMigrations: false,
+  })
   try {
     return (await backend.listWorkflowRuns({ limit: 1000 })).data.filter(
       (run) =>

@@ -6,9 +6,7 @@ import {
   getWorkspaceProjectionSnapshot,
   type WorkspaceProjectionSnapshot,
 } from "../../models/workspaces.js"
-import { hybridSearch } from "../../retrieval/index.js"
 import { codeSearch } from "../../retrieval/services/codeSearch.js"
-import { generateEmbedding } from "../../retrieval/services/modelProvider.js"
 import { listRepositoriesTool } from "../../tools/listRepositories.js"
 import {
   CODE_TOOLS,
@@ -19,13 +17,12 @@ import {
   runCodeTool,
   stringArg,
 } from "./code-tools.js"
-import { readWorkspaceGraph } from "./graph-projection.js"
-import { type PublishedProjection, publishedProjection } from "./revision.js"
 import {
-  formatWorkspaceChatHits,
-  type WorkspaceChatUnit,
-  workspaceChatHybridHits,
-} from "./workspace-chat-retrieval.js"
+  readOrRebuildWorkspaceGraph,
+  WorkspaceGraphBuildingError,
+} from "./graph-rebuild.js"
+import { searchKnowledge } from "./knowledge-search.js"
+import { type PublishedProjection, publishedProjection } from "./revision.js"
 import type { WorkspaceGraphPayload } from "./workspace-graph.js"
 
 export type WorkspaceChatTanstackTool = {
@@ -64,11 +61,6 @@ export async function workspaceChatTools(input: {
   orgSlug: string
   workspaceId: string
   snapshot: WorkspaceProjectionSnapshot
-  embedQuery?: (query: string) => Promise<number[]>
-  searchObjects?: (
-    query: string,
-    embedding: number[],
-  ) => Promise<Array<{ objectId: string }>>
 }): Promise<WorkspaceChatTanstackTool[]> {
   const projection = publishedProjection(input.snapshot.projection)
   if (!projection) return []
@@ -77,7 +69,7 @@ export async function workspaceChatTools(input: {
   const boundRepositories = input.snapshot.repositories
   const allowed = new Set(boundRepositories.map((repo) => repo.id))
   const loadGraph = () =>
-    readWorkspaceGraph({
+    readOrRebuildWorkspaceGraph({
       orgId: input.orgId,
       orgSlug: input.orgSlug,
       projection,
@@ -98,9 +90,9 @@ export async function workspaceChatTools(input: {
   )
   tools.unshift(
     hybridSearchTool({
-      ...input,
+      orgId: input.orgId,
+      workspaceId: input.workspaceId,
       activeProjectionSha: sha,
-      loadUnits: async () => input.snapshot.units,
     }),
   )
   tools.push(
@@ -112,13 +104,8 @@ export async function workspaceChatTools(input: {
 
 function hybridSearchTool(input: {
   orgId: string
-  loadUnits: () => Promise<WorkspaceChatUnit[]>
-  activeProjectionSha: string | null
-  embedQuery?: (query: string) => Promise<number[]>
-  searchObjects?: (
-    query: string,
-    embedding: number[],
-  ) => Promise<Array<{ objectId: string }>>
+  workspaceId: string
+  activeProjectionSha: string
 }): WorkspaceChatTanstackTool {
   return {
     ...HYBRID_SEARCH_DEFINITION,
@@ -129,35 +116,25 @@ function hybridSearchTool(input: {
         typeof (args as { query?: unknown }).query === "string"
           ? (args as { query: string }).query
           : ""
-      if (!query.trim() || !input.activeProjectionSha) {
-        return "No active Workspace projection."
-      }
-      const units = await input.loadUnits()
-      let embedding: number[] | null = null
-      let objectHits: Array<{ objectId: string }> = []
-      if (input.embedQuery) {
-        try {
-          embedding = await input.embedQuery(query)
-          if (input.searchObjects && embedding) {
-            objectHits = await input.searchObjects(query, embedding)
-          }
-        } catch {
-          embedding = null
-        }
-      }
-      const hits = workspaceChatHybridHits({
+      if (!query.trim()) return "No search query."
+      const hits = await searchKnowledge({
+        orgId: input.orgId,
+        workspaceIds: [input.workspaceId],
         query,
-        activeProjectionSha: input.activeProjectionSha,
-        units,
-        embedding,
-        objectHits,
+        limit: 8,
       })
-      return (
-        formatWorkspaceChatHits({
-          activeProjectionSha: input.activeProjectionSha,
-          hits,
-        }) || "No matching knowledge in the active projection."
-      )
+      if (hits.length === 0)
+        return "No matching knowledge in the active projection."
+      return [
+        `Workspace projection context (${input.activeProjectionSha}):`,
+        ...hits.map((hit) => {
+          const claims = hit.claims
+            .map((claim) => `- ${claim.predicate ?? "related"} ${claim.to}`)
+            .join("\n")
+          // `Node` is the id that graph_lookup and graph_neighbors take.
+          return `## ${hit.path} (lines ${hit.startLine}-${hit.endLine})\nNode: ${hit.unitId}\n${hit.text.trim().slice(0, 1200)}${claims ? `\nClaims:\n${claims}` : ""}`
+        }),
+      ].join("\n\n")
     },
   }
 }
@@ -235,11 +212,11 @@ function graphLookupTool(input: {
     execute: async (args) => {
       const nodeId = stringArg(args, "nodeId")
       if (!nodeId) return toToon({ error: "nodeId_required" })
+      const graph = await loadGraphOrRetry(input.loadGraph)
+      if (!("nodes" in graph)) return toToon(graph)
       return toToon({
         projectionSha: input.sha,
-        node:
-          (await input.loadGraph()).nodes.find((node) => node.id === nodeId) ??
-          null,
+        node: graph.nodes.find((node) => node.id === nodeId) ?? null,
       })
     },
   }
@@ -262,7 +239,8 @@ function graphNeighborsTool(input: {
         typeof limitRaw === "number" && Number.isFinite(limitRaw)
           ? Math.min(50, Math.max(1, Math.floor(limitRaw)))
           : 20
-      const graph = await input.loadGraph()
+      const graph = await loadGraphOrRetry(input.loadGraph)
+      if (!("nodes" in graph)) return toToon(graph)
       const neighbors = graph.edges
         .filter((edge) => edge.sourceId === nodeId || edge.targetId === nodeId)
         .slice(0, limit)
@@ -280,10 +258,26 @@ function graphNeighborsTool(input: {
   }
 }
 
+/** A graph that is being built gives the model a retry message, not an error. */
+async function loadGraphOrRetry(
+  loadGraph: () => Promise<WorkspaceGraphPayload>,
+): Promise<WorkspaceGraphPayload | { error: string; message: string }> {
+  try {
+    return await loadGraph()
+  } catch (error) {
+    if (!(error instanceof WorkspaceGraphBuildingError)) throw error
+    return {
+      error: "graph_building",
+      message:
+        "The Workspace graph is being built. Use the other tools now, and try the graph tools again in a few minutes.",
+    }
+  }
+}
+
 const HYBRID_SEARCH_DEFINITION: Omit<WorkspaceChatTanstackTool, "execute"> = {
   name: "hybrid_search",
   description:
-    "Search this Workspace's active projection (Postgres knowledge and claims). Input: { query }.",
+    "Search the knowledge of this Workspace's active projection (full text and meaning). Each hit is the best section of a file, with its line range. Input: { query }.",
   inputSchema: {
     type: "object",
     properties: { query: { type: "string", minLength: 1 } },
@@ -343,9 +337,6 @@ export const WORKSPACE_CHAT_TOOLS: WorkspaceChatTanstackTool[] = [
     const tools = await workspaceChatTools({
       ...scope,
       snapshot,
-      embedQuery: generateEmbedding,
-      searchObjects: (query, embedding) =>
-        hybridSearch(scope.orgId, { embedding, query }, { limit: 20 }),
     })
     const tool = tools.find((tool) => tool.name === definition.name)
     if (!tool)
