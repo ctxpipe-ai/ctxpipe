@@ -1,7 +1,8 @@
 import { createHash, randomBytes } from "node:crypto"
+import { readdir, readFile } from "node:fs/promises"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
-import { eq } from "drizzle-orm"
+import { eq, sql } from "drizzle-orm"
 import { evlog } from "evlog/hono"
 import { Hono } from "hono"
 import { contextStorage } from "hono/context-storage"
@@ -26,6 +27,16 @@ import { withTestRequestLogger } from "../test/hono-test-logger.js"
 import { registerAuthRoutes } from "./auth.js"
 
 const WRITE_TOOL = "scope_test_write"
+
+/** SQL of the data migration that gives old OAuth clients the MCP scopes. */
+async function migrationSql(): Promise<string> {
+  const dir = new URL("../../migrations/", import.meta.url)
+  const name = (await readdir(dir)).find((entry) =>
+    entry.endsWith("_mcp_scopes_on_oauth_clients"),
+  )
+  if (!name) throw new Error("the MCP scopes data migration is missing")
+  return readFile(new URL(`${name}/migration.sql`, dir), "utf8")
+}
 const REDIRECT_URI = "http://127.0.0.1:4567/callback"
 
 /**
@@ -141,15 +152,12 @@ describe("MCP scopes (Postgres)", () => {
     })
   }
 
-  /** Real OAuth: register, authorize, consent with `grantedScope`, token. */
-  async function oauthAccessToken(grantedScope: string) {
-    const s = requireSeed()
-    const origin = baseUrl
+  async function registerClient(): Promise<string> {
     const register = await app.request(
       `${baseUrl}/.auth/api/v1/auth/oauth2/register`,
       {
         method: "POST",
-        headers: { "content-type": "application/json", origin },
+        headers: { "content-type": "application/json", origin: baseUrl },
         body: JSON.stringify({
           client_name: "Scope test host",
           redirect_uris: [REDIRECT_URI],
@@ -163,6 +171,17 @@ describe("MCP scopes (Postgres)", () => {
     const { client_id: clientId } = (await register.json()) as {
       client_id: string
     }
+    return clientId
+  }
+
+  /** Real OAuth: authorize with `requestedScope`, consent with `grantedScope`, token. */
+  async function oauthAccessToken(
+    grantedScope: string,
+    options: { clientId?: string; requestedScope?: string } = {},
+  ) {
+    const s = requireSeed()
+    const origin = baseUrl
+    const clientId = options.clientId ?? (await registerClient())
 
     const verifier = randomBytes(32).toString("base64url")
     const challenge = createHash("sha256").update(verifier).digest("base64url")
@@ -173,7 +192,8 @@ describe("MCP scopes (Postgres)", () => {
       response_type: "code",
       client_id: clientId,
       redirect_uri: REDIRECT_URI,
-      scope: "ctxpipe:read ctxpipe:write offline_access",
+      scope:
+        options.requestedScope ?? "ctxpipe:read ctxpipe:write offline_access",
       state: "scope-test",
       code_challenge: challenge,
       code_challenge_method: "S256",
@@ -236,6 +256,7 @@ describe("MCP scopes (Postgres)", () => {
     )
     const tokenBody = (await token.json()) as {
       access_token?: string
+      refresh_token?: string
       expires_in?: number
       scope?: string
     }
@@ -244,6 +265,8 @@ describe("MCP scopes (Postgres)", () => {
     }
     return {
       accessToken: tokenBody.access_token,
+      refreshToken: tokenBody.refresh_token,
+      clientId,
       expiresIn: tokenBody.expires_in,
       scope: tokenBody.scope,
     }
@@ -366,6 +389,118 @@ describe("MCP scopes (Postgres)", () => {
     expectInsufficientScope(
       await callTool(`${baseUrl}/mcp`, headers, WRITE_TOOL),
     )
+  })
+
+  it("gives a refresh token for offline_access and keeps read only after refresh", async () => {
+    const token = await oauthAccessToken("ctxpipe:read offline_access", {
+      requestedScope: "ctxpipe:read offline_access",
+    })
+    if (!token.refreshToken) throw new Error("no refresh token was issued")
+
+    const refresh = await app.request(
+      `${baseUrl}/.auth/api/v1/auth/oauth2/token`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/x-www-form-urlencoded",
+          origin: baseUrl,
+        },
+        body: new URLSearchParams({
+          grant_type: "refresh_token",
+          refresh_token: token.refreshToken,
+          client_id: token.clientId,
+          resource: `${baseUrl}/mcp`,
+        }).toString(),
+      },
+    )
+    const refreshed = (await refresh.json()) as {
+      access_token?: string
+      scope?: string
+    }
+    if (!refreshed.access_token) {
+      throw new Error(`refresh failed: ${JSON.stringify(refreshed)}`)
+    }
+    expect(refreshed.scope?.split(" ")).not.toContain("ctxpipe:write")
+    const headers = { authorization: `Bearer ${refreshed.access_token}` }
+    expect(await listToolNames(`${baseUrl}/mcp`, headers)).toEqual([
+      "ctx_advisor",
+    ])
+    expectInsufficientScope(
+      await callTool(`${baseUrl}/mcp`, headers, WRITE_TOOL),
+    )
+  })
+
+  it("lists offline_access for the authorization server, not for the resource", async () => {
+    const authServer = await app.request(
+      `${baseUrl}/.well-known/oauth-authorization-server`,
+    )
+    const authServerBody = (await authServer.json()) as {
+      scopes_supported?: string[]
+    }
+    expect(authServerBody.scopes_supported).toContain("offline_access")
+
+    const resource = await app.request(
+      `${baseUrl}/.well-known/oauth-protected-resource/mcp`,
+    )
+    const resourceBody = (await resource.json()) as {
+      scopes_supported?: string[]
+    }
+    expect(resourceBody.scopes_supported).not.toContain("offline_access")
+
+    const challenge = await app.request(`${baseUrl}/mcp`, { method: "POST" })
+    expect(challenge.headers.get("www-authenticate")).not.toContain(
+      "offline_access",
+    )
+  })
+
+  it("lets a client registered before the ctxpipe scopes ask for them after the migration", async () => {
+    const s = requireSeed()
+    const clientId = `pre_scope_${s.userId}`
+    await getSystemDb()
+      .insert(oauthClients)
+      .values({
+        id: generateObjectId("oac"),
+        clientId,
+        name: "Host from before the scopes",
+        redirectUris: [REDIRECT_URI],
+        scopes: ["openid", "profile", "email", "offline_access"],
+        tokenEndpointAuthMethod: "none",
+        public: true,
+        type: "native",
+        grantTypes: ["authorization_code", "refresh_token"],
+        responseTypes: ["code"],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+    await getSystemDb().execute(sql.raw(await migrationSql()))
+
+    const [client] = await getSystemDb()
+      .select({ scopes: oauthClients.scopes })
+      .from(oauthClients)
+      .where(eq(oauthClients.clientId, clientId))
+    expect(client?.scopes).toEqual([
+      "openid",
+      "profile",
+      "email",
+      "offline_access",
+      "ctxpipe:read",
+      "ctxpipe:write",
+    ])
+
+    const readOnly = await oauthAccessToken("ctxpipe:read offline_access", {
+      clientId,
+      requestedScope: "ctxpipe:read offline_access",
+    })
+    expect(readOnly.scope?.split(" ").sort()).toEqual([
+      "ctxpipe:read",
+      "offline_access",
+    ])
+
+    // The client may ask for write, but the user still decides at consent.
+    const unticked = await oauthAccessToken("ctxpipe:read offline_access", {
+      clientId,
+    })
+    expect(unticked.scope?.split(" ")).not.toContain("ctxpipe:write")
   })
 
   it.each([
