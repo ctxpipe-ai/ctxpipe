@@ -348,6 +348,39 @@ describe("resolveReferenceClaims", () => {
     ])
   })
 
+  it("stubs the issue a pull request resolves, as for a reference", async () => {
+    const opsTeam: ExtractedObject = {
+      kind: "Team",
+      deduplicationKey: "team:linear:OPS",
+      name: "Ops",
+    }
+    const { claims, summary, stubs } = await resolveReferenceClaims({
+      orgId: "org_1",
+      objects: [opsTeam],
+      claims: [
+        {
+          ...referenceClaim("prq:repo_api:7", "iss:linear:OPS-4"),
+          subjectKind: "PullRequest",
+          objectKind: "Issue",
+          predicate: "RESOLVES",
+          provenance: { url: "https://github.com/acme/api/pull/7" },
+        },
+        {
+          ...referenceClaim("prq:repo_api:7", "iss:linear:ENG-9"),
+          subjectKind: "PullRequest",
+          objectKind: "Issue",
+          predicate: "RESOLVES",
+        },
+      ],
+    })
+    expect(claims.map((claim) => claim.objectRef)).toEqual(["iss:linear:OPS-4"])
+    expect(summary).toEqual({ RESOLVES: { kept: 1, dropped: 1, stubbed: 2 } })
+    expect(stubs.map((stub) => stub.deduplicationKey)).toEqual([
+      "prq:repo_api:7",
+      "iss:linear:OPS-4",
+    ])
+  })
+
   it("does not stub a Linear issue whose team is unknown", async () => {
     const { claims, summary, stubs } = await resolveReferenceClaims({
       orgId: "org_1",

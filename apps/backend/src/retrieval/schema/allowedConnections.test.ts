@@ -5,6 +5,7 @@ import {
   EXTENSION_ALLOWED_CONNECTIONS,
   getGraphEdgeTypes,
   getGraphNodeKinds,
+  isAllowedConnection,
   PREDICATE_DESCRIPTIONS,
 } from "./allowedConnections.js"
 import { CoreNodeType, CoreRelType } from "./core.js"
@@ -72,7 +73,13 @@ describe("ontology consistency (ADR-033)", () => {
     for (const predicate of EXTENSION_TRAVERSAL_PREDICATES) {
       expect(rels.has(predicate), predicate).toBe(true)
     }
+    expect(EXTENSION_TRAVERSAL_PREDICATES).toContain("RESOLVES")
     expect(EXTENSION_TRAVERSAL_PREDICATES).not.toContain("PART_OF")
     expect(EXTENSION_TRAVERSAL_PREDICATES).not.toContain("DECLARED_IN")
+  })
+
+  it("a pull request resolves an issue; only that direction is allowed", () => {
+    expect(isAllowedConnection("PullRequest", "RESOLVES", "Issue")).toBe(true)
+    expect(isAllowedConnection("Issue", "RESOLVES", "PullRequest")).toBe(false)
   })
 })

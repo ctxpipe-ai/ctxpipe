@@ -111,6 +111,7 @@ export const EXTENSION_ALLOWED_CONNECTIONS: Array<{
   // reference
   { subjectKind: "Issue", predicate: "REFERENCES", objectKind: "PullRequest" },
   { subjectKind: "PullRequest", predicate: "REFERENCES", objectKind: "Issue" },
+  { subjectKind: "PullRequest", predicate: "RESOLVES", objectKind: "Issue" },
   { subjectKind: "Thread", predicate: "REFERENCES", objectKind: "PullRequest" },
   { subjectKind: "Thread", predicate: "REFERENCES", objectKind: "Issue" },
   { subjectKind: "Thread", predicate: "REFERENCES", objectKind: "Decision" },
@@ -161,6 +162,8 @@ export const PREDICATE_DESCRIPTIONS: Record<string, string> = {
     "change event: the PullRequest renamed a file to this File (valid_from = merge date)",
   REFERENCES:
     "explicit cross-tool link by URL or identifier: Issue and PullRequest reference each other; a Thread references a PullRequest, Issue or Decision",
+  RESOLVES:
+    "a merged PullRequest closes this Issue: the head branch names it, or a closing keyword (fixes, closes, resolves, completes) comes directly before it (valid_from = merge date)",
   MENTIONS: "lexical mention of a File in an Issue, Thread or Decision",
   OWNS: "ownership: a Team owns a Service, App or Library (CODEOWNERS) or an Issue (tracker team)",
   INFLUENCES: "a Decision (ADR) shapes this Service",

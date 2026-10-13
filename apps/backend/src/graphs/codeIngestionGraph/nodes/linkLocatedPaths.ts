@@ -36,6 +36,7 @@ const DECLARED_IN_KINDS = new Set<string>(["InstructionUnit", "Decision"])
  */
 export const CROSS_REFERENCE_PREDICATES = new Set<string>([
   "REFERENCES",
+  "RESOLVES",
   "MENTIONS",
   "SUPERSEDES",
   "OWNS",

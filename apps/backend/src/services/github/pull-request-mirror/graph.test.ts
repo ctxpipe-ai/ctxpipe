@@ -182,10 +182,82 @@ describe("buildGithubPullRequestGraph", () => {
     })
     expect(
       extractedClaims
-        .filter((claim) => claim.predicate === "REFERENCES")
+        .filter((claim) => ["REFERENCES", "RESOLVES"].includes(claim.predicate))
         .map((claim) => claim.objectRef)
         .sort(),
     ).toEqual(["iss:linear:ENG-123", "iss:linear:OPS-4"])
+  })
+
+  it("resolves an issue that a merged pull request closes by keyword or branch, and references the others", () => {
+    const file = renderGithubPullRequest({
+      ...snapshot,
+      title: "Fix: ENG-7 and tidy ENG-8",
+      head: { ref: "alice/eng-9-retry", sha: "bbb" },
+      body: [
+        "Closes https://linear.app/acme/issue/OPS-4/rotate-keys.",
+        "resolves ENG-10, see ENG-11 and https://linear.app/acme/issue/OPS-5.",
+        "COMPLETED:ENG-13",
+        "A prefix ENG-14 is not a keyword; the fixes for ENG-12 come later.",
+      ].join("\n"),
+    })
+    const result = parseGithubPullRequestMarkdown(file.content)
+    if (!result) throw new Error("expected frontmatter to parse")
+    const { extractedClaims } = buildGithubPullRequestGraph({
+      parsed: result,
+      markdownPath: file.path,
+      targetHash: "abc123",
+      contextRepositoryId: "repo_ctx",
+      sourceRepositoryId: "repo_api",
+      linearTeamKeys: ["ENG"],
+    })
+    const byPredicate = (predicate: string) =>
+      extractedClaims
+        .filter((claim) => claim.predicate === predicate)
+        .map((claim) => claim.objectRef.replace("iss:linear:", ""))
+        .sort()
+    expect(byPredicate("RESOLVES")).toEqual([
+      "ENG-10",
+      "ENG-13",
+      "ENG-7",
+      "ENG-9",
+      "OPS-4",
+    ])
+    expect(byPredicate("REFERENCES")).toEqual([
+      "ENG-11",
+      "ENG-12",
+      "ENG-14",
+      "ENG-8",
+      "OPS-5",
+    ])
+    const resolves = extractedClaims.find(
+      (claim) => claim.predicate === "RESOLVES",
+    )
+    expect(resolves).toMatchObject({
+      subjectKind: "PullRequest",
+      objectKind: "Issue",
+      validFrom: "2026-03-02",
+    })
+  })
+
+  it("only references issues from a pull request closed without a merge, even with a closing keyword", () => {
+    const file = renderGithubPullRequest({
+      ...snapshot,
+      merged: false,
+      mergedAt: null,
+    })
+    const result = parseGithubPullRequestMarkdown(file.content)
+    if (!result) throw new Error("expected frontmatter to parse")
+    const { extractedClaims } = buildGithubPullRequestGraph({
+      parsed: result,
+      markdownPath: file.path,
+      targetHash: "abc123",
+      contextRepositoryId: "repo_ctx",
+      linearTeamKeys: ["ENG"],
+    })
+    expect(extractedClaims.map((claim) => claim.predicate)).toEqual([
+      "REFERENCES",
+      "REFERENCES",
+    ])
   })
 
   it("keeps only the pull request, its repository and its issue references when it closed without a merge", () => {

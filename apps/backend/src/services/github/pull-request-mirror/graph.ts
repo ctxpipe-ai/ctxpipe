@@ -64,10 +64,41 @@ export function linearIssueIdentifiersForPullRequest(
 }
 
 /**
+ * Linear's closing magic words, with an optional colon, followed by the next
+ * word: `Fixes ENG-1`, `closes: https://linear.app/acme/issue/ENG-1`.
+ */
+const CLOSING_KEYWORD =
+  /\b(?:clos(?:e|es|ed|ing)|fix(?:es|ed|ing)?|resolv(?:e|es|ed|ing)|complet(?:e|es|ed|ing))(?::\s*|\s+)(\S+)/gi
+
+/**
+ * Linear identifiers a merged pull request closes: each id in the head branch
+ * name, and each id or Linear issue URL directly after a closing keyword in
+ * the title or body.
+ */
+export function linearIssueIdentifiersResolvedByPullRequest(
+  parsed: Pick<ParsedGithubPullRequest, "title" | "bodyExcerpt" | "head">,
+  linearTeamKeys: ReadonlyArray<string>,
+): string[] {
+  const found = new Set(findLinearIdentifiers(parsed.head.ref, linearTeamKeys))
+  for (const match of `${parsed.title}\n${parsed.bodyExcerpt}`.matchAll(
+    CLOSING_KEYWORD,
+  )) {
+    const word = (match[1] ?? "").replace(/[.,;:!?)]+$/, "")
+    const leading = /^[A-Za-z][A-Za-z0-9]*-\d+/.exec(word)?.[0] ?? ""
+    const identifier =
+      parseLinearIssueUrl(word) ??
+      findLinearIdentifiers(leading, linearTeamKeys)[0]
+    if (identifier) found.add(identifier)
+  }
+  return [...found]
+}
+
+/**
  * Deterministic graph for one mirrored pull request (ADR-031, ADR-033):
  * `PullRequest TARGETS Repository`, `PullRequest ADDED|MODIFIED|REMOVED|RENAMED File`,
  * `File PART_OF Repository|package` for paths still present, and
- * `PullRequest REFERENCES Issue` for Linear identifiers in the PR text.
+ * `PullRequest REFERENCES Issue` for Linear identifiers in the PR text, or
+ * `PullRequest RESOLVES Issue` when the merged PR closes that issue.
  * Change edges carry `validFrom` = merge date. A pull request closed without
  * a merge keeps only its node, `TARGETS`, and `REFERENCES`.
  */
@@ -208,21 +239,31 @@ export function buildGithubPullRequestGraph(input: {
     })
   }
 
+  const resolved = new Set(
+    parsed.merged
+      ? linearIssueIdentifiersResolvedByPullRequest(
+          parsed,
+          input.linearTeamKeys ?? [],
+        )
+      : [],
+  )
   for (const identifier of linearIssueIdentifiersForPullRequest(
     parsed,
     input.linearTeamKeys ?? [],
   )) {
+    const predicate = resolved.has(identifier) ? "RESOLVES" : "REFERENCES"
     claims.push({
       subjectRef: pullKey,
       subjectKind: "PullRequest",
       objectRef: issueDedupKey(identifier),
       objectKind: "Issue",
-      predicate: "REFERENCES",
-      sourceId: sourceId(["REFERENCES", identifier]),
+      predicate,
+      sourceId: sourceId([predicate, identifier]),
       sourceType: "git",
       extractionMethod: "deterministic",
       confidence: 0.9,
       provenance: { path: input.markdownPath, identifier },
+      ...(predicate === "RESOLVES" && mergedOn ? { validFrom: mergedOn } : {}),
     })
   }
 
