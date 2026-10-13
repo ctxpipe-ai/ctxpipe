@@ -100,12 +100,17 @@ export const SearchKeepsTheSelection: Story = {
     await userEvent.click(
       await canvas.findByRole("checkbox", { name: /Onboarding/ }),
     )
-    // The handbook is not in the results now, and it stays selected.
-    const selected = canvas.getByRole("grid", { name: "Selected" })
+    // The handbook is not in the results now. It stays in the list, selected,
+    // as in the Linear picker. There is no separate list of pills.
     await expect(
-      within(selected).getByText("Engineering handbook"),
-    ).toBeVisible()
-    await expect(within(selected).getByText("Onboarding")).toBeVisible()
+      canvas.getByRole("checkbox", { name: /Engineering handbook/ }),
+    ).toBeChecked()
+    await expect(
+      canvas.getByRole("checkbox", { name: /Onboarding/ }),
+    ).toBeChecked()
+    await expect(
+      canvas.queryByRole("grid", { name: "Selected" }),
+    ).not.toBeInTheDocument()
   },
 }
 
@@ -115,9 +120,8 @@ export const RemoveTheLastRoot: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
-    const selected = await canvas.findByRole("grid", { name: "Selected" })
     await userEvent.click(
-      within(selected).getByRole("button", { name: /Remove/ }),
+      await canvas.findByRole("checkbox", { name: /Incident log/ }),
     )
     await expect(canvas.getByText("Not ready")).toBeVisible()
     await expect(
