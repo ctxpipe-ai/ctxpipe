@@ -5,6 +5,7 @@
  */
 export const MCP_TOOL_ERROR_CODES = [
   "org_not_found",
+  "org_required",
   "workspace_not_found",
   "workspace_not_ready",
   "repository_not_found",
@@ -52,5 +53,13 @@ export function workspaceNotFound(org: string, slug: string): McpToolError {
   return new McpToolError(
     "workspace_not_found",
     `No Workspace "${slug}" in org "${org}" for this connection. Call list_workspaces.`,
+  )
+}
+
+/** The call names no org, and the connection has no default org. */
+export function orgRequired(): McpToolError {
+  return new McpToolError(
+    "org_required",
+    "This call needs an org. Name it in the org argument; the server instructions list the orgs of this connection.",
   )
 }

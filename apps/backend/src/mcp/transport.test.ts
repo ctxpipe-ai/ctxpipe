@@ -47,7 +47,7 @@ describe("MCP request attribution", () => {
         id: "user_1",
       } as AppEnv["Variables"]["user"])
       c.set("session", null)
-      c.set("oauthOrganizationId", null)
+      c.set("oauthReferenceId", null)
       c.set("oauthClientId", null)
       c.set("orgApiKey", null)
       c.set("orgSlug", "acme")
@@ -157,7 +157,7 @@ describe("MCP request attribution", () => {
       } as AppEnv["Variables"]["env"])
       c.set("user", null)
       c.set("session", null)
-      c.set("oauthOrganizationId", null)
+      c.set("oauthReferenceId", null)
       c.set("oauthClientId", null)
       c.set("orgApiKey", {
         id: "key_org",
@@ -228,7 +228,7 @@ describe("MCP request attribution", () => {
       } as AppEnv["Variables"]["env"])
       c.set("user", { id: "user_1" } as AppEnv["Variables"]["user"])
       c.set("session", null)
-      c.set("oauthOrganizationId", null)
+      c.set("oauthReferenceId", null)
       c.set("oauthClientId", null)
       c.set("orgApiKey", null)
       c.set("orgSlug", "acme")

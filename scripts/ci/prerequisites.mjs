@@ -71,7 +71,6 @@ try {
       SELECT current_user AS role, rolsuper, rolbypassrls,
         to_regclass('public.workspaces') AS workspaces,
         to_regclass('public.workspace_sandbox_instances') AS instances,
-        to_regclass('public.checkpoints') AS checkpoints,
         to_regclass('openworkflow.workflow_runs') AS workflows,
         EXISTS (
           SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -84,9 +83,9 @@ try {
       throw new Error(
         "Tests must use an application role without superuser/BYPASSRLS or table ownership",
       )
-    if (!row.workspaces || !row.instances || !row.checkpoints || !row.workflows)
+    if (!row.workspaces || !row.instances || !row.workflows)
       throw new Error(
-        "Required workspace, checkpoint and OpenWorkflow migrations have not run",
+        "Required workspace and OpenWorkflow migrations have not run",
       )
     process.stdout.write(
       `Prerequisites ready: Bun ${bun}, OpenCode ${opencode}, migrated PostgreSQL role ${row.role}\n`,

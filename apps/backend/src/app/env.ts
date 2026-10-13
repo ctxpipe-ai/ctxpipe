@@ -14,7 +14,7 @@ export type AppEnv = EvlogVariables & {
     env: Env
     user: AuthUser | null
     session: AuthSession | null
-    oauthOrganizationId: string | null
+    oauthReferenceId: string | null
     oauthClientId: string | null
     orgApiKey: OrgApiKeyPrincipal | null
     /** Personal `x-api-key` id. Never the secret. */

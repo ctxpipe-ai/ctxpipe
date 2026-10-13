@@ -176,7 +176,8 @@ const TOOLS = [
   probeCrash,
 ]
 
-function createApp() {
+/** `shippedTools`: mount the tools that ship today (`ctx_advisor`). */
+function createApp({ shippedTools = false } = {}) {
   const app = new Hono<AppEnv>()
   app.use(contextStorage())
   app.use(withTestRequestLogger)
@@ -185,7 +186,7 @@ function createApp() {
     c.set("env", parseEnv(process.env as Record<string, string | undefined>))
     c.set("user", null)
     c.set("session", null)
-    c.set("oauthOrganizationId", null)
+    c.set("oauthReferenceId", null)
     c.set("oauthClientId", null)
     c.set("orgApiKey", null)
     c.set("personalApiKeyId", null)
@@ -193,18 +194,21 @@ function createApp() {
     c.set("orgId", null)
     await next()
   })
-  registerMcpRoutes(app, {
-    registerTools: (server: McpServer) => registerMcpReadTools(server, TOOLS),
-    instructions: loadServerInstructions,
-  })
+  if (shippedTools) registerMcpRoutes(app)
+  else
+    registerMcpRoutes(app, {
+      registerTools: (server: McpServer) => registerMcpReadTools(server, TOOLS),
+      instructions: loadServerInstructions,
+    })
   return app
 }
 
 async function connect(
   apiKey = seed.orgApiKey,
   path = "/mcp",
+  shippedTools = false,
 ): Promise<Client> {
-  const app = createApp()
+  const app = createApp({ shippedTools })
   const client = new Client({ name: "framework-test", version: "1.0.0" })
   await client.connect(
     new StreamableHTTPClientTransport(new URL(`http://localhost${path}`), {
@@ -451,6 +455,8 @@ describe("MCP tool framework (Postgres + MCP SDK Client)", () => {
       workspace: "payments",
       served: { branch: "main", sha: sha1 },
     })
+    // P1-4 correlation runs for each framework tool call.
+    expect(result._meta?.["ai.ctxpipe/callId"]).toMatch(/^call_/)
     expect(result.content?.[0]?.text).toBe(
       `org: ${seed.orgSlug}\nworkspace: payments\nserved:\n  branch: main\n  sha: ${sha1}`,
     )
@@ -689,6 +695,35 @@ describe("MCP tool framework (Postgres + MCP SDK Client)", () => {
       },
     )
     expect(response.status).toBe(404)
+  })
+
+  it("adds a call id to a failed framework tool call too", async () => {
+    const client = await connect()
+    const failed = await call(client, "probe_workspace", {
+      org: `missing-${suffix}`,
+      workspace: "payments",
+    })
+    expect(failure(failed)).toMatchObject({ code: "org_not_found" })
+    expect(failed._meta?.["ai.ctxpipe/callId"]).toMatch(/^call_/)
+    await client.close()
+  })
+
+  it("gives ctx_advisor the framework org_required error when the connection has no default org", async () => {
+    // The user has two orgs and the URL names none, so there is no default.
+    const client = await connect(seed.personalApiKey, "/mcp", true)
+    for (const args of [
+      { prompt: "Which ADRs apply?" },
+      { prompt: "Which ADRs apply?", conversationId: "conv-1" },
+    ]) {
+      const result = await call(client, "ctx_advisor", args)
+      expect(failure(result)).toEqual({
+        code: "org_required",
+        message: expect.stringContaining("org argument"),
+        retryable: false,
+      })
+      expect(result._meta?.["ai.ctxpipe/callId"]).toMatch(/^call_/)
+    }
+    await client.close()
   })
 
   it("maps an unexpected error to a retryable internal error with no detail", async () => {

@@ -10,10 +10,10 @@ Concept: [concept.md](concept.md). Milestone: Workspaces (PR 280). Paths are und
 
 ## Phase 0: decision record
 
-### T00 ADR-051: ingestion as sandbox skills that write patches (S)
+### T00 ADR-052: ingestion as sandbox skills that write patches (S)
 
 - **Goal:** record the design. Mark ADR-016 superseded. Add a note to ADR-047 (the ingest ref job kind, and extraction input as a ref tip at phase 4) and to ADR-048 (ingest sandboxes and the 40-slot limit).
-- **Files:** `.ai/memory/decisions/ADR-051-ingestion-sandbox-skills-patches.md`, `decisions/index.md`, the status lines of ADR-016, ADR-047, and ADR-048.
+- **Files:** `.ai/memory/decisions/ADR-052-ingestion-sandbox-skills-patches.md`, `decisions/index.md`, the status lines of ADR-016, ADR-047, and ADR-048.
 - **Tests:** none (docs). A spec reviewer checks it against the concept and the CTX-584 decisions.
 
 ## Phase 1: gate

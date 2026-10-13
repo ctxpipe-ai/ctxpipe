@@ -7,6 +7,7 @@ import { z } from "zod"
 import { currentMcpActor } from "../../auth/context.js"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { getLogger } from "../../observability/logger.js"
+import { runMcpToolCall } from "../correlation.js"
 import { type CallOrg, resolveCallOrg } from "./call-org.js"
 import { withInFlightLimit } from "./in-flight.js"
 import { McpToolError } from "./tool-errors.js"
@@ -75,7 +76,8 @@ function principalKey(): string {
 }
 
 /**
- * One read tool. The registry checks the in-flight limit, resolves `org`,
+ * One read tool. The registry adds correlation (`runMcpToolCall`: span,
+ * attributes, `_meta["ai.ctxpipe/callId"]`), checks the in-flight limit, resolves `org`,
  * runs the tool in the RLS context of that org, and maps errors to
  * `{ code, message, retryable }` results.
  */
@@ -131,7 +133,10 @@ export function defineMcpReadTool<
             ? { _meta: { "anthropic/alwaysLoad": true } }
             : {}),
         },
-        (args: Record<string, unknown>) => call(args),
+        (args: Record<string, unknown>, extra) =>
+          runMcpToolCall({ toolName: definition.name, extra }, () =>
+            call(args),
+          ),
       )
     },
   }

@@ -6,7 +6,8 @@ import {
   listCallOrgs as listPrincipalOrgs,
   resolveCallOrg as resolvePrincipalOrg,
 } from "../../auth/call-org.js"
-import { orgNotFound } from "./tool-errors.js"
+import { requireCurrentOrgId } from "../../auth/context.js"
+import { orgNotFound, orgRequired } from "./tool-errors.js"
 
 export type { CallOrg }
 
@@ -27,9 +28,21 @@ export async function listCallOrgs(): Promise<CallOrg[]> {
  */
 export async function resolveCallOrg(slug: string): Promise<CallOrg> {
   const wanted = slug.trim().toLowerCase()
-  const result = wanted
-    ? await resolvePrincipalOrg(principal(), wanted)
-    : { ok: false as const }
+  if (!wanted) throw orgRequired()
+  const result = await resolvePrincipalOrg(principal(), wanted)
   if (!result.ok) throw orgNotFound(slug)
   return result.org
+}
+
+/**
+ * The default org of the request (`?orgSlug=`, or the only allowed org), or
+ * undefined when the connection has several orgs and the URL names none.
+ * Only `ctx_advisor` uses it; the read tools name their org.
+ */
+export function currentDefaultOrgId(): string | undefined {
+  try {
+    return requireCurrentOrgId()
+  } catch {
+    return undefined
+  }
 }
