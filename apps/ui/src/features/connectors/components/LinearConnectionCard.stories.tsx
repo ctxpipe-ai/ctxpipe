@@ -1,7 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
-import { expect, fn, userEvent, within } from "storybook/test"
+import { Toaster } from "sonner"
+import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 import {
+  activeMemberRoleHandler,
+  connectionSyncHandler,
   connectionUsageHandler,
   connectionUsageItem,
 } from "@/mocks/workspace-sources-handlers"
@@ -176,6 +179,97 @@ export const ConnectedNotInAWorkspace: Story = {
     // The Linear workspace is the account, not a ctx| Workspace.
     await expect(canvas.getByText("Account")).toBeVisible()
     await expect(canvas.getByText("Acme Product")).toBeVisible()
+  },
+}
+
+const syncRequests: string[] = []
+
+async function openActionsMenu(canvasElement: HTMLElement) {
+  const canvas = within(canvasElement)
+  await canvas.findByText("Docs")
+  await userEvent.click(
+    canvas.getByRole("button", { name: "Linear connector actions" }),
+  )
+  return within(document.body)
+}
+
+/** An admin starts a sync from the actions menu; a toast confirms it. */
+export const SyncNowFromMenu: Story = {
+  decorators: [
+    (Story) => (
+      <>
+        <Story />
+        <Toaster />
+      </>
+    ),
+  ],
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          statusHandler(connected),
+          activeMemberRoleHandler("admin"),
+          connectionSyncHandler({ requests: syncRequests }),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    syncRequests.length = 0
+    const body = await openActionsMenu(canvasElement)
+    await userEvent.click(
+      await body.findByRole("menuitem", { name: "Sync now" }),
+    )
+    // The toast text is in the page before its entry motion ends.
+    await body.findByText("Sync started. Files update after it ends.")
+    await waitFor(() => expect(syncRequests).toHaveLength(1))
+    await expect(syncRequests[0]).toMatch(/\/connectors\/linear_story\/sync$/)
+  },
+}
+
+export const SyncNowFails: Story = {
+  decorators: [
+    (Story) => (
+      <>
+        <Story />
+        <Toaster />
+      </>
+    ),
+  ],
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          statusHandler(connected),
+          activeMemberRoleHandler("owner"),
+          connectionSyncHandler({ status: 404 }),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const body = await openActionsMenu(canvasElement)
+    await userEvent.click(
+      await body.findByRole("menuitem", { name: "Sync now" }),
+    )
+    // The toast text is in the page before its entry motion ends.
+    await body.findByText("Could not start the sync. Try again.")
+  },
+}
+
+/** Only an org admin or owner can start a sync. */
+export const SyncNowHiddenForMember: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [statusHandler(connected), activeMemberRoleHandler("member")],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const body = await openActionsMenu(canvasElement)
+    await body.findByRole("menuitem", { name: "Remove connector" })
+    await expect(body.queryByRole("menuitem", { name: "Sync now" })).toBeNull()
   },
 }
 

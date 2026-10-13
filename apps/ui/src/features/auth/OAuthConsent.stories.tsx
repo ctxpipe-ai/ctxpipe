@@ -19,7 +19,7 @@ export const BoundOrganization: Story = {
   name: "Bound organisation",
   args: {
     clientId: "claude-plugin",
-    scopes: ["openid", "offline_access"],
+    scopes: ["ctxpipe:read", "ctxpipe:write", "offline_access"],
     organization: {
       name: "Peterson Advisory",
       slug: "peterson-advisory",

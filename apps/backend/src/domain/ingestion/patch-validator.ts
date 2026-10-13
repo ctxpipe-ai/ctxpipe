@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process"
 import { lstat, readdir, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, posix } from "node:path"
@@ -14,6 +13,7 @@ import { z } from "zod"
 import { isConnectorMirrorPath } from "../codeIngestion/connectorMirrorPaths.js"
 import { KNOWLEDGE_KIND_FOLDERS } from "../workspaces/layout.js"
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
+import { runGit as git } from "./run-git.js"
 
 /**
  * Host validation of one ingest step (CTX-584, ADR-052 section 2, concept
@@ -163,6 +163,18 @@ export function fileOwnership(raw: string, sourceUrl: string): FileOwnership {
   const normalized = sources.map(normalizeSourceUrl)
   if (!normalized.includes(normalizeSourceUrl(sourceUrl))) return "foreign"
   return new Set(normalized).size === 1 ? "sole" : "shared"
+}
+
+/** Normalized source URLs a generated file lists; empty for a file ctxpipe does not generate. */
+export function fileSources(raw: string): string[] {
+  const front = splitFrontMatter(raw)
+  const attributes = front ? parseYamlObject(front.yaml) : null
+  if (!attributes || attributes.generated_by !== GENERATED_BY) return []
+  return Array.isArray(attributes.sources)
+    ? attributes.sources
+        .filter((s): s is string => typeof s === "string")
+        .map(normalizeSourceUrl)
+    : []
 }
 
 /** Path check of concept section 3.1; returns a reason or null. */
@@ -969,13 +981,15 @@ function resolveRelative(from: string, target: string): string | null {
   return joined.replace(/\/$/, "")
 }
 
-function splitFrontMatter(text: string): { yaml: string; body: string } | null {
+export function splitFrontMatter(
+  text: string,
+): { yaml: string; body: string } | null {
   const match = /^---[ \t]*\r?\n((?:.*\n)*?)---[ \t]*(?:\r?\n|$)/.exec(text)
   if (!match) return null
   return { yaml: match[1] ?? "", body: text.slice(match[0].length) }
 }
 
-function parseYamlObject(yaml: string): Record<string, unknown> | null {
+export function parseYamlObject(yaml: string): Record<string, unknown> | null {
   try {
     const value = parseYaml(yaml) ?? {}
     return typeof value === "object" && !Array.isArray(value)
@@ -1073,35 +1087,6 @@ async function readStagedFiles(
   }
   await walk(root, "")
   return files
-}
-
-function git(
-  cwd: string,
-  args: string[],
-  options: { input?: Buffer | string; env?: NodeJS.ProcessEnv } = {},
-): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const child = spawn("git", args, {
-      cwd,
-      env: { ...process.env, ...options.env },
-      stdio: ["pipe", "pipe", "pipe"],
-    })
-    const out: Buffer[] = []
-    const err: Buffer[] = []
-    child.stdout.on("data", (chunk: Buffer) => out.push(chunk))
-    child.stderr.on("data", (chunk: Buffer) => err.push(chunk))
-    child.on("error", reject)
-    child.on("close", (code) => {
-      if (code === 0) resolve(Buffer.concat(out))
-      else
-        reject(
-          new Error(
-            `git ${args[0]} failed: ${Buffer.concat(err).toString().trim()}`,
-          ),
-        )
-    })
-    child.stdin.end(options.input ?? "")
-  })
 }
 
 async function listTree(

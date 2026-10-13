@@ -20,8 +20,11 @@ type AddToWorkspacesStepProps = {
    * ctx| does not use it now; the step tells the user to close it.
    */
   replacedConfigPullUrl?: string | null
-  /** After the add, or when the user skips the step. */
-  onDone: () => void
+  /**
+   * After the add (with the pull requests that it opened), or when the user
+   * skips the step.
+   */
+  onDone: (pullRequestUrls?: string[]) => void
 }
 
 /**
@@ -72,7 +75,11 @@ export function AddToWorkspacesStep({
         onChange={adding.setValue}
       />
       <div className="flex justify-end gap-2">
-        <Button variant="quiet" isDisabled={adding.isPending} onPress={onDone}>
+        <Button
+          variant="quiet"
+          isDisabled={adding.isPending}
+          onPress={() => onDone()}
+        >
           Skip for now
         </Button>
         <Button

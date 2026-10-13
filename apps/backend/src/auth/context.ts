@@ -21,8 +21,13 @@ function requestOrg(): { id?: string; slug?: string } {
   }
 }
 
+/** The org of the request or the org context, or null when there is none. */
+export function currentOrgIdOrNull(): string | null {
+  return orgIdStorage.getStore()?.id ?? requestOrg().id ?? null
+}
+
 export function requireCurrentOrgId(): string {
-  const orgId = orgIdStorage.getStore()?.id ?? requestOrg().id
+  const orgId = currentOrgIdOrNull()
   if (!orgId) throw new Error("Missing org context")
   return orgId
 }

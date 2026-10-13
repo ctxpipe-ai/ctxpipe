@@ -22,7 +22,7 @@ import {
   contextStorage,
   withTestRequestLogger,
 } from "../test/hono-test-logger.js"
-import { type CallPrincipal, resolveCallOrg } from "./call-org.js"
+import { type CallPrincipal, listCallOrgs, resolveCallOrg } from "./call-org.js"
 import {
   resolveOAuthGrantReference,
   revokeOAuthGrant,
@@ -356,6 +356,32 @@ describe("multi-org grants (Postgres)", () => {
       ok: false,
       error: "org_not_found",
     })
+  })
+
+  it("lists the grant set ∩ live membership in slug order, for the server instructions", async () => {
+    const both = await newGrant([orgA.id, orgB.id, orgC.id])
+    const listed = await listCallOrgs(oauth(both))
+    // orgC is in the set, but the user is not a member of it.
+    expect(listed).toEqual(
+      [orgA, orgB]
+        .map((org) => ({ id: org.id, slug: org.slug }))
+        .sort((a, b) => a.slug.localeCompare(b.slug)),
+    )
+    await removeMemberB()
+    try {
+      expect(await listCallOrgs(oauth(both))).toEqual([
+        { id: orgA.id, slug: orgA.slug },
+      ])
+    } finally {
+      await addMemberB()
+    }
+    expect(await listCallOrgs(oauth(orgA.id))).toEqual([
+      { id: orgA.id, slug: orgA.slug },
+    ])
+    expect(await listCallOrgs({ kind: "org_api_key", orgId: orgB.id })).toEqual(
+      [{ id: orgB.id, slug: orgB.slug }],
+    )
+    expect(await listCallOrgs(null)).toEqual([])
   })
 
   describe("consent grant reference", () => {
