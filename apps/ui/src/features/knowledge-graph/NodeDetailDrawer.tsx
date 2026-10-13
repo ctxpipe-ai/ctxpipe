@@ -111,6 +111,7 @@ const KIND_CHIP_FIELDS: Record<string, ReadonlyArray<string>> = {
     "number",
     "repository",
     "url",
+    "state",
     "review_decision",
     "merged_at",
     "author",

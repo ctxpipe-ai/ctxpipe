@@ -33,6 +33,8 @@ const KIND_PAYLOAD_KEYS: Record<string, string[]> = {
     "number",
     "repository",
     "url",
+    "state",
+    "merged",
     "review_decision",
     "merged_at",
     "author",

@@ -188,6 +188,39 @@ describe("buildGithubPullRequestGraph", () => {
     ).toEqual(["iss:linear:ENG-123", "iss:linear:OPS-4"])
   })
 
+  it("keeps only the pull request, its repository and its issue references when it closed without a merge", () => {
+    const file = renderGithubPullRequest({
+      ...snapshot,
+      merged: false,
+      mergedAt: null,
+    })
+    const result = parseGithubPullRequestMarkdown(file.content)
+    if (!result) throw new Error("expected frontmatter to parse")
+    const { extractedObjects, extractedClaims } = buildGithubPullRequestGraph({
+      parsed: result,
+      markdownPath: file.path,
+      targetHash: "abc123",
+      contextRepositoryId: "repo_ctx",
+      sourceRepositoryId: "repo_api",
+      linearTeamKeys: ["ENG"],
+    })
+    expect(extractedObjects.map((object) => object.kind)).toEqual([
+      "PullRequest",
+    ])
+    expect(extractedObjects[0]?.payload).toMatchObject({
+      state: "closed",
+      merged: false,
+      merged_at: null,
+    })
+    expect(
+      extractedClaims.map((claim) => [claim.predicate, claim.objectRef]).sort(),
+    ).toEqual([
+      ["REFERENCES", "iss:linear:ENG-123"],
+      ["REFERENCES", "iss:linear:OPS-4"],
+      ["TARGETS", "repo_api"],
+    ])
+  })
+
   it("falls back to name-scoped keys and skips TARGETS when the source repository is unknown", () => {
     const { file, result } = parsed()
     const { extractedObjects, extractedClaims } = buildGithubPullRequestGraph({

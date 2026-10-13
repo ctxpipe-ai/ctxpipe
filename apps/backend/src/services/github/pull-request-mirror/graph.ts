@@ -68,7 +68,8 @@ export function linearIssueIdentifiersForPullRequest(
  * `PullRequest TARGETS Repository`, `PullRequest ADDED|MODIFIED|REMOVED|RENAMED File`,
  * `File PART_OF Repository|package` for paths still present, and
  * `PullRequest REFERENCES Issue` for Linear identifiers in the PR text.
- * Change edges carry `validFrom` = merge date.
+ * Change edges carry `validFrom` = merge date. A pull request closed without
+ * a merge keeps only its node, `TARGETS`, and `REFERENCES`.
  */
 export function buildGithubPullRequestGraph(input: {
   parsed: ParsedGithubPullRequest
@@ -140,7 +141,8 @@ export function buildGithubPullRequestGraph(input: {
     (entry) => entry.repositoryId === input.sourceRepositoryId,
   )
 
-  for (const file of parsed.files) {
+  // A pull request closed without a merge changed nothing on the base branch.
+  for (const file of parsed.merged ? parsed.files : []) {
     const path = asLocatedPath(file.path) ?? file.path.replace(/\\/g, "/")
     const fileKey = githubFileDedupKey({
       sourceRepositoryId: input.sourceRepositoryId,

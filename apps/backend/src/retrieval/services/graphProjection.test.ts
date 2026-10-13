@@ -182,6 +182,46 @@ describe("projectClaimsFromState", () => {
     expect(executeQueryMock.mock.calls[1]?.[0]).not.toContain("UNWIND")
   })
 
+  it("projects whether a pull request merged onto its node", async () => {
+    const where = vi.fn().mockResolvedValue([
+      {
+        id: "pr_1",
+        kind: "PullRequest",
+        payload: {
+          name: "octo/widgets#7",
+          state: "closed",
+          merged: false,
+          merged_at: null,
+        },
+      },
+      { id: "repo_1", kind: "Repository", payload: { name: "widgets" } },
+    ])
+    getOrgDbMock.mockReturnValue({
+      select: vi.fn().mockReturnValue({
+        from: vi.fn().mockReturnValue({ where }),
+      }),
+    })
+    await withTestLogger(() =>
+      projectClaimsFromState([
+        makeClaim({
+          id: "c1",
+          subjectId: "pr_1",
+          subjectKind: "PullRequest",
+          objectId: "repo_1",
+          objectKind: "Repository",
+          predicate: "TARGETS",
+        }),
+      ]),
+    )
+    const rows = executeQueryMock.mock.calls[0]?.[1]?.rows as Array<
+      Record<string, unknown>
+    >
+    expect(rows[0]).toMatchObject({
+      subject_state: "closed",
+      subject_merged: false,
+    })
+  })
+
   it("groups mixed predicates into separate batch queries", async () => {
     await withTestLogger(() =>
       projectClaimsFromState([

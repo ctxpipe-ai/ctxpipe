@@ -30,6 +30,7 @@ const pullRequestPayloadSchema = z.object({
 const issueCommentPayloadSchema = z.object({
   issue: z.object({
     number: z.number().int().positive(),
+    state: z.string().optional(),
     pull_request: z
       .object({ merged_at: z.string().nullable().optional() })
       .optional(),
@@ -52,8 +53,11 @@ export function candidateFromPullRequestPayload(
 ): GithubSyncPullRequestCandidate | undefined {
   if (!pull?.updated_at) return undefined
   const merged = pull.merged ?? (pull.merged_at != null ? true : undefined)
-  if (merged === undefined || pull.draft === undefined) return undefined
-  return { merged, draft: pull.draft, updatedAt: pull.updated_at }
+  const state =
+    pull.state === "open" || pull.state === "closed" ? pull.state : undefined
+  if (merged === undefined || pull.draft === undefined || !state)
+    return undefined
+  return { state, merged, draft: pull.draft, updatedAt: pull.updated_at }
 }
 
 /** A replayed delivery maps to the same run per Workspace. */
@@ -148,9 +152,10 @@ export async function maybeEnqueueGithubPrMirror(input: {
 
   if (input.eventName === "issue_comment") {
     const parsed = issueCommentPayloadSchema.safeParse(input.payload)
-    // Only comments on merged pull requests reach the mirror.
-    const mergedAt = parsed.data?.issue.pull_request?.merged_at
-    if (!parsed.success || !mergedAt) return
+    // Only comments on closed pull requests (merged or not) reach the mirror.
+    if (!parsed.success || !parsed.data.issue.pull_request) return
+    const mergedAt = parsed.data.issue.pull_request.merged_at ?? null
+    if (!mergedAt && parsed.data.issue.state !== "closed") return
     const version =
       parsed.data.comment?.updated_at ?? parsed.data.comment?.created_at
     await enqueueMirror({
@@ -158,11 +163,17 @@ export async function maybeEnqueueGithubPrMirror(input: {
       githubConnectionId: input.githubConnectionId,
       repositoryFullName: parsed.data.repository.full_name,
       number: parsed.data.issue.number,
-      candidate: {
-        merged: true,
-        draft: false,
-        updatedAt: version ?? mergedAt,
-      },
+      // The payload does not tell a draft; the policy checks the fetched pull request again.
+      ...(version
+        ? {
+            candidate: {
+              state: "closed" as const,
+              merged: mergedAt != null,
+              draft: false,
+              updatedAt: version,
+            },
+          }
+        : {}),
       version,
     })
   }

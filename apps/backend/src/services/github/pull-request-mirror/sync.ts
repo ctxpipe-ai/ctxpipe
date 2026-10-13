@@ -1,7 +1,7 @@
 import type { Env } from "../../../config/env.js"
 import { getInstallationOctokitForOrg } from "../../../models/github-installation.js"
 import {
-  fetchMergedPullRequestPage,
+  fetchClosedPullRequestPage,
   fetchPullRequestsByNumber,
   type GithubPrClient,
 } from "./client.js"
@@ -19,7 +19,7 @@ import type {
  */
 export const GITHUB_PR_BACKFILL_MAX = 200
 
-/** Merged pull requests per GraphQL page; each page is one durable step. */
+/** Closed pull requests per GraphQL page; each page is one durable step. */
 export const GITHUB_PR_PAGE_SIZE = 20
 
 /**
@@ -101,15 +101,15 @@ export async function captureGithubPullRequests(
   }
 }
 
-/** Render one page of merged pull requests, newest update first. */
-export async function captureMergedGithubPullRequestPage(
+/** Render one page of closed pull requests (merged or not), newest update first. */
+export async function captureClosedGithubPullRequestPage(
   input: GithubPrSource & { after: string | null },
 ): Promise<{
   files: GithubPrMirrorFile[]
   pulls: number
   nextAfter: string | null
 }> {
-  const page = await fetchMergedPullRequestPage({
+  const page = await fetchClosedPullRequestPage({
     ...(await clientFor(input)),
     first: GITHUB_PR_PAGE_SIZE,
     after: input.after,
