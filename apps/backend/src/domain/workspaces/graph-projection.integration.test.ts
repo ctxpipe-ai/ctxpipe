@@ -77,7 +77,10 @@ const units = [
 
 const write = (rev: WorkspaceRevision, list: readonly HydrateUnit[]) =>
   withGraphClient(org, () =>
-    writeWorkspaceRevisionGraph(getGraphClient(), { revision: rev, units: list }),
+    writeWorkspaceRevisionGraph(getGraphClient(), {
+      revision: rev,
+      units: list,
+    }),
   )
 
 async function nodeRows(rev: WorkspaceRevision) {
