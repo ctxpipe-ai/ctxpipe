@@ -1,4 +1,4 @@
-import { and, eq, inArray, type SQL } from "drizzle-orm"
+import { and, asc, eq, inArray, type SQL } from "drizzle-orm"
 import type { Context } from "hono"
 import type { AppEnv } from "../app/env.js"
 import { getSystemDb } from "../db/client.js"
@@ -91,6 +91,38 @@ export async function resolveCallOrg(
   if (rows.length === 0) return { ok: false, error: "org_not_found" }
   if (rows.length > 1 || !rows[0]) return { ok: false, error: "org_required" }
   return { ok: true, org: rows[0] }
+}
+
+/**
+ * Every org that the principal can name in a call, in slug order: the
+ * principal's org set ∩ live membership, as `resolveCallOrg` decides. The MCP
+ * server instructions list these orgs.
+ */
+export async function listCallOrgs(
+  principal: CallPrincipal | null,
+): Promise<CallOrg[]> {
+  if (!principal) return []
+  const db = getSystemDb()
+  const columns = { id: organizations.id, slug: organizations.slug }
+  if (principal.kind === "org_api_key") {
+    return db
+      .select(columns)
+      .from(organizations)
+      .where(eq(organizations.id, principal.orgId))
+  }
+  const allowed = await allowedOrgFilter(principal)
+  return db
+    .select(columns)
+    .from(organizations)
+    .innerJoin(
+      members,
+      and(
+        eq(members.organizationId, organizations.id),
+        eq(members.userId, principal.userId),
+      ),
+    )
+    .where(allowed.filter)
+    .orderBy(asc(organizations.slug))
 }
 
 async function allowedOrgFilter(
