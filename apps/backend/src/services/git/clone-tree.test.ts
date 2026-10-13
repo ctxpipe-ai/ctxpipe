@@ -52,6 +52,66 @@ describe("clone-tree", { timeout: 30_000 }, () => {
     ])
   })
 
+  it("reports the introducing and the last commit time of each Markdown path", async () => {
+    dir = await mkdtemp(join(tmpdir(), "ctxpipe-last-commit-tree-"))
+    const git = async (date: string | null, ...args: string[]) =>
+      (
+        await execFileAsync("git", ["-C", dir as string, ...args], {
+          env: {
+            ...process.env,
+            ...(date
+              ? { GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date }
+              : {}),
+          },
+        })
+      ).stdout.trim()
+    const commit = (date: string, message: string) =>
+      git(
+        date,
+        "-c",
+        "user.name=Contract",
+        "-c",
+        "user.email=contract@example.test",
+        "commit",
+        "-m",
+        message,
+      )
+    await git(null, "init", "-b", "main")
+    await writeFile(join(dir, "kept.md"), "# Kept\n")
+    await writeFile(join(dir, "edited.md"), "# Edited\n")
+    await git(null, "add", ".")
+    await commit("2026-01-01T00:00:00Z", "Add both")
+    await writeFile(join(dir, "edited.md"), "# Edited\nAgain.\n")
+    await git(null, "add", ".")
+    await commit("2026-02-01T00:00:00Z", "Edit one")
+    const sha = await git(null, "rev-parse", "HEAD")
+    const files = await listMarkdownFilesAtGitSha({
+      url: dir,
+      sha,
+      includeIntroducingCommits: true,
+    })
+    expect(
+      files.map(
+        ({ path, introducingCommitTimestamp, lastCommitTimestamp }) => ({
+          path,
+          introducingCommitTimestamp,
+          lastCommitTimestamp,
+        }),
+      ),
+    ).toEqual([
+      {
+        path: "edited.md",
+        introducingCommitTimestamp: "2026-01-01T00:00:00.000Z",
+        lastCommitTimestamp: "2026-02-01T00:00:00.000Z",
+      },
+      {
+        path: "kept.md",
+        introducingCommitTimestamp: "2026-01-01T00:00:00.000Z",
+        lastCommitTimestamp: "2026-01-01T00:00:00.000Z",
+      },
+    ])
+  })
+
   it("reads an authenticated Git remote without putting the token in Git arguments or origin", async () => {
     dir = await mkdtemp(join(tmpdir(), "ctxpipe-private-tree-"))
     const git = async (...args: string[]) =>
@@ -355,6 +415,7 @@ describe("clone-tree", { timeout: 30_000 }, () => {
       path: "page-8.md",
       content: page(8),
       introducingCommitTimestamp: expect.any(String),
+      lastCommitTimestamp: expect.any(String),
     })
   })
 

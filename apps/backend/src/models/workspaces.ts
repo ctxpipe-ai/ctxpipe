@@ -20,6 +20,7 @@ import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
 import {
   orgFirstWorkspaces,
   orgMemberPreferences,
+  workspaceKnowledgeChunks,
   workspaceKnowledgeUnits,
   workspaceLinkedRepositories,
   workspaces,
@@ -28,6 +29,7 @@ import { workspaceCheckoutKey } from "../domain/workspaces/derived-stores.js"
 import { firstConnectorTarget } from "../domain/workspaces/dest-workspace-first.js"
 import type { HydrateSkip, HydrateUnit } from "../domain/workspaces/hydrate.js"
 import { initialHydratePhases } from "../domain/workspaces/hydrate-phases.js"
+import { knowledgeChunkRows } from "../domain/workspaces/knowledge-chunks.js"
 import { nextRelinkFields } from "../domain/workspaces/relink.js"
 import {
   type DerivedStoreResult,
@@ -1189,7 +1191,7 @@ export async function commitHydrateProjection(input: {
           eq(workspaceKnowledgeUnits.workspaceId, input.revision.workspaceId),
         )
       const now = new Date()
-      // Postgres caps bind parameters at 65,535; ~11 per unit row.
+      // Postgres caps bind parameters at 65,535; ~13 per unit row.
       for (let start = 0; start < input.units.length; start += 500) {
         await tx.insert(workspaceKnowledgeUnits).values(
           input.units.slice(start, start + 500).map((unit) => ({
@@ -1198,15 +1200,23 @@ export async function commitHydrateProjection(input: {
             workspaceId: input.revision.workspaceId,
             path: unit.path,
             kind: unit.kind ?? null,
+            title: unit.title ?? null,
+            source: unit.source ?? null,
             body: unit.body,
             projectionSha: input.revision.sha,
             links: unit.links,
             claims: unit.claims,
             createdAt: now,
-            updatedAt: now,
+            updatedAt: unit.updatedAt ? new Date(unit.updatedAt) : now,
           })),
         )
       }
+      await replaceKnowledgeChunks(tx, {
+        orgId: input.orgId,
+        workspaceId: input.revision.workspaceId,
+        projectionSha: input.revision.sha,
+        units: input.units,
+      })
 
       const desired = new Map<string, string | null>(
         input.remotes.map((remote) => [remote.git, remote.branch] as const),
@@ -1728,9 +1738,138 @@ export async function persistEmbeddingFailure(input: {
 }
 
 /** Store vectors and their completion marker under the active revision's row lock. */
+type OrgTransaction = Parameters<
+  Parameters<ReturnType<typeof getOrgDb>["transaction"]>[0]
+>[0]
+
+/**
+ * Replace the Workspace's chunks with the chunks of one projection, in the
+ * transaction that activates it. A new chunk takes the embedding of an old
+ * chunk with the same hash, so hydrate never embeds an unchanged chunk again.
+ */
+async function replaceKnowledgeChunks(
+  tx: OrgTransaction,
+  input: {
+    orgId: string
+    workspaceId: string
+    projectionSha: string
+    units: ReadonlyArray<{ servingId: string; body: string }>
+  },
+) {
+  const rows = knowledgeChunkRows(input.units)
+  const chunks = workspaceKnowledgeChunks
+  // Seven bind parameters per row; chunk text is at most a few kilobytes.
+  for (let start = 0; start < rows.length; start += 1000) {
+    await tx
+      .insert(chunks)
+      .values(
+        rows.slice(start, start + 1000).map((row) => ({
+          ...row,
+          orgId: input.orgId,
+          workspaceId: input.workspaceId,
+          projectionSha: input.projectionSha,
+        })),
+      )
+      .onConflictDoUpdate({
+        target: [chunks.unitId, chunks.projectionSha, chunks.ordinal],
+        set: {
+          text: sql`excluded.text`,
+          chunkHash: sql`excluded.chunk_hash`,
+          embedding: sql`case when ${chunks.chunkHash} = excluded.chunk_hash then ${chunks.embedding} end`,
+        },
+      })
+  }
+  await tx.execute(sql`
+    UPDATE workspace_knowledge_chunks AS n
+    SET embedding = o.embedding
+    FROM workspace_knowledge_chunks AS o
+    WHERE n.workspace_id = ${input.workspaceId}
+      AND n.projection_sha = ${input.projectionSha}
+      AND n.embedding IS NULL
+      AND o.workspace_id = ${input.workspaceId}
+      AND o.chunk_hash = n.chunk_hash
+      AND o.embedding IS NOT NULL
+  `)
+  await tx.execute(sql`
+    DELETE FROM workspace_knowledge_chunks AS c
+    WHERE c.workspace_id = ${input.workspaceId}
+      AND (
+        c.projection_sha <> ${input.projectionSha}
+        OR NOT EXISTS (
+          SELECT 1
+          FROM jsonb_to_recordset(${JSON.stringify(
+            rows.map(({ unitId, ordinal }) => ({
+              unit_id: unitId,
+              ordinal,
+            })),
+          )}::jsonb) AS k(unit_id text, ordinal integer)
+          WHERE k.unit_id = c.unit_id AND k.ordinal = c.ordinal
+        )
+      )
+  `)
+}
+
+/**
+ * Embed the chunks of a projection that have no embedding yet, one batch of
+ * distinct hashes at a time. The model call runs outside the org database
+ * context. Returns the number of texts sent to the model.
+ */
+export async function embedKnowledgeChunks(input: {
+  revision: WorkspaceRevision
+  embed: (texts: string[]) => Promise<number[][]>
+}): Promise<number> {
+  const chunks = workspaceKnowledgeChunks
+  let embedded = 0
+  for (;;) {
+    const pending = await orgSql(() =>
+      getOrgDb()
+        .selectDistinctOn([chunks.chunkHash], {
+          chunkHash: chunks.chunkHash,
+          text: chunks.text,
+        })
+        .from(chunks)
+        .where(
+          and(
+            eq(chunks.workspaceId, input.revision.workspaceId),
+            eq(chunks.projectionSha, input.revision.sha),
+            sql`${chunks.embedding} is null`,
+          ),
+        )
+        .orderBy(chunks.chunkHash)
+        .limit(64),
+    )
+    if (pending.length === 0) return embedded
+    const vectors = await input.embed(pending.map((chunk) => chunk.text))
+    if (vectors.length !== pending.length)
+      throw new Error(
+        `Expected ${pending.length} embeddings, got ${vectors.length}`,
+      )
+    embedded += pending.length
+    await orgSql(() =>
+      getOrgDb().execute(sql`
+        UPDATE workspace_knowledge_chunks AS c
+        SET embedding = v.embedding::vector
+        FROM jsonb_to_recordset(${JSON.stringify(
+          pending.map((chunk, index) => ({
+            chunk_hash: chunk.chunkHash,
+            embedding: JSON.stringify(vectors[index]),
+          })),
+        )}::jsonb) AS v(chunk_hash text, embedding text)
+        WHERE c.workspace_id = ${input.revision.workspaceId}
+          AND c.projection_sha = ${input.revision.sha}
+          AND c.chunk_hash = v.chunk_hash
+          AND c.embedding IS NULL
+      `),
+    )
+  }
+}
+
+/**
+ * Publish unit embeddings for the active revision: each unit takes the mean of
+ * its chunk embeddings, so units need no model calls of their own.
+ */
 export async function persistUnitEmbeddings(input: {
   revision: WorkspaceRevision
-  embeddings: ReadonlyArray<{ servingId: string; embedding: number[] }>
 }): Promise<boolean> {
   return orgSql(() =>
     getOrgDb().transaction(async (tx) => {
@@ -1741,23 +1880,17 @@ export async function persistUnitEmbeddings(input: {
         .for("update")
       if (!sameWorkspaceRevision(workspace?.activeRevision, input.revision))
         return false
-      // Each embedding is a large JSON literal; bound the statement size.
-      for (let start = 0; start < input.embeddings.length; start += 200) {
-        const values = input.embeddings
-          .slice(start, start + 200)
-          .map(
-            (row) =>
-              sql`(${row.servingId}, ${JSON.stringify(row.embedding)}::jsonb)`,
-          )
-        await tx.execute(sql`
+      await tx.execute(sql`
         UPDATE workspace_knowledge_units AS u
-        SET embedding = v.embedding, updated_at = NOW()
-        FROM (VALUES ${sql.join(values, sql`, `)}) AS v(serving_id, embedding)
-        WHERE u.serving_id = v.serving_id
-          AND u.workspace_id = ${input.revision.workspaceId}
+        SET embedding = (
+          SELECT to_jsonb(avg(c.embedding)::real[])
+          FROM workspace_knowledge_chunks AS c
+          WHERE c.unit_id = u.serving_id
+            AND c.projection_sha = u.projection_sha
+        )
+        WHERE u.workspace_id = ${input.revision.workspaceId}
           AND u.projection_sha = ${input.revision.sha}
       `)
-      }
       await tx
         .update(workspaces)
         .set({

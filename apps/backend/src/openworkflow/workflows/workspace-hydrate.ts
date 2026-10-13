@@ -4,7 +4,6 @@ import { parseEnv } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { projectWorkspaceSources } from "../../domain/workspace-sources/project.js"
 import { SOURCES_FILE_PATH } from "../../domain/workspace-sources/sources-file.js"
-import { embedHydrateUnits } from "../../domain/workspaces/derived-stores.js"
 import { nativeFolderSetChanged } from "../../domain/workspaces/folder-list.js"
 import { projectWorkspaceGraph } from "../../domain/workspaces/graph-projection.js"
 import {
@@ -31,6 +30,7 @@ import { getMigrationExportSha } from "../../models/workspace-write-jobs.js"
 import { reserveHydrateWrites } from "../../models/workspace-write-planning.js"
 import {
   commitHydrateProjection,
+  embedKnowledgeChunks,
   getLinkedReadBinding,
   getWorkspaceProjectionSnapshot,
   listLinkedRepositories,
@@ -488,11 +488,11 @@ export const workspaceHydrate = defineWorkflow(
 
             if (activated && pending.embeddings) {
               try {
-                const embeddings = await embedHydrateUnits({
-                  units: parsed.units,
+                await embedKnowledgeChunks({
+                  revision,
                   embed: generateEmbeddings,
                 })
-                await persistUnitEmbeddings({ revision, embeddings })
+                await persistUnitEmbeddings({ revision })
               } catch (error) {
                 log.error(
                   error instanceof Error

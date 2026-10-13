@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto"
 import { base32nopad } from "@scure/base"
+import { connectorMirrorRoot } from "../codeIngestion/connectorMirrorPaths.js"
 import { githubSourceRepositories } from "../workspace-sources/github-sources.js"
 import { SOURCES_FILE_PATH } from "../workspace-sources/sources-file.js"
 import { effectiveValidFrom } from "./hydrate-phases.js"
+import { markdownLines } from "./knowledge-chunks.js"
 import {
   isLinkedRepositoryDeclaration,
   parseLinkedRepositoryMarkdown,
@@ -48,6 +50,12 @@ export type HydrateUnit = {
   links: string[]
   claims: HydrateClaim[]
   confidence?: number | null
+  /** Front-matter `title`, else the text of the first Markdown heading. */
+  title?: string | null
+  /** The connector root of a mirror path (`linear`, …), else `authored`. */
+  source?: string
+  /** ISO time of the last commit that changed the path, when known. */
+  updatedAt?: string | null
 }
 
 export const HYDRATE_SKIP_REASONS = [
@@ -75,7 +83,11 @@ export function hydrateKnowledgeTree(input: {
   workspaceId: string
   /** The Workspace repository. A linked-repository file that names it is skipped. */
   workspaceUrl?: string
-  files: ReadonlyArray<{ path: string; content: string }>
+  files: ReadonlyArray<{
+    path: string
+    content: string
+    lastCommitTimestamp?: string
+  }>
   /**
    * The text of `.ctxpipe/sources.yaml`, or null. Its GitHub sources link
    * their repositories after the `repositories/*.md` files (ADR-050).
@@ -146,6 +158,9 @@ export function hydrateKnowledgeTree(input: {
       links: markdownLinks(parsed.body),
       claims: parseClaims(parsed.attributes.claims),
       confidence: parseOptionalNumber(parsed.attributes.confidence),
+      title: unitTitle(parsed.attributes.title, parsed.body),
+      source: connectorMirrorRoot(path) ?? "authored",
+      updatedAt: file.lastCommitTimestamp ?? null,
     })
   }
 
@@ -180,6 +195,12 @@ export function hydrateKnowledgeTree(input: {
   }
 
   return { units, skipped, linked }
+}
+
+function unitTitle(frontMatterTitle: unknown, body: string): string | null {
+  if (typeof frontMatterTitle === "string" && frontMatterTitle.trim())
+    return frontMatterTitle.trim()
+  return markdownLines(body).find((line) => line.heading)?.heading ?? null
 }
 
 export function shouldHydrateBeforeMigrationExport(
