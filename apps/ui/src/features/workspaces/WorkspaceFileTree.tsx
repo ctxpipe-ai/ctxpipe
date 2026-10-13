@@ -1,3 +1,4 @@
+import type { FileTreeItemHandle } from "@pierre/trees"
 import { FileTree, useFileTree, useFileTreeSearch } from "@pierre/trees/react"
 import {
   IconLayoutSidebarLeftCollapse,
@@ -116,6 +117,28 @@ export function workspaceTreeEntries(
       return inside.length > 0 && inside.every((row) => deleted.has(row))
     },
   }
+}
+
+/** The folders of `paths` that are open in the tree now. */
+function expandedFolders(
+  model: { getItem: (path: string) => FileTreeItemHandle | null },
+  paths: readonly string[],
+): string[] {
+  const folders = new Set<string>()
+  for (const path of paths) {
+    const parts = path.split("/").filter(Boolean)
+    const depth = path.endsWith("/") ? parts.length : parts.length - 1
+    for (let index = 1; index <= depth; index += 1) {
+      folders.add(parts.slice(0, index).join("/"))
+    }
+  }
+  const expanded: string[] = []
+  for (const folder of folders) {
+    const item = model.getItem(folder)
+    if (item && "isExpanded" in item && item.isExpanded())
+      expanded.push(item.getPath())
+  }
+  return expanded.sort()
 }
 
 function lineCountDecoration(item: WorkspaceGitStatusItem | undefined) {
@@ -382,8 +405,13 @@ function WorkspaceFileTreeClient(props: {
     searchWasOpenRef.current = search.isOpen
   }, [model, props.selectedPath, search.isOpen])
 
+  const listedPathsRef = useRef(entries.paths)
   useEffect(() => {
-    model.resetPaths(entries.paths)
+    // A new path list (for example the sandbox tree that replaces the default
+    // branch tree) keeps the folders that the user opened.
+    const initialExpandedPaths = expandedFolders(model, listedPathsRef.current)
+    listedPathsRef.current = entries.paths
+    model.resetPaths(entries.paths, { initialExpandedPaths })
   }, [model, entries.paths])
 
   useEffect(() => {

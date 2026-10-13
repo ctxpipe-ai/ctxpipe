@@ -92,12 +92,21 @@ export const docsWorkspaceActivity: WorkspaceActivityResponse = {
     "2026-03-04": 2,
   }),
   recent: docsWorkspaceActivityRecent,
+  authors: [
+    { name: "Ada", count: 9 },
+    { name: "Lin", count: 6 },
+    { name: "Sam", count: 4 },
+    { name: "Jules", count: 2 },
+  ],
+  nextCursor: null,
 }
 
 export const emptyWorkspaceActivity: WorkspaceActivityResponse = {
   status: "ready",
   days: activityDaysThrough("2026-08-26"),
   recent: [],
+  authors: [],
+  nextCursor: null,
 }
 
 export const docsWorkspace: Workspace = {

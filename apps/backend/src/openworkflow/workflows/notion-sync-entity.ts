@@ -13,7 +13,7 @@ import { parseNotionConfigYamlContent } from "../../services/notion/config-yaml.
 import { loadNotionConnection } from "../../services/notion/connection-load.js"
 import { captureNotionIncrementalContent } from "../../services/notion/sync.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
-import { runRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
+import { enqueueLegacySyncRepositoryIngestion } from "../legacy-sync-repository-ingestion.js"
 import { workspaceConnectorMirror } from "./workspace-connector-mirror.js"
 
 const inputSchema = z.object({
@@ -149,8 +149,9 @@ export const notionSyncEntity = defineWorkflow(
             : null
         if (result?.committed) {
           await step.run({ name: "ingest-notion-content" }, () =>
-            runRepositoryIngestionWorkflow(
+            enqueueLegacySyncRepositoryIngestion(
               {
+                connectionId: input.connectionId,
                 orgId: input.orgId,
                 repositoryId: context.binding.repositoryId,
                 targetBranch: context.binding.branch,

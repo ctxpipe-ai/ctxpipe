@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { expect, fn, userEvent, within } from "storybook/test"
+import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 import type { ChatMessage } from "@/features/chat/types"
 import { ConversationSyncEntry } from "@/features/workspaces/ConversationSyncEntry"
 import { ConversationTurnChangesCard } from "@/features/workspaces/ConversationTurnChangesCard"
@@ -258,6 +258,99 @@ export const ChatProgressLogExpanded: Story = {
   },
 }
 
+/** The vertical space between two elements, in pixels. */
+function gapBetween(upper: Element, lower: Element) {
+  return Math.round(
+    lower.getBoundingClientRect().top - upper.getBoundingClientRect().bottom,
+  )
+}
+
+/**
+ * The counters, the status line, and the log items have one gap. The tool
+ * name is more prominent than its detail.
+ */
+export const ChatProgressSpacing: Story = {
+  tags: ["workspace-golden"],
+  args: {
+    messages: progressWorkingMessages,
+    status: "streaming",
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const log = canvas.getByRole("button", { name: progressCounters })
+    const status = canvas.getByRole("status")
+    const gap = gapBetween(log, status)
+    await expect(gap).toBe(8)
+    await userEvent.click(log)
+    const region = canvas.getByRole("region", { name: "Activity log" })
+    const rows = within(region).getAllByRole("listitem")
+    await expect(gapBetween(log, rows[0] as Element)).toBe(gap)
+    await expect(gapBetween(rows[0] as Element, rows[1] as Element)).toBe(gap)
+    await expect(gapBetween(rows.at(-1) as Element, status)).toBe(gap)
+    const readRow = within(rows[3] as HTMLElement)
+    const weight = (element: Element) =>
+      Number(getComputedStyle(element).fontWeight)
+    await expect(weight(readRow.getByText("Read file"))).toBeGreaterThan(
+      weight(readRow.getByText("knowledge/docker/setup.md")),
+    )
+  },
+}
+
+const earlierTurns: ChatMessage[] = Array.from({ length: 4 }, (_, index) => [
+  {
+    id: `msg_scroll_u${index}`,
+    role: "user" as const,
+    parts: [{ type: "text" as const, content: `Question ${index + 1}` }],
+  },
+  {
+    id: `msg_scroll_a${index}`,
+    role: "assistant" as const,
+    parts: [
+      {
+        type: "text" as const,
+        content: Array.from(
+          { length: 6 },
+          () =>
+            "The knowledge units describe the Docker setup, the compose file, and the local ports.",
+        ).join(" "),
+      },
+    ],
+  },
+]).flat()
+
+/**
+ * At the bottom of a working turn, the thread stays at the bottom. Opening
+ * the log does not scroll the thread: the counters stay in place.
+ */
+export const OpeningLogKeepsScroll: Story = {
+  tags: ["workspace-golden"],
+  args: {
+    messages: [...earlierTurns, ...progressWorkingMessages],
+    status: "streaming",
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const log = canvas.getByRole("button", { name: progressCounters })
+    const scroller = canvasElement.querySelector(
+      '[role="log"] > div',
+    ) as HTMLElement
+    await expect(scroller.scrollHeight).toBeGreaterThan(scroller.clientHeight)
+    await waitFor(() => {
+      expect(
+        scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight,
+      ).toBeLessThan(2)
+    })
+    const top = log.getBoundingClientRect().top
+    await userEvent.click(log)
+    await expect(log).toHaveAttribute("aria-expanded", "true")
+    // The stick to the bottom scrolls in a smooth animation; wait past it.
+    await new Promise((resolve) => setTimeout(resolve, 800))
+    await expect(Math.round(log.getBoundingClientRect().top)).toBe(
+      Math.round(top),
+    )
+  },
+}
+
 export const ReasoningCollapsed: Story = {
   args: {
     messages: reasoningMessages,
@@ -420,7 +513,10 @@ export const PushEntryUnderCard: Story = {
   tags: ["workspace-golden"],
   decorators: [
     (Story) => (
-      <div className="flex h-[32rem] w-[26rem] bg-zinc-950">
+      <div
+        data-testid="push-frame"
+        className="flex h-[32rem] w-[26rem] bg-zinc-950"
+      >
         <Story />
       </div>
     ),
@@ -473,12 +569,23 @@ export const PushEntryUnderCard: Story = {
     const entry = await canvas.findByRole("region", {
       name: /^Pushed 1 file to/,
     })
-    const cardBox = card.getBoundingClientRect()
-    const entryBox = entry.getBoundingClientRect()
-    expect(entryBox.top).toBeGreaterThanOrEqual(cardBox.bottom)
-    expect(entryBox.left).toBeCloseTo(cardBox.left, 0)
-    expect(entryBox.right).toBeLessThanOrEqual(cardBox.right + 1)
+    const frame = canvas.getByTestId("push-frame")
+    // The entry sits under the card at a narrow and at a wide width.
+    for (const width of ["26rem", "64rem"]) {
+      frame.style.width = width
+      await waitFor(() => {
+        const cardBox = card.getBoundingClientRect()
+        const entryBox = entry.getBoundingClientRect()
+        expect(entryBox.top).toBeGreaterThanOrEqual(cardBox.bottom)
+        expect(entryBox.left).toBeCloseTo(cardBox.left, 0)
+        expect(entryBox.right).toBeLessThanOrEqual(cardBox.right + 1)
+      })
+    }
+    // The long branch truncates at the narrow width.
+    frame.style.width = "26rem"
     const branch = within(entry).getByText(/conv_long_identifier/)
-    expect(branch.scrollWidth).toBeGreaterThan(branch.clientWidth)
+    await waitFor(() =>
+      expect(branch.scrollWidth).toBeGreaterThan(branch.clientWidth),
+    )
   },
 }

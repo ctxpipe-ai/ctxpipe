@@ -1,7 +1,7 @@
 import { IconAlertCircle, IconGitBranch, IconPencil } from "@tabler/icons-react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { type ReactNode, useState } from "react"
+import { type ReactNode, useEffect, useRef, useState } from "react"
 import { Heading, Link } from "react-aria-components"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
@@ -20,14 +20,11 @@ import { writeCheckInFlight } from "./projection"
 import {
   checkWorkspaceWriteAccess,
   deleteWorkspace,
+  forgetDeletedWorkspace,
   updateWorkspace,
   workspaceKeys,
 } from "./queries"
-import type {
-  WorkspaceDetail,
-  WorkspaceListResponse,
-  WorkspaceSkippedFile,
-} from "./types"
+import type { WorkspaceDetail, WorkspaceSkippedFile } from "./types"
 import { WorkspaceRepositoryPicker } from "./WorkspaceRepositoryPicker"
 import { workspaceDeleteNameMatches } from "./workspaceDeleteNameMatches"
 import { useWriteCheckStall } from "./writeCheckStall"
@@ -249,32 +246,36 @@ export function WorkspaceSettingsPane(props: {
     },
   })
 
+  // Remove the caches of a deleted Workspace only after this pane unmounts.
+  // While the Workspace is on screen, a removed query would read again, get a
+  // 404, and replace the page with an error.
+  const deletedRef = useRef(false)
+  useEffect(
+    () => () => {
+      if (!deletedRef.current) return
+      setTimeout(() => {
+        queryClient.removeQueries({
+          predicate: ({ queryKey: [, org, slug] }) =>
+            org === orgSlug && slug === workspace.slug,
+        })
+      })
+    },
+    [queryClient, orgSlug, workspace.slug],
+  )
+
   const deleteMutation = useMutation({
     mutationFn: (name: string) =>
       deleteWorkspace(orgSlug, workspace.slug, name),
     onSuccess: async () => {
       toast.success("Workspace deleted")
+      deletedRef.current = true
       setDeleteOpen(false)
-      // Remove the Workspace from the cached list before Home renders.
-      await queryClient.cancelQueries({
-        queryKey: workspaceKeys.list(orgSlug),
-      })
-      queryClient.setQueryData<WorkspaceListResponse>(
-        workspaceKeys.list(orgSlug),
-        (list) =>
-          list && {
-            ...list,
-            items: list.items.filter((item) => item.id !== workspace.id),
-          },
-      )
+      await forgetDeletedWorkspace(queryClient, orgSlug, workspace.id)
       void navigate({
         to: "/$orgSlug",
         params: { orgSlug },
         replace: true,
       }).then(() => {
-        queryClient.removeQueries({
-          queryKey: workspaceKeys.detail(orgSlug, workspace.slug),
-        })
         void queryClient.invalidateQueries({
           queryKey: workspaceKeys.list(orgSlug),
         })

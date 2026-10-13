@@ -25,6 +25,14 @@ const required = [
   ],
   [
     "apps/ui/src/features/workspaces/WorkspaceChat.stories.tsx",
+    "FollowUpShowsSandboxSetupFirst",
+  ],
+  [
+    "apps/ui/src/features/workspaces/WorkspaceChat.stories.tsx",
+    "LogKeepsStreamOrder",
+  ],
+  [
+    "apps/ui/src/features/workspaces/WorkspaceChat.stories.tsx",
     "SocketCleansUpOnLeave",
   ],
   [
@@ -66,9 +74,22 @@ const required = [
   [
     "apps/ui/src/features/workspaces/WorkspaceChatChrome.stories.tsx",
     "BranchLabel",
+  ],
+  [
+    "apps/ui/src/features/workspaces/WorkspaceChatChrome.stories.tsx",
     "SyncCtaWithSubtleShowPr",
+  ],
+  [
+    "apps/ui/src/features/workspaces/WorkspaceChatChrome.stories.tsx",
     "DirtyShowsOnlySync",
+  ],
+  [
+    "apps/ui/src/features/chat/ConversationThread.stories.tsx",
     "PushEntryUnderCard",
+  ],
+  [
+    "apps/ui/src/features/workspaces/WorkspaceSurface.stories.tsx",
+    "PublishPrErrorToast",
   ],
   [
     "apps/ui/src/features/workspaces/WorkspaceSurface.stories.tsx",
@@ -140,6 +161,14 @@ const required = [
     "ChatProgressLogExpanded",
   ],
   [
+    "apps/ui/src/features/chat/ConversationThread.stories.tsx",
+    "ChatProgressSpacing",
+  ],
+  [
+    "apps/ui/src/features/chat/ConversationThread.stories.tsx",
+    "OpeningLogKeepsScroll",
+  ],
+  [
     "apps/ui/src/features/workspaces/WorkspaceCommandPalette.stories.tsx",
     "PaletteShortcutTogglesAndRestoresFocus",
   ],
@@ -183,6 +212,33 @@ const required = [
     "apps/ui/src/features/workspaces/WorkspaceCommandPalette.stories.tsx",
     "PaletteShortcutClosesAfterSyncRender",
   ],
+  [
+    "apps/ui/src/features/workspaces/WorkspaceSurface.stories.tsx",
+    "DeleteWorkspaceShowsNoError",
+  ],
+  [
+    "apps/ui/src/features/workspaces/WorkspaceSurface.stories.tsx",
+    "DeleteLastWorkspaceShowsNoError",
+  ],
+  [
+    "apps/ui/src/features/workspaces/WorkspaceSurface.stories.tsx",
+    "DeleteFromConversationShowsNoError",
+  ],
+  [
+    "apps/ui/src/features/workspaces/WorkspaceFileTree.stories.tsx",
+    "NewPathsKeepExpandedFolders",
+  ],
+  [
+    "apps/ui/src/features/workspaces/WorkspacePane.stories.tsx",
+    "DefaultBranchUntilSandboxReady",
+  ],
+  ["apps/ui/src/routes/-home.stories.tsx", "Loading"],
+  ["apps/ui/src/routes/-home.stories.tsx", "WorkspacesLoading"],
+  ["apps/ui/src/routes/-home.stories.tsx", "Empty"],
+  ["apps/ui/src/routes/-home.stories.tsx", "Populated"],
+  ["apps/ui/src/routes/-home.stories.tsx", "ActivityLoading"],
+  ["apps/ui/src/routes/-home.stories.tsx", "FirstMessageOpensConversation"],
+  ["apps/ui/src/routes/-home.stories.tsx", "NoHistory"],
 ]
 
 test("required golden stories carry the workspace-golden tag and a play", () => {
@@ -214,6 +270,25 @@ test("inventory rejects a tagged required story without play-fn", () => {
         },
       }),
     /no play function/,
+  )
+})
+
+test("inventory rejects two tagged stories with one name", () => {
+  assert.throws(
+    () =>
+      selectGoldenStories({
+        entries: {
+          home: {
+            exportName: "Loading",
+            tags: ["workspace-golden", "play-fn"],
+          },
+          other: {
+            exportName: "Loading",
+            tags: ["workspace-golden", "play-fn"],
+          },
+        },
+      }),
+    /More than one golden story is named Loading/,
   )
 })
 

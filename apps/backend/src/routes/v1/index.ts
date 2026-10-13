@@ -45,7 +45,10 @@ import { pendingAtlassianClaimRoutes } from "./pending-atlassian-claim.js"
 import { repositoryRoutes } from "./repositories.js"
 import { orgActivityRoutes } from "./workspace-activity-routes.js"
 import { workspaceChatOpenaiRoutes } from "./workspace-chat-openai.js"
-import { connectionUsageRoutes } from "./workspace-sources-routes.js"
+import {
+  connectionSyncRoutes,
+  connectionUsageRoutes,
+} from "./workspace-sources-routes.js"
 import { workspaceRoutes } from "./workspaces.js"
 
 const githubInstallationAdminScoped = new OpenAPIHono<AppEnv>()
@@ -71,6 +74,11 @@ const notionConnectorScoped = new OpenAPIHono<AppEnv>()
 const pagerdutyConnectorScoped = new OpenAPIHono<AppEnv>()
   .use("*", requireOrgAdminOrOwner)
   .route("/", pagerdutyConnectorRoutes)
+
+// Only the sync path: this app mounts on "/connectors" beside other routes.
+const connectionSyncScoped = new OpenAPIHono<AppEnv>()
+  .use("/:connectionId/sync", requireOrgAdminOrOwner)
+  .route("/", connectionSyncRoutes)
 
 function createOrgScopedV1<BasePath extends string>(
   app: OpenAPIHono<AppEnv, Record<never, never>, BasePath>,
@@ -100,6 +108,7 @@ function createOrgScopedV1<BasePath extends string>(
     .route("/capabilities", orgCapabilitiesRoutes)
     .route("/connectors", connectorsListRoutes)
     .route("/connectors", connectionUsageRoutes)
+    .route("/connectors", connectionSyncScoped)
     .route("/onboarding", orgOnboardingRoutes)
     .route("/openai", openaiRoutes)
 }

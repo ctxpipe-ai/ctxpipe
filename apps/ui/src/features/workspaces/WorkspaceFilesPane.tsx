@@ -62,6 +62,8 @@ export function WorkspaceFilesPaneBody(props: {
   sha: string
   writeStatus: string
   conversationWritable?: boolean
+  /** The chat session says that the conversation sandbox is ready. */
+  sandboxPrepared?: boolean
   activeFile: string | null
   treeCollapsed: boolean
   onPreviewFile: (path: string) => void
@@ -82,6 +84,7 @@ export function WorkspaceFilesPaneBody(props: {
         sha={props.sha}
         writeStatus={props.writeStatus}
         conversationWritable={props.conversationWritable}
+        sandboxPrepared={props.sandboxPrepared}
         activeFile={props.activeFile}
         treeCollapsed={props.treeCollapsed}
         onPreviewFile={props.onPreviewFile}
@@ -113,6 +116,7 @@ function ConversationSandboxFilesPane(props: {
   sha: string
   writeStatus: string
   conversationWritable?: boolean
+  sandboxPrepared?: boolean
   activeFile: string | null
   treeCollapsed: boolean
   onPreviewFile: (path: string) => void
@@ -127,9 +131,25 @@ function ConversationSandboxFilesPane(props: {
     ...conversationGitStatusOptions(props.orgSlug, props.conversationId),
     enabled: sandboxTreeQuery.isSuccess,
   })
-  const tree = sandboxTreeQuery.data
-  const awaitingFirstList =
-    !tree || (tree.ready === false && !tree.paths.length)
+  const sandboxTree = sandboxTreeQuery.data
+  // The sandbox answered that it is not ready, and no earlier list is cached.
+  const sandboxStarting =
+    sandboxTree?.ready === false && !sandboxTree.paths.length
+  // Until then, show the default branch from the Workspace index.
+  const defaultTreeQuery = useQuery({
+    ...workspaceGitTreeOptions(props.orgSlug, props.workspaceSlug, props.sha),
+    enabled: sandboxStarting,
+  })
+  const defaultTree =
+    sandboxStarting && defaultTreeQuery.data?.paths.length
+      ? defaultTreeQuery.data
+      : undefined
+  const tree = sandboxStarting ? defaultTree : sandboxTree
+  const { refetch } = sandboxTreeQuery
+  useEffect(() => {
+    if (props.sandboxPrepared && sandboxStarting) void refetch()
+  }, [props.sandboxPrepared, sandboxStarting, refetch])
+  const awaitingFirstList = !tree
   const showSkeleton = useSkeletonHold(awaitingFirstList, "files")
   // `awaitingFirstList` is also true here; it narrows `tree` for TypeScript.
   if (showSkeleton || awaitingFirstList) {
@@ -154,13 +174,14 @@ function ConversationSandboxFilesPane(props: {
         orgSlug={props.orgSlug}
         workspaceSlug={props.workspaceSlug}
         conversationId={props.conversationId}
+        defaultBranch={Boolean(defaultTree)}
         sha={props.sha}
         tree={tree}
-        gitStatus={sandboxStatusQuery.data?.items ?? []}
-        writable={conversationAllowsEdits(
-          props.writeStatus,
-          props.conversationWritable,
-        )}
+        gitStatus={defaultTree ? [] : (sandboxStatusQuery.data?.items ?? [])}
+        writable={
+          !defaultTree &&
+          conversationAllowsEdits(props.writeStatus, props.conversationWritable)
+        }
         updating={false}
         activeFile={props.activeFile}
         treeCollapsed={props.treeCollapsed}
@@ -224,6 +245,8 @@ function WorkspaceFilesPaneContent(props: {
   orgSlug: string
   workspaceSlug: string
   conversationId?: string
+  /** The sandbox is not ready: show and read the default branch. */
+  defaultBranch?: boolean
   sha: string
   tree: WorkspaceGitTreeResponse
   gitStatus: readonly WorkspaceGitStatusItem[]
@@ -238,7 +261,7 @@ function WorkspaceFilesPaneContent(props: {
 }) {
   const queryClient = useQueryClient()
   const prefetchBlob = (path: string) => {
-    if (props.conversationId) {
+    if (props.conversationId && !props.defaultBranch) {
       void queryClient.prefetchQuery(
         conversationGitBlobOptions(props.orgSlug, props.conversationId, path),
       )
@@ -857,6 +880,11 @@ function WorkspaceFilesPaneContent(props: {
             </>
           ) : null}
         </div>
+        {props.defaultBranch && props.activeFile ? (
+          <output className="block px-3 pb-2 text-xs text-muted-foreground">
+            Read-only default branch. You can edit when the sandbox is ready.
+          </output>
+        ) : null}
         {jobError ? (
           <div className="px-2 pb-2">
             <InlineAlert variant="error" title="Could not save">
@@ -886,7 +914,9 @@ function WorkspaceFilesPaneContent(props: {
               <WorkspaceGitFilePreview
                 orgSlug={props.orgSlug}
                 workspaceSlug={props.workspaceSlug}
-                conversationId={props.conversationId}
+                conversationId={
+                  props.defaultBranch ? undefined : props.conversationId
+                }
                 path={props.activeFile}
                 sha={props.sha || props.tree.sha}
                 remoteBody={

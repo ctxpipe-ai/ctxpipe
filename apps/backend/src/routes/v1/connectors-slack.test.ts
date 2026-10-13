@@ -64,8 +64,8 @@ vi.mock("../../models/slack-connector.js", () => ({
 vi.mock("../../observability/logger.js", () => ({
   getLogger: () => ({ error: vi.fn(), info: vi.fn(), warn: vi.fn() }),
 }))
-vi.mock("../../openworkflow/enqueue-repository-ingestion.js", () => ({
-  enqueueRepositoryIngestionWorkflow: enqueueIngestionMock,
+vi.mock("../../openworkflow/legacy-sync-repository-ingestion.js", () => ({
+  enqueueLegacySyncRepositoryIngestion: enqueueIngestionMock,
 }))
 vi.mock("../../services/slack/client.js", () => ({
   assertSlackOAuthConfigured: assertOAuthConfiguredMock,
@@ -327,6 +327,7 @@ describe("Slack connector routes", () => {
     expect(response.status).toBe(200)
     expect(enqueueIngestionMock).toHaveBeenCalledWith(
       {
+        connectionId: "con_1",
         orgId: "org_1",
         repositoryId: "repo_new",
         targetBranch: "main",

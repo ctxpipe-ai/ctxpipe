@@ -2,6 +2,8 @@ export const requiredStories = [
   "LateErrorDoesNotClobberSuccess",
   "FirstTurnStreamsLive",
   "FirstTurnFailureRestoresDraft",
+  "FollowUpShowsSandboxSetupFirst",
+  "LogKeepsStreamOrder",
   "SocketCleansUpOnLeave",
   "ReloadReconnects",
   "RapidRouteChanges",
@@ -66,6 +68,8 @@ export const requiredStories = [
   "GuideEstablishedUserHidden",
   "ChatProgressDone",
   "ChatProgressLogExpanded",
+  "ChatProgressSpacing",
+  "OpeningLogKeepsScroll",
   "DiffPaneEmpty",
   "DiffPaneManyFiles",
   "DiffPaneExpandedFile",
@@ -87,6 +91,13 @@ export const requiredStories = [
   "VisibleSkeletonHoldsMinimum",
   "SuspenseHoldsMinimum",
   "RecentCommitsSkeletonMatches",
+  "CompactRowTruncates",
+  "CommitLineAligns",
+  "AuthorFiltersRecent",
+  "ResetClearsEveryFilter",
+  "LoadMorePages",
+  "CustomDateRange",
+  "AvatarAndInitialFallback",
   "HeatmapSkeletonMatches",
   "ConnectorRowSkeletonMatches",
   "ConversationListSkeletonMatches",
@@ -119,6 +130,18 @@ export const requiredStories = [
   "PaletteHoverAndKeysShareOneHighlight",
   "PaletteEnterAfterDeleteRunsFirstMatch",
   "PaletteShortcutClosesAfterSyncRender",
+  "DeleteWorkspaceShowsNoError",
+  "DeleteLastWorkspaceShowsNoError",
+  "DeleteFromConversationShowsNoError",
+  "NewPathsKeepExpandedFolders",
+  "DefaultBranchUntilSandboxReady",
+  "Loading",
+  "WorkspacesLoading",
+  "Empty",
+  "Populated",
+  "ActivityLoading",
+  "FirstMessageOpensConversation",
+  "NoHistory",
 ]
 
 export function isGoldenPlaySuccess(phase) {
@@ -127,6 +150,13 @@ export function isGoldenPlaySuccess(phase) {
 
 export function selectGoldenStories(index) {
   const entries = Object.values(index.entries ?? {})
+  // Names are matched without the file, so a tagged name must be unique.
+  const tagged = entries
+    .filter((entry) => (entry.tags ?? []).includes("workspace-golden"))
+    .map((entry) => entry.exportName)
+  const twice = tagged.find((name, at) => tagged.indexOf(name) !== at)
+  if (twice)
+    throw new Error(`More than one golden story is named ${twice}; rename one`)
   return requiredStories.map((name) => {
     const story = entries.find(
       (entry) =>

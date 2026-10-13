@@ -30,6 +30,7 @@
     "@daveyplate/better-auth-tanstack": "^1.3.6",
     "@daveyplate/better-auth-ui": "^3.4.0",
     "@hyperdx/browser": "^0.26.0",
+    "@internationalized/date": "^3.11.0",
     "@pierre/diffs": "^1.3.5",
     "@pierre/trees": "^1.0.0-beta.6",
     "@scure/base": "^2.0.0",

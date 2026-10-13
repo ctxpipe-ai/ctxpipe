@@ -1,8 +1,11 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
-import { context, SpanStatusCode, trace } from "@opentelemetry/api"
 import { createError } from "evlog"
 import { z } from "zod"
-import { currentMcpActor, requireCurrentOrgId } from "../auth/context.js"
+import {
+  currentMcpActor,
+  currentOrgIdOrNull,
+  requireCurrentOrgSlug,
+} from "../auth/context.js"
 import { advisorWorkspaceId } from "../domain/workspaces/chat-sandbox-policy.js"
 import {
   SandboxCapacityError,
@@ -19,10 +22,13 @@ import {
   getOrgFirstWorkspace,
   listOrgWorkspaces,
 } from "../models/workspaces.js"
-import { copyAttributionToSpan } from "../observability/attribution.js"
+import { applyAttribution } from "../observability/attribution.js"
 import { runWithLangfuseContext } from "../observability/langfuse.js"
 import { mcpAdvisorUserPrompt } from "./advisorRuntimeContext.js"
 import { mcpAdvisorThreadId, mcpClientConversationId } from "./advisorThread.js"
+import { runMcpToolCall } from "./correlation.js"
+import { orgRequired } from "./framework/tool-errors.js"
+import { toolFailure } from "./framework/tool-result.js"
 
 /**
  * Register MCP tools. Tools should call into domain/ services so REST and MCP
@@ -84,6 +90,13 @@ export function registerMcpTools(server: McpServer): void {
         "",
         "When in doubt, call. This tool is the single entrypoint to your org's knowledge graph — use it aggressively.",
       ].join("\n"),
+      // readOnlyHint also selects the scope: read-only tools need ctxpipe:read.
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
       inputSchema: z.object({
         prompt: z.string().min(1),
         currentProjectName: z.string().max(128).optional(),
@@ -91,9 +104,22 @@ export function registerMcpTools(server: McpServer): void {
       }),
     },
     async ({ prompt, currentProjectName, conversationId }, extra) =>
-      withCtxAdvisorToolSpan(async () => {
+      runMcpToolCall({ toolName: "ctx_advisor", extra }, async () => {
         const actor = currentMcpActor()
-        const orgId = requireCurrentOrgId()
+        // A connection with several orgs and no usable ?orgSlug= has no
+        // default org. ctx_advisor has no `org` argument.
+        const orgId = currentOrgIdOrNull()
+        if (!orgId) {
+          return toolFailure(
+            orgRequired(
+              "ctx_advisor needs an org. Connect with /mcp?orgSlug=<org>, where <org> is an org of this connection.",
+            ),
+          )
+        }
+        applyAttribution({
+          "ctxpipe.org.id": orgId,
+          "ctxpipe.org.slug": requireCurrentOrgSlug(),
+        })
         const [items, first] = await Promise.all([
           listOrgWorkspaces(orgId),
           getOrgFirstWorkspace(orgId),
@@ -187,26 +213,4 @@ export function registerMcpTools(server: McpServer): void {
         }
       }),
   )
-}
-
-function withCtxAdvisorToolSpan<T>(fn: () => Promise<T>): Promise<T> {
-  return trace
-    .getTracer("ctxpipe-backend")
-    .startActiveSpan("mcp.tool ctx_advisor", async (span) => {
-      copyAttributionToSpan(span, context.active())
-      try {
-        return await fn()
-      } catch (error) {
-        const exception =
-          error instanceof Error ? error : new Error(String(error))
-        span.recordException(exception)
-        span.setStatus({
-          code: SpanStatusCode.ERROR,
-          message: exception.message,
-        })
-        throw error
-      } finally {
-        span.end()
-      }
-    })
 }

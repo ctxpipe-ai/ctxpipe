@@ -245,12 +245,18 @@ export function runVaultName(runKey: string): string {
 /**
  * Create the run's vault with `rules` and a proxy session for the sandbox.
  * Throws {@link AgentVaultUnavailableError} when Agent Vault does not answer.
+ *
+ * `unmatchedHosts` is what the proxy does with a request that no rule
+ * matches: `passthrough` (the default) forwards it with no credential, and
+ * `deny` refuses it with a 403. A rule with a path matches that exact path
+ * only, so `deny` also refuses the other paths of a rule's host.
  */
 export async function openRunVault(input: {
   access: AgentVaultAccess
   runKey: string
   ttlSeconds: number
   rules: RunVaultRule[]
+  unmatchedHosts?: "passthrough" | "deny"
 }): Promise<RunVault> {
   const { access } = input
   const name = runVaultName(input.runKey)
@@ -272,17 +278,22 @@ export async function openRunVault(input: {
       }),
     )
   }
-  const session = await asOwner(access, async (client) => {
+  await asOwner(access, async (client) => {
     try {
       await client.createVault({ name })
     } catch (error) {
       // A retry of the same run reuses its vault.
       if ((error as { status?: number }).status !== 409) throw error
     }
-    return client.vault(name).sessions?.create({ ttlSeconds: input.ttlSeconds })
   })
   try {
+    // The policy and the rules are in place before the session exists.
+    if (input.unmatchedHosts)
+      await setUnmatchedHostPolicy(access, name, input.unmatchedHosts)
     await addRules(input.rules)
+    const session = await asOwner(access, async (client) =>
+      client.vault(name).sessions?.create({ ttlSeconds: input.ttlSeconds }),
+    )
     if (!session?.containerConfig)
       throw new AgentVaultUnavailableError(
         "Agent Vault has no TLS proxy (MITM is off)",
@@ -320,6 +331,36 @@ export async function openRunVault(input: {
     await close()
     throw unavailable(error)
   }
+}
+
+/**
+ * Set what the vault's proxy does with a request that no rule matches, and
+ * read the result back: an answer that does not confirm the policy fails
+ * closed.
+ */
+async function setUnmatchedHostPolicy(
+  access: AgentVaultAccess,
+  name: string,
+  policy: "passthrough" | "deny",
+): Promise<void> {
+  await asOwner(access, async (_client, token) => {
+    const response = await avFetch(
+      access,
+      `/v1/vaults/${encodeURIComponent(name)}/settings`,
+      { method: "PATCH", token, body: { unmatched_host_policy: policy } },
+    )
+    const body = (await response.json().catch(() => ({}))) as {
+      unmatched_host_policy?: string
+    }
+    if (!response.ok || body.unmatched_host_policy !== policy)
+      throw Object.assign(
+        new AgentVaultUnavailableError(
+          `Agent Vault did not set the unmatched host policy "${policy}" (${response.status})`,
+        ),
+        // A 401 makes `asOwner` log in again and retry.
+        { status: response.status },
+      )
+  })
 }
 
 export async function deleteRunVault(

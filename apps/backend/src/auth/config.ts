@@ -24,15 +24,27 @@ import { parseEnv } from "../config/env.js"
 import { type Db, initDb, isRailwayPrPreview } from "../db/client.js"
 import { members, users } from "../db/schema/auth.js"
 import { schema } from "../db/schema.js"
+import { isValidSlug } from "../domain/workspaces/slug.js"
 import { generateObjectId } from "../lib/id.js"
 import { log } from "../observability/logger.js"
 import { invitationEmailLink } from "./invitation-email-url.js"
+import { MCP_READ_SCOPE, MCP_WRITE_SCOPE } from "./mcp-scopes.js"
+import { resolveOAuthGrantReference } from "./oauth-grants.js"
 import {
   getOAuthConsentOrganizationId,
-  OAUTH_ORGANIZATION_CLAIM,
-  resolveOAuthConsentReferenceId,
+  getOAuthRequestClientId,
+  oauthAccessTokenClaims,
+  resolveOAuthConsentOrganizationId,
   selectOAuthOrganizationBinding,
 } from "./oauth-organization.js"
+
+function assertOrganizationSlug(slug: string | undefined): void {
+  if (slug === undefined || isValidSlug(slug)) return
+  throw new APIError("BAD_REQUEST", {
+    message:
+      "The organization slug may contain only lowercase letters, numbers, and single hyphens between them, at most 64 characters.",
+  })
+}
 
 export type BetterAuthInstance = ReturnType<typeof createBetterAuth>
 export type AuthUser = BetterAuthInstance["$Infer"]["Session"]["user"]
@@ -309,6 +321,14 @@ export function createBetterAuth() {
         // accepting session must still match the exact invited email address.
         requireEmailVerificationOnInvitation: false,
         organizationHooks: {
+          // The MCP server instructions show org slugs to the model, so a
+          // slug must not carry line breaks or other text (ADR-051 §5).
+          async beforeCreateOrganization({ organization }) {
+            assertOrganizationSlug(organization.slug)
+          },
+          async beforeUpdateOrganization({ organization }) {
+            assertOrganizationSlug(organization.slug)
+          },
           async beforeDeleteOrganization({ organization }) {
             const { purgeOrgDataBeforeAuthDelete } = await import(
               "../domain/repositoryDeletion.js"
@@ -364,30 +384,46 @@ export function createBetterAuth() {
               db,
               user.id,
             )
-            const referenceId = resolveOAuthConsentReferenceId(
+            const submittedOrganizationId = getOAuthConsentOrganizationId()
+            const organizationId = resolveOAuthConsentOrganizationId(
               membershipIds,
               typeof session.activeOrganizationId === "string"
                 ? session.activeOrganizationId
                 : null,
-              getOAuthConsentOrganizationId(),
+              submittedOrganizationId,
             )
-            if (!referenceId) {
+            if (!organizationId) {
               throw new APIError("BAD_REQUEST", {
                 error: "organization_required",
                 error_description:
                   "Select a ctxpipe organization before authorizing this client.",
               })
             }
-            return referenceId
+            return resolveOAuthGrantReference({
+              userId: user.id,
+              clientId: getOAuthRequestClientId(),
+              organizationId,
+              consent: submittedOrganizationId !== undefined,
+            })
           },
         },
         customAccessTokenClaims({ referenceId }) {
-          return referenceId ? { [OAUTH_ORGANIZATION_CLAIM]: referenceId } : {}
+          return oauthAccessTokenClaims(referenceId)
         },
         issuer,
         allowDynamicClientRegistration: true,
         allowUnauthenticatedClientRegistration: true,
         validAudiences: [env.AUTH_BASE_URL, `${env.AUTH_BASE_URL}/mcp`],
+        scopes: [
+          "openid",
+          "profile",
+          "email",
+          "offline_access",
+          MCP_READ_SCOPE,
+          MCP_WRITE_SCOPE,
+        ],
+        /** A write grant gets a shorter access token than the 4h default. */
+        scopeExpirations: { [MCP_WRITE_SCOPE]: "1h" },
         /** 4h — MCP hosts should still refresh via refresh_token before expiry. */
         accessTokenExpiresIn: 14_400,
         silenceWarnings: { oauthAuthServerConfig: true },

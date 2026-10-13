@@ -1,7 +1,7 @@
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
+import { isConnectorMirrorPath } from "../../domain/codeIngestion/connectorMirrorPaths.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
-import { isConnectorMirrorPath } from "../../domain/workspaces/layout.js"
 import { linkedRepositoryUrlSchema } from "../../domain/workspaces/linked-repository-url.js"
 import { planKnowledgeProjection } from "../../domain/workspaces/migration-export.js"
 import {

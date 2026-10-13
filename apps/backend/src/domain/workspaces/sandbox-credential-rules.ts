@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto"
+
 /**
  * The credentials that something outside a chat sandbox adds to its
  * requests: the Vercel firewall (hosted) or Agent Vault (Docker). One list,
@@ -34,6 +36,32 @@ export function githubCredentialRules(token: string): SandboxCredentialRule[] {
       authorization: `Bearer ${token}`,
     },
   ]
+}
+
+/**
+ * Git fetch only, for a vault that refuses requests with no rule (ingest):
+ * `info/refs` and `git-upload-pack` of each repository (`owner/name`, as the
+ * sandbox writes it in a `https://<host>/<owner>/<name>.git` URL). With no
+ * rule for `git-receive-pack` or the REST API, the proxy refuses a push and
+ * each API call. Agent Vault matches the path without the query, so the
+ * `info/refs` rule also covers `?service=git-receive-pack`; that call only
+ * lists refs.
+ */
+export function githubFetchCredentialRules(
+  token: string,
+  repositories: string[],
+  host = "github.com",
+): SandboxCredentialRule[] {
+  const authorization = `Basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`
+  return repositories.flatMap((repository) =>
+    ["info/refs", "git-upload-pack"].map((path) => ({
+      // A service name is a short slug; the hash keeps it unique.
+      name: `git-fetch-${createHash("sha256").update(`${host}/${repository}/${path}`).digest("hex").slice(0, 16)}`,
+      host,
+      path: `/${repository}.git/${path}`,
+      authorization,
+    })),
+  )
 }
 
 /** A Bearer token on one exact URL (host and path). */

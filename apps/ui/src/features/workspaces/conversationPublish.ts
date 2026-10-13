@@ -80,8 +80,8 @@ export function conversationPullRequestVisible(
 
 /**
  * Which header buttons show. One CTA at a time: Sync wins while the branch is
- * dirty. A PR that exists shows as a subtle link next to Sync, as the CTA
- * otherwise.
+ * dirty, except while Create PR runs. A PR that exists is a link next to Sync.
+ * The pull request button is the CTA unless Sync is.
  */
 export function conversationCtaPlan(input: {
   syncVisible: boolean
@@ -89,24 +89,19 @@ export function conversationCtaPlan(input: {
   createPrPending: boolean
   prExists: boolean
 }): {
-  sync: boolean
+  sync: "cta" | "subtle" | null
   pullRequest: "create" | "show" | null
-  pullRequestIsCta: boolean
 } {
   if (input.prExists) {
+    return { sync: input.syncVisible ? "cta" : null, pullRequest: "show" }
+  }
+  if (input.createPrVisible && (!input.syncVisible || input.createPrPending)) {
     return {
-      sync: input.syncVisible,
-      pullRequest: "show",
-      pullRequestIsCta: !input.syncVisible,
+      sync: input.syncVisible ? "subtle" : null,
+      pullRequest: "create",
     }
   }
-  const create =
-    input.createPrVisible && (!input.syncVisible || input.createPrPending)
-  return {
-    sync: input.syncVisible,
-    pullRequest: create ? "create" : null,
-    pullRequestIsCta: create,
-  }
+  return { sync: input.syncVisible ? "cta" : null, pullRequest: null }
 }
 
 /** Every error code the Commit+Push and Create PR routes answer. */

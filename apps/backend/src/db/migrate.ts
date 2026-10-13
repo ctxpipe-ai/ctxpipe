@@ -12,7 +12,6 @@ import { backfillKnowledgePathState } from "./backfill-knowledge-path-state.js"
 import { backfillMissingPagerdutyConnectionDirectory } from "./backfill-pagerduty-connection-directory.js"
 import { backfillRepositoryIngestionRequests } from "./backfill-repository-ingestion-requests.js"
 import { closeDb, initDb } from "./client.js"
-import { migrateLanggraphCheckpoints } from "./migrate-checkpoints.js"
 import { migrateOpenWorkflow } from "./migrate-openworkflow.js"
 import { APP_ROLE_NAME, provisionAppRole } from "./provision-app-role.js"
 
@@ -38,7 +37,6 @@ await migrate(db, { migrationsFolder: "./apps/backend/migrations" })
 await migrateOpenWorkflow(connectionString)
 await backfillKnowledgePathState(pool)
 await backfillRepositoryIngestionRequests(pool)
-await migrateLanggraphCheckpoints(connectionString)
 
 let env: ReturnType<typeof parseEnv> | undefined
 try {

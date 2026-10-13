@@ -407,6 +407,7 @@ export function WorkspacePane(props: {
                   }
                   writeStatus={props.workspace.writeStatus}
                   conversationWritable={props.workspace.conversationWritable}
+                  sandboxPrepared={prepared}
                   activeFile={activeFile}
                   treeCollapsed={props.treeCollapsed}
                   onPreviewFile={(path) => {

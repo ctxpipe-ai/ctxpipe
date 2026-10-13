@@ -19,6 +19,8 @@ describe("knowledge layout", () => {
     expect(knowledgeAreaFromObjectKind("Service")).toBe("services")
     expect(knowledgeAreaFromObjectKind("API")).toBe("apis")
     expect(knowledgeAreaFromObjectKind("Repository")).toBe("codebases")
+    expect(knowledgeAreaFromObjectKind("Decision")).toBe("decisions")
+    expect(knowledgeAreaFromObjectKind("Team")).toBe("teams")
     expect(knowledgeAreaFromObjectKind("InstructionUnit")).toBe("instructions")
     expect(knowledgeAreaFromObjectKind("")).toBe("topics")
     expect(knowledgeAreaFromObjectKind("CustomKind")).toBe("customkind")

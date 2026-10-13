@@ -3,6 +3,7 @@ import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/Button"
 import { chatDraftKey, writeChatDraft } from "@/features/chat/chat-draft"
+import { activitySearch } from "@/features/home/activity-search"
 import { HomeComposer } from "@/features/home/HomeComposer"
 import {
   ASK_PROMPT,
@@ -21,6 +22,7 @@ import { useUserPreferences } from "@/lib/user-preferences"
 import { useUrgentValue } from "@/lib/useUrgentValue"
 
 export const Route = createFileRoute("/$orgSlug/")({
+  validateSearch: activitySearch,
   errorComponent: ({ error, reset }) => (
     <OrgOutletError title="Could not load home" error={error} reset={reset} />
   ),

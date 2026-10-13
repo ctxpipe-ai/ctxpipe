@@ -1,0 +1,1 @@
+ALTER TABLE "workspace_repository_commits" ADD COLUMN "author_login" text;
