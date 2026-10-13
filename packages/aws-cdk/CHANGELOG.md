@@ -1,5 +1,18 @@
 # @ctxpipe/aws-cdk
 
+## 3.2.1
+
+### Patch Changes
+
+- 3130db7: Keep codesearch reads and searches inside the checkout and out of `.git`. Structural search uses the codesearch ast-grep config, not a config file from the repository.
+- 841f2bd: Email/password accounts verify their email address before signing in when SMTP is configured. Unverified accounts are sent a fresh link when they sign in.
+- 2efdf5f: GitHub connections that store a copy of the deployment App's credentials get the deployment App's webhooks again. A push starts re-ingestion, and a merged connector configuration pull request starts the connector sync.
+- 6cdf18b: Attaching a GitHub installation now requires a linked GitHub account that can see it, or the organization's own App.
+- e4e24ad: License the self-host construct under MIT, matching the repository.
+- 32fe59f: Strip characters Postgres jsonb cannot store from package extract results, so a step write is not rejected and retried.
+- 494f8d7: Accept a long TypeScript SCIP index immediately and read the result back, so a headers timeout does not fail an index that is still running.
+- f415e4d: Upgrade TanStack Start past the reflected cross-site scripting fix so docs previews and the product UI are on a patched release.
+
 ## 3.2.0
 
 ### Minor Changes
