@@ -402,6 +402,23 @@ sources:
 
   it("marks a source out of access when no channel is usable", async () => {
     channelState[ENG] = { is_archived: true }
+    failures[`conversations.info:${OPS}`] = "channel_not_found"
+    expect(
+      await slackSourceAdapter.checkAccess?.({
+        orgId: seed.orgId,
+        connectionId: slack,
+        scope: { channels: [ENG, OPS] },
+        env: env(),
+      }),
+    ).toBe(
+      `Channel #eng is archived; Channel ${OPS} is not found, or the ctx| bot cannot see it`,
+    )
+  })
+
+  // Slack sends a mention only from a channel that the bot is in, and an
+  // invite changes nothing in ctx|. So a missing bot is a note, not a block.
+  it("keeps a source ok when the bot is not in its channels yet", async () => {
+    channelState[ENG] = { is_member: false }
     channelState[OPS] = { is_member: false }
     expect(
       await slackSourceAdapter.checkAccess?.({
@@ -410,7 +427,10 @@ sources:
         scope: { channels: [ENG, OPS] },
         env: env(),
       }),
-    ).toBe("Channel #eng is archived; Invite the ctx| bot to channel #ops")
+    ).toEqual({
+      okDetail:
+        "Invite the ctx| bot to channel #eng; Invite the ctx| bot to channel #ops",
+    })
   })
 
   it("checkAccess reports a revoked connection without a throw", async () => {

@@ -76,7 +76,7 @@ Concept: [concept.md](concept.md). Milestone: Workspaces (PR 280). Paths are und
 - **Files:** `openworkflow/workflows/repository-ingestion-v2.ts`, `ingestion-shard.ts`, the trigger in `repository-ingestion-orchestrator.ts` (shadow switch in committed config).
 - **Tests:** integration plus Docker contract plus msw for the model: a run on a small fixture repository with two destination Workspaces writes refs in both and publishes nothing; a killed worker after a step's push resumes, and msw counts no second model call for that step; step outputs stay under 16 KB.
 - **Run contract (T08 depends on it):** the parent run's input has a top-level `orgId` and `shadow` (`IngestionV2RunInput`). The ref clean-up, the broker's run binding, and the ingest sandbox sweep read both from `openworkflow.workflow_runs`; every workflow version counts. Ref jobs go through the broker wrappers in `write-broker.ts` (`pushWorkspaceIngestStep`, `pushWorkspaceIngestAssemble`, `findWorkspaceStepCommit`, `deleteWorkspaceIngestRefs`) with the Workspace `generation` that `resolve` read; T09 never builds a URL or a token.
-- **Blocked:** the merge of T09 waits for the live GitHub App check of T08 (push and delete of `refs/ctxpipe/ingest/x` with an installation token, on a preview).
+- **Unblocked:** the live GitHub App check of T08 passed on 2026-10-13 (see `tickets/T08.md`).
 - **Depends on:** T02 to T08.
 
 ### T10 Skills: `discover-roots`, `libraries`, `ownership` (M) — group C

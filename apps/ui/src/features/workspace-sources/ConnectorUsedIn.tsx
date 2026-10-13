@@ -4,6 +4,7 @@ import { useState } from "react"
 import { Link } from "react-aria-components"
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
+import { Link as TextLink } from "@/components/ui/Link"
 import { SkeletonLine } from "@/components/ui/Skeleton"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
@@ -11,9 +12,17 @@ import { AddToWorkspacesDialog } from "./AddToWorkspacesDialog"
 import { connectionUsageOptions } from "./queries"
 import { sourceProviderLabel, workspaceSourceHref } from "./source-provider-ui"
 
+/** What happens after the merge of an open source pull request. */
+const PENDING_CHANGE_TEXT = {
+  add: "Pull request open. The sync starts after the merge.",
+  edit: "Pull request open. The change applies after the merge.",
+  remove: "Pull request open. The source is removed after the merge.",
+} as const
+
 /**
  * "Used in" on an expanded connector: the Workspaces whose sources use this
- * connection. Each provider card gives it to `ConnectorListItem` as `usedIn`.
+ * connection, and the open source pull requests that wait for a merge. Each
+ * provider card gives it to `ConnectorListItem` as `usedIn`.
  */
 export function ConnectorUsedIn(props: {
   orgSlug: string
@@ -87,10 +96,28 @@ export function ConnectorUsedIn(props: {
                 )}
               >
                 <span className="truncate">{item.workspaceName}</span>
-                <span className="shrink-0 text-muted-foreground">
-                  · {item.stat}
-                </span>
+                {item.stat ? (
+                  <span className="shrink-0 text-muted-foreground">
+                    · {item.stat}
+                  </span>
+                ) : null}
               </Link>
+              {item.pendingChanges.map((change) => (
+                <p
+                  key={change.pullRequestUrl}
+                  className="pb-1 text-xs text-muted-foreground"
+                >
+                  {PENDING_CHANGE_TEXT[change.action]}{" "}
+                  <TextLink
+                    href={change.pullRequestUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    variant="secondary"
+                  >
+                    Open pull request
+                  </TextLink>
+                </p>
+              ))}
             </li>
           ))}
         </ul>
