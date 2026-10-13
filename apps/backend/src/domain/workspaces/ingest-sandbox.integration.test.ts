@@ -333,9 +333,9 @@ describe("ingest sandbox sweep (Postgres, unsandboxed)", () => {
             expect(busy.nextSweepAt?.getTime()).toBeGreaterThan(late.getTime())
           },
         )
-        expect((await sweepConversationSandboxes(org.orgId, late)).deleted).toBe(
-          1,
-        )
+        expect(
+          (await sweepConversationSandboxes(org.orgId, late)).deleted,
+        ).toBe(1)
         expect(await getSandboxInstance(sandbox.key, org.orgId)).toBeNull()
       })
     })

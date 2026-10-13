@@ -282,7 +282,10 @@ function chatSandbox(org: { orgId: string; workspaceId: string }) {
     threadId: conversationId,
     runId: `run-${conversationId}`,
     // No conversation row: the store checks only the sandbox row here.
-    store: postgresSandboxInstanceStore({ ...owner, conversationId: undefined }),
+    store: postgresSandboxInstanceStore({
+      ...owner,
+      conversationId: undefined,
+    }),
     locks: postgresSandboxLocks(org.orgId),
     tenant: { userId: undefined, orgId: org.orgId },
   }
