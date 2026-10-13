@@ -102,9 +102,10 @@ async function ipOn(container: string, network: string): Promise<string> {
  * A real Agent Vault (`infisical/agent-vault:latest`) on its own network, as
  * Compose runs it: the proxy may dial only the upstream (the backend's place).
  *
- * With `closed`, sandboxes run on an internal network where Agent Vault is
- * the only other container, as the DinD and AWS sandbox hosts force with
- * iptables: a sandbox has no route and no DNS to anything but the proxy.
+ * With `closed`, sandboxes run on an internal network, as the DinD and AWS
+ * sandbox hosts force with iptables: a sandbox has no route and no DNS, and
+ * it reaches only the proxy port of Agent Vault (through a TCP forwarder),
+ * not its API.
  */
 export async function withAgentVault<T>(
   input: { image: string; closed?: boolean },
@@ -113,6 +114,7 @@ export async function withAgentVault<T>(
   const id = randomUUID().slice(0, 8)
   const network = `ctxpipe-av-test-${id}`
   const closedNetwork = `ctxpipe-av-closed-${id}`
+  const forwarderName = `ctxpipe-av-forward-${id}`
   const vaultName = `ctxpipe-av-test-${id}`
   const upstreamName = `ctxpipe-av-upstream-${id}`
   const gitToken = `ghs_${randomBytes(12).toString("hex")}`
@@ -230,6 +232,14 @@ exec node /tmp/upstream.cjs`,
       "-e",
       `AGENT_VAULT_NETWORK_ALLOWLIST=${upstreamIp}`,
       "infisical/agent-vault:latest",
+      // A fixed proxy port, for the closed network's forwarder.
+      "server",
+      "--host",
+      "0.0.0.0",
+      "--port",
+      "14321",
+      "--mitm-port",
+      "14322",
     )
     const port = (await docker("port", vaultName, "14321/tcp"))
       .split("\n")[0]
@@ -248,10 +258,34 @@ exec node /tmp/upstream.cjs`,
     }
     if (input.closed) {
       await docker("network", "create", "--internal", closedNetwork)
-      await docker("network", "connect", closedNetwork, vaultName)
+      await docker(
+        "run",
+        "-d",
+        "--name",
+        forwarderName,
+        "--network",
+        network,
+        "-e",
+        `VAULT=${vaultName}`,
+        "--entrypoint",
+        "node",
+        input.image,
+        "-e",
+        `const net = require("node:net")
+net.createServer((client) => {
+  const vault = net.connect(14322, process.env.VAULT)
+  client.pipe(vault).pipe(client)
+  vault.on("error", () => client.destroy())
+  client.on("error", () => vault.destroy())
+}).listen(14322, "0.0.0.0")`,
+      )
+      await docker("network", "connect", closedNetwork, forwarderName)
     }
     const sandboxNetwork = input.closed ? closedNetwork : network
-    const proxyHost = await ipOn(vaultName, sandboxNetwork)
+    const proxyHost = await ipOn(
+      input.closed ? forwarderName : vaultName,
+      sandboxNetwork,
+    )
     return await fn({
       access: {
         address,
@@ -290,7 +324,14 @@ exec node /tmp/upstream.cjs`,
       },
     })
   } finally {
-    await docker("rm", "-f", "-v", vaultName, upstreamName).catch(() => "")
+    await docker(
+      "rm",
+      "-f",
+      "-v",
+      vaultName,
+      upstreamName,
+      forwarderName,
+    ).catch(() => "")
     await docker("network", "rm", network).catch(() => "")
     if (input.closed)
       await docker("network", "rm", closedNetwork).catch(() => "")

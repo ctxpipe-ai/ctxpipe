@@ -9,7 +9,7 @@ import {
 import { workspaceChatDockerImage } from "./chat-runtime.js"
 import {
   bearerUrlRule,
-  githubCredentialRules,
+  githubFetchCredentialRules,
   type SandboxCredentialRule,
 } from "./sandbox-credential-rules.js"
 import { WORKSPACE_CHAT_FIREWALL_PLACEHOLDER as PLACEHOLDER } from "./workspace-chat-opencode-contract.js"
@@ -168,15 +168,14 @@ curl -sS -o /dev/null -w "%{http_code}" https://example.com/`,
   )
 
   it(
-    "a closed vault forwards only its rules: the model proxy, the tool bridge and Git; other hosts and paths fail",
+    "a closed vault forwards only its rules: the model proxy, the tool bridge and Git fetch; pushes, other hosts and paths, and its own API fail",
     { timeout: 240_000 },
     async () => {
-      // The sandbox network is internal, as the DinD and AWS hosts force with
-      // iptables: Agent Vault is the only way out.
+      // The sandbox network is internal and reaches only the proxy port, as
+      // the DinD and AWS hosts force with iptables.
       await withAgentVault({ image, closed: true }, async (fixture) => {
         const upstream = fixture.upstream
         const base = `http://${upstream}:8080`
-        const basic = `Basic ${Buffer.from(`x-access-token:${fixture.gitToken}`).toString("base64")}`
         const rules: SandboxCredentialRule[] = [
           bearerUrlRule(
             "model-proxy-chat",
@@ -184,15 +183,18 @@ curl -sS -o /dev/null -w "%{http_code}" https://example.com/`,
             "model-capability",
           ),
           bearerUrlRule("tool-bridge", `${base}/echo/bridge`, "bridge-token"),
-          ...["info/refs", "git-upload-pack"].map((path, index) => ({
-            name: `git-${index}`,
-            host: `${upstream}:8080`,
-            path: `/git/repo.git/${path}`,
-            authorization: basic,
-          })),
-          // The real GitHub hosts, with a token GitHub refuses: GitHub (not
-          // Agent Vault) answers.
-          ...githubCredentialRules("ghs_not_a_real_token"),
+          // The test Git server takes pushes with this token: only the vault
+          // can refuse them.
+          ...githubFetchCredentialRules(
+            fixture.gitToken,
+            ["git/repo"],
+            `${upstream}:8080`,
+          ),
+          // The real github.com, with a token GitHub refuses: GitHub (not
+          // Agent Vault) answers a fetch.
+          ...githubFetchCredentialRules("ghs_not_a_real_token", [
+            "octocat/hello-world",
+          ]),
         ]
         const vault = await openRunVault({
           access: fixture.access,
@@ -202,6 +204,12 @@ curl -sS -o /dev/null -w "%{http_code}" https://example.com/`,
           unmatchedHosts: "deny",
         })
         try {
+          const proxy = new URL(vault.env.HTTPS_PROXY ?? "")
+          const sessionTokens = [proxy.username, proxy.password]
+            .map(decodeURIComponent)
+            .filter(Boolean)
+          expect(sessionTokens.length).toBeGreaterThan(0)
+          const settings = `/v1/vaults/${vault.name}/settings`
           const code = (args: string) =>
             `curl -sS -m 20 -o /dev/null -w "%{http_code}" ${args} 2>/dev/null || true`
           const result = await fixture.sandbox(
@@ -214,9 +222,22 @@ echo "== bridge"
 curl -sS -m 20 ${base}/echo/bridge
 echo
 echo "== git"
-git ls-remote ${base}/git/repo.git 2>&1 || true
-echo "== github"
-curl -sS -m 20 https://api.github.com/user 2>&1 || true
+git clone -q ${base}/git/repo.git /tmp/clone 2>&1 && git -C /tmp/clone log --format=%s
+echo "== push"
+cd /tmp/clone && git -c user.name=t -c user.email=t@t commit -q --allow-empty -m change
+git push origin HEAD:refs/ctxpipe/ingest/test 2>&1 && echo PUSHED || echo REFUSED
+cd /
+echo "== github-fetch"
+${code("https://github.com/octocat/hello-world.git/info/refs?service=git-upload-pack")}
+echo
+echo "== github-push"
+${code("-X POST https://github.com/octocat/hello-world.git/git-receive-pack")}
+echo
+echo "== github-api"
+${code("https://api.github.com/user")}
+echo
+echo "== github-api-write"
+${code("-X POST https://api.github.com/repos/octocat/hello-world/git/refs")}
 echo
 echo "== example"
 ${code("https://example.com/")}
@@ -227,8 +248,14 @@ echo
 echo "== other-path"
 ${code(`${base}/echo/other`)}
 echo
-echo "== git-push"
-${code(`-X POST ${base}/git/repo.git/git-receive-pack`)}
+echo "== api-via-proxy"
+${code(`-X PATCH http://${fixture.agentVaultName}:14321${settings}`)}
+echo
+echo "== api-direct"
+${code(`--noproxy '*' -X PATCH http://${proxy.hostname}:14321${settings}`)}
+echo
+echo "== api-on-proxy-port"
+${code(`-k --noproxy '*' -X PATCH -H "Authorization: Bearer ${sessionTokens[0]}" -d '{"unmatched_host_policy":"passthrough"}' https://${proxy.hostname}:${proxy.port}${settings}`)}
 echo
 echo "== direct"
 ${code("--noproxy '*' https://example.com/")}
@@ -256,20 +283,55 @@ ${code("--noproxy '*' http://1.1.1.1/")}
             JSON.parse(sections.bridge ?? "{}").headers?.authorization,
             output,
           ).toBe("Bearer bridge-token")
-          expect(sections.git, output).toContain("refs/heads/main")
+          expect(sections.git, output).toBe("seed")
+          // The vault refuses the push; the Git server would take it.
+          expect(sections.push, output).toContain("403")
+          expect(sections.push, output).toContain("REFUSED")
           // GitHub refuses the fake token: proof that the request got there.
-          expect(sections.github, output).toContain("Bad credentials")
+          expect(sections["github-fetch"], output).toBe("401")
           // Hosts and paths with no rule: Agent Vault refuses them.
           for (const name of [
+            "github-push",
+            "github-api",
+            "github-api-write",
             "example",
             "example-http",
             "other-path",
-            "git-push",
+            "api-via-proxy",
           ])
             expect(sections[name], `${name}\n${output}`).toBe("403")
+          // The API port is not open to the sandbox, and the proxy port does
+          // not serve the API.
+          expect(sections["api-direct"], output).toBe("000")
+          expect(sections["api-on-proxy-port"], output).not.toMatch(/^2/)
           // No way around the proxy: no route and no DNS.
           for (const name of ["direct", "direct-ip"])
             expect(sections[name], `${name}\n${output}`).toBe("000")
+
+          // The session token cannot change its own vault, even where the
+          // API is open (here, from the test host).
+          for (const token of sessionTokens) {
+            for (const [method, path, body] of [
+              ["PATCH", settings, { unmatched_host_policy: "passthrough" }],
+              ["PUT", `/v1/vaults/${vault.name}/services`, { services: [] }],
+            ] as const) {
+              const response = await fetch(`${fixture.access.address}${path}`, {
+                method,
+                headers: {
+                  authorization: `Bearer ${token}`,
+                  "content-type": "application/json",
+                },
+                body: JSON.stringify(body),
+              })
+              expect([401, 403], `${method} ${path}`).toContain(response.status)
+            }
+          }
+          const still = await fixture.sandbox(
+            vault.env,
+            `${writeProxyCaCommand(vault.caPem)}
+${code("https://example.com/")}`,
+          )
+          expect(still.stdout).toBe("403")
         } finally {
           await vault.close()
         }

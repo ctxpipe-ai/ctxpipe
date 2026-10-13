@@ -10,16 +10,27 @@ The API is `PATCH /v1/vaults/{name}/settings`. The SDK (0.7.0) has no method
 for it, so `openRunVault` calls the API directly. With `deny`, the proxy
 returns `403` for each request that no service matches.
 
-Change: `openRunVault({ …, unmatchedHosts: "deny" })` sets the policy after it
-creates the vault and before it creates the session. Chat vaults do not set
-it, so chat keeps open internet access.
+Change: `openRunVault({ …, unmatchedHosts: "deny" })` sets the policy and the
+rules before it creates the session. It reads the policy back from the
+settings answer and throws `AgentVaultUnavailableError` when the answer does
+not confirm `deny`. A failure deletes the vault. Chat vaults do not set the
+policy, so chat keeps open internet access.
+
+The sandbox never pushes: the host pushes ingest refs through the broker
+(ADR-052). An ingest vault gets `githubFetchCredentialRules`: only
+`/<owner>/<name>.git/info/refs` and `/<owner>/<name>.git/git-upload-pack` per
+repository. It has no rule for `git-receive-pack`, `codeload.github.com`, or
+`api.github.com`. Agent Vault matches the path without the query, so the
+`info/refs` rule also forwards `?service=git-receive-pack`. That call only
+lists refs; the push itself (`git-receive-pack`) gets `403`.
 
 Contract test (Docker, real `infisical/agent-vault:latest`):
 `apps/backend/src/domain/workspaces/agent-vault-native.contract.test.ts`,
 "a closed vault forwards only its rules". The fixture option `closed: true`
-puts the sandbox on an internal Docker network where Agent Vault is the only
-other container. This is the same as the iptables rules of the DinD host
-(`scripts/sandbox-dind/entrypoint.sh`) and the AWS sandbox host.
+puts the sandbox on an internal Docker network. There, a TCP forwarder gives
+access only to the proxy port of Agent Vault, not to its API. This is the
+same as the iptables rules of the DinD host (`scripts/sandbox-dind/entrypoint.sh`)
+and the AWS sandbox host.
 
 Evidence (one run, all four tests in the file pass):
 
@@ -27,12 +38,21 @@ Evidence (one run, all four tests in the file pass):
 | --- | --- |
 | Model proxy path (rule) | forwarded, `Authorization: Bearer <capability>` added |
 | Tool bridge path (rule) | forwarded, Bearer token added |
-| `git ls-remote` on the Git rule paths | `refs/heads/main` listed |
-| `https://api.github.com/user` (GitHub rule, fake token) | GitHub answers `Bad credentials` (so the proxy forwarded it) |
+| `git clone` with the fetch rules | the clone works |
+| `git push` to the test Git server (the token can push there) | refused, `403` from Agent Vault |
+| github.com `info/refs?service=git-upload-pack` (fake token) | `401` from GitHub (so the proxy forwarded it) |
+| github.com `git-receive-pack`, `api.github.com` read and write | `403` |
 | `https://example.com/`, `http://example.com/` | `403` from Agent Vault |
 | Other path on the model proxy host | `403` |
-| `git-receive-pack` (push path, no rule) | `403` (before the change: `401` from the upstream) |
+| Agent Vault API through the proxy | `403` |
+| Agent Vault API port directly (`--noproxy`) | `000` (not open to the sandbox) |
+| `PATCH …/settings` on the proxy port with the session token | not `2xx` |
+| `PATCH …/settings` and `PUT …/services` with the session token, from the host | `401` or `403`; `example.com` still `403` after |
 | `--noproxy` to `example.com` and to `1.1.1.1` | `000` (no route, no DNS) |
+
+Unit test (`agent-vault.test.ts`, msw): a settings answer of `200` that keeps
+`passthrough`, and a `500`, both throw `AgentVaultUnavailableError`, delete
+the vault, and start no session.
 
 Before the change, `example.com` and the other path returned `200` (red step).
 
@@ -46,8 +66,8 @@ Limits and follow-ups for T03:
   on an internal Docker network (as the test fixture does).
 - Exact-path rules: with `deny`, the bridge and model proxy rules must list
   every path that the sandbox calls (for example `/models` and
-  `/chat/completions`). The GitHub rules are host-wide, so all GitHub paths
-  pass, and push paths too. The read-only token is the control for writes.
+  `/chat/completions`). The sandbox must use `https://github.com/<owner>/<name>.git`
+  URLs (with `.git`), as the fetch rules match that path only.
 - The hosted (Vercel) side is separate: `hostedNetworkPolicy` ends with
   `"*": []`, which keeps the internet open. For ingest, T03 must omit `"*"`.
   This spike did not test the Vercel firewall.
