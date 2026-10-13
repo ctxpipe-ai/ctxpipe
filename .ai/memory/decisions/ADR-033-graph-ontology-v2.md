@@ -7,6 +7,8 @@ Amends [ADR-032](ADR-032-path-located-graph-edges.md) §2 (predicates) and §4
 
 **Amended by:** [ADR-037](ADR-037-committed-memory-reaches-the-graph.md) — §8:
 `.ai/memory/lessons-learned.md` is an instruction source (tier 2).
+[ADR-050](ADR-050-readme-document-nodes.md) — §1 and §8: every README also
+becomes a `Document` node (deterministic, not an instruction source).
 
 ## Context
 

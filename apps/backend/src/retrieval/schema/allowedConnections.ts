@@ -83,6 +83,7 @@ export const EXTENSION_ALLOWED_CONNECTIONS: Array<{
     objectKind: "File",
   },
   { subjectKind: "Decision", predicate: "DECLARED_IN", objectKind: "File" },
+  { subjectKind: "Document", predicate: "DECLARED_IN", objectKind: "File" },
   // containment
   { subjectKind: "File", predicate: "PART_OF", objectKind: "Repository" },
   ...PACKAGE_KINDS.map((objectKind) => ({
@@ -147,7 +148,7 @@ export const PREDICATE_DESCRIPTIONS: Record<string, string> = {
     "a Repository or Service is governed by this InstructionUnit (stated norm)",
   MEMBER_OF_PRIMARY: "an InstructionUnit belongs to this Skill",
   DECLARED_IN:
-    "provenance: the InstructionUnit or Decision is stated in this File",
+    "provenance: the InstructionUnit, Decision or Document (README) is stated in this File",
   PART_OF:
     "containment: the File is inside this Repository, Service, App or Library; a monorepo Service, App or Library is nested in this outer one or the workspace root",
   TARGETS: "the PullRequest's base Repository",

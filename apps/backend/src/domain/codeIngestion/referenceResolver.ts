@@ -175,6 +175,10 @@ export function decisionDedupKey(repositoryId: string, path: string): string {
   return `dec:${repositoryId}:${path}`
 }
 
+export function documentDedupKey(repositoryId: string, path: string): string {
+  return `doc:${repositoryId}:${path}`
+}
+
 /** `ADR-031`, `ADR 031`, `adr-0031` → `ADR-031` (number kept as written, sans leading zeros). */
 export function findAdrReferences(text: string): string[] {
   const found = new Set<string>()

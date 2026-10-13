@@ -4,7 +4,7 @@ Naming: `ADR-NNN-title-slug.md`. Status | Date | Tags; Context; Decision; Conseq
 
 Parent: [`.ai/memory/README.md`](../README.md).
 
-**Updated:** 2026-09-29
+**Updated:** 2026-10-06
 
 ## Index
 
@@ -43,8 +43,9 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-030](ADR-030-organization-owned-mcp-api-keys.md) | Organization-owned MCP API keys | Accepted (amended 2026-09-22) |
 | [ADR-031](ADR-031-github-pr-scoped-mirror.md) | GitHub pull-request scoped mirror | Accepted |
 | [ADR-032](ADR-032-path-located-graph-edges.md) | Path-located graph edges | Accepted (amended by ADR-033) |
-| [ADR-033](ADR-033-graph-ontology-v2.md) | Graph ontology v2: relation families, shared identity, deterministic connector extraction | Accepted (amended by ADR-037) |
+| [ADR-033](ADR-033-graph-ontology-v2.md) | Graph ontology v2: relation families, shared identity, deterministic connector extraction | Accepted (amended by ADR-037, ADR-050) |
 | [ADR-034](ADR-034-pagerduty-connector-git-native-mirror.md) | PagerDuty connector Git-native mirror | Accepted |
 | [ADR-037](ADR-037-committed-memory-reaches-the-graph.md) | Committed memory reaches the graph | Accepted |
 | [ADR-038](ADR-038-self-hosted-clickstack-langfuse.md) | Self-hosted ClickStack + Langfuse (ops observability) | Accepted (amended 2026-09-29) |
 | [ADR-039](ADR-039-production-image-deploys-one-environment.md) | Production image deploys stay on one Railway environment | Accepted |
+| [ADR-050](ADR-050-readme-document-nodes.md) | Every README becomes a Document node | Accepted |
