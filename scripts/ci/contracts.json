@@ -92,5 +92,8 @@
   ],
   "hosted sandbox (Vercel)": [
     "src/domain/workspaces/vercel-sandbox.contract.test.ts"
+  ],
+  "knowledge search at scale": [
+    "src/domain/workspaces/knowledge-search.contract.test.ts"
   ]
 }

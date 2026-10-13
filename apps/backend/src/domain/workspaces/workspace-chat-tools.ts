@@ -3,10 +3,7 @@ import { z } from "zod"
 import { withOrgDbContext } from "../../db/client.js"
 import { toToon } from "../../lib/agentToolRuntime.js"
 import { assertStructuralGraphAnchor } from "../../lib/repoExplorerPlanner.js"
-import {
-  getWorkspaceProjectionSnapshot,
-  type WorkspaceProjectionSnapshot,
-} from "../../models/workspaces.js"
+import { getWorkspaceSearchProjection } from "../../models/workspaces.js"
 import { codeSearch } from "../../retrieval/services/codeSearch.js"
 import {
   codesearchGraphQuery,
@@ -197,7 +194,7 @@ export async function workspaceChatTools(input: {
   orgId: string
   orgSlug: string
   workspaceId: string
-  snapshot: WorkspaceProjectionSnapshot
+  snapshot: Awaited<ReturnType<typeof getWorkspaceSearchProjection>>
 }): Promise<WorkspaceChatTanstackTool[]> {
   const projection = publishedProjection(input.snapshot.projection)
   if (!projection) return []
@@ -242,7 +239,7 @@ export async function workspaceChatTools(input: {
 function hybridSearchTool(input: {
   orgId: string
   workspaceId: string
-  activeProjectionSha: string | null
+  activeProjectionSha: string
 }): WorkspaceChatTanstackTool {
   return {
     ...HYBRID_SEARCH_DEFINITION,
@@ -253,9 +250,7 @@ function hybridSearchTool(input: {
         typeof (args as { query?: unknown }).query === "string"
           ? (args as { query: string }).query
           : ""
-      if (!query.trim() || !input.activeProjectionSha) {
-        return "No active Workspace projection."
-      }
+      if (!query.trim()) return "No search query."
       const hits = await searchKnowledge({
         orgId: input.orgId,
         workspaceIds: [input.workspaceId],
@@ -266,10 +261,13 @@ function hybridSearchTool(input: {
         return "No matching knowledge in the active projection."
       return [
         `Workspace projection context (${input.activeProjectionSha}):`,
-        ...hits.map(
-          (hit) =>
-            `## ${hit.path} (lines ${hit.startLine}-${hit.endLine})\n${hit.text.trim().slice(0, 1200)}`,
-        ),
+        ...hits.map((hit) => {
+          const claims = hit.claims
+            .map((claim) => `- ${claim.predicate ?? "related"} ${claim.to}`)
+            .join("\n")
+          // `Node` is the id that graph_lookup and graph_neighbors take.
+          return `## ${hit.path} (lines ${hit.startLine}-${hit.endLine})\nNode: ${hit.unitId}\n${hit.text.trim().slice(0, 1200)}${claims ? `\nClaims:\n${claims}` : ""}`
+        }),
       ].join("\n\n")
     },
   }
@@ -279,7 +277,9 @@ function wrapExplorerTool(input: {
   tool: ExplorerTool
   orgId: string
   allowedRepositoryIds: ReadonlySet<string>
-  boundRepositories: WorkspaceProjectionSnapshot["repositories"]
+  boundRepositories: Awaited<
+    ReturnType<typeof getWorkspaceSearchProjection>
+  >["repositories"]
   workspaceId: string
   projection: PublishedProjection
 }): WorkspaceChatTanstackTool {
@@ -602,7 +602,7 @@ export const WORKSPACE_CHAT_TOOLS: WorkspaceChatTanstackTool[] = [
     execution?.abortSignal?.throwIfAborted()
     const scope = chatToolScope.parse(execution?.context)
     const snapshot = await withOrgDbContext(scope.orgId, () =>
-      getWorkspaceProjectionSnapshot(scope.workspaceId),
+      getWorkspaceSearchProjection(scope.workspaceId),
     )
     if (!publishedProjection(snapshot.projection))
       throw new Error("Workspace projection is unavailable")

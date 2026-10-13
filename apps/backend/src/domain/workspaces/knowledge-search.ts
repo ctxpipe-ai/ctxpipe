@@ -17,14 +17,14 @@ export type KnowledgeSearchInput = {
   /**
    * A unit matches when it has no claim with a validity window, or when at
    * least one such claim covers this time (`validFrom` ≤ T < `validTo`).
+   * A bound is a time only when it starts with `YYYY-MM-DD`. Any other value
+   * (for example a Git SHA that hydrate has not yet rewritten) is no bound.
    */
   validAt?: Date
   /** Only these units (for example the units that a graph walk explored). */
   unitIds?: readonly string[]
   /** Default 10, at most 50. */
   limit?: number
-  /** Embeds the query. A failure gives lexical results only. */
-  embedQuery?: (query: string) => Promise<number[]>
 }
 
 /** The best chunk of one unit. */
@@ -42,6 +42,8 @@ export type KnowledgeHit = {
   endLine: number
   /** Title and heading path, then the section text. */
   text: string
+  /** The claims of the unit. Front matter can hold facts that no chunk states. */
+  claims: Array<{ predicate: string | null; to: string }>
   /** Reciprocal rank fusion score of the chunk. */
   score: number
 }
@@ -50,6 +52,28 @@ export type KnowledgeHit = {
 // candidate list, so a unit with many close chunks cannot push out the others.
 const CANDIDATES = 100
 const RRF_K = 60
+
+/**
+ * Settings of one filtered HNSW scan. From pgvector 0.8 the scan goes on
+ * until it has enough rows. Before that, only a longer candidate list helps.
+ * The version of the `vector` extension is the input.
+ */
+export function vectorScanSettings(version: string | null): {
+  iterativeScan: boolean
+  efSearch: number
+} {
+  const [major, minor] = (version ?? "").split(".").map(Number)
+  const iterativeScan =
+    major !== undefined &&
+    minor !== undefined &&
+    Number.isInteger(major) &&
+    Number.isInteger(minor) &&
+    (major > 0 || minor >= 8)
+  // 1,000 is the largest value that pgvector accepts for `hnsw.ef_search`.
+  return { iterativeScan, efSearch: iterativeScan ? CANDIDATES : 1000 }
+}
+
+let pgvectorVersion: string | null | undefined
 
 /**
  * Hybrid knowledge search over the chunks of the active projection (ADR-051):
@@ -65,7 +89,7 @@ export async function searchKnowledge(
   const limit = Math.min(Math.max(Math.trunc(input.limit ?? 10), 1), 50)
   let embedding: number[] | null = null
   try {
-    embedding = await (input.embedQuery ?? generateEmbedding)(query)
+    embedding = await generateEmbedding(query)
   } catch (error) {
     log.warn({
       step: "knowledge-search-embed",
@@ -91,17 +115,20 @@ export async function searchKnowledge(
   if (input.unitIds)
     filters.push(sql`u.serving_id = ANY(${textArray(input.unitIds)})`)
   if (input.validAt) {
-    // ISO strings compare in time order, also for a date without a time.
-    const at = input.validAt.toISOString()
+    const bound = (key: "validFrom" | "validTo") =>
+      sql.raw(
+        `(CASE WHEN cl->>'${key}' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}' THEN (cl->>'${key}')::timestamptz END)`,
+      )
+    const windowed = sql`(${bound("validFrom")} IS NOT NULL OR ${bound("validTo")} IS NOT NULL)`
+    const at = sql`${input.validAt.toISOString()}::timestamptz`
     filters.push(sql`(
       NOT EXISTS (
-        SELECT 1 FROM jsonb_array_elements(u.claims) AS cl
-        WHERE cl->>'validFrom' IS NOT NULL OR cl->>'validTo' IS NOT NULL
+        SELECT 1 FROM jsonb_array_elements(u.claims) AS cl WHERE ${windowed}
       ) OR EXISTS (
         SELECT 1 FROM jsonb_array_elements(u.claims) AS cl
-        WHERE (cl->>'validFrom' IS NOT NULL OR cl->>'validTo' IS NOT NULL)
-          AND coalesce(cl->>'validFrom' <= ${at}, true)
-          AND coalesce(cl->>'validTo' > ${at}, true)
+        WHERE ${windowed}
+          AND coalesce(${bound("validFrom")} <= ${at}, true)
+          AND coalesce(${bound("validTo")} > ${at}, true)
       ))`)
   }
   const where = sql.join(filters, sql` AND `)
@@ -109,25 +136,68 @@ export async function searchKnowledge(
     JOIN workspace_knowledge_units AS u
       ON u.workspace_id = c.workspace_id AND u.serving_id = c.unit_id
     JOIN workspaces AS w ON w.id = c.workspace_id`
-  const semantic = embedding
-    ? sql`SELECT workspace_id, unit_id, chunk_hash, occurrence,
-          row_number() OVER (ORDER BY distance) AS rank
-        FROM (
-          SELECT c.workspace_id, c.unit_id, c.chunk_hash, c.occurrence,
-            c.embedding <=> ${JSON.stringify(embedding)}::vector AS distance
-          FROM ${scope}
-          WHERE ${where} AND c.embedding IS NOT NULL
-          ORDER BY distance
-          LIMIT ${CANDIDATES}
-        ) AS nearest`
-    : sql`SELECT NULL::text, NULL::text, NULL::text, NULL::int, NULL::bigint WHERE false`
+  // Every ordering ends with the chunk key, so ties give the same rows and
+  // ranks on each run, and the candidate cut falls the same way.
+  const tieBreak = sql`c.workspace_id, c.unit_id, c.chunk_hash, c.occurrence`
+  const tieBreakOuter = sql`workspace_id, unit_id, chunk_hash, occurrence`
 
   const rows = await withOrgDbContext(input.orgId, async (db) => {
-    // Filtered HNSW scans continue until they have enough rows (pgvector 0.8).
-    await db.execute(
-      sql`SELECT set_config('hnsw.iterative_scan', 'relaxed_order', true),
-        set_config('hnsw.ef_search', ${String(CANDIDATES)}, true)`,
-    )
+    // Dates without an offset are UTC, as in claim-confidence.ts.
+    await db.execute(sql`SELECT set_config('TimeZone', 'UTC', true)`)
+    let semantic = sql`SELECT NULL::text, NULL::text, NULL::text, NULL::int, NULL::bigint WHERE false`
+    if (embedding) {
+      const vector = sql`${JSON.stringify(embedding)}::vector`
+      // The HNSW index is shared by all orgs. A scan stops after
+      // `hnsw.max_scan_tuples` (20,000 by default) tuples, so a selective
+      // filter can lose every hit. A small scope is cheaper to scan exactly.
+      // 10,000 chunks of 2,000 dimensions take about 100 milliseconds.
+      const counted = await db.execute<{ count: number | string }>(
+        sql`SELECT count(*) AS count FROM (
+          SELECT 1 FROM ${scope} WHERE ${where} AND c.embedding IS NOT NULL LIMIT 10001
+        ) AS capped`,
+      )
+      if (Number(counted.rows[0]?.count) <= 10_000) {
+        // MATERIALIZED keeps the planner from walking the HNSW index.
+        semantic = sql`WITH scoped AS MATERIALIZED (
+            SELECT c.workspace_id, c.unit_id, c.chunk_hash, c.occurrence,
+              c.embedding <=> ${vector} AS distance
+            FROM ${scope}
+            WHERE ${where} AND c.embedding IS NOT NULL
+          )
+          SELECT ${tieBreakOuter},
+            row_number() OVER (ORDER BY distance, ${tieBreakOuter}) AS rank
+          FROM (
+            SELECT * FROM scoped ORDER BY distance, ${tieBreakOuter} LIMIT ${CANDIDATES}
+          ) AS nearest`
+      } else {
+        if (pgvectorVersion === undefined) {
+          const found = await db.execute<{ version: string }>(
+            sql`SELECT extversion AS version FROM pg_extension WHERE extname = 'vector'`,
+          )
+          pgvectorVersion = found.rows[0]?.version ?? null
+        }
+        const settings = vectorScanSettings(pgvectorVersion)
+        await db.execute(
+          sql`SELECT set_config('hnsw.ef_search', ${String(settings.efSearch)}, true)`,
+        )
+        if (settings.iterativeScan)
+          await db.execute(
+            sql`SELECT set_config('hnsw.iterative_scan', 'relaxed_order', true)`,
+          )
+        // Only a bare `ORDER BY distance` lets the planner use the HNSW
+        // index, so the key breaks ties in the rank window, not here.
+        semantic = sql`SELECT ${tieBreakOuter},
+            row_number() OVER (ORDER BY distance, ${tieBreakOuter}) AS rank
+          FROM (
+            SELECT c.workspace_id, c.unit_id, c.chunk_hash, c.occurrence,
+              c.embedding <=> ${vector} AS distance
+            FROM ${scope}
+            WHERE ${where} AND c.embedding IS NOT NULL
+            ORDER BY distance
+            LIMIT ${CANDIDATES}
+          ) AS nearest`
+      }
+    }
     const result = await db.execute<{
       workspace_id: string
       unit_id: string
@@ -140,6 +210,7 @@ export async function searchKnowledge(
       start_line: number
       end_line: number
       text: string
+      claims: Array<{ predicate: string | null; to: string }>
       score: number | string
     }>(sql`
       WITH q AS (
@@ -147,24 +218,24 @@ export async function searchKnowledge(
           replace(plainto_tsquery('english', ${query})::text, ' & ', ' | ')::tsquery AS any_term
       ),
       lexical AS (
-        SELECT workspace_id, unit_id, chunk_hash, occurrence,
-          row_number() OVER (ORDER BY every_match DESC, text_rank DESC) AS rank
+        SELECT ${tieBreakOuter},
+          row_number() OVER (ORDER BY every_match DESC, text_rank DESC, ${tieBreakOuter}) AS rank
         FROM (
           SELECT c.workspace_id, c.unit_id, c.chunk_hash, c.occurrence,
             c.search @@ q.every_term AS every_match,
             ts_rank_cd(c.search, q.any_term) AS text_rank
           FROM ${scope}, q
           WHERE ${where} AND c.search @@ q.any_term
-          ORDER BY every_match DESC, text_rank DESC
+          ORDER BY every_match DESC, text_rank DESC, ${tieBreak}
           LIMIT ${CANDIDATES}
         ) AS matched
       ),
       semantic AS (${semantic}),
       fused AS (
-        SELECT workspace_id, unit_id, chunk_hash, occurrence,
+        SELECT ${tieBreakOuter},
           sum(1.0 / (${RRF_K} + rank)) AS score
         FROM (SELECT * FROM lexical UNION ALL SELECT * FROM semantic) AS ranked
-        GROUP BY workspace_id, unit_id, chunk_hash, occurrence
+        GROUP BY ${tieBreakOuter}
       ),
       best AS (
         SELECT DISTINCT ON (workspace_id, unit_id) *
@@ -173,14 +244,14 @@ export async function searchKnowledge(
       )
       SELECT b.workspace_id, b.unit_id, u.path, u.kind, u.title,
         coalesce(u.source, 'authored') AS source, u.updated_at, u.projection_sha,
-        c.start_line, c.end_line, c.text, b.score
+        c.start_line, c.end_line, c.text, coalesce(u.claims, '[]'::jsonb) AS claims, b.score
       FROM best AS b
       JOIN workspace_knowledge_chunks AS c
         ON c.workspace_id = b.workspace_id AND c.unit_id = b.unit_id
         AND c.chunk_hash = b.chunk_hash AND c.occurrence = b.occurrence
       JOIN workspace_knowledge_units AS u
         ON u.workspace_id = b.workspace_id AND u.serving_id = b.unit_id
-      ORDER BY b.score DESC, u.path, b.workspace_id
+      ORDER BY b.score DESC, u.path, b.workspace_id, b.unit_id
       LIMIT ${limit}
     `)
     return result.rows
@@ -197,10 +268,11 @@ export async function searchKnowledge(
     startLine: row.start_line,
     endLine: row.end_line,
     text: row.text,
+    claims: row.claims.map(({ predicate, to }) => ({ predicate, to })),
     score: Number(row.score),
   }))
 }
 
 function textArray(values: readonly string[]): SQL {
-  return sql`ARRAY(SELECT jsonb_array_elements_text(${JSON.stringify(values)}::jsonb))`
+  return sql`${sql.param(values)}::text[]`
 }
