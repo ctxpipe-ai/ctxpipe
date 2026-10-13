@@ -76,7 +76,6 @@ export function SlackScopeEditor(props: SourceScopeEditorProps) {
 
   const { items: channels, truncated } = channelsQuery.data
   const listedIds = new Set(channels.map((channel) => channel.id))
-  const someWithoutBot = channels.some((channel) => !channel.isMember)
   const query = search.trim().replace(/^#/, "").toLowerCase()
   const rows = channelRows(channels, selected).filter(
     (channel) => !query || channel.name.toLowerCase().includes(query),
@@ -87,25 +86,9 @@ export function SlackScopeEditor(props: SourceScopeEditorProps) {
         <p className="text-sm font-medium text-foreground">{pickerLabel}</p>
         <p className="mt-1 text-sm text-muted-foreground">
           Mention the ctx| bot in a thread of a selected channel to save that
-          thread. You can select only a channel that the bot is in. Private
-          channels show only when the bot is in them.
+          thread. Private channels show only when the bot is in them.
         </p>
       </div>
-      {someWithoutBot ? (
-        <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
-          <p>
-            To use another channel, invite the bot to it in Slack, then refresh.
-          </p>
-          <Button
-            variant="secondary"
-            className="rounded-md"
-            isPending={channelsQuery.isFetching}
-            onPress={() => void channelsQuery.refetch()}
-          >
-            Refresh
-          </Button>
-        </div>
-      ) : null}
       {truncated ? (
         <p className="text-sm text-muted-foreground">
           Showing the first 2000 channels. Search finds channels in this list
@@ -135,12 +118,11 @@ export function SlackScopeEditor(props: SourceScopeEditorProps) {
             ? "Slack does not list this channel now. It is archived, or the ctx| bot left it."
             : channel.isMember
               ? null
-              : "The bot is not in this channel."
+              : "Invite the bot to this channel before you mention it there."
           return (
             <Checkbox
               key={channel.id}
               value={channel.id}
-              isDisabled={listed && !channel.isMember}
               className="w-full cursor-pointer items-start border-b border-border px-3 py-2 last:border-b-0 hover:bg-foreground/[0.03]"
             >
               <span className="min-w-0">

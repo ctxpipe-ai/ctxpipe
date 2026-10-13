@@ -287,15 +287,15 @@ export function SlackSetupDialog({
               <h4 className="font-medium text-foreground">How capture works</h4>
               <ol className="mt-2 list-decimal space-y-1 pl-5 text-muted-foreground">
                 <li>
-                  In Slack, invite the bot to a channel with{" "}
+                  Below, select the Workspaces and the channels whose threads
+                  they get.
+                </li>
+                <li>
+                  In Slack, invite the bot to each channel with{" "}
                   <code className="rounded-md bg-muted px-1 py-0.5 text-[11px]">
                     /invite {formatSlackBotMention(status?.botHandle)}
                   </code>
                   .
-                </li>
-                <li>
-                  Below, select the Workspaces and the channels whose threads
-                  they get.
                 </li>
                 <li>
                   In a thread of that channel, mention{" "}
