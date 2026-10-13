@@ -48,10 +48,10 @@ export function githubFileDedupKey(input: {
 
 /** Linear identifiers referenced by a pull request: URLs anywhere, bare ids in title / body / branch. */
 export function linearIssueIdentifiersForPullRequest(
-  parsed: Pick<ParsedGithubPullRequest, "title" | "bodyExcerpt" | "head">,
+  parsed: Pick<ParsedGithubPullRequest, "title" | "body" | "head">,
   linearTeamKeys: ReadonlyArray<string>,
 ): string[] {
-  const text = `${parsed.title}\n${parsed.head.ref}\n${parsed.bodyExcerpt}`
+  const text = `${parsed.title}\n${parsed.head.ref}\n${parsed.body}`
   const found = new Set<string>()
   for (const url of extractUrls(text)) {
     const identifier = parseLinearIssueUrl(url)
@@ -69,7 +69,7 @@ export function linearIssueIdentifiersForPullRequest(
  * the title or body. A revert pull request closes nothing.
  */
 export function linearIssueIdentifiersResolvedByPullRequest(
-  parsed: Pick<ParsedGithubPullRequest, "title" | "bodyExcerpt" | "head">,
+  parsed: Pick<ParsedGithubPullRequest, "title" | "body" | "head">,
   linearTeamKeys: ReadonlyArray<string>,
 ): string[] {
   if (
@@ -82,7 +82,7 @@ export function linearIssueIdentifiersResolvedByPullRequest(
   const closingKeyword =
     /\b(?:clos(?:e|es|ed|ing)|fix(?:es|ed|ing)?|resolv(?:e|es|ed|ing)|complet(?:e|es|ed|ing))(?::\s*|\s+)[[`]?(\S+)/gi
   const found = new Set(findLinearIdentifiers(parsed.head.ref, linearTeamKeys))
-  for (const match of `${parsed.title}\n${parsed.bodyExcerpt}`.matchAll(
+  for (const match of `${parsed.title}\n${parsed.body}`.matchAll(
     closingKeyword,
   )) {
     const word =

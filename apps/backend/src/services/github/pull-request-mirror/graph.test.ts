@@ -300,6 +300,31 @@ describe("buildGithubPullRequestGraph", () => {
     }
   })
 
+  it("reads issue ids from the whole description, past the 2,000-character excerpt", () => {
+    const file = renderGithubPullRequest({
+      ...snapshot,
+      title: "Split user create",
+      head: { ref: "alice/split-user-create", sha: "bbb" },
+      body: `${"Context line.\n".repeat(200)}\nFixes ENG-30. See ENG-31.`,
+    })
+    const result = parseGithubPullRequestMarkdown(file.content)
+    if (!result) throw new Error("expected frontmatter to parse")
+    expect(result.bodyExcerpt.length).toBeLessThanOrEqual(2_000)
+    const { extractedClaims } = buildGithubPullRequestGraph({
+      parsed: result,
+      markdownPath: file.path,
+      targetHash: "abc123",
+      contextRepositoryId: "repo_ctx",
+      linearTeamKeys: ["ENG"],
+    })
+    expect(
+      extractedClaims
+        .filter((claim) => claim.objectKind === "Issue")
+        .map((claim) => `${claim.predicate} ${claim.objectRef}`)
+        .sort(),
+    ).toEqual(["REFERENCES iss:linear:ENG-31", "RESOLVES iss:linear:ENG-30"])
+  })
+
   it("only references issues from a pull request closed without a merge, even with a closing keyword", () => {
     const file = renderGithubPullRequest({
       ...snapshot,
