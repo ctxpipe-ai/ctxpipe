@@ -2,11 +2,16 @@ import { signUpstreamJwt } from "../auth/upstreamJwt.js"
 import { parseEnv } from "../config/env.js"
 import { capturedSourceRevision } from "../domain/codeIngestion/source-revision-context.js"
 import { codesearchBaseUrl } from "../lib/agentToolRuntime.js"
+import {
+  CodesearchHttpError,
+  type CodesearchHttpOptions,
+} from "../lib/codesearchError.js"
 import { withTransientHttpRetry } from "../lib/withTransientHttpRetry.js"
 import type { ZoektRepositoryRow } from "./codesearchZoekt.js"
 
 export type GraphPrimitive =
   | "find_symbol"
+  | "find_references"
   | "get_callers"
   | "get_callees"
   | "get_imports"
@@ -29,6 +34,7 @@ export async function codesearchGraphQuery(
   repository: Pick<ZoektRepositoryRow, "id" | "orgId">,
   body: GraphRequestBody,
   workspace?: { workspaceId: string } & ({ sha: string } | { legacy: true }),
+  transport?: CodesearchHttpOptions,
 ): Promise<Record<string, unknown>> {
   const source = capturedSourceRevision(repository.orgId, repository.id)
   if (source && workspace)
@@ -72,13 +78,16 @@ export async function codesearchGraphQuery(
         body: JSON.stringify(
           source ? { ...body, checkoutKey: undefined } : body,
         ),
+        signal: transport?.signal,
       }),
-    { retries: 10, baseDelayMs: 200, maxDelayMs: 30_000 },
+    transport?.retry ?? { retries: 10, baseDelayMs: 200, maxDelayMs: 30_000 },
   )
   if (!res.ok) {
     const errText = await res.text().catch(() => "")
-    throw new Error(
+    throw new CodesearchHttpError(
       `codesearch graph failed with status ${res.status}${errText ? `: ${errText}` : ""}`,
+      res.status,
+      errText.trim(),
     )
   }
   return (await res.json()) as Record<string, unknown>
