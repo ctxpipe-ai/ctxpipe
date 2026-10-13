@@ -1,24 +1,31 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js"
 import { encode } from "@toon-format/toon"
 import { HARD_CAP_CHARS } from "./budget.js"
-import type { McpToolError } from "./tool-errors.js"
+import { McpToolError } from "./tool-errors.js"
 
-const TRUNCATED =
-  "\n[truncated: the response is over 24,000 characters. Use the cursor, a smaller limit, or a narrower call.]"
-
-function capText(text: string): string {
-  if (text.length <= HARD_CAP_CHARS) return text
-  return `${text.slice(0, HARD_CAP_CHARS - TRUNCATED.length)}${TRUNCATED}`
-}
-
-/** `structuredContent` for clients that read it, compact TOON text for the model. */
+/**
+ * `structuredContent` for clients that read it, compact TOON text for the
+ * model. A result over the hard cap is a tool bug: the tool must page with
+ * `pageWithinBudget` and a cursor. The registry sends `response_too_large`.
+ */
 export function toolSuccess(
   structured: Record<string, unknown>,
 ): CallToolResult {
-  return {
-    content: [{ type: "text", text: capText(encode(structured)) }],
+  const result: CallToolResult = {
+    content: [{ type: "text", text: encode(structured) }],
     structuredContent: structured,
   }
+  const size = JSON.stringify({
+    content: result.content,
+    structuredContent: structured,
+  }).length
+  if (size > HARD_CAP_CHARS) {
+    throw new McpToolError(
+      "response_too_large",
+      "The result is too large. Send the call again with a smaller limit or a narrower query.",
+    )
+  }
+  return result
 }
 
 /** `_meta` key of the machine-readable error of a failed tool call. */

@@ -3,11 +3,11 @@ import type { Hono, MiddlewareHandler } from "hono"
 import type { AppEnv } from "../app/env.js"
 import { callPrincipalFromContext, resolveCallOrg } from "../auth/call-org.js"
 import {
+  bindRequestOrg,
   requireAuth,
   withCookieAuth,
   withMcpBearerAuth,
   withOrgApiKeyAuth,
-  withOrgIdContext,
 } from "../auth/withAuth.js"
 import { registerMcpTools } from "../mcp/tools.js"
 import {
@@ -15,33 +15,22 @@ import {
   type McpTransportOptions,
   rejectInvalidMcpOrigin,
 } from "../mcp/transport.js"
-import { applyAttribution } from "../observability/attribution.js"
 
 /**
- * Default org of an MCP request (ADR-051 §3). Each read tool names its org in
- * the `org` argument and ignores this default. `ctx_advisor` and request
- * attribution still use it until phase 3 removes `ctx_advisor`.
- *
- * - `?orgSlug=` that the principal can use, or a principal with one allowed
- *   org: that org is the default.
- * - `?orgSlug=` that the principal cannot use: 404, as before.
- * - No `?orgSlug=` and several allowed orgs: no default. `initialize`,
- *   `tools/list`, and the read tools work; tools name their org.
+ * Default org of an MCP request (ADR-051 §3). Read tools name their org in
+ * the `org` argument and ignore this default; `?orgSlug=` is accepted and has
+ * no effect on them. Only `ctx_advisor` uses the default, until phase 3
+ * removes it. The default is the `?orgSlug=` org when the principal can use
+ * it, else the only allowed org, else none. No case gives an error here.
+ * The call, not this middleware, sets the org attribution.
  */
 const withMcpDefaultOrg: MiddlewareHandler<AppEnv> = async (c, next) => {
+  const principal = callPrincipalFromContext(c)
   const slug = c.req.query("orgSlug")?.trim() || undefined
-  const result = await resolveCallOrg(callPrincipalFromContext(c), slug)
-  if (result.ok) {
-    c.set("orgSlug", result.org.slug)
-    c.set("orgId", result.org.id)
-    applyAttribution({
-      "ctxpipe.org.id": result.org.id,
-      "ctxpipe.org.slug": result.org.slug,
-    })
-    return withOrgIdContext(result.org, () => next())
-  }
-  if (slug) return c.json({ error: "Not found" }, 404)
-  return next()
+  let result = await resolveCallOrg(principal, slug)
+  if (!result.ok && slug) result = await resolveCallOrg(principal, undefined)
+  if (!result.ok) return next()
+  return bindRequestOrg(c, result.org, next, { attribute: false })
 }
 
 /**

@@ -6,9 +6,9 @@ import {
 } from "../../db/schema/workspaces.js"
 import { workspaceRevisionSchema } from "../../domain/workspaces/revision.js"
 import { isValidSlug } from "../../domain/workspaces/slug.js"
-import type { CallOrg } from "./call-org.js"
 import { RepositoryHandles } from "./repository-handles.js"
 import { McpToolError, workspaceNotFound } from "./tool-errors.js"
+import type { CallOrg } from "./tool-org.js"
 
 /** The branch and SHA that a response serves (ADR-051 §5). */
 export type Served = { branch: string; sha: string }

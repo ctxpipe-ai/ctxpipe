@@ -1,5 +1,5 @@
-import { listCallOrgs } from "./call-org.js"
 import { listOrgWorkspaceSlugs } from "./call-workspace.js"
+import { listToolOrgs } from "./tool-org.js"
 
 /** Total limit for the server instructions (ADR-051 §5). */
 export const INSTRUCTIONS_MAX_CHARS = 2_048
@@ -57,7 +57,7 @@ export function buildServerInstructions(
 
 /** Instructions for the principal of the current request. */
 export async function loadServerInstructions(): Promise<string> {
-  const orgs = await listCallOrgs()
+  const orgs = await listToolOrgs()
   return buildServerInstructions(
     await Promise.all(
       orgs.map(async (org) => ({

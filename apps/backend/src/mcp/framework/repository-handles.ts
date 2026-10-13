@@ -10,24 +10,35 @@ export type HandledRepository = {
 
 type Located = { host: string; path: string }
 
+/** SCP-like git address: `[user@]host:path`, not `scheme://`. */
+const SCP_ADDRESS = /^(?:[^@/\s]+@)?([^:/\s]+):(?!\/)(\S+)$/
+
+function cleanPath(path: string): string {
+  return path
+    .replace(/^\/+|\/+$/g, "")
+    .replace(/\.git$/i, "")
+    .toLowerCase()
+}
+
 /**
- * Host and path of a git URL after `normalizeWorkspaceRepositoryUrl`. The key
- * ignores the scheme and the letter case, so SSH, HTTPS, `ssh://` and `.git`
- * forms of one repository give the same key.
+ * Host and path of a git address. The key ignores the scheme, the user, the
+ * port, and the letter case, so SSH, SCP, HTTPS and `.git` forms of one
+ * repository give the same key. URLs go through
+ * `normalizeWorkspaceRepositoryUrl`.
  */
 function locate(raw: string): Located | null {
-  const normalized = normalizeWorkspaceRepositoryUrl(raw)
+  const trimmed = raw.trim()
+  const scp = trimmed.match(SCP_ADDRESS)
+  if (scp?.[1] && scp[2]) {
+    const path = cleanPath(scp[2])
+    return path ? { host: scp[1].toLowerCase(), path } : null
+  }
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)) return null
   try {
-    const url = new URL(normalized)
-    const path = url.pathname
-      .replace(/^\/+|\/+$/g, "")
-      .replace(/\.git$/i, "")
-      .toLowerCase()
+    const url = new URL(normalizeWorkspaceRepositoryUrl(trimmed))
+    const path = cleanPath(url.pathname)
     if (!url.hostname || !path) return null
-    const host = (
-      url.port ? `${url.hostname}:${url.port}` : url.hostname
-    ).toLowerCase()
-    return { host, path }
+    return { host: url.hostname.toLowerCase(), path }
   } catch {
     return null
   }
@@ -35,12 +46,6 @@ function locate(raw: string): Located | null {
 
 function keyOf(located: Located): string {
   return `${located.host}/${located.path}`
-}
-
-function looksLikeUrl(input: string): boolean {
-  return (
-    /^[a-z][a-z0-9+.-]*:\/\//i.test(input) || /^[^@/\s]+@[^:]+:/.test(input)
-  )
 }
 
 type Entry = HandledRepository & { key: string; shortHandle: string }
@@ -91,17 +96,12 @@ export class RepositoryHandles {
 
   /** All linked repositories that an input (handle or URL) names. */
   private match(input: string): Entry[] {
-    const trimmed = input.trim()
-    if (looksLikeUrl(trimmed)) {
-      const located = locate(trimmed)
-      if (!located) return []
+    const located = locate(input)
+    if (located) {
       const key = keyOf(located)
       return this.entries.filter((entry) => entry.key === key)
     }
-    const wanted = trimmed
-      .replace(/^\/+|\/+$/g, "")
-      .replace(/\.git$/i, "")
-      .toLowerCase()
+    const wanted = cleanPath(input.trim())
     return this.entries.filter(
       (entry) => entry.key === wanted || entry.shortHandle === wanted,
     )
@@ -127,17 +127,26 @@ export class RepositoryHandles {
 
   /**
    * `excludeRepositories` matching. A short handle that collides excludes
-   * each host. A URL that is not linked still excludes that repository.
+   * each host. A git address that is not linked still excludes that
+   * repository. An entry that is neither a linked handle nor a git address
+   * gives `invalid_argument`, so a typo does not search the repository.
    */
   exclusion(inputs: readonly string[]): RepositoryExclusion {
     const keys = new Set<string>()
     for (const input of inputs) {
-      const matches = this.match(input)
-      for (const entry of matches) keys.add(entry.key)
-      if (matches.length === 0 && looksLikeUrl(input.trim())) {
-        const located = locate(input)
-        if (located) keys.add(keyOf(located))
+      const located = locate(input)
+      if (located) {
+        keys.add(keyOf(located))
+        continue
       }
+      const matches = this.match(input)
+      if (matches.length === 0) {
+        throw new McpToolError(
+          "invalid_argument",
+          `excludeRepositories: "${input}" is not a linked repository handle or a git remote URL. Pass the output of \`git remote get-url origin\`.`,
+        )
+      }
+      for (const entry of matches) keys.add(entry.key)
     }
     return {
       excluded: this.entries

@@ -1,4 +1,7 @@
-/** Hard cap on the text of one tool result (ADR-051 §5). */
+/**
+ * Hard cap on one tool result (ADR-051 §5): the text and `structuredContent`
+ * together, in characters of their JSON.
+ */
 export const HARD_CAP_CHARS = 24_000
 
 /** About four characters for each token: cheap, and close for English and code. */
@@ -43,8 +46,14 @@ export function pageWithinBudget<T>(
   }
 }
 
-/** Cut `text` to at most `maxChars` characters, with a marker when cut. */
+/**
+ * Cut `text` to at most `maxChars` UTF-16 units, with a marker when cut. The
+ * cut never splits a surrogate pair.
+ */
 export function truncateText(text: string, maxChars: number): string {
   if (text.length <= maxChars) return text
-  return `${text.slice(0, Math.max(0, maxChars - 1))}…`
+  let end = Math.max(0, maxChars - 1)
+  const last = text.charCodeAt(end - 1)
+  if (end > 0 && last >= 0xd800 && last <= 0xdbff) end -= 1
+  return `${text.slice(0, end)}…`
 }

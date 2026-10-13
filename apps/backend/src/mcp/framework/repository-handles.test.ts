@@ -14,6 +14,16 @@ describe("RepositoryHandles", () => {
     ])
   })
 
+  it("drops the port from the handle and the key", () => {
+    const handles = RepositoryHandles.from([
+      "https://git.example.com:8443/team/api.git",
+      "ssh://git@git.example.com:2222/team/api.git",
+    ])
+    expect(handles.list()).toEqual([
+      { handle: "team/api", url: expect.any(String) },
+    ])
+  })
+
   it("gives host/owner/name to both repositories when owner/name collides on two hosts", () => {
     const handles = RepositoryHandles.from([
       "https://github.com/example/api",
@@ -52,6 +62,9 @@ describe("RepositoryHandles", () => {
     "git@github.com:example/payments-api.git",
     "git@github.com:example/payments-api",
     "ssh://git@github.com/example/payments-api.git",
+    "ssh://git@github.com:2222/example/payments-api.git",
+    "deploy@github.com:example/payments-api.git",
+    "github.com:example/payments-api.git",
   ])("resolves %s to the same repository", (input) => {
     const handles = RepositoryHandles.from([
       "https://github.com/example/payments-api",
@@ -106,6 +119,33 @@ describe("RepositoryHandles.exclusion", () => {
     ).toBe(true)
     expect(exclusion.isExcluded("https://github.com/example/ledger")).toBe(
       false,
+    )
+  })
+
+  it.each([
+    [
+      "SCP form with another user",
+      "deploy@github.com:example/payments-api.git",
+    ],
+    ["SCP form with no user", "github.com:example/payments-api"],
+    [
+      "ssh:// with a port",
+      "ssh://git@github.com:2222/example/payments-api.git",
+    ],
+    ["HTTPS with a port", "https://github.com:443/example/payments-api"],
+  ])("excludes by the %s", (_form, input) => {
+    expect(handles.exclusion([input]).excluded).toEqual([
+      "example/payments-api",
+    ])
+  })
+
+  it.each([
+    "example/not-linked",
+    "not a repository",
+    "",
+  ])("refuses the entry %j that names no repository with invalid_argument", (input) => {
+    expect(() => handles.exclusion([input])).toThrowError(
+      expect.objectContaining({ code: "invalid_argument" }),
     )
   })
 

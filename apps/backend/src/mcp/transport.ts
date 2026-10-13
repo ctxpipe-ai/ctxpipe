@@ -6,14 +6,13 @@ import {
 } from "@modelcontextprotocol/sdk/types.js"
 import type { Context } from "hono"
 import type { AppEnv } from "../app/env.js"
-import { currentMcpActor } from "../auth/context.js"
+import { currentMcpActor, currentOrgIdOrNull } from "../auth/context.js"
 import {
   type AttributionInput,
   applyAttribution,
 } from "../observability/attribution.js"
 import { getLogger } from "../observability/logger.js"
 import { mcpAdvisorThreadId, mcpClientConversationId } from "./advisorThread.js"
-import { currentDefaultOrgId } from "./framework/call-org.js"
 import { registerServerDiscover } from "./framework/server-discover.js"
 import { getMcpServerImplementation } from "./mcp-server-info.js"
 
@@ -194,7 +193,7 @@ function attributionFromToolsCall(
     const args = parsed.data.params.arguments ?? {}
     const rawConversationId = mcpClientConversationId(args.conversationId)
     let conversationId: string | undefined
-    const orgId = currentDefaultOrgId()
+    const orgId = currentOrgIdOrNull()
     if (name === "ctx_advisor" && rawConversationId && orgId) {
       conversationId = mcpAdvisorThreadId({
         orgId,

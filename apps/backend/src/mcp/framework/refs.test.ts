@@ -31,6 +31,23 @@ describe("parseRef", () => {
     ).toMatchObject({ kind: "file", handle: "gitlab.example.com/example/api" })
   })
 
+  it("matches the longest handle prefix first", () => {
+    const nested = RepositoryHandles.from([
+      "https://gitlab.example.com/group/app",
+      "https://gitlab.example.com/group/app/sub",
+    ])
+    expect(parseRef("group/app/sub:README.md", nested)).toMatchObject({
+      kind: "file",
+      handle: "group/app/sub",
+      path: "README.md",
+    })
+    expect(parseRef("group/app:sub:x.md", nested)).toMatchObject({
+      kind: "file",
+      handle: "group/app",
+      path: "sub:x.md",
+    })
+  })
+
   it("reads a colon in a unit path as part of the path when the prefix is not a handle", () => {
     expect(parseRef("slack/threads/c1:1728.md", handles)).toEqual({
       kind: "unit",

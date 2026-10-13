@@ -1,7 +1,11 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { createError } from "evlog"
 import { z } from "zod"
-import { currentMcpActor } from "../auth/context.js"
+import {
+  currentMcpActor,
+  currentOrgIdOrNull,
+  requireCurrentOrgSlug,
+} from "../auth/context.js"
 import { advisorWorkspaceId } from "../domain/workspaces/chat-sandbox-policy.js"
 import {
   SandboxCapacityError,
@@ -18,11 +22,11 @@ import {
   getOrgFirstWorkspace,
   listOrgWorkspaces,
 } from "../models/workspaces.js"
+import { applyAttribution } from "../observability/attribution.js"
 import { runWithLangfuseContext } from "../observability/langfuse.js"
 import { mcpAdvisorUserPrompt } from "./advisorRuntimeContext.js"
 import { mcpAdvisorThreadId, mcpClientConversationId } from "./advisorThread.js"
 import { runMcpToolCall } from "./correlation.js"
-import { currentDefaultOrgId } from "./framework/call-org.js"
 import { orgRequired } from "./framework/tool-errors.js"
 import { toolFailure } from "./framework/tool-result.js"
 
@@ -95,9 +99,20 @@ export function registerMcpTools(server: McpServer): void {
     async ({ prompt, currentProjectName, conversationId }, extra) =>
       runMcpToolCall({ toolName: "ctx_advisor", extra }, async () => {
         const actor = currentMcpActor()
-        const orgId = currentDefaultOrgId()
-        // A connection with several orgs and no ?orgSlug= has no default org.
-        if (!orgId) return toolFailure(orgRequired())
+        // A connection with several orgs and no usable ?orgSlug= has no
+        // default org. ctx_advisor has no `org` argument.
+        const orgId = currentOrgIdOrNull()
+        if (!orgId) {
+          return toolFailure(
+            orgRequired(
+              "ctx_advisor needs an org. Connect with /mcp?orgSlug=<org>, where <org> is an org of this connection.",
+            ),
+          )
+        }
+        applyAttribution({
+          "ctxpipe.org.id": orgId,
+          "ctxpipe.org.slug": requireCurrentOrgSlug(),
+        })
         const [items, first] = await Promise.all([
           listOrgWorkspaces(orgId),
           getOrgFirstWorkspace(orgId),

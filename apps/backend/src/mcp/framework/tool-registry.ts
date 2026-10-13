@@ -6,11 +6,12 @@ import type {
 import { z } from "zod"
 import { currentMcpActor } from "../../auth/context.js"
 import { withOrgIdContext } from "../../auth/withAuth.js"
+import { applyAttribution } from "../../observability/attribution.js"
 import { getLogger } from "../../observability/logger.js"
 import { runMcpToolCall } from "../correlation.js"
-import { type CallOrg, resolveCallOrg } from "./call-org.js"
 import { withInFlightLimit } from "./in-flight.js"
 import { McpToolError } from "./tool-errors.js"
+import { type CallOrg, requireToolOrg } from "./tool-org.js"
 import { toolFailure, toolSuccess } from "./tool-result.js"
 
 /** Every read tool has these annotations (ADR-051 §2). */
@@ -96,7 +97,14 @@ export function defineMcpReadTool<
     try {
       return await withInFlightLimit(principalKey(), async () => {
         const slug = typeof args.org === "string" ? args.org : undefined
-        const org = slug === undefined ? null : await resolveCallOrg(slug)
+        const org = slug === undefined ? null : await requireToolOrg(slug)
+        // The org of this call, not the URL default (ADR-051 §9).
+        if (org) {
+          applyAttribution({
+            "ctxpipe.org.id": org.id,
+            "ctxpipe.org.slug": org.slug,
+          })
+        }
         const input = args as ToolInput<Shape, Mode>
         const context = { org } as ToolContext<Mode>
         const output = org

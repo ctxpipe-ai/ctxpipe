@@ -16,6 +16,7 @@ export const MCP_TOOL_ERROR_CODES = [
   "invalid_cursor",
   "stale_cursor",
   "invalid_argument",
+  "response_too_large",
   "too_many_requests",
   "internal",
 ] as const
@@ -57,9 +58,8 @@ export function workspaceNotFound(org: string, slug: string): McpToolError {
 }
 
 /** The call names no org, and the connection has no default org. */
-export function orgRequired(): McpToolError {
-  return new McpToolError(
-    "org_required",
-    "This call needs an org. Name it in the org argument; the server instructions list the orgs of this connection.",
-  )
+export function orgRequired(
+  message = "This call needs an org. Name it in the org argument; the server instructions list the orgs of this connection.",
+): McpToolError {
+  return new McpToolError("org_required", message)
 }

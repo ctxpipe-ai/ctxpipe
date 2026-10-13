@@ -2,25 +2,37 @@ import { createHash } from "node:crypto"
 import { McpToolError } from "./tool-errors.js"
 
 /**
- * Opaque page cursor bound to the projection SHA (ADR-051 §5). `scope` names
- * the tool and its query; a cursor from another query is invalid. A cursor
- * after a new projection is stale, because the order can change.
+ * Opaque page cursor (ADR-051 §5). It is bound to the org, the Workspace
+ * (null for a call over several Workspaces), the tool and its query
+ * (`scope`), and the projection SHA. A cursor from another org, Workspace or
+ * query is invalid. A cursor after a new projection is stale, because the
+ * order can change.
  */
+export type CursorBinding = {
+  orgId: string
+  workspaceId: string | null
+  sha: string
+  scope: string
+}
+
+function scopeKey(binding: CursorBinding): string {
+  return digest(
+    JSON.stringify([binding.orgId, binding.workspaceId, binding.scope]),
+  )
+}
 type CursorPayload = { v: 1; s: string; q: string; o: number }
 
 function digest(value: string): string {
   return createHash("sha256").update(value).digest("base64url").slice(0, 16)
 }
 
-export function encodeCursor(input: {
-  sha: string
-  scope: string
-  offset: number
-}): string {
+export function encodeCursor(
+  input: CursorBinding & { offset: number },
+): string {
   const payload: CursorPayload = {
     v: 1,
     s: digest(input.sha),
-    q: digest(input.scope),
+    q: scopeKey(input),
     o: input.offset,
   }
   return Buffer.from(JSON.stringify(payload)).toString("base64url")
@@ -33,11 +45,8 @@ function invalidCursor(): McpToolError {
   )
 }
 
-/** Offset of a cursor from `encodeCursor` with the same SHA and scope. */
-export function decodeCursor(
-  cursor: string,
-  expected: { sha: string; scope: string },
-): number {
+/** Offset of a cursor from `encodeCursor` with the same binding. */
+export function decodeCursor(cursor: string, expected: CursorBinding): number {
   let payload: Partial<CursorPayload>
   try {
     if (!/^[A-Za-z0-9_-]+$/.test(cursor)) throw invalidCursor()
@@ -57,7 +66,7 @@ export function decodeCursor(
   ) {
     throw invalidCursor()
   }
-  if (payload.q !== digest(expected.scope)) throw invalidCursor()
+  if (payload.q !== scopeKey(expected)) throw invalidCursor()
   if (payload.s !== digest(expected.sha)) {
     throw new McpToolError(
       "stale_cursor",

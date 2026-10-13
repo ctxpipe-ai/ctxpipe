@@ -119,9 +119,14 @@ const probePage = defineMcpReadTool({
     cursor: z.string().optional(),
   }),
   async run({ workspace, cursor }, { org }) {
-    const served = requireServed(await resolveCallWorkspace(org, workspace))
-    const scope = `probe_page:${workspace}`
-    const offset = cursor ? decodeCursor(cursor, { sha: served.sha, scope }) : 0
+    const resolved = await resolveCallWorkspace(org, workspace)
+    const binding = {
+      orgId: org.id,
+      workspaceId: resolved.id,
+      sha: requireServed(resolved).sha,
+      scope: "probe_page",
+    }
+    const offset = cursor ? decodeCursor(cursor, binding) : 0
     const page = pageWithinBudget(ITEMS, {
       offset,
       limit: 3,
@@ -133,11 +138,7 @@ const probePage = defineMcpReadTool({
       ...(page.nextOffset === null
         ? {}
         : {
-            cursor: encodeCursor({
-              sha: served.sha,
-              scope,
-              offset: page.nextOffset,
-            }),
+            cursor: encodeCursor({ ...binding, offset: page.nextOffset }),
           }),
     }
   },

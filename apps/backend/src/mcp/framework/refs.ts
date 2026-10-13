@@ -27,19 +27,19 @@ function checkPath(path: string, ref: string): string {
 }
 
 export function parseRef(ref: string, handles: RepositoryHandles): ParsedRef {
-  const colon = ref.indexOf(":")
-  if (colon > 0) {
-    const prefix = ref.slice(0, colon)
-    const repository = handles
-      .list()
-      .find((entry) => entry.handle.toLowerCase() === prefix.toLowerCase())
-    if (repository) {
-      return {
-        kind: "file",
-        handle: repository.handle,
-        url: repository.url,
-        path: checkPath(ref.slice(colon + 1), ref),
-      }
+  // Longest handle first, so a handle that is a prefix of another handle
+  // does not take its refs.
+  const lower = ref.toLowerCase()
+  const repository = handles
+    .list()
+    .sort((a, b) => b.handle.length - a.handle.length)
+    .find((entry) => lower.startsWith(`${entry.handle.toLowerCase()}:`))
+  if (repository) {
+    return {
+      kind: "file",
+      handle: repository.handle,
+      url: repository.url,
+      path: checkPath(ref.slice(repository.handle.length + 1), ref),
     }
   }
   return { kind: "unit", path: checkPath(ref, ref) }

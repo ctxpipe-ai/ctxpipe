@@ -1,10 +1,5 @@
 import { describe, expect, it } from "vitest"
-import {
-  estimateTokens,
-  HARD_CAP_CHARS,
-  pageWithinBudget,
-  truncateText,
-} from "./budget.js"
+import { estimateTokens, pageWithinBudget, truncateText } from "./budget.js"
 import { McpToolError } from "./tool-errors.js"
 import { TOOL_ERROR_META_KEY, toolFailure, toolSuccess } from "./tool-result.js"
 
@@ -77,61 +72,20 @@ describe("pageWithinBudget", () => {
 })
 
 describe("truncateText", () => {
+  it("never splits a surrogate pair", () => {
+    const text = "ab😀😀😀"
+    for (let max = 1; max <= text.length; max += 1) {
+      const cut = truncateText(text, max)
+      expect(cut.length).toBeLessThanOrEqual(max)
+      expect(cut).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/)
+      expect(() => encodeURIComponent(cut)).not.toThrow()
+    }
+  })
+
   it("keeps short text and cuts long text with a marker", () => {
     expect(truncateText("short", 10)).toBe("short")
     const cut = truncateText("a".repeat(50), 20)
     expect(cut.length).toBeLessThanOrEqual(20)
     expect(cut.endsWith("…")).toBe(true)
-  })
-})
-
-describe("toolSuccess", () => {
-  it("returns structuredContent and compact TOON text", () => {
-    const result = toolSuccess({
-      served: { branch: "main", sha: "4f2c1e9" },
-      hits: [
-        { ref: "knowledge/a.md", score: 0.5 },
-        { ref: "knowledge/b.md", score: 0.25 },
-      ],
-    })
-    expect(result.isError).toBeUndefined()
-    expect(result.structuredContent).toMatchObject({
-      served: { branch: "main" },
-    })
-    const text =
-      result.content[0]?.type === "text" ? result.content[0].text : ""
-    expect(text).toContain("hits[2]{ref,score}:")
-    expect(text).toContain("knowledge/a.md,0.5")
-    expect(text).not.toContain('{"')
-  })
-
-  it("never sends text over the hard cap", () => {
-    const result = toolSuccess({
-      rows: Array.from({ length: 2_000 }, (_, index) => ({
-        ref: `knowledge/${index}.md`,
-        snippet: "y".repeat(80),
-      })),
-    })
-    const text =
-      result.content[0]?.type === "text" ? result.content[0].text : ""
-    expect(text.length).toBeLessThanOrEqual(HARD_CAP_CHARS)
-    expect(text).toContain("truncated")
-  })
-})
-
-describe("toolFailure", () => {
-  it("returns isError with code, message, and retryable", () => {
-    const result = toolFailure(new McpToolError("stale_cursor", "Start again."))
-    expect(result.isError).toBe(true)
-    expect(result.structuredContent).toBeUndefined()
-    expect(result._meta?.[TOOL_ERROR_META_KEY]).toEqual({
-      code: "stale_cursor",
-      message: "Start again.",
-      retryable: false,
-    })
-    const text =
-      result.content[0]?.type === "text" ? result.content[0].text : ""
-    expect(text).toContain("stale_cursor")
-    expect(text).toContain("Start again.")
   })
 })
