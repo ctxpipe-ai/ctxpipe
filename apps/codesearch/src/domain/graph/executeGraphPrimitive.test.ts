@@ -173,6 +173,7 @@ function fixtureIndex(mainDisplayName = "main"): Uint8Array {
 async function queryFixture(
   primitive:
     | "find_symbol"
+    | "find_references"
     | "get_callers"
     | "get_callees"
     | "get_imports"
@@ -213,9 +214,53 @@ describe("executeScipGraphQuery", () => {
       expect(res.ok).toBe(true)
       expect(res.results).toEqual([])
       expect(res.note).toMatch(/unavailable/i)
+      expect(res.index).toBe("missing")
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
+  })
+
+  it("marks an index that does not decode as unreadable", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "scip-broken-"))
+    const brokenIndex = join(dir, "index.scip")
+    writeFileSync(brokenIndex, Buffer.from([0xff, 0xff, 0xff, 0xff, 0x0f]))
+    try {
+      const res = await executeScipGraphQuery({
+        primitive: "find_symbol",
+        scipIndexPath: brokenIndex,
+        repoPath: dir,
+        symbol: "foo",
+      })
+      expect(res.ok).toBe(false)
+      expect(res.results).toEqual([])
+      expect(res.index).toBe("unreadable")
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("finds the references of a symbol without its definition", async () => {
+    const result = await queryFixture("find_references", { symbol: "helper" })
+
+    expect(result.ok).toBe(true)
+    expect(result.index).toBeUndefined()
+    expect(result.results).toContainEqual(
+      expect.objectContaining({
+        symbol: symbols.helper,
+        file_path: expect.stringMatching(/src\/main\.ts$/u),
+        range: {
+          start_line: 3,
+          start_character: 2,
+          end_line: 3,
+          end_character: 8,
+        },
+      }),
+    )
+    expect(
+      result.results.some((row) =>
+        String(row.file_path).endsWith("src/helper.ts"),
+      ),
+    ).toBe(false)
   })
 
   it("finds symbol definitions from legacy and typed SCIP ranges", async () => {

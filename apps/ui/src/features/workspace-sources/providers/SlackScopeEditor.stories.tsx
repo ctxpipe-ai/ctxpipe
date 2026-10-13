@@ -83,15 +83,20 @@ export const SearchesAndPicksChannels: Story = {
   },
 }
 
-export const ChannelWithoutTheBotIsDisabled: Story = {
+/** A channel can be chosen before the bot is invited; it says to invite the bot. */
+export const ChannelWithoutTheBotCanBeSelected: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
+    const allHands = await canvas.findByRole("checkbox", { name: /all-hands/ })
     await expect(
-      await canvas.findByRole("checkbox", { name: /all-hands/ }),
-    ).toBeDisabled()
-    await expect(
-      canvas.getByText("Invite the ctx| bot to this channel first."),
+      canvas.getByText(
+        "Invite the bot to this channel before you mention it there.",
+      ),
     ).toBeVisible()
+    await userEvent.click(allHands)
+    await expect(JSON.parse(scopeText(canvasElement) ?? "")).toEqual({
+      channels: ["C0ALL0001"],
+    })
   },
 }
 

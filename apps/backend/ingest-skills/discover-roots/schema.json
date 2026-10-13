@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "discover-roots result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["roots"],
+  "properties": {
+    "roots": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "manifests"],
+        "properties": {
+          "path": { "type": "string" },
+          "manifests": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    }
+  }
+}

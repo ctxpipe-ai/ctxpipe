@@ -16,6 +16,7 @@ import { repositoryOrPathNotFoundResponse } from "./errorBody.js"
 
 const graphPrimitiveSchema = z.enum([
   "find_symbol",
+  "find_references",
   "get_callers",
   "get_callees",
   "get_imports",
@@ -60,6 +61,7 @@ export const graphRoute = createRoute({
             primitive: graphPrimitiveSchema,
             results: z.array(z.record(z.string(), z.unknown())),
             note: z.string().optional(),
+            index: z.enum(["missing", "unreadable"]).optional(),
           }),
         },
       },
@@ -119,6 +121,9 @@ export function registerGraphRoutes(app: OpenAPIHono<AppEnv>) {
         },
         400,
       )
+    }
+    if (body.primitive === "find_references" && !body.symbol) {
+      return c.json({ error: "find_references requires symbol" }, 400)
     }
     if (body.primitive === "trace_path" && (!body.symbol || !body.filePath)) {
       return c.json(
@@ -187,6 +192,7 @@ export function registerGraphRoutes(app: OpenAPIHono<AppEnv>) {
       primitive: body.primitive,
       results: result.results,
       ...(notes.length > 0 ? { note: notes.join(" | ") } : {}),
+      ...(result.index ? { index: result.index } : {}),
     })
   })
 }

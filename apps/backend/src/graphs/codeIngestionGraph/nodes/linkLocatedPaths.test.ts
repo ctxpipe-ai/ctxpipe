@@ -348,6 +348,72 @@ describe("resolveReferenceClaims", () => {
     ])
   })
 
+  it("stubs the issue a pull request resolves, as for a reference", async () => {
+    const opsTeam: ExtractedObject = {
+      kind: "Team",
+      deduplicationKey: "team:linear:OPS",
+      name: "Ops",
+    }
+    const { claims, summary, stubs } = await resolveReferenceClaims({
+      orgId: "org_1",
+      objects: [opsTeam],
+      claims: [
+        {
+          ...referenceClaim("prq:repo_api:7", "iss:linear:OPS-4"),
+          subjectKind: "PullRequest",
+          objectKind: "Issue",
+          predicate: "RESOLVES",
+          provenance: { url: "https://github.com/acme/api/pull/7" },
+        },
+        {
+          ...referenceClaim("prq:repo_api:7", "iss:linear:ENG-9"),
+          subjectKind: "PullRequest",
+          objectKind: "Issue",
+          predicate: "RESOLVES",
+        },
+      ],
+    })
+    expect(claims.map((claim) => claim.objectRef)).toEqual(["iss:linear:OPS-4"])
+    expect(summary).toEqual({ RESOLVES: { kept: 1, dropped: 1, stubbed: 2 } })
+    expect(stubs.map((stub) => stub.deduplicationKey)).toEqual([
+      "prq:repo_api:7",
+      "iss:linear:OPS-4",
+    ])
+  })
+
+  it("resolves a parent or blocking issue like a reference: stub for a known team, drop otherwise", async () => {
+    const engTeam: ExtractedObject = {
+      kind: "Team",
+      deduplicationKey: "team:linear:ENG",
+      name: "Eng",
+    }
+    const issueLink = (
+      predicate: string,
+      subjectRef: string,
+      objectRef: string,
+    ): ExtractedClaim => ({
+      ...referenceClaim(subjectRef, objectRef),
+      objectKind: "Issue",
+      predicate,
+    })
+    const { claims, summary, stubs } = await resolveReferenceClaims({
+      orgId: "org_1",
+      objects: [issue, engTeam],
+      claims: [
+        issueLink("PART_OF", issue.deduplicationKey, "iss:linear:ENG-100"),
+        issueLink("DEPENDS_ON", "iss:linear:OPS-9", issue.deduplicationKey),
+      ],
+    })
+    expect(claims.map((claim) => claim.predicate)).toEqual(["PART_OF"])
+    expect(summary).toEqual({
+      PART_OF: { kept: 1, dropped: 0, stubbed: 1 },
+      DEPENDS_ON: { kept: 0, dropped: 1, stubbed: 0 },
+    })
+    expect(stubs.map((stub) => stub.deduplicationKey)).toEqual([
+      "iss:linear:ENG-100",
+    ])
+  })
+
   it("does not stub a Linear issue whose team is unknown", async () => {
     const { claims, summary, stubs } = await resolveReferenceClaims({
       orgId: "org_1",

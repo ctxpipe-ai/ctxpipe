@@ -2,8 +2,6 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 import { workspaceListHandler } from "@/mocks/workspace-handlers"
 import {
-  activeMemberRoleHandler,
-  connectionSyncHandler,
   connectionUsageHandler,
   connectionUsageItem,
 } from "@/mocks/workspace-sources-handlers"
@@ -111,8 +109,70 @@ export const UsedInOneWorkspace: Story = {
     })
     await expect(link).toBeVisible()
     await expect(canvas.queryByText("No Workspaces yet")).toBeNull()
-    // GitHub sources read the repositories as they are: nothing to sync.
-    await expect(canvas.queryByRole("button", { name: "Sync now" })).toBeNull()
+  },
+}
+
+export const PullRequestAwaitingMerge: Story = {
+  args: { provider: "notion" },
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          connectionUsageHandler([
+            connectionUsageItem({
+              workspaceSlug: "docs",
+              workspaceName: "Docs",
+              stat: "",
+              pendingChanges: [
+                {
+                  sourceKey: "notion",
+                  provider: "notion",
+                  action: "add",
+                  pullRequestUrl: "https://github.com/acme/docs/pull/7",
+                  createdAt: "2026-10-13T10:00:00Z",
+                },
+              ],
+            }),
+            connectionUsageItem({
+              workspaceSlug: "ops",
+              workspaceName: "Ops",
+              stat: "2 Notion pages",
+              pendingChanges: [
+                {
+                  sourceKey: "runbooks",
+                  provider: "notion",
+                  action: "edit",
+                  pullRequestUrl: "https://github.com/acme/ops/pull/3",
+                  createdAt: "2026-10-13T10:00:00Z",
+                },
+              ],
+            }),
+          ]),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    // A Workspace with only an open pull request is a waiting step, not
+    // "No Workspaces yet", so the user does not add the source again.
+    await expect(
+      await canvas.findByRole("link", { name: "Docs" }),
+    ).toBeVisible()
+    await expect(canvas.queryByText("No Workspaces yet")).toBeNull()
+    await expect(
+      canvas.getByText("Pull request open. The sync starts after the merge."),
+    ).toBeVisible()
+    await expect(
+      canvas.getByText(
+        "Pull request open. The change applies after the merge.",
+      ),
+    ).toBeVisible()
+    const pulls = canvas.getAllByRole("link", { name: "Open pull request" })
+    await expect(pulls.map((pull) => pull.getAttribute("href"))).toEqual([
+      "https://github.com/acme/docs/pull/7",
+      "https://github.com/acme/ops/pull/3",
+    ])
   },
 }
 
@@ -177,85 +237,5 @@ export const UsedInLinksToSourceSection: Story = {
       "href",
       "/acme/ws/docs?pane=settings#source-github",
     )
-  },
-}
-
-const syncRequests: string[] = []
-const onCallUsage = connectionUsageHandler([
-  connectionUsageItem({
-    workspaceSlug: "on-call",
-    workspaceName: "On call",
-    stat: "2 PagerDuty services",
-  }),
-])
-
-export const SyncNow: Story = {
-  args: { provider: "pagerduty" },
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          onCallUsage,
-          activeMemberRoleHandler("admin"),
-          connectionSyncHandler({ delayMs: 400, requests: syncRequests }),
-        ],
-      },
-    },
-  },
-  play: async ({ canvasElement }) => {
-    syncRequests.length = 0
-    const canvas = within(canvasElement)
-    const button = await canvas.findByRole("button", { name: "Sync now" })
-    await userEvent.click(button)
-    await waitFor(() => expect(button).toHaveAttribute("data-pending", "true"))
-    // A second click while the sync starts sends no second request.
-    await userEvent.click(button)
-    await expect(
-      await canvas.findByText("Sync started. Files update after it ends."),
-    ).toBeVisible()
-    await expect(button).not.toHaveAttribute("data-pending")
-    await expect(syncRequests).toHaveLength(1)
-    await expect(syncRequests[0]).toMatch(/\/connectors\/con_story1\/sync$/)
-  },
-}
-
-export const SyncNowFails: Story = {
-  args: { provider: "pagerduty" },
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          onCallUsage,
-          activeMemberRoleHandler("owner"),
-          connectionSyncHandler({ status: 404 }),
-        ],
-      },
-    },
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await userEvent.click(
-      await canvas.findByRole("button", { name: "Sync now" }),
-    )
-    await expect(
-      await canvas.findByText("Could not start the sync."),
-    ).toBeVisible()
-  },
-}
-
-export const SyncNowHiddenForMember: Story = {
-  args: { provider: "pagerduty" },
-  parameters: {
-    msw: {
-      handlers: {
-        page: [onCallUsage, activeMemberRoleHandler("member")],
-      },
-    },
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await canvas.findByText("On call")
-    // Only an org admin or owner can start a sync.
-    await expect(canvas.queryByRole("button", { name: "Sync now" })).toBeNull()
   },
 }

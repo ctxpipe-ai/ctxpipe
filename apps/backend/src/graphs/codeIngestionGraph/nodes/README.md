@@ -20,8 +20,8 @@ When `roots` includes both `./` and package paths (e.g. `apps/web`), post-proces
 | extractInstructionUnits | InstructionUnit, Skill | HAS_INSTRUCTION, MEMBER_OF_PRIMARY | inu:${repositoryId}:${root}:${hash}, skl:${repositoryId}:${hash} |
 | extractDecisions | Decision | INFLUENCES, SUPERSEDES, MENTIONS | dec:${repositoryId}:${path} |
 | extractCodeowners | Team | OWNS (Team → Service/App/Library) | team:github:${org}/${slug} |
-| extractGithubPullRequests (connector) | PullRequest, File | TARGETS, ADDED, MODIFIED, REMOVED, RENAMED, PART_OF, REFERENCES (→ Issue) | prq:${sourceRepo}:${number}, fil:${sourceRepo}:${path} |
-| extractLinear (connector) | Issue, Team | OWNS (Team → Issue), REFERENCES (→ PullRequest) | iss:linear:${identifier}, team:linear:${key} |
+| extractGithubPullRequests (connector) | PullRequest, File | TARGETS, ADDED, MODIFIED, REMOVED, RENAMED (merged only), PART_OF, REFERENCES / RESOLVES (→ Issue; RESOLVES merged only) | prq:${sourceRepo}:${number}, fil:${sourceRepo}:${path} |
+| extractLinear (connector) | Issue, Team | OWNS (Team → Issue), REFERENCES (→ PullRequest / related Issue), PART_OF (→ parent Issue), DEPENDS_ON (blocked Issue → blocking Issue), SUPERSEDES (Issue → its duplicate) | iss:linear:${identifier}, team:linear:${key} |
 | extractSlackThreads (connector) | Thread | REFERENCES (→ PullRequest / Issue) | thr:slack:${channelId}:${threadTs} |
 | linkLocatedPaths | File, stub PullRequest / Issue | File PART_OF Repository/Service/App/Library, InstructionUnit/Decision DECLARED_IN File; after all roots concatenate, reference-family claims to a connected repository's PR or a known team's issue get a stub node (`inferredFromReference`), other unresolved references are dropped | fil:${repositoryId}:${path}, prq:${repoId}:${n}, iss:linear:${IDENT} |
 | linkPackageHierarchy (after all roots) | — | PART_OF (Service/App/Library → enclosing package or workspace root `svc:…:./`), IMPLEMENTED_IN (workspace root → Repository) | — |

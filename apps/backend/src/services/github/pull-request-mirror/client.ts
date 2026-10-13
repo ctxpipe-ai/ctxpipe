@@ -490,8 +490,8 @@ async function completeSnapshots(input: {
   return snapshots
 }
 
-/** One page of merged pull requests, most recently updated first, in one request. */
-export async function fetchMergedPullRequestPage(input: {
+/** One page of closed pull requests (merged or not), most recently updated first, in one request. */
+export async function fetchClosedPullRequestPage(input: {
   octokit: GithubPrClient
   owner: string
   repo: string
@@ -509,9 +509,9 @@ export async function fetchMergedPullRequestPage(input: {
       }
     } | null
   }>(
-    `query MergedPullRequests($owner: String!, $repo: String!, $first: Int!, $after: String) {
+    `query ClosedPullRequests($owner: String!, $repo: String!, $first: Int!, $after: String) {
       repository(owner: $owner, name: $repo) {
-        pullRequests(states: MERGED, orderBy: {field: UPDATED_AT, direction: DESC}, first: $first, after: $after) {
+        pullRequests(states: [MERGED, CLOSED], orderBy: {field: UPDATED_AT, direction: DESC}, first: $first, after: $after) {
           pageInfo { hasNextPage endCursor }
           nodes { ${PULL_REQUEST_FIELDS} }
         }

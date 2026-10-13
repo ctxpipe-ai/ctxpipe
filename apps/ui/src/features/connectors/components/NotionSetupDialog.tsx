@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/Button"
 import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
 import { AddToWorkspacesStep } from "@/features/workspace-sources/AddToWorkspacesStep"
+import { PullRequestsToMerge } from "@/features/workspace-sources/PullRequestsToMerge"
 import { useNotionOAuthConnect } from "../hooks/useNotionOAuthConnect"
 import {
   getNotionSetupCurrentIndex,
@@ -47,10 +48,12 @@ export function NotionSetupDialog({
   const [registerSaved, setRegisterSaved] = useState(false)
   const [webhookContinued, setWebhookContinued] = useState(false)
   const [workspacesDone, setWorkspacesDone] = useState(false)
+  const [pullRequestUrls, setPullRequestUrls] = useState<string[]>([])
   if (!isOpen && (registerSaved || webhookContinued || workspacesDone)) {
     setRegisterSaved(false)
     setWebhookContinued(false)
     setWorkspacesDone(false)
+    setPullRequestUrls([])
   }
 
   const oauthAppQuery = useQuery({
@@ -174,7 +177,10 @@ export function NotionSetupDialog({
           description="the pages and databases for each"
           items="the pages"
           replacedConfigPullUrl={status.pendingConfigPullUrl}
-          onDone={() => setWorkspacesDone(true)}
+          onDone={(urls) => {
+            setPullRequestUrls(urls ?? [])
+            setWorkspacesDone(true)
+          }}
         />
       )
     }
@@ -184,10 +190,14 @@ export function NotionSetupDialog({
           <h3 className="text-base font-medium text-foreground">
             Notion is connected
           </h3>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Add Notion to a Workspace from the connector card, or change the
-            pages of a Workspace in its settings.
-          </p>
+          {pullRequestUrls.length ? (
+            <PullRequestsToMerge urls={pullRequestUrls} />
+          ) : (
+            <p className="mt-2 text-sm text-muted-foreground">
+              Add Notion to a Workspace from the connector card, or change the
+              pages of a Workspace in its settings.
+            </p>
+          )}
         </div>
         <Button
           variant="secondary"

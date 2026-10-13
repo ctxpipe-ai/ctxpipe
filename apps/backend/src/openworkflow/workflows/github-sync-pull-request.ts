@@ -14,8 +14,8 @@ import {
 } from "../../observability/logger.js"
 import { shouldMirrorGithubPullRequest } from "../../services/github/pull-request-mirror/policy.js"
 import {
+  captureClosedGithubPullRequestPage,
   captureGithubPullRequests,
-  captureMergedGithubPullRequestPage,
   GITHUB_PR_BACKFILL_MAX,
 } from "../../services/github/pull-request-mirror/sync.js"
 import type { GithubPrMirrorFile } from "../../services/github/pull-request-mirror/types.js"
@@ -25,7 +25,7 @@ import { runConnectorRepositoryIngestionWorkflow } from "../enqueue-repository-i
 import { workspaceConnectorMirror } from "./workspace-connector-mirror.js"
 
 const GithubSyncPullRequestCandidateSchema = z.object({
-  merged: z.boolean(),
+  state: z.enum(["open", "closed"]),
   draft: z.boolean(),
   updatedAt: z.string().min(1),
 })
@@ -42,7 +42,7 @@ const GithubSyncPullRequestInputSchema = z.object({
   gitUrl: z.string().min(1),
   /** The webhook's installation connection; otherwise the Workspace's. */
   connectionId: z.string().min(1).optional(),
-  /** Webhook pull requests. Absent: backfill the newest merged ones. */
+  /** Webhook pull requests. Absent: backfill the newest closed ones. */
   numbers: z.array(z.number().int().positive()).min(1).optional(),
   /** Webhook-provided facts; when present the policy runs before any I/O. */
   candidate: GithubSyncPullRequestCandidateSchema.optional(),
@@ -91,8 +91,8 @@ async function captureTarget(input: {
 }
 
 /**
- * Mirror merged pull requests of one linked repository into one Workspace:
- * the webhook's pull requests, or a backfill of the newest merged ones.
+ * Mirror closed pull requests (merged or not) of one linked repository into
+ * one Workspace: the webhook's pull requests, or a backfill of the newest closed ones.
  */
 export const githubSyncPullRequest = defineWorkflow(
   {
@@ -135,11 +135,11 @@ export const githubSyncPullRequest = defineWorkflow(
           for (let page = 0; ; page++) {
             const cursor: string | null = after
             const captured: Awaited<
-              ReturnType<typeof captureMergedGithubPullRequestPage>
+              ReturnType<typeof captureClosedGithubPullRequestPage>
             > = await step.run(
               { name: `mirror-github-pull-requests:${page}` },
               () =>
-                captureMergedGithubPullRequestPage({
+                captureClosedGithubPullRequestPage({
                   ...source,
                   after: cursor,
                 }),

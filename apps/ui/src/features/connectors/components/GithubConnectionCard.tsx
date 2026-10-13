@@ -115,7 +115,6 @@ export function GithubConnectionCard({
       }}
       workspace={connectorDash(installation?.accountSlug)}
       scope="GitHub App"
-      syncRepository="—"
       actionLabel={
         isError
           ? "Retry"

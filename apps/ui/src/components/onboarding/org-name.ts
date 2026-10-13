@@ -1,12 +1,34 @@
+import { isValidSlug } from "backend/domain/workspaces/slug"
+
 export const ORG_SLUG_MAX_LENGTH = 32
 
 /** A lowercase, hyphenated slug for an organization name. */
 export function orgSlugFromName(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, ORG_SLUG_MAX_LENGTH)
+  return (
+    name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, ORG_SLUG_MAX_LENGTH)
+      // The cut can leave a hyphen at the end.
+      .replace(/-+$/g, "")
+  )
+}
+
+/**
+ * The message for a slug the server refuses, or null when the slug is valid.
+ * The rule is `isValidSlug` from the backend, so both sides agree.
+ */
+export function orgSlugError(raw: string): string | null {
+  const slug = raw.trim()
+  if (!slug) return "Enter the organization slug."
+  if (slug.length > ORG_SLUG_MAX_LENGTH) {
+    return `Organization slug must be at most ${ORG_SLUG_MAX_LENGTH} characters.`
+  }
+  if (!isValidSlug(slug)) {
+    return "Use lowercase letters and numbers. Separate words with a single hyphen. Do not start or end with a hyphen."
+  }
+  return null
 }
 
 /**

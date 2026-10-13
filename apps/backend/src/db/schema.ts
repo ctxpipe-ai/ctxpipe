@@ -37,6 +37,7 @@ import { repositoryCheckouts } from "./schema/repository_checkouts.js"
 import {
   orgMemberPreferences,
   workspaceCommitProjections,
+  workspaceKnowledgeChunks,
   workspaceKnowledgeUnits,
   workspaceLinkedRepositories,
   workspaceRepositoryCommits,
@@ -82,6 +83,7 @@ const schema = {
   workspaces,
   workspaceLinkedRepositories,
   workspaceKnowledgeUnits,
+  workspaceKnowledgeChunks,
   orgMemberPreferences,
   workspaceWriteJobs,
   workspaceSandboxInstances,

@@ -180,8 +180,8 @@ export function SlackSetupDialog({
                 Set up Slack connector
               </h2>
               <p className="mt-2 text-sm text-muted-foreground">
-                Authorize Slack, then choose the Workspaces that get the threads
-                you capture in their channels.
+                Save a Slack thread to your Workspaces when someone mentions the
+                ctx| bot in it. The bot reads nothing else.
               </p>
               <a
                 href={SLACK_DOCS_URL}
@@ -280,6 +280,32 @@ export function SlackSetupDialog({
           />
         ) : setupView === "workspaces" && connectionId ? (
           <div className="flex flex-col gap-5">
+            <section
+              aria-label="How capture works"
+              className="rounded-md border border-border bg-card/30 p-4 text-sm"
+            >
+              <h4 className="font-medium text-foreground">How capture works</h4>
+              <ol className="mt-2 list-decimal space-y-1 pl-5 text-muted-foreground">
+                <li>
+                  Below, select the Workspaces and the channels whose threads
+                  they get.
+                </li>
+                <li>
+                  In Slack, invite the bot to each channel with{" "}
+                  <code className="rounded-md bg-muted px-1 py-0.5 text-[11px]">
+                    /invite {formatSlackBotMention(status?.botHandle)}
+                  </code>
+                  .
+                </li>
+                <li>
+                  In a thread of that channel, mention{" "}
+                  <code className="rounded-md bg-muted px-1 py-0.5 text-[11px]">
+                    {formatSlackBotMention(status?.botHandle)}
+                  </code>
+                  . ctx| saves the thread to each Workspace with that channel.
+                </li>
+              </ol>
+            </section>
             <ChooseWorkspacesStep
               orgSlug={orgSlug}
               provider="slack"
@@ -287,23 +313,6 @@ export function SlackSetupDialog({
               value={adding.value}
               onChange={adding.setValue}
             />
-            <section
-              aria-label="Thread capture on mention"
-              className="border border-border bg-card/30 p-4 text-sm"
-            >
-              <h4 className="font-medium text-foreground">
-                Thread capture on @mention
-              </h4>
-              <p className="mt-2 text-muted-foreground">
-                Mention {formatSlackBotMention(status?.botHandle)} in a thread
-                of a selected channel to capture it into each Workspace that has
-                the channel. Invite the bot to a channel first with{" "}
-                <code className="rounded-md bg-muted px-1 py-0.5 text-[11px]">
-                  /invite {formatSlackBotMention(status?.botHandle)}
-                </code>
-                .
-              </p>
-            </section>
             <div className="flex justify-end gap-2 border-t border-border pt-4">
               <Button variant="quiet" onPress={() => setOpen(false)}>
                 Skip for now

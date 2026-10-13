@@ -8,7 +8,10 @@ import {
 import { getSandboxInstance } from "../../models/workspaces.js"
 import { log } from "../../observability/logger.js"
 import { scheduleConversationSandboxSweep } from "../../openworkflow/workflows/conversation-sandbox-sweep.js"
-import { INGEST_SHARD_LIMIT_MS } from "./chat-lifecycle.js"
+import {
+  INGEST_SHARD_LIMIT_MS,
+  ingestSandboxThreadId,
+} from "./chat-lifecycle.js"
 import {
   IngestSandboxSlotsFull,
   withIngestSandboxSlots,
@@ -16,15 +19,6 @@ import {
 import { postgresSandboxInstanceStore } from "./sandbox-instance-store.js"
 import { postgresSandboxLocks } from "./sandbox-lock-store.js"
 import type { SandboxProvider as SandboxProviderName } from "./sandbox-provider.js"
-
-/**
- * The thread of one ingest shard. It keys the shard's sandbox, and it is also
- * the name of the shard's lock: a step holds it while it uses the sandbox,
- * and the org sweep never deletes a sandbox whose lock is held.
- */
-export function ingestSandboxThreadId(runId: string, shard: number): string {
-  return `ingest:${runId}:${shard}`
-}
 
 /**
  * The sandbox of one ingest shard (ADR-052): the second stock definition

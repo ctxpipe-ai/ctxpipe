@@ -66,6 +66,9 @@ describe("rename rewrite", () => {
           {
             path: "knowledge/payments/api.md",
             servingId: "kn_a",
+            title: null,
+            source: "authored",
+            updatedAt: null,
             body: "See ledger",
             links: ["../billing/ledger.md"],
             claims: [],
