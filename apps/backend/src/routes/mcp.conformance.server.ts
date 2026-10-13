@@ -39,6 +39,7 @@ app.all("/mcp", (c) =>
       {
         title: "Conformance Echo",
         description: "Return text for deterministic MCP conformance checks.",
+        annotations: { readOnlyHint: true },
         inputSchema: z.object({ text: z.string() }),
       },
       async ({ text }) => ({

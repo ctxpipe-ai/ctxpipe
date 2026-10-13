@@ -45,13 +45,13 @@ export function ConsentPage() {
         )
       : null
 
-  const handleConsent = async (accept: boolean) => {
+  const handleConsent = async (accept: boolean, allowedScopes?: string[]) => {
     setError(null)
     setIsSubmitting(accept ? "allow" : "deny")
 
     const { data, error: requestError } = await authClient.oauth2.consent({
       accept,
-      scope: requestedScope,
+      scope: allowedScopes?.length ? allowedScopes.join(" ") : requestedScope,
       fetchOptions: {
         throw: false,
         headers:
@@ -108,8 +108,8 @@ export function ConsentPage() {
       changeOrganizationHref={changeOrganizationHref}
       error={error}
       isSubmitting={isSubmitting}
-      onAllow={() => {
-        void handleConsent(true)
+      onAllow={(allowedScopes) => {
+        void handleConsent(true, allowedScopes)
       }}
       onDeny={() => {
         void handleConsent(false)

@@ -131,4 +131,61 @@ describe("OAuthConsent", () => {
     act(() => allowButton?.click())
     expect(onAllow).not.toHaveBeenCalled()
   })
+  function renderWithScopes(scopes: string[], onAllow = vi.fn()) {
+    act(() => {
+      root.render(
+        <OAuthConsent
+          clientId="mcp-host"
+          scopes={scopes}
+          organization={{ name: "Acme", slug: "acme" }}
+          onAllow={onAllow}
+          onDeny={vi.fn()}
+        />,
+      )
+    })
+    return onAllow
+  }
+
+  function clickAllow() {
+    const allowButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Allow"),
+    )
+    act(() => allowButton?.click())
+  }
+
+  it("leaves the write scope out unless the user ticks it", () => {
+    const onAllow = renderWithScopes([
+      "ctxpipe:read",
+      "ctxpipe:write",
+      "offline_access",
+    ])
+
+    const writeBox = container.querySelector<HTMLInputElement>(
+      'input[type="checkbox"]',
+    )
+    expect(writeBox?.checked).toBe(false)
+    expect(container.textContent).toContain("Read context")
+    clickAllow()
+    expect(onAllow).toHaveBeenCalledWith(["ctxpipe:read", "offline_access"])
+  })
+
+  it("allows the write scope when the user ticks it", () => {
+    const onAllow = renderWithScopes(["ctxpipe:read", "ctxpipe:write"])
+
+    const writeBox = container.querySelector<HTMLInputElement>(
+      'input[type="checkbox"]',
+    )
+    act(() => writeBox?.click())
+    expect(writeBox?.checked).toBe(true)
+    clickAllow()
+    expect(onAllow).toHaveBeenCalledWith(["ctxpipe:read", "ctxpipe:write"])
+  })
+
+  it("shows no write option when the client asks for read only", () => {
+    const onAllow = renderWithScopes(["ctxpipe:read", "offline_access"])
+
+    expect(container.querySelector('input[type="checkbox"]')).toBeNull()
+    clickAllow()
+    expect(onAllow).toHaveBeenCalledWith(["ctxpipe:read", "offline_access"])
+  })
 })
