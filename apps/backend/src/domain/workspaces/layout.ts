@@ -33,14 +33,7 @@ export function isImportedKnowledgePath(path: string): boolean {
   return path.startsWith("knowledge/imported/")
 }
 
-export function isConnectorMirrorPath(path: string): boolean {
-  return (
-    path.startsWith("linear/") ||
-    path.startsWith("notion/") ||
-    path.startsWith("confluence/") ||
-    path.startsWith("slack/")
-  )
-}
+export { isConnectorMirrorPath } from "../codeIngestion/connectorMirrorPaths.js"
 
 export function isLinkedRepositoryDeclaration(path: string): boolean {
   return (
