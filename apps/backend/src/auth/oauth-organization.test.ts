@@ -6,7 +6,7 @@ import {
   OAUTH_ORGANIZATION_CLAIM,
   oauthAccessTokenClaims,
   readOAuthRequestClientId,
-  resolveOAuthConsentReferenceId,
+  resolveOAuthConsentOrganizationId,
   selectOAuthOrganizationBinding,
   withOAuthRequestContext,
 } from "./oauth-organization.js"
@@ -69,7 +69,7 @@ describe("selectOAuthOrganizationBinding", () => {
 describe("OAuth consent organization", () => {
   it("uses the organization submitted by consent instead of mutable active state", () => {
     expect(
-      resolveOAuthConsentReferenceId(
+      resolveOAuthConsentOrganizationId(
         ["org_acme", "org_consulting"],
         "org_acme",
         "org_consulting",
@@ -79,16 +79,20 @@ describe("OAuth consent organization", () => {
 
   it("rejects a submitted organization that is not a membership", () => {
     expect(
-      resolveOAuthConsentReferenceId(["org_acme"], "org_acme", "org_unrelated"),
+      resolveOAuthConsentOrganizationId(
+        ["org_acme"],
+        "org_acme",
+        "org_unrelated",
+      ),
     ).toBeNull()
   })
 
   it("rejects accepted consent when no organization was submitted", () => {
     expect(
-      resolveOAuthConsentReferenceId(["org_acme"], "org_acme", null),
+      resolveOAuthConsentOrganizationId(["org_acme"], "org_acme", null),
     ).toBeNull()
     expect(
-      resolveOAuthConsentReferenceId(["org_acme"], "org_acme", undefined),
+      resolveOAuthConsentOrganizationId(["org_acme"], "org_acme", undefined),
     ).toBe("org_acme")
   })
 
@@ -145,6 +149,27 @@ describe("readOAuthRequestClientId", () => {
     })
     expect(await readOAuthRequestClientId(request)).toBe("client_b")
     expect(await request.json()).toMatchObject({ accept: true })
+  })
+
+  it("reads a POST client only from the signed oauth_query, not the URL", async () => {
+    const both = new Request(
+      "http://auth.test/oauth2/consent?client_id=client_a",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ oauth_query: "client_id=client_b&sig=x" }),
+      },
+    )
+    expect(await readOAuthRequestClientId(both)).toBe("client_b")
+    const urlOnly = new Request(
+      "http://auth.test/oauth2/consent?client_id=client_a",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ accept: true }),
+      },
+    )
+    expect(await readOAuthRequestClientId(urlOnly)).toBeNull()
   })
 
   it("returns null when the request names no client", async () => {

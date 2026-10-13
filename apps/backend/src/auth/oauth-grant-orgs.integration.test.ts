@@ -22,18 +22,13 @@ import {
   contextStorage,
   withTestRequestLogger,
 } from "../test/hono-test-logger.js"
+import { type CallPrincipal, resolveCallOrg } from "./call-org.js"
 import {
-  type CallPrincipal,
-  callPrincipalFromContext,
-  resolveCallOrg,
-} from "./call-org.js"
-import {
-  findOrCreateOAuthGrant,
-  isOAuthGrantId,
+  resolveOAuthGrantReference,
   revokeOAuthGrant,
-  setApiKeyOrganizations,
-  setGrantOrganizations,
+  setOrganizations,
 } from "./oauth-grants.js"
+import { isOAuthGrantId } from "./oauth-organization.js"
 import {
   requireAuth,
   withCookieAuth,
@@ -126,7 +121,7 @@ describe("multi-org grants (Postgres)", () => {
   async function newGrant(orgIds: string[]): Promise<string> {
     const grantId = generateObjectId("ogr")
     grantIds.push(grantId)
-    await setGrantOrganizations(grantId, orgIds)
+    await setOrganizations({ grantId }, orgIds)
     return grantId
   }
 
@@ -206,7 +201,7 @@ describe("multi-org grants (Postgres)", () => {
 
   it("denies an org after it is removed from the set, with no new token", async () => {
     const grantId = await newGrant([orgA.id, orgB.id])
-    await setGrantOrganizations(grantId, [orgA.id])
+    await setOrganizations({ grantId }, [orgA.id])
     expect(await resolveCallOrg(oauth(grantId), orgB.slug)).toEqual({
       ok: false,
       error: "org_not_found",
@@ -216,7 +211,7 @@ describe("multi-org grants (Postgres)", () => {
 
   it("denies every org after the grant is revoked", async () => {
     const grantId = await newGrant([orgA.id, orgB.id])
-    await revokeOAuthGrant(grantId)
+    await revokeOAuthGrant({ grantId, userId })
     expect(await resolveCallOrg(oauth(grantId), orgA.slug)).toEqual({
       ok: false,
       error: "org_not_found",
@@ -300,7 +295,7 @@ describe("multi-org grants (Postgres)", () => {
       ok: false,
       error: "org_required",
     })
-    await setApiKeyOrganizations(key.id, [orgA.id])
+    await setOrganizations({ apiKeyId: key.id }, [orgA.id])
     try {
       expect(await resolveCallOrg(principal, orgB.slug)).toEqual({
         ok: false,
@@ -315,7 +310,7 @@ describe("multi-org grants (Postgres)", () => {
         org: orgA,
       })
     } finally {
-      await setApiKeyOrganizations(key.id, [])
+      await setOrganizations({ apiKeyId: key.id }, [])
     }
   })
 
@@ -363,78 +358,164 @@ describe("multi-org grants (Postgres)", () => {
     })
   })
 
-  describe("consent grant", () => {
-    it("creates a grant for the selected org and reuses it for the same client", async () => {
-      const first = await findOrCreateOAuthGrant({
-        userId,
-        clientId,
-        organizationId: orgA.id,
-      })
-      grantIds.push(first)
-      expect(isOAuthGrantId(first)).toBe(true)
-      expect(await resolveCallOrg(oauth(first), undefined)).toEqual({
-        ok: true,
-        org: orgA,
-      })
+  describe("consent grant reference", () => {
+    async function addConsent(referenceId: string, client = clientId) {
       await getSystemDb()
         .insert(oauthConsents)
         .values({
           id: generateObjectId("oacs"),
-          clientId,
+          clientId: client,
           userId,
-          referenceId: first,
+          referenceId,
           scopes: ["openid"],
           createdAt: new Date(),
           updatedAt: new Date(),
         })
-      const again = await findOrCreateOAuthGrant({
-        userId,
-        clientId,
-        organizationId: orgA.id,
-      })
-      expect(again).toBe(first)
-      const other = await findOrCreateOAuthGrant({
-        userId,
-        clientId,
-        organizationId: orgB.id,
-      })
-      grantIds.push(other)
-      expect(other).not.toBe(first)
-    })
+    }
 
-    it("keeps a legacy consent bound to the org id", async () => {
-      const legacyClient = `${clientId}_legacy`
-      const db = getSystemDb()
-      await db.insert(oauthClients).values({
-        id: generateObjectId("oac"),
-        clientId: legacyClient,
-        redirectUris: ["http://localhost/callback"],
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        userId,
-      })
-      try {
-        await db.insert(oauthConsents).values({
-          id: generateObjectId("oacs"),
-          clientId: legacyClient,
-          userId,
-          referenceId: orgA.id,
-          scopes: ["openid"],
+    async function grantOrgIds(grantId: string): Promise<string[]> {
+      const rows = await getSystemDb()
+        .select({ id: oauthGrantOrganizations.organizationId })
+        .from(oauthGrantOrganizations)
+        .where(eq(oauthGrantOrganizations.grantId, grantId))
+      return rows.map((row) => row.id).sort()
+    }
+
+    async function withClient(run: (client: string) => Promise<void>) {
+      const client = `${clientId}_${Math.random().toString(36).slice(2, 8)}`
+      await getSystemDb()
+        .insert(oauthClients)
+        .values({
+          id: generateObjectId("oac"),
+          clientId: client,
+          redirectUris: ["http://localhost/callback"],
           createdAt: new Date(),
           updatedAt: new Date(),
+          userId,
         })
+      try {
+        await run(client)
+      } finally {
+        await getSystemDb()
+          .delete(oauthClients)
+          .where(eq(oauthClients.clientId, client))
+      }
+    }
+
+    it("returns the org id and makes no grant outside the consent request", async () => {
+      await withClient(async (client) => {
         expect(
-          await findOrCreateOAuthGrant({
+          await resolveOAuthGrantReference({
             userId,
-            clientId: legacyClient,
+            clientId: client,
             organizationId: orgA.id,
+            consent: false,
           }),
         ).toBe(orgA.id)
-      } finally {
-        await db
-          .delete(oauthClients)
-          .where(eq(oauthClients.clientId, legacyClient))
+        expect(
+          await resolveOAuthGrantReference({
+            userId,
+            clientId: null,
+            organizationId: orgA.id,
+            consent: false,
+          }),
+        ).toBe(orgA.id)
+      })
+    })
+
+    it("refuses to make a grant in a consent request with no client id", async () => {
+      await expect(
+        resolveOAuthGrantReference({
+          userId,
+          clientId: null,
+          organizationId: orgA.id,
+          consent: true,
+        }),
+      ).rejects.toThrow()
+    })
+
+    it("returns the newest consent reference outside the consent request", async () => {
+      await withClient(async (client) => {
+        const grantId = await newGrant([orgA.id, orgB.id])
+        await addConsent(grantId, client)
+        expect(
+          await resolveOAuthGrantReference({
+            userId,
+            clientId: client,
+            organizationId: orgB.id,
+            consent: false,
+          }),
+        ).toBe(grantId)
+      })
+    })
+
+    it("sets the grant to exactly the selected orgs on a new consent", async () => {
+      await withClient(async (client) => {
+        const grantId = await newGrant([orgA.id, orgB.id])
+        await addConsent(grantId, client)
+        expect(
+          await resolveOAuthGrantReference({
+            userId,
+            clientId: client,
+            organizationId: orgA.id,
+            consent: true,
+          }),
+        ).toBe(grantId)
+        expect(await grantOrgIds(grantId)).toEqual([orgA.id])
+      })
+    })
+
+    it("makes a new grant on consent when the newest consent is legacy", async () => {
+      await withClient(async (client) => {
+        await addConsent(orgA.id, client)
+        const grantId = await resolveOAuthGrantReference({
+          userId,
+          clientId: client,
+          organizationId: orgB.id,
+          consent: true,
+        })
+        grantIds.push(grantId)
+        expect(isOAuthGrantId(grantId)).toBe(true)
+        expect(await grantOrgIds(grantId)).toEqual([orgB.id])
+      })
+    })
+  })
+
+  describe("revokeOAuthGrant", () => {
+    it("refuses a legacy org id reference", async () => {
+      await expect(
+        revokeOAuthGrant({ grantId: orgA.id, userId }),
+      ).rejects.toThrow()
+    })
+
+    it("deletes only the consents and tokens of that user", async () => {
+      const grantId = await newGrant([orgA.id])
+      const otherUserId = seedC?.userId ?? ""
+      const db = getSystemDb()
+      for (const owner of [userId, otherUserId]) {
+        await db.insert(oauthConsents).values({
+          id: generateObjectId("oacs"),
+          clientId,
+          userId: owner,
+          referenceId: grantId,
+          scopes: ["openid"],
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        })
       }
+      await revokeOAuthGrant({ grantId, userId })
+      const left = await db
+        .select({ userId: oauthConsents.userId })
+        .from(oauthConsents)
+        .where(eq(oauthConsents.referenceId, grantId))
+      expect(left).toEqual([{ userId: otherUserId }])
+      expect(await resolveCallOrg(oauth(grantId), orgA.slug)).toEqual({
+        ok: false,
+        error: "org_not_found",
+      })
+      await db
+        .delete(oauthConsents)
+        .where(eq(oauthConsents.referenceId, grantId))
     })
   })
 
@@ -467,21 +548,7 @@ describe("multi-org grants (Postgres)", () => {
         requireAuth,
         withNetworkOrgContext,
       )
-      app.use(
-        "/tool",
-        withMcpBearerAuth,
-        withCookieAuth,
-        withOrgApiKeyAuth,
-        requireAuth,
-      )
       app.post("/mcp", (c) => c.json({ orgId: c.get("orgId") }))
-      // Stands in for a tool call: the org comes from the call, not the URL.
-      app.post("/tool", async (c) => {
-        const toolOrg = c.req.header("x-test-tool-org")
-        return c.json(
-          await resolveCallOrg(callPrincipalFromContext(c), toolOrg),
-        )
-      })
       return app
     }
 
@@ -525,7 +592,7 @@ describe("multi-org grants (Postgres)", () => {
     it("denies the same token after an untick, and the same way as an unknown org", async () => {
       const grantId = await newGrant([orgA.id, orgB.id])
       const token = await opaqueTokenFor(grantId)
-      await setGrantOrganizations(grantId, [orgA.id])
+      await setOrganizations({ grantId }, [orgA.id])
       const unticked = await call(token, orgB.slug)
       const unknown = await call(token, "no-such-org-slug")
       expect(unticked.status).toBe(404)
@@ -540,35 +607,32 @@ describe("multi-org grants (Postgres)", () => {
       expect(response.status).toBe(400)
     })
 
-    it("takes the org from the call and ignores ?orgSlug= on the URL", async () => {
-      const grantId = await newGrant([orgA.id, orgB.id])
-      const token = await opaqueTokenFor(grantId)
-      async function tool(urlSlug: string, toolOrg: string) {
-        const response = await createApp().request(
-          `http://backend.test/tool?orgSlug=${urlSlug}`,
-          {
-            method: "POST",
-            headers: {
-              authorization: `Bearer ${token}`,
-              "x-test-tool-org": toolOrg,
-            },
-          },
-        )
-        return response.json()
-      }
-      expect(await tool(orgA.slug, orgB.slug)).toEqual({ ok: true, org: orgB })
-      expect(await tool(orgB.slug, orgC.slug)).toEqual({
-        ok: false,
-        error: "org_not_found",
-      })
-    })
-
     it("keeps a legacy org-bound token working", async () => {
       const token = await opaqueTokenFor(orgA.id)
       const response = await call(token)
       expect(response.status).toBe(200)
       expect(await response.json()).toEqual({ orgId: orgA.id })
       expect((await call(token, orgB.slug)).status).toBe(404)
+    })
+
+    it("lets a personal API key reach a named membership and asks for an org without one", async () => {
+      const key = seedA?.personalApiKey ?? ""
+      const named = await createApp().request(
+        `http://backend.test/mcp?orgSlug=${orgB.slug}`,
+        { method: "POST", headers: { "x-api-key": key } },
+      )
+      expect(named.status).toBe(200)
+      expect(await named.json()).toEqual({ orgId: orgB.id })
+      const bare = await createApp().request("http://backend.test/mcp", {
+        method: "POST",
+        headers: { "x-api-key": key },
+      })
+      expect(bare.status).toBe(400)
+      const foreign = await createApp().request(
+        `http://backend.test/mcp?orgSlug=${orgC.slug}`,
+        { method: "POST", headers: { "x-api-key": key } },
+      )
+      expect(foreign.status).toBe(404)
     })
 
     it("denies an org API key that names another org", async () => {

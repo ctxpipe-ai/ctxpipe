@@ -59,15 +59,16 @@ export function getOAuthRequestClientId(): string | null {
 
 /**
  * The OAuth client id of an auth request: the `client_id` query parameter on
- * authorize, else `client_id` in the signed `oauth_query` body field that the
- * consent, continue, and sign-in endpoints receive. Better Auth checks the
- * signature of `oauth_query`; this value only selects the user's own consent.
+ * a GET authorize, or `client_id` in the signed `oauth_query` body field of a
+ * POST (consent, continue, sign-in). A POST never reads the URL, because
+ * Better Auth checks only the signature of `oauth_query`.
  */
 export async function readOAuthRequestClientId(
   request: Request,
 ): Promise<string | null> {
-  const fromQuery = new URL(request.url).searchParams.get("client_id")
-  if (fromQuery) return fromQuery
+  if (request.method === "GET") {
+    return new URL(request.url).searchParams.get("client_id")
+  }
   if (request.method !== "POST") return null
   if (!request.headers.get("content-type")?.includes("application/json")) {
     return null
@@ -117,7 +118,7 @@ export function selectOAuthOrganizationBinding(
   }
 }
 
-export function resolveOAuthConsentReferenceId(
+export function resolveOAuthConsentOrganizationId(
   membershipIds: string[],
   activeOrganizationId: string | null | undefined,
   submittedOrganizationId: string | null | undefined,

@@ -27,12 +27,12 @@ import { schema } from "../db/schema.js"
 import { generateObjectId } from "../lib/id.js"
 import { log } from "../observability/logger.js"
 import { invitationEmailLink } from "./invitation-email-url.js"
-import { findOrCreateOAuthGrant } from "./oauth-grants.js"
+import { resolveOAuthGrantReference } from "./oauth-grants.js"
 import {
   getOAuthConsentOrganizationId,
   getOAuthRequestClientId,
   oauthAccessTokenClaims,
-  resolveOAuthConsentReferenceId,
+  resolveOAuthConsentOrganizationId,
   selectOAuthOrganizationBinding,
 } from "./oauth-organization.js"
 
@@ -366,12 +366,13 @@ export function createBetterAuth() {
               db,
               user.id,
             )
-            const organizationId = resolveOAuthConsentReferenceId(
+            const submittedOrganizationId = getOAuthConsentOrganizationId()
+            const organizationId = resolveOAuthConsentOrganizationId(
               membershipIds,
               typeof session.activeOrganizationId === "string"
                 ? session.activeOrganizationId
                 : null,
-              getOAuthConsentOrganizationId(),
+              submittedOrganizationId,
             )
             if (!organizationId) {
               throw new APIError("BAD_REQUEST", {
@@ -380,10 +381,11 @@ export function createBetterAuth() {
                   "Select a ctxpipe organization before authorizing this client.",
               })
             }
-            return findOrCreateOAuthGrant({
+            return resolveOAuthGrantReference({
               userId: user.id,
               clientId: getOAuthRequestClientId(),
               organizationId,
+              consent: submittedOrganizationId !== undefined,
             })
           },
         },

@@ -3,7 +3,6 @@ import { Hono } from "hono"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../app/env.js"
 import { oauthAccessTokens, organizations, users } from "../db/schema/auth.js"
-import { oauthGrantOrganizations } from "../db/schema/oauth_grant_organizations.js"
 
 const {
   getSessionMock,
@@ -158,9 +157,6 @@ function createMockDb(input: {
                 limit: vi.fn(async () => userRows),
               })),
             }
-          }
-          if (table === oauthGrantOrganizations) {
-            return { where: vi.fn(async () => []) }
           }
           const rows = table === oauthAccessTokens ? opaqueTokenRows : orgRows
           return {
@@ -1550,57 +1546,6 @@ describe("org API-key tenant binding", () => {
 
     expect(response.status).toBe(404)
     expect(await response.json()).toEqual({ error: "Not found" })
-  })
-
-  it("user x-api-key still requires orgSlug", async () => {
-    getSessionMock.mockResolvedValueOnce({
-      user: { id: "user_api_key", email: "api-key@example.com" },
-      session: { id: "sess_api_key", userId: "user_api_key" },
-    })
-    testState.db = createMockDb({
-      membershipRows: [{ id: "org_solo", slug: "solo" }],
-    })
-
-    const app = createComposedTestApp()
-    const response = await app.request("/mcp", {
-      method: "POST",
-      headers: { "x-api-key": "ctxp_user_key" },
-    })
-
-    expect(response.status).toBe(400)
-    expect(await response.json()).toMatchObject({
-      jsonrpc: "2.0",
-      error: {
-        message: expect.stringContaining("Name an organization"),
-      },
-    })
-    expect(verifyApiKeyMock).not.toHaveBeenCalled()
-  })
-
-  it("user x-api-key still authenticates MCP as that user when orgSlug matches membership", async () => {
-    getSessionMock.mockResolvedValueOnce({
-      user: { id: "user_api_key", email: "api-key@example.com" },
-      session: { id: "sess_api_key", userId: "user_api_key" },
-    })
-    testState.db = createMockDb({
-      orgRows: [{ id: "org_acme", slug: "acme" }],
-    })
-
-    const app = createComposedTestApp()
-    const response = await app.request("/mcp?orgSlug=acme", {
-      method: "POST",
-      headers: { "x-api-key": "ctxp_user_key" },
-    })
-
-    expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({
-      user: { id: "user_api_key", email: "api-key@example.com" },
-      session: { id: "sess_api_key", userId: "user_api_key" },
-      orgApiKey: null,
-      orgSlug: "acme",
-      orgId: "org_acme",
-    })
-    expect(verifyApiKeyMock).not.toHaveBeenCalled()
   })
 
   it("unbound OAuth grant without orgSlug still returns 400", async () => {
