@@ -169,7 +169,11 @@ export async function expandWorkspaceGraph(
       const cappedHubs = new Set<string>()
       let partialReason: GraphExpansion["partialReason"] = null
       let frontier = [...nodes.keys()]
-      for (let depth = 1; depth <= params.maxDepth && frontier.length; depth++) {
+      for (
+        let depth = 1;
+        depth <= params.maxDepth && frontier.length;
+        depth++
+      ) {
         const remaining = caps.totalTimeoutMs - (performance.now() - started)
         if (remaining <= 0) {
           partialReason = "total_timeout"
@@ -197,7 +201,8 @@ export async function expandWorkspaceGraph(
         const next: string[] = []
         for (const { fromId, matched, ...edge } of hop.edges) {
           if (edges.has(edge.id)) continue
-          const otherId = edge.sourceId === fromId ? edge.targetId : edge.sourceId
+          const otherId =
+            edge.sourceId === fromId ? edge.targetId : edge.sourceId
           const other = hop.nodes.get(otherId)
           const isNew = !nodes.has(otherId)
           if (isNew && nodes.size >= caps.maxNodes) {

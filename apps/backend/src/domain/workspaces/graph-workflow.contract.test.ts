@@ -875,6 +875,62 @@ it(
 )
 
 it(
+  "chat graph neighbors give the strongest valid edges first",
+  { timeout: 60_000 },
+  async () => {
+    const claim = (to: string, confidence: number, extra = "") =>
+      `  - to: ${to}\n    predicate: DEPENDS_ON\n    confidence: ${confidence}\n${extra}`
+    await withGraphHydration(
+      {
+        files: [
+          {
+            path: "hub.md",
+            body: `---\nclaims:\n${[
+              claim("alpha.md", 0.3),
+              claim("bravo.md", 0.9),
+              claim("charlie.md", 0.6),
+              claim(
+                "delta.md",
+                0.95,
+                "    valid_to: 2020-01-01T00:00:00.000Z\n",
+              ),
+            ].join("")}---\n# Hub\n`,
+          },
+          { path: "alpha.md", body: "# Alpha\n" },
+          { path: "bravo.md", body: "# Bravo\n" },
+          { path: "charlie.md", body: "# Charlie\n" },
+          { path: "delta.md", body: "# Delta\n" },
+        ],
+      },
+      async (f) => {
+        await f.publish()
+        const snapshot = await withOrgIdContext(f.org, () =>
+          getWorkspaceProjectionSnapshot(f.workspaceId),
+        )
+        const tools = await workspaceChatTools({
+          orgId: f.org.id,
+          orgSlug: f.org.slug,
+          workspaceId: f.workspaceId,
+          snapshot,
+        })
+        const neighbors = tools.find((t) => t.name === "graph_neighbors")
+        const hub = snapshot.units.find((u) => u.path === "hub.md")
+        const answer = String(
+          await neighbors?.execute({ nodeId: hub?.servingId, limit: 2 }),
+        )
+        expect(answer).toContain("# Bravo")
+        expect(answer).toContain("# Charlie")
+        expect(answer.indexOf("# Bravo")).toBeLessThan(
+          answer.indexOf("# Charlie"),
+        )
+        expect(answer).not.toContain("# Alpha")
+        expect(answer).not.toContain("# Delta")
+      },
+    )
+  },
+)
+
+it(
   "chat graph lookup and neighbors exclude unknown nodes",
   { timeout: 60_000 },
   async () => {

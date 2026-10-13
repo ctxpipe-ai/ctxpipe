@@ -213,7 +213,11 @@ describe("expandWorkspaceGraph on FalkorDB", () => {
     const seeds = [id("a.md")]
     const lookup = await expand(projection, { seeds, maxDepth: 0 })
     expect(lookup.nodes).toEqual([
-      expect.objectContaining({ id: id("a.md"), depth: 0, kind: "KnowledgeUnit" }),
+      expect.objectContaining({
+        id: id("a.md"),
+        depth: 0,
+        kind: "KnowledgeUnit",
+      }),
     ])
     expect(lookup.edges).toEqual([])
     const two = await expand(projection, { seeds, maxDepth: 2 })
