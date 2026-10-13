@@ -56,7 +56,7 @@ function buildApp(
         : null,
     )
     c.set("session", null)
-    c.set("oauthOrganizationId", null)
+    c.set("oauthReferenceId", null)
     c.set("oauthClientId", principal.oauthClientId ?? null)
     c.set(
       "orgApiKey",
