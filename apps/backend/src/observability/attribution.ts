@@ -29,7 +29,6 @@ export const ATTRIBUTION_KEYS = [
   "ctxpipe.mcp.turn.id",
   "ctxpipe.mcp.turn.source",
   "ctxpipe.mcp.correlation.source",
-  "ctxpipe.mcp.org.slug_hash",
 ] as const
 
 export type AttributionKey = (typeof ATTRIBUTION_KEYS)[number]

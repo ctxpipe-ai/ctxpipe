@@ -1,8 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { createError } from "evlog"
-import { getContext } from "hono/context-storage"
 import { z } from "zod"
-import type { AppEnv } from "../app/env.js"
 import { currentMcpActor, requireCurrentOrgId } from "../auth/context.js"
 import { advisorWorkspaceId } from "../domain/workspaces/chat-sandbox-policy.js"
 import {
@@ -92,109 +90,100 @@ export function registerMcpTools(server: McpServer): void {
       }),
     },
     async ({ prompt, currentProjectName, conversationId }, extra) =>
-      runMcpToolCall(
-        {
-          toolName: "ctx_advisor",
-          extra,
-          orgSlug: getContext<AppEnv>().var.orgSlug ?? undefined,
-        },
-        async () => {
-          const actor = currentMcpActor()
-          const orgId = requireCurrentOrgId()
-          const [items, first] = await Promise.all([
-            listOrgWorkspaces(orgId),
-            getOrgFirstWorkspace(orgId),
-          ])
-          const workspaceId = advisorWorkspaceId(
-            first?.workspaceId ?? null,
-            items,
-          )
-          if (!workspaceId) {
-            throw createError({
-              message: "Create a Workspace before using ctx_advisor",
-              status: 400,
-              why: "Deprecated advisor targets the first Workspace; the org has none",
-            })
-          }
-          const clientConversationId = mcpClientConversationId(conversationId)
-          const threadId = clientConversationId
-            ? mcpAdvisorThreadId({
-                orgId,
-                actor,
-                currentProjectName,
-                conversationId: clientConversationId,
-              })
-            : generateObjectId("conv")
-          const promptWithProject = mcpAdvisorUserPrompt({
-            prompt,
-            currentProjectName,
+      runMcpToolCall({ toolName: "ctx_advisor", extra }, async () => {
+        const actor = currentMcpActor()
+        const orgId = requireCurrentOrgId()
+        const [items, first] = await Promise.all([
+          listOrgWorkspaces(orgId),
+          getOrgFirstWorkspace(orgId),
+        ])
+        const workspaceId = advisorWorkspaceId(
+          first?.workspaceId ?? null,
+          items,
+        )
+        if (!workspaceId) {
+          throw createError({
+            message: "Create a Workspace before using ctx_advisor",
+            status: 400,
+            why: "Deprecated advisor targets the first Workspace; the org has none",
           })
-          try {
-            return await runWithLangfuseContext(
-              {
-                sessionId: threadId,
-                tags:
-                  actor.type === "org-service"
-                    ? ["mcp", "mcp-org-key"]
-                    : ["mcp"],
-              },
-              async () => {
-                const progressToken = extra._meta?.progressToken
-                let progress = 0
-                const collected = await collectTanstackWorkspaceChatText({
-                  conversationId: threadId,
-                  prompt: promptWithProject,
-                  orgId,
-                  workspaceId,
-                  writeStatus: "read_only",
-                  resolveRuntime: () =>
-                    resolveWorkspaceChatSendRuntime({
-                      conversationId: threadId,
-                      workspaceId,
-                      source: "mcp",
-                    }),
-                  onUserPersist: () =>
-                    persistWorkspaceChatUserTurnListed(threadId),
-                  onDelta: progressToken
-                    ? async (delta) => {
-                        progress += 1
-                        await extra.sendNotification({
-                          method: "notifications/progress",
-                          params: {
-                            progressToken,
-                            progress,
-                            message: delta,
-                          },
-                        })
-                      }
-                    : undefined,
-                })
-                if (!collected.ok) {
-                  throw createError({
-                    message: collected.error,
-                    status: collected.status,
-                    why: "Workspace chat runtime refused the MCP turn",
-                  })
-                }
-                return {
-                  content: [{ type: "text" as const, text: collected.text }],
-                }
-              },
-            )
-          } catch (error) {
-            await discardUnstartedConversation(threadId)
-            if (error instanceof SandboxCapacityError)
-              throw createError({
-                message: error.message,
-                status: 429,
-                why: "The organization runs its maximum number of chat sandboxes",
+        }
+        const clientConversationId = mcpClientConversationId(conversationId)
+        const threadId = clientConversationId
+          ? mcpAdvisorThreadId({
+              orgId,
+              actor,
+              currentProjectName,
+              conversationId: clientConversationId,
+            })
+          : generateObjectId("conv")
+        const promptWithProject = mcpAdvisorUserPrompt({
+          prompt,
+          currentProjectName,
+        })
+        try {
+          return await runWithLangfuseContext(
+            {
+              sessionId: threadId,
+              tags:
+                actor.type === "org-service" ? ["mcp", "mcp-org-key"] : ["mcp"],
+            },
+            async () => {
+              const progressToken = extra._meta?.progressToken
+              let progress = 0
+              const collected = await collectTanstackWorkspaceChatText({
+                conversationId: threadId,
+                prompt: promptWithProject,
+                orgId,
+                workspaceId,
+                writeStatus: "read_only",
+                resolveRuntime: () =>
+                  resolveWorkspaceChatSendRuntime({
+                    conversationId: threadId,
+                    workspaceId,
+                    source: "mcp",
+                  }),
+                onUserPersist: () =>
+                  persistWorkspaceChatUserTurnListed(threadId),
+                onDelta: progressToken
+                  ? async (delta) => {
+                      progress += 1
+                      await extra.sendNotification({
+                        method: "notifications/progress",
+                        params: {
+                          progressToken,
+                          progress,
+                          message: delta,
+                        },
+                      })
+                    }
+                  : undefined,
               })
-            throw error
-          } finally {
-            // Nobody watches an MCP turn: free its sandbox slot right away.
-            await stopConversationSandboxes({ orgId, conversationId: threadId })
-          }
-        },
-      ),
+              if (!collected.ok) {
+                throw createError({
+                  message: collected.error,
+                  status: collected.status,
+                  why: "Workspace chat runtime refused the MCP turn",
+                })
+              }
+              return {
+                content: [{ type: "text" as const, text: collected.text }],
+              }
+            },
+          )
+        } catch (error) {
+          await discardUnstartedConversation(threadId)
+          if (error instanceof SandboxCapacityError)
+            throw createError({
+              message: error.message,
+              status: 429,
+              why: "The organization runs its maximum number of chat sandboxes",
+            })
+          throw error
+        } finally {
+          // Nobody watches an MCP turn: free its sandbox slot right away.
+          await stopConversationSandboxes({ orgId, conversationId: threadId })
+        }
+      }),
   )
 }

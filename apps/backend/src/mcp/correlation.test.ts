@@ -85,7 +85,7 @@ function buildApp(
         },
         async (args, extra) =>
           runMcpToolCall(
-            { toolName: "search_context", extra, orgSlug: "acme" },
+            { toolName: "search_context", extra },
             async () =>
               (await tool(args)) as {
                 content: Array<{ type: "text"; text: string }>
@@ -160,9 +160,6 @@ describe("MCP call correlation", () => {
     expect(span.attributes["ctxpipe.mcp.turn.id"]).toBeUndefined()
     expect(span.attributes["ctxpipe.mcp.connection.key"]).toMatch(
       /^mck_[0-9a-f]{32}$/,
-    )
-    expect(span.attributes["ctxpipe.mcp.org.slug_hash"]).toMatch(
-      /^[0-9a-f]{16}$/,
     )
     expect(result._meta?.["ai.ctxpipe/callId"]).toEqual(expect.any(String))
   })
@@ -243,10 +240,11 @@ describe("MCP call correlation", () => {
       meta: {
         "ai.ctxpipe/conversationId": "has spaces and a question?",
         "ai.ctxpipe/turnId": "x".repeat(129),
-        "openai/session": 42,
+        "openai/session": "someone@example.com",
       },
       headers: {
         "x-ctxpipe-conversation-id": "",
+        "x-ctxpipe-turn-id": "dev@example.com",
         "x-codex-turn-metadata": "{not json",
       },
     })
@@ -254,18 +252,31 @@ describe("MCP call correlation", () => {
     expect(correlation.turn).toBeUndefined()
   })
 
-  it("continues the client's W3C trace when _meta.traceparent is valid", async () => {
+  it("links the client's W3C trace and keeps the server span as the parent", async () => {
     const { span } = await callTool(buildApp(), {
       meta: { traceparent: validTraceparent, tracestate: "vendor=abc" },
     })
 
-    expect(span.spanContext().traceId).toBe(clientTraceId)
-    expect(span.parentSpanContext?.spanId).toBe(clientSpanId)
-    expect(span.parentSpanContext?.traceState?.get("vendor")).toBe("abc")
     const server = spans.spanNamed("POST /mcp")
-    expect(span.links.map((link) => link.context.spanId)).toContain(
-      server?.spanContext().spanId,
+    expect(span.spanContext().traceId).toBe(server?.spanContext().traceId)
+    expect(span.parentSpanContext?.spanId).toBe(server?.spanContext().spanId)
+    const clientLink = span.links.find(
+      (link) => link.context.traceId === clientTraceId,
     )
+    expect(clientLink?.context.spanId).toBe(clientSpanId)
+    // The client tracestate must not go out on our requests.
+    expect(clientLink?.context.traceState).toBeUndefined()
+  })
+
+  it("records the call when the client traceparent is not sampled", async () => {
+    const { span } = await callTool(buildApp(), {
+      meta: { traceparent: `00-${clientTraceId}-${clientSpanId}-00` },
+    })
+
+    expect(span.attributes["ctxpipe.mcp.call.id"]).toEqual(expect.any(String))
+    expect(
+      span.links.some((link) => link.context.traceId === clientTraceId),
+    ).toBe(true)
   })
 
   it("ignores a malformed traceparent and stays in the server trace", async () => {
@@ -283,8 +294,10 @@ describe("MCP call correlation", () => {
       const { result, span } = await callTool(app, { meta: { traceparent } })
       const server = spans.spanNamed("POST /mcp")
       expect(result.isError).not.toBe(true)
-      expect(span.spanContext().traceId).not.toBe(clientTraceId)
       expect(span.spanContext().traceId).toBe(server?.spanContext().traceId)
+      expect(
+        span.links.some((link) => link.context.traceId === clientTraceId),
+      ).toBe(false)
     }
   })
 

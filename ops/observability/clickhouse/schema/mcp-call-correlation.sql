@@ -7,7 +7,9 @@
 --   * a new turn starts after a gap of more than 60 seconds, or at a new session.
 -- Parallel calls of one turn arrive within milliseconds, so they share a turn.
 -- When the client sent a conversation or turn id, ConversationId and TurnId
--- use it; the derived ids stay in DerivedSessionId and DerivedTurnId.
+-- use it; the derived ids stay in DerivedSessionId and DerivedTurnId. Each id
+-- starts with the environment and the connection key, so the same client id
+-- from two principals or two environments does not merge.
 --
 -- This is a parameterized view. Give the time range, because ClickHouse does
 -- not push a filter through window functions:
@@ -19,12 +21,17 @@
 CREATE OR REPLACE VIEW otel.mcp_tool_calls AS
 SELECT
     *,
-    concat(ConnectionKey, ':s', toString(SessionSeq)) AS DerivedSessionId,
-    concat(ConnectionKey, ':t', toString(TurnSeq)) AS DerivedTurnId,
-    if(ClientConversationId != '', ClientConversationId,
-        concat(ConnectionKey, ':s', toString(SessionSeq))) AS ConversationId,
-    if(ClientTurnId != '', ClientTurnId,
-        concat(ConnectionKey, ':t', toString(TurnSeq))) AS TurnId
+    concat(DeploymentEnvironment, ':', ConnectionKey, ':s',
+        toString(SessionSeq)) AS DerivedSessionId,
+    concat(DeploymentEnvironment, ':', ConnectionKey, ':t',
+        toString(TurnSeq)) AS DerivedTurnId,
+    if(ClientConversationId != '',
+        concat(DeploymentEnvironment, ':', ConnectionKey, ':',
+            ClientConversationId),
+        DerivedSessionId) AS ConversationId,
+    if(ClientTurnId != '',
+        concat(DeploymentEnvironment, ':', ConnectionKey, ':', ClientTurnId),
+        DerivedTurnId) AS TurnId
 FROM
 (
     SELECT

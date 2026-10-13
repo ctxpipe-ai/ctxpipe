@@ -1,9 +1,7 @@
 import { createHash } from "node:crypto"
 import { McpError } from "@modelcontextprotocol/sdk/types.js"
 import {
-  type Context,
   context,
-  createTraceState,
   type Link,
   type SpanContext,
   SpanStatusCode,
@@ -40,14 +38,14 @@ export type CorrelatedId = { id: string; source: CorrelationSource }
 export type McpCorrelation = {
   conversation?: CorrelatedId
   turn?: CorrelatedId
-  /** Client span context from a valid `_meta.traceparent`. */
+  /** Client span context from a valid `_meta.traceparent` (a span link only). */
   parent?: SpanContext
   clientName?: string
 }
 
 type Headers = Record<string, string | string[] | undefined>
 
-const OPAQUE_ID = /^[A-Za-z0-9._:@-]{1,128}$/
+const OPAQUE_ID = /^[A-Za-z0-9._:-]{1,128}$/
 const TRACEPARENT =
   /^([0-9a-f]{2})-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})$/
 
@@ -101,10 +99,12 @@ function first(
   return undefined
 }
 
-/** W3C trace context from `_meta.traceparent`; `undefined` when not valid. */
+/**
+ * W3C trace context from `_meta.traceparent`; `undefined` when not valid.
+ * The client `tracestate` is not kept: it must not go out on our requests.
+ */
 export function clientSpanContext(
   traceparent: unknown,
-  tracestate: unknown,
 ): SpanContext | undefined {
   if (typeof traceparent !== "string") return undefined
   const match = TRACEPARENT.exec(traceparent.trim())
@@ -114,16 +114,11 @@ export function clientSpanContext(
     return undefined
   }
   if (/^0+$/.test(traceId) || /^0+$/.test(spanId)) return undefined
-  let traceState: SpanContext["traceState"]
-  if (typeof tracestate === "string" && tracestate.length <= 512) {
-    traceState = createTraceState(tracestate)
-  }
   return {
     traceId,
     spanId,
     traceFlags: Number.parseInt(flags, 16) & 1,
     isRemote: true,
-    ...(traceState ? { traceState } : {}),
   }
 }
 
@@ -164,7 +159,7 @@ export function readMcpCorrelation(input: {
     [baggage.get("ai.ctxpipe.turnId"), "baggage"],
     [codex.turn_id ?? codex.turnId, "codex"],
   ])
-  const parent = clientSpanContext(meta.traceparent, meta.tracestate)
+  const parent = clientSpanContext(meta.traceparent)
   const name = clientName(meta, headers)
   return {
     ...(conversation ? { conversation } : {}),
@@ -179,9 +174,10 @@ function sha256Hex(value: string): string {
 }
 
 /**
- * Stable key for one client of one principal. It holds no secret and no raw
- * id: it is a hash of the principal id and the client identity (OAuth client
- * id, else the client name).
+ * Stable key for one client of one principal: a hash of the principal id and
+ * the client identity (OAuth client id, else the client name). It holds no
+ * secret. The inputs are ids with low entropy, so the hash is a pseudonym, not
+ * a guarantee that nobody can find the principal.
  */
 export function mcpConnectionKey(input: {
   principal: string
@@ -225,16 +221,16 @@ export type McpToolCall = {
 
 /**
  * Run one MCP tool call with correlation. The tool framework calls this for
- * each `tools/call`. It starts the `mcp.tool <name>` span (a child of the
- * client trace when `_meta.traceparent` is valid, with a link to the HTTP
- * server span), puts the correlation attributes on the span and the request
+ * each `tools/call`. It starts the `mcp.tool <name>` span as a child of the
+ * HTTP server span. A valid `_meta.traceparent` becomes a span link, not the
+ * parent, so the client cannot turn off our sampling. It puts the correlation attributes on the span and the request
  * log, and adds `_meta["ai.ctxpipe/callId"]` to the result.
  *
  * Do not pass tool arguments here. Query text, paths and repository URLs
  * must not go on spans.
  */
 export async function runMcpToolCall<R extends ToolResult>(
-  input: { toolName: string; extra: ToolCallExtra; orgSlug?: string },
+  input: { toolName: string; extra: ToolCallExtra },
   fn: (call: McpToolCall) => Promise<R>,
 ): Promise<R> {
   const correlation = readMcpCorrelation({
@@ -262,18 +258,12 @@ export async function runMcpToolCall<R extends ToolResult>(
     "ctxpipe.mcp.correlation.source": correlation.conversation
       ? "client"
       : "derived",
-    "ctxpipe.mcp.org.slug_hash": input.orgSlug
-      ? sha256Hex(input.orgSlug).slice(0, 16)
-      : undefined,
   }
 
-  const active = context.active()
-  const server = trace.getSpanContext(active)
-  const links: Link[] = server ? [{ context: server }] : []
-  const parentContext: Context = correlation.parent
-    ? trace.setSpanContext(active, correlation.parent)
-    : active
-  const callContext = contextWithForkedAttributionBag(parentContext)
+  const links: Link[] = correlation.parent
+    ? [{ context: correlation.parent }]
+    : []
+  const callContext = contextWithForkedAttributionBag(context.active())
   const withMeta = (result: R): R => ({
     ...result,
     _meta: { ...result._meta, "ai.ctxpipe/callId": callId },

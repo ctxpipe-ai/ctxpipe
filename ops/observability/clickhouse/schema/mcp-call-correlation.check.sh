@@ -9,14 +9,15 @@ here="$(cd "$(dirname "$0")" && pwd)"
 image="$(awk '/^FROM /{print $2; exit}' "$here/../Dockerfile")"
 
 expected="$(cat <<'EOF'
-a1	1	1	conn_a:s1
-a2	1	1	conn_a:s1
-a3	1	1	conn_a:s1
-a4	1	2	conn_a:s1
-a5	2	3	conn_a:s2
-a6	2	3	conv-x
-b1	1	1	conn_b:s1
-c1	1	1	conn_a:s1
+a1	1	1	production:conn_a:s1
+a2	1	1	production:conn_a:s1
+a3	1	1	production:conn_a:s1
+a4	1	2	production:conn_a:s1
+a5	2	3	production:conn_a:s2
+a6	2	3	production:conn_a:conv-x
+b1	1	1	production:conn_b:s1
+b2	1	1	production:conn_b:conv-x
+c1	1	1	pr-1:conn_a:s1
 EOF
 )"
 
@@ -47,6 +48,8 @@ INSERT INTO otel.otel_traces VALUES
     ('2026-01-01 00:40:00.010', 'production', 'ctxpipe-backend', 't', 's', 'mcp.tool search_context', 1, 'Ok', {'ctxpipe.mcp.connection.key': 'conn_a', 'ctxpipe.mcp.call.id': 'a6', 'ctxpipe.mcp.conversation.id': 'conv-x'}),
     -- Another connection key and another environment have their own sessions.
     ('2026-01-01 00:00:00.003', 'production', 'ctxpipe-backend', 't', 's', 'mcp.tool search_context', 1, 'Ok', {'ctxpipe.mcp.connection.key': 'conn_b', 'ctxpipe.mcp.call.id': 'b1'}),
+    -- The same client conversation id from another principal stays apart.
+    ('2026-01-01 00:00:10.000', 'production', 'ctxpipe-backend', 't', 's', 'mcp.tool search_context', 1, 'Ok', {'ctxpipe.mcp.connection.key': 'conn_b', 'ctxpipe.mcp.call.id': 'b2', 'ctxpipe.mcp.conversation.id': 'conv-x'}),
     ('2026-01-01 00:00:01.000', 'pr-1', 'ctxpipe-backend', 't', 's', 'mcp.tool search_context', 1, 'Ok', {'ctxpipe.mcp.connection.key': 'conn_a', 'ctxpipe.mcp.call.id': 'c1'}),
     -- Not in the view: another span, no connection key, out of range.
     ('2026-01-01 00:00:00.001', 'production', 'ctxpipe-backend', 't', 's', 'POST /mcp', 1, 'Ok', {'ctxpipe.mcp.connection.key': 'conn_a', 'ctxpipe.mcp.call.id': 'x1'}),
