@@ -5,7 +5,7 @@ import { withOrgDbContext } from "../../db/client.js"
 import { connections } from "../../db/schema/connections.js"
 import { getWorkspaceById } from "../../models/workspaces.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
-import { changeWorkspaceSource } from "./service.js"
+import { changeWorkspaceSource, listConnectionUsage } from "./service.js"
 
 beforeAll(() => {
   if (!process.env.DATABASE_URL)
@@ -107,6 +107,73 @@ it(
             ),
           }),
         ])
+      },
+    )
+  },
+)
+
+it(
+  "lists the open source pull requests of the connection's provider in Used in",
+  { timeout: 60_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      { github: true, githubWriteView: "writable", writeStatus: "writable" },
+      async (f) => {
+        const pull = (number: number, branch: string) => ({
+          number,
+          html_url: `https://github.com/fixture/hydration-contract/pull/${number}`,
+          head: { ref: branch },
+          created_at: "2026-10-13T10:00:00Z",
+        })
+        f.server.use(
+          http.get(
+            "https://api.github.com/repos/fixture/hydration-contract/pulls",
+            () =>
+              HttpResponse.json([
+                pull(51, "ctxpipe/sources/add/notion/docs-1791887671414"),
+                pull(52, "ctxpipe/sources/add/linear/eng-1791887671415"),
+                pull(53, "feature/unrelated"),
+              ]),
+          ),
+        )
+        const linear = `con_linear_${f.id}`
+        await withOrgDbContext(f.org.id, (db) =>
+          db.insert(connections).values({
+            id: linear,
+            orgId: f.org.id,
+            type: "linear",
+            config: {
+              status: "installed",
+              workspaceId: "linear-org",
+              workspaceName: "Example",
+            },
+          }),
+        )
+
+        const usage = await withOrgIdContext(f.org, () =>
+          listConnectionUsage(linear),
+        )
+
+        // The Workspace has no Linear source yet: only the pull request.
+        expect(usage).toEqual({
+          items: [
+            expect.objectContaining({
+              workspaceId: f.workspaceId,
+              workspaceSlug: "knowledge",
+              sources: [],
+              pendingChanges: [
+                {
+                  sourceKey: "eng",
+                  provider: "linear",
+                  action: "add",
+                  pullRequestUrl:
+                    "https://github.com/fixture/hydration-contract/pull/52",
+                  createdAt: "2026-10-13T10:00:00Z",
+                },
+              ],
+            }),
+          ],
+        })
       },
     )
   },
