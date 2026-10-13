@@ -20,6 +20,7 @@ import {
   type ConnectionRow,
   type GitHubInstallationShape,
   githubConnectionToShape,
+  githubRowHasOwnApp,
   githubShapeToConfig,
   mergeGithubConnectionConfig,
 } from "./connection-rows.js"
@@ -518,12 +519,12 @@ export async function listInstallationsByGithubInstallationId(
       and(
         eq(connections.type, CONNECTION_TYPE_GITHUB),
         sql`(${connections.config}->>'installationId')::int = ${githubInstallationId}`,
-        githubConnectionId
-          ? eq(connections.id, githubConnectionId)
-          : sql`(${connections.config}->>'githubAppId' is null or ${connections.config}->>'appSlug' is null or ${connections.config}->>'privateKeyEnc' is null or ${connections.config}->>'webhookSecretEnc' is null or ${connections.config}->>'githubAppId' = ${env.GITHUB_APP_ID ?? ""})`,
+        githubConnectionId ? eq(connections.id, githubConnectionId) : undefined,
       ),
     )
-  return rows.map(githubConnectionToShape)
+  return rows
+    .filter((row) => githubConnectionId || !githubRowHasOwnApp(row, env))
+    .map(githubConnectionToShape)
 }
 
 export async function getOrganizationSlugForInstallationByUser(

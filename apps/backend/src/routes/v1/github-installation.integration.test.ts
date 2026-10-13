@@ -94,7 +94,8 @@ useMswServer(
 
 describe("POST /github/installation requires GitHub access (Postgres)", () => {
   let seed: SeededOrg
-  // No deployment App key: nothing here may reach GitHub as the App.
+  // The deployment App is "3", with no key: a stored copy of App "3" is the
+  // deployment App, and nothing here may reach GitHub as the App.
   const env = parseEnv({
     ...(process.env as Record<string, string | undefined>),
     GITHUB_APP_ID: "3",

@@ -182,7 +182,21 @@ describe("GitHub webhooks reach only the connections they belong to (Postgres)",
     })
   })
 
-  it("delivers deployment App events to a connection that stores the deployment App's credentials", async () => {
+  it.each([
+    ["repository", repositoryCreated(installationId)],
+    [
+      "push",
+      {
+        ref: "refs/heads/main",
+        repository: {
+          full_name: "octocat/hello-world",
+          default_branch: "main",
+        },
+        installation: { id: installationId },
+        commits: [],
+      },
+    ],
+  ])("delivers a deployment App %s event to a connection that stores the deployment App's credentials", async (event, payload) => {
     const copy = await createDraftGithubConnection({
       orgId: seed.orgId,
       env,
@@ -201,8 +215,8 @@ describe("GitHub webhooks reach only the connections they belong to (Postgres)",
     const res = await deliver(
       "/api/v1/webhook/github",
       deploymentSecret,
-      "repository",
-      repositoryCreated(installationId),
+      event,
+      payload,
     )
 
     expect(res.status).toBe(200)

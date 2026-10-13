@@ -408,12 +408,23 @@ export function githubRowHasAppCredentials(
   return decodeGithubAppCredentials(stored, env) != null
 }
 
-/** Credentials of an App other than the deployment's. A stored copy of the deployment App's credentials does not count. */
+/**
+ * Returns true when the row stores the credentials of an App that is not the
+ * deployment's App. A stored copy of the deployment App's credentials does
+ * not count.
+ */
 export function githubRowHasOwnApp(row: ConnectionRow, env: Env): boolean {
+  if (row.type !== CONNECTION_TYPE_GITHUB) return false
+  const stored = parseGithubConnectionStored(
+    row.config as Record<string, unknown>,
+  )
   return (
-    githubRowHasAppCredentials(row, env) &&
-    parseGithubConnectionStored(row.config as Record<string, unknown>)
-      .githubAppId !== env.GITHUB_APP_ID
+    Boolean(
+      stored.githubAppId &&
+        stored.appSlug &&
+        stored.privateKeyEnc &&
+        stored.webhookSecretEnc,
+    ) && stored.githubAppId?.trim() !== env.GITHUB_APP_ID?.trim()
   )
 }
 
