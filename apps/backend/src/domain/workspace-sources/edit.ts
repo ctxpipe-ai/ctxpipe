@@ -79,6 +79,8 @@ export function assertSourceChangeShape(change: SourceChange): void {
 export function applySourceFileChange(
   text: string | null,
   change: SourceChange,
+  /** Ids that a new source must not get, beside the ids in the file. */
+  reservedKeys: ReadonlySet<string> = new Set(),
 ): {
   text: string
   sourceKey: string
@@ -136,7 +138,8 @@ export function applySourceFileChange(
   const sourceKey =
     change.action === "edit"
       ? change.sourceKey
-      : (change.sourceKey ?? freeKey(keys, change.provider))
+      : (change.sourceKey ??
+        freeKey(new Set([...keys, ...reservedKeys]), change.provider))
   if (change.action === "add" && keys.has(sourceKey))
     throw new SourceChangeError(
       409,

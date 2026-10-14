@@ -108,6 +108,20 @@ async function pendingChanges(
   }
 }
 
+/**
+ * Whether a source pull request still applies to the default branch: a
+ * remove or an edit needs its source id there, and an add needs the id to be
+ * free. A change that happened another way leaves its pull request open.
+ */
+function stillApplies(
+  change: { action: "add" | "edit" | "remove"; sourceKey: string },
+  sourceKeys: ReadonlySet<string>,
+): boolean {
+  return change.action === "add"
+    ? !sourceKeys.has(change.sourceKey)
+    : sourceKeys.has(change.sourceKey)
+}
+
 export async function listWorkspaceSources(
   workspace: WorkspaceRecord,
 ): Promise<WorkspaceSourceListResponse> {
@@ -149,7 +163,9 @@ export async function listWorkspaceSources(
         updatedAt: row.updatedAt.toISOString(),
       })),
     ...editPolicy(workspace),
-    pendingChanges: await pendingChanges(workspace),
+    pendingChanges: (await pendingChanges(workspace)).filter((change) =>
+      stillApplies(change, new Set(projected.map((row) => row.sourceKey))),
+    ),
   }
 }
 
@@ -207,7 +223,13 @@ export async function changeWorkspaceSource(input: {
     ...repository,
     path: SOURCES_FILE_PATH,
   })
-  const next = applySourceFileChange(current ?? null, change)
+  // A new id must also be free of every open source pull request: an open
+  // "remove linear" would otherwise remove a new "linear" when it merges.
+  const reservedKeys =
+    change.action === "add" && !change.sourceKey
+      ? new Set((await pendingChanges(workspace)).map((pull) => pull.sourceKey))
+      : undefined
+  const next = applySourceFileChange(current ?? null, change, reservedKeys)
 
   if (input.delivery === "commit") {
     const admitted = await enqueueWorkspaceWriteCommit(
@@ -321,8 +343,14 @@ export async function listConnectionUsage(
     workspaces.map((workspace) => pendingChanges({ ...workspace, orgId })),
   )
   for (const [index, workspace] of workspaces.entries()) {
-    const changes = (pending[index] ?? []).filter((change) =>
-      providers.has(change.provider),
+    const sourceKeys = new Set(
+      (await listWorkspaceSourceRows({ orgId, workspaceId: workspace.id })).map(
+        (row) => row.sourceKey,
+      ),
+    )
+    const changes = (pending[index] ?? []).filter(
+      (change) =>
+        providers.has(change.provider) && stillApplies(change, sourceKeys),
     )
     if (!changes.length) continue
     const item = byWorkspace.get(workspace.id) ?? {

@@ -160,7 +160,16 @@ export async function enqueueSourceProjectionFollowUps(input: {
   assertNotInOrgDbContext()
   const removed = [
     ...input.projected.removed,
-    ...input.projected.changed.map((change) => change.before),
+    ...input.projected.changed
+      // A status change alone keeps the files: a removed connection leaves
+      // its committed files in place, as the remove dialog says.
+      .filter(
+        ({ before, after }) =>
+          before.provider !== after.provider ||
+          before.connectionId !== after.connectionId ||
+          JSON.stringify(before.scope) !== JSON.stringify(after.scope),
+      )
+      .map((change) => change.before),
   ]
     .filter((row) => row.status === "ok" && hasAdapter(row.provider))
     .map(({ provider, connectionId, scope }) => ({
