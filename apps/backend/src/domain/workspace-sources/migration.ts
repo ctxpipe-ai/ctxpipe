@@ -3,6 +3,7 @@ import {
   listOrgLinkedRepositories,
   listOrgWorkspaces,
 } from "../../models/workspaces.js"
+import { workspaceRelativePath } from "../../services/git/root-folder.js"
 import {
   createPullRequestWithFiles,
   getFileContent,
@@ -61,7 +62,11 @@ export async function runSourceMigration(input: {
       )
       if (!repository)
         return { ...workspace, repository, sourcesFile: null, tree: [] }
-      const tree = await listFilesInTree(repository)
+      // Paths relative to the Workspace root folder, as the files below use.
+      const tree = (await listFilesInTree(repository)).flatMap((file) => {
+        const path = workspaceRelativePath(repository.rootPath, file.path)
+        return path === null ? [] : [{ ...file, path }]
+      })
       const declarations = tree.filter((file) =>
         isLinkedRepositoryDeclaration(file.path),
       )
