@@ -2,12 +2,13 @@
 
 import HyperDX from "@hyperdx/browser"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
 import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
 import { ChooseWorkspacesStep } from "@/features/workspace-sources/ChooseWorkspacesStep"
+import { PullRequestsToMerge } from "@/features/workspace-sources/PullRequestsToMerge"
 import { useAddToWorkspaces } from "@/features/workspace-sources/useAddToWorkspaces"
 import {
   getLinearSetupCurrentIndex,
@@ -54,11 +55,16 @@ export function LinearSetupWizard({
     queryFn: () => fetchLinearOauthApp(orgSlug, connectionId),
     enabled: isOpen,
   })
+  // The pull requests that the add opened. As in the other setups, the
+  // dialog stays open on the merge step; a direct commit closes it.
+  const [pullRequestUrls, setPullRequestUrls] = useState<string[]>([])
+  if (!isOpen && pullRequestUrls.length) setPullRequestUrls([])
   const adding = useAddToWorkspaces({
     orgSlug,
     connectionId: connectionId ?? "",
     provider: "linear",
-    onAdded: () => onOpenChange(false),
+    onAdded: (urls) =>
+      urls.length ? setPullRequestUrls(urls) : onOpenChange(false),
   })
   const close = () => {
     adding.reset()
@@ -162,7 +168,11 @@ export function LinearSetupWizard({
           <div className="mb-6">
             <ConnectorSetupStepper
               steps={setupSteps}
-              currentIndex={getLinearSetupCurrentIndex(status, oauthMeta)}
+              currentIndex={
+                pullRequestUrls.length
+                  ? setupSteps.length
+                  : getLinearSetupCurrentIndex(status, oauthMeta)
+              }
             />
           </div>
         ) : null}
@@ -192,6 +202,13 @@ export function LinearSetupWizard({
           />
         ) : body === "connect" ? (
           <LinearConnectStep orgSlug={orgSlug} connectionId={connectionId} />
+        ) : body === "workspaces" && pullRequestUrls.length ? (
+          <div className="space-y-4">
+            <PullRequestsToMerge urls={pullRequestUrls} />
+            <Button variant="secondary" className="rounded-md" onPress={close}>
+              Close
+            </Button>
+          </div>
         ) : body === "workspaces" && connectionId ? (
           <div className="flex flex-col gap-5">
             <ChooseWorkspacesStep

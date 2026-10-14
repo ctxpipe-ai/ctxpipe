@@ -227,8 +227,9 @@ export const AddToWorkspaces: Story = {
       await body.findByRole("checkbox", { name: "checkout-api" }),
     )
     await userEvent.click(add)
+    // The add opened a pull request: the last step is the merge.
     await expect(
-      await body.findByRole("heading", { name: "PagerDuty is connected" }),
+      await body.findByRole("heading", { name: "Merge the pull request" }),
     ).toBeVisible()
     // The sync starts after the merge, so the last step links the pull request.
     await expect(
