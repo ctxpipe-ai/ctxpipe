@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest"
+import { stringify } from "yaml"
+import { renderGithubPullRequest } from "../../services/github/pull-request-mirror/converter.js"
 import {
   applyEffectiveValidFromToUnits,
   displayNameFromAgentsMarkdown,
@@ -374,5 +376,120 @@ describe("computeWorkspaceGraphQuality", () => {
       predicates: { DEPENDS_ON: 1, REFERENCES: 1 },
     })
     expect(quality.joinDensity).toBeCloseTo(2 / 3)
+  })
+})
+
+describe("hydrateKnowledgeTree pull request changes", () => {
+  const SHOP = "https://github.com/acme/shop"
+  const MERGED_AT = "2026-09-01T10:00:00Z"
+
+  function pullRequest(
+    paths: string[],
+    merge: { merged: boolean; mergedAt: string | null } = {
+      merged: true,
+      mergedAt: MERGED_AT,
+    },
+  ) {
+    return renderGithubPullRequest({
+      id: 9001,
+      number: 42,
+      repository: "acme/shop",
+      url: `${SHOP}/pull/42`,
+      title: "Change the checkout",
+      body: "",
+      state: "closed",
+      draft: false,
+      author: { login: "dev", type: "human" },
+      base: { ref: "main", sha: "a".repeat(40) },
+      head: { ref: "change", sha: "b".repeat(40) },
+      reviewDecision: null,
+      labels: [],
+      requestedReviewers: [],
+      createdAt: "2026-08-30T10:00:00Z",
+      updatedAt: MERGED_AT,
+      files: paths.map((path) => ({ path, status: "modified" as const })),
+      reviews: [],
+      comments: [],
+      requiredChecks: [],
+      ...merge,
+    })
+  }
+
+  function unitFile(
+    path: string,
+    kind: string,
+    extra: Record<string, unknown> = {},
+  ) {
+    return {
+      path,
+      content: `---\n${stringify({ kind, name: path, sources: [SHOP], ...extra })}---\n# ${path}\n`,
+    }
+  }
+
+  const PACKAGES = [
+    unitFile("knowledge/codebases/shop.md", "Repository"),
+    unitFile("knowledge/services/api.md", "Service", { root: "apps/api" }),
+    unitFile("knowledge/libraries/ui.md", "Library", { root: "packages/ui" }),
+    unitFile("knowledge/apps/web.md", "App", { root: "apps/web" }),
+    unitFile("knowledge/services/other-api.md", "Service", {
+      root: "apps/api",
+      sources: ["https://github.com/acme/other"],
+    }),
+  ]
+
+  function changedEdges(
+    paths: string[],
+    merge?: Parameters<typeof pullRequest>[1],
+  ) {
+    const mirror = pullRequest(paths, merge)
+    const { units } = hydrateKnowledgeTree({
+      workspaceId: "ws_1",
+      files: [...PACKAGES, mirror],
+    })
+    const prUnit = units.find((unit) => unit.path === mirror.path)
+    expect(prUnit?.kind).toBe("PullRequest")
+    const pathOf = new Map(units.map((unit) => [unit.servingId, unit.path]))
+    return hydrateUnitsToProjectionClaims(
+      applyEffectiveValidFromToUnits(units, new Map()),
+    )
+      .filter((claim) => claim.predicate === "CHANGED")
+      .map((claim) => ({
+        from: pathOf.get(claim.subjectId),
+        to: pathOf.get(claim.objectId),
+        validFrom: claim.validFrom,
+      }))
+  }
+
+  it("writes one CHANGED claim per package that a monorepo pull request touches", () => {
+    const mirror = pullRequest([]).path
+    expect(
+      changedEdges([
+        "apps/api/src/checkout.ts",
+        "apps/api/src/cart.ts",
+        "packages/ui/button.tsx",
+      ]),
+    ).toEqual([
+      { from: mirror, to: "knowledge/services/api.md", validFrom: MERGED_AT },
+      { from: mirror, to: "knowledge/libraries/ui.md", validFrom: MERGED_AT },
+    ])
+  })
+
+  it("writes a CHANGED claim to the repository unit only for a file outside every root", () => {
+    expect(changedEdges(["README.md", "apps/apiary/x.ts"])).toEqual([
+      {
+        from: pullRequest([]).path,
+        to: "knowledge/codebases/shop.md",
+        validFrom: MERGED_AT,
+      },
+    ])
+  })
+
+  it("writes no CHANGED claim for a pull request that is not merged", () => {
+    expect(
+      changedEdges(["apps/api/src/checkout.ts"], {
+        merged: false,
+        mergedAt: null,
+      }),
+    ).toEqual([])
   })
 })

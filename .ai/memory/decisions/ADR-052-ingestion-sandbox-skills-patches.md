@@ -31,6 +31,7 @@ The design is the Linear document [CTX-584 concept](https://linear.app/ctxpipe/d
   - **Caps:** 64 KiB for each file; 30 ops for each step; 300 for each Workspace in a run; a step deletes at most 20% of its owned files, except when its root is gone.
   - **Injection checks** (section 5).
 - The host sets `generated_by: ctxpipe-extract`, `sources`, `source_sha`, `skill`, `bundle`, and the claim `confidence` from the evidence kind (`script` 0.7, `model` 0.5). The agent never sets these fields.
+- On a package unit (`Service`, `App`, `Library`), the host also sets `root`: the source root of the step, from the root-to-file map (`.` for the repository top). A step without a root keeps the root of the base file. Hydrate matches the changed files of each merged pull request in the GitHub mirror against `sources` and `root`, and writes a `CHANGED` claim from the pull request to the unit with the deepest root that holds the file. A file outside every root changes the `Repository` unit only. The claim is valid from the merge date (CTX-657).
 
 ### 3. Ownership of files
 
