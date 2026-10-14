@@ -87,10 +87,12 @@ describe("dest Workspace SQL migration (Postgres)", () => {
     expect(workspaceByUrl.get("https://github.com/acme/wiki")).toBeDefined()
 
     const { rows: links } = await db.query(
-      `SELECT "workspace_id" AS "workspaceId", "git_url" AS "gitUrl" FROM "workspace_linked_repositories" ORDER BY "git_url"`,
+      `SELECT "workspace_id" AS "workspaceId" FROM "workspace_sources" WHERE "org_id" = $1`,
+      [orgId],
     )
-    // The migration export links the other org repositories through
-    // `.ctxpipe/sources.yaml` of the first Workspace (ADR-050).
+    // The SQL backfill links nothing. The migration export links the other
+    // org repositories through `.ctxpipe/sources.yaml` of the first
+    // Workspace, and the sources projection pins them (ADR-050).
     expect(links).toEqual([])
 
     const { rows: first } = await db.query(

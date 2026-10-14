@@ -21,11 +21,9 @@ import { organizations } from "../../db/schema/auth.js"
 import { repositories } from "../../db/schema/repositories.js"
 import { repositoryCheckouts } from "../../db/schema/repository_checkouts.js"
 import { workspaceSources } from "../../db/schema/workspace_sources.js"
-import {
-  workspaceLinkedRepositories,
-  workspaces,
-} from "../../db/schema/workspaces.js"
+import { workspaces } from "../../db/schema/workspaces.js"
 import { generateObjectId } from "../../lib/id.js"
+import { insertLinkedRepositoryRows } from "../../test/workspace-links-fixture.js"
 import {
   findSymbolAcrossRepositories,
   resolveCodeScope,
@@ -194,7 +192,8 @@ describe("org-level code search (Postgres + msw codesearch)", () => {
         })),
       )
       // The legacy table links alpha, beta and an unindexed repository to payments.
-      await db.insert(workspaceLinkedRepositories).values(
+      await insertLinkedRepositoryRows(
+        db,
         [
           `https://github.com/${name("alpha")}`,
           `git@github.com:${name("beta")}.git`,

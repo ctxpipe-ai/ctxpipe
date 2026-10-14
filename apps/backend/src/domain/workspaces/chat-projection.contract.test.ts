@@ -10,10 +10,7 @@ import {
 import { organizations } from "../../db/schema/auth.js"
 import { repositories } from "../../db/schema/repositories.js"
 import { repositoryCheckouts } from "../../db/schema/repository_checkouts.js"
-import {
-  workspaceLinkedRepositories,
-  workspaces,
-} from "../../db/schema/workspaces.js"
+import { workspaces } from "../../db/schema/workspaces.js"
 import { generateObjectId } from "../../lib/id.js"
 import {
   captureWorkspaceRevision,
@@ -22,6 +19,7 @@ import {
   listOrgLinkedRepositories,
   persistWorkspaceIndexResult,
 } from "../../models/workspaces.js"
+import { insertLinkedRepositoryRows } from "../../test/workspace-links-fixture.js"
 import { hydrateKnowledgeTree } from "./hydrate.js"
 import type { WorkspaceRevision } from "./revision.js"
 import {
@@ -253,7 +251,7 @@ it(
     await withChatProjection(async (f) => {
       const linkedId = generateObjectId("wlr")
       await withOrgDbContext(f.org.id, (db) =>
-        db.insert(workspaceLinkedRepositories).values({
+        insertLinkedRepositoryRows(db, {
           id: linkedId,
           orgId: f.org.id,
           workspaceId: f.workspaceId,

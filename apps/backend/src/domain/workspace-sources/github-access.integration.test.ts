@@ -8,7 +8,7 @@ import { beforeAll, expect, it } from "vitest"
 import { withOrgDbContext } from "../../db/client.js"
 import { repositories } from "../../db/schema/repositories.js"
 import { workspaceSources } from "../../db/schema/workspace_sources.js"
-import { workspaceLinkedRepositories } from "../../db/schema/workspaces.js"
+import { listLinkedRepositoryPins } from "../../models/workspace-source-state.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { workspaceHydrate } from "../../openworkflow/workflows/workspace-hydrate.js"
 import { workspaceTipCheck } from "../../openworkflow/workflows/workspace-tip-check.js"
@@ -145,12 +145,7 @@ it(
           expect(source?.statusDetail).not.toContain("fixture/visible-service")
 
           const linked = await withOrgDbContext(f.org.id, (db) =>
-            db
-              .select({ gitUrl: workspaceLinkedRepositories.gitUrl })
-              .from(workspaceLinkedRepositories)
-              .where(
-                eq(workspaceLinkedRepositories.workspaceId, f.workspaceId),
-              ),
+            listLinkedRepositoryPins(db, { workspaceId: f.workspaceId }),
           )
           expect(linked.map((row) => row.gitUrl).sort()).toEqual([
             "https://github.com/fixture/hidden-service",
@@ -183,15 +178,7 @@ it(
           })
           await tipCheck.result({ timeoutMs: 30_000 })
           const tips = await withOrgDbContext(f.org.id, (db) =>
-            db
-              .select({
-                gitUrl: workspaceLinkedRepositories.gitUrl,
-                desiredSha: workspaceLinkedRepositories.desiredSha,
-              })
-              .from(workspaceLinkedRepositories)
-              .where(
-                eq(workspaceLinkedRepositories.workspaceId, f.workspaceId),
-              ),
+            listLinkedRepositoryPins(db, { workspaceId: f.workspaceId }),
           )
           // The visible repository reads with the source's connection.
           expect(

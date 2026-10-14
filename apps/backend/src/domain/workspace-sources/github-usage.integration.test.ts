@@ -3,11 +3,9 @@ import { afterAll, beforeAll, expect, it } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { repositories } from "../../db/schema/repositories.js"
-import {
-  workspaceLinkedRepositories,
-  workspaces,
-} from "../../db/schema/workspaces.js"
+import { workspaces } from "../../db/schema/workspaces.js"
 import { createLogger, withLogger } from "../../observability/logger.js"
+import { insertLinkedRepositoryRows } from "../../test/workspace-links-fixture.js"
 import { seedSourcesOrg } from "../../test/workspace-sources-fixture.js"
 import { repositoryKeyFromGitUrl } from "../workspaces/slug.js"
 import { listConnectionUsage } from "./service.js"
@@ -51,7 +49,7 @@ it("counts the Workspace repository and the linked repositories that use a GitHu
     const api = await repository(`api-${seed.suffix}`, github)
     const foreign = await repository(`foreign-${seed.suffix}`, other)
     const link = (workspaceId: string, gitUrl: string) =>
-      db.insert(workspaceLinkedRepositories).values({
+      insertLinkedRepositoryRows(db, {
         id: `wlr_${Math.random().toString(36).slice(2)}`,
         orgId: seed.orgId,
         workspaceId,

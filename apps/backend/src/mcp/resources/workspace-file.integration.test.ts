@@ -26,12 +26,12 @@ import { repositories } from "../../db/schema/repositories.js"
 import { repositoryCheckouts } from "../../db/schema/repository_checkouts.js"
 import {
   workspaceKnowledgeUnits,
-  workspaceLinkedRepositories,
   workspaces,
 } from "../../db/schema/workspaces.js"
 import { generateObjectId } from "../../lib/id.js"
 import { registerMcpRoutes } from "../../routes/mcp.js"
 import { withTestRequestLogger } from "../../test/hono-test-logger.js"
+import { insertLinkedRepositoryRows } from "../../test/workspace-links-fixture.js"
 import { registerWorkspaceFileResource } from "./workspace-file.js"
 
 function workspaceFileUri(org: string, workspace: string, ref: string): string {
@@ -131,7 +131,7 @@ describe("ctxpipe:// resource template (Postgres + msw codesearch + MCP SDK Clie
         body: "# Payments API\n\nOwns card charges.\n",
         projectionSha: sha1,
       })
-      await db.insert(workspaceLinkedRepositories).values({
+      await insertLinkedRepositoryRows(db, {
         id: generateObjectId("wlr"),
         orgId: seed.orgId,
         workspaceId,

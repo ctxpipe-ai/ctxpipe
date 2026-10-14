@@ -17,11 +17,9 @@ import {
 import { organizations } from "../../db/schema/auth.js"
 import { repositories } from "../../db/schema/repositories.js"
 import { repositoryCheckouts } from "../../db/schema/repository_checkouts.js"
-import {
-  workspaceLinkedRepositories,
-  workspaces,
-} from "../../db/schema/workspaces.js"
+import { workspaces } from "../../db/schema/workspaces.js"
 import type { WorkspaceRevision } from "../../domain/workspaces/revision.js"
+import { insertLinkedRepositoryRows } from "../../test/workspace-links-fixture.js"
 import { codeSearch } from "./codeSearch.js"
 
 async function withSearchProjection(
@@ -168,7 +166,7 @@ async function withSearchProjection(
         name: "Linked context",
         gitUrl: url + "-linked",
       })
-      await db.insert(workspaceLinkedRepositories).values({
+      await insertLinkedRepositoryRows(db, {
         id: "wlr_" + id,
         orgId: org.id,
         workspaceId,

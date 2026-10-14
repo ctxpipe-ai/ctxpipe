@@ -3,10 +3,7 @@ import { HttpResponse, http } from "msw"
 import { expect, it, vi } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
-import {
-  workspaceLinkedRepositories,
-  workspaces,
-} from "../../db/schema/workspaces.js"
+import { workspaces } from "../../db/schema/workspaces.js"
 import { WRITE_STATUS_REASONS } from "../../domain/workspaces/write-status.js"
 import {
   getWorkspaceById,
@@ -15,6 +12,7 @@ import {
 import { workspaceTipCheck } from "../../openworkflow/workflows/workspace-tip-check.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { workspaceHttpApp } from "../../test/workspace-http-fixture.js"
+import { insertLinkedRepositoryRows } from "../../test/workspace-links-fixture.js"
 import { workspaceRoutes } from "./workspaces.js"
 
 async function workflowNames(orgId: string, workspaceId: string) {
@@ -57,7 +55,7 @@ it(
       expect(missing.status).toBe(404)
 
       await withOrgDbContext(f.org.id, (db) =>
-        db.insert(workspaceLinkedRepositories).values({
+        insertLinkedRepositoryRows(db, {
           id: `wlr_${f.id}`,
           orgId: f.org.id,
           workspaceId: f.workspaceId,

@@ -7,17 +7,22 @@ import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 
 it(
-  "links and unlinks one canonical remote without overwriting a same-name declaration",
+  "links and unlinks one canonical remote in the GitHub source of sources.yaml",
   { timeout: 60_000 },
   async () => {
-    const original =
-      '---\ngit: https://github.com/old/other.git\nbranch: stable\ncustom: "Owner: old"\n---\n\nKeep this repository note.\n'
+    const legacy =
+      "---\ngit: https://github.com/old/other.git\nbranch: stable\n---\n\nKeep this repository note.\n"
+    const sources =
+      "# Owned by the team\nversion: 1\nsources:\n  - id: issues\n    provider: linear\n    connection: con_linear_fixture\n    teams: [ENG]\n"
     await withNativeHydrationFixture(
       {
         github: true,
         githubWriteView: "writable",
         writeStatus: "writable",
-        files: [{ path: "repositories/other.md", body: original }],
+        files: [
+          { path: "repositories/other.md", body: legacy },
+          { path: ".ctxpipe/sources.yaml", body: sources },
+        ],
       },
       async (f) => {
         const { BackendPostgres } = await import("openworkflow/postgres")
@@ -39,44 +44,10 @@ it(
             throw error
           },
         }
-        const jobId = `wjob_${f.id}_link`
-        try {
-          expect(
-            await withOrgIdContext(f.org, () =>
-              enqueueWriteJob({ ...command, jobId, linkAction: "link" }, log),
-            ),
-          ).toEqual({ started: true })
-          const queued = (
-            await backend.listWorkflowRuns({ limit: 100 })
-          ).data.find(
-            (run) => (run.input as { jobId?: string })?.jobId === jobId,
-          )
-          expect(queued).toMatchObject({
-            workflowName: "workspace-write-link-unlink",
-            input: {
-              linkAction: "link",
-              linkGitUrl: "https://github.com/next/other",
-            },
-          })
-          const { workspaceLinkUnlink } = await import(
-            "../../openworkflow/workflows/workspace-link-unlink.js"
-          )
-          runner.implementWorkflow(
-            workspaceLinkUnlink.spec,
-            workspaceLinkUnlink.fn,
-          )
-          worker = runner.newWorker({ concurrency: 1 })
-          await worker.start()
-          await expect
-            .poll(
-              () =>
-                withOrgIdContext(f.org, () =>
-                  reconcileWorkspaceWriteJob(jobId),
-                ),
-              { timeout: 30_000 },
-            )
-            .toMatchObject({ status: "completed" })
-          const files = f
+        const show = (path: string) =>
+          f.git("--git-dir", f.remote, "show", `refs/heads/main:${path}`)
+        const tree = () =>
+          f
             .git(
               "--git-dir",
               f.remote,
@@ -86,88 +57,104 @@ it(
               "refs/heads/main",
             )
             .split("\n")
-          expect(files).toHaveLength(2)
-          const added = files.find((path) => path !== "repositories/other.md")
-          expect(added).toMatch(/^repositories\/[^/]+\.md$/)
-          expect(
-            f.git(
-              "--git-dir",
-              f.remote,
-              "show",
-              "refs/heads/main:repositories/other.md",
-            ),
-          ).toBe(original.trim())
-          expect(
-            parse(
-              f
-                .git("--git-dir", f.remote, "show", `refs/heads/main:${added}`)
-                .split("---")[1] ?? "",
-            ),
-          ).toEqual({ git: "https://github.com/next/other" })
-          const noOpId = `${jobId}_again`
+            .sort()
+        const run = async (
+          jobId: string,
+          linkAction: "link" | "unlink",
+          linkGitUrl = command.linkGitUrl,
+        ) => {
           expect(
             await withOrgIdContext(f.org, () =>
               enqueueWriteJob(
-                {
-                  ...command,
-                  jobId: noOpId,
-                  linkAction: "link",
-                  linkGitUrl: "git@github.com:Next/Other.git/",
-                },
+                { ...command, jobId, linkAction, linkGitUrl },
                 log,
               ),
             ),
           ).toEqual({ started: true })
           await expect
             .poll(
-              () =>
-                withOrgIdContext(f.org, () =>
-                  reconcileWorkspaceWriteJob(noOpId),
-                ),
-              { timeout: 15_000 },
+              async () =>
+                (
+                  await withOrgIdContext(f.org, () =>
+                    reconcileWorkspaceWriteJob(jobId),
+                  )
+                )?.status,
+              { timeout: 30_000 },
             )
-            .toMatchObject({ status: "completed", commitSha: null })
-          const unlinkId = `${jobId}_unlink`
+            .toMatch(/^(completed|failed)$/)
+          return withOrgIdContext(f.org, () =>
+            reconcileWorkspaceWriteJob(jobId),
+          )
+        }
+        const jobId = `wjob_${f.id}_link`
+        try {
+          const { workspaceLinkUnlink } = await import(
+            "../../openworkflow/workflows/workspace-link-unlink.js"
+          )
+          runner.implementWorkflow(
+            workspaceLinkUnlink.spec,
+            workspaceLinkUnlink.fn,
+          )
+          worker = runner.newWorker({ concurrency: 1 })
+          await worker.start()
+
+          expect(await run(jobId, "link")).toMatchObject({
+            status: "completed",
+          })
+          // Link edits only sources.yaml; it keeps the comment, the other
+          // entry, and the old repository file.
+          expect(tree()).toEqual([
+            ".ctxpipe/sources.yaml",
+            "repositories/other.md",
+          ])
+          expect(show("repositories/other.md")).toBe(legacy.trim())
+          const linked = show(".ctxpipe/sources.yaml")
+          expect(linked).toContain("# Owned by the team")
+          expect(parse(linked)).toEqual({
+            version: 1,
+            sources: [
+              {
+                id: "issues",
+                provider: "linear",
+                connection: "con_linear_fixture",
+                teams: ["ENG"],
+              },
+              {
+                id: "linked-repositories",
+                provider: "github",
+                connection: f.connectionId,
+                repositories: ["next/other"],
+              },
+            ],
+          })
+
+          // The same repository in another spelling changes nothing.
           expect(
-            await withOrgIdContext(f.org, () =>
-              enqueueWriteJob(
-                {
-                  ...command,
-                  jobId: unlinkId,
-                  linkAction: "unlink",
-                  linkGitUrl: "https://github.com/next/other",
-                },
-                log,
-              ),
+            await run(
+              `${jobId}_again`,
+              "link",
+              "git@github.com:Next/Other.git/",
             ),
-          ).toEqual({ started: true })
-          await expect
-            .poll(
-              () =>
-                withOrgIdContext(f.org, () =>
-                  reconcileWorkspaceWriteJob(unlinkId),
-                ),
-              { timeout: 15_000 },
-            )
-            .toMatchObject({ status: "completed" })
+          ).toMatchObject({ status: "completed", commitSha: null })
+
+          // A repository outside GitHub cannot be linked.
           expect(
-            f.git(
-              "--git-dir",
-              f.remote,
-              "ls-tree",
-              "-r",
-              "--name-only",
-              "refs/heads/main",
+            await run(
+              `${jobId}_gitlab`,
+              "link",
+              "https://gitlab.com/acme/tools",
             ),
-          ).toBe("repositories/other.md")
+          ).toMatchObject({ status: "failed" })
+
           expect(
-            f.git(
-              "--git-dir",
-              f.remote,
-              "show",
-              "refs/heads/main:repositories/other.md",
+            await run(
+              `${jobId}_unlink`,
+              "unlink",
+              "https://github.com/next/other",
             ),
-          ).toBe(original.trim())
+          ).toMatchObject({ status: "completed" })
+          expect(parse(show(".ctxpipe/sources.yaml"))).toEqual(parse(sources))
+          expect(show("repositories/other.md")).toBe(legacy.trim())
           expect(
             f.git(
               "--git-dir",

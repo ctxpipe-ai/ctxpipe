@@ -22,13 +22,11 @@ import {
 } from "../db/schema/auth.js"
 import { oauthGrantOrganizations } from "../db/schema/oauth_grant_organizations.js"
 import { workspaceSources } from "../db/schema/workspace_sources.js"
-import {
-  workspaceLinkedRepositories,
-  workspaces,
-} from "../db/schema/workspaces.js"
+import { workspaces } from "../db/schema/workspaces.js"
 import { generateObjectId } from "../lib/id.js"
 import { registerMcpRoutes } from "../routes/mcp.js"
 import { withTestRequestLogger } from "../test/hono-test-logger.js"
+import { insertLinkedRepositoryRows } from "../test/workspace-links-fixture.js"
 import { mcpOrgSlugHash } from "./correlation.js"
 import { fitPage } from "./framework/budget.js"
 import {
@@ -298,7 +296,8 @@ describe("MCP tool framework (Postgres + MCP SDK Client)", () => {
           desiredDefaultBranch: "main",
         },
       ])
-      await db.insert(workspaceLinkedRepositories).values(
+      await insertLinkedRepositoryRows(
+        db,
         [
           "https://github.com/example/payments-api",
           "git@github.com:example/ledger.git",
