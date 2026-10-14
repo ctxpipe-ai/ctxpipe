@@ -80,11 +80,27 @@ done
 if [ -n "$(found)" ]; then echo "Agent processes are left: $(found)" >&2; exit 1; fi`
 
 /**
+ * Stop every process of the agent user before a locked step does any work,
+ * also one that left its process group (`setsid`, a double fork). Then no
+ * process of an earlier step can use the credentials that this step gives
+ * the sandbox. A sandbox with no agent user yet has no agent process.
+ */
+export async function stopIngestAgentProcesses(root: RootExec): Promise<void> {
+  await runAsRoot(
+    root,
+    [
+      `id -u ${INGEST_AGENT_USER} >/dev/null 2>&1 || exit 0`,
+      STOP_AGENT_PROCESSES,
+    ].join("\n"),
+  )
+}
+
+/**
  * Root writes the file itself from base64 in the script, so no path the agent
  * can change is read. Large content goes in 48 KiB parts, below the 128 KiB
  * limit for one command argument.
  */
-async function writeAsRoot(
+export async function writeAsRoot(
   root: RootExec,
   path: string,
   content: string,

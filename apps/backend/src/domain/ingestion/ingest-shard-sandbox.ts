@@ -28,7 +28,11 @@ import {
 import { githubRepoFullNameFromWorkspaceUrl } from "../workspaces/write-status.js"
 import { buildContextIndex } from "./context-index.js"
 import { ingestOpenCodeConfig } from "./ingest-opencode.js"
-import { assertIngestProvider, collectIngestStep } from "./ingest-prepare.js"
+import {
+  assertIngestProvider,
+  collectIngestStep,
+  stopIngestAgentProcesses,
+} from "./ingest-prepare.js"
 import { dockerRootExec, type RootExec } from "./ingest-root.js"
 import {
   discoverIngestRoots,
@@ -197,7 +201,8 @@ function withShardLock<T>(
 ): Promise<T> {
   let lockOwner = ""
   const controller = new AbortController()
-  if (signal)
+  if (signal?.aborted) controller.abort(signal.reason)
+  else if (signal)
     signal.addEventListener("abort", () => controller.abort(signal.reason), {
       once: true,
     })
@@ -291,6 +296,8 @@ function shardRuntime(spec: IngestShardSpec): IngestShardRuntime {
       handle: SandboxHandle
       root: RootExec
       agentEnv: Record<string, string>
+      /** Aborts at the step limit or when the shard lock is lost. */
+      signal: AbortSignal
     }) => Promise<T>,
     signal?: AbortSignal,
   ): Promise<T> {
@@ -300,6 +307,9 @@ function shardRuntime(spec: IngestShardSpec): IngestShardRuntime {
         const egress = await ingestShardStepEgress({ spec, lockOwner, step })
         const sandbox = shardSandbox(target, egress, lockSignal)
         const existing = await sandbox.ensureExisting()
+        // A process of an earlier step must not get this step's credentials.
+        if (existing)
+          await stopIngestAgentProcesses(dockerRootExec(existing.id))
         // A new sandbox gets this egress at create; an existing one gets it now.
         if (existing)
           await refreshIngestSandboxEgress({
@@ -330,7 +340,7 @@ function shardRuntime(spec: IngestShardSpec): IngestShardRuntime {
             now: new Date(),
           })
         }
-        return fn({ handle, root, agentEnv })
+        return fn({ handle, root, agentEnv, signal: lockSignal })
       },
       signal,
     )
@@ -339,16 +349,16 @@ function shardRuntime(spec: IngestShardSpec): IngestShardRuntime {
   return {
     ensure: () => withShard("ensure-sandbox", async () => undefined),
     discoverRoots: () =>
-      withShard("discover-roots", ({ root, agentEnv }) =>
-        discoverIngestRoots(root, agentEnv),
+      withShard("discover-roots", ({ root, agentEnv, signal }) =>
+        discoverIngestRoots(root, agentEnv, signal),
       ),
     runStep: (step) =>
       withShard(
         step.name,
-        async ({ handle, root, agentEnv }) => {
+        async ({ handle, root, agentEnv, signal }) => {
           const models = step.run === "model" ? ingestModels() : undefined
           const { more } = await runIngestShardStep(root, {
-            step,
+            step: { ...step, signal },
             agentEnv,
             remote:
               spec.destinations.find((d) => d.workspaceId === step.workspaceId)

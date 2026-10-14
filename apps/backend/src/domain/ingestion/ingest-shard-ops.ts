@@ -145,12 +145,14 @@ export async function prepareIngestShard(
 export async function discoverIngestRoots(
   root: RootExec,
   agentEnv: Record<string, string>,
+  signal?: AbortSignal,
 ): Promise<unknown> {
   const result = await root(
     ingestAgentCommand({
       env: agentEnv,
       command: `node ${INGEST_SKILLS_ROOT}/discover-roots/scripts/discover-roots.mjs ${SOURCE_DIR}`,
     }),
+    signal ? { signal } : undefined,
   )
   if (result.exitCode !== 0)
     throw new Error(`discover-roots failed: ${result.stderr.slice(-500)}`)
