@@ -1,61 +1,61 @@
-import type * as cdk from "aws-cdk-lib"
-import type * as ec2 from "aws-cdk-lib/aws-ec2"
+import type * as cdk from "aws-cdk-lib";
+import type * as ec2 from "aws-cdk-lib/aws-ec2";
 
-export type CtxPipeSize = "small" | "medium" | "large"
+export type CtxPipeSize = "small" | "medium" | "large";
 
 /**
  * Per-tier model IDs. Omitted medium/high cascade: medium → fast, high → medium.
  */
 export interface CtxPipeModelTiers {
-  readonly fast: string
-  readonly medium?: string
-  readonly high?: string
-  readonly embedding?: string
+  readonly fast: string;
+  readonly medium?: string;
+  readonly high?: string;
+  readonly embedding?: string;
 }
 
 /**
  * OpenAI-compatible HTTP model provider (default when `kind` is omitted).
  */
 export interface CtxPipeOpenAiLikeModelProviderProps {
-  readonly kind?: "openai-like"
+  readonly kind?: "openai-like";
   /**
    * OpenAI-compatible API base URL.
    */
-  readonly baseUrl: string
+  readonly baseUrl: string;
   /**
    * API key or bearer token for the model provider.
    */
-  readonly apiKey: cdk.SecretValue
+  readonly apiKey: cdk.SecretValue;
   /**
    * Tier model IDs (`fast` required; medium/high/embedding optional).
    */
-  readonly models: CtxPipeModelTiers
+  readonly models: CtxPipeModelTiers;
 }
 
 /**
  * Amazon Bedrock via native Runtime SDK (IAM task role).
  */
 export interface CtxPipeBedrockModelProviderProps {
-  readonly kind: "bedrock"
+  readonly kind: "bedrock";
   /**
    * AWS region for Bedrock (defaults to stack region when omitted).
    */
-  readonly region?: string
+  readonly region?: string;
   /**
    * Tier model IDs (`fast` required; medium/high/embedding optional).
    */
-  readonly models: CtxPipeModelTiers
+  readonly models: CtxPipeModelTiers;
 }
 
 export type CtxPipeModelProviderProps =
   | CtxPipeOpenAiLikeModelProviderProps
-  | CtxPipeBedrockModelProviderProps
+  | CtxPipeBedrockModelProviderProps;
 
 export interface CtxPipeCustomDomainProps {
   /**
    * Public DNS name served by the ALB over HTTPS.
    */
-  readonly domainName: string
+  readonly domainName: string;
   /**
    * Authoritative public hosted zone ID used for:
    * - ACM DNS validation records.
@@ -64,32 +64,32 @@ export interface CtxPipeCustomDomainProps {
    *
    * This construct resolves hosted-zone details internally.
    */
-  readonly hostedZoneId: string
+  readonly hostedZoneId: string;
 }
 
 export interface CtxPipeConnectorSecretsProps {
-  readonly githubAppId?: cdk.SecretValue
-  readonly githubPrivateKey?: cdk.SecretValue
-  readonly githubWebhookSecret?: cdk.SecretValue
-  readonly githubClientId?: cdk.SecretValue
-  readonly githubClientSecret?: cdk.SecretValue
-  readonly atlassianClientId?: cdk.SecretValue
-  readonly atlassianClientSecret?: cdk.SecretValue
-  readonly slackClientId?: cdk.SecretValue
-  readonly slackClientSecret?: cdk.SecretValue
-  readonly slackSigningSecret?: cdk.SecretValue
-  readonly linearClientId?: cdk.SecretValue
-  readonly linearClientSecret?: cdk.SecretValue
-  readonly linearRedirectUri?: cdk.SecretValue
-  readonly linearWebhookSecret?: cdk.SecretValue
-  readonly notionClientId?: cdk.SecretValue
-  readonly notionClientSecret?: cdk.SecretValue
-  readonly notionWebhookSecret?: cdk.SecretValue
-  readonly pagerdutyClientId?: cdk.SecretValue
-  readonly pagerdutyClientSecret?: cdk.SecretValue
-  readonly pagerdutyRedirectUri?: cdk.SecretValue
-  readonly zendeskClientId?: cdk.SecretValue
-  readonly zendeskClientSecret?: cdk.SecretValue
+  readonly githubAppId?: cdk.SecretValue;
+  readonly githubPrivateKey?: cdk.SecretValue;
+  readonly githubWebhookSecret?: cdk.SecretValue;
+  readonly githubClientId?: cdk.SecretValue;
+  readonly githubClientSecret?: cdk.SecretValue;
+  readonly atlassianClientId?: cdk.SecretValue;
+  readonly atlassianClientSecret?: cdk.SecretValue;
+  readonly slackClientId?: cdk.SecretValue;
+  readonly slackClientSecret?: cdk.SecretValue;
+  readonly slackSigningSecret?: cdk.SecretValue;
+  readonly linearClientId?: cdk.SecretValue;
+  readonly linearClientSecret?: cdk.SecretValue;
+  readonly linearRedirectUri?: cdk.SecretValue;
+  readonly linearWebhookSecret?: cdk.SecretValue;
+  readonly notionClientId?: cdk.SecretValue;
+  readonly notionClientSecret?: cdk.SecretValue;
+  readonly notionWebhookSecret?: cdk.SecretValue;
+  readonly pagerdutyClientId?: cdk.SecretValue;
+  readonly pagerdutyClientSecret?: cdk.SecretValue;
+  readonly pagerdutyRedirectUri?: cdk.SecretValue;
+  readonly zendeskClientId?: cdk.SecretValue;
+  readonly zendeskClientSecret?: cdk.SecretValue;
 }
 
 /**
@@ -106,17 +106,17 @@ export interface CtxPipeOtelProps {
    * `${endpoint}/v1/traces`, and the same for logs and metrics.
    * A blank value throws. Omit `otel` to leave export off.
    */
-  readonly endpoint: string
+  readonly endpoint: string;
   /**
    * `OTEL_EXPORTER_OTLP_HEADERS`, for example `Authorization=Bearer xxx`.
    * Stored in Secrets Manager and injected into the app tasks when export is on.
    */
-  readonly headers?: cdk.SecretValue
+  readonly headers?: cdk.SecretValue;
   /**
    * `OTEL_RESOURCE_ATTRIBUTES`, for example `deployment.environment=production`.
    * Set on the app tasks when export is on.
    */
-  readonly resourceAttributes?: string
+  readonly resourceAttributes?: string;
 }
 
 /**
@@ -129,12 +129,12 @@ export interface CtxPipeSandboxHostProps {
    * `t4g.xlarge` (large). Memory is the limit (~0.3–0.5 GiB per active
    * sandbox). Must be a Graviton (arm64) type.
    */
-  readonly instanceType?: ec2.InstanceType
+  readonly instanceType?: ec2.InstanceType;
   /**
    * gp3 volume for `/var/lib/docker`, in GiB. Holds images, running and
    * stopped sandboxes (kept up to 30 days). Defaults by `size`: 30, 50, 100.
    */
-  readonly dockerVolumeSizeGiB?: number
+  readonly dockerVolumeSizeGiB?: number;
 }
 
 export interface CtxPipeProps {
@@ -143,20 +143,20 @@ export interface CtxPipeProps {
    * For Neptune, this construct configures a single-org deployment and maps
    * the cluster URI to GRAPH_DB_URI_<orgSlug>.
    */
-  readonly orgSlug: string
-  readonly modelProvider: CtxPipeModelProviderProps
-  readonly customDomain: CtxPipeCustomDomainProps
-  readonly connectorSecrets?: CtxPipeConnectorSecretsProps
+  readonly orgSlug: string;
+  readonly modelProvider: CtxPipeModelProviderProps;
+  readonly customDomain: CtxPipeCustomDomainProps;
+  readonly connectorSecrets?: CtxPipeConnectorSecretsProps;
   /**
    * Optional OpenTelemetry export to the operator's OTLP endpoint.
    * Omit to export nothing.
    */
-  readonly otel?: CtxPipeOtelProps
+  readonly otel?: CtxPipeOtelProps;
   /**
    * Capacity profile for single-tenant self-hosting.
    * Defaults to "small" when omitted.
    */
-  readonly size?: CtxPipeSize
+  readonly size?: CtxPipeSize;
   /** Optional overrides for the always-created chat sandbox host. */
-  readonly sandboxHost?: CtxPipeSandboxHostProps
+  readonly sandboxHost?: CtxPipeSandboxHostProps;
 }

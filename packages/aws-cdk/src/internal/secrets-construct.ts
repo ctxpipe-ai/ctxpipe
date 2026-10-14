@@ -1,23 +1,19 @@
-import * as cdk from "aws-cdk-lib"
-import * as ecs from "aws-cdk-lib/aws-ecs"
-import * as iam from "aws-cdk-lib/aws-iam"
-import * as lambda from "aws-cdk-lib/aws-lambda"
-import type * as route53 from "aws-cdk-lib/aws-route53"
-import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager"
-import * as ses from "aws-cdk-lib/aws-ses"
-import * as cr from "aws-cdk-lib/custom-resources"
-import { Construct } from "constructs"
-import type { SecretsConstructProps, SecretsResources } from "./contracts"
+import * as cdk from "aws-cdk-lib";
+import * as ecs from "aws-cdk-lib/aws-ecs";
+import * as iam from "aws-cdk-lib/aws-iam";
+import * as lambda from "aws-cdk-lib/aws-lambda";
+import type * as route53 from "aws-cdk-lib/aws-route53";
+import * as ses from "aws-cdk-lib/aws-ses";
+import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
+import * as cr from "aws-cdk-lib/custom-resources";
+import { Construct } from "constructs";
+import type { SecretsConstructProps, SecretsResources } from "./contracts";
 
 export class SecretsConstruct extends Construct {
-  public readonly resources: SecretsResources
+  public readonly resources: SecretsResources;
 
-  public constructor(
-    scope: Construct,
-    id: string,
-    props: SecretsConstructProps,
-  ) {
-    super(scope, id)
+  public constructor(scope: Construct, id: string, props: SecretsConstructProps) {
+    super(scope, id);
 
     const authSecret = new secretsmanager.Secret(this, "AuthSecret", {
       generateSecretString: {
@@ -25,25 +21,17 @@ export class SecretsConstruct extends Construct {
         generateStringKey: "AUTH_SECRET",
         passwordLength: 64,
       },
-    })
+    });
 
-    const databaseUrlSecret = new secretsmanager.Secret(
-      this,
-      "DatabaseUrlSecret",
-      {
-        description:
-          "PostgreSQL connection URL for ctxpipe runtime services (ctxpipe_app, populated after migrate)",
-      },
-    )
+    const databaseUrlSecret = new secretsmanager.Secret(this, "DatabaseUrlSecret", {
+      description:
+        "PostgreSQL connection URL for ctxpipe runtime services (ctxpipe_app, populated after migrate)",
+    });
 
-    const ownerDatabaseUrlSecret = new secretsmanager.Secret(
-      this,
-      "OwnerDatabaseUrlSecret",
-      {
-        description:
-          "PostgreSQL connection URL for ctxpipe migrate (Aurora owner ctxpipe, populated at deploy time)",
-      },
-    )
+    const ownerDatabaseUrlSecret = new secretsmanager.Secret(this, "OwnerDatabaseUrlSecret", {
+      description:
+        "PostgreSQL connection URL for ctxpipe migrate (Aurora owner ctxpipe, populated at deploy time)",
+    });
 
     const appDatabaseCredentialsSecret = new secretsmanager.Secret(
       this,
@@ -56,16 +44,13 @@ export class SecretsConstruct extends Construct {
           passwordLength: 32,
         },
       },
-    )
+    );
 
-    const databaseUrlWriterFunction = new lambda.Function(
-      this,
-      "DatabaseUrlWriterFunction",
-      {
-        runtime: lambda.Runtime.NODEJS_20_X,
-        handler: "index.handler",
-        timeout: cdk.Duration.seconds(30),
-        code: lambda.Code.fromInline(`
+    const databaseUrlWriterFunction = new lambda.Function(this, "DatabaseUrlWriterFunction", {
+      runtime: lambda.Runtime.NODEJS_20_X,
+      handler: "index.handler",
+      timeout: cdk.Duration.seconds(30),
+      code: lambda.Code.fromInline(`
           const {
             SecretsManagerClient,
             GetSecretValueCommand,
@@ -124,46 +109,35 @@ export class SecretsConstruct extends Construct {
             };
           };
         `),
+    });
+
+    props.dataPlane.dbCredentialsSecret.grantRead(databaseUrlWriterFunction);
+    appDatabaseCredentialsSecret.grantRead(databaseUrlWriterFunction);
+    ownerDatabaseUrlSecret.grantWrite(databaseUrlWriterFunction);
+    databaseUrlSecret.grantWrite(databaseUrlWriterFunction);
+
+    const databaseUrlWriterProvider = new cr.Provider(this, "DatabaseUrlWriterProvider", {
+      onEventHandler: databaseUrlWriterFunction,
+    });
+
+    const dbHost = props.dataPlane.dbCluster.clusterEndpoint.hostname;
+    const dbPort = cdk.Token.asString(props.dataPlane.dbCluster.clusterEndpoint.port);
+
+    const databaseUrlWriter = new cdk.CustomResource(this, "DatabaseUrlWriter", {
+      serviceToken: databaseUrlWriterProvider.serviceToken,
+      properties: {
+        WriterPhysicalId: "database-url-writer",
+        Username: "ctxpipe",
+        DbCredentialsSecretArn: props.dataPlane.dbCredentialsSecret.secretArn,
+        DatabaseUrlSecretArn: ownerDatabaseUrlSecret.secretArn,
+        DbHost: dbHost,
+        DbPort: dbPort,
+        DatabaseName: props.databaseName,
       },
-    )
-
-    props.dataPlane.dbCredentialsSecret.grantRead(databaseUrlWriterFunction)
-    appDatabaseCredentialsSecret.grantRead(databaseUrlWriterFunction)
-    ownerDatabaseUrlSecret.grantWrite(databaseUrlWriterFunction)
-    databaseUrlSecret.grantWrite(databaseUrlWriterFunction)
-
-    const databaseUrlWriterProvider = new cr.Provider(
-      this,
-      "DatabaseUrlWriterProvider",
-      {
-        onEventHandler: databaseUrlWriterFunction,
-      },
-    )
-
-    const dbHost = props.dataPlane.dbCluster.clusterEndpoint.hostname
-    const dbPort = cdk.Token.asString(
-      props.dataPlane.dbCluster.clusterEndpoint.port,
-    )
-
-    const databaseUrlWriter = new cdk.CustomResource(
-      this,
-      "DatabaseUrlWriter",
-      {
-        serviceToken: databaseUrlWriterProvider.serviceToken,
-        properties: {
-          WriterPhysicalId: "database-url-writer",
-          Username: "ctxpipe",
-          DbCredentialsSecretArn: props.dataPlane.dbCredentialsSecret.secretArn,
-          DatabaseUrlSecretArn: ownerDatabaseUrlSecret.secretArn,
-          DbHost: dbHost,
-          DbPort: dbPort,
-          DatabaseName: props.databaseName,
-        },
-      },
-    )
-    databaseUrlWriter.node.addDependency(props.dataPlane.dbCredentialsSecret)
-    databaseUrlWriter.node.addDependency(props.dataPlane.dbCluster)
-    databaseUrlWriter.node.addDependency(ownerDatabaseUrlSecret)
+    });
+    databaseUrlWriter.node.addDependency(props.dataPlane.dbCredentialsSecret);
+    databaseUrlWriter.node.addDependency(props.dataPlane.dbCluster);
+    databaseUrlWriter.node.addDependency(ownerDatabaseUrlSecret);
 
     const runtimeDatabaseUrlWriter = new cdk.CustomResource(
       this,
@@ -180,10 +154,10 @@ export class SecretsConstruct extends Construct {
           DatabaseName: props.databaseName,
         },
       },
-    )
-    runtimeDatabaseUrlWriter.node.addDependency(appDatabaseCredentialsSecret)
-    runtimeDatabaseUrlWriter.node.addDependency(props.dataPlane.dbCluster)
-    runtimeDatabaseUrlWriter.node.addDependency(databaseUrlSecret)
+    );
+    runtimeDatabaseUrlWriter.node.addDependency(appDatabaseCredentialsSecret);
+    runtimeDatabaseUrlWriter.node.addDependency(props.dataPlane.dbCluster);
+    runtimeDatabaseUrlWriter.node.addDependency(databaseUrlSecret);
 
     const modelProviderSecret = props.modelProviderApiKey
       ? new secretsmanager.Secret(this, "ModelProviderSecret", {
@@ -191,36 +165,33 @@ export class SecretsConstruct extends Construct {
             API_KEY: props.modelProviderApiKey,
           },
         })
-      : undefined
+      : undefined;
 
     const sesIdentity = new ses.EmailIdentity(this, "SesIdentity", {
       // The hosted zone passed to CtxPipe is expected to be public.
       identity: ses.Identity.publicHostedZone(
         props.hostedZone as route53.IPublicHostedZone,
       ),
-    })
+    });
 
-    const sesSmtpUser = new iam.User(this, "SesSmtpUser")
-    sesIdentity.grantSendEmail(sesSmtpUser)
+    const sesSmtpUser = new iam.User(this, "SesSmtpUser");
+    sesIdentity.grantSendEmail(sesSmtpUser);
     sesSmtpUser.addToPolicy(
       new iam.PolicyStatement({
         actions: ["ses:SendEmail", "ses:SendRawEmail"],
         resources: ["*"],
       }),
-    )
+    );
 
     const sesSmtpAccessKey = new iam.CfnAccessKey(this, "SesSmtpAccessKey", {
       userName: sesSmtpUser.userName,
-    })
+    });
 
-    const smtpPasswordFunction = new lambda.Function(
-      this,
-      "SesSmtpPasswordFunction",
-      {
-        runtime: lambda.Runtime.NODEJS_20_X,
-        handler: "index.handler",
-        timeout: cdk.Duration.seconds(15),
-        code: lambda.Code.fromInline(`
+    const smtpPasswordFunction = new lambda.Function(this, "SesSmtpPasswordFunction", {
+      runtime: lambda.Runtime.NODEJS_20_X,
+      handler: "index.handler",
+      timeout: cdk.Duration.seconds(15),
+      code: lambda.Code.fromInline(`
           const crypto = require("crypto");
           function sign(key, message) {
             return crypto.createHmac("sha256", key).update(message, "utf8").digest();
@@ -254,12 +225,11 @@ export class SecretsConstruct extends Construct {
             };
           };
         `),
-      },
-    )
+    });
 
     const smtpProvider = new cr.Provider(this, "SesSmtpProvider", {
       onEventHandler: smtpPasswordFunction,
-    })
+    });
 
     const smtpConfiguration = new cdk.CustomResource(this, "SesSmtpConfig", {
       serviceToken: smtpProvider.serviceToken,
@@ -269,7 +239,7 @@ export class SecretsConstruct extends Construct {
         Region: cdk.Stack.of(this).region,
         FromAddress: props.emailFromAddress,
       },
-    })
+    });
 
     const smtpSecret = new secretsmanager.Secret(this, "SmtpSecret", {
       secretObjectValue: {
@@ -280,8 +250,8 @@ export class SecretsConstruct extends Construct {
           smtpConfiguration.getAttString("EmailFromAddress"),
         ),
       },
-    })
-    smtpSecret.node.addDependency(sesIdentity)
+    });
+    smtpSecret.node.addDependency(sesIdentity);
 
     const connectorSecret = props.connectorSecrets
       ? new secretsmanager.Secret(this, "ConnectorSecret", {
@@ -293,44 +263,30 @@ export class SecretsConstruct extends Construct {
               ? { GITHUB_PRIVATE_KEY: props.connectorSecrets.githubPrivateKey }
               : {}),
             ...(props.connectorSecrets.githubWebhookSecret
-              ? {
-                  GITHUB_WEBHOOK_SECRET:
-                    props.connectorSecrets.githubWebhookSecret,
-                }
+              ? { GITHUB_WEBHOOK_SECRET: props.connectorSecrets.githubWebhookSecret }
               : {}),
             ...(props.connectorSecrets.githubClientId
               ? { GITHUB_CLIENT_ID: props.connectorSecrets.githubClientId }
               : {}),
             ...(props.connectorSecrets.githubClientSecret
-              ? {
-                  GITHUB_CLIENT_SECRET:
-                    props.connectorSecrets.githubClientSecret,
-                }
+              ? { GITHUB_CLIENT_SECRET: props.connectorSecrets.githubClientSecret }
               : {}),
             ...(props.connectorSecrets.atlassianClientId
-              ? {
-                  ATLASSIAN_CLIENT_ID: props.connectorSecrets.atlassianClientId,
-                }
+              ? { ATLASSIAN_CLIENT_ID: props.connectorSecrets.atlassianClientId }
               : {}),
             ...(props.connectorSecrets.atlassianClientSecret
               ? {
-                  ATLASSIAN_CLIENT_SECRET:
-                    props.connectorSecrets.atlassianClientSecret,
+                  ATLASSIAN_CLIENT_SECRET: props.connectorSecrets.atlassianClientSecret,
                 }
               : {}),
             ...(props.connectorSecrets.slackClientId
               ? { SLACK_CLIENT_ID: props.connectorSecrets.slackClientId }
               : {}),
             ...(props.connectorSecrets.slackClientSecret
-              ? {
-                  SLACK_CLIENT_SECRET: props.connectorSecrets.slackClientSecret,
-                }
+              ? { SLACK_CLIENT_SECRET: props.connectorSecrets.slackClientSecret }
               : {}),
             ...(props.connectorSecrets.slackSigningSecret
-              ? {
-                  SLACK_SIGNING_SECRET:
-                    props.connectorSecrets.slackSigningSecret,
-                }
+              ? { SLACK_SIGNING_SECRET: props.connectorSecrets.slackSigningSecret }
               : {}),
             ...(props.connectorSecrets.linearClientId
               ? { LINEAR_CLIENT_ID: props.connectorSecrets.linearClientId }
@@ -356,21 +312,13 @@ export class SecretsConstruct extends Construct {
               ? { NOTION_CLIENT_ID: props.connectorSecrets.notionClientId }
               : {}),
             ...(props.connectorSecrets.notionClientSecret
-              ? {
-                  NOTION_CLIENT_SECRET:
-                    props.connectorSecrets.notionClientSecret,
-                }
+              ? { NOTION_CLIENT_SECRET: props.connectorSecrets.notionClientSecret }
               : {}),
             ...(props.connectorSecrets.notionWebhookSecret
-              ? {
-                  NOTION_WEBHOOK_SECRET:
-                    props.connectorSecrets.notionWebhookSecret,
-                }
+              ? { NOTION_WEBHOOK_SECRET: props.connectorSecrets.notionWebhookSecret }
               : {}),
             ...(props.connectorSecrets.pagerdutyClientId
-              ? {
-                  PAGERDUTY_CLIENT_ID: props.connectorSecrets.pagerdutyClientId,
-                }
+              ? { PAGERDUTY_CLIENT_ID: props.connectorSecrets.pagerdutyClientId }
               : {}),
             ...(props.connectorSecrets.pagerdutyClientSecret
               ? {
@@ -395,141 +343,141 @@ export class SecretsConstruct extends Construct {
               : {}),
           },
         })
-      : undefined
+      : undefined;
 
-    const connectorEnv: Record<string, ecs.Secret> = {}
+    const connectorEnv: Record<string, ecs.Secret> = {};
     if (connectorSecret) {
       if (props.connectorSecrets?.githubAppId) {
         connectorEnv.GITHUB_APP_ID = ecs.Secret.fromSecretsManager(
           connectorSecret,
           "GITHUB_APP_ID",
-        )
+        );
       }
       if (props.connectorSecrets?.githubPrivateKey) {
         connectorEnv.GITHUB_PRIVATE_KEY = ecs.Secret.fromSecretsManager(
           connectorSecret,
           "GITHUB_PRIVATE_KEY",
-        )
+        );
       }
       if (props.connectorSecrets?.githubWebhookSecret) {
         connectorEnv.GITHUB_WEBHOOK_SECRET = ecs.Secret.fromSecretsManager(
           connectorSecret,
           "GITHUB_WEBHOOK_SECRET",
-        )
+        );
       }
       if (props.connectorSecrets?.githubClientId) {
         connectorEnv.GITHUB_CLIENT_ID = ecs.Secret.fromSecretsManager(
           connectorSecret,
           "GITHUB_CLIENT_ID",
-        )
+        );
       }
       if (props.connectorSecrets?.githubClientSecret) {
         connectorEnv.GITHUB_CLIENT_SECRET = ecs.Secret.fromSecretsManager(
           connectorSecret,
           "GITHUB_CLIENT_SECRET",
-        )
+        );
       }
       if (props.connectorSecrets?.atlassianClientId) {
         connectorEnv.ATLASSIAN_CLIENT_ID = ecs.Secret.fromSecretsManager(
           connectorSecret,
           "ATLASSIAN_CLIENT_ID",
-        )
+        );
       }
       if (props.connectorSecrets?.atlassianClientSecret) {
         connectorEnv.ATLASSIAN_CLIENT_SECRET = ecs.Secret.fromSecretsManager(
           connectorSecret,
           "ATLASSIAN_CLIENT_SECRET",
-        )
+        );
       }
       if (props.connectorSecrets?.slackClientId) {
         connectorEnv.SLACK_CLIENT_ID = ecs.Secret.fromSecretsManager(
           connectorSecret,
           "SLACK_CLIENT_ID",
-        )
+        );
       }
       if (props.connectorSecrets?.slackClientSecret) {
         connectorEnv.SLACK_CLIENT_SECRET = ecs.Secret.fromSecretsManager(
           connectorSecret,
           "SLACK_CLIENT_SECRET",
-        )
+        );
       }
       if (props.connectorSecrets?.slackSigningSecret) {
         connectorEnv.SLACK_SIGNING_SECRET = ecs.Secret.fromSecretsManager(
           connectorSecret,
           "SLACK_SIGNING_SECRET",
-        )
+        );
       }
       if (props.connectorSecrets?.linearClientId) {
         connectorEnv.LINEAR_CLIENT_ID = ecs.Secret.fromSecretsManager(
           connectorSecret,
           "LINEAR_CLIENT_ID",
-        )
+        );
       }
       if (props.connectorSecrets?.linearClientSecret) {
         connectorEnv.LINEAR_CLIENT_SECRET = ecs.Secret.fromSecretsManager(
           connectorSecret,
           "LINEAR_CLIENT_SECRET",
-        )
+        );
       }
       if (props.connectorSecrets?.linearRedirectUri) {
         connectorEnv.LINEAR_REDIRECT_URI = ecs.Secret.fromSecretsManager(
           connectorSecret,
           "LINEAR_REDIRECT_URI",
-        )
+        );
       }
       if (props.connectorSecrets?.linearWebhookSecret) {
         connectorEnv.LINEAR_WEBHOOK_SECRET = ecs.Secret.fromSecretsManager(
           connectorSecret,
           "LINEAR_WEBHOOK_SECRET",
-        )
+        );
       }
       if (props.connectorSecrets?.notionClientId) {
         connectorEnv.NOTION_CLIENT_ID = ecs.Secret.fromSecretsManager(
           connectorSecret,
           "NOTION_CLIENT_ID",
-        )
+        );
       }
       if (props.connectorSecrets?.notionClientSecret) {
         connectorEnv.NOTION_CLIENT_SECRET = ecs.Secret.fromSecretsManager(
           connectorSecret,
           "NOTION_CLIENT_SECRET",
-        )
+        );
       }
       if (props.connectorSecrets?.notionWebhookSecret) {
         connectorEnv.NOTION_WEBHOOK_SECRET = ecs.Secret.fromSecretsManager(
           connectorSecret,
           "NOTION_WEBHOOK_SECRET",
-        )
+        );
       }
       if (props.connectorSecrets?.pagerdutyClientId) {
         connectorEnv.PAGERDUTY_CLIENT_ID = ecs.Secret.fromSecretsManager(
           connectorSecret,
           "PAGERDUTY_CLIENT_ID",
-        )
+        );
       }
       if (props.connectorSecrets?.pagerdutyClientSecret) {
         connectorEnv.PAGERDUTY_CLIENT_SECRET = ecs.Secret.fromSecretsManager(
           connectorSecret,
           "PAGERDUTY_CLIENT_SECRET",
-        )
+        );
       }
       if (props.connectorSecrets?.pagerdutyRedirectUri) {
         connectorEnv.PAGERDUTY_REDIRECT_URI = ecs.Secret.fromSecretsManager(
           connectorSecret,
           "PAGERDUTY_REDIRECT_URI",
-        )
+        );
       }
       if (props.connectorSecrets?.zendeskClientId) {
         connectorEnv.ZENDESK_CLIENT_ID = ecs.Secret.fromSecretsManager(
           connectorSecret,
           "ZENDESK_CLIENT_ID",
-        )
+        );
       }
       if (props.connectorSecrets?.zendeskClientSecret) {
         connectorEnv.ZENDESK_CLIENT_SECRET = ecs.Secret.fromSecretsManager(
           connectorSecret,
           "ZENDESK_CLIENT_SECRET",
-        )
+        );
       }
     }
 
@@ -544,6 +492,6 @@ export class SecretsConstruct extends Construct {
       smtpSecret,
       connectorSecret,
       connectorEnv,
-    }
+    };
   }
 }
