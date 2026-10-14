@@ -31,7 +31,7 @@ async function main(argv: string[]) {
     !remoteFile
   ) {
     throw new Error(
-      "Usage: run-seed.ts prepare DIRECTORY | seed RUN USER_ID REMOTES_JSON | advance RUN USER_ID REMOTES_JSON | ci RUN REMOTES_JSON OUT_JSON",
+      "Usage: run-seed.ts prepare DIRECTORY | seed RUN USER_ID REMOTES_JSON | advance RUN USER_ID REMOTES_JSON | ci RUN DIRECTORY OUT_JSON",
     )
   }
   if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required")
@@ -55,18 +55,19 @@ async function main(argv: string[]) {
 }
 
 /**
- * CI only: create a made-up user, seed the fixtures, and write the run name,
- * the user id, the remotes file, and a personal API key for the two fixture
- * organizations to OUT_JSON (mode 0600). `run.ts --seed OUT_JSON` reads it.
- * Use a disposable database.
+ * CI only: prepare the fixture repositories in DIRECTORY, create a made-up
+ * user, seed the fixtures, and write the run name, the user id, the remotes
+ * file, and a personal API key for the two fixture organizations to
+ * OUT_JSON (mode 0600). `run.ts --seed OUT_JSON` reads it. Use a disposable
+ * database.
  */
-async function seedForCi(run: string, remoteFile: string, out: string) {
-  if (!run || !remoteFile || !out)
-    throw new Error("ci needs RUN REMOTES_JSON OUT_JSON")
+async function seedForCi(run: string, directory: string, out: string) {
+  if (!run || !directory || !out)
+    throw new Error("ci needs RUN DIRECTORY OUT_JSON")
   if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required")
-  const remotes = z
-    .record(z.string(), z.string().min(1))
-    .parse(JSON.parse(await readFile(remoteFile, "utf8")))
+  const remotes = await prepareMcpEvalRepositories(resolve(directory))
+  const remoteFile = resolve(directory, "remotes.json")
+  await writeFile(remoteFile, JSON.stringify(remotes))
   initDb(process.env.DATABASE_URL)
   try {
     const userId = `user_mcp_eval_${run}`
@@ -80,16 +81,8 @@ async function seedForCi(run: string, remoteFile: string, out: string) {
     })
     await writeFile(
       out,
-      JSON.stringify({
-        run,
-        userId,
-        remotes: resolve(remoteFile),
-        apiKey: key,
-      }),
+      JSON.stringify({ run, userId, remotes: remoteFile, apiKey: key }),
       { mode: 0o600 },
-    )
-    process.stdout.write(
-      `${JSON.stringify({ workspaces: seeded.workspaces }, null, 2)}\n`,
     )
   } finally {
     await closeGraphDb()

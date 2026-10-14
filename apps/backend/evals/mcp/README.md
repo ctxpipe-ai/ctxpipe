@@ -62,16 +62,52 @@ The command prints the Workspace id and the new SHA. The first projection SHA is
 
 ## MCPJam eval suite (CTX-574)
 
-`cases.ts` holds 22 coding-agent tasks. They run against the seeded fixture organizations. The suite uses `@mcpjam/sdk`: each case runs 3 times for each client model. A model must pass 0.9 of all iterations. A run also fails when a pass rate falls from `baseline.json` (aggregate: 0.05, one case: more than one lost iteration). A case checks tool choice, argument quality (the `excludeRepositories` rule, filters, search mode), result relevance (a tool result holds the expected ref), and task success (the answer holds the fixture facts). `check.ts` judges a run; `gate.ts` decides the exit code. Both are pure, and `src/mcp/eval-suite.test.ts` tests them without a model. That test also checks that each expected fact exists in the fixtures and that each argument fits the registered tool schemas.
+`cases.ts` holds 22 coding-agent tasks. They run against the seeded fixture organizations. The suite uses `@mcpjam/sdk`. Each case runs 3 times for each client model. A run needs at least two models.
 
-Run it against a seeded target:
+A case checks four things:
+
+- Tool choice: the agent calls the expected tools.
+- Argument quality: the agent uses the `excludeRepositories` rule, filters, and the search mode correctly.
+- Result relevance: a tool result holds the expected ref.
+- Task success: the answer holds the fixture facts.
+
+The gate divides passed iterations by requested iterations. An iteration that throws or times out is a failure. Each model must pass 0.9 of its iterations. When `baseline.json` holds a recorded run, the gate also fails on a fall from it. The aggregate may fall by 0.05. One case may lose one iteration.
+
+`check.ts` judges a run, and `gate.ts` decides the exit code. Both are pure. `src/mcp/eval-suite.test.ts` tests them without a model. That test also checks that each expected fact exists in the fixtures. It also checks that each argument fits the registered tool schemas.
+
+The `stale-cursor` case uses a real cursor. Before that case, `run.ts` calls `search_knowledge` and keeps the cursor. Then it runs `run-seed.ts advance`, so the Workspace moves to its second projection. The case runs last and expects the error `stale_cursor`. Thus each seed supports one run.
+
+### CI
+
+CI is `.github/workflows/mcp-evals.yaml`. It runs nightly, by hand, and on a pull request with the label `mcp-evals`. The job never uses a preview, because a preview database is a copy of production data. The job does these steps:
+
+1. It starts Postgres and FalkorDB as service containers and applies the migrations.
+2. It starts codesearch and the backend from the checked-out code.
+3. It runs `run-seed.ts ci`. This command prepares the fixture repositories, creates a made-up user, and seeds the fixtures. It also creates a personal API key for the two fixture organizations only. It writes the key to a temporary file and does not print it.
+4. It runs `run.ts` against `http://localhost:3000/mcp`.
+5. It uploads the results with the pass rates of each model and case, and the logs.
+
+The model provider keys are the only secrets. Only the steps that need them get them. The variable `MCP_EVAL_MODELS` names the client models, at least two.
+
+A pull request that changes `apps/backend/src/mcp` does not run the suite, because each run calls paid models. `.github/workflows/mcp-evals-reminder.yaml` adds a comment that asks for the label.
+
+### Record the baseline (one time)
+
+Until `baseline.json` holds a run, it is `null`, and only the 0.9 floor applies. The job summary says so. To record the baseline, do these steps:
+
+1. Start the workflow by hand with `update_baseline` set.
+2. Download `baseline.json` from the `mcp-eval-results` artifact.
+3. Commit it as `apps/backend/evals/mcp/baseline.json`.
+
+### Run on a local stack
+
+Use a fresh migrated database, live FalkorDB, codesearch, and the backend environment. Run commands from `apps/backend`.
 
 ```sh
-MCP_EVAL_URL=https://<backend>/mcp MCP_EVAL_API_KEY=<personal key with both orgs> MCP_EVAL_RUN=<seed run name> \
-  ANTHROPIC_API_KEY=... OPENAI_API_KEY=... \
-  pnpm --filter @ctxpipe/backend exec bun evals/mcp/run.ts --models <provider/model>,<provider/model> --out results.json
+bun --env-file=.env.local evals/mcp/run-seed.ts ci local1 /tmp/mcp-eval-fixtures /tmp/mcp-eval-seed.json
+ANTHROPIC_API_KEY=... OPENAI_API_KEY=... bun --env-file=.env.local evals/mcp/run.ts \
+  --url http://localhost:3000/mcp --seed /tmp/mcp-eval-seed.json \
+  --models <provider/model>,<provider/model> --out results.json
 ```
 
-The server must offer exactly the seven read tools. Any other tool set exits with code 2. Add `--update-baseline` to write the read-tool pass rates to `baseline.json`; record the first live run and commit the result. Without a stored baseline, only the 0.9 floor applies.
-
-CI is `.github/workflows/mcp-evals.yaml`: nightly, on the label `mcp-evals`, and by hand. A labeled pull request runs against the preview URL from the PR Deploy comment. Other runs use the `MCP_EVAL_URL` and `MCP_EVAL_RUN` variables. The workflow also needs the secret `MCP_EVAL_API_KEY`, the provider keys, and the variable `MCP_EVAL_MODELS` (at least two models). A preview needs a seed first, because the seed reaches Postgres and FalkorDB that a CI runner cannot reach.
+The server must offer exactly the seven read tools. Any other tool set exits with code 2.
