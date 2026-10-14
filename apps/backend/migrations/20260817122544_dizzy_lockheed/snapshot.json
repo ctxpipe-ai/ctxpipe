@@ -206,12 +206,6 @@
     },
     {
       "isRlsEnabled": false,
-      "name": "workspace_linked_repositories",
-      "entityType": "tables",
-      "schema": "public"
-    },
-    {
-      "isRlsEnabled": false,
       "name": "workspace_sandbox_instances",
       "entityType": "tables",
       "schema": "public"
@@ -4204,97 +4198,6 @@
       "name": "id",
       "entityType": "columns",
       "schema": "public",
-      "table": "workspace_linked_repositories"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "workspace_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "workspace_linked_repositories"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "git_url",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "workspace_linked_repositories"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "desired_ref",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "workspace_linked_repositories"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "desired_sha",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "workspace_linked_repositories"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "indexed_sha",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "workspace_linked_repositories"
-    },
-    {
-      "type": "timestamp with time zone",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "now()",
-      "generated": null,
-      "identity": null,
-      "name": "created_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "workspace_linked_repositories"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "id",
-      "entityType": "columns",
-      "schema": "public",
       "table": "workspace_sandbox_instances"
     },
     {
@@ -5889,27 +5792,6 @@
       "with": "",
       "method": "btree",
       "concurrently": false,
-      "name": "workspace_linked_repositories_workspace_id_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "workspace_linked_repositories"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "workspace_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
       "name": "workspace_sandbox_instances_workspace_id_idx",
       "entityType": "indexes",
       "schema": "public",
@@ -6590,23 +6472,6 @@
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
-      "name": "workspace_linked_repositories_workspace_id_workspaces_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "workspace_linked_repositories"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "workspace_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "workspaces",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
       "name": "workspace_sandbox_instances_workspace_id_workspaces_id_fkey",
       "entityType": "fks",
       "schema": "public",
@@ -6962,16 +6827,6 @@
         "id"
       ],
       "nameExplicit": false,
-      "name": "workspace_linked_repositories_pkey",
-      "schema": "public",
-      "table": "workspace_linked_repositories",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
       "name": "workspace_sandbox_instances_pkey",
       "schema": "public",
       "table": "workspace_sandbox_instances",
@@ -7068,18 +6923,6 @@
       "entityType": "uniques",
       "schema": "public",
       "table": "workspace_knowledge_units"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        "workspace_id",
-        "git_url"
-      ],
-      "nullsNotDistinct": false,
-      "name": "workspace_linked_repositories_workspace_id_git_url_uidx",
-      "entityType": "uniques",
-      "schema": "public",
-      "table": "workspace_linked_repositories"
     },
     {
       "nameExplicit": true,

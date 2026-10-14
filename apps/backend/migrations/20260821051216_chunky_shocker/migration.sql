@@ -45,24 +45,20 @@ FROM "connections";
 ALTER TABLE "claim_evidence" ADD COLUMN "org_id" text;--> statement-breakpoint
 ALTER TABLE "confluence_spaces" ADD COLUMN "org_id" text;--> statement-breakpoint
 ALTER TABLE "repository_checkouts" ADD COLUMN "org_id" text;--> statement-breakpoint
-ALTER TABLE "workspace_linked_repositories" ADD COLUMN "org_id" text;--> statement-breakpoint
 ALTER TABLE "workspace_write_jobs" ADD COLUMN "org_id" text;--> statement-breakpoint
 UPDATE "claim_evidence" AS e SET "org_id" = c."org_id" FROM "claims" AS c WHERE e."claim_id" = c."id" AND e."org_id" IS NULL;--> statement-breakpoint
 UPDATE "confluence_spaces" AS s SET "org_id" = c."org_id" FROM "connections" AS c WHERE s."connection_id" = c."id" AND s."org_id" IS NULL;--> statement-breakpoint
 UPDATE "repository_checkouts" AS ch SET "org_id" = r."org_id" FROM "repositories" AS r WHERE ch."repository_id" = r."id" AND ch."org_id" IS NULL;--> statement-breakpoint
-UPDATE "workspace_linked_repositories" AS l SET "org_id" = w."org_id" FROM "workspaces" AS w WHERE l."workspace_id" = w."id" AND l."org_id" IS NULL;--> statement-breakpoint
 UPDATE "workspace_write_jobs" AS j SET "org_id" = w."org_id" FROM "workspaces" AS w WHERE j."workspace_id" = w."id" AND j."org_id" IS NULL;--> statement-breakpoint
 UPDATE "workspace_sandbox_instances" AS s SET "org_id" = w."org_id" FROM "workspaces" AS w WHERE s."workspace_id" = w."id" AND s."org_id" IS NULL;--> statement-breakpoint
 DELETE FROM "claim_evidence" WHERE "org_id" IS NULL;--> statement-breakpoint
 DELETE FROM "confluence_spaces" WHERE "org_id" IS NULL;--> statement-breakpoint
 DELETE FROM "repository_checkouts" WHERE "org_id" IS NULL;--> statement-breakpoint
-DELETE FROM "workspace_linked_repositories" WHERE "org_id" IS NULL;--> statement-breakpoint
 DELETE FROM "workspace_write_jobs" WHERE "org_id" IS NULL;--> statement-breakpoint
 DELETE FROM "workspace_sandbox_instances" WHERE "org_id" IS NULL;--> statement-breakpoint
 ALTER TABLE "claim_evidence" ALTER COLUMN "org_id" SET NOT NULL;--> statement-breakpoint
 ALTER TABLE "confluence_spaces" ALTER COLUMN "org_id" SET NOT NULL;--> statement-breakpoint
 ALTER TABLE "repository_checkouts" ALTER COLUMN "org_id" SET NOT NULL;--> statement-breakpoint
-ALTER TABLE "workspace_linked_repositories" ALTER COLUMN "org_id" SET NOT NULL;--> statement-breakpoint
 ALTER TABLE "workspace_write_jobs" ALTER COLUMN "org_id" SET NOT NULL;--> statement-breakpoint
 ALTER TABLE "workspace_sandbox_instances" ALTER COLUMN "org_id" SET NOT NULL;--> statement-breakpoint
 ALTER TABLE "claim_evidence" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
@@ -78,7 +74,6 @@ ALTER TABLE "repositories" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
 ALTER TABLE "repository_checkouts" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
 ALTER TABLE "org_member_preferences" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
 ALTER TABLE "workspace_knowledge_units" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
-ALTER TABLE "workspace_linked_repositories" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
 ALTER TABLE "workspace_sandbox_instances" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
 ALTER TABLE "workspace_write_jobs" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
 ALTER TABLE "workspaces" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
@@ -93,7 +88,6 @@ CREATE INDEX "connection_directory_notion_bot_id_idx" ON "connection_directory" 
 CREATE INDEX "connection_directory_forge_cloud_id_idx" ON "connection_directory" ("forge_cloud_id");--> statement-breakpoint
 CREATE INDEX "connection_directory_forge_installation_id_idx" ON "connection_directory" ("forge_installation_id");--> statement-breakpoint
 CREATE INDEX "repository_checkouts_org_id_idx" ON "repository_checkouts" ("org_id");--> statement-breakpoint
-CREATE INDEX "workspace_linked_repositories_org_id_idx" ON "workspace_linked_repositories" ("org_id");--> statement-breakpoint
 CREATE INDEX "workspace_sandbox_instances_org_id_idx" ON "workspace_sandbox_instances" ("org_id");--> statement-breakpoint
 CREATE INDEX "workspace_write_jobs_org_id_idx" ON "workspace_write_jobs" ("org_id");--> statement-breakpoint
 CREATE POLICY "org_isolation" ON "claim_evidence" AS PERMISSIVE FOR ALL TO public USING ("claim_evidence"."org_id" = current_setting('app.organization_id', true)) WITH CHECK ("claim_evidence"."org_id" = current_setting('app.organization_id', true));--> statement-breakpoint
@@ -109,7 +103,6 @@ CREATE POLICY "org_isolation" ON "repositories" AS PERMISSIVE FOR ALL TO public 
 CREATE POLICY "org_isolation" ON "repository_checkouts" AS PERMISSIVE FOR ALL TO public USING ("repository_checkouts"."org_id" = current_setting('app.organization_id', true)) WITH CHECK ("repository_checkouts"."org_id" = current_setting('app.organization_id', true));--> statement-breakpoint
 CREATE POLICY "org_isolation" ON "org_member_preferences" AS PERMISSIVE FOR ALL TO public USING ("org_member_preferences"."org_id" = current_setting('app.organization_id', true)) WITH CHECK ("org_member_preferences"."org_id" = current_setting('app.organization_id', true));--> statement-breakpoint
 CREATE POLICY "org_isolation" ON "workspace_knowledge_units" AS PERMISSIVE FOR ALL TO public USING ("workspace_knowledge_units"."org_id" = current_setting('app.organization_id', true)) WITH CHECK ("workspace_knowledge_units"."org_id" = current_setting('app.organization_id', true));--> statement-breakpoint
-CREATE POLICY "org_isolation" ON "workspace_linked_repositories" AS PERMISSIVE FOR ALL TO public USING ("workspace_linked_repositories"."org_id" = current_setting('app.organization_id', true)) WITH CHECK ("workspace_linked_repositories"."org_id" = current_setting('app.organization_id', true));--> statement-breakpoint
 CREATE POLICY "org_isolation" ON "workspace_sandbox_instances" AS PERMISSIVE FOR ALL TO public USING ("workspace_sandbox_instances"."org_id" = current_setting('app.organization_id', true)) WITH CHECK ("workspace_sandbox_instances"."org_id" = current_setting('app.organization_id', true));--> statement-breakpoint
 CREATE POLICY "org_isolation" ON "workspace_write_jobs" AS PERMISSIVE FOR ALL TO public USING ("workspace_write_jobs"."org_id" = current_setting('app.organization_id', true)) WITH CHECK ("workspace_write_jobs"."org_id" = current_setting('app.organization_id', true));--> statement-breakpoint
 CREATE POLICY "org_isolation" ON "workspaces" AS PERMISSIVE FOR ALL TO public USING ("workspaces"."org_id" = current_setting('app.organization_id', true)) WITH CHECK ("workspaces"."org_id" = current_setting('app.organization_id', true));

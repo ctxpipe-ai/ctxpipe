@@ -35,6 +35,12 @@ export const workspaceSources = pgTable.withRLS(
       .$type<"ok" | "invalid" | "connection_missing" | "out_of_access">()
       .notNull(),
     statusDetail: text("status_detail"),
+    /**
+     * The pinned state of the source, for example the SHAs of the linked
+     * GitHub repositories (ADR-046, ADR-050). Read and write it only through
+     * `models/workspace-source-state.ts`, which types it per provider.
+     */
+    state: jsonb("state").$type<unknown>().notNull().default({}),
     revision: text("revision").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
       .notNull()
