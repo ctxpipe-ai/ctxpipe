@@ -301,6 +301,73 @@ export const WaitForInstall: Story = {
   },
 }
 
+/** Each cancel request: the connection id it names. */
+const cancelCalls: string[] = []
+const installationDelete = http.delete(
+  ({ request }) =>
+    new URL(request.url).pathname ===
+    `/${orgSlug}/api/v1/connectors/atlassian/installation`,
+  ({ request }) => {
+    cancelCalls.push(
+      new URL(request.url).searchParams.get("connectionId") ?? "",
+    )
+    return new HttpResponse(null, { status: 204 })
+  },
+)
+/** Each install intent: its `installOpened` query value. */
+const intentCalls: (string | null)[] = []
+const installationPostRecorded = http.post(
+  ({ request }) =>
+    new URL(request.url).pathname ===
+    `/${orgSlug}/api/v1/connectors/atlassian/installation`,
+  ({ request }) => {
+    intentCalls.push(new URL(request.url).searchParams.get("installOpened"))
+    return HttpResponse.json({ id: atlassianConnectionId })
+  },
+)
+const installHandlers = [
+  status(sInstall),
+  capabilitiesHosted,
+  installationPostRecorded,
+  installationDelete,
+  orgAtlassianOauthGet(true, false),
+]
+
+/** Close: ask the server to delete the draft while it is empty. */
+export const CloseCancelsTheSetup: Story = {
+  render: () => wizard(),
+  parameters: { msw: { handlers: { page: installHandlers } } },
+  play: async () => {
+    cancelCalls.length = 0
+    const body = within(document.body)
+    await userEvent.click(await body.findByRole("button", { name: "Close" }))
+    await waitFor(() => expect(cancelCalls).toEqual([atlassianConnectionId]))
+  },
+}
+
+/**
+ * "Install" tells the server that the install opened, so a later cancel
+ * keeps the draft for the Marketplace install event.
+ */
+export const InstallMarksTheDraft: Story = {
+  render: () => wizard(),
+  parameters: { msw: { handlers: { page: installHandlers } } },
+  play: async () => {
+    intentCalls.length = 0
+    const open = window.open
+    window.open = () => null
+    try {
+      const body = within(document.body)
+      await userEvent.click(
+        await body.findByRole("button", { name: "Install Forge app" }),
+      )
+      await waitFor(() => expect(intentCalls).toEqual(["true"]))
+    } finally {
+      window.open = open
+    }
+  },
+}
+
 export const AddToWorkspaces: Story = {
   name: "06 / Add to Workspaces",
   render: () => wizard(),
