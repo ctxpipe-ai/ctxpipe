@@ -76,10 +76,11 @@ export function trackedFiles(source) {
     .filter(Boolean)
 }
 
+/** Text of a tracked file at HEAD; "" when it is missing or larger than 1 MiB (a manifest is small). */
 export function readTracked(source, path) {
   try {
     return execFileSync("git", ["-C", source, "show", `HEAD:${path}`], {
-      maxBuffer: 16 * 1024 * 1024,
+      maxBuffer: 1024 * 1024,
     }).toString("utf8")
   } catch {
     return ""
@@ -220,16 +221,31 @@ export function tomlTables(text) {
   return tables
 }
 
-/** Strings of a TOML array `key = [ ... ]` in one table. */
+/** Strings of a TOML array `key = [ ... ]` in one table. Line by line, with no regular expression over the file. */
 export function tomlStringArray(tables, table, key) {
-  const body = (tables.get(table) ?? []).join("\n")
-  const match = new RegExp(
-    `(?:^|\\n)\\s*${key}\\s*=\\s*\\[([\\s\\S]*?)\\]`,
-  ).exec(body)
-  if (!match) return []
-  return [...match[1].matchAll(/"([^"]*)"|'([^']*)'/g)].map(
-    (m) => m[1] ?? m[2] ?? "",
-  )
+  const lines = tables.get(table) ?? []
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim()
+    if (!line.startsWith(key)) continue
+    const rest = line.slice(key.length).trimStart()
+    if (!rest.startsWith("=")) continue
+    const value = rest.slice(1).trimStart()
+    if (!value.startsWith("[")) return []
+    const parts = [value.slice(1)]
+    let closed = value.includes("]")
+    while (!closed && ++i < lines.length) {
+      parts.push(lines[i])
+      closed = lines[i].includes("]")
+    }
+    const body = parts.join("\n")
+    const end = body.indexOf("]")
+    return [
+      ...(end === -1 ? body : body.slice(0, end)).matchAll(
+        /"([^"]*)"|'([^']*)'/g,
+      ),
+    ].map((m) => m[1] ?? m[2] ?? "")
+  }
+  return []
 }
 
 /** List items of a top-level YAML key, in block form. Null when the key is in another form. */
@@ -359,17 +375,16 @@ function workspaceManifests(source, rootFiles) {
       })
   }
   if (rootFiles.has("go.work")) {
-    const text = read("go.work").replace(/\/\/.*$/gm, "")
     const entries = []
-    for (const block of text.matchAll(/\buse\s*\(([^)]*)\)/g))
-      entries.push(
-        ...block[1]
-          .split("\n")
-          .map((l) => l.trim())
-          .filter(Boolean),
-      )
-    for (const line of text.matchAll(/^\s*use\s+([^\s()]+)\s*$/gm))
-      entries.push(line[1])
+    let inBlock = false
+    for (const raw of read("go.work").split("\n")) {
+      const line = raw.replace(/\/\/.*$/, "").trim()
+      if (inBlock) {
+        if (line.startsWith(")")) inBlock = false
+        else if (line) entries.push(line)
+      } else if (/^use\s*\($/.test(line)) inBlock = true
+      else if (line.startsWith("use ")) entries.push(line.slice(4).trim())
+    }
     listed(
       "go.work",
       ["go.mod"],
@@ -398,7 +413,7 @@ function workspaceManifests(source, rootFiles) {
   for (const name of ["settings.gradle", "settings.gradle.kts"]) {
     if (!rootFiles.has(name)) continue
     const entries = []
-    for (const call of read(name).matchAll(/^\s*include\b\s*\(?([^\n)]*)/gm))
+    for (const call of read(name).matchAll(/^[ \t]*include\b[ \t]*\(?([^\n)]*)/gm))
       for (const arg of call[1].matchAll(/['"]([^'"]+)['"]/g))
         entries.push(arg[1].replace(/^:/, "").replaceAll(":", "/"))
     if (entries.length) found.push({ manifest: name, markers: null, entries })

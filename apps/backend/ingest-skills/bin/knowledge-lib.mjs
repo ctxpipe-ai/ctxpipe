@@ -11,7 +11,7 @@
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { posix } from "node:path"
-import { discoverRoots } from "../discover-roots/scripts/roots-lib.mjs"
+import { safePath } from "../discover-roots/scripts/roots-lib.mjs"
 import {
   baseBlob,
   blobContent,
@@ -24,10 +24,18 @@ import {
 } from "./stage-lib.mjs"
 
 /** The validator refuses more ops in one step. */
-export const MAX_STEP_OPS = 30
+const MAX_STEP_OPS = 30
 const MAX_RELATED_LINES = 200
 
-/** Arguments: --root <dir> --source <checkout> --source-url <url> [--roots <file>]. */
+/**
+ * Arguments: --root <dir> --source <checkout> --source-url <url> --roots <file>.
+ *
+ * The roots file is the host's root-to-file map (ADR-052 section 6):
+ *   { "roots": [{ "path", "manifests", "evidence", "files": ["knowledge/..."] }] }
+ * `files` are the context files that the root steps of the root wrote. Only
+ * a file that exists at the base commit and whose `sources` hold the source
+ * URL counts. Each root in the result has `files: [{ path, kind }]`.
+ */
 export function scriptStep(argv = process.argv.slice(2)) {
   const { root, args } = parseArgs(argv)
   const value = (name) => {
@@ -38,14 +46,84 @@ export function scriptStep(argv = process.argv.slice(2)) {
   }
   const source = value("--source") ?? fail("Give --source <checkout>")
   const sourceUrl = value("--source-url") ?? fail("Give --source-url <url>")
+  const rootsFile = value("--roots") ?? fail("Give --roots <roots file>")
   const repository = repositoryName(sourceUrl)
   if (!repository) fail(`${sourceUrl} is not a repository URL`)
-  const rootsFile = value("--roots")
-  const roots = rootsFile
-    ? JSON.parse(readFileSync(rootsFile, "utf8")).roots
-    : discoverRoots(source).roots
   const step = currentStep(root)
-  return { step, source, repository, roots, index: readIndex(step) }
+  const listed = JSON.parse(readFileSync(rootsFile, "utf8")).roots
+  if (!Array.isArray(listed)) fail(`${rootsFile} has no roots list`)
+  const skipped = []
+  const roots = []
+  for (const entry of listed) {
+    if (!safePath(entry?.path)) {
+      skipped.push({
+        path: null,
+        reason: "A root path has characters that the script does not quote",
+      })
+      continue
+    }
+    const files = []
+    for (const path of Array.isArray(entry.files) ? entry.files : []) {
+      const file = sourceFile(step, path, sourceUrl)
+      if (file) files.push(file)
+      else
+        skipped.push({
+          path: safePath(path) ? path : null,
+          reason: `The file of root ${entry.path} is not a context file of this source`,
+        })
+    }
+    roots.push({
+      path: entry.path,
+      manifests: Array.isArray(entry.manifests)
+        ? entry.manifests.filter((m) => typeof m === "string" && safePath(m))
+        : [],
+      files,
+    })
+  }
+  return { step, source, repository, roots, index: readIndex(step), skipped }
+}
+
+/** { path, kind } of a context file at the base commit whose sources hold `sourceUrl`, or null. */
+function sourceFile(step, path, sourceUrl) {
+  if (
+    !safePath(path) ||
+    !path.startsWith("knowledge/") ||
+    !path.endsWith(".md")
+  )
+    return null
+  const text = baseText(step, path)
+  const yaml = text && frontMatter(text)
+  if (!yaml || !frontList(yaml, "sources").includes(sourceUrl)) return null
+  return { path, kind: frontValue(yaml, "kind") }
+}
+
+function frontMatter(text) {
+  return /^---[ \t]*\r?\n((?:.*\n)*?)---[ \t]*(?:\r?\n|$)/.exec(text)?.[1] ?? null
+}
+
+const unquote = (text) => text.trim().replace(/^(["'])(.*)\1$/, "$2")
+
+/** A top-level scalar of a front matter block, or null. */
+function frontValue(yaml, key) {
+  const line = yaml.split("\n").find((l) => l.startsWith(`${key}:`))
+  return line ? unquote(line.slice(key.length + 1)) || null : null
+}
+
+/** A top-level list of a front matter block, in block or flow form. */
+function frontList(yaml, key) {
+  const lines = yaml.split("\n")
+  const at = lines.findIndex((l) => l.startsWith(`${key}:`))
+  if (at === -1) return []
+  const rest = lines[at].slice(key.length + 1).trim()
+  if (rest.startsWith("["))
+    return rest.slice(1, rest.lastIndexOf("]")).split(",").map(unquote)
+  const items = []
+  for (const line of lines.slice(at + 1)) {
+    const item = /^\s*-\s+(.*)$/.exec(line)
+    if (!item) break
+    items.push(unquote(item[1]))
+  }
+  return items
 }
 
 /** `owner/repository` of a source URL, or null. */
@@ -76,13 +154,6 @@ export function nameKey(text) {
     .replace(/[^a-z0-9]/g, "")
 }
 
-export function slug(text) {
-  return String(text)
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-}
-
 /** The path of an index entry of `kind` whose title is one of `names`, or null. */
 export function findExisting(index, kind, names) {
   const keys = new Set(names.map(nameKey).filter(Boolean))
@@ -94,7 +165,7 @@ export function findExisting(index, kind, names) {
 }
 
 /** Text of `path` at the step's base commit, or null. */
-export function baseText(step, path) {
+function baseText(step, path) {
   const blob = baseBlob(step, path)
   return blob ? blobContent(step, blob).toString("utf8") : null
 }
@@ -114,7 +185,7 @@ function claimYaml(claim, indent) {
 }
 
 /** Text of a new file. */
-export function newFile({ kind, name, summary, intro, claims, related }) {
+function newFile({ kind, name, summary, intro, claims, related }) {
   const yaml = [`kind: ${kind}`, `name: ${q(name)}`, `summary: ${q(summary)}`]
   if (claims.length) yaml.push("claims:", ...claims.map((c) => claimYaml(c, 2)))
   const lines = related.slice(0, MAX_RELATED_LINES)
@@ -164,7 +235,7 @@ function withClaims(yaml, claims) {
  * additive update allows. Returns the new text, the same text when nothing
  * is new, or { skip } with a reason.
  */
-export function mergeFile(text, { claims, related }) {
+function mergeFile(text, { claims, related }) {
   const front = /^---[ \t]*\r?\n((?:.*\n)*?)---[ \t]*(?:\r?\n|$)/.exec(text)
   if (!front) return { skip: "The file has no front matter" }
   const yaml = front[1]
@@ -200,26 +271,62 @@ export function mergeFile(text, { claims, related }) {
 }
 
 /**
- * Write each planned file to the staged tree and write patch.json. A plan
- * is { path, create: () => text, claims, related }. Prints and returns
- * { ops, skipped }.
+ * Write the planned files to the staged tree and write patch.json. A plan is
+ * { path, create, claims, related, expectName? }. `create` is
+ * { kind, name, summary, intro } for a new file, or null when the script
+ * only adds to an existing file. When `expectName` is set, an existing file
+ * at the path must have that name. Plans for one path are joined.
+ *
+ * A step writes at most MAX_STEP_OPS files. `more` is true when a plan waits
+ * for the next page: the host runs the skill again on the new base until
+ * `more` is false. A file that already has a claim or a line does not
+ * change again, so each page continues where the last one stopped.
+ * Prints and returns { ops, skipped, more }.
  */
 export function writeStep(step, plans, skipped = []) {
+  const byPath = new Map()
+  for (const plan of plans) {
+    const same = byPath.get(plan.path)
+    if (!same) byPath.set(plan.path, { ...plan })
+    else
+      byPath.set(plan.path, {
+        ...same,
+        create: same.create ?? plan.create,
+        expectName: same.expectName ?? plan.expectName,
+        claims: [...same.claims, ...plan.claims],
+        related: [...same.related, ...plan.related],
+      })
+  }
   let changed = 0
-  for (const plan of [...plans].sort((a, b) => (a.path < b.path ? -1 : 1))) {
+  let more = false
+  const sorted = [...byPath.values()].sort((a, b) => (a.path < b.path ? -1 : 1))
+  for (const plan of sorted) {
+    const claims = [
+      ...new Map(plan.claims.map((c) => [`${c.to} ${c.predicate}`, c])).values(),
+    ]
+    const related = [...new Set(plan.related)].sort()
     const before = baseText(step, plan.path)
-    const text = before === null ? plan.create() : mergeFile(before, plan)
+    const name = before === null ? null : frontValue(frontMatter(before) ?? "", "name")
+    if (plan.expectName && before !== null && nameKey(name) !== nameKey(plan.expectName)) {
+      skipped.push({ path: plan.path, reason: "A file with another name has this path" })
+      continue
+    }
+    if (before === null && !plan.create) {
+      skipped.push({ path: plan.path, reason: "The file is not in the context" })
+      continue
+    }
+    const text =
+      before === null
+        ? newFile({ ...plan.create, claims, related })
+        : mergeFile(before, { claims, related })
     if (typeof text !== "string") {
       skipped.push({ path: plan.path, reason: text.skip })
       continue
     }
     if (text === before) continue
     if (changed >= MAX_STEP_OPS) {
-      skipped.push({
-        path: plan.path,
-        reason: `A step writes at most ${MAX_STEP_OPS} files`,
-      })
-      continue
+      more = true
+      break
     }
     const file = stagedFile(step, plan.path)
     ensureParent(file)
@@ -227,7 +334,7 @@ export function writeStep(step, plans, skipped = []) {
     changed++
   }
   const ops = writePatch(step).map(({ op, path }) => ({ op, path }))
-  const result = { ops, skipped }
+  const result = { ops, skipped, more }
   process.stdout.write(`${JSON.stringify(result)}\n`)
   return result
 }
