@@ -10,7 +10,7 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { afterAll, describe, expect, it, vi } from "vitest"
 import { stringify } from "yaml"
-import { buildContextIndexEntries } from "./context-index.js"
+import { writeStepIndex } from "../../test/ingest-step-index.js"
 import { gitSourcePathExists, validatePatchStep } from "./patch-validator.js"
 import { INGEST_SKILLS_DIR } from "./skill-bundle.js"
 
@@ -107,8 +107,8 @@ type Plan = {
   }>
 }
 
-/** A source checkout, a context checkout at its base, the index, and step.json. */
-function fixture(
+/** A source checkout, a context checkout at its base, the index (host path), and step.json. */
+async function fixture(
   source: Record<string, string>,
   context: Record<string, string> = {},
 ) {
@@ -122,44 +122,45 @@ function fixture(
   mkdirSync(contextDir, { recursive: true })
   git(contextDir, "init", "-q", "-b", "main")
   let base = commit(contextDir, { "README.md": "# Context\n", ...context })
-  const writeIndex = () => {
-    const files = git(contextDir, "ls-tree", "-r", "--name-only", base)
-      .split("\n")
-      .filter((p) => p.startsWith("knowledge/"))
-    const raw = new Map(
-      files.map((p) => [p, git(contextDir, "show", `${base}:${p}`)]),
-    )
-    const entries = buildContextIndexEntries({
-      units: files.map((path) => ({
-        path,
-        kind: kindOf(raw.get(path) ?? ""),
-        links: [
-          ...(raw.get(path) ?? "").matchAll(/^\s*-?\s*to: "?([^"\n]+)"?$/gm),
-        ].map((m) => m[1] as string),
-      })),
-      raw,
-      sourceUrl: SOURCE_URL,
-    })
-    writeFileSync(
-      join(root, "context", `${WORKSPACE_ID}.index.json`),
-      JSON.stringify({ workspaceId: WORKSPACE_ID, entries }),
-    )
-  }
-  const reset = () => {
+  // The host's root-to-file map: the repository top is the only root.
+  const rootsFile = join(root, "roots.json")
+  writeFileSync(
+    rootsFile,
+    JSON.stringify({
+      roots: [{ path: ".", manifests: [], evidence: [], files: [] }],
+    }),
+  )
+  const reset = async () => {
     writeFileSync(
       join(root, "step.json"),
       JSON.stringify({ workspaceId: WORKSPACE_ID, baseCommit: base }),
     )
     rmSync(join(root, "out"), { recursive: true, force: true })
     mkdirSync(join(root, "out", "files"), { recursive: true })
-    writeIndex()
+    await writeStepIndex({
+      root,
+      workspaceId: WORKSPACE_ID,
+      contextDir,
+      base,
+      sourceUrl: SOURCE_URL,
+    })
   }
-  reset()
+  await reset()
 
   const find = (codeRoot: string, ...extra: string[]) => {
     const result = spawnSync(
       process.execPath,
-      [FIND, "--source", sourceDir, "--code-root", codeRoot, ...extra],
+      [
+        FIND,
+        "--source",
+        sourceDir,
+        "--source-url",
+        SOURCE_URL,
+        ...(extra.includes("--roots") ? [] : ["--roots", rootsFile]),
+        "--path",
+        codeRoot,
+        ...extra,
+      ],
       { encoding: "utf8", env: GIT_ENV, timeout: 120_000, cwd: root },
     )
     expect(result.status, `${result.stdout}${result.stderr}`).toBe(0)
@@ -178,6 +179,10 @@ function fixture(
         sourceDir,
         "--source-url",
         SOURCE_URL,
+        "--roots",
+        rootsFile,
+        "--path",
+        plan.root,
         "--plan",
         planFile,
         ...extra,
@@ -205,9 +210,9 @@ function fixture(
   const show = (tree: string, path: string) =>
     git(contextDir, "show", `${tree}:${path}`)
   /** Commit a validated tree as the next base and empty the step output. */
-  const advance = (tree: string) => {
+  const advance = async (tree: string) => {
     base = git(contextDir, "commit-tree", tree, "-p", base, "-m", "page")
-    reset()
+    await reset()
   }
   return { sourceDir, contextDir, find, write, validate, show, advance }
 }
@@ -253,8 +258,8 @@ const OPENAPI_YAML = [
 ].join("\n")
 
 describe("find-apis", () => {
-  it("lists the operations of OpenAPI files in JSON and YAML", () => {
-    const s = fixture({
+  it("lists the operations of OpenAPI files in JSON and YAML", async () => {
+    const s = await fixture({
       "apps/billing/openapi.json": OPENAPI_JSON,
       "apps/orders/docs/swagger.yaml": OPENAPI_YAML,
       "apps/orders/package.json": "{}",
@@ -288,8 +293,8 @@ describe("find-apis", () => {
     )
   })
 
-  it("finds routes of several frameworks with ast-grep and ignores what is not a route", () => {
-    const s = fixture({
+  it("finds routes of several frameworks with ast-grep and ignores what is not a route", async () => {
+    const s = await fixture({
       "svc/express.ts": [
         'import express from "express"',
         "const app = express()",
@@ -383,8 +388,8 @@ describe("find-apis", () => {
     )
   })
 
-  it("derives the path of file-based routes from the folders", () => {
-    const s = fixture({
+  it("derives the path of file-based routes from the folders", async () => {
+    const s = await fixture({
       "web/src/app/api/users/[id]/route.ts":
         "export async function GET() {}\nexport const POST = () => {}\nexport function helper() {}\n",
       "web/src/app/(shop)/api/cart/route.ts": "export function DELETE() {}\n",
@@ -399,8 +404,8 @@ describe("find-apis", () => {
     ])
   })
 
-  it("leaves out files of nested roots, tests, and dependencies", () => {
-    const s = fixture({
+  it("leaves out files of nested roots, tests, and dependencies", async () => {
+    const s = await fixture({
       "app.ts": 'app.get("/root", h)\n',
       "packages/inner/app.ts": 'app.get("/inner", h)\n',
       "node_modules/dep/app.ts": 'app.get("/dep", h)\n',
@@ -415,13 +420,13 @@ describe("find-apis", () => {
       others,
       JSON.stringify({ roots: [{ path: "." }, { path: "packages/inner" }] }),
     )
-    const found = s.find(".", "--other-roots", others)
+    const found = s.find(".", "--roots", others)
     expect(found.routes.map(key)).toEqual(["GET /root"])
     expect(found.specs.map((spec) => spec.path)).toEqual(["openapi.json"])
     expect(s.find("packages/inner").routes.map(key)).toEqual(["GET /inner"])
   })
 
-  it("treats the repository as hostile: no symbolic link, capped and cleaned text", () => {
+  it("treats the repository as hostile: no symbolic link, capped and cleaned text", async () => {
     const manyPaths: Record<string, object> = {}
     for (let i = 0; i < 600; i++) manyPaths[`/p${i}`] = { get: {} }
     manyPaths["/bad/../escape"] = { get: {} }
@@ -439,7 +444,7 @@ describe("find-apis", () => {
         },
       },
     })
-    const s = fixture({
+    const s = await fixture({
       "sgconfig.yml": "ruleDirs:\n  - rules\n",
       "rules/leak.yml":
         "id: leak\nlanguage: typescript\nrule:\n  pattern: secret($A)\n",
@@ -495,7 +500,7 @@ const BILLING_SOURCE = {
 
 describe("write-apis", () => {
   it("writes an API file, an operation file for each operation, and the service claim; the validator accepts it", async () => {
-    const s = fixture(BILLING_SOURCE, {
+    const s = await fixture(BILLING_SOURCE, {
       "knowledge/services/billing.md": SERVICE,
     })
     const out = s.write({
@@ -581,7 +586,7 @@ describe("write-apis", () => {
       },
       "# GET /invoices\n\nWritten by the team.\n",
     )
-    const s = fixture(BILLING_SOURCE, {
+    const s = await fixture(BILLING_SOURCE, {
       "knowledge/apis/invoices-api.md": existingApi,
       "knowledge/operations/list-invoices.md": existingOp,
     })
@@ -625,8 +630,8 @@ describe("write-apis", () => {
     ).toHaveLength(1)
   })
 
-  it("finds the existing API by its name when the plan gives no path", () => {
-    const s = fixture(BILLING_SOURCE, {
+  it("finds the existing API by its name when the plan gives no path", async () => {
+    const s = await fixture(BILLING_SOURCE, {
       "knowledge/apis/legacy-billing.md": front(
         { kind: "API", name: "Billing API", summary: "Billing." },
         "# Billing API\n\nOld text.\n",
@@ -648,7 +653,7 @@ describe("write-apis", () => {
   })
 
   it("adds an operation that the scripts did not see only with a source file as evidence, as a model claim", async () => {
-    const s = fixture({
+    const s = await fixture({
       ...BILLING_SOURCE,
       "apps/billing/src/mounted.ts":
         "export const refunds = mount(refundRouter)\n",
@@ -702,8 +707,8 @@ describe("write-apis", () => {
     )
   })
 
-  it("replaces text that has a link, markup, or a line break, and refuses an unsafe name", () => {
-    const s = fixture(BILLING_SOURCE)
+  it("replaces text that has a link, markup, or a line break, and refuses an unsafe name", async () => {
+    const s = await fixture(BILLING_SOURCE)
     const out = s.write({
       root: "apps/billing",
       apis: [
@@ -735,8 +740,8 @@ describe("write-apis", () => {
     ])
   })
 
-  it("writes no operation file when its path is taken by a file with another name", () => {
-    const s = fixture(BILLING_SOURCE, {
+  it("writes no operation file when its path is taken by a file with another name", async () => {
+    const s = await fixture(BILLING_SOURCE, {
       "knowledge/apis/billing-api.md": front(
         { kind: "API", name: "Something else", summary: "Other." },
         "# Something else\n",
@@ -757,8 +762,8 @@ describe("write-apis", () => {
     )
   })
 
-  it("links the service only when it is a Service file of this source", () => {
-    const s = fixture(BILLING_SOURCE, {
+  it("links the service only when it is a Service file of this source", async () => {
+    const s = await fixture(BILLING_SOURCE, {
       "knowledge/codebases/shop.md": front(
         {
           kind: "Repository",
@@ -790,7 +795,7 @@ describe("write-apis", () => {
   it("pages a large plan, and each page continues where the last stopped", async () => {
     const paths: Record<string, object> = {}
     for (let i = 0; i < 45; i++) paths[`/items/${i}`] = { get: {} }
-    const s = fixture(
+    const s = await fixture(
       {
         "apps/big/openapi.json": JSON.stringify({ openapi: "3.0.0", paths }),
       },
@@ -820,7 +825,7 @@ describe("write-apis", () => {
       for (const op of result.accepted)
         if (op.op === "create") expect(seen.has(op.path)).toBe(false)
       for (const op of result.accepted) seen.add(op.path)
-      s.advance(result.tree)
+      await s.advance(result.tree)
       if (!out.more) break
       expect(pages).toBeLessThan(5)
     }
@@ -834,7 +839,7 @@ describe("write-apis", () => {
     expect(again.more).toBe(false)
   })
 
-  it("is deterministic: the same inputs give the same staged tree", () => {
+  it("is deterministic: the same inputs give the same staged tree", async () => {
     const plan: Plan = {
       root: "apps/billing",
       apis: [
@@ -847,8 +852,8 @@ describe("write-apis", () => {
         },
       ],
     }
-    const a = fixture(BILLING_SOURCE)
-    const b = fixture(BILLING_SOURCE)
+    const a = await fixture(BILLING_SOURCE)
+    const b = await fixture(BILLING_SOURCE)
     expect(a.write(plan)).toEqual(b.write(plan))
     const listing = (s: ReturnType<typeof fixture>) =>
       execFileSync("sh", [

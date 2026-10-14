@@ -114,6 +114,20 @@ function summaryOf(raw: string): string | null {
   return oneLine(paragraph, MAX_SUMMARY)
 }
 
+function claimTargets(raw: string): string[] {
+  const front = splitFrontMatter(raw)
+  const claims = front ? parseYamlObject(front.yaml)?.claims : undefined
+  return Array.isArray(claims)
+    ? claims.flatMap((claim) =>
+        claim &&
+        typeof claim === "object" &&
+        typeof (claim as { to?: unknown }).to === "string"
+          ? [(claim as { to: string }).to]
+          : [],
+      )
+    : []
+}
+
 function titleOf(raw: string): string | null {
   const front = splitFrontMatter(raw)
   const name = front ? parseYamlObject(front.yaml)?.name : undefined
@@ -135,8 +149,13 @@ export function buildContextIndexEntries(input: {
   return input.units.map(({ path, kind, links }) => {
     const raw = input.raw.get(path) ?? ""
     const dir = path.split("/").slice(0, -1).join("/")
+    // A claim target is a link too: the agent finds an API's operations.
     const resolved = [
-      ...new Set(links.map((href) => resolveHydrateLink(dir, href))),
+      ...new Set(
+        [...links, ...claimTargets(raw)].map((href) =>
+          resolveHydrateLink(dir, href),
+        ),
+      ),
     ]
       .filter((target) => target !== path && paths.has(target))
       .sort()

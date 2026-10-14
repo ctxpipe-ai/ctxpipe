@@ -4,8 +4,11 @@
 // tracked files at HEAD. The result is evidence for the model; the model
 // groups the operations into APIs and the writer script writes the files.
 //
-// node find-apis.mjs --source /ctxpipe/source/<handle> --code-root <path> \
-//   [--other-roots <discover-roots result file>]
+// node find-apis.mjs --source /ctxpipe/source/<handle> --source-url <url> \
+//   --roots <root-to-file map> --path <root path>
+//
+// The root-to-file map lists each root of the run; the script leaves out the
+// files of nested roots.
 
 import { readFileSync } from "node:fs"
 import { fail } from "../../bin/stage-lib.mjs"
@@ -17,15 +20,12 @@ const value = (name) => {
   return at === -1 ? null : (argv[at + 1] ?? fail(`Give a value after ${name}`))
 }
 const source = value("--source") ?? fail("Give --source <checkout>")
-const codeRoot = value("--code-root") ?? fail("Give --code-root <path>")
-const othersFile = value("--other-roots")
-let others = []
-if (othersFile) {
-  const listed = JSON.parse(readFileSync(othersFile, "utf8")).roots
-  others = Array.isArray(listed)
-    ? listed.map((r) => r?.path).filter((p) => typeof p === "string")
-    : []
-}
+value("--source-url") ?? fail("Give --source-url <url>")
+const codeRoot = value("--path") ?? fail("Give --path <root path>")
+const rootsFile = value("--roots") ?? fail("Give --roots <root-to-file map>")
+const listed = JSON.parse(readFileSync(rootsFile, "utf8")).roots
+if (!Array.isArray(listed)) fail(`${rootsFile} has no roots list`)
+const others = listed.map((r) => r?.path).filter((p) => typeof p === "string")
 process.stdout.write(
   `${JSON.stringify(discoverApis(source, codeRoot, others))}\n`,
 )

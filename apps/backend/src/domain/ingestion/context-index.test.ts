@@ -46,6 +46,7 @@ function commit(dir: string, files: Record<string, string | null>) {
 const SERVICE = "knowledge/services/api.md"
 const OLD = "knowledge/databases/old.md"
 const API = "knowledge/apis/orders.md"
+const OPERATION = "knowledge/operations/list.md"
 
 describe("contextIndexAtStepBase", () => {
   it("adds the files of earlier steps and drops the files they deleted", async () => {
@@ -58,7 +59,9 @@ describe("contextIndexAtStepBase", () => {
     })
     const base = commit(dir, {
       [OLD]: null,
-      [API]: `---\nkind: API\nname: Orders API\nsummary: The orders API.\ngenerated_by: ctxpipe-extract\nsources:\n  - ${SOURCE_URL}\n---\n# Orders API\n\nServed by [api](../services/api.md).\n`,
+      [API]: `---\nkind: API\nname: Orders API\nsummary: The orders API.\nclaims:\n  - to: ../operations/list.md\n    predicate: HAS_OPERATION\ngenerated_by: ctxpipe-extract\nsources:\n  - ${SOURCE_URL}\n---\n# Orders API\n\nServed by [api](../services/api.md).\n`,
+      [OPERATION]:
+        "---\nkind: Operation\nname: GET /orders\n---\n# GET /orders\n",
     })
     const { index } = await contextIndexAtStepBase({
       workspaceId: "ws_index",
@@ -72,13 +75,14 @@ describe("contextIndexAtStepBase", () => {
       repoDir: dir,
     })
     expect(index.revision).toBe(base)
-    expect(index.entries.map((e) => e.path)).toEqual([API, SERVICE])
+    expect(index.entries.map((e) => e.path)).toEqual([API, OPERATION, SERVICE])
     expect(index.entries[0]).toEqual({
       path: API,
       kind: "API",
       title: "Orders API",
       summary: "The orders API.",
-      links: [SERVICE],
+      // A claim target is a link, as a Markdown link is.
+      links: [OPERATION, SERVICE],
       sources: [SOURCE_URL],
       owned: true,
     })

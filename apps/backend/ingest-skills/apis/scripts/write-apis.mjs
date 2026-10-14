@@ -6,8 +6,8 @@
 // with the shared writer (new files, and additive updates of existing ones).
 //
 // node write-apis.mjs --root /ctxpipe --source /ctxpipe/source/<handle> \
-//   --source-url <url> --plan /ctxpipe/home/apis-plan.json \
-//   [--other-roots <discover-roots result file>]
+//   --source-url <url> --roots <root-to-file map> --path <root path> \
+//   --plan /ctxpipe/home/apis-plan.json
 //
 // Plan: { "root": "apps/api", "service": "knowledge/services/api.md" | null,
 //   "apis": [{ "name", "existing"?, "summary"?, "operations": [{ "method",
@@ -58,7 +58,8 @@ const value = (name) => {
 const source = value("--source") ?? fail("Give --source <checkout>")
 const sourceUrl = value("--source-url") ?? fail("Give --source-url <url>")
 const planFile = value("--plan") ?? fail("Give --plan <plan file>")
-const othersFile = value("--other-roots")
+const rootsFile = value("--roots") ?? fail("Give --roots <root-to-file map>")
+const rootPath = value("--path") ?? fail("Give --path <root path>")
 const repository =
   repositoryName(sourceUrl) ?? fail(`${sourceUrl} is not a repository URL`)
 
@@ -79,14 +80,12 @@ if (!plan || typeof plan !== "object" || !Array.isArray(plan.apis))
 const codeRoot = plan.root
 if (codeRoot !== "." && !safePath(codeRoot))
   fail("The plan root is not a safe path")
+if (codeRoot !== rootPath)
+  fail(`The plan root ${codeRoot} is not the step root ${rootPath}`)
 
-let others = []
-if (othersFile) {
-  const listed = JSON.parse(readFileSync(othersFile, "utf8")).roots
-  others = Array.isArray(listed)
-    ? listed.map((r) => r?.path).filter((p) => typeof p === "string")
-    : []
-}
+const listed = JSON.parse(readFileSync(rootsFile, "utf8")).roots
+if (!Array.isArray(listed)) fail(`${rootsFile} has no roots list`)
+const others = listed.map((r) => r?.path).filter((p) => typeof p === "string")
 
 const index = existsSync(step.indexFile)
   ? (JSON.parse(readFileSync(step.indexFile, "utf8")).entries ?? [])
