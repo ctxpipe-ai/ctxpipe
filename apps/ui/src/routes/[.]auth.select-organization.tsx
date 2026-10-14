@@ -41,7 +41,7 @@ export function OAuthOrganizationSelectionRoutePage() {
       setError(
         caught instanceof Error
           ? caught.message
-          : "Could not select this organisation",
+          : "Could not select this organization",
       )
       setIsSubmitting(false)
     }
@@ -51,7 +51,7 @@ export function OAuthOrganizationSelectionRoutePage() {
     return (
       <main className="mx-auto max-w-xl px-6 py-16">
         <section
-          aria-label="Loading organisations"
+          aria-label="Loading organizations"
           className="space-y-6 rounded-md border border-border bg-card/80 p-6"
         >
           <div className="h-4 w-32 animate-pulse bg-muted" />

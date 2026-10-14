@@ -3,6 +3,7 @@ import { assertNotInOrgDbContext } from "../../db/client.js"
 import {
   listConnectionSourceRows,
   listConnectionsWithOkSources,
+  sameSource,
   type WorkspaceSourceRow,
 } from "../../models/workspace-sources.js"
 import { log } from "../../observability/logger.js"
@@ -10,7 +11,10 @@ import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
 import { workspaceSourcesSync } from "../../openworkflow/workflows/workspace-sources-sync.js"
 import { SOURCE_ADAPTERS } from "./adapter.js"
 import { handOverLegacyBindings } from "./legacy-handover.js"
-import type { PlannedSourceRow } from "./projection-plan.js"
+import {
+  FILE_ERROR_SOURCE_KEY,
+  type PlannedSourceRow,
+} from "./projection-plan.js"
 import { type SourceProvider, sourceProviderSchema } from "./sources-file.js"
 
 /**
@@ -158,16 +162,30 @@ export async function enqueueSourceProjectionFollowUps(input: {
   }
 }): Promise<void> {
   assertNotInOrgDbContext()
-  const removed = [
-    ...input.projected.removed,
-    ...input.projected.changed.map((change) => change.before),
-  ]
-    .filter((row) => row.status === "ok" && hasAdapter(row.provider))
-    .map(({ provider, connectionId, scope }) => ({
-      provider,
-      connectionId,
-      scope,
-    }))
+  // Clean up only what left the file: a removed source, or the old target
+  // of a changed entry. A status change (a removed connection), an entry
+  // that became invalid, and a file that cannot be read keep the committed
+  // files, as the remove-connector dialog says.
+  const fileError = input.projected.added.some(
+    (row) => row.sourceKey === FILE_ERROR_SOURCE_KEY,
+  )
+  const removed = fileError
+    ? []
+    : [
+        ...input.projected.removed,
+        ...input.projected.changed
+          .filter(
+            ({ before, after }) =>
+              after.status !== "invalid" && !sameSource(before, after),
+          )
+          .map((change) => change.before),
+      ]
+        .filter((row) => row.status !== "invalid" && hasAdapter(row.provider))
+        .map(({ provider, connectionId, scope }) => ({
+          provider,
+          connectionId,
+          scope,
+        }))
   if (removed.length)
     await runWorkflowWithWorkerWake(workspaceSourcesSync.spec, {
       kind: "cleanup",
