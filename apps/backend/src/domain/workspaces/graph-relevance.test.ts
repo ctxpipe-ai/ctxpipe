@@ -303,6 +303,37 @@ describe("rankRelated authority and recency", () => {
     expect(ratio).toBeGreaterThan(1)
     expect(ratio).toBeLessThan(1.01)
   })
+  it("dates a change edge by its validFrom, the merge date", () => {
+    const ratio = (options: RelevanceOptions) => {
+      const results = byId(
+        rank({
+          nodes: [node("s"), node("old-package"), node("new-package")],
+          signals: [
+            signal("s", "old-package", 0.8, {
+              predicate: "CHANGED",
+              validFrom: "2025-10-01T00:00:00.000Z",
+            }),
+            signal("s", "new-package", 0.8, {
+              predicate: "CHANGED",
+              validFrom: "2026-09-01T00:00:00.000Z",
+            }),
+          ],
+          seeds: ["s"],
+          options,
+        }),
+      )
+      return (
+        (results.get("new-package")?.ppr ?? 0) /
+        (results.get("old-package")?.ppr ?? 1)
+      )
+    }
+    // Recency: 2^(-30 / 90) against the floor 0.1 for one year.
+    expect(ratio({ intent: "change" })).toBeCloseTo(
+      ratio({ intent: "change", signalWeights: { recency: 0 } }) *
+        (0.5 ** (30 / 90) / 0.1),
+      6,
+    )
+  })
 })
 
 describe("rankRelated intent presets", () => {
@@ -321,6 +352,23 @@ describe("rankRelated intent presets", () => {
     expect(
       (ownership.get("team")?.ppr ?? 0) / (ownership.get("doc")?.ppr ?? 1),
     ).toBeCloseTo(3, 6)
+  })
+
+  it("ignores a predicate weight that is not a finite number of 0 or more", () => {
+    const input = {
+      nodes: [node("s"), node("team"), node("doc")],
+      signals: [
+        signal("s", "team", 0.8, { predicate: "OWNS" }),
+        signal("s", "doc", 0.8),
+      ],
+      seeds: ["s"],
+    }
+    const expected = rank(input)
+    for (const weight of [Number.NaN, Number.POSITIVE_INFINITY, -1]) {
+      expect(
+        rank({ ...input, options: { predicateWeights: { OWNS: weight } } }),
+      ).toEqual(expected)
+    }
   })
 
   it("lets predicateWeights replace a preset weight, and 0 removes the edge", () => {
@@ -482,9 +530,9 @@ describe("rankRelated: a signal at weight 0 has no effect", () => {
       ppr(rank({ ...flat, seeds: ["s"], options: zero })),
     )
     // The signal has an effect at a weight above 0.
-    expect(ppr(rank({ nodes, signals, seeds: ["s"], options: base }))).not.toEqual(
-      ppr(rank({ ...flat, seeds: ["s"], options: base })),
-    )
+    expect(
+      ppr(rank({ nodes, signals, seeds: ["s"], options: base })),
+    ).not.toEqual(ppr(rank({ ...flat, seeds: ["s"], options: base })))
   })
 
   it("turns off the query with queryWeight 0", () => {
@@ -555,8 +603,7 @@ describe("rankRelated diversity", () => {
     seeds: ["s"],
   }
   const leafCount = (results: ReturnType<typeof rankRelated>) =>
-    results.slice(0, 10).filter((result) => result.id.startsWith("leaf"))
-      .length
+    results.slice(0, 10).filter((result) => result.id.startsWith("leaf")).length
 
   it("lets the hub fill the top 10 without diversity", () => {
     expect(leafCount(rank({ ...input, options: { diversity: 0 } }))).toBe(9)
@@ -566,10 +613,35 @@ describe("rankRelated diversity", () => {
     const results = rank({ ...input, options: { diversity: 0.3 } })
     expect(leafCount(results)).toBeLessThanOrEqual(4)
     for (const kind of others) {
-      expect(
-        results.slice(0, 10).map((result) => result.id),
-      ).toContain(`other-${kind}`)
+      expect(results.slice(0, 10).map((result) => result.id)).toContain(
+        `other-${kind}`,
+      )
     }
+  })
+
+  it("spreads the kinds when no neighbors are shared", () => {
+    const repositories = Array.from({ length: 6 }, (_, index) => `repo${index}`)
+    const kinds = ["incident", "runbook", "ticket"]
+    const flat = {
+      nodes: [
+        node("s"),
+        ...repositories.map((id) => node(id, "repository")),
+        ...kinds.map((kind) => node(kind, kind)),
+      ],
+      signals: [
+        ...repositories.map((id) => signal("s", id, 0.9)),
+        ...kinds.map((kind) => signal("s", kind, 0.75)),
+      ],
+      seeds: ["s"],
+    }
+    const topFour = (diversity: number) =>
+      rank({ ...flat, options: { diversity } })
+        .slice(0, 4)
+        .map((result) => result.id)
+    expect(topFour(0)).toEqual(["repo0", "repo1", "repo2", "repo3"])
+    const diverse = topFour(0.3)
+    expect(diverse[0]).toBe("repo0")
+    expect(diverse.slice(1).sort()).toEqual(kinds)
   })
 
   it("caps the results of one kind with maxPerKind", () => {

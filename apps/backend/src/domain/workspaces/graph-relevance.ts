@@ -167,52 +167,51 @@ function weightAll(predicates: readonly string[], weight: number) {
 }
 
 /** The turns of PR #350 become predicate weights. */
-export const INTENT_PRESETS: Readonly<Record<RelevanceIntent, IntentPreset>> =
-  {
-    general: {
-      predicates: {},
-      signals: BASE_SIGNALS,
-      hubPenalty: BASE_HUB_PENALTY,
-      history: false,
+export const INTENT_PRESETS: Readonly<Record<RelevanceIntent, IntentPreset>> = {
+  general: {
+    predicates: {},
+    signals: BASE_SIGNALS,
+    hubPenalty: BASE_HUB_PENALTY,
+    history: false,
+  },
+  // A team that owns many services and issues is still the owner.
+  ownership: {
+    predicates: { OWNS: 3 },
+    signals: BASE_SIGNALS,
+    hubPenalty: 0,
+    history: false,
+  },
+  // The decisions come before the files that declare them.
+  why: {
+    predicates: { INFLUENCES: 3, SUPERSEDES: 2 },
+    signals: BASE_SIGNALS,
+    hubPenalty: BASE_HUB_PENALTY,
+    history: true,
+  },
+  // A recent large change is often the answer, so no hub penalty.
+  change: {
+    predicates: {
+      ...weightAll(CHANGE_PREDICATES, 3),
+      TARGETS: 3,
+      REFERENCES: 2,
     },
-    // A team that owns many services and issues is still the owner.
-    ownership: {
-      predicates: { OWNS: 3 },
-      signals: BASE_SIGNALS,
-      hubPenalty: 0,
-      history: false,
-    },
-    // The decisions come before the files that declare them.
-    why: {
-      predicates: { INFLUENCES: 3, SUPERSEDES: 2 },
-      signals: BASE_SIGNALS,
-      hubPenalty: BASE_HUB_PENALTY,
-      history: true,
-    },
-    // A recent large change is often the answer, so no hub penalty.
-    change: {
-      predicates: {
-        ...weightAll(CHANGE_PREDICATES, 3),
-        TARGETS: 3,
-        REFERENCES: 2,
-      },
-      signals: { ...BASE_SIGNALS, recency: 1 },
-      hubPenalty: 0,
-      history: true,
-    },
-    dependencies: {
-      predicates: weightAll(DEPENDENCY_PREDICATES, 3),
-      signals: BASE_SIGNALS,
-      hubPenalty: BASE_HUB_PENALTY,
-      history: false,
-    },
-    structure: {
-      predicates: weightAll(STRUCTURAL_PREDICATES, 3),
-      signals: BASE_SIGNALS,
-      hubPenalty: BASE_HUB_PENALTY,
-      history: false,
-    },
-  }
+    signals: { ...BASE_SIGNALS, recency: 1 },
+    hubPenalty: 0,
+    history: true,
+  },
+  dependencies: {
+    predicates: weightAll(DEPENDENCY_PREDICATES, 3),
+    signals: BASE_SIGNALS,
+    hubPenalty: BASE_HUB_PENALTY,
+    history: false,
+  },
+  structure: {
+    predicates: weightAll(STRUCTURAL_PREDICATES, 3),
+    signals: BASE_SIGNALS,
+    hubPenalty: BASE_HUB_PENALTY,
+    history: false,
+  },
+}
 
 /**
  * ADR lifecycle (Nygard, MADR): in force, then undeclared, then not yet in
@@ -264,8 +263,9 @@ function authority(node: RelevanceNode, history: boolean): number {
   }
   if (kind === "pullrequest") {
     return (
-      REVIEW_DECISION_FACTORS[node.reviewDecision?.trim().toUpperCase() ?? ""] ??
-      UNREVIEWED_FACTOR
+      REVIEW_DECISION_FACTORS[
+        node.reviewDecision?.trim().toUpperCase() ?? ""
+      ] ?? UNREVIEWED_FACTOR
     )
   }
   return 1
@@ -286,7 +286,9 @@ function recency(
   const dated = DATED_PREDICATES.has(predicate)
   const kind = kindKey(node.kind)
   if (!dated && kind !== "pullrequest" && kind !== "thread") return 1
-  const date = Date.parse((dated ? edgeValidFrom : null) ?? node.eventDate ?? "")
+  const date = Date.parse(
+    (dated ? edgeValidFrom : null) ?? node.eventDate ?? "",
+  )
   if (Number.isNaN(date)) return UNDATED_RECENCY
   const ageDays = Math.max(0, now.getTime() - date) / DAY_MS
   return Math.max(RECENCY_FLOOR, 0.5 ** (ageDays / halfLifeDays))
@@ -416,9 +418,8 @@ function bestPaths(
 ): Array<Step[] | null> {
   const size = out.length
   const cost = new Float64Array(size).fill(Number.POSITIVE_INFINITY)
-  const previous: Array<{ from: number; step: Step } | null> = Array(size).fill(
-    null,
-  )
+  const previous: Array<{ from: number; step: Step } | null> =
+    Array(size).fill(null)
   const heap = new MinHeap()
   for (const source of sources) {
     cost[source] = 0
@@ -498,8 +499,12 @@ function similarity(
   b: { kind: string; neighbors: ReadonlySet<number> },
 ): number {
   const kind = a.kind === b.kind ? 1 : 0
+  const [small, large] =
+    a.neighbors.size <= b.neighbors.size
+      ? [a.neighbors, b.neighbors]
+      : [b.neighbors, a.neighbors]
   let shared = 0
-  for (const neighbor of a.neighbors) if (b.neighbors.has(neighbor)) shared += 1
+  for (const neighbor of small) if (large.has(neighbor)) shared += 1
   const union = a.neighbors.size + b.neighbors.size - shared
   return 0.5 * kind + 0.5 * (union === 0 ? 0 : shared / union)
 }
@@ -529,18 +534,20 @@ export function rankRelated(input: {
   for (const [predicate, weight] of Object.entries(
     options.predicateWeights ?? {},
   )) {
-    predicateWeights[predicate.toUpperCase()] = weight
+    if (Number.isFinite(weight) && weight >= 0) {
+      predicateWeights[predicate.toUpperCase()] = weight
+    }
   }
   // A constant factor does not change the walk, and it keeps each weight in
   // (0, 1], so that −ln w is not negative.
   const predicateScale = Math.max(1, ...Object.values(predicateWeights))
 
-  const nodes = [...new Map(input.nodes.map((node) => [node.id, node])).values()]
+  const nodes = [
+    ...new Map(input.nodes.map((node) => [node.id, node])).values(),
+  ]
   const indexOf = new Map(nodes.map((node, index) => [node.id, index]))
   const nodeIds = new Set(indexOf.keys())
-  const seeds = [
-    ...new Set(input.seeds.flatMap((id) => indexOf.get(id) ?? [])),
-  ]
+  const seeds = [...new Set(input.seeds.flatMap((id) => indexOf.get(id) ?? []))]
   if (seeds.length === 0) return []
   const seedSet = new Set(seeds)
 
@@ -549,9 +556,7 @@ export function rankRelated(input: {
     queryWeight > 0
       ? normalizeQueryHits(input.queryHits ?? [], nodeIds)
       : new Map<string, number>()
-  const hits = new Set(
-    [...match.keys()].flatMap((id) => indexOf.get(id) ?? []),
-  )
+  const hits = new Set([...match.keys()].flatMap((id) => indexOf.get(id) ?? []))
   const effectiveQueryWeight = match.size > 0 ? queryWeight : 0
 
   const stepWeight = (edge: StoredEdge, reached: number): number => {
@@ -682,13 +687,32 @@ function selectDiverse<
     kind: kindKey(candidate.node.kind),
     neighbors: options.neighbors[candidate.index] ?? new Set<number>(),
   })
-  const remaining = ranked.map((candidate) => ({ candidate, maxSimilarity: 0 }))
+  const chosenProfiles: Array<ReturnType<typeof profile>> = []
+  // In score order. `seen` counts the selected units in `maxSimilarity`.
+  const remaining = ranked.map((candidate) => ({
+    candidate,
+    profile: profile(candidate),
+    maxSimilarity: 0,
+    seen: 0,
+  }))
   while (selected.length < limit && remaining.length > 0) {
     let best = -1
     let bestValue = Number.NEGATIVE_INFINITY
     for (const [position, entry] of remaining.entries()) {
-      if (kindFull(entry.candidate)) continue
       const relevance = topScore > 0 ? entry.candidate.score / topScore : 0
+      // The value is at most (1 − λ) × relevance, and relevance only goes
+      // down from here, so no later unit can win.
+      if ((1 - diversity) * relevance <= bestValue) break
+      if (kindFull(entry.candidate)) continue
+      for (; entry.seen < chosenProfiles.length; entry.seen += 1) {
+        entry.maxSimilarity = Math.max(
+          entry.maxSimilarity,
+          similarity(
+            entry.profile,
+            chosenProfiles[entry.seen] as typeof entry.profile,
+          ),
+        )
+      }
       const value =
         (1 - diversity) * relevance - diversity * entry.maxSimilarity
       if (value > bestValue) {
@@ -700,13 +724,7 @@ function selectDiverse<
     const [chosen] = remaining.splice(best, 1)
     if (!chosen) break
     take(chosen.candidate, selected)
-    const chosenProfile = profile(chosen.candidate)
-    for (const entry of remaining) {
-      entry.maxSimilarity = Math.max(
-        entry.maxSimilarity,
-        similarity(profile(entry.candidate), chosenProfile),
-      )
-    }
+    chosenProfiles.push(chosen.profile)
   }
   return selected
 }
