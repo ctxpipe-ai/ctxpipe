@@ -153,6 +153,7 @@ beforeAll(() => {
   writeTree(sourceDir, {
     "src/billing.ts": "export const billing = 1\n",
     "package.json": "{}\n",
+    "README.md": "# Checkout API\n",
   })
   git(sourceDir, ["add", "-A"])
   git(sourceDir, ["commit", "-q", "-m", "source"])
