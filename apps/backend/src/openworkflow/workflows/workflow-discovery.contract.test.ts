@@ -46,6 +46,8 @@ it(
         "workspace-hydrate",
         "workspace-index",
         "repository-index",
+        "repository-ingestion-v2",
+        "ingestion-shard",
         "workspace-write-bootstrap",
         "workspace-write-ui-file-edit",
         "workspace-write-import-key-cleanup",

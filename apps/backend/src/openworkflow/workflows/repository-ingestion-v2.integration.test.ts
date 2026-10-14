@@ -1,0 +1,502 @@
+import { type ChildProcess, execFileSync, spawn } from "node:child_process"
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
+import { createServer } from "node:http"
+import { createRequire } from "node:module"
+import { tmpdir } from "node:os"
+import { dirname, join } from "node:path"
+import { setTimeout as delay } from "node:timers/promises"
+import { pathToFileURL } from "node:url"
+import { eq, sql } from "drizzle-orm"
+import { HttpResponse, http } from "msw"
+import { setupServer } from "msw/node"
+import { OpenWorkflow } from "openworkflow"
+import { BackendPostgres } from "openworkflow/postgres"
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+import {
+  closeDb,
+  getSystemDb,
+  initDb,
+  withOrgDbContext,
+} from "../../db/client.js"
+import { organizations } from "../../db/schema/auth.js"
+import { connections } from "../../db/schema/connections.js"
+import { workspaces } from "../../db/schema/workspaces.js"
+import { readIngestSkillBundle } from "../../domain/ingestion/skill-bundle.js"
+import { generateObjectId } from "../../lib/id.js"
+import { replaceWorkspaceSourceRows } from "../../models/workspace-sources.js"
+import {
+  type GithubTokenLog,
+  githubTokenHandlers,
+  insertGithubConnection,
+  stubGithubApp,
+} from "../../test/ingest-github.js"
+import { standInIngestShardRuntime } from "../../test/ingest-shard-stand-in.js"
+import { openWorkflowNamespaceId } from "../namespace.js"
+import { defineIngestionShardWorkflow } from "./ingestion-shard.js"
+import { defineRepositoryIngestionV2Workflow } from "./repository-ingestion-v2.js"
+
+/*
+ * Ingestion v2 in shadow mode (T09), with real Postgres, a real OpenWorkflow
+ * worker, the real ref broker, and real git. GitHub is a set of local bare
+ * repositories (`url.<dir>.insteadOf https://github.com/`) and msw mints its
+ * tokens. The sandbox is the host stand-in (`ingest-shard-stand-in.ts`):
+ * the bundle's own scripts and stage helpers; msw answers its model calls.
+ */
+
+const MODEL_URL = "https://ingest-model.test/v1/step"
+const GIT_ENV = {
+  GIT_AUTHOR_NAME: "Fixture",
+  GIT_AUTHOR_EMAIL: "fixture@example.com",
+  GIT_COMMITTER_NAME: "Fixture",
+  GIT_COMMITTER_EMAIL: "fixture@example.com",
+}
+
+const orgId = generateObjectId("org")
+const connectionId = generateObjectId("con")
+const suffix = Math.random().toString(36).slice(2, 8)
+const sourceName = `acme/checkout-api-${suffix}`
+const contexts = [`acme/context-a-${suffix}`, `acme/context-b-${suffix}`]
+const workspaceIds = [generateObjectId("ws"), generateObjectId("ws")]
+const githubLog: GithubTokenLog = { minted: [], revoked: [] }
+const modelCalls: Array<{ step: string; workspaceId: string }> = []
+
+function modelReply(body: { root: string; workspaceId: string }) {
+  const name = body.root === "." ? "checkout-api" : body.root.split("/").pop()
+  return {
+    files: [
+      {
+        path: `knowledge/services/${name}.md`,
+        content: `---\nkind: Service\nname: ${name}\n---\n# ${name}\n\nThe ${name} service handles orders.\n`,
+      },
+    ],
+  }
+}
+
+const server = setupServer(
+  ...githubTokenHandlers(githubLog, () => "fixture-only-github-token"),
+  http.post(MODEL_URL, async ({ request }) => {
+    const body = (await request.json()) as {
+      step: string
+      root: string
+      workspaceId: string
+    }
+    modelCalls.push({ step: body.step, workspaceId: body.workspaceId })
+    return HttpResponse.json(modelReply(body))
+  }),
+)
+
+let folder: string
+let remotes: string
+let bundleDir: string
+let backend: BackendPostgres
+let worker: ReturnType<OpenWorkflow["newWorker"]>
+let runner: OpenWorkflow
+let parent: ReturnType<typeof defineRepositoryIngestionV2Workflow>
+let sourceSha: string
+const pinned: string[] = []
+
+function git(cwd: string, ...args: string[]): string {
+  return execFileSync("git", args, {
+    cwd,
+    encoding: "utf8",
+    env: { ...process.env, ...GIT_ENV },
+  }).trim()
+}
+
+/** A bare repository at `<remotes>/<name>` with one commit of `files`. */
+function remote(name: string, files: Record<string, string>): string {
+  const work = mkdtempSync(join(folder, "work-"))
+  for (const [path, content] of Object.entries(files)) {
+    mkdirSync(dirname(join(work, path)), { recursive: true })
+    writeFileSync(join(work, path), content)
+  }
+  git(work, "init", "-q", "-b", "main")
+  git(work, "add", "-A")
+  git(work, "commit", "-q", "-m", "seed")
+  const bare = join(remotes, name)
+  mkdirSync(dirname(bare), { recursive: true })
+  execFileSync("git", ["clone", "-q", "--bare", work, bare])
+  return git(work, "rev-parse", "HEAD")
+}
+
+function refsOf(name: string): Record<string, string> {
+  const out = git(
+    join(remotes, name),
+    "for-each-ref",
+    "--format=%(refname) %(objectname)",
+    "refs/ctxpipe/",
+  )
+  return Object.fromEntries(
+    out
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => line.split(" ") as [string, string]),
+  )
+}
+
+beforeAll(async () => {
+  const databaseUrl = process.env.DATABASE_URL
+  if (!databaseUrl) throw new Error("DATABASE_URL is required for ingestion v2")
+  initDb(databaseUrl)
+  stubGithubApp()
+  server.listen({ onUnhandledRequest: "error" })
+  folder = mkdtempSync(join(tmpdir(), "ingestion-v2-"))
+  remotes = join(folder, "remotes")
+  const gitConfig = join(folder, "gitconfig")
+  writeFileSync(
+    gitConfig,
+    `[url "${remotes}/"]\n\tinsteadOf = https://github.com/\n[protocol "file"]\n\tallow = always\n`,
+  )
+  vi.stubEnv("GIT_CONFIG_GLOBAL", gitConfig)
+
+  sourceSha = remote(sourceName, {
+    "package.json": '{ "name": "checkout-api" }\n',
+    "services/orders/package.json": '{ "name": "orders" }\n',
+    "services/orders/src/index.ts": "export const orders = []\n",
+    "README.md": "# Checkout API\n",
+  })
+  for (const name of contexts)
+    pinned.push(remote(name, { "README.md": "# Context\n" }))
+
+  // The bundle: the real discover-roots skill and stage helpers, and one
+  // model skill of the plan.
+  const real = await readIngestSkillBundle()
+  bundleDir = join(folder, "bundle")
+  for (const file of real.files) {
+    mkdirSync(dirname(join(bundleDir, file.path)), { recursive: true })
+    writeFileSync(join(bundleDir, file.path), file.content, {
+      mode: file.executable ? 0o755 : 0o644,
+    })
+  }
+  mkdirSync(join(bundleDir, "classify-kind"))
+  writeFileSync(
+    join(bundleDir, "classify-kind/SKILL.md"),
+    "---\nname: classify-kind\ndescription: Fixture model skill.\n---\n# classify-kind\n",
+  )
+
+  await getSystemDb().insert(organizations).values({
+    id: orgId,
+    slug: orgId,
+    name: "Ingestion v2 proof",
+    createdAt: new Date(),
+  })
+  await insertGithubConnection({
+    orgId,
+    id: connectionId,
+    installationId: 444,
+    accountSlug: "acme",
+  })
+  for (const [i, workspaceId] of workspaceIds.entries()) {
+    await withOrgDbContext(orgId, (db) =>
+      db.insert(workspaces).values({
+        id: workspaceId,
+        orgId,
+        slug: `context-${i}-${suffix}`,
+        displayName: `Context ${i}`,
+        workspaceRepositoryUrl: `https://github.com/${contexts[i]}`,
+        githubConnectionId: connectionId,
+        desiredGeneration: 3,
+        desiredSha: pinned[i],
+        desiredDefaultBranch: "main",
+        writeStatus: "writable",
+      }),
+    )
+    await replaceWorkspaceSourceRows({
+      orgId,
+      workspaceId,
+      revision: pinned[i] ?? "",
+      rows: [
+        {
+          sourceKey: "checkout",
+          provider: "github",
+          connectionId,
+          scope: { repositories: [sourceName] },
+          status: "ok",
+          statusDetail: null,
+        },
+      ],
+    })
+  }
+
+  backend = await BackendPostgres.connect(databaseUrl, {
+    runMigrations: false,
+    namespaceId: openWorkflowNamespaceId(),
+  })
+  runner = new OpenWorkflow({ backend })
+  const deps = {
+    runtime: standInIngestShardRuntime({ modelUrl: MODEL_URL, folder }),
+    bundle: () => readIngestSkillBundle(bundleDir),
+  }
+  const shard = defineIngestionShardWorkflow(deps)
+  parent = defineRepositoryIngestionV2Workflow({ ...deps, shard })
+  runner.implementWorkflow(shard.spec, shard.fn)
+  runner.implementWorkflow(parent.spec, parent.fn)
+  worker = runner.newWorker({ concurrency: 4 })
+  await worker.start()
+}, 60_000)
+
+afterAll(async () => {
+  await worker?.stop()
+  await backend?.stop()
+  server.close()
+  vi.unstubAllEnvs()
+  await withOrgDbContext(orgId, async (db) => {
+    await db.delete(workspaces).where(eq(workspaces.orgId, orgId))
+    await db.delete(connections).where(eq(connections.orgId, orgId))
+  })
+  await getSystemDb().delete(organizations).where(eq(organizations.id, orgId))
+  await closeDb()
+  rmSync(folder, { recursive: true, force: true })
+})
+
+describe("ingestion v2 in shadow mode", () => {
+  it(
+    "writes refs in both destination Workspaces, publishes nothing, and keeps each step output small",
+    { timeout: 120_000 },
+    async () => {
+      const handle = await runner.runWorkflow(parent.spec, {
+        orgId,
+        shadow: true,
+        source: {
+          url: `https://github.com/${sourceName}`,
+          githubConnectionId: connectionId,
+        },
+        sha: sourceSha,
+        authorTime: "2026-10-01T00:00:00.000Z",
+      })
+      const result = await handle.result({ timeoutMs: 110_000 })
+      const runId = handle.workflowRun.id
+
+      // One model run per root and destination Workspace: 2 roots, 2 Workspaces.
+      expect(modelCalls).toHaveLength(4)
+      expect(new Set(modelCalls.map((c) => `${c.step}`)).size).toBe(4)
+      expect(new Set(modelCalls.map((c) => c.workspaceId))).toEqual(
+        new Set(workspaceIds),
+      )
+
+      expect(result).toMatchObject({ status: "done", shadow: true, shards: 1 })
+      if (result.status !== "done") throw new Error("The run did not finish")
+      for (const [i, name] of contexts.entries()) {
+        const workspaceId = workspaceIds[i] ?? ""
+        const refs = refsOf(name)
+        const prefix = `refs/ctxpipe/ingest/${runId}/${workspaceId}`
+        expect(Object.keys(refs).sort()).toEqual([
+          `${prefix}/assembled`,
+          `${prefix}/shards/0`,
+        ])
+        const assembled = refs[`${prefix}/assembled`] ?? ""
+        expect(result.workspaces).toContainEqual(
+          expect.objectContaining({ workspaceId, assembled, ops: 2 }),
+        )
+        const files = git(
+          join(remotes, name),
+          "ls-tree",
+          "-r",
+          "--name-only",
+          assembled,
+        ).split("\n")
+        expect(files).toEqual(
+          expect.arrayContaining([
+            "knowledge/services/checkout-api.md",
+            "knowledge/services/orders.md",
+          ]),
+        )
+        const orders = git(
+          join(remotes, name),
+          "show",
+          `${assembled}:knowledge/services/orders.md`,
+        )
+        expect(orders).toContain("generated_by: ctxpipe-extract")
+        // Shadow mode publishes nothing: the default branch did not move.
+        expect(git(join(remotes, name), "rev-parse", "main")).toBe(pinned[i])
+      }
+
+      // Each step output holds a SHA and counts, far below 16 KB.
+      const sizes = await getSystemDb().execute<{ largest: number }>(sql`
+        select coalesce(max(octet_length(output::text)), 0)::int as largest
+        from openworkflow.step_attempts
+        where namespace_id = ${openWorkflowNamespaceId()}
+      `)
+      expect(sizes.rows[0]?.largest).toBeGreaterThan(0)
+      expect(sizes.rows[0]?.largest).toBeLessThan(16 * 1024)
+    },
+  )
+})
+
+describe("ingestion v2 after a killed worker", () => {
+  it(
+    "resumes a step that crashed after its push, with no second model call for that step",
+    { timeout: 240_000 },
+    async () => {
+      // Only the child workers below may claim this run.
+      await worker.stop()
+      const calls: string[] = []
+      const local = createServer(async (request, response) => {
+        const chunks: Buffer[] = []
+        for await (const chunk of request) chunks.push(Buffer.from(chunk))
+        const body = JSON.parse(Buffer.concat(chunks).toString() || "{}")
+        response.setHeader("content-type", "application/json")
+        if (request.url?.endsWith("/access_tokens")) {
+          response.statusCode = 201
+          response.end(
+            JSON.stringify({
+              token: "fixture-only-github-token",
+              expires_at: new Date(Date.now() + 3600_000).toISOString(),
+              permissions: { contents: "write", metadata: "read" },
+            }),
+          )
+        } else if (request.url === "/v1/step") {
+          calls.push(body.step)
+          response.end(JSON.stringify(modelReply(body)))
+        } else {
+          response.statusCode = 404
+          response.end("{}")
+        }
+      })
+      await new Promise<void>((resolve) =>
+        local.listen(0, "127.0.0.1", resolve),
+      )
+      const address = local.address()
+      if (!address || typeof address === "string")
+        throw new Error("The local GitHub and model stand-in has no port")
+      const proxy = `http://127.0.0.1:${address.port}`
+      const require = createRequire(import.meta.url)
+      const module = (path: string) =>
+        JSON.stringify(new URL(path, import.meta.url).href)
+      const script = join(folder, "ingestion-v2-worker.ts")
+      writeFileSync(
+        script,
+        `
+const nativeFetch = globalThis.fetch.bind(globalThis);
+globalThis.fetch = (input, init) => {
+  const request = new Request(input, init);
+  const url = new URL(request.url);
+  return nativeFetch(["api.github.com", "ingest-model.test"].includes(url.hostname)
+    ? new Request(${JSON.stringify(proxy)} + url.pathname + url.search, request) : request);
+};
+const { OpenWorkflow } = await import(${JSON.stringify(pathToFileURL(require.resolve("openworkflow")).href)});
+const { BackendPostgres } = await import(${JSON.stringify(pathToFileURL(require.resolve("openworkflow/postgres")).href)});
+const { initDb } = await import(${module("../../db/client.ts")});
+const { readIngestSkillBundle } = await import(${module("../../domain/ingestion/skill-bundle.ts")});
+const { standInIngestShardRuntime } = await import(${module("../../test/ingest-shard-stand-in.ts")});
+const { defineIngestionShardWorkflow } = await import(${module("./ingestion-shard.ts")});
+const { defineRepositoryIngestionV2Workflow } = await import(${module("./repository-ingestion-v2.ts")});
+initDb(process.env.DATABASE_URL);
+const backend = await BackendPostgres.connect(process.env.DATABASE_URL, { namespaceId: ${JSON.stringify(openWorkflowNamespaceId())}, runMigrations: false });
+const runner = new OpenWorkflow({ backend });
+const deps = {
+  runtime: standInIngestShardRuntime({ modelUrl: ${JSON.stringify(MODEL_URL)}, folder: ${JSON.stringify(folder)} }),
+  bundle: () => readIngestSkillBundle(${JSON.stringify(bundleDir)}),
+};
+const shard = defineIngestionShardWorkflow(deps);
+const parent = defineRepositoryIngestionV2Workflow({ ...deps, shard });
+runner.implementWorkflow(shard.spec, shard.fn);
+runner.implementWorkflow(parent.spec, parent.fn);
+await runner.newWorker({ concurrency: 4 }).start();
+await new Promise(() => {});
+`,
+      )
+      // A git that stops after the first push to a shard ref has landed,
+      // before the step can record its output.
+      const pushed = join(folder, "step-pushed")
+      const bin = join(folder, "crash-bin")
+      mkdirSync(bin)
+      const realGit = execFileSync("/bin/sh", ["-c", "command -v git"], {
+        encoding: "utf8",
+      }).trim()
+      writeFileSync(
+        join(bin, "git"),
+        `#!${process.execPath}
+const { spawnSync } = require("node:child_process");
+const { existsSync, writeFileSync } = require("node:fs");
+const args = process.argv.slice(2);
+const result = spawnSync(${JSON.stringify(realGit)}, args, { stdio: "inherit" });
+if (result.status === 0 && args.includes("push") && args.some((a) => a.includes("/shards/0")) && !existsSync(${JSON.stringify(pushed)})) {
+  writeFileSync(${JSON.stringify(pushed)}, args.join(" "));
+  for (;;) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000);
+}
+process.exit(result.status ?? 1);
+`,
+        { mode: 0o700 },
+      )
+      const children: ChildProcess[] = []
+      let childErrors = ""
+      const launch = (crash: boolean) => {
+        const child = spawn("bun", [script], {
+          cwd: folder,
+          detached: true,
+          env: {
+            ...process.env,
+            ...(crash ? { PATH: `${bin}:${process.env.PATH}` } : {}),
+          },
+          stdio: ["ignore", "ignore", "pipe"],
+        })
+        child.stderr?.on("data", (data) => {
+          childErrors = (childErrors + data.toString()).slice(-8_000)
+        })
+        children.push(child)
+        return child
+      }
+      try {
+        const handle = await runner.runWorkflow(parent.spec, {
+          orgId,
+          shadow: true,
+          source: {
+            url: `https://github.com/${sourceName}`,
+            githubConnectionId: connectionId,
+          },
+          sha: sourceSha,
+          authorTime: "2026-10-02T00:00:00.000Z",
+        })
+        const crashing = launch(true)
+        const deadline = Date.now() + 90_000
+        while (!existsSync(pushed)) {
+          if (Date.now() > deadline)
+            throw new Error(`No step push happened: ${childErrors}`)
+          await delay(200)
+        }
+        if (crashing.pid) process.kill(-crashing.pid, "SIGKILL")
+        const crashedStep = calls[0]
+        expect(calls).toHaveLength(1)
+        // The step's commit is on the shard ref, but the step has no output.
+        const runId = handle.workflowRun.id
+        const ref = `refs/ctxpipe/ingest/${runId}/${workspaceIds[0]}/shards/0`
+        expect(Object.keys(refsOf(contexts[0] ?? ""))).toContain(ref)
+
+        launch(false)
+        const result = await handle.result({ timeoutMs: 180_000 })
+        expect(result).toMatchObject({ status: "done", shards: 1 })
+        // One model call per step: the crashed step found its commit.
+        expect(calls).toHaveLength(4)
+        expect(new Set(calls).size).toBe(4)
+        expect(calls.filter((step) => step === crashedStep)).toHaveLength(1)
+        for (const [i, name] of contexts.entries()) {
+          const prefix = `refs/ctxpipe/ingest/${runId}/${workspaceIds[i]}`
+          expect(Object.keys(refsOf(name))).toEqual(
+            expect.arrayContaining([
+              `${prefix}/assembled`,
+              `${prefix}/shards/0`,
+            ]),
+          )
+        }
+      } catch (error) {
+        throw new Error(
+          `${error instanceof Error ? error.message : String(error)}\nChild worker stderr: ${childErrors}`,
+        )
+      } finally {
+        for (const child of children)
+          if (child.pid && child.exitCode === null && child.signalCode === null)
+            try {
+              process.kill(-child.pid, "SIGKILL")
+            } catch {}
+        local.close()
+      }
+    },
+  )
+})
