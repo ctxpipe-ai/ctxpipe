@@ -42,6 +42,7 @@ import {
   resolveWorkspaceReadRevision,
 } from "./resolve-revision.js"
 import { sameWorkspaceRevision, type WorkspaceRevision } from "./revision.js"
+import { workspaceRootPath } from "./root-path.js"
 import {
   githubRepoFullNameFromWorkspaceUrl,
   WRITE_STATUS_REASONS,
@@ -318,6 +319,7 @@ export async function refreshWorkspaceWriteRevision(
         url: resolved.revision.remote.url,
         sha: resolved.revision.sha,
         token: resolved.token,
+        root: workspaceRootPath(resolved.revision),
       }),
     )
   }
@@ -330,6 +332,7 @@ export async function refreshWorkspaceWriteRevision(
         url: resolved.revision.remote.url,
         sha: resolved.revision.sha,
         token: resolved.token,
+        root: workspaceRootPath(resolved.revision),
       }),
     )
   return { ...resolved.revision, access: "write-default" }

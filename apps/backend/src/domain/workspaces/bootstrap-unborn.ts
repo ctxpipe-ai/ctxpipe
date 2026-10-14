@@ -6,6 +6,7 @@ import {
   unbornBootstrapBindingSchema,
 } from "./bootstrap-input.js"
 import { resolveRepositoryReadCredential } from "./resolve-revision.js"
+import { workspaceRootPath } from "./root-path.js"
 
 export async function getUnbornBootstrapWorkspace(
   binding: UnbornBootstrapBinding,
@@ -42,6 +43,9 @@ export async function captureUnbornBootstrapBinding(input: {
     generation: workspace.desiredGeneration,
     remote,
     defaultBranch: branch,
+    ...(workspaceRootPath(workspace)
+      ? { rootPath: workspaceRootPath(workspace) }
+      : {}),
   })
   await getUnbornBootstrapWorkspace(binding)
   return binding

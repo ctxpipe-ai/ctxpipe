@@ -1,7 +1,14 @@
 import { posix } from "node:path"
 import { z } from "zod"
-import { repositoryFilePathSchema } from "../../services/git/file-change.js"
 import { nativeGit } from "../../services/git/pack.js"
+import { isInsideWorkspaceRoot } from "../../services/git/root-folder.js"
+
+export {
+  isInsideWorkspaceRoot,
+  pathsOutsideWorkspaceRoot,
+  workspaceRelativePath,
+  workspaceRepositoryPath,
+} from "../../services/git/root-folder.js"
 
 /**
  * The root folder of a Workspace in its context repository (CTX-709). ctx|
@@ -37,37 +44,6 @@ export function workspaceRootPath(
   source: { rootPath?: string | null } | null | undefined,
 ): string {
   return workspaceRootPathSchema.parse(source?.rootPath ?? "")
-}
-
-/** True when `path` (repository-relative) is a file path below `rootPath`. */
-export function isInsideWorkspaceRoot(rootPath: string, path: string): boolean {
-  if (!repositoryFilePathSchema.safeParse(path).success) return false
-  return rootPath === "" || path.startsWith(`${rootPath}/`)
-}
-
-export function pathsOutsideWorkspaceRoot(
-  rootPath: string,
-  paths: Iterable<string>,
-): string[] {
-  return [...paths].filter((path) => !isInsideWorkspaceRoot(rootPath, path))
-}
-
-/** Maps a root-relative path to its repository path. Throws on an unsafe path. */
-export function workspaceRepositoryPath(
-  rootPath: string,
-  relativePath: string,
-): string {
-  const path = repositoryFilePathSchema.parse(relativePath)
-  return rootPath === "" ? path : `${rootPath}/${path}`
-}
-
-/** Maps a repository path to its root-relative path; null when it is outside. */
-export function workspaceRelativePath(
-  rootPath: string,
-  path: string,
-): string | null {
-  if (!isInsideWorkspaceRoot(rootPath, path)) return null
-  return rootPath === "" ? path : path.slice(rootPath.length + 1)
 }
 
 export type WorkspaceRootViolation = {

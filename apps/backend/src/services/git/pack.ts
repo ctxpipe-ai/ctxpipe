@@ -9,8 +9,43 @@ import { gitRemoteEnvironment } from "./clone-tree.js"
 
 const execute = promisify(execFile)
 
-/** Native pack and shallow boundary; no filesystem locator or credential is durable. */
-export type GitPack = { sha: string; objects: string; shallow: string }
+/**
+ * Native pack and shallow boundary; no filesystem locator or credential is
+ * durable. `root` is the Workspace root folder (CTX-709): the read and write
+ * helpers use paths relative to it and never touch a path outside it.
+ */
+export type GitPack = {
+  sha: string
+  objects: string
+  shallow: string
+  root?: string
+}
+
+/** The tree of the pack's root folder, or null when that folder does not exist. */
+export async function packRootTree(
+  directory: string,
+  pack: Pick<GitPack, "sha" | "root">,
+): Promise<string | null> {
+  if (!pack.root) return pack.sha
+  try {
+    const tree = (
+      await nativeGit(directory, [
+        "rev-parse",
+        "--verify",
+        "--quiet",
+        `${pack.sha}:${pack.root}`,
+      ])
+    )
+      .toString()
+      .trim()
+    const type = (await nativeGit(directory, ["cat-file", "-t", tree]))
+      .toString()
+      .trim()
+    return type === "tree" ? tree : null
+  } catch {
+    return null
+  }
+}
 
 export async function nativeGit(
   directory: string,
@@ -109,14 +144,10 @@ export async function readGitFiles(
   return withGitDirectory(
     pack.sha,
     async (directory) => {
+      const tree = await packRootTree(directory, pack)
+      if (!tree) return []
       const paths = (
-        await nativeGit(directory, [
-          "ls-tree",
-          "-r",
-          "--name-only",
-          "-z",
-          pack.sha,
-        ])
+        await nativeGit(directory, ["ls-tree", "-r", "--name-only", "-z", tree])
       )
         .toString()
         .split("\0")
@@ -126,7 +157,7 @@ export async function readGitFiles(
         files.push({
           path,
           content: (
-            await nativeGit(directory, ["show", `${pack.sha}:${path}`])
+            await nativeGit(directory, ["show", `${tree}:${path}`])
           ).toString(),
         })
       return files
@@ -141,6 +172,8 @@ export async function readGitPackFromRemote(input: {
   sha: string
   additionalShas?: readonly string[]
   token?: string
+  /** Workspace root folder; `""` or absent is the repository root. */
+  root?: string
 }): Promise<GitPack> {
   return withGitDirectory(input.sha, async (directory) => {
     await nativeGit(
@@ -157,8 +190,22 @@ export async function readGitPackFromRemote(input: {
       undefined,
       gitRemoteEnvironment({ url: input.url, token: input.token }),
     )
-    return captureGitPack(directory, input.sha, input.additionalShas)
+    const pack = await captureGitPack(
+      directory,
+      input.sha,
+      input.additionalShas,
+    )
+    return input.root ? { ...pack, root: input.root } : pack
   })
+}
+
+/** Every blob below the pack's root folder, with root-relative paths. */
+export async function listPackBlobs(
+  directory: string,
+  pack: Pick<GitPack, "sha" | "root">,
+): Promise<Array<{ path: string; sha: string }>> {
+  const tree = await packRootTree(directory, pack)
+  return tree ? listTreeBlobs(directory, tree) : []
 }
 
 /** Every blob in a tree with its object id (git ls-tree), paths unquoted. */

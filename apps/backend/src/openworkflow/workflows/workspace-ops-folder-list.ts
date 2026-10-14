@@ -26,7 +26,12 @@ import {
   persistWriteJobCommitSha,
   persistWriteJobStatus,
 } from "../../models/workspaces.js"
-import { nativeGit, withGitDirectory } from "../../services/git/pack.js"
+import {
+  nativeGit,
+  packRootTree,
+  withGitDirectory,
+} from "../../services/git/pack.js"
+import { workspaceRepositoryPath } from "../../services/git/root-folder.js"
 import {
   commitGitTree,
   stageGitFiles,
@@ -132,24 +137,31 @@ export const workspaceOpsFolderList = defineWorkflow(
               withGitDirectory(
                 revision.sha,
                 async (directory) => {
-                  const pathsAt = async (sha: string) =>
-                    (
-                      await nativeGit(directory, [
-                        "ls-tree",
-                        "-r",
-                        "--name-only",
-                        "-z",
-                        sha,
-                      ])
-                    )
-                      .toString()
-                      .split("\0")
+                  const pathsAt = async (sha: string) => {
+                    const tree = await packRootTree(directory, {
+                      sha,
+                      root: acquired.pack.root,
+                    })
+                    return tree
+                      ? (
+                          await nativeGit(directory, [
+                            "ls-tree",
+                            "-r",
+                            "--name-only",
+                            "-z",
+                            tree,
+                          ])
+                        )
+                          .toString()
+                          .split("\0")
+                      : []
+                  }
                   const paths = await pathsAt(revision.sha)
                   const existingAgentsMd = paths.includes("AGENTS.md")
                     ? (
                         await nativeGit(directory, [
                           "show",
-                          `${revision.sha}:AGENTS.md`,
+                          `${revision.sha}:${workspaceRepositoryPath(acquired.pack.root ?? "", "AGENTS.md")}`,
                         ])
                       ).toString()
                     : null

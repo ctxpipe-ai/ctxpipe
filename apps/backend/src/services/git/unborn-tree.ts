@@ -4,6 +4,10 @@ import { join } from "node:path"
 import { gitRemoteEnvironment } from "./clone-tree.js"
 import { type GitFileChange, gitFileBytes } from "./file-change.js"
 import { captureGitPack, nativeGit } from "./pack.js"
+import {
+  workspaceRelativePath,
+  workspaceRepositoryPath,
+} from "./root-folder.js"
 
 export type UnbornGitTree = { tree: string; objects: string }
 
@@ -68,8 +72,10 @@ export async function readUnbornRemoteBranch(input: {
   })
 }
 
+/** Paths are relative to `root`, the Workspace root folder. */
 export async function stageUnbornGitFiles(
   files: readonly GitFileChange[],
+  root = "",
 ): Promise<UnbornGitTree> {
   return withEmptyGitDirectory(async (directory) => {
     for (const file of files) {
@@ -86,7 +92,7 @@ export async function stageUnbornGitFiles(
         "update-index",
         "--add",
         "--cacheinfo",
-        `100644,${blob},${file.path}`,
+        `100644,${blob},${workspaceRepositoryPath(root, file.path)}`,
       ])
     }
     const tree = (await nativeGit(directory, ["write-tree"])).toString().trim()
@@ -102,6 +108,7 @@ export async function stageUnbornGitFiles(
 export async function validateUnbornGitTree(
   tree: UnbornGitTree,
   allowedPaths: readonly string[],
+  root = "",
 ): Promise<void> {
   await withEmptyGitDirectory(async (directory) => {
     const paths = (
@@ -116,7 +123,13 @@ export async function validateUnbornGitTree(
       .toString()
       .split("\0")
       .filter(Boolean)
-    if (!paths.length || paths.some((path) => !allowedPaths.includes(path)))
+    if (
+      !paths.length ||
+      paths.some((path) => {
+        const relative = workspaceRelativePath(root, path)
+        return relative === null || !allowedPaths.includes(relative)
+      })
+    )
       throw new Error("Invalid bootstrap root tree")
   }, tree)
 }

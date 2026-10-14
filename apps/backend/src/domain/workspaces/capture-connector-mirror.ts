@@ -5,7 +5,7 @@ import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { connections } from "../../db/schema/connections.js"
 import { listOrgWorkspaces } from "../../models/workspaces.js"
 import {
-  listTreeBlobs,
+  listPackBlobs,
   nativeGit,
   readGitPackFromRemote,
   withGitDirectory,
@@ -15,6 +15,7 @@ import {
   type ConfiguredConnectorMirrorSource,
 } from "./connector-mirror.js"
 import { resolveWorkspaceReadRevision } from "./resolve-revision.js"
+import { workspaceRootPath } from "./root-path.js"
 import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
 
 /** Capture the existing target's immutable tree before fetching provider content. */
@@ -61,17 +62,20 @@ export async function captureConnectorMirrorTarget(input: {
       url: revision.remote.url,
       sha: revision.sha,
       token: resolved.token,
+      root: workspaceRootPath(revision),
     })
     return withGitDirectory(
       pack.sha,
       async (directory) => {
         // Blob ids let connectors skip re-downloading unchanged assets.
-        const blobs = await listTreeBlobs(directory, pack.sha)
+        // Paths are relative to the Workspace root folder.
+        const blobs = await listPackBlobs(directory, pack)
         const paths = blobs.map((blob) => blob.path)
         const configPath = `${input.mirror.provider}/config.yaml`
-        const config = paths.includes(configPath)
+        const configBlob = blobs.find((blob) => blob.path === configPath)
+        const config = configBlob
           ? (
-              await nativeGit(directory, ["show", `${pack.sha}:${configPath}`])
+              await nativeGit(directory, ["cat-file", "blob", configBlob.sha])
             ).toString()
           : undefined
         return {
@@ -80,16 +84,7 @@ export async function captureConnectorMirrorTarget(input: {
           revision,
           mirror: {
             ...input.mirror,
-            configBlobSha: paths.includes(configPath)
-              ? (
-                  await nativeGit(directory, [
-                    "rev-parse",
-                    `${pack.sha}:${configPath}`,
-                  ])
-                )
-                  .toString()
-                  .trim()
-              : null,
+            configBlobSha: configBlob?.sha ?? null,
           },
           paths,
           blobs,

@@ -1,5 +1,6 @@
 import type { GitFileChange } from "./file-change.js"
 import { type GitPack, nativeGit, withGitDirectory } from "./pack.js"
+import { workspaceRelativePath } from "./root-folder.js"
 import {
   commitGitTree,
   type StagedGitTree,
@@ -36,6 +37,15 @@ export async function mergeGitFiles(input: {
     subject: "Captured unpushed workspace change",
     createdAt: "2000-01-01T00:00:00.000Z",
   })
+  // Paths in the result are relative to the Workspace root folder.
+  const rootRelative = (path: string) => {
+    const relative = workspaceRelativePath(input.pack.root ?? "", path)
+    if (relative === null)
+      throw new Error(
+        "The merge changes a path outside the Workspace root folder",
+      )
+    return relative
+  }
   return withGitDirectory(
     input.pack.sha,
     async (directory) => {
@@ -104,7 +114,7 @@ export async function mergeGitFiles(input: {
         for (const path of entries) {
           if (!path) break
           conflicts.push({
-            path,
+            path: rootRelative(path),
             base: await read(input.previousSha, path),
             current: await read(input.pack.sha, path),
             incoming: await read(candidate.sha, path),
@@ -125,7 +135,10 @@ export async function mergeGitFiles(input: {
           tree,
         },
         paths: [
-          ...new Set([...paths, ...conflicts.map((conflict) => conflict.path)]),
+          ...new Set([
+            ...paths.map(rootRelative),
+            ...conflicts.map((conflict) => conflict.path),
+          ]),
         ],
         conflicts,
       }
