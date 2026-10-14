@@ -559,6 +559,18 @@ describe("discover-roots script", () => {
       expect(lib.globMatcher("*").matches("a".repeat(256))).toBe(false)
     })
 
+    it("charges the trailing stars of a segment to the match budget", async () => {
+      // A query string gives this test a fresh module, with its own budget.
+      const lib = await import(
+        `${join(INGEST_SKILLS_DIR, "discover-roots/scripts/roots-lib.mjs")}?trailing-stars`
+      )
+      const matcher = lib.globMatcher(`a${"*".repeat(120)}`)
+      expect(matcher.skip).toBeUndefined()
+      const before = lib.matchStepsUsed()
+      expect(matcher.matches("a")).toBe(true)
+      expect(lib.matchStepsUsed() - before).toBeGreaterThanOrEqual(120)
+    })
+
     it("shares one match budget between the globs, and says what it skipped", () => {
       const dir = wide(55, heavy)
       const result = discover(dir)

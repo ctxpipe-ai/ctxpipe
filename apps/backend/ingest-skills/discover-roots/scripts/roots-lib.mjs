@@ -251,7 +251,10 @@ function matchSegment(glob, text) {
       t = ++mark
     } else return false
   }
-  while (glob[g] === "*") g++
+  while (glob[g] === "*") {
+    if (++matchSteps > MAX_MATCH_STEPS) return false
+    g++
+  }
   return g === glob.length
 }
 
