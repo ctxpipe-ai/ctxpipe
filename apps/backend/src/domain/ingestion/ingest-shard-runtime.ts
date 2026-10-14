@@ -1,3 +1,4 @@
+import type { Env } from "../../config/env.js"
 import type { ModelTier } from "../../retrieval/services/providers/providerTypes.js"
 import type { IngestSkillBundle } from "./skill-bundle.js"
 
@@ -69,3 +70,29 @@ export type IngestShardRuntime = {
 export type IngestShardRuntimeFactory = (
   spec: IngestShardSpec,
 ) => IngestShardRuntime
+
+/**
+ * The API origin that a shard sandbox calls for the model proxy and the tool
+ * bridge. Shard steps run in the worker, which serves no HTTP, so this is
+ * never the worker's own address or port. It is `AUTH_BASE_URL` (the API
+ * origin on Railway and AWS), with two changes:
+ * - `SANDBOX_CALLBACK_HOST` names the API on the sandbox network (Compose):
+ *   plain HTTP to that host, on the port of `AUTH_BASE_URL` (else 3000);
+ * - a `localhost` API (host dev) is `host.docker.internal` from a container.
+ */
+export function ingestCallbackOrigin(
+  env: Pick<Env, "AUTH_BASE_URL" | "SANDBOX_CALLBACK_HOST">,
+): string {
+  const api = new URL(env.AUTH_BASE_URL)
+  if (env.SANDBOX_CALLBACK_HOST) {
+    const callback = new URL(`http://${env.SANDBOX_CALLBACK_HOST}`)
+    callback.port = api.port || "3000"
+    return callback.origin
+  }
+  if (
+    ["localhost", "127.0.0.1", "[::1]"].includes(api.hostname) ||
+    api.hostname.endsWith(".localhost")
+  )
+    api.hostname = "host.docker.internal"
+  return api.origin
+}

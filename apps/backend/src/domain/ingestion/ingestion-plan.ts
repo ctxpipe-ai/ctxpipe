@@ -1,5 +1,10 @@
-import { posix } from "node:path"
+import { createHash } from "node:crypto"
 import type { ModelTier } from "../../retrieval/services/providers/providerTypes.js"
+import {
+  type DiscoveredRoot,
+  type RefusedRoot,
+  resolveDiscoveredRoots,
+} from "./discovered-roots.js"
 
 /*
  * The plan of an ingestion v2 run (ADR-052, concept section 2): how the
@@ -11,43 +16,27 @@ import type { ModelTier } from "../../retrieval/services/providers/providerTypes
 /** One shard takes at most this many roots (concept section 8). */
 export const INGEST_SHARD_MAX_ROOTS = 20
 
-/** Manifest files that make a folder a candidate root. */
-const ROOT_MANIFESTS = new Set([
-  "package.json",
-  "Cargo.toml",
-  "go.mod",
-  "pyproject.toml",
-  "pom.xml",
-  "build.gradle",
-])
+/** A run plans at most this many roots; above it, the run is `partial`. */
+export const INGEST_MAX_ROOTS = 400
 
 /**
- * The candidate roots of the source at the run's SHA: each folder with a
- * manifest. The parent uses the count only, to size the shards. The
- * `discover-roots` skill in each shard finds the real roots.
+ * The roots of the run: the `discover-roots` script result after the host
+ * check (`resolveDiscoveredRoots`, the only check), sorted and with no
+ * duplicate. Above `INGEST_MAX_ROOTS` the run plans no root and gives a
+ * `partial` reason. No model chooses among ambiguous candidates yet.
  */
-export function sourceCandidateRoots(paths: readonly string[]): string[] {
-  const roots = new Set<string>()
-  for (const path of paths)
-    if (ROOT_MANIFESTS.has(posix.basename(path))) roots.add(posix.dirname(path))
-  return [...roots].sort()
-}
-
-export function ingestShardCount(roots: number): number {
-  return Math.max(1, Math.ceil(roots / INGEST_SHARD_MAX_ROOTS))
-}
-
-/**
- * The roots of one shard: each `shards`-th root of the sorted discovery
- * result. Each root goes to exactly one shard, also when discovery finds
- * more roots than the plan counted.
- */
-export function shardRoots(
-  roots: readonly string[],
-  shard: number,
-  shards: number,
-): string[] {
-  return [...roots].sort().filter((_, i) => i % shards === shard)
+export function planIngestRoots(
+  scriptResult: unknown,
+):
+  | { roots: DiscoveredRoot[]; refused: RefusedRoot[]; partial?: undefined }
+  | { partial: string; refused: RefusedRoot[] } {
+  const { roots, refused } = resolveDiscoveredRoots(scriptResult, null)
+  if (roots.length > INGEST_MAX_ROOTS)
+    return {
+      partial: `discover-roots found ${roots.length} roots; a run takes at most ${INGEST_MAX_ROOTS}`,
+      refused,
+    }
+  return { roots, refused }
 }
 
 export type IngestSkillPlan = {
@@ -65,11 +54,12 @@ export type IngestSkillPlan = {
  * and its result plans the root steps.
  */
 const INGEST_SKILLS: readonly IngestSkillPlan[] = [
-  { name: "libraries", scope: "root", run: "script" },
   { name: "classify-kind", scope: "root", run: "model", tier: "fast" },
   { name: "apis", scope: "root", run: "model", tier: "medium" },
   { name: "dependencies", scope: "root", run: "model", tier: "medium" },
   { name: "datasources-infra", scope: "root", run: "model", tier: "medium" },
+  // `libraries` writes shared files, so it runs on the assembled ref.
+  { name: "libraries", scope: "repository", run: "script" },
   { name: "ownership", scope: "repository", run: "script" },
   { name: "decisions", scope: "repository", run: "model", tier: "medium" },
   {
@@ -101,11 +91,21 @@ export function plannedIngestSkills(
   )
 }
 
-/** The workflow step of one skill run: `skill:<root>:<skill>:<workspaceId>`. */
+/**
+ * The workflow step of one skill run:
+ * `skill:<label>~<hash>:<skill>[.<page>]:<workspaceId>`. The label is the
+ * end of the root path in safe ASCII, for a person who reads the run; the
+ * hash of the full root makes the name unique. So the name is always 1 to
+ * 200 printable ASCII characters, as the step commit trailer must be.
+ * `page` counts the runs of a script skill that said `more: true`.
+ */
 export function skillStepName(
   root: string,
   skill: string,
   workspaceId: string,
+  page = 1,
 ): string {
-  return `skill:${root}:${skill}:${workspaceId}`
+  const label = root.replace(/[^A-Za-z0-9._/-]/g, "_").slice(-40)
+  const hash = createHash("sha256").update(root).digest("hex").slice(0, 12)
+  return `skill:${label}~${hash}:${skill}${page > 1 ? `.${page}` : ""}:${workspaceId}`
 }

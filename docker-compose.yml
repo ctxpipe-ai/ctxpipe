@@ -348,6 +348,9 @@ services:
       SLACK_CLIENT_ID: ${SLACK_CLIENT_ID:-}
       SLACK_CLIENT_SECRET: ${SLACK_CLIENT_SECRET:-}
       SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET:-}
+      # Ingest shard sandboxes call the API (not the worker) for the model
+      # proxy and the tool bridge: the backend's alias on the `sandbox` network.
+      SANDBOX_CALLBACK_HOST: ${SANDBOX_CALLBACK_HOST:-backend.sandbox.ctxpipe.internal}
       # The worker removes idle sandboxes through the same daemon, and builds
       # Workspace bases through Agent Vault.
       <<: [*otel-env, *model-env, *sandbox-docker-env, *agent-vault-env]
