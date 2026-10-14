@@ -247,7 +247,7 @@ export async function readFileByRef(
         endLine: end,
         totalLines,
         nextStartLine: end < last ? end + 1 : null,
-        truncated: true,
+        truncated: false,
       }
     },
   })
