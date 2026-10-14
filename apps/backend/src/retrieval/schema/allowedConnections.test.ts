@@ -104,3 +104,21 @@ describe("ontology consistency (ADR-033)", () => {
     }
   })
 })
+
+describe("ingestion v2 skill claims (ADR-052 section 6)", () => {
+  it("allows each triple that the skills write", () => {
+    for (const subject of ["Repository", "Service", "App", "Library"])
+      expect(
+        isAllowedConnection(subject, "FOLLOWS", "InstructionUnit"),
+        subject,
+      ).toBe(true)
+    expect(isAllowedConnection("Repository", "USES_LIBRARY", "Library")).toBe(
+      true,
+    )
+    for (const predicate of ["READS_FROM", "WRITES_TO", "DEPENDS_ON"])
+      expect(isAllowedConnection("App", predicate, "Database"), predicate).toBe(
+        true,
+      )
+    expect(isAllowedConnection("App", "RUNS_ON", "Infrastructure")).toBe(true)
+  })
+})
