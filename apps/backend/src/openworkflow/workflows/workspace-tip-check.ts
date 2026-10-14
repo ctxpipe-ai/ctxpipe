@@ -4,6 +4,10 @@ import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { githubRepositoriesWithoutAccess } from "../../domain/workspace-sources/github-access.js"
+import {
+  collectInactiveWorkspaceGraphKeys,
+  workspaceGraphUse,
+} from "../../domain/workspaces/graph-gc.js"
 import { rebuildWorkspaceGraphWhenMissing } from "../../domain/workspaces/graph-rebuild.js"
 import {
   resolveLinkedReadRevision,
@@ -356,6 +360,31 @@ export const workspaceTipCheck = defineWorkflow(
             message: error instanceof Error ? error.message : String(error),
           })
         })
+      // Remove the graphs of keys that no Workspace uses. The job needs a
+      // grace period, so it never removes the key that a chat turn can still
+      // read. A failure here must not fail the tip check either.
+      await collectInactiveWorkspaceGraphKeys({
+        orgId: org.id,
+        orgSlug: org.slug,
+        loadUse: async () =>
+          Promise.all(
+            (
+              await withOrgDbContext(input.orgId, () =>
+                listOrgWorkspaces(input.orgId),
+              )
+            ).map(async (workspace) =>
+              workspaceGraphUse(
+                workspace.id,
+                await getWorkspaceProjection(workspace.id),
+              ),
+            ),
+          ),
+      }).catch((error: unknown) => {
+        log.warn({
+          event: "workspace_graph_gc_failed",
+          message: error instanceof Error ? error.message : String(error),
+        })
+      })
       return { updated: updated.length, linkedUpdated }
     })
   },
