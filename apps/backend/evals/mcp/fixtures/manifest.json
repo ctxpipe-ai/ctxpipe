@@ -1,0 +1,50 @@
+{
+  "commitDate": "2026-06-01T12:00:00Z",
+  "organizations": [
+    {
+      "key": "harbor",
+      "name": "Harbor Labs"
+    },
+    {
+      "key": "meadow",
+      "name": "Meadow Works"
+    }
+  ],
+  "upstreamRepositories": [
+    {
+      "key": "is",
+      "url": "https://github.com/sindresorhus/is",
+      "sha": "ab85d9bca9564eb0f867ab45e3cbf45659d9ac4c",
+      "tag": "v7.0.0"
+    },
+    {
+      "key": "yocto-queue",
+      "url": "https://github.com/sindresorhus/yocto-queue",
+      "sha": "0ac610dfa4e5cbd929b2e9b8fc34f5417f2f788b",
+      "tag": "v1.1.1"
+    }
+  ],
+  "workspaces": [
+    {
+      "key": "harbor-payments",
+      "organization": "harbor",
+      "slug": "payments",
+      "name": "Harbor Payments",
+      "repositories": ["is", "yocto-queue"]
+    },
+    {
+      "key": "harbor-platform",
+      "organization": "harbor",
+      "slug": "platform",
+      "name": "Harbor Platform",
+      "repositories": ["is"]
+    },
+    {
+      "key": "meadow-payments",
+      "organization": "meadow",
+      "slug": "payments",
+      "name": "Meadow Payments",
+      "repositories": []
+    }
+  ]
+}
