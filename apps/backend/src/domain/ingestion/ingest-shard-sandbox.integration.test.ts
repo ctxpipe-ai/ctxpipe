@@ -56,13 +56,17 @@ const server = setupServer(
   http.post(`${VAULT}/v1/auth/login`, () =>
     HttpResponse.json({ token: "owner-token" }),
   ),
-  http.all(`${VAULT}/v1/vaults/:name/*`, async ({ request }) => {
-    if (request.method !== "GET") {
-      const body = await request.text()
-      if (body.length) vaultCredentials.push(body)
-    }
-    return HttpResponse.json({})
-  }),
+  // The SDK sends credentials to `/v1/credentials` (vault in the body) and
+  // services to `/v1/vaults/:name/services`.
+  ...[`${VAULT}/v1/credentials`, `${VAULT}/v1/vaults/:name/*`].map((path) =>
+    http.all(path, async ({ request }) => {
+      if (request.method !== "GET") {
+        const body = await request.text()
+        if (body.length) vaultCredentials.push(body)
+      }
+      return HttpResponse.json({})
+    }),
+  ),
   http.post(`${MODEL_PROVIDER_URL}/chat/completions`, () =>
     HttpResponse.json({
       id: "chatcmpl_shard",
