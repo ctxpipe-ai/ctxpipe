@@ -187,6 +187,22 @@ export function mcpConnectionKey(input: {
   return `mck_${sha256Hex(`${input.principal}\n${input.client}`).slice(0, 32)}`
 }
 
+/**
+ * Pseudonym of an org slug for spans (ADR-051 section 9). It groups the calls
+ * of one org in ClickHouse (`OrgSlugHash` in the call-correlation view) with no
+ * slug on the span.
+ */
+export function mcpOrgSlugHash(slug: string): string {
+  return sha256Hex(slug).slice(0, 32)
+}
+
+/** Put the hash of the org of this call on the active span. */
+export function setMcpOrgSlugHash(slug: string): void {
+  trace
+    .getActiveSpan()
+    ?.setAttribute("ctxpipe.mcp.org.slug_hash", mcpOrgSlugHash(slug))
+}
+
 function currentPrincipal(): { principal: string; oauthClientId?: string } {
   try {
     const vars = getContext<AppEnv>().var

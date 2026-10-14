@@ -8,7 +8,7 @@ import { currentMcpActor } from "../../auth/context.js"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { applyAttribution } from "../../observability/attribution.js"
 import { getLogger } from "../../observability/logger.js"
-import { runMcpToolCall } from "../correlation.js"
+import { runMcpToolCall, setMcpOrgSlugHash } from "../correlation.js"
 import { withInFlightLimit } from "./in-flight.js"
 import { McpToolError } from "./tool-errors.js"
 import { type CallOrg, requireToolOrg } from "./tool-org.js"
@@ -108,6 +108,7 @@ export function withCallOrg<T>(
         "ctxpipe.org.id": org.id,
         "ctxpipe.org.slug": org.slug,
       })
+      setMcpOrgSlugHash(org.slug)
     }
     return org ? withOrgIdContext(org, () => run(org)) : run(org)
   })

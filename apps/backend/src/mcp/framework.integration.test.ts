@@ -29,6 +29,7 @@ import {
 import { generateObjectId } from "../lib/id.js"
 import { registerMcpRoutes } from "../routes/mcp.js"
 import { withTestRequestLogger } from "../test/hono-test-logger.js"
+import { mcpOrgSlugHash } from "./correlation.js"
 import { fitPage } from "./framework/budget.js"
 import {
   loadOrgRepositoryHandles,
@@ -863,6 +864,7 @@ describe("MCP tool framework (Postgres + MCP SDK Client)", () => {
     expect(spans.attributes(span)).toMatchObject({
       "ctxpipe.org.id": otherOrgs[1]?.id,
       "ctxpipe.org.slug": otherOrgs[1]?.slug,
+      "ctxpipe.mcp.org.slug_hash": mcpOrgSlugHash(otherOrgs[1]?.slug ?? ""),
     })
     await client.close()
   })

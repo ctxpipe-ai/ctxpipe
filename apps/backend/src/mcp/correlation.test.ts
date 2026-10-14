@@ -15,9 +15,11 @@ import { recordSpans } from "../../test/spans.js"
 import type { AppEnv } from "../app/env.js"
 import { backendOtelMiddleware } from "../observability/http.js"
 import {
+  mcpOrgSlugHash,
   readMcpCorrelation,
   runMcpResourceRead,
   runMcpToolCall,
+  setMcpOrgSlugHash,
 } from "./correlation.js"
 import { registerWorkspaceFileResource } from "./resources/workspace-file.js"
 import { handleMcpTransportRequest } from "./transport.js"
@@ -354,6 +356,23 @@ describe("MCP call correlation", () => {
       expect(String(key(span))).not.toContain("user_1")
       expect(String(key(span))).not.toContain("key_1")
     }
+  })
+
+  it("puts the hash of the org slug on the span, never the slug", async () => {
+    const { span } = await callTool(
+      buildApp({ userId: "user_1" }, async () => {
+        setMcpOrgSlugHash("acme")
+        return { content: [{ type: "text" as const, text: "ok" }] }
+      }),
+    )
+
+    const hash = span.attributes["ctxpipe.mcp.org.slug_hash"]
+    expect(hash).toBe(mcpOrgSlugHash("acme"))
+    expect(hash).toMatch(/^[0-9a-f]{32}$/)
+    expect(hash).not.toBe(mcpOrgSlugHash("other"))
+    expect(
+      JSON.stringify(span.attributes["ctxpipe.mcp.org.slug_hash"]),
+    ).not.toContain("acme")
   })
 
   it("puts no query text, paths or repository URLs on any span", async () => {
