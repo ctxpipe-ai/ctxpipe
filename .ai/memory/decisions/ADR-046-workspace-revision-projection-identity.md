@@ -25,3 +25,7 @@ What "current" meant for a Workspace was spread over loosely coupled fields (des
 ## Revision 2026-10-11: lost derived graph
 
 The graph store can lose the graph of a ready revision, for example when the FalkorDB service is replaced. The graph read finds this when the completion marker or the counts do not match. The read then sets the graph phase back to `pending` with a compare-and-set, and only the caller that wins starts one hydrate run. The read answers "building" and does not build the graph itself. The hydrate run writes the revision graph again from Postgres and removes stale nodes under the revision key first.
+
+## Revision 2026-10-15: linked pins live in the source state
+
+The pinned ref and SHAs of each linked repository (`LinkedRevision`) move from `workspace_linked_repositories` to the `state` column of the GitHub row in `workspace_sources` ([ADR-050](ADR-050-workspace-sources-config-file.md)). The link id (`wlr_…`) stays stable. The sources projection of a revision replaces the linked membership in one transaction, right after the activation of that revision; activation itself no longer changes linked rows. The compare-and-set updates of `desiredSha` and `indexedSha` lock the source row, parse its state, check the same binding fields as before (link id, Workspace, URL, ref, SHA, owner revision, repository connection), and write the state back.
