@@ -66,6 +66,12 @@ export type PatchStepInput = {
   rootGone?: boolean
   /** Repositories that the Workspace knows (sources and linked repositories). */
   linkableRepositories?: readonly string[]
+  /**
+   * The source root of a root step, from the host root-to-file map (`.` for
+   * the repository top). The host writes it as `root` on each package unit.
+   * A repository-wide step has no root and keeps the root of the base file.
+   */
+  root?: string
 }
 
 /** The 12 allowlist folders and their kinds. Patterns are not extracted (ADR-052). */
@@ -76,9 +82,16 @@ const FOLDER_KINDS: ReadonlyMap<string, string> = new Map(
 )
 
 const GENERATED_BY = "ctxpipe-extract"
+/** The kinds whose files get the host `root` (CTX-657). */
+const PACKAGE_KINDS: ReadonlySet<string> = new Set([
+  "Service",
+  "App",
+  "Library",
+])
 const HOST_FIELDS = [
   "generated_by",
   "sources",
+  "root",
   "source_sha",
   "skill",
   "bundle",
@@ -129,6 +142,7 @@ const FrontMatterSchema = z
     claims: z.array(ClaimSchema).max(200).optional(),
     generated_by: z.string().optional(),
     sources: z.array(z.string()).optional(),
+    root: z.string().optional(),
     source_sha: z.string().optional(),
     skill: z.string().optional(),
     bundle: z.string().optional(),
@@ -315,6 +329,7 @@ export async function validatePatchStep(
     source: input.source,
     skill: input.skill,
     bundle: input.bundle,
+    root: input.root,
     evidenceExists,
   }
 
@@ -457,6 +472,7 @@ type CheckContext = {
   source: { url: string; sha: string }
   skill: string
   bundle: string
+  root: string | undefined
   evidenceExists: (path: string) => Promise<boolean>
 }
 
@@ -564,6 +580,11 @@ async function checkFullWrite(
   const evidence = await evidenceProblem(fresh, context)
   if (evidence) return evidence
 
+  const baseRoot =
+    typeof baseAttributes.root === "string" ? baseAttributes.root : undefined
+  const root = PACKAGE_KINDS.has(attributes.kind)
+    ? (context.root ?? baseRoot)
+    : undefined
   const stamped = {
     kind: attributes.kind,
     name: attributes.name,
@@ -573,6 +594,7 @@ async function checkFullWrite(
     ...(claims.length ? { claims: claims.map(stampClaim) } : {}),
     generated_by: GENERATED_BY,
     sources: [context.sourceUrl],
+    ...(root === undefined ? {} : { root }),
     source_sha: context.source.sha,
     skill: context.skill,
     bundle: context.bundle,
