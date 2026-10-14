@@ -57,7 +57,8 @@ describe("Source projection follow-ups (Postgres)", () => {
       )
   }
 
-  async function issues(
+  /** A new Linear connection and an `ok` source row that uses it. */
+  async function linearSourceRow(
     row: Partial<PlannedSourceRow> = {},
   ): Promise<PlannedSourceRow> {
     return {
@@ -72,7 +73,7 @@ describe("Source projection follow-ups (Postgres)", () => {
   }
 
   it("keeps the files of a source whose connection was removed", async () => {
-    const source = await issues()
+    const source = await linearSourceRow()
     const cleanups = await project("removed-connection", [
       [source],
       [{ ...source, status: "connection_missing" }],
@@ -82,7 +83,7 @@ describe("Source projection follow-ups (Postgres)", () => {
   })
 
   it("cleans up the old scope of a source whose scope changed", async () => {
-    const source = await issues()
+    const source = await linearSourceRow()
     const cleanups = await project("changed-scope", [
       [source],
       [{ ...source, scope: { teams: ["OPS"] } }],
@@ -96,7 +97,7 @@ describe("Source projection follow-ups (Postgres)", () => {
   })
 
   it("cleans up a removed source whose connection was removed before", async () => {
-    const source = await issues()
+    const source = await linearSourceRow()
     const cleanups = await project("removed-later", [
       [source],
       [{ ...source, status: "connection_missing" }],
@@ -111,7 +112,7 @@ describe("Source projection follow-ups (Postgres)", () => {
   })
 
   it("keeps the files of a source whose entry became invalid", async () => {
-    const source = await issues()
+    const source = await linearSourceRow()
     const cleanups = await project("invalid-entry", [
       [source],
       [{ ...source, scope: {}, status: "invalid", statusDetail: "Bad scope" }],
@@ -122,7 +123,7 @@ describe("Source projection follow-ups (Postgres)", () => {
 
   it("keeps every file while the sources file cannot be read", async () => {
     const cleanups = await project("file-error", [
-      [await issues()],
+      [await linearSourceRow()],
       [
         {
           sourceKey: FILE_ERROR_SOURCE_KEY,

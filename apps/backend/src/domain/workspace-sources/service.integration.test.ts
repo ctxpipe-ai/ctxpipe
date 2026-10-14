@@ -21,17 +21,35 @@ beforeAll(() => {
 })
 
 /** An open pull request as GitHub lists it. */
-function pull(
-  number: number,
-  branch: string,
-  createdAt = "2026-10-13T10:00:00Z",
-) {
+function pull(number: number, branch: string) {
   return {
     number,
     html_url: `https://github.com/fixture/hydration-contract/pull/${number}`,
     head: { ref: branch },
-    created_at: createdAt,
+    created_at: "2026-10-13T10:00:00Z",
   }
+}
+
+/**
+ * GitHub's Git database API: every branch head is `parent`. Each write goes
+ * into `writes`.
+ */
+function gitDatabase(
+  parent: string,
+  writes: Array<{ method: string; path: string; body: unknown }> = [],
+) {
+  return http.all(
+    "https://api.github.com/repos/fixture/hydration-contract/git/*",
+    async ({ request, params }) => {
+      const path = String(params[0])
+      if (request.method === "GET")
+        return path.startsWith("ref/heads/")
+          ? HttpResponse.json({ object: { sha: parent } })
+          : HttpResponse.json({ tree: { sha: "b".repeat(40) } })
+      writes.push({ method: request.method, path, body: await request.json() })
+      return HttpResponse.json({ sha: "e".repeat(40) })
+    },
+  )
 }
 
 /** An installed Linear connection in the fixture org. */
@@ -69,29 +87,13 @@ it(
         },
       },
       async (f) => {
-        // GitHub's Git database API: every branch head is `parent`.
         f.server.use(
           // No source pull request is open.
           http.get(
             "https://api.github.com/repos/fixture/hydration-contract/pulls",
             () => HttpResponse.json([]),
           ),
-          http.all(
-            "https://api.github.com/repos/fixture/hydration-contract/git/*",
-            async ({ request, params }) => {
-              const path = String(params[0])
-              if (request.method === "GET")
-                return path.startsWith("ref/heads/")
-                  ? HttpResponse.json({ object: { sha: parent } })
-                  : HttpResponse.json({ tree: { sha: "b".repeat(40) } })
-              gitWrites.push({
-                method: request.method,
-                path,
-                body: await request.json(),
-              })
-              return HttpResponse.json({ sha: "e".repeat(40) })
-            },
-          ),
+          gitDatabase(parent, gitWrites),
         )
         const linear = await addLinearConnection(f)
 
@@ -274,17 +276,7 @@ it(
       },
       async (f) => {
         f.server.use(
-          http.all(
-            "https://api.github.com/repos/fixture/hydration-contract/git/*",
-            async ({ request, params }) => {
-              const path = String(params[0])
-              if (request.method === "GET")
-                return path.startsWith("ref/heads/")
-                  ? HttpResponse.json({ object: { sha: parent } })
-                  : HttpResponse.json({ tree: { sha: "b".repeat(40) } })
-              return HttpResponse.json({ sha: "e".repeat(40) })
-            },
-          ),
+          gitDatabase(parent),
           // A pull request that removes an earlier "linear" source is open.
           http.get(
             "https://api.github.com/repos/fixture/hydration-contract/pulls",
