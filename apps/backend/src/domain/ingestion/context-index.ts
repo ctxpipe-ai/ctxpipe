@@ -157,12 +157,19 @@ export async function buildContextIndex(input: {
   sha: string
   sourceUrl: string
   repoDir: string
+  /** Workspace root folder; unit paths are relative to it. */
+  rootPath?: string
 }): Promise<{ index: ContextIndex; json: string }> {
   const units = await listWorkspaceUnitsAtRevision(input.workspaceId, input.sha)
-  const raw = await readGitFiles(
-    input.repoDir,
-    input.sha,
-    units.map((unit) => unit.path),
+  const prefix = input.rootPath ? `${input.rootPath}/` : ""
+  const raw = new Map(
+    [
+      ...(await readGitFiles(
+        input.repoDir,
+        input.sha,
+        units.map((unit) => `${prefix}${unit.path}`),
+      )),
+    ].map(([path, content]) => [path.slice(prefix.length), content]),
   )
   const all = buildContextIndexEntries({
     units,

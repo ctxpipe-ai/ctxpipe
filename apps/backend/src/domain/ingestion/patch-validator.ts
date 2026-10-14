@@ -66,7 +66,10 @@ export type PatchStepInput = {
   rootGone?: boolean
   /** Repositories that the Workspace knows (sources and linked repositories). */
   linkableRepositories?: readonly string[]
-  /** Workspace root folder; `""` (the default) is the repository root. */
+  /**
+   * Workspace root folder; `""` (the default) is the repository root. Staged
+   * paths, accepted ops, and rejections are relative to it.
+   */
   rootPath?: string
 }
 
@@ -249,17 +252,32 @@ type Candidate = {
 export async function validatePatchStep(
   input: PatchStepInput,
 ): Promise<PatchStepResult> {
+  // Staged paths and result paths are relative to the Workspace root
+  // folder. Inside, every path is a repository path below that folder.
+  const rootPath = input.rootPath ?? ""
+  const toRepository = (path: string) =>
+    rootPath ? `${rootPath}/${path}` : path
+  const fromRepository = (path: string) =>
+    rootPath && path.startsWith(`${rootPath}/`)
+      ? path.slice(rootPath.length + 1)
+      : path
   const rejections: PatchRejection[] = []
   const reject = (path: string, rule: PatchRule, reason: string) => {
-    rejections.push({ path, rule, reason })
+    rejections.push({ path: fromRepository(path), rule, reason })
   }
   const sourceUrl = normalizeSourceUrl(input.source.url)
-  const rootPath = input.rootPath ?? ""
 
   const baseEntries = await listTree(input.repoDir, input.baseCommit)
-  const meta = await readPatchJson(input.stagedDir, reject)
+  const meta = new Map(
+    [...(await readPatchJson(input.stagedDir, reject)).values()].map((op) => [
+      toRepository(op.path),
+      { ...op, path: toRepository(op.path) },
+    ]),
+  )
   const rejectedBeforeOps = rejections.length
-  const staged = await readStagedFiles(input.stagedDir, reject)
+  const staged = (await readStagedFiles(input.stagedDir, reject)).map(
+    (file) => ({ ...file, path: toRepository(file.path) }),
+  )
   const stagedRejections = rejections.length - rejectedBeforeOps
   const knownRepositories = new Set(
     [sourceUrl, ...(input.linkableRepositories ?? [])]
@@ -459,7 +477,10 @@ export async function validatePatchStep(
   const total = ops.length + stagedRejections
   return {
     tree,
-    accepted: accepted.map(({ op, path }) => ({ op, path })),
+    accepted: accepted.map(({ op, path }) => ({
+      op,
+      path: fromRepository(path),
+    })),
     rejections,
     status: total > 0 && opRejections * 2 > total ? "partial" : "complete",
   }

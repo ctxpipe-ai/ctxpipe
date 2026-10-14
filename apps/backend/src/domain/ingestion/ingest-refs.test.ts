@@ -671,12 +671,7 @@ describe("pushIngestAssemble", () => {
 
   it("writes only below the Workspace root folder", async () => {
     const tips = await shards(
-      [
-        {
-          "docs/context/knowledge/services/a.md": service("A"),
-          "knowledge/services/b.md": service("B"),
-        },
-      ],
+      [{ "knowledge/services/a.md": service("A") }],
       "docs/context",
     )
     const result = await assemble(tips, remote, "docs/context")

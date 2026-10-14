@@ -292,35 +292,6 @@ const ruleCases: RuleCase[] = [
     accepted: ["knowledge/services/checkout.md"],
   },
   {
-    rule: "path",
-    name: "allows only the knowledge folders below the Workspace root folder",
-    files: {
-      "docs/context/knowledge/services/checkout.md": service("Checkout"),
-      "knowledge/services/checkout.md": service("Checkout"),
-      "docs/contextual/knowledge/services/checkout.md": service("Checkout"),
-      "docs/context/AGENTS.md": "# Agents\n",
-      "docs/context/.ctxpipe/sources.yaml": "sources: []\n",
-      "docs/context/linear/issues/eng-2.md": service("Mirror"),
-      "src/app.md": service("App"),
-    },
-    deletes: [
-      "knowledge/services/owned-1.md",
-      "docs/context/../knowledge/services/owned-2.md",
-    ],
-    extra: { rootPath: "docs/context" },
-    rejected: [
-      "knowledge/services/checkout.md",
-      "docs/contextual/knowledge/services/checkout.md",
-      "docs/context/AGENTS.md",
-      "docs/context/.ctxpipe/sources.yaml",
-      "docs/context/linear/issues/eng-2.md",
-      "src/app.md",
-      "knowledge/services/owned-1.md",
-      "docs/context/../knowledge/services/owned-2.md",
-    ],
-    accepted: ["docs/context/knowledge/services/checkout.md"],
-  },
-  {
     rule: "ownership",
     name: "deletes only files the source alone owns",
     deletes: [
@@ -621,6 +592,39 @@ describe("validatePatchStep rules", () => {
         expect(readTree(result.tree, path)).toBe(readTree(baseCommit, path))
       else expect(treeHas(result.tree, path)).toBe(false)
     }
+  })
+})
+
+describe("validatePatchStep with a Workspace root folder", () => {
+  it("writes root-relative knowledge paths below the root folder only", async () => {
+    const result = await run(
+      stage({
+        files: {
+          "knowledge/services/checkout.md": service("Checkout"),
+          "AGENTS.md": "# Agents\n",
+          ".ctxpipe/sources.yaml": "sources: []\n",
+          "linear/issues/eng-2.md": service("Mirror"),
+        },
+        deletes: ["../knowledge/services/owned-1.md"],
+      }),
+      { rootPath: "docs/context" },
+    )
+    expect(result.accepted).toEqual([
+      { op: "create", path: "knowledge/services/checkout.md" },
+    ])
+    expect(result.rejections.map((r) => [r.path, r.rule]).sort()).toEqual(
+      [
+        [".ctxpipe/sources.yaml", "path"],
+        ["AGENTS.md", "path"],
+        ["../knowledge/services/owned-1.md", "path"],
+        ["linear/issues/eng-2.md", "path"],
+      ].sort(),
+    )
+    expect(
+      treeHas(result.tree, "docs/context/knowledge/services/checkout.md"),
+    ).toBe(true)
+    expect(treeHas(result.tree, "knowledge/services/checkout.md")).toBe(false)
+    expect(treeHas(result.tree, "knowledge/services/owned-1.md")).toBe(true)
   })
 })
 
