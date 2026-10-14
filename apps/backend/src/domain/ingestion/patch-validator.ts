@@ -15,6 +15,9 @@ import { KNOWLEDGE_KIND_FOLDERS } from "../workspaces/layout.js"
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
 import { type AreaFile, checkAreaChange, parseAreaBody } from "./area-file.js"
 import { runGit as git } from "./run-git.js"
+import { findSuspectedSecret } from "./secret-scan.js"
+
+export { findSuspectedSecret } from "./secret-scan.js"
 
 /**
  * Host validation of one ingest step (CTX-584, ADR-052 section 2, concept
@@ -366,13 +369,21 @@ export async function validatePatchStep(
     sourceText,
   }
 
-  const candidates: Candidate[] = []
+  let candidates: Candidate[] = []
   for (const [index, op] of ops.entries()) {
     if (index >= opLimit) {
       reject(
         op.path,
         "op_cap",
         `A step writes at most ${MAX_STEP_OPS} ops and a Workspace at most ${MAX_WORKSPACE_OPS} in a run`,
+      )
+      continue
+    }
+    if (findSuspectedSecret(op.path.replaceAll("/", "\n"))) {
+      reject(
+        op.path,
+        "suspected_secret",
+        "The path has a value that looks like a secret",
       )
       continue
     }
@@ -444,6 +455,16 @@ export async function validatePatchStep(
     if ("rule" in checked) reject(op.path, checked.rule, checked.reason)
     else candidates.push(checked)
   }
+  for (const path of splitSecretPaths(candidates)) {
+    reject(
+      path,
+      "suspected_secret",
+      "The end of one file and the start of the next have a value that looks like a secret",
+    )
+  }
+  candidates = candidates.filter(
+    (c) => !rejections.some((r) => r.path === c.path),
+  )
 
   const deletes = candidates.filter((c) => c.op === "delete")
   const ownedCount = [...baseEntries.keys()].filter(
@@ -490,6 +511,10 @@ export async function validatePatchStep(
         "The result tree changes a path that no accepted op names",
       )
   }
+  // A rejection never shows a path that holds a secret.
+  for (const rejection of rejections)
+    if (findSuspectedSecret(rejection.path.replaceAll("/", "\n")))
+      rejection.path = "[a path that looks like a secret]"
   const opRejections = rejections.filter((r) => r.rule !== "patch_json").length
   const total = ops.length + stagedRejections
   return {
@@ -547,6 +572,12 @@ async function checkWrite(
       ? await checkFullWrite(op, text, before, context)
       : await checkAdditiveWrite(text, before ?? "", context)
   if ("rule" in result) return result
+  // The scan reads the text that is stored: YAML escapes in the staged
+  // front matter are decoded by then. An additive write scans its own part.
+  if (areaFile || ownership === "sole") {
+    const secret = secretProblem(result.output)
+    if (secret) return secret
+  }
   if (Buffer.byteLength(result.output) > MAX_FILE_BYTES)
     return {
       rule: "size_cap",
@@ -626,8 +657,6 @@ async function checkAreaWrite(
   // text: code spans, fenced blocks, and block quotes too.
   const injection = injectionProblem(text, { everywhere: true })
   if (injection) return injection
-  const secret = secretProblem(withoutHumanText(text))
-  if (secret) return secret
 
   const beforeSources = fileSources(before ?? "")
   const others = beforeSources.filter((s) => s !== context.sourceUrl)
@@ -747,8 +776,6 @@ async function checkFullWrite(
   if (injection) return injection
   const quote = await unsourcedQuoteProblem(front.body, context)
   if (quote) return quote
-  const secret = secretProblem(withoutHumanText(text))
-  if (secret) return secret
 
   const claims = attributes.claims ?? []
   const baseClaims = Array.isArray(baseAttributes.claims)
@@ -845,7 +872,17 @@ async function checkAdditiveWrite(
   if (content) return content
   const injection = injectionProblem(addedText)
   if (injection) return injection
-  const secret = secretProblem(addedText, "of the added text ")
+  // The lines before the added text are read too, so that a value cut
+  // between them is found. A value in the old lines alone is not ours.
+  const kept = baseFront.body.trimEnd().split("\n").slice(-3).join("\n")
+  const secret =
+    secretProblem(addedText, "of the added text ") ??
+    (findSuspectedSecret(kept)
+      ? null
+      : secretProblem(
+          `${kept}\n${addedText}`,
+          "of the added text and the lines before it, ",
+        ))
   if (secret) return secret
   const evidence = await evidenceProblem(added, context)
   if (evidence) return evidence
@@ -931,14 +968,6 @@ const HUMAN_MARKER = new RegExp(
   `${escapeRegExp(HUMAN_OPEN)}|${escapeRegExp(HUMAN_CLOSE)}`,
   "g",
 )
-
-/**
- * Human sections stay as they are, so a scan reads only the rest of the
- * file. Each human line becomes empty, so line numbers stay correct.
- */
-function withoutHumanText(text: string): string {
-  return text.replace(HUMAN_BLOCK, (block) => block.replace(/[^\n]+/g, ""))
-}
 
 function humanBlocks(text: string): string[] {
   return [...text.matchAll(HUMAN_BLOCK)].map((m) => m[0])
@@ -1083,111 +1112,6 @@ async function unsourcedQuoteProblem(
   return null
 }
 
-/** Token shapes, tested on each word of a line; the name goes into the reason, never the value. */
-const SECRET_TOKENS: ReadonlyArray<[string, RegExp]> = [
-  ["GitHub token", /^(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_\w{40,})$/],
-  ["AWS access key id", /^(?:AKIA|ASIA)[A-Z0-9]{16}$/],
-  ["Slack token", /^xox[abprs]-(?=[\w-]*\d)[\w-]{10,}$/],
-  ["Stripe key", /^[rs]k_live_[A-Za-z0-9]{16,}$/],
-  ["API key", /^sk-(?=[\w-]*\d)[\w-]{32,}$/],
-  ["Google API key", /^AIza[\w-]{35}$/],
-]
-const JWT = /^eyJ[\w-]{8,}\.[\w-]{8,}\.[\w-]{8,}$/
-const PRIVATE_KEY = /-----BEGIN [A-Z0-9 ]{0,40}PRIVATE KEY(?: BLOCK)?-----/
-const URL_CREDENTIALS = /[^\s:@/]{1,256}:([^\s@/]{1,256})@[^\s@/]/y
-const SECRET_ASSIGNMENT =
-  /^[\s>*-]*(?:(?:export|const|let|var)\s+)?["']?([A-Za-z_][\w.-]*)["']?\s*[:=]\s*(.*)$/
-const SECRET_NAME =
-  /(?:key|secret|token|passw(?:or)?d|pwd|pass|credentials?|auth)$|^(?:pass|pwd)$/i
-const PLACEHOLDER =
-  /^<.*>$|^\$|\$\{|\{\{|change[-_]?me|example|placeholder|your[-_]|x{4,}|\*{3,}|\.\.\.|redacted|dummy|sample/i
-const COMMON_PASSWORDS = new Set([
-  "password",
-  "passwd",
-  "pass",
-  "secret",
-  "postgres",
-  "root",
-  "admin",
-  "test",
-  "user",
-])
-
-export type SecretFinding = { line: number; reason: string }
-
-/**
- * Finds a value that looks like a credential (ADR-052 section 5). The cost is
- * linear in the text size: each line is read a fixed number of times, and each
- * pattern is anchored or starts at a fixed literal. `meter.work` counts the
- * characters read, so a test can check the bound.
- */
-export function findSuspectedSecret(
-  text: string,
-  meter: { work: number } = { work: 0 },
-): SecretFinding | null {
-  const found = (line: number, rule: string): SecretFinding => ({
-    line,
-    reason: `The text has a value that looks like a secret (${rule}) on line ${line}`,
-  })
-  const lines = text.split("\n")
-  for (const [index, line] of lines.entries()) {
-    const number = index + 1
-    meter.work += line.length
-    if (line.includes("-----BEGIN ") && PRIVATE_KEY.test(line))
-      return found(number, "private key")
-
-    // Each "://" scan stops at the next "/", so the scans do not overlap.
-    for (
-      let at = line.indexOf("://");
-      at !== -1;
-      at = line.indexOf("://", at + 3)
-    ) {
-      URL_CREDENTIALS.lastIndex = at + 3
-      const password = URL_CREDENTIALS.exec(line)?.[1]
-      const user = line.slice(at + 3, line.indexOf(":", at + 3))
-      if (
-        password &&
-        password !== user &&
-        password.length >= 6 &&
-        !COMMON_PASSWORDS.has(password.toLowerCase()) &&
-        !PLACEHOLDER.test(password)
-      )
-        return found(number, "password in a connection string")
-    }
-
-    meter.work += line.length
-    const assignment = SECRET_ASSIGNMENT.exec(line)
-    if (assignment && SECRET_NAME.test(assignment[1] ?? "")) {
-      const value = (assignment[2] ?? "")
-        .replace(/\s+#.*$/, "")
-        .replace(/[,;]$/, "")
-        .trim()
-        .replace(/^(["'`])(.*)\1$/, "$2")
-      if (
-        value.length >= 8 &&
-        !/\s/.test(value) &&
-        /\d/.test(value) &&
-        /[A-Za-z]/.test(value) &&
-        !PLACEHOLDER.test(value) &&
-        !/^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+$/.test(value)
-      )
-        return found(number, "secret assignment")
-    }
-
-    meter.work += line.length
-    for (const match of line.matchAll(/[\w.-]+/g)) {
-      const word = match[0].replace(/\.+$/, "")
-      if (PLACEHOLDER.test(word)) continue
-      if (JWT.test(word)) return found(number, "JWT")
-      for (const part of word.split(".")) {
-        const hit = SECRET_TOKENS.find(([, shape]) => shape.test(part))
-        if (hit) return found(number, hit[0])
-      }
-    }
-  }
-  return null
-}
-
 /** Text with block-quote markers removed and whitespace normalized, to compare a quote with its source. */
 function quotableText(text: string): string {
   return text
@@ -1249,6 +1173,34 @@ function quotedBlocks(
     })
   }
   return blocks
+}
+
+/**
+ * A value cut over two files: the last lines of the body of each written
+ * file and the first lines of the body of the next one, in path order.
+ * Returns the paths of both files when only the joined text has a secret.
+ */
+function splitSecretPaths(candidates: readonly Candidate[]): string[] {
+  const writes = candidates.filter((c) => c.op !== "delete")
+  const body = (c: Candidate | undefined) => {
+    const text = c?.output ?? ""
+    return splitFrontMatter(text)?.body ?? text
+  }
+  const paths: string[] = []
+  for (let i = 0; i + 1 < writes.length; i++) {
+    const tail = body(writes[i]).trimEnd().split("\n").slice(-3)
+    const head = body(writes[i + 1])
+      .replace(/^\n+/, "")
+      .split("\n", 3)
+    const joined = `${tail.join("\n")}\n${head.join("\n")}`
+    if (
+      findSuspectedSecret(joined) &&
+      !findSuspectedSecret(tail.join("\n")) &&
+      !findSuspectedSecret(head.join("\n"))
+    )
+      paths.push(writes[i]?.path ?? "", writes[i + 1]?.path ?? "")
+  }
+  return [...new Set(paths)]
 }
 
 function secretProblem(text: string, where = ""): CheckFailure | null {

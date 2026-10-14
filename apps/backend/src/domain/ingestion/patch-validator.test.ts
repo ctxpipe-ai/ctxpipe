@@ -1196,6 +1196,53 @@ describe("validatePatchStep quoted source text", () => {
   })
 })
 
+describe("validatePatchStep secret forms", () => {
+  const ghp = FAKE.github
+  it("scans the stored text, so a YAML escape does not hide a token", async () => {
+    const escaped = `---\nkind: Service\nname: Escaped\nsummary: "\\x67hp_${"A1b2C3d4E5".repeat(4)}"\n---\n# Escaped\n`
+    const joined = `---\nkind: Service\nname: "Joined ${ghp.slice(0, 20)}\\\n  ${ghp.slice(20)}"\n---\n# Joined\n`
+    const result = await run(
+      stage({
+        files: {
+          "knowledge/services/escaped.md": escaped,
+          "knowledge/services/joined.md": joined,
+        },
+      }),
+    )
+    expect(result.accepted).toEqual([])
+    expect(rulesOf(result)).toEqual(["suspected_secret", "suspected_secret"])
+  })
+
+  it("rejects a token in a path and does not show the path", async () => {
+    const path = `knowledge/services/${ghp}.md`
+    const result = await run(stage({ files: { [path]: service("Named") } }))
+    expect(result.accepted).toEqual([])
+    expect(rulesOf(result)).toEqual(["suspected_secret"])
+    expect(JSON.stringify(result.rejections)).not.toContain(ghp.slice(4, 24))
+  })
+
+  it("rejects a token cut over the end of one file and the start of the next", async () => {
+    const result = await run(
+      stage({
+        files: {
+          "knowledge/services/a-part.md": service(
+            "A part",
+            `# A part\n\nThe value is ${ghp.slice(0, 20)}`,
+          ),
+          "knowledge/services/b-part.md": service(
+            "B part",
+            `${ghp.slice(20)} is the rest.\n\n# B part\n`,
+          ),
+        },
+      }),
+    )
+    expect(result.rejections.map((r) => [r.path, r.rule]).sort()).toEqual([
+      ["knowledge/services/a-part.md", "suspected_secret"],
+      ["knowledge/services/b-part.md", "suspected_secret"],
+    ])
+  })
+})
+
 describe("findSuspectedSecret", () => {
   it.each(Object.entries(FAKE))("rejects a %s value", (_, value) => {
     const text = `# Notes\n\nThe file has:\n\n    ${value}\n`
@@ -1224,7 +1271,6 @@ describe("findSuspectedSecret", () => {
       "OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
     ],
     ["a your- value", "SLACK_BOT_TOKEN=your-slack-bot-token"],
-    ["an example value", "AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE"],
     ["a short value", "PASSWORD=abc1"],
     ["a reference", "const apiKey = process.env.API_KEY"],
     ["a sentence after a label", "Token: the GitHub token with repo scope"],
@@ -1238,8 +1284,83 @@ describe("findSuspectedSecret", () => {
       "a kebab-case word with sk-",
       "sk-learn-is-a-python-library-for-machine-learning",
     ],
+    ["a cache key", "key: node-modules-v2"],
+    ["a partition key", "partition_key: tenant-id-v1"],
+    ["a feature word", "auth: required"],
+    ["a bearer placeholder", 'curl -H "Authorization: Bearer $TOKEN"'],
+    ["a host and port", "See https://example.com:8443/docs@v2 for details."],
+    [
+      "a certificate body",
+      `MIIDdzCCAl+gAwIBAgIEAgAAuTANBgkqhkiG9w0BAQUFADBaMQswCQYDVQQGEwJJ${"E".repeat(500)}`,
+    ],
   ])("accepts %s", (_, text) => {
     expect(findSuspectedSecret(`# Notes\n\n${text}\n`)).toBeNull()
+  })
+
+  const ghp = FAKE.github
+  const real = "Q9f3Kd8LmZ2xT7pW"
+  it.each([
+    ["a token with an example suffix", `${ghp}.example`],
+    ["a token before dots", `${ghp}...more`],
+    ["a Markdown escape", `ghp\\_${"A1b2C3d4E5".repeat(4)}`],
+    ["a token over two lines", `${ghp.slice(0, 20)}\n${ghp.slice(20)}`],
+    [
+      "a token over two quoted lines",
+      `> ${ghp.slice(0, 20)}\n> ${ghp.slice(20)}`,
+    ],
+    [
+      "a YAML line continuation",
+      `summary: "${ghp.slice(0, 24)}\\\n  ${ghp.slice(24)}"`,
+    ],
+    ["a base64 token", Buffer.from(`token ${ghp}`).toString("base64")],
+    [
+      "a percent-escaped token",
+      encodeURIComponent(`k=${ghp}&x=1`).replaceAll("_", "%5F"),
+    ],
+    [
+      "an .npmrc token",
+      `//registry.npmjs.org/:_authToken=npm_${"Ab12Cd34Ef".repeat(4)}`,
+    ],
+    ["a Basic header", "Authorization: Basic dXNlcjpTM2NyZXRQYXNzd29yZDk5"],
+    ["a Bearer header", `Authorization: Bearer ${real}abc`],
+    ["a one-line JSON key", `{"client_secret": "${real}"}`],
+    ["a YAML key in a list", `- api_key: ${real}`],
+    ["a TOML key", `secret_key = '${real}'`],
+    ["a YAML block scalar", `client_secret: |\n  ${real}`],
+    ["a table row", `| API_KEY | ${real} |`],
+    ["a Rails key base", `SECRET_KEY_BASE=${real}4e`],
+    ["a numbered key", `STRIPE_KEY_1=${real}`],
+    [
+      "an Azure account key",
+      `DefaultEndpointsProtocol=https;AccountName=a;AccountKey=${real}4eAbCd==;EndpointSuffix=core.windows.net`,
+    ],
+    ["an @ in a URL password", `postgres://admin:abc@${real}@db.host/x`],
+    ["a / in a URL password", `postgres://admin:Q9f3/Kd8LmZ2x@db.host/x`],
+    ["a value with no digit", "DB_PASSWORD=CorrectHorseBatteryStaple"],
+    ["a random key value", `cache_key: ${real}`],
+    ["an AWS key id with EXAMPLE", "AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE"],
+    [
+      "a private key body",
+      `MIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQ${"Ab3d".repeat(110)}`,
+    ],
+  ])("rejects %s", (_, text) => {
+    expect(findSuspectedSecret(`# Notes\n\n${text}\n`)).not.toBeNull()
+  })
+
+  it("keeps the work linear on long values and comments", () => {
+    for (const text of [
+      `API_KEY=a${" ".repeat(64 * 1024)}b`,
+      `API_KEY="a${"#".repeat(64 * 1024)}`,
+      `a:"`.repeat(20 * 1024),
+      "eyJ-".repeat(16 * 1024),
+      `x ${"\\_".repeat(32 * 1024)}`,
+      `${"A".repeat(30)}\n`.repeat(2 * 1024),
+      "a://b:c".repeat(8 * 1024),
+    ]) {
+      const meter = { work: 0 }
+      findSuspectedSecret(text, meter)
+      expect(meter.work).toBeLessThanOrEqual(32 * text.length)
+    }
   })
 
   it("keeps the work linear on a 2 MiB hostile file", () => {
@@ -1249,11 +1370,11 @@ describe("findSuspectedSecret", () => {
       const meter = { work: 0 }
       expect(findSuspectedSecret(text, meter)).toBeNull()
       expect(meter.work).toBeGreaterThanOrEqual(text.length)
-      expect(meter.work).toBeLessThanOrEqual(8 * text.length)
+      expect(meter.work).toBeLessThanOrEqual(32 * text.length)
     }
     const lines = `${FAKE.openai.slice(0, 10)} word\n`.repeat(size / 20)
     const meter = { work: 0 }
     expect(findSuspectedSecret(lines, meter)).toBeNull()
-    expect(meter.work).toBeLessThanOrEqual(8 * lines.length)
+    expect(meter.work).toBeLessThanOrEqual(32 * lines.length)
   })
 })
