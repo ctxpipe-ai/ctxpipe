@@ -28,6 +28,17 @@ export const workspaceRootPathSchema = z
     "Use a relative folder path such as docs/context, with letters, digits, '.', '_', '-' and '/'",
   )
 
+/**
+ * The one place that reads the root folder of a Workspace. Today the value
+ * comes from the Workspace row or a revision; a file in the repository can
+ * feed it later.
+ */
+export function workspaceRootPath(
+  source: { rootPath?: string | null } | null | undefined,
+): string {
+  return workspaceRootPathSchema.parse(source?.rootPath ?? "")
+}
+
 /** True when `path` (repository-relative) is a file path below `rootPath`. */
 export function isInsideWorkspaceRoot(rootPath: string, path: string): boolean {
   if (!repositoryFilePathSchema.safeParse(path).success) return false

@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { workspaceRootPathSchema } from "./root-path.js"
 
 export const gitObjectIdSchema = z
   .string()
@@ -19,6 +20,8 @@ export const workspaceRevisionSchema = z
     defaultBranch: z.string().min(1),
     sha: gitObjectIdSchema,
     access: z.enum(["read", "publish-session", "write-default"]),
+    /** Workspace root folder (CTX-709). Absent in revisions stored before it: the repository root. */
+    rootPath: workspaceRootPathSchema.optional(),
   })
   .readonly()
 
@@ -79,7 +82,8 @@ export function sameWorkspaceBinding(
     a.generation === b.generation &&
     a.remote.url === b.remote.url &&
     a.remote.connectionId === b.remote.connectionId &&
-    a.defaultBranch === b.defaultBranch
+    a.defaultBranch === b.defaultBranch &&
+    (a.rootPath ?? "") === (b.rootPath ?? "")
   )
 }
 

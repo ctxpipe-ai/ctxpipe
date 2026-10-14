@@ -15,6 +15,7 @@ import {
   pathsOutsideWorkspaceRoot,
   workspaceRelativePath,
   workspaceRepositoryPath,
+  workspaceRootPath,
   workspaceRootPathSchema,
 } from "./root-path.js"
 
@@ -235,5 +236,18 @@ describe("gitChangesOutsideWorkspaceRoot", () => {
         rootPath: "",
       }),
     ).resolves.toEqual([{ path: "docs/link", reason: "symlink_outside_root" }])
+  })
+})
+
+describe("workspaceRootPath", () => {
+  it("reads the stored root folder, and the repository root when there is none", () => {
+    expect(workspaceRootPath({ rootPath: "docs/context" })).toBe("docs/context")
+    expect(workspaceRootPath({ rootPath: "" })).toBe("")
+    expect(workspaceRootPath({})).toBe("")
+    expect(workspaceRootPath(null)).toBe("")
+  })
+
+  it("refuses a stored value that is not valid", () => {
+    expect(() => workspaceRootPath({ rootPath: "../src" })).toThrow()
   })
 })

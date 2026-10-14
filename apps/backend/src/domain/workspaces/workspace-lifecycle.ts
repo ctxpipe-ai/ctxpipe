@@ -20,6 +20,7 @@ import {
   type WorkspaceAddSource,
 } from "./bind-github-connection.js"
 import { ensureOrgRepositoryForGitUrl } from "./ensure-org-repository.js"
+import { workspaceRootPath } from "./root-path.js"
 import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
 import { destroySandboxesForWorkspace } from "./workspace-sandbox-cleanup.js"
 import {
@@ -50,6 +51,7 @@ export async function createWorkspaceLifecycle(input: {
   slug?: string
   githubConnectionId?: string | null
   source?: WorkspaceAddSource
+  rootPath?: string
   log: WorkspaceLog
 }): Promise<WorkspaceRecord & { autoLinkGitUrls: string[] }> {
   const githubConnectionId = await resolveWorkspaceGithubConnectionId({
@@ -66,6 +68,7 @@ export async function createWorkspaceLifecycle(input: {
     displayName: input.displayName,
     slug: input.slug,
     ...(githubConnectionId ? { githubConnectionId } : {}),
+    ...(input.rootPath !== undefined ? { rootPath: input.rootPath } : {}),
     write,
   })
   await attachOrgRepository({
@@ -139,6 +142,7 @@ export async function relinkWorkspaceLifecycle(input: {
   nextSlug?: string
   persistConnection: boolean
   bindingSubmitted: boolean
+  rootPath?: string
   log: WorkspaceLog
 }): Promise<{ workspace: WorkspaceRecord | null; changed: boolean }> {
   const githubConnectionId = input.bindingSubmitted
@@ -155,6 +159,8 @@ export async function relinkWorkspaceLifecycle(input: {
     ? normalizeWorkspaceRepositoryUrl(input.workspaceRepositoryUrl)
     : input.current.workspaceRepositoryUrl
   const changed =
+    (input.rootPath !== undefined &&
+      workspaceRootPath(input) !== workspaceRootPath(input.current)) ||
     (Boolean(nextUrl) && nextUrl !== input.current.workspaceRepositoryUrl) ||
     (input.persistConnection &&
       githubConnectionId !== input.current.githubConnectionId)
@@ -171,6 +177,7 @@ export async function relinkWorkspaceLifecycle(input: {
       : {}),
     ...(input.persistConnection ? { githubConnectionId } : {}),
     ...(write ? { write } : {}),
+    ...(input.rootPath !== undefined ? { rootPath: input.rootPath } : {}),
   })
   if (!updated) {
     return { workspace: null, changed: false }
