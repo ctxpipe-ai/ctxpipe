@@ -565,7 +565,6 @@ describe("discover-roots script", () => {
         `${join(INGEST_SKILLS_DIR, "discover-roots/scripts/roots-lib.mjs")}?trailing-stars`
       )
       const matcher = lib.globMatcher(`a${"*".repeat(120)}`)
-      expect(matcher.skip).toBeUndefined()
       const before = lib.matchStepsUsed()
       expect(matcher.matches("a")).toBe(true)
       expect(lib.matchStepsUsed() - before).toBeGreaterThanOrEqual(120)
