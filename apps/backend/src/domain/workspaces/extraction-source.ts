@@ -6,6 +6,7 @@ import {
   readGitFiles,
   withGitDirectory,
 } from "../../services/git/pack.js"
+import { workspaceRepositoryPath } from "../../services/git/root-folder.js"
 import type { WorkspaceExtraction } from "./extraction.js"
 import {
   isLinkedRepositoryDeclaration,
@@ -36,7 +37,7 @@ export async function captureExtractionSourceDeclaration(
       (
         await nativeGit(directory, [
           "rev-parse",
-          `${pack.sha}:${declaration.path}`,
+          `${pack.sha}:${workspaceRepositoryPath(pack.root ?? "", declaration.path)}`,
         ])
       )
         .toString()
