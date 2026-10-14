@@ -271,7 +271,7 @@ describe("refreshClaimProjections", () => {
     })
   })
 
-  it("loads claims inside a short organisation DB context", async () => {
+  it("loads claims inside a short organization DB context", async () => {
     const where = vi.fn().mockResolvedValue([])
     const secondJoin = vi.fn().mockReturnValue({ where })
     const firstJoin = vi.fn().mockReturnValue({ innerJoin: secondJoin })

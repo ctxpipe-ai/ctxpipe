@@ -173,7 +173,7 @@ const getOAuthCallbackRoute = createRoute({
     },
     403: {
       content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Not a member of the organisation in state",
+      description: "Not a member of the organization in state",
     },
     503: {
       content: { "application/json": { schema: ErrorResponseSchema } },

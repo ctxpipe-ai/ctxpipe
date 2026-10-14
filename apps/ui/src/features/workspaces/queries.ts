@@ -8,7 +8,12 @@ import type {
   ConversationListItem,
 } from "@/features/chat/types"
 import { getApiClient } from "@/lib/api"
-import { pollWhileOk, readApiJson } from "@/lib/api-result"
+import {
+  ApiError,
+  pollWhileOk,
+  readApiJson,
+  retryQuery,
+} from "@/lib/api-result"
 import {
   readConversationGitTreeSnapshot,
   writeConversationGitTreeSnapshot,
@@ -953,6 +958,16 @@ export function conversationTurnChangesOptions(
   return queryOptions({
     queryKey: workspaceKeys.conversationTurnChanges(orgSlug, conversationId),
     queryFn: () => fetchConversationTurnChanges(orgSlug, conversationId),
+    // A turn records its changes just before it ends, and the backend answers
+    // 409 until then. Ask again: the card shows when the turn is done.
+    retry: (count, error) =>
+      error instanceof ApiError && error.status === 409
+        ? count < 30
+        : retryQuery(count, error),
+    retryDelay: (count, error) =>
+      error instanceof ApiError && error.status === 409
+        ? 1000
+        : Math.min(1000 * 2 ** count, 30_000),
   })
 }
 

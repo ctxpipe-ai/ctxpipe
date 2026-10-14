@@ -187,7 +187,7 @@ export function WorkspacePane(props: {
           ? cn(
               "w-[var(--workspace-pane-width)] shrink-0",
               "max-lg:min-w-0 max-lg:w-auto max-lg:flex-1",
-              // Maximise keeps the locked width as the flex basis and grows into the collapsed chat column.
+              // Maximize keeps the locked width as the flex basis and grows into the collapsed chat column.
               props.maximized && "min-w-0 grow",
             )
           : "min-w-0 flex-1",
@@ -342,7 +342,7 @@ export function WorkspacePane(props: {
                 />
               ) : null}
               <HeaderIcon
-                label={props.maximized ? "Show conversation" : "Maximise pane"}
+                label={props.maximized ? "Show conversation" : "Maximize pane"}
                 icon={
                   <span className="relative size-4">
                     <IconArrowsDiagonal2
@@ -385,7 +385,7 @@ export function WorkspacePane(props: {
           id={selectedKey}
           className={cn(
             workspaceChromeCardPaneClassName,
-            // Maximised / max-lg put the conversation title in the lead slot.
+            // Maximized / max-lg put the conversation title in the lead slot.
             leadTabSelected && !props.maximized && "lg:rounded-tl-none",
             "flex min-h-0 p-0 outline-0",
           )}

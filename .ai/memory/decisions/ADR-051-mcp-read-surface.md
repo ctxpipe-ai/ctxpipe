@@ -92,21 +92,21 @@ This section amends [ADR-026](ADR-026-claude-plugin-mcp-distribution.md) Decisio
 - **Parameters:** `seeds` (1 to 10 refs), `query`, `intent` (`general`, `why`, `ownership`, `change`, `dependencies`, `structure`), predicate filters and weights, result kind filters, `direction`, `maxDepth` (1 to 4), `maxFanOut`, `minConfidence`, `validAt` or `validBetween`, `recencyHalfLifeDays`, `restart`, `queryWeight`, `hubPenalty`, `diversity`, `maxPerKind`, `explain`, `includeSeeds`, `limit`, `cursor`, `maxTokens`. The agent sets `intent`; there is no classifier.
 - **Algorithm:**
   1. Postgres resolves the seed refs to the ids of the published projection. Unknown refs give `unknown_ref`.
-  2. FalkorDB expands the graph with one bounded Cypher query for each hop: predicate, direction, validity, and minimum confidence filters, and the strongest `maxFanOut` edges for each node. The caps are 5,000 nodes, 25,000 edges, 1 s for each hop, and 3 s in total. At a cap, the tool stops and marks `partial: true` with the reason. A hub over 1,000 edges expands only its top edges, and the result lists `cappedHubs`.
-  3. The backend weights each edge: predicate weight for the intent × decay (`decayWorkspaceSignal`) × recency × `degree^-β` (hub penalty).
+  2. FalkorDB expands the graph with one bounded Cypher query for each hop: predicate, direction, validity, and minimum confidence filters, and the strongest `maxFanOut` edges for each node. The caps are 5,000 nodes, 25,000 edges, 1 s for each hop, and 3 s in total. At a cap, the tool stops and marks `partial: true` with the reason. `cappedHubs` lists every node with more than `maxFanOut` matching edges in the explored frontier. Each such node expands only its strongest `maxFanOut` edges.
+  3. The backend weights each edge: predicate weight for the intent × decay (`decayWorkspaceSignal`) × recency × `degree^-β` (hub penalty). Seeds and query hits get no hub penalty. Recency applies to change edges only. Node authority (ADR status, review decision) waits until the projection stores those fields.
   4. With a `query`, Postgres runs one hybrid search over the chunks of the explored units only.
   5. The backend runs personalized PageRank (power iteration) on the explored subgraph. The seeds and the query hits make the restart vector.
   6. Score: `ppr^(1 − queryWeight) × (0.1 + queryMatch)^queryWeight`. Then MMR diversity, and a path explanation for each result (the path with the highest weight product).
   7. The explored subgraph and the ranking are cached in process by projection key and parameter hash for 10 minutes. A cursor holds the key and offset.
 - **Where the work runs:** FalkorDB does the seed lookup and the filtered expansion. The backend does the scoring, so it works the same on each graph engine and an eval can turn off each signal. FalkorDB's built-in PageRank is global, not personalized, so it is not used.
-- **Never load the whole graph.** The chat graph tools move to the same bounded expansion. The projection stores `path`, `degree`, `inDegree`, and `outDegree` on each node. A revision graph is immutable, so the stored degree is always correct. A projection version enters the projection key, so each Workspace graph projects again one time on the next hydrate.
+- **Never load the whole graph.** The chat graph tools use the same bounded expansion. Chat `graph_neighbors` preserves parallel claims as separate edges. The Graph pane still merges parallel claims. The projection stores `path`, `degree`, `inDegree`, and `outDegree` on each node. A revision graph is immutable, so the stored degree is always correct. A projection version enters the projection key, so each Workspace graph projects again one time on the next hydrate.
 - **Target:** p95 under 300 ms for depth 2 on a 50,000-edge graph.
 
 ### 7. Reuse from PR #350
 
 PR #350 ("Weight graph traversal, link decisions to services, and index graph writes") targets the older objects graph. We do not merge or cherry-pick it. We port these parts into new files (CTO approval of candidates 1 to 7):
 
-1. The signal model of `retrievalScore.ts` (weighted product with a floor, recency for events, specificity `degree^-0.5`, authority by ADR status), with `decayWorkspaceSignal` in place of the old "truth" signal.
+1. The signal model of `retrievalScore.ts` (weighted product with a floor, recency for events, specificity `degree^-0.5`, authority by ADR status, which waits as section 6 says), with `decayWorkspaceSignal` in place of the old "truth" signal.
 2. The intent presets (`why`, `ownership`, `change`, `structure`, `general`). The regex classifier is not ported.
 3. The node index DDL for each graph engine (`platform/graph/indexes.ts`), applied to `(projectionKey, id)`.
 4. The Cypher rules: no `datetime()` in FalkorDB (compare ISO strings), degree scoped by label, batched `IN $ids`.

@@ -20,6 +20,7 @@ import {
   formatSlackMentionStatusText,
   type SlackMentionAgentResult,
   selectSlackMentionIntent,
+  slackCaptureWorkspaceLinks,
 } from "../../services/slack/mention-agent.js"
 import { publishSlackMentionStatus } from "../../services/slack/mention-status.js"
 import { captureSlackThreadToSources } from "../../services/slack/source-adapter.js"
@@ -139,14 +140,24 @@ export const slackMentionAgent = defineWorkflow(
                   }),
               }),
           )
-          const workspaceCount =
-            sources.kind === "captured" ? sources.workspaces.length : 0
+          const threadPath =
+            sources.kind === "captured" ? sources.capture.threadPath : undefined
+          const workspaces =
+            sources.kind === "captured" && threadPath
+              ? await step.run({ name: "link-captured-workspaces" }, () =>
+                  slackCaptureWorkspaceLinks({
+                    orgId: input.orgId,
+                    workspaceIds: sources.workspaces,
+                    threadPath,
+                    env,
+                  }),
+                )
+              : []
           const legacy = context.legacy
           // The old capture into the bound repository, until the migration
           // turns the binding off.
           const captureToLegacyRepository = async (
             target: NonNullable<typeof legacy>,
-            count: number,
           ): Promise<SlackMentionAgentResult> => {
             const captured = await step.run(
               { name: "capture-slack-thread" },
@@ -196,7 +207,7 @@ export const slackMentionAgent = defineWorkflow(
             } = captured
             return {
               kind: "captured",
-              workspaceCount: count,
+              workspaces,
               capture: {
                 ...capture,
                 commitSha: result.commitSha,
@@ -228,12 +239,12 @@ export const slackMentionAgent = defineWorkflow(
               sources.workspaces.includes(legacy.captured.workspaceId)
             )
           )
-            outcome = await captureToLegacyRepository(legacy, workspaceCount)
+            outcome = await captureToLegacyRepository(legacy)
           else if (sources.kind === "captured")
             outcome = {
               kind: "captured",
               capture: sources.capture,
-              workspaceCount,
+              workspaces,
             }
           else outcome = { kind: "failed", errorCode: "no_source" }
         } else outcome = intent

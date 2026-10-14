@@ -210,3 +210,31 @@ describe("groupAssistantTurns", () => {
     expect(groupAssistantTurns(messages)).toEqual(messages)
   })
 })
+
+describe("activityLog after a reload", () => {
+  it("lists thoughts and tool calls in the order of the stored segments", () => {
+    const [turn] = groupAssistantTurns([
+      {
+        id: "a1",
+        role: "assistant",
+        parts: [
+          { type: "thinking", content: "**First**\n\nbefore the read" },
+          { type: "tool-call", id: "t1", name: "read", arguments: "{}" },
+        ],
+      },
+      {
+        id: "a1-segment-1",
+        role: "assistant",
+        parts: [
+          { type: "thinking", content: "**Second**\n\nafter the read" },
+          { type: "tool-call", id: "t2", name: "bash", arguments: "{}" },
+        ],
+      },
+    ] as never)
+    expect(
+      activityLog(turn?.parts ?? []).map((entry) =>
+        entry.kind === "thought" ? entry.thought.title : entry.tool.bucket,
+      ),
+    ).toEqual(["First", "read", "Second", "tool"])
+  })
+})
