@@ -244,6 +244,31 @@ function decodeDoubleQuoted(body) {
   return out
 }
 
+function trimYamlWhitespace(text) {
+  let start = 0
+  let end = text.length
+  while (start < end && (text[start] === " " || text[start] === "\t")) start++
+  while (end > start && (text[end - 1] === " " || text[end - 1] === "\t")) end--
+  return text.slice(start, end)
+}
+
+function stripYamlComment(text) {
+  let quote = null
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]
+    if (quote === '"') {
+      if (c === "\\") i++
+      else if (c === '"') quote = null
+    } else if (quote === "'") {
+      if (c === "'" && text[i + 1] === "'") i++
+      else if (c === "'") quote = null
+    } else if (c === '"' || c === "'") quote = c
+    else if (c === "#" && (text[i - 1] === " " || text[i - 1] === "\t"))
+      return text.slice(0, i - 1)
+  }
+  return text
+}
+
 /**
  * A character that JS trims as space or treats as a line end, but YAML does
  * not: the script refuses it in a claim target, so it never decodes a value
@@ -261,16 +286,16 @@ const UNSAFE_TARGET_CHAR =
  */
 function claimTarget(raw) {
   // Only an ASCII space or tab is YAML white space.
-  const text = raw.replace(/^[ \t]+|[ \t]+$/g, "")
+  const text = trimYamlWhitespace(raw)
   let value = null
   if (text.startsWith('"')) {
-    const end = /^"((?:[^"\\]|\\.)*)"(?:[ \t]*|[ \t]+#.*)$/.exec(text)
+    const end = /^"((?:[^"\\]|\\.)*)"[ \t]*$/.exec(stripYamlComment(text))
     value = end ? decodeDoubleQuoted(end[1]) : null
   } else if (text.startsWith("'")) {
-    const end = /^'((?:[^']|'')*)'(?:[ \t]*|[ \t]+#.*)$/.exec(text)
+    const end = /^'((?:[^']|'')*)'[ \t]*$/.exec(stripYamlComment(text))
     value = end ? end[1].replaceAll("''", "'") : null
   } else if (text !== "" && !/^[|>&*![{%@`#]|^[-?:](?:[ \t]|$)/.test(text)) {
-    const plain = text.replace(/[ \t]+#.*$/, "")
+    const plain = trimYamlWhitespace(stripYamlComment(text))
     value = plain.includes(": ") || plain.endsWith(":") ? null : plain
   }
   return value === null || UNSAFE_TARGET_CHAR.test(value) ? null : value
@@ -315,9 +340,10 @@ function closesOnLine(value) {
 
 /** The claim predicate of a YAML value on one line: plain, or quoted with the same quote on both sides. */
 function claimPredicate(raw) {
-  const text = raw.replace(/^[ \t]+|[ \t]+$/g, "")
-  const match =
-    /^(?:"([A-Z0-9_]+)"|'([A-Z0-9_]+)'|([A-Z0-9_]+))(?:[ \t]+#.*)?$/.exec(text)
+  const text = trimYamlWhitespace(stripYamlComment(raw))
+  const match = /^(?:"([A-Z0-9_]+)"|'([A-Z0-9_]+)'|([A-Z0-9_]+))[ \t]*$/.exec(
+    text,
+  )
   return match ? (match[1] ?? match[2] ?? match[3]) : null
 }
 
@@ -346,7 +372,7 @@ export function existingClaims(yaml) {
   const rows = []
   for (let i = 0; i < lines.length; i++) {
     const text = lines[i]
-    if (text.trim() === "" || /^\s*#/.test(text)) continue
+    if (/^ *$/.test(text) || /^ *#/.test(text)) continue
     rows.push({ text, indent: /^ */.exec(text)[0].length })
   }
   let section = null
