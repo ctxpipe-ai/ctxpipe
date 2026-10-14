@@ -18,19 +18,19 @@ const HUMAN_CLOSE = "<!-- /ctxpipe:human -->"
 
 /**
  * Token shapes; the name goes into the reason, never the value. A token
- * ends at the end of its word but can start inside the word
- * (`your-ghp_…`), so each shape is tested from each start that
- * `TOKEN_START` finds.
+ * can start inside a word (`your-ghp_…`) and can have a suffix after it
+ * (`ghp_…-x`), so each shape is tested from each start that `TOKEN_START`
+ * finds, and the match ends where the token characters end.
  */
 const SECRET_TOKENS: ReadonlyArray<[string, RegExp]> = [
-  ["GitHub token", /^(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_\w{40,})$/],
-  ["AWS access key id", /^(?:AKIA|ASIA)[A-Z0-9]{16}$/],
-  ["Slack token", /^xox[abprs]-(?=[\w-]*\d)[\w-]{10,}$/],
-  ["Stripe key", /^[rs]k_live_[A-Za-z0-9]{16,}$/],
-  ["API key", /^sk-(?=[\w-]*\d)[\w-]{32,}$/],
-  ["Google API key", /^AIza[\w-]{35}$/],
-  ["npm token", /^npm_[A-Za-z0-9]{36}$/],
-  ["GitLab token", /^glpat-[\w-]{20,}$/],
+  ["GitHub token", /^(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_\w{40,})/],
+  ["AWS access key id", /^(?:AKIA|ASIA)[A-Z0-9]{16}(?![A-Z0-9])/],
+  ["Slack token", /^xox[abprs]-(?=[\w-]*\d)[\w-]{10,}/],
+  ["Stripe key", /^[rs]k_live_[A-Za-z0-9]{16,}/],
+  ["API key", /^sk-(?=[\w-]*\d)[\w-]{32,}/],
+  ["Google API key", /^AIza[\w-]{35}/],
+  ["npm token", /^npm_[A-Za-z0-9]{36}(?![A-Za-z0-9])/],
+  ["GitLab token", /^glpat-[\w-]{20,}/],
 ]
 const TOKEN_WORD = /[A-Za-z0-9_-]{16,}/g
 /** A start of a token shape. `sk-` is common in words, so it starts a word or follows `-` or `_`. */
@@ -54,7 +54,7 @@ const AUTH_HEADER =
  * `.npmrc`, and `;`-separated connection strings.
  */
 const ASSIGNMENT =
-  /(?<![\w.$-])["']?([A-Za-z_][\w.-]{0,99})["']?[ \t]*([:=])[ \t]*([|>][-+0-9]{0,3}[ \t]*$|"[^"\n]{0,256}"|'[^'\n]{0,256}'|[^\s"'`|,;]{1,512})/g
+  /(?<![\w.-])["']?([A-Za-z_][\w.-]{0,99})["']?[ \t]*([:=])[ \t]*([|>][-+0-9]{0,3}[ \t]*$|"[^"\n]{0,256}"|'[^'\n]{0,256}'|[^\s"'`|,;]{1,512})/g
 /** A name whose value is a secret, also with a number suffix (`API_KEY_1`). */
 const STRONG_NAME =
   /(?:secret|token|passw(?:or)?d|pwd|credentials?|auth|api[_-]?key|access[_-]?key|private[_-]?key|account[_-]?key|signing[_-]?key|master[_-]?key|encryption[_-]?key|secret[_-]?key[_-]?base|key[_-]?base)(?:[_-]?\d{1,3})?$|^(?:pass|pwd)$/i
@@ -255,6 +255,9 @@ function scanLines(
 
     meter.work += line.length
     for (const match of line.matchAll(ASSIGNMENT)) {
+      // `$name = value` sets a PHP or PowerShell variable, but `$PWD:/x` in
+      // a shell line is a reference and a path.
+      if (line[(match.index ?? 0) - 1] === "$" && match[2] === ":") continue
       const name = match[1] ?? ""
       const raw = match[3] ?? ""
       let value = unquote(raw)
@@ -263,12 +266,23 @@ function scanLines(
       let strength = nameStrength(name)
       // Words after a `:` value make a sentence: `research pass: ByteRover
       // CLI 3`. Then only a random-looking value counts.
+      // A value that mixes lower case, upper case, and digits stays strong.
       if (strength && match[2] === ":" && !/^["'|>]/.test(raw)) {
         MORE_WORDS.lastIndex = (match.index ?? 0) + match[0].length
-        if (MORE_WORDS.test(line)) strength = "weak"
+        if (MORE_WORDS.test(line) && alphanumericClasses(value) < 3)
+          strength = "weak"
       }
       if (strength && secretValue(value, strength))
         return hit("secret assignment")
+      // A bare call such as `fromEnv(` ends the value: its argument follows.
+      if (strength && /^[A-Za-z_$][\w$.]*\($/.test(value)) {
+        const end = (match.index ?? 0) + match[0].length
+        const argument = /^[ \t]*(["'`]?)([^\s"'`()]{1,512})\1[ \t]*\)/.exec(
+          line.slice(end, end + 600),
+        )
+        if (argument && literalArgument(argument[2] ?? "", argument[1] !== ""))
+          return hit("secret assignment")
+      }
     }
 
     if (trimmed.startsWith("|")) {
@@ -279,10 +293,19 @@ function scanLines(
       for (let i = 0; i + 1 < cells.length; i++) {
         // A cell next to a secret name is often a word (`Usually`), so
         // only a random-looking value counts.
-        const named =
-          /^[A-Za-z_][\w.-]{0,99}$/.test(cells[i] ?? "") &&
-          nameStrength(cells[i] ?? "") !== null
-        if (named && secretValue(cells[i + 1] ?? "", "weak"))
+        // A strong name with a value that mixes letters and digits counts too.
+        const name = /^[A-Za-z_][\w.-]{0,99}$/.test(cells[i] ?? "")
+          ? nameStrength(cells[i] ?? "")
+          : null
+        const value = cells[i + 1] ?? ""
+        if (
+          name &&
+          (secretValue(value, "weak") ||
+            (name === "strong" &&
+              /\d/.test(value) &&
+              /[A-Za-z]/.test(value) &&
+              secretValue(value, "strong")))
+        )
           return hit("secret in a table")
       }
     }
@@ -298,11 +321,12 @@ function scanLines(
       const tail = match[0].slice(-MAX_TOKEN)
       for (const start of tail.matchAll(TOKEN_START)) {
         // The placeholder test reads the token only, not the word around it.
-        const token = tail.slice(start.index ?? 0)
-        meter.work += token.length
-        if (PLACEHOLDER.test(token)) continue
-        const shape = SECRET_TOKENS.find(([, pattern]) => pattern.test(token))
-        if (shape) return hit(shape[0])
+        const rest = tail.slice(start.index ?? 0)
+        meter.work += rest.length
+        for (const [name, pattern] of SECRET_TOKENS) {
+          const token = pattern.exec(rest)?.[0]
+          if (token && !PLACEHOLDER.test(token)) return hit(name)
+        }
       }
     }
   }
@@ -348,24 +372,43 @@ function secretValue(value: string, strength: "strong" | "weak"): boolean {
   if (value.length < 8 || /\s/.test(value) || PLACEHOLDER.test(value))
     return false
   if (COMMON_PASSWORDS.has(value.toLowerCase())) return false
-  // A placeholder in angle brackets, an object, a list, a template, or a
-  // shortened value: `<api key>`, `{env:KEY}`, `${{x}}`, `sk-or-v1-...`.
-  if (/^[<{[]/.test(value) || /\$\{|\{\{|\.\.\.|…/.test(value)) return false
-  // A call: `preserve()`, `betterAuth({`, `secretsManager("x")`.
+  // A list of one value: `[Q9f3…]`.
+  const listed = /^\[(["']?)([^\],\s"']{1,512})\1\]?$/.exec(value)
+  if (listed) return secretValue(listed[2] ?? "", strength)
+  // A placeholder in angle brackets, an object, a list, or a template:
+  // `<api key>`, `{env:KEY}`, `${{x}}`.
+  if (/^[<{[]/.test(value) || /\$\{|\{\{/.test(value)) return false
+  // A shortened value: `sk-or-v1-...`, `ghp_ab...wxyz`. Dots between two
+  // long parts do not shorten a value.
+  const dots = /\.{3}|…/.exec(value)
+  if (dots) {
+    const before = value.slice(0, dots.index)
+    const after = value.slice(dots.index + dots[0].length)
+    if (before.length < 8 || after.replace(/^[.…]+/, "").length < 8)
+      return false
+  }
+  // A call: `preserve()`, `betterAuth({`, `secretsManager("x")`. The caller
+  // reads the argument of a call that the value does not hold.
   if (/^[A-Za-z_$][\w$.]*\((?:\)|\{|["'`]|$)/.test(value)) return false
+  const call = /^[A-Za-z_$][\w$.]*\((["'`]?)([^()]*)\1\)$/.exec(value)
+  if (call) return literalArgument(call[2] ?? "", call[1] !== "")
   // Lower-case words that name a test or placeholder value:
-  // `ci-auth-secret-must-be-at-least-32-chars`, `pr-plan-placeholder`.
+  // `ci-auth-secret-must-be-at-least-32-chars`, `pr-plan-placeholder`. A
+  // long random part (`prod-secret-8f3k2m9x…`) is not a word.
   if (
     /^[a-z0-9]+(?:[-_][a-z0-9]+)+$/.test(value) &&
     /(?:^|[-_])(?:test|ci|dev|local|example|sample|dummy|fake|placeholder|replace|changeme|secret|demo)(?:[-_]|$)/.test(
       value,
-    )
+    ) &&
+    !value
+      .split(/[-_]/)
+      .some(
+        (part) => part.length >= 12 && /\d/.test(part) && /[a-z]/.test(part),
+      )
   )
     return false
-  // A dotted name or a call is a reference to the value: process.env.API_KEY.
-  if (/^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+(?:\(.*\))?$/.test(value))
-    return false
-  if (/^[A-Za-z_$][\w$.]*\(.*\)$/.test(value)) return false
+  // A dotted name is a reference to the value: process.env.API_KEY.
+  if (/^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+$/.test(value)) return false
   const classes =
     Number(/[a-z]/.test(value)) +
     Number(/[A-Z]/.test(value)) +
@@ -375,11 +418,32 @@ function secretValue(value: string, strength: "strong" | "weak"): boolean {
   // Words with separators, such as node-modules-v2, are names, not keys.
   if (/^[a-z0-9]+(?:[-_.][a-z0-9]+)+$/.test(value)) return false
   // A random key mixes letters and digits or cases: `@scope/name` does not.
-  const alphanumeric =
+  return (
+    value.length >= 16 &&
+    alphanumericClasses(value) >= 2 &&
+    entropy(value) >= 3.5
+  )
+}
+
+/**
+ * The argument of a call is a secret when it is a literal that looks
+ * random. A reference (`process.env.KEY`), an environment name
+ * (`"API_KEY"`), and a placeholder are not. A bare word must have a digit,
+ * so a name such as `initialValue` is a reference.
+ */
+function literalArgument(argument: string, quoted: boolean): boolean {
+  if (/^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+$/.test(argument)) return false
+  if (/^[A-Z][A-Z0-9_]*$/.test(argument)) return false
+  if (!quoted && !/\d/.test(argument)) return false
+  return secretValue(argument, "weak")
+}
+
+function alphanumericClasses(value: string): number {
+  return (
     Number(/[a-z]/.test(value)) +
     Number(/[A-Z]/.test(value)) +
     Number(/\d/.test(value))
-  return value.length >= 16 && alphanumeric >= 2 && entropy(value) >= 3.5
+  )
 }
 
 /** Shannon entropy in bits per character. */
@@ -407,8 +471,15 @@ function urlPassword(line: string): boolean {
     if (space !== -1) end = at + 3 + space
     const authority = line.slice(at + 3, end)
     at = next
-    const colon = authority.indexOf(":")
-    const lastAt = authority.lastIndexOf("@")
+    // A template such as `${DB_USER}` or `${POSTGRES_PASSWORD:-x}` is not a
+    // password. Its characters become NUL, so a `:` or `@` in it does not
+    // count and the indexes stay.
+    const masked = authority.replace(
+      /\$\{[^}]{0,200}\}|\{\{[^}]{0,200}\}\}/g,
+      (m) => "\0".repeat(m.length),
+    )
+    const colon = masked.indexOf(":")
+    const lastAt = masked.lastIndexOf("@")
     if (colon <= 0 || lastAt <= colon + 1) continue
     const user = authority.slice(0, colon)
     if (/[/?#]/.test(user)) continue
@@ -416,8 +487,7 @@ function urlPassword(line: string): boolean {
     if (/^\d{1,5}(?:[/?#]|$)/.test(authority.slice(colon + 1))) continue
     if (!/^[\w.-]/.test(authority.slice(lastAt + 1))) continue
     const password = authority.slice(colon + 1, lastAt)
-    // A template such as `${POSTGRES_PASSWORD:-x}` is not a password.
-    if (/\$\{|\{\{/.test(authority.slice(0, lastAt))) continue
+    if (masked.slice(colon + 1, lastAt).includes("\0")) continue
     if (
       !user.includes(password) &&
       password.length >= 6 &&
