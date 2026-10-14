@@ -371,6 +371,8 @@ export function ingestNetworkPolicy(input: {
   const forwardURL = ingestEgressForwardUrl(
     {
       sandbox: input.sandboxName,
+      // Each update seals a new scope; one shard runs at most this long.
+      exp: Date.now() + INGEST_SHARD_LIMIT_MS,
       backendHost: input.backendHost,
       git: input.git,
       ...(input.step ? { step: input.step } : {}),

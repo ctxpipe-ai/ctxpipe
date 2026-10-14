@@ -1,5 +1,6 @@
 import type { NetworkPolicy } from "@vercel/sandbox"
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
+import { INGEST_SHARD_LIMIT_MS } from "./chat-lifecycle.js"
 import { openIngestEgressScope } from "./ingest-egress-proxy.js"
 import { ingestNetworkPolicy } from "./ingest-sandbox-egress.js"
 import { hostedNetworkPolicy } from "./vercel-sandbox-provider.js"
@@ -29,7 +30,12 @@ describe("ingestNetworkPolicy", () => {
     )
   })
 
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   it("forwards github.com and the backend host, and nothing else, to the egress proxy with a sealed scope", () => {
+    vi.useFakeTimers({ now: 1_000_000 })
     const policy = ingestNetworkPolicy({
       git,
       backendHost,
@@ -51,6 +57,7 @@ describe("ingestNetworkPolicy", () => {
     const sealed = url.pathname.replace("/api/v1/sandbox-egress/", "")
     expect(openIngestEgressScope(sealed, secret)).toEqual({
       sandbox: "sbx-ingest",
+      exp: 1_000_000 + INGEST_SHARD_LIMIT_MS,
       backendHost,
       git,
       step,

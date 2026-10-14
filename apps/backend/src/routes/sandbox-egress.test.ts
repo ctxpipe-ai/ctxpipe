@@ -18,11 +18,15 @@ import {
   type IngestEgressScope,
   sealIngestEgressScope,
 } from "../domain/workspaces/ingest-egress-proxy.js"
-import { registerSandboxEgressRoute } from "./sandbox-egress.js"
+import {
+  registerSandboxEgressRoute,
+  sandboxEgressGuard,
+} from "./sandbox-egress.js"
 
 const secret = "egress-test-secret-0123456789abcdef"
 const backendHost = "app.example.test"
-const issuer = "https://oidc.vercel.com/egress-test"
+const teamSlug = "egress-test"
+const issuer = `https://oidc.vercel.com/${teamSlug}`
 const team = "team_egress"
 const project = "prj_egress"
 const step = {
@@ -33,6 +37,7 @@ const step = {
 }
 const scope: IngestEgressScope = {
   sandbox: "sbx-ingest",
+  exp: Date.now() + 60 * 60_000,
   backendHost,
   git: [{ token: "git-1", repositories: ["acme/source", "acme/context"] }],
   step,
@@ -46,7 +51,12 @@ type Seen = {
   body: string
 }
 const seen: Seen[] = []
+/** The headers of each upstream request. */
+const upstreamHeaders: Headers[] = []
+/** Each outbound URL, also the OIDC key fetches. */
+const outbound: string[] = []
 const record = async ({ request }: { request: Request }) => {
+  upstreamHeaders.push(request.headers)
   seen.push({
     method: request.method,
     url: request.url,
@@ -64,16 +74,25 @@ const server = setupServer(
   http.get(`${issuer}/.well-known/jwks`, () =>
     HttpResponse.json({ keys: [jwk] }),
   ),
+  // The deploy names the team by slug; the project lookup gives the ids.
+  http.get(`https://api.vercel.com/v9/projects/${project}`, () =>
+    HttpResponse.json({ id: project, accountId: team }),
+  ),
   http.all("https://github.com/*", record),
   http.all(`https://${backendHost}/*`, record),
 )
 
 beforeAll(() => server.listen({ onUnhandledRequest: "error" }))
+server.events.on("request:start", ({ request }) => {
+  outbound.push(request.url)
+})
 afterAll(() => server.close())
 beforeEach(() => {
   seen.length = 0
+  upstreamHeaders.length = 0
+  outbound.length = 0
   vi.stubEnv("VERCEL_TOKEN", "vercel-token")
-  vi.stubEnv("VERCEL_TEAM_ID", team)
+  vi.stubEnv("VERCEL_TEAM_ID", teamSlug)
   vi.stubEnv("VERCEL_PROJECT_ID", project)
 })
 afterEach(() => {
@@ -88,15 +107,22 @@ function egressApp() {
     AUTH_BASE_URL: `https://${backendHost}`,
   })
   const app = new OpenAPIHono<AppEnv>()
+  app.use("*", sandboxEgressGuard())
   app.use("*", async (c, next) => {
     c.set("env", env)
     await next()
   })
   registerSandboxEgressRoute(app)
+  // Another backend route, as the sandbox must never reach it.
+  app.all("/:orgSlug/api/v1/*", (c) => c.text("reached"))
   return app
 }
 
-function oidcToken(audience: string, claims: Record<string, string> = {}) {
+function oidcToken(
+  audience: string,
+  claims: Record<string, string> = {},
+  tokenIssuer = issuer,
+) {
   return new SignJWT({
     team_id: team,
     project_id: project,
@@ -105,7 +131,7 @@ function oidcToken(audience: string, claims: Record<string, string> = {}) {
     ...claims,
   })
     .setProtectedHeader({ alg: "RS256", kid: "k1" })
-    .setIssuer(issuer)
+    .setIssuer(tokenIssuer)
     .setAudience(audience)
     .setIssuedAt()
     .setExpirationTime("5m")
@@ -129,6 +155,9 @@ async function forwarded(
     rawPath?: string
     audience?: string
     claims?: Record<string, string>
+    issuer?: string
+    /** The request path as the backend sees it; defaults to the forward URL plus `path`. */
+    requestPath?: string
   } = {},
 ) {
   const sealed = options.sealed ?? sealIngestEgressScope(scope, secret)
@@ -136,7 +165,7 @@ async function forwarded(
   const url = new URL(target)
   const path = options.rawPath ?? `${url.pathname}${url.search}`
   return egressApp().request(
-    `http://127.0.0.1:3000/api/v1/sandbox-egress/${sealed}${path}`,
+    `http://127.0.0.1:3000${options.requestPath ?? `/api/v1/sandbox-egress/${sealed}${path}`}`,
     {
       method: options.method ?? "GET",
       ...(options.body ? { body: options.body } : {}),
@@ -150,6 +179,7 @@ async function forwarded(
         "vercel-sandbox-oidc-token": await oidcToken(
           options.audience ?? forwardUrl,
           options.claims,
+          options.issuer,
         ),
       },
     },
@@ -306,11 +336,12 @@ describe("the ingest egress proxy route", () => {
   })
 
   it("refuses a request from another sandbox, team, or project", async () => {
-    for (const claims of [
+    const cases: Record<string, string>[] = [
       { sandbox_name: "sbx-other" },
       { team_id: "team_other" },
       { project_id: "prj_other" },
-    ]) {
+    ]
+    for (const claims of cases) {
       const response = await forwarded(
         "https://github.com/acme/source.git/info/refs?service=git-upload-pack",
         { claims },
@@ -382,5 +413,147 @@ describe("the ingest egress proxy route", () => {
     expect(response.headers.get("location")).toBe(
       "https://attacker.example.test/x",
     )
+  })
+
+  it("refuses a sandbox request that leaves the egress path, also by dot segments, before any route", async () => {
+    const sealed = sealIngestEgressScope(scope, secret)
+    const target =
+      "https://github.com/acme/source.git/info/refs?service=git-upload-pack"
+    for (const requestPath of [
+      `/api/v1/sandbox-egress/${sealed}/%2e%2e/%2e%2e/%2e%2e/acme/api/v1/workspaces`,
+      `/api/v1/sandbox-egress/${sealed}/../../../acme/api/v1/workspaces`,
+      "/acme/api/v1/workspaces",
+    ]) {
+      const response = await forwarded(target, {
+        requestPath,
+        headers: { "x-api-key": "sandbox-key", authorization: "Bearer own" },
+      })
+      expect(response.status, requestPath).toBe(403)
+      expect(await response.text()).not.toBe("reached")
+    }
+    for (const name of [
+      "vercel-sandbox-oidc-token",
+      "vercel-forwarded-host",
+      "vercel-forwarded-path",
+    ]) {
+      const response = await egressApp().request(
+        "http://127.0.0.1:3000/acme/api/v1/workspaces",
+        { headers: { [name]: "x" } },
+      )
+      expect(response.status, name).toBe(403)
+    }
+    expect(outbound).toEqual([])
+  })
+
+  it("refuses a forwarded path with a dot segment, raw or encoded", async () => {
+    for (const rawPath of [
+      "/acme/x/../source.git/info/refs?service=git-upload-pack",
+      "/acme/x/%2e%2e/source.git/info/refs?service=git-upload-pack",
+      "/acme/x/%2E./source.git/info/refs?service=git-upload-pack",
+      "/acme/./source.git/info/refs?service=git-upload-pack",
+      "/acme/%2e/source.git/info/refs?service=git-upload-pack",
+    ]) {
+      const response = await forwarded("https://github.com/acme/source.git", {
+        rawPath,
+      })
+      expect(response.status, rawPath).toBe(403)
+    }
+    expect(seen).toEqual([])
+  })
+
+  it("refuses a token from another issuer without a fetch", async () => {
+    const target =
+      "https://github.com/acme/source.git/info/refs?service=git-upload-pack"
+    for (const other of [
+      "https://oidc.vercel.com/another-team",
+      `https://oidc.vercel.com/${teamSlug}/x`,
+      "https://attacker.example.test",
+    ]) {
+      const response = await forwarded(target, { issuer: other })
+      expect(response.status, other).toBe(403)
+    }
+    expect(outbound).toEqual([])
+  })
+
+  it("refuses each request when the team is configured by id, as its issuer is not known", async () => {
+    vi.stubEnv("VERCEL_TEAM_ID", team)
+    const response = await forwarded(
+      "https://github.com/acme/source.git/info/refs?service=git-upload-pack",
+    )
+    expect(response.status).toBe(403)
+    expect(outbound).toEqual([])
+  })
+
+  it("refuses an expired scope", async () => {
+    const target =
+      "https://github.com/acme/source.git/info/refs?service=git-upload-pack"
+    const expired = sealIngestEgressScope(
+      { ...scope, exp: Date.now() - 1 },
+      secret,
+    )
+    expect((await forwarded(target, { sealed: expired })).status).toBe(403)
+    // NaN seals as `null`: a scope without a time limit.
+    const noExp = sealIngestEgressScope({ ...scope, exp: Number.NaN }, secret)
+    expect((await forwarded(target, { sealed: noExp })).status).toBe(403)
+    expect(seen).toEqual([])
+  })
+
+  it("sends on only the allowed request headers", async () => {
+    const response = await forwarded(
+      `https://${backendHost}${step.bridgePath}`,
+      {
+        method: "POST",
+        body: "{}",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+          "mcp-session-id": "session-1",
+          "mcp-protocol-version": "2025-06-18",
+          "user-agent": "opencode",
+          "git-protocol": "version=2",
+          "x-api-key": "sandbox-key",
+          "x-real-ip": "10.0.0.1",
+          "x-forwarded-for": "10.0.0.1",
+          "cf-connecting-ip": "10.0.0.1",
+          "x-ctxpipe-org": "other",
+        },
+      },
+    )
+    expect(response.status).toBe(200)
+    const headers = Object.fromEntries(upstreamHeaders[0] ?? [])
+    expect(headers).toMatchObject({
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream",
+      "mcp-session-id": "session-1",
+      "mcp-protocol-version": "2025-06-18",
+      "user-agent": "opencode",
+      "git-protocol": "version=2",
+      authorization: "Bearer bridge-token",
+    })
+    for (const name of [
+      "x-api-key",
+      "x-real-ip",
+      "x-forwarded-for",
+      "cf-connecting-ip",
+      "x-ctxpipe-org",
+    ])
+      expect(headers[name], name).toBeUndefined()
+  })
+
+  it("answers a credential error with 403 and an upstream error with 502, with a fixed message", async () => {
+    const target =
+      "https://github.com/acme/source.git/info/refs?service=git-upload-pack"
+    server.use(
+      http.get("https://github.com/acme/source.git/info/refs", () =>
+        HttpResponse.error(),
+      ),
+    )
+    const failed = await forwarded(target)
+    expect(failed.status).toBe(502)
+    expect(await failed.text()).toBe("Bad Gateway")
+    vi.stubEnv("VERCEL_TOKEN", "")
+    const denied = await forwarded(target)
+    expect(denied.status).toBe(403)
+    expect(await denied.text()).toBe("Forbidden")
   })
 })

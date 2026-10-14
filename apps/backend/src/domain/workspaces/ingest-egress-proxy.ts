@@ -5,6 +5,7 @@ import {
   randomBytes,
 } from "node:crypto"
 import { defineSandboxProxy, type ProxyMeta } from "@vercel/sandbox/proxy"
+import { decodeJwt } from "jose"
 import { log } from "../../observability/logger.js"
 import type { IngestGitAccess } from "./ingest-sandbox-egress.js"
 import {
@@ -28,6 +29,8 @@ export const INGEST_EGRESS_PATH = "/api/v1/sandbox-egress"
 export type IngestEgressScope = {
   /** The Vercel sandbox name; a request from another sandbox is refused. */
   sandbox: string
+  /** Epoch milliseconds after which the scope is refused (the shard limit). */
+  exp: number
   backendHost: string
   git: IngestGitAccess[]
   /** The running step's credentials; without a step, Git fetch only. */
@@ -133,23 +136,38 @@ function egressRules(scope: IngestEgressScope): EgressRule[] {
   ]
 }
 
-/** Request headers that the proxy never sends on. */
-const DROPPED_REQUEST_HEADERS = [
-  "authorization",
-  "proxy-authorization",
-  "cookie",
-  "host",
-  "connection",
-  "keep-alive",
-  "transfer-encoding",
-  "te",
-  "trailer",
-  "upgrade",
-  "forwarded",
-  "x-forwarded-for",
-  "x-forwarded-host",
-  "x-forwarded-proto",
+/** The request headers that the proxy sends on; also each `mcp-*` header. */
+const FORWARDED_REQUEST_HEADERS = [
+  "content-type",
+  "accept",
+  "accept-encoding",
+  "git-protocol",
+  "user-agent",
 ]
+
+function forwardedHeaders(source: Headers): Headers {
+  const headers = new Headers()
+  for (const [name, value] of source)
+    if (FORWARDED_REQUEST_HEADERS.includes(name) || name.startsWith("mcp-"))
+      headers.set(name, value)
+  return headers
+}
+
+/**
+ * True when a path has a `.` or `..` segment, also percent-encoded. A URL
+ * parser resolves them, so the path that a check sees and the path that
+ * the upstream gets can differ.
+ */
+export function hasDotSegment(path: string): boolean {
+  const pathname = path.split("?")[0] ?? ""
+  return pathname.split("/").some((segment) => {
+    const dots = segment.replace(/%2e/gi, ".")
+    return dots === "." || dots === ".."
+  })
+}
+
+/** The OIDC header of a forwarded request (`@vercel/sandbox/proxy`). */
+const OIDC_TOKEN_HEADER = "vercel-sandbox-oidc-token"
 
 /** `fetch` decodes the body, so the encoding and length no longer apply. */
 const DROPPED_RESPONSE_HEADERS = [
@@ -171,6 +189,16 @@ function refuse(reason: string, meta?: ProxyMeta): Response {
   return new Response("Forbidden", { status: 403 })
 }
 
+/** The unverified `iss` of a token, or undefined when it does not decode. */
+function unverifiedIssuer(token: string | null): string | undefined {
+  if (!token) return undefined
+  try {
+    return decodeJwt(token).iss
+  } catch {
+    return undefined
+  }
+}
+
 /**
  * Handle one request that the Vercel firewall forwarded. `request.url` must
  * be the public URL (the OIDC audience is the forward URL); `sealed` is the
@@ -179,21 +207,43 @@ function refuse(reason: string, meta?: ProxyMeta): Response {
  * and project, the scope's sandbox, and an allowed request. It sets the
  * credential on the server side and does not follow redirects. Each other
  * request gets 403.
+ *
+ * Before the library verifies the token, the token's issuer must be ours:
+ * the library fetches and keeps the keys of each issuer that it sees.
  */
-export function ingestEgressProxy(input: {
+export async function ingestEgressProxy(input: {
   request: Request
   sealed: string
   secret: string
+  /** Our team's OIDC issuer (`vercelOidcIssuer`). */
+  issuer: string
   /** The team and project of our sandboxes. */
   vercel: () => Promise<{ teamId: string; projectId: string }>
 }): Promise<Response> {
+  const forwardedPath = input.request.headers.get("vercel-forwarded-path")
+  if (
+    hasDotSegment(new URL(input.request.url).pathname) ||
+    (forwardedPath !== null && hasDotSegment(forwardedPath))
+  )
+    return refuse("a dot segment in the path")
+  if (
+    unverifiedIssuer(input.request.headers.get(OIDC_TOKEN_HEADER)) !==
+    input.issuer
+  )
+    return refuse("another OIDC issuer")
   const handle = defineSandboxProxy(
     async (request, meta) => {
-      const vercel = await input.vercel()
+      let vercel: { teamId: string; projectId: string }
+      try {
+        vercel = await input.vercel()
+      } catch (error) {
+        return refuse(`no Vercel credentials: ${String(error)}`, meta)
+      }
       if (meta.teamId !== vercel.teamId || meta.projectId !== vercel.projectId)
         return refuse("another Vercel team or project", meta)
       const scope = openIngestEgressScope(input.sealed, input.secret)
       if (!scope) return refuse("the scope is not valid", meta)
+      if (!(scope.exp > Date.now())) return refuse("the scope expired", meta)
       if (scope.sandbox !== meta.sandboxName)
         return refuse("the scope is for another sandbox", meta)
       const url = new URL(request.url)
@@ -207,16 +257,26 @@ export function ingestEgressProxy(input: {
       )
       if (!rule)
         return refuse(`${request.method} ${url.host}${url.pathname}`, meta)
-      const headers = new Headers(request.headers)
-      for (const name of DROPPED_REQUEST_HEADERS) headers.delete(name)
+      const headers = forwardedHeaders(request.headers)
       headers.set("authorization", rule.authorization)
-      const upstream = await fetch(url, {
-        method: request.method,
-        headers,
-        ...(request.method === "GET" ? {} : { body: request.body }),
-        redirect: "manual",
-        duplex: "half",
-      } as RequestInit)
+      let upstream: Response
+      try {
+        upstream = await fetch(url, {
+          method: request.method,
+          headers,
+          ...(request.method === "GET" ? {} : { body: request.body }),
+          redirect: "manual",
+          duplex: "half",
+        } as RequestInit)
+      } catch (error) {
+        log.warn({
+          step: "ingest-egress-upstream",
+          message: `The ingest egress proxy could not reach ${url.host}: ${String(error)}`,
+          sandboxId: meta.sandboxId,
+          sandboxName: meta.sandboxName,
+        })
+        return new Response("Bad Gateway", { status: 502 })
+      }
       const responseHeaders = new Headers(upstream.headers)
       for (const name of DROPPED_RESPONSE_HEADERS) responseHeaders.delete(name)
       return new Response(upstream.body, {
