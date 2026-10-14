@@ -48,9 +48,14 @@ const server = setupServer(
   http.post("https://eval-model.test/v1/embeddings", async ({ request }) => {
     const { input } = (await request.json()) as { input: string[] }
     return HttpResponse.json({
-      data: input.map((_, index) => ({
+      // One flat vector would tie every chunk, and the chunk id would pick the
+      // semantic rank. Text with the marker gets its own direction, so the
+      // marker query is nearest to the chunk that holds it.
+      data: input.map((text, index) => ({
         index,
-        embedding: Array(2000).fill(0.01),
+        embedding: Array.from({ length: 2000 }, (_, dim) =>
+          dim === 0 && text.includes("MEADOW_ONLY_42") ? 1 : 0.01,
+        ),
       })),
     })
   }),

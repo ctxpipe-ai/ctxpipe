@@ -46,7 +46,31 @@ import {
   listMarkdownFilesAtGitSha,
   resolveGitRemoteTip,
 } from "../../src/services/git/clone-tree.js"
-import manifest from "./fixtures/manifest.json"
+import manifestJson from "./fixtures/manifest.json"
+
+type McpEvalManifest = {
+  commitDate: string
+  organizations: Array<{ key: string; name: string }>
+  upstreamRepositories: Array<{
+    key: string
+    url: string
+    sha: string
+    tag: string
+  }>
+  workspaces: Array<{
+    key: string
+    organization: string
+    slug: string
+    name: string
+    repositories: string[]
+    updatedAt: Record<string, string>
+  }>
+  secondProjection: { workspace: string; branch: string; date: string }
+}
+
+// TypeScript infers each `updatedAt` object as a separate literal type, so the
+// union does not fit `Record<string, string>`. The JSON has this shape.
+const manifest = manifestJson as McpEvalManifest
 
 export { manifest as mcpEvalManifest }
 
