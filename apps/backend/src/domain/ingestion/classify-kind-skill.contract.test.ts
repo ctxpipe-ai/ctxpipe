@@ -255,7 +255,23 @@ describe("classify-kind skill in the sandbox", () => {
         .split("\n")
         .filter(Boolean)
       expect(requests.length, run.stderr.slice(-2000)).toBe(3)
-      expect(requests[2]).toContain('"decidedBy":"model"')
+      // The last tool result is the script's JSON output: parse it.
+      const last = (
+        JSON.parse(requests[2] ?? "{}") as {
+          messages: Array<{ role: string; content: unknown }>
+        }
+      ).messages
+        .filter((m) => m.role === "tool")
+        .at(-1)?.content
+      const toolText =
+        typeof last === "string"
+          ? last
+          : Array.isArray(last)
+            ? last
+                .map((part) => (part as { text?: string }).text ?? "")
+                .join("")
+            : ""
+      expect(toolText).toContain('"decidedBy":"model"')
 
       const output = await collectIngestStep(handle, root)
       const dir = join(host, "step")

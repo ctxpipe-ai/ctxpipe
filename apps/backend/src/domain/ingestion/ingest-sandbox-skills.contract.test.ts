@@ -461,7 +461,9 @@ describe("ingest agent isolation", () => {
         `cd ${hostile} && opencode debug config && opencode debug skill`,
       )
       expect(resolved.exitCode, resolved.stderr).toBe(0)
-      expect(resolved.stdout.toLowerCase()).not.toContain("hostile")
+      // Markers of the checkout only: a bundle skill may use the word "hostile".
+      expect(resolved.stdout).not.toContain("HOSTILE")
+      expect(resolved.stdout).not.toMatch(/hostile-[abc]|hostile\.example/)
 
       // Control: without the flags the same clone changes the prompt, so the
       // fixture is hostile.
