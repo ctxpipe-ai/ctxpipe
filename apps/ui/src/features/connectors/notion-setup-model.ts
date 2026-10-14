@@ -72,7 +72,8 @@ export function getNotionCardCtaLabel(
   status: SetupStatus,
   oauthMeta?: NotionOauthMeta,
 ): string | null {
-  if (status.isInstalled) return null
+  // The setup dialog adds a connected Notion to more Workspaces.
+  if (status.isInstalled) return "Manage"
   if (shouldShowNotionRegisterStep(oauthMeta)) return "Register OAuth app"
   if (shouldShowNotionWebhookStep(oauthMeta) && !oauthMeta?.webhookConfigured)
     return "Add webhook"
