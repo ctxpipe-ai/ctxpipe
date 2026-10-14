@@ -148,7 +148,8 @@ function pinned(host: string, authorization: string) {
 
 type Rule = {
   match?: { path?: { exact?: string; regex?: string; startsWith?: string } }
-  transform: unknown
+  transform?: unknown
+  forwardURL?: string
 }
 
 function allowOf(policy: NetworkPolicy | undefined) {
@@ -288,7 +289,7 @@ describe("conversationFirewall", () => {
     policies.length = 0
     failure = "none"
     const firewall = conversationFirewall("app.example.test")
-    firewall.attach(await Sandbox.get({ ...credentials, name }), gitToken)
+    await firewall.attach(await Sandbox.get({ ...credentials, name }), gitToken)
     return firewall
   }
 
@@ -308,10 +309,6 @@ describe("conversationFirewall", () => {
     )
     // A new sandbox has no name yet, so it starts with no egress.
     expect(firewall.policy("git-1")).toBe("deny-all")
-    firewall.attach(
-      await Sandbox.get({ ...credentials, name: "sbx-ingest" }),
-      "git-1",
-    )
     const scopeOf = (policy: NetworkPolicy | undefined) => {
       const allow = allowOf(policy)
       expect(allow["*"]).toBeUndefined()
@@ -319,13 +316,24 @@ describe("conversationFirewall", () => {
         "app.example.test",
         "github.com",
       ])
-      const forwardUrl = (allow["github.com"]?.[0] as { forwardURL: string })
-        .forwardURL
+      const forwardUrl = allow["github.com"]?.[0]?.forwardURL ?? ""
       return openIngestEgressScope(
         new URL(forwardUrl).pathname.replace("/api/v1/sandbox-egress/", ""),
         secret,
       )
     }
+    // Attach (after create or resume) applies the scope at once: the
+    // sandbox can fetch before its first step.
+    await firewall.attach(
+      await Sandbox.get({ ...credentials, name: "sbx-ingest" }),
+      "git-1",
+    )
+    expect(policies).toHaveLength(1)
+    expect(scopeOf(policies.at(-1))).toMatchObject({
+      sandbox: "sbx-ingest",
+      git: [{ token: "git-1", repositories: ["acme/source"] }],
+    })
+    expect(scopeOf(policies.at(-1))?.step).toBeUndefined()
     await firewall.openTurn("sbx-ingest", turn)
     expect(scopeOf(policies.at(-1))).toMatchObject({
       sandbox: "sbx-ingest",
@@ -338,6 +346,8 @@ describe("conversationFirewall", () => {
 
   it("sets the turn's credentials at turn start and removes them at turn end", async () => {
     const firewall = await attached("sbx-1", "git-1")
+    // The chat policy does not change with the name: create already set it.
+    expect(policies).toEqual([])
     await firewall.openTurn("sbx-1", turn)
     expect(backendRules(policies.at(-1))).toHaveLength(3)
     expect(JSON.stringify(policies.at(-1))).toContain("Bearer git-1")

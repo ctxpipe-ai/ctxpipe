@@ -270,7 +270,7 @@ export function conversationFirewall(
     if (state && !state.turn && !state.dirty) firewalls.delete(name)
   }
   /** Record a sandbox that was created or resumed, with its token. */
-  const attach = (sandbox: Sandbox, gitToken: string | undefined) => {
+  const record = (sandbox: Sandbox, gitToken: string | undefined) => {
     const state = firewalls.get(sandbox.name)
     if (state) {
       state.sandbox = sandbox
@@ -283,13 +283,24 @@ export function conversationFirewall(
         queue: Promise.resolve(),
       })
   }
+  // A custom policy (ingest) binds its scope to the sandbox name, so a new
+  // sandbox starts with "deny-all" and a resumed one keeps an old scope.
+  const bindsName = policy !== hostedNetworkPolicy
   return {
     /** The policy for a new sandbox (no turn yet), with this GitHub token. */
     policy: (gitToken: string) => policy({ gitToken, backendHost }),
-    attach,
+    /**
+     * Record a sandbox that was created or resumed, with its token. A policy
+     * that binds the sandbox name gets applied now.
+     */
+    async attach(sandbox: Sandbox, gitToken: string | undefined) {
+      record(sandbox, gitToken)
+      if (bindsName && firewalls.get(sandbox.name)?.gitToken)
+        await apply(sandbox.name)
+    },
     /** Replace the GitHub token, keeping a running turn's rules. */
     async rotateGitToken(sandbox: Sandbox, gitToken: string) {
-      attach(sandbox, undefined)
+      record(sandbox, undefined)
       const state = stateOf(sandbox.name)
       const previous = state.gitToken
       state.gitToken = gitToken
@@ -400,7 +411,7 @@ async function refreshGitAccess(
   access: ConversationSandboxAccess,
 ): Promise<void> {
   const current = await access.tokens.get(sandbox.name)
-  access.firewall.attach(sandbox, current?.token)
+  await access.firewall.attach(sandbox, current?.token)
   if (!current) {
     await rotateGitToken(sandbox, access, undefined)
     return
@@ -517,7 +528,7 @@ export function vercelConversationProvider(input: {
           sandbox = await fromAgent()
         }
       } else sandbox = await fromAgent()
-      access.firewall.attach(sandbox, gitToken)
+      await access.firewall.attach(sandbox, gitToken)
       await access.tokens.put(sandbox.name, gitToken)
       return conversationHandle(sandbox, input.agentPassword)
     },
