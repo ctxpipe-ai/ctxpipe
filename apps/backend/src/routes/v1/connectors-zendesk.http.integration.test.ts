@@ -312,6 +312,8 @@ describe("Zendesk connector routes (Postgres + msw)", () => {
       `/api/v1/integrations/zendesk/callback?code=c&state=${encodeURIComponent(state)}`,
     )
     expect(res.status).toBe(400)
+    // The PKCE cookie is cleared on a refused callback too.
+    expect(res.headers.get("set-cookie")).toMatch(/^zendesk_pkce=;.*Max-Age=0/)
   })
 
   it("lists the categories and the active views for the scope picker", async () => {

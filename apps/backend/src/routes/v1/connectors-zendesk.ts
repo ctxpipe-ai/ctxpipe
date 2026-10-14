@@ -413,6 +413,9 @@ export const zendeskOauthCallbackRoutes = new OpenAPIHono<AppEnv>().openapi(
     if (!user || !c.get("session"))
       return c.json({ error: "Unauthorized" }, 401)
     const query = c.req.valid("query")
+    const env = c.var.env
+    // Every answer clears the one-time PKCE cookie.
+    const cookie = zendeskPkceCookieHeader({ secure: cookieSecure(env) })
     const state = query.state
       ? verifyZendeskOAuthState({
           authSecret: c.var.env.AUTH_SECRET,
@@ -420,9 +423,9 @@ export const zendeskOauthCallbackRoutes = new OpenAPIHono<AppEnv>().openapi(
         })
       : undefined
     if (!state || state.userId !== user.id)
-      return c.json({ error: "Invalid Zendesk OAuth state" }, 400)
-    const env = c.var.env
-    const cookie = zendeskPkceCookieHeader({ secure: cookieSecure(env) })
+      return c.json({ error: "Invalid Zendesk OAuth state" }, 400, {
+        "Set-Cookie": cookie,
+      })
     const fail = (message: string) =>
       relay({
         origin: new URL(env.AUTH_BASE_URL).origin,
@@ -439,6 +442,7 @@ export const zendeskOauthCallbackRoutes = new OpenAPIHono<AppEnv>().openapi(
       return c.json(
         { error: "Missing Zendesk OAuth code or PKCE verifier" },
         400,
+        { "Set-Cookie": cookie },
       )
     if (
       !(await hasOrgAdminOrOwnerRole({
