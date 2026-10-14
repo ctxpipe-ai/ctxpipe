@@ -10,6 +10,7 @@ import {
   MAX_LINE,
   parseDecision,
 } from "../../../ingest-skills/decisions/scripts/decision-parse.mjs"
+import { classifyTarget } from "../../../ingest-skills/dependencies/scripts/scan-lib.mjs"
 
 /**
  * Hostile input to the skill scripts: each reader cuts a long line or file
@@ -110,5 +111,26 @@ describe("classify-kind manifests", () => {
     expect(kinds({ "Cargo.toml": far })).not.toContain(
       "The crate builds a binary",
     )
+  })
+})
+
+describe("dependency targets", () => {
+  it.each([
+    [
+      '"https://user:s3cr3tPass@api.example.com/v1/charges"',
+      "https://api.example.com/v1/charges",
+    ],
+    [
+      '"https://api.example.com/v1/charges?key=s3cr3tPass&x=1"',
+      "https://api.example.com/v1/charges",
+    ],
+    ['"amqp://svc:pw@queue.internal:5672"', "amqp://queue.internal:5672"],
+    [
+      "`https://${user}:${pass}@api.example.com/users`",
+      "https://api.example.com/users",
+    ],
+    ['"https://api.example.com/users"', "https://api.example.com/users"],
+  ])("gives %s to the model as %s", (raw, text) => {
+    expect(classifyTarget(raw)?.text).toBe(text)
   })
 })
