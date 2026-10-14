@@ -26,7 +26,13 @@ import {
   withNativeHydrationFixture,
 } from "../../test/native-hydration-fixture.js"
 import { workspaceHttpApp } from "../../test/workspace-http-fixture.js"
-import { workspaceClaimsQuery } from "./graph-projection.js"
+import { expandWorkspaceGraph } from "./graph-expand.js"
+import {
+  workspaceClaimsQuery,
+  workspaceGraphRevisionKey,
+} from "./graph-projection.js"
+import { WorkspaceGraphBuildingError } from "./graph-rebuild.js"
+import { publishedProjection } from "./revision.js"
 import { workspaceChatTools } from "./workspace-chat-tools.js"
 
 async function withGraphHydration(
@@ -875,6 +881,62 @@ it(
 )
 
 it(
+  "chat graph neighbors list the strongest valid edges by confidence",
+  { timeout: 60_000 },
+  async () => {
+    const claim = (to: string, confidence: number, extra = "") =>
+      `  - to: ${to}\n    predicate: DEPENDS_ON\n    confidence: ${confidence}\n${extra}`
+    await withGraphHydration(
+      {
+        files: [
+          {
+            path: "hub.md",
+            body: `---\nclaims:\n${[
+              claim("alpha.md", 0.3),
+              claim("bravo.md", 0.9),
+              claim("charlie.md", 0.6),
+              claim(
+                "delta.md",
+                0.95,
+                "    valid_to: 2020-01-01T00:00:00.000Z\n",
+              ),
+            ].join("")}---\n# Hub\n`,
+          },
+          { path: "alpha.md", body: "# Alpha\n" },
+          { path: "bravo.md", body: "# Bravo\n" },
+          { path: "charlie.md", body: "# Charlie\n" },
+          { path: "delta.md", body: "# Delta\n" },
+        ],
+      },
+      async (f) => {
+        await f.publish()
+        const snapshot = await withOrgIdContext(f.org, () =>
+          getWorkspaceProjectionSnapshot(f.workspaceId),
+        )
+        const tools = await workspaceChatTools({
+          orgId: f.org.id,
+          orgSlug: f.org.slug,
+          workspaceId: f.workspaceId,
+          snapshot,
+        })
+        const neighbors = tools.find((t) => t.name === "graph_neighbors")
+        const hub = snapshot.units.find((u) => u.path === "hub.md")
+        const answer = String(
+          await neighbors?.execute({ nodeId: hub?.servingId, limit: 2 }),
+        )
+        expect(answer).toContain("# Bravo")
+        expect(answer).toContain("# Charlie")
+        expect(answer.indexOf("# Bravo")).toBeLessThan(
+          answer.indexOf("# Charlie"),
+        )
+        expect(answer).not.toContain("# Alpha")
+        expect(answer).not.toContain("# Delta")
+      },
+    )
+  },
+)
+
+it(
   "chat graph lookup and neighbors exclude unknown nodes",
   { timeout: 60_000 },
   async () => {
@@ -974,5 +1036,42 @@ it(
         false,
       )
     })
+  },
+)
+
+it(
+  "bounded expansion rebuilds a projection with missing nodes",
+  { timeout: 90_000 },
+  async () => {
+    await withGraphHydration(
+      { namespaceId: openWorkflowNamespaceId() },
+      async (f, graph) => {
+        await f.publish()
+        const snapshot = await withOrgIdContext(f.org, () =>
+          getWorkspaceProjectionSnapshot(f.workspaceId),
+        )
+        const seed = snapshot.units[0]?.servingId
+        if (!seed) throw new Error("The fixture needs a seed")
+        const input = {
+          orgId: f.org.id,
+          orgSlug: f.org.slug,
+          projection: publishedProjection(snapshot.projection),
+          seeds: [seed],
+        }
+        await graph.query(
+          "MATCH (n:WorkspaceKnowledgeUnit {projectionKey: $projectionKey}) DETACH DELETE n",
+          {
+            params: { projectionKey: workspaceGraphRevisionKey(f.revision) },
+          },
+        )
+        await expect(expandWorkspaceGraph(input)).rejects.toBeInstanceOf(
+          WorkspaceGraphBuildingError,
+        )
+        expect(await readGraphWhenRebuilt(f)).toMatchObject({ status: 200 })
+        const result = await expandWorkspaceGraph(input)
+        expect(result.nodes.map((node) => node.name)).toEqual(["document-000"])
+        expect(result.partial).toBe(false)
+      },
+    )
   },
 )

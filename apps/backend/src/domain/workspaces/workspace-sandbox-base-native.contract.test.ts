@@ -23,12 +23,12 @@ import {
   workspaces,
 } from "../../db/schema/workspaces.js"
 import { generateObjectId } from "../../lib/id.js"
-import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import {
   BASE_BUILD_LEASE_MS,
   countRunningSandboxes,
   getSandboxInstance,
 } from "../../models/workspaces.js"
+import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { startTestAgentVaultEnv } from "../../test/agent-vault-fixture.js"
 import {
   CHAT_IMAGE,
