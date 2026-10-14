@@ -94,11 +94,6 @@ const server = setupServer(
       })
     )
   }),
-  http.get(`${API}/users/show_many`, () =>
-    HttpResponse.json({
-      users: [{ id: 1, name: "Alex Kim", email: "not-mirrored@example.com" }],
-    }),
-  ),
   http.get(`${API}/tickets/:id/comments`, () =>
     HttpResponse.json({
       comments: [
@@ -109,7 +104,8 @@ const server = setupServer(
           created_at: "t",
         },
       ],
-      users: [{ id: 1, name: "Alex Kim" }],
+      // The sideload carries the email; the file must not.
+      users: [{ id: 1, name: "Alex Kim", email: "not-mirrored@example.com" }],
       meta: { has_more: false },
     }),
   ),
