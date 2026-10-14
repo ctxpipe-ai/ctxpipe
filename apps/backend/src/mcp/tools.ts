@@ -28,13 +28,16 @@ import { mcpAdvisorUserPrompt } from "./advisorRuntimeContext.js"
 import { mcpAdvisorThreadId, mcpClientConversationId } from "./advisorThread.js"
 import { runMcpToolCall } from "./correlation.js"
 import { orgRequired } from "./framework/tool-errors.js"
+import { registerMcpReadTools } from "./framework/tool-registry.js"
 import { toolFailure } from "./framework/tool-result.js"
+import { listWorkspaces } from "./tools/list-workspaces.js"
 
 /**
  * Register MCP tools. Tools should call into domain/ services so REST and MCP
  * share the same business logic.
  */
 export function registerMcpTools(server: McpServer): void {
+  registerMcpReadTools(server, [listWorkspaces])
   server.registerTool(
     "ctx_advisor",
     {
