@@ -6,6 +6,7 @@ import {
 } from "node:crypto"
 import { z } from "zod"
 import type { Env } from "../../config/env.js"
+import { assertNotInOrgDbContext } from "../../db/client.js"
 
 /**
  * The scopes that ctx| asks for (ADR-054): read Help Center, tickets,
@@ -20,10 +21,7 @@ export const ZENDESK_OAUTH_SCOPES = [
   "webhooks:write",
 ] as const
 
-/** A Zendesk subdomain. It goes into a host name, so it must be strict. */
-export function isZendeskSubdomain(value: string): boolean {
-  return /^[a-z0-9][a-z0-9-]{0,62}$/.test(value)
-}
+export { isZendeskSubdomain } from "../../lib/connection-config.js"
 
 export function zendeskRedirectUri(env: Env): string {
   return `${env.AUTH_BASE_URL.replace(/\/$/, "")}/api/v1/integrations/zendesk/callback`
@@ -182,9 +180,11 @@ async function requestTokens(input: {
   body: Record<string, string>
   now?: number
 }): Promise<ZendeskTokens> {
+  assertNotInOrgDbContext()
   const response = await fetch(
     `https://${input.subdomain}.zendesk.com/oauth/tokens`,
     {
+      signal: AbortSignal.timeout(30_000),
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(input.body),

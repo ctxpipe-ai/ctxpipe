@@ -31,10 +31,9 @@ export type ZendeskConnection = {
   accessToken: string | null
   refreshToken: string | null
   accessTokenExpiresAt: string | null
-  /** The ciphertext, to compare and set when Zendesk refuses the token. */
+  /** The ciphertexts, to compare and set: a revoke and a token refresh. */
   accessTokenEnc: string | null
-  /** The connection's own OAuth client (self-host), or null. */
-  hasOwnOAuthClient: boolean
+  refreshTokenEnc: string | null
   /** The client that the token requests use: the row's, then the env's. */
   oauthClient: ZendeskOAuthClient | null
   webhookId: string | null
@@ -45,7 +44,7 @@ const parseConfig = (row: { config: unknown }) =>
   zendeskConnectionConfigStoredSchema.parse(row.config)
 
 /** The row's OAuth client first (self-host), then the deployment's (hosted). */
-export function resolveZendeskOAuthClient(
+function resolveZendeskOAuthClient(
   config: Pick<
     ZendeskConnectionConfigStored,
     "oauthClientId" | "oauthClientSecretEnc"
@@ -78,9 +77,7 @@ function toConnection(row: ConnectionRow, env: Env): ZendeskConnection {
     refreshToken: decrypt(config.refreshTokenEnc),
     accessTokenExpiresAt: config.accessTokenExpiresAt ?? null,
     accessTokenEnc: config.accessTokenEnc ?? null,
-    hasOwnOAuthClient: Boolean(
-      config.oauthClientId && config.oauthClientSecretEnc,
-    ),
+    refreshTokenEnc: config.refreshTokenEnc ?? null,
     oauthClient: resolveZendeskOAuthClient(config, env),
     webhookId: config.webhookId ?? null,
     sourceSync: config.sourceSync,
@@ -266,62 +263,43 @@ export async function markZendeskConnectionRevoked(input: {
 }
 
 /**
- * Refresh the tokens under an advisory lock on the connection. Zendesk
- * rotates the refresh token, so a second caller must not spend the old one:
- * when the row already has new tokens, they are returned without a refresh.
+ * Save the tokens of a refresh, only while the row still has the refresh
+ * token that the refresh spent. Zendesk rotates the refresh token, so a
+ * second caller loses this compare and set. The refresh itself runs
+ * outside any transaction.
  */
-export async function refreshZendeskTokensWithLock(input: {
+export function saveRefreshedZendeskTokens(input: {
   orgId: string
   connectionId: string
   env: Env
-  expectedRefreshToken: string
-  refresh: (refreshToken: string) => Promise<{
+  spentRefreshTokenEnc: string
+  tokens: {
     accessToken: string
     refreshToken: string | null
     accessTokenExpiresAt: string | null
-  }>
-}): Promise<{ accessToken: string; accessTokenExpiresAt: string | null }> {
-  return withOrgDbContext(input.orgId, async (db) => {
-    await db.execute(
-      sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
-    )
-    const [row] = await db
-      .select()
-      .from(connections)
-      .where(zendeskRowWhere(input.orgId, input.connectionId))
-      .limit(1)
-    if (!row) throw new Error("The Zendesk connection does not exist")
-    const current = toConnection(row, input.env)
-    if (!current.accessToken || !current.refreshToken)
-      throw new Error("The Zendesk connection has no tokens")
-    if (current.refreshToken !== input.expectedRefreshToken)
-      return {
-        accessToken: current.accessToken,
-        accessTokenExpiresAt: current.accessTokenExpiresAt,
-      }
-    const tokens = await input.refresh(current.refreshToken)
-    await db
-      .update(connections)
-      .set({
-        config: sql`${connections.config} || ${JSON.stringify({
-          accessTokenEnc: encryptConnectionSecret(
-            tokens.accessToken,
-            input.env,
-          ),
-          refreshTokenEnc: encryptConnectionSecret(
-            tokens.refreshToken ?? current.refreshToken,
-            input.env,
-          ),
-          accessTokenExpiresAt: tokens.accessTokenExpiresAt,
-        })}::jsonb`,
-        updatedAt: new Date(),
-      })
-      .where(zendeskRowWhere(input.orgId, input.connectionId))
-    return {
-      accessToken: tokens.accessToken,
-      accessTokenExpiresAt: tokens.accessTokenExpiresAt,
-    }
-  })
+  }
+}): Promise<boolean> {
+  return patchConfig(
+    input.orgId,
+    input.connectionId,
+    {
+      status: "installed",
+      accessTokenEnc: encryptConnectionSecret(
+        input.tokens.accessToken,
+        input.env,
+      ),
+      ...(input.tokens.refreshToken
+        ? {
+            refreshTokenEnc: encryptConnectionSecret(
+              input.tokens.refreshToken,
+              input.env,
+            ),
+          }
+        : {}),
+      accessTokenExpiresAt: input.tokens.accessTokenExpiresAt,
+    },
+    sql`${connections.config}->>'refreshTokenEnc' = ${input.spentRefreshTokenEnc}`,
+  )
 }
 
 export async function deleteZendeskConnection(

@@ -1,4 +1,5 @@
 import type { Env } from "../../config/env.js"
+import { formatUnknownError } from "../../db/transientDbRetry.js"
 import type { SourceAdapter } from "../../domain/workspace-sources/adapter.js"
 import type { ZendeskSourceScope } from "../../domain/workspace-sources/providers/zendesk.js"
 import { countSourceFailure } from "../../lib/connection-config.js"
@@ -18,7 +19,6 @@ import {
   listZendeskCategoryArticles,
   listZendeskViews,
   listZendeskViewTickets,
-  ZendeskUnauthorizedError,
 } from "./client.js"
 import {
   zendeskArticleFile,
@@ -178,7 +178,7 @@ export const zendeskSourceAdapter: SourceAdapter<ZendeskSourceScope> = {
         )
       } catch (error) {
         keepPaths.push(item.root)
-        if (error instanceof ZendeskUnauthorizedError) {
+        if (error instanceof ZendeskAuthorizationRevokedError) {
           revoked = true
           if (connection.accessTokenEnc)
             await markZendeskConnectionRevoked({
@@ -193,7 +193,7 @@ export const zendeskSourceAdapter: SourceAdapter<ZendeskSourceScope> = {
           step: "zendesk.sources.capture",
           connectionId,
           item: key,
-          message: error instanceof Error ? error.message : String(error),
+          message: formatUnknownError(error),
         })
       }
     }
@@ -249,10 +249,7 @@ export const zendeskSourceAdapter: SourceAdapter<ZendeskSourceScope> = {
       }
       return problems.length ? problems.join("; ") : null
     } catch (error) {
-      if (
-        error instanceof ZendeskAuthorizationRevokedError ||
-        error instanceof ZendeskUnauthorizedError
-      )
+      if (error instanceof ZendeskAuthorizationRevokedError)
         return RECONNECT_DETAIL
       throw error
     }

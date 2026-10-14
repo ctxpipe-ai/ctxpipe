@@ -69,13 +69,22 @@ describe("freshZendeskAccessToken (Postgres + msw)", () => {
     ).toBe("access-1")
   })
 
-  it("refreshes an expired token one time for two parallel callers", async () => {
+  it("gives two parallel callers the new token, without a transaction around the refresh", async () => {
     const id = await addConnection("2020-01-01T00:00:00.000Z")
+    // Zendesk rotates: a refresh token works one time.
+    const spent = new Set<string>()
     server.use(
       http.post(
         "https://acme.zendesk.com/oauth/tokens",
         async ({ request }) => {
-          tokenRequests.push(await request.json())
+          const body = (await request.json()) as { refresh_token: string }
+          tokenRequests.push(body)
+          if (spent.has(body.refresh_token))
+            return HttpResponse.json(
+              { error: "invalid_grant" },
+              { status: 400 },
+            )
+          spent.add(body.refresh_token)
           return HttpResponse.json({
             access_token: "access-2",
             refresh_token: "refresh-2",
@@ -97,16 +106,16 @@ describe("freshZendeskAccessToken (Postgres + msw)", () => {
       }),
     ])
     expect([first, second]).toEqual(["access-2", "access-2"])
-    // The old refresh token is spent one time; the local client sends it.
-    expect(tokenRequests).toEqual([
-      {
-        grant_type: "refresh_token",
-        refresh_token: "refresh-1",
-        client_id: "local-client",
-        client_secret: "local-secret",
-      },
-    ])
+    // The local client sends the old refresh token; the loser of the race
+    // reads the new token, and the connection stays installed.
+    expect(tokenRequests[0]).toEqual({
+      grant_type: "refresh_token",
+      refresh_token: "refresh-1",
+      client_id: "local-client",
+      client_secret: "local-secret",
+    })
     expect((await read(id)).refreshToken).toBe("refresh-2")
+    expect(await getZendeskConnectionStatus(seed.orgId, id)).toBe("installed")
   })
 
   it("marks the connection revoked when Zendesk refuses the refresh token", async () => {

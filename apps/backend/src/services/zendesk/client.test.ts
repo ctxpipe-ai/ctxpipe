@@ -13,8 +13,8 @@ import {
   createZendeskArticleWebhook,
   listZendeskCategoryArticles,
   listZendeskViewTickets,
-  ZendeskUnauthorizedError,
 } from "./client.js"
+import { ZendeskAuthorizationRevokedError } from "./oauth.js"
 
 const API = "https://acme.zendesk.com/api/v2"
 const ctx = { subdomain: "acme", accessToken: "token" }
@@ -165,12 +165,12 @@ describe("listZendeskCategoryArticles", () => {
     )
     await expect(
       listZendeskCategoryArticles({ ...ctx, categoryId: "36" }),
-    ).rejects.toBeInstanceOf(ZendeskUnauthorizedError)
+    ).rejects.toBeInstanceOf(ZendeskAuthorizationRevokedError)
   })
 })
 
 describe("listZendeskViewTickets", () => {
-  it("reads the latest tickets, their people in one request, and the comments of each ticket", async () => {
+  it("reads the latest tickets, and the comments of each ticket with their authors", async () => {
     server.use(
       http.get(`${API}/views/90/tickets`, ({ request }) => {
         record(request)
@@ -196,16 +196,6 @@ describe("listZendeskViewTickets", () => {
               assignee_id: null,
               tags: [],
             },
-          ],
-        })
-      }),
-      http.get(`${API}/users/show_many`, ({ request }) => {
-        record(request)
-        return HttpResponse.json({
-          users: [
-            { id: 1, name: "Alex Kim", email: "not-mirrored@example.com" },
-            { id: 2, name: "Sam Rivera" },
-            { id: 3, name: "Jo Park" },
           ],
         })
       }),
@@ -249,12 +239,11 @@ describe("listZendeskViewTickets", () => {
 
     expect(requests.map((path) => path.split("?")[0])).toEqual([
       "/api/v2/views/90/tickets",
-      "/api/v2/users/show_many",
       "/api/v2/tickets/11/comments",
       "/api/v2/tickets/12/comments",
     ])
     expect(requests[0]).toContain(
-      "sort_by=updated_at&sort_order=desc&per_page=100",
+      "sort_by=updated&sort_order=desc&per_page=100",
     )
     expect(tickets).toMatchObject([
       {
@@ -277,7 +266,8 @@ describe("listZendeskViewTickets", () => {
           },
         ],
       },
-      { id: "12", requesterName: "Jo Park", assigneeName: null },
+      // A requester who never commented has no name in the comment sideload.
+      { id: "12", requesterName: null, assigneeName: null },
     ])
     expect(JSON.stringify(tickets)).not.toContain("not-mirrored")
     expect(JSON.stringify(tickets)).not.toContain("secret")

@@ -1,6 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import { hasOrgAdminOrOwnerRole } from "../../auth/withAuth.js"
+import { formatUnknownError } from "../../db/transientDbRetry.js"
 import {
   createZendeskDraft,
   deleteZendeskConnection,
@@ -17,7 +18,6 @@ import {
   deleteZendeskWebhook,
   listZendeskCategories,
   listZendeskViews,
-  ZendeskUnauthorizedError,
 } from "../../services/zendesk/client.js"
 import {
   createZendeskOAuthState,
@@ -334,7 +334,7 @@ export const zendeskConnectorRoutes = new OpenAPIHono<AppEnv>()
       ])
       return c.json({ categories, views }, 200)
     } catch (caught) {
-      if (caught instanceof ZendeskUnauthorizedError)
+      if (caught instanceof ZendeskAuthorizationRevokedError)
         return c.json({ error: RECONNECT_MESSAGE }, 400)
       throw caught
     }
@@ -367,7 +367,7 @@ export const zendeskConnectorRoutes = new OpenAPIHono<AppEnv>()
       } catch (caught) {
         getLogger().warn("zendesk_webhook_delete_failed", {
           connectionId,
-          error: caught instanceof Error ? caught.message : String(caught),
+          error: formatUnknownError(caught),
         })
       }
     }
@@ -468,10 +468,7 @@ export const zendeskOauthCallbackRoutes = new OpenAPIHono<AppEnv>().openapi(
     } catch (exchangeError) {
       getLogger().warn("zendesk_oauth_exchange_failed", {
         connectionId: connection.id,
-        error:
-          exchangeError instanceof Error
-            ? exchangeError.message
-            : String(exchangeError),
+        error: formatUnknownError(exchangeError),
       })
       return fail(
         "Zendesk did not complete the authorization. Check the OAuth client, then try again.",
@@ -507,10 +504,7 @@ export const zendeskOauthCallbackRoutes = new OpenAPIHono<AppEnv>().openapi(
       } catch (webhookError) {
         getLogger().warn("zendesk_webhook_create_failed", {
           connectionId: connection.id,
-          error:
-            webhookError instanceof Error
-              ? webhookError.message
-              : String(webhookError),
+          error: formatUnknownError(webhookError),
         })
       }
     }

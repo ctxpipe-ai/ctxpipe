@@ -895,8 +895,13 @@ export type ZendeskSourceSync = z.infer<typeof zendeskSourceSyncSchema>
  * its global OAuth client from env (`ZENDESK_CLIENT_*`). Tokens and the
  * webhook signing secret are encrypted.
  */
+/** A Zendesk subdomain. It goes into a host name, so it must be strict. */
+export function isZendeskSubdomain(value: string): boolean {
+  return /^[a-z0-9][a-z0-9-]{0,62}$/.test(value)
+}
+
 export const zendeskConnectionConfigStoredSchema = z.object({
-  subdomain: z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}$/),
+  subdomain: z.string().refine(isZendeskSubdomain),
   status: z.enum(["pending", "installed", "revoked"]),
   oauthClientId: z.string().min(1).optional(),
   oauthClientSecretEnc: z.string().min(1).optional(),

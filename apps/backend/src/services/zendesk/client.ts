@@ -1,21 +1,15 @@
 import { z } from "zod"
+import { assertNotInOrgDbContext } from "../../db/client.js"
 import type {
   ZendeskArticleForMirror,
   ZendeskTicketForMirror,
 } from "./converter.js"
+import { ZendeskAuthorizationRevokedError } from "./oauth.js"
 
 /** A source keeps this many of the most recently updated tickets of a view. */
 export const ZENDESK_TICKETS_PER_VIEW = 100
 
 type ZendeskAuth = { subdomain: string; accessToken: string }
-
-/** Zendesk does not accept the access token any more (401). */
-export class ZendeskUnauthorizedError extends Error {
-  constructor(message = "Zendesk does not accept the access token") {
-    super(message)
-    this.name = "ZendeskUnauthorizedError"
-  }
-}
 
 const origin = (subdomain: string) => `https://${subdomain}.zendesk.com`
 
@@ -28,8 +22,10 @@ async function zendeskRequest(
   url: URL,
   init: { method?: string; json?: unknown } = {},
 ): Promise<Response> {
+  assertNotInOrgDbContext()
   for (let attempt = 0; ; attempt += 1) {
     const response = await fetch(url, {
+      signal: AbortSignal.timeout(30_000),
       method: init.method ?? "GET",
       headers: {
         accept: "application/json",
@@ -38,7 +34,7 @@ async function zendeskRequest(
       },
       body: init.json ? JSON.stringify(init.json) : undefined,
     })
-    if (response.status === 401) throw new ZendeskUnauthorizedError()
+    if (response.status === 401) throw new ZendeskAuthorizationRevokedError()
     if (response.status !== 429 || attempt >= 4) return response
     const retryAfter = Number(response.headers.get("retry-after"))
     const delayMs =
@@ -63,7 +59,6 @@ const apiUrl = (
 const pageSchema = z.object({
   meta: z.object({ has_more: z.boolean() }).nullish(),
   links: z.object({ next: z.string().nullish() }).nullish(),
-  next_page: z.string().nullish(),
 })
 
 /**
@@ -88,11 +83,7 @@ async function readPages<T extends z.ZodTypeAny>(
     const body: unknown = await response.json()
     pages.push(schema.parse(body))
     const page = pageSchema.parse(body)
-    const next = page.meta
-      ? page.meta.has_more
-        ? page.links?.next
-        : null
-      : page.next_page
+    const next = page.meta?.has_more ? page.links?.next : null
     url = next ? new URL(next) : null
     if (url && url.origin !== origin(auth.subdomain))
       throw new Error(`Zendesk ${what} gave a next page on another host`)
@@ -238,7 +229,6 @@ const commentPageSchema = z.object({
  * The most recently updated tickets of one view, with their comments.
  * Zendesk has no bulk comment read for a list of tickets, so each ticket
  * is one more request (the count is capped by ZENDESK_TICKETS_PER_VIEW).
- * The requesters and assignees of the page are one request.
  */
 export async function listZendeskViewTickets(
   input: ZendeskAuth & { viewId: string },
@@ -246,7 +236,7 @@ export async function listZendeskViewTickets(
   const response = await zendeskRequest(
     input,
     apiUrl(input, `/views/${input.viewId}/tickets`, {
-      sort_by: "updated_at",
+      sort_by: "updated",
       sort_order: "desc",
       per_page: String(ZENDESK_TICKETS_PER_VIEW),
     }),
@@ -258,28 +248,6 @@ export async function listZendeskViewTickets(
   const { tickets } = z
     .object({ tickets: z.array(ticketSchema) })
     .parse(await response.json())
-  const people = [
-    ...new Set(
-      tickets.flatMap((ticket) =>
-        [ticket.requester_id, ticket.assignee_id].filter(
-          (value): value is string => value !== null,
-        ),
-      ),
-    ),
-  ]
-  let users = new Map<string, string>()
-  if (people.length) {
-    const usersResponse = await zendeskRequest(
-      input,
-      apiUrl(input, "/users/show_many", { ids: people.join(",") }),
-    )
-    if (!usersResponse.ok)
-      throw new Error(`Zendesk user read failed (${usersResponse.status})`)
-    users = nameById(
-      z.object({ users: z.array(named) }).parse(await usersResponse.json())
-        .users,
-    )
-  }
   const result: ZendeskTicketForMirror[] = []
   for (const ticket of tickets) {
     const pages = await readPages(
@@ -293,6 +261,9 @@ export async function listZendeskViewTickets(
     )
     // A ticket deleted since the view read has no comments to show.
     if (typeof pages === "string") continue
+    // The comment sideload names the requester and the assignee when they
+    // wrote a comment; Zendesk has no other bulk read of people.
+    const users = nameById(pages.flatMap((page) => page.users ?? []))
     result.push({
       id: ticket.id,
       subject: ticket.subject?.trim() || "(no subject)",
@@ -310,12 +281,9 @@ export async function listZendeskViewTickets(
       createdAt: ticket.created_at,
       updatedAt: ticket.updated_at,
       comments: pages.flatMap((page) => {
-        const authors = nameById(page.users ?? [])
         return page.comments.map((comment) => ({
           authorName: comment.author_id
-            ? (authors.get(comment.author_id) ??
-              users.get(comment.author_id) ??
-              null)
+            ? (users.get(comment.author_id) ?? null)
             : null,
           createdAt: comment.created_at,
           public: comment.public,
