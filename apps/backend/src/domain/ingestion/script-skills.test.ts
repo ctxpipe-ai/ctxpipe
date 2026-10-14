@@ -9,7 +9,7 @@ import {
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { afterAll, describe, expect, it } from "vitest"
-import { stringify } from "yaml"
+import { parse, stringify } from "yaml"
 import { buildContextIndexEntries } from "./context-index.js"
 import { gitSourcePathExists, validatePatchStep } from "./patch-validator.js"
 import { INGEST_SKILLS_DIR } from "./skill-bundle.js"
@@ -883,7 +883,7 @@ describe("ownership skill", () => {
     expect(out.ops).toEqual([])
     expect(out.skipped).toContainEqual({
       path: "knowledge/teams/payments-team.md",
-      reason: "The file has a claim target that the script cannot read",
+      reason: "The file has claims that the script cannot read",
     })
   })
 
@@ -923,6 +923,231 @@ describe("ownership skill", () => {
       "utf8",
     )
     expect(staged.match(/predicate: OWNS/g)).toHaveLength(1)
+  })
+
+  describe("existing claims of a team file", () => {
+    const TEAM = "knowledge/teams/payments-team.md"
+    const teamStep = (frontLines: string[]) => {
+      const s = step(
+        { ...PNPM_SHOP, CODEOWNERS: "/apps/ @example-org/payments\n" },
+        {
+          [TEAM]: [
+            "---",
+            "kind: Team",
+            "name: example-org/payments",
+            ...frontLines,
+            "---",
+            "# Payments team",
+            "",
+          ].join("\n"),
+          "knowledge/apps/web.md": front(
+            { kind: "App", name: "Web", sources: [SOURCE_URL] },
+            "# Web\n",
+          ),
+        },
+      )
+      s.mapFiles({ "apps/web": ["knowledge/apps/web.md"] })
+      return s
+    }
+    const claim = (to: string, predicate = "OWNS") => [
+      `  - to: ${to}`,
+      `    predicate: ${predicate}`,
+      "    evidence:",
+      "      path: README.md",
+      "      kind: model",
+    ]
+    const stagedClaims = (s: ReturnType<typeof step>) => {
+      const text = readFileSync(join(s.root, "out", "files", TEAM), "utf8")
+      const yaml = /^---\n([\s\S]*?)\n---/.exec(text)?.[1] ?? ""
+      return (
+        (parse(yaml) as { claims?: Array<{ to: string; predicate: string }> })
+          .claims ?? []
+      ).map((c) => `${c.to} ${c.predicate}`)
+    }
+
+    it("does not read a claim from the lines of a block scalar, and adds the real claim", () => {
+      const s = teamStep([
+        "summary: |-",
+        "  Owner notes",
+        "  to: ../apps/web.md",
+        "  predicate: OWNS",
+        "claims: []",
+      ])
+      const out = s.run("ownership")
+      expect(out.skipped).toEqual([])
+      expect(stagedClaims(s)).toEqual(["../apps/web.md OWNS"])
+    })
+
+    it("does not read a claim from a block scalar inside a claim item", () => {
+      const s = teamStep([
+        "claims:",
+        "  - to: ../apps/other.md",
+        "    predicate: OWNS",
+        "    evidence:",
+        "      path: |-",
+        "        x",
+        "        to: ../apps/web.md",
+        "        predicate: OWNS",
+        "      kind: model",
+      ])
+      const out = s.run("ownership")
+      expect(out.skipped).toEqual([])
+      expect(stagedClaims(s)).toEqual([
+        "../apps/other.md OWNS",
+        "../apps/web.md OWNS",
+      ])
+    })
+
+    it("does not read a claim from a block scalar that holds a claims key", () => {
+      const s = teamStep([
+        "summary: |-",
+        "  Notes",
+        "  claims:",
+        "    - to: ../apps/web.md",
+        "      predicate: OWNS",
+        "claims: []",
+      ])
+      s.run("ownership")
+      expect(stagedClaims(s)).toEqual(["../apps/web.md OWNS"])
+    })
+
+    it.each([
+      ["a trailing no-break space", "../apps/web.md\u00a0"],
+      ["a trailing ideographic space", "../apps/web.md\u3000"],
+      ["an ideographic space before a hash", "../apps/web.md\u3000#x"],
+    ])("skips the file with a reason when a plain claim target has %s", (_name, to) => {
+      const s = teamStep(["claims:", ...claim(to)])
+      const out = s.run("ownership")
+      expect(out.skipped).toContainEqual({
+        path: TEAM,
+        reason: "The file has claims that the script cannot read",
+      })
+      expect(out.ops).toEqual([])
+    })
+
+    it("reads no claim from a file with a line or paragraph separator, and pairs no target with a later predicate", async () => {
+      const lib = await import(join(INGEST_SKILLS_DIR, "bin/knowledge-lib.mjs"))
+      for (const separator of ["\u2028", "\u2029", "\u0085"]) {
+        const text = [
+          "claims:",
+          ...claim("../apps/web.md", "USES_LIBRARY"),
+          ...claim(`../apps/other.md${separator}`, "OWNS"),
+        ].join("\n")
+        expect(lib.existingClaims(text)).toBeNull()
+      }
+    })
+
+    it("reads the claims of a YAML document as the YAML parser does", async () => {
+      const lib = await import(join(INGEST_SKILLS_DIR, "bin/knowledge-lib.mjs"))
+      const evidence = { path: "x", kind: "manifest" }
+      const documents = [
+        {
+          kind: "Team",
+          name: "t",
+          summary: "A\nto: ../a.md\npredicate: OWNS",
+          claims: [],
+        },
+        {
+          kind: "Team",
+          name: "to: ../a.md",
+          claims: [{ to: "../z.md", predicate: "OWNS", evidence }],
+        },
+        {
+          kind: "Team",
+          name: "t",
+          claims: [
+            {
+              to: "../z.md",
+              predicate: "OWNS",
+              evidence: {
+                path: "x\nto: ../a.md\npredicate: USES_LIBRARY",
+                kind: "manifest",
+              },
+            },
+          ],
+        },
+        {
+          kind: "Team",
+          name: "t",
+          claims: [
+            { to: `../${"a b ".repeat(60)}.md`, predicate: "OWNS", evidence },
+            { to: "../a.md #x", predicate: "USES_LIBRARY", evidence },
+          ],
+        },
+      ]
+      for (const document of documents) {
+        const text = stringify(document, { lineWidth: 0 })
+        const truth = new Set(
+          (
+            parse(text) as {
+              claims: Array<{ to: string; predicate: string }>
+            }
+          ).claims.map((c) => `${c.to} ${c.predicate}`),
+        )
+        expect(lib.existingClaims(text)).toEqual(truth)
+      }
+    })
+
+    it("refuses a front matter that the reader cannot follow", async () => {
+      const lib = await import(join(INGEST_SKILLS_DIR, "bin/knowledge-lib.mjs"))
+      const cases = [
+        "claims:\n  - to: ../a.md\n    predicate: OWNS\n---\nclaims:\n  - to: ../z.md\n    predicate: OWNS",
+        "claims:\n  - to: ../real.md\n    to: ../a.md\n    predicate: OWNS",
+        "claims:\n  - to: ../a.md\n    predicate: OWNS\nclaims: []",
+        "claims:\n\t- to: ../a.md\n    predicate: OWNS",
+        "claims:\n  - to: ../a.md\n    predicate: &p OWNS",
+        "claims:\n  - to: ../a.md\n    predicate: \"OWNS'",
+        "claims:\n  - to: >-\n      ../a.md\n    predicate: OWNS",
+        "claims: |\n  - to: ../a.md\n    predicate: OWNS",
+        'summary: "A\nclaims:\n  - to: ../a.md\n  predicate: OWNS"',
+        "claims:\n  - to: ../a.md\n    predicate: OWNS\n    evidence: [a,\n    to: ../z.md]",
+      ]
+      for (const text of cases) expect(lib.existingClaims(text)).toBeNull()
+      expect(lib.existingClaims("claims: []")).toEqual(new Set())
+      expect(lib.existingClaims("kind: Team")).toEqual(new Set())
+    })
+
+    it("resets the target for each claim item", () => {
+      const s = teamStep([
+        "claims:",
+        "  - to: ../apps/web.md",
+        "    predicate: USES_LIBRARY",
+        "    evidence:",
+        "      path: README.md",
+        "      kind: model",
+        "  - evidence:",
+        "      path: README.md",
+        "      kind: model",
+        "    predicate: OWNS",
+      ])
+      s.run("ownership")
+      expect(stagedClaims(s)).toContain("../apps/web.md OWNS")
+    })
+
+    it("skips the file when a claim item holds a flow collection", () => {
+      const s = teamStep([
+        "claims:",
+        "  - to: ../apps/web.md",
+        "    predicate: OWNS",
+        "    evidence: {path: README.md, kind: model}",
+      ])
+      expect(s.run("ownership").skipped).toContainEqual({
+        path: TEAM,
+        reason: "The file has claims that the script cannot read",
+      })
+    })
+
+    it("reads claims that follow a block scalar key, with its own claim list", () => {
+      const s = teamStep([
+        "summary: |-",
+        "  Owner notes",
+        "claims:",
+        ...claim("../apps/web.md"),
+      ])
+      const out = s.run("ownership")
+      expect(out.skipped).toEqual([])
+      expect(stagedClaims(s)).toEqual(["../apps/web.md OWNS"])
+    })
   })
 
   it("finishes 2000 CODEOWNERS rules on 100 deep roots and says what it skipped", () => {

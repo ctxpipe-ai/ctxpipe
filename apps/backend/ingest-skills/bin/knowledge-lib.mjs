@@ -259,52 +259,209 @@ function decodeDoubleQuoted(body) {
   return out
 }
 
+function trimYamlWhitespace(text) {
+  let start = 0
+  let end = text.length
+  while (start < end && (text[start] === " " || text[start] === "\t")) start++
+  while (end > start && (text[end - 1] === " " || text[end - 1] === "\t")) end--
+  return text.slice(start, end)
+}
+
+function stripYamlComment(text) {
+  let quote = null
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]
+    if (quote === '"') {
+      if (c === "\\") i++
+      else if (c === '"') quote = null
+    } else if (quote === "'") {
+      if (c === "'" && text[i + 1] === "'") i++
+      else if (c === "'") quote = null
+    } else if (c === '"' || c === "'") quote = c
+    else if (c === "#" && (text[i - 1] === " " || text[i - 1] === "\t"))
+      return text.slice(0, i - 1)
+  }
+  return text
+}
+
+/**
+ * A character that JS trims as space or treats as a line end, but YAML does
+ * not: the script refuses it in a claim target, so it never decodes a value
+ * shorter or longer than the validator does.
+ */
+const UNSAFE_TARGET_CHAR =
+  /[\p{Cc}\u00a0\u1680\u2000-\u200b\u2028\u2029\u202f\u205f\u3000\ufeff]/u
+
 /**
  * The value of a YAML `to:` scalar on one line: double quoted, single quoted,
  * or plain. Null for any value that this function cannot decode in full (a
  * block scalar, a flow value, an anchor, a tag, an unknown escape, a quote
- * that does not close on the line). A caller never treats null as a match.
+ * that does not close on the line, a space or line-end character that YAML
+ * does not treat as JS does). A caller never treats null as a match.
  */
 function claimTarget(raw) {
-  const text = raw.trim()
+  // Only an ASCII space or tab is YAML white space.
+  const text = trimYamlWhitespace(raw)
+  let value = null
   if (text.startsWith('"')) {
-    const end = /^"((?:[^"\\]|\\.)*)"\s*(?:#.*)?$/.exec(text)
-    return end ? decodeDoubleQuoted(end[1]) : null
+    const end = /^"((?:[^"\\]|\\.)*)"[ \t]*$/.exec(stripYamlComment(text))
+    value = end ? decodeDoubleQuoted(end[1]) : null
+  } else if (text.startsWith("'")) {
+    const end = /^'((?:[^']|'')*)'[ \t]*$/.exec(stripYamlComment(text))
+    value = end ? end[1].replaceAll("''", "'") : null
+  } else if (text !== "" && !/^[|>&*![{%@`#]|^[-?:](?:[ \t]|$)/.test(text)) {
+    const plain = trimYamlWhitespace(stripYamlComment(text))
+    value = plain.includes(": ") || plain.endsWith(":") ? null : plain
   }
-  if (text.startsWith("'")) {
-    const end = /^'((?:[^']|'')*)'\s*(?:#.*)?$/.exec(text)
-    return end ? end[1].replaceAll("''", "'") : null
+  return value === null || UNSAFE_TARGET_CHAR.test(value) ? null : value
+}
+
+/** A value that is a flow collection other than an empty one, or a quote that does not close on its line. */
+function unreadableValue(value) {
+  const text = value.replace(/^[ \t]+/, "")
+  if (/^[[{]/.test(text)) return !/^(?:\[\]|\{\})[ \t]*(?:#.*)?$/.test(text)
+  if (text.startsWith('"'))
+    return !/^"(?:[^"\\]|\\.)*"(?:[ \t]*|[ \t]+#.*)$/.test(text)
+  if (text.startsWith("'"))
+    return !/^'(?:[^']|'')*'(?:[ \t]*|[ \t]+#.*)$/.test(text)
+  return false
+}
+
+/** True when a value that opens a flow collection or a quote closes on the same line. */
+function closesOnLine(value) {
+  const text = value.replace(/^[ \t]+/, "")
+  if (!/^[[{"']/.test(text)) return true
+  let depth = 0
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]
+    if (c === '"' || c === "'") {
+      let j = i + 1
+      for (; j < text.length; j++) {
+        if (c === '"' && text[j] === "\\") j++
+        else if (text[j] === c) {
+          if (c === "'" && text[j + 1] === "'") j++
+          else break
+        }
+      }
+      if (j >= text.length) return false
+      i = j
+    } else if (c === "[" || c === "{") depth++
+    else if (c === "]" || c === "}") depth--
+    else if (c === "#" && /[ \t]/.test(text[i - 1] ?? "")) break
+    if (depth === 0 && i === text.length - 1) break
   }
-  if (text === "" || /^[|>&*![{%@`#]/.test(text)) return null
-  const plain = text.replace(/\s+#.*$/, "")
-  return plain.includes(": ") ? null : plain
+  return depth === 0
+}
+
+/** The claim predicate of a YAML value on one line: plain, or quoted with the same quote on both sides. */
+function claimPredicate(raw) {
+  const text = trimYamlWhitespace(stripYamlComment(raw))
+  const match = /^(?:"([A-Z0-9_]+)"|'([A-Z0-9_]+)'|([A-Z0-9_]+))[ \t]*$/.exec(
+    text,
+  )
+  return match ? (match[1] ?? match[2] ?? match[3]) : null
 }
 
 /**
  * Claims already in a front matter block, as "to predicate" with the target
  * decoded: the validator rewrites the quotes, so a path with a space can be
- * plain, single quoted, or double quoted. Null when a `to:` value cannot be
- * decoded in full, or continues on the next line.
+ * plain, single quoted, or double quoted.
+ *
+ * The reader follows the YAML structure. The sandbox has no YAML parser, so
+ * it reads only what it can read with certainty: a top-level key at column
+ * 0, then the `claims:` list item by item. In a claim item it reads only the
+ * keys at the item's key column, and it forgets the target and the
+ * predicate at each new item. A line that is deeper than those keys belongs
+ * to a nested value (such as a block scalar) and the reader skips it. Null
+ * means "cannot read", and the caller skips the file: a block scalar or flow
+ * value or a multi-line quote in the claims, a target or predicate that
+ * continues on the next line, a duplicate key, a tab as indent, an unusual
+ * line end, or a `to` with a character that YAML and JS read as different
+ * white space. It never infers a claim.
  */
-function existingClaims(yaml) {
+export function existingClaims(yaml) {
+  if (/[\u0085\u2028\u2029]/.test(yaml)) return null
+  const lines = yaml.split("\n").map((l) => l.replace(/\r$/, ""))
+  if (lines.some((l) => l.includes("\r") || /^ *\t/.test(l))) return null
   const found = new Set()
-  const lines = yaml.split("\n")
-  let to = null
+  const rows = []
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]
-    const toMatch = /^(\s*-?\s*)to:(.*)$/.exec(line)
-    if (toMatch) {
-      to = claimTarget(toMatch[2])
-      const next = lines[i + 1] ?? ""
-      // A deeper, non-empty next line continues a folded value.
-      const keyColumn = toMatch[1].length
-      const nextColumn = /^\s*/.exec(next)?.[0].length ?? 0
-      if (to === null || (next.trim() !== "" && nextColumn > keyColumn))
-        return null
-    }
-    const predicate = /^\s*predicate:\s*["']?([A-Z0-9_]+)["']?\s*$/.exec(line)
-    if (predicate && to) found.add(`${to} ${predicate[1]}`)
+    const text = lines[i]
+    if (/^ *$/.test(text) || /^ *#/.test(text)) continue
+    rows.push({ text, indent: /^ */.exec(text)[0].length })
   }
+  let section = null
+  let seenClaims = false
+  let itemColumn = null
+  let keyColumn = null
+  let item = null
+  const endItem = () => {
+    if (item?.to != null && item.predicate != null)
+      found.add(`${item.to} ${item.predicate}`)
+    item = null
+  }
+  const read = (key, value, next) => {
+    if (key !== "to" && key !== "predicate") {
+      if (unreadableValue(value)) return false
+      return true
+    }
+    if (item[key] !== undefined) return false
+    const parsed = key === "to" ? claimTarget(value) : claimPredicate(value)
+    if (parsed === null) return false
+    // A deeper next line continues the value: a folded scalar.
+    if (next && next.indent > keyColumn) return false
+    item[key] = parsed
+    return true
+  }
+  for (let r = 0; r < rows.length; r++) {
+    const { text, indent } = rows[r]
+    if (indent === 0 && !(section === "claims" && text.startsWith("-"))) {
+      // A top-level list under another key may sit at column 0.
+      if (section !== "claims" && /^-(?: |$)/.test(text)) continue
+      const top = /^([^\s"'#?:[\]{}&*!|>%@`,-][^:]*):(?:[ \t]+(.*))?$/.exec(
+        text,
+      )
+      if (!top || !closesOnLine(top[2] ?? "")) return null
+      endItem()
+      itemColumn = null
+      keyColumn = null
+      section = top[1]
+      if (section !== "claims") continue
+      if (seenClaims) return null
+      seenClaims = true
+      const rest = (top[2] ?? "").trim()
+      if (rest !== "" && !/^(?:\[\][ \t]*(?:#.*)?|#.*)$/.test(rest)) return null
+      if (rest.startsWith("[]")) section = "claims-empty"
+      continue
+    }
+    if (section === "claims-empty") return null
+    if (section !== "claims") continue
+    const dash = /^( *)-(?: +(.*))?$/.exec(text)
+    if (dash && (itemColumn === null || indent === itemColumn)) {
+      endItem()
+      itemColumn = indent
+      item = {}
+      keyColumn = null
+      const inline = dash[2]
+      if (inline === undefined || inline.startsWith("#")) continue
+      keyColumn = text.length - inline.length
+      const key = /^([A-Za-z_][A-Za-z0-9_-]*):(?:[ \t]+(.*))?$/.exec(inline)
+      if (!key) return null
+      if (!read(key[1], key[2] ?? "", rows[r + 1])) return null
+      continue
+    }
+    if (item === null) return null
+    if (keyColumn === null) {
+      if (indent <= itemColumn) return null
+      keyColumn = indent
+    }
+    if (indent > keyColumn) continue
+    if (indent !== keyColumn) return null
+    const key = /^ *([A-Za-z_][A-Za-z0-9_-]*):(?:[ \t]+(.*))?$/.exec(text)
+    if (!key) return null
+    if (!read(key[1], key[2] ?? "", rows[r + 1])) return null
+  }
+  endItem()
   return found
 }
 
@@ -345,7 +502,7 @@ function mergeFile(text, { claims, related }) {
   const body = text.slice(front[0].length)
   const known = existingClaims(yaml)
   if (known === null && claims.length)
-    return { skip: "The file has a claim target that the script cannot read" }
+    return { skip: "The file has claims that the script cannot read" }
   const newClaims = claims.filter((c) => !known?.has(`${c.to} ${c.predicate}`))
   let header = front[0]
   if (newClaims.length) {

@@ -546,7 +546,7 @@ describe("discover-roots script", () => {
         (_, i) => `${"a".repeat(250)}${String(i).padStart(4, "0")}`,
       )
       const matcher = lib.globMatcher(`*${"a".repeat(120)}b`)
-      expect(matcher.skip).toBeUndefined()
+      expect(matcher).not.toHaveProperty("skip")
       expect(lib.matchStepsUsed()).toBe(0)
       for (const name of names) {
         if (!lib.matchBudgetLeft()) break
@@ -557,6 +557,17 @@ describe("discover-roots script", () => {
       expect(lib.matchStepsUsed()).toBeLessThan(2_000_001 + 2000)
       // A segment of 255 characters is the longest one that the matcher compares.
       expect(lib.globMatcher("*").matches("a".repeat(256))).toBe(false)
+    })
+
+    it("charges the trailing stars of a segment to the match budget", async () => {
+      // A query string gives this test a fresh module, with its own budget.
+      const lib = await import(
+        `${join(INGEST_SKILLS_DIR, "discover-roots/scripts/roots-lib.mjs")}?trailing-stars`
+      )
+      const matcher = lib.globMatcher(`a${"*".repeat(120)}`)
+      const before = lib.matchStepsUsed()
+      expect(matcher.matches("a")).toBe(true)
+      expect(lib.matchStepsUsed() - before).toBeGreaterThanOrEqual(120)
     })
 
     it("shares one match budget between the globs, and says what it skipped", () => {
