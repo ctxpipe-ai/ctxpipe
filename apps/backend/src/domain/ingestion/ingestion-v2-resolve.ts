@@ -16,8 +16,6 @@ export type IngestionV2Resolution =
       skipped?: undefined
       sourceRepositoryId: string | null
       destinations: IngestDestination[]
-      /** Workspaces that declare the source but cannot take refs now. */
-      unavailable: number
     }
 
 /**
@@ -107,8 +105,20 @@ export async function resolveIngestionV2Run(
   return {
     sourceRepositoryId: repositoryId(sourceUrl),
     destinations,
-    unavailable: candidates.length - destinations.length,
   }
+}
+
+/** The id and slug of the run's org; it throws when the org is gone. */
+export async function ingestionOrg(
+  orgId: string,
+): Promise<{ id: string; slug: string }> {
+  const [org] = await getSystemDb()
+    .select({ id: organizations.id, slug: organizations.slug })
+    .from(organizations)
+    .where(eq(organizations.id, orgId))
+    .limit(1)
+  if (!org) throw new Error("The ingestion run's organization is gone")
+  return org
 }
 
 /** Run `fn` in the org context that the Workspace models and the broker read. */
@@ -116,11 +126,5 @@ export async function withIngestionOrg<T>(
   orgId: string,
   fn: () => Promise<T>,
 ): Promise<T> {
-  const [org] = await getSystemDb()
-    .select({ id: organizations.id, slug: organizations.slug })
-    .from(organizations)
-    .where(eq(organizations.id, orgId))
-    .limit(1)
-  if (!org) throw new Error("The ingestion run's organization is gone")
-  return withOrgIdContext(org, fn)
+  return withOrgIdContext(await ingestionOrg(orgId), fn)
 }

@@ -280,13 +280,14 @@ describe("ingestion v2 in shadow mode", () => {
         new Set(workspaceIds),
       )
 
-      expect(result).toMatchObject({ status: "done", shadow: true, shards: 1 })
+      expect(result).toMatchObject({ status: "done", shards: 1 })
       if (result.status !== "done") throw new Error("The run did not finish")
       // The host validator accepted each file that the stand-in agent wrote.
       const steps = await getSystemDb().execute<{ output: unknown }>(sql`
         select output from openworkflow.step_attempts
         where namespace_id = ${openWorkflowNamespaceId()}
-          and step_name like 'skill:%' and status = 'completed'
+          and step_name like 'skill:%' and step_name not like 'skill:repository:%'
+          and status = 'completed'
       `)
       expect(steps.rows.map((row) => row.output)).toEqual(
         Array(4).fill(expect.objectContaining({ ops: 1, rejects: 0 })),
@@ -301,7 +302,7 @@ describe("ingestion v2 in shadow mode", () => {
         ])
         const assembled = refs[`${prefix}/assembled`] ?? ""
         expect(result.workspaces).toContainEqual(
-          expect.objectContaining({ workspaceId, assembled, ops: 2 }),
+          expect.objectContaining({ workspaceId, assembled, partial: 0 }),
         )
         const files = git(
           join(remotes, name),

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   INGEST_MAX_ROOTS,
+  ingestRootMap,
   plannedIngestSkills,
   planIngestRoots,
   skillStepName,
@@ -80,8 +81,44 @@ describe("ingestion v2 plan", () => {
     expect(skillStepName("services/api", "apis", "ws_a")).toBe(
       skillStepName("services/api", "apis", "ws_a"),
     )
-    expect(skillStepName(".", "libraries", "ws_a", 2)).toMatch(
-      /:libraries\.2:ws_a$/,
+    // A repository-wide step never has the key of a root, also of ".".
+    expect(skillStepName(null, "libraries", "ws_a", 2)).toBe(
+      "skill:repository:libraries.2:ws_a",
     )
+    expect(skillStepName(".", "libraries", "ws_a")).not.toContain("repository")
+  })
+})
+
+describe("ingestRootMap", () => {
+  it("gives each root the files that its root steps wrote, and ignores repository steps", () => {
+    const roots = [root("."), root("services/api")]
+    const map = ingestRootMap(roots, [
+      {
+        step: skillStepName("services/api", "apis", "ws_a"),
+        paths: ["knowledge/services/api.md", "knowledge/apis/orders.md"],
+      },
+      {
+        step: skillStepName("services/api", "classify-kind", "ws_a"),
+        paths: ["knowledge/services/api.md"],
+      },
+      {
+        step: skillStepName(".", "classify-kind", "ws_a"),
+        paths: ["knowledge/codebases/checkout.md"],
+      },
+      {
+        step: skillStepName(null, "libraries", "ws_a"),
+        paths: ["knowledge/libraries/zod.md"],
+      },
+      { step: "assemble:ws_a", paths: ["knowledge/merged.md"] },
+    ])
+    expect(map).toEqual({
+      roots: [
+        { ...root("."), files: ["knowledge/codebases/checkout.md"] },
+        {
+          ...root("services/api"),
+          files: ["knowledge/apis/orders.md", "knowledge/services/api.md"],
+        },
+      ],
+    })
   })
 })

@@ -2,18 +2,6 @@ import { describe, expect, it } from "vitest"
 import { ingestOpenCodeConfig } from "./ingest-opencode.js"
 
 describe("ingest OpenCode config", () => {
-  it("has no MCP server and one model by default", () => {
-    const config = ingestOpenCodeConfig({
-      modelBase: "medium-model",
-      skills: ["discover-roots"],
-      proxyAddsCredentials: true,
-    })
-    expect(config.mcp).toEqual({})
-    expect(Object.keys(config.provider.ctxpipe.models)).toEqual([
-      "medium-model",
-    ])
-  })
-
   it("adds the tool bridge as the tanstack MCP server, with the firewall placeholder as its token", () => {
     const config = ingestOpenCodeConfig({
       modelBase: "medium-model",

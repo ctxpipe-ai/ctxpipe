@@ -24,8 +24,10 @@ export function standInIngestShardRuntime(options: {
   modelUrl: string
   folder: string
 }): IngestShardRuntimeFactory {
-  return (spec) => {
-    const root = join(options.folder, `${spec.runId}-${spec.shard}`)
+  const folderOf = (target: { runId: string; shard: number }) =>
+    join(options.folder, `${target.runId}-${target.shard}`)
+  const factory = (spec: Parameters<IngestShardRuntimeFactory>[0]) => {
+    const root = folderOf(spec)
     const ready = join(root, "ready")
     const sourceDir = join(root, "source", "source")
     const git = (cwd: string, ...args: string[]) =>
@@ -59,13 +61,9 @@ export function standInIngestShardRuntime(options: {
       },
       async discoverRoots() {
         await runtime.ensure()
-        const out = await node(
-          "discover-roots/scripts/discover-roots.mjs",
-          sourceDir,
+        return JSON.parse(
+          await node("discover-roots/scripts/discover-roots.mjs", sourceDir),
         )
-        return (
-          JSON.parse(out) as { roots: Array<{ path: string }> }
-        ).roots.map((r) => r.path)
       },
       async runStep(step) {
         await runtime.ensure()
@@ -83,26 +81,47 @@ export function standInIngestShardRuntime(options: {
             baseCommit: step.baseCommit,
           }),
         )
-        if (step.run !== "model")
-          throw new Error("The stand-in runs model steps only")
-        const response = await fetch(options.modelUrl, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            step: step.name,
-            skill: step.skill,
-            root: step.root,
-            workspaceId: step.workspaceId,
-          }),
-          signal: step.signal,
-        })
-        if (!response.ok) throw new Error(`Model stand-in: ${response.status}`)
-        const reply = (await response.json()) as {
-          files: Array<{ path: string; content: string }>
-        }
-        for (const file of reply.files) {
-          await node("bin/ctxpipe-stage", "--root", root, file.path)
-          await writeFile(join(out, "files", file.path), file.content)
+        let more = false
+        if (step.run === "script") {
+          const rootsFile = join(root, "roots.json")
+          await writeFile(
+            rootsFile,
+            JSON.stringify(step.rootMap ?? { roots: [] }),
+          )
+          const out = await node(
+            `${step.skill}/scripts/${step.skill}.mjs`,
+            "--root",
+            root,
+            "--source",
+            sourceDir,
+            "--source-url",
+            spec.source.url,
+            "--roots",
+            rootsFile,
+          )
+          more =
+            JSON.parse(out.trim().split("\n").pop() ?? "{}").more === true
+        } else {
+          const response = await fetch(options.modelUrl, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              step: step.name,
+              skill: step.skill,
+              root: step.root,
+              workspaceId: step.workspaceId,
+            }),
+            signal: step.signal,
+          })
+          if (!response.ok)
+            throw new Error(`Model stand-in: ${response.status}`)
+          const reply = (await response.json()) as {
+            files: Array<{ path: string; content: string }>
+          }
+          for (const file of reply.files) {
+            await node("bin/ctxpipe-stage", "--root", root, file.path)
+            await writeFile(join(out, "files", file.path), file.content)
+          }
         }
         await node("bin/ctxpipe-finish", "--root", root)
         const tar = await exec("tar", ["-C", out, "-cf", "-", "."], {
@@ -111,12 +130,13 @@ export function standInIngestShardRuntime(options: {
           // macOS tar adds AppleDouble `._*` entries; the sandbox tar does not.
           env: { ...process.env, COPYFILE_DISABLE: "1" },
         })
-        return new Uint8Array(tar.stdout)
-      },
-      async destroy() {
-        await rm(root, { recursive: true, force: true })
+        return { tar: new Uint8Array(tar.stdout), more }
       },
     }
     return runtime
   }
+  return Object.assign(factory, {
+    destroy: (target: { runId: string; shard: number }) =>
+      rm(folderOf(target), { recursive: true, force: true }),
+  })
 }

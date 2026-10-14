@@ -162,8 +162,10 @@ describe("ingest shard commands in a Docker sandbox", () => {
           bundle,
           opencodeConfig: ingestOpenCodeConfig({
             modelBase: "stub",
+            models: [],
             skills: bundle.skills,
             proxyAddsCredentials: true,
+            toolBridgeUrl: "http://127.0.0.1:9/tool-bridge",
           }),
           agentEnv,
           source: { url: "/tmp/remotes/source.git", sha: sourceSha },
@@ -182,7 +184,10 @@ describe("ingest shard commands in a Docker sandbox", () => {
           "root",
         ])
 
-        expect(await discoverIngestRoots(root, agentEnv)).toEqual([
+        const discovered = (await discoverIngestRoots(root, agentEnv)) as {
+          roots: Array<{ path: string }>
+        }
+        expect(discovered.roots.map((r) => r.path)).toEqual([
           ".",
           "services/orders",
         ])
@@ -200,6 +205,7 @@ describe("ingest shard commands in a Docker sandbox", () => {
           step,
           agentEnv,
           remote: "/tmp/remotes/context.git",
+          sourceUrl: SOURCE_URL,
           index: '{"entries":[]}',
         })
         const tar = await collectIngestStep(handle, root)
@@ -231,6 +237,7 @@ describe("ingest shard commands in a Docker sandbox", () => {
           step: { ...step, baseCommit: tip, fetchRef: ref },
           agentEnv,
           remote: "/tmp/remotes/context.git",
+          sourceUrl: SOURCE_URL,
         })
         const at = await root(
           `git -C /ctxpipe/context/${WORKSPACE_ID} rev-parse HEAD && cat /ctxpipe/step.json`,

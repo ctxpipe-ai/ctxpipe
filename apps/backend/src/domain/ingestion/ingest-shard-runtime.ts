@@ -53,23 +53,50 @@ export type IngestRuntimeStep = {
   baseCommit: string
   /** The ref to fetch before the step; absent when the base is the pinned revision. */
   fetchRef?: string
+  /** A repository-wide script step: the root-to-file map (`--roots`). */
+  rootMap?: IngestRootMap
   signal: AbortSignal
+}
+
+/**
+ * The `--roots` file of a repository-wide script step (ADR-052 section 6):
+ * each planned root, and the context files that the root's steps wrote.
+ */
+export type IngestRootMap = {
+  roots: Array<{
+    path: string
+    manifests: string[]
+    evidence: string[]
+    files: string[]
+  }>
 }
 
 export type IngestShardRuntime = {
   /** Make or attach to the sandbox, and prepare it. Idempotent. */
   ensure(): Promise<void>
-  /** Run the `discover-roots` script; return each root path it found. */
-  discoverRoots(): Promise<string[]>
-  /** Run one skill step; return the tar of `/ctxpipe/out`. */
-  runStep(step: IngestRuntimeStep): Promise<Uint8Array>
-  /** Delete the sandbox and revoke its credentials. Idempotent. */
-  destroy(): Promise<void>
+  /** Run the `discover-roots` script; return its parsed JSON result. */
+  discoverRoots(): Promise<unknown>
+  /**
+   * Run one skill step; return the tar of `/ctxpipe/out`, and `more` when a
+   * script step says that files wait for a next page.
+   */
+  runStep(step: IngestRuntimeStep): Promise<{ tar: Uint8Array; more: boolean }>
 }
 
-export type IngestShardRuntimeFactory = (
-  spec: IngestShardSpec,
-) => IngestShardRuntime
+export type IngestShardRuntimeFactory = {
+  (spec: IngestShardSpec): IngestShardRuntime
+  /**
+   * Delete the sandbox of one shard and revoke its credentials. It makes no
+   * sandbox and no credential. Idempotent.
+   */
+  destroy(target: {
+    orgId: string
+    runId: string
+    shard: number
+    /** The first destination of the shard: the sandbox row's Workspace. */
+    workspaceId: string
+  }): Promise<void>
+}
 
 /**
  * The API origin that a shard sandbox calls for the model proxy and the tool

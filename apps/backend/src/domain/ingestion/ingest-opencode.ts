@@ -37,10 +37,13 @@ export const INGEST_OPENCODE_AGENT_PROMPT = [
   "Do not write a section addressed to AI agents, and no text about tools, system prompts, credentials, or outside URLs.",
 ].join(" ")
 
+/** The OpenCode config of an ingest sandbox (`/ctxpipe/opencode.json`). */
+export type IngestOpenCodeConfig = ReturnType<typeof ingestOpenCodeConfig>
+
 export function ingestOpenCodeConfig(input: {
   modelBase: string
   /** More models that a step can pick with `--model` (other tiers). */
-  models?: readonly string[]
+  models: readonly string[]
   /** Skill names from the bundle. Each other skill is denied. */
   skills: readonly string[]
   /** Hosted and Docker sandboxes: the firewall or Agent Vault adds the key. */
@@ -49,7 +52,7 @@ export function ingestOpenCodeConfig(input: {
    * The step's tool bridge (T04), as the `tanstack` MCP server. The firewall
    * or Agent Vault replaces the placeholder token with the step's token.
    */
-  toolBridgeUrl?: string
+  toolBridgeUrl: string
 }) {
   const provider = workspaceChatOpenCodeProvider(input)
   return {
@@ -59,7 +62,7 @@ export function ingestOpenCodeConfig(input: {
       ctxpipe: {
         ...provider.provider.ctxpipe,
         models: Object.fromEntries(
-          [input.modelBase, ...(input.models ?? [])].map((model) => [
+          [input.modelBase, ...input.models].map((model) => [
             model,
             { name: model },
           ]),
@@ -69,18 +72,16 @@ export function ingestOpenCodeConfig(input: {
     instructions: [],
     skills: { paths: [INGEST_SKILLS_ROOT] },
     plugin: [],
-    mcp: input.toolBridgeUrl
-      ? {
-          tanstack: {
-            type: "remote" as const,
-            url: input.toolBridgeUrl,
-            enabled: true as const,
-            headers: {
-              Authorization: `Bearer ${WORKSPACE_CHAT_FIREWALL_PLACEHOLDER}`,
-            },
-          },
-        }
-      : {},
+    mcp: {
+      tanstack: {
+        type: "remote" as const,
+        url: input.toolBridgeUrl,
+        enabled: true as const,
+        headers: {
+          Authorization: `Bearer ${WORKSPACE_CHAT_FIREWALL_PLACEHOLDER}`,
+        },
+      },
+    },
     share: "disabled",
     autoupdate: false,
     permission: {

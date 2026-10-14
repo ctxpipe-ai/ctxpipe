@@ -2,7 +2,7 @@ import type { SandboxHandle } from "@tanstack/ai-sandbox"
 import {
   assertIngestOpenCodeVersion,
   ingestAgentCommand,
-  type ingestOpenCodeConfig,
+  type IngestOpenCodeConfig,
   ingestOpenCodeEnv,
 } from "./ingest-opencode.js"
 import {
@@ -86,7 +86,7 @@ export async function prepareIngestShard(
   root: RootExec,
   input: {
     bundle: IngestSkillBundle
-    opencodeConfig: ReturnType<typeof ingestOpenCodeConfig>
+    opencodeConfig: IngestOpenCodeConfig
     agentEnv: Record<string, string>
     source: { url: string; sha: string }
     contexts: Array<{ workspaceId: string; url: string }>
@@ -138,11 +138,14 @@ export async function prepareIngestShard(
   await runAsRoot(root, `touch ${PREPARED} && chmod 644 ${PREPARED}`)
 }
 
-/** Run the bundle's `discover-roots` script as the agent; return the root paths. */
+/**
+ * Run the bundle's `discover-roots` script as the agent; return its parsed
+ * JSON. The host checks it (`resolveDiscoveredRoots`) before it plans roots.
+ */
 export async function discoverIngestRoots(
   root: RootExec,
   agentEnv: Record<string, string>,
-): Promise<string[]> {
+): Promise<unknown> {
   const result = await root(
     ingestAgentCommand({
       env: agentEnv,
@@ -153,13 +156,7 @@ export async function discoverIngestRoots(
     throw new Error(`discover-roots failed: ${result.stderr.slice(-500)}`)
   if (result.stdout.length > MAX_DISCOVERY_BYTES)
     throw new Error("discover-roots wrote too much output")
-  const parsed = JSON.parse(result.stdout) as { roots?: unknown }
-  if (!Array.isArray(parsed.roots))
-    throw new Error("discover-roots wrote no roots")
-  return parsed.roots.flatMap((entry) => {
-    const path = (entry as { path?: unknown }).path
-    return typeof path === "string" && path.length <= 300 ? [path] : []
-  })
+  return JSON.parse(result.stdout)
 }
 
 /** The prompt of one model step. Source paths are data: they are quoted. */
@@ -172,10 +169,15 @@ export function ingestStepPrompt(step: IngestRuntimeStep): string {
   ].join(" ")
 }
 
+/** The `--roots` file of a repository-wide script step; root writes it. */
+const ROOTS_FILE = `${INGEST_ROOT}/roots.json`
+
 /**
  * Run one skill step: root starts the step (fetch the ref, put the context
  * checkout at the base commit, place the index), the agent runs the skill,
  * then `ctxpipe-finish` writes patch.json. A model step is one `opencode run`.
+ * A script step gets `--source`, `--source-url`, and `--roots` (ADR-052
+ * section 6), and returns the `more` of its result line.
  */
 export async function runIngestShardStep(
   root: RootExec,
@@ -184,11 +186,13 @@ export async function runIngestShardStep(
     agentEnv: Record<string, string>
     /** The Workspace remote that the ref is fetched from. */
     remote: string
+    /** The source repository URL that the step's files cite. */
+    sourceUrl: string
     index?: string
     /** `ctxpipe/<model>` for a model step. */
     model?: string
   },
-): Promise<void> {
+): Promise<{ more: boolean }> {
   const { step } = input
   await startIngestStep(root, {
     workspaceId: step.workspaceId,
@@ -205,10 +209,16 @@ export async function runIngestShardStep(
     CTXPIPE_WORKSPACE: step.workspaceId,
     CTXPIPE_CONTEXT: `${INGEST_CONTEXT_ROOT}/${step.workspaceId}`,
   }
+  if (step.run === "script")
+    await runAsRoot(
+      root,
+      `printf '%s' ${quote(JSON.stringify(step.rootMap ?? { roots: [] }))} > ${ROOTS_FILE} && chmod 644 ${ROOTS_FILE}`,
+    )
   const command =
     step.run === "model"
       ? `opencode run${input.model ? ` --model ${quote(input.model)}` : ""} ${quote(ingestStepPrompt(step))}`
-      : `node ${INGEST_SKILLS_ROOT}/${step.skill}/scripts/${step.skill}.mjs`
+      : `node ${INGEST_SKILLS_ROOT}/${step.skill}/scripts/${step.skill}.mjs --source ${SOURCE_DIR} --source-url ${quote(input.sourceUrl)} --roots ${ROOTS_FILE}`
+  let more = false
   for (const part of [command, "ctxpipe-finish"]) {
     const result = await root(ingestAgentCommand({ env, command: part }), {
       signal: step.signal,
@@ -217,6 +227,19 @@ export async function runIngestShardStep(
       throw new Error(
         `Ingest step ${step.name} failed (${result.exitCode}): ${result.stderr.slice(-500)}`,
       )
+    if (part === command && step.run === "script")
+      more = scriptResultMore(result.stdout)
+  }
+  return { more }
+}
+
+/** The `more` of a script step's last stdout line (`{ ops, skipped, more }`). */
+export function scriptResultMore(stdout: string): boolean {
+  const last = stdout.trim().split("\n").pop() ?? ""
+  try {
+    return (JSON.parse(last) as { more?: unknown }).more === true
+  } catch {
+    return false
   }
 }
 

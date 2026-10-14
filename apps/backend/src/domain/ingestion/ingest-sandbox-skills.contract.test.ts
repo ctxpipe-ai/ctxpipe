@@ -192,8 +192,10 @@ async function withBox(
       bundle,
       opencodeConfig: ingestOpenCodeConfig({
         modelBase: "stub",
+        models: [],
         skills: bundle.skills,
         proxyAddsCredentials: true,
+        toolBridgeUrl: "http://127.0.0.1:9/tool-bridge",
       }),
     })
     const agent = (command: string, env: Record<string, string> = AGENT_ENV) =>

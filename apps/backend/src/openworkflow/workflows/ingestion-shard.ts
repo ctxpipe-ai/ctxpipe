@@ -7,18 +7,17 @@ import {
 } from "../../domain/ingestion/ingest-refs.js"
 import type {
   IngestDestination,
+  IngestShardRuntime,
   IngestShardRuntimeFactory,
 } from "../../domain/ingestion/ingest-shard-runtime.js"
+import { ingestStepSignal } from "../../domain/ingestion/ingest-shard-ops.js"
 import { sandboxIngestShardRuntime } from "../../domain/ingestion/ingest-shard-sandbox.js"
-import {
-  ingestSourceTree,
-  releaseIngestSourceTree,
-} from "../../domain/ingestion/ingest-source-tree.js"
+import { ingestSourceTree } from "../../domain/ingestion/ingest-source-tree.js"
 import { withIngestStepOutput } from "../../domain/ingestion/ingest-step-output.js"
 import {
   type IngestSkillPlan,
+  ingestRootMap,
   plannedIngestSkills,
-  shardRoots,
   skillStepName,
 } from "../../domain/ingestion/ingestion-plan.js"
 import { INGESTION_SHARD_WORKFLOW_NAME } from "../../domain/ingestion/ingestion-run.js"
@@ -29,16 +28,22 @@ import {
 } from "../../domain/ingestion/skill-bundle.js"
 import {
   findWorkspaceStepCommit,
+  listWorkspaceIngestStepFiles,
   pushWorkspaceIngestStep,
 } from "../../domain/workspaces/write-broker.js"
-import { createLogger, withLogger } from "../../observability/logger.js"
+import {
+  createLogger,
+  getLogger,
+  withLogger,
+} from "../../observability/logger.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 
 /*
  * The shard child of an ingestion v2 run (ADR-052, T09). One sandbox for
- * the shard; for each root, each skill, and each destination Workspace, one
- * step that commits to the Workspace's shard ref. A `repository` child runs
- * the repository-wide skills on the assembled ref in the same way.
+ * the shard; for each root of the shard's explicit list, each skill, and
+ * each destination Workspace, one step that commits to the Workspace's shard
+ * ref. A `repository` child runs the repository-wide skills on the assembled
+ * ref in the same way; a script skill runs again while it says `more`.
  *
  * Each step output holds only a ref SHA and counts. Each step is idempotent:
  * it first looks for its own commit on the ref tip (a crash after the push),
@@ -56,14 +61,24 @@ export const ingestionDestinationSchema = z.object({
   repositoryId: z.string().nullable(),
 })
 
+/** A planned root, as `resolveDiscoveredRoots` gave it. */
+export const ingestionRootSchema = z.object({
+  path: z.string().min(1).max(300),
+  manifests: z.array(z.string()),
+  evidence: z.array(z.string()),
+})
+
 export const ingestionShardInputSchema = z.object({
   orgId: z.string().min(1),
   /** The parent run: it names the refs, the sandbox, and the shard lock. */
   runId: z.string().min(1),
   shard: z.number().int().nonnegative(),
-  shards: z.number().int().positive(),
-  /** `roots`: the root skills of this shard; `repository`: the repository-wide skills. */
+  /**
+   * `roots`: the root skills on this shard's roots; `repository`: the
+   * repository-wide skills, with every root of the run for the root map.
+   */
   mode: z.enum(["roots", "repository"]),
+  roots: z.array(ingestionRootSchema),
   /** The bundle name that the parent planned with. */
   bundle: z.string().min(1),
   source: z.object({
@@ -79,13 +94,13 @@ export const ingestionShardInputSchema = z.object({
 })
 
 export type IngestionShardInput = z.infer<typeof ingestionShardInputSchema>
+export type IngestionRoot = z.infer<typeof ingestionRootSchema>
 
 /** What a shard did for one Workspace. */
 export type IngestionShardWorkspace = {
   workspaceId: string
   /** The ref tip after the last step; null when no step ran. */
   tip: string | null
-  steps: number
   ops: number
   rejects: number
   /** Steps that failed after their retries; their root is `partial`. */
@@ -94,24 +109,23 @@ export type IngestionShardWorkspace = {
 
 export type IngestionShardOutput = {
   shard: number
-  roots: number
   workspaces: IngestionShardWorkspace[]
 }
 
-/** One step: 10 minutes and at most 2 retries (concept section 8). */
-const STEP_LIMIT_MS = 10 * 60_000
+/** At most 2 retries for each step (concept section 8). */
 const STEP_ATTEMPTS = 3
+/** A script skill runs at most this many pages; then it is `partial`. */
+const MAX_SCRIPT_PAGES = 20
 
 type StepResult =
   | {
       tip: string
       ops: number
       rejects: number
-      rejected?: string[]
-      resumed: boolean
+      more: boolean
       partial?: undefined
     }
-  | { partial: true; reason: string }
+  | { partial: true }
 
 export type IngestionV2Deps = {
   runtime: IngestShardRuntimeFactory
@@ -148,23 +162,16 @@ export function defineIngestionShardWorkflow(deps: IngestionV2Deps) {
             source: input.source,
             destinations: input.destinations,
           })
+          // Each step makes the sandbox again when it is gone. This step
+          // makes a provider that cannot start fail the child at once.
           await step.run({ name: "ensure-sandbox" }, async () => {
             await runtime.ensure()
             return { ready: true }
           })
-          const roots =
-            input.mode === "roots"
-              ? await step.run({ name: "discover-roots" }, async () =>
-                  shardRoots(
-                    await runtime.discoverRoots(),
-                    input.shard,
-                    input.shards,
-                  ),
-                )
-              : ["."]
+          const repository = input.mode === "repository"
           const skills = plannedIngestSkills(
             bundle.skills,
-            input.mode === "roots" ? "root" : "repository",
+            repository ? "repository" : "root",
           )
           const state = new Map(
             input.destinations.map((d) => [
@@ -172,59 +179,75 @@ export function defineIngestionShardWorkflow(deps: IngestionV2Deps) {
               {
                 workspaceId: d.workspaceId,
                 tip: input.startTips?.[d.workspaceId] ?? null,
-                steps: 0,
                 ops: 0,
                 rejects: 0,
                 partial: 0,
               } satisfies IngestionShardWorkspace,
             ]),
           )
+          const runOne = async (
+            root: string | null,
+            skill: IngestSkillPlan,
+            destination: IngestDestination,
+          ) => {
+            const current = state.get(destination.workspaceId)
+            if (!current) return
+            const pages = skill.run === "script" ? MAX_SCRIPT_PAGES : 1
+            for (let page = 1; page <= pages; page++) {
+              const name = skillStepName(
+                root,
+                skill.name,
+                destination.workspaceId,
+                page,
+              )
+              const result = await step.run(
+                { name, retryPolicy: { maximumAttempts: 1 } },
+                (): Promise<StepResult> =>
+                  withIngestionOrg(input.orgId, () =>
+                    runSkillStep({
+                      input,
+                      env: env(),
+                      runtime,
+                      bundle: bundle.name,
+                      name,
+                      root: root ?? ".",
+                      skill,
+                      destination,
+                      oldTip: current.tip,
+                      opsBefore: current.ops,
+                    }),
+                  ),
+              )
+              if (result.partial) {
+                current.partial++
+                return
+              }
+              current.tip = result.tip
+              current.ops += result.ops
+              current.rejects += result.rejects
+              if (!result.more) return
+            }
+            current.partial++
+            getLogger().warn("ingestion-v2.step-partial", {
+              step: skillStepName(root, skill.name, destination.workspaceId),
+              reason: `The script still had files after ${MAX_SCRIPT_PAGES} pages`,
+            })
+          }
+          const roots = repository ? [null] : input.roots.map((r) => r.path)
           for (const root of roots)
             for (const skill of skills)
-              for (const destination of input.destinations) {
-                const current = state.get(destination.workspaceId)
-                if (!current) continue
-                const name = skillStepName(
-                  root,
-                  skill.name,
-                  destination.workspaceId,
-                )
-                const result = await step.run(
-                  { name, retryPolicy: { maximumAttempts: 1 } },
-                  (): Promise<StepResult> =>
-                    withIngestionOrg(input.orgId, () =>
-                      runSkillStep({
-                        input,
-                        env: env(),
-                        runtime,
-                        bundle: bundle.name,
-                        name,
-                        root,
-                        skill,
-                        destination,
-                        oldTip: current.tip,
-                        opsBefore: current.ops,
-                      }),
-                    ),
-                )
-                current.steps++
-                if (result.partial) current.partial++
-                else {
-                  current.tip = result.tip
-                  current.ops += result.ops
-                  current.rejects += result.rejects
-                }
-              }
+              for (const destination of input.destinations)
+                await runOne(root, skill, destination)
           await step.run({ name: "destroy-sandbox" }, async () => {
-            await runtime.destroy()
-            await releaseIngestSourceTree(input.runId, input.source.sha)
+            await deps.runtime.destroy({
+              orgId: input.orgId,
+              runId: input.runId,
+              shard: input.shard,
+              workspaceId: input.destinations[0]?.workspaceId ?? "",
+            })
             return { destroyed: true }
           })
-          return {
-            shard: input.shard,
-            roots: roots.length,
-            workspaces: [...state.values()],
-          }
+          return { shard: input.shard, workspaces: [...state.values()] }
         },
       ),
   )
@@ -238,7 +261,7 @@ export function defineIngestionShardWorkflow(deps: IngestionV2Deps) {
 async function runSkillStep(ctx: {
   input: IngestionShardInput
   env: Env
-  runtime: ReturnType<IngestShardRuntimeFactory>
+  runtime: IngestShardRuntime
   bundle: string
   name: string
   root: string
@@ -261,14 +284,36 @@ async function runSkillStep(ctx: {
   let reason = ""
   for (let attempt = 1; attempt <= STEP_ATTEMPTS; attempt++) {
     try {
-      // A crash after the push: the step's commit is the ref tip.
+      // A crash after the push: the step's commit is the ref tip. A page
+      // that wrote files may have a next page; one more page finds none.
       const found = await findWorkspaceStepCommit(
         { orgId: input.orgId, job, ref, step: ctx.name },
         ctx.env,
       )
-      if (found) return { tip: found, ops: 0, rejects: 0, resumed: true }
+      if (found)
+        return {
+          tip: found.sha,
+          ops: found.ops,
+          rejects: 0,
+          more: ctx.skill.run === "script" && found.ops > 0,
+        }
       const baseCommit = ctx.oldTip ?? destination.pinnedRevision
-      const tar = await ctx.runtime.runStep({
+      const rootMap =
+        input.mode === "repository" && ctx.skill.run === "script"
+          ? ingestRootMap(
+              input.roots,
+              await listWorkspaceIngestStepFiles(
+                {
+                  orgId: input.orgId,
+                  job,
+                  pinnedRevision: destination.pinnedRevision,
+                  tip: baseCommit,
+                },
+                ctx.env,
+              ),
+            )
+          : undefined
+      const { tar, more } = await ctx.runtime.runStep({
         name: ctx.name,
         skill: ctx.skill.name,
         run: ctx.skill.run,
@@ -277,7 +322,8 @@ async function runSkillStep(ctx: {
         workspaceId: destination.workspaceId,
         baseCommit,
         ...(ctx.oldTip ? { fetchRef: ref } : {}),
-        signal: AbortSignal.timeout(STEP_LIMIT_MS),
+        ...(rootMap ? { rootMap } : {}),
+        signal: ingestStepSignal(),
       })
       const source = ingestSourceTree({
         orgId: input.orgId,
@@ -311,15 +357,20 @@ async function runSkillStep(ctx: {
           ctx.env,
         ),
       )
+      // T11 reads the rejected ops from the logs; the step output keeps counts.
+      for (const rejection of pushed.validation.rejections)
+        getLogger().warn("ingestion-v2.op-rejected", {
+          step: ctx.name,
+          workspaceId: destination.workspaceId,
+          rule: rejection.rule,
+          path: rejection.path,
+          reason: rejection.reason,
+        })
       return {
         tip: pushed.sha,
         ops: pushed.validation.accepted.length,
         rejects: pushed.validation.rejections.length,
-        // The first rejections, short, for the run's log (T11 adds spans).
-        rejected: pushed.validation.rejections
-          .slice(0, 5)
-          .map((r) => `${r.rule}: ${r.path}: ${r.reason}`.slice(0, 200)),
-        resumed: false,
+        more,
       }
     } catch (error) {
       reason = error instanceof Error ? error.message : String(error)
@@ -327,7 +378,12 @@ async function runSkillStep(ctx: {
       if (attempt < STEP_ATTEMPTS) await delay(attempt * 5_000)
     }
   }
-  return { partial: true, reason: reason.slice(0, 500) }
+  getLogger().warn("ingestion-v2.step-partial", {
+    step: ctx.name,
+    workspaceId: destination.workspaceId,
+    reason: reason.slice(0, 2_000),
+  })
+  return { partial: true }
 }
 
 let productionBundle: Promise<IngestSkillBundle> | undefined

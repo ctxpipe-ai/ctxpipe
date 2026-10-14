@@ -5,6 +5,7 @@ import {
   type RefusedRoot,
   resolveDiscoveredRoots,
 } from "./discovered-roots.js"
+import type { IngestRootMap } from "./ingest-shard-runtime.js"
 
 /*
  * The plan of an ingestion v2 run (ADR-052, concept section 2): how the
@@ -92,20 +93,55 @@ export function plannedIngestSkills(
 }
 
 /**
+ * The root part of a root step name: `<label>~<hash>`. The label is the end
+ * of the root path in safe ASCII, for a person who reads the run; the hash
+ * of the full root makes it unique.
+ */
+export function skillStepRootKey(root: string): string {
+  const label = root.replace(/[^A-Za-z0-9._/-]/g, "_").slice(-40)
+  const hash = createHash("sha256").update(root).digest("hex").slice(0, 12)
+  return `${label}~${hash}`
+}
+
+/**
  * The workflow step of one skill run:
- * `skill:<label>~<hash>:<skill>[.<page>]:<workspaceId>`. The label is the
- * end of the root path in safe ASCII, for a person who reads the run; the
- * hash of the full root makes the name unique. So the name is always 1 to
- * 200 printable ASCII characters, as the step commit trailer must be.
- * `page` counts the runs of a script skill that said `more: true`.
+ * `skill:<root key>:<skill>[.<page>]:<workspaceId>`, and `repository` in
+ * place of the root key for a repository-wide skill (`root` null). The name
+ * is always 1 to 200 printable ASCII characters, as the step commit trailer
+ * must be. `page` counts the runs of a script skill that said `more: true`.
  */
 export function skillStepName(
-  root: string,
+  root: string | null,
   skill: string,
   workspaceId: string,
   page = 1,
 ): string {
-  const label = root.replace(/[^A-Za-z0-9._/-]/g, "_").slice(-40)
-  const hash = createHash("sha256").update(root).digest("hex").slice(0, 12)
-  return `skill:${label}~${hash}:${skill}${page > 1 ? `.${page}` : ""}:${workspaceId}`
+  const key = root === null ? "repository" : skillStepRootKey(root)
+  return `skill:${key}:${skill}${page > 1 ? `.${page}` : ""}:${workspaceId}`
+}
+
+/**
+ * The `--roots` file of a repository-wide script step: each root of the run
+ * and the context files that the root's steps wrote, read from the step
+ * commits between the pinned revision and the assembled tip.
+ */
+export function ingestRootMap(
+  roots: readonly DiscoveredRoot[],
+  stepFiles: ReadonlyArray<{ step: string; paths: string[] }>,
+): IngestRootMap {
+  const files = new Map(
+    roots.map((r) => [skillStepRootKey(r.path), new Set<string>()]),
+  )
+  for (const { step, paths } of stepFiles) {
+    const found = files.get(step.split(":")[1] ?? "")
+    for (const path of found ? paths : []) found?.add(path)
+  }
+  return {
+    roots: roots.map((r) => ({
+      path: r.path,
+      manifests: r.manifests,
+      evidence: r.evidence,
+      files: [...(files.get(skillStepRootKey(r.path)) ?? [])].sort(),
+    })),
+  }
 }

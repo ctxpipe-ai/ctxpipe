@@ -2,14 +2,11 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { SandboxHandle } from "@tanstack/ai-sandbox"
-import { eq } from "drizzle-orm"
 import {
   repositoryRevisionCheckoutKey,
   workspaceCheckoutKey,
 } from "../../../../../shared/workspace-checkout.js"
-import { parseEnv } from "../../config/env.js"
-import { getSystemDb } from "../../db/client.js"
-import { organizations } from "../../db/schema/auth.js"
+import { type Env, parseEnv } from "../../config/env.js"
 import { gitRemoteEnvironment } from "../../services/git/clone-tree.js"
 import { ingestSandboxThreadId } from "../workspaces/chat-lifecycle.js"
 import { workspaceChatDockerImage } from "../workspaces/chat-runtime.js"
@@ -22,8 +19,7 @@ import {
 import { resolveRepositoryReadCredential } from "../workspaces/resolve-revision.js"
 import { postgresSandboxLocks } from "../workspaces/sandbox-lock-store.js"
 import { lockedSandboxProvider } from "../workspaces/sandbox-provider.js"
-import { sandboxCallbackHost } from "../workspaces/workspace-chat-callback.js"
-import { workspaceChatCompletionsBaseUrl } from "../workspaces/workspace-chat-model-proxy.js"
+import { workspaceChatCompletionsPath } from "../workspaces/workspace-chat-model-proxy.js"
 import { workspaceChatOpenCodeContract } from "../workspaces/workspace-chat-opencode-contract.js"
 import {
   mintWorkspaceIngestRunCapability,
@@ -41,12 +37,14 @@ import {
   prepareIngestShard,
   runIngestShardStep,
 } from "./ingest-shard-ops.js"
-import type {
-  IngestShardRuntime,
-  IngestShardRuntimeFactory,
-  IngestShardSpec,
+import {
+  ingestCallbackOrigin,
+  type IngestShardRuntime,
+  type IngestShardRuntimeFactory,
+  type IngestShardSpec,
 } from "./ingest-shard-runtime.js"
 import { INGEST_TOOL_BRIDGE_PATH } from "./ingest-tools.js"
+import { ingestionOrg } from "./ingestion-v2-resolve.js"
 import { runGit } from "./run-git.js"
 
 /*
@@ -59,16 +57,6 @@ import { runGit } from "./run-git.js"
  * not forced through Agent Vault. A hosted (Vercel) shard waits for the
  * backend egress proxy (T03b) and the T12 proof.
  */
-
-async function orgSlugOf(orgId: string): Promise<string> {
-  const [row] = await getSystemDb()
-    .select({ slug: organizations.slug })
-    .from(organizations)
-    .where(eq(organizations.id, orgId))
-    .limit(1)
-  if (!row) throw new Error("The ingestion run's organization is gone")
-  return row.slug
-}
 
 /** Model names for the tiers that the skill plan uses. */
 function ingestModels() {
@@ -122,20 +110,9 @@ async function contextIndexJson(input: {
   }
 }
 
-export const sandboxIngestShardRuntime: IngestShardRuntimeFactory = (
-  spec: IngestShardSpec,
-): IngestShardRuntime => {
-  const isolation = lockedSandboxProvider(process.env) ?? "docker"
-  assertIngestProvider(isolation)
-  if (isolation !== "docker")
-    throw new Error(
-      "Hosted ingest sandboxes wait for the backend egress proxy (T03b) and its live proof (T12)",
-    )
-  const firstWorkspace = spec.destinations[0]?.workspaceId
-  if (!firstWorkspace) throw new Error("An ingest shard needs a destination")
-  const threadId = ingestSandboxThreadId(spec.runId, spec.shard)
-  const image = workspaceChatDockerImage()
-  const repositories = [
+/** The GitHub repositories of a shard: the source and each destination. */
+function shardRepositories(spec: IngestShardSpec) {
+  return [
     {
       url: spec.source.url,
       githubConnectionId: spec.source.githubConnectionId,
@@ -146,6 +123,133 @@ export const sandboxIngestShardRuntime: IngestShardRuntimeFactory = (
     if (!fullName) throw new Error("Ingest repositories must be on GitHub")
     return { fullName, githubConnectionId: repo.githubConnectionId }
   })
+}
+
+/**
+ * The egress of one step: the model and tool-bridge capabilities for the
+ * shard lock owner `lockOwner`, on the API origin (never the worker's). A
+ * later lock owner gets new capabilities; the old ones stop at the API.
+ */
+export async function ingestShardStepEgress(input: {
+  spec: IngestShardSpec
+  lockOwner: string
+  step: string
+  env?: Env
+}): Promise<IngestEgress> {
+  const { spec } = input
+  const env = input.env ?? parseEnv(process.env)
+  const org = await ingestionOrg(spec.orgId)
+  const origin = ingestCallbackOrigin(env)
+  const modelProxyUrl = `${origin}${workspaceChatCompletionsPath(org.slug)}`
+  const claims = {
+    authSecret: env.AUTH_SECRET,
+    orgId: spec.orgId,
+    orgSlug: org.slug,
+    runId: spec.runId,
+    shard: spec.shard,
+    step: input.step,
+    lockOwner: input.lockOwner,
+  }
+  const checkouts = [
+    ...(spec.source.repositoryId
+      ? [
+          {
+            repositoryId: spec.source.repositoryId,
+            checkoutKey: repositoryRevisionCheckoutKey(spec.source.sha),
+            sha: spec.source.sha,
+          },
+        ]
+      : []),
+    ...spec.destinations.flatMap((d) =>
+      d.repositoryId
+        ? [
+            {
+              repositoryId: d.repositoryId,
+              checkoutKey: workspaceCheckoutKey(d.workspaceId, d.pinnedRevision),
+              sha: d.pinnedRevision,
+            },
+          ]
+        : [],
+    ),
+  ]
+  return {
+    repositories: shardRepositories(spec),
+    modelProxyUrl,
+    capability: await mintWorkspaceIngestRunCapability(claims),
+    bridge: {
+      url: `${origin}${INGEST_TOOL_BRIDGE_PATH}`,
+      // With no codesearch checkout, the bridge refuses each call.
+      token: checkouts.length
+        ? await mintWorkspaceIngestToolsCapability({ ...claims, checkouts })
+        : "ctxpipe-no-tools",
+    },
+  }
+}
+
+/** Hold the shard lock; `fn` gets the lock owner for the capabilities. */
+function withShardLock<T>(
+  target: { orgId: string; runId: string; shard: number },
+  fn: (lockOwner: string, signal: AbortSignal) => Promise<T>,
+  signal?: AbortSignal,
+): Promise<T> {
+  let lockOwner = ""
+  const controller = new AbortController()
+  if (signal)
+    signal.addEventListener("abort", () => controller.abort(signal.reason), {
+      once: true,
+    })
+  return postgresSandboxLocks(target.orgId, controller, undefined, (receipt) => {
+    lockOwner = receipt.owner
+  }).withLock(ingestSandboxThreadId(target.runId, target.shard), () =>
+    fn(lockOwner, controller.signal),
+  )
+}
+
+/** The shard's sandbox; without `egress` it can only attach and destroy. */
+function shardSandbox(
+  target: {
+    orgId: string
+    runId: string
+    shard: number
+    workspaceId: string
+  },
+  egress?: IngestEgress,
+  signal?: AbortSignal,
+) {
+  const isolation = lockedSandboxProvider(process.env) ?? "docker"
+  assertIngestProvider(isolation)
+  if (isolation !== "docker")
+    throw new Error(
+      "Hosted ingest sandboxes wait for the backend egress proxy (T03b) and its live proof (T12)",
+    )
+  const image = workspaceChatDockerImage()
+  return ingestSandbox({
+    orgId: target.orgId,
+    workspaceId: target.workspaceId,
+    runId: target.runId,
+    shard: target.shard,
+    isolation,
+    provider: dockerIngestSandboxProvider({
+      orgId: target.orgId,
+      runId: target.runId,
+      shard: target.shard,
+      image,
+      ...(egress ? { egress } : {}),
+    }),
+    image,
+    ...(signal ? { signal } : {}),
+  })
+}
+
+function shardRuntime(spec: IngestShardSpec): IngestShardRuntime {
+  const firstWorkspace = spec.destinations[0]?.workspaceId
+  if (!firstWorkspace) throw new Error("An ingest shard needs a destination")
+  const target = {
+    orgId: spec.orgId,
+    runId: spec.runId,
+    shard: spec.shard,
+    workspaceId: firstWorkspace,
+  }
   const indexes = new Map<string, Promise<string>>()
   const indexOf = (workspaceId: string) => {
     const destination = spec.destinations.find(
@@ -169,105 +273,6 @@ export const sandboxIngestShardRuntime: IngestShardRuntimeFactory = (
     return pending
   }
 
-  /** The step's egress: model and tool-bridge capabilities for `lockOwner`. */
-  async function stepEgress(lockOwner: string, step: string) {
-    const env = parseEnv(process.env)
-    const orgSlug = await orgSlugOf(spec.orgId)
-    const callbackHost = await sandboxCallbackHost()
-    const modelProxyUrl = workspaceChatCompletionsBaseUrl({
-      isolation,
-      orgSlug,
-      port: Number(process.env.PORT) || 3000,
-      ...(callbackHost ? { callbackHost } : {}),
-    })
-    const claims = {
-      authSecret: env.AUTH_SECRET,
-      orgId: spec.orgId,
-      orgSlug,
-      runId: spec.runId,
-      shard: spec.shard,
-      step,
-      lockOwner,
-    }
-    const checkouts = [
-      ...(spec.source.repositoryId
-        ? [
-            {
-              repositoryId: spec.source.repositoryId,
-              checkoutKey: repositoryRevisionCheckoutKey(spec.source.sha),
-              sha: spec.source.sha,
-            },
-          ]
-        : []),
-      ...spec.destinations.flatMap((d) =>
-        d.repositoryId
-          ? [
-              {
-                repositoryId: d.repositoryId,
-                checkoutKey: workspaceCheckoutKey(
-                  d.workspaceId,
-                  d.pinnedRevision,
-                ),
-                sha: d.pinnedRevision,
-              },
-            ]
-          : [],
-      ),
-    ]
-    const egress: IngestEgress = {
-      repositories,
-      modelProxyUrl,
-      capability: await mintWorkspaceIngestRunCapability(claims),
-      bridge: {
-        url: `${new URL(modelProxyUrl).origin}${INGEST_TOOL_BRIDGE_PATH}`,
-        // With no codesearch checkout, the bridge refuses each call.
-        token: checkouts.length
-          ? await mintWorkspaceIngestToolsCapability({ ...claims, checkouts })
-          : "ctxpipe-no-tools",
-      },
-    }
-    return egress
-  }
-
-  const shardSandbox = (egress: IngestEgress, signal?: AbortSignal) =>
-    ingestSandbox({
-      orgId: spec.orgId,
-      workspaceId: firstWorkspace,
-      runId: spec.runId,
-      shard: spec.shard,
-      isolation,
-      provider: dockerIngestSandboxProvider({
-        orgId: spec.orgId,
-        runId: spec.runId,
-        shard: spec.shard,
-        image,
-        egress,
-      }),
-      image,
-      ...(signal ? { signal } : {}),
-    })
-
-  /** Hold the shard lock; `fn` gets the lock owner for the capabilities. */
-  function withShardLock<T>(
-    fn: (lockOwner: string, signal: AbortSignal) => Promise<T>,
-    signal?: AbortSignal,
-  ): Promise<T> {
-    let lockOwner = ""
-    const controller = new AbortController()
-    if (signal)
-      signal.addEventListener("abort", () => controller.abort(signal.reason), {
-        once: true,
-      })
-    return postgresSandboxLocks(
-      spec.orgId,
-      controller,
-      undefined,
-      (receipt) => {
-        lockOwner = receipt.owner
-      },
-    ).withLock(threadId, () => fn(lockOwner, controller.signal))
-  }
-
   /**
    * Hold the shard lock, attach to the sandbox (or make and prepare it
    * again), give it this step's credentials, and run `fn`.
@@ -278,53 +283,49 @@ export const sandboxIngestShardRuntime: IngestShardRuntimeFactory = (
       handle: SandboxHandle
       root: RootExec
       agentEnv: Record<string, string>
-      remoteOf: (workspaceId: string) => string
     }) => Promise<T>,
     signal?: AbortSignal,
   ): Promise<T> {
-    return withShardLock(async (lockOwner, lockSignal) => {
-      const egress = await stepEgress(lockOwner, step)
-      const sandbox = shardSandbox(egress, lockSignal)
-      const existing = await sandbox.ensureExisting()
-      // A new sandbox gets this egress at create; an existing one gets it now.
-      if (existing)
-        await refreshIngestSandboxEgress({
-          orgId: spec.orgId,
-          runId: spec.runId,
-          shard: spec.shard,
-          egress,
+    return withShardLock(
+      target,
+      async (lockOwner, lockSignal) => {
+        const egress = await ingestShardStepEgress({ spec, lockOwner, step })
+        const sandbox = shardSandbox(target, egress, lockSignal)
+        const existing = await sandbox.ensureExisting()
+        // A new sandbox gets this egress at create; an existing one gets it now.
+        if (existing)
+          await refreshIngestSandboxEgress({
+            orgId: spec.orgId,
+            runId: spec.runId,
+            shard: spec.shard,
+            egress,
+          })
+        const handle = existing ?? (await sandbox.ensure())
+        const root = dockerRootExec(handle.id)
+        const agentEnv = await ingestAgentEnv(root, {
+          modelProxyUrl: egress.modelProxyUrl,
         })
-      const handle = existing ?? (await sandbox.ensure())
-      const root = dockerRootExec(handle.id)
-      const agentEnv = await ingestAgentEnv(root, {
-        modelProxyUrl: egress.modelProxyUrl,
-      })
-      if (!(await ingestShardPrepared(root))) {
-        const models = ingestModels()
-        await prepareIngestShard(handle, root, {
-          bundle: spec.bundle,
-          opencodeConfig: ingestOpenCodeConfig({
-            modelBase: models.medium,
-            models: [models.fast],
-            skills: spec.bundle.skills,
-            proxyAddsCredentials: true,
-            toolBridgeUrl: egress.bridge.url,
-          }),
-          agentEnv,
-          source: { url: spec.source.url, sha: spec.source.sha },
-          contexts: spec.destinations,
-          now: new Date(),
-        })
-      }
-      return fn({
-        handle,
-        root,
-        agentEnv,
-        remoteOf: (workspaceId) =>
-          spec.destinations.find((d) => d.workspaceId === workspaceId)?.url ??
-          "",
-      })
-    }, signal)
+        if (!(await ingestShardPrepared(root))) {
+          const models = ingestModels()
+          await prepareIngestShard(handle, root, {
+            bundle: spec.bundle,
+            opencodeConfig: ingestOpenCodeConfig({
+              modelBase: models.medium,
+              models: [models.fast],
+              skills: spec.bundle.skills,
+              proxyAddsCredentials: true,
+              toolBridgeUrl: egress.bridge.url,
+            }),
+            agentEnv,
+            source: { url: spec.source.url, sha: spec.source.sha },
+            contexts: spec.destinations,
+            now: new Date(),
+          })
+        }
+        return fn({ handle, root, agentEnv })
+      },
+      signal,
+    )
   }
 
   return {
@@ -336,12 +337,15 @@ export const sandboxIngestShardRuntime: IngestShardRuntimeFactory = (
     runStep: (step) =>
       withShard(
         step.name,
-        async ({ handle, root, agentEnv, remoteOf }) => {
+        async ({ handle, root, agentEnv }) => {
           const models = step.run === "model" ? ingestModels() : undefined
-          await runIngestShardStep(root, {
+          const { more } = await runIngestShardStep(root, {
             step,
             agentEnv,
-            remote: remoteOf(step.workspaceId),
+            remote:
+              spec.destinations.find((d) => d.workspaceId === step.workspaceId)
+                ?.url ?? "",
+            sourceUrl: spec.source.url,
             index: await indexOf(step.workspaceId),
             ...(models
               ? {
@@ -349,19 +353,20 @@ export const sandboxIngestShardRuntime: IngestShardRuntimeFactory = (
                 }
               : {}),
           })
-          return collectIngestStep(handle, root)
+          return { tar: await collectIngestStep(handle, root), more }
         },
         step.signal,
       ),
-    // Destroy never makes a sandbox; it opens no vault, so the egress is not used.
-    destroy: () =>
-      withShardLock(() =>
-        shardSandbox({
-          repositories,
-          modelProxyUrl: "http://unused.invalid",
-          capability: "unused",
-          bridge: { url: "http://unused.invalid", token: "unused" },
-        }).destroy(),
-      ),
   }
 }
+
+export const sandboxIngestShardRuntime: IngestShardRuntimeFactory =
+  Object.assign(shardRuntime, {
+    // Destroy makes no sandbox and mints no credential.
+    destroy: (target: {
+      orgId: string
+      runId: string
+      shard: number
+      workspaceId: string
+    }) => withShardLock(target, () => shardSandbox(target).destroy()),
+  })
