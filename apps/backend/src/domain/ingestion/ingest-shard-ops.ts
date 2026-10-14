@@ -37,6 +37,23 @@ const SOURCE_DIR = `${INGEST_SOURCE_ROOT}/${INGEST_SOURCE_HANDLE}`
 const PREPARED = `${INGEST_ROOT}/prepared`
 /** Concept section 5.4: 180 days of history. */
 const HISTORY_DAYS = 180
+/** One step: 10 minutes (concept section 8). */
+export const INGEST_STEP_LIMIT_MS = 10 * 60_000
+
+/**
+ * The time limit of one step. At the limit, the step's exec ends its process
+ * group in the sandbox before the step returns, so a retry never runs while
+ * an old `opencode run` lives.
+ */
+export function ingestStepSignal(): AbortSignal {
+  const controller = new AbortController()
+  setTimeout(
+    () => controller.abort(new Error("The ingest step reached its time limit")),
+    INGEST_STEP_LIMIT_MS,
+  ).unref?.()
+  return controller.signal
+}
+
 /** The discover-roots result may be at most this large. */
 const MAX_DISCOVERY_BYTES = 1024 * 1024
 
@@ -193,7 +210,9 @@ export async function runIngestShardStep(
       ? `opencode run${input.model ? ` --model ${quote(input.model)}` : ""} ${quote(ingestStepPrompt(step))}`
       : `node ${INGEST_SKILLS_ROOT}/${step.skill}/scripts/${step.skill}.mjs`
   for (const part of [command, "ctxpipe-finish"]) {
-    const result = await root(ingestAgentCommand({ env, command: part }))
+    const result = await root(ingestAgentCommand({ env, command: part }), {
+      signal: step.signal,
+    })
     if (result.exitCode !== 0)
       throw new Error(
         `Ingest step ${step.name} failed (${result.exitCode}): ${result.stderr.slice(-500)}`,

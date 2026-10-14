@@ -9,6 +9,7 @@ import {
   deleteRunIngestRefs,
   findStepCommit,
   IngestAssembleConflictError,
+  listStepFiles,
   IngestRefRefusedError,
   ingestRefName,
   parseIngestRef,
@@ -380,7 +381,7 @@ describe("findStepCommit", () => {
         runId: RUN,
         step: "skill:services:apis:ws_alpha",
       }),
-    ).resolves.toBe(pushed.sha)
+    ).resolves.toEqual({ sha: pushed.sha, ops: 1 })
     await expect(
       findStepCommit({
         remote: { url: remote },
@@ -659,6 +660,102 @@ describe("pushIngestAssemble", () => {
     await expect(assemble(tips)).rejects.toThrow(IngestAssembleConflictError)
     await expect(assemble(tips)).rejects.toThrow(/knowledge\/services\/a\.md/)
     expect(remoteRefs(remote).has(ASSEMBLED)).toBe(false)
+  })
+
+  it("sends two shards that change one path to the resolver and commits its result", async () => {
+    const tips = await shards([
+      {
+        "knowledge/services/a.md": service("A"),
+        "knowledge/services/b.md": service("B"),
+      },
+      { "knowledge/services/a.md": service("A from another root") },
+    ])
+    const asked: unknown[] = []
+    const result = await pushIngestAssemble({
+      job: { runId: RUN, workspaceId: WORKSPACE },
+      pinnedRevision: pinned,
+      shards: tips,
+      oldTip: null,
+      remote: { url: remote },
+      commit: {
+        step: "assemble:ws_alpha",
+        bundle: "bundle-1",
+        authorTime: AUTHOR_TIME,
+      },
+      resolveConflicts: async (conflicts) => {
+        asked.push(...conflicts)
+        return conflicts.map((c) => ({
+          path: c.path,
+          content: `${c.current}\n${c.incoming}`,
+        }))
+      },
+    })
+    expect(asked).toEqual([
+      {
+        path: "knowledge/services/a.md",
+        base: null,
+        current: expect.stringContaining("name: A\n"),
+        incoming: expect.stringContaining("name: A from another root"),
+      },
+    ])
+    expect(result.ops).toBe(2)
+    expect(remoteRefs(remote).get(ASSEMBLED)).toBe(result.sha)
+    expect(
+      git(remote, ["log", "-1", "--format=%P", result.sha]).split(" "),
+    ).toEqual(tips.map((t) => t.tip))
+    const merged = git(remote, [
+      "show",
+      `${result.sha}:knowledge/services/a.md`,
+    ])
+    expect(merged).toContain("The A service.")
+    expect(merged).toContain("The A from another root service.")
+    expect(
+      git(remote, ["show", `${result.sha}:knowledge/services/b.md`]),
+    ).toContain("The B service.")
+    // A replay after the push keeps the pushed result, also when the model
+    // would answer differently.
+    const again = await pushIngestAssemble({
+      job: { runId: RUN, workspaceId: WORKSPACE },
+      pinnedRevision: pinned,
+      shards: tips,
+      oldTip: null,
+      remote: { url: remote },
+      commit: {
+        step: "assemble:ws_alpha",
+        bundle: "bundle-1",
+        authorTime: AUTHOR_TIME,
+      },
+      resolveConflicts: async (conflicts) =>
+        conflicts.map((c) => ({ path: c.path, content: "other\n" })),
+    })
+    expect(again).toEqual(result)
+  })
+
+  it("lists the files of each step commit between the pinned revision and a tip", async () => {
+    const tips = await shards([
+      { "knowledge/services/a.md": service("A") },
+      { "knowledge/services/b.md": service("B") },
+    ])
+    const assembled = await assemble(tips)
+    const next = await step({
+      ref: ASSEMBLED,
+      oldTip: assembled.sha,
+      step: "skill:repository:ownership:ws_alpha",
+      files: { "knowledge/services/d.md": service("D") },
+    })
+    const listed = await listStepFiles({
+      remote: { url: remote },
+      runId: RUN,
+      pinnedRevision: pinned,
+      tip: next.sha,
+    })
+    expect(
+      listed.sort((a, b) => (a.step < b.step ? -1 : 1)),
+    ).toEqual([
+      { step: "skill:repository:ownership:ws_alpha", paths: ["knowledge/services/d.md"] },
+      { step: "skill:root-0:apis:ws_alpha", paths: ["knowledge/services/a.md"] },
+      { step: "skill:root-1:apis:ws_alpha", paths: ["knowledge/services/b.md"] },
+    ])
   })
 
   it("refuses a shard tip that is not the shard ref's tip", async () => {

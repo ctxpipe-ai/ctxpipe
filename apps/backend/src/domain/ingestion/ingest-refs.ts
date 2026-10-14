@@ -166,6 +166,13 @@ export async function pushIngestAssemble(input: {
   oldTip: string | null
   remote: IngestRemote
   commit: IngestStepCommit
+  /**
+   * The semantic merge of the paths that two shards change: it gets each
+   * conflict (`current` is the result so far, `incoming` the next shard's
+   * version) and returns the content of each path, or null for a delete.
+   * Without it, a conflict refuses the job.
+   */
+  resolveConflicts?: IngestConflictResolver
 }): Promise<{ sha: string; ops: number }> {
   const ref = ingestRefName({
     runId: input.job.runId,
@@ -189,6 +196,30 @@ export async function pushIngestAssemble(input: {
     await fetchCommits(repoDir, input.remote, [input.pinnedRevision], {
       blobs: true,
     })
+    // A replay after the push: the semantic merge may not give the same
+    // content again, so the run's assemble commit on the ref is the result.
+    const pushed = listed.get(ref)
+    if (pushed && pushed !== input.oldTip) {
+      await runGit(
+        repoDir,
+        [
+          "fetch",
+          "--quiet",
+          "--no-tags",
+          "--filter=blob:none",
+          "--",
+          input.remote.url,
+          pushed,
+        ],
+        { env: input.remote.env },
+      )
+      const trailers = await stepTrailers(repoDir, pushed)
+      if (trailers.run === input.job.runId && trailers.step === input.commit.step)
+        return {
+          sha: pushed,
+          ops: (await diffTree(repoDir, input.pinnedRevision, pushed)).length,
+        }
+    }
     if (tips.length)
       await runGit(
         repoDir,
@@ -196,8 +227,10 @@ export async function pushIngestAssemble(input: {
         { env: input.remote.env },
       )
 
-    const changes = new Map<string, { shard: string; line: string }>()
-    const conflicts = new Set<string>()
+    const changes = new Map<
+      string,
+      { path: string; line: string; versions: Array<string | null> }
+    >()
     for (const { shard, tip } of shards) {
       const descends = await runGit(repoDir, [
         "merge-base",
@@ -216,11 +249,26 @@ export async function pushIngestAssemble(input: {
         const reason = disallowedPathReason(change.path)
         if (reason) throw new IngestRefRefusedError(`${change.path}: ${reason}`)
         const key = change.path.toLowerCase()
-        if (changes.has(key)) conflicts.add(change.path)
-        else changes.set(key, { shard, line: change.indexLine })
+        const same = changes.get(key)
+        if (same) same.versions.push(change.blob)
+        else
+          changes.set(key, {
+            path: change.path,
+            line: change.indexLine,
+            versions: [change.blob],
+          })
       }
     }
-    if (conflicts.size) throw new IngestAssembleConflictError([...conflicts])
+    const conflicts = [...changes.values()].filter((c) => c.versions.length > 1)
+    if (conflicts.length) {
+      if (!input.resolveConflicts)
+        throw new IngestAssembleConflictError(conflicts.map((c) => c.path))
+      await mergeConflicts(repoDir, {
+        pinnedRevision: input.pinnedRevision,
+        conflicts,
+        resolve: input.resolveConflicts,
+      })
+    }
     if (changes.size > MAX_WORKSPACE_OPS)
       throw new IngestRefRefusedError(
         `The shards write ${changes.size} ops; a Workspace takes at most ${MAX_WORKSPACE_OPS} in a run`,
@@ -257,15 +305,84 @@ export async function findStepCommit(input: {
   ref: string
   runId: string
   step: string
-}): Promise<string | null> {
+}): Promise<{ sha: string; ops: number } | null> {
   return withScratchRepository(async (repoDir) => {
     const tip = await remoteTip(repoDir, input.remote, input.ref)
     if (!tip) return null
-    await fetchCommits(repoDir, input.remote, [tip], { blobs: false })
+    // The tip and its parent, with their trees: the ops are the diff.
+    await runGit(
+      repoDir,
+      [
+        "fetch",
+        "--quiet",
+        "--no-tags",
+        "--depth=2",
+        "--filter=blob:none",
+        "--",
+        input.remote.url,
+        tip,
+      ],
+      { env: input.remote.env },
+    )
     const trailers = await stepTrailers(repoDir, tip)
-    return trailers.run === input.runId && trailers.step === input.step
-      ? tip
-      : null
+    if (trailers.run !== input.runId || trailers.step !== input.step)
+      return null
+    return { sha: tip, ops: (await diffTree(repoDir, `${tip}^`, tip)).length }
+  })
+}
+
+/**
+ * The paths that each step commit of the run added or changed, from the
+ * pinned revision to `tip` (an assembled tip holds every shard's steps). The
+ * repository-wide steps get the root-to-file map from it (ADR-052 section 6).
+ */
+export async function listStepFiles(input: {
+  remote: IngestRemote
+  runId: string
+  pinnedRevision: string
+  tip: string
+}): Promise<Array<{ step: string; paths: string[] }>> {
+  return withScratchRepository(async (repoDir) => {
+    const fetch = (sha: string, depth: string[]) =>
+      runGit(
+        repoDir,
+        [
+          "fetch",
+          "--quiet",
+          "--no-tags",
+          ...depth,
+          "--filter=blob:none",
+          "--",
+          input.remote.url,
+          sha,
+        ],
+        { env: input.remote.env },
+      )
+    // The pinned revision is the shallow boundary: the second fetch stops there.
+    await fetch(input.pinnedRevision, ["--depth=1"])
+    await fetch(input.tip, [])
+    const out = (
+      await runGit(repoDir, [
+        "-c",
+        "core.quotePath=false",
+        "log",
+        "--no-renames",
+        "--diff-filter=AMT",
+        "--name-only",
+        "--format=%x1e%(trailers:key=Ctxpipe-Run,valueonly,unfold)%x1f%(trailers:key=Ctxpipe-Step,valueonly,unfold)%x1f",
+        `${input.pinnedRevision}..${input.tip}`,
+      ])
+    ).toString("utf8")
+    return out
+      .split("\x1e")
+      .slice(1)
+      .flatMap((record) => {
+        const [run = "", step = "", names = ""] = record.split("\x1f")
+        const paths = names.split("\n").filter(Boolean)
+        return run.trim() === input.runId && step.trim() && paths.length
+          ? [{ step: step.trim(), paths }]
+          : []
+      })
   })
 }
 
@@ -503,16 +620,93 @@ async function tipTimes(
 }
 
 /** Changed paths from `from` to `to`, as `update-index -z --index-info` lines. */
+/** One path that two shards change, as the semantic merge gets it. */
+export type IngestMergeConflict = {
+  path: string
+  base: string | null
+  current: string | null
+  incoming: string | null
+}
+
+export type IngestConflictResolver = (
+  conflicts: IngestMergeConflict[],
+) => Promise<Array<{ path: string; content: string | null }>>
+
+/**
+ * Resolve the paths that more than one shard changes, one round for each
+ * further version: round `n` merges version `n` into the result so far. Each
+ * resolved content becomes the path's index line.
+ */
+async function mergeConflicts(
+  repoDir: string,
+  input: {
+    pinnedRevision: string
+    conflicts: Array<{ path: string; line: string; versions: Array<string | null> }>
+    resolve: IngestConflictResolver
+  },
+): Promise<void> {
+  const text = async (spec: string | null) =>
+    spec === null
+      ? null
+      : (await runGit(repoDir, ["cat-file", "blob", spec])).toString("utf8")
+  const current = new Map<string, string | null>()
+  const base = new Map<string, string | null>()
+  for (const conflict of input.conflicts) {
+    current.set(conflict.path, await text(conflict.versions[0] ?? null))
+    base.set(
+      conflict.path,
+      await text(`${input.pinnedRevision}:${conflict.path}`).catch(() => null),
+    )
+  }
+  for (let round = 1; ; round++) {
+    const open = input.conflicts.filter((c) => c.versions.length > round)
+    if (!open.length) break
+    const asked: IngestMergeConflict[] = []
+    for (const conflict of open)
+      asked.push({
+        path: conflict.path,
+        base: base.get(conflict.path) ?? null,
+        current: current.get(conflict.path) ?? null,
+        incoming: await text(conflict.versions[round] ?? null),
+      })
+    const resolved = await input.resolve(asked)
+    const paths = new Set(resolved.map((file) => file.path))
+    if (
+      resolved.length !== asked.length ||
+      paths.size !== asked.length ||
+      asked.some((conflict) => !paths.has(conflict.path))
+    )
+      throw new IngestRefRefusedError(
+        "The semantic merge did not resolve exactly the conflicting paths",
+      )
+    for (const file of resolved) current.set(file.path, file.content)
+  }
+  for (const conflict of input.conflicts) {
+    const content = current.get(conflict.path) ?? null
+    if (content === null) {
+      conflict.line = `0 ${"0".repeat(40)}\t${conflict.path}\0`
+      continue
+    }
+    const blob = (
+      await runGit(repoDir, ["hash-object", "-w", "--stdin"], { input: content })
+    )
+      .toString()
+      .trim()
+    conflict.line = `100644 ${blob}\t${conflict.path}\0`
+  }
+}
+
 async function diffTree(
   repoDir: string,
   from: string,
   to: string,
-): Promise<Array<{ path: string; indexLine: string }>> {
+): Promise<Array<{ path: string; indexLine: string; blob: string | null }>> {
   const out = (
     await runGit(repoDir, ["diff-tree", "-r", "-z", "--no-renames", from, to])
   ).toString()
   const fields = out.split("\0")
-  const changes: Array<{ path: string; indexLine: string }> = []
+  const changes: Array<{ path: string; indexLine: string; blob: string | null }> =
+    []
   for (let i = 0; i + 1 < fields.length; i += 2) {
     const meta = fields[i] ?? ""
     const path = fields[i + 1] ?? ""
@@ -522,6 +716,7 @@ async function diffTree(
       .split(" ")
     changes.push({
       path,
+      blob: status === "D" ? null : newSha,
       indexLine:
         status === "D"
           ? `0 ${"0".repeat(newSha.length)}\t${path}\0`
