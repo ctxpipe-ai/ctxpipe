@@ -81,7 +81,7 @@ export type WorkspaceSourceChange =
   | { kind: "remove"; workspaceSlug: string; sourceKey: string }
 
 /** JSON with sorted object keys, so that key order is not a change. */
-function stableJson(value: unknown): string {
+export function stableJson(value: unknown): string {
   return JSON.stringify(value, (_key, item: unknown) =>
     item && typeof item === "object" && !Array.isArray(item)
       ? Object.fromEntries(

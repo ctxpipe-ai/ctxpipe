@@ -5,7 +5,11 @@ import { CHOOSE_WORKSPACES_HINT } from "@/features/workspace-sources/ChooseWorks
 import { docsWorkspace } from "@/features/workspaces/workspace-fixtures"
 import { linearAvailableScopesHandler } from "@/mocks/linear-handlers"
 import { workspaceListHandler } from "@/mocks/workspace-handlers"
-import { workspaceSourceChangeHandlers } from "@/mocks/workspace-sources-handlers"
+import {
+  workspaceSourceChangeHandlers,
+  workspaceSourceFixture,
+  workspaceSourceList,
+} from "@/mocks/workspace-sources-handlers"
 import { entryPageInnerDecorators } from "../../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../../.storybook/decorators/with-story-route"
 import type { LinearConnectorStatus } from "../../queries/linear-connector"
@@ -209,5 +213,95 @@ export const ChooseWorkspaces: Story = {
       body.getByRole("link", { name: "acme/docs#7" }),
     ).toHaveAttribute("href", "https://github.com/acme/docs/pull/7")
     await expect(onOpenChange).not.toHaveBeenCalled()
+  },
+}
+
+const pullRequestUrl = "https://github.com/acme/docs/pull/7"
+/** Whether the story user merged the pull request on GitHub. */
+let merged = false
+
+/**
+ * The user merges the pull request on GitHub. The merge step reads the
+ * Workspace sources again and shows the merge.
+ */
+export const MergeStepShowsTheMerge: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          oauthAppHandler({
+            globalLinearOauthConfigured: true,
+            oauthAppSaved: false,
+          }),
+          statusHandler(baseStatus),
+          workspaceListHandler([docsWorkspace]),
+          linearAvailableScopesHandler(),
+          http.post(`/${orgSlug}/api/v1/workspaces/docs/sources`, () =>
+            HttpResponse.json({
+              outcome: "pull_request",
+              sourceKey: "linear",
+              pullRequestUrl,
+            }),
+          ),
+          http.get(`/${orgSlug}/api/v1/workspaces/docs/sources`, () =>
+            HttpResponse.json(
+              merged
+                ? workspaceSourceList({
+                    items: [
+                      workspaceSourceFixture({
+                        sourceKey: "linear",
+                        provider: "linear",
+                        connectionId,
+                        scope: { teams: ["ENG"] },
+                      }),
+                    ],
+                  })
+                : workspaceSourceList({
+                    pendingChanges: [
+                      {
+                        sourceKey: "linear",
+                        provider: "linear",
+                        action: "add",
+                        pullRequestUrl,
+                        createdAt: "2026-10-14T11:53:09Z",
+                      },
+                    ],
+                  }),
+            ),
+          ),
+        ],
+      },
+    },
+  },
+  beforeEach: () => {
+    merged = false
+  },
+  play: async ({ canvasElement }) => {
+    const body = within(canvasElement.ownerDocument.body)
+    await userEvent.click(
+      await body.findByRole("checkbox", { name: docsWorkspace.displayName }),
+    )
+    await userEvent.click(
+      await body.findByRole("checkbox", { name: /Engineering/ }),
+    )
+    await userEvent.click(
+      body.getByRole("button", { name: "Add to Workspaces" }),
+    )
+    await expect(
+      await body.findByRole("heading", { name: "Merge the pull request" }),
+    ).toBeVisible()
+
+    merged = true
+    await expect(
+      await body.findByRole(
+        "heading",
+        { name: "Pull request merged" },
+        { timeout: 10_000 },
+      ),
+    ).toBeVisible()
+    await expect(body.getByText("Merged")).toBeVisible()
+    await expect(
+      body.getByRole("link", { name: "acme/docs#7" }),
+    ).toHaveAttribute("href", pullRequestUrl)
   },
 }

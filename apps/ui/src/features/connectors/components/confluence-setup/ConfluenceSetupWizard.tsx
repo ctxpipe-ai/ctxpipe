@@ -11,6 +11,7 @@ import { useEffect, useRef, useState } from "react"
 import { Button } from "@/components/ui/Button"
 import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
+import type { OpenedPullRequest } from "@/features/workspace-sources/useAddToWorkspaces"
 import { pollWhileOk } from "@/lib/api-result"
 import {
   getConfluenceCardCurrentIndex,
@@ -57,7 +58,7 @@ export function ConfluenceSetupWizard({
 }: ConfluenceSetupWizardProps) {
   const [waitForInstall, setWaitForInstall] = useState(initialWaitForInstall)
   const [workspacesDone, setWorkspacesDone] = useState(false)
-  const [pullRequestUrls, setPullRequestUrls] = useState<string[]>([])
+  const [pullRequests, setPullRequests] = useState<OpenedPullRequest[]>([])
   const [manualStepIndex, setManualStepIndex] = useState<number | null>(null)
   const prevServerStepIndexRef = useRef<number | null>(null)
   const queryClient = useQueryClient()
@@ -195,7 +196,7 @@ export function ConfluenceSetupWizard({
       cancelSetup.mutate(atlassianConnectionId)
     setWaitForInstall(false)
     setWorkspacesDone(false)
-    setPullRequestUrls([])
+    setPullRequests([])
     setManualStepIndex(null)
     prevServerStepIndexRef.current = null
     onOpenChange(false)
@@ -328,9 +329,9 @@ export function ConfluenceSetupWizard({
                 orgSlug={orgSlug}
                 atlassianConnectionId={atlassianConnectionId}
                 replacedConfigPullUrl={status.pendingConfigPullUrl}
-                onDone={(urls) => {
+                onDone={(opened) => {
                   setManualStepIndex(null)
-                  setPullRequestUrls(urls ?? [])
+                  setPullRequests(opened ?? [])
                   setWorkspacesDone(true)
                 }}
               />
@@ -343,7 +344,8 @@ export function ConfluenceSetupWizard({
             ) : null}
             {bodyId === "complete" ? (
               <SetupCompleteStep
-                pullRequestUrls={pullRequestUrls}
+                orgSlug={orgSlug}
+                pullRequests={pullRequests}
                 onClose={close}
               />
             ) : null}

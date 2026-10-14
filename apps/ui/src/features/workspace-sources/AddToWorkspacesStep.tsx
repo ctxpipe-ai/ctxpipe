@@ -4,7 +4,10 @@ import { InlineAlert } from "@/components/ui/InlineAlert"
 import { InlineLoader } from "@/components/ui/InlineLoader"
 import { Link } from "@/components/ui/Link"
 import { ChooseWorkspacesStep } from "./ChooseWorkspacesStep"
-import { useAddToWorkspaces } from "./useAddToWorkspaces"
+import {
+  type OpenedPullRequest,
+  useAddToWorkspaces,
+} from "./useAddToWorkspaces"
 
 type AddToWorkspacesStepProps = {
   orgSlug: string
@@ -25,7 +28,7 @@ type AddToWorkspacesStepProps = {
    * After the add (with the pull requests that it opened), or when the user
    * skips the step.
    */
-  onDone: (pullRequestUrls?: string[]) => void
+  onDone: (pullRequests?: OpenedPullRequest[]) => void
 }
 
 /**

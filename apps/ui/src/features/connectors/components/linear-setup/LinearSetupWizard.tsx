@@ -9,7 +9,10 @@ import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
 import { ChooseWorkspacesStep } from "@/features/workspace-sources/ChooseWorkspacesStep"
 import { PullRequestsToMerge } from "@/features/workspace-sources/PullRequestsToMerge"
-import { useAddToWorkspaces } from "@/features/workspace-sources/useAddToWorkspaces"
+import {
+  type OpenedPullRequest,
+  useAddToWorkspaces,
+} from "@/features/workspace-sources/useAddToWorkspaces"
 import {
   getLinearSetupCurrentIndex,
   getLinearSetupSteps,
@@ -57,14 +60,14 @@ export function LinearSetupWizard({
   })
   // The pull requests that the add opened. As in the other setups, the
   // dialog stays open on the merge step; a direct commit closes it.
-  const [pullRequestUrls, setPullRequestUrls] = useState<string[]>([])
-  if (!isOpen && pullRequestUrls.length) setPullRequestUrls([])
+  const [pullRequests, setPullRequests] = useState<OpenedPullRequest[]>([])
+  if (!isOpen && pullRequests.length) setPullRequests([])
   const adding = useAddToWorkspaces({
     orgSlug,
     connectionId: connectionId ?? "",
     provider: "linear",
-    onAdded: (urls) =>
-      urls.length ? setPullRequestUrls(urls) : onOpenChange(false),
+    onAdded: (opened) =>
+      opened.length ? setPullRequests(opened) : onOpenChange(false),
   })
   const close = () => {
     adding.reset()
@@ -169,7 +172,7 @@ export function LinearSetupWizard({
             <ConnectorSetupStepper
               steps={setupSteps}
               currentIndex={
-                pullRequestUrls.length
+                pullRequests.length
                   ? setupSteps.length
                   : getLinearSetupCurrentIndex(status, oauthMeta)
               }
@@ -202,9 +205,12 @@ export function LinearSetupWizard({
           />
         ) : body === "connect" ? (
           <LinearConnectStep orgSlug={orgSlug} connectionId={connectionId} />
-        ) : body === "workspaces" && pullRequestUrls.length ? (
+        ) : body === "workspaces" && pullRequests.length ? (
           <div className="space-y-4">
-            <PullRequestsToMerge urls={pullRequestUrls} />
+            <PullRequestsToMerge
+              orgSlug={orgSlug}
+              pullRequests={pullRequests}
+            />
             <Button variant="secondary" className="rounded-md" onPress={close}>
               Close
             </Button>

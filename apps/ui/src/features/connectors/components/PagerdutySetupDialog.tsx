@@ -8,6 +8,7 @@ import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
 import { AddToWorkspacesStep } from "@/features/workspace-sources/AddToWorkspacesStep"
 import { PullRequestsToMerge } from "@/features/workspace-sources/PullRequestsToMerge"
+import type { OpenedPullRequest } from "@/features/workspace-sources/useAddToWorkspaces"
 import {
   consumePagerdutySetupPopupResult,
   PAGERDUTY_SETUP_RESULT_KEY,
@@ -48,10 +49,10 @@ export function PagerdutySetupDialog({
 }: PagerdutySetupDialogProps) {
   const queryClient = useQueryClient()
   const [workspacesDone, setWorkspacesDone] = useState(false)
-  const [pullRequestUrls, setPullRequestUrls] = useState<string[]>([])
+  const [pullRequests, setPullRequests] = useState<OpenedPullRequest[]>([])
   if (!isOpen && workspacesDone) {
     setWorkspacesDone(false)
-    setPullRequestUrls([])
+    setPullRequests([])
   }
 
   useEffect(() => {
@@ -189,8 +190,8 @@ export function PagerdutySetupDialog({
           description="the services for each"
           items="the services"
           replacedConfigPullUrl={status.pendingConfigPullUrl}
-          onDone={(urls) => {
-            setPullRequestUrls(urls ?? [])
+          onDone={(opened) => {
+            setPullRequests(opened ?? [])
             setWorkspacesDone(true)
           }}
         />
@@ -198,8 +199,8 @@ export function PagerdutySetupDialog({
     }
     return (
       <div className="space-y-4">
-        {pullRequestUrls.length ? (
-          <PullRequestsToMerge urls={pullRequestUrls} />
+        {pullRequests.length ? (
+          <PullRequestsToMerge orgSlug={orgSlug} pullRequests={pullRequests} />
         ) : (
           <div>
             <h3 className="text-base font-medium text-foreground">

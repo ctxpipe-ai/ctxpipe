@@ -1,7 +1,10 @@
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { ChooseWorkspacesStep } from "@/features/workspace-sources/ChooseWorkspacesStep"
-import { useAddToWorkspaces } from "@/features/workspace-sources/useAddToWorkspaces"
+import {
+  type OpenedPullRequest,
+  useAddToWorkspaces,
+} from "@/features/workspace-sources/useAddToWorkspaces"
 
 type AddToWorkspacesStepProps = {
   orgSlug: string
@@ -15,7 +18,7 @@ type AddToWorkspacesStepProps = {
    * After the add (with the pull requests that it opened), or when the user
    * skips the step.
    */
-  onDone: (pullRequestUrls?: string[]) => void
+  onDone: (pullRequests?: OpenedPullRequest[]) => void
 }
 
 /** The last setup step: choose the Workspaces that sync Confluence, and their spaces. */

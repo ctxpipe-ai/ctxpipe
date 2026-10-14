@@ -28,5 +28,5 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const SetupComplete: Story = {
-  args: { onClose: () => {} },
+  args: { orgSlug: "acme", onClose: () => {} },
 }

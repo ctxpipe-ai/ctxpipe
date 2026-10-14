@@ -12,7 +12,10 @@ import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
 import { ChooseWorkspacesStep } from "@/features/workspace-sources/ChooseWorkspacesStep"
 import { PullRequestsToMerge } from "@/features/workspace-sources/PullRequestsToMerge"
-import { useAddToWorkspaces } from "@/features/workspace-sources/useAddToWorkspaces"
+import {
+  type OpenedPullRequest,
+  useAddToWorkspaces,
+} from "@/features/workspace-sources/useAddToWorkspaces"
 import { orgConnectionsKeys } from "../queries/org-connections"
 import {
   fetchSlackConnectorStatus,
@@ -79,15 +82,15 @@ export function SlackSetupDialog({
 
   // The pull requests that the add opened. A source, and so a capture,
   // starts only after its pull request merges.
-  const [pullRequestUrls, setPullRequestUrls] = useState<string[]>([])
-  if (!isOpen && pullRequestUrls.length) setPullRequestUrls([])
+  const [pullRequests, setPullRequests] = useState<OpenedPullRequest[]>([])
+  if (!isOpen && pullRequests.length) setPullRequests([])
   const adding = useAddToWorkspaces({
     orgSlug,
     connectionId: connectionId ?? "",
     provider: "slack",
     manage: true,
-    onAdded: (urls) =>
-      urls.length ? setPullRequestUrls(urls) : onOpenChange(false),
+    onAdded: (opened) =>
+      opened.length ? setPullRequests(opened) : onOpenChange(false),
   })
 
   useEffect(() => {
@@ -217,9 +220,7 @@ export function SlackSetupDialog({
             <ConnectorSetupStepper
               steps={SLACK_SETUP_STEPS}
               currentIndex={
-                pullRequestUrls.length
-                  ? SLACK_SETUP_STEPS.length
-                  : setupStepIndex
+                pullRequests.length ? SLACK_SETUP_STEPS.length : setupStepIndex
               }
             />
           </div>
@@ -291,10 +292,11 @@ export function SlackSetupDialog({
               })
             }}
           />
-        ) : setupView === "workspaces" && pullRequestUrls.length ? (
+        ) : setupView === "workspaces" && pullRequests.length ? (
           <div className="space-y-4">
             <PullRequestsToMerge
-              urls={pullRequestUrls}
+              orgSlug={orgSlug}
+              pullRequests={pullRequests}
               detail="The Slack source change applies after the merge. Until then, a mention in a new channel replies that no Workspace has the channel."
             />
             <Button

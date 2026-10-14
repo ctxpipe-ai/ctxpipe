@@ -24,6 +24,15 @@ import {
   workspaceSourcesOptions,
 } from "./queries"
 
+/** A source pull request that a save opened. */
+export type OpenedPullRequest = {
+  url: string
+  workspaceSlug: string
+  sourceKey: string
+  /** The scope of the source after the merge, or null for a remove. */
+  scope: Record<string, unknown> | null
+}
+
 /**
  * The state and the save of the Choose Workspaces step. It adds one source
  * for each chosen Workspace. With `manage`, the step starts from the sources
@@ -39,7 +48,7 @@ export function useAddToWorkspaces(input: {
   /** Start from the current sources of the connection (Manage). */
   manage?: boolean
   /** After the save, with the pull request of each Workspace that got one. */
-  onAdded?: (pullRequestUrls: string[]) => void
+  onAdded?: (pullRequests: OpenedPullRequest[]) => void
 }) {
   const { orgSlug, provider, connectionId, manage = false, onAdded } = input
   const queryClient = useQueryClient()
@@ -126,11 +135,21 @@ export function useAddToWorkspaces(input: {
         void queryClient.invalidateQueries({
           queryKey: workspaceSourceKeys.list(orgSlug, change.workspaceSlug),
         })
-      const pullRequestUrls = results.flatMap((result) =>
-        result.outcome === "pull_request" ? [result.pullRequestUrl] : [],
-      )
+      const pullRequests = results.flatMap((result, index) => {
+        const change = list[index]
+        return result.outcome === "pull_request" && change
+          ? [
+              {
+                url: result.pullRequestUrl,
+                workspaceSlug: change.workspaceSlug,
+                sourceKey: result.sourceKey,
+                scope: change.kind === "remove" ? null : change.source.scope,
+              },
+            ]
+          : []
+      })
       toast.success(
-        pullRequestUrls.length
+        pullRequests.length
           ? manage
             ? "Pull request opened. The change applies after the merge."
             : "Pull request opened. The source starts to sync after the merge."
@@ -140,7 +159,7 @@ export function useAddToWorkspaces(input: {
       )
       setValue(emptyChooseWorkspaces())
       setPrefilled(false)
-      onAdded?.(pullRequestUrls)
+      onAdded?.(pullRequests)
     },
     onError: (error: Error) => toast.error(error.message),
   })
