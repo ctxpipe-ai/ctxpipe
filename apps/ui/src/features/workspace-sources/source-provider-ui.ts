@@ -8,6 +8,7 @@ import { githubSourceUi } from "./providers/github"
 import { linearSourceUi } from "./providers/linear"
 import { notionSourceUi } from "./providers/notion"
 import { pagerdutySourceUi } from "./providers/pagerduty"
+import { plainSourceUi } from "./providers/plain"
 import { slackSourceUi } from "./providers/slack"
 
 /**
@@ -44,6 +45,7 @@ export const SOURCE_PROVIDER_UI: Record<SourceProvider, SourceProviderUi> = {
   notion: notionSourceUi,
   slack: slackSourceUi,
   pagerduty: pagerdutySourceUi,
+  plain: plainSourceUi,
 }
 
 export function sourceProviderLabel(provider: SourceProvider): string {
