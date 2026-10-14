@@ -68,10 +68,49 @@ function linkText(value: string): string {
   return value.replace(/\s*\n\s*/g, " ").replace(/[[\]]/g, "\\$&")
 }
 
+/** A URL that carries a credential: a signed URL, a token, or a Zendesk attachment token path. */
+function isPrivateUrl(url: string): boolean {
+  return (
+    isConnectorAssetCredentialUrl(url, { includeGenericCredentials: true }) ||
+    /\/attachments\/token\//.test(url)
+  )
+}
+
+/**
+ * Text without private URLs. A Markdown link to one keeps only its text; a
+ * bare or angle-bracket URL becomes a stub.
+ */
+function withoutPrivateUrls(text: string): string {
+  return text
+    .replace(
+      /\[([^\]]*)\]\((\S+?)(?:\s+"[^"]*")?\)/g,
+      (link, label: string, url: string) => (isPrivateUrl(url) ? label : link),
+    )
+    .replace(/https?:\/\/[^\s<>()"']+/g, (url) =>
+      isPrivateUrl(url) ? "[link removed]" : url,
+    )
+}
+
+/**
+ * Ticket text without contact details or private URLs (ADR-054). Comments
+ * and subjects are free text from end customers: email signatures carry
+ * addresses and phone numbers. Other personal data can remain.
+ */
+function redactTicketText(text: string): string {
+  return withoutPrivateUrls(text)
+    .replace(
+      /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g,
+      "[email removed]",
+    )
+    .replace(
+      /\+\d[\d\s().-]{7,}\d|\(\d{3}\)\s?\d{3}[-.\s]\d{4}|\b\d{3}[-.]\d{3}[-.]\d{4}\b/g,
+      "[phone removed]",
+    )
+}
+
 /**
  * Article HTML as Markdown. An image is a text stub in this version: the
- * article link has it. A link to a signed or credential-bearing URL keeps
- * only its text, so the URL never reaches git.
+ * article link has it. A private URL never reaches git.
  */
 function articleBodyMarkdown(html: string): string {
   const markdown = NodeHtmlMarkdown.translate(
@@ -84,11 +123,7 @@ function articleBodyMarkdown(html: string): string {
       }),
     },
   )
-  return markdown.replace(
-    /\[([^\]]*)\]\(([^)\s]+)\)/g,
-    (link, text: string, url: string) =>
-      isConnectorAssetCredentialUrl(url) ? text : link,
-  )
+  return withoutPrivateUrls(markdown)
 }
 
 export function zendeskArticleFile(input: {
@@ -140,31 +175,37 @@ export function zendeskTicketFile(input: {
       ["created_at", ticket.createdAt],
       ["updated_at", ticket.updatedAt],
     ]),
-    `# Ticket #${ticket.id}: ${ticket.subject}`,
+    `# Ticket #${ticket.id}: ${redactTicketText(ticket.subject)}`,
     "",
     `- Zendesk: [#${ticket.id}](${ticket.url})`,
     `- Status: ${ticket.status}`,
   ]
   if (ticket.priority) lines.push(`- Priority: ${ticket.priority}`)
   if (ticket.type) lines.push(`- Type: ${ticket.type}`)
-  if (ticket.tags.length) lines.push(`- Tags: ${ticket.tags.join(", ")}`)
-  if (ticket.requesterName) lines.push(`- Requester: ${ticket.requesterName}`)
-  if (ticket.assigneeName) lines.push(`- Assignee: ${ticket.assigneeName}`)
+  if (ticket.tags.length)
+    lines.push(`- Tags: ${redactTicketText(ticket.tags.join(", "))}`)
+  if (ticket.requesterName)
+    lines.push(`- Requester: ${redactTicketText(ticket.requesterName)}`)
+  if (ticket.assigneeName)
+    lines.push(`- Assignee: ${redactTicketText(ticket.assigneeName)}`)
   lines.push("", "## Comments", "")
   if (!ticket.comments.length) lines.push("No comments.", "")
   for (const comment of ticket.comments) {
-    const heading = [comment.authorName ?? "Unknown", comment.createdAt]
+    const heading = [
+      comment.authorName ? redactTicketText(comment.authorName) : "Unknown",
+      comment.createdAt,
+    ]
       .filter(Boolean)
       .join(", ")
     lines.push(
       `### ${heading}${comment.public ? "" : " (internal note)"}`,
       "",
-      comment.body.trim(),
+      redactTicketText(comment.body.trim()),
       "",
     )
     if (comment.attachments.length)
       lines.push(
-        `Attachments (in Zendesk): ${comment.attachments.join(", ")}`,
+        `Attachments (in Zendesk): ${redactTicketText(comment.attachments.join(", "))}`,
         "",
       )
   }

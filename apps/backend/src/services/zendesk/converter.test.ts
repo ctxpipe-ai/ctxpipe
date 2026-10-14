@@ -158,3 +158,69 @@ describe("zendeskTicketFile", () => {
     )
   })
 })
+
+describe("personal data and private links in ticket text", () => {
+  const leaky: ZendeskTicketForMirror = {
+    ...ticket,
+    subject: "Refund for jo@example.com",
+    requesterName: "jo.park@example.com",
+    comments: [
+      {
+        authorName: "Jo Park",
+        createdAt: "2026-10-10T09:00:00Z",
+        public: true,
+        body: [
+          "Call me on +1 555 123 4567 or (555) 123-4567 or 555-123-4567.",
+          "Mail: jo@example.com",
+          "Log: https://files.example.com/log?token=abc123",
+          "Shot: https://acme.zendesk.com/attachments/token/secretpath/?name=a.png",
+          "Docs: https://help.example.com/reset",
+          "Since 2026-10-12, on version 1.2.3.",
+        ].join("\n"),
+        attachments: ["jo@example.com.pdf"],
+      },
+    ],
+  }
+  const content = zendeskTicketFile({ viewId: "900001", ticket: leaky }).content
+
+  it("removes email addresses and phone numbers", () => {
+    expect(content).not.toMatch(/jo(\.park)?@example\.com/)
+    expect(content).not.toMatch(/555[\s-)]*123[\s-]*4567/)
+    expect(content).toContain("# Ticket #4501: Refund for [email removed]")
+    expect(content).toContain("- Requester: [email removed]")
+    expect(content).toContain(
+      "Call me on [phone removed] or [phone removed] or [phone removed].",
+    )
+  })
+
+  it("removes links that carry a credential, and keeps other text", () => {
+    expect(content).not.toContain("abc123")
+    expect(content).not.toContain("secretpath")
+    expect(content).toContain("Log: [link removed]")
+    expect(content).toContain("Docs: https://help.example.com/reset")
+    expect(content).toContain("Since 2026-10-12, on version 1.2.3.")
+  })
+})
+
+describe("private links in article bodies", () => {
+  const body = (bodyHtml: string) =>
+    zendeskArticleFile({ categoryId: "1", article: { ...article, bodyHtml } })
+      .content
+
+  it.each([
+    [
+      "a link with a title",
+      '<a href="https://x.example.com/f?X-Amz-Signature=s1" title="t">file</a>',
+    ],
+    [
+      "a link whose text is the URL",
+      '<a href="https://x.example.com/f?token=s1">https://x.example.com/f?token=s1</a>',
+    ],
+    [
+      "a Zendesk attachment link",
+      '<a href="https://acme.zendesk.com/attachments/token/s1/?name=a.png">a.png</a>',
+    ],
+  ])("keeps only the text of %s", (_name, html) => {
+    expect(body(`<p>${html}</p>`)).not.toContain("s1")
+  })
+})
