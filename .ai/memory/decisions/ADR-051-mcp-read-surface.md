@@ -92,7 +92,19 @@ This section amends [ADR-026](ADR-026-claude-plugin-mcp-distribution.md) Decisio
 - **Parameters:** `seeds` (1 to 10 refs), `query`, `intent` (`general`, `why`, `ownership`, `change`, `dependencies`, `structure`), predicate filters and weights, result kind filters, `direction`, `maxDepth` (1 to 4), `maxFanOut`, `minConfidence`, `validAt` or `validBetween`, `recencyHalfLifeDays`, `restart`, `queryWeight`, `hubPenalty`, `diversity`, `maxPerKind`, `explain`, `includeSeeds`, `limit`, `cursor`, `maxTokens`. The agent sets `intent`; there is no classifier.
 - **Algorithm:**
   1. Postgres resolves the seed refs to the ids of the published projection. Unknown refs give `unknown_ref`.
-  2. FalkorDB expands the graph with one bounded Cypher query for each hop: predicate, direction, validity, and minimum confidence filters, and the strongest `maxFanOut` edges for each node. The caps are 5,000 nodes, 25,000 edges, 1 s for each hop, and 3 s in total. At a cap, the tool stops and marks `partial: true` with the reason. `cappedHubs` lists every node with more than `maxFanOut` matching edges in the explored frontier. Each such node expands only its strongest `maxFanOut` edges.
+  2. FalkorDB expands the graph with one bounded Cypher query for each hop: predicate, direction, validity, and minimum confidence filters, and at most `maxFanOut` edges for each node. The caps are 5,000 nodes, 25,000 edges, 1 s for each hop, and 3 s in total. At a cap, the tool stops and marks `partial: true` with the reason. `cappedHubs` lists every node with more than `maxFanOut` matching edges in the explored frontier. Such a node takes its edges in turns by predicate: the strongest edge of each predicate, then the second strongest, and so on. Of two equal edges, the newer (`validFrom`) comes first. Thus one predicate with many edges (pull requests, notes) cannot fill the fan-out and hide the owner or the decisions of the node.
+  - **Default walk for each intent.** When the call gives no `predicates`, the walk follows the edges of the intent (`INTENT_PRESETS[intent].walk`). Explicit `predicates` replace this set.
+
+    | Intent | Default walk |
+    | --- | --- |
+    | `general` | All edges |
+    | `ownership` | `OWNS` |
+    | `why` | `INFLUENCES`, `SUPERSEDES`, `DEPENDS_ON`, `AFFECTS`, `APPLIES_TO`, `TRACKED_BY` |
+    | `change` | `CHANGED`, `ADDED`, `MODIFIED`, `REMOVED`, `RENAMED`, `TARGETS`, `REFERENCES` |
+    | `dependencies` | `DEPENDS_ON`, `CONSUMES_API`, `CONSUMES_FROM`, `READS_FROM`, `WRITES_TO`, `USES_LIBRARY` |
+    | `structure` | The dependency edges, `EXPOSES_API`, `HAS_OPERATION`, `PRODUCES_TO`, `RUNS_ON` |
+
+    The graph relevance eval measured the reason: on a walk of all edges with fan-out 50, a service with many pull-request edges hid its owner, its decisions, and its dependencies (recall@5 of 0 for `ownership`, `why`, and `dependencies`). The eval asserts its floors on the defaults of the tool, the call with only `intent`.
   3. The backend weights each edge: predicate weight for the intent × decay (`decayWorkspaceSignal`) × recency × `degree^-β` (hub penalty). Seeds and query hits get no hub penalty. Recency applies to change edges only. Node authority (ADR status, review decision) waits until the projection stores those fields.
   4. With a `query`, Postgres runs one hybrid search over the chunks of the explored units only.
   5. The backend runs personalized PageRank (power iteration) on the explored subgraph. The seeds and the query hits make the restart vector.

@@ -10,6 +10,7 @@ import { expandWorkspaceGraph } from "../../domain/workspaces/graph-expand.js"
 import { WorkspaceGraphUnavailableError } from "../../domain/workspaces/graph-projection.js"
 import { WorkspaceGraphBuildingError } from "../../domain/workspaces/graph-rebuild.js"
 import {
+  INTENT_PRESETS,
   RELEVANCE_INTENTS,
   rankRelated,
 } from "../../domain/workspaces/graph-relevance.js"
@@ -66,7 +67,9 @@ export const getRelatedInputShape = {
     .min(1)
     .max(50)
     .optional()
-    .describe("Walk only edges with these predicates. Not case-sensitive."),
+    .describe(
+      "Walk only edges with these predicates. Not case-sensitive. Default: the edges of the intent (all edges for general).",
+    ),
   predicateWeights: z
     .record(name, z.number().min(0))
     .refine((weights) => Object.keys(weights).length <= 50, {
@@ -348,7 +351,10 @@ export async function rankWorkspaceRelated(
     maxDepth: input.maxDepth,
     direction: input.direction,
     // The graph stores predicates in upper case, and the ranking does the same.
-    predicates: input.predicates?.map((predicate) => predicate.toUpperCase()),
+    // With no predicates, the walk follows the edges of the intent.
+    predicates:
+      input.predicates?.map((predicate) => predicate.toUpperCase()) ??
+      INTENT_PRESETS[input.intent].walk?.slice(),
     minConfidence: input.minConfidence,
     maxFanOut: input.maxFanOut,
     validAt: input.validBetween
@@ -468,7 +474,7 @@ export const getRelatedTool = defineMcpReadTool({
   name: "get_related",
   title: "Get related knowledge",
   description:
-    "Find knowledge related to seed refs AND relevant to your query, ranked by graph proximity, edge confidence, recency and query match. Each result can explain why (the path of predicates from a seed). Set intent for the question: why, ownership, change, dependencies, structure. Filter by predicates, kinds, direction, depth and time. Use it after search_knowledge to find owners, dependencies, decisions, incidents and changes. For plain neighbors, set maxDepth 1 and no query. The default maxDepth is 2.",
+    "Find knowledge related to seed refs AND relevant to your query, ranked by graph proximity, edge confidence, recency and query match. Each result can explain why (the path of predicates from a seed). Set intent for the question: why, ownership, change, dependencies, structure. Each intent walks only its own edges (ownership: OWNS; why: decisions, incidents, rules and dependencies; change: changes; dependencies: dependency edges); general walks all edges. Give predicates to walk other edges. Filter by predicates, kinds, direction, depth and time. Use it after search_knowledge to find owners, dependencies, decisions, incidents and changes. For plain neighbors, set maxDepth 1 and no query. The default maxDepth is 2.",
   org: "required",
   inputShape: getRelatedInputShape,
   outputSchema: z.object({

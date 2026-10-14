@@ -190,6 +190,50 @@ describe("expandWorkspaceGraph on FalkorDB", () => {
     },
   )
 
+  it("takes the fan-out in turns by predicate, so many strong edges of one predicate do not hide a weaker owner", async () => {
+    const changes = Array.from({ length: 60 }, (_, i) => `change-${i}.md`)
+    const projection = await publish([
+      unit("service.md", [
+        ...changes.map((to) => ({
+          to,
+          predicate: "CHANGED",
+          confidence: 0.95,
+        })),
+        { to: "team.md", predicate: "OWNS", confidence: 0.5 },
+        { to: "lib-a.md", predicate: "USES_LIBRARY", confidence: 0.6 },
+        { to: "lib-b.md", predicate: "USES_LIBRARY", confidence: 0.7 },
+      ]),
+      ...changes.map((path) => unit(path)),
+      unit("team.md"),
+      unit("lib-a.md"),
+      unit("lib-b.md"),
+    ])
+    const result = await expand(projection, {
+      seeds: [id("service.md")],
+      maxDepth: 1,
+      maxFanOut: 4,
+    })
+    expect(result.cappedHubs).toEqual([id("service.md")])
+    // Round 1: the strongest edge of each predicate. Round 2 starts with the
+    // strongest second edge (CHANGED, 0.95) and the cap stops it there.
+    expect(result.edges.map((edge) => edge.predicate).sort()).toEqual([
+      "CHANGED",
+      "CHANGED",
+      "OWNS",
+      "USES_LIBRARY",
+    ])
+    expect(result.edges.map((edge) => edge.targetId)).toEqual(
+      expect.arrayContaining([id("team.md"), id("lib-b.md")]),
+    )
+    const wide = await expand(projection, {
+      seeds: [id("service.md")],
+      maxDepth: 1,
+      maxFanOut: 1_000,
+    })
+    expect(wide.edges).toHaveLength(63)
+    expect(wide.cappedHubs).toEqual([])
+  })
+
   it("stops an in-flight query at its server deadline", async () => {
     await publish([unit("slow.md")])
     await withGraphClient(org, async () => {

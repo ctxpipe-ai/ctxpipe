@@ -37,7 +37,11 @@ import {
   seedRelatedWorkspace,
 } from "../../test/related-fixture.js"
 import { expandWorkspaceGraph, type GraphExpansion } from "./graph-expand.js"
-import { type RelevanceOptions, rankRelated } from "./graph-relevance.js"
+import {
+  INTENT_PRESETS,
+  type RelevanceOptions,
+  rankRelated,
+} from "./graph-relevance.js"
 import { publishedProjection } from "./revision.js"
 
 const fixture = workspaceOrgFixture()
@@ -49,16 +53,13 @@ const INTENTS: readonly EvalIntent[] = [
 ]
 
 /**
- * A caller that knows the question walks only the edges that answer it. The
- * walk has no intent-specific expansion: without `predicates`, a service with
- * many pull requests fills its fan-out with change edges and hides its owner.
+ * The walk of each intent (`INTENT_PRESETS[intent].walk`), which `get_related`
+ * uses when the caller gives no `predicates`. The ablation rows use it with a
+ * fan-out of 1,000, so that no fan-out cap decides the result.
  */
-const scopedPredicates: Record<EvalIntent, string[]> = {
-  ownership: ["OWNS"],
-  why: ["INFLUENCES", "SUPERSEDES"],
-  change: ["CHANGED", "MODIFIED", "ADDED"],
-  dependencies: ["DEPENDS_ON", "USES_LIBRARY", "READS_FROM", "WRITES_TO"],
-}
+const scopedPredicates = (intent: EvalIntent) => [
+  ...(INTENT_PRESETS[intent].walk ?? []),
+]
 
 /**
  * Recall@5 floors of the `get_related` defaults: the call that an agent makes
@@ -107,12 +108,13 @@ function expand(question: EvalQuestion, scoped: boolean) {
       seeds: [`ku_${workspaceId}_${question.seed}`],
       // The defaults of `get_related`, except the fan-out of a scoped walk:
       // no node of the fixture has more than 1,000 matching edges, so no
-      // tie in the edge order decides which edges the walk keeps.
+      // tie in the edge order decides which edges the walk keeps. The
+      // unscoped walk is the `general` walk: all edges, fan-out 50.
       maxDepth: 2,
       direction: "both",
       minConfidence: 0.2,
       maxFanOut: scoped ? 1_000 : 50,
-      predicates: scoped ? scopedPredicates[question.intent] : undefined,
+      predicates: scoped ? scopedPredicates(question.intent) : undefined,
       validAt: fixture.now.toISOString(),
     })
     expansions.set(key, expansion)
@@ -141,6 +143,11 @@ async function ranked(question: EvalQuestion, config: Config) {
   }
 }
 
+const defaultRankings = new Map<
+  EvalQuestion,
+  Awaited<ReturnType<typeof rankWorkspaceRelated>>
+>()
+
 /** The `get_related` tool with only `seeds` and `intent`. */
 async function toolDefaults(question: EvalQuestion) {
   const input = z.object(getRelatedInputShape).parse({
@@ -155,6 +162,7 @@ async function toolDefaults(question: EvalQuestion) {
     input,
     fixture.now,
   )
+  defaultRankings.set(question, tool)
   return tool.results.map((result) => result.ref)
 }
 
@@ -199,6 +207,10 @@ describe("graph relevance eval (synthetic engineering Workspace)", () => {
     rows.set("tool defaults (only intent)", await recallOf("tool"))
     const configs: Array<[string, Config]> = [
       ["all edges, fan-out 50", { scoped: false }],
+      [
+        "all edges, fan-out 50, intent general",
+        { scoped: false, general: true },
+      ],
       ["scoped walk", { scoped: true }],
       ["scoped, intent general", { scoped: true, general: true }],
       ["scoped, truth off", { scoped: true, signalWeights: { truth: 0 } }],
@@ -269,10 +281,12 @@ describe("graph relevance eval (synthetic engineering Workspace)", () => {
 
   it("explores a bounded graph for each question", async () => {
     for (const question of fixture.questions) {
-      const scoped = await expand(question, true)
-      expect(scoped.partial, `${question.intent} ${question.seed}`).toBe(false)
-      expect(scoped.nodes.length).toBeLessThanOrEqual(400)
-      expect(scoped.edges.length).toBeLessThanOrEqual(500)
+      const defaults = defaultRankings.get(question)
+      expect(defaults?.partial, `${question.intent} ${question.seed}`).toBe(
+        false,
+      )
+      expect(defaults?.explored.nodes).toBeLessThanOrEqual(400)
+      expect(defaults?.explored.edges).toBeLessThanOrEqual(500)
       // The unscoped walk keeps its fan-out cap: the hub service hits it.
       const unscoped = await expand(question, false)
       expect(unscoped.partial).toBe(false)
@@ -290,7 +304,7 @@ describe("graph relevance eval (synthetic engineering Workspace)", () => {
         workspace: "eval",
         seeds: [question.seed],
         intent: question.intent,
-        predicates: scopedPredicates[question.intent],
+        predicates: scopedPredicates(question.intent),
         maxFanOut: 1_000,
       })
       const tool = await rankWorkspaceRelated(

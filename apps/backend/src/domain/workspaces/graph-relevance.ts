@@ -125,6 +125,11 @@ export type RelatedResult = {
 }
 
 type IntentPreset = {
+  /**
+   * The edges that `get_related` walks when the caller gives no `predicates`.
+   * No list walks all edges.
+   */
+  walk?: readonly string[]
   predicates: Readonly<Record<string, number>>
   signals: RelevanceSignalWeights
   hubPenalty: number
@@ -152,11 +157,13 @@ const DATED_PREDICATES: ReadonlySet<string> = new Set([
   "TARGETS",
 ])
 
+/** A service depends on the store that it writes to, as on the one it reads. */
 const DEPENDENCY_PREDICATES = [
   "DEPENDS_ON",
   "CONSUMES_API",
   "CONSUMES_FROM",
   "READS_FROM",
+  "WRITES_TO",
   "USES_LIBRARY",
 ]
 
@@ -165,7 +172,6 @@ const STRUCTURAL_PREDICATES = [
   "EXPOSES_API",
   "HAS_OPERATION",
   "PRODUCES_TO",
-  "WRITES_TO",
   "RUNS_ON",
 ]
 
@@ -173,7 +179,11 @@ function weightAll(predicates: readonly string[], weight: number) {
   return Object.fromEntries(predicates.map((predicate) => [predicate, weight]))
 }
 
-/** The turns of PR #350 become predicate weights. */
+/**
+ * The turns of PR #350 become predicate weights. Each intent except `general`
+ * also walks only its own edges: on an unscoped walk, a unit with many edges
+ * of one predicate (pull requests, notes) hides its owner and its decisions.
+ */
 export const INTENT_PRESETS: Readonly<Record<RelevanceIntent, IntentPreset>> = {
   general: {
     predicates: {},
@@ -182,32 +192,47 @@ export const INTENT_PRESETS: Readonly<Record<RelevanceIntent, IntentPreset>> = {
   },
   // A team that owns many services and issues is still the owner.
   ownership: {
+    walk: ["OWNS"],
     predicates: { OWNS: 3 },
     signals: BASE_SIGNALS,
     hubPenalty: 0,
   },
   // The decisions come before the files that declare them.
+  // The walk also reaches the incidents, the rules, and the dependencies
+  // around a unit, because a decision often shapes what the unit depends on.
   why: {
+    walk: [
+      "INFLUENCES",
+      "SUPERSEDES",
+      "DEPENDS_ON",
+      "AFFECTS",
+      "APPLIES_TO",
+      "TRACKED_BY",
+    ],
     predicates: { INFLUENCES: 3, SUPERSEDES: 2 },
     signals: BASE_SIGNALS,
     hubPenalty: BASE_HUB_PENALTY,
   },
-  // A recent large change is often the answer, so no hub penalty.
+  // The hub penalty keeps a shared file that many changes touch from
+  // pulling unrelated changes into the results.
   change: {
+    walk: [...CHANGE_PREDICATES, "TARGETS", "REFERENCES"],
     predicates: {
       ...weightAll(CHANGE_PREDICATES, 3),
       TARGETS: 3,
       REFERENCES: 2,
     },
     signals: { ...BASE_SIGNALS, recency: 1 },
-    hubPenalty: 0,
+    hubPenalty: BASE_HUB_PENALTY,
   },
   dependencies: {
+    walk: DEPENDENCY_PREDICATES,
     predicates: weightAll(DEPENDENCY_PREDICATES, 3),
     signals: BASE_SIGNALS,
     hubPenalty: BASE_HUB_PENALTY,
   },
   structure: {
+    walk: STRUCTURAL_PREDICATES,
     predicates: weightAll(STRUCTURAL_PREDICATES, 3),
     signals: BASE_SIGNALS,
     hubPenalty: BASE_HUB_PENALTY,
