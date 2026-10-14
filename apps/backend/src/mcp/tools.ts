@@ -41,7 +41,7 @@ export function registerMcpTools(server: McpServer): void {
       title:
         "Deprecated Workspace chat shim (ctx_advisor) — first Workspace only",
       description: [
-        "DEPRECATED. ctx_advisor is a compatibility shim for Workspace chat on the organisation's first Workspace. There is no workspace.id argument and no org-wide advisor. Zero Workspaces → fail; create a Workspace first.",
+        "DEPRECATED. ctx_advisor is a compatibility shim for Workspace chat on the organization's first Workspace. There is no workspace.id argument and no org-wide advisor. Zero Workspaces → fail; create a Workspace first.",
         "Reuse the same conversationId (and currentProjectName) to continue one MCP thread. Omit conversationId to start a new thread.",
         "MANDATORY default: Call ctx_advisor early and often whenever org standards, architecture, tooling choices, or plans are involved. When in doubt, call — more calls beats too few. It answers from the Workspace's knowledge files, knowledge graph and linked code.",
         "",
