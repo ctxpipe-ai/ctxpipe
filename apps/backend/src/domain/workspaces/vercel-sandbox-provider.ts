@@ -222,8 +222,13 @@ const firewalls = new Map<
 
 export type ConversationFirewall = ReturnType<typeof conversationFirewall>
 
-/** The input of a hosted firewall policy. */
-export type HostedPolicyInput = Parameters<typeof hostedNetworkPolicy>[0]
+/**
+ * The input of a hosted firewall policy. `sandboxName` is set on each update
+ * after create; the ingest policy binds its scope to it.
+ */
+export type HostedPolicyInput = Parameters<typeof hostedNetworkPolicy>[0] & {
+  sandboxName?: string
+}
 
 /**
  * The hosted firewall of a conversation's sandbox; see `hostedNetworkPolicy`.
@@ -249,6 +254,7 @@ export function conversationFirewall(
           gitToken: state.gitToken,
           backendHost,
           turn: state.turn,
+          sandboxName: name,
         }),
       })
     })

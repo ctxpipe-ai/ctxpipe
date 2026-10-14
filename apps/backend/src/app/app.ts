@@ -18,6 +18,7 @@ import { registerAuthRoutes } from "../routes/auth.js"
 import { registerMcpRoutes } from "../routes/mcp.js"
 import { registerMcpBrandAssetRoute } from "../routes/mcp-brand-asset.js"
 import { registerOpenapiRoutes } from "../routes/openapi.js"
+import { registerSandboxEgressRoute } from "../routes/sandbox-egress.js"
 import { registerStatusRoutes } from "../routes/status"
 import { registerUiRoutes } from "../routes/ui.js"
 import { registerV1Routes } from "../routes/v1/index.js"
@@ -150,6 +151,9 @@ export function createApp() {
 
   // GitHub App webhooks (no session auth; HMAC verified)
   registerWebhookRoutes(app)
+
+  // Hosted ingest sandbox egress (no session auth; Vercel OIDC and a sealed scope)
+  registerSandboxEgressRoute(app)
 
   // /:orgSlug/api/v1 routes
   const v1 = registerV1Routes(app)

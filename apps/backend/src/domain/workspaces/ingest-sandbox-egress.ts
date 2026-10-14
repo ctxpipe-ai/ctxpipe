@@ -26,6 +26,7 @@ import {
   INGEST_SHARD_LIMIT_MS,
   ingestSandboxThreadId,
 } from "./chat-lifecycle.js"
+import { ingestEgressForwardUrl } from "./ingest-egress-proxy.js"
 import { recordedRunGitToken, revokeRunGitTokens } from "./run-git-tokens.js"
 import {
   bearerUrlRule,
@@ -38,14 +39,14 @@ import {
   conversationFirewall,
   type HostedPolicyInput,
   type HostedTurnCredentials,
-  hostRules,
   type VercelCredentials,
   vercelConversationProvider,
 } from "./vercel-sandbox-provider.js"
 
 /**
- * False until the hosted egress proxy (T03b) exists and the T12 live check
- * proves it. Until then, `vercelIngestSandboxProvider` refuses to start.
+ * False until the T12 live check proves the hosted egress proxy (T03b,
+ * `ingestNetworkPolicy` and `ingestEgressProxy`) on Vercel. Until then,
+ * `vercelIngestSandboxProvider` refuses to start.
  */
 export const VERCEL_INGEST_EGRESS_PROVEN = false
 
@@ -331,41 +332,58 @@ export async function refreshIngestSandboxEgress(input: {
 }
 
 /**
- * The hosted firewall of an ingest sandbox, with only what is safe now: no
- * catch-all (`"*"`), the GitHub read token on the fetch paths of its
- * repositories, and during a step, the step's credentials on the backend
- * host by exact path. It is not closed: the Vercel firewall forwards a
- * request to a path with no rule (without a credential), for example a
- * push to github.com with a token in the URL. The Vercel API keeps
- * credential rules and forward rules in separate lists, so an ordered
- * "deny the rest" rule cannot work. T03b replaces this with a backend egress
- * proxy; until then `vercelIngestSandboxProvider` refuses to start.
+ * Private, loopback, link-local (cloud metadata), and shared address ranges.
+ * The sandbox must not reach them, also through an allowed name.
+ */
+const PRIVATE_SUBNETS = [
+  "0.0.0.0/8",
+  "10.0.0.0/8",
+  "100.64.0.0/10",
+  "127.0.0.0/8",
+  "169.254.0.0/16",
+  "172.16.0.0/12",
+  "192.168.0.0/16",
+  "fc00::/7",
+  "fe80::/10",
+  "::1/128",
+]
+
+/**
+ * The hosted firewall of an ingest sandbox (T03b). It allows two hosts,
+ * `github.com` and the backend host, and forwards each request to them to
+ * the backend egress proxy (`ingestEgressProxy`). The proxy allows only Git
+ * fetch of the shard's repositories and, during a step, the step's model
+ * proxy and tool bridge, and it adds each credential. Each other request
+ * gets 403; each other host is not allowed. The forward URL carries the
+ * sealed scope, bound to the sandbox name, so no credential is in the
+ * policy. A sandbox with no name yet (at create) gets `"deny-all"`.
  */
 export function ingestNetworkPolicy(input: {
   git: IngestGitAccess[]
   backendHost: string
   step?: HostedTurnCredentials
+  /** The Vercel sandbox name; the egress proxy refuses other sandboxes. */
+  sandboxName?: string
+  /** The seal secret (`AUTH_SECRET`); the backend opens the scope with it. */
+  secret: string
 }): NetworkPolicy {
-  const { backendHost, step } = input
-  const allow = hostRules([
-    ...input.git.flatMap((entry) =>
-      githubFetchCredentialRules(entry.token, entry.repositories),
-    ),
-    ...(step
-      ? [
-          bearerUrlRule(
-            "tool-bridge",
-            `https://${backendHost}${step.bridgePath}`,
-            step.bridgeToken,
-          ),
-          ...modelProxyCredentialRules(
-            `https://${backendHost}${step.modelProxyPath}`,
-            step.modelCapability,
-          ),
-        ]
-      : []),
-  ])
-  return { allow }
+  if (!input.sandboxName) return "deny-all"
+  const forwardURL = ingestEgressForwardUrl(
+    {
+      sandbox: input.sandboxName,
+      backendHost: input.backendHost,
+      git: input.git,
+      ...(input.step ? { step: input.step } : {}),
+    },
+    input.secret,
+  )
+  return {
+    allow: {
+      "github.com": [{ forwardURL }],
+      [input.backendHost]: [{ forwardURL }],
+    },
+    subnets: { deny: PRIVATE_SUBNETS },
+  }
 }
 
 /**
@@ -421,6 +439,8 @@ export function vercelIngestSandboxProvider(input: {
       ingestNetworkPolicy({
         git: [{ token: policy.gitToken, repositories: names }],
         backendHost: input.backendHost,
+        secret: env.AUTH_SECRET,
+        ...(policy.sandboxName ? { sandboxName: policy.sandboxName } : {}),
         ...(policy.turn ? { step: policy.turn } : {}),
       }),
   )

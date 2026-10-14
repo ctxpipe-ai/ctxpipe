@@ -2,6 +2,7 @@ import { type NetworkPolicy, Sandbox } from "@vercel/sandbox"
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
+import { openIngestEgressScope } from "./ingest-egress-proxy.js"
 import { ingestNetworkPolicy } from "./ingest-sandbox-egress.js"
 import {
   agentSnapshotTags,
@@ -291,29 +292,48 @@ describe("conversationFirewall", () => {
     return firewall
   }
 
-  it("keeps an ingest sandbox closed at step start and at step end", async () => {
+  it("keeps an ingest sandbox closed at step start and at step end, with the scope bound to the sandbox", async () => {
     server.use(...vercelApi)
     policies.length = 0
     failure = "none"
+    const secret = "egress-test-secret-0123456789abcdef"
     const firewall = conversationFirewall("app.example.test", (input) =>
       ingestNetworkPolicy({
         git: [{ token: input.gitToken, repositories: ["acme/source"] }],
         backendHost: "app.example.test",
+        secret,
+        ...(input.sandboxName ? { sandboxName: input.sandboxName } : {}),
         ...(input.turn ? { step: input.turn } : {}),
       }),
     )
-    expect(allowOf(firewall.policy("git-1"))["*"]).toBeUndefined()
+    // A new sandbox has no name yet, so it starts with no egress.
+    expect(firewall.policy("git-1")).toBe("deny-all")
     firewall.attach(
       await Sandbox.get({ ...credentials, name: "sbx-ingest" }),
       "git-1",
     )
+    const scopeOf = (policy: NetworkPolicy | undefined) => {
+      const allow = allowOf(policy)
+      expect(allow["*"]).toBeUndefined()
+      expect(Object.keys(allow).sort()).toEqual([
+        "app.example.test",
+        "github.com",
+      ])
+      const forwardUrl = (allow["github.com"]?.[0] as { forwardURL: string })
+        .forwardURL
+      return openIngestEgressScope(
+        new URL(forwardUrl).pathname.replace("/api/v1/sandbox-egress/", ""),
+        secret,
+      )
+    }
     await firewall.openTurn("sbx-ingest", turn)
-    expect(backendRules(policies.at(-1))).toHaveLength(3)
-    expect(allowOf(policies.at(-1))["*"]).toBeUndefined()
+    expect(scopeOf(policies.at(-1))).toMatchObject({
+      sandbox: "sbx-ingest",
+      step: turn,
+    })
     await firewall.closeTurn("sbx-ingest")
-    expect(backendRules(policies.at(-1))).toBeUndefined()
-    expect(allowOf(policies.at(-1))["*"]).toBeUndefined()
-    expect(Object.keys(allowOf(policies.at(-1)))).toEqual(["github.com"])
+    expect(scopeOf(policies.at(-1))?.step).toBeUndefined()
+    expect(scopeOf(policies.at(-1))?.sandbox).toBe("sbx-ingest")
   })
 
   it("sets the turn's credentials at turn start and removes them at turn end", async () => {
