@@ -9,6 +9,7 @@ import {
   prepareIngestSandbox,
   sealIngestCheckout,
   startIngestStep,
+  writeAsRoot,
 } from "./ingest-prepare.js"
 import { type RootExec, runAsRoot } from "./ingest-root.js"
 import type { IngestRuntimeStep } from "./ingest-shard-runtime.js"
@@ -211,16 +212,14 @@ export async function runIngestShardStep(
     CTXPIPE_WORKSPACE: step.workspaceId,
     CTXPIPE_CONTEXT: `${INGEST_CONTEXT_ROOT}/${step.workspaceId}`,
   }
-  if (step.run === "script") {
-    // One exec argument holds at most 128 KiB on Linux: write in parts.
-    const json = JSON.stringify(step.rootMap ?? { roots: [] })
-    await runAsRoot(root, `: > ${ROOTS_FILE} && chmod 644 ${ROOTS_FILE}`)
-    for (let at = 0; at < json.length; at += 60_000)
-      await runAsRoot(
-        root,
-        `printf '%s' ${quote(json.slice(at, at + 60_000))} >> ${ROOTS_FILE}`,
-      )
-  }
+  if (step.run === "script")
+    // In UTF-8 byte parts below the exec argument limit, as base64: a part
+    // boundary inside a character cannot change the file.
+    await writeAsRoot(
+      root,
+      ROOTS_FILE,
+      JSON.stringify(step.rootMap ?? { roots: [] }),
+    )
   const command =
     step.run === "model"
       ? `opencode run${input.model ? ` --model ${quote(input.model)}` : ""} ${quote(ingestStepPrompt(step))}`

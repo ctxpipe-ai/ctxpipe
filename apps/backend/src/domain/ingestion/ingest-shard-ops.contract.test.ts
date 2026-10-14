@@ -244,6 +244,27 @@ describe("ingest shard commands in a Docker sandbox", () => {
         )
         expect(at.stdout).toContain(tip)
         expect(at.stdout).toContain(`"baseCommit":"${tip}"`)
+
+        // A large root map with non-ASCII roots: a part boundary falls
+        // inside multi-byte characters, also inside a surrogate pair.
+        const rootMap = {
+          roots: Array.from({ length: 400 }, (_, i) => ({
+            path: `services/größe-日本-😀-${i}`,
+            manifests: [`services/größe-日本-😀-${i}/package.json`],
+            evidence: ["😀".repeat(40)],
+            files: [`knowledge/libraries/ü-${i}.md`],
+          })),
+        }
+        await runIngestShardStep(root, {
+          step: { ...step, baseCommit: tip, fetchRef: ref, rootMap },
+          agentEnv,
+          remote: "/tmp/remotes/context.git",
+          sourceUrl: SOURCE_URL,
+        })
+        const written = await handle.fs.readBytes("/ctxpipe/roots.json")
+        expect(Buffer.from(written).toString("utf8")).toBe(
+          JSON.stringify(rootMap),
+        )
       } finally {
         await provider.destroy({ id: handle.id })
       }
