@@ -9,6 +9,7 @@ import { linearSourceUi } from "./providers/linear"
 import { notionSourceUi } from "./providers/notion"
 import { pagerdutySourceUi } from "./providers/pagerduty"
 import { slackSourceUi } from "./providers/slack"
+import { zendeskSourceUi } from "./providers/zendesk"
 
 /**
  * The props of a provider scope editor. The editor edits the scope part of
@@ -44,6 +45,7 @@ export const SOURCE_PROVIDER_UI: Record<SourceProvider, SourceProviderUi> = {
   notion: notionSourceUi,
   slack: slackSourceUi,
   pagerduty: pagerdutySourceUi,
+  zendesk: zendeskSourceUi,
 }
 
 export function sourceProviderLabel(provider: SourceProvider): string {
