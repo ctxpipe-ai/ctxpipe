@@ -48,12 +48,10 @@ export function PagerdutySetupDialog({
   onConnectionIdChange,
 }: PagerdutySetupDialogProps) {
   const queryClient = useQueryClient()
-  const [workspacesDone, setWorkspacesDone] = useState(false)
+  // A save always opens pull requests: the dialog then shows the merge step.
   const [pullRequests, setPullRequests] = useState<OpenedPullRequest[]>([])
-  if (!isOpen && workspacesDone) {
-    setWorkspacesDone(false)
-    setPullRequests([])
-  }
+  const workspacesDone = pullRequests.length > 0
+  if (!isOpen && workspacesDone) setPullRequests([])
 
   useEffect(() => {
     if (!isOpen) return
@@ -190,28 +188,13 @@ export function PagerdutySetupDialog({
           description="the services for each"
           items="the services"
           replacedConfigPullUrl={status.pendingConfigPullUrl}
-          onDone={(opened) => {
-            setPullRequests(opened ?? [])
-            setWorkspacesDone(true)
-          }}
+          onDone={setPullRequests}
         />
       )
     }
     return (
       <div className="space-y-4">
-        {pullRequests.length ? (
-          <PullRequestsToMerge orgSlug={orgSlug} pullRequests={pullRequests} />
-        ) : (
-          <div>
-            <h3 className="text-base font-medium text-foreground">
-              PagerDuty is connected
-            </h3>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Add PagerDuty to a Workspace from the connector card, or change
-              the services of a Workspace in its settings.
-            </p>
-          </div>
-        )}
+        <PullRequestsToMerge orgSlug={orgSlug} pullRequests={pullRequests} />
         <Button
           variant="secondary"
           className="rounded-md"

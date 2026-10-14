@@ -399,8 +399,8 @@ let currentTeams = ["ENG"]
 
 /**
  * The connector card: Manage opens the dialog, and Close closes it. The app
- * keeps a read in its cache after the dialog closes. Storybook does not, so
- * this observer keeps the Docs sources in the cache.
+ * keeps the response in its cache after the dialog closes. Storybook does
+ * not, so this observer keeps the Docs sources in the cache.
  */
 function ManageButton(props: ComponentProps<typeof LinearSetupWizard>) {
   const [isOpen, setIsOpen] = useState(false)

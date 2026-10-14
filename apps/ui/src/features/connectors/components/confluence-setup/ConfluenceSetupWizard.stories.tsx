@@ -490,23 +490,8 @@ export const ManageKeepsTheCurrentScope: Story = {
   },
 }
 
-export const SkipWorkspaces: Story = {
-  name: "07 / Skip Workspaces, setup complete",
-  render: () => wizard(),
-  parameters: AddToWorkspaces.parameters,
-  play: async ({ canvasElement }) => {
-    const body = within(canvasElement.ownerDocument.body)
-    await userEvent.click(
-      await body.findByRole("button", { name: "Skip for now" }),
-    )
-    await expect(
-      await body.findByRole("heading", { name: "Confluence is connected" }),
-    ).toBeVisible()
-  },
-}
-
 export const ReplacedSetup: Story = {
-  name: "08 / Replaced setup with a config pull request",
+  name: "07 / Replaced setup with a config pull request",
   render: () => wizard(),
   parameters: {
     msw: {
@@ -540,7 +525,7 @@ export const ReplacedSetup: Story = {
 }
 
 export const MissingConnectionId: Story = {
-  name: "09 / Missing connection id",
+  name: "08 / Missing connection id",
   render: () => wizard({ atlassianConnectionId: undefined }),
   parameters: {
     msw: {

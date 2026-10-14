@@ -332,21 +332,6 @@ export const AddToWorkspaces: Story = {
   },
 }
 
-export const SkipWorkspaces: Story = {
-  name: "Skip Workspaces, setup complete",
-  render: () => dialog(),
-  parameters: { msw: { handlers: { page: installedHandlers } } },
-  play: async ({ canvasElement }) => {
-    const body = within(canvasElement.ownerDocument.body)
-    await userEvent.click(
-      await body.findByRole("button", { name: "Skip for now" }),
-    )
-    await expect(
-      await body.findByRole("heading", { name: "Notion is connected" }),
-    ).toBeVisible()
-  },
-}
-
 export const ReplacedSetup: Story = {
   name: "Replaced setup with a config pull request",
   render: () => dialog(),

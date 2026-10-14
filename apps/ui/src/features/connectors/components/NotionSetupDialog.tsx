@@ -48,12 +48,12 @@ export function NotionSetupDialog({
   const oauthConnect = useNotionOAuthConnect(orgSlug)
   const [registerSaved, setRegisterSaved] = useState(false)
   const [webhookContinued, setWebhookContinued] = useState(false)
-  const [workspacesDone, setWorkspacesDone] = useState(false)
+  // A save always opens pull requests: the dialog then shows the merge step.
   const [pullRequests, setPullRequests] = useState<OpenedPullRequest[]>([])
+  const workspacesDone = pullRequests.length > 0
   if (!isOpen && (registerSaved || webhookContinued || workspacesDone)) {
     setRegisterSaved(false)
     setWebhookContinued(false)
-    setWorkspacesDone(false)
     setPullRequests([])
   }
 
@@ -178,28 +178,13 @@ export function NotionSetupDialog({
           description="the pages and databases for each"
           items="the pages"
           replacedConfigPullUrl={status.pendingConfigPullUrl}
-          onDone={(opened) => {
-            setPullRequests(opened ?? [])
-            setWorkspacesDone(true)
-          }}
+          onDone={setPullRequests}
         />
       )
     }
     return (
       <div className="space-y-4">
-        {pullRequests.length ? (
-          <PullRequestsToMerge orgSlug={orgSlug} pullRequests={pullRequests} />
-        ) : (
-          <div>
-            <h3 className="text-base font-medium text-foreground">
-              Notion is connected
-            </h3>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Add Notion to a Workspace from the connector card, or change the
-              pages of a Workspace in its settings.
-            </p>
-          </div>
-        )}
+        <PullRequestsToMerge orgSlug={orgSlug} pullRequests={pullRequests} />
         <Button
           variant="secondary"
           className="rounded-md"

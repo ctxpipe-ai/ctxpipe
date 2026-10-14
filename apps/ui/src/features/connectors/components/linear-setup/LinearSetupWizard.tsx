@@ -55,8 +55,8 @@ export function LinearSetupWizard({
     queryFn: () => fetchLinearOauthApp(orgSlug, connectionId),
     enabled: isOpen,
   })
-  // The pull requests that the add opened. As in the other setups, the
-  // dialog stays open on the merge step; a direct commit closes it.
+  // The pull requests that the save opened. As in the other setups, the
+  // dialog then shows the merge step.
   const [pullRequests, setPullRequests] = useState<OpenedPullRequest[]>([])
   if (!isOpen && pullRequests.length) setPullRequests([])
   const close = () => onOpenChange(false)
@@ -210,9 +210,7 @@ export function LinearSetupWizard({
             label="Linear"
             description="the teams and projects for each"
             items="the teams"
-            onDone={(opened) =>
-              opened?.length ? setPullRequests(opened) : close()
-            }
+            onDone={setPullRequests}
           />
         ) : (
           <p className="text-sm text-destructive">
