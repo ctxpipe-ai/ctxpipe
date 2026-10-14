@@ -10,7 +10,7 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { afterAll, describe, expect, it } from "vitest"
 import { stringify } from "yaml"
-import { buildContextIndexEntries } from "./context-index.js"
+import { writeStepIndex } from "../../test/ingest-step-index.js"
 import { gitSourcePathExists, validatePatchStep } from "./patch-validator.js"
 import { INGEST_SKILLS_DIR, readIngestSkillBundle } from "./skill-bundle.js"
 
@@ -90,13 +90,47 @@ type Result = {
   skipped: Array<{ path: string | null; reason: string }>
 }
 
+/** The host inputs of each step (ADR-052 section 6); a root step at `.` unless the test gives others. */
 function run(dir: string, ...args: string[]) {
+  let roots = args.includes("--roots") ? [] : ["--roots", topRootsFile()]
+  const path =
+    args.includes("--path") || args.includes("--repository")
+      ? []
+      : ["--path", "."]
+  const rest = args.filter((a) => a !== "--repository")
+  if (args.includes("--repository") && args.includes("--roots")) roots = []
   const result = spawnSync(
     process.execPath,
-    [SCRIPT, "--source", dir, ...args],
-    { encoding: "utf8", env: GIT_ENV, timeout: 20_000 },
+    [
+      SCRIPT,
+      "--source",
+      dir,
+      "--source-url",
+      SOURCE_URL,
+      ...roots,
+      ...path,
+      ...rest,
+    ],
+    { encoding: "utf8", env: GIT_ENV, timeout: 60_000 },
   )
   return { ...result, raw: result.stdout }
+}
+
+let topRoots: string | undefined
+/** A root-to-file map with only the repository top as a root. */
+function topRootsFile(): string {
+  if (!topRoots) {
+    const dir = mkdtempSync(join(tmpdir(), "datasources-roots-"))
+    made.push(dir)
+    topRoots = join(dir, "roots.json")
+    writeFileSync(
+      topRoots,
+      JSON.stringify({
+        roots: [{ path: ".", manifests: [], evidence: [], files: [] }],
+      }),
+    )
+  }
+  return topRoots
 }
 
 function find(dir: string, ...args: string[]): Result {
@@ -363,6 +397,48 @@ describe("find-stores script", () => {
         reason: "A file path has characters that the script does not quote",
       },
     ])
+  })
+
+  it("lists each root of the map in the repository-wide step, as the root steps see them", () => {
+    const dir = repo(SHOP)
+    const rootsFile = join(dir, "..", `roots-repository-${Date.now()}.json`)
+    made.push(rootsFile)
+    writeFileSync(
+      rootsFile,
+      JSON.stringify({
+        roots: [
+          { path: ".", manifests: [], evidence: [], files: [] },
+          { path: "apps/api", manifests: [], evidence: [], files: [] },
+        ],
+      }),
+    )
+    const result = run(dir, "--repository", "--roots", rootsFile)
+    expect(result.status, result.stderr).toBe(0)
+    const parsed = JSON.parse(result.stdout) as {
+      roots: Result[]
+      skipped: unknown[]
+    }
+    expect(parsed.roots.map((r) => r.root)).toEqual([".", "apps/api"])
+    const api = find(dir, "--path", "apps/api", "--roots", rootsFile)
+    expect(parsed.roots[1]).toEqual(api)
+  })
+
+  it("refuses a step without the roots file", () => {
+    const result = spawnSync(
+      process.execPath,
+      [
+        SCRIPT,
+        "--source",
+        repo(SHOP),
+        "--source-url",
+        SOURCE_URL,
+        "--path",
+        ".",
+      ],
+      { encoding: "utf8", env: GIT_ENV },
+    )
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain("Give --roots")
   })
 
   it("scopes one root and leaves out the files of a deeper root", () => {
@@ -643,8 +719,8 @@ describe("datasources-infra skill in a step", () => {
   const front = (attributes: object, body: string) =>
     `---\n${stringify(attributes)}---\n${body}`
 
-  /** A source checkout, a context checkout at its base, the index, and step.json. */
-  function step(
+  /** A source checkout, a context checkout at its base, the index (host path), and step.json. */
+  async function step(
     source: Record<string, string>,
     context: Record<string, string>,
   ) {
@@ -661,19 +737,13 @@ describe("datasources-infra skill in a step", () => {
       "README.md": "# Context\n",
       ...context,
     })
-    const entries = buildContextIndexEntries({
-      units: Object.entries(context).map(([path, text]) => ({
-        path,
-        kind: /^kind: (\S+)$/m.exec(text)?.[1] ?? null,
-        links: [],
-      })),
-      raw: new Map(Object.entries(context)),
+    await writeStepIndex({
+      root,
+      workspaceId: WORKSPACE_ID,
+      contextDir,
+      base: baseCommit,
       sourceUrl: SOURCE_URL,
     })
-    writeFileSync(
-      join(root, "context", `${WORKSPACE_ID}.index.json`),
-      JSON.stringify({ workspaceId: WORKSPACE_ID, entries }),
-    )
     writeFileSync(
       join(root, "step.json"),
       JSON.stringify({ workspaceId: WORKSPACE_ID, baseCommit }),
@@ -745,7 +815,7 @@ describe("datasources-infra skill in a step", () => {
       },
       "# api\n\nThe API.\n",
     )
-    const s = step(source, {
+    const s = await step(source, {
       "knowledge/databases/orders-postgresql.md": human,
       "knowledge/services/api.md": service,
     })
@@ -795,7 +865,7 @@ describe("datasources-infra skill in a step", () => {
   })
 
   it("accepts a new store file for a store that has no existing file", async () => {
-    const s = step(source, {})
+    const s = await step(source, {})
     const found = s.found()
     expect(store(found, "redis")?.existing).toEqual([])
     s.edit("knowledge/databases/redis-cache.md", () =>

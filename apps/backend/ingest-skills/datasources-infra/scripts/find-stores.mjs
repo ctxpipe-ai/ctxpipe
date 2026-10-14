@@ -4,8 +4,13 @@
 // infrastructure that the files show. It writes nothing. The model resolves
 // the role of each store and writes the knowledge files.
 //
-// node find-stores.mjs --source /ctxpipe/source/<handle> --path <root path> \
-//   [--roots <discover-roots result or root-to-file map>] [--root /ctxpipe]
+// node find-stores.mjs --source /ctxpipe/source/<handle> --source-url <url> \
+//   --roots <root-to-file map> [--path <root path>] [--root /ctxpipe]
+//
+// With --path (a root step): the stores of that root. Without --path (the
+// repository-wide step): `{ roots: [{ root, stores, infrastructure }] }`, one
+// entry for each root of the map, so that the agent writes the shared
+// Database and Infrastructure files once (ADR-052 section 6).
 //
 // The source repository is hostile. The result holds only words from
 // catalog.mjs and safe identifiers (a variable name, a resource label, a
@@ -15,6 +20,7 @@
 import { execFileSync } from "node:child_process"
 import { existsSync, readFileSync } from "node:fs"
 import { join, posix } from "node:path"
+import { fileURLToPath } from "node:url"
 import { nameKey } from "../../bin/knowledge-lib.mjs"
 import { fail, parseArgs } from "../../bin/stage-lib.mjs"
 import {
@@ -71,8 +77,10 @@ const value = (name) => {
   return at === -1 ? null : (args[at + 1] ?? fail(`Give a value after ${name}`))
 }
 const source = value("--source") ?? fail("Give --source <checkout>")
+value("--source-url") ?? fail("Give --source-url <url>")
+const rootsFile = value("--roots") ?? fail("Give --roots <root-to-file map>")
+if (value("--path") === null) repositoryStep()
 const rootPath = value("--path") ?? "."
-const rootsFile = value("--roots")
 if (rootPath !== "." && !safePath(rootPath))
   fail("--path has characters that the script does not quote")
 
@@ -80,6 +88,44 @@ const skipped = []
 const skip = (path, reason) => {
   if (skipped.length < MAX_SKIPPED)
     skipped.push({ path: path && safePath(path) ? path : null, reason })
+}
+
+/** The repository-wide step: this script once for each root of the map. */
+function repositoryStep() {
+  let listed = []
+  try {
+    listed = JSON.parse(readFileSync(rootsFile, "utf8")).roots
+  } catch {
+    fail(`${rootsFile} is not a roots file`)
+  }
+  if (!Array.isArray(listed)) fail(`${rootsFile} has no roots list`)
+  const roots = []
+  const skipped = []
+  for (const entry of listed.slice(0, 400)) {
+    const path = entry?.path
+    if (typeof path !== "string" || (path !== "." && !safePath(path))) {
+      skipped.push({
+        path: null,
+        reason: "A root path has characters that the script does not quote",
+      })
+      continue
+    }
+    const one = JSON.parse(
+      execFileSync(
+        process.execPath,
+        [
+          fileURLToPath(import.meta.url),
+          ...process.argv.slice(2),
+          "--path",
+          path,
+        ],
+        { maxBuffer: 16 * 1024 * 1024 },
+      ).toString("utf8"),
+    )
+    roots.push(one)
+  }
+  process.stdout.write(`${JSON.stringify({ roots, skipped })}\n`)
+  process.exit(0)
 }
 
 /** Paths of the deeper roots: their files belong to their own steps. */
