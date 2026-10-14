@@ -350,7 +350,7 @@ describe("area files in the patch validator", () => {
       expect(result.rejections).toEqual([])
       const out = show(ctx, result.tree, AREA)
       expect(frontOf(out).sources).toEqual([B, A])
-      expect(out).toContain(HUMAN)
+      expect(out).toContain(HUMAN.trim())
       expect(out).toContain(`- source \`${A}\`, documented: \`README.md\``)
       expect(out).toContain(`- source \`${B}\`, documented: \`AGENTS.md\``)
     })
