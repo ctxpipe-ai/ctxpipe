@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process"
 import { cp, mkdir, readdir, readFile } from "node:fs/promises"
 import { join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
+import { z } from "zod"
 import { withUserIdContext } from "../../src/auth/context.js"
 import { withOrgIdContext } from "../../src/auth/withAuth.js"
 import { getSystemDb } from "../../src/db/client.js"
@@ -48,29 +49,38 @@ import {
 } from "../../src/services/git/clone-tree.js"
 import manifestJson from "./fixtures/manifest.json"
 
-type McpEvalManifest = {
-  commitDate: string
-  organizations: Array<{ key: string; name: string }>
-  upstreamRepositories: Array<{
-    key: string
-    url: string
-    sha: string
-    tag: string
-  }>
-  workspaces: Array<{
-    key: string
-    organization: string
-    slug: string
-    name: string
-    repositories: string[]
-    updatedAt: Record<string, string>
-  }>
-  secondProjection: { workspace: string; branch: string; date: string }
-}
-
-// TypeScript infers each `updatedAt` object as a separate literal type, so the
-// union does not fit `Record<string, string>`. The JSON has this shape.
-const manifest = manifestJson as McpEvalManifest
+// TypeScript infers each `updatedAt` object of the JSON as its own literal
+// type, and that union does not fit `Record<string, string>`. Parse the JSON
+// to get one type and to check the fixture.
+const manifest = z
+  .object({
+    commitDate: z.string(),
+    organizations: z.array(z.object({ key: z.string(), name: z.string() })),
+    upstreamRepositories: z.array(
+      z.object({
+        key: z.string(),
+        url: z.string(),
+        sha: z.string(),
+        tag: z.string(),
+      }),
+    ),
+    workspaces: z.array(
+      z.object({
+        key: z.string(),
+        organization: z.string(),
+        slug: z.string(),
+        name: z.string(),
+        repositories: z.array(z.string()),
+        updatedAt: z.record(z.string(), z.string()),
+      }),
+    ),
+    secondProjection: z.object({
+      workspace: z.string(),
+      branch: z.string(),
+      date: z.string(),
+    }),
+  })
+  .parse(manifestJson)
 
 export { manifest as mcpEvalManifest }
 
