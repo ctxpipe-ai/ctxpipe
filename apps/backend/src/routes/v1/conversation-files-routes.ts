@@ -380,6 +380,11 @@ const getTurnChangesRoute = createRoute({
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Not found",
     },
+    409: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description:
+        "turn_running: a turn holds the conversation and records its changes when it ends (ask again later)",
+    },
   },
 })
 
@@ -631,6 +636,10 @@ fileRoutes.get("/:conversationId/files/tree", readWithoutWait)
 fileRoutes.get("/:conversationId/files/status", readWithoutWait)
 fileRoutes.get("/:conversationId/files/blob", readDuringTurn)
 fileRoutes.use("/:conversationId/files/*", withConversationFileLock)
+// A turn records its changes before it releases the lock. A read while the
+// lock is held would miss them, so it answers 409 and the UI asks again.
+fileRoutes.get("/:conversationId/turns", readWithoutWait)
+fileRoutes.use("/:conversationId/turns", withConversationFileLock)
 export const conversationFileRoutes = fileRoutes
   .openapi(listTreeRoute, async (c) => {
     if (!requireUser(c)) return c.json({ error: "Unauthorized" }, 401)

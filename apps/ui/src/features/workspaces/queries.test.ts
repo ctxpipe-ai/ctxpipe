@@ -9,6 +9,7 @@ import {
 } from "./conversation-git-tree-snapshot"
 import {
   conversationGitTreeOptions,
+  conversationTurnChangesOptions,
   deleteWorkspace,
   fetchWorkspaceGitTree,
   forgetDeletedWorkspace,
@@ -129,6 +130,27 @@ describe("workspace query HTTP helpers", () => {
     server.close()
     restoreFetch()
   })
+
+  it("asks again for the turn changes while the turn still holds the conversation", async () => {
+    let calls = 0
+    server.use(
+      http.get("*/api/v1/conversations/conv_1/turns", () => {
+        calls += 1
+        return calls < 3
+          ? HttpResponse.json({ error: "turn_running" }, { status: 409 })
+          : HttpResponse.json({
+              items: [{ runId: "run_1", turn: 1, files: [] }],
+              syncs: [],
+            })
+      }),
+    )
+    const client = new QueryClient()
+    const data = await client.fetchQuery(
+      conversationTurnChangesOptions("acme", "conv_1"),
+    )
+    expect(calls).toBe(3)
+    expect(data.items.map((item) => item.runId)).toEqual(["run_1"])
+  }, 10_000)
 
   it("returns pending after a successful retry", async () => {
     server.use(
