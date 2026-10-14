@@ -1,0 +1,71 @@
+{
+  "commitDate": "2026-06-01T12:00:00Z",
+  "organizations": [
+    {
+      "key": "harbor",
+      "name": "Harbor Labs"
+    },
+    {
+      "key": "meadow",
+      "name": "Meadow Works"
+    }
+  ],
+  "upstreamRepositories": [
+    {
+      "key": "is",
+      "url": "https://github.com/sindresorhus/is",
+      "sha": "ab85d9bca9564eb0f867ab45e3cbf45659d9ac4c",
+      "tag": "v7.0.0"
+    },
+    {
+      "key": "yocto-queue",
+      "url": "https://github.com/sindresorhus/yocto-queue",
+      "sha": "0ac610dfa4e5cbd929b2e9b8fc34f5417f2f788b",
+      "tag": "v1.1.1"
+    }
+  ],
+  "workspaces": [
+    {
+      "key": "harbor-payments",
+      "organization": "harbor",
+      "slug": "payments",
+      "name": "Harbor Payments",
+      "repositories": ["is", "yocto-queue"],
+      "updatedAt": {
+        "knowledge/services/ledger.md": "2026-01-15T09:00:00Z",
+        "knowledge/services/settlement.md": "2026-02-20T09:00:00Z",
+        "knowledge/decisions/idempotency.md": "2026-04-20T09:00:00Z",
+        "knowledge/operations/replay.md": "2026-05-12T09:00:00Z",
+        "pagerduty/incidents/HBR-3.md": "2026-05-13T09:00:00Z",
+        "linear/teams/HBR/issues/hbr-17--7c1d2e3f-4a5b-4c6d-8e7f-90a1b2c3d4e5.md": "2026-05-28T09:00:00Z"
+      }
+    },
+    {
+      "key": "harbor-platform",
+      "organization": "harbor",
+      "slug": "platform",
+      "name": "Harbor Platform",
+      "repositories": ["is"],
+      "updatedAt": {
+        "knowledge/services/queue.md": "2026-03-05T09:00:00Z",
+        "knowledge/operations/capacity.md": "2026-05-02T09:00:00Z"
+      }
+    },
+    {
+      "key": "meadow-payments",
+      "organization": "meadow",
+      "slug": "payments",
+      "name": "Meadow Payments",
+      "repositories": [],
+      "updatedAt": {
+        "knowledge/decisions/batch.md": "2026-03-15T09:00:00Z",
+        "knowledge/services/settlement.md": "2026-05-20T09:00:00Z"
+      }
+    }
+  ],
+  "secondProjection": {
+    "workspace": "harbor-payments",
+    "branch": "next",
+    "date": "2026-06-15T12:00:00Z"
+  }
+}

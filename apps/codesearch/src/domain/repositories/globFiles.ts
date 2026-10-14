@@ -113,6 +113,16 @@ export function assertSafeGlobPattern(pattern: string): void {
   }
 }
 
+/**
+ * How many levels below the cwd a pattern can match: one for each `/` in it,
+ * plus one. Undefined (no limit) when the pattern has `**`. Braces that hold
+ * a `/` can only raise the count, so it stays an upper bound.
+ */
+export function globPatternDepth(pattern: string): number | undefined {
+  if (pattern.includes("**")) return undefined
+  return pattern.split("/").length
+}
+
 function errnoCode(error: unknown): string {
   if (error && typeof error === "object" && "code" in error) {
     return String((error as { code: unknown }).code)
@@ -165,17 +175,21 @@ async function walkPrunedCheckout(input: {
   realCwd: string
   onlyFiles: boolean
   dot: boolean
+  /** Levels below the cwd to read: 1 reads the cwd only. Default: all. */
+  maxDepth?: number
   visit: (entry: GlobFileEntry) => "continue" | "stop"
 }): Promise<void> {
   const stack: Array<{
     absDir: string
     repoPrefix: string
     realPrefix: string
+    depth: number
   }> = [
     {
       absDir: input.absCwd,
       repoPrefix: input.relativeCwd,
       realPrefix: input.realCwd,
+      depth: 1,
     },
   ]
 
@@ -212,10 +226,14 @@ async function walkPrunedCheckout(input: {
             return
           }
         }
+        if (input.maxDepth !== undefined && current.depth >= input.maxDepth) {
+          continue
+        }
         stack.push({
           absDir: join(current.absDir, name),
           repoPrefix: repoPath,
           realPrefix: realPath,
+          depth: current.depth + 1,
         })
         continue
       }
@@ -290,6 +308,7 @@ export async function globFilesInCheckout(
     realCwd,
     onlyFiles,
     dot,
+    maxDepth: globPatternDepth(options.pattern),
     visit: (entry) => {
       const relForMatch = relativeCwd
         ? entry.path.slice(relativeCwd.length + 1)

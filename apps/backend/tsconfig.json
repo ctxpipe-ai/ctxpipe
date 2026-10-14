@@ -19,6 +19,7 @@
   },
   "include": [
     "src/**/*",
+    "evals/mcp/**/*.ts",
     "test/setup.ts",
     "drizzle.config.ts",
     "openworkflow.config.ts"
