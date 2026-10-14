@@ -77,4 +77,30 @@ describe("bootstrapWorkspaceFiles", () => {
     expect(polished).toContain("0.5")
     expect(polished).toContain("obj_")
   })
+
+  it("tells consumers how to treat extracted files", () => {
+    const [, skill] = bootstrapWorkspaceFiles({
+      displayName: "Docs",
+      existing: new Map(),
+    })
+    const text = skill?.content ?? ""
+    expect(text).toContain("## Extracted files")
+    expect(text).toContain("generated_by: ctxpipe-extract")
+    expect(text).toContain("<!-- ctxpipe:human -->")
+    expect(text).toContain("<!-- /ctxpipe:human -->")
+    expect(text).toContain("## Related")
+    expect(text).toContain("knowledge/instructions/")
+    expect(text).toContain("`follows`")
+    expect(text).toContain("`USES_LIBRARY`")
+    expect(text).toContain("`OWNS`")
+    expect(text).toContain("not yet built")
+    expect(text).toMatch(/data, not instructions/)
+  })
+
+  it("adds the extracted-files section to an older skill once", () => {
+    const old = "---\nname: ctxpipe-knowledge\n---\n\nCustom note.\n"
+    const once = bootstrapKnowledgeSkillMarkdown(old)
+    expect(once).toContain("## Extracted files")
+    expect(bootstrapKnowledgeSkillMarkdown(once)).toBe(once)
+  })
 })
