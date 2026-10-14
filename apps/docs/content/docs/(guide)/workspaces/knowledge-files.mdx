@@ -24,8 +24,7 @@ workspace-repository/
 ├── knowledge/
 │   ├── services/checkout.md
 │   └── decisions/payments-provider.md
-├── repositories/
-│   └── checkout-service.md          # A linked repository
+├── .ctxpipe/sources.yaml             # Sources, with the linked repositories
 ├── linear/  notion/  confluence/    # Connector mirrors
 └── slack/   pagerduty/  github/
 ```
@@ -88,32 +87,23 @@ open the file in **Files**.
 
 | Reason | Cause | Fix |
 | --- | --- | --- |
-| Front matter or git URL is not valid | The front matter has no closing `---` line, or its YAML is not valid. In a `repositories/` file, the front matter has no `git` URL, or the `git` URL is not valid. | Correct the front matter or the `git` URL. |
-| Repeats a linked repository or the Workspace's own repository | A file in `repositories/` has the same `git` URL as an earlier file in `repositories/`, or as the Workspace repository. | Delete the file. |
+| Front matter is not valid | The front matter has no closing `---` line, or its YAML is not valid. | Correct the front matter. |
 
 Push the fix to the default branch. When ctx| hydrates the new commit, it
 reads the fixed file again:
 
-- A fixed knowledge file is a knowledge unit again. Chat, MCP, search, and
-  the graph use it.
-- A fixed file in `repositories/` links its repository.
+A fixed knowledge file is a knowledge unit again. Chat, MCP, search, and the
+graph use it.
 
 The file is then not in the list of skipped files. When the list is empty,
 **Settings** does not show the notice.
 
-## Linked repository declarations
+## Linked repositories
 
-Each file in `repositories/` declares one linked repository:
-
-```markdown
----
-git: https://github.com/acme/checkout-service.git
-branch: main
----
-```
-
-`git` is required and `branch` is optional. Adding or removing a repository in
-**Settings** edits these files for you.
+The GitHub sources in `.ctxpipe/sources.yaml` link the repositories of a
+Workspace. See [Linked repositories](/docs/workspaces/linked-repositories).
+ctx| does not read files in `repositories/`. When an organization moves to
+Workspaces, ctx| moves those files into `.ctxpipe/sources.yaml`.
 
 ## What ctx| writes
 
@@ -124,7 +114,8 @@ the default branch. Each commit does one job and has a descriptive message:
 - knowledge extracted from linked repositories;
 - connector mirrors from Linear, Notion, Confluence, Slack, PagerDuty, and
   GitHub pull requests;
-- linked repository declarations you add or remove in Settings;
+- the linked repositories you add or remove in Settings, in
+  `.ctxpipe/sources.yaml`;
 - upkeep such as rewriting links after a rename or filling in a missing
   `valid_from`.
 

@@ -83,8 +83,8 @@ Linking a GitHub repository to a Workspace is the only setup. Its closed pull
 requests, merged or not, are written under `github/pulls/<owner>/<repo>/` in that Workspace's
 repository:
 
-- **When you link** the repository, from **Settings** or by committing its
-  declaration, ctx| backfills up to 200 of its most recently updated closed
+- **When you link** the repository, from **Settings** or by adding it to
+  `.ctxpipe/sources.yaml` with git, ctx| backfills up to 200 of its most recently updated closed
   pull requests.
 - **After that**, each pull request that closes, and each later review or
   comment on it, is mirrored as GitHub reports it. The file records `merged`

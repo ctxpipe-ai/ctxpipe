@@ -20,7 +20,7 @@ A connection (`connections` row, [ADR-018](ADR-018-unified-connections-table.md)
 - The per-connection sync repository (`connections.config` `repositoryId` / `branch` / `enabled`) and the in-repository scope files (`<provider>/config.yaml`, `pendingConfigPullUrl`) in [ADR-022](ADR-022-linear-connector-git-native-mirror.md), [ADR-023](ADR-023-notion-connector-git-native-mirror.md), [ADR-025](ADR-025-slack-connector-git-native-mirror.md) (sync target), [ADR-031](ADR-031-github-pr-scoped-mirror.md) (scope source), and [ADR-034](ADR-034-pagerduty-connector-git-native-mirror.md). Phase 3 removes them after the migration is verified.
 - In [ADR-018](ADR-018-unified-connections-table.md), `connections.config` no longer holds scope or a sync target. The table stays.
 - [ADR-028](ADR-028-git-native-connector-assets.md) asset rules apply unchanged, inside each Workspace's managed path.
-- `workspace_linked_repositories` is no longer a store of links. GitHub sources in the file replace it. It stays only as the hydrate projection of the linked remotes, because it holds the pinned ref and SHAs of each linked repository ([ADR-046](ADR-046-workspace-revision-projection-identity.md)). It goes when those pins have another home.
+- `workspace_linked_repositories` and the `repositories/*.md` link files. GitHub sources in the file replace both; the pins live in `workspace_sources.state` (revision 2026-10-15).
 
 ## Consequences
 
