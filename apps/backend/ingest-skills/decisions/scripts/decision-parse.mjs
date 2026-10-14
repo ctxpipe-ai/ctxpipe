@@ -16,6 +16,8 @@ import { posix } from "node:path"
 /** The script reads this much of a file. */
 export const MAX_TEXT = 256 * 1024
 const MAX_LINES = 4000
+/** A longer line is cut before any regular expression reads it. */
+export const MAX_LINE = 2000
 const MAX_TITLE = 120
 const MAX_STATUS_TEXT = 60
 
@@ -35,7 +37,11 @@ export function cleanText(text, max) {
 
 /** The lines of a text: `fenced` for fenced code, `skip` for fenced code or a quote. */
 function classify(text) {
-  const lines = text.slice(0, MAX_TEXT).split(/\r?\n/).slice(0, MAX_LINES)
+  const lines = text
+    .slice(0, MAX_TEXT)
+    .split(/\r?\n/)
+    .slice(0, MAX_LINES)
+    .map((line) => line.slice(0, MAX_LINE))
   const out = []
   let fence = null
   for (const line of lines) {
@@ -107,6 +113,24 @@ const STATUS_HEADING = /^\s{0,3}#{1,6}\s+(?:\d{1,3}[.)]?\s+)?status\s*#*\s*$/i
 const ANY_HEADING = /^\s{0,3}#{1,6}\s/
 const SUPERSEDE_LINE =
   /^(?:[-*+]\s+)?(?:\*\*|__)?(supersedes|superseded by)\b(?:\*\*|__)?\s*:?\s*(.*)$/i
+
+/**
+ * The text of a level-1 ATX heading, without a closing `#` sequence, or
+ * null. A regular expression finds only the start; the end is cut by hand,
+ * so no quantifier can backtrack over the line.
+ */
+export function headingText(line) {
+  const start = /^ {0,3}#[ \t]+/.exec(line)
+  if (!start) return null
+  let text = line.slice(start[0].length).trimEnd()
+  let hashes = text.length
+  while (hashes > 0 && text[hashes - 1] === "#") hashes--
+  if (hashes === 0) return null
+  if (hashes < text.length && /[ \t]/.test(text[hashes - 1]))
+    text = text.slice(0, hashes)
+  text = text.trimEnd()
+  return text === "" ? null : text
+}
 
 /** The two kinds of a supersession clause: this ADR replaces another, or another replaces it. */
 const clause = (kind, text) => ({ kind, text: text.slice(0, 600) })
@@ -189,8 +213,8 @@ export function parseDecision(path, text) {
       flush()
       continue
     }
-    const heading = /^\s{0,3}#\s+(.+?)\s*#*\s*$/.exec(line)
-    if (heading && title === null) title = heading[1]
+    const heading = headingText(line)
+    if (heading && title === null) title = heading
     if (ANY_HEADING.test(line)) {
       flush()
       inStatusSection = STATUS_HEADING.test(line) ? 6 : 0
