@@ -349,6 +349,48 @@ describe("get_related through the MCP client on live Postgres and FalkorDB", () 
     expect(refs(lowerCase)).toContain("knowledge/services/payments-api.md")
   })
 
+  it("adds the results of all edges after a short intent walk, but not for explicit predicates", async () => {
+    const gateway = "knowledge/services/gateway.md"
+    // The ownership walk finds only the owner. The walk of all edges adds
+    // the library, the services that use it, and the doc after the owner.
+    const byIntent = await related({
+      workspace: "platform",
+      seeds: [gateway],
+      intent: "ownership",
+    })
+    expect(byIntent.isError).not.toBe(true)
+    expect(refs(byIntent)[0]).toBe("knowledge/teams/edge.md")
+    expect([...refs(byIntent)].sort()).toEqual([
+      "knowledge/docs/overview.md",
+      limiter,
+      "knowledge/services/payments-api.md",
+      "knowledge/services/search-api.md",
+      "knowledge/teams/edge.md",
+    ])
+    expect(byIntent.structuredContent).toMatchObject({
+      partial: false,
+      explored: { nodes: 6, edges: 5 },
+    })
+    // A limit that the intent walk fills adds nothing.
+    expect(
+      refs(
+        await related({
+          workspace: "platform",
+          seeds: [gateway],
+          intent: "ownership",
+          limit: 1,
+        }),
+      ),
+    ).toEqual(["knowledge/teams/edge.md"])
+    const explicit = await related({
+      workspace: "platform",
+      seeds: [gateway],
+      intent: "ownership",
+      predicates: ["OWNS"],
+    })
+    expect(refs(explicit)).toEqual(["knowledge/teams/edge.md"])
+  })
+
   it("filters the results by kind but walks through the other kinds", async () => {
     const result = await related({
       workspace: "platform",
@@ -568,6 +610,31 @@ describe("get_related through the MCP client on live Postgres and FalkorDB", () 
       new Date(),
     )
     expect(ranking.results.length).toBeGreaterThan(0)
+  })
+
+  it("gives the walk of all edges only the budget that the intent walk left", async () => {
+    const [row] = await withOrgDbContext(seed.orgId, (db) =>
+      db
+        .select({ id: workspaces.id })
+        .from(workspaces)
+        .where(eq(workspaces.slug, "platform")),
+    )
+    const input = z.object(getRelatedInputShape).parse({
+      workspace: "platform",
+      seeds: ["knowledge/services/gateway.md"],
+      intent: "ownership",
+    })
+    // The ownership walk uses 2 of 3 nodes and 1 of 2 edges.
+    const ranking = await rankWorkspaceRelated(
+      { id: seed.orgId, slug: seed.orgSlug },
+      { id: row?.id as string, slug: "platform" },
+      sha("a"),
+      input,
+      new Date(),
+      { caps: { maxNodes: 3, maxEdges: 2 } },
+    )
+    // One node and one edge remain: the seed fits, and nothing new does.
+    expect(ranking.explored).toEqual({ nodes: 2, edges: 1 })
   })
 
   it("refuses a cursor of another call and a cursor after a new revision", async () => {
