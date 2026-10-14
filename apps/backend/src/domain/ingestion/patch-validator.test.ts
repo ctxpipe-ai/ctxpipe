@@ -292,6 +292,35 @@ const ruleCases: RuleCase[] = [
     accepted: ["knowledge/services/checkout.md"],
   },
   {
+    rule: "path",
+    name: "allows only the knowledge folders below the Workspace root folder",
+    files: {
+      "docs/context/knowledge/services/checkout.md": service("Checkout"),
+      "knowledge/services/checkout.md": service("Checkout"),
+      "docs/contextual/knowledge/services/checkout.md": service("Checkout"),
+      "docs/context/AGENTS.md": "# Agents\n",
+      "docs/context/.ctxpipe/sources.yaml": "sources: []\n",
+      "docs/context/linear/issues/eng-2.md": service("Mirror"),
+      "src/app.md": service("App"),
+    },
+    deletes: [
+      "knowledge/services/owned-1.md",
+      "docs/context/../knowledge/services/owned-2.md",
+    ],
+    extra: { rootPath: "docs/context" },
+    rejected: [
+      "knowledge/services/checkout.md",
+      "docs/contextual/knowledge/services/checkout.md",
+      "docs/context/AGENTS.md",
+      "docs/context/.ctxpipe/sources.yaml",
+      "docs/context/linear/issues/eng-2.md",
+      "src/app.md",
+      "knowledge/services/owned-1.md",
+      "docs/context/../knowledge/services/owned-2.md",
+    ],
+    accepted: ["docs/context/knowledge/services/checkout.md"],
+  },
+  {
     rule: "ownership",
     name: "deletes only files the source alone owns",
     deletes: [

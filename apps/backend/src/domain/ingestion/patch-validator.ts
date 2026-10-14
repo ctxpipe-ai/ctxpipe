@@ -66,6 +66,8 @@ export type PatchStepInput = {
   rootGone?: boolean
   /** Repositories that the Workspace knows (sources and linked repositories). */
   linkableRepositories?: readonly string[]
+  /** Workspace root folder; `""` (the default) is the repository root. */
+  rootPath?: string
 }
 
 /** The 12 allowlist folders and their kinds. Patterns are not extracted (ADR-052). */
@@ -177,13 +179,22 @@ export function fileSources(raw: string): string[] {
     : []
 }
 
-/** Path check of concept section 3.1; returns a reason or null. */
-export function disallowedPathReason(path: string): string | null {
-  if (!path || path.includes("\\") || path.startsWith("/"))
+/**
+ * Path check of concept section 3.1; returns a reason or null. `rootPath` is
+ * the Workspace root folder (CTX-709); the allowlist applies below it.
+ */
+export function disallowedPathReason(
+  fullPath: string,
+  rootPath = "",
+): string | null {
+  if (!fullPath || fullPath.includes("\\") || fullPath.startsWith("/"))
     return "The path must be a relative POSIX path"
-  const segments = path.split("/")
-  if (segments.some((s) => s === "" || s === "." || s === ".."))
+  if (fullPath.split("/").some((s) => s === "" || s === "." || s === ".."))
     return "The path has an empty, '.', or '..' segment"
+  if (rootPath && !fullPath.startsWith(`${rootPath}/`))
+    return "The path is outside the Workspace root folder"
+  const path = rootPath ? fullPath.slice(rootPath.length + 1) : fullPath
+  const segments = path.split("/")
   if (segments.some((s) => s.startsWith(".")))
     return "Dot paths are not allowed"
   if (path !== path.normalize("NFC"))
@@ -243,6 +254,7 @@ export async function validatePatchStep(
     rejections.push({ path, rule, reason })
   }
   const sourceUrl = normalizeSourceUrl(input.source.url)
+  const rootPath = input.rootPath ?? ""
 
   const baseEntries = await listTree(input.repoDir, input.baseCommit)
   const meta = await readPatchJson(input.stagedDir, reject)
@@ -294,7 +306,7 @@ export async function validatePatchStep(
   const baseBlobs = await readBlobs(
     input.repoDir,
     [...baseEntries]
-      .filter(([path]) => disallowedPathReason(path) === null)
+      .filter(([path]) => disallowedPathReason(path, rootPath) === null)
       .map(([, blob]) => blob),
   )
   const baseText = (path: string) => {
@@ -316,6 +328,7 @@ export async function validatePatchStep(
     skill: input.skill,
     bundle: input.bundle,
     evidenceExists,
+    rootPath,
   }
 
   const candidates: Candidate[] = []
@@ -328,7 +341,7 @@ export async function validatePatchStep(
       )
       continue
     }
-    const pathReason = disallowedPathReason(op.path)
+    const pathReason = disallowedPathReason(op.path, rootPath)
     if (pathReason) {
       reject(op.path, "path", pathReason)
       continue
@@ -400,7 +413,7 @@ export async function validatePatchStep(
   const deletes = candidates.filter((c) => c.op === "delete")
   const ownedCount = [...baseEntries.keys()].filter(
     (path) =>
-      disallowedPathReason(path) === null &&
+      disallowedPathReason(path, rootPath) === null &&
       fileOwnership(baseText(path) ?? "", sourceUrl) === "sole",
   ).length
   const deleteLimit = Math.floor(ownedCount * MAX_DELETE_SHARE)
@@ -458,6 +471,7 @@ type CheckContext = {
   skill: string
   bundle: string
   evidenceExists: (path: string) => Promise<boolean>
+  rootPath: string
 }
 
 type CheckFailure = { rule: PatchRule; reason: string }
@@ -516,7 +530,10 @@ async function checkFullWrite(
   if (!parsed.success)
     return { rule: "front_matter", reason: zodReason(parsed.error) }
   const attributes = parsed.data
-  const folder = op.path.split("/")[1] ?? ""
+  const folder =
+    op.path
+      .slice(context.rootPath ? context.rootPath.length + 1 : 0)
+      .split("/")[1] ?? ""
   const kind = FOLDER_KINDS.get(folder)
   if (attributes.kind !== kind)
     return {
