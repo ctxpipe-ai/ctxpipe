@@ -1,3 +1,5 @@
+import { posix, win32 } from "node:path"
+import { log } from "../../observability/logger.js"
 import type { HydrateClaim } from "./hydrate.js"
 import { WORKSPACE_LINK_SCHEME } from "./mirror-units.js"
 import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
@@ -28,18 +30,38 @@ type Target = { path: string; root: string | null }
 export function pullRequestChangedClaims(
   units: readonly Unit[],
 ): Map<string, HydrateClaim[]> {
+  let invalidRoots = 0
   const targets = new Map<string, Target[]>()
   for (const unit of units) {
     const isPackage = PACKAGE_KINDS.has(unit.kind ?? "")
     if (!isPackage && unit.kind !== "Repository") continue
+    if (isPackage && unit.attributes.generated_by !== "ctxpipe-extract")
+      continue
+    if (
+      isPackage &&
+      (!Array.isArray(unit.attributes.sources) ||
+        unit.attributes.sources.length !== 1)
+    )
+      continue
     const root = isPackage ? sourceRoot(unit.attributes.root) : null
-    if (isPackage && root === null) continue
+    if (isPackage && root === null) {
+      if (unit.attributes.root !== undefined) invalidRoots++
+      continue
+    }
     for (const source of stringList(unit.attributes.sources)) {
       const key = normalizeWorkspaceRepositoryUrl(source)
       const list = targets.get(key) ?? []
       list.push({ path: unit.path, root })
       targets.set(key, list)
     }
+  }
+
+  if (invalidRoots > 0) {
+    log.warn({
+      step: "pull_request_changes.invalid_root",
+      message: "Ignored invalid package roots",
+      invalidRoots,
+    })
   }
 
   const claims = new Map<string, HydrateClaim[]>()
@@ -80,13 +102,20 @@ export function pullRequestChangedClaims(
   return claims
 }
 
-/** `.` and `` name the repository top; null when the value is not a root. */
+/** `.` names the repository top; null when the value is not a root. */
 function sourceRoot(raw: unknown): string | null {
   if (typeof raw !== "string") return null
-  const root = raw
-    .trim()
-    .replace(/^\.\/+/, "")
-    .replace(/\/+$/, "")
+  const value = raw.trim()
+  if (
+    !value ||
+    posix.isAbsolute(value) ||
+    win32.isAbsolute(value) ||
+    value
+      .split(/[\\/]/)
+      .some((segment) => segment === ".." || segment === ".git")
+  )
+    return null
+  const root = value.replace(/^\.\/+/, "").replace(/\/+$/, "")
   return root === "." ? "" : root
 }
 

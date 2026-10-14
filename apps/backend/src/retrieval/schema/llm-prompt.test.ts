@@ -71,5 +71,9 @@ describe("retrieval schema", () => {
     expect(yaml.length).toBeGreaterThan(100)
     expect(yaml).toContain("hybrid_search")
     expect(yaml).toContain("code_search")
+    expect(yaml).toContain("CHANGED:")
+    expect(yaml).toContain(
+      "the merged PullRequest changed this Service, App, Library or Repository",
+    )
   })
 })

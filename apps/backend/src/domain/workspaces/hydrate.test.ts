@@ -384,7 +384,7 @@ describe("hydrateKnowledgeTree pull request changes", () => {
   const MERGED_AT = "2026-09-01T10:00:00Z"
 
   function pullRequest(
-    paths: string[],
+    paths: (string | { path: string; previousPath: string })[],
     merge: { merged: boolean; mergedAt: string | null } = {
       merged: true,
       mergedAt: MERGED_AT,
@@ -407,7 +407,11 @@ describe("hydrateKnowledgeTree pull request changes", () => {
       requestedReviewers: [],
       createdAt: "2026-08-30T10:00:00Z",
       updatedAt: MERGED_AT,
-      files: paths.map((path) => ({ path, status: "modified" as const })),
+      files: paths.map((file) =>
+        typeof file === "string"
+          ? { path: file, status: "modified" as const }
+          : { ...file, status: "renamed" as const },
+      ),
       reviews: [],
       comments: [],
       requiredChecks: [],
@@ -422,7 +426,7 @@ describe("hydrateKnowledgeTree pull request changes", () => {
   ) {
     return {
       path,
-      content: `---\n${stringify({ kind, name: path, sources: [SHOP], ...extra })}---\n# ${path}\n`,
+      content: `---\n${stringify({ kind, name: path, sources: [SHOP], generated_by: "ctxpipe-extract", ...extra })}---\n# ${path}\n`,
     }
   }
 
@@ -438,13 +442,14 @@ describe("hydrateKnowledgeTree pull request changes", () => {
   ]
 
   function changedEdges(
-    paths: string[],
+    paths: (string | { path: string; previousPath: string })[],
     merge?: Parameters<typeof pullRequest>[1],
+    packages = PACKAGES,
   ) {
     const mirror = pullRequest(paths, merge)
     const { units } = hydrateKnowledgeTree({
       workspaceId: "ws_1",
-      files: [...PACKAGES, mirror],
+      files: [...packages, mirror],
     })
     const prUnit = units.find((unit) => unit.path === mirror.path)
     expect(prUnit?.kind).toBe("PullRequest")
@@ -459,6 +464,105 @@ describe("hydrateKnowledgeTree pull request changes", () => {
         validFrom: claim.validFrom,
       }))
   }
+
+  it("ignores a root on a hand-written unit", () => {
+    expect(
+      changedEdges(["apps/api/src/main.ts"], undefined, [
+        unitFile("knowledge/services/manual.md", "Service", {
+          root: "apps/api",
+          generated_by: undefined,
+        }),
+      ]),
+    ).toEqual([])
+  })
+
+  it.each([
+    "",
+    " ",
+    "/",
+    "/apps/api",
+    "..",
+    "apps/../api",
+    ".git",
+    "apps/.git/cache",
+    "C:\\apps\\api",
+  ])("ignores the invalid root %j", (root) => {
+    expect(
+      changedEdges(["apps/api/main.ts", `${root}/main.ts`], undefined, [
+        unitFile("knowledge/services/invalid.md", "Service", { root }),
+      ]),
+    ).toEqual([])
+  })
+
+  it("ignores a root shared by multiple source repositories", () => {
+    expect(
+      changedEdges(["apps/api/main.ts"], undefined, [
+        unitFile("knowledge/services/shared.md", "Service", {
+          root: "apps/api",
+          sources: [SHOP, "https://github.com/acme/other"],
+        }),
+      ]),
+    ).toEqual([])
+  })
+
+  it("selects the deepest root for a changed file", () => {
+    expect(
+      changedEdges(["apps/api/worker/main.ts"], undefined, [
+        ...PACKAGES,
+        unitFile("knowledge/services/worker.md", "Service", {
+          root: "apps/api/worker",
+        }),
+      ]),
+    ).toEqual([
+      {
+        from: pullRequest([]).path,
+        to: "knowledge/services/worker.md",
+        validFrom: MERGED_AT,
+      },
+    ])
+  })
+
+  it("includes the previous package after a file rename", () => {
+    expect(
+      changedEdges([
+        { path: "apps/web/main.ts", previousPath: "apps/api/main.ts" },
+      ]),
+    ).toEqual([
+      {
+        from: pullRequest([]).path,
+        to: "knowledge/apps/web.md",
+        validFrom: MERGED_AT,
+      },
+      {
+        from: pullRequest([]).path,
+        to: "knowledge/services/api.md",
+        validFrom: MERGED_AT,
+      },
+    ])
+  })
+
+  it("ignores a package without a root", () => {
+    expect(
+      changedEdges(["main.ts"], undefined, [
+        unitFile("knowledge/services/unrooted.md", "Service"),
+      ]),
+    ).toEqual([])
+  })
+
+  it("uses dot as the repository top", () => {
+    expect(
+      changedEdges(["README.md"], undefined, [
+        ...PACKAGES,
+        unitFile("knowledge/apps/top.md", "App", { root: "." }),
+      ]),
+    ).toEqual([
+      {
+        from: pullRequest([]).path,
+        to: "knowledge/apps/top.md",
+        validFrom: MERGED_AT,
+      },
+    ])
+  })
 
   it("writes one CHANGED claim per package that a monorepo pull request touches", () => {
     const mirror = pullRequest([]).path
