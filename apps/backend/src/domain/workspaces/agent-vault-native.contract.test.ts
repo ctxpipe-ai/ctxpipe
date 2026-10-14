@@ -340,6 +340,65 @@ ${code("https://example.com/")}`,
   )
 
   it(
+    "Node fetch reaches a plain-HTTP host with a rule through a closed vault; other hosts and paths stay closed",
+    { timeout: 180_000 },
+    async () => {
+      // Node's fetch tunnels each URL through the proxy, and Agent Vault
+      // closes a tunnel that carries plain HTTP. The model proxy and the tool
+      // bridge are plain HTTP on Docker hosts. OpenCode (Bun) sends them in
+      // absolute form; the image makes Node do the same for skill scripts.
+      await withAgentVault({ image, closed: true }, async (fixture) => {
+        const base = `http://${fixture.upstream}:8080`
+        const vault = await openRunVault({
+          access: fixture.access,
+          runKey: `test:${crypto.randomUUID()}`,
+          ttlSeconds: 600,
+          rules: [
+            bearerUrlRule("tool-bridge", `${base}/echo/bridge`, "bridge-token"),
+          ],
+          unmatchedHosts: "deny",
+        })
+        try {
+          const fetchStatus = (url: string, body = false) =>
+            `node -e 'fetch("${url}").then(async r => console.log(r.status${body ? ", await r.text()" : ""}), e => console.log("ERR", e.cause?.message ?? e.message))'`
+          const result = await fixture.sandbox(
+            vault.env,
+            `${writeProxyCaCommand(vault.caPem)}
+echo "== allowed"
+${fetchStatus(`${base}/echo/bridge`, true)}
+echo "== other-path"
+${fetchStatus(`${base}/echo/other`)}
+echo "== other-host"
+${fetchStatus("http://example.com/")}
+`,
+          )
+          const output = `${result.stdout}\n${result.stderr}`
+          expect(result.exitCode, output).toBe(0)
+          const sections = Object.fromEntries(
+            result.stdout
+              .split("== ")
+              .filter(Boolean)
+              .map((section) => {
+                const [name, ...rest] = section.split("\n")
+                return [name, rest.join("\n").trim()]
+              }),
+          )
+          const [status, ...body] = (sections.allowed ?? "").split(" ")
+          expect(status, output).toBe("200")
+          expect(
+            JSON.parse(body.join(" ") || "{}").headers?.authorization,
+            output,
+          ).toBe("Bearer bridge-token")
+          expect(sections["other-path"], output).toBe("403")
+          expect(sections["other-host"], output).toBe("403")
+        } finally {
+          await vault.close()
+        }
+      })
+    },
+  )
+
+  it(
     "sweeps run vaults a turn end left, and fails closed when Agent Vault is down or has another owner",
     { timeout: 180_000 },
     async () => {
