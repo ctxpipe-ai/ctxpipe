@@ -44,13 +44,15 @@ describe("Linear setup model", () => {
     expect(getLinearSetupCurrentIndex(draft, selfHostSaved)).toBe(1)
   })
 
-  it("gives the card an action only before the connection is installed", () => {
+  it("gives the card a setup action, then Manage once installed", () => {
     expect(getLinearCardPrimaryCta(draft, selfHostUnsaved)).toEqual({
       label: "Register OAuth app",
     })
     expect(getLinearCardPrimaryCta(draft, hosted)).toEqual({
       label: "Connect Linear",
     })
-    expect(getLinearCardPrimaryCta(installed, hosted)).toBeNull()
+    expect(getLinearCardPrimaryCta(installed, hosted)).toEqual({
+      label: "Manage",
+    })
   })
 })

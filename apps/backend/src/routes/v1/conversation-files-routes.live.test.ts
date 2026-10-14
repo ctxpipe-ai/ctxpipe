@@ -331,6 +331,60 @@ it(
 )
 
 it(
+  "answers an unsafe conversation file path with 400 and a JSON error",
+  { timeout: 30_000 },
+  async () => {
+    await withNativeChatFixture(async (f) => {
+      await withOrgDbContext(f.orgId, (db) =>
+        db
+          .update(workspaces)
+          .set({ writeStatus: "writable" })
+          .where(eq(workspaces.id, f.workspaceId)),
+      )
+      const hono = new OpenAPIHono<AppEnv>()
+      hono.use(contextStorage())
+      hono.use(withTestRequestLogger)
+      hono.use("*", async (c, next) => {
+        c.set("user", {
+          id: `user_${f.orgId}`,
+        } as AppEnv["Variables"]["user"])
+        c.set("session", {
+          id: `session_${f.orgId}`,
+        } as AppEnv["Variables"]["session"])
+        await next()
+      })
+      hono.route("/conversations", conversationFileRoutes)
+      hono.route("/conversations", conversationRoutes)
+      const conversation = `/conversations/${f.conversationId}`
+      expect(
+        (
+          await hono.request(`${conversation}/prepare`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ workspaceId: f.workspaceId }),
+          })
+        ).status,
+      ).toBe(204)
+      const version = await conversationWorktreeVersion(
+        (path, init) => hono.request(path, init),
+        conversation,
+      )
+      const response = await hono.request(`${conversation}/files/blob`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          path: "../escape.md",
+          body: "no",
+          expectedWorktreeVersion: version,
+        }),
+      })
+      expect(response.status).toBe(400)
+      expect(await response.json()).toMatchObject({ error: "unsafe_path" })
+    })
+  },
+)
+
+it(
   "rejects a stale conversation file write and accepts the current worktree version",
   { timeout: 30_000 },
   async () => {

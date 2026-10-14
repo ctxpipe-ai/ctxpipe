@@ -62,6 +62,7 @@ export function getLinearCardPrimaryCta(
     case "connect":
       return { label: "Connect Linear" }
     case "workspaces":
-      return null
+      // The setup dialog adds a connected Linear to more Workspaces.
+      return { label: "Manage" }
   }
 }
