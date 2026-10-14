@@ -32,9 +32,9 @@ What to fake: [root AGENTS.md → Testing](../../AGENTS.md#testing). Name Postgr
 
 - Shared explorer tools live in [`src/tools/repoExplorerTools.ts`](src/tools/repoExplorerTools.ts): `glob_files`, `search`, `find_symbol_definitions` (Zoekt `sym:`), `find_symbol_references` (heuristic regexp), `structural_search` (ast-grep), SCIP-backed `graph_*` tools, and `get_file`. The production **codesearch** image installs the SCIP indexer matrix and ast-grep; see [`apps/codesearch/Dockerfile`](../codesearch/Dockerfile).
 
-### ctx_advisor regression checks (manual / Langfuse)
+### Public MCP tools
 
-Production traces use Langfuse step `conversation.mcp.ctx_advisor` (session/thread in MCP). When changing advisor prompts or MCP tool copy, spot-check traces for: answers citing **line numbers** without a prior `get_file` / search snippet in the same turn; **reachability** claims (unused/dead/legacy) without `graph_get_callers` or `find_symbol_references`. Keep a small internal prompt list for those cases if you iterate on epistemic rules.
+`/mcp` exposes the seven read tools of [ADR-051](../../.ai/memory/decisions/ADR-051-mcp-read-surface.md) and the `ctxpipe://{org}/{workspace}/{+ref}` resource template. [`src/mcp/tools.ts`](src/mcp/tools.ts) registers them in one place. Each tool call and each resource read has an `mcp.tool <name>` or `mcp.resource <name>` span with a call id. The MCP runs no LLM, so it has no Langfuse trace.
 
 ## Local development
 
