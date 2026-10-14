@@ -76,7 +76,12 @@ const wide = {
   release: () => {},
   gate: Promise.resolve(),
 }
-const workspaceIds = [generateObjectId("ws"), generateObjectId("ws")]
+/**
+ * The run takes its destinations in Workspace id order, and the tests expect
+ * the first destination to be `workspaceIds[0]`. Two ids made one after the
+ * other do not always sort in that order, so sort them.
+ */
+const workspaceIds = [generateObjectId("ws"), generateObjectId("ws")].sort()
 const githubLog: GithubTokenLog = { minted: [], revoked: [] }
 const modelCalls: Array<{
   step: string
