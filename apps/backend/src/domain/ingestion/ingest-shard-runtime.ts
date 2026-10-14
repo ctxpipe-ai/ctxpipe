@@ -46,21 +46,21 @@ export type IngestRuntimeStep = {
   skill: string
   run: "script" | "model"
   tier?: ModelTier
-  /** A root path of the source, or `.` for a repository-wide skill. */
-  root: string
+  /** The root path of a root step; null for a repository-wide step. */
+  root: string | null
   workspaceId: string
   /** The commit that the step stages against: the ref tip or the pinned revision. */
   baseCommit: string
   /** The ref to fetch before the step; absent when the base is the pinned revision. */
   fetchRef?: string
-  /** A repository-wide script step: the root-to-file map (`--roots`). */
-  rootMap?: IngestRootMap
+  /** The root-to-file map (`--roots`); every step gets it (ADR-052 section 6). */
+  rootMap: IngestRootMap
   signal: AbortSignal
 }
 
 /**
- * The `--roots` file of a repository-wide script step (ADR-052 section 6):
- * each planned root, and the context files that the root's steps wrote.
+ * The `--roots` file of each step (ADR-052 section 6): each planned root of
+ * the run, and the context files that the root's steps wrote.
  */
 export type IngestRootMap = {
   roots: Array<{
@@ -77,10 +77,10 @@ export type IngestShardRuntime = {
   /** Run the `discover-roots` script; return its parsed JSON result. */
   discoverRoots(): Promise<unknown>
   /**
-   * Run one skill step; return the tar of `/ctxpipe/out`, and `more` when a
-   * script step says that files wait for a next page.
+   * Run one skill step; return the tar of `/ctxpipe/out`. Its `patch.json`
+   * holds `more` when files wait for a next page; the host reads it.
    */
-  runStep(step: IngestRuntimeStep): Promise<{ tar: Uint8Array; more: boolean }>
+  runStep(step: IngestRuntimeStep): Promise<{ tar: Uint8Array }>
 }
 
 export type IngestShardRuntimeFactory = {

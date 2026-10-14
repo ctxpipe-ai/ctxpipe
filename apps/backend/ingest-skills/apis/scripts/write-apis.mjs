@@ -366,13 +366,4 @@ for (const api of selected) {
     })
 }
 
-// writeStep prints its own result; print one result with `more` of this script instead.
-const write = process.stdout.write.bind(process.stdout)
-process.stdout.write = () => true
-let result
-try {
-  result = writeStep(step, plans, skipped)
-} finally {
-  process.stdout.write = write
-}
-write(`${JSON.stringify({ ...result, more: result.more || more })}\n`)
+writeStep(step, plans, skipped, { more })

@@ -60,6 +60,39 @@ describe("ingestion v2 plan", () => {
     })
   })
 
+  it("runs the repository unit first, and the shared-file skills also on the assembled ref", () => {
+    const bundle = [
+      "repository",
+      "classify-kind",
+      "apis",
+      "dependencies",
+      "datasources-infra",
+      "libraries",
+      "ownership",
+      "decisions",
+      "instruction-areas",
+    ]
+    expect(plannedIngestSkills(bundle, "first")).toEqual([
+      { name: "repository", scope: "first", run: "script" },
+    ])
+    expect(plannedIngestSkills(bundle, "root").map((s) => s.name)).toEqual([
+      "classify-kind",
+      "apis",
+      "dependencies",
+      "datasources-infra",
+    ])
+    expect(
+      plannedIngestSkills(bundle, "repository").map((s) => s.name),
+    ).toEqual([
+      "libraries",
+      "ownership",
+      "dependencies",
+      "datasources-infra",
+      "decisions",
+      "instruction-areas",
+    ])
+  })
+
   it("refuses a bundle skill that the plan does not know", () => {
     expect(() =>
       plannedIngestSkills(["discover-roots", "unknown-skill"], "root"),

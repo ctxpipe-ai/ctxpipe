@@ -14,6 +14,7 @@ import {
 import {
   INGESTION_V2_WORKFLOW_NAME,
   ingestionV2InputSchema,
+  ingestionV2Status,
 } from "../../domain/ingestion/ingestion-run.js"
 import {
   resolveIngestionV2Run,
@@ -41,13 +42,17 @@ import { repositoryIndex } from "./repository-index.js"
 /*
  * The ingestion v2 parent workflow (ADR-052, T09), in shadow mode only:
  *
- *   resolve -> index -> discover-roots -> shard:<n> (children)
- *   -> assemble:<workspaceId> -> repository-skills (child) -> release
+ *   resolve -> index -> discover-roots -> repository-first (child)
+ *   -> shard:<n> (children) -> assemble:<workspaceId>
+ *   -> repository-skills (child) -> release
  *
  * `discover-roots` runs once, in the sandbox of shard 0, and the host check
  * (`resolveDiscoveredRoots`) plans the roots. Each shard gets its explicit
  * root list. Step outputs hold ref SHAs and counts; the one larger output is
  * the compressed root list, which the root cap keeps far below 16 KB.
+ * `repository-first` writes the repository unit on the assembled ref; its
+ * tip is the run base of each Workspace: the shard refs start there, and
+ * `assemble` merges the shard tips against it (ADR-052 section 6).
  * Nothing publishes: the refs stay for the comparison (T20). T21 adds publish.
  */
 
@@ -58,7 +63,8 @@ export type IngestionV2Output =
   | { status: "skipped"; reason: string }
   | { status: "partial"; reason: string }
   | {
-      status: "done"
+      /** `partial` when a Workspace is refused or has a `partial` step. */
+      status: "done" | "partial"
       shards: number
       workspaces: Array<{
         workspaceId: string
@@ -179,6 +185,7 @@ export function defineRepositoryIngestionV2Workflow(
           return {
             bundle: bundle.name,
             roots: packed,
+            firstSkills: plannedIngestSkills(bundle.skills, "first").length,
             repositorySkills: plannedIngestSkills(bundle.skills, "repository")
               .length,
           }
@@ -201,34 +208,59 @@ export function defineRepositoryIngestionV2Workflow(
           shard,
           mode,
           roots: shardRoots,
+          ...(mode === "roots" ? { runRoots: roots } : {}),
           bundle: scope.bundle,
           source,
           authorTime: input.authorTime,
           destinations,
           ...(startTips ? { startTips } : {}),
         })
+
+        // The repository unit, on the assembled ref and in the sandbox of
+        // shard 0. Its tip is the run base of each Workspace.
+        const first =
+          scope.firstSkills > 0
+            ? await step.runWorkflow(
+                deps.shard.spec,
+                child(0, "first", roots),
+                { name: "repository-first" },
+              )
+            : null
+        const runBase = Object.fromEntries(
+          (first?.workspaces ?? []).flatMap((w) =>
+            w.tip ? [[w.workspaceId, w.tip]] : [],
+          ),
+        )
+
         const shardOutputs: IngestionShardOutput[] = []
-        for (let n = 0; n < shards; n += SHARD_BATCH)
-          shardOutputs.push(
-            ...(await Promise.all(
-              Array.from(
-                { length: Math.min(SHARD_BATCH, shards - n) },
-                (_, i) =>
-                  step.runWorkflow(
-                    deps.shard.spec,
-                    child(
-                      n + i,
-                      "roots",
-                      roots.slice(
-                        (n + i) * INGEST_SHARD_MAX_ROOTS,
-                        (n + i + 1) * INGEST_SHARD_MAX_ROOTS,
-                      ),
-                    ),
-                    { name: `shard:${n + i}` },
+        for (let n = 0; n < shards; n += SHARD_BATCH) {
+          // Wait for every child of the batch, also when one fails, so the
+          // run never ends (and cleans up) while a sibling still runs.
+          const settled = await Promise.allSettled(
+            Array.from({ length: Math.min(SHARD_BATCH, shards - n) }, (_, i) =>
+              step.runWorkflow(
+                deps.shard.spec,
+                child(
+                  n + i,
+                  "roots",
+                  roots.slice(
+                    (n + i) * INGEST_SHARD_MAX_ROOTS,
+                    (n + i + 1) * INGEST_SHARD_MAX_ROOTS,
                   ),
+                  runBase,
+                ),
+                { name: `shard:${n + i}` },
               ),
-            )),
+            ),
           )
+          for (const result of settled)
+            if (result.status === "rejected") throw result.reason
+          shardOutputs.push(
+            ...settled.flatMap((r) =>
+              r.status === "fulfilled" ? [r.value] : [],
+            ),
+          )
+        }
 
         const workspaces: Extract<
           IngestionV2Output,
@@ -241,6 +273,8 @@ export function defineRepositoryIngestionV2Workflow(
               .map((w) => ({ shard: output.shard, ...w })),
           )
           const assembleStep = `assemble:${destination.workspaceId}`
+          const base =
+            runBase[destination.workspaceId] ?? destination.pinnedRevision
           const assembled = await step.run(
             {
               name: assembleStep,
@@ -260,11 +294,13 @@ export function defineRepositoryIngestionV2Workflow(
                         workspaceId: destination.workspaceId,
                         generation: destination.generation,
                       },
-                      pinnedRevision: destination.pinnedRevision,
                       shards: parts.flatMap((p) =>
                         p.tip ? [{ shard: String(p.shard), tip: p.tip }] : [],
                       ),
-                      oldTip: null,
+                      // The shard refs start at the run base, which is
+                      // the assembled ref's tip when the first step ran.
+                      pinnedRevision: base,
+                      oldTip: runBase[destination.workspaceId] ?? null,
                       commit: {
                         step: assembleStep,
                         bundle: scope.bundle,
@@ -304,12 +340,22 @@ export function defineRepositoryIngestionV2Workflow(
               }
             },
           )
+          const firstPart = first?.workspaces.find(
+            (w) => w.workspaceId === destination.workspaceId,
+          )
           workspaces.push({
             workspaceId: destination.workspaceId,
             assembled: assembled.tip,
-            ops: assembled.ops,
-            rejects: parts.reduce((sum, p) => sum + p.rejects, 0),
-            partial: parts.reduce((sum, p) => sum + p.partial, 0),
+            ops: assembled.ops + (firstPart?.ops ?? 0),
+            rejects:
+              parts.reduce((sum, p) => sum + p.rejects, 0) +
+              (firstPart?.rejects ?? 0),
+            // A refused assemble (also a semantic merge that fails the
+            // validator) makes the Workspace `partial`.
+            partial:
+              parts.reduce((sum, p) => sum + p.partial, 0) +
+              (firstPart?.partial ?? 0) +
+              ("refused" in assembled ? 1 : 0),
             ...("refused" in assembled ? { refused: assembled.refused } : {}),
           })
         }
@@ -349,7 +395,7 @@ export function defineRepositoryIngestionV2Workflow(
           ops: workspaces.reduce((sum, w) => sum + w.ops, 0),
           partial: workspaces.reduce((sum, w) => sum + w.partial, 0),
         })
-        return { status: "done", shards, workspaces }
+        return { status: ingestionV2Status(workspaces), shards, workspaces }
       }
     },
   )

@@ -807,6 +807,46 @@ describe("validatePatchStep stamps", () => {
     expect(front(apiPath)).not.toHaveProperty("root")
   })
 
+  it("sets root . on a Repository unit, also in a step without a root", async () => {
+    const path = "knowledge/codebases/shop.md"
+    const result = await run(
+      stage({
+        files: {
+          [path]: doc({ kind: "Repository", name: "shop" }, "# shop\n"),
+        },
+      }),
+    )
+    expect(result.rejections).toEqual([])
+    expect(
+      parseYaml(readTree(result.tree, path).split("---\n")[1] ?? ""),
+    ).toMatchObject({ root: "." })
+  })
+
+  it("rejects a shared file in a root step and accepts it in a repository-wide step", async () => {
+    const files = {
+      "knowledge/streams/orders.md": doc(
+        { kind: "Stream", name: "orders" },
+        "# orders\n",
+      ),
+      "knowledge/databases/orders-db.md": doc(
+        { kind: "Database", name: "Orders DB" },
+        "# Orders DB\n",
+      ),
+      "knowledge/infrastructure/compose.md": doc(
+        { kind: "Infrastructure", name: "Compose" },
+        "# Compose\n",
+      ),
+    }
+    const rootStep = await run(stage({ files }), { root: "apps/orders" })
+    expect(rootStep.rejections.map((r) => [r.path, r.rule]).sort()).toEqual(
+      Object.keys(files)
+        .sort()
+        .map((path) => [path, "shared_file"]),
+    )
+    const repositoryStep = await run(stage({ files }))
+    expect(repositoryStep.rejections).toEqual([])
+  })
+
   it("rejects a root that the model writes", async () => {
     const path = "knowledge/services/model-root.md"
     const result = await run(

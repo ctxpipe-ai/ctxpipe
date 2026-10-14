@@ -41,3 +41,12 @@ export const ingestionV2InputSchema = z.object({
 })
 
 export type IngestionV2Input = z.infer<typeof ingestionV2InputSchema>
+
+/** `partial` when a Workspace was refused or has a `partial` step. */
+export function ingestionV2Status(
+  workspaces: ReadonlyArray<{ partial: number; refused?: string }>,
+): "done" | "partial" {
+  return workspaces.some((w) => w.partial > 0 || w.refused !== undefined)
+    ? "partial"
+    : "done"
+}

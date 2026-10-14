@@ -27,6 +27,7 @@ import {
 import { organizations } from "../../db/schema/auth.js"
 import { connections } from "../../db/schema/connections.js"
 import { workspaces } from "../../db/schema/workspaces.js"
+import { heldIngestSourceTrees } from "../../domain/ingestion/ingest-source-tree.js"
 import { readIngestSkillBundle } from "../../domain/ingestion/skill-bundle.js"
 import { generateObjectId } from "../../lib/id.js"
 import { replaceWorkspaceSourceRows } from "../../models/workspace-sources.js"
@@ -64,11 +65,32 @@ const sourceName = `acme/checkout-api-${suffix}`
 const contexts = [`acme/context-a-${suffix}`, `acme/context-b-${suffix}`]
 const workspaceIds = [generateObjectId("ws"), generateObjectId("ws")]
 const githubLog: GithubTokenLog = { minted: [], revoked: [] }
-const modelCalls: Array<{ step: string; workspaceId: string }> = []
+const modelCalls: Array<{
+  step: string
+  workspaceId: string
+  root: string | null
+  args: string[]
+  index: string[]
+}> = []
 
-function modelReply(body: { root: string; workspaceId: string }) {
-  const name = body.root === "." ? "checkout-api" : body.root.split("/").pop()
+/**
+ * The stand-in agent: one Service file for each root. The first page of the
+ * `services/orders` step of the first Workspace says `more`, so the host runs
+ * that skill again on the new tip (one paging channel, ADR-052 section 6).
+ */
+function modelReply(body: {
+  step: string
+  root: string | null
+  workspaceId: string
+}) {
+  const root = body.root ?? "."
+  const name = root === "." ? "checkout-api" : root.split("/").pop()
+  const firstPage = !/\.\d+:/.test(body.step)
   return {
+    more:
+      root === "services/orders" &&
+      body.workspaceId === workspaceIds[0] &&
+      firstPage,
     files: [
       {
         path: `knowledge/services/${name}.md`,
@@ -83,10 +105,12 @@ const server = setupServer(
   http.post(MODEL_URL, async ({ request }) => {
     const body = (await request.json()) as {
       step: string
-      root: string
+      root: string | null
       workspaceId: string
+      args: string[]
+      index: string[]
     }
-    modelCalls.push({ step: body.step, workspaceId: body.workspaceId })
+    modelCalls.push(body)
     return HttpResponse.json(modelReply(body))
   }),
 )
@@ -164,11 +188,14 @@ beforeAll(async () => {
   for (const name of contexts)
     pinned.push(remote(name, { "README.md": "# Context\n" }))
 
-  // The bundle: the real discover-roots skill and stage helpers, and one
+  // The bundle: the real stage helpers and script skills, and one fixture
   // model skill of the plan.
   const real = await readIngestSkillBundle()
   bundleDir = join(folder, "bundle")
-  for (const file of real.files) {
+  const kept = ["bin", "discover-roots", "repository", "libraries", "ownership"]
+  for (const file of real.files.filter((f) =>
+    kept.includes(f.path.split("/")[0] ?? ""),
+  )) {
     mkdirSync(dirname(join(bundleDir, file.path)), { recursive: true })
     writeFileSync(join(bundleDir, file.path), file.content, {
       mode: file.executable ? 0o755 : 0o644,
@@ -273,25 +300,55 @@ describe("ingestion v2 in shadow mode", () => {
       const result = await handle.result({ timeoutMs: 400_000 })
       const runId = handle.workflowRun.id
 
-      // One model run per root and destination Workspace: 2 roots, 2 Workspaces.
-      expect(modelCalls).toHaveLength(4)
-      expect(new Set(modelCalls.map((c) => `${c.step}`)).size).toBe(4)
+      // One model run per root and destination Workspace (2 roots, 2
+      // Workspaces), and a second page for the step that said `more`.
+      expect(modelCalls).toHaveLength(5)
+      expect(new Set(modelCalls.map((c) => `${c.step}`)).size).toBe(5)
+      expect(modelCalls.filter((c) => /\.2:/.test(c.step))).toEqual([
+        expect.objectContaining({
+          root: "services/orders",
+          workspaceId: workspaceIds[0],
+        }),
+      ])
       expect(new Set(modelCalls.map((c) => c.workspaceId))).toEqual(
         new Set(workspaceIds),
       )
+      const codebase = `knowledge/codebases/checkout-api-${suffix}.md`
+      for (const call of modelCalls) {
+        // One input shape: the root of a root step is `--path`.
+        expect(call.args).toEqual(
+          expect.arrayContaining(["--source-url", "--roots", "--path"]),
+        )
+        expect(call.args.at(-1)).toBe(call.root)
+        // The index is at the step base: the repository unit of the first
+        // step is in it.
+        expect(call.index).toContain(codebase)
+      }
+      // The `services/orders` step runs after the `.` step of its shard, so
+      // its index holds the file that the earlier step wrote.
+      expect(
+        modelCalls.find(
+          (c) => c.root === "services/orders" && !/\.2:/.test(c.step),
+        )?.index,
+      ).toContain("knowledge/services/checkout-api.md")
 
       expect(result).toMatchObject({ status: "done", shards: 1 })
       if (result.status !== "done") throw new Error("The run did not finish")
       // The host validator accepted each file that the stand-in agent wrote.
-      const steps = await getSystemDb().execute<{ output: unknown }>(sql`
-        select output from openworkflow.step_attempts
+      const steps = await getSystemDb().execute<{
+        step_name: string
+        output: unknown
+      }>(sql`
+        select step_name, output from openworkflow.step_attempts
         where namespace_id = ${openWorkflowNamespaceId()}
           and step_name like 'skill:%' and step_name not like 'skill:repository:%'
           and status = 'completed'
       `)
-      expect(steps.rows.map((row) => row.output)).toEqual(
-        Array(4).fill(expect.objectContaining({ ops: 1, rejects: 0 })),
-      )
+      expect(
+        steps.rows
+          .filter((row) => !/\.2:/.test(row.step_name))
+          .map((row) => row.output),
+      ).toEqual(Array(4).fill(expect.objectContaining({ ops: 1, rejects: 0 })))
       for (const [i, name] of contexts.entries()) {
         const workspaceId = workspaceIds[i] ?? ""
         const refs = refsOf(name)
@@ -323,9 +380,30 @@ describe("ingestion v2 in shadow mode", () => {
           `${assembled}:knowledge/services/orders.md`,
         )
         expect(orders).toContain("generated_by: ctxpipe-extract")
+        // The host root of each root step's package unit (CTX-657).
+        expect(orders).toContain("root: services/orders")
+        expect(
+          git(
+            join(remotes, name),
+            "show",
+            `${assembled}:knowledge/services/checkout-api.md`,
+          ),
+        ).toContain("root: .")
+        // The repository unit of the first step, with the host fields.
+        const unit = git(
+          join(remotes, name),
+          "show",
+          `${assembled}:${codebase}`,
+        )
+        expect(unit).toContain("kind: Repository")
+        expect(unit).toContain("root: .")
+        expect(unit).toContain(`- https://github.com/${sourceName}`)
         // Shadow mode publishes nothing: the default branch did not move.
         expect(git(join(remotes, name), "rev-parse", "main")).toBe(pinned[i])
       }
+
+      // The parent and each child deleted their copies of the source tree.
+      expect(heldIngestSourceTrees(runId)).toBe(0)
 
       // Each step output holds a SHA and counts, far below 16 KB.
       const sizes = await getSystemDb().execute<{ largest: number }>(sql`
@@ -483,8 +561,8 @@ process.exit(result.status ?? 1);
         const result = await handle.result({ timeoutMs: 400_000 })
         expect(result).toMatchObject({ status: "done", shards: 1 })
         // One model call per step: the crashed step found its commit.
-        expect(calls).toHaveLength(4)
-        expect(new Set(calls).size).toBe(4)
+        expect(calls).toHaveLength(5)
+        expect(new Set(calls).size).toBe(5)
         expect(calls.filter((step) => step === crashedStep)).toHaveLength(1)
         for (const [i, name] of contexts.entries()) {
           const prefix = `refs/ctxpipe/ingest/${runId}/${workspaceIds[i]}`

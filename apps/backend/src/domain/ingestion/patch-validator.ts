@@ -84,6 +84,12 @@ const FOLDER_KINDS: ReadonlyMap<string, string> = new Map(
 )
 
 const GENERATED_BY = "ctxpipe-extract"
+/**
+ * Folders whose files more than one root can write (ADR-052 section 6). A
+ * root step (with a `root`) only claims them; a repository-wide step writes them.
+ */
+const SHARED_FOLDER =
+  /^knowledge\/(?:streams|databases|infrastructure|instructions)\//
 /** The kinds whose files get the host `root` (CTX-657). */
 const PACKAGE_KINDS: ReadonlySet<string> = new Set([
   "Service",
@@ -380,6 +386,14 @@ export async function validatePatchStep(
         op.path,
         "base_blob_mismatch",
         "The file does not exist at the base commit",
+      )
+      continue
+    }
+    if (context.root !== undefined && SHARED_FOLDER.test(op.path)) {
+      reject(
+        op.path,
+        "shared_file",
+        "More than one root can write this file, so only a repository-wide step writes it",
       )
       continue
     }
@@ -718,9 +732,13 @@ async function checkFullWrite(
 
   const baseRoot =
     typeof baseAttributes.root === "string" ? baseAttributes.root : undefined
-  const root = PACKAGE_KINDS.has(attributes.kind)
-    ? (context.root ?? baseRoot)
-    : undefined
+  // A Repository unit is the whole repository: its root is always `.`.
+  const root =
+    attributes.kind === "Repository"
+      ? "."
+      : PACKAGE_KINDS.has(attributes.kind)
+        ? (context.root ?? baseRoot)
+        : undefined
   const stamped = {
     kind: attributes.kind,
     name: attributes.name,

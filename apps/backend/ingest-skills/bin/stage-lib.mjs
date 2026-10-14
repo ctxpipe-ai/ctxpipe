@@ -156,8 +156,13 @@ export function stagedPaths(step) {
   return paths
 }
 
-/** Write patch.json for the staged tree and the recorded deletes; returns the ops. */
-export function writePatch(step) {
+/**
+ * Write patch.json for the staged tree and the recorded deletes; returns the
+ * ops. `more` tells the host that files wait for a next page (ADR-052
+ * section 6): the host runs the skill again on the new tip. A later
+ * writePatch keeps a `more` that an earlier one wrote in the same step.
+ */
+export function writePatch(step, options = {}) {
   const recorded = readStaged(step)
   const ops = []
   const staged = new Set(stagedPaths(step))
@@ -177,6 +182,19 @@ export function writePatch(step) {
     })
   }
   ops.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
-  writeJson(join(step.stepDir, "patch.json"), { ops })
+  const more = options.more === true || earlierMore(step)
+  writeJson(join(step.stepDir, "patch.json"), more ? { ops, more } : { ops })
   return ops
+}
+
+/** True when patch.json of this step already says `more`. */
+function earlierMore(step) {
+  try {
+    const earlier = JSON.parse(
+      readFileSync(join(step.stepDir, "patch.json"), "utf8"),
+    )
+    return earlier?.more === true
+  } catch {
+    return false
+  }
 }

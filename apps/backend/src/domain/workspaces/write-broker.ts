@@ -692,7 +692,7 @@ export async function pushWorkspaceIngestAssemble(
 export async function findWorkspaceStepCommit(
   input: { orgId: string; job: IngestBrokerJob; ref: string; step: string },
   env: Env,
-): Promise<{ sha: string; ops: number } | null> {
+): Promise<{ sha: string; ops: number; more: boolean } | null> {
   const target = parseIngestRef(input.ref)
   if (
     target?.runId !== input.job.runId ||

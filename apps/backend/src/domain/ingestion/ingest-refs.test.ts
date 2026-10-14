@@ -79,7 +79,7 @@ function blobAtPinned(path: string): string | null {
 }
 
 /** Writes a staged step output: `files/<path>` and `patch.json`. */
-function stage(files: Record<string, string>): string {
+function stage(files: Record<string, string>, more = false): string {
   fixtureCount += 1
   const dir = join(root, `step-${fixtureCount}`)
   mkdirSync(join(dir, "files"), { recursive: true })
@@ -93,6 +93,7 @@ function stage(files: Record<string, string>): string {
           ? { op: "update", path, baseBlob }
           : { op: "create", path }
       }),
+      ...(more ? { more } : {}),
     }),
   )
   return dir
@@ -128,6 +129,7 @@ function step(
     authorTime?: Date
     remoteUrl?: string
     baseCommit?: string
+    more?: boolean
   } = {},
 ) {
   return pushIngestStep({
@@ -152,6 +154,7 @@ function step(
         input.files ?? {
           "knowledge/services/checkout.md": service("Checkout"),
         },
+        input.more,
       ),
       source: { url: SOURCE_URL, sha: "1".repeat(40) },
       skill: "apis",
@@ -395,6 +398,47 @@ describe("pushIngestStep", () => {
   })
 })
 
+describe("step paging (patch.json more)", () => {
+  it("reads more from patch.json, writes it as a trailer, and a resumed step finds it", async () => {
+    const ref = ingestRefName({
+      runId: RUN,
+      workspaceId: WORKSPACE,
+      shard: "0",
+    })
+    const pushed = await step({ more: true })
+    expect(pushed.more).toBe(true)
+    expect(
+      git(remote, [
+        "log",
+        "-1",
+        "--format=%(trailers:key=Ctxpipe-More,valueonly)",
+        pushed.sha,
+      ]),
+    ).toBe("true")
+    await expect(
+      findStepCommit({
+        remote: { url: remote },
+        ref,
+        runId: RUN,
+        step: "skill:services:apis:ws_alpha",
+      }),
+    ).resolves.toEqual({ sha: pushed.sha, ops: 1, more: true })
+  })
+
+  it("has no trailer and more false when patch.json has no more", async () => {
+    const pushed = await step()
+    expect(pushed.more).toBe(false)
+    expect(
+      git(remote, [
+        "log",
+        "-1",
+        "--format=%(trailers:key=Ctxpipe-More,valueonly)",
+        pushed.sha,
+      ]),
+    ).toBe("")
+  })
+})
+
 describe("findStepCommit", () => {
   it("finds a step's commit on the tip after a crash after the push", async () => {
     const ref = ingestRefName({
@@ -411,7 +455,7 @@ describe("findStepCommit", () => {
         runId: RUN,
         step: "skill:services:apis:ws_alpha",
       }),
-    ).resolves.toEqual({ sha: pushed.sha, ops: 1 })
+    ).resolves.toEqual({ sha: pushed.sha, ops: 1, more: false })
     await expect(
       findStepCommit({
         remote: { url: remote },

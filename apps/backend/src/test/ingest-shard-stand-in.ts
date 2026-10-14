@@ -3,6 +3,7 @@ import { existsSync } from "node:fs"
 import { mkdir, rm, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import { promisify } from "node:util"
+import { buildContextIndex } from "../domain/ingestion/context-index.js"
 import type {
   IngestShardRuntime,
   IngestShardRuntimeFactory,
@@ -13,9 +14,13 @@ const exec = promisify(execFile)
 /**
  * A stand-in for the ingest sandbox: the same `/ctxpipe` layout in a host
  * folder, the bundle's own scripts and stage helpers (`--root`), and real git
- * clones of the source and the destination repositories. Only the agent is
- * replaced: a model step posts `{ step, skill, root, workspaceId }` to
- * `modelUrl` and stages the files of the reply (`{ files: [{ path, content }] }`).
+ * clones of the source and the destination repositories. The context index
+ * of each step comes from the host path (`buildContextIndex` at the step
+ * base). Only the agent is replaced: a model step posts
+ * `{ step, skill, root, workspaceId, args, index }` to `modelUrl` (`index`:
+ * the paths of the index entries) and stages the files of the reply
+ * (`{ files: [{ path, content }], more? }`); `more` runs
+ * `ctxpipe-finish --more`.
  *
  * The folder is named by run and shard, so a replacement worker process finds
  * it, and `ensure` makes it again when it is gone (a lost sandbox).
@@ -71,6 +76,34 @@ export function standInIngestShardRuntime(options: {
         if (step.fetchRef)
           await git(context, "fetch", "-q", "origin", step.fetchRef)
         await git(context, "checkout", "-q", "--detach", step.baseCommit)
+        const destination = spec.destinations.find(
+          (d) => d.workspaceId === step.workspaceId,
+        )
+        if (!destination)
+          throw new Error("The step's Workspace is not in the shard")
+        const { index, json } = await buildContextIndex({
+          workspaceId: step.workspaceId,
+          sha: destination.pinnedRevision,
+          base: step.baseCommit,
+          sourceUrl: spec.source.url,
+          repoDir: context,
+        })
+        await writeFile(
+          join(root, "context", `${step.workspaceId}.index.json`),
+          json,
+        )
+        const rootsFile = join(root, "roots.json")
+        await writeFile(rootsFile, JSON.stringify(step.rootMap))
+        // The same host inputs as the sandbox (ADR-052 section 6).
+        const args = [
+          "--source",
+          sourceDir,
+          "--source-url",
+          spec.source.url,
+          "--roots",
+          rootsFile,
+          ...(step.root === null ? [] : ["--path", step.root]),
+        ]
         const out = join(root, "out")
         await rm(out, { recursive: true, force: true })
         await mkdir(join(out, "files"), { recursive: true })
@@ -83,23 +116,12 @@ export function standInIngestShardRuntime(options: {
         )
         let more = false
         if (step.run === "script") {
-          const rootsFile = join(root, "roots.json")
-          await writeFile(
-            rootsFile,
-            JSON.stringify(step.rootMap ?? { roots: [] }),
-          )
-          const out = await node(
+          await node(
             `${step.skill}/scripts/${step.skill}.mjs`,
             "--root",
             root,
-            "--source",
-            sourceDir,
-            "--source-url",
-            spec.source.url,
-            "--roots",
-            rootsFile,
+            ...args,
           )
-          more = JSON.parse(out.trim().split("\n").pop() ?? "{}").more === true
         } else {
           const response = await fetch(options.modelUrl, {
             method: "POST",
@@ -109,6 +131,8 @@ export function standInIngestShardRuntime(options: {
               skill: step.skill,
               root: step.root,
               workspaceId: step.workspaceId,
+              args,
+              index: index.entries.map((e) => e.path),
             }),
             signal: step.signal,
           })
@@ -116,20 +140,27 @@ export function standInIngestShardRuntime(options: {
             throw new Error(`Model stand-in: ${response.status}`)
           const reply = (await response.json()) as {
             files: Array<{ path: string; content: string }>
+            more?: boolean
           }
           for (const file of reply.files) {
             await node("bin/ctxpipe-stage", "--root", root, file.path)
             await writeFile(join(out, "files", file.path), file.content)
           }
+          more = reply.more === true
         }
-        await node("bin/ctxpipe-finish", "--root", root)
+        await node(
+          "bin/ctxpipe-finish",
+          "--root",
+          root,
+          ...(more ? ["--more"] : []),
+        )
         const tar = await exec("tar", ["-C", out, "-cf", "-", "."], {
           encoding: "buffer",
           maxBuffer: 16 * 1024 * 1024,
           // macOS tar adds AppleDouble `._*` entries; the sandbox tar does not.
           env: { ...process.env, COPYFILE_DISABLE: "1" },
         })
-        return { tar: new Uint8Array(tar.stdout), more }
+        return { tar: new Uint8Array(tar.stdout) }
       },
     }
     return runtime

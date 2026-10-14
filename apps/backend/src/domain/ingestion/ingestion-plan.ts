@@ -42,19 +42,28 @@ export function planIngestRoots(
 
 export type IngestSkillPlan = {
   name: string
-  /** `root`: one step for each root; `repository`: one step on the assembled ref. */
-  scope: "root" | "repository"
+  /**
+   * `first`: one step on the assembled ref before the root steps; `root`:
+   * one step for each root; `repository`: one step on the assembled ref
+   * after `assemble`.
+   */
+  scope: "first" | "root" | "repository"
   /** `script`: a plain command; `model`: one OpenCode run. */
   run: "script" | "model"
   tier?: ModelTier
 }
 
 /**
- * The skills in their run order (concept section 8). A skill runs only when
- * the bundle holds it. `discover-roots` is not here: each shard runs it first,
- * and its result plans the root steps.
+ * The skills in their run order (ADR-052 section 6). A skill runs only when
+ * the bundle holds it. `discover-roots` is not here: the parent runs it
+ * first, and its result plans the root steps. A file that more than one root
+ * can write is written only in a repository-wide step, so `dependencies` and
+ * `datasources-infra` also run once on the assembled ref for the shared
+ * files (streams, stores, and infrastructure).
  */
 const INGEST_SKILLS: readonly IngestSkillPlan[] = [
+  // The repository unit, which every later step can link to.
+  { name: "repository", scope: "first", run: "script" },
   { name: "classify-kind", scope: "root", run: "model", tier: "fast" },
   { name: "apis", scope: "root", run: "model", tier: "medium" },
   { name: "dependencies", scope: "root", run: "model", tier: "medium" },
@@ -62,6 +71,13 @@ const INGEST_SKILLS: readonly IngestSkillPlan[] = [
   // `libraries` writes shared files, so it runs on the assembled ref.
   { name: "libraries", scope: "repository", run: "script" },
   { name: "ownership", scope: "repository", run: "script" },
+  { name: "dependencies", scope: "repository", run: "model", tier: "medium" },
+  {
+    name: "datasources-infra",
+    scope: "repository",
+    run: "model",
+    tier: "medium",
+  },
   { name: "decisions", scope: "repository", run: "model", tier: "medium" },
   {
     name: "instruction-areas",
@@ -108,7 +124,7 @@ export function skillStepRootKey(root: string): string {
  * `skill:<root key>:<skill>[.<page>]:<workspaceId>`, and `repository` in
  * place of the root key for a repository-wide skill (`root` null). The name
  * is always 1 to 200 printable ASCII characters, as the step commit trailer
- * must be. `page` counts the runs of a script skill that said `more: true`.
+ * must be. `page` counts the runs of a skill whose `patch.json` said `more`.
  */
 export function skillStepName(
   root: string | null,
@@ -121,9 +137,9 @@ export function skillStepName(
 }
 
 /**
- * The `--roots` file of a repository-wide script step: each root of the run
- * and the context files that the root's steps wrote, read from the step
- * commits between the pinned revision and the assembled tip.
+ * The `--roots` file of each step: each root of the run and the context
+ * files that the root's steps wrote, read from the step commits between the
+ * pinned revision and the step base.
  */
 export function ingestRootMap(
   roots: readonly DiscoveredRoot[],

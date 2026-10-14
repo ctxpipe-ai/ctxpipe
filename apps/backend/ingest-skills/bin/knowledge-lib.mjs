@@ -28,7 +28,9 @@ const MAX_STEP_OPS = 30
 const MAX_RELATED_LINES = 200
 
 /**
- * Arguments: --root <dir> --source <checkout> --source-url <url> --roots <file>.
+ * Arguments (ADR-052 section 6, the same for each skill): --source
+ * <checkout> --source-url <url> --roots <file>, and --path <root> in a root
+ * step only. --root <dir> moves the step folder (default /ctxpipe).
  *
  * The roots file is the host's root-to-file map (ADR-052 section 6):
  *   { "roots": [{ "path", "manifests", "evidence", "files": ["knowledge/..."] }] }
@@ -47,6 +49,10 @@ export function scriptStep(argv = process.argv.slice(2)) {
   const source = value("--source") ?? fail("Give --source <checkout>")
   const sourceUrl = value("--source-url") ?? fail("Give --source-url <url>")
   const rootsFile = value("--roots") ?? fail("Give --roots <roots file>")
+  // A root step names its root; a repository-wide step has none.
+  const rootPath = value("--path")
+  if (rootPath !== null && rootPath !== "." && !safePath(rootPath))
+    fail(`${rootPath} is not a safe root path`)
   const repository = repositoryName(sourceUrl)
   if (!repository) fail(`${sourceUrl} is not a repository URL`)
   const step = currentStep(root)
@@ -85,7 +91,16 @@ export function scriptStep(argv = process.argv.slice(2)) {
       files,
     })
   }
-  return { step, source, repository, roots, index: readIndex(step), skipped }
+  return {
+    step,
+    source,
+    sourceUrl,
+    repository,
+    roots,
+    rootPath,
+    index: readIndex(step),
+    skipped,
+  }
 }
 
 /** { path, kind } of a context file at the base commit whose sources hold `sourceUrl`, or null. */
@@ -372,9 +387,10 @@ function mergeFile(text, { claims, related }) {
  * for the next page: the host runs the skill again on the new base until
  * `more` is false. A file that already has a claim or a line does not
  * change again, so each page continues where the last one stopped.
- * Prints and returns { ops, skipped, more }.
+ * `options.more` adds a page that the caller knows of. patch.json holds
+ * `more` for the host. Prints and returns { ops, skipped, more }.
  */
-export function writeStep(step, plans, skipped = []) {
+export function writeStep(step, plans, skipped = [], options = {}) {
   const byPath = new Map()
   for (const plan of plans) {
     const same = byPath.get(plan.path)
@@ -440,7 +456,8 @@ export function writeStep(step, plans, skipped = []) {
     writeFileSync(file, text)
     changed++
   }
-  const ops = writePatch(step).map(({ op, path }) => ({ op, path }))
+  more ||= options.more === true
+  const ops = writePatch(step, { more }).map(({ op, path }) => ({ op, path }))
   const result = { ops, skipped, more }
   process.stdout.write(`${JSON.stringify(result)}\n`)
   return result

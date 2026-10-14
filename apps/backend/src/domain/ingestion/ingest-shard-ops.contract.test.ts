@@ -193,12 +193,13 @@ describe("ingest shard commands in a Docker sandbox", () => {
         ])
 
         const step = {
-          name: `skill:services/orders:libraries:${WORKSPACE_ID}`,
+          name: `skill:repository:libraries:${WORKSPACE_ID}`,
           skill: "libraries",
           run: "script" as const,
-          root: "services/orders",
+          root: null,
           workspaceId: WORKSPACE_ID,
           baseCommit: contextSha,
+          rootMap: { roots: [] },
           signal: AbortSignal.timeout(120_000),
         }
         await runIngestShardStep(root, {

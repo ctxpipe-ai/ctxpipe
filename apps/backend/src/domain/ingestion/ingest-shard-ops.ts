@@ -162,25 +162,49 @@ export async function discoverIngestRoots(
   return JSON.parse(result.stdout)
 }
 
-/** The prompt of one model step. Source paths are data: they are quoted. */
-export function ingestStepPrompt(step: IngestRuntimeStep): string {
-  return [
-    `Run the skill ${step.skill}.`,
-    `The root is ${JSON.stringify(step.root)} in the source checkout ${SOURCE_DIR}.`,
-    `The Workspace is ${step.workspaceId}: its context checkout is ${INGEST_CONTEXT_ROOT}/${step.workspaceId}, and its index is ${INGEST_CONTEXT_ROOT}/${step.workspaceId}.index.json.`,
-    "When you are done, run ctxpipe-finish.",
-  ].join(" ")
-}
-
-/** The `--roots` file of a repository-wide script step; root writes it. */
+/** The `--roots` file of each step; root writes it. */
 const ROOTS_FILE = `${INGEST_ROOT}/roots.json`
 
 /**
+ * The host inputs of a skill step, the same for each skill (ADR-052 section
+ * 6): the source checkout, the source URL, the root-to-file map, and the root
+ * of a root step.
+ */
+export function ingestSkillArguments(step: {
+  root: string | null
+  sourceUrl: string
+}): string {
+  return [
+    `--source ${SOURCE_DIR}`,
+    `--source-url ${quote(step.sourceUrl)}`,
+    `--roots ${ROOTS_FILE}`,
+    ...(step.root === null ? [] : [`--path ${quote(step.root)}`]),
+  ].join(" ")
+}
+
+/** The prompt of one model step. Source paths are data: they are quoted. */
+export function ingestStepPrompt(
+  step: IngestRuntimeStep,
+  sourceUrl: string,
+): string {
+  return [
+    `Run the skill ${step.skill}.`,
+    step.root === null
+      ? `This is the repository-wide step of the source checkout ${SOURCE_DIR}.`
+      : `The root is ${JSON.stringify(step.root)} in the source checkout ${SOURCE_DIR}.`,
+    `Give each script of the skill these arguments: ${ingestSkillArguments({ root: step.root, sourceUrl })}`,
+    `The Workspace is ${step.workspaceId}: its context checkout is ${INGEST_CONTEXT_ROOT}/${step.workspaceId}, and its index is ${INGEST_CONTEXT_ROOT}/${step.workspaceId}.index.json.`,
+    "When you are done, run ctxpipe-finish, with --more when files wait for a next page.",
+  ].join(" ")
+}
+
+/**
  * Run one skill step: root starts the step (fetch the ref, put the context
- * checkout at the base commit, place the index), the agent runs the skill,
- * then `ctxpipe-finish` writes patch.json. A model step is one `opencode run`.
- * A script step gets `--source`, `--source-url`, and `--roots` (ADR-052
- * section 6), and returns the `more` of its result line.
+ * checkout at the base commit, place the index, write the root-to-file map),
+ * the agent runs the skill, then `ctxpipe-finish` writes patch.json. A model
+ * step is one `opencode run`. A script step runs
+ * `<skill>/scripts/<skill>.mjs` with the same arguments that a model step
+ * gives its scripts. `patch.json` holds `more` (ADR-052 section 6).
  */
 export async function runIngestShardStep(
   root: RootExec,
@@ -195,7 +219,7 @@ export async function runIngestShardStep(
     /** `ctxpipe/<model>` for a model step. */
     model?: string
   },
-): Promise<{ more: boolean }> {
+): Promise<void> {
   const { step } = input
   await startIngestStep(root, {
     workspaceId: step.workspaceId,
@@ -208,23 +232,17 @@ export async function runIngestShardStep(
   const env = {
     ...input.agentEnv,
     CTXPIPE_SOURCE: SOURCE_DIR,
-    CTXPIPE_ROOT: step.root,
+    CTXPIPE_ROOT: step.root ?? ".",
     CTXPIPE_WORKSPACE: step.workspaceId,
     CTXPIPE_CONTEXT: `${INGEST_CONTEXT_ROOT}/${step.workspaceId}`,
   }
-  if (step.run === "script")
-    // In UTF-8 byte parts below the exec argument limit, as base64: a part
-    // boundary inside a character cannot change the file.
-    await writeAsRoot(
-      root,
-      ROOTS_FILE,
-      JSON.stringify(step.rootMap ?? { roots: [] }),
-    )
+  // In UTF-8 byte parts below the exec argument limit, as base64: a part
+  // boundary inside a character cannot change the file.
+  await writeAsRoot(root, ROOTS_FILE, JSON.stringify(step.rootMap))
   const command =
     step.run === "model"
-      ? `opencode run${input.model ? ` --model ${quote(input.model)}` : ""} ${quote(ingestStepPrompt(step))}`
-      : `node ${INGEST_SKILLS_ROOT}/${step.skill}/scripts/${step.skill}.mjs --source ${SOURCE_DIR} --source-url ${quote(input.sourceUrl)} --roots ${ROOTS_FILE}`
-  let more = false
+      ? `opencode run${input.model ? ` --model ${quote(input.model)}` : ""} ${quote(ingestStepPrompt(step, input.sourceUrl))}`
+      : `node ${INGEST_SKILLS_ROOT}/${step.skill}/scripts/${step.skill}.mjs ${ingestSkillArguments({ root: step.root, sourceUrl: input.sourceUrl })}`
   for (const part of [command, "ctxpipe-finish"]) {
     const result = await root(ingestAgentCommand({ env, command: part }), {
       signal: step.signal,
@@ -233,19 +251,6 @@ export async function runIngestShardStep(
       throw new Error(
         `Ingest step ${step.name} failed (${result.exitCode}): ${result.stderr.slice(-500)}`,
       )
-    if (part === command && step.run === "script")
-      more = scriptResultMore(result.stdout)
-  }
-  return { more }
-}
-
-/** The `more` of a script step's last stdout line (`{ ops, skipped, more }`). */
-export function scriptResultMore(stdout: string): boolean {
-  const last = stdout.trim().split("\n").pop() ?? ""
-  try {
-    return (JSON.parse(last) as { more?: unknown }).more === true
-  } catch {
-    return false
   }
 }
 

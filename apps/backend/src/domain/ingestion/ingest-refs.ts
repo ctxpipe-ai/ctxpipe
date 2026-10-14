@@ -3,6 +3,7 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { setTimeout as sleep } from "node:timers/promises"
 import { stringify } from "yaml"
+import { stagedPatchMore } from "./ingest-step-output.js"
 import {
   disallowedPathReason,
   MAX_WORKSPACE_OPS,
@@ -87,6 +88,8 @@ export type IngestStepCommit = {
   bundle: string
   /** From the run input, so that a replay makes the same SHA. Never an age. */
   authorTime: Date
+  /** The step's `patch.json` says that files wait: the `Ctxpipe-More` trailer. */
+  more?: boolean
 }
 
 export type IngestJob = { runId: string; workspaceId: string }
@@ -127,8 +130,9 @@ function assertJobRef(job: IngestJob, ref: string): IngestRefTarget {
  */
 export async function pushIngestStep(
   input: PushIngestStepInput,
-): Promise<{ sha: string; validation: PatchStepResult }> {
+): Promise<{ sha: string; validation: PatchStepResult; more: boolean }> {
   assertJobRef(input.job, input.ref)
+  const more = await stagedPatchMore(input.patch.stagedDir)
   const base = input.oldTip ?? input.pinnedRevision
   if (input.baseCommit !== base)
     throw new IngestRefRefusedError(
@@ -147,9 +151,10 @@ export async function pushIngestStep(
       parents: [base],
       runId: input.job.runId,
       ...input.commit,
+      more,
     })
     await pushWithLease(repoDir, input.remote, input.ref, input.oldTip, sha)
-    return { sha, validation }
+    return { sha, validation, more }
   })
 }
 
@@ -321,7 +326,7 @@ export async function findStepCommit(input: {
   ref: string
   runId: string
   step: string
-}): Promise<{ sha: string; ops: number } | null> {
+}): Promise<{ sha: string; ops: number; more: boolean } | null> {
   return withScratchRepository(async (repoDir) => {
     const tip = await remoteTip(repoDir, input.remote, input.ref)
     if (!tip) return null
@@ -343,7 +348,11 @@ export async function findStepCommit(input: {
     const trailers = await stepTrailers(repoDir, tip)
     if (trailers.run !== input.runId || trailers.step !== input.step)
       return null
-    return { sha: tip, ops: (await diffTree(repoDir, `${tip}^`, tip)).length }
+    return {
+      sha: tip,
+      ops: (await diffTree(repoDir, `${tip}^`, tip)).length,
+      more: trailers.more,
+    }
   })
 }
 
@@ -848,7 +857,8 @@ async function commitStep(
     if (!/^[\x21-\x7e]{1,200}$/.test(value))
       throw new Error("A step trailer value must be printable ASCII")
   const date = `@${Math.floor(input.authorTime.getTime() / 1000)} +0000`
-  const message = `Ingest step ${input.step}\n\nCtxpipe-Run: ${input.runId}\nCtxpipe-Step: ${input.step}\nCtxpipe-Bundle: ${input.bundle}\n`
+  // `Ctxpipe-More` only when true, so a step with no next page keeps its SHA.
+  const message = `Ingest step ${input.step}\n\nCtxpipe-Run: ${input.runId}\nCtxpipe-Step: ${input.step}\nCtxpipe-Bundle: ${input.bundle}\n${input.more ? "Ctxpipe-More: true\n" : ""}`
   const out = await runGit(
     repoDir,
     [
@@ -875,7 +885,7 @@ async function commitStep(
 async function stepTrailers(
   repoDir: string,
   sha: string,
-): Promise<{ run: string; step: string }> {
+): Promise<{ run: string; step: string; more: boolean }> {
   const read = async (key: string) =>
     (
       await runGit(repoDir, [
@@ -887,7 +897,11 @@ async function stepTrailers(
     )
       .toString()
       .trim()
-  return { run: await read("Ctxpipe-Run"), step: await read("Ctxpipe-Step") }
+  return {
+    run: await read("Ctxpipe-Run"),
+    step: await read("Ctxpipe-Step"),
+    more: (await read("Ctxpipe-More")) === "true",
+  }
 }
 
 async function withScratchRepository<T>(

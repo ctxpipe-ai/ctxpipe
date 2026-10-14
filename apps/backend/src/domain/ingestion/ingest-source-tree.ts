@@ -10,10 +10,12 @@ import { runGit } from "./run-git.js"
  * The host's copy of the source tree at the run's SHA: commits and trees,
  * no blobs. The parent counts the candidate roots from it, and each step's
  * patch validator checks evidence paths against it. One worker process keeps
- * one copy for each run and SHA until the run's shard ends.
+ * one copy for each run, SHA, and holder: the parent and each shard child
+ * have their own copy, so a child that ends deletes only its own copy and
+ * never the copy of a sibling that still runs.
  */
 
-type SourceTree = {
+export type SourceTree = {
   /** Each file path at the SHA. */
   paths(): Promise<string[]>
   /** True when `path` (a file or a folder) exists at the SHA. */
@@ -22,8 +24,8 @@ type SourceTree = {
 
 const trees = new Map<string, Promise<string>>()
 
-function treeKey(runId: string, sha: string) {
-  return `${runId}:${sha}`
+function treeKey(runId: string, sha: string, holder = "run") {
+  return `${runId}:${sha}:${holder}`
 }
 
 async function fetchTree(input: {
@@ -64,15 +66,17 @@ async function fetchTree(input: {
   }
 }
 
-/** The run's source tree; fetched once for each worker process. */
+/** The run's source tree; fetched once for each worker process and holder. */
 export function ingestSourceTree(input: {
   orgId: string
   runId: string
   source: { url: string; githubConnectionId: string }
   sha: string
   env: Env
+  /** `shard:<n>` for a shard child; the parent has none. */
+  holder?: string
 }): SourceTree {
-  const key = treeKey(input.runId, input.sha)
+  const key = treeKey(input.runId, input.sha, input.holder)
   const dir = () => {
     let pending = trees.get(key)
     if (!pending) {
@@ -107,14 +111,20 @@ export function ingestSourceTree(input: {
   }
 }
 
-/** Delete this process's copy of the run's source tree. */
+/** Delete this process's copy of the run's source tree for one holder. */
 export async function releaseIngestSourceTree(
   runId: string,
   sha: string,
+  holder?: string,
 ): Promise<void> {
-  const key = treeKey(runId, sha)
+  const key = treeKey(runId, sha, holder)
   const pending = trees.get(key)
   trees.delete(key)
   const dir = await pending?.catch(() => undefined)
   if (dir) await rm(dir, { recursive: true, force: true })
+}
+
+/** The number of source tree copies that this process holds (for tests). */
+export function heldIngestSourceTrees(runId: string): number {
+  return [...trees.keys()].filter((key) => key.startsWith(`${runId}:`)).length
 }

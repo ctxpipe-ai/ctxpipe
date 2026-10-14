@@ -376,7 +376,7 @@ function shardRuntime(spec: IngestShardSpec): IngestShardRuntime {
         step.name,
         async ({ handle, root, agentEnv, signal }) => {
           const models = step.run === "model" ? ingestModels() : undefined
-          const { more } = await runIngestShardStep(root, {
+          await runIngestShardStep(root, {
             step: { ...step, signal },
             agentEnv,
             remote:
@@ -390,7 +390,7 @@ function shardRuntime(spec: IngestShardSpec): IngestShardRuntime {
                 }
               : {}),
           })
-          return { tar: await collectIngestStep(handle, root), more }
+          return { tar: await collectIngestStep(handle, root) }
         },
         step.signal,
       ),
