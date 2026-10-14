@@ -612,6 +612,31 @@ describe("get_related through the MCP client on live Postgres and FalkorDB", () 
     expect(ranking.results.length).toBeGreaterThan(0)
   })
 
+  it("gives the walk of all edges only the budget that the intent walk left", async () => {
+    const [row] = await withOrgDbContext(seed.orgId, (db) =>
+      db
+        .select({ id: workspaces.id })
+        .from(workspaces)
+        .where(eq(workspaces.slug, "platform")),
+    )
+    const input = z.object(getRelatedInputShape).parse({
+      workspace: "platform",
+      seeds: ["knowledge/services/gateway.md"],
+      intent: "ownership",
+    })
+    // The ownership walk uses 2 of 3 nodes and 1 of 2 edges.
+    const ranking = await rankWorkspaceRelated(
+      { id: seed.orgId, slug: seed.orgSlug },
+      { id: row?.id as string, slug: "platform" },
+      sha("a"),
+      input,
+      new Date(),
+      { caps: { maxNodes: 3, maxEdges: 2 } },
+    )
+    // One node and one edge remain: the seed fits, and nothing new does.
+    expect(ranking.explored).toEqual({ nodes: 2, edges: 1 })
+  })
+
   it("refuses a cursor of another call and a cursor after a new revision", async () => {
     const first = await related({
       workspace: "payments",

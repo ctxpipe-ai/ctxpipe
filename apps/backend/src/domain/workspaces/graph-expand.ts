@@ -15,7 +15,7 @@ import type { PublishedProjection } from "./revision.js"
  * give the walk up to `maxTestTimeoutMs`, so that the load of the machine does
  * not change a result.
  */
-const defaultCaps = {
+export const defaultCaps = {
   maxNodes: 5_000,
   maxEdges: 25_000,
   hopTimeoutMs: 1_000,

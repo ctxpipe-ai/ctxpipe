@@ -7,6 +7,7 @@ import {
   workspaces,
 } from "../../db/schema/workspaces.js"
 import {
+  defaultCaps,
   type ExpandedNode,
   expandWorkspaceGraph,
   type GraphExpandParams,
@@ -356,6 +357,7 @@ export async function rankWorkspaceRelated(
   const walk = async (
     predicates: string[] | undefined,
     diversity = input.diversity,
+    caps = options.caps,
   ) => {
     const expansion = await expandWorkspaceGraph({
       orgId: org.id,
@@ -371,7 +373,7 @@ export async function rankWorkspaceRelated(
         ? undefined
         : (input.validAt ?? now.toISOString()),
       validBetween: input.validBetween,
-      caps: options.caps,
+      caps,
     }).catch((error: unknown) => {
       if (error instanceof WorkspaceGraphBuildingError) {
         throw notReady("being built")
@@ -427,6 +429,7 @@ export async function rankWorkspaceRelated(
   const defaultWalk = input.predicates
     ? undefined
     : INTENT_PRESETS[input.intent].walk
+  const startedAt = performance.now()
   const walks = [
     await walk(
       input.predicates?.map((predicate) => predicate.toUpperCase()) ??
@@ -435,13 +438,27 @@ export async function rankWorkspaceRelated(
   ]
   // The edges of the walk of all edges are not the edges of the intent, so
   // its results spread over kinds as for `general`.
-  if (defaultWalk && (walks[0]?.ranked.length ?? 0) < input.limit)
-    walks.push(
-      await walk(
-        undefined,
-        input.diversity ?? INTENT_PRESETS.general.diversity,
+  // The call keeps its caps as a whole: this walk gets what the first walk left.
+  if (defaultWalk && (walks[0]?.ranked.length ?? 0) < input.limit) {
+    const first = walks[0]?.expansion
+    const total = { ...defaultCaps, ...options.caps }
+    const left = {
+      maxNodes: total.maxNodes - (first?.nodes.length ?? 0),
+      maxEdges: total.maxEdges - (first?.edges.length ?? 0),
+      totalTimeoutMs: Math.floor(
+        total.totalTimeoutMs - (performance.now() - startedAt),
       ),
-    )
+    }
+    // A walk with no node, edge, or time left would only repeat the seeds.
+    if (left.maxNodes > 0 && left.maxEdges > 0 && left.totalTimeoutMs > 0)
+      walks.push(
+        await walk(
+          undefined,
+          input.diversity ?? INTENT_PRESETS.general.diversity,
+          { ...options.caps, ...left },
+        ),
+      )
+  }
   // A unit keeps the node and the rank of the first walk that found it.
   const nodes = new Map<string, ExpandedNode>()
   const edgeIds = new Set<string>()
