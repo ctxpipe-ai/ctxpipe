@@ -10,7 +10,7 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { stringify } from "yaml"
-import { gitSourcePathExists, validatePatchStep } from "./patch-validator.js"
+import { gitSource, validatePatchStep } from "./patch-validator.js"
 import { INGEST_SKILLS_DIR } from "./skill-bundle.js"
 
 /*
@@ -431,7 +431,7 @@ function ingest(
       source: { url, sha: repo.sha },
       skill: "instruction-areas",
       bundle: "ingest-0000000000000000",
-      sourcePathExists: gitSourcePathExists(repo.dir, repo.sha),
+      ...gitSource(repo.dir, repo.sha),
       linkableRepositories: [URL_A, URL_B, URL_C],
       rootGone,
     })

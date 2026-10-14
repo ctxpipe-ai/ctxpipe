@@ -731,6 +731,7 @@ describe("stage helpers in the sandbox", () => {
         skill: "apis",
         bundle: (await readIngestSkillBundle()).name,
         sourcePathExists: async () => true,
+        readSourceFile: async () => null,
       })
       expect(result.rejections).toEqual([
         expect.objectContaining({
@@ -839,6 +840,7 @@ describe("script-only skills in the sandbox", () => {
           skill,
           bundle: (await readIngestSkillBundle()).name,
           sourcePathExists: async () => true,
+          readSourceFile: async () => null,
           linkableRepositories: [SOURCE_URL],
         })
         expect(result.rejections).toEqual([])

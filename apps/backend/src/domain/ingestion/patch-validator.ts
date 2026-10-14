@@ -63,6 +63,11 @@ export type PatchStepInput = {
   bundle: string
   /** True when `path` exists in the source repository at `source.sha`. */
   sourcePathExists: (path: string) => Promise<boolean>
+  /**
+   * The text of the file `path` in the source repository at `source.sha`, or
+   * null when it is not a file or is too large to read.
+   */
+  readSourceFile: (path: string) => Promise<string | null>
   /** Ops that earlier steps of this run already wrote to this Workspace. */
   workspaceOpsBefore?: number
   /** The step's root is gone, so the delete cap does not apply. */
@@ -93,6 +98,8 @@ const MAX_PATCH_JSON_BYTES = 1024 * 1024
 const MAX_STEP_OPS = 30
 export const MAX_WORKSPACE_OPS = 300
 const MAX_DELETE_SHARE = 0.2
+/** A source file above this size is not read to check a quote or a pattern. */
+const MAX_SOURCE_READ_BYTES = 1024 * 1024
 const HUMAN_OPEN = "<!-- ctxpipe:human -->"
 const HUMAN_CLOSE = "<!-- /ctxpipe:human -->"
 
@@ -207,6 +214,34 @@ export function disallowedPathReason(path: string): string | null {
   return null
 }
 
+/** Reads the source repository at `sha` with `git cat-file`. */
+export function gitSource(
+  repoDir: string,
+  sha: string,
+): Pick<PatchStepInput, "sourcePathExists" | "readSourceFile"> {
+  return {
+    sourcePathExists: gitSourcePathExists(repoDir, sha),
+    readSourceFile: async (path) => {
+      try {
+        const object = `${sha}:${path}`
+        const header = (await git(repoDir, ["cat-file", "-t", object]))
+          .toString()
+          .trim()
+        if (header !== "blob") return null
+        const size = Number(
+          (await git(repoDir, ["cat-file", "-s", object])).toString().trim(),
+        )
+        if (!(size <= MAX_SOURCE_READ_BYTES)) return null
+        return (await git(repoDir, ["cat-file", "blob", object])).toString(
+          "utf8",
+        )
+      } catch {
+        return null
+      }
+    },
+  }
+}
+
 /** Checks paths in the source repository with `git cat-file -e`. */
 export function gitSourcePathExists(
   repoDir: string,
@@ -313,12 +348,22 @@ export async function validatePatchStep(
     }
     return hit
   }
+  const sourceTextCache = new Map<string, Promise<string | null>>()
+  const sourceText = (path: string) => {
+    let hit = sourceTextCache.get(path)
+    if (!hit) {
+      hit = input.readSourceFile(path)
+      sourceTextCache.set(path, hit)
+    }
+    return hit
+  }
   const context: CheckContext = {
     sourceUrl,
     source: input.source,
     skill: input.skill,
     bundle: input.bundle,
     evidenceExists,
+    sourceText,
   }
 
   const candidates: Candidate[] = []
@@ -461,6 +506,7 @@ type CheckContext = {
   skill: string
   bundle: string
   evidenceExists: (path: string) => Promise<boolean>
+  sourceText: (path: string) => Promise<string | null>
 }
 
 type CheckFailure = { rule: PatchRule; reason: string }
@@ -987,9 +1033,9 @@ function injectionProblem(text: string): CheckFailure | null {
 /**
  * A block quote or fenced block that holds an injection phrase must give
  * its source with a `Source: <path>` line, as its last line or as the next
- * line after it, and the path must exist at the source revision (ADR-052
- * section 5). Without it, a model can carry an instruction into a file as a
- * quote.
+ * line after it. The quoted text, with whitespace normalized, must occur in
+ * that file at the source revision (ADR-052 section 5). Without it, a model
+ * can carry an instruction into a file as a quote.
  */
 async function unsourcedQuoteProblem(
   body: string,
@@ -1003,10 +1049,13 @@ async function unsourcedQuoteProblem(
     const text = block.lines.join(" ").replace(/\s+/g, " ")
     if (!INJECTION_PHRASES.some((pattern) => pattern.test(text))) continue
     if (!block.source) return fail("Quoted instruction text has no Source line")
-    if (!(await context.evidenceExists(block.source)))
+    const source = await context.sourceText(block.source)
+    if (source === null)
       return fail(
-        "The Source path of a quote does not exist at the source revision",
+        "The Source path of a quote is not a file at the source revision",
       )
+    if (!quotableText(source).includes(quotableText(block.lines.join("\n"))))
+      return fail("The quoted text is not in its Source file")
   }
   return null
 }
@@ -1116,6 +1165,16 @@ export function findSuspectedSecret(
   return null
 }
 
+/** Text with block-quote markers removed and whitespace normalized, to compare a quote with its source. */
+function quotableText(text: string): string {
+  return text
+    .split("\n")
+    .map((line) => line.replace(/^[ \t]*(?:>[ \t]?)*/, ""))
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
 const SOURCE_LINE = /^\s*Source:\s*`?([^`\s]+)`?\s*$/
 
 /** Block quotes and fenced blocks, each with the path of its Source line. */
@@ -1158,12 +1217,13 @@ function quotedBlocks(
       i++
       continue
     }
-    const last = [...inner].reverse().find((l) => l.trim() !== "") ?? ""
-    const source =
-      SOURCE_LINE.exec(fence ? "" : last)?.[1] ??
-      SOURCE_LINE.exec(nextLine(i))?.[1] ??
-      null
-    blocks.push({ lines: inner, source })
+    const lastIndex = inner.findLastIndex((l) => l.trim() !== "")
+    const inside = fence ? undefined : SOURCE_LINE.exec(inner[lastIndex] ?? "")
+    const source = inside?.[1] ?? SOURCE_LINE.exec(nextLine(i))?.[1] ?? null
+    blocks.push({
+      lines: inside ? inner.slice(0, lastIndex) : inner,
+      source,
+    })
   }
   return blocks
 }

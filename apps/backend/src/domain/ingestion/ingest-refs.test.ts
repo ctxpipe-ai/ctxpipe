@@ -126,6 +126,7 @@ function step(
       source: { url: SOURCE_URL, sha: "1".repeat(40) },
       skill: "apis",
       sourcePathExists: async () => true,
+      readSourceFile: async () => null,
     },
   })
 }

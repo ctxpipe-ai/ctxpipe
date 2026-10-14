@@ -251,6 +251,7 @@ describe("classify-kind skill in the sandbox", () => {
         skill: "classify-kind",
         bundle: bundle.name,
         sourcePathExists: async () => true,
+        readSourceFile: async () => null,
         linkableRepositories: [SOURCE_URL],
       })
       expect(validated.rejections).toEqual([])

@@ -5,7 +5,7 @@ import { dirname, join } from "node:path"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { parse as parseYaml, stringify } from "yaml"
 import {
-  gitSourcePathExists,
+  gitSource,
   type PatchStepResult,
   validatePatchStep,
 } from "./patch-validator.js"
@@ -212,7 +212,7 @@ function run(
     source: { url: source, sha: sourceSha },
     skill: "instruction-areas",
     bundle: "bundle-1",
-    sourcePathExists: gitSourcePathExists(sourceDir, sourceSha),
+    ...gitSource(sourceDir, sourceSha),
     linkableRepositories: [A, B],
     rootGone,
   })
