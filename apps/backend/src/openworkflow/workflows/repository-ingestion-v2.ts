@@ -370,6 +370,14 @@ export function defineRepositoryIngestionV2Workflow(
                             sha: input.sha,
                             env: env(),
                           }).exists(path),
+                        readSourceFile: (path) =>
+                          ingestSourceTree({
+                            orgId: input.orgId,
+                            runId: run.id,
+                            source: input.source,
+                            sha: input.sha,
+                            env: env(),
+                          }).read(path),
                       },
                     },
                     env(),

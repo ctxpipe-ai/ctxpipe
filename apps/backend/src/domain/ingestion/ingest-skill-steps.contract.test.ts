@@ -36,7 +36,7 @@ import type {
   IngestShardRuntime,
 } from "./ingest-shard-runtime.js"
 import { type IngestSkillPlan, plannedIngestSkills } from "./ingestion-plan.js"
-import { gitSourcePathExists } from "./patch-validator.js"
+import { gitSource } from "./patch-validator.js"
 import { runGit } from "./run-git.js"
 import { readIngestSkillBundle } from "./skill-bundle.js"
 
@@ -431,7 +431,7 @@ beforeAll(async () => {
     listFiles: (pinnedRevision, tip) =>
       listStepFiles({ remote, runId: RUN_ID, pinnedRevision, tip }),
     push: (push) => pushIngestStep({ ...push, job, remote }),
-    sourcePathExists: gitSourcePathExists(source.dir, source.sha),
+    ...gitSource(source.dir, source.sha),
   }
   // The step index of the host path: the projection at the pinned revision
   // (the human Billing file), changed by the run's step commits.

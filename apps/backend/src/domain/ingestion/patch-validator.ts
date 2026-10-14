@@ -129,7 +129,7 @@ const MAX_STEP_OPS = 30
 export const MAX_WORKSPACE_OPS = 300
 const MAX_DELETE_SHARE = 0.2
 /** A source file above this size is not read to check a quote or a pattern. */
-const MAX_SOURCE_READ_BYTES = 1024 * 1024
+export const MAX_SOURCE_READ_BYTES = 1024 * 1024
 /** Distinct source files that one step reads with git. */
 const MAX_SOURCE_READS = 200
 /** Quotes and inferred-rule patterns that one step compares with source text. */
@@ -1456,7 +1456,8 @@ function quotedBlocks(body: string): QuotedBlock[] {
       i++
       continue
     }
-    const lastIndex = inner.findLastIndex((l) => l.trim() !== "")
+    let lastIndex = inner.length - 1
+    while (lastIndex >= 0 && inner[lastIndex]?.trim() === "") lastIndex--
     const inside = fence ? undefined : SOURCE_LINE.exec(inner[lastIndex] ?? "")
     const quoted = inside ? inner.slice(0, lastIndex) : inner
     blocks.push({

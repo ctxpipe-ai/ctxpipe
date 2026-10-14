@@ -17,7 +17,7 @@ import {
   runIngestShardStep,
 } from "./ingest-shard-ops.js"
 import { withIngestStepOutput } from "./ingest-step-output.js"
-import { validatePatchStep } from "./patch-validator.js"
+import { gitSource, validatePatchStep } from "./patch-validator.js"
 import { readIngestSkillBundle } from "./skill-bundle.js"
 
 /*
@@ -226,7 +226,7 @@ describe("ingest shard commands in a Docker sandbox", () => {
             source: { url: SOURCE_URL, sha: sourceSha },
             skill: "libraries",
             bundle: bundle.name,
-            sourcePathExists: async () => true,
+            ...gitSource(hostSource.dir, hostSource.sha),
           }),
         )
         expect(result.rejections).toEqual([])

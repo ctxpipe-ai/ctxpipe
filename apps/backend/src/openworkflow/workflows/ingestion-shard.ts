@@ -333,6 +333,8 @@ export type SkillStepBroker = {
   ): Promise<{ sha: string; validation: PatchStepResult; more: boolean }>
   /** True when `path` exists in the source at the run's SHA. */
   sourcePathExists(path: string): Promise<boolean>
+  /** The text of `path` in the source at the run's SHA, or null. */
+  readSourceFile(path: string): Promise<string | null>
 }
 
 /** The write broker of one Workspace, with the source tree of `holder`. */
@@ -372,6 +374,7 @@ export function workspaceSkillBroker(input: {
     push: (push) =>
       pushWorkspaceIngestStep({ ...push, orgId: input.orgId, job }, input.env),
     sourcePathExists: (path) => source.exists(path),
+    readSourceFile: (path) => source.read(path),
   }
 }
 
@@ -509,6 +512,7 @@ async function runSkillStep(
             source: { url: run.source.url, sha: run.source.sha },
             skill: ctx.skill.name,
             sourcePathExists: (path) => broker.sourcePathExists(path),
+            readSourceFile: (path) => broker.readSourceFile(path),
             workspaceOpsBefore: ctx.opsBefore,
             // The host root of the package units of a root step (CTX-657).
             ...(ctx.root === null ? {} : { root: ctx.root }),

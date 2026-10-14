@@ -180,13 +180,13 @@ export async function pushIngestAssemble(input: {
    * each conflict (`current` is the result so far, `incoming` the next
    * shard's version) and returns the content of each path, or null for a
    * delete. The merged files then go through the patch validator against
-   * the pinned revision, with `source` and `sourcePathExists` for the
-   * evidence; one rejected file refuses the job. Without it, a conflict
-   * refuses the job.
+   * the pinned revision, with `source`, `sourcePathExists`, and
+   * `readSourceFile` for the evidence; one rejected file refuses the job.
+   * Without it, a conflict refuses the job.
    */
   semanticMerge?: {
     resolve: IngestConflictResolver
-  } & Pick<PatchStepInput, "source" | "sourcePathExists">
+  } & Pick<PatchStepInput, "source" | "sourcePathExists" | "readSourceFile">
 }): Promise<{ sha: string; ops: number }> {
   const ref = ingestRefName({
     runId: input.job.runId,
@@ -793,6 +793,7 @@ async function mergeConflicts(
         stagedDir,
         source: input.merge.source,
         sourcePathExists: input.merge.sourcePathExists,
+        readSourceFile: input.merge.readSourceFile,
         skill: "semantic-merge",
         bundle: input.bundle,
         workspaceOpsBefore: opsBefore,
