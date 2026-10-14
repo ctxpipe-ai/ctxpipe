@@ -40,6 +40,7 @@ export type PatchRule =
   | "delete_cap"
   | "heading_denylist"
   | "suspected_injection"
+  | "suspected_secret"
 
 export type PatchRejection = { path: string; rule: PatchRule; reason: string }
 export type AcceptedOp = { op: "create" | "update" | "delete"; path: string }
@@ -688,6 +689,14 @@ async function checkFullWrite(
   if (injection) return injection
   const quote = await unsourcedQuoteProblem(front.body, context)
   if (quote) return quote
+  // Human sections stay as they are, so only the rest of the file is scanned.
+  const secret = secretProblem(
+    humanBlocks(text).reduce(
+      (rest, block) => rest.replace(block, block.replace(/[^\n]/g, "")),
+      text,
+    ),
+  )
+  if (secret) return secret
 
   const claims = attributes.claims ?? []
   const baseClaims = Array.isArray(baseAttributes.claims)
@@ -784,6 +793,8 @@ async function checkAdditiveWrite(
   if (content) return content
   const injection = injectionProblem(addedText)
   if (injection) return injection
+  const secret = secretProblem(addedText, "of the added text ")
+  if (secret) return secret
   const evidence = await evidenceProblem(added, context)
   if (evidence) return evidence
 
@@ -1000,6 +1011,111 @@ async function unsourcedQuoteProblem(
   return null
 }
 
+/** Token shapes, tested on each word of a line; the name goes into the reason, never the value. */
+const SECRET_TOKENS: ReadonlyArray<[string, RegExp]> = [
+  ["GitHub token", /^(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_\w{40,})$/],
+  ["AWS access key id", /^(?:AKIA|ASIA)[A-Z0-9]{16}$/],
+  ["Slack token", /^xox[abprs]-(?=[\w-]*\d)[\w-]{10,}$/],
+  ["Stripe key", /^[rs]k_live_[A-Za-z0-9]{16,}$/],
+  ["API key", /^sk-(?=[\w-]*\d)[\w-]{32,}$/],
+  ["Google API key", /^AIza[\w-]{35}$/],
+]
+const JWT = /^eyJ[\w-]{8,}\.[\w-]{8,}\.[\w-]{8,}$/
+const PRIVATE_KEY = /-----BEGIN [A-Z0-9 ]{0,40}PRIVATE KEY(?: BLOCK)?-----/
+const URL_CREDENTIALS = /[^\s:@/]{1,256}:([^\s@/]{1,256})@[^\s@/]/y
+const SECRET_ASSIGNMENT =
+  /^[\s>*-]*(?:(?:export|const|let|var)\s+)?["']?([A-Za-z_][\w.-]*)["']?\s*[:=]\s*(.*)$/
+const SECRET_NAME =
+  /(?:key|secret|token|passw(?:or)?d|pwd|pass|credentials?|auth)$|^(?:pass|pwd)$/i
+const PLACEHOLDER =
+  /^<.*>$|^\$|\$\{|\{\{|change[-_]?me|example|placeholder|your[-_]|x{4,}|\*{3,}|\.\.\.|redacted|dummy|sample/i
+const COMMON_PASSWORDS = new Set([
+  "password",
+  "passwd",
+  "pass",
+  "secret",
+  "postgres",
+  "root",
+  "admin",
+  "test",
+  "user",
+])
+
+export type SecretFinding = { line: number; reason: string }
+
+/**
+ * Finds a value that looks like a credential (ADR-052 section 5). The cost is
+ * linear in the text size: each line is read a fixed number of times, and each
+ * pattern is anchored or starts at a fixed literal. `meter.work` counts the
+ * characters read, so a test can check the bound.
+ */
+export function findSuspectedSecret(
+  text: string,
+  meter: { work: number } = { work: 0 },
+): SecretFinding | null {
+  const found = (line: number, rule: string): SecretFinding => ({
+    line,
+    reason: `The text has a value that looks like a secret (${rule}) on line ${line}`,
+  })
+  const lines = text.split("\n")
+  for (const [index, line] of lines.entries()) {
+    const number = index + 1
+    meter.work += line.length
+    if (line.includes("-----BEGIN ") && PRIVATE_KEY.test(line))
+      return found(number, "private key")
+
+    // Each "://" scan stops at the next "/", so the scans do not overlap.
+    for (
+      let at = line.indexOf("://");
+      at !== -1;
+      at = line.indexOf("://", at + 3)
+    ) {
+      URL_CREDENTIALS.lastIndex = at + 3
+      const password = URL_CREDENTIALS.exec(line)?.[1]
+      const user = line.slice(at + 3, line.indexOf(":", at + 3))
+      if (
+        password &&
+        password !== user &&
+        password.length >= 6 &&
+        !COMMON_PASSWORDS.has(password.toLowerCase()) &&
+        !PLACEHOLDER.test(password)
+      )
+        return found(number, "password in a connection string")
+    }
+
+    meter.work += line.length
+    const assignment = SECRET_ASSIGNMENT.exec(line)
+    if (assignment && SECRET_NAME.test(assignment[1] ?? "")) {
+      const value = (assignment[2] ?? "")
+        .replace(/\s+#.*$/, "")
+        .replace(/[,;]$/, "")
+        .trim()
+        .replace(/^(["'`])(.*)\1$/, "$2")
+      if (
+        value.length >= 8 &&
+        !/\s/.test(value) &&
+        /\d/.test(value) &&
+        /[A-Za-z]/.test(value) &&
+        !PLACEHOLDER.test(value) &&
+        !/^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+$/.test(value)
+      )
+        return found(number, "secret assignment")
+    }
+
+    meter.work += line.length
+    for (const match of line.matchAll(/[\w.-]+/g)) {
+      const word = match[0].replace(/\.+$/, "")
+      if (PLACEHOLDER.test(word)) continue
+      if (JWT.test(word)) return found(number, "JWT")
+      for (const part of word.split(".")) {
+        const hit = SECRET_TOKENS.find(([, shape]) => shape.test(part))
+        if (hit) return found(number, hit[0])
+      }
+    }
+  }
+  return null
+}
+
 const SOURCE_LINE = /^\s*Source:\s*`?([^`\s]+)`?\s*$/
 
 /** Block quotes and fenced blocks, each with the path of its Source line. */
@@ -1050,6 +1166,15 @@ function quotedBlocks(
     blocks.push({ lines: inner, source })
   }
   return blocks
+}
+
+function secretProblem(text: string, where = ""): CheckFailure | null {
+  const finding = findSuspectedSecret(text)
+  if (!finding) return null
+  return {
+    rule: "suspected_secret",
+    reason: finding.reason.replace(" on line", ` on ${where}line`),
+  }
 }
 
 /** Removes fenced code blocks and inline code spans. */
