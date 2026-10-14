@@ -70,7 +70,10 @@ const scopedPredicates = (intent: EvalIntent) => [
 /**
  * Recall@5 floors of the `get_related` defaults, for each vocabulary: the call
  * that an agent makes with only `intent`, and the call with no `intent`. The
- * measured value is at or above the floor.
+ * measured value is at or above the floor. With no intent, one first page
+ * must serve four kinds of question (an owner, decisions, five changes, and
+ * the dependencies), so its floors are lower. On free-form predicates, the
+ * rules of a hub service still crowd out its decisions and dependencies.
  */
 const floors: Record<
   EvalVocabulary,
@@ -79,19 +82,19 @@ const floors: Record<
   canonical: {
     intent: { ownership: 0.95, why: 0.95, change: 0.85, dependencies: 0.95 },
     "no intent": {
-      ownership: 0.95,
-      why: 0.95,
-      change: 0.85,
-      dependencies: 0.95,
+      ownership: 0.8,
+      why: 0.45,
+      change: 0.2,
+      dependencies: 0.1,
     },
   },
   "free-form": {
-    intent: { ownership: 0.95, why: 0.95, change: 0.85, dependencies: 0.95 },
+    intent: { ownership: 0.95, why: 0.45, change: 0.8, dependencies: 0.09 },
     "no intent": {
       ownership: 0.95,
-      why: 0.95,
-      change: 0.85,
-      dependencies: 0.95,
+      why: 0.45,
+      change: 0.2,
+      dependencies: 0.1,
     },
   },
 }

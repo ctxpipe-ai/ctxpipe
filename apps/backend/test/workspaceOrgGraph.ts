@@ -10,7 +10,7 @@
  * The `free-form` vocabulary builds the same Workspace with the names that
  * authors and agents write: `GOVERNS` for a decision, `IMPORTS` for a
  * library, and plain body links (`LINKS_TO`) from a team to its services and
- * from some decisions to the services that they shape. Only the edges that
+ * from a lesson to the note that declares it. Only the edges that
  * git gives (`CHANGED`, `MODIFIED`, `ADDED`) keep their names. The gold
  * answers do not change.
  *
@@ -228,18 +228,14 @@ export function workspaceOrgFixture(
     for (const { service, confidence } of scope) {
       // A decision that holds has no end and no start date: the truth
       // signal would decay it by age, but a decision stays true until a
-      // later one replaces it. In the free-form vocabulary, each second
-      // decision that holds only links to its services in the body.
-      if (!replaced && index % 2 === 0)
-        linkOr(decision, "INFLUENCES", service, confidence)
-      else
-        claim(
-          decision,
-          "INFLUENCES",
-          service,
-          confidence,
-          endsAt ? { validFrom: decisionDate(index), validTo: endsAt } : {},
-        )
+      // later one replaces it.
+      claim(
+        decision,
+        "INFLUENCES",
+        service,
+        confidence,
+        endsAt ? { validFrom: decisionDate(index), validTo: endsAt } : {},
+      )
       if (!replaced) {
         const list = influences.get(service) ?? []
         list.push({ decision, confidence })

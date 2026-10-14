@@ -349,6 +349,48 @@ describe("get_related through the MCP client on live Postgres and FalkorDB", () 
     expect(refs(lowerCase)).toContain("knowledge/services/payments-api.md")
   })
 
+  it("adds the results of all edges after a short intent walk, but not for explicit predicates", async () => {
+    const gateway = "knowledge/services/gateway.md"
+    // The ownership walk finds only the owner. The walk of all edges adds
+    // the library, the services that use it, and the doc after the owner.
+    const byIntent = await related({
+      workspace: "platform",
+      seeds: [gateway],
+      intent: "ownership",
+    })
+    expect(byIntent.isError).not.toBe(true)
+    expect(refs(byIntent)[0]).toBe("knowledge/teams/edge.md")
+    expect([...refs(byIntent)].sort()).toEqual([
+      "knowledge/docs/overview.md",
+      limiter,
+      "knowledge/services/payments-api.md",
+      "knowledge/services/search-api.md",
+      "knowledge/teams/edge.md",
+    ])
+    expect(byIntent.structuredContent).toMatchObject({
+      partial: false,
+      explored: { nodes: 6, edges: 5 },
+    })
+    // A limit that the intent walk fills adds nothing.
+    expect(
+      refs(
+        await related({
+          workspace: "platform",
+          seeds: [gateway],
+          intent: "ownership",
+          limit: 1,
+        }),
+      ),
+    ).toEqual(["knowledge/teams/edge.md"])
+    const explicit = await related({
+      workspace: "platform",
+      seeds: [gateway],
+      intent: "ownership",
+      predicates: ["OWNS"],
+    })
+    expect(refs(explicit)).toEqual(["knowledge/teams/edge.md"])
+  })
+
   it("filters the results by kind but walks through the other kinds", async () => {
     const result = await related({
       workspace: "platform",

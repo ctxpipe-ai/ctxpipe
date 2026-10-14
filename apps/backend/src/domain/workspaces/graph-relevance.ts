@@ -82,7 +82,7 @@ export type RelevanceOptions = {
   hubPenalty?: number
   /** Half-life of a change edge. Default 90 days. */
   recencyHalfLifeDays?: number
-  /** λ of MMR: 0 ranks by score only. Default 0.3. */
+  /** λ of MMR: 0 ranks by score only. The intent sets the default. */
   diversity?: number
   maxPerKind?: number
   /**
@@ -133,6 +133,8 @@ type IntentPreset = {
   predicates: Readonly<Record<string, number>>
   signals: RelevanceSignalWeights
   hubPenalty: number
+  /** λ of MMR. Default 0.3. */
+  diversity?: number
 }
 
 /** No signal goes below this value, so no unit is removed by one signal. */
@@ -175,24 +177,35 @@ const STRUCTURAL_PREDICATES = [
   "RUNS_ON",
 ]
 
+/**
+ * Workspace claims have free-form predicates, and hydrate turns each body
+ * link into `LINKS_TO`. Every default walk also follows these edges.
+ */
+const LINK_PREDICATES = ["LINKS_TO", "REFERENCES", "MENTIONS"]
+
 function weightAll(predicates: readonly string[], weight: number) {
   return Object.fromEntries(predicates.map((predicate) => [predicate, weight]))
 }
 
 /**
  * The turns of PR #350 become predicate weights. Each intent except `general`
- * also walks only its own edges: on an unscoped walk, a unit with many edges
- * of one predicate (pull requests, notes) hides its owner and its decisions.
+ * first walks only its own edges and the link edges: on an unscoped walk, a
+ * unit with many edges of one predicate (pull requests, notes) hides its
+ * owner and its decisions. When that walk finds too few results,
+ * `get_related` adds the results of a walk over all edges after them.
  */
 export const INTENT_PRESETS: Readonly<Record<RelevanceIntent, IntentPreset>> = {
+  // The question is not known, so the results spread over kinds: else the
+  // many rules or notes of a unit fill the first page.
   general: {
     predicates: {},
     signals: BASE_SIGNALS,
     hubPenalty: BASE_HUB_PENALTY,
+    diversity: 0.5,
   },
   // A team that owns many services and issues is still the owner.
   ownership: {
-    walk: ["OWNS"],
+    walk: ["OWNS", ...LINK_PREDICATES],
     predicates: { OWNS: 3 },
     signals: BASE_SIGNALS,
     hubPenalty: 0,
@@ -208,6 +221,7 @@ export const INTENT_PRESETS: Readonly<Record<RelevanceIntent, IntentPreset>> = {
       "AFFECTS",
       "APPLIES_TO",
       "TRACKED_BY",
+      ...LINK_PREDICATES,
     ],
     predicates: { INFLUENCES: 3, SUPERSEDES: 2 },
     signals: BASE_SIGNALS,
@@ -216,7 +230,7 @@ export const INTENT_PRESETS: Readonly<Record<RelevanceIntent, IntentPreset>> = {
   // The hub penalty keeps a shared file that many changes touch from
   // pulling unrelated changes into the results.
   change: {
-    walk: [...CHANGE_PREDICATES, "TARGETS", "REFERENCES"],
+    walk: [...CHANGE_PREDICATES, "TARGETS", ...LINK_PREDICATES],
     predicates: {
       ...weightAll(CHANGE_PREDICATES, 3),
       TARGETS: 3,
@@ -226,13 +240,13 @@ export const INTENT_PRESETS: Readonly<Record<RelevanceIntent, IntentPreset>> = {
     hubPenalty: BASE_HUB_PENALTY,
   },
   dependencies: {
-    walk: DEPENDENCY_PREDICATES,
+    walk: [...DEPENDENCY_PREDICATES, ...LINK_PREDICATES],
     predicates: weightAll(DEPENDENCY_PREDICATES, 3),
     signals: BASE_SIGNALS,
     hubPenalty: BASE_HUB_PENALTY,
   },
   structure: {
-    walk: STRUCTURAL_PREDICATES,
+    walk: [...STRUCTURAL_PREDICATES, ...LINK_PREDICATES],
     predicates: weightAll(STRUCTURAL_PREDICATES, 3),
     signals: BASE_SIGNALS,
     hubPenalty: BASE_HUB_PENALTY,
@@ -539,7 +553,7 @@ export function rankRelated(input: {
     options.recencyHalfLifeDays ?? DEFAULT_RECENCY_HALF_LIFE_DAYS
   const signalWeights = { ...preset.signals, ...options.signalWeights }
   const queryWeight = options.queryWeight ?? 0.5
-  const diversity = options.diversity ?? 0.3
+  const diversity = options.diversity ?? preset.diversity ?? 0.3
   checkRange("restart", restart, (value) => value > 0 && value < 1)
   checkRange("queryWeight", queryWeight, inUnitRange)
   checkRange("diversity", diversity, inUnitRange)

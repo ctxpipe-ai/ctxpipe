@@ -7,6 +7,7 @@ import {
   workspaces,
 } from "../../db/schema/workspaces.js"
 import {
+  type ExpandedNode,
   expandWorkspaceGraph,
   type GraphExpandParams,
 } from "../../domain/workspaces/graph-expand.js"
@@ -71,7 +72,7 @@ export const getRelatedInputShape = {
     .max(50)
     .optional()
     .describe(
-      "Walk only edges with these predicates. Not case-sensitive. Default: the edges of the intent (all edges for general).",
+      "Walk only edges with these predicates. Not case-sensitive. Default: the edges of the intent and the link edges, then all edges when that finds fewer than limit results (all edges for general).",
     ),
   predicateWeights: z
     .record(name, z.number().min(0))
@@ -104,7 +105,9 @@ export const getRelatedInputShape = {
     .min(1)
     .max(1_000)
     .default(50)
-    .describe("Edges that one unit expands, the strongest first. Default 50."),
+    .describe(
+      "Edges that one unit expands: the strongest edge of each predicate first, then the next of each. Default 50.",
+    ),
   minConfidence: z
     .number()
     .min(0)
@@ -155,7 +158,7 @@ export const getRelatedInputShape = {
     .max(1)
     .optional()
     .describe(
-      "0 ranks by score only; higher spreads results over kinds and neighbors. Default 0.3.",
+      "0 ranks by score only; higher spreads results over kinds and neighbors. Default 0.5 for general, else 0.3.",
     ),
   maxPerKind: z
     .number()
@@ -348,72 +351,111 @@ export async function rankWorkspaceRelated(
     )
   const projection = await loadProjection(org, workspace, sha)
   const seedIds = await resolveSeeds(org, workspace.id, sha, input.seeds)
-  const expansion = await expandWorkspaceGraph({
-    orgId: org.id,
-    orgSlug: org.slug,
-    projection,
-    seeds: seedIds,
-    maxDepth: input.maxDepth,
-    direction: input.direction,
-    // The graph stores predicates in upper case, and the ranking does the same.
-    // With no predicates, the walk follows the edges of the intent.
-    predicates:
-      input.predicates?.map((predicate) => predicate.toUpperCase()) ??
-      INTENT_PRESETS[input.intent].walk?.slice(),
-    minConfidence: input.minConfidence,
-    maxFanOut: input.maxFanOut,
-    validAt: input.validBetween
-      ? undefined
-      : (input.validAt ?? now.toISOString()),
-    validBetween: input.validBetween,
-    caps: options.caps,
-  }).catch((error: unknown) => {
-    if (error instanceof WorkspaceGraphBuildingError) {
-      throw notReady("being built")
-    }
-    if (error instanceof WorkspaceGraphUnavailableError) {
-      throw notReady("not ready")
-    }
-    throw error
-  })
-  const queryHits = input.query
-    ? (
-        await searchKnowledge({
-          orgId: org.id,
-          workspaceIds: [workspace.id],
-          query: input.query,
-          unitIds: expansion.nodes.map((node) => node.id),
-          limit: 50,
-        })
-      ).map((hit) => ({ id: hit.unitId, score: hit.score }))
-    : []
-  const ranked = rankRelated({
-    nodes: expansion.nodes,
-    signals: expansion.edges,
-    seeds: seedIds,
-    queryHits,
-    options: {
-      intent: input.intent,
-      predicateWeights: input.predicateWeights,
+  // Walk the graph and rank what the walk found. No `predicates` walks all
+  // edges.
+  const walk = async (
+    predicates: string[] | undefined,
+    diversity = input.diversity,
+  ) => {
+    const expansion = await expandWorkspaceGraph({
+      orgId: org.id,
+      orgSlug: org.slug,
+      projection,
+      seeds: seedIds,
+      maxDepth: input.maxDepth,
       direction: input.direction,
-      restart: input.restart,
-      queryWeight: input.queryWeight,
-      hubPenalty: input.hubPenalty,
-      recencyHalfLifeDays: input.recencyHalfLifeDays,
-      diversity: input.diversity,
-      maxPerKind: input.maxPerKind,
-      kinds: input.kinds,
-      includeSeeds: input.includeSeeds,
-      limit: RANKED_LIMIT,
-      now: input.validAt ? new Date(input.validAt) : now,
-      validBetween: input.validBetween && {
-        from: new Date(input.validBetween.from),
-        to: new Date(input.validBetween.to),
+      predicates,
+      minConfidence: input.minConfidence,
+      maxFanOut: input.maxFanOut,
+      validAt: input.validBetween
+        ? undefined
+        : (input.validAt ?? now.toISOString()),
+      validBetween: input.validBetween,
+      caps: options.caps,
+    }).catch((error: unknown) => {
+      if (error instanceof WorkspaceGraphBuildingError) {
+        throw notReady("being built")
+      }
+      if (error instanceof WorkspaceGraphUnavailableError) {
+        throw notReady("not ready")
+      }
+      throw error
+    })
+    const queryHits = input.query
+      ? (
+          await searchKnowledge({
+            orgId: org.id,
+            workspaceIds: [workspace.id],
+            query: input.query,
+            unitIds: expansion.nodes.map((node) => node.id),
+            limit: 50,
+          })
+        ).map((hit) => ({ id: hit.unitId, score: hit.score }))
+      : []
+    const ranked = rankRelated({
+      nodes: expansion.nodes,
+      signals: expansion.edges,
+      seeds: seedIds,
+      queryHits,
+      options: {
+        intent: input.intent,
+        predicateWeights: input.predicateWeights,
+        direction: input.direction,
+        restart: input.restart,
+        queryWeight: input.queryWeight,
+        hubPenalty: input.hubPenalty,
+        recencyHalfLifeDays: input.recencyHalfLifeDays,
+        diversity,
+        maxPerKind: input.maxPerKind,
+        kinds: input.kinds,
+        includeSeeds: input.includeSeeds,
+        limit: RANKED_LIMIT,
+        now: input.validAt ? new Date(input.validAt) : now,
+        validBetween: input.validBetween && {
+          from: new Date(input.validBetween.from),
+          to: new Date(input.validBetween.to),
+        },
       },
-    },
-  })
-  const nodes = new Map(expansion.nodes.map((node) => [node.id, node]))
+    })
+    return { expansion, ranked }
+  }
+  // The graph stores predicates in upper case, and the ranking does the same.
+  // Explicit predicates are the whole walk. With none, the walk follows the
+  // edges of the intent. When that finds fewer than `limit` results, the
+  // results of a walk over all edges come after them: claims have free-form
+  // predicates, so the edges of the intent can miss the answer.
+  const defaultWalk = input.predicates
+    ? undefined
+    : INTENT_PRESETS[input.intent].walk
+  const walks = [
+    await walk(
+      input.predicates?.map((predicate) => predicate.toUpperCase()) ??
+        defaultWalk?.slice(),
+    ),
+  ]
+  // The edges of the walk of all edges are not the edges of the intent, so
+  // its results spread over kinds as for `general`.
+  if (defaultWalk && (walks[0]?.ranked.length ?? 0) < input.limit)
+    walks.push(
+      await walk(
+        undefined,
+        input.diversity ?? INTENT_PRESETS.general.diversity,
+      ),
+    )
+  // A unit keeps the node and the rank of the first walk that found it.
+  const nodes = new Map<string, ExpandedNode>()
+  const edgeIds = new Set<string>()
+  for (const { expansion } of walks) {
+    for (const node of expansion.nodes)
+      if (!nodes.has(node.id)) nodes.set(node.id, node)
+    for (const edge of expansion.edges) edgeIds.add(edge.id)
+  }
   const refOf = (id: string) => nodes.get(id)?.path ?? id
+  const rankedIds = new Set<string>()
+  const ranked = walks
+    .flatMap((step) => step.ranked)
+    .filter((result) => !rankedIds.has(result.id) && rankedIds.add(result.id))
+    .slice(0, RANKED_LIMIT)
   const units = ranked.length
     ? await withOrgDbContext(org.id, (db) =>
         db
@@ -464,14 +506,18 @@ export async function rankWorkspaceRelated(
       },
     ]
   })
+  const partialReason = walks.find(({ expansion }) => expansion.partialReason)
+    ?.expansion.partialReason
   return {
     results,
-    explored: { nodes: expansion.nodes.length, edges: expansion.edges.length },
-    partial: expansion.partial,
-    ...(expansion.partialReason
-      ? { partialReason: expansion.partialReason }
-      : {}),
-    cappedHubs: expansion.cappedHubs.slice(0, 20).map(refOf),
+    explored: { nodes: nodes.size, edges: edgeIds.size },
+    partial: walks.some(({ expansion }) => expansion.partial),
+    ...(partialReason ? { partialReason } : {}),
+    cappedHubs: [
+      ...new Set(walks.flatMap(({ expansion }) => expansion.cappedHubs)),
+    ]
+      .slice(0, 20)
+      .map(refOf),
   }
 }
 
@@ -480,7 +526,7 @@ export const getRelatedTool = defineMcpReadTool({
   name: "get_related",
   title: "Get related knowledge",
   description:
-    "Find knowledge related to seed refs AND relevant to your query, ranked by graph proximity, edge confidence, recency and query match. Each result can explain why (the path of predicates from a seed). Set intent for the question: why, ownership, change, dependencies, structure. Each intent walks only its own edges (ownership: OWNS; why: decisions, incidents, rules and dependencies; change: changes; dependencies: dependency edges); general walks all edges. Give predicates to walk other edges. Filter by predicates, kinds, direction, depth and time. Use it after search_knowledge to find owners, dependencies, decisions, incidents and changes. For plain neighbors, set maxDepth 1 and no query. The default maxDepth is 2.",
+    "Find knowledge related to seed refs AND relevant to your query, ranked by graph proximity, edge confidence, recency and query match. Each result can explain why (the path of predicates from a seed). Set intent for the question: why, ownership, change, dependencies, structure. Each intent first walks its own edges and the link edges (ownership: OWNS; why: decisions, incidents, rules and dependencies; change: changes; dependencies: dependency edges); with fewer than limit results, results from all edges follow. general walks all edges. Give predicates to walk only those edges. Filter by predicates, kinds, direction, depth and time. Use it after search_knowledge to find owners, dependencies, decisions, incidents and changes. For plain neighbors, set maxDepth 1 and no query. The default maxDepth is 2.",
   org: "required",
   inputShape: getRelatedInputShape,
   outputSchema: z.object({
