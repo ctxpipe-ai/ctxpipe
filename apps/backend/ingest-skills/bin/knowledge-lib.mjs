@@ -11,7 +11,7 @@
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { posix } from "node:path"
-import { safePath } from "../discover-roots/scripts/roots-lib.mjs"
+import { MAX_ROOTS, safePath } from "../discover-roots/scripts/roots-lib.mjs"
 import {
   baseBlob,
   blobContent,
@@ -54,7 +54,12 @@ export function scriptStep(argv = process.argv.slice(2)) {
   if (!Array.isArray(listed)) fail(`${rootsFile} has no roots list`)
   const skipped = []
   const roots = []
-  for (const entry of listed) {
+  if (listed.length > MAX_ROOTS)
+    skipped.push({
+      path: null,
+      reason: `The script read only the first ${MAX_ROOTS} roots of the roots file`,
+    })
+  for (const entry of listed.slice(0, MAX_ROOTS)) {
     if (!safePath(entry?.path)) {
       skipped.push({
         path: null,
@@ -194,13 +199,34 @@ function newFile({ kind, name, summary, intro, claims, related }) {
   return `---\n${yaml.join("\n")}\n---\n\n# ${name}\n\n${intro}\n\n## Related\n\n${lines.join("\n")}\n`
 }
 
-/** Claim targets already in a front matter block: "to predicate". */
+/** The value of a YAML `to:` scalar: double quoted, single quoted, or plain (the rest of the line). */
+function claimTarget(raw) {
+  const text = raw.trim()
+  if (text.startsWith('"')) {
+    try {
+      return JSON.parse(text)
+    } catch {
+      return null
+    }
+  }
+  if (text.startsWith("'")) {
+    const end = /^'((?:[^']|'')*)'\s*(?:#.*)?$/.exec(text)
+    return end ? end[1].replaceAll("''", "'") : null
+  }
+  return text.replace(/\s+#.*$/, "")
+}
+
+/**
+ * Claims already in a front matter block, as "to predicate" with the target
+ * decoded: the validator rewrites the quotes, so a path with a space can be
+ * plain, single quoted, or double quoted.
+ */
 function existingClaims(yaml) {
   const found = new Set()
   let to = null
   for (const line of yaml.split("\n")) {
-    const toMatch = /^\s*-?\s*to:\s*["']?([^"'\s]+)["']?\s*$/.exec(line)
-    if (toMatch) to = toMatch[1]
+    const toMatch = /^\s*-?\s*to:(.*)$/.exec(line)
+    if (toMatch) to = claimTarget(toMatch[1])
     const predicate = /^\s*predicate:\s*["']?([A-Z0-9_]+)["']?\s*$/.exec(line)
     if (predicate && to) found.add(`${to} ${predicate[1]}`)
   }
@@ -274,10 +300,11 @@ function mergeFile(text, { claims, related }) {
 
 /**
  * Write the planned files to the staged tree and write patch.json. A plan is
- * { path, create, claims, related, expectName? }. `create` is
+ * { path, create, claims, related, expectName?, exactName? }. `create` is
  * { kind, name, summary, intro } for a new file, or null when the script
  * only adds to an existing file. When `expectName` is set, an existing file
- * at the path must have that name. Plans for one path are joined.
+ * at the path must have that name; letters and digits only, unless
+ * `exactName` is set (then the same text, in any letter case). Plans for one path are joined.
  *
  * A step writes at most MAX_STEP_OPS files. `more` is true when a plan waits
  * for the next page: the host runs the skill again on the new base until
@@ -295,6 +322,7 @@ export function writeStep(step, plans, skipped = []) {
         ...same,
         create: same.create ?? plan.create,
         expectName: same.expectName ?? plan.expectName,
+        exactName: same.exactName ?? plan.exactName,
         claims: [...same.claims, ...plan.claims],
         related: [...same.related, ...plan.related],
       })
@@ -315,7 +343,9 @@ export function writeStep(step, plans, skipped = []) {
     if (
       plan.expectName &&
       before !== null &&
-      nameKey(name) !== nameKey(plan.expectName)
+      (plan.exactName
+        ? name?.toLowerCase() !== plan.expectName.toLowerCase()
+        : nameKey(name) !== nameKey(plan.expectName))
     ) {
       skipped.push({
         path: plan.path,

@@ -370,7 +370,7 @@ describe("discover-roots script", () => {
     const dir = repo({
       "package.json": pkg("root", {
         private: true,
-        workspaces: [`${"**/".repeat(12)}leaf`, `${"*/".repeat(30)}y`],
+        workspaces: [`${"**/".repeat(4)}leaf`, `${"*/".repeat(30)}y`],
       }),
       [`${deep}/package.json`]: pkg("deep"),
       [`${"a/".repeat(20)}leaf/package.json`]: pkg("leaf"),
@@ -438,6 +438,103 @@ describe("discover-roots script", () => {
           "A folder with a package manifest has a name that the script does not quote",
       },
     ])
+  })
+
+  it("does not give a folder whose name has a C1 control or an invisible direction character", () => {
+    const bad = [
+      ...Array.from({ length: 0x20 }, (_, i) => 0x80 + i),
+      0x2028,
+      0x2029,
+      0x200e,
+      0x200f,
+      ...[0x202a, 0x202b, 0x202c, 0x202d, 0x202e],
+      ...[0x2066, 0x2067, 0x2068, 0x2069],
+    ].map((code) => String.fromCodePoint(code))
+    const dir = repo({
+      "package.json": pkg("root", { private: true, workspaces: ["apps/*"] }),
+      "apps/web/package.json": pkg("web"),
+      "apps/caf\u00e9/package.json": pkg("cafe"),
+      ...Object.fromEntries(
+        bad.map((c, i) => [`apps/x${i}${c}y/package.json`, pkg(`bad${i}`)]),
+      ),
+    })
+    const result = discover(dir)
+    expect(result.roots.map((r) => r.path)).toEqual([
+      "apps/caf\u00e9",
+      "apps/web",
+    ])
+    expect(result.skipped).toEqual([
+      {
+        manifest: null,
+        reason:
+          "A folder with a package manifest has a name that the script does not quote",
+      },
+    ])
+  })
+
+  describe("work limits", () => {
+    /** 1000 package folders below one chain of `depth` folders. */
+    const wide = (depth: number, glob: string) => {
+      const chain = Array.from({ length: depth }, () => "a").join("/")
+      const files: Record<string, string> = {
+        "package.json": pkg("root", { private: true }),
+        "apps/web/package.json": pkg("web"),
+        "pnpm-workspace.yaml": [
+          "packages:",
+          "  - 'apps/*'",
+          ...Array.from({ length: 499 }, () => `  - '${glob}'`),
+        ].join("\n"),
+      }
+      for (let i = 0; i < 1000; i++)
+        files[`${chain}/s${i}/package.json`] = pkg(`p${i}`)
+      return repo(files)
+    }
+    // 4 `**` and 32 segments in 197 characters; the last segment never matches.
+    const heavy = `${"**/".repeat(4)}${"*/".repeat(27)}${"*".repeat(130)}z`
+
+    it("finishes 500 long globs on 1000 folders, 150 levels deep, in well under a second", () => {
+      expect(heavy).toHaveLength(197)
+      const dir = wide(140, heavy)
+      const started = performance.now()
+      const result = discover(dir)
+      expect(performance.now() - started).toBeLessThan(1000)
+      expect(result.roots.map((r) => r.path)).toEqual(["apps/web"])
+      expect(result.skipped.map((s) => s.reason)).toContain(
+        "The script did not read a folder that is more than 64 levels deep",
+      )
+    })
+
+    it("shares one match budget between the globs, and says what it skipped", () => {
+      const dir = wide(55, heavy)
+      const started = performance.now()
+      const result = discover(dir)
+      expect(performance.now() - started).toBeLessThan(1000)
+      expect(result.roots.map((r) => r.path)).toEqual(["apps/web"])
+      expect(result.skipped.map((s) => s.reason)).toContain(
+        "The script skipped an entry: the match budget of the script ran out, so it read no more entries",
+      )
+    })
+  })
+
+  it("skips a glob with more than 32 segments or more than 4 double stars", () => {
+    const dir = repo({
+      "package.json": pkg("root", { private: true }),
+      "pnpm-workspace.yaml": [
+        "packages:",
+        `  - '${Array.from({ length: 33 }, () => "a").join("/")}'`,
+        "  - '**/**/x/**/y/**/z/**'",
+        "  - 'apps/*'",
+      ].join("\n"),
+      "apps/web/package.json": pkg("web"),
+    })
+    const result = discover(dir)
+    expect(result.roots.map((r) => r.path)).toEqual(["apps/web"])
+    expect(result.skipped.map((s) => s.reason)).toEqual(
+      expect.arrayContaining([
+        "The script skipped an entry: it has more than 32 segments",
+        "The script skipped an entry: it has more than 4 `**` segments",
+      ]),
+    )
   })
 
   it("finds Rush projects in rush.json, a JSON file with comments", () => {

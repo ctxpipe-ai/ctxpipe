@@ -102,4 +102,33 @@ describe("resolveDiscoveredRoots", () => {
       "The discover-roots script result does not match its schema",
     )
   })
+
+  it("refuses a path with a C1 control, a line separator, or an invisible direction character", () => {
+    const bad = [
+      ...Array.from({ length: 0x20 }, (_, i) => 0x80 + i),
+      0x2028,
+      0x2029,
+      0x200e,
+      0x200f,
+      ...[0x202a, 0x202b, 0x202c, 0x202d, 0x202e],
+      ...[0x2066, 0x2067, 0x2068, 0x2069],
+    ].map((code) => String.fromCodePoint(code))
+    for (const char of bad) {
+      const path = `apps/a${char}b`
+      const script = {
+        ...SCRIPT,
+        roots: [...SCRIPT.roots, { path, manifests: [], evidence: [] }],
+      }
+      expect(resolveDiscoveredRoots(script, null).refused).toEqual([
+        { path, reason: "The path is not safe to write" },
+      ])
+    }
+    const path = "apps/caf\u00e9"
+    expect(
+      resolveDiscoveredRoots(
+        { ...SCRIPT, roots: [{ path, manifests: [], evidence: [] }] },
+        null,
+      ).refused,
+    ).toEqual([])
+  })
 })
