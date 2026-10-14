@@ -94,7 +94,12 @@ export function withCallOrg<T>(
 export function withCallOrg<T>(
   slug: string | undefined,
   fn: (org: CallOrg | null) => Promise<T>,
+): Promise<T>
+export function withCallOrg<T>(
+  slug: string | undefined,
+  fn: (org: never) => Promise<T>,
 ): Promise<T> {
+  const run = fn as (org: CallOrg | null) => Promise<T>
   return withInFlightLimit(principalKey(), async () => {
     const org = slug === undefined ? null : await requireToolOrg(slug)
     // The org of this call, not the URL default (ADR-051 §9).
@@ -104,7 +109,7 @@ export function withCallOrg<T>(
         "ctxpipe.org.slug": org.slug,
       })
     }
-    return org ? withOrgIdContext(org, () => fn(org)) : fn(org)
+    return org ? withOrgIdContext(org, () => run(org)) : run(org)
   })
 }
 

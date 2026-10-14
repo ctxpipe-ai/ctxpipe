@@ -32,10 +32,15 @@ import {
 import { generateObjectId } from "../../lib/id.js"
 import { registerMcpRoutes } from "../../routes/mcp.js"
 import { withTestRequestLogger } from "../../test/hono-test-logger.js"
-import {
-  registerWorkspaceFileResource,
-  workspaceFileUri,
-} from "./workspace-file.js"
+import { registerWorkspaceFileResource } from "./workspace-file.js"
+
+function workspaceFileUri(org: string, workspace: string, ref: string): string {
+  const encoded = ref
+    .split("/")
+    .map((segment) => encodeURIComponent(segment).replace(/%3A/gi, ":"))
+    .join("/")
+  return `ctxpipe://${org}/${workspace}/${encoded}`
+}
 
 // biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 const server = useMswServer()
