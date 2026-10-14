@@ -155,26 +155,25 @@ function main() {
   for (let i = 0; i < argv.length; i += 2) {
     if (argv[i] === "--source") source = argv[i + 1]
     else if (argv[i] === "--roots") rootsFile = argv[i + 1]
+    // The other host inputs (ADR-052 section 6); the list needs neither.
+    else if (argv[i] === "--source-url" || argv[i] === "--root") continue
     else {
       process.stderr.write(`Unknown argument ${argv[i]}\n`)
       process.exit(1)
     }
   }
-  if (!source) {
+  if (!source || !rootsFile) {
     process.stderr.write(
-      "Usage: documents.mjs --source <checkout> [--roots <file>]\n",
+      "Usage: documents.mjs --source <checkout> --source-url <url> --roots <file>\n",
     )
     process.exit(1)
   }
-  let roots = null
-  if (rootsFile) {
-    const listed = JSON.parse(readFileSync(rootsFile, "utf8")).roots
-    roots = Array.isArray(listed)
-      ? listed
-          .map((r) => r?.path)
-          .filter((p) => typeof p === "string" && safePath(p))
-      : null
-  }
+  const listed = JSON.parse(readFileSync(rootsFile, "utf8")).roots
+  const roots = Array.isArray(listed)
+    ? listed
+        .map((r) => r?.path)
+        .filter((p) => typeof p === "string" && safePath(p))
+    : null
   process.stdout.write(`${JSON.stringify(selectDocuments(source, roots))}\n`)
 }
 

@@ -50,7 +50,7 @@ const value = (name) => {
   const at = argv.indexOf(name)
   return at === -1 ? null : (argv[at + 1] ?? null)
 }
-const { step, source, roots, skipped } = scriptStep(argv)
+const { step, source, roots, index, skipped } = scriptStep(argv)
 const sourceUrl = normalizeUrl(value("--source-url"))
 const now = value("--now") ? new Date(value("--now")) : new Date()
 const proposalFile = value("--proposal")
@@ -524,23 +524,36 @@ writeFileSync(
   `${JSON.stringify({ areas: report }, null, 2)}\n`,
 )
 
-// The FOLLOWS claim comes from one codebase file: the one of the repository root, else the shallowest.
-const codebases = roots
-  .flatMap((root) =>
-    root.files
-      .filter((f) => f.kind === "Repository" || f.kind === "Codebase")
-      .map((f) => ({
-        path: f.path,
-        depth: root.path === "." ? 0 : root.path.split("/").length,
-      })),
+// The FOLLOWS claim comes from one codebase file: the repository unit that
+// the first step of the run wrote (ADR-052 section 6), else the codebase
+// file of the repository root in the map, else the shallowest.
+const unit = index
+  .filter(
+    (e) =>
+      e?.kind === "Repository" &&
+      typeof e.path === "string" &&
+      e.path.startsWith("knowledge/codebases/") &&
+      Array.isArray(e.sources) &&
+      e.sources.some((u) => normalizeUrl(u) === sourceUrl),
   )
-  .sort((a, b) => a.depth - b.depth || (a.path < b.path ? -1 : 1))
-const codebase = codebases[0]?.path ?? null
+  .map((e) => ({ path: e.path, depth: -1 }))
+const codebases = roots.flatMap((root) =>
+  root.files
+    .filter((f) => f.kind === "Repository" || f.kind === "Codebase")
+    .map((f) => ({
+      path: f.path,
+      depth: root.path === "." ? 0 : root.path.split("/").length,
+    })),
+)
+const codebase =
+  [...unit, ...codebases].sort(
+    (a, b) => a.depth - b.depth || (a.path < b.path ? -1 : 1),
+  )[0]?.path ?? null
 const plans = []
 if (!codebase && followed.length)
   skip(
     null,
-    "No codebase file of this source is in the root-to-file map, so no FOLLOWS claim was written",
+    "No codebase file of this source is in the context index or the root-to-file map, so no FOLLOWS claim was written",
   )
 else
   for (const { path, evidence } of followed)
