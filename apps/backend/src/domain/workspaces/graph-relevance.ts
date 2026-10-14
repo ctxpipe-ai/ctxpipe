@@ -48,10 +48,10 @@ export type RelevanceNode = {
   eventDate?: string | null
 }
 
-/** One raw signal (claim) of an edge, as the walk returns it. */
+/** One raw signal (claim) of an edge, as the walk returns it (`ExpandedEdge`). */
 export type RelevanceSignal = {
-  from: string
-  to: string
+  sourceId: string
+  targetId: string
   predicate: string
   /** Stored c_max of the signal. */
   confidence: number | null
@@ -323,16 +323,16 @@ function combineEdges(
 ): StoredEdge[] {
   const grouped = new Map<string, { edge: StoredEdge; energies: number[] }>()
   for (const signal of signals) {
-    if (!nodeIds.has(signal.from) || !nodeIds.has(signal.to)) continue
-    if (signal.from === signal.to) continue
+    if (!nodeIds.has(signal.sourceId) || !nodeIds.has(signal.targetId)) continue
+    if (signal.sourceId === signal.targetId) continue
     const energy = decayWorkspaceSignal({ ...signal, now })
     if (energy <= 0) continue
     const predicate = signal.predicate.toUpperCase()
-    const key = `${signal.from}\0${signal.to}\0${predicate}`
+    const key = `${signal.sourceId}\0${signal.targetId}\0${predicate}`
     const group = grouped.get(key) ?? {
       edge: {
-        from: signal.from,
-        to: signal.to,
+        from: signal.sourceId,
+        to: signal.targetId,
         predicate,
         truth: 0,
         validFrom: null,

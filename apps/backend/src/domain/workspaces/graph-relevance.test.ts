@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import type { GraphExpansion } from "./graph-expand.js"
 import {
   type RelevanceNode,
   type RelevanceOptions,
@@ -23,8 +24,8 @@ function signal(
   extra: Partial<RelevanceSignal> = {},
 ): RelevanceSignal {
   return {
-    from,
-    to,
+    sourceId: from,
+    targetId: to,
     predicate: "LINKS_TO",
     confidence,
     validFrom: null,
@@ -653,5 +654,46 @@ describe("rankRelated diversity", () => {
 
   it("stops at limit", () => {
     expect(rank({ ...input, options: { limit: 3 } })).toHaveLength(3)
+  })
+})
+
+describe("rankRelated input from the graph expansion", () => {
+  it("takes the nodes and edges of a GraphExpansion as they are", () => {
+    const expansion: Pick<GraphExpansion, "nodes" | "edges"> = {
+      nodes: ["s", "t"].map((id, index) => ({
+        id,
+        kind: "note",
+        name: id,
+        summary: null,
+        path: `${id}.md`,
+        degree: 1,
+        inDegree: index,
+        outDegree: 1 - index,
+        depth: index,
+      })),
+      edges: [
+        {
+          id: "e1",
+          sourceId: "s",
+          targetId: "t",
+          predicate: "LINKS_TO",
+          confidence: 0.8,
+          validFrom: "2026-01-01T00:00:00.000Z",
+          validTo: null,
+          source: "git",
+          lastObservedAt: "2026-01-01T00:00:00.000Z",
+        },
+      ],
+    }
+    const [result] = rankRelated({
+      nodes: expansion.nodes,
+      signals: expansion.edges,
+      seeds: ["s"],
+      options: { now: NOW },
+    })
+    expect(result?.id).toBe("t")
+    expect(result?.path).toEqual([
+      expect.objectContaining({ from: "s", to: "t", predicate: "LINKS_TO" }),
+    ])
   })
 })
