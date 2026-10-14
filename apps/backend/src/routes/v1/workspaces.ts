@@ -203,7 +203,7 @@ const listWorkspacesRoute = createRoute({
       content: {
         "application/json": { schema: ListWorkspacesResponseSchema },
       },
-      description: "List Workspaces for the current organisation",
+      description: "List Workspaces for the current organization",
     },
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },

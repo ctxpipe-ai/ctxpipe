@@ -86,7 +86,7 @@ function OrgScopedLayout() {
             Access
           </p>
           <h1 className="mt-3 text-xl font-medium tracking-tight text-foreground">
-            You do not have access to this organisation
+            You do not have access to this organization
           </h1>
           <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
             The URL may be wrong, or you may have been removed from{" "}

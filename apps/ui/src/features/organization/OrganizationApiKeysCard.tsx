@@ -1,9 +1,9 @@
 /**
- * Shared personal and organisation API-key UI.
+ * Shared personal and organization API-key UI.
  *
  * Replaces better-auth-ui's <ApiKeysCard> so both ownership modes share one
  * information hierarchy and empty state. The library card's
- * `CreateApiKeyDialog` gates an organisation/personal selector on
+ * `CreateApiKeyDialog` gates an organization/personal selector on
  * `contextOrganization.apiKey` (no per-call-site opt-out). That selector would
  * mix ownership modes on both settings pages. Calling
  * `authClient.apiKey.{list,create,delete}` with an explicit config keeps each
@@ -232,7 +232,7 @@ function ApiKeysCard(props: ApiKeysCardProps) {
                   params={{ organizationView: "api-keys" }}
                   className="font-medium text-teal-400 underline-offset-4 hover:underline"
                 >
-                  Use an organisation key instead.
+                  Use an organization key instead.
                 </Link>
               )}
             </p>
@@ -250,7 +250,7 @@ function ApiKeysCard(props: ApiKeysCardProps) {
             </div>
           ) : forbidden ? (
             <InlineAlert variant="error" title="Admin or owner required">
-              Only organisation admins and owners can manage these keys.
+              Only organization admins and owners can manage these keys.
             </InlineAlert>
           ) : loadError ? (
             <InlineAlert variant="error" title="Could not load API keys">
@@ -263,7 +263,7 @@ function ApiKeysCard(props: ApiKeysCardProps) {
               </span>
               <div>
                 <p className="text-sm font-medium text-foreground">
-                  No {isOrganization ? "organisation" : "personal"} keys
+                  No {isOrganization ? "organization" : "personal"} keys
                 </p>
                 <p className="mt-1 text-sm text-muted-foreground">
                   {isOrganization
@@ -275,7 +275,7 @@ function ApiKeysCard(props: ApiKeysCardProps) {
           ) : (
             <GridList
               aria-label={
-                isOrganization ? "Organisation API keys" : "Personal API keys"
+                isOrganization ? "Organization API keys" : "Personal API keys"
               }
               className={cn(
                 apiKeysCardClassNames?.cell,
@@ -341,7 +341,7 @@ function ApiKeysCard(props: ApiKeysCardProps) {
         error={
           createMutation.error
             ? isOrganization && isForbidden(createMutation.error)
-              ? "Only organisation admins and owners can mint organisation keys."
+              ? "Only organization admins and owners can mint organization keys."
               : errorMessage(createMutation.error)
             : undefined
         }

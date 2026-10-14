@@ -26,6 +26,7 @@ import {
 import { seedSourcesOrg } from "../../test/workspace-sources-fixture.js"
 import { gitFileBytes } from "../git/file-change.js"
 import { getSlackThreadPath } from "./converter.js"
+import { slackCaptureWorkspaceLinks } from "./mention-agent.js"
 import {
   captureSlackThreadToSources,
   slackSourceAdapter,
@@ -278,6 +279,26 @@ describe("Slack mention capture through Workspace sources (Postgres, msw, git)",
       })
     },
   )
+
+  it("links each Workspace that got the thread to its thread file in the app", async () => {
+    const result = await capture(ENG)
+    if (result.kind !== "captured") throw new Error("Thread not captured")
+    const slug = (name: string) =>
+      `${name}-${seed.suffix.replaceAll("_", "-")}`.slice(0, 60)
+    const pane = encodeURIComponent(`file:${encodeURIComponent(threadPath)}`)
+    const links = await slackCaptureWorkspaceLinks({
+      orgId: seed.orgId,
+      workspaceIds: result.workspaces,
+      threadPath,
+      env: env(),
+    })
+    expect(links.sort((a, b) => a.name.localeCompare(b.name))).toEqual(
+      ["both", "eng"].map((name) => ({
+        name,
+        url: `${env().AUTH_BASE_URL}/${seed.orgId}/ws/${slug(name)}?pane=${pane}`,
+      })),
+    )
+  })
 
   it("writes only into the Workspace of a channel that one source lists", async () => {
     const result = await capture(OPS)

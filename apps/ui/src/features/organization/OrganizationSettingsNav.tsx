@@ -16,7 +16,7 @@ export function OrganizationSettingsNav(props: {
 
   return (
     <nav
-      aria-label="Organisation settings"
+      aria-label="Organization settings"
       className={cn(
         "flex w-full flex-col gap-1 md:w-48 lg:w-60",
         organizationViewClassNames.sidebar?.base,
