@@ -458,7 +458,11 @@ describe("discover-roots script", () => {
     })
     const result = discover(dir)
     expect(result.roots).toEqual([
-      { path: "apps/web", manifests: ["package.json"], evidence: ["rush.json"] },
+      {
+        path: "apps/web",
+        manifests: ["package.json"],
+        evidence: ["rush.json"],
+      },
       {
         path: "libraries/lib",
         manifests: ["package.json"],

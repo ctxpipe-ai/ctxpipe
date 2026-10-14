@@ -98,7 +98,9 @@ function sourceFile(step, path, sourceUrl) {
 }
 
 function frontMatter(text) {
-  return /^---[ \t]*\r?\n((?:.*\n)*?)---[ \t]*(?:\r?\n|$)/.exec(text)?.[1] ?? null
+  return (
+    /^---[ \t]*\r?\n((?:.*\n)*?)---[ \t]*(?:\r?\n|$)/.exec(text)?.[1] ?? null
+  )
 }
 
 const unquote = (text) => text.trim().replace(/^(["'])(.*)\1$/, "$2")
@@ -302,17 +304,30 @@ export function writeStep(step, plans, skipped = []) {
   const sorted = [...byPath.values()].sort((a, b) => (a.path < b.path ? -1 : 1))
   for (const plan of sorted) {
     const claims = [
-      ...new Map(plan.claims.map((c) => [`${c.to} ${c.predicate}`, c])).values(),
+      ...new Map(
+        plan.claims.map((c) => [`${c.to} ${c.predicate}`, c]),
+      ).values(),
     ]
     const related = [...new Set(plan.related)].sort()
     const before = baseText(step, plan.path)
-    const name = before === null ? null : frontValue(frontMatter(before) ?? "", "name")
-    if (plan.expectName && before !== null && nameKey(name) !== nameKey(plan.expectName)) {
-      skipped.push({ path: plan.path, reason: "A file with another name has this path" })
+    const name =
+      before === null ? null : frontValue(frontMatter(before) ?? "", "name")
+    if (
+      plan.expectName &&
+      before !== null &&
+      nameKey(name) !== nameKey(plan.expectName)
+    ) {
+      skipped.push({
+        path: plan.path,
+        reason: "A file with another name has this path",
+      })
       continue
     }
     if (before === null && !plan.create) {
-      skipped.push({ path: plan.path, reason: "The file is not in the context" })
+      skipped.push({
+        path: plan.path,
+        reason: "The file is not in the context",
+      })
       continue
     }
     const text =

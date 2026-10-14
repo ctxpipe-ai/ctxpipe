@@ -28,6 +28,8 @@ const GIT_ENV = {
   GIT_AUTHOR_EMAIL: "fixture@example.com",
   GIT_COMMITTER_NAME: "Fixture",
   GIT_COMMITTER_EMAIL: "fixture@example.com",
+  GIT_CONFIG_GLOBAL: "/dev/null",
+  GIT_CONFIG_NOSYSTEM: "1",
 }
 
 const made: string[] = []
@@ -60,6 +62,13 @@ const front = (attributes: object, body: string) =>
   `---\n${stringify(attributes)}---\n${body}`
 
 const kindOf = (text: string) => /^kind: (\S+)$/m.exec(text)?.[1] ?? null
+
+type RootEntry = {
+  path: string
+  manifests: string[]
+  evidence: string[]
+  files: string[]
+}
 
 /** A step: a source checkout, a context checkout at its base, the index, and step.json. */
 function step(source: Record<string, string>, context: Record<string, string>) {
@@ -96,6 +105,41 @@ function step(source: Record<string, string>, context: Record<string, string>) {
   )
   mkdirSync(join(root, "out", "files"), { recursive: true })
 
+  // The host's root-to-file map: the discover-roots roots, with no file yet.
+  const rootsFile = join(root, "roots.json")
+  const discovered = spawnSync(
+    process.execPath,
+    [
+      join(INGEST_SKILLS_DIR, "discover-roots/scripts/discover-roots.mjs"),
+      sourceDir,
+    ],
+    { encoding: "utf8", env: GIT_ENV },
+  )
+  const writeRoots = (roots: RootEntry[]) =>
+    writeFileSync(rootsFile, JSON.stringify({ roots }))
+  writeRoots(
+    (JSON.parse(discovered.stdout).roots as RootEntry[]).map((r) => ({
+      ...r,
+      files: [],
+    })),
+  )
+  const mapFiles = (map: Record<string, string[]>) => {
+    const roots = JSON.parse(readFileSync(rootsFile, "utf8"))
+      .roots as RootEntry[]
+    writeRoots(roots.map((r) => ({ ...r, files: map[r.path] ?? r.files })))
+  }
+  let base = baseCommit
+  /** Commit a validated tree as the next page's base and empty the step output. */
+  const advance = (tree: string) => {
+    base = git(contextDir, "commit-tree", tree, "-p", base, "-m", "page")
+    writeFileSync(
+      join(root, "step.json"),
+      JSON.stringify({ workspaceId: WORKSPACE_ID, baseCommit: base }),
+    )
+    rmSync(join(root, "out"), { recursive: true, force: true })
+    mkdirSync(join(root, "out", "files"), { recursive: true })
+  }
+
   const run = (skill: string, ...args: string[]) => {
     const result = spawnSync(
       process.execPath,
@@ -107,14 +151,17 @@ function step(source: Record<string, string>, context: Record<string, string>) {
         sourceDir,
         "--source-url",
         SOURCE_URL,
+        "--roots",
+        rootsFile,
         ...args,
       ],
-      { encoding: "utf8" },
+      { encoding: "utf8", env: GIT_ENV, timeout: 20_000 },
     )
     expect(result.status, `${result.stdout}${result.stderr}`).toBe(0)
     return JSON.parse(result.stdout) as {
       ops: Array<{ op: string; path: string }>
       skipped: Array<{ path: string | null; reason: string }>
+      more: boolean
     }
   }
   const patch = () =>
@@ -124,7 +171,7 @@ function step(source: Record<string, string>, context: Record<string, string>) {
   const validate = (skill: string) =>
     validatePatchStep({
       repoDir: contextDir,
-      baseCommit,
+      baseCommit: base,
       stagedDir: join(root, "out"),
       source: { url: SOURCE_URL, sha: sourceSha },
       skill,
@@ -134,7 +181,18 @@ function step(source: Record<string, string>, context: Record<string, string>) {
     })
   const show = (tree: string, path: string) =>
     git(contextDir, "show", `${tree}:${path}`)
-  return { root, sourceDir, contextDir, baseCommit, run, patch, validate, show }
+  return {
+    root,
+    sourceDir,
+    contextDir,
+    run,
+    patch,
+    validate,
+    show,
+    writeRoots,
+    mapFiles,
+    advance,
+  }
 }
 
 const pkg = (name: string, extra: object = {}) =>
@@ -253,18 +311,21 @@ describe("libraries skill", () => {
       },
       {},
     )
-    const roots = join(s.root, "roots.json")
-    writeFileSync(
-      roots,
-      JSON.stringify({
-        roots: [
-          { path: "crates/server", manifests: ["Cargo.toml"], evidence: [] },
-          { path: "services/gateway", manifests: ["go.mod"], evidence: [] },
-        ],
-        ambiguous: [],
-      }),
-    )
-    const out = s.run("libraries", "--roots", roots)
+    s.writeRoots([
+      {
+        path: "crates/server",
+        manifests: ["Cargo.toml"],
+        evidence: [],
+        files: [],
+      },
+      {
+        path: "services/gateway",
+        manifests: ["go.mod"],
+        evidence: [],
+        files: [],
+      },
+    ])
+    const out = s.run("libraries")
     expect(out.ops.map((op) => op.path)).toEqual([
       "knowledge/libraries/axum.md",
       "knowledge/libraries/gin.md",
@@ -293,6 +354,136 @@ describe("libraries skill", () => {
     )
     expect(s.run("libraries").ops).toEqual([])
     expect(s.patch().ops).toEqual([])
+  })
+
+  it("adds USES_LIBRARY claims only to mapped Service and Codebase files of this source", async () => {
+    const service = (name: string, sources: string[]) =>
+      front({ kind: "Service", name, sources }, `# ${name}\n`)
+    const s = step(PNPM_SHOP, {
+      "knowledge/services/api.md": service("API", [SOURCE_URL]),
+      "knowledge/apps/web.md": front(
+        { kind: "App", name: "Web", sources: [SOURCE_URL] },
+        "# Web\n",
+      ),
+      "knowledge/services/foreign.md": service("Foreign", [
+        "https://github.com/example-org/other",
+      ]),
+    })
+    s.mapFiles({
+      "apps/api": [
+        "knowledge/services/api.md",
+        "knowledge/services/foreign.md",
+      ],
+      "apps/web": ["knowledge/apps/web.md"],
+    })
+    const out = s.run("libraries")
+    expect(out.ops).toEqual([
+      { op: "create", path: "knowledge/libraries/drizzle.md" },
+      { op: "create", path: "knowledge/libraries/hono.md" },
+      { op: "create", path: "knowledge/libraries/next-js.md" },
+      { op: "create", path: "knowledge/libraries/zod.md" },
+      { op: "update", path: "knowledge/services/api.md" },
+    ])
+    expect(out.skipped).toEqual([
+      {
+        path: "knowledge/services/foreign.md",
+        reason:
+          "The file of root apps/api is not a context file of this source",
+      },
+    ])
+    const result = await s.validate("libraries")
+    expect(result.rejections).toEqual([])
+    const api = s.show(result.tree, "knowledge/services/api.md")
+    for (const id of ["drizzle", "hono", "zod"])
+      expect(api).toMatch(
+        new RegExp(
+          `- to: \\.\\./libraries/${id}\\.md\\n\\s+predicate: USES_LIBRARY\\n\\s+evidence:\\n\\s+path: apps/api/package\\.json`,
+        ),
+      )
+  })
+
+  it("writes at most 30 files in a step and continues on the next page", async () => {
+    const services: Record<string, string> = {}
+    const source: Record<string, string> = {
+      "package.json": pkg("shop", { private: true }),
+      "pnpm-workspace.yaml": "packages:\n  - apps/*\n",
+    }
+    const map: Record<string, string[]> = {}
+    for (let i = 0; i < 35; i++) {
+      source[`apps/s${i}/package.json`] = pkg(`s${i}`, {
+        dependencies: { zod: "^3.0.0" },
+      })
+      const file = `knowledge/services/s${i}.md`
+      services[file] = front(
+        { kind: "Service", name: `S${i}`, sources: [SOURCE_URL] },
+        `# S${i}\n`,
+      )
+      map[`apps/s${i}`] = [file]
+    }
+    const s = step(source, services)
+    s.mapFiles(map)
+    const first = s.run("libraries")
+    expect(first.ops).toHaveLength(30)
+    expect(first.more).toBe(true)
+    const page = await s.validate("libraries")
+    expect(page.rejections).toEqual([])
+    s.advance(page.tree)
+    const second = s.run("libraries")
+    expect(second.more).toBe(false)
+    expect(second.ops).toHaveLength(6)
+    expect([...first.ops, ...second.ops].map((op) => op.path).sort()).toEqual(
+      ["knowledge/libraries/zod.md", ...Object.keys(services)].sort(),
+    )
+    expect((await s.validate("libraries")).rejections).toEqual([])
+  }, 60_000)
+
+  it("skips a root whose folder name has a newline or a backtick", () => {
+    const s = step(
+      {
+        "package.json": pkg("shop", { private: true }),
+        "apps/bad\n`x/package.json": pkg("bad", {
+          dependencies: { zod: "^3.0.0" },
+        }),
+      },
+      {},
+    )
+    s.writeRoots([
+      {
+        path: "apps/bad\n`x",
+        manifests: ["package.json"],
+        evidence: [],
+        files: [],
+      },
+    ])
+    expect(s.run("libraries")).toEqual({
+      ops: [],
+      skipped: [
+        {
+          path: null,
+          reason: "A root path has characters that the script does not quote",
+        },
+      ],
+      more: false,
+    })
+  })
+
+  it("fails without the roots file", () => {
+    const s = step(PNPM_SHOP, {})
+    const result = spawnSync(
+      process.execPath,
+      [
+        join(INGEST_SKILLS_DIR, "libraries/scripts/libraries.mjs"),
+        "--root",
+        s.root,
+        "--source",
+        s.sourceDir,
+        "--source-url",
+        SOURCE_URL,
+      ],
+      { encoding: "utf8", env: GIT_ENV },
+    )
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain("Give --roots <roots file>")
   })
 })
 
@@ -333,15 +524,19 @@ describe("ownership skill", () => {
         ),
       },
     )
+    s.mapFiles({ "apps/api": ["knowledge/services/api.md"] })
     const out = s.run("ownership")
     expect(out.ops).toEqual([
-      { op: "create", path: "knowledge/teams/payments.md" },
-      { op: "create", path: "knowledge/teams/platform.md" },
+      { op: "create", path: "knowledge/teams/example-org-payments.md" },
+      { op: "create", path: "knowledge/teams/example-org-platform.md" },
     ])
 
     const result = await s.validate("ownership")
     expect(result.rejections).toEqual([])
-    const payments = s.show(result.tree, "knowledge/teams/payments.md")
+    const payments = s.show(
+      result.tree,
+      "knowledge/teams/example-org-payments.md",
+    )
     expect(payments).toContain("kind: Team")
     expect(payments).toContain("name: example-org/payments")
     expect(payments).toMatch(
@@ -351,7 +546,10 @@ describe("ownership skill", () => {
       "- Owns `apps/api` in `example-org/shop` (`.github/CODEOWNERS`: `/apps/api/`)",
     )
     // The last matching rule wins, so the default team does not own apps/api.
-    const platform = s.show(result.tree, "knowledge/teams/platform.md")
+    const platform = s.show(
+      result.tree,
+      "knowledge/teams/example-org-platform.md",
+    )
     expect(platform).toContain(
       "- Owns `apps/web` in `example-org/shop` (`.github/CODEOWNERS`: `*`)",
     )
@@ -390,6 +588,7 @@ describe("ownership skill", () => {
           {
             kind: "App",
             name: "Web",
+            sources: [SOURCE_URL],
             claims: [
               {
                 to: "../codebases/shop.md",
@@ -402,6 +601,7 @@ describe("ownership skill", () => {
         ),
       },
     )
+    s.mapFiles({ "apps/web": ["knowledge/apps/web.md"] })
     const out = s.run("ownership")
     expect(out.ops).toEqual([
       { op: "update", path: "knowledge/teams/payments-team.md" },
@@ -421,7 +621,7 @@ describe("ownership skill", () => {
 
   it("makes no op without a CODEOWNERS file", () => {
     const s = step(PNPM_SHOP, {})
-    expect(s.run("ownership")).toEqual({ ops: [], skipped: [] })
+    expect(s.run("ownership")).toEqual({ ops: [], skipped: [], more: false })
     expect(s.patch().ops).toEqual([])
   })
 
@@ -444,6 +644,122 @@ describe("ownership skill", () => {
       {
         path: ".github/CODEOWNERS",
         reason: "Line 2 has an owner that the script does not quote",
+      },
+    ])
+  })
+
+  /** Team names in the Related lines of each team file that the step creates. */
+  async function owners(
+    source: Record<string, string>,
+    roots: string[],
+    context: Record<string, string> = {},
+  ) {
+    const s = step(source, context)
+    s.writeRoots(
+      roots.map((path) => ({ path, manifests: [], evidence: [], files: [] })),
+    )
+    const out = s.run("ownership")
+    const result = await s.validate("ownership")
+    expect(result.rejections).toEqual([])
+    const owned: Record<string, string[]> = {}
+    for (const op of out.ops)
+      owned[op.path] = [
+        ...s.show(result.tree, op.path).matchAll(/^- Owns `([^`]+)`/gm),
+      ].map((m) => m[1] ?? "")
+    return { out, owned }
+  }
+
+  it("does not let an earlier broader rule take the roots of a skipped rule", async () => {
+    const { out, owned } = await owners(
+      {
+        "README.md": "# Shop\n",
+        CODEOWNERS: [
+          "*                 @example-org/platform",
+          "/apps/api/        @example-org/team<script>",
+          "/apps/web/<b>     @example-org/web",
+          "",
+        ].join("\n"),
+      },
+      ["apps/api", "apps/web/<b>", "apps/jobs"],
+    )
+    expect(owned).toEqual({
+      "knowledge/teams/example-org-platform.md": ["apps/jobs"],
+    })
+    expect(out.skipped.map((s) => s.reason)).toEqual([
+      "Line 2 has an owner that the script does not quote",
+      "Line 3 has a pattern that the script does not quote",
+    ])
+  })
+
+  it("treats a folder with a dot as a folder and anchors a pattern with a middle slash", async () => {
+    const { owned } = await owners(
+      {
+        "README.md": "# Shop\n",
+        CODEOWNERS: [
+          "packages/socket.io/   @example-org/realtime",
+          "apps/api              @example-org/payments",
+          "docs/*.md             @example-org/docs",
+          "",
+        ].join("\n"),
+      },
+      ["packages/socket.io", "apps/api", "tools/apps/api", "docs/guide"],
+    )
+    expect(owned).toEqual({
+      "knowledge/teams/example-org-payments.md": ["apps/api"],
+      "knowledge/teams/example-org-realtime.md": ["packages/socket.io"],
+    })
+  })
+
+  it("gives two teams with the same short name two files and never overwrites another team's file", async () => {
+    const { out, owned } = await owners(
+      {
+        "README.md": "# Shop\n",
+        CODEOWNERS: [
+          "/apps/  @org-a/core",
+          "/libs/  @org-b/core",
+          "/tools/ @org-c/core",
+          "",
+        ].join("\n"),
+      },
+      ["apps/api", "libs/ui", "tools/cli"],
+      {
+        // A human file at the default path of @org-c/core names another team.
+        "knowledge/teams/org-c-core.md": front(
+          { kind: "Team", name: "Core platform" },
+          "# Core platform\n",
+        ),
+      },
+    )
+    expect(owned).toEqual({
+      "knowledge/teams/org-a-core.md": ["apps/api"],
+      "knowledge/teams/org-b-core.md": ["libs/ui"],
+    })
+    expect(out.skipped).toEqual([
+      {
+        path: "knowledge/teams/org-c-core.md",
+        reason: "A file with another name has this path",
+      },
+    ])
+  })
+
+  it("matches a slow CODEOWNERS pattern in well under one second, and skips an unsafe root", async () => {
+    const deep = `${"a/".repeat(40)}x`
+    const started = performance.now()
+    const { out, owned } = await owners(
+      {
+        "README.md": "# Shop\n",
+        CODEOWNERS: `${"**/".repeat(12)}leaf @example-org/deep\n* @example-org/platform\n`,
+      },
+      [deep, "apps/bad\n`x"],
+    )
+    expect(performance.now() - started).toBeLessThan(5000)
+    expect(owned).toEqual({
+      "knowledge/teams/example-org-platform.md": [deep],
+    })
+    expect(out.skipped).toEqual([
+      {
+        path: null,
+        reason: "A root path has characters that the script does not quote",
       },
     ])
   })

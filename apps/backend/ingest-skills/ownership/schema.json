@@ -3,7 +3,7 @@
   "title": "ownership result",
   "type": "object",
   "additionalProperties": false,
-  "required": ["ops", "skipped"],
+  "required": ["ops", "skipped", "more"],
   "properties": {
     "ops": {
       "type": "array",
@@ -12,8 +12,12 @@
         "additionalProperties": false,
         "required": ["op", "path"],
         "properties": {
-          "op": { "enum": ["create", "update", "delete"] },
-          "path": { "type": "string" }
+          "op": {
+            "enum": ["create", "update", "delete"]
+          },
+          "path": {
+            "type": "string"
+          }
         }
       }
     },
@@ -24,10 +28,18 @@
         "additionalProperties": false,
         "required": ["path", "reason"],
         "properties": {
-          "path": { "type": ["string", "null"] },
-          "reason": { "type": "string" }
+          "path": {
+            "type": ["string", "null"]
+          },
+          "reason": {
+            "type": "string"
+          }
         }
       }
+    },
+    "more": {
+      "type": "boolean",
+      "description": "True when the step stopped at 30 files. The host runs the skill again on the new base."
     }
   }
 }

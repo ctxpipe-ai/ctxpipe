@@ -763,7 +763,7 @@ describe("script-only skills in the sandbox", () => {
       const source = `${INGEST_SOURCE_ROOT}/shop`
       await sealed(box, "context", WORKSPACE_ID, {
         "README.md": "# Context\n",
-        "knowledge/services/api.md": `---\nkind: Service\nname: API\nclaims:\n  - to: ../../README.md\n    predicate: PART_OF\n    evidence:\n      path: apps/api/package.json\n      kind: script\n---\n# API\n`,
+        "knowledge/services/api.md": `---\nkind: Service\nname: API\nsources:\n  - ${SOURCE_URL}\nclaims:\n  - to: ../../README.md\n    predicate: PART_OF\n    evidence:\n      path: apps/api/package.json\n      kind: script\n---\n# API\n`,
       })
       const baseCommit = await headOf(box, CONTEXT_DIR)
       const run = async (command: string) => {
@@ -782,6 +782,14 @@ describe("script-only skills in the sandbox", () => {
         "apps/web",
       ])
       expect(roots.ambiguous).toEqual([])
+      expect(roots.skipped).toEqual([])
+      // The host's root-to-file map: the files that the root steps wrote.
+      const map = {
+        roots: roots.roots.map((r: { path: string }) => ({
+          ...r,
+          files: r.path === "apps/api" ? ["knowledge/services/api.md"] : [],
+        })),
+      }
 
       for (const skill of ["libraries", "ownership"]) {
         await startIngestStep(box.root, {
@@ -790,7 +798,7 @@ describe("script-only skills in the sandbox", () => {
           index: JSON.stringify({ entries: [] }),
         })
         // Prepare empties HOME before each step.
-        await box.agentWrite(`${INGEST_HOME}/roots.json`, JSON.stringify(roots))
+        await box.agentWrite(`${INGEST_HOME}/roots.json`, JSON.stringify(map))
         const out = JSON.parse(
           await run(
             `node ${INGEST_SKILLS_ROOT}/${skill}/scripts/${skill}.mjs --source ${source} --source-url ${SOURCE_URL} --roots ${INGEST_HOME}/roots.json`,
@@ -836,6 +844,16 @@ describe("script-only skills in the sandbox", () => {
         expect(result.rejections).toEqual([])
         expect(result.accepted).toEqual(out.ops)
         expect(result.accepted.length).toBeGreaterThan(0)
+        // Each skill adds a claim to the mapped root file or to a team file.
+        expect(
+          result.accepted.some(
+            (op) =>
+              op.path ===
+              (skill === "libraries"
+                ? "knowledge/services/api.md"
+                : "knowledge/teams/example-org-payments.md"),
+          ),
+        ).toBe(true)
       }
     })
   }, 300_000)

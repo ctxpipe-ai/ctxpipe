@@ -3,22 +3,14 @@
   "title": "discover-roots result",
   "type": "object",
   "additionalProperties": false,
-  "required": [
-    "roots",
-    "ambiguous",
-    "skipped"
-  ],
+  "required": ["roots", "ambiguous", "skipped"],
   "properties": {
     "roots": {
       "type": "array",
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "path",
-          "manifests",
-          "evidence"
-        ],
+        "required": ["path", "manifests", "evidence"],
         "properties": {
           "path": {
             "type": "string"
@@ -43,17 +35,10 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "manifest",
-          "reason",
-          "candidates"
-        ],
+        "required": ["manifest", "reason", "candidates"],
         "properties": {
           "manifest": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "reason": {
             "type": "string"
@@ -63,10 +48,7 @@
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": [
-                "path",
-                "manifests"
-              ],
+              "required": ["path", "manifests"],
               "properties": {
                 "path": {
                   "type": "string"
@@ -88,16 +70,10 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "manifest",
-          "reason"
-        ],
+        "required": ["manifest", "reason"],
         "properties": {
           "manifest": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "reason": {
             "type": "string"

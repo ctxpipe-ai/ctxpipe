@@ -413,7 +413,9 @@ function workspaceManifests(source, rootFiles) {
   for (const name of ["settings.gradle", "settings.gradle.kts"]) {
     if (!rootFiles.has(name)) continue
     const entries = []
-    for (const call of read(name).matchAll(/^[ \t]*include\b[ \t]*\(?([^\n)]*)/gm))
+    for (const call of read(name).matchAll(
+      /^[ \t]*include\b[ \t]*\(?([^\n)]*)/gm,
+    ))
       for (const arg of call[1].matchAll(/['"]([^'"]+)['"]/g))
         entries.push(arg[1].replace(/^:/, "").replaceAll(":", "/"))
     if (entries.length) found.push({ manifest: name, markers: null, entries })
@@ -506,7 +508,9 @@ export function discoverRoots(source) {
           manifest: found.manifest,
           reason: `These entries name no folder with ${what}: ${entry}`,
           candidates: named
-            .filter((dir) => folders.has(dir) && !excluded(dir) && safePath(dir))
+            .filter(
+              (dir) => folders.has(dir) && !excluded(dir) && safePath(dir),
+            )
             .map(candidate),
         })
       }

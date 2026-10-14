@@ -48,7 +48,6 @@ export function currentStep(root) {
     fail(`${file} does not name a Workspace and a base commit`)
   const stepDir = join(root, "out")
   return {
-    workspaceId,
     baseCommit,
     stepDir,
     contextDir: join(root, "context", workspaceId),
