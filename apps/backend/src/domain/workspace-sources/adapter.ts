@@ -71,39 +71,33 @@ export type SourceAdapter<
     connectionId: string
     scope: S
   }): Promise<{ status: "invalid" | "out_of_access"; detail: string } | null>
-} & (
-  | {
-      /**
-       * Fetch the content of the union of `scopes` one time. Return files at
-       * Workspace repository paths. A file belongs to each Workspace whose
-       * scope owns its path. A {@link SourceFetchResult} can also keep the
-       * files of a path it could not read, report a path out of reach, or
-       * send a patch.
-       */
-      fetch(
-        input: SourceFetchInput<S>,
-      ): Promise<GitFileChange[] | SourceFetchResult>
-      fetchEach?: never
-    }
-  | {
-      /**
-       * Use this instead of `fetch` when the file layout of a scope depends
-       * on the full scope, not only on its paths (for example, the Confluence
-       * page tree of a page selection). Fetch the union one time and return
-       * the files of each scope, in the order of `scopes`. A Workspace gets
-       * the files of its own scopes. `null` for a scope skips the write of
-       * each Workspace that has it, so its last good copy stays.
-       */
-      fetchEach(
-        input: SourceFetchInput<S>,
-      ): Promise<Array<GitFileChange[] | null>>
-      fetch?: never
-    }
-)
+  /**
+   * Fetch the content of the union of `scopes` one time. Return files at
+   * Workspace repository paths. A file belongs to each Workspace whose scope
+   * owns its path. A {@link SourceFetchResult} can also keep the files of a
+   * path it could not read, report a path out of reach, send a patch, or
+   * give the files of each scope.
+   */
+  fetch(
+    input: SourceFetchInput<S>,
+  ): Promise<GitFileChange[] | SourceFetchResult>
+}
 
 /** A fetch result with more than the files. */
-export type SourceFetchResult = {
-  files: GitFileChange[]
+export type SourceFetchResult = (
+  | { files: GitFileChange[] }
+  | {
+      /**
+       * Use this instead of `files` when the file layout of a scope depends
+       * on the full scope, not only on its paths (for example, the
+       * Confluence page tree of a page selection). The files of each scope,
+       * in the order of `scopes`. A Workspace gets the files of its own
+       * scopes. `null` for a scope skips the write of each Workspace that
+       * has it, so its last good copy stays.
+       */
+      filesByScope: Array<GitFileChange[] | null>
+    }
+) & {
   /**
    * Path prefixes whose files stay as they are in this cycle: a failed read,
    * or files that did not change.

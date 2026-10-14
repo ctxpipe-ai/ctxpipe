@@ -418,8 +418,8 @@ export async function fetchLinearSources(input: {
   const event = linearSourceEventSchema.safeParse(input.event).data
   const incremental = input.existing !== undefined
   const result: Required<
-    Pick<SourceFetchResult, "files" | "keepPaths" | "unreachable">
-  > & { deletePaths: string[] } = {
+    Pick<SourceFetchResult, "keepPaths" | "unreachable">
+  > & { files: GitFileChange[]; deletePaths: string[] } = {
     files: [],
     keepPaths: [],
     unreachable: [],
