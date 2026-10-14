@@ -15,3 +15,10 @@ Where it comes from:
 The image holds no credential, and a sandbox never gets one at runtime. All
 sandbox traffic goes through the run's Agent Vault proxy, which adds the GitHub
 token and the backend credentials to each request outside the sandbox.
+
+With `NODE_USE_ENV_PROXY`, Node's `fetch` sends each request through a CONNECT
+tunnel, also a plain `http://` request. Agent Vault closes a tunnel that
+carries plain HTTP. The image loads `node-http-proxy.cjs` through
+`NODE_OPTIONS=--import`: that file sends a plain `http://` request to the proxy
+in absolute form, as curl and Bun do. OpenCode runs on Bun, so this change is
+only for Node processes (for example skill scripts).

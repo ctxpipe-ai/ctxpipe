@@ -2,18 +2,20 @@
 
 1. Open Claude's MCP connections and connect **ctxpipe**.
 2. Complete ctx| sign-in in the browser.
-3. Confirm the organization shown on consent. For multi-organization accounts,
-   use **Change organization** if it is not the intended one; ctx| shows the
-   chooser first when no valid organization is active.
-4. Return to Claude and call `ctx_advisor` with:
+3. On the consent page, tick the organizations that Claude may read. The
+   organization of your current session is ticked. Tick at least one. Edit the
+   set later on **Connected apps**.
+4. Return to Claude and call `list_workspaces` with no arguments.
 
-   ```text
-   Connection check: name the ctx| organization available to this connection
-   and one engineering standard or source area you can verify.
-   ```
+Setup is complete only when `list_workspaces` lists at least one organization
+and its Workspaces. A successful OAuth redirect alone does not prove tool
+access. An empty list means the connection has no organization: reconnect and
+tick an organization on the consent page. Then call `search_knowledge` with an
+`org` and a short query to confirm that search works.
 
-Setup is complete only when `ctx_advisor` returns organization context. A
-successful OAuth redirect alone does not prove tool access.
+The plugin also installs the `ctxpipe-context` skill. It teaches Claude the
+seven read tools: `list_workspaces`, `search_knowledge`, `get_related`,
+`search_code`, `find_symbol`, `list_files`, and `read_file`.
 
 ## Claude Tag in Slack
 
@@ -22,10 +24,10 @@ must attach this plugin and add an **MCP Connector** credential for
 `app.ctxpipe.ai`. This one-time admin connection is required by Claude Tag;
 installing the community plugin cannot bypass it.
 
-The selected ctx| organization is bound to that OAuth grant. Switching
-organizations later in the admin's browser does not change what the Slack
-agent can access. To use another organization, reconnect the MCP Connector and
-select it during authorization.
+The OAuth grant holds a set of ctx| organizations that the admin ticks on the
+consent page. Switching organizations later in the admin's browser does not
+change what the Slack agent can access. To add an organization, open
+**Connected apps** in ctx| settings and tick it, or reconnect the MCP Connector.
 
 Signing out of the ctx| browser session does not revoke an `offline_access`
 grant. Disconnect the MCP Connector when its access should end.

@@ -294,7 +294,7 @@ describe("org-level code search (Postgres + msw codesearch)", () => {
       org,
       scope,
       { primitive: "find_symbol", symbol: "charge" },
-      { limit: 100, maxTokens: 100_000 },
+      { limit: 100 },
     )
     const alphaCalls = captured.filter(
       (request) => request.path === `/${seeded.get(name("alpha"))?.id}/graph`,
@@ -309,7 +309,6 @@ describe("org-level code search (Postgres + msw codesearch)", () => {
       query: "charge",
       mode: "literal",
       limit: 100,
-      maxTokens: 100_000,
     })
     const [search] = captured
     const ids = search?.body.RepoIDs as number[]
@@ -343,19 +342,18 @@ describe("org-level code search (Postgres + msw codesearch)", () => {
         org,
         scope,
         { primitive: "find_symbol", symbol: "charge" },
-        { limit: 100, maxTokens: 100_000 },
+        { limit: 100 },
       )
       await structuralSearchAcrossRepositories(
         org,
         scope,
         { pattern: "charge($A)", lang: "typescript" },
-        { limit: 100, maxTokens: 100_000 },
+        { limit: 100 },
       )
       await searchCodeText(org, scope, {
         query: "charge",
         mode: "literal",
         limit: 100,
-        maxTokens: 100_000,
       })
       expect(captured.length).toBeGreaterThan(0)
       expect(requestedRepositories()).not.toContain(name("beta"))
@@ -405,7 +403,7 @@ describe("org-level code search (Postgres + msw codesearch)", () => {
       org,
       scope,
       { primitive: "find_symbol", symbol: "charge" },
-      { limit: 100, maxTokens: 100_000 },
+      { limit: 100 },
     )
     expect(graph.skipped).toEqual([
       { repository: name("gamma"), reason: "failed" },
@@ -418,7 +416,7 @@ describe("org-level code search (Postgres + msw codesearch)", () => {
       org,
       scope,
       { pattern: "charge($A)", lang: "typescript" },
-      { limit: 100, maxTokens: 100_000 },
+      { limit: 100 },
     )
     expect(structural.skipped).toEqual([
       { repository: name("gamma"), reason: "failed" },
@@ -443,14 +441,14 @@ describe("org-level code search (Postgres + msw codesearch)", () => {
           org,
           scope,
           { primitive: "find_symbol", symbol: "charge" },
-          { limit: 1_000, maxTokens: 100_000 },
+          { limit: 1_000 },
         ),
       () =>
         structuralSearchAcrossRepositories(
           org,
           scope,
           { pattern: "charge($A)", lang: "typescript" },
-          { limit: 1_000, maxTokens: 100_000 },
+          { limit: 1_000 },
         ),
     ]) {
       captured = []
@@ -470,7 +468,6 @@ describe("org-level code search (Postgres + msw codesearch)", () => {
       query: "charge",
       mode: "literal",
       limit: 1_000,
-      maxTokens: 100_000,
     })
     expect(requestedRepositories()).toEqual(WIDE.map(name))
     expect(text.skipped).toEqual([])
@@ -494,7 +491,7 @@ describe("org-level code search (Postgres + msw codesearch)", () => {
         org,
         scope,
         { primitive: "find_symbol", symbol: "charge" },
-        { limit: 5, maxTokens: 100_000 },
+        { limit: 5 },
       )
     const first = await run()
     const second = await run()
@@ -511,17 +508,23 @@ describe("org-level code search (Postgres + msw codesearch)", () => {
       expect(request.body.limit).toBe(6)
     }
 
-    const small = await findSymbolAcrossRepositories(
+    // A later page asks each repository for the offset, the page, and one more.
+    captured.length = 0
+    const later = await findSymbolAcrossRepositories(
       org,
       scope,
       { primitive: "find_symbol", symbol: "charge" },
-      { limit: 100, maxTokens: 40 },
+      { limit: 2, offset: 2 },
     )
-    expect(small.truncated).toBe(true)
-    expect(small.results.length).toBeGreaterThan(0)
-    expect(JSON.stringify(small.results).length / 4).toBeLessThanOrEqual(
-      40 + 20,
+    expect(later.results.map((result) => result.symbol)).toEqual(
+      WIDE.slice(2, 4).map((short) => `${name(short)}#0`),
     )
+    expect(later).toMatchObject({ truncated: true, nextOffset: 4 })
+    for (const request of captured.filter((item) =>
+      item.path.endsWith("/graph"),
+    )) {
+      expect(request.body.limit).toBe(5)
+    }
   })
 
   it("states the served branch and SHA of each repository", async () => {
@@ -538,6 +541,34 @@ describe("org-level code search (Postgres + msw codesearch)", () => {
         sha: "5".padEnd(40, "c"),
       },
     ])
+  })
+
+  it("reports a published checkout without a commit SHA as not indexed", async () => {
+    const beta = seeded.get(name("beta"))
+    if (!beta) throw new Error("beta is seeded")
+    await withOrgDbContext(org.id, (db) =>
+      db
+        .update(repositoryCheckouts)
+        .set({ commitSha: null })
+        .where(eq(repositoryCheckouts.repositoryId, beta.id)),
+    )
+    try {
+      const scope = await resolveCodeScope(org, {
+        repositories: [name("beta")],
+        excludeRepositories: [],
+      })
+      expect(scope.repositories).toEqual([])
+      expect(scope.skipped).toEqual([
+        { repository: name("beta"), reason: "not_indexed" },
+      ])
+    } finally {
+      await withOrgDbContext(org.id, (db) =>
+        db
+          .update(repositoryCheckouts)
+          .set({ commitSha: "4".padEnd(40, "c") })
+          .where(eq(repositoryCheckouts.repositoryId, beta.id)),
+      )
+    }
   })
 
   it("gives skipped when the SCIP index is missing or does not load", async () => {
@@ -571,7 +602,7 @@ describe("org-level code search (Postgres + msw codesearch)", () => {
       org,
       scope,
       { primitive: "find_symbol", symbol: "charge" },
-      { limit: 100, maxTokens: 100_000 },
+      { limit: 100 },
     )
     expect(graph.results).toEqual([])
     expect(graph.skipped).toEqual([
@@ -599,7 +630,7 @@ describe("org-level code search (Postgres + msw codesearch)", () => {
         org,
         scope,
         { pattern: "charge($A)", lang: "cobol" },
-        { limit: 100, maxTokens: 100_000 },
+        { limit: 100 },
       ),
     ).rejects.toMatchObject({
       code: "invalid_argument",
@@ -616,7 +647,6 @@ describe("org-level code search (Postgres + msw codesearch)", () => {
       await expect(
         findSymbolAcrossRepositories(org, scope, body, {
           limit: 100,
-          maxTokens: 100_000,
         }),
       ).rejects.toMatchObject({ code: "invalid_argument" })
     }
@@ -646,7 +676,6 @@ describe("org-level code search (Postgres + msw codesearch)", () => {
       query: 'charge("x")',
       mode: "literal",
       limit: 10,
-      maxTokens: 100_000,
     })
     expect(captured.map((request) => request.body.Q)).toEqual([
       '"charge(\\"x\\")"',
@@ -658,7 +687,6 @@ describe("org-level code search (Postgres + msw codesearch)", () => {
         query: "charge((",
         mode: "regex",
         limit: 10,
-        maxTokens: 100_000,
       }),
     ).rejects.toMatchObject({ code: "invalid_argument" })
     expect(captured.map((request) => request.body.Q)).toEqual(["charge(("])
@@ -675,7 +703,7 @@ describe("org-level code search (Postgres + msw codesearch)", () => {
         org,
         scope,
         { primitive: "find_symbol", symbol: "charge" },
-        { limit, maxTokens: 100_000 },
+        { limit },
       )
     const cut = await run(2)
     expect(cut).toMatchObject({ truncated: true, nextOffset: 2 })
@@ -706,7 +734,7 @@ describe("org-level code search (Postgres + msw codesearch)", () => {
         org,
         scope,
         { primitive: "find_symbol", symbol: "charge" },
-        { limit: 100, maxTokens: 100_000 },
+        { limit: 100 },
       )
     await search()
     expect(peak).toBe(SCIP_FAN_OUT_LIMIT)
@@ -733,7 +761,7 @@ describe("org-level code search (Postgres + msw codesearch)", () => {
       org,
       scope,
       { primitive: "find_symbol", symbol: "charge" },
-      { limit: 100, maxTokens: 100_000, deadlineMs: 200 },
+      { limit: 100, deadlineMs: 200 },
     )
     expect(Date.now() - started).toBeLessThan(2_000)
     expect(graph.skipped).toEqual([
@@ -757,7 +785,7 @@ describe("org-level code search (Postgres + msw codesearch)", () => {
       org,
       scope,
       { primitive: "find_symbol", symbol: "charge" },
-      { limit: 100, maxTokens: 100_000, deadlineMs: 1_500 },
+      { limit: 100, deadlineMs: 1_500 },
     )
     expect(Date.now() - started).toBeLessThan(4_000)
     expect(graph.skipped.map((entry) => entry.reason)).toEqual([

@@ -1,5 +1,4 @@
 import type { PermissionHandler } from "@tanstack/ai-opencode"
-import { firstConnectorTarget } from "./dest-workspace-first.js"
 import { WRITE_STATUS_REASONS } from "./write-status.js"
 
 export const CHAT_PERMISSION_MODE = "acceptEdits" as const
@@ -41,25 +40,6 @@ export function decideChatPermission(input: {
   if (input.acceptEditsWouldAllow) return "allow"
   if (input.judge === "allow") return "allow"
   return "deny"
-}
-
-export function advisorWorkspaceId<T extends { createdAt: Date; id: string }>(
-  persistedFirstWorkspaceId: string | null,
-  workspaces: readonly T[],
-): string | null {
-  if (
-    persistedFirstWorkspaceId &&
-    workspaces.some((row) => row.id === persistedFirstWorkspaceId)
-  ) {
-    return persistedFirstWorkspaceId
-  }
-  return firstConnectorTarget(workspaces)?.id ?? null
-}
-
-export function isMcpOriginConversation(
-  origin: string | null | undefined,
-): boolean {
-  return origin === "mcp"
 }
 
 export function workspaceAllowsConversationEdits(

@@ -25,6 +25,24 @@ export function emptyChooseWorkspaces(): ChooseWorkspacesValue {
 }
 
 /**
+ * The step after the user checks or unchecks a Workspace. One Workspace uses
+ * the shared scope, so when one Workspace stays from a scope for each, its own
+ * scope becomes the shared scope.
+ */
+export function selectWorkspaces(
+  value: ChooseWorkspacesValue,
+  workspaceSlugs: string[],
+): ChooseWorkspacesValue {
+  const [only] = workspaceSlugs
+  return value.scopeMode === "per_workspace" &&
+    workspaceSlugs.length === 1 &&
+    only !== undefined &&
+    only in value.scopes
+    ? { ...value, workspaceSlugs, sharedScope: value.scopes[only] ?? null }
+    : { ...value, workspaceSlugs }
+}
+
+/**
  * The add requests for the step: one for each selected Workspace. `null`
  * until each Workspace has a scope that the provider schema accepts.
  */
@@ -81,7 +99,7 @@ export type WorkspaceSourceChange =
   | { kind: "remove"; workspaceSlug: string; sourceKey: string }
 
 /** JSON with sorted object keys, so that key order is not a change. */
-function stableJson(value: unknown): string {
+export function stableJson(value: unknown): string {
   return JSON.stringify(value, (_key, item: unknown) =>
     item && typeof item === "object" && !Array.isArray(item)
       ? Object.fromEntries(

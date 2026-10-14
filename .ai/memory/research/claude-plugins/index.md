@@ -1,5 +1,7 @@
 # Claude plugins for distributing ctxpipe MCP
 
+> **History.** This file is a record of past work. The `ctx_advisor` tool it mentions was removed by [ADR-051](../../decisions/ADR-051-mcp-read-surface.md).
+
 Date: 2026-08-28
 
 Primary-source survey of Anthropic's 2026 plugin, connector, and Slack surfaces, for shipping the hosted Streamable HTTP MCP at `https://app.ctxpipe.ai/mcp?orgSlug=ORG`. Every claim below cites a first-party page, schema, or Anthropic GitHub artifact.

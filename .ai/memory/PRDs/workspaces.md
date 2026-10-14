@@ -36,7 +36,7 @@ ctxpipe is a job engine over **Workspaces**. An organization's portable knowledg
 - Publishing is **Commit+Push** (commits Files edits, pushes the branch), **Create PR** (keeps the commits) and **Show PR** *(ticket 02)*. After the PR is merged, the conversation continues on `…/<n+1>`; a closed PR keeps its branch. Chat never pushes the default branch.
 - Sandboxes get read credentials and per-run model/git capabilities only; no GitHub write credential, App key, or provider key enters a sandbox. Tool calls follow `acceptEdits` plus a fast-model judge after hard denies.
 - Retrieval tools (knowledge, graph, codesearch) run on the backend against the active projection.
-- `ctx_advisor` (MCP) is a deprecated shim: one Workspace chat turn on the organization's first Workspace per call, hidden from the UI list.
+- The public MCP has seven read-only tools (`list_workspaces`, `search_knowledge`, `search_code`, `find_symbol`, `read_file`, `list_files`, `get_related`) that call the same domain functions as chat. They run no chat turn. `ctx_advisor` is removed ([ADR-051](../decisions/ADR-051-mcp-read-surface.md)).
 
 ## Sandboxes
 
@@ -55,6 +55,6 @@ ctxpipe is a job engine over **Workspaces**. An organization's portable knowledg
 
 ## Out of scope for this release
 
-- Fine-grained MCP tools replacing `ctx_advisor`.
+- MCP write tools (a later slice of [ADR-051](../decisions/ADR-051-mcp-read-surface.md)).
 - First-class non-GitHub write support (other hosts are read-only Workspaces).
 - Operator control of sandbox egress allowlists.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { decodeCursor, encodeCursor } from "./cursor.js"
+import { decodeCursor, decodeCursorWithAnchor, encodeCursor } from "./cursor.js"
 
 const bound = {
   orgId: "org_a",
@@ -12,6 +12,41 @@ describe("cursor", () => {
   it("round-trips the offset for the same org, Workspace, SHA and scope", () => {
     const cursor = encodeCursor({ ...bound, offset: 20 })
     expect(decodeCursor(cursor, bound)).toBe(20)
+  })
+
+  it("round-trips the anchor time and omits it when none is set", () => {
+    const anchored = encodeCursor({
+      ...bound,
+      offset: 5,
+      anchor: 1_760_000_000_000,
+    })
+    expect(decodeCursorWithAnchor(anchored, bound)).toEqual({
+      offset: 5,
+      anchor: 1_760_000_000_000,
+    })
+    expect(
+      decodeCursorWithAnchor(encodeCursor({ ...bound, offset: 5 }), bound),
+    ).toEqual({ offset: 5, anchor: undefined })
+  })
+
+  it("gives invalid_cursor for an anchor that is not a number", () => {
+    const forged = Buffer.from(
+      JSON.stringify({ v: 1, s: "x", q: "y", o: 1, t: "now" }),
+    ).toString("base64url")
+    expect(() => decodeCursorWithAnchor(forged, bound)).toThrowError(
+      expect.objectContaining({ code: "invalid_cursor" }),
+    )
+  })
+
+  it("gives invalid_cursor for an anchor outside the date range", () => {
+    const valid = encodeCursor({ ...bound, offset: 1, anchor: 1 })
+    const payload = JSON.parse(Buffer.from(valid, "base64url").toString("utf8"))
+    const forged = Buffer.from(
+      JSON.stringify({ ...payload, t: 9e15 }),
+    ).toString("base64url")
+    expect(() => decodeCursorWithAnchor(forged, bound)).toThrowError(
+      expect.objectContaining({ code: "invalid_cursor" }),
+    )
   })
 
   it("is opaque: no id, SHA or scope in clear text", () => {

@@ -40,6 +40,7 @@ One key per concept. Resource attributes: `service.name` (`backend`, `openworkfl
 | `traceId` / `spanId` | Active span, top-level on the evlog event. There is no `trace_id` attribute. |
 | `enduser.id` | User id from auth. Omitted for actor `org_api_key`. |
 | `ctxpipe.org.id` / `ctxpipe.org.slug` | Org from auth. |
+| `ctxpipe.mcp.org.slug_hash` | MCP tool and resource spans: hash of the org slug of the call (ADR-051). |
 | `ctxpipe.actor.type` | `user`, `org_api_key`, `oauth_client`, `webhook`, `job`. |
 | `ctxpipe.api_key.id` | Key id. The secret is not an attribute. |
 | `ctxpipe.oauth.client_id` | OAuth client id. |
