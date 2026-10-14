@@ -193,11 +193,19 @@ describe("shard step egress", () => {
       ],
     }
     // As `withShard` does for each step: the lock, the egress, the refresh.
-    const step = (name: string, inLock: (capability: string) => Promise<void>) => {
+    const step = (
+      name: string,
+      inLock: (capability: string) => Promise<void>,
+    ) => {
       let owner = ""
-      return postgresSandboxLocks(orgId, new AbortController(), undefined, (r) => {
-        owner = r.owner
-      }).withLock(ingestSandboxThreadId(runId, 0), async () => {
+      return postgresSandboxLocks(
+        orgId,
+        new AbortController(),
+        undefined,
+        (r) => {
+          owner = r.owner
+        },
+      ).withLock(ingestSandboxThreadId(runId, 0), async () => {
         const egress = await ingestShardStepEgress({
           spec,
           lockOwner: owner,

@@ -5,8 +5,8 @@ import { IngestRefRefusedError } from "../../domain/ingestion/ingest-refs.js"
 import { releaseIngestSourceTree } from "../../domain/ingestion/ingest-source-tree.js"
 import {
   INGEST_SHARD_MAX_ROOTS,
-  plannedIngestSkills,
   planIngestRoots,
+  plannedIngestSkills,
 } from "../../domain/ingestion/ingestion-plan.js"
 import {
   INGESTION_V2_WORKFLOW_NAME,

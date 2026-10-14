@@ -28,9 +28,7 @@ describe("dockerRootExec with a step limit", () => {
         const count = async () =>
           Number(
             (
-              await root(
-                "ps -eo args | grep -c '^sleep 86[4]00' || true",
-              )
+              await root("ps -eo args | grep -c '^sleep 86[4]00' || true")
             ).stdout.trim(),
           )
         vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })

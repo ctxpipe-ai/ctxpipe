@@ -1,5 +1,6 @@
 import { z } from "zod"
 import { withOrgDbContext } from "../../db/client.js"
+import { ingestionV2ShadowEnabled } from "../../domain/ingestion/ingestion-v2-config.js"
 import {
   markRepositoryIndexingFailed,
   repositoryIngestionBlockedByDeletion,
@@ -12,7 +13,6 @@ import {
   withLogger,
 } from "../../observability/logger.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
-import { ingestionV2ShadowEnabled } from "../../domain/ingestion/ingestion-v2-config.js"
 import { startIngestionV2Shadow } from "../enqueue-ingestion-v2-shadow.js"
 import { isWorkflowControlSignal } from "../isSleepSignal.js"
 import { repositoryIngestion } from "./repository-ingestion.js"

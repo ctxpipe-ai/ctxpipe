@@ -99,8 +99,7 @@ export function standInIngestShardRuntime(options: {
             "--roots",
             rootsFile,
           )
-          more =
-            JSON.parse(out.trim().split("\n").pop() ?? "{}").more === true
+          more = JSON.parse(out.trim().split("\n").pop() ?? "{}").more === true
         } else {
           const response = await fetch(options.modelUrl, {
             method: "POST",

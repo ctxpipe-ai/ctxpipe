@@ -255,7 +255,9 @@ export function dockerIngestSandboxProvider(input: {
       const access = requireAccess(input.access)
       const egress = input.egress
       if (!egress)
-        throw new Error("Only a step with its egress can make an ingest sandbox")
+        throw new Error(
+          "Only a step with its egress can make an ingest sandbox",
+        )
       let vault: RunVault | undefined
       let handle: SandboxHandle | undefined
       try {

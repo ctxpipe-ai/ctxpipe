@@ -5,12 +5,12 @@ import {
   IngestRefRefusedError,
   ingestRefName,
 } from "../../domain/ingestion/ingest-refs.js"
+import { ingestStepSignal } from "../../domain/ingestion/ingest-shard-ops.js"
 import type {
   IngestDestination,
   IngestShardRuntime,
   IngestShardRuntimeFactory,
 } from "../../domain/ingestion/ingest-shard-runtime.js"
-import { ingestStepSignal } from "../../domain/ingestion/ingest-shard-ops.js"
 import { sandboxIngestShardRuntime } from "../../domain/ingestion/ingest-shard-sandbox.js"
 import { ingestSourceTree } from "../../domain/ingestion/ingest-source-tree.js"
 import { withIngestStepOutput } from "../../domain/ingestion/ingest-step-output.js"

@@ -38,10 +38,10 @@ import {
   runIngestShardStep,
 } from "./ingest-shard-ops.js"
 import {
-  ingestCallbackOrigin,
   type IngestShardRuntime,
   type IngestShardRuntimeFactory,
   type IngestShardSpec,
+  ingestCallbackOrigin,
 } from "./ingest-shard-runtime.js"
 import { INGEST_TOOL_BRIDGE_PATH } from "./ingest-tools.js"
 import { ingestionOrg } from "./ingestion-v2-resolve.js"
@@ -165,7 +165,10 @@ export async function ingestShardStepEgress(input: {
         ? [
             {
               repositoryId: d.repositoryId,
-              checkoutKey: workspaceCheckoutKey(d.workspaceId, d.pinnedRevision),
+              checkoutKey: workspaceCheckoutKey(
+                d.workspaceId,
+                d.pinnedRevision,
+              ),
               sha: d.pinnedRevision,
             },
           ]
@@ -198,9 +201,14 @@ function withShardLock<T>(
     signal.addEventListener("abort", () => controller.abort(signal.reason), {
       once: true,
     })
-  return postgresSandboxLocks(target.orgId, controller, undefined, (receipt) => {
-    lockOwner = receipt.owner
-  }).withLock(ingestSandboxThreadId(target.runId, target.shard), () =>
+  return postgresSandboxLocks(
+    target.orgId,
+    controller,
+    undefined,
+    (receipt) => {
+      lockOwner = receipt.owner
+    },
+  ).withLock(ingestSandboxThreadId(target.runId, target.shard), () =>
     fn(lockOwner, controller.signal),
   )
 }

@@ -214,7 +214,10 @@ export async function pushIngestAssemble(input: {
         { env: input.remote.env },
       )
       const trailers = await stepTrailers(repoDir, pushed)
-      if (trailers.run === input.job.runId && trailers.step === input.commit.step)
+      if (
+        trailers.run === input.job.runId &&
+        trailers.step === input.commit.step
+      )
         return {
           sha: pushed,
           ops: (await diffTree(repoDir, input.pinnedRevision, pushed)).length,
@@ -641,7 +644,11 @@ async function mergeConflicts(
   repoDir: string,
   input: {
     pinnedRevision: string
-    conflicts: Array<{ path: string; line: string; versions: Array<string | null> }>
+    conflicts: Array<{
+      path: string
+      line: string
+      versions: Array<string | null>
+    }>
     resolve: IngestConflictResolver
   },
 ): Promise<void> {
@@ -688,7 +695,9 @@ async function mergeConflicts(
       continue
     }
     const blob = (
-      await runGit(repoDir, ["hash-object", "-w", "--stdin"], { input: content })
+      await runGit(repoDir, ["hash-object", "-w", "--stdin"], {
+        input: content,
+      })
     )
       .toString()
       .trim()
@@ -705,8 +714,11 @@ async function diffTree(
     await runGit(repoDir, ["diff-tree", "-r", "-z", "--no-renames", from, to])
   ).toString()
   const fields = out.split("\0")
-  const changes: Array<{ path: string; indexLine: string; blob: string | null }> =
-    []
+  const changes: Array<{
+    path: string
+    indexLine: string
+    blob: string | null
+  }> = []
   for (let i = 0; i + 1 < fields.length; i += 2) {
     const meta = fields[i] ?? ""
     const path = fields[i + 1] ?? ""

@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest"
 import {
   INGEST_MAX_ROOTS,
   ingestRootMap,
-  plannedIngestSkills,
   planIngestRoots,
+  plannedIngestSkills,
   skillStepName,
 } from "./ingestion-plan.js"
 
@@ -77,7 +77,9 @@ describe("ingestion v2 plan", () => {
     const names = roots.map((r) => skillStepName(r, "classify-kind", "ws_a"))
     for (const name of names) expect(name).toMatch(/^[\x21-\x7e]{1,200}$/)
     expect(new Set(names).size).toBe(roots.length)
-    expect(names[0]).toMatch(/^skill:services\/api~[0-9a-f]{12}:classify-kind:ws_a$/)
+    expect(names[0]).toMatch(
+      /^skill:services\/api~[0-9a-f]{12}:classify-kind:ws_a$/,
+    )
     expect(skillStepName("services/api", "apis", "ws_a")).toBe(
       skillStepName("services/api", "apis", "ws_a"),
     )

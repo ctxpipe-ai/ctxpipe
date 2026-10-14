@@ -9,9 +9,9 @@ import {
   deleteRunIngestRefs,
   findStepCommit,
   IngestAssembleConflictError,
-  listStepFiles,
   IngestRefRefusedError,
   ingestRefName,
+  listStepFiles,
   parseIngestRef,
   pushIngestAssemble,
   pushIngestStep,
@@ -749,12 +749,19 @@ describe("pushIngestAssemble", () => {
       pinnedRevision: pinned,
       tip: next.sha,
     })
-    expect(
-      listed.sort((a, b) => (a.step < b.step ? -1 : 1)),
-    ).toEqual([
-      { step: "skill:repository:ownership:ws_alpha", paths: ["knowledge/services/d.md"] },
-      { step: "skill:root-0:apis:ws_alpha", paths: ["knowledge/services/a.md"] },
-      { step: "skill:root-1:apis:ws_alpha", paths: ["knowledge/services/b.md"] },
+    expect(listed.sort((a, b) => (a.step < b.step ? -1 : 1))).toEqual([
+      {
+        step: "skill:repository:ownership:ws_alpha",
+        paths: ["knowledge/services/d.md"],
+      },
+      {
+        step: "skill:root-0:apis:ws_alpha",
+        paths: ["knowledge/services/a.md"],
+      },
+      {
+        step: "skill:root-1:apis:ws_alpha",
+        paths: ["knowledge/services/b.md"],
+      },
     ])
   })
 

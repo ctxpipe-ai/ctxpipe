@@ -1,8 +1,8 @@
 import type { SandboxHandle } from "@tanstack/ai-sandbox"
 import {
   assertIngestOpenCodeVersion,
-  ingestAgentCommand,
   type IngestOpenCodeConfig,
+  ingestAgentCommand,
   ingestOpenCodeEnv,
 } from "./ingest-opencode.js"
 import {
