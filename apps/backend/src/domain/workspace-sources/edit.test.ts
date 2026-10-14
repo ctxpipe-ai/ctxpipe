@@ -30,6 +30,29 @@ describe("applySourceFileChange", () => {
     expect(second.text).toContain("id: slack-2")
   })
 
+  it("refuses an id that an open pull request changes", () => {
+    const add = {
+      action: "add" as const,
+      provider: "linear" as const,
+      connectionId: "con_linear2",
+      scope: { teams: ["CTX"] },
+    }
+    const reserved = new Set(["linear"])
+    // A picked id skips it; an id from the caller gets a 409.
+    expect(applySourceFileChange(base, add, reserved).sourceKey).toBe(
+      "linear-2",
+    )
+    expect(() =>
+      applySourceFileChange(base, { ...add, sourceKey: "linear" }, reserved),
+    ).toThrow(
+      expect.objectContaining({
+        status: 409,
+        message:
+          'An open pull request changes the source "linear". Merge or close it first.',
+      }),
+    )
+  })
+
   it("edits one entry and keeps comments and the other entries", () => {
     const added = applySourceFileChange(base, {
       action: "add",

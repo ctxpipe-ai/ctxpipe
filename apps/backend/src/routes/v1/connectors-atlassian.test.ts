@@ -200,6 +200,7 @@ describe("Atlassian connector routes", () => {
       expect(upsertPendingForgeInstallationMock).toHaveBeenCalledWith({
         orgId: "org_1",
         installedByUserId: "user_1",
+        installOpened: false,
       })
     })
 
@@ -231,6 +232,7 @@ describe("Atlassian connector routes", () => {
       expect(upsertPendingForgeInstallationMock).toHaveBeenCalledWith({
         orgId: "org_1",
         installedByUserId: "user_1",
+        installOpened: false,
       })
     })
   })

@@ -369,6 +369,8 @@ export const forgeConnectionConfigSchema = z
       z.string().nullable().optional(),
     ),
     sourceSync: forgeSourceSyncSchema.optional(),
+    /** When the user opened the Forge install: the Marketplace may still bind it. */
+    installOpenedAt: z.string().nullable().optional(),
   })
   .transform((c) => ({
     ...c,

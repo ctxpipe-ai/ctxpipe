@@ -184,7 +184,7 @@ const putOAuthAppRoute = createRoute({
     },
     409: {
       content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "OAuth app is already bound to authorised tokens",
+      description: "OAuth app is already bound to authorized tokens",
     },
   },
 })
@@ -692,7 +692,7 @@ export const pagerdutyConnectorRoutes = new OpenAPIHono<AppEnv>()
       if (message === "PagerDuty connection not found") {
         return c.json({ error: "Unknown PagerDuty connection" }, 404)
       }
-      if (message.includes("cannot be changed after account authorisation")) {
+      if (message.includes("cannot be changed after account authorization")) {
         return c.json({ error: message }, 409)
       }
       throw error
@@ -1310,7 +1310,7 @@ export const pagerdutyOauthCallbackRoutes = new OpenAPIHono<AppEnv>().openapi(
       }))
     ) {
       return relayError(
-        "You no longer have permission to connect PagerDuty to this organisation",
+        "You no longer have permission to connect PagerDuty to this organization",
       )
     }
 
@@ -1324,7 +1324,7 @@ export const pagerdutyOauthCallbackRoutes = new OpenAPIHono<AppEnv>().openapi(
         : undefined
       if (state.connectionId && !draft) {
         return relayError(
-          "PagerDuty connection was removed before authorisation completed",
+          "PagerDuty connection was removed before authorization completed",
         )
       }
       const creds = resolvePagerdutyCredsForConnection(draft, c.var.env)

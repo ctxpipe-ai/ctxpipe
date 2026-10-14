@@ -289,7 +289,7 @@ export async function upsertPagerdutyConnectionFromOAuth(input: {
         requestedStored.accountId !== input.accountId
       ) {
         throw new Error(
-          "PagerDuty authorised account does not match this connection",
+          "PagerDuty authorized account does not match this connection",
         )
       }
       const currentOauthApp = resolvePagerdutyOAuthAppCreds(
@@ -301,7 +301,7 @@ export async function upsertPagerdutyConnectionFromOAuth(input: {
         currentOauthApp?.clientSecret !== input.oauthApp.clientSecret
       ) {
         throw new Error(
-          "PagerDuty OAuth app changed during authorisation. Try again.",
+          "PagerDuty OAuth app changed during authorization. Try again.",
         )
       }
     }
@@ -682,7 +682,7 @@ export async function savePagerdutyOAuthApp(input: {
       )
       if (stored.accessTokenEnc) {
         throw new Error(
-          "PagerDuty OAuth app cannot be changed after account authorisation",
+          "PagerDuty OAuth app cannot be changed after account authorization",
         )
       }
       const [updated] = await tx

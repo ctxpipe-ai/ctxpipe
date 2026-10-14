@@ -35,14 +35,16 @@ describe("PagerDuty setup model", () => {
     ).toBe(PAGERDUTY_SETUP_STEPS.length)
   })
 
-  it("has no card action once PagerDuty is connected", () => {
+  it("manages the connection once PagerDuty is connected", () => {
     expect(getPagerdutyCardCtaLabel({ isInstalled: false }, selfHost)).toBe(
       "Register OAuth app",
     )
     expect(getPagerdutyCardCtaLabel({ isInstalled: false }, hosted)).toBe(
       "Connect PagerDuty",
     )
-    expect(getPagerdutyCardCtaLabel({ isInstalled: true }, hosted)).toBeNull()
+    expect(getPagerdutyCardCtaLabel({ isInstalled: true }, hosted)).toBe(
+      "Manage",
+    )
     expect(
       getPagerdutyCardCtaLabel(
         { isInstalled: false, installationStatus: "revoked" },

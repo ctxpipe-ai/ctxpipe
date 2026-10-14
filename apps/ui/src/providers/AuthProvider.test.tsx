@@ -56,9 +56,9 @@ describe("AuthProvider", () => {
     useGetAuthConfigMock.mockReturnValue({ data: { providers: [] } })
   })
 
-  it("enables personal API key UI but disables organisation API keys in provider config", async () => {
+  it("enables personal API key UI but disables organization API keys in provider config", async () => {
     // User settings = personal keys only. better-auth-ui's CreateApiKeyDialog
-    // gates its organisation/personal selector on contextOrganization.apiKey;
+    // gates its organization/personal selector on contextOrganization.apiKey;
     // leaving it true would let users mint org keys from /.auth/account/api-keys.
     // Org key minting lives in features/organization/OrganizationApiKeysCard.
     const { AuthProvider } = await import("./AuthProvider")
@@ -84,7 +84,7 @@ describe("AuthProvider", () => {
     )
   })
 
-  it("enables organisation API-key navigation only inside organisation settings", async () => {
+  it("enables organization API-key navigation only inside organization settings", async () => {
     useRouterMock.mockReturnValue({
       state: { location: { pathname: "/acme/organization/members" } },
       invalidate: vi.fn(),
@@ -109,7 +109,7 @@ describe("AuthProvider", () => {
     )
   })
 
-  it("keeps the organisation key selector out of personal account routes", async () => {
+  it("keeps the organization key selector out of personal account routes", async () => {
     const { AuthProvider } = await import("./AuthProvider")
     const cases = [
       { pathname: "/.auth/account/security", apiKey: false },
