@@ -5,6 +5,16 @@ afterEach(() => {
   vi.unstubAllEnvs()
 })
 
+function inDeployment(name: string): boolean {
+  vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", "")
+  vi.stubEnv("NODE_ENV", "test")
+  vi.stubEnv(
+    "OTEL_RESOURCE_ATTRIBUTES",
+    name ? `deployment.environment=${name}` : "",
+  )
+  return ingestionV2ShadowEnabled()
+}
+
 describe("ingestion v2 shadow switch", () => {
   it("is off in production", () => {
     vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", "production")
@@ -18,11 +28,35 @@ describe("ingestion v2 shadow switch", () => {
     expect(ingestionV2ShadowEnabled()).toBe(false)
   })
 
-  it("is on in a preview deployment and in local development", () => {
+  it.each([
+    "prod",
+    "Production",
+    "staging",
+    "observability",
+    "pr-",
+    "local-",
+    "pr",
+    "my-pr-280",
+    "development-old",
+  ])("is off in the deployment %j, which is not in the allowlist", (name) => {
+    expect(inDeployment(name)).toBe(false)
+  })
+
+  it.each([
+    "pr-280",
+    "development",
+    "local-dev",
+    "local-jakub.mac",
+  ])("is on in the deployment %j", (name) => {
+    expect(inDeployment(name)).toBe(true)
+  })
+
+  it("is on in a Railway preview deployment", () => {
     vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", "pr-280")
     expect(ingestionV2ShadowEnabled()).toBe(true)
-    vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", "")
-    vi.stubEnv("OTEL_RESOURCE_ATTRIBUTES", "deployment.environment=local-dev")
-    expect(ingestionV2ShadowEnabled()).toBe(true)
+  })
+
+  it("is on in local development with no deployment name", () => {
+    expect(inDeployment("")).toBe(true)
   })
 })
