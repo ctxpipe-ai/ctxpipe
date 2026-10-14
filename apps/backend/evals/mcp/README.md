@@ -45,3 +45,19 @@ The seed reads committed Markdown through the production Git reader. It publishe
 ## Proof
 
 `src/mcp/eval-seed.integration.test.ts` uses real Git, Postgres as `ctxpipe_app`, and live FalkorDB. MSW replaces only the embedding and codesearch HTTP boundaries. It proves seed publication and organization isolation. It does not prove Zoekt or SCIP output. Native codesearch tests require `zoekt-webserver` and run in CI; the seed must also pass against real codesearch before MCPJam results are accepted.
+
+## MCPJam eval suite (CTX-574)
+
+`cases.ts` holds 21 coding-agent tasks. They run against the seeded fixture organizations. The suite uses `@mcpjam/sdk`: each case runs 3 times for each client model. A model must pass 0.9 of all iterations. A run also fails when a pass rate falls from `baseline.json` (aggregate: 0.05, one case: more than one lost iteration). A case checks tool choice, argument quality (the `excludeRepositories` rule, filters, search mode), result relevance (a tool result holds the expected ref), and task success (the answer holds the fixture facts). `check.ts` judges a run; `gate.ts` decides the exit code. Both are pure, and `src/mcp/eval-suite.test.ts` tests them without a model. That test also checks that each expected fact exists in the fixtures and that each argument fits the registered tool schemas.
+
+Run it against a seeded target:
+
+```sh
+MCP_EVAL_URL=https://<backend>/mcp MCP_EVAL_API_KEY=<personal key with both orgs> MCP_EVAL_RUN=<seed run name> \
+  ANTHROPIC_API_KEY=... OPENAI_API_KEY=... \
+  pnpm --filter @ctxpipe/backend exec bun evals/mcp/run.ts --models <provider/model>,<provider/model> --out results.json
+```
+
+The tool list of the server picks the mode. With `ctx_advisor` alone, the run uses the advisor cases only and judges their answers. This records the advisor baseline before the cutover. With the seven read tools, the run uses all cases. Any other mix exits with code 2. Add `--update-baseline` to write the pass rates of the detected mode to `baseline.json`; the first run in each mode must do this, and the result goes in a commit. Without a stored baseline, only the 0.9 floor applies.
+
+CI is `.github/workflows/mcp-evals.yaml`: nightly, on the label `mcp-evals`, and by hand. A labeled pull request runs against the preview URL from the PR Deploy comment. Other runs use the `MCP_EVAL_URL` and `MCP_EVAL_RUN` variables. The workflow also needs the secret `MCP_EVAL_API_KEY`, the provider keys, and the variable `MCP_EVAL_MODELS` (at least two models). A preview needs a seed first, because the seed reaches Postgres and FalkorDB that a CI runner cannot reach.

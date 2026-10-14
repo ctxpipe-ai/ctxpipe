@@ -1,0 +1,113 @@
+name: MCP evals
+
+# MCPJam evals for the public MCP tools (CTX-574, ADR-051 section 10).
+# Nightly, on the label `mcp-evals`, and by hand. The suite needs a seeded
+# target; see apps/backend/evals/mcp/README.md. It picks its checks from the
+# tool list of the server, so this file is the same before and after the
+# ctx_advisor cutover.
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  pull_request:
+    branches:
+      - main
+    types:
+      - labeled
+      - synchronize
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "Seeded /mcp URL. Empty: the PR preview, or the MCP_EVAL_URL variable."
+        required: false
+        type: string
+      run:
+        description: "Run name of the seed. Empty: the MCP_EVAL_RUN variable."
+        required: false
+        type: string
+      update_baseline:
+        description: "Write the pass rates to baseline.json (upload as an artifact)."
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  evals:
+    name: MCPJam evals
+    if: |
+      github.event_name != 'pull_request' ||
+      contains(github.event.pull_request.labels.*.name, 'mcp-evals')
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      MCPJAM_TELEMETRY_DISABLED: "1"
+      MCP_EVAL_API_KEY: ${{ secrets.MCP_EVAL_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: oven-sh/setup-bun@v2
+      - run: pnpm install --frozen-lockfile
+      - name: Resolve the target
+        id: target
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_URL: ${{ inputs.url }}
+          INPUT_RUN: ${{ inputs.run }}
+          VAR_URL: ${{ vars.MCP_EVAL_URL }}
+          VAR_RUN: ${{ vars.MCP_EVAL_RUN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          URL="${INPUT_URL:-}"
+          if [[ -z "$URL" && -n "${PR_NUMBER:-}" ]]; then
+            # A labeled PR runs against its own preview (the PR Deploy comment).
+            BASE="$(gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" --paginate \
+              --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | contains("## PR Preview Environment"))) | .body' \
+              | sed -n 's/^- Preview URL: \(https:\/\/[^ ]*\).*/\1/p' | head -n 1)"
+            [[ -n "$BASE" ]] && URL="${BASE%/}/mcp"
+          fi
+          URL="${URL:-${VAR_URL:-}}"
+          RUN="${INPUT_RUN:-${VAR_RUN:-}}"
+          if [[ -z "$URL" || -z "$RUN" ]]; then
+            echo "No target. Set the MCP_EVAL_URL and MCP_EVAL_RUN variables." >&2
+            exit 2
+          fi
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "run=$RUN" >> "$GITHUB_OUTPUT"
+      - name: Run the evals
+        working-directory: apps/backend
+        env:
+          MCP_EVAL_URL: ${{ steps.target.outputs.url }}
+          MCP_EVAL_RUN: ${{ steps.target.outputs.run }}
+          UPDATE_BASELINE: ${{ inputs.update_baseline }}
+        run: |
+          set -euo pipefail
+          EXTRA=()
+          [[ "$UPDATE_BASELINE" == "true" ]] && EXTRA+=(--update-baseline)
+          bun evals/mcp/run.ts \
+            --models "${{ vars.MCP_EVAL_MODELS }}" \
+            --iterations 3 \
+            --out "$RUNNER_TEMP/mcp-eval-results.json" \
+            "${EXTRA[@]}"
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mcp-eval-results
+          path: |
+            ${{ runner.temp }}/mcp-eval-results.json
+            apps/backend/evals/mcp/baseline.json
+          if-no-files-found: ignore
