@@ -187,7 +187,7 @@ const TOOLS = [
   probeCrash,
 ]
 
-/** `shippedTools`: mount the tools that ship today (`ctx_advisor`). */
+/** `shippedTools`: mount the tools, resources, and instructions that ship. */
 function createApp({ shippedTools = false } = {}) {
   const app = new Hono<AppEnv>()
   app.use(contextStorage())
@@ -878,21 +878,26 @@ describe("MCP tool framework (Postgres + MCP SDK Client)", () => {
     await client.close()
   })
 
-  it("gives ctx_advisor the framework org_required error when the connection has no default org", async () => {
-    // The user has two orgs and the URL names none, so there is no default.
-    const client = await connect(seed.personalApiKey, "/mcp", true)
-    for (const args of [
-      { prompt: "Which ADRs apply?" },
-      { prompt: "Which ADRs apply?", conversationId: "conv-1" },
-    ]) {
-      const result = await call(client, "ctx_advisor", args)
-      expect(failure(result)).toEqual({
-        code: "org_required",
-        message: expect.stringContaining("/mcp?orgSlug="),
-        retryable: false,
-      })
-      expect(result._meta?.["ai.ctxpipe/callId"]).toMatch(/^call_/)
+  it("ships the seven read tools, the workspace-file template, and instructions, and no ctx_advisor", async () => {
+    const client = await connect(seed.orgApiKey, "/mcp", true)
+    const { tools } = await client.listTools()
+    expect(tools.map((tool) => tool.name)).toEqual([
+      "list_workspaces",
+      "search_knowledge",
+      "search_code",
+      "find_symbol",
+      "read_file",
+      "list_files",
+      "get_related",
+    ])
+    for (const tool of tools) {
+      expect(tool.annotations).toEqual(READ_TOOL_ANNOTATIONS)
     }
+    const { resourceTemplates } = await client.listResourceTemplates()
+    expect(resourceTemplates.map((template) => template.uriTemplate)).toEqual([
+      "ctxpipe://{org}/{workspace}/{+ref}",
+    ])
+    expect(client.getInstructions()).toContain(seed.orgSlug)
     await client.close()
   })
 

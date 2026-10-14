@@ -6,7 +6,6 @@ import {
 } from "@modelcontextprotocol/sdk/types.js"
 import type { Context } from "hono"
 import type { AppEnv } from "../app/env.js"
-import { currentMcpActor, currentOrgIdOrNull } from "../auth/context.js"
 import {
   disableToolsOutsideScopes,
   grantedMcpScopes,
@@ -18,7 +17,6 @@ import {
   applyAttribution,
 } from "../observability/attribution.js"
 import { getLogger } from "../observability/logger.js"
-import { mcpAdvisorThreadId, mcpClientConversationId } from "./advisorThread.js"
 import {
   serverDiscoverResponse,
   serverDiscoverResult,
@@ -135,7 +133,6 @@ export async function handleMcpTransportRequest(
 
   // Streamable HTTP returns the Response before tools/call runs, so the
   // server span and request log would otherwise close without these fields.
-  // SSE stays on: clients send progress notifications and accept event-stream.
   const toolAttribution = attributionFromToolsCall(messages)
   if (toolAttribution) applyAttribution(toolAttribution)
 
@@ -222,26 +219,7 @@ function attributionFromToolsCall(
   for (const message of messages) {
     const parsed = CallToolRequestSchema.safeParse(message)
     if (!parsed.success) continue
-    const name = parsed.data.params.name.slice(0, 100)
-    const args = parsed.data.params.arguments ?? {}
-    const rawConversationId = mcpClientConversationId(args.conversationId)
-    let conversationId: string | undefined
-    const orgId = currentOrgIdOrNull()
-    if (name === "ctx_advisor" && rawConversationId && orgId) {
-      conversationId = mcpAdvisorThreadId({
-        orgId,
-        actor: currentMcpActor(),
-        currentProjectName:
-          typeof args.currentProjectName === "string"
-            ? args.currentProjectName
-            : undefined,
-        conversationId: rawConversationId,
-      })
-    }
-    return {
-      "ctxpipe.mcp.tool": name,
-      ...(conversationId ? { "ctxpipe.conversation.id": conversationId } : {}),
-    }
+    return { "ctxpipe.mcp.tool": parsed.data.params.name.slice(0, 100) }
   }
   return undefined
 }
