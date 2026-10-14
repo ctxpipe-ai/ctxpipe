@@ -250,7 +250,7 @@ export const readFileTool = defineMcpReadTool({
           endLine: end,
           totalLines,
           nextStartLine: end < last ? end + 1 : null,
-          truncated: true,
+          truncated: false,
         }
       },
     })
