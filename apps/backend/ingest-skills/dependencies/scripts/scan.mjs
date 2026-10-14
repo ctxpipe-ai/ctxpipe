@@ -7,10 +7,11 @@
 // node scan.mjs --root /ctxpipe --source /ctxpipe/source/<handle> \
 //   --source-url <url> --roots <root-to-file map> [--path <root path>]
 //
-// With --path (a root step): the candidates of that root. Without --path
-// (the repository-wide step): for each root of the map, the candidates that
-// are not HTTP calls, because only the repository-wide step writes the
-// Stream files that more than one root can share (ADR-052 section 6).
+// With --path (a root step): the HTTP and config candidates of that root.
+// Without --path (the repository-wide step): for each root of the map, the
+// candidates that are not HTTP calls. A stream or queue candidate is
+// resolved once, in the repository-wide step, because only that step writes
+// the Stream files that more than one root can share (ADR-052 section 6).
 
 import { scriptStep } from "../../bin/knowledge-lib.mjs"
 import { scan } from "./scan-lib.mjs"
@@ -32,7 +33,14 @@ if (rootPath !== null) {
   }
   const result = scanRoot(current)
   process.stdout.write(
-    `${JSON.stringify({ root: rootPath, ...result, skipped: [...skipped, ...result.skipped] })}\n`,
+    `${JSON.stringify({
+      root: rootPath,
+      ...result,
+      candidates: result.candidates.filter(
+        (c) => c.type !== "stream" && c.type !== "queue",
+      ),
+      skipped: [...skipped, ...result.skipped],
+    })}\n`,
   )
 } else {
   const out = roots.map((root) => {

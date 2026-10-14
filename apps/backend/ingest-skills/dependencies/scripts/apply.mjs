@@ -151,6 +151,10 @@ for (const resolution of resolutions) {
     target = { path: entry.path }
     predicate = kind === "service" ? "DEPENDS_ON" : "CONSUMES_API"
   } else if (kind === "stream") {
+    if (!repositoryStep) {
+      skip(id, "the repository-wide step resolves streams")
+      continue
+    }
     if (candidate.type === "http") {
       skip(id, "an HTTP candidate needs a service or API target")
       continue
@@ -194,33 +198,27 @@ for (const resolution of resolutions) {
       )
       continue
     }
-    if (!repositoryStep && target.name !== undefined) {
-      skip(id, "the repository-wide step writes a new Stream file")
+    if (!streams.has(target.path) && streams.size >= MAX_STREAM_FILES) {
+      skip(id, `the step writes at most ${MAX_STREAM_FILES} stream files`)
       continue
     }
-    if (repositoryStep) {
-      if (!streams.has(target.path) && streams.size >= MAX_STREAM_FILES) {
-        skip(id, `the step writes at most ${MAX_STREAM_FILES} stream files`)
-        continue
-      }
-      streams.add(target.path)
-      const verb = direction === "produce" ? "produces to" : "consumes from"
-      plans.push({
-        path: target.path,
-        claims: [],
-        related: [
-          `- \`${repository}\` ${verb} it in \`${current.path}\` (\`${candidate.file}\`)`,
-        ],
-        expectName: target.name,
-        create: {
-          kind: "Stream",
-          name: target.name ?? posix.basename(target.path, ".md"),
-          summary: "A message stream that a source repository uses.",
-          intro:
-            "A script and a model found this stream in the code of a source repository.",
-        },
-      })
-    }
+    streams.add(target.path)
+    const verb = direction === "produce" ? "produces to" : "consumes from"
+    plans.push({
+      path: target.path,
+      claims: [],
+      related: [
+        `- \`${repository}\` ${verb} it in \`${current.path}\` (\`${candidate.file}\`)`,
+      ],
+      expectName: target.name,
+      create: {
+        kind: "Stream",
+        name: target.name ?? posix.basename(target.path, ".md"),
+        summary: "A message stream that a source repository uses.",
+        intro:
+          "A script and a model found this stream in the code of a source repository.",
+      },
+    })
   } else {
     skip(id, "kind must be service, api, stream, or ignore")
     continue

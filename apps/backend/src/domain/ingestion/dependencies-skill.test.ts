@@ -202,7 +202,21 @@ async function step(
   }
   const show = (tree: string, path: string) =>
     git(contextDir, "show", `${tree}:${path}`)
-  return { root, sourceDir, scan, apply, validate, advance, show }
+  /**
+   * Every candidate of a root: the root step lists HTTP and config
+   * candidates, the repository-wide step the stream and queue candidates.
+   */
+  const candidates = (path = "."): Candidate[] => {
+    const repository = scan(null) as unknown as {
+      roots: Array<{ root: string; candidates: Candidate[] }>
+    }
+    const all = [
+      ...scan(path).candidates,
+      ...(repository.roots.find((r) => r.root === path)?.candidates ?? []),
+    ]
+    return [...new Map(all.map((c) => [c.id, c])).values()]
+  }
+  return { root, sourceDir, scan, candidates, apply, validate, advance, show }
 }
 
 const SERVICE_TS = `
@@ -225,7 +239,7 @@ export async function run(id: string) {
 }
 `
 
-const byTarget = (result: ScanResult) =>
+const byTarget = (result: Pick<ScanResult, "candidates">) =>
   result.candidates.map(
     (c) =>
       `${c.type} ${c.direction} ${c.target.kind}:${c.target.text} @${c.file}:${c.line}`,
@@ -233,19 +247,29 @@ const byTarget = (result: ScanResult) =>
 
 describe("dependencies scan", { timeout: 60_000 }, () => {
   it("finds HTTP and queue clients, streams, and config readers in TypeScript", async () => {
-    const result = (await step({ "src/service.ts": SERVICE_TS }, {})).scan()
-    expect(byTarget(result)).toEqual([
-      "config read env:BILLING_SERVICE_URL @src/service.ts:3",
-      "http call literal:http://billing.internal:8080/invoices @src/service.ts:6",
-      "http call literal:https://users.example.com/me @src/service.ts:9",
-      "stream produce literal:orders.created @src/service.ts:10",
-      "stream consume literal:payments.settled @src/service.ts:11",
-      "queue produce env:JOBS_QUEUE_URL @src/service.ts:12",
-      "config read env:JOBS_QUEUE_URL @src/service.ts:12",
-      "queue produce literal:emails @src/service.ts:13",
-      "queue consume literal:emails @src/service.ts:14",
-      "queue produce literal:tasks @src/service.ts:15",
-    ])
+    const s = await step({ "src/service.ts": SERVICE_TS }, {})
+    const result = s.scan()
+    // The root step leaves stream and queue candidates to the
+    // repository-wide step.
+    expect(
+      result.candidates.filter(
+        (c) => c.type === "stream" || c.type === "queue",
+      ),
+    ).toEqual([])
+    expect(byTarget({ candidates: s.candidates() }).sort()).toEqual(
+      [
+        "config read env:BILLING_SERVICE_URL @src/service.ts:3",
+        "http call literal:http://billing.internal:8080/invoices @src/service.ts:6",
+        "http call literal:https://users.example.com/me @src/service.ts:9",
+        "stream produce literal:orders.created @src/service.ts:10",
+        "stream consume literal:payments.settled @src/service.ts:11",
+        "queue produce env:JOBS_QUEUE_URL @src/service.ts:12",
+        "config read env:JOBS_QUEUE_URL @src/service.ts:12",
+        "queue produce literal:emails @src/service.ts:13",
+        "queue consume literal:emails @src/service.ts:14",
+        "queue produce literal:tasks @src/service.ts:15",
+      ].sort(),
+    )
     expect(result.truncated).toBe(false)
     const invoices = result.candidates.find((c) =>
       c.target.text.endsWith("/invoices"),
@@ -299,8 +323,8 @@ describe("dependencies scan", { timeout: 60_000 }, () => {
         },
         {},
       )
-    ).scan()
-    expect(byTarget(result).sort()).toEqual(
+    ).candidates()
+    expect(byTarget({ candidates: result }).sort()).toEqual(
       [
         "http call literal:http://inventory/stock @app/main.py:3",
         "config read env:INVENTORY_URL @app/main.py:2",
@@ -333,9 +357,9 @@ describe("dependencies scan", { timeout: 60_000 }, () => {
           ),
         },
       )
-    ).scan()
+    ).candidates()
     const hint = (text: string) =>
-      result.candidates.find((c) => c.target.text === text)?.hints
+      result.find((c) => c.target.text === text)?.hints
     expect(hint("BILLING_SERVICE_URL")).toEqual([
       {
         path: "knowledge/services/billing.md",
@@ -508,9 +532,7 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
 
   it("writes DEPENDS_ON for an HTTP call to a service and the validator accepts it", async () => {
     const s = await step({ "src/service.ts": SERVICE_TS }, context())
-    const call = s
-      .scan()
-      .candidates.find((c) => c.target.text.endsWith("/invoices"))
+    const call = s.candidates().find((c) => c.target.text.endsWith("/invoices"))
     expect(call).toBeDefined()
     const out = s.apply([
       { id: call?.id, kind: "service", path: BILLING },
@@ -534,8 +556,8 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
   it("creates a Stream file for a new stream and links the producer", async () => {
     const s = await step({ "src/service.ts": SERVICE_TS }, context())
     const produce = s
-      .scan()
-      .candidates.find((c) => c.target.text === "orders.created")
+      .candidates()
+      .find((c) => c.target.text === "orders.created")
     const out = s.apply(
       [{ root: ".", id: produce?.id, kind: "stream", name: "orders.created" }],
       null,
@@ -565,7 +587,7 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
       { "knowledge/streams/order-events.md": human },
     )
     const [produce, consume] = ["orders.created", "payments.settled"].map(
-      (text) => s.scan().candidates.find((c) => c.target.text === text),
+      (text) => s.candidates().find((c) => c.target.text === text),
     )
     const out = s.apply(
       [
@@ -593,7 +615,7 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
     )
   })
 
-  it("claims only an existing Stream file in a root step and leaves new streams to the repository-wide step", async () => {
+  it("leaves each stream to the repository-wide step", async () => {
     const human = front(
       { kind: "Stream", name: "Orders Created", summary: "New orders." },
       "# Orders Created\n",
@@ -602,24 +624,21 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
       { "src/service.ts": SERVICE_TS },
       { "knowledge/streams/order-events.md": human },
     )
-    const [produce, consume] = ["orders.created", "payments.settled"].map(
-      (text) => s.scan().candidates.find((c) => c.target.text === text),
-    )
+    const config = s
+      .candidates()
+      .find((c) => c.target.text === "BILLING_SERVICE_URL")
+    // Also an existing Stream file: the root step makes no stream choice.
     const out = s.apply([
-      { id: produce?.id, kind: "stream", name: "orders.created" },
-      { id: consume?.id, kind: "stream", name: "payments.settled" },
+      {
+        id: config?.id,
+        kind: "stream",
+        path: "knowledge/streams/order-events.md",
+        direction: "produce",
+      },
     ])
-    // orders.created is the existing file: a claim on the root's Service
-    // file only; payments.settled is new: the repository-wide step writes it.
-    expect(out.ops).toEqual([{ op: "update", path: OWN }])
+    expect(out.ops).toEqual([])
     expect(out.skipped.map((x) => x.reason).join()).toContain(
-      "the repository-wide step writes a new Stream file",
-    )
-    const result = await s.validate()
-    expect(result.rejections).toEqual([])
-    expect(s.show(result.tree, OWN)).toContain("predicate: PRODUCES_TO")
-    expect(s.show(result.tree, "knowledge/streams/order-events.md")).toBe(
-      human.trimEnd(),
+      "the repository-wide step resolves streams",
     )
   })
 
@@ -633,9 +652,7 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
     expect(types.has("http")).toBe(false)
     expect(types.has("stream") || types.has("queue")).toBe(true)
     // A service resolution is a root-step choice.
-    const call = s
-      .scan()
-      .candidates.find((c) => c.target.text.endsWith("/invoices"))
+    const call = s.candidates().find((c) => c.target.text.endsWith("/invoices"))
     const out = s.apply(
       [{ root: ".", id: call?.id, kind: "service", path: BILLING }],
       null,
@@ -645,9 +662,7 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
 
   it("does nothing on a second run on the new base", async () => {
     const s = await step({ "src/service.ts": SERVICE_TS }, context())
-    const call = s
-      .scan()
-      .candidates.find((c) => c.target.text.endsWith("/invoices"))
+    const call = s.candidates().find((c) => c.target.text.endsWith("/invoices"))
     const resolutions = [{ id: call?.id, kind: "service", path: BILLING }]
     s.apply(resolutions)
     const first = await s.validate()
@@ -659,8 +674,8 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
   it("takes the direction of a config candidate from the model", async () => {
     const s = await step({ "src/service.ts": SERVICE_TS }, context())
     const config = s
-      .scan()
-      .candidates.find((c) => c.target.text === "BILLING_SERVICE_URL")
+      .candidates()
+      .find((c) => c.target.text === "BILLING_SERVICE_URL")
     const refused = s.apply(
       [{ root: ".", id: config?.id, kind: "stream", name: "billing.events" }],
       null,
@@ -690,25 +705,13 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
 
   it("ignores a candidate with kind ignore and refuses a bad choice", async () => {
     const s = await step({ "src/service.ts": SERVICE_TS }, context())
-    const { candidates } = s.scan()
+    const candidates = s.candidates()
     const id = (text: string) =>
       candidates.find((c) => c.target.text === text)?.id
-    const out = s.apply([
+    const root = s.apply([
       { id: id("https://users.example.com/me"), kind: "ignore" },
-      // An HTTP call is not a stream.
-      {
-        id: id("http://billing.internal:8080/invoices"),
-        kind: "stream",
-        name: "x",
-      },
       // A stream candidate needs a stream.
       { id: id("orders.created"), kind: "service", path: BILLING },
-      // A path that is not in the context.
-      {
-        id: id("emails"),
-        kind: "stream",
-        path: "knowledge/streams/none.md",
-      },
       // A service file for an API choice.
       {
         id: id("BILLING_SERVICE_URL"),
@@ -717,17 +720,40 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
       },
       // The root's own file.
       { id: id("BILLING_SERVICE_URL"), kind: "service", path: OWN },
-      // A stream name with a slash, a space, or a backtick.
-      { id: id("tasks"), kind: "stream", name: "../evil" },
-      { id: id("payments.settled"), kind: "stream", name: "a b" },
-      { id: id("payments.settled"), kind: "stream", name: "a`b" },
       { id: id("tasks"), kind: "unknown" },
       null,
       "text",
     ])
-    expect(out.ops).toEqual([])
-    expect(out.skipped.map((x) => x.reason).join("\n")).toMatch(
-      /needs a service or API target[\s\S]*needs a stream target[\s\S]*not a Stream file[\s\S]*not a api file[\s\S]*does not depend on itself[\s\S]*give the path of a Stream file[\s\S]*kind must be/,
+    expect(root.ops).toEqual([])
+    expect(root.skipped.map((x) => x.reason).join("\n")).toMatch(
+      /needs a stream target[\s\S]*not a api file[\s\S]*does not depend on itself[\s\S]*kind must be/,
+    )
+    const repository = s.apply(
+      [
+        // An HTTP call is not a stream.
+        {
+          root: ".",
+          id: id("http://billing.internal:8080/invoices"),
+          kind: "stream",
+          name: "x",
+        },
+        // A path that is not in the context.
+        {
+          root: ".",
+          id: id("emails"),
+          kind: "stream",
+          path: "knowledge/streams/none.md",
+        },
+        // A stream name with a slash, a space, or a backtick.
+        { root: ".", id: id("tasks"), kind: "stream", name: "../evil" },
+        { root: ".", id: id("payments.settled"), kind: "stream", name: "a b" },
+        { root: ".", id: id("payments.settled"), kind: "stream", name: "a`b" },
+      ],
+      null,
+    )
+    expect(repository.ops).toEqual([])
+    expect(repository.skipped.map((x) => x.reason).join("\n")).toMatch(
+      /needs a service or API target[\s\S]*not a Stream file[\s\S]*give the path of a Stream file/,
     )
   })
 
@@ -735,9 +761,7 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
     const s = await step({ "src/service.ts": SERVICE_TS }, context(), [
       { path: ".", files: [] },
     ])
-    const call = s
-      .scan()
-      .candidates.find((c) => c.target.text.endsWith("/invoices"))
+    const call = s.candidates().find((c) => c.target.text.endsWith("/invoices"))
     const out = s.apply([{ id: call?.id, kind: "service", path: BILLING }])
     expect(out.ops).toEqual([])
     expect(out.skipped.map((x) => x.reason).join()).toContain(
@@ -751,7 +775,7 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
       (_, i) => `producer.send({ topic: "stream.n${i}", messages: [] })`,
     ).join("\n")
     const s = await step({ "src/service.ts": calls }, {})
-    const resolutions = s.scan().candidates.map((c) => ({
+    const resolutions = s.candidates().map((c) => ({
       root: ".",
       id: c.id,
       kind: "stream",

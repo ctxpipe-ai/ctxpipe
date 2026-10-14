@@ -58,9 +58,11 @@ export type IngestSkillPlan = {
  * The skills in their run order (ADR-052 section 6). A skill runs only when
  * the bundle holds it. `discover-roots` is not here: the parent runs it
  * first, and its result plans the root steps. A file that more than one root
- * can write is written only in a repository-wide step, so `dependencies` and
- * `datasources-infra` also run once on the assembled ref for the shared
- * files (streams, stores, and infrastructure).
+ * can write is written only in a repository-wide step. So `dependencies`
+ * also runs once on the assembled ref for the Stream files, and
+ * `datasources-infra` runs only there: a root step could only link a store
+ * file that exists already, and there is none on a first run. Its
+ * repository-wide step links every root.
  */
 const INGEST_SKILLS: readonly IngestSkillPlan[] = [
   // The repository unit, which every later step can link to.
@@ -68,7 +70,6 @@ const INGEST_SKILLS: readonly IngestSkillPlan[] = [
   { name: "classify-kind", scope: "root", run: "model", tier: "fast" },
   { name: "apis", scope: "root", run: "model", tier: "medium" },
   { name: "dependencies", scope: "root", run: "model", tier: "medium" },
-  { name: "datasources-infra", scope: "root", run: "model", tier: "medium" },
   // `libraries` writes shared files, so it runs on the assembled ref.
   { name: "libraries", scope: "repository", run: "script" },
   { name: "ownership", scope: "repository", run: "script" },

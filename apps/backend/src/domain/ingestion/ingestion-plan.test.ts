@@ -60,7 +60,7 @@ describe("ingestion v2 plan", () => {
     })
   })
 
-  it("runs the repository unit first, and the shared-file skills also on the assembled ref", () => {
+  it("runs the repository unit first, dependencies also on the assembled ref, and datasources-infra only there", () => {
     const bundle = [
       "repository",
       "classify-kind",
@@ -79,7 +79,6 @@ describe("ingestion v2 plan", () => {
       "classify-kind",
       "apis",
       "dependencies",
-      "datasources-infra",
     ])
     expect(
       plannedIngestSkills(bundle, "repository").map((s) => s.name),
