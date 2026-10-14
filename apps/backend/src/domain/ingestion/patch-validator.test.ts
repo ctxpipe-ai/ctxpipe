@@ -788,6 +788,78 @@ describe("validatePatchStep stamps", () => {
     })
   })
 
+  it("sets the step root on a package unit and not on other kinds", async () => {
+    const servicePath = "knowledge/services/rooted.md"
+    const apiPath = "knowledge/apis/rooted-api.md"
+    const result = await run(
+      stage({
+        files: {
+          [servicePath]: service("Rooted"),
+          [apiPath]: doc({ kind: "API", name: "Rooted API" }, "# Rooted API\n"),
+        },
+      }),
+      { root: "apps/rooted" },
+    )
+    expect(result.rejections).toEqual([])
+    const front = (path: string) =>
+      parseYaml(readTree(result.tree, path).split("---\n")[1] ?? "")
+    expect(front(servicePath)).toMatchObject({ root: "apps/rooted" })
+    expect(front(apiPath)).not.toHaveProperty("root")
+  })
+
+  it("rejects a root that the model writes", async () => {
+    const path = "knowledge/services/model-root.md"
+    const result = await run(
+      stage({
+        files: { [path]: service("Model root", undefined, { root: "apps/x" }) },
+      }),
+      { root: "apps/x" },
+    )
+    expect(result.rejections).toEqual([
+      expect.objectContaining({ path, rule: "front_matter" }),
+    ])
+    expect(result.rejections[0]?.reason).toContain("root")
+  })
+
+  it("rejects a changed root and keeps the base root in a step without a root", async () => {
+    const path = "knowledge/services/billing.md"
+    const first = await run(
+      stage({
+        files: { [path]: owned("Billing", "# Billing\n\nRooted prose.\n") },
+      }),
+      { root: "apps/billing" },
+    )
+    expect(first.rejections).toEqual([])
+    const withRoot = readTree(first.tree, path)
+    const commit = git(contextDir, [
+      "commit-tree",
+      first.tree,
+      "-p",
+      baseCommit,
+      "-m",
+      "rooted",
+    ])
+
+    const moved = withRoot.replace("root: apps/billing", "root: apps/other")
+    const changed = await run(
+      stage({ files: { [path]: moved }, base: commit }),
+      {
+        baseCommit: commit,
+        root: "apps/billing",
+      },
+    )
+    expect(rulesOf(changed)).toEqual(["front_matter"])
+
+    const prose = withRoot.replace("Rooted prose.", "New prose.")
+    const kept = await run(stage({ files: { [path]: prose }, base: commit }), {
+      baseCommit: commit,
+    })
+    expect(kept.rejections).toEqual([])
+    expect(
+      parseYaml(readTree(kept.tree, path).split("---\n")[1] ?? ""),
+    ).toMatchObject({ root: "apps/billing" })
+  })
+
   it("rejects a change to a host field of an owned file", async () => {
     const path = "knowledge/services/billing.md"
     const changed = readTree(baseCommit, path).replace(

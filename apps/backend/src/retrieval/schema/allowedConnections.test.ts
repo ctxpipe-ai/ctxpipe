@@ -6,6 +6,7 @@ import {
   getGraphEdgeTypes,
   getGraphNodeKinds,
   isAllowedConnection,
+  isValidGraphEdgeType,
   PREDICATE_DESCRIPTIONS,
 } from "./allowedConnections.js"
 import { CoreNodeType, CoreRelType } from "./core.js"
@@ -76,6 +77,13 @@ describe("ontology consistency (ADR-033)", () => {
     expect(EXTENSION_TRAVERSAL_PREDICATES).toContain("RESOLVES")
     expect(EXTENSION_TRAVERSAL_PREDICATES).not.toContain("PART_OF")
     expect(EXTENSION_TRAVERSAL_PREDICATES).not.toContain("DECLARED_IN")
+  })
+
+  it("accepts package and repository changes from a pull request", () => {
+    expect(isValidGraphEdgeType("CHANGED")).toBe(true)
+    for (const kind of ["Service", "App", "Library", "Repository"]) {
+      expect(isAllowedConnection("PullRequest", "CHANGED", kind)).toBe(true)
+    }
   })
 
   it("a pull request resolves an issue; only that direction is allowed", () => {

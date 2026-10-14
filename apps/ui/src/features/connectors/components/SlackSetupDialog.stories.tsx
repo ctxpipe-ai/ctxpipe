@@ -1,7 +1,11 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { useQuery } from "@tanstack/react-query"
 import { delay, HttpResponse, http } from "msw"
+import { type ComponentProps, useState } from "react"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
+import { Button } from "@/components/ui/Button"
 import { CHOOSE_WORKSPACES_HINT } from "@/features/workspace-sources/ChooseWorkspacesStep"
+import { workspaceSourcesOptions } from "@/features/workspace-sources/queries"
 import { docsWorkspace } from "@/features/workspaces/workspace-fixtures"
 import { slackChannelsHandler } from "@/mocks/slack-handlers"
 import { workspaceListHandler } from "@/mocks/workspace-handlers"
@@ -330,5 +334,96 @@ export const StatusError: Story = {
         ],
       },
     },
+  },
+}
+
+/** The Slack channels of the Docs source on the server. */
+let docsChannels = ["C0ENG0001"]
+
+/**
+ * The connector card: Manage opens the dialog, and Close closes it. The app
+ * keeps the response in its cache after the dialog closes. Storybook does
+ * not, so this observer keeps the Docs sources in the cache.
+ */
+function ManageButton(props: ComponentProps<typeof SlackSetupDialog>) {
+  const [isOpen, setIsOpen] = useState(false)
+  useQuery(workspaceSourcesOptions(orgSlug, docsWorkspace.slug))
+  return (
+    <>
+      <Button onPress={() => setIsOpen(true)}>Manage</Button>
+      <SlackSetupDialog {...props} isOpen={isOpen} onOpenChange={setIsOpen} />
+    </>
+  )
+}
+
+/**
+ * A merge changes the channels while the dialog is closed. Manage then
+ * starts from the new channels, not from the channels of an earlier request.
+ */
+export const ManageAgainShowsTheNewScope: Story = {
+  render: (args) => <ManageButton {...args} />,
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          statusHandler(installedStatus),
+          workspaceListHandler([docsWorkspace]),
+          connectionUsageHandler([
+            connectionUsageItem({
+              workspaceSlug: docsWorkspace.slug,
+              workspaceName: docsWorkspace.displayName,
+              sources: [
+                {
+                  sourceKey: "slack",
+                  provider: "slack",
+                  status: "ok",
+                  scopeSummary: "1 Slack channel",
+                },
+              ],
+            }),
+          ]),
+          http.get(`/${orgSlug}/api/v1/workspaces/docs/sources`, () =>
+            HttpResponse.json(
+              workspaceSourceList({
+                items: [
+                  workspaceSourceFixture({
+                    sourceKey: "slack",
+                    provider: "slack",
+                    connectionId,
+                    scope: { channels: docsChannels },
+                  }),
+                ],
+              }),
+            ),
+          ),
+          slackChannelsHandler(),
+        ],
+      },
+    },
+  },
+  beforeEach: () => {
+    docsChannels = ["C0ENG0001"]
+  },
+  play: async ({ canvasElement }) => {
+    const body = within(canvasElement.ownerDocument.body)
+    await userEvent.click(await body.findByRole("button", { name: "Manage" }))
+    await expect(
+      await body.findByRole("checkbox", { name: /^#?\s*eng$/ }),
+    ).toBeChecked()
+    await userEvent.click(body.getByRole("button", { name: "Close" }))
+    await waitFor(() =>
+      expect(
+        body.queryByRole("checkbox", { name: /^#?\s*eng$/ }),
+      ).not.toBeInTheDocument(),
+    )
+
+    docsChannels = ["G0INC0001"]
+    await userEvent.click(body.getByRole("button", { name: "Manage" }))
+    await expect(
+      await body.findByRole("checkbox", { name: /incidents/ }),
+    ).toBeChecked()
+    await expect(
+      body.getByRole("checkbox", { name: /^#?\s*eng$/ }),
+    ).not.toBeChecked()
   },
 }

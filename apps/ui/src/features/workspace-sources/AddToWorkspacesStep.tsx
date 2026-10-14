@@ -4,7 +4,10 @@ import { InlineAlert } from "@/components/ui/InlineAlert"
 import { InlineLoader } from "@/components/ui/InlineLoader"
 import { Link } from "@/components/ui/Link"
 import { ChooseWorkspacesStep } from "./ChooseWorkspacesStep"
-import { useAddToWorkspaces } from "./useAddToWorkspaces"
+import {
+  type OpenedPullRequest,
+  useAddToWorkspaces,
+} from "./useAddToWorkspaces"
 
 type AddToWorkspacesStepProps = {
   orgSlug: string
@@ -21,11 +24,8 @@ type AddToWorkspacesStepProps = {
    * ctx| does not use it now; the step tells the user to close it.
    */
   replacedConfigPullUrl?: string | null
-  /**
-   * After the add (with the pull requests that it opened), or when the user
-   * skips the step.
-   */
-  onDone: (pullRequestUrls?: string[]) => void
+  /** After the save, with the pull requests that it opened. */
+  onDone: (pullRequests: OpenedPullRequest[]) => void
 }
 
 /**
@@ -87,13 +87,6 @@ export function AddToWorkspacesStep({
         <InlineLoader label={`Loading the Workspaces that use ${label}`} />
       )}
       <div className="flex justify-end gap-2">
-        <Button
-          variant="quiet"
-          isDisabled={adding.isPending}
-          onPress={() => onDone()}
-        >
-          Skip for now
-        </Button>
         <Button
           variant="primary"
           isDisabled={!adding.canAdd}

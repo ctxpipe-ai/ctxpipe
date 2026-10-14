@@ -6,7 +6,10 @@ import { InlineAlert } from "@/components/ui/InlineAlert"
 import { Radio, RadioGroup } from "@/components/ui/RadioGroup"
 import { Skeleton, SkeletonLine } from "@/components/ui/Skeleton"
 import { workspaceListOptions } from "@/features/workspaces/queries"
-import type { ChooseWorkspacesValue } from "./choose-workspaces"
+import {
+  type ChooseWorkspacesValue,
+  selectWorkspaces,
+} from "./choose-workspaces"
 import { SOURCE_PROVIDER_UI } from "./source-provider-ui"
 
 export const CHOOSE_WORKSPACES_HINT =
@@ -59,7 +62,9 @@ export function ChooseWorkspacesStep(props: {
         <CheckboxGroup
           label="Workspaces"
           value={value.workspaceSlugs}
-          onChange={(workspaceSlugs) => onChange({ ...value, workspaceSlugs })}
+          onChange={(workspaceSlugs) =>
+            onChange(selectWorkspaces(value, workspaceSlugs))
+          }
         >
           {workspaces.map((workspace) => (
             <Checkbox key={workspace.id} value={workspace.slug}>

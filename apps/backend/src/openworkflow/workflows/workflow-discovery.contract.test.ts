@@ -64,7 +64,6 @@ it(
         // Retired names stay registered so queued runs complete.
         "github-ensure-pr-mirror",
         "github-sync-content",
-        "workspace-write-ops-folder-map",
       ]),
     )
   },

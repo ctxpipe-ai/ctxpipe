@@ -208,7 +208,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: scripts/chat-sandbox
-          tags: ctxpipe-chat-sandbox:opencode-1.18.34
+          tags: ctxpipe-chat-sandbox:opencode-1.18.34-r2
           load: true
           cache-from: type=gha,scope=chat-sandbox
           # One writer avoids nine jobs racing to save the same layers.

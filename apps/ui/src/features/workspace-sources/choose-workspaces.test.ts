@@ -4,6 +4,7 @@ import {
   chooseWorkspacesFromExisting,
   chooseWorkspacesRequests,
   emptyChooseWorkspaces,
+  selectWorkspaces,
 } from "./choose-workspaces"
 
 const base = { provider: "linear" as const, connectionId: "con_test1" }
@@ -172,6 +173,15 @@ describe("Manage: the step from the existing sources", () => {
         source: { ...slack, scope: { channels: ["C0OPS0001"] } },
       },
       { kind: "remove", workspaceSlug: "eng", sourceKey: "slack-2" },
+    ])
+  })
+
+  it("keeps the scope of the Workspace that stays when the first is unchecked", () => {
+    const value = selectWorkspaces(chooseWorkspacesFromExisting(existing), [
+      "eng",
+    ])
+    expect(chooseWorkspacesChanges(value, slack, existing)).toEqual([
+      { kind: "remove", workspaceSlug: "docs", sourceKey: "slack" },
     ])
   })
 
