@@ -1,3 +1,4 @@
+import { z } from "zod"
 import type { Env } from "../../config/env.js"
 import { formatUnknownError } from "../../db/transientDbRetry.js"
 import type { SourceAdapter } from "../../domain/workspace-sources/adapter.js"
@@ -36,6 +37,15 @@ export const ZENDESK_SYNC_MAX_TRIES = 3
 
 const RECONNECT_DETAIL =
   "Zendesk does not accept the authorization of this connection any more. Reconnect Zendesk on the Connectors page."
+
+/**
+ * The event of an article webhook. Ticket views have no events (Zendesk
+ * sends them only through a trigger), so this sync reads only categories.
+ */
+export const zendeskArticleEventSchema = z.object({
+  kind: z.literal("articles"),
+})
+export type ZendeskArticleEvent = z.infer<typeof zendeskArticleEventSchema>
 
 type Item = { kind: "category" | "view"; id: string; root: string }
 
@@ -103,9 +113,21 @@ async function readItem(
 export const zendeskSourceAdapter: SourceAdapter<ZendeskSourceScope> = {
   provider: "zendesk",
   managedPaths: (scope) => items([scope]).map((item) => item.root),
-  async fetch({ orgId, connectionId, scopes, env, existing, countFailures }) {
-    const selected = items(scopes)
-    const roots = selected.map((item) => item.root)
+  async fetch({
+    orgId,
+    connectionId,
+    scopes,
+    env,
+    event,
+    existing,
+    countFailures,
+  }) {
+    const all = items(scopes)
+    const roots = all.map((item) => item.root)
+    const articlesOnly = zendeskArticleEventSchema.safeParse(event).success
+    const selected = articlesOnly
+      ? all.filter((item) => item.kind === "category")
+      : all
     const connection = await loadConnection(orgId, connectionId, env)
     // A revoked connection keeps every file until a reconnect.
     if (connection.status === "revoked") return { files: [], keepPaths: roots }
@@ -128,7 +150,10 @@ export const zendeskSourceAdapter: SourceAdapter<ZendeskSourceScope> = {
     const failures = { ...connection.sourceSync?.failures }
     const files: GitFileChange[] = []
     const deletePaths: string[] = []
-    const keepPaths: string[] = []
+    // An article event keeps the ticket files as they are.
+    const keepPaths: string[] = articlesOnly
+      ? all.filter((item) => item.kind === "view").map((item) => item.root)
+      : []
     const unreachable: Array<{
       path: string
       status: "out_of_access"
@@ -205,7 +230,7 @@ export const zendeskSourceAdapter: SourceAdapter<ZendeskSourceScope> = {
       sourceSync: {
         failures: Object.fromEntries(
           Object.entries(failures).filter(([key]) =>
-            selected.some((item) => `${item.kind}:${item.id}` === key),
+            all.some((item) => `${item.kind}:${item.id}` === key),
           ),
         ),
       },
@@ -254,6 +279,10 @@ export const zendeskSourceAdapter: SourceAdapter<ZendeskSourceScope> = {
       throw error
     }
   },
+  /** An article event touches only the sources that select a category. */
+  matchesEvent: ({ event, scope }) =>
+    !zendeskArticleEventSchema.safeParse(event).success ||
+    Boolean(scope.categories?.length),
   async syncStatus({ orgId, connectionId }) {
     return (await getZendeskConnectionStatus(orgId, connectionId)) === "revoked"
       ? { status: "out_of_access" as const, detail: RECONNECT_DETAIL }

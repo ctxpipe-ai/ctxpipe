@@ -150,7 +150,8 @@ describe("Zendesk webhook routes to Workspace sources (Postgres)", () => {
     ).toBe(200)
     const runs = await sourceRuns()
     expect(runs).toHaveLength(1)
-    expect(runs[0]).toMatchObject({ connectionId, event: null })
+    // The sync reads only the Help Center: ticket views have no events.
+    expect(runs[0]).toMatchObject({ connectionId, event: { kind: "articles" } })
     const windowMs = 10 * 60 * 1000
     expect(new Date(runs[0]?.availableAt ?? 0).getTime() % windowMs).toBe(0)
   })

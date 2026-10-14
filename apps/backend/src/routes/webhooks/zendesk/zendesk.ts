@@ -5,6 +5,7 @@ import { enqueueConnectionSourcesSync } from "../../../domain/workspace-sources/
 import { getZendeskWebhookTarget } from "../../../models/zendesk-connector.js"
 import { getLogger } from "../../../observability/logger.js"
 import { verifyZendeskWebhookSignature } from "../../../services/zendesk/signature.js"
+import type { ZendeskArticleEvent } from "../../../services/zendesk/workspace-source-adapter.js"
 import { noteResolvedWebhookConnections } from "../attribution.js"
 
 /** The article events that change the files of a Help Center source. */
@@ -63,6 +64,7 @@ async function handleZendeskWebhook(c: Context<AppEnv>) {
       orgId: target.orgId,
       connectionId,
       provider: "zendesk",
+      event: { kind: "articles" } satisfies ZendeskArticleEvent,
       dedupeKey: `articles:${windowStart}`,
       availableAt: new Date(windowStart + SYNC_WINDOW_MS),
     })

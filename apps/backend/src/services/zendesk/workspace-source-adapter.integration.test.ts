@@ -172,6 +172,7 @@ async function addSource(
 async function sync(
   connectionId: string,
   blobs?: Array<{ path: string; sha: string }>,
+  event?: unknown,
 ) {
   const writes: WorkspaceSliceWrite[] = []
   await withLogger(createLogger({ test: "zendesk-sources" }), () =>
@@ -180,6 +181,7 @@ async function sync(
       connectionId,
       env,
       adapter: zendeskSourceAdapter,
+      event,
       readExisting: blobs ? async () => blobs : undefined,
       write: async (write) => {
         writes.push(write)
@@ -246,6 +248,27 @@ describe("Zendesk source adapter (Postgres + msw)", () => {
     expect(ticket).toContain("- Requester: Alex Kim")
     expect(ticket).toContain("It fails.")
     expect(ticket).not.toContain("not-mirrored")
+  })
+
+  it("reads only the categories on an article event, and keeps the ticket files", async () => {
+    const connection = await seed.addConnection("zendesk", installed())
+    const both = await addSource(connection, "zd-event-both", {
+      categories: ["36"],
+      views: ["90"],
+    })
+    const tickets = await addSource(connection, "zd-event-tickets", {
+      views: ["90"],
+    })
+
+    const writes = await sync(connection, [], { kind: "articles" })
+
+    expect(zd.reads).toEqual(["articles:36"])
+    expect(paths(writes.get(both))).toHaveLength(2)
+    expect(writes.get(both)?.keepPrefixes).toEqual([
+      "zendesk/tickets/views/90/",
+    ])
+    // A source with only views does not take an article event.
+    expect(writes.has(tickets)).toBe(false)
   })
 
   it("skips unchanged files and deletes the items that left the scope", async () => {
