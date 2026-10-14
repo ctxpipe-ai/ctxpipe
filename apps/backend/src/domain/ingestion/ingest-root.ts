@@ -67,11 +67,13 @@ export function dockerRootExec(
     const onAbort = () => {
       // TERM, then KILL after 5 seconds; return when no process of the
       // group is left. A group that has not written its file yet gets 5
-      // seconds to do it.
+      // seconds to do it. Dash's `kill` refuses `--`, so the group id comes
+      // directly after the signal. PID 1 of the sandbox does not reap
+      // orphans, so a zombie of the group does not count as alive.
       killed = exec([
         "sh",
         "-c",
-        `i=0; while [ ! -f ${file} ] && [ $i -lt 50 ]; do i=$((i+1)); sleep 0.1; done; [ -f ${file} ] || exit 0; g=$(cat ${file}); kill -TERM -- -$g 2>/dev/null; i=0; while kill -0 -- -$g 2>/dev/null; do i=$((i+1)); [ $i -ge 50 ] && kill -KILL -- -$g 2>/dev/null; sleep 0.1; done; rm -f ${file}`,
+        `i=0; while [ ! -f ${file} ] && [ $i -lt 50 ]; do i=$((i+1)); sleep 0.1; done; [ -f ${file} ] || exit 0; g=$(cat ${file}); live() { ps -eo pgid=,stat= | awk -v g="$g" '$1 == g && $2 !~ /^Z/ { f = 1 } END { exit !f }'; }; kill -TERM -$g 2>/dev/null; i=0; while live; do i=$((i+1)); [ $i -ge 50 ] && kill -KILL -$g 2>/dev/null; sleep 0.1; done; rm -f ${file}`,
       ])
     }
     signal.addEventListener("abort", onAbort, { once: true })
