@@ -1521,7 +1521,8 @@ describe("validatePatchStep secret forms", () => {
     ])
   })
 
-  it("marks only the files that hold a value cut over files", async () => {
+  it("rejects every written file when values are cut over files", async () => {
+    const other = `ghp_${"Z9y8X7w6V5".repeat(3)}Z9y8X7`
     const result = await run(
       stage({
         files: {
@@ -1534,16 +1535,52 @@ describe("validatePatchStep secret forms", () => {
             `${ghp.slice(20)} rest\n\n# B cut\n`,
           ),
           "knowledge/services/c-clean.md": service("C clean"),
+          "knowledge/services/y-cut.md": service(
+            "Y cut",
+            `# Y cut\n\nKey part ${other.slice(0, 20)}`,
+          ),
+          "knowledge/services/z-cut.md": service(
+            "Z cut",
+            `${other.slice(20)} rest\n\n# Z cut\n`,
+          ),
         },
       }),
     )
+    expect(result.accepted).toEqual([])
     expect(result.rejections.map((r) => [r.path, r.rule]).sort()).toEqual([
       ["knowledge/services/a-cut.md", "suspected_secret"],
       ["knowledge/services/b-cut.md", "suspected_secret"],
+      ["knowledge/services/c-clean.md", "suspected_secret"],
+      ["knowledge/services/y-cut.md", "suspected_secret"],
+      ["knowledge/services/z-cut.md", "suspected_secret"],
     ])
-    expect(result.accepted.map((op) => op.path)).toEqual([
-      "knowledge/services/c-clean.md",
-    ])
+  })
+
+  it("rejects every written file when a decoy comes after a value cut over files", async () => {
+    const result = await run(
+      stage({
+        files: {
+          "knowledge/services/a-cut.md": service(
+            "A cut",
+            `# A cut\n\nKey part ${ghp.slice(0, 20)}`,
+          ),
+          "knowledge/services/b-cut.md": service(
+            "B cut",
+            `${ghp.slice(20)} rest\n\n# B cut\n`,
+          ),
+          "knowledge/services/y-decoy.md": service(
+            "Y decoy",
+            "# Y decoy\n\nAWS AKIAQ9F3KD8L",
+          ),
+          "knowledge/services/z-decoy.md": service(
+            "Z decoy",
+            "MZ2XT7PW\n\n# Z decoy\n",
+          ),
+        },
+      }),
+    )
+    expect(result.accepted).toEqual([])
+    expect(rulesOf(result)).toEqual(Array(4).fill("suspected_secret"))
   })
 
   it("rejects a token cut over three files and a Related line", async () => {

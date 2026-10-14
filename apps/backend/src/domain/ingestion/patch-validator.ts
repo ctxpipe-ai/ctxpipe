@@ -534,46 +534,21 @@ export async function validatePatchStep(
   }
   // A value can be cut over files. The scan reads the bodies and then the
   // front matter of all written files, each in path order and without the
-  // blank lines at its ends, as one text. Only the files of the shortest run
-  // of parts that still has the finding are rejected. Two binary searches
-  // find that run, so the step scans the text about 2 log2(parts) times.
+  // blank lines at its ends, as one text. A finding in that text rejects
+  // every written file of the step: a search for the smallest run of files
+  // with the finding can accept files that hold a part of a second value.
   const written = candidates.flatMap((c) => (c.written ? [c] : []))
-  const parts = [
-    ...written.map((c) => ({ c, text: c.written?.body.trim() ?? "" })),
-    ...written.map((c) => ({ c, text: c.written?.yaml.trim() ?? "" })),
-  ]
-  const hits = (from: number, to: number) =>
-    findSuspectedSecret(
-      parts
-        .slice(from, to + 1)
-        .map((p) => p.text)
-        .join("\n"),
-      meter,
-    ) !== null
-  if (parts.length > 0 && hits(0, parts.length - 1)) {
-    let first = 0
-    for (let low = 1, high = parts.length - 1; low <= high; ) {
-      const middle = (low + high) >> 1
-      if (hits(middle, parts.length - 1)) {
-        first = middle
-        low = middle + 1
-      } else high = middle - 1
-    }
-    let last = parts.length - 1
-    for (let low = first, high = last - 1; low <= high; ) {
-      const middle = (low + high) >> 1
-      if (hits(first, middle)) {
-        last = middle
-        high = middle - 1
-      } else low = middle + 1
-    }
-    for (const c of new Set(parts.slice(first, last + 1).map((p) => p.c)))
+  const joined = [
+    ...written.map((c) => c.written?.body.trim() ?? ""),
+    ...written.map((c) => c.written?.yaml.trim() ?? ""),
+  ].join("\n")
+  if (written.length > 0 && findSuspectedSecret(joined, meter) !== null)
+    for (const c of written)
       reject(
         c.path,
         "suspected_secret",
         "The text that the step writes, read as one text, has a value that looks like a secret",
       )
-  }
   candidates = candidates.filter(
     (c) => !rejections.some((r) => r.path === c.path),
   )
