@@ -43,7 +43,7 @@ export function sandboxEgressGuard(
         return forbidden()
       }
     }
-    await next()
+    return next()
   }
 }
 
