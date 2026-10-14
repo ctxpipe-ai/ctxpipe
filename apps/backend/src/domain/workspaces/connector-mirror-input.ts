@@ -37,6 +37,7 @@ const workspaceSourcesMirrorSchema = z
       "slack",
       "confluence",
       "pagerduty",
+      "zendesk",
     ]),
     connectionId: z.string().min(1),
     sourcesBlobSha: gitObjectIdSchema.nullable(),

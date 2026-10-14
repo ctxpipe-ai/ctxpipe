@@ -17,6 +17,7 @@ export type SourceScopeDefinition<
     | "linear"
     | "notion"
     | "pagerduty"
+    | "zendesk"
   /** The label for one provider, for example "Confluence". */
   label: string
   schema: z.ZodType<S>
