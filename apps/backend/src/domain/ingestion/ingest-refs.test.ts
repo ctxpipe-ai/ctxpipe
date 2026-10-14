@@ -646,6 +646,7 @@ describe("pushIngestAssemble", () => {
   const MERGE_CHECK = {
     source: { url: SOURCE_URL, sha: "1".repeat(40) },
     sourcePathExists: async () => true,
+    readSourceFile: async () => null,
   }
 
   function assembleMerged(
