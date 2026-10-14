@@ -44,6 +44,13 @@ export function mirrorUnitKind(path: string): string | null {
   const parts = path.split("/")
   const file = parts.at(-1)
   switch (parts[0]) {
+    case "notion":
+      if (file !== "index.md") return null
+      if (parts[1] === "pages") return "Page"
+      if (parts[1] === "databases") {
+        return parts.includes("rows") ? "Page" : "Database"
+      }
+      return null
     case "confluence":
       return parts.length >= 3 && !parts.includes("_assets") ? "Page" : null
     case "linear":
@@ -76,6 +83,32 @@ type ProviderSites = {
   linearWorkspaces: ReadonlySet<string>
 }
 
+function notionIdKey(id: string): string {
+  return id.replaceAll("-", "").toLowerCase()
+}
+
+function parseNotionPageUrl(rawUrl: string): string | null {
+  let url: URL
+  try {
+    url = new URL(rawUrl.trim())
+  } catch {
+    return null
+  }
+  const host = url.hostname.toLowerCase()
+  if (
+    host !== "notion.so" &&
+    !host.endsWith(".notion.so") &&
+    !host.endsWith(".notion.site")
+  ) {
+    return null
+  }
+  const match =
+    /(?:^|-)([a-f\d]{32}|[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12})$/i.exec(
+      url.pathname.split("/").filter(Boolean).at(-1) ?? "",
+    )
+  return match?.[1] ? `notion:${notionIdKey(match[1])}` : null
+}
+
 /** Keys that a provider URL can name. Unknown URLs give no key. */
 function urlKeys(url: string, sites: ProviderSites): string[] {
   const keys: string[] = []
@@ -92,6 +125,8 @@ function urlKeys(url: string, sites: ProviderSites): string[] {
   }
   const thread = parseSlackPermalink(url)
   if (thread) keys.push(threadDedupKey(thread.channelId, thread.ts))
+  const notionId = parseNotionPageUrl(url)
+  if (notionId) keys.push(notionId)
   return keys
 }
 
@@ -117,6 +152,16 @@ function unitKeys(
   sites: ProviderSites,
 ): string[] {
   const keys: string[] = []
+  if (typeof attributes.notion_id === "string") {
+    const id = attributes.notion_id.trim()
+    if (
+      /^(?:[a-f\d]{32}|[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12})$/i.test(
+        id,
+      )
+    ) {
+      keys.push(`notion:${notionIdKey(id)}`)
+    }
+  }
   if (typeof attributes.url === "string") {
     keys.push(...urlKeys(attributes.url, sites))
   }

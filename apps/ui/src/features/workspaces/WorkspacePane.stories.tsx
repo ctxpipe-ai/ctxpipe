@@ -304,7 +304,7 @@ export const HideShowMaximize: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByLabelText("Workspace files")
-    await userEvent.click(canvas.getByRole("button", { name: "Maximise pane" }))
+    await userEvent.click(canvas.getByRole("button", { name: "Maximize pane" }))
     expect(
       await canvas.findByRole("button", { name: "Show conversation" }),
     ).toBeVisible()
@@ -312,7 +312,7 @@ export const HideShowMaximize: Story = {
       canvas.getByRole("button", { name: "Show conversation" }),
     )
     expect(
-      await canvas.findByRole("button", { name: "Maximise pane" }),
+      await canvas.findByRole("button", { name: "Maximize pane" }),
     ).toBeVisible()
     await userEvent.click(canvas.getByRole("button", { name: "Hide pane" }))
     // No exit animation: the pane unmounts in the same commit as the click.

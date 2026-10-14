@@ -508,6 +508,31 @@ export const AnswerLinksOutsideWorkspace: Story = {
   },
 }
 
+/** The user's bubble shows the typed text as it is: no link is blocked or rewritten. */
+export const UserBubbleShowsTypedText: Story = {
+  args: {
+    messages: [
+      {
+        id: "msg_typed_u1",
+        role: "user",
+        parts: [
+          {
+            type: "text",
+            content: "Check [the notes](docs/notes.md) and\nsee `a.ts`.",
+          },
+        ],
+      },
+    ],
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(
+      canvas.getByText(/Check \[the notes\]\(docs\/notes\.md\) and/),
+    ).toBeVisible()
+    await expect(canvasElement.textContent).not.toContain("[blocked]")
+  },
+}
+
 /** A turn ends with the changed-files card, then a push entry. The entry sits under the card and its long branch truncates. */
 export const PushEntryUnderCard: Story = {
   tags: ["workspace-golden"],

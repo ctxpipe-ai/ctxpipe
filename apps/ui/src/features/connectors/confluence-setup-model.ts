@@ -130,9 +130,7 @@ export function getConfluenceWizardBodyIdForStepIndex(
 }
 
 /** The card action: continue setup, or none once the connection is ready. */
-export type ConfluenceCardPrimaryCta =
-  | { kind: "open_wizard"; label: string }
-  | { kind: "none" }
+export type ConfluenceCardPrimaryCta = { kind: "open_wizard"; label: string }
 
 export function getConfluenceCardPrimaryCta(
   currentIndex: number,
@@ -147,8 +145,8 @@ export function getConfluenceCardPrimaryCta(
     case "forge":
       return { kind: "open_wizard", label: "Continue setup" }
     default:
-      // "Used in" on the card adds the connection to Workspaces.
-      return { kind: "none" }
+      // The setup dialog adds a connected Confluence to more Workspaces.
+      return { kind: "open_wizard", label: "Manage" }
   }
 }
 

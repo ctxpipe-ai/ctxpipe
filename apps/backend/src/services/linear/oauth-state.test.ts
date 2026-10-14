@@ -46,7 +46,7 @@ describe("Linear OAuth state", () => {
     })
   })
 
-  it("rejects state signed for a different organisation", () => {
+  it("rejects state signed for a different organization", () => {
     const state = createLinearOAuthState(input)
     expect(
       verifyLinearOAuthState({

@@ -6,6 +6,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useCallback, useEffect, useState } from "react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
+import { InlineAlert } from "@/components/ui/InlineAlert"
+import { InlineLoader } from "@/components/ui/InlineLoader"
+import { Link } from "@/components/ui/Link"
 import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
 import { ChooseWorkspacesStep } from "@/features/workspace-sources/ChooseWorkspacesStep"
@@ -74,11 +77,17 @@ export function SlackSetupDialog({
     refetchOnWindowFocus: "always",
   })
 
+  // The pull requests that the add opened. A source, and so a capture,
+  // starts only after its pull request merges.
+  const [pullRequestUrls, setPullRequestUrls] = useState<string[]>([])
+  if (!isOpen && pullRequestUrls.length) setPullRequestUrls([])
   const adding = useAddToWorkspaces({
     orgSlug,
     connectionId: connectionId ?? "",
     provider: "slack",
-    onAdded: () => onOpenChange(false),
+    manage: true,
+    onAdded: (urls) =>
+      urls.length ? setPullRequestUrls(urls) : onOpenChange(false),
   })
 
   useEffect(() => {
@@ -225,7 +234,7 @@ export function SlackSetupDialog({
               </h3>
               <p className="mt-2 text-sm text-muted-foreground">
                 ctxpipe could not load this connection. If you removed Slack
-                earlier, start a fresh authorisation.
+                earlier, start a fresh authorization.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -278,6 +287,37 @@ export function SlackSetupDialog({
               })
             }}
           />
+        ) : setupView === "workspaces" && pullRequestUrls.length ? (
+          <div className="space-y-4">
+            <div>
+              <h3 className="text-base font-medium text-foreground">
+                Merge the pull request
+              </h3>
+              <p className="mt-2 text-sm text-muted-foreground">
+                The Slack source change is a pull request on the Workspace
+                repository. It applies after the merge. Until then, a mention in
+                a new channel replies that no Workspace has the channel.
+              </p>
+              <ul className="mt-2 space-y-1 text-sm">
+                {pullRequestUrls.map((url) => (
+                  <li key={url}>
+                    <Link href={url} target="_blank" rel="noreferrer">
+                      {url
+                        .replace(/^https:\/\/github\.com\//, "")
+                        .replace("/pull/", "#")}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <Button
+              variant="secondary"
+              className="rounded-md"
+              onPress={() => setOpen(false)}
+            >
+              Close
+            </Button>
+          </div>
         ) : setupView === "workspaces" && connectionId ? (
           <div className="flex flex-col gap-5">
             <section
@@ -306,13 +346,22 @@ export function SlackSetupDialog({
                 </li>
               </ol>
             </section>
-            <ChooseWorkspacesStep
-              orgSlug={orgSlug}
-              provider="slack"
-              connectionId={connectionId}
-              value={adding.value}
-              onChange={adding.setValue}
-            />
+            {adding.loadFailed ? (
+              <InlineAlert variant="error">
+                Could not load the Workspaces that use Slack. Close this dialog
+                and try again.
+              </InlineAlert>
+            ) : adding.ready ? (
+              <ChooseWorkspacesStep
+                orgSlug={orgSlug}
+                provider="slack"
+                connectionId={connectionId}
+                value={adding.value}
+                onChange={adding.setValue}
+              />
+            ) : (
+              <InlineLoader label="Loading the Workspaces that use Slack" />
+            )}
             <div className="flex justify-end gap-2 border-t border-border pt-4">
               <Button variant="quiet" onPress={() => setOpen(false)}>
                 Skip for now
@@ -323,7 +372,7 @@ export function SlackSetupDialog({
                 isPending={adding.isPending}
                 onPress={adding.add}
               >
-                Add to Workspaces
+                {adding.isManaging ? "Save changes" : "Add to Workspaces"}
               </Button>
             </div>
           </div>
