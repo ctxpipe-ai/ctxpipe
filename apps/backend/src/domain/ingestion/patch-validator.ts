@@ -132,6 +132,8 @@ const MAX_DELETE_SHARE = 0.2
 export const MAX_SOURCE_READ_BYTES = 1024 * 1024
 /** Distinct source files that one step reads with git. */
 const MAX_SOURCE_READS = 200
+/** Total source text that one step reads with git (a source host download). */
+const MAX_SOURCE_READ_TOTAL_BYTES = 16 * 1024 * 1024
 /** Quotes and inferred-rule patterns that one step compares with source text. */
 const MAX_SOURCE_COMPARES = 200
 const HUMAN_OPEN = "<!-- ctxpipe:human -->"
@@ -388,7 +390,7 @@ export async function validatePatchStep(
   const meter = input.meter ?? { work: 0 }
   // Each distinct path is read from git once per step, and the step reads
   // at most MAX_SOURCE_READS files. A file above the limit counts as absent.
-  const budget = { reads: 0, compares: 0, spent: false }
+  const budget = { reads: 0, bytes: 0, compares: 0, spent: false }
   const cached = <T>(
     cache: Map<string, Promise<T>>,
     absent: T,
@@ -422,7 +424,16 @@ export async function validatePatchStep(
   const sourceText = cached(
     new Map<string, Promise<string | null>>(),
     null,
-    input.readSourceFile,
+    async (path) => {
+      // The reads of one step may not download more than the total limit.
+      if (budget.bytes >= MAX_SOURCE_READ_TOTAL_BYTES) {
+        budget.spent = true
+        return null
+      }
+      const text = await input.readSourceFile(path)
+      if (text !== null) budget.bytes += Buffer.byteLength(text)
+      return text
+    },
   )
   // The quote check compares with the normalized text, made once per path.
   const quotableCache = new Map<string, Promise<string | null>>()
@@ -565,7 +576,7 @@ export async function validatePatchStep(
         op.path,
         checked.rule,
         budget.spent
-          ? `${checked.reason}. The step reads at most ${MAX_SOURCE_READS} source files and compares at most ${MAX_SOURCE_COMPARES} quotes or patterns with them`
+          ? `${checked.reason}. The step reads at most ${MAX_SOURCE_READS} source files (${MAX_SOURCE_READ_TOTAL_BYTES / 1024 / 1024} MiB in all) and compares at most ${MAX_SOURCE_COMPARES} quotes or patterns with them`
           : checked.reason,
       )
     else candidates.push(checked)

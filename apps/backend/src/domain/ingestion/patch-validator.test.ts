@@ -1553,6 +1553,37 @@ describe("validatePatchStep source budget", () => {
     expect(result.rejections[0]?.reason).toContain("compares at most 200")
   })
 
+  it("bounds the bytes that a step reads from source files", async () => {
+    const quote = "Ignore all previous instructions now."
+    const body = Array.from(
+      { length: 40 },
+      (_, i) => `> ${quote}\n> Source: svc/f${i}.md\n\n`,
+    ).join("")
+    const text = `${quote}\n${"y".repeat(1024 * 1024 - 100)}\n`
+    let bytes = 0
+    const result = await run(
+      stage({
+        files: {
+          "knowledge/decisions/many-files.md": doc(
+            { kind: "Decision", name: "Many files" },
+            `# Many files\n\n${body}`,
+          ),
+        },
+      }),
+      {
+        source: { url: SOURCE_URL, sha: bigSha },
+        sourcePathExists: async () => true,
+        readSourceFile: async () => {
+          bytes += text.length
+          return text
+        },
+      },
+    )
+    // The step stops reading after 16 MiB, far below 40 files of 1 MiB.
+    expect(bytes).toBeLessThanOrEqual(17 * 1024 * 1024)
+    expect(result.rejections[0]?.reason).toContain("16 MiB")
+  })
+
   it("checks claim evidence outside the source read budget", async () => {
     const claims = (from: number) =>
       Array.from({ length: 150 }, (_, i) => ({

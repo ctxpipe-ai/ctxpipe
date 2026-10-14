@@ -6,6 +6,9 @@ export class GitOutputTooLargeError extends Error {}
  * Runs git with an optional stdin; the exit status and stderr decide the
  * result. Output larger than `maxOutputBytes` (default 256 MiB) stops git
  * and fails the call, so that a large repository cannot fill the memory.
+ * `maxFileBytes` caps the size of each file that git writes (a download into
+ * the object store); git then dies of signal 25 (SIGXFSZ). A shell that counts
+ * `ulimit -f` in 1024-byte blocks allows up to twice that size.
  */
 export function runGit(
   cwd: string,
@@ -14,15 +17,30 @@ export function runGit(
     input?: Buffer | string
     env?: NodeJS.ProcessEnv
     maxOutputBytes?: number
+    maxFileBytes?: number
   } = {},
 ): Promise<Buffer> {
   const limit = options.maxOutputBytes ?? 256 * 1024 * 1024
   return new Promise((resolve, reject) => {
-    const child = spawn("git", args, {
+    const spawnOptions = {
       cwd,
       env: { ...process.env, ...options.env },
-      stdio: ["pipe", "pipe", "pipe"],
-    })
+      stdio: ["pipe", "pipe", "pipe"] as ["pipe", "pipe", "pipe"],
+    }
+    // POSIX `ulimit -f` counts 512-byte blocks; `exec` leaves one process.
+    const child =
+      options.maxFileBytes === undefined
+        ? spawn("git", args, spawnOptions)
+        : spawn(
+            "sh",
+            [
+              "-c",
+              'ulimit -f "$0" && exec git "$@"',
+              String(Math.ceil(options.maxFileBytes / 512)),
+              ...args,
+            ],
+            spawnOptions,
+          )
     const out: Buffer[] = []
     const err: Buffer[] = []
     let size = 0
