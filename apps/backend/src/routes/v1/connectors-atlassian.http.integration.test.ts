@@ -67,9 +67,10 @@ describe("Cancel a Confluence setup (Postgres)", () => {
   })
 
   it("keeps a draft with an Atlassian app, and an installed connection", async () => {
+    // Another user's draft: the install intent below must not reuse it.
     const withApp = await seed.addConnection("forge", {
       status: "pending",
-      installedByUserId: userId,
+      installedByUserId: `${userId}_other`,
       atlassianOAuthClientId: "client-id",
     })
     const installed = await seed.addConnection("forge", {

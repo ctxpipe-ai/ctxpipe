@@ -74,13 +74,19 @@ function sources(state: ReadState): WorkspaceSourceListResponse {
 
 /** One list query and the route that answers it. */
 type ListQuery = {
-  options: ReturnType<typeof connectionUsageOptions>
+  observer: (
+    queryClient: QueryClient,
+  ) => Pick<QueryObserver, "subscribe" | "refetch">
   path: string
   body: (state: ReadState) => object
 }
 
 const usedIn: ListQuery = {
-  options: connectionUsageOptions("acme", "con_linear"),
+  observer: (queryClient) =>
+    new QueryObserver(
+      queryClient,
+      connectionUsageOptions("acme", "con_linear"),
+    ),
   path: "/acme/api/v1/connectors/con_linear/workspaces",
   body: usage,
 }
@@ -115,7 +121,7 @@ describe("refresh after a source pull request merges", () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     })
-    const observer = new QueryObserver(queryClient, list.options)
+    const observer = list.observer(queryClient)
     const unsubscribe = observer.subscribe(() => {})
     try {
       await vi.waitFor(() => expect(hits).toBe(1))
@@ -148,11 +154,15 @@ describe("refresh after a source pull request merges", () => {
   })
 
   it("polls the Sources list after a merge too", async () => {
-    const sourcesList = {
-      options: workspaceSourcesOptions("acme", "context"),
+    const sourcesList: ListQuery = {
+      observer: (queryClient) =>
+        new QueryObserver(
+          queryClient,
+          workspaceSourcesOptions("acme", "context"),
+        ),
       path: "/acme/api/v1/workspaces/context/sources",
       body: sources,
-    } as unknown as ListQuery
+    }
     await observe(sourcesList, afterMerge, async ({ hits, refetch }) => {
       await refetch()
       await vi.advanceTimersByTimeAsync(5_000)

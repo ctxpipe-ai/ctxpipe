@@ -6,7 +6,7 @@ import {
   userMessageForProvisionError,
 } from "../../lib/forge-provision-error-map.js"
 import {
-  deleteEmptyForgeSetupDraft,
+  cancelForgeSetupDraft,
   deleteForgeConnectionById,
   deleteForgeInstallationByOrgId,
   type ForgeInstallation,
@@ -537,6 +537,7 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
       row = await upsertPendingForgeInstallation({
         orgId,
         installedByUserId: user.id,
+        installOpened: c.req.valid("query").installOpened === "true",
       })
     } catch (error) {
       const dbError = error as { code?: string } | undefined
@@ -551,12 +552,6 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
       }
       throw error
     }
-
-    // The install event can still bind to this draft, so a cancel keeps it.
-    if (c.req.valid("query").installOpened)
-      await patchForgeConnectionTypedConfig(orgId, row.id, {
-        installOpenedAt: new Date().toISOString(),
-      })
 
     return c.json(
       {
@@ -578,7 +573,7 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
     const orgId = c.get("orgId")
     if (!orgId) return c.json({ error: "Unauthorized" }, 401)
     const { connectionId } = c.req.valid("query")
-    if (!(await deleteEmptyForgeSetupDraft(orgId, connectionId)))
+    if (!(await cancelForgeSetupDraft(orgId, connectionId)))
       return c.json(
         {
           error:

@@ -281,12 +281,13 @@ export function isEmptyForgeSetupDraft(config: ForgeConnectionConfig): boolean {
 }
 
 /**
- * Delete a Forge draft while it is still empty, when the user cancels the
- * setup. Returns false and keeps a draft with progress, so the user can
- * finish or remove it. The row lock orders the delete with a concurrent
- * write, such as the install event or a credential save.
+ * Cancel a Forge setup: delete the draft while it is still empty. Returns
+ * true when no draft is left, also when it was already gone. Returns false
+ * and keeps a draft with progress, so the user can finish or remove it. The
+ * row lock orders the delete with a concurrent write, such as the install
+ * event or a credential save.
  */
-export async function deleteEmptyForgeSetupDraft(
+export async function cancelForgeSetupDraft(
   orgId: string,
   connectionId: string,
 ): Promise<boolean> {
@@ -443,9 +444,18 @@ export async function getPendingForgeInstallationForUserInOtherOrg(input: {
 export async function upsertPendingForgeInstallation(input: {
   orgId: string
   installedByUserId: string
+  /**
+   * The user opened the Forge install. The install event can bind to this
+   * draft, so a cancel keeps it.
+   */
+  installOpened?: boolean
 }): Promise<ForgeInstallationShape> {
+  const installOpenedAt = input.installOpened
+    ? new Date().toISOString()
+    : undefined
   const row = await withOrgDbContext(input.orgId, async () => {
     const db = getOrgDb()
+    // The row lock orders the mark with a concurrent cancel.
     const [existing] = await db
       .select()
       .from(connections)
@@ -458,9 +468,24 @@ export async function upsertPendingForgeInstallation(input: {
         ),
       )
       .orderBy(desc(connections.updatedAt))
+      .for("update")
       .limit(1)
     // Reuse the draft as it is: it can hold a saved OAuth app or site host.
-    if (existing) return existing
+    if (existing && !installOpenedAt) return existing
+    if (existing) {
+      const [marked] = await db
+        .update(connections)
+        .set({
+          config: {
+            ...(existing.config as Record<string, unknown>),
+            installOpenedAt,
+          },
+          updatedAt: new Date(),
+        })
+        .where(eq(connections.id, existing.id))
+        .returning()
+      return marked ?? existing
+    }
 
     const pendingConfig = forgeShapeToConfig({
       cloudId: null,
@@ -492,7 +517,7 @@ export async function upsertPendingForgeInstallation(input: {
         id,
         orgId: input.orgId,
         type: CONNECTION_TYPE_FORGE,
-        config: pendingConfig,
+        config: { ...pendingConfig, installOpenedAt },
       })
       .returning()
     if (!created) throw new Error("Failed to upsert pending forge installation")

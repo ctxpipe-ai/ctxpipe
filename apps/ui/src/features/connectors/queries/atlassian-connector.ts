@@ -146,14 +146,16 @@ export async function postForgeProvision(
 
 export async function registerAtlassianInstallIntent(
   orgSlug: string,
-  /** True when the user opens the Forge install: a cancel then keeps the draft. */
-  installOpened = false,
+  options: {
+    /** The user opens the Forge install: a cancel then keeps the draft. */
+    installOpened?: boolean
+  } = {},
 ): Promise<{ id: string }> {
   const res = await client[
     ":orgSlug"
   ].api.v1.connectors.atlassian.installation.$post({
     param: { orgSlug },
-    query: installOpened ? { installOpened: "true" } : {},
+    query: options.installOpened ? { installOpened: "true" } : {},
   })
   const json = await readApiJson<{ id: string }>(res, {
     message: "Failed to register install intent",
