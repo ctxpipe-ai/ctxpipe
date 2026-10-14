@@ -3,7 +3,7 @@ import { join } from "node:path"
 import { contextIndexAtStepBase } from "../domain/ingestion/context-index.js"
 
 /** The tree of no file: a projection with no unit. */
-const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+export const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
 /**
  * Write the context index of a test step through the host path

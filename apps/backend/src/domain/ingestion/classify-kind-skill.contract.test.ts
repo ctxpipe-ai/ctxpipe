@@ -6,6 +6,7 @@ import type { SandboxHandle } from "@tanstack/ai-sandbox"
 import { dockerSandbox } from "@tanstack/ai-sandbox-docker"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { stringify } from "yaml"
+import { EMPTY_TREE } from "../../test/ingest-step-index.js"
 import { workspaceChatDockerImage } from "../workspaces/chat-runtime.js"
 import { contextIndexAtStepBase } from "./context-index.js"
 import {
@@ -193,7 +194,7 @@ describe("classify-kind skill in the sandbox", () => {
       const { json: index } = await contextIndexAtStepBase({
         workspaceId: WORKSPACE_ID,
         projection: [],
-        pinnedRevision: "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
+        pinnedRevision: EMPTY_TREE,
         base: baseCommit,
         sourceUrl: SOURCE_URL,
         repoDir: repo,
