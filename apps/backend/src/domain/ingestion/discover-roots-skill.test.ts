@@ -546,7 +546,7 @@ describe("discover-roots script", () => {
         (_, i) => `${"a".repeat(250)}${String(i).padStart(4, "0")}`,
       )
       const matcher = lib.globMatcher(`*${"a".repeat(120)}b`)
-      expect(matcher.skip).toBeUndefined()
+      expect(matcher).not.toHaveProperty("skip")
       expect(lib.matchStepsUsed()).toBe(0)
       for (const name of names) {
         if (!lib.matchBudgetLeft()) break
