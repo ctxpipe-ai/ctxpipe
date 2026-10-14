@@ -48,7 +48,13 @@ describe("fitPage", () => {
   it("gives an empty page past the end", () => {
     expect(
       fitPage(items, { offset: 50, limit: 5, maxTokens: 4_000, result }),
-    ).toEqual({ page: [], nextOffset: null, truncated: false, cut: false })
+    ).toEqual({
+      page: [],
+      nextOffset: null,
+      truncated: false,
+      cut: false,
+      dropped: [],
+    })
   })
 
   it("stops at the token budget of the whole result and marks the page truncated", () => {
