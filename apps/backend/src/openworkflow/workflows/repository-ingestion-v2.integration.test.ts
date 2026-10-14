@@ -179,8 +179,10 @@ beforeAll(async () => {
   )
   vi.stubEnv("GIT_CONFIG_GLOBAL", gitConfig)
 
+  // The workspace manifest names both roots, so no model chooses a root.
   sourceSha = remote(sourceName, {
     "package.json": '{ "name": "checkout-api" }\n',
+    "pnpm-workspace.yaml": 'packages:\n  - "."\n  - services/*\n',
     "services/orders/package.json": '{ "name": "orders" }\n',
     "services/orders/src/index.ts": "export const orders = []\n",
     "README.md": "# Checkout API\n",
