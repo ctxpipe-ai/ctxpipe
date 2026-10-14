@@ -228,9 +228,12 @@ export async function sealIngestCheckout(
   return target
 }
 
-/** A run-scoped ingest ref (ADR-052 section 6). */
+/**
+ * A run-scoped ingest ref (ADR-052 section 6), at most
+ * `<runId>/<workspaceId>/shards/<shard>` (see `ingest-refs.ts`).
+ */
 const INGEST_REF =
-  /^refs\/ctxpipe\/ingest\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+){0,2}$/
+  /^refs\/ctxpipe\/ingest\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+){0,3}$/
 
 /**
  * Start a step, as root: stop every agent process, fetch the shard ref, put

@@ -184,13 +184,21 @@ describe("ingest shard commands in a Docker sandbox", () => {
           "root",
         ])
 
-        const discovered = (await discoverIngestRoots(root, agentEnv)) as {
-          roots: Array<{ path: string }>
-        }
-        expect(discovered.roots.map((r) => r.path)).toEqual([
-          ".",
-          "services/orders",
-        ])
+        // No workspace manifest names `services/orders`, so the script keeps
+        // the repository root and gives the folder to the model to choose.
+        expect(await discoverIngestRoots(root, agentEnv)).toEqual({
+          roots: [{ path: ".", manifests: ["package.json"], evidence: ["."] }],
+          ambiguous: [
+            {
+              manifest: null,
+              reason: "No workspace manifest names these folders",
+              candidates: [
+                { path: "services/orders", manifests: ["package.json"] },
+              ],
+            },
+          ],
+          skipped: [],
+        })
 
         const step = {
           name: `skill:repository:libraries:${WORKSPACE_ID}`,
