@@ -1,7 +1,10 @@
 import { gunzipSync, gzipSync } from "node:zlib"
 import type { Workflow } from "openworkflow"
 import { parseEnv } from "../../config/env.js"
-import { IngestRefRefusedError } from "../../domain/ingestion/ingest-refs.js"
+import {
+  IngestRefRefusedError,
+  ingestRefName,
+} from "../../domain/ingestion/ingest-refs.js"
 import {
   ingestSourceTree,
   releaseIngestSourceTree,
@@ -33,16 +36,18 @@ import {
   type IngestionRoot,
   type IngestionShardInput,
   type IngestionShardOutput,
+  type IngestionShardWorkspace,
   type IngestionV2Deps,
   ingestionShard,
   productionIngestionV2Deps,
+  runSkillPages,
 } from "./ingestion-shard.js"
 import { repositoryIndex } from "./repository-index.js"
 
 /*
  * The ingestion v2 parent workflow (ADR-052, T09), in shadow mode only:
  *
- *   resolve -> index -> discover-roots -> repository-first (child)
+ *   resolve -> index -> discover-roots -> skill:repository:repository
  *   -> shard:<n> (children) -> assemble:<workspaceId>
  *   -> repository-skills (child) -> release
  *
@@ -50,9 +55,10 @@ import { repositoryIndex } from "./repository-index.js"
  * (`resolveDiscoveredRoots`) plans the roots. Each shard gets its explicit
  * root list. Step outputs hold ref SHAs and counts; the one larger output is
  * the compressed root list, which the root cap keeps far below 16 KB.
- * `repository-first` writes the repository unit on the assembled ref; its
- * tip is the run base of each Workspace: the shard refs start there, and
- * `assemble` merges the shard tips against it (ADR-052 section 6).
+ * The `repository` skill runs in the parent, in the sandbox of shard 0, and
+ * writes the repository unit on the assembled ref. Its tip is the run base
+ * of each Workspace: the shard refs start there, and `assemble` merges the
+ * shard tips against it (ADR-052 section 6).
  * Nothing publishes: the refs stay for the comparison (T20). T21 adds publish.
  */
 
@@ -185,7 +191,6 @@ export function defineRepositoryIngestionV2Workflow(
           return {
             bundle: bundle.name,
             roots: packed,
-            firstSkills: plannedIngestSkills(bundle.skills, "first").length,
             repositorySkills: plannedIngestSkills(bundle.skills, "repository")
               .length,
           }
@@ -200,35 +205,75 @@ export function defineRepositoryIngestionV2Workflow(
         const child = (
           shard: number,
           mode: IngestionShardInput["mode"],
-          shardRoots: IngestionRoot[],
-          startTips?: Record<string, string>,
+          start: IngestionShardInput["start"],
         ): IngestionShardInput => ({
           orgId: input.orgId,
           runId: run.id,
           shard,
           mode,
-          roots: shardRoots,
-          ...(mode === "roots" ? { runRoots: roots } : {}),
+          roots,
           bundle: scope.bundle,
           source,
           authorTime: input.authorTime,
           destinations,
-          ...(startTips ? { startTips } : {}),
+          start,
         })
 
         // The repository unit, on the assembled ref and in the sandbox of
         // shard 0. Its tip is the run base of each Workspace.
-        const first =
-          scope.firstSkills > 0
-            ? await step.runWorkflow(
-                deps.shard.spec,
-                child(0, "first", roots),
-                { name: "repository-first" },
-              )
-            : null
+        const bundle = await deps.bundle()
+        if (bundle.name !== scope.bundle)
+          throw new Error(
+            `The ingest skill bundle changed during the run (${scope.bundle} to ${bundle.name})`,
+          )
+        const runtime = deps.runtime({
+          orgId: input.orgId,
+          runId: run.id,
+          shard: 0,
+          bundle,
+          source,
+          destinations,
+        })
+        const first = destinations.map(
+          (d): IngestionShardWorkspace => ({
+            workspaceId: d.workspaceId,
+            tip: null,
+            ops: 0,
+            rejects: 0,
+            partial: 0,
+          }),
+        )
+        for (const skill of plannedIngestSkills(bundle.skills, "first"))
+          for (const [i, destination] of destinations.entries()) {
+            const state = first[i]
+            if (!state) continue
+            await runSkillPages({
+              step: (name, fn) =>
+                step.run({ name, retryPolicy: { maximumAttempts: 1 } }, fn),
+              run: {
+                orgId: input.orgId,
+                runId: run.id,
+                bundle: scope.bundle,
+                source,
+                authorTime: input.authorTime,
+                roots,
+              },
+              env: env(),
+              runtime,
+              root: null,
+              skill,
+              destination,
+              ref: ingestRefName({
+                runId: run.id,
+                workspaceId: destination.workspaceId,
+              }),
+              runBase: destination.pinnedRevision,
+              state,
+            })
+          }
         const runBase = Object.fromEntries(
-          (first?.workspaces ?? []).flatMap((w) =>
-            w.tip ? [[w.workspaceId, w.tip]] : [],
+          first.flatMap((w) =>
+            w.tip ? [[w.workspaceId, { tip: w.tip, ops: w.ops }]] : [],
           ),
         )
 
@@ -243,15 +288,7 @@ export function defineRepositoryIngestionV2Workflow(
                 (_, i) =>
                   step.runWorkflow(
                     deps.shard.spec,
-                    child(
-                      n + i,
-                      "roots",
-                      roots.slice(
-                        (n + i) * INGEST_SHARD_MAX_ROOTS,
-                        (n + i + 1) * INGEST_SHARD_MAX_ROOTS,
-                      ),
-                      runBase,
-                    ),
+                    child(n + i, "roots", runBase),
                     { name: `shard:${n + i}` },
                   ),
               ),
@@ -272,7 +309,7 @@ export function defineRepositoryIngestionV2Workflow(
           )
           const assembleStep = `assemble:${destination.workspaceId}`
           const base =
-            runBase[destination.workspaceId] ?? destination.pinnedRevision
+            runBase[destination.workspaceId]?.tip ?? destination.pinnedRevision
           const assembled = await step.run(
             {
               name: assembleStep,
@@ -296,9 +333,12 @@ export function defineRepositoryIngestionV2Workflow(
                         p.tip ? [{ shard: String(p.shard), tip: p.tip }] : [],
                       ),
                       // The shard refs start at the run base, which is
-                      // the assembled ref's tip when the first step ran.
+                      // the assembled ref's tip after the repository step.
                       pinnedRevision: base,
-                      oldTip: runBase[destination.workspaceId] ?? null,
+                      oldTip: runBase[destination.workspaceId]?.tip ?? null,
+                      // The run cap of the Workspace counts the ops of
+                      // the repository step too.
+                      opsBefore: runBase[destination.workspaceId]?.ops ?? 0,
                       commit: {
                         step: assembleStep,
                         bundle: scope.bundle,
@@ -338,7 +378,7 @@ export function defineRepositoryIngestionV2Workflow(
               }
             },
           )
-          const firstPart = first?.workspaces.find(
+          const firstPart = first.find(
             (w) => w.workspaceId === destination.workspaceId,
           )
           workspaces.push({
@@ -358,17 +398,19 @@ export function defineRepositoryIngestionV2Workflow(
           })
         }
 
-        const startTips = Object.fromEntries(
+        const start = Object.fromEntries(
           workspaces.flatMap((w) =>
-            w.assembled ? [[w.workspaceId, w.assembled]] : [],
+            w.assembled
+              ? [[w.workspaceId, { tip: w.assembled, ops: w.ops }]]
+              : [],
           ),
         )
-        const ready = destinations.filter((d) => startTips[d.workspaceId])
+        const ready = destinations.filter((d) => start[d.workspaceId])
         if (scope.repositorySkills > 0 && ready.length) {
           const repository = await step.runWorkflow(
             deps.shard.spec,
             {
-              ...child(shards, "repository", roots, startTips),
+              ...child(shards, "repository", start),
               destinations: ready,
             },
             { name: "repository-skills" },
@@ -379,7 +421,8 @@ export function defineRepositoryIngestionV2Workflow(
             )
             if (!entry) continue
             entry.assembled = done.tip ?? entry.assembled
-            entry.ops += done.ops
+            // The child counts from the ops of the assembled tip.
+            entry.ops = done.ops
             entry.rejects += done.rejects
             entry.partial += done.partial
           }

@@ -163,7 +163,8 @@ export async function pushIngestStep(
  * pinned revision plus the ops of each shard. Each op must be a valid path
  * against the pinned revision. Two shards that change one path are a conflict:
  * the broker refuses, and the run sends them to the semantic merge child.
- * There is no per-step op cap; the run cap of a Workspace applies.
+ * There is no per-step op cap; the run cap of a Workspace applies, and it
+ * counts the `opsBefore` that the run wrote before the shards.
  */
 export async function pushIngestAssemble(input: {
   job: IngestJob
@@ -172,6 +173,8 @@ export async function pushIngestAssemble(input: {
   shards: Array<{ shard: string; tip: string }>
   /** The assembled ref tip that the job expects; null for a new ref. */
   oldTip: string | null
+  /** The accepted ops of the run in the Workspace before the shards. */
+  opsBefore?: number
   remote: IngestRemote
   commit: IngestStepCommit
   /**
@@ -278,9 +281,10 @@ export async function pushIngestAssemble(input: {
     const conflicts = [...changes.values()].filter((c) => c.versions.length > 1)
     if (conflicts.length && !input.semanticMerge)
       throw new IngestAssembleConflictError(conflicts.map((c) => c.path))
-    if (changes.size > MAX_WORKSPACE_OPS)
+    const opsBefore = input.opsBefore ?? 0
+    if (opsBefore + changes.size > MAX_WORKSPACE_OPS)
       throw new IngestRefRefusedError(
-        `The shards write ${changes.size} ops; a Workspace takes at most ${MAX_WORKSPACE_OPS} in a run`,
+        `The run writes ${opsBefore + changes.size} ops; a Workspace takes at most ${MAX_WORKSPACE_OPS} in a run`,
       )
 
     const indexEnv = { GIT_INDEX_FILE: join(repoDir, "assemble.index") }
@@ -302,7 +306,7 @@ export async function pushIngestAssemble(input: {
         pinnedRevision: input.pinnedRevision,
         tree,
         conflicts,
-        opsBefore: changes.size - conflicts.length,
+        opsBefore: opsBefore + changes.size - conflicts.length,
         bundle: input.commit.bundle,
         merge: input.semanticMerge,
       })
@@ -716,82 +720,107 @@ async function mergeConflicts(
     for (const file of resolved) current.set(file.path, file.content)
   }
 
-  const baseCommit = (
-    await runGit(
-      repoDir,
-      ["commit-tree", "--no-gpg-sign", input.tree, "-p", input.pinnedRevision],
-      {
-        input: "semantic merge base\n",
-        env: {
-          GIT_AUTHOR_NAME: STEP_AUTHOR.name,
-          GIT_AUTHOR_EMAIL: STEP_AUTHOR.email,
-          GIT_COMMITTER_NAME: STEP_AUTHOR.name,
-          GIT_COMMITTER_EMAIL: STEP_AUTHOR.email,
-        },
-      },
-    )
-  )
-    .toString()
-    .trim()
-  const stagedDir = await mkdtemp(join(tmpdir(), "ctxpipe-merge-"))
-  try {
-    const ops: Array<{ op: string; path: string; baseBlob?: string }> = []
-    for (const conflict of input.conflicts) {
-      const baseBlob = await runGit(repoDir, [
-        "rev-parse",
-        "--verify",
-        "--quiet",
-        `${input.pinnedRevision}:${conflict.path}`,
-      ]).then(
-        (out) => out.toString().trim(),
-        () => undefined,
-      )
-      const content = current.get(conflict.path) ?? null
-      if (content === null) {
-        // A path that is not in the pinned revision is already absent.
-        if (baseBlob) ops.push({ op: "delete", path: conflict.path, baseBlob })
-        continue
-      }
-      ops.push({
-        op: baseBlob ? "update" : "create",
-        path: conflict.path,
-        ...(baseBlob ? { baseBlob } : {}),
-      })
-      const file = join(stagedDir, "files", conflict.path)
-      await mkdir(dirname(file), { recursive: true })
-      await writeFile(
-        file,
-        withPinnedHostFields(content, base.get(conflict.path) ?? null),
-      )
+  // The host stamped the root of each package unit in its shard step. The
+  // merged file keeps it: the validator gets the unit's root, so the files
+  // of one root go through one validation.
+  const rootOf = async (conflict: { versions: Array<string | null> }) => {
+    for (const version of conflict.versions) {
+      const front = splitFrontMatter((await text(version)) ?? "")
+      const root = front ? parseYamlObject(front.yaml)?.root : undefined
+      if (typeof root === "string") return root
     }
-    await writeFile(join(stagedDir, "patch.json"), JSON.stringify({ ops }))
-    const result = await validatePatchStep({
-      repoDir,
-      baseCommit,
-      stagedDir,
-      source: input.merge.source,
-      sourcePathExists: input.merge.sourcePathExists,
-      skill: "semantic-merge",
-      bundle: input.bundle,
-      workspaceOpsBefore: input.opsBefore,
-    })
-    if (result.rejections.length)
-      throw new IngestRefRefusedError(
-        `The semantic merge result fails the patch validator: ${result.rejections
-          .slice(0, 5)
-          .map((r) => `${r.path}: ${r.rule}: ${r.reason}`)
-          .join("; ")}`,
-      )
-    return result.tree
-  } finally {
-    await rm(stagedDir, { recursive: true, force: true })
+    return undefined
   }
+  const groups = new Map<string | undefined, typeof input.conflicts>()
+  for (const conflict of input.conflicts) {
+    const root = await rootOf(conflict)
+    groups.set(root, [...(groups.get(root) ?? []), conflict])
+  }
+  let tree = input.tree
+  let opsBefore = input.opsBefore
+  for (const [root, conflicts] of groups) {
+    const baseCommit = (
+      await runGit(
+        repoDir,
+        ["commit-tree", "--no-gpg-sign", tree, "-p", input.pinnedRevision],
+        {
+          input: "semantic merge base\n",
+          env: {
+            GIT_AUTHOR_NAME: STEP_AUTHOR.name,
+            GIT_AUTHOR_EMAIL: STEP_AUTHOR.email,
+            GIT_COMMITTER_NAME: STEP_AUTHOR.name,
+            GIT_COMMITTER_EMAIL: STEP_AUTHOR.email,
+          },
+        },
+      )
+    )
+      .toString()
+      .trim()
+    const stagedDir = await mkdtemp(join(tmpdir(), "ctxpipe-merge-"))
+    try {
+      const ops: Array<{ op: string; path: string; baseBlob?: string }> = []
+      for (const conflict of conflicts) {
+        const baseBlob = await runGit(repoDir, [
+          "rev-parse",
+          "--verify",
+          "--quiet",
+          `${input.pinnedRevision}:${conflict.path}`,
+        ]).then(
+          (out) => out.toString().trim(),
+          () => undefined,
+        )
+        const content = current.get(conflict.path) ?? null
+        if (content === null) {
+          // A path that is not in the pinned revision is already absent.
+          if (baseBlob)
+            ops.push({ op: "delete", path: conflict.path, baseBlob })
+          continue
+        }
+        ops.push({
+          op: baseBlob ? "update" : "create",
+          path: conflict.path,
+          ...(baseBlob ? { baseBlob } : {}),
+        })
+        const file = join(stagedDir, "files", conflict.path)
+        await mkdir(dirname(file), { recursive: true })
+        await writeFile(
+          file,
+          withPinnedHostFields(content, base.get(conflict.path) ?? null),
+        )
+      }
+      await writeFile(join(stagedDir, "patch.json"), JSON.stringify({ ops }))
+      const result = await validatePatchStep({
+        repoDir,
+        baseCommit,
+        stagedDir,
+        source: input.merge.source,
+        sourcePathExists: input.merge.sourcePathExists,
+        skill: "semantic-merge",
+        bundle: input.bundle,
+        workspaceOpsBefore: opsBefore,
+        ...(root === undefined ? {} : { root }),
+      })
+      if (result.rejections.length)
+        throw new IngestRefRefusedError(
+          `The semantic merge result fails the patch validator: ${result.rejections
+            .slice(0, 5)
+            .map((r) => `${r.path}: ${r.rule}: ${r.reason}`)
+            .join("; ")}`,
+        )
+      tree = result.tree
+      opsBefore += ops.length
+    } finally {
+      await rm(stagedDir, { recursive: true, force: true })
+    }
+  }
+  return tree
 }
 
 /** The fields that only the host sets (patch validator, concept section 4.3). */
 const HOST_FIELDS = [
   "generated_by",
   "sources",
+  "root",
   "source_sha",
   "skill",
   "bundle",

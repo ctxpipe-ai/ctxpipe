@@ -130,6 +130,7 @@ function step(
     remoteUrl?: string
     baseCommit?: string
     more?: boolean
+    root?: string
   } = {},
 ) {
   return pushIngestStep({
@@ -159,6 +160,7 @@ function step(
       source: { url: SOURCE_URL, sha: "1".repeat(40) },
       skill: "apis",
       sourcePathExists: async () => true,
+      ...(input.root ? { root: input.root } : {}),
     },
   })
 }
@@ -734,7 +736,52 @@ describe("pushIngestAssemble", () => {
     ).toContain("The B service.")
   })
 
-  async function shards(files: Array<Record<string, string>>) {
+  it("keeps the host root of a merged package unit", async () => {
+    const tips = await shards(
+      [
+        { "knowledge/services/a.md": service("A") },
+        { "knowledge/services/a.md": service("A from another root") },
+      ],
+      "services/a",
+    )
+    const result = await assembleMerged(tips, async (conflicts) =>
+      conflicts.map((c) => ({ path: c.path, content: c.incoming })),
+    )
+    const merged = git(remote, [
+      "show",
+      `${result.sha}:knowledge/services/a.md`,
+    ])
+    expect(merged).toContain("skill: semantic-merge")
+    expect(merged).toContain("root: services/a")
+  })
+
+  it("counts the run's ops before the shards against the run cap of the Workspace", async () => {
+    const tips = await shards([
+      { "knowledge/services/a.md": service("A") },
+      { "knowledge/services/b.md": service("B") },
+    ])
+    const assembled = (opsBefore: number) =>
+      pushIngestAssemble({
+        job: { runId: RUN, workspaceId: WORKSPACE },
+        pinnedRevision: pinned,
+        shards: tips,
+        oldTip: null,
+        opsBefore,
+        remote: { url: remote },
+        commit: {
+          step: "assemble:ws_alpha",
+          bundle: "bundle-1",
+          authorTime: AUTHOR_TIME,
+        },
+      })
+    await expect(assembled(299)).rejects.toThrow(
+      /The run writes 301 ops; a Workspace takes at most 300/,
+    )
+    expect(remoteRefs(remote).has(ASSEMBLED)).toBe(false)
+    await expect(assembled(298)).resolves.toMatchObject({ ops: 2 })
+  })
+
+  async function shards(files: Array<Record<string, string>>, root?: string) {
     const tips: Array<{ shard: string; tip: string }> = []
     for (const [index, shardFiles] of files.entries()) {
       const shard = String(index)
@@ -742,6 +789,7 @@ describe("pushIngestAssemble", () => {
         ref: ingestRefName({ runId: RUN, workspaceId: WORKSPACE, shard }),
         step: `skill:root-${shard}:apis:ws_alpha`,
         files: shardFiles,
+        ...(root ? { root } : {}),
       })
       tips.push({ shard, tip: result.sha })
     }

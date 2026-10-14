@@ -63,6 +63,19 @@ const connectionId = generateObjectId("con")
 const suffix = Math.random().toString(36).slice(2, 8)
 const sourceName = `acme/checkout-api-${suffix}`
 const contexts = [`acme/context-a-${suffix}`, `acme/context-b-${suffix}`]
+/** A source whose stand-in agent always says `more` and writes a rejected file. */
+const stallName = `acme/stall-api-${suffix}`
+/** A source with 21 roots: two shards. */
+const wideName = `acme/wide-monorepo-${suffix}`
+/**
+ * The two-shard case: the sandbox of shard 0 does not start, and shard 1
+ * waits at its second step until `release` is called.
+ */
+const wide = {
+  waiting: false,
+  release: () => {},
+  gate: Promise.resolve(),
+}
 const workspaceIds = [generateObjectId("ws"), generateObjectId("ws")]
 const githubLog: GithubTokenLog = { minted: [], revoked: [] }
 const modelCalls: Array<{
@@ -82,7 +95,14 @@ function modelReply(body: {
   step: string
   root: string | null
   workspaceId: string
+  args?: string[]
 }) {
+  if (body.args?.includes(`https://github.com/${stallName}`))
+    return {
+      more: true,
+      // The validator rejects a file outside the knowledge folders.
+      files: [{ path: "notes/stall.md", content: "# Stall\n" }],
+    }
   const root = body.root ?? "."
   const name = root === "." ? "checkout-api" : root.split("/").pop()
   const firstPage = !/\.\d+:/.test(body.step)
@@ -123,6 +143,8 @@ let worker: ReturnType<OpenWorkflow["newWorker"]>
 let runner: OpenWorkflow
 let parent: ReturnType<typeof defineRepositoryIngestionV2Workflow>
 let sourceSha: string
+let wideSha: string
+let stallSha: string
 const pinned: string[] = []
 
 function git(cwd: string, ...args: string[]): string {
@@ -189,6 +211,18 @@ beforeAll(async () => {
   })
   for (const name of contexts)
     pinned.push(remote(name, { "README.md": "# Context\n" }))
+  stallSha = remote(stallName, {
+    "package.json": '{ "name": "stall-api" }\n',
+  })
+  wideSha = remote(wideName, {
+    "pnpm-workspace.yaml": 'packages:\n  - "packages/*"\n',
+    ...Object.fromEntries(
+      Array.from({ length: 21 }, (_, i) => {
+        const name = `p${String(i + 1).padStart(2, "0")}`
+        return [`packages/${name}/package.json`, `{ "name": "${name}" }\n`]
+      }),
+    ),
+  })
 
   // The bundle: the real stage helpers and script skills, and one fixture
   // model skill of the plan.
@@ -245,7 +279,7 @@ beforeAll(async () => {
           sourceKey: "checkout",
           provider: "github",
           connectionId,
-          scope: { repositories: [sourceName] },
+          scope: { repositories: [sourceName, wideName, stallName] },
           status: "ok",
           statusDetail: null,
         },
@@ -258,8 +292,31 @@ beforeAll(async () => {
     namespaceId: openWorkflowNamespaceId(),
   })
   runner = new OpenWorkflow({ backend })
+  const standIn = standInIngestShardRuntime({ modelUrl: MODEL_URL, folder })
   const deps = {
-    runtime: standInIngestShardRuntime({ modelUrl: MODEL_URL, folder }),
+    runtime: Object.assign(
+      (spec: Parameters<typeof standIn>[0]) => {
+        const inner = standIn(spec)
+        if (spec.source.url !== `https://github.com/${wideName}`) return inner
+        let steps = 0
+        return {
+          ...inner,
+          async ensure() {
+            if (spec.shard === 0)
+              throw new Error("The sandbox of shard 0 does not start")
+            return inner.ensure()
+          },
+          async runStep(step: Parameters<typeof inner.runStep>[0]) {
+            if (spec.shard === 1 && ++steps === 2) {
+              wide.waiting = true
+              await wide.gate
+            }
+            return inner.runStep(step)
+          },
+        }
+      },
+      { destroy: standIn.destroy },
+    ),
     bundle: () => readIngestSkillBundle(bundleDir),
   }
   const shard = defineIngestionShardWorkflow(deps)
@@ -415,6 +472,102 @@ describe("ingestion v2 in shadow mode", () => {
       `)
       expect(sizes.rows[0]?.largest).toBeGreaterThan(0)
       expect(sizes.rows[0]?.largest).toBeLessThan(16 * 1024)
+    },
+  )
+})
+
+describe("ingestion v2 paging", () => {
+  it(
+    "stops a skill whose page says more but has no accepted op, and marks it partial",
+    { timeout: 420_000 },
+    async () => {
+      const before = modelCalls.length
+      const handle = await runner.runWorkflow(parent.spec, {
+        orgId,
+        shadow: true,
+        source: {
+          url: `https://github.com/${stallName}`,
+          githubConnectionId: connectionId,
+        },
+        sha: stallSha,
+        authorTime: "2026-10-04T00:00:00.000Z",
+      })
+      const result = await handle.result({ timeoutMs: 400_000 })
+      // One page for each Workspace, not 20: no page after a page that
+      // accepted nothing.
+      const calls = modelCalls.slice(before)
+      expect(calls).toHaveLength(2)
+      expect(calls.every((c) => !/\.\d+:/.test(c.step))).toBe(true)
+      expect(result).toMatchObject({ status: "partial" })
+      if (!("workspaces" in result)) throw new Error("The run did not finish")
+      for (const workspace of result.workspaces)
+        expect(workspace).toMatchObject({ partial: 1, rejects: 1 })
+    },
+  )
+})
+
+describe("ingestion v2 with a failed shard", () => {
+  it(
+    "waits for a sibling shard that still runs before the run fails, and keeps the run unfailed until then",
+    { timeout: 420_000 },
+    async () => {
+      wide.gate = new Promise<void>((resolve) => {
+        wide.release = resolve
+      })
+      const handle = await runner.runWorkflow(parent.spec, {
+        orgId,
+        shadow: true,
+        source: {
+          url: `https://github.com/${wideName}`,
+          githubConnectionId: connectionId,
+        },
+        sha: wideSha,
+        authorTime: "2026-10-03T00:00:00.000Z",
+      })
+      const runId = handle.workflowRun.id
+      try {
+        // The parent saw the failed shard 0: its child step failed, and the
+        // parent is no longer running.
+        const deadline = Date.now() + 300_000
+        let parentStatus = ""
+        for (;;) {
+          const rows = await getSystemDb().execute<{
+            step: string | null
+            run: string
+          }>(sql`
+            select
+              (select sa.status from openworkflow.step_attempts sa
+                where sa.namespace_id = wr.namespace_id
+                  and sa.workflow_run_id = wr.id and sa.step_name = 'shard:0'
+                order by sa.created_at desc limit 1) as step,
+              wr.status as run
+            from openworkflow.workflow_runs wr
+            where wr.namespace_id = ${openWorkflowNamespaceId()}
+              and wr.id = ${runId}
+          `)
+          const row = rows.rows[0]
+          if (row?.step === "failed" && row.run !== "running") {
+            parentStatus = row.run
+            break
+          }
+          if (Date.now() > deadline)
+            throw new Error(`Shard 0 did not fail: ${JSON.stringify(row)}`)
+          await delay(200)
+        }
+        expect(wide.waiting).toBe(true)
+        // Shard 1 still runs, so the parent waits: the run is not failed,
+        // and the tip check keeps the refs that shard 1 writes.
+        expect(parentStatus).toBe("sleeping")
+        expect(Object.keys(refsOf(contexts[0] ?? ""))).toContain(
+          `refs/ctxpipe/ingest/${runId}/${workspaceIds[0]}/shards/1`,
+        )
+      } finally {
+        wide.release()
+      }
+      await expect(handle.result({ timeoutMs: 300_000 })).rejects.toThrow(
+        /The sandbox of shard 0 does not start/,
+      )
+      expect(heldIngestSourceTrees(runId)).toBe(0)
     },
   )
 })

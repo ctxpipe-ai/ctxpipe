@@ -43,7 +43,8 @@ export function planIngestRoots(
 export type IngestSkillPlan = {
   name: string
   /**
-   * `first`: one step on the assembled ref before the root steps; `root`:
+   * `first`: one step on the assembled ref before the root steps, which
+   * the parent runs in the sandbox of shard 0; `root`:
    * one step for each root; `repository`: one step on the assembled ref
    * after `assemble`.
    */
