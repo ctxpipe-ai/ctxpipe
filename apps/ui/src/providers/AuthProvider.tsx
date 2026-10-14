@@ -150,8 +150,8 @@ export const AuthProvider: FC<React.PropsWithChildren> = ({ children }) => {
         }}
         twoFactor={["totp"]}
         account={{ basePath: "/.auth/account" }}
-        // Keep the library's API-key navigation on organisation settings while
-        // excluding its organisation selector from personal account settings.
+        // Keep the library's API-key navigation on organization settings while
+        // excluding its organization selector from personal account settings.
         // Org key minting itself uses the configId-scoped custom card.
         organization={
           orgSlug

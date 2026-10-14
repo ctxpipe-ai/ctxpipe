@@ -3,7 +3,7 @@ import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-p
 import { OAuthOrganizationSelector } from "./OAuthOrganizationSelector"
 
 const meta = {
-  title: "Components/Auth/OAuth Organisation Selector",
+  title: "Components/Auth/OAuth Organization Selector",
   component: OAuthOrganizationSelector,
   decorators: entryPageInnerDecorators,
   parameters: {
@@ -16,7 +16,7 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const MultipleOrganizations: Story = {
-  name: "Multiple organisations",
+  name: "Multiple organizations",
   args: {
     organizations: [
       { id: "org_acme", name: "Acme Engineering", slug: "acme" },
