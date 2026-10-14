@@ -1,50 +1,52 @@
 /**
  * Run the MCPJam eval suite against a seeded ctxpipe server (CTX-574).
  *
- *   bun evals/mcp/run.ts --models anthropic/<model>,openai/<model> --out results.json
+ *   bun evals/mcp/run.ts --url http://localhost:3000/mcp --seed seed.json \
+ *     --models anthropic/<model>,openai/<model> --out results.json
  *
- * Connection settings come from the environment, because they differ for each
- * target: MCP_EVAL_URL (the `/mcp` URL), MCP_EVAL_API_KEY (a personal API key
- * with both fixture orgs), MCP_EVAL_RUN (the run name of the seed, see
- * README.md). Each model needs `<PROVIDER>_API_KEY`, for example
- * ANTHROPIC_API_KEY.
+ * `--seed` is the JSON file that `run-seed.ts ci` writes: the run name, the
+ * user id, the remotes file, and a personal API key for the two fixture
+ * orgs. Each model needs `<PROVIDER>_API_KEY`, for example ANTHROPIC_API_KEY.
+ * A case with `cursorFrom` moves the Workspace to its second projection with
+ * `run-seed.ts advance`, so the backend environment (DATABASE_URL and the
+ * other store settings) must be set too. Run each seed once.
  *
- * The tool set of the server picks the mode (see `detectToolSet`). Exit code 0:
- * the gate passed. 1: the gate failed. 2: bad setup (no seed, bad tool set).
+ * Exit code 0: the gate passed. 1: the gate failed. 2: bad setup.
  */
+import { spawnSync } from "node:child_process"
 import { readFile, writeFile } from "node:fs/promises"
 import { parseArgs } from "node:util"
 import { EvalTest, HostRunner, MCPClientManager } from "@mcpjam/sdk"
+import { z } from "zod"
 import { type EvalCase, evalCases } from "./cases.js"
 import {
-  type CaseContext,
+  casePrompt,
   checkCase,
-  detectToolSet,
-  type ToolSetMode,
+  requireReadTools,
+  resolveOrgArgs,
   transcriptFromMessages,
 } from "./check.js"
 import {
   type Baseline,
   baselineFromRun,
   evaluateGate,
+  gateThresholds,
   type RunResult,
 } from "./gate.js"
 
 const baselinePath = new URL("./baseline.json", import.meta.url)
 
-function required(name: string): string {
-  const value = process.env[name]
-  if (!value) {
-    console.error(`Set ${name}. See apps/backend/evals/mcp/README.md.`)
-    process.exit(2)
-  }
-  return value
+function setupError(message: string): never {
+  console.error(`${message} See apps/backend/evals/mcp/README.md.`)
+  process.exit(2)
 }
 
 async function main() {
   process.env.MCPJAM_TELEMETRY_DISABLED = "1"
   const { values } = parseArgs({
     options: {
+      url: { type: "string" },
+      seed: { type: "string" },
       models: { type: "string" },
       iterations: { type: "string", default: "3" },
       concurrency: { type: "string", default: "3" },
@@ -53,56 +55,86 @@ async function main() {
       "update-baseline": { type: "boolean", default: false },
     },
   })
-  const models = (values.models ?? "").split(",").filter(Boolean)
-  if (models.length === 0) {
-    console.error(
-      "Pass --models provider/model[,provider/model]. Use at least two.",
+  const models = [...new Set((values.models ?? "").split(",").filter(Boolean))]
+  if (models.length < gateThresholds.minModels)
+    setupError(
+      `Pass --models provider/model,provider/model with at least ${gateThresholds.minModels} models.`,
     )
-    process.exit(2)
-  }
   const iterations = Number(values.iterations)
-  const run = required("MCP_EVAL_RUN")
+  if (!Number.isInteger(iterations) || iterations < 1)
+    setupError("Pass --iterations as a positive integer.")
+  if (!values.url || !values.seed) setupError("Pass --url and --seed.")
+  const seed = z
+    .object({
+      run: z.string().min(1),
+      userId: z.string().min(1),
+      remotes: z.string().min(1),
+      apiKey: z.string().min(1),
+    })
+    .parse(JSON.parse(await readFile(values.seed, "utf8")))
   const orgs = {
-    harbor: `mcp-eval-${run}-harbor`,
-    meadow: `mcp-eval-${run}-meadow`,
+    harbor: `mcp-eval-${seed.run}-harbor`,
+    meadow: `mcp-eval-${seed.run}-meadow`,
   }
-  const url = new URL(required("MCP_EVAL_URL"))
+  const clients = models.map((model) => {
+    const name = `${model.split("/")[0]?.toUpperCase().replace(/\W/g, "_")}_API_KEY`
+    const apiKey = process.env[name]
+    if (!apiKey) setupError(`Set ${name} for ${model}.`)
+    return { model, apiKey }
+  })
 
   const manager = new MCPClientManager()
   await manager.connectToServer("ctxpipe", {
-    url: url.toString(),
-    requestInit: { headers: { "x-api-key": required("MCP_EVAL_API_KEY") } },
+    url: values.url,
+    requestInit: { headers: { "x-api-key": seed.apiKey } },
   })
   try {
     const { tools } = await manager.listTools("ctxpipe")
-    let mode: ToolSetMode
     try {
-      mode = detectToolSet(tools.map((tool) => tool.name))
+      requireReadTools(tools.map((tool) => tool.name))
     } catch (error) {
-      console.error(String(error))
-      process.exit(2)
+      setupError(String(error))
     }
     const selected =
       values.cases?.split(",") ?? evalCases.map((item) => item.id)
-    const active = evalCases.filter((item) => selected.includes(item.id))
+    // A case with `cursorFrom` runs last, after the Workspace moves.
+    const active = evalCases
+      .filter((item) => selected.includes(item.id))
+      .sort((a, b) => Number(!!a.cursorFrom) - Number(!!b.cursorFrom))
+    const cursors = new Map<string, string>()
+    for (const item of active) {
+      if (!item.cursorFrom) continue
+      const page = (await manager.executeTool(
+        "ctxpipe",
+        "search_knowledge",
+        resolveOrgArgs(item.cursorFrom, orgs),
+      )) as { structuredContent?: { cursor?: unknown } }
+      const cursor = page.structuredContent?.cursor
+      if (typeof cursor !== "string")
+        setupError(`Case ${item.id}: search_knowledge returned no cursor.`)
+      cursors.set(item.id, cursor)
+    }
     const instructions = manager.getInitializationInfo("ctxpipe")?.instructions
-    const context: CaseContext = { orgs, mode }
     console.log(
-      `Mode ${mode}: ${active.length} cases, ${models.length} models, ${iterations} iterations.`,
+      `${active.length} cases, ${models.length} models, ${iterations} iterations.`,
     )
 
-    const result: RunResult = { mode, models: {} }
+    const result: RunResult = {
+      iterations,
+      passes: Object.fromEntries(models.map((model) => [model, {}])),
+    }
     const details: Record<string, Record<string, string[]>> = {}
-    for (const model of models) {
-      const provider = model.split("/")[0]?.toUpperCase().replace(/\W/g, "_")
-      const apiKey = required(`${provider}_API_KEY`)
-      const scores: RunResult["models"][string] = {}
-      result.models[model] = scores
-      const modelDetails: Record<string, string[]> = {}
-      details[model] = modelDetails
-      for (const evalCase of active) {
+    let advanced = false
+    for (const evalCase of active) {
+      if (evalCase.cursorFrom && !advanced) {
+        advanceWorkspace(seed)
+        advanced = true
+      }
+      const prompt = casePrompt(evalCase, cursors.get(evalCase.id))
+      for (const { model, apiKey } of clients) {
+        const passes = result.passes[model] ?? {}
+        passes[evalCase.id] = 0
         const failures: string[] = []
-        scores[evalCase.id] = { passes: 0, iterations: 0 }
         const runner = new HostRunner({
           tools: await manager.getToolsForAiSdk(["ctxpipe"]),
           model,
@@ -114,62 +146,91 @@ async function main() {
           id: `mcp_${evalCase.id.replace(/-/g, "_")}`,
           name: evalCase.name,
           test: async (executor) => {
-            const prompt = await executor.run(evalCase.prompt, {
+            const run = await executor.run(prompt, {
               timeout: { totalMs: 120_000 },
             })
             const outcome = checkCase(
               evalCase,
-              transcriptFromMessages(prompt.getMessages()),
-              context,
+              transcriptFromMessages(run.getMessages()),
+              { orgs },
             )
-            const score = scores[evalCase.id]
-            if (score) {
-              score.iterations += 1
-              if (outcome.passed) score.passes += 1
-            }
+            if (outcome.passed)
+              passes[evalCase.id] = (passes[evalCase.id] ?? 0) + 1
             failures.push(...outcome.failures)
             return outcome.passed
           },
         })
-        await test.run(runner, {
-          iterations,
-          concurrency: Number(values.concurrency),
-          timeoutMs: 180_000,
-        })
+        try {
+          await test.run(runner, {
+            iterations,
+            concurrency: Number(values.concurrency),
+            timeoutMs: 180_000,
+          })
+        } catch (error) {
+          // Iterations that did not pass count as failures (the gate divides
+          // by the requested iterations).
+          failures.push(`run failed: ${String(error)}`)
+        }
         const unique = [...new Set(failures)]
-        modelDetails[evalCase.id] = unique
-        const score = scores[evalCase.id]
+        details[model] = { ...details[model], [evalCase.id]: unique }
         console.log(
-          `${model} ${evalCase.id}: ${score?.passes}/${score?.iterations}`,
+          `${model} ${evalCase.id}: ${passes[evalCase.id]}/${iterations}`,
         )
         for (const failure of unique) console.log(`  - ${failure}`)
       }
     }
 
+    const ids = active.map((item) => item.id)
     const baseline = JSON.parse(
       await readFile(baselinePath, "utf8"),
     ) as Baseline
-    const report = evaluateGate(
-      result,
-      baseline[mode],
-      active.map((item) => item.id),
-    )
+    const report = evaluateGate(result, baseline, ids)
     for (const note of report.notes) console.log(`note: ${note}`)
     for (const failure of report.failures) console.error(`FAIL: ${failure}`)
     if (values.out)
       await writeFile(
         values.out,
-        JSON.stringify({ result, details, report }, null, 2),
+        JSON.stringify(
+          {
+            result,
+            rates: baselineFromRun(result, ids, new Date().toISOString()),
+            details,
+            report,
+          },
+          null,
+          2,
+        ),
       )
     if (values["update-baseline"]) {
-      baseline[mode] = baselineFromRun(result, new Date().toISOString())
-      await writeFile(baselinePath, `${JSON.stringify(baseline, null, 2)}\n`)
-      console.log(`Baseline for ${mode} written. Commit baseline.json.`)
+      const recorded = baselineFromRun(result, ids, new Date().toISOString())
+      await writeFile(baselinePath, `${JSON.stringify(recorded, null, 2)}\n`)
+      console.log("Baseline written. Commit baseline.json.")
     }
     process.exitCode = report.passed ? 0 : 1
   } finally {
     await manager.disconnectServer("ctxpipe")
   }
+}
+
+/** Move the Harbor `payments` Workspace to its second projection (P4-1). */
+function advanceWorkspace(seed: {
+  run: string
+  userId: string
+  remotes: string
+}) {
+  const advance = spawnSync(
+    "bun",
+    [
+      new URL("./run-seed.ts", import.meta.url).pathname,
+      "advance",
+      seed.run,
+      seed.userId,
+      seed.remotes,
+    ],
+    { stdio: "inherit" },
+  )
+  if (advance.status !== 0)
+    setupError("run-seed.ts advance failed; the stale-cursor case cannot run.")
 }
 
 /** What a coding agent host adds: the working repository and the server instructions. */

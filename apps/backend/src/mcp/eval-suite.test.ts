@@ -13,10 +13,12 @@ import {
 import {
   type Call,
   type CaseContext,
+  casePrompt,
   checkCase,
-  detectToolSet,
   normalizeRepositoryRef,
   readToolNames,
+  requireReadTools,
+  resolveOrgArgs,
   transcriptFromMessages,
 } from "../../evals/mcp/check.js"
 import {
@@ -26,6 +28,7 @@ import {
   gateThresholds,
   type RunResult,
 } from "../../evals/mcp/gate.js"
+import { MCP_TOOL_ERROR_CODES } from "./framework/tool-errors.js"
 import { registerMcpReadTools } from "./framework/tool-registry.js"
 import { findSymbolTool } from "./tools/find-symbol.js"
 import { getRelatedTool } from "./tools/get-related.js"
@@ -39,7 +42,7 @@ const evalsDirectory = fileURLToPath(
   new URL("../../evals/mcp/", import.meta.url),
 )
 const orgs = { harbor: "mcp-eval-t1-harbor", meadow: "mcp-eval-t1-meadow" }
-const read: CaseContext = { orgs, mode: "read-tools" }
+const read: CaseContext = { orgs }
 
 function fixtureFiles(directory: string): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) =>
@@ -112,6 +115,8 @@ describe("eval case data", () => {
         ...(item.resultsMention ?? []),
         ...(item.notInAnswer ?? []),
       ]) {
+        // A tool error code comes from the server, not from the fixtures.
+        if ((MCP_TOOL_ERROR_CODES as readonly string[]).includes(text)) continue
         expect(fixtureCorpus, `${item.id}: ${text}`).toContain(
           text.toLowerCase(),
         )
@@ -169,8 +174,7 @@ describe("eval case data", () => {
             if (rule.tool === "*") continue
             throw new Error(`${tool} has no argument ${name}`)
           }
-          const values =
-            "equals" in arg ? [arg.equals] : "oneOf" in arg ? arg.oneOf : []
+          const values = "equals" in arg ? [arg.equals] : []
           const allowed = properties[name]?.enum
           if (allowed)
             for (const value of values) expect(allowed).toContain(value)
@@ -359,18 +363,22 @@ describe("checkCase", () => {
     expect(leaked.failures.join("\n")).toContain('contains "midnight"')
   })
 
-  it("checks recovery after a rejected cursor", () => {
+  it("checks recovery after a stale cursor", () => {
     const item = byId("stale-cursor")
+    const stale = call(
+      "search_knowledge",
+      { org: orgs.harbor, query: "idempotency", cursor: "abc" },
+      {
+        isError: true,
+        resultText: "error:\n  code: stale_cursor\n  retryable: false",
+      },
+    )
     const ok = checkCase(
       item,
       {
         text: "Keep keys for 48 hours.",
         calls: [
-          call(
-            "search_knowledge",
-            { org: orgs.harbor, query: "idempotency", cursor: "abc" },
-            { isError: true },
-          ),
+          stale,
           call("search_knowledge", { org: orgs.harbor, query: "idempotency" }),
         ],
       },
@@ -379,19 +387,41 @@ describe("checkCase", () => {
     expect(ok.passed).toBe(true)
     const stuck = checkCase(
       item,
+      { text: "Keep keys for 48 hours.", calls: [stale] },
+      read,
+    )
+    expect(stuck.passed).toBe(false)
+    // A cursor that the server calls invalid did not prove the stale path.
+    const invalid = checkCase(
+      item,
       {
         text: "Keep keys for 48 hours.",
         calls: [
-          call(
-            "search_knowledge",
-            { org: orgs.harbor, query: "idempotency", cursor: "abc" },
-            { isError: true },
-          ),
+          { ...stale, resultText: "error:\n  code: invalid_cursor" },
+          call("search_knowledge", { org: orgs.harbor, query: "idempotency" }),
         ],
       },
       read,
     )
-    expect(stuck.passed).toBe(false)
+    expect(invalid.failures.join()).toContain('"stale_cursor"')
+  })
+
+  it("puts a real cursor from the first projection into the stale-cursor prompt", () => {
+    const item = byId("stale-cursor")
+    expect(item.cursorFrom).toBeDefined()
+    const args = resolveOrgArgs(item.cursorFrom ?? {}, orgs)
+    expect(args).toMatchObject({ org: orgs.harbor, query: "idempotency" })
+    const prompt = casePrompt(item, "CURSOR-1")
+    expect(prompt).toContain("CURSOR-1")
+    expect(prompt).not.toContain("{cursor}")
+    // The cursor is bound to the query, so the prompt must give the same arguments.
+    for (const value of Object.values(item.cursorFrom ?? {}).flat())
+      if (typeof value === "string" && !value.startsWith("$"))
+        expect(prompt).toContain(value)
+    expect(() => casePrompt(item)).toThrow("cursor")
+    expect(casePrompt(byId("structural-search"))).toBe(
+      byId("structural-search").prompt,
+    )
   })
 
   it("checks structural search arguments", () => {
@@ -542,38 +572,39 @@ describe("transcriptFromMessages", () => {
   })
 })
 
-describe("detectToolSet", () => {
+describe("requireReadTools", () => {
   it("accepts only the seven read tools", () => {
-    expect(() => detectToolSet(["ctx_advisor"])).toThrow("Unexpected tool set")
-    expect(() => detectToolSet([...readToolNames, "unknown"])).toThrow(
-      "unknown",
-    )
-    expect(detectToolSet([...readToolNames])).toBe("read-tools")
-    expect(() => detectToolSet(["ctx_advisor", "list_workspaces"])).toThrow(
+    expect(() => requireReadTools(["ctx_advisor"])).toThrow(
       "Unexpected tool set",
     )
-    expect(() => detectToolSet(readToolNames.slice(0, 6))).toThrow(
+    expect(() => requireReadTools([...readToolNames, "unknown"])).toThrow(
+      "unknown",
+    )
+    expect(() => requireReadTools([...readToolNames])).not.toThrow()
+    expect(() => requireReadTools(["ctx_advisor", "list_workspaces"])).toThrow(
+      "Unexpected tool set",
+    )
+    expect(() => requireReadTools(readToolNames.slice(0, 6))).toThrow(
       "get_related",
     )
-    expect(() => detectToolSet([])).toThrow("Unexpected tool set")
+    expect(() => requireReadTools([])).toThrow("Unexpected tool set")
   })
 })
 
 describe("evaluateGate", () => {
   const ids = ["a", "b"]
+  /** Passes of model m1 for cases a and b; m2 passes everything. 3 iterations. */
   const run = (a: number, b: number): RunResult => ({
-    mode: "read-tools",
-    models: {
-      m1: { a: { passes: a, iterations: 3 }, b: { passes: b, iterations: 3 } },
-      m2: { a: { passes: 3, iterations: 3 }, b: { passes: 3, iterations: 3 } },
-    },
+    iterations: 3,
+    passes: { m1: { a, b }, m2: { a: 3, b: 3 } },
   })
-  const baseline = baselineFromRun(run(3, 3), "2026-10-14T00:00:00Z")
+  const baseline = baselineFromRun(run(3, 3), ids, "2026-10-14T00:00:00Z")
 
   it("passes a full run with no baseline and notes the missing baseline", () => {
     const report = evaluateGate(run(3, 3), null, ids)
     expect(report.passed).toBe(true)
     expect(report.notes.join()).toContain("no stored baseline")
+    expect(report.notes.join()).toContain(`${gateThresholds.minPassRate}`)
   })
 
   it("fails below the pass-rate floor", () => {
@@ -584,68 +615,67 @@ describe("evaluateGate", () => {
     )
   })
 
-  it("passes a run that loses one iteration of twelve", () => {
-    const full = { passes: 3, iterations: 3 }
+  it("fails a run with fewer than two models", () => {
+    const report = evaluateGate(
+      { iterations: 3, passes: { m1: { a: 3, b: 3 } } },
+      null,
+      ids,
+    )
+    expect(report.passed).toBe(false)
+    expect(report.failures.join()).toContain("at least 2 models")
+  })
+
+  it("divides by the requested iterations, so an iteration that threw is a failure", () => {
+    // m1 case b: 3 requested, 2 passed, 1 threw and recorded nothing.
     const result: RunResult = {
-      mode: "read-tools",
-      models: {
-        m1: { a: full, b: full, c: full, d: { passes: 2, iterations: 3 } },
+      iterations: 3,
+      passes: {
+        m1: { a: 3, b: 2, c: 3, d: 3 },
+        m2: { a: 3, b: 3, c: 3, d: 3 },
       },
     }
+    const report = evaluateGate(result, null, ["a", "b", "c", "d"])
     // 11 of 12 iterations is 0.917.
-    expect(evaluateGate(result, null, ["a", "b", "c", "d"]).passed).toBe(true)
+    expect(report.passed).toBe(true)
+    expect(report.aggregates.m1).toBeCloseTo(11 / 12)
+    const worse: RunResult = {
+      iterations: 3,
+      passes: { m1: { a: 3, b: 1, c: 3, d: 3 }, m2: result.passes.m2 ?? {} },
+    }
+    expect(evaluateGate(worse, null, ["a", "b", "c", "d"]).passed).toBe(false)
   })
 
   it("fails when one case falls more than the case threshold from the baseline", () => {
-    const result = run(3, 3)
-    result.models.m1 = {
-      a: { passes: 3, iterations: 3 },
-      b: { passes: 1, iterations: 3 },
-    }
-    const report = evaluateGate(result, baseline, ids)
+    const report = evaluateGate(run(3, 1), baseline, ids)
     expect(report.failures.join()).toContain("case b fell")
   })
 
-  it("fails when the aggregate falls from a lower baseline by more than the allowed drop", () => {
-    const high = baselineFromRun(run(3, 3), "t")
-    const low: RunResult = {
-      mode: "read-tools",
-      models: {
-        m1: {
-          a: { passes: 3, iterations: 3 },
-          b: { passes: 3, iterations: 3 },
-        },
-        m2: {
-          a: { passes: 3, iterations: 3 },
-          b: { passes: 3, iterations: 3 },
-        },
-      },
-    }
-    low.models.m2 = {
-      a: { passes: 3, iterations: 3 },
-      b: { passes: 2, iterations: 3 },
+  it("fails when the aggregate falls from the baseline by more than the allowed drop", () => {
+    const result: RunResult = {
+      iterations: 3,
+      passes: { m1: { a: 3, b: 3 }, m2: { a: 3, b: 2 } },
     }
     // 5/6 = 0.833 is below the floor too; the drop message must also appear.
-    const report = evaluateGate(low, high, ids)
-    expect(report.failures.join()).toContain("pass rate fell")
+    const report = evaluateGate(result, baseline, ids)
+    expect(report.failures.join()).toContain("m2: pass rate fell")
   })
 
   it("fails a missing case result and a baseline model that did not run", () => {
     const result: RunResult = {
-      mode: "read-tools",
-      models: { m1: { a: { passes: 3, iterations: 3 } } },
+      iterations: 3,
+      passes: { m1: { a: 3 }, m3: { a: 3, b: 3 } },
     }
     const report = evaluateGate(result, baseline, ids)
-    expect(report.failures.join()).toContain("case b has no result")
+    expect(report.failures.join()).toContain("m1: case b has no result")
     expect(report.failures.join()).toContain(
       "m2: in the baseline but did not run",
     )
   })
 
   it("fails an empty run", () => {
-    expect(
-      evaluateGate({ mode: "read-tools", models: {} }, null, ids).passed,
-    ).toBe(false)
+    expect(evaluateGate({ iterations: 3, passes: {} }, null, ids).passed).toBe(
+      false,
+    )
   })
 
   it("stores pass rates that a later run compares with", () => {
@@ -654,10 +684,13 @@ describe("evaluateGate", () => {
 })
 
 describe("baseline.json", () => {
-  it("holds one slot for each tool set", () => {
+  it("holds null or one recorded entry", () => {
     const stored = JSON.parse(
       readFileSync(join(evalsDirectory, "baseline.json"), "utf8"),
     ) as Baseline
-    expect(Object.keys(stored).sort()).toEqual(["read-tools"])
+    if (stored !== null) {
+      expect(typeof stored.recordedAt).toBe("string")
+      expect(Object.keys(stored.models).length).toBeGreaterThanOrEqual(2)
+    }
   })
 })

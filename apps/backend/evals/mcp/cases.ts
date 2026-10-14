@@ -12,7 +12,6 @@ export type Json = string | number | boolean | null
 /** Rule for one tool argument. A string that starts with `$` names a seeded org. */
 export type ArgRule =
   | { equals: Json }
-  | { oneOf: Json[] }
   | { startsWith: string }
   | { present: true }
   /** The argument is an array with an item that names this repository (handle or URL). */
@@ -48,6 +47,13 @@ export type EvalCase = {
   notInAnswer?: string[]
   /** If a call fails, a later call succeeds (error recovery). */
   recoversFromError?: true
+  /**
+   * `search_knowledge` arguments (`$org` placeholders allowed). Before the run
+   * moves the Workspace to its second projection, it calls the tool with
+   * these arguments and puts the returned cursor into the `{cursor}`
+   * placeholder of the prompt. The cursor is then stale.
+   */
+  cursorFrom?: Record<string, Json>
 }
 
 const sshRemote = "git@github.com:example/checkout-app.git"
@@ -261,10 +267,11 @@ export const evalCases: EvalCase[] = [
   },
   {
     id: "stale-cursor",
-    name: "Recover from a cursor that the server rejects",
+    name: "Recover from a cursor that the server rejects as stale",
     prompt:
-      "A colleague saved a search page cursor from last week: eyJrIjoic3RhbGUiLCJvIjoxMH0. Continue that Harbor Labs search for idempotency with it. If the server rejects it, start the search again.",
+      'A colleague saved a page cursor from a Harbor Labs search_knowledge call with the query "idempotency" and limit 1: {cursor}. Continue that search with the same query, limit, and cursor. If the server rejects the cursor, start the search again and tell me how long the payments service keeps idempotency keys.',
     workingRepository: sshRemote,
+    cursorFrom: { org: "$harbor", query: "idempotency", limit: 1 },
     calls: [
       {
         tool: "search_knowledge",
@@ -272,6 +279,7 @@ export const evalCases: EvalCase[] = [
       },
       { tool: "search_knowledge", min: 2 },
     ],
+    resultsMention: ["stale_cursor"],
     recoversFromError: true,
     facts: ["48 hours"],
   },

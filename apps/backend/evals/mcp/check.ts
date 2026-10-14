@@ -1,4 +1,4 @@
-import type { ArgRule, CallRule, EvalCase } from "./cases.js"
+import type { ArgRule, CallRule, EvalCase, Json } from "./cases.js"
 
 /** One tool call of a run. `step` counts assistant messages, so parallel calls share a step. */
 export type Call = {
@@ -14,12 +14,9 @@ export type Transcript = { calls: Call[]; text: string }
 export type CaseContext = {
   /** Seeded org slugs by fixture key, for example `{ harbor: "mcp-eval-run1-harbor" }`. */
   orgs: Record<string, string>
-  mode: ToolSetMode
 }
 
 export type CaseOutcome = { passed: boolean; failures: string[] }
-
-export type ToolSetMode = "read-tools"
 
 export const readToolNames = [
   "list_workspaces",
@@ -31,8 +28,8 @@ export const readToolNames = [
   "get_related",
 ] as const
 
-/** Require the current public read-tool surface. */
-export function detectToolSet(names: readonly string[]): ToolSetMode {
+/** Require exactly the seven public read tools. */
+export function requireReadTools(names: readonly string[]): void {
   const missing = readToolNames.filter((name) => !names.includes(name))
   const unexpected = names.filter(
     (name) => !(readToolNames as readonly string[]).includes(name),
@@ -42,7 +39,7 @@ export function detectToolSet(names: readonly string[]): ToolSetMode {
     unexpected.length === 0 &&
     names.length === readToolNames.length
   )
-    return "read-tools"
+    return
   throw new Error(
     `Unexpected tool set. Missing read tools: ${missing.join(", ") || "none"}. Unexpected tools: ${unexpected.join(", ") || "none"}. The server must offer exactly the seven read tools.`,
   )
@@ -66,14 +63,32 @@ function resolveOrg(value: unknown, orgs: Record<string, string>): unknown {
   return slug
 }
 
+/** Tool arguments with each `$org` placeholder replaced by the seeded slug. */
+export function resolveOrgArgs(
+  args: Record<string, Json>,
+  orgs: Record<string, string>,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(args).map(([name, value]) => [
+      name,
+      resolveOrg(value, orgs),
+    ]),
+  )
+}
+
+/** The prompt of a case. A case with `cursorFrom` needs the real cursor. */
+export function casePrompt(evalCase: EvalCase, cursor?: string): string {
+  if (!evalCase.cursorFrom) return evalCase.prompt
+  if (!cursor) throw new Error(`Case ${evalCase.id} needs a cursor`)
+  return evalCase.prompt.replace("{cursor}", cursor)
+}
+
 function argMatches(
   rule: ArgRule,
   value: unknown,
   orgs: Record<string, string>,
 ): boolean {
   if ("equals" in rule) return value === resolveOrg(rule.equals, orgs)
-  if ("oneOf" in rule)
-    return rule.oneOf.some((item) => value === resolveOrg(item, orgs))
   if ("startsWith" in rule)
     return typeof value === "string" && value.startsWith(rule.startsWith)
   if ("present" in rule) return value !== undefined && value !== null
