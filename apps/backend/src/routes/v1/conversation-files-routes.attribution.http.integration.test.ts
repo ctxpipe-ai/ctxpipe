@@ -156,15 +156,14 @@ describe("conversation Files routes over HTTP", () => {
     }
   }
 
-  for (const route of ["tree", "status"] as const) {
-    it(`answers GET files/${route} at once with turn_running while a turn holds the conversation`, async () => {
+  for (const route of ["files/tree", "files/status", "turns"] as const) {
+    it(`answers GET ${route} at once with turn_running while a turn holds the conversation`, async () => {
       const releaseTurn = await holdTurnLock()
       try {
         const answered = Promise.resolve(
-          createApp().request(
-            `/conversations/${conversationId}/files/${route}`,
-            { headers: { cookie: seed.cookie } },
-          ),
+          createApp().request(`/conversations/${conversationId}/${route}`, {
+            headers: { cookie: seed.cookie },
+          }),
         ).then(async (res) => ({ status: res.status, body: await res.json() }))
         const blocked = new Promise<"blocked">((resolve) =>
           setTimeout(() => resolve("blocked"), 3_000),
