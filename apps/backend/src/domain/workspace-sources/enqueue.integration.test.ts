@@ -1,104 +1,140 @@
 import { BackendPostgres } from "openworkflow/postgres"
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { replaceWorkspaceSourceRows } from "../../models/workspace-sources.js"
+import { closeOpenWorkflowClient } from "../../openworkflow/client.js"
+import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { seedSourcesOrg } from "../../test/workspace-sources-fixture.js"
-
-// The OpenWorkflow client reads its namespace on import: keep these runs apart.
-const namespaceId = vi.hoisted(() => {
-  const id = `wsrc_follow_${Date.now()}_${Math.random().toString(36).slice(2)}`
-  process.env.OPENWORKFLOW_NAMESPACE_ID = id
-  return id
-})
+import { enqueueSourceProjectionFollowUps } from "./enqueue.js"
+import {
+  FILE_ERROR_SOURCE_KEY,
+  type PlannedSourceRow,
+} from "./projection-plan.js"
 
 let seed: Awaited<ReturnType<typeof seedSourcesOrg>>
-let enqueue: typeof import("./enqueue.js")
 let backend: BackendPostgres
-
-/** The cleanup runs queued for one Workspace in this test's namespace. */
-async function cleanups(workspaceId: string) {
-  const runs = await backend.listWorkflowRuns({ limit: 1000 })
-  return runs.data
-    .map((run) => run.input as Record<string, unknown>)
-    .filter(
-      (input) => input.kind === "cleanup" && input.workspaceId === workspaceId,
-    )
-}
 
 describe("Source projection follow-ups (Postgres)", () => {
   beforeAll(async () => {
     seed = await seedSourcesOrg("wsrc_follow")
-    enqueue = await import("./enqueue.js")
     backend = await BackendPostgres.connect(process.env.DATABASE_URL ?? "", {
       runMigrations: false,
-      namespaceId,
+      namespaceId: openWorkflowNamespaceId(),
     })
   })
   afterAll(async () => {
-    const { closeOpenWorkflowClient } = await import(
-      "../../openworkflow/client.js"
-    )
     await closeOpenWorkflowClient()
     await backend?.stop()
     await seed.cleanup()
   })
 
-  /** Project `entry` as `ok`, then project it again as `next`. */
-  async function projectTwice(
-    slug: string,
-    next: {
-      scope: Record<string, unknown>
-      status: "ok" | "connection_missing"
-    },
-  ) {
-    const linear = await seed.addConnection("linear")
+  /**
+   * Project each revision of one Workspace in turn and run the follow-ups.
+   * Returns the cleanup runs queued for the Workspace.
+   */
+  async function project(slug: string, revisions: PlannedSourceRow[][]) {
     const workspaceId = await seed.addWorkspace(slug)
-    const entry = {
-      sourceKey: "issues",
-      provider: "linear" as const,
-      connectionId: linear,
-      scope: { teams: ["ENG"] },
-      statusDetail: null,
+    for (const [index, rows] of revisions.entries()) {
+      const revision = String(index).repeat(40)
+      const projected = await replaceWorkspaceSourceRows({
+        orgId: seed.orgId,
+        workspaceId,
+        revision,
+        rows,
+      })
+      await enqueueSourceProjectionFollowUps({
+        orgId: seed.orgId,
+        workspaceId,
+        revision,
+        projected,
+      })
     }
-    await replaceWorkspaceSourceRows({
-      orgId: seed.orgId,
-      workspaceId,
-      revision: "a".repeat(40),
-      rows: [{ ...entry, status: "ok" }],
-    })
-    const projected = await replaceWorkspaceSourceRows({
-      orgId: seed.orgId,
-      workspaceId,
-      revision: "b".repeat(40),
-      rows: [{ ...entry, ...next }],
-    })
-    await enqueue.enqueueSourceProjectionFollowUps({
-      orgId: seed.orgId,
-      workspaceId,
-      revision: "b".repeat(40),
-      projected,
-    })
-    return workspaceId
+    const runs = await backend.listWorkflowRuns({ limit: 1000 })
+    return runs.data
+      .map((run) => run.input as Record<string, unknown>)
+      .filter(
+        (input) =>
+          input.kind === "cleanup" && input.workspaceId === workspaceId,
+      )
+  }
+
+  async function issues(
+    row: Partial<PlannedSourceRow> = {},
+  ): Promise<PlannedSourceRow> {
+    return {
+      sourceKey: "issues",
+      provider: "linear",
+      connectionId: await seed.addConnection("linear"),
+      scope: { teams: ["ENG"] },
+      status: "ok",
+      statusDetail: null,
+      ...row,
+    }
   }
 
   it("keeps the files of a source whose connection was removed", async () => {
-    const workspaceId = await projectTwice("removed-connection", {
-      scope: { teams: ["ENG"] },
-      status: "connection_missing",
-    })
+    const source = await issues()
+    const cleanups = await project("removed-connection", [
+      [source],
+      [{ ...source, status: "connection_missing" }],
+    ])
 
-    expect(await cleanups(workspaceId)).toEqual([])
+    expect(cleanups).toEqual([])
   })
 
   it("cleans up the old scope of a source whose scope changed", async () => {
-    const workspaceId = await projectTwice("changed-scope", {
-      scope: { teams: ["OPS"] },
-      status: "ok",
-    })
+    const source = await issues()
+    const cleanups = await project("changed-scope", [
+      [source],
+      [{ ...source, scope: { teams: ["OPS"] } }],
+    ])
 
-    expect(await cleanups(workspaceId)).toEqual([
+    expect(cleanups).toEqual([
       expect.objectContaining({
         removed: [expect.objectContaining({ scope: { teams: ["ENG"] } })],
       }),
     ])
+  })
+
+  it("cleans up a removed source whose connection was removed before", async () => {
+    const source = await issues()
+    const cleanups = await project("removed-later", [
+      [source],
+      [{ ...source, status: "connection_missing" }],
+      [],
+    ])
+
+    expect(cleanups).toEqual([
+      expect.objectContaining({
+        removed: [expect.objectContaining({ scope: { teams: ["ENG"] } })],
+      }),
+    ])
+  })
+
+  it("keeps the files of a source whose entry became invalid", async () => {
+    const source = await issues()
+    const cleanups = await project("invalid-entry", [
+      [source],
+      [{ ...source, scope: {}, status: "invalid", statusDetail: "Bad scope" }],
+    ])
+
+    expect(cleanups).toEqual([])
+  })
+
+  it("keeps every file while the sources file cannot be read", async () => {
+    const cleanups = await project("file-error", [
+      [await issues()],
+      [
+        {
+          sourceKey: FILE_ERROR_SOURCE_KEY,
+          provider: null,
+          connectionId: null,
+          scope: {},
+          status: "invalid",
+          statusDetail: "The file is not valid YAML",
+        },
+      ],
+    ])
+
+    expect(cleanups).toEqual([])
   })
 })

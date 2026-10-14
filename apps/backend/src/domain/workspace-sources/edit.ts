@@ -145,6 +145,11 @@ export function applySourceFileChange(
       409,
       `A source with the id "${sourceKey}" exists`,
     )
+  if (change.action === "add" && reservedKeys.has(sourceKey))
+    throw new SourceChangeError(
+      409,
+      `An open pull request changes the source "${sourceKey}". Merge or close it first.`,
+    )
   if (change.action === "edit" && index < 0)
     throw new SourceChangeError(404, `No source has the id "${sourceKey}"`)
   const parsed = parseSourceEntry(

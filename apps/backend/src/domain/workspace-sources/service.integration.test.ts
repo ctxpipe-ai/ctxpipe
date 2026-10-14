@@ -5,13 +5,52 @@ import { withOrgDbContext } from "../../db/client.js"
 import { connections } from "../../db/schema/connections.js"
 import { replaceWorkspaceSourceRows } from "../../models/workspace-sources.js"
 import { getWorkspaceById } from "../../models/workspaces.js"
-import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
-import { changeWorkspaceSource, listConnectionUsage } from "./service.js"
+import {
+  type NativeHydrationFixture,
+  withNativeHydrationFixture,
+} from "../../test/native-hydration-fixture.js"
+import {
+  changeWorkspaceSource,
+  listConnectionUsage,
+  listWorkspaceSources,
+} from "./service.js"
 
 beforeAll(() => {
   if (!process.env.DATABASE_URL)
     throw new Error("DATABASE_URL is required: run pnpm dev:infra")
 })
+
+/** An open pull request as GitHub lists it. */
+function pull(
+  number: number,
+  branch: string,
+  createdAt = "2026-10-13T10:00:00Z",
+) {
+  return {
+    number,
+    html_url: `https://github.com/fixture/hydration-contract/pull/${number}`,
+    head: { ref: branch },
+    created_at: createdAt,
+  }
+}
+
+/** An installed Linear connection in the fixture org. */
+async function addLinearConnection(f: NativeHydrationFixture): Promise<string> {
+  const id = `con_linear_${f.id}`
+  await withOrgDbContext(f.org.id, (db) =>
+    db.insert(connections).values({
+      id,
+      orgId: f.org.id,
+      type: "linear",
+      config: {
+        status: "installed",
+        workspaceId: "linear-org",
+        workspaceName: "Example",
+      },
+    }),
+  )
+  return id
+}
 
 it(
   "opens a source change pull request from a new branch into the default branch",
@@ -32,6 +71,11 @@ it(
       async (f) => {
         // GitHub's Git database API: every branch head is `parent`.
         f.server.use(
+          // No source pull request is open.
+          http.get(
+            "https://api.github.com/repos/fixture/hydration-contract/pulls",
+            () => HttpResponse.json([]),
+          ),
           http.all(
             "https://api.github.com/repos/fixture/hydration-contract/git/*",
             async ({ request, params }) => {
@@ -49,19 +93,7 @@ it(
             },
           ),
         )
-        const linear = `con_linear_${f.id}`
-        await withOrgDbContext(f.org.id, (db) =>
-          db.insert(connections).values({
-            id: linear,
-            orgId: f.org.id,
-            type: "linear",
-            config: {
-              status: "installed",
-              workspaceId: "linear-org",
-              workspaceName: "Example",
-            },
-          }),
-        )
+        const linear = await addLinearConnection(f)
 
         const result = await withOrgIdContext(f.org, async () => {
           const workspace = await getWorkspaceById(f.workspaceId)
@@ -120,12 +152,6 @@ it(
     await withNativeHydrationFixture(
       { github: true, githubWriteView: "writable", writeStatus: "writable" },
       async (f) => {
-        const pull = (number: number, branch: string) => ({
-          number,
-          html_url: `https://github.com/fixture/hydration-contract/pull/${number}`,
-          head: { ref: branch },
-          created_at: "2026-10-13T10:00:00Z",
-        })
         f.server.use(
           http.get(
             "https://api.github.com/repos/fixture/hydration-contract/pulls",
@@ -137,19 +163,7 @@ it(
               ]),
           ),
         )
-        const linear = `con_linear_${f.id}`
-        await withOrgDbContext(f.org.id, (db) =>
-          db.insert(connections).values({
-            id: linear,
-            orgId: f.org.id,
-            type: "linear",
-            config: {
-              status: "installed",
-              workspaceId: "linear-org",
-              workspaceName: "Example",
-            },
-          }),
-        )
+        const linear = await addLinearConnection(f)
 
         const usage = await withOrgIdContext(f.org, () =>
           listConnectionUsage(linear),
@@ -187,12 +201,6 @@ it(
     await withNativeHydrationFixture(
       { github: true, githubWriteView: "writable", writeStatus: "writable" },
       async (f) => {
-        const pull = (number: number, branch: string) => ({
-          number,
-          html_url: `https://github.com/fixture/hydration-contract/pull/${number}`,
-          head: { ref: branch },
-          created_at: "2026-10-13T10:00:00Z",
-        })
         f.server.use(
           http.get(
             "https://api.github.com/repos/fixture/hydration-contract/pulls",
@@ -205,19 +213,7 @@ it(
               ]),
           ),
         )
-        const linear = `con_linear_${f.id}`
-        await withOrgDbContext(f.org.id, (db) =>
-          db.insert(connections).values({
-            id: linear,
-            orgId: f.org.id,
-            type: "linear",
-            config: {
-              status: "installed",
-              workspaceId: "linear-org",
-              workspaceName: "Example",
-            },
-          }),
-        )
+        const linear = await addLinearConnection(f)
         // The default branch has the source "eng" and no source "gone".
         await replaceWorkspaceSourceRows({
           orgId: f.org.id,
@@ -239,15 +235,23 @@ it(
           listConnectionUsage(linear),
         )
 
-        expect(
-          usage?.items[0]?.pendingChanges.map((change) => [
-            change.action,
-            change.sourceKey,
-          ]),
-        ).toEqual([
-          ["remove", "eng"],
-          ["add", "ops"],
+        const sources = await withOrgIdContext(f.org, async () => {
+          const workspace = await getWorkspaceById(f.workspaceId)
+          if (!workspace) throw new Error("Missing fixture Workspace")
+          return listWorkspaceSources(workspace)
+        })
+
+        // "Used in" and the Sources settings show the same two.
+        for (const pending of [
+          usage?.items[0]?.pendingChanges,
+          sources.pendingChanges,
         ])
+          expect(
+            pending?.map((change) => [change.action, change.sourceKey]),
+          ).toEqual([
+            ["remove", "eng"],
+            ["add", "ops"],
+          ])
       },
     )
   },
@@ -286,29 +290,11 @@ it(
             "https://api.github.com/repos/fixture/hydration-contract/pulls",
             () =>
               HttpResponse.json([
-                {
-                  number: 34,
-                  html_url:
-                    "https://github.com/fixture/hydration-contract/pull/34",
-                  head: { ref: "ctxpipe/sources/remove/linear/linear-17918" },
-                  created_at: "2026-10-13T04:07:54Z",
-                },
+                pull(34, "ctxpipe/sources/remove/linear/linear-17918"),
               ]),
           ),
         )
-        const linear = `con_linear_${f.id}`
-        await withOrgDbContext(f.org.id, (db) =>
-          db.insert(connections).values({
-            id: linear,
-            orgId: f.org.id,
-            type: "linear",
-            config: {
-              status: "installed",
-              workspaceId: "linear-org",
-              workspaceName: "Example",
-            },
-          }),
-        )
+        const linear = await addLinearConnection(f)
 
         const result = await withOrgIdContext(f.org, async () => {
           const workspace = await getWorkspaceById(f.workspaceId)

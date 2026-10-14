@@ -112,11 +112,13 @@ async function pendingChanges(
  * Whether a source pull request still applies to the default branch: a
  * remove or an edit needs its source id there, and an add needs the id to be
  * free. A change that happened another way leaves its pull request open.
+ * While the file cannot be read, every pull request shows.
  */
 function stillApplies(
-  change: { action: "add" | "edit" | "remove"; sourceKey: string },
+  change: { action: SourceChange["action"]; sourceKey: string },
   sourceKeys: ReadonlySet<string>,
 ): boolean {
+  if (sourceKeys.has(FILE_ERROR_SOURCE_KEY)) return true
   return change.action === "add"
     ? !sourceKeys.has(change.sourceKey)
     : sourceKeys.has(change.sourceKey)
@@ -142,6 +144,7 @@ export async function listWorkspaceSources(
     adapters: SOURCE_ADAPTERS,
   })
   const fileRow = rows.find((row) => row.sourceKey === FILE_ERROR_SOURCE_KEY)
+  const sourceKeys = new Set(projected.map((row) => row.sourceKey))
   return {
     path: SOURCES_FILE_PATH,
     revision: rows[0]?.revision ?? null,
@@ -164,7 +167,7 @@ export async function listWorkspaceSources(
       })),
     ...editPolicy(workspace),
     pendingChanges: (await pendingChanges(workspace)).filter((change) =>
-      stillApplies(change, new Set(projected.map((row) => row.sourceKey))),
+      stillApplies(change, sourceKeys),
     ),
   }
 }
@@ -226,7 +229,7 @@ export async function changeWorkspaceSource(input: {
   // A new id must also be free of every open source pull request: an open
   // "remove linear" would otherwise remove a new "linear" when it merges.
   const reservedKeys =
-    change.action === "add" && !change.sourceKey
+    change.action === "add"
       ? new Set((await pendingChanges(workspace)).map((pull) => pull.sourceKey))
       : undefined
   const next = applySourceFileChange(current ?? null, change, reservedKeys)
@@ -343,16 +346,19 @@ export async function listConnectionUsage(
     workspaces.map((workspace) => pendingChanges({ ...workspace, orgId })),
   )
   for (const [index, workspace] of workspaces.entries()) {
+    const changes = (pending[index] ?? []).filter((change) =>
+      providers.has(change.provider),
+    )
+    if (!changes.length) continue
     const sourceKeys = new Set(
       (await listWorkspaceSourceRows({ orgId, workspaceId: workspace.id })).map(
         (row) => row.sourceKey,
       ),
     )
-    const changes = (pending[index] ?? []).filter(
-      (change) =>
-        providers.has(change.provider) && stillApplies(change, sourceKeys),
+    const applying = changes.filter((change) =>
+      stillApplies(change, sourceKeys),
     )
-    if (!changes.length) continue
+    if (!applying.length) continue
     const item = byWorkspace.get(workspace.id) ?? {
       workspaceId: workspace.id,
       workspaceSlug: workspace.slug,
@@ -361,7 +367,7 @@ export async function listConnectionUsage(
       sources: [],
       pendingChanges: [],
     }
-    item.pendingChanges = changes
+    item.pendingChanges = applying
     byWorkspace.set(workspace.id, item)
   }
   return { items: [...byWorkspace.values()] }
