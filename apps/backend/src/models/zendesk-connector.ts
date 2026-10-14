@@ -1,0 +1,366 @@
+import { and, eq, sql } from "drizzle-orm"
+import type { Env } from "../config/env.js"
+import { withOrgDbContext } from "../db/client.js"
+import {
+  CONNECTION_TYPE_ZENDESK,
+  connections,
+} from "../db/schema/connections.js"
+import {
+  type ZendeskConnectionConfigStored,
+  zendeskConnectionConfigStoredSchema,
+} from "../lib/connection-config.js"
+import {
+  decryptConnectionSecret,
+  encryptConnectionSecret,
+} from "../lib/connection-secrets.js"
+import { generateObjectId } from "../lib/id.js"
+import type { ZendeskOAuthClient } from "../services/zendesk/oauth.js"
+import {
+  deleteConnectionDirectory,
+  loadConnectionViaDirectory,
+  upsertConnectionDirectory,
+} from "./connection-directory.js"
+import type { ConnectionRow } from "./connection-rows.js"
+
+/** A Zendesk connection with its secrets decrypted. Never return it from a route. */
+export type ZendeskConnection = {
+  id: string
+  orgId: string
+  subdomain: string
+  status: ZendeskConnectionConfigStored["status"]
+  accessToken: string | null
+  refreshToken: string | null
+  accessTokenExpiresAt: string | null
+  /** The ciphertext, to compare and set when Zendesk refuses the token. */
+  accessTokenEnc: string | null
+  /** The connection's own OAuth client (self-host), or null. */
+  hasOwnOAuthClient: boolean
+  /** The client that the token requests use: the row's, then the env's. */
+  oauthClient: ZendeskOAuthClient | null
+  webhookId: string | null
+  sourceSync: ZendeskConnectionConfigStored["sourceSync"]
+}
+
+const parseConfig = (row: { config: unknown }) =>
+  zendeskConnectionConfigStoredSchema.parse(row.config)
+
+/** The row's OAuth client first (self-host), then the deployment's (hosted). */
+export function resolveZendeskOAuthClient(
+  config: Pick<
+    ZendeskConnectionConfigStored,
+    "oauthClientId" | "oauthClientSecretEnc"
+  >,
+  env: Env,
+): ZendeskOAuthClient | null {
+  if (config.oauthClientId && config.oauthClientSecretEnc)
+    return {
+      clientId: config.oauthClientId,
+      clientSecret: decryptConnectionSecret(config.oauthClientSecretEnc, env),
+    }
+  return env.ZENDESK_CLIENT_ID && env.ZENDESK_CLIENT_SECRET
+    ? {
+        clientId: env.ZENDESK_CLIENT_ID,
+        clientSecret: env.ZENDESK_CLIENT_SECRET,
+      }
+    : null
+}
+
+function toConnection(row: ConnectionRow, env: Env): ZendeskConnection {
+  const config = parseConfig(row)
+  const decrypt = (value: string | undefined) =>
+    value ? decryptConnectionSecret(value, env) : null
+  return {
+    id: row.id,
+    orgId: row.orgId,
+    subdomain: config.subdomain,
+    status: config.status,
+    accessToken: decrypt(config.accessTokenEnc),
+    refreshToken: decrypt(config.refreshTokenEnc),
+    accessTokenExpiresAt: config.accessTokenExpiresAt ?? null,
+    accessTokenEnc: config.accessTokenEnc ?? null,
+    hasOwnOAuthClient: Boolean(
+      config.oauthClientId && config.oauthClientSecretEnc,
+    ),
+    oauthClient: resolveZendeskOAuthClient(config, env),
+    webhookId: config.webhookId ?? null,
+    sourceSync: config.sourceSync,
+  }
+}
+
+const zendeskRowWhere = (orgId: string, connectionId: string) =>
+  and(
+    eq(connections.id, connectionId),
+    eq(connections.orgId, orgId),
+    eq(connections.type, CONNECTION_TYPE_ZENDESK),
+  )
+
+export async function getZendeskConnection(
+  orgId: string,
+  connectionId: string,
+  env: Env,
+): Promise<ZendeskConnection | undefined> {
+  const [row] = await withOrgDbContext(orgId, (db) =>
+    db
+      .select()
+      .from(connections)
+      .where(zendeskRowWhere(orgId, connectionId))
+      .limit(1),
+  )
+  return row ? toConnection(row, env) : undefined
+}
+
+/** The status of a connection, without a decrypt of its secrets. */
+export async function getZendeskConnectionStatus(
+  orgId: string,
+  connectionId: string,
+): Promise<ZendeskConnectionConfigStored["status"] | undefined> {
+  const [row] = await withOrgDbContext(orgId, (db) =>
+    db
+      .select({ config: connections.config })
+      .from(connections)
+      .where(zendeskRowWhere(orgId, connectionId))
+      .limit(1),
+  )
+  return row ? parseConfig(row).status : undefined
+}
+
+/**
+ * Start a setup for a subdomain. A pending setup of the same subdomain in
+ * the org is used again, so a retried setup adds no rows.
+ */
+export async function createZendeskDraft(input: {
+  orgId: string
+  subdomain: string
+}): Promise<string> {
+  const row = await withOrgDbContext(input.orgId, async (db) => {
+    const [pending] = await db
+      .select()
+      .from(connections)
+      .where(
+        and(
+          eq(connections.orgId, input.orgId),
+          eq(connections.type, CONNECTION_TYPE_ZENDESK),
+          sql`${connections.config}->>'subdomain' = ${input.subdomain}`,
+          sql`${connections.config}->>'status' = 'pending'`,
+        ),
+      )
+      .limit(1)
+    if (pending) return pending
+    const [inserted] = await db
+      .insert(connections)
+      .values({
+        id: generateObjectId("con"),
+        orgId: input.orgId,
+        type: CONNECTION_TYPE_ZENDESK,
+        config: {
+          subdomain: input.subdomain,
+          status: "pending",
+        } satisfies ZendeskConnectionConfigStored,
+      })
+      .returning()
+    return inserted
+  })
+  if (!row) throw new Error("Failed to create the Zendesk setup")
+  await upsertConnectionDirectory(row)
+  return row.id
+}
+
+/** Merge keys into the stored config of one connection. */
+async function patchConfig(
+  orgId: string,
+  connectionId: string,
+  patch: Partial<ZendeskConnectionConfigStored>,
+  extraWhere?: ReturnType<typeof sql>,
+): Promise<boolean> {
+  const updated = await withOrgDbContext(orgId, (db) =>
+    db
+      .update(connections)
+      .set({
+        config: sql`${connections.config} || ${JSON.stringify(patch)}::jsonb`,
+        updatedAt: new Date(),
+      })
+      .where(
+        extraWhere
+          ? and(zendeskRowWhere(orgId, connectionId), extraWhere)
+          : zendeskRowWhere(orgId, connectionId),
+      )
+      .returning({ id: connections.id }),
+  )
+  return updated.length > 0
+}
+
+/** Save the local OAuth client of a self-hosted deployment on the row. */
+export function saveZendeskOAuthClient(input: {
+  orgId: string
+  connectionId: string
+  env: Env
+  clientId: string
+  clientSecret: string
+}): Promise<boolean> {
+  return patchConfig(input.orgId, input.connectionId, {
+    oauthClientId: input.clientId.trim(),
+    oauthClientSecretEnc: encryptConnectionSecret(
+      input.clientSecret.trim(),
+      input.env,
+    ),
+  })
+}
+
+export function saveZendeskTokens(input: {
+  orgId: string
+  connectionId: string
+  env: Env
+  tokens: {
+    accessToken: string
+    refreshToken: string | null
+    accessTokenExpiresAt: string | null
+  }
+}): Promise<boolean> {
+  return patchConfig(input.orgId, input.connectionId, {
+    status: "installed",
+    accessTokenEnc: encryptConnectionSecret(
+      input.tokens.accessToken,
+      input.env,
+    ),
+    ...(input.tokens.refreshToken
+      ? {
+          refreshTokenEnc: encryptConnectionSecret(
+            input.tokens.refreshToken,
+            input.env,
+          ),
+        }
+      : {}),
+    accessTokenExpiresAt: input.tokens.accessTokenExpiresAt,
+  })
+}
+
+export function saveZendeskWebhook(input: {
+  orgId: string
+  connectionId: string
+  env: Env
+  webhookId: string
+  signingSecret: string
+}): Promise<boolean> {
+  return patchConfig(input.orgId, input.connectionId, {
+    webhookId: input.webhookId,
+    webhookSecretEnc: encryptConnectionSecret(input.signingSecret, input.env),
+  })
+}
+
+/**
+ * Mark the connection revoked after Zendesk refused its token. The update
+ * applies only while the row still has that token, so a reconnect that
+ * saved new tokens stays installed.
+ */
+export async function markZendeskConnectionRevoked(input: {
+  orgId: string
+  connectionId: string
+  accessTokenEnc: string
+}): Promise<void> {
+  await patchConfig(
+    input.orgId,
+    input.connectionId,
+    { status: "revoked" },
+    sql`${connections.config}->>'accessTokenEnc' = ${input.accessTokenEnc}`,
+  )
+}
+
+/**
+ * Refresh the tokens under an advisory lock on the connection. Zendesk
+ * rotates the refresh token, so a second caller must not spend the old one:
+ * when the row already has new tokens, they are returned without a refresh.
+ */
+export async function refreshZendeskTokensWithLock(input: {
+  orgId: string
+  connectionId: string
+  env: Env
+  expectedRefreshToken: string
+  refresh: (refreshToken: string) => Promise<{
+    accessToken: string
+    refreshToken: string | null
+    accessTokenExpiresAt: string | null
+  }>
+}): Promise<{ accessToken: string; accessTokenExpiresAt: string | null }> {
+  return withOrgDbContext(input.orgId, async (db) => {
+    await db.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
+    )
+    const [row] = await db
+      .select()
+      .from(connections)
+      .where(zendeskRowWhere(input.orgId, input.connectionId))
+      .limit(1)
+    if (!row) throw new Error("The Zendesk connection does not exist")
+    const current = toConnection(row, input.env)
+    if (!current.accessToken || !current.refreshToken)
+      throw new Error("The Zendesk connection has no tokens")
+    if (current.refreshToken !== input.expectedRefreshToken)
+      return {
+        accessToken: current.accessToken,
+        accessTokenExpiresAt: current.accessTokenExpiresAt,
+      }
+    const tokens = await input.refresh(current.refreshToken)
+    await db
+      .update(connections)
+      .set({
+        config: sql`${connections.config} || ${JSON.stringify({
+          accessTokenEnc: encryptConnectionSecret(
+            tokens.accessToken,
+            input.env,
+          ),
+          refreshTokenEnc: encryptConnectionSecret(
+            tokens.refreshToken ?? current.refreshToken,
+            input.env,
+          ),
+          accessTokenExpiresAt: tokens.accessTokenExpiresAt,
+        })}::jsonb`,
+        updatedAt: new Date(),
+      })
+      .where(zendeskRowWhere(input.orgId, input.connectionId))
+    return {
+      accessToken: tokens.accessToken,
+      accessTokenExpiresAt: tokens.accessTokenExpiresAt,
+    }
+  })
+}
+
+export async function deleteZendeskConnection(
+  orgId: string,
+  connectionId: string,
+): Promise<boolean> {
+  const deleted = await withOrgDbContext(orgId, (db) =>
+    db
+      .delete(connections)
+      .where(zendeskRowWhere(orgId, connectionId))
+      .returning({ id: connections.id }),
+  )
+  if (deleted.length) await deleteConnectionDirectory(connectionId)
+  return deleted.length > 0
+}
+
+/**
+ * The webhook route knows only the connection id from its path. Read the
+ * row through the directory, without an org context.
+ */
+export async function getZendeskWebhookTarget(
+  connectionId: string,
+  env: Env,
+): Promise<
+  | {
+      orgId: string
+      status: ZendeskConnectionConfigStored["status"]
+      webhookSecret: string | null
+    }
+  | undefined
+> {
+  const row = await loadConnectionViaDirectory(connectionId)
+  if (row?.type !== CONNECTION_TYPE_ZENDESK) return undefined
+  const config = parseConfig(row)
+  return {
+    orgId: row.orgId,
+    status: config.status,
+    webhookSecret: config.webhookSecretEnc
+      ? decryptConnectionSecret(config.webhookSecretEnc, env)
+      : null,
+  }
+}
