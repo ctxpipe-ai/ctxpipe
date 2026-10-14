@@ -13,7 +13,8 @@ export type ParsedRef =
   | { kind: "unit"; path: string }
   | { kind: "file"; handle: string; url: string; path: string }
 
-function checkPath(path: string, ref: string): string {
+/** A relative path with no `..`, no empty segment, no NUL; else `invalid_ref`. */
+export function checkPath(path: string, ref: string): string {
   const segments = path.split("/")
   if (
     path.trim() === "" ||
