@@ -86,7 +86,8 @@ export function pageCodeResults<T extends Record<string, unknown>>(input: {
     if (
       !skipped.some(
         (known) =>
-          known.repository === entry.repository && known.reason === entry.reason,
+          known.repository === entry.repository &&
+          known.reason === entry.reason,
       )
     ) {
       skipped.push(entry)
@@ -110,8 +111,7 @@ export function pageCodeResults<T extends Record<string, unknown>>(input: {
   return {
     results: fit.page,
     ...fixed,
-    truncated:
-      answer.truncated || fit.truncated || input.cutSnippet === true,
+    truncated: answer.truncated || fit.truncated || input.cutSnippet === true,
     ...(nextOffset === null
       ? {}
       : { cursor: encodeCursor({ ...input.binding, offset: nextOffset }) }),

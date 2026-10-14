@@ -198,7 +198,10 @@ export const readFileTool = defineMcpReadTool({
       const unit = await readUnit(org, workspace, ref.path)
       text = unit?.text ?? null
       lineOffset = unit?.lineOffset ?? 0
-      served = { branch: workspaceServed.branch, sha: unit?.sha ?? workspaceServed.sha }
+      served = {
+        branch: workspaceServed.branch,
+        sha: unit?.sha ?? workspaceServed.sha,
+      }
     } else {
       const repository = await requireLinkedRepository(
         org,

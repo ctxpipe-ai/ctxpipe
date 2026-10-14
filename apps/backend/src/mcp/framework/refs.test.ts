@@ -92,7 +92,11 @@ describe("parseRef", () => {
       parseRef("gitlab.example.com/example/api:README.md", handles, new Set()),
     ).toMatchObject({ kind: "unit" })
     expect(
-      parseRef("example/payments-api:src/limits.ts", handles, new Set(["example/payments-api"])),
+      parseRef(
+        "example/payments-api:src/limits.ts",
+        handles,
+        new Set(["example/payments-api"]),
+      ),
     ).toMatchObject({ kind: "file", handle: "example/payments-api" })
   })
 

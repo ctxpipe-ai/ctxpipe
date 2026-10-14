@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { truncateText } from "../framework/budget.js"
 import { resolveCallWorkspace } from "../framework/call-workspace.js"
 import { decodeCursor } from "../framework/cursor.js"
 import {
@@ -14,7 +15,6 @@ import {
 } from "../framework/schemas.js"
 import { McpToolError } from "../framework/tool-errors.js"
 import { defineMcpReadTool } from "../framework/tool-registry.js"
-import { truncateText } from "../framework/budget.js"
 import { codeFileRef, mapCodeItems, pageCodeResults } from "./code-results.js"
 
 const structuralMatchSchema = z.object({
@@ -138,7 +138,8 @@ export const searchCodeTool = defineMcpReadTool({
             offset,
           })
     let cutSnippet = false
-    const mapped = mapCodeItems(answer.results, (item) => {
+    const found: Array<{ repository: string }> = answer.results
+    const mapped = mapCodeItems(found, (item) => {
       const { repository } = item
       const hit =
         input.mode === "structural"

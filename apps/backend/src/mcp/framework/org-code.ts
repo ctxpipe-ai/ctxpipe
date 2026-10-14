@@ -479,7 +479,8 @@ function capped<T>(
 ): CodeResults<T> {
   const start = budget.offset ?? 0
   const page = items.slice(start, start + budget.limit)
-  const nextOffset = start + page.length < items.length ? start + page.length : null
+  const nextOffset =
+    start + page.length < items.length ? start + page.length : null
   return {
     results: page,
     excluded: scope.excluded,

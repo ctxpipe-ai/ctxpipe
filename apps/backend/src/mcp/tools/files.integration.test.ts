@@ -25,10 +25,12 @@ import { organizations } from "../../db/schema/auth.js"
 import { repositories } from "../../db/schema/repositories.js"
 import { repositoryCheckouts } from "../../db/schema/repository_checkouts.js"
 import {
+  workspaceKnowledgeChunks,
   workspaceKnowledgeUnits,
   workspaceLinkedRepositories,
   workspaces,
 } from "../../db/schema/workspaces.js"
+import { knowledgeChunkRows } from "../../domain/workspaces/knowledge-chunks.js"
 import { generateObjectId } from "../../lib/id.js"
 import { registerMcpRoutes } from "../../routes/mcp.js"
 import { withTestRequestLogger } from "../../test/hono-test-logger.js"
@@ -62,7 +64,13 @@ const BIG_LINES = Array.from(
   { length: 600 },
   (_, index) => `line ${String(index + 1).padStart(3, "0")} ${"x".repeat(60)}`,
 )
+/** Lines full of characters that JSON escapes, so each line costs double. */
+const QUOTE_LINES = Array.from(
+  { length: 300 },
+  (_, index) => `${index} ${'"\\'.repeat(40)}`,
+)
 const UNITS: Record<string, string> = {
+  "knowledge/quotes.md": `${QUOTE_LINES.join("\n")}\n`,
   "knowledge/services/payments-api.md":
     "# Payments API\n\nOwns card charges.\nCalls the ledger.\n",
   "knowledge/runbooks/deploy.md": "# Deploy\n\nRun the pipeline.\n",
@@ -75,6 +83,19 @@ const MANY = Array.from(
   (_, index) => `knowledge/many/unit-${String(index).padStart(2, "0")}.md`,
 )
 
+/** 100 units whose paths are 55 characters long. */
+const WIDE = Array.from(
+  { length: 100 },
+  (_, index) =>
+    `knowledge/wide/${String(index).padStart(3, "0")}-${"n".repeat(33)}.md`,
+)
+/** A unit with three lines of front matter; its body starts at file line 4. */
+const FRONT_MATTER_UNIT = {
+  path: "knowledge/front-matter.md",
+  body: "# Rate limits\n\nThe gateway allows 100 calls.\n",
+  bodyStartLine: 4,
+}
+
 /** Repository name → repository id (after the seed). */
 const seeded = new Map<string, string>()
 /** Files of each linked repository checkout. */
@@ -85,10 +106,16 @@ const REPOSITORY_FILES: Record<string, Record<string, string>> = {
     "README.md": "# payments-api\n",
   },
   ledger: { "README.md": "# ledger\n" },
+  "huge-api": { "README.md": "# huge\n" },
   "other-api": { "README.md": "# other\n" },
 }
 
-type Captured = { path: string; body?: Record<string, unknown> }
+type Captured = {
+  path: string
+  body?: Record<string, unknown>
+  /** Claims of the codesearch token. */
+  claims?: Record<string, unknown>
+}
 let captured: Captured[] = []
 
 function repositoryOf(id: string): string {
@@ -107,7 +134,14 @@ function codesearch() {
       `${CODESEARCH}/:repoId/files-query`,
       async ({ request, params }) => {
         const body = (await request.json()) as { paths: string[] }
-        captured.push({ path: new URL(request.url).pathname, body })
+        const token = request.headers.get("authorization")?.split(".")[1]
+        captured.push({
+          path: new URL(request.url).pathname,
+          body,
+          claims: token
+            ? JSON.parse(Buffer.from(token, "base64url").toString("utf8"))
+            : undefined,
+        })
         const files =
           REPOSITORY_FILES[repositoryOf(String(params.repoId))] ?? {}
         const result: Record<string, string> = {}
@@ -149,7 +183,8 @@ function codesearch() {
       }))
       return HttpResponse.json({
         entries,
-        truncated: false,
+        // The checkout of this repository has more entries than one glob gives.
+        truncated: repositoryOf(String(params.repoId)) === "huge-api",
         matched: entries.length,
       })
     }),
@@ -254,7 +289,7 @@ describe("read_file and list_files (Postgres + msw codesearch + MCP SDK Client)"
           body,
           projectionSha: sha1,
         })),
-        ...MANY.map((path) => ({
+        ...[...MANY, ...WIDE].map((path) => ({
           servingId: generateObjectId("wku"),
           orgId: seed.orgId,
           workspaceId: pagingId,
@@ -263,8 +298,36 @@ describe("read_file and list_files (Postgres + msw codesearch + MCP SDK Client)"
           projectionSha: sha1,
         })),
       ])
+      // The row of this unit is from a later projection than the Workspace
+      // serves, and its chunks hold file lines that count the front matter.
+      const frontMatterId = generateObjectId("wku")
+      await db.insert(workspaceKnowledgeUnits).values({
+        servingId: frontMatterId,
+        orgId: seed.orgId,
+        workspaceId: paymentsId,
+        path: FRONT_MATTER_UNIT.path,
+        body: FRONT_MATTER_UNIT.body,
+        projectionSha: sha2,
+      })
+      await db.insert(workspaceKnowledgeChunks).values(
+        knowledgeChunkRows(
+          [
+            {
+              servingId: frontMatterId,
+              body: FRONT_MATTER_UNIT.body,
+              title: "Rate limits",
+              bodyStartLine: FRONT_MATTER_UNIT.bodyStartLine,
+            },
+          ],
+          "test-model",
+        ).map((row) => ({
+          ...row,
+          orgId: seed.orgId,
+          workspaceId: paymentsId,
+        })),
+      )
       await db.insert(workspaceLinkedRepositories).values([
-        ...["payments-api", "ledger", "unindexed"].map((short) => ({
+        ...["payments-api", "ledger", "unindexed", "huge-api"].map((short) => ({
           id: generateObjectId("wlr"),
           orgId: seed.orgId,
           workspaceId: paymentsId,
@@ -277,7 +340,7 @@ describe("read_file and list_files (Postgres + msw codesearch + MCP SDK Client)"
           gitUrl: `git@github.com:${handle("other-api")}.git`,
         },
       ])
-      for (const short of ["payments-api", "ledger", "other-api"]) {
+      for (const short of ["payments-api", "ledger", "other-api", "huge-api"]) {
         const id = generateObjectId("repo")
         await db.insert(repositories).values({
           id,
@@ -479,12 +542,126 @@ describe("read_file and list_files (Postgres + msw codesearch + MCP SDK Client)"
       })
     })
 
-    it("refuses a repository that the Workspace does not link", async () => {
+    it("reads a prefix as a unit path when the Workspace does not link that repository", async () => {
       const result = await call("read_file", {
         ref: `${handle("other-api")}:README.md`,
       })
-      expect(errorCode(result)).toBe("repository_not_found")
+      expect(errorCode(result)).toBe("unknown_ref")
       expect(captured).toEqual([])
+    })
+
+    it("reads a repository file with no workspace, at org level, from the published checkout", async () => {
+      const result = await call("read_file", {
+        workspace: undefined,
+        ref: `${handle("other-api")}:README.md`,
+      })
+      expect(result.isError).toBeFalsy()
+      expect(result.structuredContent).toMatchObject({
+        ref: `${handle("other-api")}:README.md`,
+        served: { branch: "main", sha: sha2 },
+        content: "# other",
+      })
+      expect(
+        errorCode(
+          await call("read_file", {
+            workspace: undefined,
+            ref: "knowledge/runbooks/deploy.md",
+          }),
+        ),
+      ).toBe("invalid_argument")
+    })
+
+    it("sends the served SHA to the repository read", async () => {
+      await call("read_file", {
+        ref: `${handle("payments-api")}:README.md`,
+      })
+      expect(captured[0]?.claims).toMatchObject({
+        repositoryRevisions: [{ sha: sha2 }],
+      })
+    })
+
+    it.each([
+      ".git/config",
+      "src/.git/hooks/pre-commit",
+    ])("refuses the .git path %j in a repository ref", async (path) => {
+      const result = await call("read_file", {
+        ref: `${handle("payments-api")}:${path}`,
+      })
+      expect(errorCode(result)).toBe("invalid_ref")
+      expect(captured).toEqual([])
+    })
+
+    it("counts the front matter in the lines of a unit, as search_knowledge does", async () => {
+      const [chunk] = knowledgeChunkRows(
+        [
+          {
+            servingId: "unit",
+            body: FRONT_MATTER_UNIT.body,
+            title: "Rate limits",
+            bodyStartLine: FRONT_MATTER_UNIT.bodyStartLine,
+          },
+        ],
+        "test-model",
+      )
+      const result = await call("read_file", { ref: FRONT_MATTER_UNIT.path })
+      expect(result.structuredContent).toEqual({
+        ref: FRONT_MATTER_UNIT.path,
+        // The row of the unit, not the Workspace, states the revision.
+        served: { branch: "main", sha: sha2 },
+        content: "# Rate limits\n\nThe gateway allows 100 calls.",
+        startLine: chunk?.startLine,
+        endLine: 6,
+        totalLines: 6,
+        nextStartLine: null,
+        truncated: false,
+      })
+      expect(chunk?.startLine).toBe(4)
+      const range = await call("read_file", {
+        ref: FRONT_MATTER_UNIT.path,
+        startLine: 6,
+        endLine: 6,
+      })
+      expect(range.structuredContent).toMatchObject({
+        content: "The gateway allows 100 calls.",
+        startLine: 6,
+        endLine: 6,
+      })
+      expect(
+        errorCode(
+          await call("read_file", {
+            ref: FRONT_MATTER_UNIT.path,
+            startLine: 1,
+            endLine: 3,
+          }),
+        ),
+      ).toBe("invalid_argument")
+    })
+
+    it("fits lines full of quotes and backslashes in the hard cap, and loses no line in a page walk", async () => {
+      const lines: string[] = []
+      let startLine: number | null = 1
+      let pages = 0
+      while (startLine !== null) {
+        const result = await call("read_file", {
+          ref: "knowledge/quotes.md",
+          startLine,
+        })
+        expect(result.isError).toBeFalsy()
+        expect(JSON.stringify(result).length).toBeLessThanOrEqual(
+          HARD_CAP_CHARS,
+        )
+        const page = result.structuredContent as {
+          content: string
+          nextStartLine: number | null
+          truncated: boolean
+        }
+        expect(page.truncated).toBe(false)
+        lines.push(...page.content.split("\n"))
+        startLine = page.nextStartLine
+        pages += 1
+      }
+      expect(pages).toBeGreaterThan(1)
+      expect(lines).toEqual(QUOTE_LINES)
     })
 
     it("gives workspace_not_ready for a linked repository with no index", async () => {
@@ -588,9 +765,19 @@ describe("read_file and list_files (Postgres + msw codesearch + MCP SDK Client)"
           { path: "knowledge/services", type: "dir" },
           { path: "knowledge/big.md", type: "file", ref: "knowledge/big.md" },
           {
+            path: "knowledge/front-matter.md",
+            type: "file",
+            ref: "knowledge/front-matter.md",
+          },
+          {
             path: "knowledge/long-line.md",
             type: "file",
             ref: "knowledge/long-line.md",
+          },
+          {
+            path: "knowledge/quotes.md",
+            type: "file",
+            ref: "knowledge/quotes.md",
           },
         ],
       })
@@ -648,6 +835,54 @@ describe("read_file and list_files (Postgres + msw codesearch + MCP SDK Client)"
       } while (cursor)
       expect(pages).toBe(3)
       expect(seen).toEqual(MANY)
+    })
+
+    it("fits 100 entries with 55-character paths in the hard cap and pages each once", async () => {
+      expect(WIDE[0]).toHaveLength(55)
+      const seen: string[] = []
+      let cursor: string | undefined
+      let pages = 0
+      do {
+        const result = await call("list_files", {
+          workspace: "paging",
+          path: "knowledge/wide",
+          limit: 100,
+          ...(cursor ? { cursor } : {}),
+        })
+        expect(result.isError).toBeFalsy()
+        expect(JSON.stringify(result).length).toBeLessThanOrEqual(
+          HARD_CAP_CHARS,
+        )
+        const page = result.structuredContent as {
+          entries: Array<{ path: string }>
+          cursor?: string
+        }
+        seen.push(...page.entries.map((entry) => entry.path))
+        cursor = page.cursor
+        pages += 1
+      } while (cursor)
+      expect(pages).toBeGreaterThan(1)
+      expect(seen).toEqual(WIDE)
+    })
+
+    it("returns truncated when codesearch has more entries than one listing", async () => {
+      const result = await call("list_files", {
+        repository: handle("huge-api"),
+      })
+      expect(result.structuredContent).toMatchObject({
+        repository: handle("huge-api"),
+        truncated: true,
+      })
+      expect(captured[0]?.body).toMatchObject({ pattern: "*", limit: 5_000 })
+    })
+
+    it("refuses a .git folder of a repository", async () => {
+      const result = await call("list_files", {
+        repository: handle("payments-api"),
+        path: ".git/objects",
+      })
+      expect(errorCode(result)).toBe("invalid_ref")
+      expect(captured).toEqual([])
     })
 
     it("gives stale_cursor after a new projection", async () => {

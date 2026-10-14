@@ -240,7 +240,7 @@ describe("list_workspaces through MCP", () => {
           { key: "code", provider: "github", status: "ok" },
           { key: "tickets", provider: "linear", status: "out_of_access" },
         ],
-        excluded: [],
+        skipped: [],
       })
       expect(JSON.stringify(result)).not.toMatch(
         /repo_private|con_private|private diagnostic|wsrc_|wlr_/,
@@ -248,6 +248,82 @@ describe("list_workspaces through MCP", () => {
       expect(
         estimateTokens(result.content?.[0]?.text ?? ""),
       ).toBeLessThanOrEqual(600)
+    } finally {
+      await client.close()
+    }
+  })
+  it("pages 100 Workspaces at a time with a cursor", async () => {
+    const client = await connect()
+    try {
+      const first = await call(client, "list_workspaces", {})
+      expect(first.isError).not.toBe(true)
+      const firstOrgs = first.structuredContent?.orgs as Array<{
+        workspaces: Array<{ slug: string }>
+      }>
+      expect(firstOrgs[0]?.workspaces).toHaveLength(100)
+      const cursor = first.structuredContent?.cursor
+      expect(cursor).toEqual(expect.any(String))
+      const second = await call(client, "list_workspaces", { cursor })
+      const secondOrgs = second.structuredContent?.orgs as Array<{
+        org: string
+        workspaces: Array<{ slug: string }>
+      }>
+      expect(secondOrgs).toMatchObject([
+        { org: seed.orgSlug, workspaces: [{ slug: "space-099" }] },
+      ])
+      expect(second.structuredContent?.cursor).toBeUndefined()
+    } finally {
+      await client.close()
+    }
+  })
+  it("skips a stored repository URL that does not parse, without failing the call", async () => {
+    const id = generateObjectId("ws")
+    await withOrgDbContext(seed.orgId, async (db) => {
+      await db.insert(workspaces).values({
+        id,
+        orgId: seed.orgId,
+        slug: "broken",
+        displayName: "Broken links",
+        workspaceRepositoryUrl: "https://github.com/example/context",
+        desiredDefaultBranch: "main",
+      })
+      await db.insert(workspaceLinkedRepositories).values(
+        ["https://github.com/example/fine", "not a url at all"].map(
+          (gitUrl) => ({
+            id: generateObjectId("wlr"),
+            orgId: seed.orgId,
+            workspaceId: id,
+            gitUrl,
+          }),
+        ),
+      )
+    })
+    const client = await connect()
+    try {
+      const list = await call(client, "list_workspaces", {})
+      expect(list.isError).not.toBe(true)
+      const [listed] = list.structuredContent?.orgs as Array<{
+        workspaces: Array<Record<string, unknown>>
+        skipped: unknown[]
+      }>
+      // Slug order: "broken" is first. The URL that does not parse is not counted.
+      expect(listed?.workspaces[0]).toMatchObject({
+        slug: "broken",
+        repositories: 1,
+      })
+      expect(listed?.skipped).toEqual([
+        { workspace: "broken", reason: "invalid_url" },
+      ])
+      const detail = await call(client, "list_workspaces", {
+        org: seed.orgSlug,
+        workspace: "broken",
+      })
+      expect(detail.isError).not.toBe(true)
+      expect(detail.structuredContent).toMatchObject({
+        repositories: ["example/fine"],
+        skipped: [{ workspace: "broken", reason: "invalid_url" }],
+      })
+      expect(JSON.stringify(detail)).not.toContain("not a url")
     } finally {
       await client.close()
     }

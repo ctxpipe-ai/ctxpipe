@@ -188,7 +188,8 @@ it("searches literal text and returns a file ref, served revision, and skipped r
     results: [
       {
         ref: "example/alpha:src/index.ts",
-        line: 3,
+        startLine: 3,
+        endLine: 3,
         snippet: "charge(1)",
         served: { branch: "main", sha: "a".repeat(40) },
       },
@@ -279,7 +280,8 @@ it("requires a language for structural search and converts ast-grep matches to f
     results: [
       {
         ref: "example/alpha:src/index.ts",
-        line: 3,
+        startLine: 3,
+        endLine: 3,
         snippet: "charge(1)",
         served: { branch: "main", sha: "a".repeat(40) },
       },
@@ -335,7 +337,7 @@ it("returns SCIP definitions and references as one-based file locations", async 
       results: [
         {
           ref: "example/alpha:src/index.ts",
-          line: relation === "definition" ? 3 : 8,
+          startLine: relation === "definition" ? 3 : 8,
           symbol: "scip-typescript npm example 1 charge().",
           name: "charge",
           kind: "function",
@@ -409,7 +411,7 @@ it("returns caller and callee names with call-site and definition refs", async (
       results: [
         {
           ref: "example/alpha:src/checkout.ts",
-          line: 10,
+          startLine: 10,
           caller: "checkout",
           callerSymbol: "checkout().",
           callerRef: "example/alpha:src/checkout.ts",
@@ -813,4 +815,276 @@ it("reports a missing SCIP index and a rejected structural pattern", async () =>
   expect(structural._meta?.["ai.ctxpipe/error"]).toMatchObject({
     code: "invalid_argument",
   })
+})
+
+it("reads the checkout key of any revision out of a code path", async () => {
+  const sha = "c".repeat(40)
+  server.use(
+    http.post("http://codesearch.test/:repository/structural-search", () =>
+      HttpResponse.json({
+        matches: [
+          {
+            file: `/cache/${seed.orgId}/${repositoryId}/checkouts/rev:${sha}/src/index.ts`,
+            text: "charge(1)",
+            range: {
+              start: { line: 0, column: 0 },
+              end: { line: 1, column: 9 },
+            },
+          },
+        ],
+      }),
+    ),
+    http.post("http://codesearch.test/:repository/graph", () =>
+      HttpResponse.json({
+        ok: true,
+        results: [
+          {
+            symbol: "scip-typescript npm example 1 charge().",
+            symbol_name: "charge",
+            kind: "function",
+            file_path: `/cache/${seed.orgId}/${repositoryId}/checkouts/rev:${sha}/src/charge.ts`,
+            range: { start_line: 4, end_line: 6 },
+          },
+        ],
+      }),
+    ),
+  )
+  const structural = await callTool({
+    name: "search_code",
+    arguments: {
+      org: seed.orgSlug,
+      query: "charge($A)",
+      mode: "structural",
+      language: "typescript",
+      excludeRepositories: [],
+    },
+  })
+  expect(structural.isError).not.toBe(true)
+  expect(structural.structuredContent?.results).toMatchObject([
+    { ref: "example/alpha:src/index.ts", startLine: 1, endLine: 2 },
+  ])
+  const symbol = await callTool({
+    name: "find_symbol",
+    arguments: {
+      org: seed.orgSlug,
+      symbol: "charge",
+      relation: "definition",
+      excludeRepositories: [],
+    },
+  })
+  expect(symbol.isError).not.toBe(true)
+  expect(symbol.structuredContent?.results).toMatchObject([
+    { ref: "example/alpha:src/charge.ts", startLine: 5, endLine: 7 },
+  ])
+})
+
+it("drops one bad item into skipped instead of failing the call", async () => {
+  server.use(
+    http.post("http://codesearch.test/:repository/structural-search", () =>
+      HttpResponse.json({
+        matches: [
+          {
+            file: "/elsewhere/outside/the/checkout.ts",
+            text: "bad",
+            range: { start: { line: 0, column: 0 } },
+          },
+          {
+            file: `/cache/${seed.orgId}/${repositoryId}/checkouts/default/src/index.ts`,
+            text: "good",
+            range: { start: { line: 0, column: 0 } },
+          },
+        ],
+      }),
+    ),
+    http.post("http://codesearch.test/:repository/graph", () =>
+      HttpResponse.json({
+        ok: true,
+        results: [
+          { symbol: "no-name-or-kind" },
+          {
+            symbol: "scip-typescript npm example 1 charge().",
+            symbol_name: "charge",
+            kind: "function",
+          },
+        ],
+      }),
+    ),
+  )
+  const structural = await callTool({
+    name: "search_code",
+    arguments: {
+      org: seed.orgSlug,
+      query: "charge($A)",
+      mode: "structural",
+      language: "typescript",
+      excludeRepositories: [],
+    },
+  })
+  expect(structural.isError).not.toBe(true)
+  expect(structural.structuredContent?.results).toMatchObject([
+    { ref: "example/alpha:src/index.ts", snippet: "good" },
+  ])
+  expect(structural.structuredContent?.skipped).toContainEqual({
+    repository: "example/alpha",
+    reason: "failed",
+  })
+  const symbol = await callTool({
+    name: "find_symbol",
+    arguments: {
+      org: seed.orgSlug,
+      symbol: "charge",
+      relation: "definition",
+      excludeRepositories: [],
+    },
+  })
+  expect(symbol.isError).not.toBe(true)
+  expect(symbol.structuredContent?.results).toMatchObject([{ name: "charge" }])
+  expect(symbol.structuredContent?.skipped).toContainEqual({
+    repository: "example/alpha",
+    reason: "failed",
+  })
+})
+
+it("pages search_code and find_symbol with a cursor", async () => {
+  server.use(
+    http.post("http://codesearch.test/search", () =>
+      HttpResponse.json({
+        Result: {
+          Files: [
+            {
+              FileName: "src/index.ts",
+              RepositoryID: zoektRepoId,
+              LineMatches: Array.from({ length: 5 }, (_, index) => ({
+                LineNumber: index + 1,
+                Line: Buffer.from(`charge(${index})`).toString("base64"),
+              })),
+            },
+          ],
+        },
+      }),
+    ),
+    http.post(
+      "http://codesearch.test/:repository/graph",
+      async ({ request }) => {
+        const { limit } = (await request.json()) as { limit: number }
+        return HttpResponse.json({
+          ok: true,
+          results: Array.from({ length: Math.min(5, limit) }, (_, index) => ({
+            symbol: `scip charge${index}().`,
+            symbol_name: `charge${index}`,
+            kind: "function",
+            file_path: `/cache/${seed.orgId}/${repositoryId}/checkouts/default/src/index.ts`,
+            range: { start_line: index, end_line: index },
+          })),
+        })
+      },
+    ),
+  )
+  const walk = async (
+    name: string,
+    args: Record<string, unknown>,
+    key: string,
+  ) => {
+    const seen: unknown[] = []
+    let cursor: unknown
+    for (let page = 0; page < 5; page++) {
+      const result = await callTool({
+        name,
+        arguments: {
+          org: seed.orgSlug,
+          excludeRepositories: [],
+          limit: 2,
+          ...args,
+          ...(cursor ? { cursor } : {}),
+        },
+      })
+      expect(result.isError).not.toBe(true)
+      const rows = result.structuredContent?.results as Array<
+        Record<string, unknown>
+      >
+      seen.push(...rows.map((row) => row[key]))
+      cursor = result.structuredContent?.cursor
+      if (!cursor) break
+    }
+    return seen
+  }
+  expect(
+    await walk("search_code", { query: "charge", mode: "literal" }, "snippet"),
+  ).toEqual(["charge(0)", "charge(1)", "charge(2)", "charge(3)", "charge(4)"])
+  expect(
+    await walk(
+      "find_symbol",
+      { symbol: "charge", relation: "definition" },
+      "name",
+    ),
+  ).toEqual(["charge0", "charge1", "charge2", "charge3", "charge4"])
+
+  const first = await callTool({
+    name: "search_code",
+    arguments: {
+      org: seed.orgSlug,
+      excludeRepositories: [],
+      limit: 2,
+      query: "charge",
+      mode: "literal",
+    },
+  })
+  const other = await callTool({
+    name: "search_code",
+    arguments: {
+      org: seed.orgSlug,
+      excludeRepositories: [],
+      limit: 2,
+      query: "different",
+      mode: "literal",
+      cursor: first.structuredContent?.cursor,
+    },
+  })
+  expect(other._meta?.["ai.ctxpipe/error"]).toMatchObject({
+    code: "invalid_cursor",
+  })
+})
+
+it("takes a search_code ref as the filePath of find_symbol", async () => {
+  requests = []
+  server.use(
+    http.post(
+      "http://codesearch.test/:repository/graph",
+      async ({ request }) => {
+        requests.push((await request.json()) as Record<string, unknown>)
+        return HttpResponse.json({ ok: true, results: [] })
+      },
+    ),
+  )
+  const result = await callTool({
+    name: "find_symbol",
+    arguments: {
+      org: seed.orgSlug,
+      symbol: "charge",
+      relation: "definition",
+      excludeRepositories: [],
+      filePath: "example/alpha:src/index.ts",
+    },
+  })
+  expect(result.isError).not.toBe(true)
+  expect(requests).toEqual([
+    {
+      primitive: "find_symbol",
+      symbol: "charge",
+      filePath: "src/index.ts",
+      limit: 21,
+    },
+  ])
+  expect(result.structuredContent?.skipped).toEqual([])
+})
+
+it("describes every input of the code tools", async () => {
+  const { tools } = await client.listTools()
+  for (const name of ["search_code", "find_symbol"]) {
+    const properties = tools.find((tool) => tool.name === name)?.inputSchema
+      .properties as Record<string, { description?: string }>
+    for (const [key, schema] of Object.entries(properties)) {
+      expect(schema.description, `${name}.${key}`).toBeTruthy()
+    }
+  }
 })

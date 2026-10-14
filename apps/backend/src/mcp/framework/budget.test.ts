@@ -83,9 +83,7 @@ describe("fitPage", () => {
       result: (fitted) => ({ content: fitted.join("\n") }),
     })
     expect(page.truncated).toBe(true)
-    expect(() =>
-      toolSuccess({ content: page.page.join("\n") }),
-    ).not.toThrow()
+    expect(() => toolSuccess({ content: page.page.join("\n") })).not.toThrow()
   })
 
   it("cuts one item that cannot fit and says so", () => {
