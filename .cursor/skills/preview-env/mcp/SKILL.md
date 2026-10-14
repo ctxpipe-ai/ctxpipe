@@ -25,7 +25,7 @@ disable-model-invocation: true
 1. `npx ctxpipe doctor mcp --url "$BASE_URL/mcp"` (reachability and OAuth metadata only; it does not list tools).
 
 **Expect (UI)** none.
-**Expect (backend)** exit code 0 with reachable plus metadata; a connection error is a FAIL.
+**Expect (backend)** exit code 0 with reachable plus metadata; a connection error is a FAIL. The output does not name `ctx_advisor`; where it points to a next step, it names the read tools (`tools/list`, `list_workspaces`, `search_knowledge`).
 **Budget** 10 s / 30 s.
 **Evidence** the command output.
 
@@ -84,5 +84,5 @@ disable-model-invocation: true
 ## Status
 
 - **PASS** MCP-1 to MCP-6 `PASS` (MCP-4 OAuth path may `SKIP(needs-human)`).
-- **FAIL** doctor or metadata down, `tools/list` missing a read tool, listing `ctx_advisor` or another tool, a read tool that returns no hit for a file that the hydrated Workspace holds, a call that starts a sandbox or creates a conversation, a revoked key still accepted, or any cross-tenant read.
+- **FAIL** doctor or metadata down, doctor output that names `ctx_advisor`, `tools/list` missing a read tool, listing `ctx_advisor` or another tool, a read tool that returns no hit for a file that the hydrated Workspace holds, a call that starts a sandbox or creates a conversation, a revoked key still accepted, or any cross-tenant read.
 - Device login (`npx ctxpipe auth login --base-url`) is optional setup auth, not MCP OAuth.
