@@ -1,14 +1,14 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js"
-import { withOrgIdContext } from "../../auth/withAuth.js"
+import { z } from "zod"
 import { getLogger } from "../../observability/logger.js"
 import {
   McpToolError,
   type McpToolErrorCode,
 } from "../framework/tool-errors.js"
-import { withCallOrg } from "../framework/tool-registry.js"
-import { readFileByRef } from "../tools/read-file.js"
+import { orgArgument, withCallOrg } from "../framework/tool-registry.js"
+import { readFileByRef, readFileInputShape } from "../tools/read-file.js"
 
 /**
  * The resource template for @-mention (ADR-051 §4): a ref of `read_file`
@@ -17,20 +17,7 @@ import { readFileByRef } from "../tools/read-file.js"
  */
 export const WORKSPACE_FILE_URI_TEMPLATE = "ctxpipe://{org}/{workspace}/{+ref}"
 
-/** The URI of a ref, for a client that builds a mention link. */
-export function workspaceFileUri(
-  org: string,
-  workspace: string,
-  ref: string,
-): string {
-  const encoded = ref
-    .split("/")
-    .map((segment) => encodeURIComponent(segment).replace(/%3A/gi, ":"))
-    .join("/")
-  return `ctxpipe://${org}/${workspace}/${encoded}`
-}
-
-/** Not found for the three things the URI names: org, Workspace, and file. */
+/** Not found for the four things the URI can name: org, Workspace, repository, and file. */
 const NOT_FOUND: ReadonlySet<McpToolErrorCode> = new Set([
   "org_not_found",
   "workspace_not_found",
@@ -75,6 +62,7 @@ function variable(value: string | string[] | undefined, name: string): string {
  * `read_file`: the same ref rules, the same line and size limits, and the
  * same org check. The org comes from the URI and must be in the orgs of the
  * connection; the read runs in the RLS context of that org.
+ * A resource read returns the first page only; page with the `read_file` tool.
  */
 export function registerWorkspaceFileResource(server: McpServer): void {
   server.registerResource(
@@ -87,14 +75,23 @@ export function registerWorkspaceFileResource(server: McpServer): void {
     },
     async (uri, variables) => {
       try {
-        const org = variable(variables.org, "org")
-        const workspace = variable(variables.workspace, "workspace")
-        const ref = variable(variables.ref, "ref")
-        const file = await withCallOrg(org, async (callOrg) => {
-          if (!callOrg) throw new Error("A resource read names an org")
-          return withOrgIdContext(callOrg, () =>
-            readFileByRef(callOrg, { workspace, ref }),
+        const rawInput = {
+          org: variable(variables.org, "org"),
+          workspace: variable(variables.workspace, "workspace"),
+          ref: variable(variables.ref, "ref"),
+        }
+        const parsed = z
+          .object({ org: orgArgument, ...readFileInputShape })
+          .safeParse(rawInput)
+        if (!parsed.success) {
+          throw new McpToolError(
+            "invalid_ref",
+            "The resource URI is not valid.",
           )
+        }
+        const { org, ...input } = parsed.data
+        const file = await withCallOrg(org, async (callOrg) => {
+          return readFileByRef(callOrg, input)
         })
         return {
           contents: [

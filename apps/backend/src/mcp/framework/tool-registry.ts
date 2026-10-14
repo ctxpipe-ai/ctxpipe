@@ -79,10 +79,18 @@ function principalKey(): string {
 /**
  * The steps that every read call shares: the in-flight limit of the
  * principal, then the org that `slug` names (null when there is no `slug`),
- * with its attribution. `fn` runs in the RLS context that the caller sets
- * with `withOrgIdContext`. A read tool and a resource read both use it, so
- * both enforce the same org isolation.
+ * with its attribution. `fn` runs in the RLS context of the resolved org.
+ * A read tool and a resource read both use it, so both enforce the same org
+ * isolation.
  */
+export function withCallOrg<T>(
+  slug: string,
+  fn: (org: CallOrg) => Promise<T>,
+): Promise<T>
+export function withCallOrg<T>(
+  slug: undefined,
+  fn: (org: null) => Promise<T>,
+): Promise<T>
 export function withCallOrg<T>(
   slug: string | undefined,
   fn: (org: CallOrg | null) => Promise<T>,
@@ -96,7 +104,7 @@ export function withCallOrg<T>(
         "ctxpipe.org.slug": org.slug,
       })
     }
-    return fn(org)
+    return org ? withOrgIdContext(org, () => fn(org)) : fn(org)
   })
 }
 
@@ -123,9 +131,7 @@ export function defineMcpReadTool<
       const output = await withCallOrg(slug, async (org) => {
         const input = args as ToolInput<Shape, Mode>
         const context = { org } as ToolContext<Mode>
-        return org
-          ? withOrgIdContext(org, () => definition.run(input, context))
-          : definition.run(input, context)
+        return definition.run(input, context)
       })
       return toolSuccess(output as Record<string, unknown>)
     } catch (error) {

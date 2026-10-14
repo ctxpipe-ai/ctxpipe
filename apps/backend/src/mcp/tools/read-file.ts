@@ -120,7 +120,7 @@ function splitLines(text: string): string[] {
   return lines
 }
 
-const readFileInputShape = {
+export const readFileInputShape = {
   workspace: workspaceArgument
     .optional()
     .describe(
@@ -212,7 +212,7 @@ export async function readFileByRef(
   if (text === null) {
     throw new McpToolError(
       "unknown_ref",
-      `No file "${input.ref}". Use a ref from a result or from list_files.`,
+      `No file "${input.ref.slice(0, 200)}". Use a ref from a result or from list_files.`,
     )
   }
   // File lines: the first line of the text is line `lineOffset + 1`. Lines
