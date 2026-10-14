@@ -2,10 +2,10 @@ import type { OpenAPIHono } from "@hono/zod-openapi"
 import type { Context, MiddlewareHandler } from "hono"
 import type { AppEnv } from "../app/env.js"
 import {
-  hasDotSegment,
   INGEST_EGRESS_PATH,
   ingestEgressProxy,
 } from "../domain/workspaces/ingest-egress-proxy.js"
+import { hostedIngestEgressEnabled } from "../domain/workspaces/ingest-sandbox-egress.js"
 import {
   vercelCredentials,
   vercelOidcIssuer,
@@ -20,9 +20,14 @@ const forbidden = () => new Response("Forbidden", { status: 403 })
  * `Authorization` or `x-api-key`). The runtime resolves dot segments in the
  * URL before routing, so such a request could leave the egress path and
  * reach another route. This refuses each request with a sandbox proxy
- * header outside the egress path, or with a dot segment in its path.
+ * header outside the egress path. When the egress route is not mounted, it
+ * refuses each such request, so none falls through to the UI catch-all.
+ * The URL parser has already resolved dot segments, so the path check sees
+ * the path that the router uses.
  */
-export function sandboxEgressGuard(): MiddlewareHandler {
+export function sandboxEgressGuard(
+  mounted: () => boolean = hostedIngestEgressEnabled,
+): MiddlewareHandler {
   return async (c, next) => {
     const headers = c.req.raw.headers
     const fromSandbox =
@@ -30,10 +35,7 @@ export function sandboxEgressGuard(): MiddlewareHandler {
       [...headers.keys()].some((name) => name.startsWith("vercel-forwarded-"))
     if (fromSandbox) {
       const { pathname } = new URL(c.req.raw.url)
-      if (
-        !pathname.startsWith(`${INGEST_EGRESS_PATH}/`) ||
-        hasDotSegment(pathname)
-      ) {
+      if (!mounted() || !pathname.startsWith(`${INGEST_EGRESS_PATH}/`)) {
         log.warn({
           step: "ingest-egress-refused",
           message: "A sandbox-forwarded request is outside the egress path",

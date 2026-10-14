@@ -446,6 +446,69 @@ describe("conversationFirewall", () => {
     await firewall.closeTurn(handle.id)
   })
 
+  it("stops the new sandbox and revokes its token when the policy attach fails, then rethrows", async () => {
+    server.use(...vercelApi)
+    const stopped: string[] = []
+    server.use(
+      http.post("https://vercel.com/api/v2/sandboxes", () =>
+        HttpResponse.json({
+          sandbox: sandboxJson("sbx-attach-fail"),
+          session: sessionJson,
+          routes: [],
+        }),
+      ),
+      http.post(
+        "https://vercel.com/api/v2/sandboxes/sessions/:id/stop",
+        ({ params }) => {
+          stopped.push(String(params.id))
+          return HttpResponse.json({
+            session: { ...sessionJson, status: "stopped" },
+          })
+        },
+      ),
+    )
+    failure = "fail"
+    const revoked: string[] = []
+    const puts: string[] = []
+    const provider = vercelConversationProvider({
+      credentials,
+      agentPassword: "password",
+      access: {
+        // An ingest policy applies at attach, which the failing API refuses.
+        firewall: conversationFirewall("app.example.test", (input) =>
+          ingestNetworkPolicy({
+            git: [{ token: input.gitToken, repositories: ["acme/source"] }],
+            backendHost: "app.example.test",
+            secret: "egress-test-secret-0123456789abcdef",
+            ...(input.sandboxName ? { sandboxName: input.sandboxName } : {}),
+          }),
+        ),
+        mintGitToken: async () => "git-orphan",
+        revokeGitToken: async (token) => {
+          revoked.push(token)
+        },
+        tokens: {
+          get: async () => null,
+          put: async (id) => {
+            puts.push(id)
+          },
+          take: async () => null,
+        },
+      },
+      tags: {},
+      base: async () => ({ failed: async () => undefined }),
+      agentSnapshot: async () => "snap_agent",
+    })
+    await expect(
+      provider.create({
+        workspace: { source: { type: "none" } },
+      } as Parameters<typeof provider.create>[0]),
+    ).rejects.toThrow()
+    expect(stopped).toEqual(["ses_1"])
+    expect(revoked).toEqual(["git-orphan"])
+    expect(puts).toEqual([])
+  })
+
   it("refuses a turn on a sandbox that this process did not create or resume", async () => {
     const firewall = conversationFirewall("app.example.test")
     await expect(firewall.openTurn("sbx-unknown", turn)).rejects.toThrow(

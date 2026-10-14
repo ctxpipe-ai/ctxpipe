@@ -2,7 +2,10 @@ import type { NetworkPolicy } from "@vercel/sandbox"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { INGEST_SHARD_LIMIT_MS } from "./chat-lifecycle.js"
 import { openIngestEgressScope } from "./ingest-egress-proxy.js"
-import { ingestNetworkPolicy } from "./ingest-sandbox-egress.js"
+import {
+  hostedIngestEgressEnabled,
+  ingestNetworkPolicy,
+} from "./ingest-sandbox-egress.js"
 import { hostedNetworkPolicy } from "./vercel-sandbox-provider.js"
 
 type Rule = { match?: unknown; transform?: unknown; forwardURL?: string }
@@ -90,5 +93,25 @@ describe("ingestNetworkPolicy", () => {
   it("leaves the chat policy open", () => {
     const policy = hostedNetworkPolicy({ gitToken: "git-1", backendHost })
     expect(allowOf(policy)["*"]).toEqual([])
+  })
+})
+
+describe("hostedIngestEgressEnabled", () => {
+  const configured = {
+    VERCEL_TOKEN: "t",
+    VERCEL_TEAM_ID: "egress-team",
+    VERCEL_PROJECT_ID: "prj_test",
+  }
+  it("needs the proven flag, a configured Vercel and a known issuer", () => {
+    expect(hostedIngestEgressEnabled(configured, true)).toBe(true)
+    expect(hostedIngestEgressEnabled(configured, false)).toBe(false)
+    expect(hostedIngestEgressEnabled({}, true)).toBe(false)
+    // A team id (not a slug) gives no issuer.
+    expect(
+      hostedIngestEgressEnabled(
+        { ...configured, VERCEL_TEAM_ID: "team_x" },
+        true,
+      ),
+    ).toBe(false)
   })
 })

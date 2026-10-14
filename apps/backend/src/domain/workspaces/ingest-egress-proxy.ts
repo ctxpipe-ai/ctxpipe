@@ -158,7 +158,7 @@ function forwardedHeaders(source: Headers): Headers {
  * parser resolves them, so the path that a check sees and the path that
  * the upstream gets can differ.
  */
-export function hasDotSegment(path: string): boolean {
+function hasDotSegment(path: string): boolean {
   const pathname = path.split("?")[0] ?? ""
   return pathname.split("/").some((segment) => {
     const dots = segment.replace(/%2e/gi, ".")
@@ -221,10 +221,7 @@ export async function ingestEgressProxy(input: {
   vercel: () => Promise<{ teamId: string; projectId: string }>
 }): Promise<Response> {
   const forwardedPath = input.request.headers.get("vercel-forwarded-path")
-  if (
-    hasDotSegment(new URL(input.request.url).pathname) ||
-    (forwardedPath !== null && hasDotSegment(forwardedPath))
-  )
+  if (forwardedPath !== null && hasDotSegment(forwardedPath))
     return refuse("a dot segment in the path")
   if (
     unverifiedIssuer(input.request.headers.get(OIDC_TOKEN_HEADER)) !==

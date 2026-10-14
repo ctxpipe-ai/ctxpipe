@@ -107,7 +107,10 @@ function egressApp() {
     AUTH_BASE_URL: `https://${backendHost}`,
   })
   const app = new OpenAPIHono<AppEnv>()
-  app.use("*", sandboxEgressGuard())
+  app.use(
+    "*",
+    sandboxEgressGuard(() => true),
+  )
   app.use("*", async (c, next) => {
     c.set("env", env)
     await next()
@@ -443,6 +446,26 @@ describe("the ingest egress proxy route", () => {
       expect(response.status, name).toBe(403)
     }
     expect(outbound).toEqual([])
+  })
+
+  it("refuses a forwarded request with a 403 when the egress route is not mounted", async () => {
+    const app = new OpenAPIHono<AppEnv>()
+    app.use(
+      "*",
+      sandboxEgressGuard(() => false),
+    )
+    app.all("*", (c) => c.text("ui catch-all"))
+    for (const name of ["vercel-sandbox-oidc-token", "vercel-forwarded-host"]) {
+      for (const path of ["/", `/api/v1/sandbox-egress/x/y`]) {
+        const response = await app.request(`http://127.0.0.1:3000${path}`, {
+          headers: { [name]: "x" },
+        })
+        expect(response.status, `${name} ${path}`).toBe(403)
+      }
+    }
+    // A request without sandbox headers still reaches the app.
+    const plain = await app.request("http://127.0.0.1:3000/")
+    expect(await plain.text()).toBe("ui catch-all")
   })
 
   it("refuses a forwarded path with a dot segment, raw or encoded", async () => {

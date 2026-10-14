@@ -11,12 +11,8 @@ import type { ContentfulStatusCode } from "hono/utils/http-status"
 import { getAuth } from "../auth/config.js"
 import { parseEnv } from "../config/env.js"
 import { initDb } from "../db/client.js"
-import { VERCEL_INGEST_EGRESS_PROVEN } from "../domain/workspaces/ingest-sandbox-egress.js"
+import { hostedIngestEgressEnabled } from "../domain/workspaces/ingest-sandbox-egress.js"
 import { httpWideEventMessage } from "../domain/workspaces/opencode-chat-stream.js"
-import {
-  vercelConfigured,
-  vercelOidcIssuer,
-} from "../domain/workspaces/vercel-sandbox-provider.js"
 import { backendOtelMiddleware } from "../observability/http.js"
 import { log } from "../observability/logger.js"
 import { registerAuthRoutes } from "../routes/auth.js"
@@ -164,8 +160,7 @@ export function createApp() {
   registerWebhookRoutes(app)
 
   // Hosted ingest sandbox egress (no session auth; Vercel OIDC and a sealed scope)
-  if (VERCEL_INGEST_EGRESS_PROVEN && vercelConfigured() && vercelOidcIssuer())
-    registerSandboxEgressRoute(app)
+  if (hostedIngestEgressEnabled()) registerSandboxEgressRoute(app)
 
   // /:orgSlug/api/v1 routes
   const v1 = registerV1Routes(app)

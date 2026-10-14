@@ -40,7 +40,9 @@ import {
   type HostedPolicyInput,
   type HostedTurnCredentials,
   type VercelCredentials,
+  vercelConfigured,
   vercelConversationProvider,
+  vercelOidcIssuer,
 } from "./vercel-sandbox-provider.js"
 
 /**
@@ -49,6 +51,18 @@ import {
  * `vercelIngestSandboxProvider` refuses to start.
  */
 export const VERCEL_INGEST_EGRESS_PROVEN = false
+
+/**
+ * Whether hosted ingest egress is on: the egress route is mounted and ingest
+ * sandboxes may start. One predicate for both, so a sandbox never starts
+ * without the route that serves it.
+ */
+export function hostedIngestEgressEnabled(
+  env: NodeJS.ProcessEnv = process.env,
+  proven: boolean = VERCEL_INGEST_EGRESS_PROVEN,
+): boolean {
+  return proven && vercelConfigured(env) && Boolean(vercelOidcIssuer(env))
+}
 
 /** A repository that an ingest shard reads, and its GitHub connection. */
 export type IngestRepository = {
@@ -480,7 +494,7 @@ export function vercelIngestSandboxProvider(input: {
     name: conversation.name,
     capabilities: () => conversation.capabilities(),
     async create(createInput) {
-      if (!VERCEL_INGEST_EGRESS_PROVEN)
+      if (!hostedIngestEgressEnabled())
         throw new Error(
           "Hosted ingest sandboxes wait for the live Vercel egress check (T12)",
         )

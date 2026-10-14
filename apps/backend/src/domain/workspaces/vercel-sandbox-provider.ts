@@ -550,7 +550,17 @@ export function vercelConversationProvider(input: {
           sandbox = await fromAgent()
         }
       } else sandbox = await fromAgent()
-      await access.firewall.attach(sandbox, gitToken)
+      try {
+        await access.firewall.attach(sandbox, gitToken)
+      } catch (error) {
+        // No row holds the token yet: stop the sandbox and revoke it here,
+        // or both stay orphaned.
+        await sandbox.stop().catch(() => undefined)
+        await (access.revokeGitToken ?? revokeGithubToken)(gitToken).catch(
+          () => undefined,
+        )
+        throw error
+      }
       await access.tokens.put(sandbox.name, gitToken)
       return conversationHandle(sandbox, input.agentPassword)
     },
