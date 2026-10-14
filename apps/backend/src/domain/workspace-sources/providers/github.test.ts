@@ -65,7 +65,7 @@ describe("githubSourceScope", () => {
 })
 
 describe("the GitHub migration of linked repositories", () => {
-  it("gives an entry that the GitHub scope accepts", () => {
+  it("gives an entry that the GitHub scope accepts, with a branch as ref", () => {
     const { changes } = planSourceMigration({
       workspaces: [
         {
@@ -73,13 +73,17 @@ describe("the GitHub migration of linked repositories", () => {
           workspaceRepositoryUrl: "https://github.com/acme/knowledge.git",
           githubConnectionId: "con_github1",
           sourcesFile: null,
+          repositoryFiles: [
+            "https://github.com/Acme/Web.git",
+            "git@github.com:acme/api.git",
+            "https://gitlab.example/acme/x",
+          ].map((git, index) => ({
+            path: `repositories/r${index}.md`,
+            content: `---\ngit: ${git}\n${index === 0 ? "branch: release\n" : ""}---\n`,
+          })),
         },
       ],
-      linked: [
-        { workspaceId: "ws_eng", gitUrl: "https://github.com/Acme/Web.git" },
-        { workspaceId: "ws_eng", gitUrl: "git@github.com:acme/api.git" },
-        { workspaceId: "ws_eng", gitUrl: "https://gitlab.example/acme/x" },
-      ],
+      linked: [],
       bindings: [],
     })
     const [change] = changes.get("ws_eng") ?? []
@@ -93,7 +97,11 @@ describe("the GitHub migration of linked repositories", () => {
       }),
     ).toMatchObject({
       ok: true,
-      entry: { scope: { repositories: ["acme/api", "acme/web"] } },
+      entry: {
+        scope: {
+          repositories: ["acme/api", { name: "acme/web", ref: "release" }],
+        },
+      },
     })
   })
 })
