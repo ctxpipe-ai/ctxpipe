@@ -20,7 +20,11 @@ export const workspaceRevisionSchema = z
     defaultBranch: z.string().min(1),
     sha: gitObjectIdSchema,
     access: z.enum(["read", "publish-session", "write-default"]),
-    /** Workspace root folder (CTX-709). Absent in revisions stored before it: the repository root. */
+    /**
+     * Workspace root folder (CTX-709); absent for the repository root. A new
+     * root folder starts a new generation, so the binding check needs no
+     * second comparison.
+     */
     rootPath: workspaceRootPathSchema.optional(),
   })
   .readonly()
@@ -82,8 +86,7 @@ export function sameWorkspaceBinding(
     a.generation === b.generation &&
     a.remote.url === b.remote.url &&
     a.remote.connectionId === b.remote.connectionId &&
-    a.defaultBranch === b.defaultBranch &&
-    (a.rootPath ?? "") === (b.rootPath ?? "")
+    a.defaultBranch === b.defaultBranch
   )
 }
 

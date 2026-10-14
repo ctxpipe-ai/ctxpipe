@@ -76,6 +76,7 @@ import {
   maskCredentialsDeep,
 } from "./mask-credentials.js"
 import { type WorkspaceRevision, workspaceRevisionSchema } from "./revision.js"
+import { workspaceRootPath } from "./root-path.js"
 import { recordedRunGitToken, revokeRunGitTokens } from "./run-git-tokens.js"
 import { modelProxyCredentialRules } from "./sandbox-credential-rules.js"
 import { postgresSandboxInstanceStore } from "./sandbox-instance-store.js"
@@ -185,6 +186,8 @@ export type TanstackWorkspaceChatInput = {
   desiredGeneration?: number
   githubConnectionId?: string | null
   defaultBranch?: string
+  /** Workspace root folder; absent for the repository root. */
+  rootPath?: string
   lastBranch?: string | null
   ref?: string
   writeStatus: string
@@ -901,10 +904,25 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
           })
         },
         onConfig(_ctx, config) {
-          if (!revisionConflict) return
+          const rootPath = workspaceRootPath(built.revision)
+          // The push refuses a change outside the root folder; this tells the agent first.
+          const rootPrompts = rootPath
+            ? [
+                JSON.stringify({
+                  type: "workspace_root_folder",
+                  rootPath,
+                  instructions: `The Workspace is the folder ${rootPath}/ of this repository. Read and change files only below it. Do not change, add, or delete a file outside it: ctx| refuses to push such a commit.`,
+                }),
+              ]
+            : []
+          if (!revisionConflict)
+            return rootPrompts.length
+              ? { systemPrompts: [...config.systemPrompts, ...rootPrompts] }
+              : undefined
           return {
             systemPrompts: [
               ...config.systemPrompts,
+              ...rootPrompts,
               JSON.stringify({
                 type: "workspace_revision_conflict",
                 effectiveSha: revisionConflict.sha,
@@ -1140,6 +1158,7 @@ async function buildWorkspaceChatSandbox(
     generation: input.desiredGeneration ?? 1,
     defaultBranch: input.defaultBranch ?? "main",
     access: "read",
+    ...(input.rootPath ? { rootPath: input.rootPath } : {}),
   })
   if (!revision.success) {
     return {

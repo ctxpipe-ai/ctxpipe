@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest"
-import {
-  sameWorkspaceBinding,
-  type WorkspaceRevision,
-  workspaceRevisionSchema,
-} from "./revision.js"
+import { type WorkspaceRevision, workspaceRevisionSchema } from "./revision.js"
 
 const revision: WorkspaceRevision = {
   workspaceId: "ws_alpha",
@@ -16,18 +12,11 @@ const revision: WorkspaceRevision = {
 
 describe("workspace revision root folder", () => {
   it("reads a stored revision without a root folder as the repository root", () => {
+    expect(workspaceRevisionSchema.parse(revision).rootPath).toBeUndefined()
     expect(
-      sameWorkspaceBinding(workspaceRevisionSchema.parse(revision), {
-        ...revision,
-        rootPath: "",
-      }),
-    ).toBe(true)
-  })
-
-  it("is another binding when the root folder differs", () => {
-    expect(
-      sameWorkspaceBinding(revision, { ...revision, rootPath: "docs/context" }),
-    ).toBe(false)
+      workspaceRevisionSchema.parse({ ...revision, rootPath: "docs/context/" })
+        .rootPath,
+    ).toBe("docs/context")
   })
 
   it("rejects an unsafe root folder", () => {

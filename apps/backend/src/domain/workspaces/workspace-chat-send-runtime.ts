@@ -46,6 +46,7 @@ export async function resolveWorkspaceChatSendRuntime(input: {
     lastBranch: runtime.lastBranch,
     ref: runtime.cloneRef || runtime.desiredSha || "HEAD",
     githubConnectionId: runtime.githubConnectionId,
+    rootPath: workspace?.rootPath ?? "",
   }
 }
 
