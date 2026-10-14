@@ -51,6 +51,7 @@ export function currentStep(root) {
     baseCommit,
     stepDir,
     contextDir: join(root, "context", workspaceId),
+    indexFile: join(root, "context", `${workspaceId}.index.json`),
     filesDir: join(stepDir, "files"),
     deletesFile: join(stepDir, "deletes.json"),
     stagedFile: join(stepDir, "staged.json"),
@@ -153,4 +154,29 @@ export function stagedPaths(step) {
   }
   walk(step.filesDir, "")
   return paths
+}
+
+/** Write patch.json for the staged tree and the recorded deletes; returns the ops. */
+export function writePatch(step) {
+  const recorded = readStaged(step)
+  const ops = []
+  const staged = new Set(stagedPaths(step))
+  for (const path of staged) {
+    const blob = path in recorded ? recorded[path] : baseBlob(step, path)
+    if (!blob) ops.push({ op: "create", path })
+    else if (contentBlob(step, stagedFile(step, path)) !== blob)
+      ops.push({ op: "update", path, baseBlob: blob })
+  }
+  for (const [path, entry] of Object.entries(readDeletes(step))) {
+    if (staged.has(path)) fail(`${path} is both staged and deleted`)
+    ops.push({
+      op: "delete",
+      path,
+      baseBlob: entry.baseBlob,
+      reason: entry.reason,
+    })
+  }
+  ops.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
+  writeJson(join(step.stepDir, "patch.json"), { ops })
+  return ops
 }

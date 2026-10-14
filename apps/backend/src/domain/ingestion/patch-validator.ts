@@ -578,7 +578,7 @@ async function checkFullWrite(
     bundle: context.bundle,
   }
   return {
-    output: `---\n${stringify(stamped)}---\n${front.body}`,
+    output: `---\n${stringify(stamped, { lineWidth: 0 })}---\n${front.body}`,
     links: markdownLinks(front.body),
     claimTargets: claims.map((c) => c.to),
   }
@@ -657,7 +657,7 @@ async function checkAdditiveWrite(
     if (!document.has("claims")) document.set("claims", document.createNode([]))
     const seq = document.get("claims", true) as YAMLSeq
     for (const claim of added) seq.add(document.createNode(stampClaim(claim)))
-    header = `---\n${document.toString()}---\n`
+    header = `---\n${document.toString({ lineWidth: 0 })}---\n`
   }
   return {
     output: `${header}${newFront.body}`,
