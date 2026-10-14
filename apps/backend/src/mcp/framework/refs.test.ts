@@ -31,6 +31,28 @@ describe("parseRef", () => {
     ).toMatchObject({ kind: "file", handle: "gitlab.example.com/example/api" })
   })
 
+  it("reads the host/owner/name form of a short handle as that repository", () => {
+    expect(
+      parseRef("github.com/example/payments-api:src/limits.ts", handles),
+    ).toMatchObject({
+      kind: "file",
+      handle: "example/payments-api",
+      path: "src/limits.ts",
+    })
+  })
+
+  it("matches a handle in another letter case", () => {
+    expect(
+      parseRef("Example/Payments-API:src/limits.ts", handles),
+    ).toMatchObject({ kind: "file", handle: "example/payments-api" })
+  })
+
+  it("refuses a short handle that names two repositories", () => {
+    expect(() => parseRef("example/api:README.md", handles)).toThrowError(
+      expect.objectContaining({ code: "ambiguous_repository" }),
+    )
+  })
+
   it("matches the longest handle prefix first", () => {
     const nested = RepositoryHandles.from([
       "https://gitlab.example.com/group/app",
@@ -59,6 +81,38 @@ describe("parseRef", () => {
     expect(parseRef("example/payments-api:docs/a:b.md", handles)).toMatchObject(
       { kind: "file", path: "docs/a:b.md" },
     )
+  })
+
+  it("reads a prefix as a repository only when the Workspace links it", () => {
+    const linked = new Set(["example/api"])
+    expect(
+      parseRef("example/payments-api:src/limits.ts", handles, linked),
+    ).toEqual({ kind: "unit", path: "example/payments-api:src/limits.ts" })
+    expect(
+      parseRef("gitlab.example.com/example/api:README.md", handles, new Set()),
+    ).toMatchObject({ kind: "unit" })
+    expect(
+      parseRef(
+        "example/payments-api:src/limits.ts",
+        handles,
+        new Set(["example/payments-api"]),
+      ),
+    ).toMatchObject({ kind: "file", handle: "example/payments-api" })
+  })
+
+  it.each([
+    "example/payments-api:.git/config",
+    "example/payments-api:src/.GIT/hooks/x",
+  ])("refuses a .git segment in the file ref %j", (ref) => {
+    expect(() => parseRef(ref, handles)).toThrowError(
+      expect.objectContaining({ code: "invalid_ref" }),
+    )
+  })
+
+  it("keeps a .git segment in a unit path", () => {
+    expect(parseRef("notes/.git/readme.md", handles)).toMatchObject({
+      kind: "unit",
+    })
   })
 
   it.each([
