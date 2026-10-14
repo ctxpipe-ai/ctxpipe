@@ -1,46 +1,48 @@
 #!/usr/bin/env node
-// dependencies, step 1: find the candidate dependencies of one root (HTTP
-// calls, queue and stream clients, config readers) with the ast-grep rules
-// of this skill. No model runs here. The model resolves the candidates to
-// services and streams, and apply.mjs writes the files.
+// dependencies, step 1: find the candidate dependencies (HTTP calls, queue
+// and stream clients, config readers) with the ast-grep rules of this skill.
+// No model runs here. The model resolves the candidates to services and
+// streams, and apply.mjs writes the files.
 //
-// node scan.mjs --source /ctxpipe/source/<handle> --path <root path> \
-//   [--roots <root-to-file map>] [--root /ctxpipe]
+// node scan.mjs --root /ctxpipe --source /ctxpipe/source/<handle> \
+//   --source-url <url> --roots <root-to-file map> [--path <root path>]
+//
+// With --path (a root step): the candidates of that root. Without --path
+// (the repository-wide step): for each root of the map, the candidates that
+// are not HTTP calls, because only the repository-wide step writes the
+// Stream files that more than one root can share (ADR-052 section 6).
 
-import { readFileSync } from "node:fs"
-import { currentStep, fail, parseArgs } from "../../bin/stage-lib.mjs"
-import { safePath } from "../../discover-roots/scripts/roots-lib.mjs"
+import { scriptStep } from "../../bin/knowledge-lib.mjs"
 import { scan } from "./scan-lib.mjs"
 
-const { root, args } = parseArgs()
-const value = (name) => {
-  const at = args.indexOf(name)
-  return at === -1 ? null : (args[at + 1] ?? fail(`Give a value after ${name}`))
+const { source, roots, rootPath, index, skipped } = scriptStep()
+const scanRoot = (root) =>
+  scan({
+    source,
+    path: root.path,
+    otherRoots: roots.map((r) => r.path),
+    index,
+    own: new Set(root.files.map((f) => f.path)),
+  })
+
+if (rootPath !== null) {
+  const current = roots.find((r) => r.path === rootPath) ?? {
+    path: rootPath,
+    files: [],
+  }
+  const result = scanRoot(current)
+  process.stdout.write(
+    `${JSON.stringify({ root: rootPath, ...result, skipped: [...skipped, ...result.skipped] })}\n`,
+  )
+} else {
+  const out = roots.map((root) => {
+    const result = scanRoot(root)
+    return {
+      root: root.path,
+      candidates: result.candidates.filter((c) => c.type !== "http"),
+      skipped: result.skipped,
+      truncated: result.truncated,
+    }
+  })
+  process.stdout.write(`${JSON.stringify({ roots: out, skipped })}\n`)
 }
-const source = value("--source") ?? fail("Give --source <checkout>")
-const path = value("--path") ?? fail("Give --path <root path>")
-if (path !== "." && !safePath(path)) fail(`${path} is not a safe root path`)
-const rootsFile = value("--roots")
-const roots = rootsFile
-  ? (JSON.parse(readFileSync(rootsFile, "utf8")).roots ?? [])
-  : []
-const step = currentStep(root)
-let index = []
-try {
-  index = JSON.parse(readFileSync(step.indexFile, "utf8")).entries ?? []
-} catch {
-  index = []
-}
-const own = new Set(
-  (roots.find((r) => r?.path === path)?.files ?? []).filter(
-    (f) => typeof f === "string",
-  ),
-)
-const result = scan({
-  source,
-  path,
-  otherRoots: roots.map((r) => r?.path).filter((p) => typeof p === "string"),
-  index: Array.isArray(index) ? index : [],
-  own,
-})
-process.stdout.write(`${JSON.stringify({ root: path, ...result })}\n`)
