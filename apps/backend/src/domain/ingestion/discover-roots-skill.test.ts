@@ -32,6 +32,8 @@ function repo(files: Record<string, string>): string {
         GIT_AUTHOR_EMAIL: "fixture@example.com",
         GIT_COMMITTER_NAME: "Fixture",
         GIT_COMMITTER_EMAIL: "fixture@example.com",
+        GIT_CONFIG_GLOBAL: "/dev/null",
+        GIT_CONFIG_NOSYSTEM: "1",
       },
     })
   git("init", "-q", "-b", "main")
@@ -45,15 +47,16 @@ type Result = {
   ambiguous: Array<{
     manifest: string | null
     reason: string
-    candidates: string[]
+    candidates: Array<{ path: string; manifests: string[] }>
   }>
+  skipped: Array<{ manifest: string | null; reason: string }>
 }
 
 function discover(dir: string): Result {
   const run = spawnSync(
     process.execPath,
     [join(INGEST_SKILLS_DIR, "discover-roots/scripts/discover-roots.mjs"), dir],
-    { encoding: "utf8" },
+    { encoding: "utf8", timeout: 20_000 },
   )
   expect(run.status, run.stderr).toBe(0)
   return JSON.parse(run.stdout)
@@ -108,6 +111,7 @@ describe("discover-roots script", () => {
         },
       ],
       ambiguous: [],
+      skipped: [],
     })
   })
 
@@ -165,6 +169,7 @@ describe("discover-roots script", () => {
         },
       ],
       ambiguous: [],
+      skipped: [],
     })
 
     const withRootCrate = repo({
@@ -201,6 +206,7 @@ describe("discover-roots script", () => {
         { path: "gopls", manifests: ["go.mod"], evidence: ["go.work"] },
       ],
       ambiguous: [],
+      skipped: [],
     })
   })
 
@@ -258,6 +264,7 @@ describe("discover-roots script", () => {
     expect(discover(dir)).toEqual({
       roots: [{ path: ".", manifests: ["package.json"], evidence: ["."] }],
       ambiguous: [],
+      skipped: [],
     })
   })
 
@@ -266,6 +273,7 @@ describe("discover-roots script", () => {
     expect(discover(dir)).toEqual({
       roots: [{ path: ".", manifests: [], evidence: ["."] }],
       ambiguous: [],
+      skipped: [],
     })
   })
 
@@ -284,9 +292,13 @@ describe("discover-roots script", () => {
         {
           manifest: null,
           reason: "No workspace manifest names these folders",
-          candidates: ["examples/basic", "services/worker"],
+          candidates: [
+            { path: "examples/basic", manifests: ["package.json"] },
+            { path: "services/worker", manifests: ["go.mod"] },
+          ],
         },
       ],
+      skipped: [],
     })
   })
 
@@ -303,14 +315,15 @@ describe("discover-roots script", () => {
         {
           manifest: "nx.json",
           reason: "nx.json has no project list that the script can read",
-          candidates: ["apps/web"],
+          candidates: [{ path: "apps/web", manifests: ["package.json"] }],
         },
         {
           manifest: "pnpm-workspace.yaml",
           reason: "The script found no package list in the file",
-          candidates: ["apps/web"],
+          candidates: [{ path: "apps/web", manifests: ["package.json"] }],
         },
       ],
+      skipped: [],
     })
   })
 
@@ -328,13 +341,15 @@ describe("discover-roots script", () => {
     expect(result.ambiguous).toEqual([
       {
         manifest: "package.json",
-        reason: "These entries name no folder with package.json: plugins/*",
-        candidates: [],
+        reason: "These entries name no folder with package.json: tools/missing",
+        candidates: [{ path: "tools/missing", manifests: [] }],
       },
+    ])
+    // An entry with no candidate needs no model run.
+    expect(result.skipped).toEqual([
       {
         manifest: "package.json",
-        reason: "These entries name no folder with package.json: tools/missing",
-        candidates: ["tools/missing"],
+        reason: "These entries name no folder with package.json: plugins/*",
       },
     ])
   })
@@ -348,5 +363,145 @@ describe("discover-roots script", () => {
     mkdirSync(join(dir, "apps/untracked"), { recursive: true })
     writeFileSync(join(dir, "apps/untracked/package.json"), pkg("untracked"))
     expect(discover(dir).roots.map((r) => r.path)).toEqual(["apps/web"])
+  })
+
+  it("matches a slow glob from a hostile manifest in well under one second", () => {
+    const deep = `${"a/".repeat(40)}x`
+    const dir = repo({
+      "package.json": pkg("root", {
+        private: true,
+        workspaces: [`${"**/".repeat(12)}leaf`, `${"*/".repeat(30)}y`],
+      }),
+      [`${deep}/package.json`]: pkg("deep"),
+      [`${"a/".repeat(20)}leaf/package.json`]: pkg("leaf"),
+    })
+    const started = performance.now()
+    const result = discover(dir)
+    expect(performance.now() - started).toBeLessThan(1000)
+    expect(result.roots.map((r) => r.path)).toEqual([`${"a/".repeat(20)}leaf`])
+  })
+
+  it("skips an unbalanced brace and a too long or extra entry, and keeps the other entries", () => {
+    const many = Array.from({ length: 600 }, (_, i) => `extra/p${i}`)
+    const dir = repo({
+      "package.json": pkg("root", {
+        private: true,
+        workspaces: [
+          "packages/{a",
+          "tools/b}",
+          `${"x".repeat(250)}/*`,
+          "{apps,libs}/*",
+          ...many,
+        ],
+      }),
+      "apps/web/package.json": pkg("web"),
+      "libs/ui/package.json": pkg("ui"),
+      "packages/a/package.json": pkg("a"),
+    })
+    const result = discover(dir)
+    expect(result.roots.map((r) => r.path)).toEqual(["apps/web", "libs/ui"])
+    expect(result.skipped).toEqual(
+      expect.arrayContaining([
+        {
+          manifest: "package.json",
+          reason: "The script skipped an entry: it has an unbalanced brace",
+        },
+        {
+          manifest: "package.json",
+          reason:
+            "The script skipped an entry: it is longer than 200 characters",
+        },
+        {
+          manifest: "package.json",
+          reason: "The script read only the first 500 entries of the file",
+        },
+      ]),
+    )
+    expect(
+      result.skipped.filter((s) => s.reason.includes("unbalanced")),
+    ).toHaveLength(2)
+  })
+
+  it("does not give a folder whose name has a newline or a backtick", () => {
+    const dir = repo({
+      "package.json": pkg("root", { private: true, workspaces: ["apps/*"] }),
+      "apps/web/package.json": pkg("web"),
+      "apps/bad\n`x/package.json": pkg("bad"),
+    })
+    const result = discover(dir)
+    expect(result.roots.map((r) => r.path)).toEqual(["apps/web"])
+    expect(JSON.stringify(result)).not.toContain("bad")
+    expect(result.skipped).toEqual([
+      {
+        manifest: null,
+        reason:
+          "A folder with a package manifest has a name that the script does not quote",
+      },
+    ])
+  })
+
+  it("finds Rush projects in rush.json, a JSON file with comments", () => {
+    const dir = repo({
+      "rush.json": [
+        "// Rush configuration",
+        "{",
+        '  "$schema": "https://developer.microsoft.com/json-schemas/rush/v5/rush.schema.json",',
+        '  "projects": [',
+        '    { "packageName": "web", "projectFolder": "apps/web" }, /* the app */',
+        '    { "packageName": "lib", "projectFolder": "./libraries/lib/" },',
+        "  ],",
+        "}",
+      ].join("\n"),
+      "apps/web/package.json": pkg("web"),
+      "libraries/lib/package.json": pkg("lib"),
+      "common/scripts/package.json": pkg("scripts"),
+    })
+    const result = discover(dir)
+    expect(result.roots).toEqual([
+      { path: "apps/web", manifests: ["package.json"], evidence: ["rush.json"] },
+      {
+        path: "libraries/lib",
+        manifests: ["package.json"],
+        evidence: ["rush.json"],
+      },
+    ])
+  })
+
+  it("marks a rush.json with no projects as ambiguous", () => {
+    const dir = repo({
+      "rush.json": '{ "rushVersion": "5.0.0" }',
+      "apps/web/package.json": pkg("web"),
+    })
+    expect(discover(dir).ambiguous).toEqual([
+      {
+        manifest: "rush.json",
+        reason: "The script found no project list in the file",
+        candidates: [{ path: "apps/web", manifests: ["package.json"] }],
+      },
+    ])
+  })
+
+  it("finds Deno workspace members in deno.json and deno.jsonc", () => {
+    const json = repo({
+      "deno.json": JSON.stringify({ workspace: ["./add", "./sub/"] }),
+      "add/deno.json": JSON.stringify({ name: "@scope/add" }),
+      "sub/package.json": pkg("sub"),
+    })
+    expect(discover(json).roots).toEqual([
+      { path: "add", manifests: ["deno.json"], evidence: ["deno.json"] },
+      { path: "sub", manifests: ["package.json"], evidence: ["deno.json"] },
+    ])
+    const jsonc = repo({
+      "deno.jsonc":
+        '{\n  // members\n  "workspace": { "members": ["pkgs/*"] },\n}\n',
+      "pkgs/core/deno.jsonc": "{}\n",
+    })
+    expect(discover(jsonc).roots).toEqual([
+      {
+        path: "pkgs/core",
+        manifests: ["deno.jsonc"],
+        evidence: ["deno.jsonc"],
+      },
+    ])
   })
 })
