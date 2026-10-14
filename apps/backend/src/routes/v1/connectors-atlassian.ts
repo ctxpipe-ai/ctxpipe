@@ -86,6 +86,12 @@ const AtlassianInstallationSchema = z
 const registerAtlassianInstallationRoute = createRoute({
   method: "post",
   path: "/installation",
+  request: {
+    query: z.object({
+      /** "true" when the user opens the Forge install from the setup. */
+      installOpened: z.enum(["true"]).optional(),
+    }),
+  },
   responses: {
     200: {
       content: {
@@ -117,7 +123,7 @@ const cancelAtlassianInstallationRoute = createRoute({
   responses: {
     204: {
       description:
-        "The setup was cancelled: the empty pending connection is deleted (idempotent)",
+        "The setup is canceled: the empty pending connection is deleted, or it was already gone",
     },
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -546,6 +552,12 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
       throw error
     }
 
+    // The install event can still bind to this draft, so a cancel keeps it.
+    if (c.req.valid("query").installOpened)
+      await patchForgeConnectionTypedConfig(orgId, row.id, {
+        installOpenedAt: new Date().toISOString(),
+      })
+
     return c.json(
       {
         id: row.id,
@@ -566,8 +578,7 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
     const orgId = c.get("orgId")
     if (!orgId) return c.json({ error: "Unauthorized" }, 401)
     const { connectionId } = c.req.valid("query")
-    const outcome = await deleteEmptyForgeSetupDraft(orgId, connectionId)
-    if (outcome === "kept")
+    if (!(await deleteEmptyForgeSetupDraft(orgId, connectionId)))
       return c.json(
         {
           error:

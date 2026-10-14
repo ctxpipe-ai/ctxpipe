@@ -6,6 +6,7 @@ import { installRelativeFetch } from "../workspaces/relative-fetch-test"
 import {
   type ConnectionUsageResponse,
   connectionUsageOptions,
+  type PendingSourceChange,
   type WorkspaceSourceListResponse,
   workspaceSourcesOptions,
 } from "./queries"
@@ -19,47 +20,47 @@ vi.hoisted(() => {
 const server = setupServer()
 let restoreFetch = () => {}
 
-const pending = {
-  sourceKey: "linear-2",
-  provider: "linear" as const,
-  action: "add" as const,
-  pullRequestUrl: "https://github.com/acme/context/pull/40",
-  createdAt: "2026-10-14T05:31:11Z",
-}
+/**
+ * What the server answers for one read: the pull requests still open, or
+ * after the merge, nothing until the Workspace records the source.
+ */
+type ReadState = { open: number[] } | "merged" | "projected"
 
-/** "Used in" for one read: the open pull request, nothing, or the source. */
-function usage(
-  state: "pending" | "merged" | "projected",
-): ConnectionUsageResponse {
+const pull = (number: number): PendingSourceChange => ({
+  sourceKey: `linear-${number}`,
+  provider: "linear",
+  action: "add",
+  pullRequestUrl: `https://github.com/acme/context/pull/${number}`,
+  createdAt: "2026-10-14T05:31:11Z",
+})
+
+function usage(state: ReadState): ConnectionUsageResponse {
   if (state === "merged") return { items: [] }
+  const projected = state === "projected"
   return {
     items: [
       {
         workspaceId: "ws_context",
         workspaceSlug: "context",
         workspaceName: "context",
-        stat: state === "projected" ? "1 Linear team" : "",
-        sources:
-          state === "projected"
-            ? [
-                {
-                  sourceKey: "linear-2",
-                  provider: "linear",
-                  status: "ok",
-                  scopeSummary: "1 Linear team",
-                },
-              ]
-            : [],
-        pendingChanges: state === "pending" ? [pending] : [],
+        stat: projected ? "1 Linear team" : "",
+        sources: projected
+          ? [
+              {
+                sourceKey: "linear-40",
+                provider: "linear",
+                status: "ok",
+                scopeSummary: "1 Linear team",
+              },
+            ]
+          : [],
+        pendingChanges: projected ? [] : state.open.map(pull),
       },
     ],
   }
 }
 
-/** The Sources list for one read: only the open pull request matters here. */
-function sources(
-  state: "pending" | "merged" | "projected",
-): WorkspaceSourceListResponse {
+function sources(state: ReadState): WorkspaceSourceListResponse {
   return {
     path: ".ctxpipe/sources.yaml",
     revision: null,
@@ -67,8 +68,21 @@ function sources(
     items: [],
     canEdit: true,
     directCommitAllowed: true,
-    pendingChanges: state === "pending" ? [pending] : [],
+    pendingChanges: typeof state === "object" ? state.open.map(pull) : [],
   }
+}
+
+/** One list query and the route that answers it. */
+type ListQuery = {
+  options: ReturnType<typeof connectionUsageOptions>
+  path: string
+  body: (state: ReadState) => object
+}
+
+const usedIn: ListQuery = {
+  options: connectionUsageOptions("acme", "con_linear"),
+  path: "/acme/api/v1/connectors/con_linear/workspaces",
+  body: usage,
 }
 
 describe("refresh after a source pull request merges", () => {
@@ -81,20 +95,10 @@ describe("refresh after a source pull request merges", () => {
     restoreFetch()
   })
 
-  /**
-   * Observes one query. `state(hit)` says what the server answers for each
-   * read: a merge closes the pull request before the Workspace records the
-   * source.
-   */
+  /** Observes one list query. `state(hit)` is the server answer per read. */
   async function observe(
-    options:
-      | ReturnType<typeof connectionUsageOptions>
-      | ReturnType<typeof workspaceSourcesOptions>,
-    path: string,
-    body: (
-      state: "pending" | "merged" | "projected",
-    ) => ConnectionUsageResponse | WorkspaceSourceListResponse,
-    state: (hit: number) => "pending" | "merged" | "projected",
+    list: ListQuery,
+    state: (hit: number) => ReadState,
     run: (probe: {
       hits: () => number
       refetch: () => Promise<unknown>
@@ -102,19 +106,16 @@ describe("refresh after a source pull request merges", () => {
   ) {
     let hits = 0
     server.use(
-      http.get(`http://localhost:3000${path}`, () => {
+      http.get(`http://localhost:3000${list.path}`, () => {
         hits += 1
-        return HttpResponse.json(body(state(hits)))
+        return HttpResponse.json(list.body(state(hits)))
       }),
     )
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] })
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     })
-    const observer = new QueryObserver(
-      queryClient,
-      options as ReturnType<typeof connectionUsageOptions>,
-    )
+    const observer = new QueryObserver(queryClient, list.options)
     const unsubscribe = observer.subscribe(() => {})
     try {
       await vi.waitFor(() => expect(hits).toBe(1))
@@ -128,36 +129,41 @@ describe("refresh after a source pull request merges", () => {
 
   // Read 1: the pull request is open. Read 2 (the user comes back after the
   // merge): neither the pull request nor the source. Read 3 on: the source.
-  const afterMerge = (hit: number) =>
-    hit === 1 ? "pending" : hit === 2 ? "merged" : "projected"
+  const afterMerge = (hit: number): ReadState =>
+    hit === 1 ? { open: [40] } : hit === 2 ? "merged" : "projected"
 
   it("polls Used in until the merged source shows, then stops", async () => {
-    await observe(
-      connectionUsageOptions("acme", "con_linear"),
-      "/acme/api/v1/connectors/con_linear/workspaces",
-      usage,
-      afterMerge,
-      async ({ hits, refetch }) => {
-        await refetch()
-        expect(hits()).toBe(2)
-        await vi.advanceTimersByTimeAsync(5_000)
-        expect(hits()).toBe(3)
+    await observe(usedIn, afterMerge, async ({ hits, refetch }) => {
+      await refetch()
+      expect(hits()).toBe(2)
+      await vi.advanceTimersByTimeAsync(5_000)
+      expect(hits()).toBe(3)
 
-        await vi.advanceTimersByTimeAsync(10 * 60_000)
-        const capped = hits()
-        expect(capped).toBeLessThanOrEqual(26)
-        await vi.advanceTimersByTimeAsync(10 * 60_000)
-        expect(hits()).toBe(capped)
-      },
-    )
+      await vi.advanceTimersByTimeAsync(10 * 60_000)
+      const capped = hits()
+      expect(capped).toBeLessThanOrEqual(39)
+      await vi.advanceTimersByTimeAsync(10 * 60_000)
+      expect(hits()).toBe(capped)
+    })
   })
 
   it("polls the Sources list after a merge too", async () => {
+    const sourcesList = {
+      options: workspaceSourcesOptions("acme", "context"),
+      path: "/acme/api/v1/workspaces/context/sources",
+      body: sources,
+    } as unknown as ListQuery
+    await observe(sourcesList, afterMerge, async ({ hits, refetch }) => {
+      await refetch()
+      await vi.advanceTimersByTimeAsync(5_000)
+      expect(hits()).toBe(3)
+    })
+  })
+
+  it("polls when one of two open pull requests merges", async () => {
     await observe(
-      workspaceSourcesOptions("acme", "context"),
-      "/acme/api/v1/workspaces/context/sources",
-      sources,
-      afterMerge,
+      usedIn,
+      (hit) => (hit === 1 ? { open: [40, 41] } : { open: [41] }),
       async ({ hits, refetch }) => {
         await refetch()
         await vi.advanceTimersByTimeAsync(5_000)
@@ -168,9 +174,7 @@ describe("refresh after a source pull request merges", () => {
 
   it("does not poll a list that had no open pull request", async () => {
     await observe(
-      connectionUsageOptions("acme", "con_linear"),
-      "/acme/api/v1/connectors/con_linear/workspaces",
-      usage,
+      usedIn,
       () => "merged",
       async ({ hits, refetch }) => {
         await refetch()

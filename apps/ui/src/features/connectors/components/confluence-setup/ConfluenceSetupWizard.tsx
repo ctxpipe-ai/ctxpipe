@@ -178,10 +178,10 @@ export function ConfluenceSetupWizard({
           )
       : ("link" as const)
 
-  // Closing a setup before the Forge install was opened deletes its empty
-  // draft, so a cancelled "Add Confluence" leaves no connector entry. The
-  // server keeps a draft with progress. After "Install", the Marketplace can
-  // still bind the install to the draft, so it stays.
+  // Closing the setup asks the server to delete an empty draft, so a
+  // canceled "Add Confluence" leaves no connector entry. The server keeps a
+  // draft with progress, also one whose Forge install the user opened: the
+  // Marketplace can still bind that install to it.
   const cancelSetup = useMutation({
     mutationFn: (connectionId: string) =>
       cancelAtlassianSetup(orgSlug, connectionId),
@@ -191,7 +191,7 @@ export function ConfluenceSetupWizard({
       }),
   })
   const close = () => {
-    if (atlassianConnectionId && !waitForInstall && !status?.isInstalled)
+    if (atlassianConnectionId && !status?.isInstalled)
       cancelSetup.mutate(atlassianConnectionId)
     setWaitForInstall(false)
     setWorkspacesDone(false)

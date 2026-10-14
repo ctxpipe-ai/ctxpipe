@@ -254,8 +254,9 @@ export async function resolveForgeInstallationForOrg(
 
 /**
  * True for a pending Forge draft that only "Add Confluence" created: no
- * Atlassian app, no site, no provisioning and no install. The Atlassian
- * account link belongs to the user, not to the draft, so it does not count.
+ * Atlassian app, no site, no provisioning, no opened install and no install.
+ * The Atlassian account link belongs to the user, not to the draft, so it
+ * does not count.
  */
 export function isEmptyForgeSetupDraft(config: ForgeConnectionConfig): boolean {
   return (
@@ -274,18 +275,21 @@ export function isEmptyForgeSetupDraft(config: ForgeConnectionConfig): boolean {
     !config.forgeOperatorEmail &&
     !config.provisionWorkflowRunId &&
     !config.lastProvisionAt &&
-    !config.sourceSync
+    !config.sourceSync &&
+    !config.installOpenedAt
   )
 }
 
 /**
  * Delete a Forge draft while it is still empty, when the user cancels the
- * setup. A draft with progress stays, so the user can finish or remove it.
+ * setup. Returns false and keeps a draft with progress, so the user can
+ * finish or remove it. The row lock orders the delete with a concurrent
+ * write, such as the install event or a credential save.
  */
 export async function deleteEmptyForgeSetupDraft(
   orgId: string,
   connectionId: string,
-): Promise<"deleted" | "kept" | "missing"> {
+): Promise<boolean> {
   const outcome = await withOrgDbContext(orgId, async (db) => {
     const [row] = await db
       .select()
@@ -297,8 +301,9 @@ export async function deleteEmptyForgeSetupDraft(
           eq(connections.type, CONNECTION_TYPE_FORGE),
         ),
       )
+      .for("update")
       .limit(1)
-    if (!row) return "missing"
+    if (!row) return "gone"
     const config = parseForgeConnectionConfig(
       row.config as Record<string, unknown>,
     )
@@ -307,7 +312,7 @@ export async function deleteEmptyForgeSetupDraft(
     return "deleted"
   })
   if (outcome === "deleted") await deleteConnectionDirectory(connectionId)
-  return outcome
+  return outcome !== "kept"
 }
 
 /** Must run inside {@link withOrgDbContext} for the given `orgId`. */

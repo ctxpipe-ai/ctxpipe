@@ -146,11 +146,14 @@ export async function postForgeProvision(
 
 export async function registerAtlassianInstallIntent(
   orgSlug: string,
+  /** True when the user opens the Forge install: a cancel then keeps the draft. */
+  installOpened = false,
 ): Promise<{ id: string }> {
   const res = await client[
     ":orgSlug"
   ].api.v1.connectors.atlassian.installation.$post({
     param: { orgSlug },
+    query: installOpened ? { installOpened: "true" } : {},
   })
   const json = await readApiJson<{ id: string }>(res, {
     message: "Failed to register install intent",
@@ -160,16 +163,22 @@ export async function registerAtlassianInstallIntent(
 }
 
 /**
- * Cancel a setup that has not started: the server deletes the pending
- * connection only while it is empty (409 otherwise, which is fine here).
+ * Cancel a setup: the server deletes the pending connection only while it is
+ * empty. A 409 means the setup has progress, so it stays.
  */
 export async function cancelAtlassianSetup(
   orgSlug: string,
   atlassianConnectionId: string,
 ): Promise<void> {
-  await client[":orgSlug"].api.v1.connectors.atlassian.installation.$delete({
+  const res = await client[
+    ":orgSlug"
+  ].api.v1.connectors.atlassian.installation.$delete({
     param: { orgSlug },
     query: { connectionId: atlassianConnectionId },
+  })
+  await readApiJson<void>(res, {
+    emptyOn: [409],
+    message: "Failed to cancel the Confluence setup",
   })
 }
 

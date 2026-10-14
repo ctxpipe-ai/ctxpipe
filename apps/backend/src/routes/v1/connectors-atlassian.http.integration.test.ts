@@ -11,12 +11,15 @@ import { seedSourcesOrg } from "../../test/workspace-sources-fixture.js"
 // The routes import the OpenWorkflow client, which reads DATABASE_URL on import.
 let routes: typeof import("./connectors-atlassian.js")
 let seed: Awaited<ReturnType<typeof seedSourcesOrg>>
+// One user per run: the install intent refuses a pending draft of this user
+// in another org.
+const userId = `user_forge_${Date.now()}_${Math.random().toString(36).slice(2)}`
 
 function createApp() {
   const app = new OpenAPIHono<AppEnv>()
   app.use(contextStorage())
   app.use("*", async (c, next) => {
-    c.set("user", { id: "user_test" } as AppEnv["Variables"]["user"])
+    c.set("user", { id: userId } as AppEnv["Variables"]["user"])
     c.set("session", { id: "sess_test" } as AppEnv["Variables"]["session"])
     c.set("orgId", seed.orgId)
     return withOrgIdContext({ id: seed.orgId, slug: seed.orgId }, () =>
@@ -56,7 +59,7 @@ describe("Cancel a Confluence setup (Postgres)", () => {
     const draft = await seed.addConnection("forge", {
       status: "pending",
       provisionStatus: "idle",
-      installedByUserId: "user_test",
+      installedByUserId: userId,
     })
 
     expect((await cancel(draft)).status).toBe(204)
@@ -66,7 +69,7 @@ describe("Cancel a Confluence setup (Postgres)", () => {
   it("keeps a draft with an Atlassian app, and an installed connection", async () => {
     const withApp = await seed.addConnection("forge", {
       status: "pending",
-      installedByUserId: "user_test",
+      installedByUserId: userId,
       atlassianOAuthClientId: "client-id",
     })
     const installed = await seed.addConnection("forge", {
@@ -79,5 +82,20 @@ describe("Cancel a Confluence setup (Postgres)", () => {
       expect((await cancel(connectionId)).status).toBe(409)
       expect(await exists(connectionId)).toBe(true)
     }
+  })
+
+  it("keeps a draft whose Forge install was opened", async () => {
+    // "Add Confluence", then "Install" in the setup: the Marketplace can
+    // still bind the install to this draft.
+    const intent = (query: string) =>
+      createApp().request(
+        `/${seed.orgId}/api/v1/connectors/atlassian/installation${query}`,
+        { method: "POST" },
+      )
+    const { id } = (await (await intent("")).json()) as { id: string }
+    expect((await (await intent("?installOpened=true")).json()).id).toBe(id)
+
+    expect((await cancel(id)).status).toBe(409)
+    expect(await exists(id)).toBe(true)
   })
 })
