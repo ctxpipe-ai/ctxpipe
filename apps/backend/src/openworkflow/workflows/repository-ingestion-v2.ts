@@ -2,7 +2,10 @@ import { gunzipSync, gzipSync } from "node:zlib"
 import type { Workflow } from "openworkflow"
 import { parseEnv } from "../../config/env.js"
 import { IngestRefRefusedError } from "../../domain/ingestion/ingest-refs.js"
-import { releaseIngestSourceTree } from "../../domain/ingestion/ingest-source-tree.js"
+import {
+  ingestSourceTree,
+  releaseIngestSourceTree,
+} from "../../domain/ingestion/ingest-source-tree.js"
 import {
   INGEST_SHARD_MAX_ROOTS,
   planIngestRoots,
@@ -24,6 +27,7 @@ import {
   withLogger,
 } from "../../observability/logger.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
+import { cleanUpUnlessParked } from "../isSleepSignal.js"
 import {
   type IngestionRoot,
   type IngestionShardInput,
@@ -84,252 +88,270 @@ export function defineRepositoryIngestionV2Workflow(
       name: INGESTION_V2_WORKFLOW_NAME,
       schema: ingestionV2InputSchema,
     },
-    async ({ input, step, run }) =>
-      withLogger(
+    async ({ input, step, run }) => {
+      return withLogger(
         createLogger({
           workflow: INGESTION_V2_WORKFLOW_NAME,
           orgId: input.orgId,
           ingestionRunId: run.id,
           sourceSha: input.sha,
         }),
-        async (): Promise<IngestionV2Output> => {
-          if (!input.shadow)
-            // Publish from the ref is T21. Until then a run must not
-            // replace the old pipeline's output.
-            throw new Error("Ingestion v2 runs only in shadow mode")
+        // A failed run also deletes the worker's copy of the source tree.
+        () =>
+          cleanUpUnlessParked(
+            () => ingest(),
+            () => releaseIngestSourceTree(run.id, input.sha),
+          ),
+      )
 
-          const resolved = await step.run({ name: "resolve" }, () =>
-            resolveIngestionV2Run(input),
+      async function ingest(): Promise<IngestionV2Output> {
+        if (!input.shadow)
+          // Publish from the ref is T21. Until then a run must not
+          // replace the old pipeline's output.
+          throw new Error("Ingestion v2 runs only in shadow mode")
+
+        const resolved = await step.run({ name: "resolve" }, () =>
+          resolveIngestionV2Run(input),
+        )
+        if (resolved.skipped || resolved.destinations.length === 0)
+          return {
+            status: "skipped",
+            reason: resolved.skipped ?? "no_writable_destination",
+          }
+        const { destinations, sourceRepositoryId } = resolved
+        const source = {
+          ...input.source,
+          sha: input.sha,
+          repositoryId: sourceRepositoryId,
+        }
+
+        if (sourceRepositoryId)
+          // The same SHA as the old pipeline: codesearch reuses its index.
+          await step.runWorkflow(
+            repositoryIndex.spec,
+            {
+              repositoryId: sourceRepositoryId,
+              orgId: input.orgId,
+              targetHash: input.sha,
+              githubConnectionId: input.source.githubConnectionId,
+            },
+            { name: "index" },
           )
-          if (resolved.skipped || resolved.destinations.length === 0)
-            return {
-              status: "skipped",
-              reason: resolved.skipped ?? "no_writable_destination",
-            }
-          const { destinations, sourceRepositoryId } = resolved
-          const source = {
-            ...input.source,
-            sha: input.sha,
-            repositoryId: sourceRepositoryId,
-          }
 
-          if (sourceRepositoryId)
-            // The same SHA as the old pipeline: codesearch reuses its index.
-            await step.runWorkflow(
-              repositoryIndex.spec,
-              {
-                repositoryId: sourceRepositoryId,
-                orgId: input.orgId,
-                targetHash: input.sha,
-                githubConnectionId: input.source.githubConnectionId,
-              },
-              { name: "index" },
-            )
-
-          // The shard-0 sandbox runs discovery; shard 0 then uses it, and
-          // `release` destroys it in each case.
-          const release = () =>
-            step.run({ name: "release" }, async () => {
-              await deps.runtime.destroy({
-                orgId: input.orgId,
-                runId: run.id,
-                shard: 0,
-                workspaceId: destinations[0]?.workspaceId ?? "",
-              })
-              await releaseIngestSourceTree(run.id, input.sha)
-              return { released: true }
+        // The shard-0 sandbox runs discovery; shard 0 then uses it, and
+        // `release` destroys it in each case.
+        const release = () =>
+          step.run({ name: "release" }, async () => {
+            await deps.runtime.destroy({
+              orgId: input.orgId,
+              runId: run.id,
+              shard: 0,
+              workspaceId: destinations[0]?.workspaceId ?? "",
             })
-
-          const scope = await step.run({ name: "discover-roots" }, async () => {
-            const bundle = await deps.bundle()
-            const discovered = await deps
-              .runtime({
-                orgId: input.orgId,
-                runId: run.id,
-                shard: 0,
-                bundle,
-                source,
-                destinations,
-              })
-              .discoverRoots()
-            const plan = planIngestRoots(discovered)
-            for (const refused of plan.refused)
-              getLogger().warn("ingestion-v2.root-refused", refused)
-            const packed =
-              plan.partial === undefined ? packRoots(plan.roots) : ""
-            const partial =
-              plan.partial ??
-              (packed.length > 12_000
-                ? "The root list is too large for one step output"
-                : undefined)
-            if (partial !== undefined) {
-              getLogger().warn("ingestion-v2.partial", { reason: partial })
-              return { partial }
-            }
-            return {
-              bundle: bundle.name,
-              roots: packed,
-              repositorySkills: plannedIngestSkills(bundle.skills, "repository")
-                .length,
-            }
+            return { released: true }
           })
-          if ("partial" in scope) {
-            await release()
-            return { status: "partial", reason: scope.partial }
-          }
-          const roots = unpackRoots(scope.roots)
-          const shards = Math.ceil(roots.length / INGEST_SHARD_MAX_ROOTS)
 
-          const child = (
-            shard: number,
-            mode: IngestionShardInput["mode"],
-            shardRoots: IngestionRoot[],
-            startTips?: Record<string, string>,
-          ): IngestionShardInput => ({
-            orgId: input.orgId,
-            runId: run.id,
-            shard,
-            mode,
-            roots: shardRoots,
-            bundle: scope.bundle,
-            source,
-            authorTime: input.authorTime,
-            destinations,
-            ...(startTips ? { startTips } : {}),
-          })
-          const shardOutputs: IngestionShardOutput[] = []
-          for (let n = 0; n < shards; n += SHARD_BATCH)
-            shardOutputs.push(
-              ...(await Promise.all(
-                Array.from(
-                  { length: Math.min(SHARD_BATCH, shards - n) },
-                  (_, i) =>
-                    step.runWorkflow(
-                      deps.shard.spec,
-                      child(
-                        n + i,
-                        "roots",
-                        roots.slice(
-                          (n + i) * INGEST_SHARD_MAX_ROOTS,
-                          (n + i + 1) * INGEST_SHARD_MAX_ROOTS,
-                        ),
-                      ),
-                      { name: `shard:${n + i}` },
-                    ),
-                ),
-              )),
-            )
-
-          const workspaces: Extract<
-            IngestionV2Output,
-            { status: "done" }
-          >["workspaces"] = []
-          for (const destination of destinations) {
-            const parts = shardOutputs.flatMap((output) =>
-              output.workspaces
-                .filter((w) => w.workspaceId === destination.workspaceId)
-                .map((w) => ({ shard: output.shard, ...w })),
-            )
-            const assembleStep = `assemble:${destination.workspaceId}`
-            const assembled = await step.run(
-              {
-                name: assembleStep,
-                retryPolicy: { maximumAttempts: 3, initialInterval: "10s" },
-              },
-              async (): Promise<
-                | { tip: string; ops: number }
-                | { tip: null; ops: 0; refused: string }
-              > => {
-                try {
-                  const result = await withIngestionOrg(input.orgId, () =>
-                    pushWorkspaceIngestAssemble(
-                      {
-                        orgId: input.orgId,
-                        job: {
-                          runId: run.id,
-                          workspaceId: destination.workspaceId,
-                          generation: destination.generation,
-                        },
-                        pinnedRevision: destination.pinnedRevision,
-                        shards: parts.flatMap((p) =>
-                          p.tip ? [{ shard: String(p.shard), tip: p.tip }] : [],
-                        ),
-                        oldTip: null,
-                        commit: {
-                          step: assembleStep,
-                          bundle: scope.bundle,
-                          authorTime: new Date(input.authorTime),
-                        },
-                        // Two shards that change one path: the semantic merge.
-                        resolveConflicts: resolveSemanticConflicts,
-                      },
-                      env(),
-                    ),
-                  )
-                  return { tip: result.sha, ops: result.ops }
-                } catch (error) {
-                  if (!(error instanceof IngestRefRefusedError)) throw error
-                  getLogger().warn("ingestion-v2.partial", {
-                    step: assembleStep,
-                    workspaceId: destination.workspaceId,
-                    reason: error.message,
-                  })
-                  return {
-                    tip: null,
-                    ops: 0,
-                    refused: error.message.slice(0, 300),
-                  }
-                }
-              },
-            )
-            workspaces.push({
-              workspaceId: destination.workspaceId,
-              assembled: assembled.tip,
-              ops: assembled.ops,
-              rejects: parts.reduce((sum, p) => sum + p.rejects, 0),
-              partial: parts.reduce((sum, p) => sum + p.partial, 0),
-              ...("refused" in assembled ? { refused: assembled.refused } : {}),
+        const scope = await step.run({ name: "discover-roots" }, async () => {
+          const bundle = await deps.bundle()
+          const discovered = await deps
+            .runtime({
+              orgId: input.orgId,
+              runId: run.id,
+              shard: 0,
+              bundle,
+              source,
+              destinations,
             })
+            .discoverRoots()
+          const plan = planIngestRoots(discovered)
+          for (const refused of plan.refused)
+            getLogger().warn("ingestion-v2.root-refused", refused)
+          const packed = plan.partial === undefined ? packRoots(plan.roots) : ""
+          const partial =
+            plan.partial ??
+            (packed.length > 12_000
+              ? "The root list is too large for one step output"
+              : undefined)
+          if (partial !== undefined) {
+            getLogger().warn("ingestion-v2.partial", { reason: partial })
+            return { partial }
           }
-
-          const startTips = Object.fromEntries(
-            workspaces.flatMap((w) =>
-              w.assembled ? [[w.workspaceId, w.assembled]] : [],
-            ),
-          )
-          const ready = destinations.filter((d) => startTips[d.workspaceId])
-          if (scope.repositorySkills > 0 && ready.length) {
-            const repository = await step.runWorkflow(
-              deps.shard.spec,
-              {
-                ...child(shards, "repository", roots, startTips),
-                destinations: ready,
-              },
-              { name: "repository-skills" },
-            )
-            for (const done of repository.workspaces) {
-              const entry = workspaces.find(
-                (w) => w.workspaceId === done.workspaceId,
-              )
-              if (!entry) continue
-              entry.assembled = done.tip ?? entry.assembled
-              entry.ops += done.ops
-              entry.rejects += done.rejects
-              entry.partial += done.partial
-            }
+          return {
+            bundle: bundle.name,
+            roots: packed,
+            repositorySkills: plannedIngestSkills(bundle.skills, "repository")
+              .length,
           }
-
+        })
+        if (scope.partial !== undefined) {
           await release()
-          getLogger().info("ingestion-v2.finished", {
-            shards,
-            roots: roots.length,
-            workspaces: workspaces.length,
-            ops: workspaces.reduce((sum, w) => sum + w.ops, 0),
-            partial: workspaces.reduce((sum, w) => sum + w.partial, 0),
+          return { status: "partial", reason: scope.partial }
+        }
+        const roots = unpackRoots(scope.roots)
+        const shards = Math.ceil(roots.length / INGEST_SHARD_MAX_ROOTS)
+
+        const child = (
+          shard: number,
+          mode: IngestionShardInput["mode"],
+          shardRoots: IngestionRoot[],
+          startTips?: Record<string, string>,
+        ): IngestionShardInput => ({
+          orgId: input.orgId,
+          runId: run.id,
+          shard,
+          mode,
+          roots: shardRoots,
+          bundle: scope.bundle,
+          source,
+          authorTime: input.authorTime,
+          destinations,
+          ...(startTips ? { startTips } : {}),
+        })
+        const shardOutputs: IngestionShardOutput[] = []
+        for (let n = 0; n < shards; n += SHARD_BATCH)
+          shardOutputs.push(
+            ...(await Promise.all(
+              Array.from(
+                { length: Math.min(SHARD_BATCH, shards - n) },
+                (_, i) =>
+                  step.runWorkflow(
+                    deps.shard.spec,
+                    child(
+                      n + i,
+                      "roots",
+                      roots.slice(
+                        (n + i) * INGEST_SHARD_MAX_ROOTS,
+                        (n + i + 1) * INGEST_SHARD_MAX_ROOTS,
+                      ),
+                    ),
+                    { name: `shard:${n + i}` },
+                  ),
+              ),
+            )),
+          )
+
+        const workspaces: Extract<
+          IngestionV2Output,
+          { status: "done" }
+        >["workspaces"] = []
+        for (const destination of destinations) {
+          const parts = shardOutputs.flatMap((output) =>
+            output.workspaces
+              .filter((w) => w.workspaceId === destination.workspaceId)
+              .map((w) => ({ shard: output.shard, ...w })),
+          )
+          const assembleStep = `assemble:${destination.workspaceId}`
+          const assembled = await step.run(
+            {
+              name: assembleStep,
+              retryPolicy: { maximumAttempts: 3, initialInterval: "10s" },
+            },
+            async (): Promise<
+              | { tip: string; ops: number }
+              | { tip: null; ops: 0; refused: string }
+            > => {
+              try {
+                const result = await withIngestionOrg(input.orgId, () =>
+                  pushWorkspaceIngestAssemble(
+                    {
+                      orgId: input.orgId,
+                      job: {
+                        runId: run.id,
+                        workspaceId: destination.workspaceId,
+                        generation: destination.generation,
+                      },
+                      pinnedRevision: destination.pinnedRevision,
+                      shards: parts.flatMap((p) =>
+                        p.tip ? [{ shard: String(p.shard), tip: p.tip }] : [],
+                      ),
+                      oldTip: null,
+                      commit: {
+                        step: assembleStep,
+                        bundle: scope.bundle,
+                        authorTime: new Date(input.authorTime),
+                      },
+                      // Two shards that change one path: the semantic
+                      // merge, whose files the patch validator checks.
+                      semanticMerge: {
+                        resolve: resolveSemanticConflicts,
+                        source: { url: input.source.url, sha: input.sha },
+                        sourcePathExists: (path) =>
+                          ingestSourceTree({
+                            orgId: input.orgId,
+                            runId: run.id,
+                            source: input.source,
+                            sha: input.sha,
+                            env: env(),
+                          }).exists(path),
+                      },
+                    },
+                    env(),
+                  ),
+                )
+                return { tip: result.sha, ops: result.ops }
+              } catch (error) {
+                if (!(error instanceof IngestRefRefusedError)) throw error
+                getLogger().warn("ingestion-v2.partial", {
+                  step: assembleStep,
+                  workspaceId: destination.workspaceId,
+                  reason: error.message,
+                })
+                return {
+                  tip: null,
+                  ops: 0,
+                  refused: error.message.slice(0, 300),
+                }
+              }
+            },
+          )
+          workspaces.push({
+            workspaceId: destination.workspaceId,
+            assembled: assembled.tip,
+            ops: assembled.ops,
+            rejects: parts.reduce((sum, p) => sum + p.rejects, 0),
+            partial: parts.reduce((sum, p) => sum + p.partial, 0),
+            ...("refused" in assembled ? { refused: assembled.refused } : {}),
           })
-          return { status: "done", shards, workspaces }
-        },
-      ),
+        }
+
+        const startTips = Object.fromEntries(
+          workspaces.flatMap((w) =>
+            w.assembled ? [[w.workspaceId, w.assembled]] : [],
+          ),
+        )
+        const ready = destinations.filter((d) => startTips[d.workspaceId])
+        if (scope.repositorySkills > 0 && ready.length) {
+          const repository = await step.runWorkflow(
+            deps.shard.spec,
+            {
+              ...child(shards, "repository", roots, startTips),
+              destinations: ready,
+            },
+            { name: "repository-skills" },
+          )
+          for (const done of repository.workspaces) {
+            const entry = workspaces.find(
+              (w) => w.workspaceId === done.workspaceId,
+            )
+            if (!entry) continue
+            entry.assembled = done.tip ?? entry.assembled
+            entry.ops += done.ops
+            entry.rejects += done.rejects
+            entry.partial += done.partial
+          }
+        }
+
+        await release()
+        getLogger().info("ingestion-v2.finished", {
+          shards,
+          roots: roots.length,
+          workspaces: workspaces.length,
+          ops: workspaces.reduce((sum, w) => sum + w.ops, 0),
+          partial: workspaces.reduce((sum, w) => sum + w.partial, 0),
+        })
+        return { status: "done", shards, workspaces }
+      }
+    },
   )
 }
 

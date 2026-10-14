@@ -1,12 +1,15 @@
-import { mkdtemp, rm } from "node:fs/promises"
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import { setTimeout as sleep } from "node:timers/promises"
+import { stringify } from "yaml"
 import {
   disallowedPathReason,
   MAX_WORKSPACE_OPS,
   type PatchStepInput,
   type PatchStepResult,
+  parseYamlObject,
+  splitFrontMatter,
   validatePatchStep,
 } from "./patch-validator.js"
 import { runGit } from "./run-git.js"
@@ -167,12 +170,17 @@ export async function pushIngestAssemble(input: {
   remote: IngestRemote
   commit: IngestStepCommit
   /**
-   * The semantic merge of the paths that two shards change: it gets each
-   * conflict (`current` is the result so far, `incoming` the next shard's
-   * version) and returns the content of each path, or null for a delete.
-   * Without it, a conflict refuses the job.
+   * The semantic merge of the paths that two shards change: `resolve` gets
+   * each conflict (`current` is the result so far, `incoming` the next
+   * shard's version) and returns the content of each path, or null for a
+   * delete. The merged files then go through the patch validator against
+   * the pinned revision, with `source` and `sourcePathExists` for the
+   * evidence; one rejected file refuses the job. Without it, a conflict
+   * refuses the job.
    */
-  resolveConflicts?: IngestConflictResolver
+  semanticMerge?: {
+    resolve: IngestConflictResolver
+  } & Pick<PatchStepInput, "source" | "sourcePathExists">
 }): Promise<{ sha: string; ops: number }> {
   const ref = ingestRefName({
     runId: input.job.runId,
@@ -263,15 +271,8 @@ export async function pushIngestAssemble(input: {
       }
     }
     const conflicts = [...changes.values()].filter((c) => c.versions.length > 1)
-    if (conflicts.length) {
-      if (!input.resolveConflicts)
-        throw new IngestAssembleConflictError(conflicts.map((c) => c.path))
-      await mergeConflicts(repoDir, {
-        pinnedRevision: input.pinnedRevision,
-        conflicts,
-        resolve: input.resolveConflicts,
-      })
-    }
+    if (conflicts.length && !input.semanticMerge)
+      throw new IngestAssembleConflictError(conflicts.map((c) => c.path))
     if (changes.size > MAX_WORKSPACE_OPS)
       throw new IngestRefRefusedError(
         `The shards write ${changes.size} ops; a Workspace takes at most ${MAX_WORKSPACE_OPS} in a run`,
@@ -283,11 +284,23 @@ export async function pushIngestAssemble(input: {
     })
     await runGit(repoDir, ["update-index", "-z", "--index-info"], {
       env: indexEnv,
-      input: [...changes.values()].map((c) => c.line).join(""),
+      input: [...changes.values()]
+        .filter((c) => c.versions.length === 1)
+        .map((c) => c.line)
+        .join(""),
     })
-    const tree = (await runGit(repoDir, ["write-tree"], { env: indexEnv }))
+    let tree = (await runGit(repoDir, ["write-tree"], { env: indexEnv }))
       .toString()
       .trim()
+    if (conflicts.length && input.semanticMerge)
+      tree = await mergeConflicts(repoDir, {
+        pinnedRevision: input.pinnedRevision,
+        tree,
+        conflicts,
+        opsBefore: changes.size - conflicts.length,
+        bundle: input.commit.bundle,
+        merge: input.semanticMerge,
+      })
     const sha = await commitStep(repoDir, {
       tree,
       parents: tips.length ? tips : [input.pinnedRevision],
@@ -637,21 +650,26 @@ export type IngestConflictResolver = (
 
 /**
  * Resolve the paths that more than one shard changes, one round for each
- * further version: round `n` merges version `n` into the result so far. Each
- * resolved content becomes the path's index line.
+ * further version: round `n` merges version `n` into the result so far.
+ * Then the patch validator checks the merged files as one step on `tree`
+ * (the pinned revision plus the other shards' ops): a model wrote them, so
+ * they get the same checks as a step's files. The host fields go back to
+ * their pinned values first, and the validator stamps them again. Returns
+ * the validated tree; one rejected file refuses the job.
  */
 async function mergeConflicts(
   repoDir: string,
   input: {
     pinnedRevision: string
-    conflicts: Array<{
-      path: string
-      line: string
-      versions: Array<string | null>
-    }>
-    resolve: IngestConflictResolver
+    tree: string
+    conflicts: Array<{ path: string; versions: Array<string | null> }>
+    opsBefore: number
+    bundle: string
+    merge: NonNullable<
+      Parameters<typeof pushIngestAssemble>[0]["semanticMerge"]
+    >
   },
-): Promise<void> {
+): Promise<string> {
   const text = async (spec: string | null) =>
     spec === null
       ? null
@@ -676,7 +694,7 @@ async function mergeConflicts(
         current: current.get(conflict.path) ?? null,
         incoming: await text(conflict.versions[round] ?? null),
       })
-    const resolved = await input.resolve(asked)
+    const resolved = await input.merge.resolve(asked)
     const paths = new Set(resolved.map((file) => file.path))
     if (
       resolved.length !== asked.length ||
@@ -688,21 +706,105 @@ async function mergeConflicts(
       )
     for (const file of resolved) current.set(file.path, file.content)
   }
-  for (const conflict of input.conflicts) {
-    const content = current.get(conflict.path) ?? null
-    if (content === null) {
-      conflict.line = `0 ${"0".repeat(40)}\t${conflict.path}\0`
-      continue
-    }
-    const blob = (
-      await runGit(repoDir, ["hash-object", "-w", "--stdin"], {
-        input: content,
-      })
+
+  const baseCommit = (
+    await runGit(
+      repoDir,
+      ["commit-tree", "--no-gpg-sign", input.tree, "-p", input.pinnedRevision],
+      {
+        input: "semantic merge base\n",
+        env: {
+          GIT_AUTHOR_NAME: STEP_AUTHOR.name,
+          GIT_AUTHOR_EMAIL: STEP_AUTHOR.email,
+          GIT_COMMITTER_NAME: STEP_AUTHOR.name,
+          GIT_COMMITTER_EMAIL: STEP_AUTHOR.email,
+        },
+      },
     )
-      .toString()
-      .trim()
-    conflict.line = `100644 ${blob}\t${conflict.path}\0`
+  )
+    .toString()
+    .trim()
+  const stagedDir = await mkdtemp(join(tmpdir(), "ctxpipe-merge-"))
+  try {
+    const ops: Array<{ op: string; path: string; baseBlob?: string }> = []
+    for (const conflict of input.conflicts) {
+      const baseBlob = await runGit(repoDir, [
+        "rev-parse",
+        "--verify",
+        "--quiet",
+        `${input.pinnedRevision}:${conflict.path}`,
+      ]).then(
+        (out) => out.toString().trim(),
+        () => undefined,
+      )
+      const content = current.get(conflict.path) ?? null
+      if (content === null) {
+        // A path that is not in the pinned revision is already absent.
+        if (baseBlob) ops.push({ op: "delete", path: conflict.path, baseBlob })
+        continue
+      }
+      ops.push({
+        op: baseBlob ? "update" : "create",
+        path: conflict.path,
+        ...(baseBlob ? { baseBlob } : {}),
+      })
+      const file = join(stagedDir, "files", conflict.path)
+      await mkdir(dirname(file), { recursive: true })
+      await writeFile(
+        file,
+        withPinnedHostFields(content, base.get(conflict.path) ?? null),
+      )
+    }
+    await writeFile(join(stagedDir, "patch.json"), JSON.stringify({ ops }))
+    const result = await validatePatchStep({
+      repoDir,
+      baseCommit,
+      stagedDir,
+      source: input.merge.source,
+      sourcePathExists: input.merge.sourcePathExists,
+      skill: "semantic-merge",
+      bundle: input.bundle,
+      workspaceOpsBefore: input.opsBefore,
+    })
+    if (result.rejections.length)
+      throw new IngestRefRefusedError(
+        `The semantic merge result fails the patch validator: ${result.rejections
+          .slice(0, 5)
+          .map((r) => `${r.path}: ${r.rule}: ${r.reason}`)
+          .join("; ")}`,
+      )
+    return result.tree
+  } finally {
+    await rm(stagedDir, { recursive: true, force: true })
   }
+}
+
+/** The fields that only the host sets (patch validator, concept section 4.3). */
+const HOST_FIELDS = [
+  "generated_by",
+  "sources",
+  "source_sha",
+  "skill",
+  "bundle",
+] as const
+
+/**
+ * The shard versions carry host fields that the validator stamped. Put back
+ * the pinned values (or remove the field), so the validator checks the
+ * merged file as a new write and stamps it again.
+ */
+function withPinnedHostFields(content: string, pinned: string | null): string {
+  const front = splitFrontMatter(content)
+  const attributes = front ? parseYamlObject(front.yaml) : null
+  if (!front || !attributes) return content
+  const pinnedFront = pinned ? splitFrontMatter(pinned) : null
+  const pinnedAttributes =
+    (pinnedFront ? parseYamlObject(pinnedFront.yaml) : null) ?? {}
+  for (const field of HOST_FIELDS) {
+    if (field in pinnedAttributes) attributes[field] = pinnedAttributes[field]
+    else delete attributes[field]
+  }
+  return `---\n${stringify(attributes, { lineWidth: 0 })}---\n${front.body}`
 }
 
 async function diffTree(

@@ -11,3 +11,23 @@ export function isWorkflowControlSignal(err: unknown): boolean {
     err.name === "StaleExecutionBranchError"
   )
 }
+
+/**
+ * Run `fn`, then `cleanUp` when the execution ends: it returns or it fails.
+ * A control signal only parks the execution (for example to wait for a
+ * child), and the run continues later, so it keeps its resources.
+ */
+export async function cleanUpUnlessParked<T>(
+  fn: () => Promise<T>,
+  cleanUp: () => Promise<void>,
+): Promise<T> {
+  let parked = false
+  try {
+    return await fn()
+  } catch (error) {
+    parked = isWorkflowControlSignal(error)
+    throw error
+  } finally {
+    if (!parked) await cleanUp()
+  }
+}
