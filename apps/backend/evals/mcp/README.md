@@ -16,7 +16,7 @@ The ticket and the incident link to each other and to the knowledge files, so th
 
 The manifest pins each upstream repository to a full commit SHA. Tag names explain the pins; the seed never resolves those tags at runtime. The fixture Git commits use a fixed author, message, and date. Each source file gets the last-commit time that the manifest names in `updatedAt` (spread from January to May 2026; a file without an entry uses `commitDate`). The times are the same on each run. Time filters and the recency signal have different values to rank.
 
-The `branch: <sha>` pins in the `repositories/` files stay as they are. CTX-650 redesigns the linked-repository pin form.
+The fixtures have no GitHub connection. The seed links the upstream repositories with a GitHub source row (`linked-repositories`) and uses each manifest SHA as the `ref` of its repository (ADR-050).
 
 ## Prepare repositories
 

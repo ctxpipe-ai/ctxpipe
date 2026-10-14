@@ -9,14 +9,13 @@ import {
   readGitFiles,
   withGitDirectory,
 } from "../../services/git/pack.js"
+import { githubSourceRepositories } from "../workspace-sources/github-sources.js"
 import { SOURCES_FILE_PATH } from "../workspace-sources/sources-file.js"
 import type {
   ConfiguredConnectorMirrorSource,
   ConnectorMirrorSource,
   WorkspaceSourcesMirrorSource,
 } from "./connector-mirror-input.js"
-import { isLinkedRepositoryDeclaration } from "./layout.js"
-import { declaresLinkedRepository } from "./link-declarations.js"
 import type { WorkspaceRevision } from "./revision.js"
 
 export type {
@@ -83,8 +82,16 @@ export async function assertConnectorMirrorScope(
   }
   if (source.provider === "github") {
     // Unlinking is the GitHub scope change: a mirror never lands after it.
-    const files = await readGitFiles(pack, isLinkedRepositoryDeclaration)
-    if (!declaresLinkedRepository(files, source.gitUrl))
+    const [file] = await readGitFiles(
+      pack,
+      (path) => path === SOURCES_FILE_PATH,
+    )
+    const target = normalizeWorkspaceRepositoryUrl(source.gitUrl)
+    if (
+      !githubSourceRepositories(file?.content ?? null, null).some(
+        (linked) => linked.gitUrl === target,
+      )
+    )
       throw new Error(
         "GitHub repository is no longer linked to this Workspace; discard this capture",
       )

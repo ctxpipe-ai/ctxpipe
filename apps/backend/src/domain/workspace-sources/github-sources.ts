@@ -1,5 +1,8 @@
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
-import { githubScopeSchema } from "./providers/github.js"
+import {
+  githubScopeRepositories,
+  githubScopeSchema,
+} from "./providers/github.js"
 import { parseSourceEntry, sourcesFileSchema } from "./sources-file.js"
 import { parseSourcesYaml } from "./sources-yaml.js"
 
@@ -9,15 +12,15 @@ function githubUrl(repositoryName: string): string {
 
 /**
  * The linked repositories that the GitHub entries of `.ctxpipe/sources.yaml`
- * declare, each with the connection that reads it. Only an entry whose
- * connection is one of `connectionIds` (the org's GitHub connections) links
- * its repositories. An invalid file or entry declares nothing; the
+ * declare, each with its ref and the connection that reads it. When
+ * `connectionIds` (the org's GitHub connections) is set, only an entry whose
+ * connection is one of them links its repositories. An invalid file or entry declares nothing; the
  * projection shows its error.
  */
 export function githubSourceRepositories(
   text: string | null,
-  connectionIds: ReadonlySet<string>,
-): Array<{ gitUrl: string; connectionId: string }> {
+  connectionIds: ReadonlySet<string> | null,
+): Array<{ gitUrl: string; ref: string | null; connectionId: string }> {
   if (text === null) return []
   let document: unknown
   try {
@@ -32,12 +35,14 @@ export function githubSourceRepositories(
     if (
       !parsed.ok ||
       parsed.entry.provider !== "github" ||
-      !connectionIds.has(parsed.entry.connectionId)
+      (connectionIds !== null && !connectionIds.has(parsed.entry.connectionId))
     )
       return []
-    const { repositories } = githubScopeSchema.parse(parsed.entry.scope)
-    return repositories.map((name) => ({
+    return githubScopeRepositories(
+      githubScopeSchema.parse(parsed.entry.scope),
+    ).map(({ name, ref }) => ({
       gitUrl: githubUrl(name),
+      ref,
       connectionId: parsed.entry.connectionId,
     }))
   })

@@ -388,8 +388,9 @@ export const workspaceHydrate = defineWorkflow(
 
             let activated = !pending.postgres
             if (pending.postgres) {
-              // Before the linked table changes, so a replay still sees which
-              // GitHub links are new and the backfill key dedupes the enqueue.
+              // Before the sources projection changes the pinned state, so a
+              // replay still sees which GitHub links are new and the backfill
+              // key dedupes the enqueue.
               await step.run(
                 { name: "enqueue-github-pr-backfills" },
                 async () => {
@@ -410,7 +411,6 @@ export const workspaceHydrate = defineWorkflow(
                   orgId: input.orgId,
                   revision,
                   displayName,
-                  remotes: parsed.linked,
                   skipped: parsed.skipped,
                   embeddingModel: embeddingModelId(),
                   units: applyEffectiveValidFromToUnits(

@@ -7,6 +7,7 @@ import {
   importKeyFromDedup,
   isoDate,
   migrationLinkedRepositoryUrls,
+  migrationRepositoryFiles,
   migrationSourcesFile,
   noOpExportUsesResolvedTip,
   objectTitleFromPayload,
@@ -15,6 +16,9 @@ import {
   workspaceByRepositoryUrl,
 } from "./migration-export.js"
 import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
+
+const urls = (gitUrls: string[]) =>
+  gitUrls.map((gitUrl) => ({ gitUrl, ref: null }))
 
 describe("migration export", () => {
   it("links the other org repositories only in the first Workspace", () => {
@@ -49,11 +53,11 @@ describe("migration export", () => {
     const text = migrationSourcesFile({
       sourcesFile: null,
       connectionId: "con_gh",
-      gitUrls: [
+      repositories: urls([
         "git@github.com:Acme/API.git",
         "https://github.com/acme/web",
         "https://gitlab.com/acme/tools",
-      ],
+      ]),
     })
     expect(parse(text ?? "")).toEqual({
       version: 1,
@@ -71,9 +75,44 @@ describe("migration export", () => {
       migrationSourcesFile({
         sourcesFile: text,
         connectionId: "con_gh",
-        gitUrls: ["https://github.com/acme/api", "https://github.com/acme/web"],
+        repositories: urls([
+          "https://github.com/acme/api",
+          "https://github.com/acme/web",
+        ]),
       }),
     ).toBeNull()
+  })
+
+  it("moves repository files with their branch as ref", () => {
+    const files = migrationRepositoryFiles([
+      {
+        path: "repositories/api.md",
+        content:
+          "---\ngit: https://github.com/Acme/API.git\nbranch: release\n---\n",
+      },
+      {
+        path: "repositories/tools.md",
+        content: "---\ngit: https://gitlab.com/acme/tools\n---\n",
+      },
+      { path: "repositories/bad.md", content: "---\nname: no git\n" },
+      { path: "knowledge/a.md", content: "# A\n" },
+    ])
+    expect(files).toEqual([
+      {
+        path: "repositories/api.md",
+        gitUrl: "https://github.com/acme/api",
+        ref: "release",
+      },
+    ])
+    expect(
+      parse(
+        migrationSourcesFile({
+          sourcesFile: null,
+          connectionId: "con_gh",
+          repositories: files,
+        }) ?? "",
+      ).sources[0].repositories,
+    ).toEqual([{ name: "acme/api", ref: "release" }])
   })
 
   it("adds only the repositories that no GitHub source of the file links", () => {
@@ -81,29 +120,28 @@ describe("migration export", () => {
       sourcesFile:
         "# Owned by the team\nversion: 1\nsources:\n  - id: code\n    provider: github\n    connection: con_gh\n    repositories: [acme/web]\n",
       connectionId: "con_gh",
-      gitUrls: ["https://github.com/acme/web", "https://github.com/acme/api"],
+      repositories: urls([
+        "https://github.com/acme/web",
+        "https://github.com/acme/api",
+      ]),
     })
     expect(text).toContain("# Owned by the team")
+    // The GitHub source of the same connection gets the new repository.
     expect(parse(text ?? "").sources).toEqual([
       {
         id: "code",
         provider: "github",
         connection: "con_gh",
-        repositories: ["acme/web"],
-      },
-      {
-        id: "linked-repositories",
-        provider: "github",
-        connection: "con_gh",
-        repositories: ["acme/api"],
+        repositories: ["acme/web", "acme/api"],
       },
     ])
     const grown = migrationSourcesFile({
       sourcesFile: text,
       connectionId: "con_gh",
-      gitUrls: ["https://github.com/acme/jobs"],
+      repositories: urls(["https://github.com/acme/jobs"]),
     })
-    expect(parse(grown ?? "").sources[1].repositories).toEqual([
+    expect(parse(grown ?? "").sources[0].repositories).toEqual([
+      "acme/web",
       "acme/api",
       "acme/jobs",
     ])
@@ -111,14 +149,14 @@ describe("migration export", () => {
       migrationSourcesFile({
         sourcesFile: "version: 2\n",
         connectionId: "con_gh",
-        gitUrls: ["https://github.com/acme/api"],
+        repositories: urls(["https://github.com/acme/api"]),
       }),
     ).toBeNull()
     expect(
       migrationSourcesFile({
         sourcesFile: null,
         connectionId: "con_gh",
-        gitUrls: ["https://gitlab.com/acme/tools"],
+        repositories: urls(["https://gitlab.com/acme/tools"]),
       }),
     ).toBeNull()
   })

@@ -1,17 +1,7 @@
 import { createHash } from "node:crypto"
 import { isAlias, isMap, isSeq } from "yaml"
-import {
-  applySourceFileChange,
-  SourceChangeError,
-} from "../workspace-sources/edit.js"
-import { githubScopeSchema } from "../workspace-sources/providers/github.js"
-import {
-  type ParsedSourceEntry,
-  parseSourceEntry,
-  type SourceEntry,
-  sourcesFileSchema,
-} from "../workspace-sources/sources-file.js"
-import { parseSourcesYaml } from "../workspace-sources/sources-yaml.js"
+import { SourceChangeError } from "../workspace-sources/edit.js"
+import { linkGithubRepositories } from "../workspace-sources/github-links.js"
 import {
   assignImportedRepository,
   classifyUnkeyedKnowledgeCollision,
@@ -28,7 +18,9 @@ import {
 } from "./knowledge-metadata.js"
 import {
   greenfieldKnowledgePath,
+  isLinkedRepositoryDeclaration,
   knowledgeAreaFromObjectKind,
+  parseLinkedRepositoryMarkdown,
   parseSimpleFrontMatter,
 } from "./layout.js"
 import { linkedRepositoryUrlSchema } from "./linked-repository-url.js"
@@ -56,75 +48,53 @@ export function migrationLinkedRepositoryUrls(input: {
 
 /**
  * Link GitHub repositories through `.ctxpipe/sources.yaml` (ADR-050): add
- * each repository that no GitHub source of the file links to the source
- * `linked-repositories`. It returns the new file text, or null when the file
- * already links each repository, when no URL is a GitHub repository, or when
- * the file is not a valid version 1 file.
+ * each repository that no GitHub source of the file links, with its `ref`
+ * when it has one, to the GitHub source of `connectionId`
+ * (`linked-repositories` first, or a new `linked-repositories` entry). It
+ * returns the new file text, or null when the file already links each
+ * repository, when no URL is a GitHub repository, or when the file is not a
+ * valid version 1 file.
  */
 export function migrationSourcesFile(input: {
   sourcesFile: string | null
   connectionId: string
-  gitUrls: Iterable<string>
+  repositories: Iterable<{ gitUrl: string; ref?: string | null }>
 }): string | null {
-  const key = "linked-repositories"
-  const wanted = new Map<string, string>()
-  for (const url of input.gitUrls) {
-    const name = githubRepoFullNameFromWorkspaceUrl(url)
-    if (name && !wanted.has(name.toLowerCase()))
-      wanted.set(name.toLowerCase(), name)
+  const wanted: Array<{ name: string; ref: string | null }> = []
+  for (const { gitUrl, ref } of input.repositories) {
+    const name = githubRepoFullNameFromWorkspaceUrl(gitUrl)
+    if (name) wanted.push({ name, ref: ref ?? null })
   }
-  if (!wanted.size) return null
-  let entries: ParsedSourceEntry[]
+  if (!wanted.length) return null
   try {
-    const file = sourcesFileSchema.safeParse(
-      parseSourcesYaml(input.sourcesFile?.trim() ? input.sourcesFile : ""),
-    )
-    if (input.sourcesFile?.trim() && !file.success) return null
-    entries = file.success ? file.data.sources.map(parseSourceEntry) : []
-  } catch {
-    return null
-  }
-  const github = entries.flatMap((parsed) =>
-    parsed.ok && parsed.entry.provider === "github" ? [parsed.entry] : [],
-  )
-  const linked = (entry: SourceEntry) => {
-    const scope = githubScopeSchema.safeParse(entry.scope)
-    return scope.success ? scope.data.repositories : []
-  }
-  const covered = new Set(
-    github.flatMap(linked).map((name) => name.toLowerCase()),
-  )
-  const missing = [...wanted]
-    .filter(([lower]) => !covered.has(lower))
-    .map(([, name]) => name)
-  if (!missing.length) return null
-  const current = github.find((entry) => entry.key === key)
-  const keyTaken = entries.some(
-    (parsed) => (parsed.ok ? parsed.entry.key : parsed.key) === key,
-  )
-  try {
-    return applySourceFileChange(
-      input.sourcesFile,
-      current
-        ? {
-            action: "edit",
-            sourceKey: key,
-            provider: "github",
-            connectionId: current.connectionId,
-            scope: { repositories: [...linked(current), ...missing] },
-          }
-        : {
-            action: "add",
-            sourceKey: keyTaken ? undefined : key,
-            provider: "github",
-            connectionId: input.connectionId,
-            scope: { repositories: missing },
-          },
-    ).text
+    return linkGithubRepositories({
+      sourcesFile: input.sourcesFile,
+      connectionId: input.connectionId,
+      repositories: wanted,
+    })
   } catch (error) {
     if (error instanceof SourceChangeError) return null
     throw error
   }
+}
+
+/**
+ * The `repositories/*.md` files of a Workspace repository that the upgrade
+ * moves into `.ctxpipe/sources.yaml`: each well-formed file for a GitHub
+ * repository, with its `branch` as `ref`. A file for another host stays.
+ */
+export function migrationRepositoryFiles(
+  files: ReadonlyArray<{ path: string; content: string }>,
+): Array<{ path: string; gitUrl: string; ref: string | null }> {
+  return files.flatMap((file) => {
+    if (!isLinkedRepositoryDeclaration(file.path)) return []
+    const parsed = parseLinkedRepositoryMarkdown(file.content)
+    if (parsed.malformed) return []
+    const gitUrl = normalizeWorkspaceRepositoryUrl(parsed.git)
+    return githubRepoFullNameFromWorkspaceUrl(gitUrl)
+      ? [{ path: file.path, gitUrl, ref: parsed.branch }]
+      : []
+  })
 }
 
 export function importKeyFromDedup(

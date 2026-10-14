@@ -1,7 +1,7 @@
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
+import { SOURCES_FILE_PATH } from "../../domain/workspace-sources/sources-file.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
-import { isLinkedRepositoryDeclaration } from "../../domain/workspaces/layout.js"
 import { changeLinkedRepository } from "../../domain/workspaces/link-declarations.js"
 import { linkedRepositoryUrlSchema } from "../../domain/workspaces/linked-repository-url.js"
 import {
@@ -28,6 +28,7 @@ import {
   persistWriteJobCommitSha,
   persistWriteJobStatus,
 } from "../../models/workspaces.js"
+import { getLogger } from "../../observability/logger.js"
 import { readGitFiles } from "../../services/git/pack.js"
 import {
   commitGitTree,
@@ -117,16 +118,30 @@ export const workspaceLinkUnlink = defineWorkflow(
             { name: "transform-link-unlink" },
             async () =>
               changeLinkedRepository({
-                files: await readGitFiles(
-                  acquired.pack,
-                  isLinkedRepositoryDeclaration,
-                ),
+                sourcesFile:
+                  (
+                    await readGitFiles(
+                      acquired.pack,
+                      (path) => path === SOURCES_FILE_PATH,
+                    )
+                  )[0]?.content ?? null,
                 action: input.linkAction,
                 gitUrl: input.linkGitUrl,
+                connectionId,
               }),
           )
+          if (changes.refused) {
+            getLogger().set({ linkRefused: changes.refused })
+            await step.run({ name: "fail-refused" }, () =>
+              persistWriteJobStatus(input.jobId, "failed"),
+            )
+            return {
+              committed: false as const,
+              reason: "refused" as const,
+            }
+          }
           const files = changes.files
-          if (!files.length && !changes.deletePaths.length) {
+          if (!files.length) {
             const refreshed = await step.run({ name: "confirm-no-op" }, () =>
               refreshWorkspaceWriteRevision(input, revision, env),
             )
@@ -143,22 +158,19 @@ export const workspaceLinkUnlink = defineWorkflow(
             }
           }
           const staged = await step.run({ name: "stage" }, () =>
-            stageGitFiles(acquired.pack, files, changes.deletePaths),
+            stageGitFiles(acquired.pack, files),
           )
           await step.run({ name: "validate" }, () =>
-            validateGitTree(staged, [
-              ...files.map((file) => file.path),
-              ...changes.deletePaths,
-            ]),
+            validateGitTree(
+              staged,
+              files.map((file) => file.path),
+            ),
           )
           const subject = await step.run({ name: "commit-subject" }, () =>
             generateCommitSubject({
               repoName: repositoryName.split("/")[1] ?? repositoryName,
               trigger: "link_unlink",
-              fileNames: [
-                ...files.map((file) => file.path),
-                ...changes.deletePaths,
-              ],
+              fileNames: files.map((file) => file.path),
             }),
           )
           const committed = await step.run({ name: "commit" }, async () => {

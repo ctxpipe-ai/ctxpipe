@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest"
 import { planSourceMigration } from "../migration-plan.js"
 import { parseSourceEntry } from "../sources-file.js"
-import { githubSourceScope } from "./github.js"
+import {
+  githubScopeRepositories,
+  githubScopeSchema,
+  githubSourceScope,
+} from "./github.js"
 
 describe("githubSourceScope", () => {
   it("accepts linked repositories as owner/name", () => {
@@ -23,6 +27,27 @@ describe("githubSourceScope", () => {
       { repositories: ["https://github.com/acme/web"] },
       { repositories: ["acme/web", "ACME/web"] },
       { repositories: ["acme/web"], branch: "main" },
+    ])
+      expect(githubSourceScope.schema.safeParse(scope).success).toBe(false)
+  })
+
+  it("accepts a repository with a branch or tag ref", () => {
+    const scope = {
+      repositories: ["acme/web", { name: "acme/api", ref: "release/2.x" }],
+    }
+    expect(githubSourceScope.schema.safeParse(scope).success).toBe(true)
+    expect(githubScopeRepositories(githubScopeSchema.parse(scope))).toEqual([
+      { name: "acme/web", ref: null },
+      { name: "acme/api", ref: "release/2.x" },
+    ])
+  })
+
+  it("refuses a bad ref, an extra item key, and a name repeated in a map", () => {
+    for (const scope of [
+      { repositories: [{ name: "acme/web", ref: "bad ref" }] },
+      { repositories: [{ name: "acme/web", ref: "a..b" }] },
+      { repositories: [{ name: "acme/web", branch: "main" }] },
+      { repositories: ["acme/web", { name: "ACME/web", ref: "dev" }] },
     ])
       expect(githubSourceScope.schema.safeParse(scope).success).toBe(false)
   })

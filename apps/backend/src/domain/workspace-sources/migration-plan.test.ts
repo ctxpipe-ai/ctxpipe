@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest"
 import { planSourceMigration } from "./migration-plan.js"
 
+const file = (git: string, branch?: string) =>
+  `---\ngit: ${git}\n${branch ? `branch: ${branch}\n` : ""}---\n`
+
 const workspace = (
   id: string,
   sourcesFile: string | null = null,
@@ -15,11 +18,24 @@ const workspace = (
 describe("planSourceMigration", () => {
   it("maps each connection to every Workspace that uses or links its sync repository", () => {
     const { changes, report } = planSourceMigration({
-      workspaces: [workspace("context"), workspace("eng"), workspace("hr")],
-      linked: [
-        { workspaceId: "eng", gitUrl: "https://github.com/acme/context" },
-        { workspaceId: "eng", gitUrl: "https://github.com/acme/api.git" },
+      workspaces: [
+        workspace("context"),
+        {
+          ...workspace("eng"),
+          repositoryFiles: [
+            {
+              path: "repositories/context.md",
+              content: file("https://github.com/acme/context"),
+            },
+            {
+              path: "repositories/api.md",
+              content: file("https://github.com/acme/api.git"),
+            },
+          ],
+        },
+        workspace("hr"),
       ],
+      linked: [],
       bindings: [
         {
           provider: "linear",
@@ -73,11 +89,17 @@ describe("planSourceMigration", () => {
           "context",
           "version: 1\nsources:\n  - {id: issues, provider: linear, connection: con_lin1, teams: [ENG]}\n",
         ),
-        workspace("orphan", null, null),
+        {
+          ...workspace("orphan", null, null),
+          repositoryFiles: [
+            {
+              path: "repositories/api.md",
+              content: file("https://github.com/acme/api"),
+            },
+          ],
+        },
       ],
-      linked: [
-        { workspaceId: "orphan", gitUrl: "https://github.com/acme/api" },
-      ],
+      linked: [],
       bindings: [
         {
           provider: "linear",
@@ -98,7 +120,7 @@ describe("planSourceMigration", () => {
 })
 
 describe("planSourceMigration: repository files", () => {
-  it("deletes the repository files of the GitHub repositories that move, and keeps a file that pins a branch or names another host", () => {
+  it("moves each GitHub repository file with its branch as ref, and keeps a file that names another host", () => {
     const { changes, deletePaths } = planSourceMigration({
       workspaces: [
         {
@@ -120,17 +142,20 @@ describe("planSourceMigration: repository files", () => {
           ],
         },
       ],
-      linked: [
-        { workspaceId: "eng", gitUrl: "https://github.com/acme/api" },
-        { workspaceId: "eng", gitUrl: "https://github.com/acme/web" },
-        { workspaceId: "eng", gitUrl: "https://gitlab.example/acme/tools" },
-      ],
+      linked: [],
       bindings: [],
     })
-    // A branch pin has no place in the GitHub scope, so web stays a file.
     expect(changes.get("eng")).toMatchObject([
-      { provider: "github", scope: { repositories: ["acme/api"] } },
+      {
+        provider: "github",
+        scope: {
+          repositories: ["acme/api", { name: "acme/web", ref: "release" }],
+        },
+      },
     ])
-    expect(deletePaths.get("eng")).toEqual(["repositories/api.md"])
+    expect(deletePaths.get("eng")).toEqual([
+      "repositories/api.md",
+      "repositories/web.md",
+    ])
   })
 })

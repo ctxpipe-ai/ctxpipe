@@ -2,8 +2,8 @@ import { and, eq } from "drizzle-orm"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { repositories } from "../../db/schema/repositories.js"
-import { workspaceLinkedRepositories } from "../../db/schema/workspaces.js"
 import { getWorkspaceGithubReadToken } from "../../models/github-installation.js"
+import { listLinkedRepositoryPins } from "../../models/workspace-source-state.js"
 import {
   type AgentVaultAccess,
   AgentVaultUnavailableError,
@@ -54,25 +54,27 @@ export async function workspaceGithubReadScope(
 ): Promise<string[]> {
   const connectionId = revision.remote.connectionId
   if (!connectionId) return []
-  const linked = await withOrgDbContext(orgId, (db) =>
-    db
-      .select({ url: workspaceLinkedRepositories.gitUrl })
-      .from(workspaceLinkedRepositories)
-      .innerJoin(
-        repositories,
-        and(
-          eq(repositories.gitUrl, workspaceLinkedRepositories.gitUrl),
-          eq(repositories.orgId, workspaceLinkedRepositories.orgId),
-          eq(repositories.githubConnectionId, connectionId),
+  const linked = await withOrgDbContext(orgId, async (db) => {
+    const [pins, bound] = await Promise.all([
+      listLinkedRepositoryPins(db, {
+        orgId,
+        workspaceId: revision.workspaceId,
+      }),
+      db
+        .select({ gitUrl: repositories.gitUrl })
+        .from(repositories)
+        .where(
+          and(
+            eq(repositories.orgId, orgId),
+            eq(repositories.githubConnectionId, connectionId),
+          ),
         ),
-      )
-      .where(
-        and(
-          eq(workspaceLinkedRepositories.orgId, orgId),
-          eq(workspaceLinkedRepositories.workspaceId, revision.workspaceId),
-        ),
-      ),
-  )
+    ])
+    const readable = new Set(bound.map((row) => row.gitUrl))
+    return pins
+      .filter((pin) => readable.has(pin.gitUrl))
+      .map((pin) => ({ url: pin.gitUrl }))
+  })
   return [
     ...new Set(
       [revision.remote.url, ...linked.map((entry) => entry.url)]

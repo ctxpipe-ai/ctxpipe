@@ -1,10 +1,13 @@
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { isConnectorMirrorPath } from "../../domain/codeIngestion/connectorMirrorPaths.js"
+import { githubSourceRepositories } from "../../domain/workspace-sources/github-sources.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
+import { isLinkedRepositoryDeclaration } from "../../domain/workspaces/layout.js"
 import { linkedRepositoryUrlSchema } from "../../domain/workspaces/linked-repository-url.js"
 import {
   migrationLinkedRepositoryUrls,
+  migrationRepositoryFiles,
   migrationSourcesFile,
   planKnowledgeProjection,
 } from "../../domain/workspaces/migration-export.js"
@@ -155,13 +158,21 @@ export const workspaceMigrationExport = defineWorkflow(
                   acquired.pack,
                   (path) =>
                     path === sourcesPath ||
+                    isLinkedRepositoryDeclaration(path) ||
                     (path.endsWith(".md") &&
                       !isConnectorMirrorPath(path) &&
                       path.startsWith("knowledge/")),
                 )
                 const existingKnowledge = existing.filter(
-                  (file) => file.path !== sourcesPath,
+                  (file) =>
+                    file.path !== sourcesPath &&
+                    !isLinkedRepositoryDeclaration(file.path),
                 )
+                // ADR-050: the `repositories/*.md` files move into the file.
+                const repositoryFiles = migrationRepositoryFiles(existing)
+                const currentSources =
+                  existing.find((file) => file.path === sourcesPath)?.content ??
+                  null
                 const { linkedUrls, ...projectionSource } = source
                 const plan = await planKnowledgeProjection({
                   ...projectionSource,
@@ -175,12 +186,20 @@ export const workspaceMigrationExport = defineWorkflow(
                   stampImportKey: true,
                 })
                 const sourcesFile = migrationSourcesFile({
-                  sourcesFile:
-                    existing.find((file) => file.path === sourcesPath)
-                      ?.content ?? null,
+                  sourcesFile: currentSources,
                   connectionId,
-                  gitUrls: linkedUrls,
+                  repositories: [
+                    ...repositoryFiles,
+                    ...linkedUrls.map((gitUrl) => ({ gitUrl, ref: null })),
+                  ],
                 })
+                // Delete a repository file only when the file links it.
+                const linkedNow = new Set(
+                  githubSourceRepositories(
+                    sourcesFile ?? currentSources,
+                    null,
+                  ).map((linked) => linked.gitUrl),
+                )
                 return {
                   files: [
                     ...(plan.wouldChange ? plan.files : []),
@@ -188,6 +207,9 @@ export const workspaceMigrationExport = defineWorkflow(
                       ? [{ path: sourcesPath, content: sourcesFile }]
                       : []),
                   ],
+                  deletePaths: repositoryFiles
+                    .filter((file) => linkedNow.has(file.gitUrl))
+                    .map((file) => file.path),
                   knowledgePaths: plan.knowledgePaths,
                 }
               },
@@ -199,7 +221,8 @@ export const workspaceMigrationExport = defineWorkflow(
               ),
             )
             const files = transformed.files
-            if (!files.length) {
+            const deletePaths = transformed.deletePaths
+            if (!files.length && !deletePaths.length) {
               const refreshed = await step.run({ name: "confirm-no-op" }, () =>
                 refreshWorkspaceWriteRevision(input, revision, env),
               )
@@ -216,19 +239,19 @@ export const workspaceMigrationExport = defineWorkflow(
               }
             }
             const staged = await step.run({ name: "stage" }, () =>
-              stageGitFiles(acquired.pack, files),
+              stageGitFiles(acquired.pack, files, deletePaths),
             )
             await step.run({ name: "validate" }, () =>
-              validateGitTree(
-                staged,
-                files.map((file) => file.path),
-              ),
+              validateGitTree(staged, [
+                ...files.map((file) => file.path),
+                ...deletePaths,
+              ]),
             )
             const subject = await step.run({ name: "commit-subject" }, () =>
               generateCommitSubject({
                 repoName: repositoryName.split("/")[1] ?? repositoryName,
                 trigger: "migration_export",
-                fileNames: files.map((file) => file.path),
+                fileNames: [...files.map((file) => file.path), ...deletePaths],
               }),
             )
             const committed = await step.run({ name: "commit" }, async () => {
