@@ -166,6 +166,8 @@ export async function pushIngestAssemble(input: {
   oldTip: string | null
   remote: IngestRemote
   commit: IngestStepCommit
+  /** Workspace root folder; `""` (the default) is the repository root. */
+  rootPath?: string
 }): Promise<{ sha: string; ops: number }> {
   const ref = ingestRefName({
     runId: input.job.runId,
@@ -213,7 +215,9 @@ export async function pushIngestAssemble(input: {
           `The shard ${shard} does not start at the pinned revision`,
         )
       for (const change of await diffTree(repoDir, input.pinnedRevision, tip)) {
-        const reason = disallowedPathReason(change.path)
+        const reason =
+          disallowedPathReason(change.path, input.rootPath) ??
+          (change.regularFile ? null : "Only regular files are allowed")
         if (reason) throw new IngestRefRefusedError(`${change.path}: ${reason}`)
         const key = change.path.toLowerCase()
         if (changes.has(key)) conflicts.add(change.path)
@@ -507,12 +511,16 @@ async function diffTree(
   repoDir: string,
   from: string,
   to: string,
-): Promise<Array<{ path: string; indexLine: string }>> {
+): Promise<Array<{ path: string; indexLine: string; regularFile: boolean }>> {
   const out = (
     await runGit(repoDir, ["diff-tree", "-r", "-z", "--no-renames", from, to])
   ).toString()
   const fields = out.split("\0")
-  const changes: Array<{ path: string; indexLine: string }> = []
+  const changes: Array<{
+    path: string
+    indexLine: string
+    regularFile: boolean
+  }> = []
   for (let i = 0; i + 1 < fields.length; i += 2) {
     const meta = fields[i] ?? ""
     const path = fields[i + 1] ?? ""
@@ -522,6 +530,9 @@ async function diffTree(
       .split(" ")
     changes.push({
       path,
+      // A delete has mode 000000; a symlink (120000) or a submodule
+      // (160000) can point outside the Workspace root folder.
+      regularFile: status === "D" || newMode === "100644",
       indexLine:
         status === "D"
           ? `0 ${"0".repeat(newSha.length)}\t${path}\0`
