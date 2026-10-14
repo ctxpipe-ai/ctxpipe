@@ -109,7 +109,7 @@ export const MAX_WORKSPACE_OPS = 300
 const MAX_DELETE_SHARE = 0.2
 /** A source file above this size is not read to check a quote or a pattern. */
 const MAX_SOURCE_READ_BYTES = 1024 * 1024
-/** Distinct source paths that one step checks or reads with git. */
+/** Distinct source files that one step reads with git. */
 const MAX_SOURCE_READS = 200
 /** Quotes and inferred-rule patterns that one step compares with source text. */
 const MAX_SOURCE_COMPARES = 200
@@ -255,18 +255,20 @@ export function gitSource(
   }
 }
 
-/** Checks paths in the source repository with `git cat-file -e`. */
+/**
+ * Checks paths in the source repository. One `git ls-tree` reads the files
+ * and folders at `sha` once; each check is then a set lookup.
+ */
 export function gitSourcePathExists(
   repoDir: string,
   sha: string,
 ): (path: string) => Promise<boolean> {
+  let paths: Promise<Set<string>> | undefined
   return async (path) => {
-    try {
-      await git(repoDir, ["cat-file", "-e", `${sha}:${path}`])
-      return true
-    } catch {
-      return false
-    }
+    paths ??= git(repoDir, ["ls-tree", "-r", "-t", "-z", "--name-only", sha])
+      .then((out) => new Set(out.toString("utf8").split("\0")))
+      .catch(() => new Set<string>())
+    return (await paths).has(path.replace(/\/+$/, ""))
   }
 }
 
@@ -356,7 +358,7 @@ export async function validatePatchStep(
   }
   const meter = input.meter ?? { work: 0 }
   // Each distinct path is read from git once per step, and the step reads
-  // at most MAX_SOURCE_READS paths. A path above the limit counts as absent.
+  // at most MAX_SOURCE_READS files. A file above the limit counts as absent.
   const budget = { reads: 0, compares: 0, spent: false }
   const cached = <T>(
     cache: Map<string, Promise<T>>,
@@ -377,11 +379,17 @@ export async function validatePatchStep(
       return hit
     }
   }
-  const evidenceExists = cached(
-    new Map<string, Promise<boolean>>(),
-    false,
-    input.sourcePathExists,
-  )
+  // An evidence path is a lookup, not a file read, so it does not use the
+  // read budget. Each distinct path is asked once.
+  const evidenceCache = new Map<string, Promise<boolean>>()
+  const evidenceExists = (path: string) => {
+    let hit = evidenceCache.get(path)
+    if (!hit) {
+      hit = input.sourcePathExists(path)
+      evidenceCache.set(path, hit)
+    }
+    return hit
+  }
   const sourceText = cached(
     new Map<string, Promise<string | null>>(),
     null,
@@ -519,30 +527,53 @@ export async function validatePatchStep(
         op.path,
         checked.rule,
         budget.spent
-          ? `${checked.reason}. The step reads at most ${MAX_SOURCE_READS} source paths and compares at most ${MAX_SOURCE_COMPARES} quotes or patterns with them`
+          ? `${checked.reason}. The step reads at most ${MAX_SOURCE_READS} source files and compares at most ${MAX_SOURCE_COMPARES} quotes or patterns with them`
           : checked.reason,
       )
     else candidates.push(checked)
   }
   // A value can be cut over files. The scan reads the bodies and then the
   // front matter of all written files, each in path order and without the
-  // blank lines at its ends, as one text.
+  // blank lines at its ends, as one text. Only the files of the shortest run
+  // of parts that still has the finding are rejected. Two binary searches
+  // find that run, so the step scans the text about 2 log2(parts) times.
   const written = candidates.flatMap((c) => (c.written ? [c] : []))
-  if (
+  const parts = [
+    ...written.map((c) => ({ c, text: c.written?.body.trim() ?? "" })),
+    ...written.map((c) => ({ c, text: c.written?.yaml.trim() ?? "" })),
+  ]
+  const hits = (from: number, to: number) =>
     findSuspectedSecret(
-      [
-        ...written.map((c) => c.written?.body.trim()),
-        ...written.map((c) => c.written?.yaml.trim()),
-      ].join("\n"),
+      parts
+        .slice(from, to + 1)
+        .map((p) => p.text)
+        .join("\n"),
       meter,
-    )
-  )
-    for (const c of written)
+    ) !== null
+  if (parts.length > 0 && hits(0, parts.length - 1)) {
+    let first = 0
+    for (let low = 1, high = parts.length - 1; low <= high; ) {
+      const middle = (low + high) >> 1
+      if (hits(middle, parts.length - 1)) {
+        first = middle
+        low = middle + 1
+      } else high = middle - 1
+    }
+    let last = parts.length - 1
+    for (let low = first, high = last - 1; low <= high; ) {
+      const middle = (low + high) >> 1
+      if (hits(first, middle)) {
+        last = middle
+        high = middle - 1
+      } else low = middle + 1
+    }
+    for (const c of new Set(parts.slice(first, last + 1).map((p) => p.c)))
       reject(
         c.path,
         "suspected_secret",
         "The text that the step writes, read as one text, has a value that looks like a secret",
       )
+  }
   candidates = candidates.filter(
     (c) => !rejections.some((r) => r.path === c.path),
   )
@@ -735,14 +766,8 @@ async function checkAreaWrite(
   if (!isDeepStrictEqual(raw.claims, baseAttributes.claims))
     return { rule: "front_matter", reason: "An area file has no claims" }
 
-  if (
-    !isDeepStrictEqual(humanBlocks(text), humanBlocks(before ?? "")) ||
-    markerCount(text) !== markerCount(before ?? "")
-  )
-    return {
-      rule: "human_section",
-      reason: "The human section must not change",
-    }
+  const human = humanSectionProblem(front, before)
+  if (human) return human
   const content = contentProblem(text)
   if (content) return content
   // The script writes human sections at the end of an area file. A human
@@ -869,14 +894,8 @@ async function checkFullWrite(
       return { rule: "front_matter", reason: `Only the host sets ${field}` }
   }
 
-  if (
-    !isDeepStrictEqual(humanBlocks(text), humanBlocks(before ?? "")) ||
-    markerCount(text) !== markerCount(before ?? "")
-  )
-    return {
-      rule: "human_section",
-      reason: "The human section must not change",
-    }
+  const human = humanSectionProblem(front, before)
+  if (human) return human
 
   const content = contentProblem(text)
   if (content) return content
@@ -1086,6 +1105,27 @@ const HUMAN_MARKER = new RegExp(
   `${escapeRegExp(HUMAN_OPEN)}|${escapeRegExp(HUMAN_CLOSE)}`,
   "g",
 )
+
+/**
+ * Each human section of the base stays byte for byte in the body. The
+ * host writes new front matter, so a section in the front matter or in a
+ * YAML comment would not be in the stored file.
+ */
+function humanSectionProblem(
+  front: { yaml: string; body: string },
+  before: string | undefined,
+): CheckFailure | null {
+  if (
+    markerCount(front.yaml) > 0 ||
+    !isDeepStrictEqual(humanBlocks(front.body), humanBlocks(before ?? "")) ||
+    markerCount(front.body) !== markerCount(before ?? "")
+  )
+    return {
+      rule: "human_section",
+      reason: "The human section must not change",
+    }
+  return null
+}
 
 function humanBlocks(text: string): string[] {
   return [...text.matchAll(HUMAN_BLOCK)].map((m) => m[0])
@@ -1301,13 +1341,22 @@ function quotedBlocks(body: string): QuotedBlock[] {
         !quoteLine(lines[i] ?? "")
       )
         paragraph.push(lines[i++] ?? "")
-      const spans = paragraph.flatMap((l) => codeSpans(l).map((s) => s.text))
-      if (spans.length === 0) continue
+      if (!paragraph.some((l) => codeSpans(l).length > 0)) continue
       const inside = SOURCE_LINE.exec(paragraph.at(-1) ?? "")
       if (inside) paragraph.pop()
+      // A span that holds a phrase alone is a quote. When a phrase is still
+      // there without those spans, it is cut between prose and code, so
+      // the whole paragraph is the quote. A blank span is never a quote.
+      const quoted = paragraph
+        .flatMap((l) => codeSpans(l).map((span) => span.text))
+        .filter((text) => text.trim() !== "" && hasInstruction(text))
+      const rest = withSpans(paragraph, (text) =>
+        quoted.includes(text) ? " " : text,
+      )
+      const text = withSpans(paragraph, (span) => span)
       blocks.push({
-        text: withoutCode(paragraph.join("\n"), true).replace(/\s+/g, " "),
-        quotes: spans,
+        text,
+        quotes: hasInstruction(rest) ? [text] : quoted,
         source: inside?.[1] ?? SOURCE_LINE.exec(nextLine(i))?.[1] ?? null,
       })
       continue
@@ -1327,6 +1376,22 @@ function quotedBlocks(body: string): QuotedBlock[] {
   return blocks
 }
 
+/** The lines of a paragraph as one line, with each code span replaced by `span(text)`. */
+function withSpans(lines: string[], span: (text: string) => string): string {
+  return lines
+    .map((line) => {
+      let out = ""
+      let at = 0
+      for (const s of codeSpans(line)) {
+        out += line.slice(at, s.start) + span(s.text)
+        at = s.end
+      }
+      return out + line.slice(at)
+    })
+    .join(" ")
+    .replace(/\s+/g, " ")
+}
+
 function secretProblem(
   text: string,
   meter: WorkMeter,
@@ -1342,7 +1407,8 @@ function secretProblem(
 
 /**
  * Removes fenced code blocks and inline code spans. With `keepSpanText`, a
- * code span keeps its text and loses only its backticks.
+ * code span keeps its text and loses only its backticks. Without it, a
+ * span becomes one space, so the words at its two sides stay apart.
  */
 function withoutCode(text: string, keepSpanText: boolean): string {
   const out: string[] = []
@@ -1368,7 +1434,7 @@ function withoutCode(text: string, keepSpanText: boolean): string {
     let kept = ""
     let at = 0
     for (const span of codeSpans(line)) {
-      kept += line.slice(at, span.start) + (keepSpanText ? span.text : "")
+      kept += line.slice(at, span.start) + (keepSpanText ? span.text : " ")
       at = span.end
     }
     out.push(kept + line.slice(at))
