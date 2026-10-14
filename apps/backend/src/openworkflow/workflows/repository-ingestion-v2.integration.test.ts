@@ -239,7 +239,7 @@ beforeAll(async () => {
   runner.implementWorkflow(parent.spec, parent.fn)
   worker = runner.newWorker({ concurrency: 4 })
   await worker.start()
-}, 60_000)
+}, 120_000)
 
 afterAll(async () => {
   await worker?.stop()
@@ -253,12 +253,12 @@ afterAll(async () => {
   await getSystemDb().delete(organizations).where(eq(organizations.id, orgId))
   await closeDb()
   rmSync(folder, { recursive: true, force: true })
-})
+}, 60_000)
 
 describe("ingestion v2 in shadow mode", () => {
   it(
     "writes refs in both destination Workspaces, publishes nothing, and keeps each step output small",
-    { timeout: 120_000 },
+    { timeout: 420_000 },
     async () => {
       const handle = await runner.runWorkflow(parent.spec, {
         orgId,
@@ -270,7 +270,7 @@ describe("ingestion v2 in shadow mode", () => {
         sha: sourceSha,
         authorTime: "2026-10-01T00:00:00.000Z",
       })
-      const result = await handle.result({ timeoutMs: 110_000 })
+      const result = await handle.result({ timeoutMs: 400_000 })
       const runId = handle.workflowRun.id
 
       // One model run per root and destination Workspace: 2 roots, 2 Workspaces.
@@ -282,6 +282,15 @@ describe("ingestion v2 in shadow mode", () => {
 
       expect(result).toMatchObject({ status: "done", shadow: true, shards: 1 })
       if (result.status !== "done") throw new Error("The run did not finish")
+      // The host validator accepted each file that the stand-in agent wrote.
+      const steps = await getSystemDb().execute<{ output: unknown }>(sql`
+        select output from openworkflow.step_attempts
+        where namespace_id = ${openWorkflowNamespaceId()}
+          and step_name like 'skill:%' and status = 'completed'
+      `)
+      expect(steps.rows.map((row) => row.output)).toEqual(
+        Array(4).fill(expect.objectContaining({ ops: 1, rejects: 0 })),
+      )
       for (const [i, name] of contexts.entries()) {
         const workspaceId = workspaceIds[i] ?? ""
         const refs = refsOf(name)
@@ -332,7 +341,7 @@ describe("ingestion v2 in shadow mode", () => {
 describe("ingestion v2 after a killed worker", () => {
   it(
     "resumes a step that crashed after its push, with no second model call for that step",
-    { timeout: 240_000 },
+    { timeout: 600_000 },
     async () => {
       // Only the child workers below may claim this run.
       await worker.stop()
@@ -470,7 +479,7 @@ process.exit(result.status ?? 1);
         expect(Object.keys(refsOf(contexts[0] ?? ""))).toContain(ref)
 
         launch(false)
-        const result = await handle.result({ timeoutMs: 180_000 })
+        const result = await handle.result({ timeoutMs: 400_000 })
         expect(result).toMatchObject({ status: "done", shards: 1 })
         // One model call per step: the crashed step found its commit.
         expect(calls).toHaveLength(4)

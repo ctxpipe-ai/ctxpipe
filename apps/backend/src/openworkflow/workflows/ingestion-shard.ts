@@ -107,6 +107,7 @@ type StepResult =
       tip: string
       ops: number
       rejects: number
+      rejected?: string[]
       resumed: boolean
       partial?: undefined
     }
@@ -314,6 +315,10 @@ async function runSkillStep(ctx: {
         tip: pushed.sha,
         ops: pushed.validation.accepted.length,
         rejects: pushed.validation.rejections.length,
+        // The first rejections, short, for the run's log (T11 adds spans).
+        rejected: pushed.validation.rejections
+          .slice(0, 5)
+          .map((r) => `${r.rule}: ${r.path}: ${r.reason}`.slice(0, 200)),
         resumed: false,
       }
     } catch (error) {

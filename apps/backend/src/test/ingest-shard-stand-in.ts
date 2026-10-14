@@ -108,6 +108,8 @@ export function standInIngestShardRuntime(options: {
         const tar = await exec("tar", ["-C", out, "-cf", "-", "."], {
           encoding: "buffer",
           maxBuffer: 16 * 1024 * 1024,
+          // macOS tar adds AppleDouble `._*` entries; the sandbox tar does not.
+          env: { ...process.env, COPYFILE_DISABLE: "1" },
         })
         return new Uint8Array(tar.stdout)
       },
