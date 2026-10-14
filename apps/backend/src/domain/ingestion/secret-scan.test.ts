@@ -63,6 +63,8 @@ describe("findSuspectedSecret on values that look like code or test data", () =>
     ["a GitHub token and a suffix", `${gh}-x`],
     ["a GitHub token and an underscore suffix", `${gh}_x`],
     ["an AWS key id and a suffix", `${aws}-x`],
+    ["a dictionary word and digits", "DB_PASSWORD=Password12345678"],
+    ["a dictionary word and 4 digits", "API_TOKEN=secret123456"],
   ])("finds %s", (_, line) => {
     expect(found(line)).not.toBeNull()
   })
@@ -86,6 +88,7 @@ describe("findSuspectedSecret on values that look like code or test data", () =>
     ],
     ["a placeholder token with a suffix", `ghp_${"x".repeat(36)}-example`],
     ["words after a word", "research pass: ByteRover CLI 3"],
+    ["a short word and digits", "DB_PASSWORD=password123"],
   ])("does not find %s", (_, line) => {
     expect(found(line)).toBeNull()
   })

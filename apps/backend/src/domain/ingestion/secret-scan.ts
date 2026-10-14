@@ -60,9 +60,12 @@ const STRONG_NAME =
   /(?:secret|token|passw(?:or)?d|pwd|credentials?|auth|api[_-]?key|access[_-]?key|private[_-]?key|account[_-]?key|signing[_-]?key|master[_-]?key|encryption[_-]?key|secret[_-]?key[_-]?base|key[_-]?base)(?:[_-]?\d{1,3})?$|^(?:pass|pwd)$/i
 /** A name that is often not secret (`cache_key`): only a random-looking value counts. */
 const WEAK_NAME = /key(?:[_-]?\d{1,3})?$/i
-/** A placeholder is the whole value, never a part of it. */
+/**
+ * A placeholder is the whole value, never a part of it. A word with digits
+ * is a placeholder only when it is shorter than 12 characters.
+ */
 const PLACEHOLDER =
-  /^(?:<[^>]*>|\$\{.*\}|\$\(.*\)|\$[A-Za-z_]\w*|\{\{.*\}\}|%[A-Za-z_]\w*%|change[-_]?me|(?:your|my)[-_].*|redacted|placeholder|dummy|sample|example|todo|tbd|none|null|nil|true|false|undefined|(?:token|secret|password|passwd|pass|test|key|api[-_]?key|demo|foo|bar|abc)[-_]?\d{0,8}|[A-Za-z]{0,12}[-_]?(?:x{4,}|X{4,}|\*{3,}|\.{3,}|0{6,}))$/i
+  /^(?:<[^>]*>|\$\{.*\}|\$\(.*\)|\$[A-Za-z_]\w*|\{\{.*\}\}|%[A-Za-z_]\w*%|change[-_]?me|(?:your|my)[-_].*|redacted|placeholder|dummy|sample|example|todo|tbd|none|null|nil|true|false|undefined|(?=.{0,11}$)(?:token|secret|password|passwd|pass|test|key|api[-_]?key|demo|foo|bar|abc)[-_]?\d{0,8}|[A-Za-z]{0,12}[-_]?(?:x{4,}|X{4,}|\*{3,}|\.{3,}|0{6,}))$/i
 const COMMON_PASSWORDS = new Set([
   "password",
   "passwd",
