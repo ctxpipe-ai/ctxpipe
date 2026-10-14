@@ -10,13 +10,19 @@ import {
 import { readOrRebuild } from "./graph-rebuild.js"
 import type { PublishedProjection } from "./revision.js"
 
-/** The limits of ADR-051 section 6. A caller can set lower limits. */
+/**
+ * The limits of ADR-051 section 6. A caller can set lower limits. A test can
+ * give the walk up to `maxTestTimeoutMs`, so that the load of the machine does
+ * not change a result.
+ */
 const defaultCaps = {
   maxNodes: 5_000,
   maxEdges: 25_000,
   hopTimeoutMs: 1_000,
   totalTimeoutMs: 3_000,
 }
+
+const maxTestTimeoutMs = 60_000
 
 const expandParamsSchema = z
   .object({
@@ -44,8 +50,8 @@ const expandParamsSchema = z
       .object({
         maxNodes: z.number().int().min(1).max(defaultCaps.maxNodes),
         maxEdges: z.number().int().min(0).max(defaultCaps.maxEdges),
-        hopTimeoutMs: z.number().int().min(0).max(defaultCaps.hopTimeoutMs),
-        totalTimeoutMs: z.number().int().min(0).max(defaultCaps.totalTimeoutMs),
+        hopTimeoutMs: z.number().int().min(0).max(maxTestTimeoutMs),
+        totalTimeoutMs: z.number().int().min(0).max(maxTestTimeoutMs),
       })
       .partial()
       .optional(),

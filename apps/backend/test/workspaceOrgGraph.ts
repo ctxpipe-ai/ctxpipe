@@ -7,6 +7,13 @@
  * The graph relevance eval walks it. Every name is made up. The same call
  * gives the same Workspace and the same gold answers.
  *
+ * The `free-form` vocabulary builds the same Workspace with the names that
+ * authors and agents write: `GOVERNS` for a decision, `IMPORTS` for a
+ * library, and plain body links (`LINKS_TO`) from a team to its services and
+ * from some decisions to the services that they shape. Only the edges that
+ * git gives (`CHANGED`, `MODIFIED`, `ADDED`) keep their names. The gold
+ * answers do not change.
+ *
  * The gold answers come from how the fixture is built, never from a ranking.
  * The Workspace graph stores no node-level authority, so no gold answer
  * depends on one.
@@ -43,7 +50,26 @@ const serviceNames = [
   "reports",
 ]
 
-export function workspaceOrgFixture(today = "2026-10-05"): WorkspaceOrgFixture {
+/** `canonical` uses the predicates of the presets; `free-form` does not. */
+export type EvalVocabulary = "canonical" | "free-form"
+
+const FREE_FORM_NAMES: Readonly<Record<string, string>> = {
+  OWNS: "MAINTAINED",
+  USES_LIBRARY: "IMPORTS",
+  WRITES_TO: "STORES_DATA_IN",
+  READS_FROM: "CACHES_IN",
+  DEPENDS_ON: "CALLS",
+  PART_OF: "DESCRIBES",
+  APPLIES_TO: "ENFORCED_ON",
+  INFLUENCES: "GOVERNS",
+  SUPERSEDES: "REPLACES",
+}
+
+export function workspaceOrgFixture(
+  vocabulary: EvalVocabulary = "canonical",
+  today = "2026-10-05",
+): WorkspaceOrgFixture {
+  const freeForm = vocabulary === "free-form"
   const now = new Date(`${today}T00:00:00.000Z`)
   let state = 42
   const random = () => {
@@ -65,7 +91,23 @@ export function workspaceOrgFixture(today = "2026-10-05"): WorkspaceOrgFixture {
     confidence: number,
     extra: { validFrom?: string; validTo?: string } = {},
   ) => {
-    units.get(from)?.claims?.push({ to, predicate, confidence, ...extra })
+    units.get(from)?.claims?.push({
+      to,
+      predicate: (freeForm && FREE_FORM_NAMES[predicate]) || predicate,
+      confidence,
+      ...extra,
+    })
+  }
+  /** A body link in the free-form vocabulary, else the claim. */
+  const linkOr = (
+    from: string,
+    predicate: string,
+    to: string,
+    confidence: number,
+  ) => {
+    const source = units.get(from)
+    if (freeForm && source) source.links = [...(source.links ?? []), to]
+    else claim(from, predicate, to, confidence)
   }
 
   const servicePath = (name: string) => `knowledge/services/${name}.md`
@@ -103,7 +145,7 @@ export function workspaceOrgFixture(today = "2026-10-05"): WorkspaceOrgFixture {
   const owners = new Map<string, string[]>()
   for (const [index, service] of services.entries()) {
     const owner = teams[index % teams.length] as string
-    claim(owner, "OWNS", service, 0.95)
+    linkOr(owner, "OWNS", service, 0.95)
     owners.set(service, [owner])
     const contributor = teams[(index + 1) % teams.length] as string
     claim(contributor, "CONTRIBUTES_TO", service, 0.7)
@@ -152,7 +194,7 @@ export function workspaceOrgFixture(today = "2026-10-05"): WorkspaceOrgFixture {
       index % 2 ? servicePath("auth") : billing,
       lesson ? 0.72 : 0.82,
     )
-    if (lesson) claim(rule, "DECLARED_IN", lessons, 0.95)
+    if (lesson) linkOr(rule, "DECLARED_IN", lessons, 0.95)
   }
 
   // Decisions: 6 scoped to one service, 8 to some, 16 to all. Every seventh
@@ -186,14 +228,18 @@ export function workspaceOrgFixture(today = "2026-10-05"): WorkspaceOrgFixture {
     for (const { service, confidence } of scope) {
       // A decision that holds has no end and no start date: the truth
       // signal would decay it by age, but a decision stays true until a
-      // later one replaces it.
-      claim(
-        decision,
-        "INFLUENCES",
-        service,
-        confidence,
-        endsAt ? { validFrom: decisionDate(index), validTo: endsAt } : {},
-      )
+      // later one replaces it. In the free-form vocabulary, each second
+      // decision that holds only links to its services in the body.
+      if (!replaced && index % 2 === 0)
+        linkOr(decision, "INFLUENCES", service, confidence)
+      else
+        claim(
+          decision,
+          "INFLUENCES",
+          service,
+          confidence,
+          endsAt ? { validFrom: decisionDate(index), validTo: endsAt } : {},
+        )
       if (!replaced) {
         const list = influences.get(service) ?? []
         list.push({ decision, confidence })

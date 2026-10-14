@@ -6,7 +6,10 @@ import {
   workspaceKnowledgeUnits,
   workspaces,
 } from "../../db/schema/workspaces.js"
-import { expandWorkspaceGraph } from "../../domain/workspaces/graph-expand.js"
+import {
+  expandWorkspaceGraph,
+  type GraphExpandParams,
+} from "../../domain/workspaces/graph-expand.js"
 import { WorkspaceGraphUnavailableError } from "../../domain/workspaces/graph-projection.js"
 import { WorkspaceGraphBuildingError } from "../../domain/workspaces/graph-rebuild.js"
 import {
@@ -327,7 +330,8 @@ async function resolveSeeds(
 
 /**
  * The ranking of one call as of `now`. It loads the projection once and
- * checks that it holds the served `sha`.
+ * checks that it holds the served `sha`. `options.caps` lowers the walk caps,
+ * or gives a test more time.
  */
 export async function rankWorkspaceRelated(
   org: CallOrg,
@@ -335,6 +339,7 @@ export async function rankWorkspaceRelated(
   sha: string,
   input: z.infer<z.ZodObject<typeof getRelatedInputShape>>,
   now: Date,
+  options: { caps?: GraphExpandParams["caps"] } = {},
 ): Promise<Ranking> {
   const notReady = (reason: string) =>
     new McpToolError(
@@ -361,6 +366,7 @@ export async function rankWorkspaceRelated(
       ? undefined
       : (input.validAt ?? now.toISOString()),
     validBetween: input.validBetween,
+    caps: options.caps,
   }).catch((error: unknown) => {
     if (error instanceof WorkspaceGraphBuildingError) {
       throw notReady("being built")
