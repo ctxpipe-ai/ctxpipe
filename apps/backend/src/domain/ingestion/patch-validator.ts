@@ -14,7 +14,7 @@ import { isConnectorMirrorPath } from "../codeIngestion/connectorMirrorPaths.js"
 import { KNOWLEDGE_KIND_FOLDERS } from "../workspaces/layout.js"
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
 import { type AreaFile, checkAreaChange, parseAreaBody } from "./area-file.js"
-import { runGit as git } from "./run-git.js"
+import { GitOutputTooLargeError, runGit as git } from "./run-git.js"
 import {
   findSuspectedSecret,
   type WorkMeter,
@@ -257,7 +257,9 @@ export function gitSource(
 
 /**
  * Checks paths in the source repository. One `git ls-tree` reads the files
- * and folders at `sha` once; each check is then a set lookup.
+ * and folders at `sha` once; each check is then a set lookup. When the
+ * listing is larger than the limit of `runGit`, each check fails with that
+ * reason, so the step stops.
  */
 export function gitSourcePathExists(
   repoDir: string,
@@ -267,7 +269,10 @@ export function gitSourcePathExists(
   return async (path) => {
     paths ??= git(repoDir, ["ls-tree", "-r", "-t", "-z", "--name-only", sha])
       .then((out) => new Set(out.toString("utf8").split("\0")))
-      .catch(() => new Set<string>())
+      .catch((error: unknown) => {
+        if (error instanceof GitOutputTooLargeError) throw error
+        return new Set<string>()
+      })
     return (await paths).has(path.replace(/\/+$/, ""))
   }
 }
