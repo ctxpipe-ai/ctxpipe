@@ -1,31 +1,22 @@
 import type { NetworkPolicy } from "@vercel/sandbox"
-import { describe, expect, it } from "vitest"
-import { ingestNetworkPolicy } from "./ingest-sandbox-egress.js"
+import { afterEach, describe, expect, it, vi } from "vitest"
+import { INGEST_SHARD_LIMIT_MS } from "./chat-lifecycle.js"
+import { openIngestEgressScope } from "./ingest-egress-proxy.js"
+import {
+  hostedIngestEgressEnabled,
+  ingestNetworkPolicy,
+} from "./ingest-sandbox-egress.js"
 import { hostedNetworkPolicy } from "./vercel-sandbox-provider.js"
 
-type Rule = {
-  match?: { path?: { exact?: string } }
-  transform?: Array<{ headers: Record<string, string> }>
-  forwardURL?: string
+type Rule = { match?: unknown; transform?: unknown; forwardURL?: string }
+type Policy = {
+  allow: Record<string, Rule[]>
+  subnets?: { allow?: string[]; deny?: string[] }
 }
 
-const allowOf = (policy: NetworkPolicy) =>
-  (policy as { allow: Record<string, Rule[]> }).allow
+const allowOf = (policy: NetworkPolicy) => (policy as Policy).allow
 
-/** The credential the firewall adds to a request, if any. */
-function credentialFor(
-  policy: NetworkPolicy,
-  host: string,
-  path: string,
-): string | undefined {
-  const rules = allowOf(policy)[host] ?? []
-  const rule = rules.find(
-    (candidate) =>
-      !candidate.match?.path || candidate.match.path.exact === path,
-  )
-  return rule?.transform?.[0]?.headers.authorization
-}
-
+const secret = "egress-test-secret-0123456789abcdef"
 const backendHost = "app.example.test"
 const step = {
   modelProxyPath: "/acme/api/v1/workspace-chat/openai/v1",
@@ -34,53 +25,93 @@ const step = {
   bridgeToken: "bridge-token",
 }
 const git = [{ token: "git-1", repositories: ["acme/source", "acme/context"] }]
-const basic = `Basic ${Buffer.from("x-access-token:git-1").toString("base64")}`
 
 describe("ingestNetworkPolicy", () => {
-  it("has no catch-all and no forward rule; the GitHub token goes only on fetch paths of the run's repositories", () => {
-    const policy = ingestNetworkPolicy({ git, backendHost })
-    expect(Object.keys(allowOf(policy))).toEqual(["github.com"])
-    expect(
-      Object.values(allowOf(policy))
-        .flat()
-        .some((rule) => rule.forwardURL),
-    ).toBe(false)
-    for (const path of [
-      "/acme/source.git/info/refs",
-      "/acme/source.git/git-upload-pack",
-      "/acme/context.git/git-upload-pack",
-    ])
-      expect(credentialFor(policy, "github.com", path), path).toBe(basic)
-    for (const path of [
-      "/acme/context.git/git-receive-pack",
-      "/acme/other.git/git-upload-pack",
-      "/acme/context.git/../other.git/git-upload-pack",
-    ])
-      expect(credentialFor(policy, "github.com", path), path).toBeUndefined()
+  it("denies all egress until the sandbox has a name to bind the scope to", () => {
+    expect(ingestNetworkPolicy({ git, backendHost, step, secret })).toBe(
+      "deny-all",
+    )
   })
 
-  it("adds the step's model proxy and tool bridge credentials on exact backend paths only", () => {
-    const policy = ingestNetworkPolicy({ git, backendHost, step })
-    expect(allowOf(policy)["*"]).toBeUndefined()
-    expect(
-      credentialFor(
-        policy,
-        backendHost,
-        `${step.modelProxyPath}/chat/completions`,
-      ),
-    ).toBe("Bearer ingest-capability")
-    expect(credentialFor(policy, backendHost, step.bridgePath)).toBe(
-      "Bearer bridge-token",
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it("forwards github.com and the backend host, and nothing else, to the egress proxy with a sealed scope", () => {
+    vi.useFakeTimers({ now: 1_000_000 })
+    const policy = ingestNetworkPolicy({
+      git,
+      backendHost,
+      step,
+      secret,
+      sandboxName: "sbx-ingest",
+    })
+    const allow = allowOf(policy)
+    expect(Object.keys(allow).sort()).toEqual([backendHost, "github.com"])
+    const forwardUrls = Object.values(allow).map((rules) => {
+      expect(rules).toHaveLength(1)
+      expect(Object.keys(rules[0] ?? {})).toEqual(["forwardURL"])
+      return rules[0]?.forwardURL ?? ""
+    })
+    expect(new Set(forwardUrls).size).toBe(1)
+    const url = new URL(forwardUrls[0] ?? "")
+    expect(url.origin).toBe(`https://${backendHost}`)
+    expect(url.search).toBe("")
+    const sealed = url.pathname.replace("/api/v1/sandbox-egress/", "")
+    expect(openIngestEgressScope(sealed, secret)).toEqual({
+      sandbox: "sbx-ingest",
+      exp: 1_000_000 + INGEST_SHARD_LIMIT_MS,
+      backendHost,
+      git,
+      step,
+    })
+    // No credential is readable in the policy.
+    for (const value of ["git-1", "ingest-capability", "bridge-token"])
+      expect(JSON.stringify(policy)).not.toContain(value)
+  })
+
+  it("denies private and link-local subnets", () => {
+    const policy = ingestNetworkPolicy({
+      git,
+      backendHost,
+      secret,
+      sandboxName: "sbx-ingest",
+    })
+    expect((policy as Policy).subnets?.allow).toBeUndefined()
+    expect((policy as Policy).subnets?.deny).toEqual(
+      expect.arrayContaining([
+        "10.0.0.0/8",
+        "172.16.0.0/12",
+        "192.168.0.0/16",
+        "127.0.0.0/8",
+        "169.254.0.0/16",
+        "100.64.0.0/10",
+      ]),
     )
-    for (const path of [
-      "/acme/api/v1/workspaces",
-      `${step.modelProxyPath}/../../../../api/v1/x`,
-    ])
-      expect(credentialFor(policy, backendHost, path), path).toBeUndefined()
   })
 
   it("leaves the chat policy open", () => {
     const policy = hostedNetworkPolicy({ gitToken: "git-1", backendHost })
     expect(allowOf(policy)["*"]).toEqual([])
+  })
+})
+
+describe("hostedIngestEgressEnabled", () => {
+  const configured = {
+    VERCEL_TOKEN: "t",
+    VERCEL_TEAM_ID: "egress-team",
+    VERCEL_PROJECT_ID: "prj_test",
+  }
+  it("needs the proven flag, a configured Vercel and a known issuer", () => {
+    expect(hostedIngestEgressEnabled(configured, true)).toBe(true)
+    expect(hostedIngestEgressEnabled(configured, false)).toBe(false)
+    expect(hostedIngestEgressEnabled({}, true)).toBe(false)
+    // A team id (not a slug) gives no issuer.
+    expect(
+      hostedIngestEgressEnabled(
+        { ...configured, VERCEL_TEAM_ID: "team_x" },
+        true,
+      ),
+    ).toBe(false)
   })
 })

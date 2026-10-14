@@ -1,216 +1,27 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
-import { createError } from "evlog"
-import { z } from "zod"
-import {
-  currentMcpActor,
-  currentOrgIdOrNull,
-  requireCurrentOrgSlug,
-} from "../auth/context.js"
-import { advisorWorkspaceId } from "../domain/workspaces/chat-sandbox-policy.js"
-import {
-  SandboxCapacityError,
-  stopConversationSandboxes,
-} from "../domain/workspaces/conversation-sandbox-lifecycle.js"
-import { collectTanstackWorkspaceChatText } from "../domain/workspaces/tanstack-workspace-chat.js"
-import {
-  persistWorkspaceChatUserTurnListed,
-  resolveWorkspaceChatSendRuntime,
-} from "../domain/workspaces/workspace-chat-send-runtime.js"
-import { generateObjectId } from "../lib/id.js"
-import { discardUnstartedConversation } from "../models/conversations.js"
-import {
-  getOrgFirstWorkspace,
-  listOrgWorkspaces,
-} from "../models/workspaces.js"
-import { applyAttribution } from "../observability/attribution.js"
-import { runWithLangfuseContext } from "../observability/langfuse.js"
-import { mcpAdvisorUserPrompt } from "./advisorRuntimeContext.js"
-import { mcpAdvisorThreadId, mcpClientConversationId } from "./advisorThread.js"
-import { runMcpToolCall } from "./correlation.js"
-import { orgRequired } from "./framework/tool-errors.js"
-import { toolFailure } from "./framework/tool-result.js"
+import { registerMcpReadTools } from "./framework/tool-registry.js"
+import { registerWorkspaceFileResource } from "./resources/workspace-file.js"
+import { findSymbolTool } from "./tools/find-symbol.js"
+import { getRelatedTool } from "./tools/get-related.js"
+import { listFilesTool } from "./tools/list-files.js"
+import { listWorkspaces } from "./tools/list-workspaces.js"
+import { readFileTool } from "./tools/read-file.js"
+import { searchCodeTool } from "./tools/search-code.js"
+import { searchKnowledgeTool } from "./tools/search-knowledge.js"
 
 /**
- * Register MCP tools. Tools should call into domain/ services so REST and MCP
- * share the same business logic.
+ * The public MCP surface of `/mcp` (ADR-051): the seven read tools in the
+ * `tools/list` order of the ADR, and the workspace-file resource template.
  */
 export function registerMcpTools(server: McpServer): void {
-  server.registerTool(
-    "ctx_advisor",
-    {
-      title:
-        "Deprecated Workspace chat shim (ctx_advisor) — first Workspace only",
-      description: [
-        "DEPRECATED. ctx_advisor is a compatibility shim for Workspace chat on the organization's first Workspace. There is no workspace.id argument and no org-wide advisor. Zero Workspaces → fail; create a Workspace first.",
-        "Reuse the same conversationId (and currentProjectName) to continue one MCP thread. Omit conversationId to start a new thread.",
-        "MANDATORY default: Call ctx_advisor early and often whenever org standards, architecture, tooling choices, or plans are involved. When in doubt, call — more calls beats too few. It answers from the Workspace's knowledge files, knowledge graph and linked code.",
-        "",
-        "RISK — Skipping ctx_advisor risks rework, diverging from org patterns, violating ADRs, and introducing technology that isn't allowed.",
-        "",
-        "ANTI-PATTERN — Local repository search, grep, and file reads do not replace org ADRs, skills, and standards. Call ctx_advisor first when your plan or decision depends on those; search the codebase afterward for implementation details.",
-        "",
-        "It provides: services, interfaces, standards, practices, ADRs, and guidance across the organization. Use it to retrieve any organizational memory that may be useful for the user.",
-        "",
-        "LIMITATIONS — ctx_advisor is optimized for organizational context (standards, ADRs, patterns, fleet-wide recommendations). It is not a substitute for reading source when you need exact implementation facts: precise line numbers, guaranteed call graphs, or env defaults must be verified with tool-grounded output inside this conversation or with your client's own file/search tools. Do not treat answers as authoritative code audit without cross-checking.",
-        "",
-        "MANDATORY — ALWAYS call ctx_advisor BEFORE:",
-        "- Any technology or tooling decision (e.g. database engine, framework, library, auth provider)",
-        "- Any architectural decision (service boundaries, API design, data model)",
-        "- Picking an implementation approach or pattern",
-        "- Presenting a plan to the user (validate the plan first)",
-        "- Session start — call at the very beginning of any new task to load organizational context",
-        "",
-        "MANDATORY — NEVER:",
-        "- Choose a database, framework, or library without calling first — even if the user explicitly requested one (e.g. Postgres). Include the user's preference in your prompt and ask ctx_advisor to validate it against org standards.",
-        "- Make an architectural decision without calling",
-        "- Assume org patterns — always validate",
-        "",
-        "PROACTIVE RETRIEVAL — Call to proactively retrieve org memory that might help the user, even when the user hasn't asked a specific question. Surface relevant ADRs, patterns, or past decisions that could inform the work.",
-        "",
-        "PLANNING CHECKPOINTS — Call ctx_advisor:",
-        "- At the start of planning (establish context)",
-        "- Mid-planning when evaluating options (get feedback on trade-offs)",
-        "- Just before presenting the plan to the user (validate against org standards)",
-        "",
-        "PROMPT QUALITY — Include in your prompt:",
-        "- The task and what you're deciding",
-        "- User preferences or constraints (e.g. 'user asked for Postgres' — still call to validate)",
-        "- Relevant context: repo, domain, files, or subsystems involved",
-        "- Options you're considering, if any",
-        "",
-        "EXAMPLE PROMPTS:",
-        "- 'User wants to add a database. They mentioned Postgres. Validate: is Postgres allowed? What patterns does this org use for DB access?'",
-        "- 'Planning to add rate limiting to the MCP endpoint. What middleware patterns does this org use? Any architectural constraints?'",
-        "- 'Org auth standards for this service — then summarize what the codebase shows only from verified tools; do not invent line numbers.'",
-        "- 'Is function X still used? Check callers/references via tools before concluding — org patterns first, then tool-grounded reachability.'",
-        "",
-        "OPTIONAL INPUTS — For better continuity and targeting:",
-        "- currentProjectName: Name of the current project (often the service, app, package, or repo). Pass the same value across the whole conversation.",
-        "- conversationId: Unique string identifying this conversation/session. Use the same value for all tool calls within the same conversation.",
-        "",
-        "When in doubt, call. This tool is the single entrypoint to your org's knowledge graph — use it aggressively.",
-      ].join("\n"),
-      // readOnlyHint also selects the scope: read-only tools need ctxpipe:read.
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: false,
-        openWorldHint: false,
-      },
-      inputSchema: z.object({
-        prompt: z.string().min(1),
-        currentProjectName: z.string().max(128).optional(),
-        conversationId: z.string().max(256).optional(),
-      }),
-    },
-    async ({ prompt, currentProjectName, conversationId }, extra) =>
-      runMcpToolCall({ toolName: "ctx_advisor", extra }, async () => {
-        const actor = currentMcpActor()
-        // A connection with several orgs and no usable ?orgSlug= has no
-        // default org. ctx_advisor has no `org` argument.
-        const orgId = currentOrgIdOrNull()
-        if (!orgId) {
-          return toolFailure(
-            orgRequired(
-              "ctx_advisor needs an org. Connect with /mcp?orgSlug=<org>, where <org> is an org of this connection.",
-            ),
-          )
-        }
-        applyAttribution({
-          "ctxpipe.org.id": orgId,
-          "ctxpipe.org.slug": requireCurrentOrgSlug(),
-        })
-        const [items, first] = await Promise.all([
-          listOrgWorkspaces(orgId),
-          getOrgFirstWorkspace(orgId),
-        ])
-        const workspaceId = advisorWorkspaceId(
-          first?.workspaceId ?? null,
-          items,
-        )
-        if (!workspaceId) {
-          throw createError({
-            message: "Create a Workspace before using ctx_advisor",
-            status: 400,
-            why: "Deprecated advisor targets the first Workspace; the org has none",
-          })
-        }
-        const clientConversationId = mcpClientConversationId(conversationId)
-        const threadId = clientConversationId
-          ? mcpAdvisorThreadId({
-              orgId,
-              actor,
-              currentProjectName,
-              conversationId: clientConversationId,
-            })
-          : generateObjectId("conv")
-        const promptWithProject = mcpAdvisorUserPrompt({
-          prompt,
-          currentProjectName,
-        })
-        try {
-          return await runWithLangfuseContext(
-            {
-              sessionId: threadId,
-              tags:
-                actor.type === "org-service" ? ["mcp", "mcp-org-key"] : ["mcp"],
-            },
-            async () => {
-              const progressToken = extra._meta?.progressToken
-              let progress = 0
-              const collected = await collectTanstackWorkspaceChatText({
-                conversationId: threadId,
-                prompt: promptWithProject,
-                orgId,
-                workspaceId,
-                writeStatus: "read_only",
-                resolveRuntime: () =>
-                  resolveWorkspaceChatSendRuntime({
-                    conversationId: threadId,
-                    workspaceId,
-                    source: "mcp",
-                  }),
-                onUserPersist: () =>
-                  persistWorkspaceChatUserTurnListed(threadId),
-                onDelta: progressToken
-                  ? async (delta) => {
-                      progress += 1
-                      await extra.sendNotification({
-                        method: "notifications/progress",
-                        params: {
-                          progressToken,
-                          progress,
-                          message: delta,
-                        },
-                      })
-                    }
-                  : undefined,
-              })
-              if (!collected.ok) {
-                throw createError({
-                  message: collected.error,
-                  status: collected.status,
-                  why: "Workspace chat runtime refused the MCP turn",
-                })
-              }
-              return {
-                content: [{ type: "text" as const, text: collected.text }],
-              }
-            },
-          )
-        } catch (error) {
-          await discardUnstartedConversation(threadId)
-          if (error instanceof SandboxCapacityError)
-            throw createError({
-              message: error.message,
-              status: 429,
-              why: "The organization runs its maximum number of chat sandboxes",
-            })
-          throw error
-        } finally {
-          // Nobody watches an MCP turn: free its sandbox slot right away.
-          await stopConversationSandboxes({ orgId, conversationId: threadId })
-        }
-      }),
-  )
+  registerMcpReadTools(server, [
+    listWorkspaces,
+    searchKnowledgeTool,
+    searchCodeTool,
+    findSymbolTool,
+    readFileTool,
+    listFilesTool,
+    getRelatedTool,
+  ])
+  registerWorkspaceFileResource(server)
 }

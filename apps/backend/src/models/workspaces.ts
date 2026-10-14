@@ -994,6 +994,16 @@ export async function listOrgWorkspaces(
   )
 }
 
+/** The projection state of every Workspace of the org, read in one query. */
+export async function listOrgWorkspaceProjections(
+  orgId: string,
+): Promise<ProjectionState[]> {
+  const rows = await orgSql(() =>
+    getOrgDb().select().from(workspaces).where(eq(workspaces.orgId, orgId)),
+  )
+  return rows.map(projectionFromWorkspace)
+}
+
 export async function listOrgLinkedRepositories(orgId: string): Promise<
   Array<{
     id: string
