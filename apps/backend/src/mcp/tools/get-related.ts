@@ -461,7 +461,7 @@ export const getRelatedTool = defineMcpReadTool({
       rankings.set(key, ranking)
     }
     const { results, ...header } = ranking
-    const items = explain
+    const items: RelatedResult[] = explain
       ? results
       : results.map(({ path: _path, ...rest }) => rest)
     const build = (page: RelatedResult[]) => ({
