@@ -9,7 +9,11 @@ import { Checkbox } from "@/components/ui/Checkbox"
 import { CheckboxGroup } from "@/components/ui/CheckboxGroup"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { SearchField } from "@/components/ui/SearchField"
-import { Skeleton, SkeletonText } from "@/components/ui/Skeleton"
+import {
+  Skeleton,
+  SkeletonText,
+  useSkeletonHold,
+} from "@/components/ui/Skeleton"
 import { Tag, TagGroup } from "@/components/ui/TagGroup"
 import { PagerdutyMark } from "@/features/connectors/components/PagerdutyMark"
 import {
@@ -68,6 +72,7 @@ export function PagerdutyScopeEditor(props: SourceScopeEditorProps) {
         ? pages.reduce((sum, page) => sum + page.items.length, 0)
         : null,
   })
+  const loading = useSkeletonHold(servicesQuery.isPending)
   const results = servicesQuery.data?.pages.flatMap((page) => page.items) ?? []
   const inResults = (id: string) => results.some((service) => service.id === id)
   const update = (next: Array<{ id: string; name?: string }>) => {
@@ -92,7 +97,7 @@ export function PagerdutyScopeEditor(props: SourceScopeEditorProps) {
         onChange={setSearch}
       />
       <div className="max-h-[min(280px,calc(var(--visual-viewport-height)*0.4))] min-h-0 overflow-auto border border-border p-3">
-        {servicesQuery.isPending ? (
+        {loading ? (
           <div className="flex flex-col gap-2" aria-busy>
             <span className="sr-only">Searching PagerDuty</span>
             {[0, 1, 2].map((row) => (

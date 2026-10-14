@@ -4,7 +4,11 @@ import { Checkbox } from "@/components/ui/Checkbox"
 import { CheckboxGroup } from "@/components/ui/CheckboxGroup"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { Radio, RadioGroup } from "@/components/ui/RadioGroup"
-import { Skeleton, SkeletonText } from "@/components/ui/Skeleton"
+import {
+  Skeleton,
+  SkeletonText,
+  useSkeletonHold,
+} from "@/components/ui/Skeleton"
 import { workspaceListOptions } from "@/features/workspaces/queries"
 import {
   type ChooseWorkspacesValue,
@@ -29,6 +33,7 @@ export function ChooseWorkspacesStep(props: {
 }) {
   const { orgSlug, provider, connectionId, value, onChange } = props
   const listQuery = useQuery(workspaceListOptions(orgSlug))
+  const loading = useSkeletonHold(listQuery.isPending)
   const workspaces = listQuery.data?.items ?? []
   const { ScopeEditor } = SOURCE_PROVIDER_UI[provider]
   const selected = workspaces.filter((workspace) =>
@@ -39,7 +44,7 @@ export function ChooseWorkspacesStep(props: {
 
   return (
     <div className="flex flex-col gap-5">
-      {listQuery.isPending ? (
+      {loading ? (
         <div className="flex flex-col gap-2" aria-busy>
           <span className="sr-only">Loading Workspaces</span>
           <SkeletonText className="text-sm" boneClassName="h-3.5 w-24" />

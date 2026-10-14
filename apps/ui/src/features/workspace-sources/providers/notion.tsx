@@ -10,7 +10,11 @@ import { Checkbox } from "@/components/ui/Checkbox"
 import { CheckboxGroup } from "@/components/ui/CheckboxGroup"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { SearchField } from "@/components/ui/SearchField"
-import { Skeleton, SkeletonText } from "@/components/ui/Skeleton"
+import {
+  Skeleton,
+  SkeletonText,
+  useSkeletonHold,
+} from "@/components/ui/Skeleton"
 import {
   notionConnectorKeys,
   searchNotionResources,
@@ -86,6 +90,7 @@ export function NotionScopeEditor(props: SourceScopeEditorProps) {
     queryFn: () => searchNotionResources(orgSlug, query, connectionId),
     placeholderData: keepPreviousData,
   })
+  const loading = useSkeletonHold(resultsQuery.isPending)
   const results: NotionRootItem[] = (resultsQuery.data ?? []).map(
     (resource) => ({
       id: resource.externalId,
@@ -123,7 +128,7 @@ export function NotionScopeEditor(props: SourceScopeEditorProps) {
         onChange={setSearch}
       />
       <div className="max-h-[min(280px,calc(var(--visual-viewport-height)*0.4))] min-h-0 overflow-auto border border-border p-3">
-        {resultsQuery.isPending ? (
+        {loading ? (
           <div className="flex flex-col gap-2" aria-busy>
             <span className="sr-only">Searching Notion</span>
             {[0, 1, 2].map((row) => (

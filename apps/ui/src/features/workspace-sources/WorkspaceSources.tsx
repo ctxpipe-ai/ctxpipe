@@ -19,7 +19,11 @@ import { Dialog } from "@/components/ui/Dialog"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { Link as TextLink } from "@/components/ui/Link"
 import { Modal } from "@/components/ui/Modal"
-import { Skeleton, SkeletonText } from "@/components/ui/Skeleton"
+import {
+  Skeleton,
+  SkeletonText,
+  useSkeletonHold,
+} from "@/components/ui/Skeleton"
 import { orgConnectionsOptions } from "@/features/connectors/queries/org-connections"
 import type { WorkspaceLinkedRepository } from "@/features/workspaces/types"
 import { focusVisibleClassName } from "@/lib/focus-styles"
@@ -337,6 +341,7 @@ export function WorkspaceSources(props: {
   } = props
   const queryClient = useQueryClient()
   const sourcesQuery = useQuery(workspaceSourcesOptions(orgSlug, workspaceSlug))
+  const loading = useSkeletonHold(sourcesQuery.isPending)
   const connectionsQuery = useQuery(orgConnectionsOptions(orgSlug))
   const [editor, setEditor] = useState<SourceEditorTarget | null>(null)
   const [removing, setRemoving] = useState<WorkspaceSource | null>(null)
@@ -391,7 +396,7 @@ export function WorkspaceSources(props: {
       <h2 id="workspace-sources" className="sr-only">
         Sources
       </h2>
-      {sourcesQuery.isPending ? (
+      {loading ? (
         <SkeletonText className="text-sm" boneClassName="h-3.5 w-48" />
       ) : data && !isEmpty ? (
         <p className="text-sm text-muted-foreground">
@@ -407,7 +412,7 @@ export function WorkspaceSources(props: {
         </p>
       )}
 
-      {sourcesQuery.isPending ? (
+      {loading ? (
         <SourcesSkeleton />
       ) : sourcesQuery.isError ? (
         <div className="mt-4">
