@@ -49,10 +49,10 @@ describe("Notion setup model", () => {
     expect(getNotionSetupCurrentIndex(installed, webhookReady)).toBe(3)
   })
 
-  it("has no card action once Notion is connected, also for an old live binding", () => {
+  it("manages the connection once Notion is connected, also for an old live binding", () => {
     expect(
       getNotionCardCtaLabel({ setupPhase: "live", isInstalled: true }, hosted),
-    ).toBeNull()
+    ).toBe("Manage")
     expect(getNotionCardCtaLabel({ setupPhase: "draft" }, hosted)).toBe(
       "Connect Notion",
     )

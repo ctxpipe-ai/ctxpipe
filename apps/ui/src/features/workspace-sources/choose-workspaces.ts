@@ -47,3 +47,78 @@ export function chooseWorkspacesRequests(
   }
   return requests
 }
+
+/** A source of the connection that a Workspace has now (Manage). */
+export type ExistingWorkspaceSource = {
+  sourceKey: string
+  scope: Record<string, unknown>
+}
+
+/** The step that shows the existing sources: each Workspace with its scope. */
+export function chooseWorkspacesFromExisting(
+  existing: Record<string, ExistingWorkspaceSource>,
+): ChooseWorkspacesValue {
+  const workspaceSlugs = Object.keys(existing)
+  const scopes = Object.fromEntries(
+    workspaceSlugs.map((slug) => [slug, existing[slug]?.scope ?? {}]),
+  )
+  return {
+    workspaceSlugs,
+    scopeMode: workspaceSlugs.length > 1 ? "per_workspace" : "shared",
+    sharedScope: existing[workspaceSlugs[0] ?? ""]?.scope ?? {},
+    scopes,
+  }
+}
+
+export type WorkspaceSourceChange =
+  | { kind: "add"; workspaceSlug: string; source: WorkspaceSourceInput }
+  | {
+      kind: "update"
+      workspaceSlug: string
+      sourceKey: string
+      source: WorkspaceSourceInput
+    }
+  | { kind: "remove"; workspaceSlug: string; sourceKey: string }
+
+/** JSON with sorted object keys, so that key order is not a change. */
+function stableJson(value: unknown): string {
+  return JSON.stringify(value, (_key, item: unknown) =>
+    item && typeof item === "object" && !Array.isArray(item)
+      ? Object.fromEntries(
+          Object.entries(item).sort(([a], [b]) => a.localeCompare(b)),
+        )
+      : item,
+  )
+}
+
+/**
+ * The changes that make the existing sources match the step: add a new
+ * Workspace, update a changed scope, and remove an unchecked Workspace.
+ * `null` until each selected Workspace has a scope that the provider
+ * schema accepts.
+ */
+export function chooseWorkspacesChanges(
+  value: ChooseWorkspacesValue,
+  base: { provider: SourceProvider; connectionId: string },
+  existing: Record<string, ExistingWorkspaceSource>,
+): WorkspaceSourceChange[] | null {
+  const requests = value.workspaceSlugs.length
+    ? chooseWorkspacesRequests(value, base)
+    : []
+  if (!requests) return null
+  const changes: WorkspaceSourceChange[] = []
+  for (const request of requests) {
+    const current = existing[request.workspaceSlug]
+    if (!current) changes.push({ kind: "add", ...request })
+    else if (stableJson(current.scope) !== stableJson(request.source.scope))
+      changes.push({ kind: "update", ...request, sourceKey: current.sourceKey })
+  }
+  for (const [workspaceSlug, current] of Object.entries(existing))
+    if (!value.workspaceSlugs.includes(workspaceSlug))
+      changes.push({
+        kind: "remove",
+        workspaceSlug,
+        sourceKey: current.sourceKey,
+      })
+  return changes
+}
