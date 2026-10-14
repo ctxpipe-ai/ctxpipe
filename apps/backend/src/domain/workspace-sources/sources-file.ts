@@ -4,6 +4,7 @@ import { githubSourceScope } from "./providers/github.js"
 import { linearSourceScope } from "./providers/linear.js"
 import { notionSourceScope } from "./providers/notion.js"
 import { pagerdutySourceScope } from "./providers/pagerduty.js"
+import { plainSourceScope } from "./providers/plain.js"
 import type { SourceScopeDefinition } from "./providers/scope.js"
 import { slackSourceScope } from "./providers/slack.js"
 
@@ -22,6 +23,7 @@ export const SOURCE_PROVIDERS = [
   "notion",
   "slack",
   "pagerduty",
+  "plain",
 ] as const
 
 export const sourceProviderSchema = z.enum(SOURCE_PROVIDERS)
@@ -35,6 +37,7 @@ export const SOURCE_SCOPES: Record<SourceProvider, SourceScopeDefinition> = {
   notion: notionSourceScope,
   slack: slackSourceScope,
   pagerduty: pagerdutySourceScope,
+  plain: plainSourceScope,
 }
 
 export const SOURCE_STATUSES = [
