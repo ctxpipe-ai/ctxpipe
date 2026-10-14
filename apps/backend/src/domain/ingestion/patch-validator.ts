@@ -1234,8 +1234,9 @@ async function unsourcedQuoteProblem(
     rule: "suspected_injection",
     reason,
   })
-  for (const block of quotedBlocks(body)) {
-    if (!hasInstruction(block.text)) continue
+  const blocks = quotedBlocks(body)
+  for (const block of blocks) {
+    if (!block.quoted || !hasInstruction(block.text)) continue
     if (!block.source) return fail("Quoted instruction text has no Source line")
     for (const quote of block.quotes)
       if ((await context.quoteInSource(block.source, quote)) !== true)
@@ -1243,7 +1244,60 @@ async function unsourcedQuoteProblem(
           "The quoted text is not in its Source file at the source revision",
         )
   }
+  // A phrase can be cut over a paragraph break or between block quotes.
+  // Each block that such a phrase spans must be a true quote of its Source
+  // file.
+  for (const spanned of spannedInstructions(blocks))
+    for (const block of spanned) {
+      if (!block.source)
+        return fail("Instruction text over more blocks has no Source line")
+      if ((await context.quoteInSource(block.source, block.whole)) !== true)
+        return fail(
+          "Instruction text over more blocks is not in its Source file at the source revision",
+        )
+    }
   return null
+}
+
+/**
+ * The runs of adjacent blocks, two or more, whose text read as one text
+ * has an injection phrase that no shorter run has. One phrase in a block
+ * does not hide a different phrase over that block and the next. Only the last and first
+ * 200 characters of the end blocks are read, and the blocks between them
+ * have at most 200 characters, because a phrase is shorter than that.
+ */
+function spannedInstructions(blocks: QuotedBlock[]): QuotedBlock[][] {
+  const edge = 200
+  const window = (from: number, to: number, single: "head" | "tail") =>
+    blocks
+      .slice(from, to + 1)
+      .map((block, offset) => {
+        const at = from + offset
+        const head = from === to ? single === "head" : at === to
+        const tail = from === to ? single === "tail" : at === from
+        if (tail) return block.text.slice(-edge)
+        if (head) return block.text.slice(0, edge)
+        return block.text
+      })
+      .join(" ")
+  const runs: QuotedBlock[][] = []
+  for (let from = 0; from < blocks.length; from++) {
+    let between = 0
+    for (let to = from + 1; to < blocks.length && between <= edge; to++) {
+      const run = window(from, to, "tail")
+      const left = window(from, to - 1, "tail")
+      const right = window(from + 1, to, "head")
+      if (
+        INJECTION_PHRASES.some(
+          (phrase) =>
+            phrase.test(run) && !phrase.test(left) && !phrase.test(right),
+        )
+      )
+        runs.push(blocks.slice(from, to + 1))
+      between += (blocks[to]?.text.length ?? 0) + 1
+    }
+  }
+  return runs
 }
 
 /** Text with block-quote markers removed and whitespace normalized, to compare a quote with its source. */
@@ -1263,14 +1317,19 @@ type QuotedBlock = {
   text: string
   /** The parts that must be text of the Source file. */
   quotes: string[]
+  /** The text that must be in the Source file when a phrase spans blocks. */
+  whole: string
+  /** False for a paragraph without inline code. */
+  quoted: boolean
   source: string | null
 }
 
 /**
- * Block quotes, fenced blocks, and paragraphs with inline code, each with
- * the path of its Source line. For a paragraph, the phrases are tested on
- * its text with the code spans in it, so that a phrase cut between prose
- * and code is found; each code span is a quote.
+ * Block quotes, fenced blocks, and paragraphs, in body order, each with
+ * the path of its Source line. A paragraph that is only a Source line is
+ * not a block. For a paragraph, the phrases are tested on its text with
+ * the code spans in it, so that a phrase cut between prose and code is
+ * found; each code span is a quote.
  */
 function quotedBlocks(body: string): QuotedBlock[] {
   const lines = body.split("\n")
@@ -1316,9 +1375,15 @@ function quotedBlocks(body: string): QuotedBlock[] {
         !quoteLine(lines[i] ?? "")
       )
         paragraph.push(lines[i++] ?? "")
-      if (!paragraph.some((l) => codeSpans(l).length > 0)) continue
       const inside = SOURCE_LINE.exec(paragraph.at(-1) ?? "")
       if (inside) paragraph.pop()
+      if (paragraph.length === 0) continue
+      const source = inside?.[1] ?? SOURCE_LINE.exec(nextLine(i))?.[1] ?? null
+      if (!paragraph.some((l) => codeSpans(l).length > 0)) {
+        const text = paragraph.join(" ").replace(/\s+/g, " ")
+        blocks.push({ text, quotes: [], whole: text, quoted: false, source })
+        continue
+      }
       // A span that holds a phrase alone is a quote. When a phrase is still
       // there without those spans, it is cut between prose and code, so
       // the whole paragraph is the quote. A blank span is never a quote.
@@ -1332,7 +1397,9 @@ function quotedBlocks(body: string): QuotedBlock[] {
       blocks.push({
         text,
         quotes: hasInstruction(rest) ? [text] : quoted,
-        source: inside?.[1] ?? SOURCE_LINE.exec(nextLine(i))?.[1] ?? null,
+        whole: text,
+        quoted: true,
+        source,
       })
       continue
     } else {
@@ -1345,6 +1412,8 @@ function quotedBlocks(body: string): QuotedBlock[] {
     blocks.push({
       text: quoted.join(" ").replace(/\s+/g, " "),
       quotes: [quoted.join("\n")],
+      whole: quoted.join("\n"),
+      quoted: true,
       source: inside?.[1] ?? SOURCE_LINE.exec(nextLine(i))?.[1] ?? null,
     })
   }
