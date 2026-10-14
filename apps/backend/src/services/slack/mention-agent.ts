@@ -91,7 +91,7 @@ export function formatSlackMentionStatusText(
     case "channel_archived":
       return "Capture failed: this channel is archived."
     case "no_source":
-      return "Nothing captured: no Workspace has this channel. Add the channel to a Slack source in the Workspace settings, then mention me again."
+      return "Nothing captured: no Workspace has this channel. Add the channel to a Slack source in the Workspace settings. If that opens a pull request, merge it. Then mention me again."
     default:
       return result.error
         ? `${SLACK_CAPTURE_STATUS_FAILED} ${result.error}`

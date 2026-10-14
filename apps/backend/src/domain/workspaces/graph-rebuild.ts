@@ -4,7 +4,6 @@ import {
   persistWorkspaceGraphResult,
 } from "../../models/workspaces.js"
 import { log } from "../../observability/logger.js"
-import { enqueueWorkspaceGraphRebuild } from "../../openworkflow/enqueue-workspace-hydrate.js"
 import {
   hasWorkspaceGraph,
   readWorkspaceGraph,
@@ -39,6 +38,11 @@ export async function rebuildLostWorkspaceGraph(
       workspaceId: revision.workspaceId,
     })
     try {
+      // A lazy import: the OpenWorkflow client connects to the database when
+      // it loads, and chat tools import this module.
+      const { enqueueWorkspaceGraphRebuild } = await import(
+        "../../openworkflow/enqueue-workspace-hydrate.js"
+      )
       await enqueueWorkspaceGraphRebuild({
         orgId,
         revision,
@@ -64,6 +68,17 @@ export async function rebuildLostWorkspaceGraph(
 export async function readOrRebuildWorkspaceGraph(
   input: GraphOrg & { projection: PublishedProjection | null },
 ) {
+  return readOrRebuild(input, readWorkspaceGraph)
+}
+
+/**
+ * Run one graph read with the state rules of `readOrRebuildWorkspaceGraph`.
+ * A bounded read (for example `expandWorkspaceGraph`) uses this function.
+ */
+export async function readOrRebuild<
+  I extends GraphOrg & { projection: PublishedProjection | null },
+  T,
+>(input: I, read: (input: I) => Promise<T>): Promise<T> {
   const { projection } = input
   if (
     projection?.kind === "active" &&
@@ -71,7 +86,7 @@ export async function readOrRebuildWorkspaceGraph(
   )
     throw new WorkspaceGraphBuildingError("Workspace graph is being built.")
   try {
-    return await readWorkspaceGraph(input)
+    return await read(input)
   } catch (error) {
     if (
       !(error instanceof WorkspaceGraphMissingError) ||
