@@ -124,7 +124,7 @@ function SettingsGroup(props: { eyebrow: string; children: ReactNode }) {
 }
 
 const skippedReasonCopy: Record<WorkspaceSkippedFile["reason"], string> = {
-  malformed: "Front matter or git URL is not valid",
+  malformed: "Front matter is not valid",
   duplicate_repository:
     "Repeats a linked repository or the Workspace's own repository",
 }

@@ -739,7 +739,6 @@ it.each(["pending", "failed"])(
             orgId: org.id,
             revision: next,
             displayName: null,
-            remotes: [],
             units: [],
             skipped: [],
             embeddingModel: "fixture-embedding",

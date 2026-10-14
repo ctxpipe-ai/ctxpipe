@@ -558,13 +558,61 @@ export const UnlinkSendsChange: Story = {
   },
 }
 
+/** An unlink keeps the branch or tag of the other repositories of the source. */
+export const UnlinkKeepsOtherRefs: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceSourcesHandler(
+            workspaceSourceList({
+              items: [
+                {
+                  ...githubSource,
+                  scope: {
+                    repositories: [
+                      "acme/api",
+                      { name: "acme/web", ref: "release" },
+                    ],
+                  },
+                },
+              ],
+            }),
+          ),
+          connected,
+          ...workspaceSourceChangeHandlers(editCalls),
+        ],
+      },
+    },
+  },
+  beforeEach: () => {
+    editCalls.length = 0
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Unlink acme/api" }),
+    )
+    await waitFor(() => expect(editCalls).toHaveLength(1))
+    await expect(editCalls[0]).toMatchObject({
+      method: "PUT",
+      path: "/acme/api/v1/workspaces/docs/sources/product-repos",
+      body: {
+        source: {
+          scope: { repositories: [{ name: "acme/web", ref: "release" }] },
+        },
+      },
+    })
+  },
+}
+
 const unlinkCalls: ChangeCall[] = []
 
 /**
- * The last repository of a GitHub source goes: the source goes, and a
- * repositories file that links the same repository goes too.
+ * The last repository of a GitHub source goes: the source goes. The unlink
+ * command does not run too, because the source change edits the same file.
  */
-export const UnlinkLastRepositoryRemovesEveryLink: Story = {
+export const UnlinkLastRepositoryRemovesTheSource: Story = {
   args: {
     linkedRepositories: [
       {
@@ -625,23 +673,17 @@ export const UnlinkLastRepositoryRemovesEveryLink: Story = {
     await userEvent.click(
       await canvas.findByRole("button", { name: "Unlink acme/api" }),
     )
-    await waitFor(() => expect(unlinkCalls).toHaveLength(2))
-    await expect(unlinkCalls).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          method: "DELETE",
-          path: "/acme/api/v1/workspaces/docs/linked-repositories/lnk_api",
-        }),
-        expect.objectContaining({
-          method: "DELETE",
-          path: "/acme/api/v1/workspaces/docs/sources/product-repos",
-        }),
-      ]),
-    )
+    await waitFor(() => expect(unlinkCalls).toHaveLength(1))
+    await expect(unlinkCalls).toEqual([
+      expect.objectContaining({
+        method: "DELETE",
+        path: "/acme/api/v1/workspaces/docs/sources/product-repos",
+      }),
+    ])
   },
 }
 
-export const LegacyLinkedRepositoryShows: Story = {
+export const LinkedRepositoryWithoutSourceShows: Story = {
   args: {
     linkedRepositories: [
       {
@@ -675,7 +717,9 @@ export const LegacyLinkedRepositoryShows: Story = {
     await expect(list.getAllByRole("listitem")).toHaveLength(3)
     await expect(list.getByText("acme/legacy")).toBeVisible()
     await expect(list.getByText("Indexed")).toBeVisible()
-    await expect(list.getByText("Linked by a repositories file")).toBeVisible()
+    await expect(
+      list.getByText("Not in sources.yaml any more. It goes at the next sync."),
+    ).toBeVisible()
   },
 }
 

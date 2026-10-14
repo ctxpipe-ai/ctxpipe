@@ -53,7 +53,7 @@ const WorkspaceSkippedFileSchema = z
       .openapi({ description: "Path in the Workspace repository" }),
     reason: z.enum(HYDRATE_SKIP_REASONS).openapi({
       description:
-        "`malformed`: the front matter, or the `git` URL of a linked-repository file, is not valid. `duplicate_repository`: the file links a repository that an earlier file links, or the Workspace repository itself.",
+        "`malformed`: the front matter is not valid. `duplicate_repository`: only in results of an earlier version, when a `repositories/*.md` file linked a repository that was already linked.",
     }),
   })
   .openapi("WorkspaceSkippedFile")

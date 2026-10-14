@@ -27,7 +27,11 @@ it(
         files: [
           {
             path: "repositories/api.md",
-            body: "---\ngit: https://github.com/existing/api.git\ncustom: keep\n---\n",
+            body: "---\ngit: https://github.com/existing/api.git\nbranch: release\ncustom: keep\n---\n",
+          },
+          {
+            path: "repositories/tools.md",
+            body: "---\ngit: https://gitlab.com/existing/tools.git\n---\n",
           },
           {
             path: "knowledge/imported/billing.md",
@@ -209,13 +213,15 @@ it(
                 id: "linked-repositories",
                 provider: "github",
                 connection: f.revision.remote.connectionId,
-                repositories: ["team-a/api", "team-b/api"],
+                // The repository file moves with its branch as ref.
+                repositories: [
+                  { name: "existing/api", ref: "release" },
+                  "team-a/api",
+                  "team-b/api",
+                ],
               },
             ],
           })
-          expect(
-            f.git("--git-dir", f.remote, "show", "main:repositories/api.md"),
-          ).toContain("custom: keep")
           expect(
             f.git(
               "--git-dir",
@@ -226,7 +232,9 @@ it(
               "main",
               "repositories/",
             ),
-          ).toBe("repositories/api.md")
+            // The GitHub file is gone in the same commit; a file for
+            // another host stays, because only GitHub links.
+          ).toBe("repositories/tools.md")
           expect(publicationChecks).toEqual([
             { job: null, export: null, listed: [] },
           ])

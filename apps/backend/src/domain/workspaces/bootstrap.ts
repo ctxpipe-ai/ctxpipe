@@ -8,7 +8,7 @@ const FOLDER_MAP_HEADING =
 const DEFAULT_FOLDER_MAP = `## Folder Structure
 
 - \`knowledge/\` — workspace knowledge units
-- \`repositories/\` — linked remotes for search`
+- \`.ctxpipe/sources.yaml\` — sources, including linked GitHub repositories`
 
 const DEFAULT_SKILL = `---
 name: ctxpipe-knowledge
@@ -22,7 +22,7 @@ Write reviewable markdown. Hydrate copies these files into the serving store; it
 
 - Greenfield: \`knowledge/<area>/<unit>.md\`
 - Existing tree: match the folders already present
-- Linked remotes: \`repositories/<name>.md\` with required \`git\`
+- Linked repositories: GitHub sources in \`.ctxpipe/sources.yaml\` (change them in the Sources settings, not in a file)
 - Do not rewrite \`notion/\`, \`linear/\`, or \`confluence/\`
 
 ## Schema
