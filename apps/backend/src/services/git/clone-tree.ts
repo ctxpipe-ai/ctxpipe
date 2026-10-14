@@ -62,16 +62,32 @@ export class GitRemoteAccessError extends Error {
   }
 }
 
-/** Resolve a branch once; subsequent reads fetch the returned immutable SHA. */
+/**
+ * Resolve a branch or a tag once; subsequent reads fetch the returned
+ * immutable SHA. A branch wins over a tag of the same name, and an annotated
+ * tag resolves to its commit.
+ */
 export async function resolveGitRemoteTip(input: {
   url: string
   branch?: string | null
   token?: string
 }): Promise<{ sha: string; branch: string } | null> {
   const requested = input.branch?.trim()
-  const ref = requested ? `refs/heads/${requested}` : "HEAD"
+  const refs = requested
+    ? [
+        `refs/heads/${requested}`,
+        `refs/tags/${requested}^{}`,
+        `refs/tags/${requested}`,
+      ]
+    : ["HEAD"]
   const { stdout } = await gitExec(
-    ["ls-remote", "--symref", "--", input.url, ref],
+    [
+      "ls-remote",
+      "--symref",
+      "--",
+      input.url,
+      ...(requested ? refs : ["HEAD"]),
+    ],
     { timeout: 60_000, env: gitRemoteEnvironment(input) },
   ).catch((error: unknown) => {
     const stderr = String((error as { stderr?: unknown }).stderr ?? "")
@@ -87,12 +103,13 @@ export async function resolveGitRemoteTip(input: {
     throw error
   })
   const lines = stdout.toString("utf8").trim().split("\n")
-  const sha = lines
-    .map((line) => line.split("\t"))
-    .find(
-      ([value, name]) =>
-        name === ref && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(value ?? ""),
-    )?.[0]
+  const found = new Map(
+    lines
+      .map((line) => line.split("\t"))
+      .filter(([value]) => /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(value ?? ""))
+      .map(([value, name]) => [name, value] as const),
+  )
+  const sha = refs.map((ref) => found.get(ref)).find(Boolean)
   const branch =
     requested ??
     lines

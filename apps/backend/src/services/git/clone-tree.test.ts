@@ -52,6 +52,48 @@ describe("clone-tree", { timeout: 30_000 }, () => {
     ])
   })
 
+  it("resolves a linked ref that is a branch, a light tag, or an annotated tag", async () => {
+    dir = await mkdtemp(join(tmpdir(), "ctxpipe-tag-tip-"))
+    const git = async (...args: string[]) =>
+      (
+        await execFileAsync("git", [
+          "-C",
+          dir as string,
+          "-c",
+          "user.name=Contract",
+          "-c",
+          "user.email=contract@example.test",
+          ...args,
+        ])
+      ).stdout.trim()
+    await git("init", "-b", "main")
+    await writeFile(join(dir, "a.md"), "# A\n")
+    await git("add", ".")
+    await git("commit", "-m", "First")
+    const first = await git("rev-parse", "HEAD")
+    await git("tag", "v1")
+    await git("tag", "-a", "v1-annotated", "-m", "Release")
+    await writeFile(join(dir, "a.md"), "# A2\n")
+    await git("commit", "-am", "Second")
+    const second = await git("rev-parse", "HEAD")
+
+    expect(await resolveGitRemoteTip({ url: dir, branch: "main" })).toEqual({
+      sha: second,
+      branch: "main",
+    })
+    expect(await resolveGitRemoteTip({ url: dir, branch: "v1" })).toEqual({
+      sha: first,
+      branch: "v1",
+    })
+    // An annotated tag resolves to its commit, not to the tag object.
+    expect(
+      await resolveGitRemoteTip({ url: dir, branch: "v1-annotated" }),
+    ).toEqual({ sha: first, branch: "v1-annotated" })
+    expect(await resolveGitRemoteTip({ url: dir, branch: "missing" })).toBe(
+      null,
+    )
+  })
+
   it("reports the introducing and the last commit time of each Markdown path", async () => {
     dir = await mkdtemp(join(tmpdir(), "ctxpipe-last-commit-tree-"))
     const git = async (date: string | null, ...args: string[]) =>
