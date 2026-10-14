@@ -69,27 +69,13 @@ afterAll(async () => {
 })
 
 describe("ingestion v2 shadow trigger", () => {
-  it("queues nothing for an organization that is not a test organization", async () => {
-    await expect(
-      startIngestionV2Shadow({
-        orgId,
-        repositoryId,
-        sha,
-        triggerRunId: "trigger-1",
-        shadowOrgIds: new Set(),
-      }),
-    ).resolves.toEqual({ started: false, reason: "not_a_test_organization" })
-    expect(await v2Runs()).toEqual([])
-  })
-
-  it("queues one shadow run at the same SHA for a test organization, also when the trigger replays", async () => {
+  it("queues one shadow run at the same SHA, also when the trigger replays", async () => {
     const start = () =>
       startIngestionV2Shadow({
         orgId,
         repositoryId,
         sha,
         triggerRunId: "trigger-2",
-        shadowOrgIds: new Set([orgId]),
       })
     const first = await start()
     const second = await start()
@@ -124,7 +110,6 @@ describe("ingestion v2 shadow trigger", () => {
         repositoryId: other,
         sha,
         triggerRunId: "trigger-3",
-        shadowOrgIds: new Set([orgId]),
       }),
     ).resolves.toEqual({ started: false, reason: "not_github" })
   })

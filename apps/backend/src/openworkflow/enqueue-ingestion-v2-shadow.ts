@@ -2,7 +2,6 @@ import { eq } from "drizzle-orm"
 import { withOrgDbContext } from "../db/client.js"
 import { repositories } from "../db/schema/repositories.js"
 import type { IngestionV2Input } from "../domain/ingestion/ingestion-run.js"
-import { INGESTION_V2_SHADOW_ORG_IDS } from "../domain/ingestion/ingestion-v2-config.js"
 import { normalizeWorkspaceRepositoryUrl } from "../domain/workspaces/slug.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../domain/workspaces/write-status.js"
 import { runWorkflowWithWorkerWake } from "./client.js"
@@ -12,25 +11,21 @@ export type IngestionV2ShadowStart =
   | { started: true; runId: string }
   | {
       started: false
-      reason: "not_a_test_organization" | "not_github" | "repository_gone"
+      reason: "not_github" | "repository_gone"
     }
 
 /**
  * The shadow trigger (T09): after the old pipeline ingested `sha` of a
- * repository, queue one ingestion v2 run in shadow mode at the same SHA, for
- * a test organization only. The trigger run's id is the idempotency key, so
- * a replayed trigger step queues nothing new.
+ * repository, queue one ingestion v2 run in shadow mode at the same SHA. The
+ * caller checks `ingestionV2ShadowEnabled` first. The trigger run's id is the
+ * idempotency key, so a replayed trigger step queues nothing new.
  */
 export async function startIngestionV2Shadow(input: {
   orgId: string
   repositoryId: string
   sha: string
   triggerRunId: string
-  shadowOrgIds?: ReadonlySet<string>
 }): Promise<IngestionV2ShadowStart> {
-  const shadowOrgIds = input.shadowOrgIds ?? INGESTION_V2_SHADOW_ORG_IDS
-  if (!shadowOrgIds.has(input.orgId))
-    return { started: false, reason: "not_a_test_organization" }
   const [repository] = await withOrgDbContext(input.orgId, (db) =>
     db
       .select({

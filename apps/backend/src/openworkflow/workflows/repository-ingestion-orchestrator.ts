@@ -12,6 +12,7 @@ import {
   withLogger,
 } from "../../observability/logger.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
+import { ingestionV2ShadowEnabled } from "../../domain/ingestion/ingestion-v2-config.js"
 import { startIngestionV2Shadow } from "../enqueue-ingestion-v2-shadow.js"
 import { isWorkflowControlSignal } from "../isSleepSignal.js"
 import { repositoryIngestion } from "./repository-ingestion.js"
@@ -65,9 +66,14 @@ export const repositoryIngestionOrchestrator = defineWorkflow(
             },
             { name: "repository-ingestion-child" },
           )
-          if ("targetHash" in result && result.targetHash)
+          if (
+            "targetHash" in result &&
+            result.targetHash &&
+            ingestionV2ShadowEnabled()
+          )
             // Shadow mode (ADR-052): ingestion v2 reads the same SHA and
-            // publishes nothing. A failed start never fails this run.
+            // publishes nothing. A failed start never fails this run. The
+            // switch is read before the step, so production writes no step.
             await step.run({ name: "start-ingestion-v2-shadow" }, () =>
               startIngestionV2Shadow({
                 orgId: input.orgId,

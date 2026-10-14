@@ -1,9 +1,13 @@
+import { otelDeploymentEnvironment } from "../../observability/otel.js"
+
 /**
  * Shadow mode of ingestion v2 (ADR-052 phase 2). After the old pipeline
- * ingests a repository of one of these test organizations (org ids), the
- * same SHA also goes through ingestion v2, which publishes nothing. Empty: no
- * shadow runs. This is committed config; it is not an environment variable.
+ * ingests a repository, the same SHA also goes through ingestion v2, which
+ * publishes nothing. It runs for every org in each deployment that is not
+ * production (preview, local). The committed switch for production stays
+ * off until the comparison (T20) needs it.
  */
-export const INGESTION_V2_SHADOW_ORG_IDS: ReadonlySet<string> = new Set<string>(
-  [],
-)
+export function ingestionV2ShadowEnabled(): boolean {
+  const inProduction = false
+  return inProduction || otelDeploymentEnvironment() !== "production"
+}
