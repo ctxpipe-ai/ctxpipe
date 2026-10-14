@@ -113,7 +113,10 @@ beforeAll(async () => {
     join(bundleDir, "libraries/SKILL.md"),
     "---\nname: libraries\ndescription: Fixture script skill.\n---\n# libraries\n",
   )
-  writeFileSync(join(bundleDir, "libraries/scripts/libraries.mjs"), LIBRARIES_SCRIPT)
+  writeFileSync(
+    join(bundleDir, "libraries/scripts/libraries.mjs"),
+    LIBRARIES_SCRIPT,
+  )
 })
 
 afterAll(() => {
@@ -146,7 +149,10 @@ describe("ingest shard commands in a Docker sandbox", () => {
         )
         const hostSource = hostRepo(SOURCE_FILES)
         const hostContext = hostRepo(CONTEXT_FILES)
-        expect([sourceSha, contextSha]).toEqual([hostSource.sha, hostContext.sha])
+        expect([sourceSha, contextSha]).toEqual([
+          hostSource.sha,
+          hostContext.sha,
+        ])
 
         const agentEnv = await ingestAgentEnv(root, {
           modelProxyUrl: "http://127.0.0.1:9/v1",

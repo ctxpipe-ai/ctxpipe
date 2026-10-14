@@ -16,7 +16,10 @@ import {
   INGESTION_V2_WORKFLOW_NAME,
   ingestionV2InputSchema,
 } from "../../domain/ingestion/ingestion-run.js"
-import { resolveIngestionV2Run } from "../../domain/ingestion/ingestion-v2-resolve.js"
+import {
+  resolveIngestionV2Run,
+  withIngestionOrg,
+} from "../../domain/ingestion/ingestion-v2-resolve.js"
 import { pushWorkspaceIngestAssemble } from "../../domain/workspaces/write-broker.js"
 import {
   createLogger,
@@ -189,26 +192,28 @@ export function defineRepositoryIngestionV2Workflow(
               },
               async () => {
                 try {
-                  const result = await pushWorkspaceIngestAssemble(
-                    {
-                      orgId: input.orgId,
-                      job: {
-                        runId: run.id,
-                        workspaceId: destination.workspaceId,
-                        generation: destination.generation,
+                  const result = await withIngestionOrg(input.orgId, () =>
+                    pushWorkspaceIngestAssemble(
+                      {
+                        orgId: input.orgId,
+                        job: {
+                          runId: run.id,
+                          workspaceId: destination.workspaceId,
+                          generation: destination.generation,
+                        },
+                        pinnedRevision: destination.pinnedRevision,
+                        shards: parts.flatMap((p) =>
+                          p.tip ? [{ shard: String(p.shard), tip: p.tip }] : [],
+                        ),
+                        oldTip: null,
+                        commit: {
+                          step: `assemble:${destination.workspaceId}`,
+                          bundle: scope.bundle,
+                          authorTime: new Date(input.authorTime),
+                        },
                       },
-                      pinnedRevision: destination.pinnedRevision,
-                      shards: parts.flatMap((p) =>
-                        p.tip ? [{ shard: String(p.shard), tip: p.tip }] : [],
-                      ),
-                      oldTip: null,
-                      commit: {
-                        step: `assemble:${destination.workspaceId}`,
-                        bundle: scope.bundle,
-                        authorTime: new Date(input.authorTime),
-                      },
-                    },
-                    env(),
+                      env(),
+                    ),
                   )
                   return { tip: result.sha, ops: result.ops, conflicts: 0 }
                 } catch (error) {

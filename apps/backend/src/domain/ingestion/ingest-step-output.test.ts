@@ -36,7 +36,10 @@ function tarOf(build: (dir: string) => void, args: string[] = ["."]) {
   const dir = mkdtempSync(join(host, "src-"))
   build(dir)
   return new Uint8Array(
-    execFileSync("tar", ["-C", dir, "-cf", "-", ...args], { env: TAR_ENV }),
+    execFileSync("tar", ["-C", dir, "-cf", "-", ...args], {
+      env: TAR_ENV,
+      maxBuffer: 16 * 1024 * 1024,
+    }),
   )
 }
 

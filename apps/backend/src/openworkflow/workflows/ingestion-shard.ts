@@ -22,6 +22,7 @@ import {
   skillStepName,
 } from "../../domain/ingestion/ingestion-plan.js"
 import { INGESTION_SHARD_WORKFLOW_NAME } from "../../domain/ingestion/ingestion-run.js"
+import { withIngestionOrg } from "../../domain/ingestion/ingestion-v2-resolve.js"
 import {
   type IngestSkillBundle,
   readIngestSkillBundle,
@@ -190,18 +191,20 @@ export function defineIngestionShardWorkflow(deps: IngestionV2Deps) {
                 const result = await step.run(
                   { name, retryPolicy: { maximumAttempts: 1 } },
                   (): Promise<StepResult> =>
-                    runSkillStep({
-                      input,
-                      env: env(),
-                      runtime,
-                      bundle: bundle.name,
-                      name,
-                      root,
-                      skill,
-                      destination,
-                      oldTip: current.tip,
-                      opsBefore: current.ops,
-                    }),
+                    withIngestionOrg(input.orgId, () =>
+                      runSkillStep({
+                        input,
+                        env: env(),
+                        runtime,
+                        bundle: bundle.name,
+                        name,
+                        root,
+                        skill,
+                        destination,
+                        oldTip: current.tip,
+                        opsBefore: current.ops,
+                      }),
+                    ),
                 )
                 current.steps++
                 if (result.partial) current.partial++

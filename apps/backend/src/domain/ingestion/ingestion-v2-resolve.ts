@@ -1,5 +1,7 @@
 import { and, eq } from "drizzle-orm"
-import { withOrgDbContext } from "../../db/client.js"
+import { withOrgIdContext } from "../../auth/withAuth.js"
+import { getSystemDb, withOrgDbContext } from "../../db/client.js"
+import { organizations } from "../../db/schema/auth.js"
 import { repositories } from "../../db/schema/repositories.js"
 import { workspaceSources } from "../../db/schema/workspace_sources.js"
 import { listOrgWorkspaces } from "../../models/workspaces.js"
@@ -32,7 +34,9 @@ export async function resolveIngestionV2Run(
   const sourceUrl = normalizeWorkspaceRepositoryUrl(input.source.url)
   const fullName = githubRepoFullNameFromWorkspaceUrl(sourceUrl)?.toLowerCase()
   if (!fullName) return { skipped: "not_github" }
-  const orgWorkspaces = await listOrgWorkspaces(input.orgId)
+  const orgWorkspaces = await withOrgDbContext(input.orgId, () =>
+    listOrgWorkspaces(input.orgId),
+  )
   if (
     orgWorkspaces.some(
       (row) =>
@@ -105,4 +109,18 @@ export async function resolveIngestionV2Run(
     destinations,
     unavailable: candidates.length - destinations.length,
   }
+}
+
+/** Run `fn` in the org context that the Workspace models and the broker read. */
+export async function withIngestionOrg<T>(
+  orgId: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const [org] = await getSystemDb()
+    .select({ id: organizations.id, slug: organizations.slug })
+    .from(organizations)
+    .where(eq(organizations.id, orgId))
+    .limit(1)
+  if (!org) throw new Error("The ingestion run's organization is gone")
+  return withOrgIdContext(org, fn)
 }
