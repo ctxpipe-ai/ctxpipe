@@ -22,13 +22,13 @@ import {
 import { publishedProjection, workspaceRevisionSchema } from "./revision.js"
 
 it(
-  "starts a new projection when the graph store holds only a version 1 graph",
+  "starts a new projection when the graph store holds only a version 2 graph",
   { timeout: 90_000 },
   async () => {
     await withNativeHydrationFixture({}, async (f) => {
       await f.publish()
-      const id = `ws_v1_${f.id}`
-      const remote = join(f.directory, "v1.git")
+      const id = `ws_v2_${f.id}`
+      const remote = join(f.directory, "v2.git")
       symlinkSync(f.remote, remote)
       const revision = {
         ...f.revision,
@@ -39,8 +39,8 @@ it(
         db.insert(workspaces).values({
           id,
           orgId: f.org.id,
-          slug: "v1",
-          displayName: "V1",
+          slug: "v2",
+          displayName: "V2",
           workspaceRepositoryUrl: remote,
           desiredSha: f.sha,
           desiredDefaultBranch: "main",
@@ -66,9 +66,14 @@ it(
       })
       try {
         const org = { orgId: f.org.id, orgSlug: f.org.slug }
-        // Version 1 hashed the parsed revision alone; only that complete marker exists.
+        // Version 2 stored validity bounds without UTC normalization.
         const legacyKey = createHash("sha256")
-          .update(JSON.stringify(workspaceRevisionSchema.parse(revision)))
+          .update(
+            JSON.stringify({
+              projectionVersion: 2,
+              revision: workspaceRevisionSchema.parse(revision),
+            }),
+          )
           .digest("hex")
         expect(workspaceGraphRevisionKey(revision)).not.toBe(legacyKey)
         await withGraphClient(org, () =>

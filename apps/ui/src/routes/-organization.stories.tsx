@@ -12,7 +12,7 @@ import type { StoryRouteParams } from "../../.storybook/decorators/with-story-ro
 import { OrganizationSettingsBody } from "./$orgSlug.organization.$organizationView"
 
 const meta = {
-  title: "Pages/Organisation settings",
+  title: "Pages/Organization settings",
   component: OrganizationSettingsBody,
   decorators: entryPageInnerDecorators,
   parameters: {
@@ -47,7 +47,7 @@ export const Settings: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const nav = canvas.getByRole("navigation", {
-      name: "Organisation settings",
+      name: "Organization settings",
     })
     await expect(nav).toHaveTextContent("Settings")
     await expect(nav).toHaveTextContent("Members")
@@ -70,10 +70,10 @@ export const ApiKeysEmpty: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const nav = canvas.getByRole("navigation", {
-      name: "Organisation settings",
+      name: "Organization settings",
     })
     await expect(nav).toHaveTextContent("API Keys")
-    await expect(await canvas.findByText("No organisation keys")).toBeVisible()
+    await expect(await canvas.findByText("No organization keys")).toBeVisible()
   },
 }
 

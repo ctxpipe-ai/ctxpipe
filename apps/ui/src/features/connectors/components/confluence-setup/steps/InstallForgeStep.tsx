@@ -94,7 +94,8 @@ export function InstallForgeStep({
   })
 
   const installIntentMutation = useMutation({
-    mutationFn: () => registerAtlassianInstallIntent(orgSlug),
+    mutationFn: () =>
+      registerAtlassianInstallIntent(orgSlug, { installOpened: true }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({
         queryKey: atlassianConnectorKeys.status(orgSlug, atlassianConnectionId),
