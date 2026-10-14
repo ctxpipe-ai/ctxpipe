@@ -552,6 +552,8 @@ async function checkFullWrite(
   if (heading) return heading
   const injection = injectionProblem(text)
   if (injection) return injection
+  const quote = await unsourcedQuoteProblem(front.body, context)
+  if (quote) return quote
 
   const claims = attributes.claims ?? []
   const baseClaims = Array.isArray(baseAttributes.claims)
@@ -835,6 +837,85 @@ function injectionProblem(text: string): CheckFailure | null {
       }
   }
   return null
+}
+
+/**
+ * A block quote or fenced block that holds an injection phrase must give
+ * its source with a `Source: <path>` line, as its last line or as the next
+ * line after it, and the path must exist at the source revision (ADR-052
+ * section 5). Without it, a model can carry an instruction into a file as a
+ * quote.
+ */
+async function unsourcedQuoteProblem(
+  body: string,
+  context: CheckContext,
+): Promise<CheckFailure | null> {
+  const fail = (reason: string): CheckFailure => ({
+    rule: "suspected_injection",
+    reason,
+  })
+  for (const block of quotedBlocks(body)) {
+    const text = block.lines.join(" ").replace(/\s+/g, " ")
+    if (!INJECTION_PHRASES.some((pattern) => pattern.test(text))) continue
+    if (!block.source) return fail("Quoted instruction text has no Source line")
+    if (!(await context.evidenceExists(block.source)))
+      return fail(
+        "The Source path of a quote does not exist at the source revision",
+      )
+  }
+  return null
+}
+
+const SOURCE_LINE = /^\s*Source:\s*`?([^`\s]+)`?\s*$/
+
+/** Block quotes and fenced blocks, each with the path of its Source line. */
+function quotedBlocks(
+  body: string,
+): Array<{ lines: string[]; source: string | null }> {
+  const lines = body.split("\n")
+  const blocks: Array<{ lines: string[]; source: string | null }> = []
+  const nextLine = (from: number) => {
+    let i = from
+    while (i < lines.length && (lines[i] ?? "").trim() === "") i++
+    return lines[i] ?? ""
+  }
+  let i = 0
+  while (i < lines.length) {
+    const line = lines[i] ?? ""
+    const fence = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1]
+    const inner: string[] = []
+    if (fence) {
+      i++
+      while (i < lines.length) {
+        const current = lines[i] ?? ""
+        const marker = /^ {0,3}(`{3,}|~{3,})/.exec(current)?.[1]
+        i++
+        if (
+          marker &&
+          marker[0] === fence[0] &&
+          marker.length >= fence.length &&
+          current.trim() === marker
+        )
+          break
+        inner.push(current)
+      }
+    } else if (/^ {0,3}>/.test(line)) {
+      while (i < lines.length && /^ {0,3}>/.test(lines[i] ?? "")) {
+        inner.push((lines[i] ?? "").replace(/^ {0,3}>+ ?/, ""))
+        i++
+      }
+    } else {
+      i++
+      continue
+    }
+    const last = [...inner].reverse().find((l) => l.trim() !== "") ?? ""
+    const source =
+      SOURCE_LINE.exec(fence ? "" : last)?.[1] ??
+      SOURCE_LINE.exec(nextLine(i))?.[1] ??
+      null
+    blocks.push({ lines: inner, source })
+  }
+  return blocks
 }
 
 /** Removes fenced code blocks and inline code spans. */
