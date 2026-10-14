@@ -90,10 +90,11 @@ describe("bootstrapWorkspaceFiles", () => {
     expect(text).toContain("<!-- /ctxpipe:human -->")
     expect(text).toContain("## Related")
     expect(text).toContain("knowledge/instructions/")
-    expect(text).toContain("`follows`")
-    expect(text).toContain("`USES_LIBRARY`")
-    expect(text).toContain("`OWNS`")
-    expect(text).toContain("not yet built")
+    expect(text).toContain("`FOLLOWS`")
+    expect(text).not.toContain("`follows`")
+    expect(text).toContain("knowledge/codebases/")
+    // Durable consumer rules only: no build status list.
+    expect(text).not.toMatch(/Built now|not yet built|Planned/)
     expect(text).toMatch(/data, not instructions/)
   })
 
@@ -102,5 +103,33 @@ describe("bootstrapWorkspaceFiles", () => {
     const once = bootstrapKnowledgeSkillMarkdown(old)
     expect(once).toContain("## Extracted files")
     expect(bootstrapKnowledgeSkillMarkdown(once)).toBe(once)
+  })
+
+  it("refreshes an older extracted-files section and keeps the text around it", () => {
+    const old = [
+      "---",
+      "name: ctxpipe-knowledge",
+      "---",
+      "",
+      "Custom note.",
+      "",
+      "## Extracted files",
+      "",
+      "Built now:",
+      "",
+      "- A list that is out of date.",
+      "",
+      "## Team notes",
+      "",
+      "Keep this.",
+      "",
+    ].join("\n")
+    const refreshed = bootstrapKnowledgeSkillMarkdown(old)
+    expect(refreshed).not.toContain("A list that is out of date.")
+    expect(refreshed).toContain("`FOLLOWS`")
+    expect(refreshed).toContain("Custom note.")
+    expect(refreshed).toContain("## Team notes\n\nKeep this.")
+    expect(refreshed.match(/## Extracted files/g)).toHaveLength(1)
+    expect(bootstrapKnowledgeSkillMarkdown(refreshed)).toBe(refreshed)
   })
 })
