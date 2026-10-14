@@ -6,7 +6,7 @@ import type {
   WorkspaceSourceListResponse,
 } from "backend/routes/v1/workspace-sources-contract"
 import { getApiClient } from "@/lib/api"
-import { readApiJson } from "@/lib/api-result"
+import { pollWhileOk, readApiJson } from "@/lib/api-result"
 
 export type {
   ConnectionUsageResponse,
@@ -44,6 +44,35 @@ export const workspaceSourceKeys = {
     ["connection-usage", orgSlug, connectionId] as const,
 }
 
+/** When a list of a query last had an open source pull request. */
+const pendingMergeSeen = new WeakMap<
+  object,
+  { pending: boolean; until: number }
+>()
+
+/**
+ * Refresh a list for 2 minutes after an open source pull request leaves it.
+ * A merge closes the pull request about 15 s before the Workspace records
+ * its source, so a read in between shows neither. Each window focus also
+ * reads again: the user usually merges on GitHub in another tab.
+ */
+function refreshAfterMerge<T>(hasPending: (data: T) => boolean) {
+  return {
+    refetchOnWindowFocus: "always" as const,
+    refetchInterval: (query: {
+      state: { status: string; data: T | undefined }
+    }) => {
+      const pending =
+        query.state.data !== undefined && hasPending(query.state.data)
+      const seen = pendingMergeSeen.get(query) ?? { pending, until: 0 }
+      if (seen.pending && !pending) seen.until = Date.now() + 120_000
+      seen.pending = pending
+      pendingMergeSeen.set(query, seen)
+      return Date.now() < seen.until ? pollWhileOk(5_000)(query) : false
+    },
+  }
+}
+
 export function workspaceSourcesOptions(
   orgSlug: string,
   workspaceSlug: string,
@@ -59,6 +88,9 @@ export function workspaceSourcesOptions(
         message: "Failed to load Workspace sources",
       })
     },
+    ...refreshAfterMerge<WorkspaceSourceListResponse>(
+      (data) => data.pendingChanges.length > 0,
+    ),
   })
 }
 
@@ -74,6 +106,9 @@ export function connectionUsageOptions(orgSlug: string, connectionId: string) {
         message: "Failed to load the Workspaces of this connector",
       })
     },
+    ...refreshAfterMerge<ConnectionUsageResponse>((data) =>
+      data.items.some((item) => item.pendingChanges.length > 0),
+    ),
   })
 }
 
