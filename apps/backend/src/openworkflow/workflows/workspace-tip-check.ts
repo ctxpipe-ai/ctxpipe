@@ -6,7 +6,7 @@ import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { githubRepositoriesWithoutAccess } from "../../domain/workspace-sources/github-access.js"
 import {
   collectInactiveWorkspaceGraphKeys,
-  workspaceGraphUse,
+  loadWorkspaceGraphKeysInUse,
 } from "../../domain/workspaces/graph-gc.js"
 import { rebuildWorkspaceGraphWhenMissing } from "../../domain/workspaces/graph-rebuild.js"
 import {
@@ -360,25 +360,14 @@ export const workspaceTipCheck = defineWorkflow(
             message: error instanceof Error ? error.message : String(error),
           })
         })
-      // Remove the graphs of keys that no Workspace uses. The job needs a
-      // grace period, so it never removes the key that a chat turn can still
-      // read. A failure here must not fail the tip check either.
+      // Remove the graphs of keys that no Workspace uses. A key goes only
+      // after a grace period, so a chat turn that is shorter than the grace
+      // period can still read the key it captured. A failure here must not
+      // fail the tip check either.
       await collectInactiveWorkspaceGraphKeys({
         orgId: org.id,
         orgSlug: org.slug,
-        loadUse: async () =>
-          Promise.all(
-            (
-              await withOrgDbContext(input.orgId, () =>
-                listOrgWorkspaces(input.orgId),
-              )
-            ).map(async (workspace) =>
-              workspaceGraphUse(
-                workspace.id,
-                await getWorkspaceProjection(workspace.id),
-              ),
-            ),
-          ),
+        loadUse: () => loadWorkspaceGraphKeysInUse(org.id),
       }).catch((error: unknown) => {
         log.warn({
           event: "workspace_graph_gc_failed",
