@@ -48,7 +48,7 @@ The seed reads committed Markdown through the production Git reader. It publishe
 
 ## MCPJam eval suite (CTX-574)
 
-`cases.ts` holds 21 coding-agent tasks. They run against the seeded fixture organizations. The suite uses `@mcpjam/sdk`: each case runs 3 times for each client model. A model must pass 0.9 of all iterations. A run also fails when a pass rate falls from `baseline.json` (aggregate: 0.05, one case: more than one lost iteration). A case checks tool choice, argument quality (the `excludeRepositories` rule, filters, search mode), result relevance (a tool result holds the expected ref), and task success (the answer holds the fixture facts). `check.ts` judges a run; `gate.ts` decides the exit code. Both are pure, and `src/mcp/eval-suite.test.ts` tests them without a model. That test also checks that each expected fact exists in the fixtures and that each argument fits the registered tool schemas.
+`cases.ts` holds 22 coding-agent tasks. They run against the seeded fixture organizations. The suite uses `@mcpjam/sdk`: each case runs 3 times for each client model. A model must pass 0.9 of all iterations. A run also fails when a pass rate falls from `baseline.json` (aggregate: 0.05, one case: more than one lost iteration). A case checks tool choice, argument quality (the `excludeRepositories` rule, filters, search mode), result relevance (a tool result holds the expected ref), and task success (the answer holds the fixture facts). `check.ts` judges a run; `gate.ts` decides the exit code. Both are pure, and `src/mcp/eval-suite.test.ts` tests them without a model. That test also checks that each expected fact exists in the fixtures and that each argument fits the registered tool schemas.
 
 Run it against a seeded target:
 
