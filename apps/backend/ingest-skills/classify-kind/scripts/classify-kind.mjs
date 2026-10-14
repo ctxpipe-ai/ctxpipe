@@ -8,7 +8,12 @@
 // again with --kind and --evidence.
 //
 // node classify-kind.mjs --root /ctxpipe --source /ctxpipe/source/<handle> \
-//   --source-url <url> --path <root path> [--kind <kind> --evidence <file>]
+//   --source-url <url> --roots <root-to-file map> --path <root path> \
+//   [--kind <kind> --evidence <file>]
+//
+// The repository unit (knowledge/codebases/, kind Repository) is in the
+// index: the first step of the run wrote it (ADR-052 section 6). The file
+// gets an IMPLEMENTED_IN claim to it.
 
 import { existsSync, readFileSync } from "node:fs"
 import { posix } from "node:path"
@@ -42,6 +47,8 @@ const value = (name) => {
 const source = value("--source") ?? fail("Give --source <checkout>")
 const sourceUrl = value("--source-url") ?? fail("Give --source-url <url>")
 const rootPath = value("--path") ?? fail("Give --path <root path>")
+const rootsFile = value("--roots") ?? fail("Give --roots <root-to-file map>")
+if (!existsSync(rootsFile)) fail(`${rootsFile} does not exist`)
 const chosen = value("--kind")
 const chosenEvidence = value("--evidence")
 const repository = repositoryName(sourceUrl)
@@ -199,8 +206,8 @@ if (!path) {
     `${folder}/${slug(name)}.md`,
     `${folder}/${slug(repository.split("/")[1])}-${slug(name)}.md`,
   ].filter((candidate) => !candidate.endsWith("/.md"))
-  // The index is from the run's pinned revision. A later step base can hold
-  // the file that an earlier step of this run wrote for this package.
+  // A file at a candidate path that the index does not name (a file that a
+  // human wrote with no name) is not taken over.
   path =
     candidates.find((candidate) => ownFile(candidate)) ??
     candidates.find((candidate) => !baseBlob(step, candidate))

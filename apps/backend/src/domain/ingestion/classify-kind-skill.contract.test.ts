@@ -7,7 +7,7 @@ import { dockerSandbox } from "@tanstack/ai-sandbox-docker"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { stringify } from "yaml"
 import { workspaceChatDockerImage } from "../workspaces/chat-runtime.js"
-import { buildContextIndexEntries } from "./context-index.js"
+import { contextIndexAtStepBase } from "./context-index.js"
 import {
   ingestAgentCommand,
   ingestOpenCodeConfig,
@@ -18,6 +18,7 @@ import {
   prepareIngestSandbox,
   sealIngestCheckout,
   startIngestStep,
+  writeAsRoot,
 } from "./ingest-prepare.js"
 import { dockerRootExec, type RootExec } from "./ingest-root.js"
 import { validatePatchStep } from "./patch-validator.js"
@@ -45,7 +46,8 @@ const SOURCE_DIR = `${INGEST_SOURCE_ROOT}/shop`
 const STUB_PORT = 47812
 const STUB_LOG = "/tmp/model-requests.log"
 const STUB_CALLS = "/tmp/stub-calls.json"
-const SCRIPT = `node ${INGEST_SKILLS_ROOT}/classify-kind/scripts/classify-kind.mjs --source ${SOURCE_DIR} --source-url ${SOURCE_URL} --path packages/mixed`
+const ROOTS_FILE = "/ctxpipe/roots.json"
+const SCRIPT = `node ${INGEST_SKILLS_ROOT}/classify-kind/scripts/classify-kind.mjs --source ${SOURCE_DIR} --source-url ${SOURCE_URL} --roots ${ROOTS_FILE} --path packages/mixed`
 const GIT_ENV = {
   GIT_AUTHOR_NAME: "Fixture",
   GIT_AUTHOR_EMAIL: "fixture@example.com",
@@ -168,18 +170,52 @@ describe("classify-kind skill in the sandbox", () => {
       const baseCommit = (
         await handle.process.exec(`git -C ${CONTEXT_DIR} rev-parse HEAD`)
       ).stdout.trim()
-      const entries = buildContextIndexEntries({
-        units: Object.keys(CONTEXT)
-          .filter((path) => path.startsWith("knowledge/"))
-          .map((path) => ({ path, kind: "Service", links: [] })),
-        raw: new Map(Object.entries(CONTEXT)),
+      // The host path builds the index from the context at the step base.
+      await handle.process.exec(
+        `git -C ${CONTEXT_DIR} bundle create /tmp/context.bundle HEAD >/dev/null 2>&1`,
+      )
+      writeFileSync(
+        join(host, "context.bundle"),
+        await handle.fs.readBytes("/tmp/context.bundle"),
+      )
+      const repo = join(host, "context")
+      execFileSync("git", ["init", "-q", "--bare", repo])
+      execFileSync("git", [
+        "-C",
+        repo,
+        "fetch",
+        "-q",
+        join(host, "context.bundle"),
+        "HEAD:refs/heads/base",
+      ])
+      const { json: index } = await contextIndexAtStepBase({
+        workspaceId: WORKSPACE_ID,
+        projection: [],
+        pinnedRevision: "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
+        base: baseCommit,
         sourceUrl: SOURCE_URL,
+        repoDir: repo,
       })
       await startIngestStep(root, {
         workspaceId: WORKSPACE_ID,
         baseCommit,
-        index: JSON.stringify({ workspaceId: WORKSPACE_ID, entries }),
+        index,
       })
+      await writeAsRoot(
+        root,
+        ROOTS_FILE,
+        JSON.stringify({
+          roots: [
+            { path: ".", manifests: ["package.json"], evidence: [], files: [] },
+            {
+              path: "packages/mixed",
+              manifests: ["packages/mixed/package.json"],
+              evidence: ["pnpm-workspace.yaml"],
+              files: [],
+            },
+          ],
+        }),
+      )
 
       // The host runs the script first: the rules disagree, so it writes nothing.
       const first = await agent(SCRIPT)
@@ -226,23 +262,6 @@ describe("classify-kind skill in the sandbox", () => {
       mkdirSync(dir, { recursive: true })
       writeFileSync(join(host, "step.tar"), output)
       execFileSync("tar", ["-xf", join(host, "step.tar"), "-C", dir])
-      await handle.process.exec(
-        `git -C ${CONTEXT_DIR} bundle create /tmp/context.bundle HEAD >/dev/null 2>&1`,
-      )
-      writeFileSync(
-        join(host, "context.bundle"),
-        await handle.fs.readBytes("/tmp/context.bundle"),
-      )
-      const repo = join(host, "context")
-      execFileSync("git", ["init", "-q", "--bare", repo])
-      execFileSync("git", [
-        "-C",
-        repo,
-        "fetch",
-        "-q",
-        join(host, "context.bundle"),
-        "HEAD:refs/heads/base",
-      ])
       const validated = await validatePatchStep({
         repoDir: repo,
         baseCommit,
