@@ -4,7 +4,8 @@
 // tunnel that carries plain HTTP. This dispatcher sends a plain `http://`
 // request to the proxy in absolute form, as curl and Bun do. An `https://`
 // request keeps its tunnel. It reads the same proxy variables, NO_PROXY too,
-// so no request goes around the proxy. Load it with `--import`: Node sets its
+// so no request goes around the proxy. A replaced `NODE_OPTIONS` removes this
+// fix but keeps egress closed. Load it with `--import`: Node sets its
 // own dispatcher after `--require` preloads.
 if (
   process.env.NODE_USE_ENV_PROXY === "1" &&
