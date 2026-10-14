@@ -11,18 +11,12 @@
 // files of nested roots.
 
 import { readFileSync } from "node:fs"
+import { stepArgs } from "../../bin/knowledge-lib.mjs"
 import { fail } from "../../bin/stage-lib.mjs"
 import { discoverApis } from "./apis-lib.mjs"
 
-const argv = process.argv.slice(2)
-const value = (name) => {
-  const at = argv.indexOf(name)
-  return at === -1 ? null : (argv[at + 1] ?? fail(`Give a value after ${name}`))
-}
-const source = value("--source") ?? fail("Give --source <checkout>")
-value("--source-url") ?? fail("Give --source-url <url>")
-const codeRoot = value("--path") ?? fail("Give --path <root path>")
-const rootsFile = value("--roots") ?? fail("Give --roots <root-to-file map>")
+const { source, rootsFile, rootPath } = stepArgs()
+const codeRoot = rootPath ?? fail("Give --path <root path>")
 const listed = JSON.parse(readFileSync(rootsFile, "utf8")).roots
 if (!Array.isArray(listed)) fail(`${rootsFile} has no roots list`)
 const others = listed.map((r) => r?.path).filter((p) => typeof p === "string")

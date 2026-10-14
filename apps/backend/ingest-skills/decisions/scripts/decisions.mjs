@@ -28,7 +28,6 @@ import { nameKey, relativeTo, scriptStep } from "../../bin/knowledge-lib.mjs"
 import {
   baseBlob,
   blobContent,
-  fail,
   readDeletes,
   stagedFile,
   stagedPaths,
@@ -134,10 +133,7 @@ const STATUS_LABEL = {
 }
 
 const { step, source, repository, roots, index, skipped } = scriptStep()
-const args = process.argv.slice(2)
-const check = args.includes("--check")
-if (args.includes("--offset"))
-  fail("--offset is gone: the host pages with patch.json more")
+const check = process.argv.slice(2).includes("--check")
 
 const tracked = trackedFiles(source)
 const trackedSet = new Set(tracked)

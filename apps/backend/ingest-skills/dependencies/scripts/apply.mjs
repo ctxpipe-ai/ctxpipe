@@ -34,16 +34,10 @@ const MAX_STREAM_FILES = 28
 const MAX_RESOLUTIONS_BYTES = 256 * 1024
 const STREAM_NAME = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,99}$/
 
-const argv = process.argv.slice(2)
-const value = (name) => {
-  const at = argv.indexOf(name)
-  return at === -1 ? null : (argv[at + 1] ?? fail(`Give a value after ${name}`))
-}
+const { step, source, repository, roots, rootPath, index, skipped, value } =
+  scriptStep()
 const resolutionsFile =
   value("--resolutions") ?? fail("Give --resolutions <file>")
-
-const { step, source, repository, roots, rootPath, index, skipped } =
-  scriptStep()
 // A root step (--path) writes the claims of its root and claims only a
 // Stream file that exists. The repository-wide step (no --path) writes the
 // Stream files, which more than one root can share (ADR-052 section 6).

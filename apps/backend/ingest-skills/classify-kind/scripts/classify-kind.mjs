@@ -20,7 +20,7 @@ import { posix } from "node:path"
 import {
   nameKey,
   relativeTo,
-  repositoryName,
+  stepArgs,
   writeStep,
 } from "../../bin/knowledge-lib.mjs"
 import {
@@ -28,7 +28,6 @@ import {
   blobContent,
   currentStep,
   fail,
-  parseArgs,
 } from "../../bin/stage-lib.mjs"
 import {
   safePath,
@@ -39,27 +38,11 @@ import { classifyRoot, decide, KINDS, modelFiles } from "./kind-rules.mjs"
 const FOLDERS = { App: "apps", Library: "libraries", Service: "services" }
 const LABELS = { App: "an app", Library: "a library", Service: "a service" }
 
-const { root, args } = parseArgs()
-const value = (name) => {
-  const at = args.indexOf(name)
-  return at === -1 ? null : (args[at + 1] ?? fail(`Give a value after ${name}`))
-}
-const source = value("--source") ?? fail("Give --source <checkout>")
-const sourceUrl = value("--source-url") ?? fail("Give --source-url <url>")
-const rootPath = value("--path") ?? fail("Give --path <root path>")
-const rootsFile = value("--roots") ?? fail("Give --roots <root-to-file map>")
-if (!existsSync(rootsFile)) fail(`${rootsFile} does not exist`)
+const args = stepArgs()
+const { root, source, sourceUrl, repository, value } = args
+const rootPath = args.rootPath ?? fail("Give --path <root path>")
 const chosen = value("--kind")
 const chosenEvidence = value("--evidence")
-const repository = repositoryName(sourceUrl)
-if (!repository) fail(`${sourceUrl} is not a repository URL`)
-if (
-  !safePath(rootPath) ||
-  rootPath.startsWith("/") ||
-  (rootPath !== "." && posix.normalize(rootPath) !== rootPath) ||
-  rootPath.split("/").some((s) => s === "" || (s === "." && rootPath !== "."))
-)
-  fail("The root path has characters or segments that the script refuses")
 if (chosenEvidence !== null && !chosen) fail("Give --kind with --evidence")
 
 const step = currentStep(root)

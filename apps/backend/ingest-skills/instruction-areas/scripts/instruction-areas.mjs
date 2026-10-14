@@ -45,13 +45,8 @@ import {
 } from "./areas-lib.mjs"
 import { measurePattern } from "./patterns.mjs"
 
-const argv = process.argv.slice(2)
-const value = (name) => {
-  const at = argv.indexOf(name)
-  return at === -1 ? null : (argv[at + 1] ?? null)
-}
-const { step, source, roots, index, skipped } = scriptStep(argv)
-const sourceUrl = normalizeUrl(value("--source-url"))
+const { step, source, roots, index, skipped, value, ...given } = scriptStep()
+const sourceUrl = normalizeUrl(given.sourceUrl)
 const now = value("--now") ? new Date(value("--now")) : new Date()
 const proposalFile = value("--proposal")
 if (!proposalFile || Number.isNaN(now.getTime())) {

@@ -19,6 +19,7 @@ import {
   findExisting,
   relativeTo,
   repositoryName,
+  stepArgs,
   writeStep,
 } from "../../bin/knowledge-lib.mjs"
 import {
@@ -26,7 +27,6 @@ import {
   blobContent,
   currentStep,
   fail,
-  parseArgs,
 } from "../../bin/stage-lib.mjs"
 import {
   safePath,
@@ -50,18 +50,10 @@ const MAX_APIS_PER_PAGE = 5
 const API_NAME = /^[A-Za-z0-9][A-Za-z0-9 ._()-]{0,79}$/
 const METHOD_SET = new Set(HTTP_METHODS)
 
-const { root, args } = parseArgs()
-const value = (name) => {
-  const at = args.indexOf(name)
-  return at === -1 ? null : (args[at + 1] ?? fail(`Give a value after ${name}`))
-}
-const source = value("--source") ?? fail("Give --source <checkout>")
-const sourceUrl = value("--source-url") ?? fail("Give --source-url <url>")
-const planFile = value("--plan") ?? fail("Give --plan <plan file>")
-const rootsFile = value("--roots") ?? fail("Give --roots <root-to-file map>")
-const rootPath = value("--path") ?? fail("Give --path <root path>")
-const repository =
-  repositoryName(sourceUrl) ?? fail(`${sourceUrl} is not a repository URL`)
+const args = stepArgs()
+const { root, source, rootsFile, repository } = args
+const planFile = args.value("--plan") ?? fail("Give --plan <plan file>")
+const rootPath = args.rootPath ?? fail("Give --path <root path>")
 
 const step = currentStep(root)
 const skipped = []

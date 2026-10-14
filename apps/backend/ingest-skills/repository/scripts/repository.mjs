@@ -9,7 +9,11 @@
 // node repository.mjs --root /ctxpipe --source /ctxpipe/source/<handle> \
 //   --source-url <url> --roots <root-to-file map>
 
-import { findExisting, scriptStep, writeStep } from "../../bin/knowledge-lib.mjs"
+import {
+  findExisting,
+  scriptStep,
+  writeStep,
+} from "../../bin/knowledge-lib.mjs"
 
 const { step, repository, roots, index, skipped } = scriptStep()
 const name = repository.split("/").pop() ?? repository

@@ -423,6 +423,56 @@ describe("find-stores script", () => {
     expect(parsed.roots[1]).toEqual(api)
   })
 
+  it("reads the source once in the repository-wide step, not once for each root", () => {
+    const dir = repo(SHOP)
+    const rootsFile = join(dir, "..", `roots-once-${Date.now()}.json`)
+    made.push(rootsFile)
+    writeFileSync(
+      rootsFile,
+      JSON.stringify({
+        roots: [".", "apps/api", "apps/web"].map((path) => ({
+          path,
+          manifests: [],
+          evidence: [],
+          files: [],
+        })),
+      }),
+    )
+    // A git that logs each call, then runs the real git.
+    const bin = mkdtempSync(join(tmpdir(), "find-stores-git-"))
+    made.push(bin)
+    const log = join(bin, "calls.log")
+    const realGit = execFileSync("/bin/sh", ["-c", "command -v git"], {
+      encoding: "utf8",
+    }).trim()
+    writeFileSync(
+      join(bin, "git"),
+      `#!/bin/sh\necho "$*" >> ${JSON.stringify(log)}\nexec ${JSON.stringify(realGit)} "$@"\n`,
+      { mode: 0o755 },
+    )
+    const result = spawnSync(
+      process.execPath,
+      [
+        SCRIPT,
+        "--source",
+        dir,
+        "--source-url",
+        SOURCE_URL,
+        "--roots",
+        rootsFile,
+      ],
+      {
+        encoding: "utf8",
+        env: { ...GIT_ENV, PATH: `${bin}:${process.env.PATH}` },
+        timeout: 60_000,
+      },
+    )
+    expect(result.status, result.stderr).toBe(0)
+    expect(JSON.parse(result.stdout).roots).toHaveLength(3)
+    const calls = readFileSync(log, "utf8").split("\n").filter(Boolean)
+    expect(calls.filter((call) => call.includes("ls-files"))).toHaveLength(1)
+  })
+
   it("refuses a step without the roots file", () => {
     const result = spawnSync(
       process.execPath,
@@ -479,7 +529,7 @@ describe("find-stores script", () => {
   it("refuses an unsafe root path", () => {
     const result = run(repo(SHOP), "--path", "apps/`api`")
     expect(result.status).toBe(1)
-    expect(result.stderr).toContain("--path has characters")
+    expect(result.stderr).toContain("is not a safe root path")
   })
 
   it("resolves the engine of a Terraform resource and of a CloudFormation resource", () => {

@@ -464,8 +464,6 @@ describe("decisions skill: supersession", () => {
       new Set([...first.decisions, ...second.decisions].map((d) => d.path))
         .size,
     ).toBe(32)
-    // The old offset argument is gone.
-    expect(() => s.run("--offset", "20")).toThrow()
   }, 60_000)
 
   it("reads prose only when the sentence is about this ADR", async () => {

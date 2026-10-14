@@ -28,6 +28,51 @@ const MAX_STEP_OPS = 30
 const MAX_RELATED_LINES = 200
 
 /**
+ * The one argument parser of the skill scripts (ADR-052 section 6): the host
+ * inputs --source <checkout>, --source-url <url>, --roots <file>, and
+ * --path <root> in a root step only. --root <dir> moves the step folder
+ * (default /ctxpipe). `value(name)` reads a further option of the script.
+ * A script that needs no step folder uses this; `scriptStep` adds the step.
+ */
+export function stepArgs(argv = process.argv.slice(2)) {
+  const { root, args } = parseArgs(argv)
+  const value = (name) => {
+    const at = args.indexOf(name)
+    return at === -1
+      ? null
+      : (args[at + 1] ?? fail(`Give a value after ${name}`))
+  }
+  const source = value("--source") ?? fail("Give --source <checkout>")
+  const sourceUrl = value("--source-url") ?? fail("Give --source-url <url>")
+  const rootsFile = value("--roots") ?? fail("Give --roots <roots file>")
+  if (!existsSync(rootsFile)) fail(`${rootsFile} does not exist`)
+  // A root step names its root; a repository-wide step has none.
+  const rootPath = value("--path")
+  if (
+    rootPath !== null &&
+    (!safePath(rootPath) ||
+      rootPath.startsWith("/") ||
+      (rootPath !== "." && posix.normalize(rootPath) !== rootPath) ||
+      rootPath
+        .split("/")
+        .some((s) => s === "" || (s === "." && rootPath !== ".")))
+  )
+    fail(`${rootPath} is not a safe root path`)
+  const repository = repositoryName(sourceUrl)
+  if (!repository) fail(`${sourceUrl} is not a repository URL`)
+  return {
+    root,
+    args,
+    source,
+    sourceUrl,
+    rootsFile,
+    rootPath,
+    repository,
+    value,
+  }
+}
+
+/**
  * Arguments (ADR-052 section 6, the same for each skill): --source
  * <checkout> --source-url <url> --roots <file>, and --path <root> in a root
  * step only. --root <dir> moves the step folder (default /ctxpipe).
@@ -39,22 +84,8 @@ const MAX_RELATED_LINES = 200
  * URL counts. Each root in the result has `files: [{ path, kind }]`.
  */
 export function scriptStep(argv = process.argv.slice(2)) {
-  const { root, args } = parseArgs(argv)
-  const value = (name) => {
-    const at = args.indexOf(name)
-    return at === -1
-      ? null
-      : (args[at + 1] ?? fail(`Give a value after ${name}`))
-  }
-  const source = value("--source") ?? fail("Give --source <checkout>")
-  const sourceUrl = value("--source-url") ?? fail("Give --source-url <url>")
-  const rootsFile = value("--roots") ?? fail("Give --roots <roots file>")
-  // A root step names its root; a repository-wide step has none.
-  const rootPath = value("--path")
-  if (rootPath !== null && rootPath !== "." && !safePath(rootPath))
-    fail(`${rootPath} is not a safe root path`)
-  const repository = repositoryName(sourceUrl)
-  if (!repository) fail(`${sourceUrl} is not a repository URL`)
+  const { root, source, sourceUrl, rootsFile, rootPath, repository, value } =
+    stepArgs(argv)
   const step = currentStep(root)
   const listed = JSON.parse(readFileSync(rootsFile, "utf8")).roots
   if (!Array.isArray(listed)) fail(`${rootsFile} has no roots list`)
@@ -100,6 +131,7 @@ export function scriptStep(argv = process.argv.slice(2)) {
     rootPath,
     index: readIndex(step),
     skipped,
+    value,
   }
 }
 
