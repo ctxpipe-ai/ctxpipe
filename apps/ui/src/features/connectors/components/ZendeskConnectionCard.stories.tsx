@@ -94,6 +94,13 @@ export const NoWebhook: Story = {
     await expect(
       await canvas.findByText(/Help Center articles sync once a day/),
     ).toBeVisible()
+    onOpenSetup.mockClear()
+    const [add] = await canvas.findAllByRole("button", {
+      name: /^Add the webhook/,
+    })
+    if (!add) throw new Error("No Add the webhook action")
+    await userEvent.click(add)
+    await expect(onOpenSetup).toHaveBeenCalledWith({ reconnect: true })
   },
 }
 

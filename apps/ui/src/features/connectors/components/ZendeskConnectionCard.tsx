@@ -18,7 +18,7 @@ import { ZendeskMark } from "./ZendeskMark"
 type ZendeskConnectionCardProps = {
   orgSlug: string
   connectionId: string
-  onOpenSetup: () => void
+  onOpenSetup: (options: { reconnect: true }) => void
 }
 
 export function ZendeskConnectionCard({
@@ -82,14 +82,14 @@ export function ZendeskConnectionCard({
         isError
           ? () => void refetch()
           : actionLabel
-            ? () => onOpenSetup()
+            ? () => onOpenSetup({ reconnect: true })
             : undefined
       }
     >
       {status?.status === "installed" && !status.webhookConfigured ? (
         <p className="text-sm text-muted-foreground">
           Help Center articles sync once a day: Zendesk did not let ctx| add its
-          webhook. Reconnect as a Zendesk admin to add it.
+          webhook. Select Add the webhook, and connect as a Zendesk admin.
         </p>
       ) : null}
       {isError ? (

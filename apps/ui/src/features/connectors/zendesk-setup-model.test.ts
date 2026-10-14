@@ -9,10 +9,12 @@ const status = (
   overrides: Partial<{
     status: "pending" | "installed" | "revoked"
     oauthClientConfigured: boolean
+    webhookConfigured: boolean
   }> = {},
 ) => ({
   status: "installed" as const,
   oauthClientConfigured: true,
+  webhookConfigured: true,
   ...overrides,
 })
 
@@ -33,7 +35,7 @@ describe("getZendeskSetupSteps", () => {
 })
 
 describe("getZendeskSetupStep", () => {
-  const notDone = { workspacesDone: false }
+  const notDone = { workspacesDone: false, reconnect: false }
 
   it("starts at the account without a connection", () => {
     expect(getZendeskSetupStep(undefined, notDone)).toBe("account")
@@ -54,16 +56,27 @@ describe("getZendeskSetupStep", () => {
     )
   })
 
+  it("connects again on a reconnect of a working connection", () => {
+    expect(
+      getZendeskSetupStep(status(), { workspacesDone: false, reconnect: true }),
+    ).toBe("connect")
+  })
+
   it("adds to Workspaces once connected, then is done", () => {
     expect(getZendeskSetupStep(status(), notDone)).toBe("workspaces")
-    expect(getZendeskSetupStep(status(), { workspacesDone: true })).toBe("done")
+    expect(
+      getZendeskSetupStep(status(), { workspacesDone: true, reconnect: false }),
+    ).toBe("done")
   })
 })
 
 describe("getZendeskCardCtaLabel", () => {
-  it("asks for a reconnect only after a revoke", () => {
+  it("asks for a reconnect after a revoke, and for the webhook when it is missing", () => {
     expect(getZendeskCardCtaLabel(status({ status: "revoked" }))).toBe(
       "Reconnect Zendesk",
+    )
+    expect(getZendeskCardCtaLabel(status({ webhookConfigured: false }))).toBe(
+      "Add the webhook",
     )
     expect(getZendeskCardCtaLabel(status())).toBeNull()
   })

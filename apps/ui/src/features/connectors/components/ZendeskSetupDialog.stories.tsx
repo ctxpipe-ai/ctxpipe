@@ -22,12 +22,13 @@ const orgSlug = "acme"
 const connectionId = "con_story_zendesk"
 
 /** The dialog with its connection id in state, as the Connectors page holds it. */
-function Dialog(props: { connectionId?: string }) {
+function Dialog(props: { connectionId?: string; reconnect?: boolean }) {
   const [id, setId] = useState(props.connectionId)
   return (
     <ZendeskSetupDialog
       orgSlug={orgSlug}
       connectionId={id}
+      reconnect={props.reconnect}
       isOpen
       onOpenChange={() => {}}
       onConnectionIdChange={setId}
@@ -277,6 +278,28 @@ export const OAuthError: Story = {
     )
     await expect(
       await body.findByText("Zendesk authorization failed: access_denied"),
+    ).toBeVisible()
+  },
+}
+
+export const ReconnectToAddTheWebhook: Story = {
+  args: { connectionId, reconnect: true },
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          zendeskStatusHandler(
+            zendeskStoryStatus({ webhookConfigured: false }),
+          ),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const body = within(canvasElement.ownerDocument.body)
+    await visible(await body.findByRole("heading", { name: "Connect Zendesk" }))
+    await expect(
+      body.getByText(/Connect again as a Zendesk admin/),
     ).toBeVisible()
   },
 }

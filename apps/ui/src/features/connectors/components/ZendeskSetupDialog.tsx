@@ -35,6 +35,8 @@ const externalLink =
 type ZendeskSetupDialogProps = {
   orgSlug: string
   connectionId?: string
+  /** Open at the connect step, to authorize again as a Zendesk admin. */
+  reconnect?: boolean
   isOpen: boolean
   onOpenChange: (open: boolean) => void
   onConnectionIdChange: (connectionId: string) => void
@@ -48,6 +50,7 @@ type ZendeskSetupDialogProps = {
 export function ZendeskSetupDialog({
   orgSlug,
   connectionId,
+  reconnect = false,
   isOpen,
   onOpenChange,
   onConnectionIdChange,
@@ -56,6 +59,7 @@ export function ZendeskSetupDialog({
   const [workspacesDone, setWorkspacesDone] = useState(false)
   const [pullRequestUrls, setPullRequestUrls] = useState<string[]>([])
   const [oauthError, setOauthError] = useState<string | null>(null)
+  const [reconnecting, setReconnecting] = useState(reconnect)
 
   const statusQuery = useQuery({
     queryKey: zendeskConnectorKeys.status(orgSlug, connectionId ?? ""),
@@ -64,7 +68,10 @@ export function ZendeskSetupDialog({
     retry: retryQuery,
   })
   const status = statusQuery.data
-  const step = getZendeskSetupStep(status, { workspacesDone })
+  const step = getZendeskSetupStep(status, {
+    workspacesDone,
+    reconnect: reconnecting,
+  })
   const steps = getZendeskSetupSteps(status?.deploymentOAuthClient ?? true)
   const stepIndex =
     step === "done"
@@ -86,6 +93,7 @@ export function ZendeskSetupDialog({
         typeof data.connectionId === "string"
       ) {
         setOauthError(null)
+        setReconnecting(false)
         onConnectionIdChange(data.connectionId)
         void queryClient.invalidateQueries({
           queryKey: zendeskConnectorKeys.status(orgSlug, data.connectionId),
@@ -417,7 +425,9 @@ function ConnectStep(props: {
         <p className="mt-2 text-sm text-muted-foreground">
           {props.status.status === "revoked"
             ? "Zendesk does not accept the saved authorization. Connect again."
-            : "Approve read access to Help Center, tickets, views, and users. A Zendesk admin also lets ctx| add one webhook for Help Center changes."}
+            : props.status.status === "installed"
+              ? "Connect again as a Zendesk admin so ctx| can add the Help Center webhook."
+              : "Approve read access to Help Center, tickets, views, and users. A Zendesk admin also lets ctx| add one webhook for Help Center changes."}
         </p>
       </div>
       {props.error ? (

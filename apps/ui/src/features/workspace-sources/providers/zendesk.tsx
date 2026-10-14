@@ -114,8 +114,9 @@ export function ZendeskScopeEditor(props: SourceScopeEditorProps) {
     <section aria-label={heading} className="flex flex-col gap-3">
       <h3 className="text-sm font-medium text-foreground">{heading}</h3>
       <p className="text-sm text-muted-foreground">
-        A category syncs all its published articles. A view syncs its 100 most
-        recently updated tickets, with their comments.
+        A category syncs all its published articles. A view syncs once a day,
+        with its 100 most recently updated tickets and their comments. Ticket
+        comments can hold personal data, and git keeps every version.
       </p>
       <SearchField
         aria-label={`Filter Zendesk categories and views for ${label ?? "this source"}`}

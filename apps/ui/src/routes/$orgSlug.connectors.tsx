@@ -134,6 +134,7 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
   const [zendeskConnectionId, setZendeskConnectionId] = useState<string | null>(
     null,
   )
+  const [zendeskReconnect, setZendeskReconnect] = useState(false)
   const [githubSelfHostedWizardOpen, setGithubSelfHostedWizardOpen] =
     useState(false)
   const [slackSetupOpen, setSlackSetupOpen] = useState(false)
@@ -304,8 +305,9 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
                   key={row.id}
                   orgSlug={orgSlug}
                   connectionId={row.id}
-                  onOpenSetup={() => {
+                  onOpenSetup={({ reconnect }) => {
                     setZendeskConnectionId(row.id)
+                    setZendeskReconnect(reconnect)
                     setZendeskSetupOpen(true)
                   }}
                 />
@@ -401,6 +403,7 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
           <AddZendeskConnectorButton
             onStart={() => {
               setZendeskConnectionId(null)
+              setZendeskReconnect(false)
               setZendeskSetupOpen(true)
               setCatalogOpen(false)
             }}
@@ -567,6 +570,7 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
         key={zendeskConnectionId ?? "zendesk-setup"}
         orgSlug={orgSlug}
         connectionId={zendeskConnectionId ?? undefined}
+        reconnect={zendeskReconnect}
         isOpen={zendeskSetupOpen}
         onConnectionIdChange={setZendeskConnectionId}
         onOpenChange={(open) => {

@@ -66,6 +66,8 @@ export const SelectCategoriesAndViews: Story = {
     await expect(
       canvas.getByText("Select at least one category or view."),
     ).toBeVisible()
+    await expect(canvas.getByText(/syncs once a day/)).toBeVisible()
+    await expect(canvas.getByText(/can hold personal data/)).toBeVisible()
     await userEvent.click(
       await canvas.findByRole("checkbox", { name: "Accounts" }),
     )
