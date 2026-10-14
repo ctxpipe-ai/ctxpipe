@@ -1,7 +1,16 @@
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js"
 import { eq } from "drizzle-orm"
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest"
+import { z } from "zod"
 import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../../test/db.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { workspaces } from "../../db/schema/workspaces.js"
@@ -17,7 +26,11 @@ import {
   seedRelatedWorkspace,
 } from "../../test/related-fixture.js"
 import { TOOL_ERROR_META_KEY } from "../framework/tool-result.js"
-import { getRelatedTool } from "./get-related.js"
+import {
+  getRelatedInputShape,
+  getRelatedTool,
+  rankWorkspaceRelated,
+} from "./get-related.js"
 
 const modelServer = embeddingModelServer()
 
@@ -160,6 +173,29 @@ const paymentsUnits: RelatedUnit[] = [
   },
 ]
 
+/** One unit with three edges; the edge to `y` ends one hour after the seeding. */
+const endingUnits: RelatedUnit[] = [
+  {
+    path: "knowledge/ending.md",
+    kind: "Service",
+    claims: [
+      ["x", 0.9, undefined],
+      ["y", 0.8, new Date(Date.now() + 3_600_000).toISOString()],
+      ["z", 0.7, undefined],
+    ].map(([target, confidence, validTo]) => ({
+      to: `knowledge/${target}.md`,
+      predicate: "DEPENDS_ON",
+      confidence: confidence as number,
+      validFrom: "2026-01-01T00:00:00.000Z",
+      ...(validTo ? { validTo: validTo as string } : {}),
+    })),
+  },
+  ...["x", "y", "z"].map((name) => ({
+    path: `knowledge/${name}.md`,
+    kind: "Library",
+  })),
+]
+
 const checkout = "knowledge/services/checkout-api.md"
 const limiter = "knowledge/libraries/rate-limiter.md"
 const sha = (letter: string) => letter.repeat(40)
@@ -211,8 +247,17 @@ describe("get_related through the MCP client on live Postgres and FalkorDB", () 
         units: platformUnits,
       })
     ).revision
+    await seedRelatedWorkspace({
+      seed,
+      slug: "ending",
+      sha: sha("f"),
+      units: endingUnits,
+    })
     client = await connectToolClient(seed, getRelatedTool)
   }, 60_000)
+  afterEach(() => {
+    vi.useRealTimers()
+  })
   afterAll(async () => {
     await client?.close()
     if (seed) {
@@ -285,6 +330,23 @@ describe("get_related through the MCP client on live Postgres and FalkorDB", () 
       kinds: ["Doc"],
     })
     expect(refs(filtered)).toEqual([])
+    const lowerCase = await related({
+      workspace: "platform",
+      seeds: [limiter],
+      direction: "in",
+      predicates: ["depends_on"],
+    })
+    expect(refs(lowerCase)).toEqual(
+      refs(
+        await related({
+          workspace: "platform",
+          seeds: [limiter],
+          direction: "in",
+          predicates: ["DEPENDS_ON"],
+        }),
+      ),
+    )
+    expect(refs(lowerCase)).toContain("knowledge/services/payments-api.md")
   })
 
   it("filters the results by kind but walks through the other kinds", async () => {
@@ -448,6 +510,66 @@ describe("get_related through the MCP client on live Postgres and FalkorDB", () 
     expect(third.structuredContent?.cursor).toBeUndefined()
   })
 
+  it("ranks a page after the cache entry ended as of the time of the first page", async () => {
+    const args = {
+      workspace: "ending",
+      seeds: ["knowledge/ending.md"],
+      direction: "out",
+      limit: 1,
+    }
+    const all = refs(await related({ ...args, limit: 10 }))
+    expect(all).toHaveLength(3)
+    const first = await related(args)
+    const paged = refs(first)
+    let cursor = first.structuredContent?.cursor as string
+    expect(cursor).toEqual(expect.any(String))
+
+    // The cache keeps an entry for 10 minutes; the edge to y ends in 1 hour.
+    vi.useFakeTimers({ toFake: ["Date"], now: Date.now() + 2 * 3_600_000 })
+    while (cursor) {
+      const page = await related({ ...args, cursor })
+      expect(page.isError).not.toBe(true)
+      paged.push(...refs(page))
+      cursor = page.structuredContent?.cursor as string
+    }
+    expect(paged).toEqual(all)
+    expect(paged).toContain("knowledge/y.md")
+
+    // A new call after that time does not walk the ended edge.
+    expect(refs(await related({ ...args, limit: 10 }))).not.toContain(
+      "knowledge/y.md",
+    )
+  })
+
+  it("refuses to rank when the served revision is no longer the projection", async () => {
+    const [row] = await withOrgDbContext(seed.orgId, (db) =>
+      db
+        .select({ id: workspaces.id })
+        .from(workspaces)
+        .where(eq(workspaces.slug, "platform")),
+    )
+    const input = z
+      .object(getRelatedInputShape)
+      .parse({ workspace: "platform", seeds: [limiter] })
+    const org = { id: seed.orgId, slug: seed.orgSlug }
+    const workspace = { id: row?.id as string, slug: "platform" }
+    // The call resolved the Workspace at SHA "c"; the projection holds "a".
+    await expect(
+      rankWorkspaceRelated(org, workspace, sha("c"), input, new Date()),
+    ).rejects.toMatchObject({
+      code: "workspace_not_ready",
+      message: expect.stringContaining("new revision"),
+    })
+    const ranking = await rankWorkspaceRelated(
+      org,
+      workspace,
+      sha("a"),
+      input,
+      new Date(),
+    )
+    expect(ranking.results.length).toBeGreaterThan(0)
+  })
+
   it("refuses a cursor of another call and a cursor after a new revision", async () => {
     const first = await related({
       workspace: "payments",
@@ -587,5 +709,8 @@ describe("get_related through the MCP client on live Postgres and FalkorDB", () 
         retryable: true,
       })
     }
+    const legacy = await related({ workspace: "legacy", seeds: [checkout] })
+    expect(JSON.stringify(legacy.content)).toContain("needs a hydrate")
+    expect(JSON.stringify(legacy.content)).not.toContain("few minutes")
   })
 })

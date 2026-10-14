@@ -14,22 +14,25 @@ import {
   rankRelated,
 } from "../../domain/workspaces/graph-relevance.js"
 import { searchKnowledge } from "../../domain/workspaces/knowledge-search.js"
-import { publishedProjection } from "../../domain/workspaces/revision.js"
+import {
+  type PublishedProjection,
+  publishedProjection,
+} from "../../domain/workspaces/revision.js"
 import { projectionFromWorkspace } from "../../models/workspaces.js"
 import { fitPage, truncateText } from "../framework/budget.js"
 import {
   requireServed,
   resolveCallWorkspace,
 } from "../framework/call-workspace.js"
-import { decodeCursor, encodeCursor } from "../framework/cursor.js"
+import { decodeCursorWithAnchor, encodeCursor } from "../framework/cursor.js"
 import { checkPath } from "../framework/refs.js"
 import { servedSchema, workspaceArgument } from "../framework/schemas.js"
 import { McpToolError } from "../framework/tool-errors.js"
 import type { CallOrg } from "../framework/tool-org.js"
 import { defineMcpReadTool } from "../framework/tool-registry.js"
-import { TtlCache } from "../framework/ttl-cache.js"
 
 const instant = z.iso.datetime({ offset: true })
+const name = z.string().min(1).max(64)
 
 /**
  * The arguments of `get_related`. Each bound is the bound that `rankRelated`
@@ -59,26 +62,20 @@ export const getRelatedInputShape = {
       "The kind of question: why (decisions), ownership, change (recent changes), dependencies, structure, or general.",
     ),
   predicates: z
-    .array(z.string().min(1).max(64))
+    .array(name)
     .min(1)
     .max(50)
     .optional()
-    .describe("Walk only edges with these predicates."),
-  excludePredicates: z
-    .array(z.string().min(1).max(64))
-    .min(1)
-    .max(50)
-    .optional()
-    .describe("Give these predicates the weight 0 in the ranking."),
+    .describe("Walk only edges with these predicates. Not case-sensitive."),
   predicateWeights: z
-    .record(z.string().min(1).max(64), z.number().min(0))
+    .record(name, z.number().min(0))
     .refine((weights) => Object.keys(weights).length <= 50, {
       message: "At most 50 predicate weights.",
     })
     .optional()
     .describe("Replaces the weight of single predicates. 0 removes the edges."),
   kinds: z
-    .array(z.string().min(1).max(64))
+    .array(name)
     .max(50)
     .optional()
     .describe(
@@ -222,22 +219,73 @@ type Ranking = {
 /** Results that one ranking keeps. A page takes at most 50 of them. */
 const RANKED_LIMIT = 100
 
-/** Rankings by projection and parameters, so that page 2 needs no graph query. */
-const rankings = new TtlCache<Ranking>({ ttlMs: 10 * 60_000, maxEntries: 200 })
+/**
+ * Rankings by revision, parameters and ranking time, so that page 2 needs no
+ * graph query. An entry ends 10 minutes after it was set. A page after that
+ * ranks again as of the time in its cursor and gives the same order.
+ */
+const rankings = new Map<string, { ranking: Ranking; expires: number }>()
+
+function cachedRanking(key: string): Ranking | undefined {
+  const entry = rankings.get(key)
+  if (!entry) return undefined
+  if (entry.expires > Date.now()) return entry.ranking
+  rankings.delete(key)
+  return undefined
+}
+
+function cacheRanking(key: string, ranking: Ranking): void {
+  const now = Date.now()
+  for (const [oldKey, entry] of rankings) {
+    if (entry.expires <= now || rankings.size >= 200) rankings.delete(oldKey)
+    else break
+  }
+  rankings.set(key, { ranking, expires: now + 10 * 60_000 })
+}
 
 function round(value: number): number {
   return Number(value.toPrecision(3))
 }
 
-async function loadProjection(org: CallOrg, workspaceId: string) {
+/**
+ * The projection that the call walks and ranks, read once. It must hold the
+ * revision that the call serves. A publish between the two reads gives
+ * `workspace_not_ready` (retryable), never a mix of two revisions.
+ */
+async function loadProjection(
+  org: CallOrg,
+  workspace: { id: string; slug: string },
+  sha: string,
+): Promise<Extract<PublishedProjection, { kind: "active" }>> {
   const [row] = await withOrgDbContext(org.id, (db) =>
     db
       .select()
       .from(workspaces)
-      .where(and(eq(workspaces.orgId, org.id), eq(workspaces.id, workspaceId)))
+      .where(and(eq(workspaces.orgId, org.id), eq(workspaces.id, workspace.id)))
       .limit(1),
   )
-  return row ? publishedProjection(projectionFromWorkspace(row)) : null
+  const projection = row
+    ? publishedProjection(projectionFromWorkspace(row))
+    : null
+  if (projection?.kind === "legacy") {
+    throw new McpToolError(
+      "workspace_not_ready",
+      `The knowledge graph of Workspace "${workspace.slug}" does not exist yet. The Workspace needs a hydrate.`,
+    )
+  }
+  if (projection?.kind !== "active") {
+    throw new McpToolError(
+      "workspace_not_ready",
+      `The knowledge graph of Workspace "${workspace.slug}" is not ready. Try again in a few minutes.`,
+    )
+  }
+  if (projection.revision.sha !== sha) {
+    throw new McpToolError(
+      "workspace_not_ready",
+      `Workspace "${workspace.slug}" got a new revision during the call. Send the call again.`,
+    )
+  }
+  return projection
 }
 
 async function resolveSeeds(
@@ -274,19 +322,23 @@ async function resolveSeeds(
   return rows.map((row) => row.id)
 }
 
-async function rank(
+/**
+ * The ranking of one call as of `now`. It loads the projection once and
+ * checks that it holds the served `sha`.
+ */
+export async function rankWorkspaceRelated(
   org: CallOrg,
   workspace: { id: string; slug: string },
   sha: string,
   input: z.infer<z.ZodObject<typeof getRelatedInputShape>>,
+  now: Date,
 ): Promise<Ranking> {
   const notReady = (reason: string) =>
     new McpToolError(
       "workspace_not_ready",
       `The knowledge graph of Workspace "${workspace.slug}" is ${reason}. Try again in a few minutes.`,
     )
-  const projection = await loadProjection(org, workspace.id)
-  if (projection?.kind !== "active") throw notReady("not ready")
+  const projection = await loadProjection(org, workspace, sha)
   const seedIds = await resolveSeeds(org, workspace.id, sha, input.seeds)
   const expansion = await expandWorkspaceGraph({
     orgId: org.id,
@@ -295,10 +347,13 @@ async function rank(
     seeds: seedIds,
     maxDepth: input.maxDepth,
     direction: input.direction,
-    predicates: input.predicates,
+    // The graph stores predicates in upper case, and the ranking does the same.
+    predicates: input.predicates?.map((predicate) => predicate.toUpperCase()),
     minConfidence: input.minConfidence,
     maxFanOut: input.maxFanOut,
-    validAt: input.validAt,
+    validAt: input.validBetween
+      ? undefined
+      : (input.validAt ?? now.toISOString()),
     validBetween: input.validBetween,
   }).catch((error: unknown) => {
     if (error instanceof WorkspaceGraphBuildingError) {
@@ -320,12 +375,6 @@ async function rank(
         })
       ).map((hit) => ({ id: hit.unitId, score: hit.score }))
     : []
-  const predicateWeights = {
-    ...input.predicateWeights,
-    ...Object.fromEntries(
-      (input.excludePredicates ?? []).map((predicate) => [predicate, 0]),
-    ),
-  }
   const ranked = rankRelated({
     nodes: expansion.nodes,
     signals: expansion.edges,
@@ -333,7 +382,7 @@ async function rank(
     queryHits,
     options: {
       intent: input.intent,
-      predicateWeights,
+      predicateWeights: input.predicateWeights,
       direction: input.direction,
       restart: input.restart,
       queryWeight: input.queryWeight,
@@ -344,7 +393,7 @@ async function rank(
       kinds: input.kinds,
       includeSeeds: input.includeSeeds,
       limit: RANKED_LIMIT,
-      now: input.validAt ? new Date(input.validAt) : undefined,
+      now: input.validAt ? new Date(input.validAt) : now,
       validBetween: input.validBetween && {
         from: new Date(input.validBetween.from),
         to: new Date(input.validBetween.to),
@@ -367,6 +416,7 @@ async function rank(
             and(
               eq(workspaceKnowledgeUnits.orgId, org.id),
               eq(workspaceKnowledgeUnits.workspaceId, workspace.id),
+              eq(workspaceKnowledgeUnits.projectionSha, sha),
               inArray(
                 workspaceKnowledgeUnits.servingId,
                 ranked.map((result) => result.id),
@@ -418,7 +468,7 @@ export const getRelatedTool = defineMcpReadTool({
   name: "get_related",
   title: "Get related knowledge",
   description:
-    "Find knowledge related to seed refs AND relevant to your query, ranked by graph proximity, edge confidence, recency and query match. Each result can explain why (the path of predicates from a seed). Set intent for the question: why, ownership, change, dependencies, structure. Filter by predicates, kinds, direction, depth and time. Use it after search_knowledge to find owners, dependencies, decisions, incidents and changes. Without a query it lists plain neighbors (maxDepth 1).",
+    "Find knowledge related to seed refs AND relevant to your query, ranked by graph proximity, edge confidence, recency and query match. Each result can explain why (the path of predicates from a seed). Set intent for the question: why, ownership, change, dependencies, structure. Filter by predicates, kinds, direction, depth and time. Use it after search_knowledge to find owners, dependencies, decisions, incidents and changes. For plain neighbors, set maxDepth 1 and no query. The default maxDepth is 2.",
   org: "required",
   inputShape: getRelatedInputShape,
   outputSchema: z.object({
@@ -449,16 +499,25 @@ export const getRelatedTool = defineMcpReadTool({
       scope: JSON.stringify(["get_related", parameters]),
       sha: served.sha,
     }
-    const offset = cursor ? decodeCursor(cursor, binding) : 0
+    const decoded = cursor ? decodeCursorWithAnchor(cursor, binding) : null
+    const offset = decoded?.offset ?? 0
+    // A page after the first ranks as of the time of the first page.
+    const now = decoded?.anchor ?? Date.now()
     const key = createHash("sha256")
       .update(
-        JSON.stringify([org.id, workspace.id, served.sha, rankParameters]),
+        JSON.stringify([org.id, workspace.id, served.sha, rankParameters, now]),
       )
       .digest("hex")
-    let ranking = rankings.get(key)
+    let ranking = cachedRanking(key)
     if (!ranking) {
-      ranking = await rank(org, workspace, served.sha, input)
-      rankings.set(key, ranking)
+      ranking = await rankWorkspaceRelated(
+        org,
+        workspace,
+        served.sha,
+        input,
+        new Date(now),
+      )
+      cacheRanking(key, ranking)
     }
     const { results, ...header } = ranking
     const items: RelatedResult[] = explain
@@ -483,7 +542,13 @@ export const getRelatedTool = defineMcpReadTool({
       ...build(page),
       ...(nextOffset === null
         ? {}
-        : { cursor: encodeCursor({ ...binding, offset: nextOffset }) }),
+        : {
+            cursor: encodeCursor({
+              ...binding,
+              offset: nextOffset,
+              anchor: now,
+            }),
+          }),
       ...(truncated ? { truncated: true } : {}),
     }
   },

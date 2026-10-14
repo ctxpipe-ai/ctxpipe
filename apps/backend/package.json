@@ -8,6 +8,7 @@
     "build": "bun build ./src/server.ts ./src/openworkflow/worker-supervisor.ts --target=bun --packages=external --outdir=dist",
     "start": "bun run dist/server.js",
     "test": "node ../../scripts/ci/test-suite.mjs backend",
+    "test:latency": "vitest run --config vitest.latency.config.ts",
     "test:connector-assets": "vitest run --config vitest.connector-assets.config.ts",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",

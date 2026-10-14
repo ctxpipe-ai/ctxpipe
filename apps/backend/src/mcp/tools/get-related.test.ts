@@ -113,4 +113,11 @@ describe("get_related arguments", () => {
   it("has no authority option", () => {
     expect(Object.keys(getRelatedInputShape)).not.toContain("authority")
   })
+
+  it("has one way to silence a predicate: a weight of 0", () => {
+    expect(Object.keys(getRelatedInputShape)).not.toContain("excludePredicates")
+    expect(
+      schema.safeParse({ ...base, predicateWeights: { OWNS: 0 } }).success,
+    ).toBe(true)
+  })
 })

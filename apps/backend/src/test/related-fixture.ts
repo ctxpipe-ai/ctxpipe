@@ -144,7 +144,9 @@ export async function seedRelatedWorkspace(input: {
 
 /** Delete the graph that the org holds in FalkorDB. */
 export async function dropOrgGraph(orgId: string): Promise<void> {
-  const falkor = await FalkorDB.connect({ url: process.env.GRAPH_DB_URI })
+  const falkor = await FalkorDB.connect({
+    url: parseEnv(process.env).GRAPH_DB_URI,
+  })
   try {
     if ((await falkor.list()).includes(orgId))
       await falkor.selectGraph(orgId).delete()
