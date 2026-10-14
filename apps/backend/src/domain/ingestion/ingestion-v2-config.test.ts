@@ -56,7 +56,8 @@ describe("ingestion v2 shadow switch", () => {
     expect(ingestionV2ShadowEnabled()).toBe(true)
   })
 
-  it("is on in local development with no deployment name", () => {
-    expect(inDeployment("")).toBe(true)
+  it("is off when no deployment-environment label is set", () => {
+    // The OTel name falls back to `development`; that is not a label.
+    expect(inDeployment("")).toBe(false)
   })
 })
