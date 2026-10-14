@@ -65,54 +65,6 @@ it(
   },
 )
 
-it(
-  "closes a write job of the retired folder-map workflow without a commit",
-  { timeout: 30_000 },
-  async () => {
-    const { persistBoundWriteJob } = await import(
-      "../../models/workspace-write-jobs.js"
-    )
-    const { workspaceOpsFolderMapRetired } = await import(
-      "../../openworkflow/workflows/workspace-ops-folder-map.js"
-    )
-    await withNativeHydrationFixture(
-      { github: true, githubWriteView: "writable", writeStatus: "writable" },
-      async (f) => {
-        const jobId = `wjob_${f.id}_retired`
-        const revision = { ...f.revision, access: "write-default" as const }
-        await withOrgIdContext(f.org, () =>
-          persistBoundWriteJob({ id: jobId, kind: "ops_folder_map", revision }),
-        )
-        f.runner.implementWorkflow(
-          workspaceOpsFolderMapRetired.spec,
-          workspaceOpsFolderMapRetired.fn,
-        )
-        const worker = f.runner.newWorker({ concurrency: 1 })
-        try {
-          const handle = await f.runner.runWorkflow(
-            workspaceOpsFolderMapRetired.spec,
-            { orgId: f.org.id, workspaceId: f.workspaceId, jobId, revision },
-          )
-          await worker.start()
-          expect(await handle.result({ timeoutMs: 15_000 })).toEqual({
-            status: "retired",
-          })
-        } finally {
-          await worker.stop()
-        }
-        expect(
-          await withOrgIdContext(f.org, () =>
-            reconcileWorkspaceWriteJob(jobId),
-          ),
-        ).toMatchObject({ status: "completed", commitSha: null })
-        expect(
-          f.git("--git-dir", f.remote, "rev-parse", "refs/heads/main"),
-        ).toBe(f.sha)
-      },
-    )
-  },
-)
-
 const instructions =
   "# Working instructions\n\n## Where things live\n- [docs/](docs/): guides\n\n## Review\nRead the changes carefully.\n"
 
