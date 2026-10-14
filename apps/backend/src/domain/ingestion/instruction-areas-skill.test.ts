@@ -213,6 +213,22 @@ describe("pattern counting (concept 5.4)", () => {
     expect(result.placement).toBe("being-replaced")
   })
 
+  it("takes at most 10 calls of 10 patterns in one step", () => {
+    const repo = source("budget", [
+      { days: 40, files: { "src/a.test.ts": VITEST } },
+    ])
+    const many = Array.from({ length: 15 }, (_, i) => `literal-${i}`)
+    expect(patterns(repo.dir, ...many)).toHaveLength(10)
+    for (let call = 2; call <= 10; call++) patterns(repo.dir, 'from "vitest"')
+    const refused = spawnSync(
+      process.execPath,
+      [join(SKILL, "patterns.mjs"), "--source", repo.dir, "--pattern", "x-y-z"],
+      { encoding: "utf8", env: baseEnv, timeout: 30_000 },
+    )
+    expect(refused.status).toBe(2)
+    expect(refused.stderr).toContain("10 times")
+  })
+
   it("treats a pattern as plain text, never as a regular expression", () => {
     const repo = source("literal", [{ days: 10, files: { "a.ts": "x\n" } }])
     const started = Date.now()
