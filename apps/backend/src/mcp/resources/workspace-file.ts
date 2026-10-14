@@ -1,5 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js"
+import { UriTemplate } from "@modelcontextprotocol/sdk/shared/uriTemplate.js"
 import {
   ErrorCode,
   McpError,
@@ -21,6 +22,19 @@ import { readFileByRef, readFileInputShape } from "../tools/read-file.js"
  * model on its own; the user picks it in the client.
  */
 export const WORKSPACE_FILE_URI_TEMPLATE = "ctxpipe://{org}/{workspace}/{+ref}"
+
+const WORKSPACE_FILE_RESOURCE_NAME = "workspace-file"
+
+/**
+ * The name of the resource that serves `uri`, or undefined. The transport uses
+ * it to attribute a read before the response returns; it never puts the URI
+ * on a span.
+ */
+export function workspaceFileResourceName(uri: string): string | undefined {
+  return new UriTemplate(WORKSPACE_FILE_URI_TEMPLATE).match(uri)
+    ? WORKSPACE_FILE_RESOURCE_NAME
+    : undefined
+}
 
 /** Not found for the four things the URI can name: org, Workspace, repository, and file. */
 const NOT_FOUND: ReadonlySet<McpToolErrorCode> = new Set([
@@ -72,7 +86,7 @@ function variable(value: string | string[] | undefined, name: string): string {
  */
 export function registerWorkspaceFileResource(server: McpServer): void {
   server.registerResource(
-    "workspace-file",
+    WORKSPACE_FILE_RESOURCE_NAME,
     new ResourceTemplate(WORKSPACE_FILE_URI_TEMPLATE, { list: undefined }),
     {
       title: "Workspace file",
@@ -80,8 +94,9 @@ export function registerWorkspaceFileResource(server: McpServer): void {
         "A knowledge unit or a linked repository file of a Workspace. The path is a ref from search_knowledge, search_code, or list_files.",
     },
     (uri, variables, extra) =>
-      runMcpResourceRead({ resourceName: "workspace-file", extra }, () =>
-        readWorkspaceFile(uri, variables),
+      runMcpResourceRead(
+        { resourceName: WORKSPACE_FILE_RESOURCE_NAME, extra },
+        () => readWorkspaceFile(uri, variables),
       ),
   )
 }

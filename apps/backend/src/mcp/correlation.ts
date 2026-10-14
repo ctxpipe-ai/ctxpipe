@@ -15,6 +15,7 @@ import {
   applyAttribution,
   contextWithForkedAttributionBag,
 } from "../observability/attribution.js"
+import { MCP_TOOL_ERROR_CODES } from "./framework/tool-errors.js"
 
 /**
  * Correlation for one MCP tool call (ADR-051 section 9).
@@ -213,6 +214,12 @@ type ToolResult = {
   _meta?: Record<string, unknown>
 }
 
+type ToolFailure = {
+  content: Array<{ type: "text"; text: string }>
+  isError: true
+  _meta?: Record<string, unknown>
+}
+
 export type McpToolCall = {
   callId: string
   connectionKey: string
@@ -232,9 +239,18 @@ export type McpToolCall = {
 export async function runMcpToolCall<R extends ToolResult>(
   input: { toolName: string; extra: ToolCallExtra },
   fn: (call: McpToolCall) => Promise<R>,
-): Promise<R> {
-  return runMcpCall(
-    { kind: "tool", name: input.toolName, extra: input.extra },
+): Promise<R | ToolFailure> {
+  return runMcpCall<R | ToolFailure>(
+    {
+      kind: "tool",
+      name: input.toolName,
+      extra: input.extra,
+      // Same shape as the SDK tool error; `withMeta` adds the call id.
+      toResult: (exception) => ({
+        content: [{ type: "text", text: exception.message }],
+        isError: true,
+      }),
+    },
     fn,
   )
 }
@@ -257,8 +273,23 @@ export async function runMcpResourceRead<
   )
 }
 
+/** Error codes that report a bad call, not a server fault (ADR-051 section 5). */
+function isUserErrorCode(code: unknown): boolean {
+  return (
+    typeof code === "string" &&
+    code !== "internal" &&
+    (MCP_TOOL_ERROR_CODES as readonly string[]).includes(code)
+  )
+}
+
 async function runMcpCall<R extends { _meta?: Record<string, unknown> }>(
-  input: { kind: "tool" | "resource"; name: string; extra: ToolCallExtra },
+  input: {
+    kind: "tool" | "resource"
+    name: string
+    extra: ToolCallExtra
+    /** Turns a thrown error into a result. Without it, the error is thrown on. */
+    toResult?: (exception: Error) => R
+  },
   fn: (call: McpToolCall) => Promise<R>,
 ): Promise<R> {
   const correlation = readMcpCorrelation({
@@ -310,19 +341,34 @@ async function runMcpCall<R extends { _meta?: Record<string, unknown> }>(
         } catch (error) {
           const exception =
             error instanceof Error ? error : new Error(String(error))
-          span.recordException(exception)
-          span.setStatus({
-            code: SpanStatusCode.ERROR,
-            message: exception.message,
-          })
-          // The SDK sends an McpError as a protocol error. Keep that path.
-          if (error instanceof McpError || input.kind === "resource")
-            throw error
-          // Same shape as the SDK tool error, plus the call id.
-          return withMeta({
-            content: [{ type: "text", text: exception.message }],
-            isError: true,
-          } as unknown as R)
+          const userError =
+            error instanceof McpError &&
+            typeof error.data === "object" &&
+            error.data !== null &&
+            isUserErrorCode((error.data as { code?: unknown }).code)
+          // A bad call is not a server fault, as for a tool call that
+          // returns `isError`. Only an internal error marks the span.
+          if (!userError) {
+            span.recordException(exception)
+            span.setStatus({
+              code: SpanStatusCode.ERROR,
+              message: exception.message,
+            })
+          }
+          // The SDK sends an McpError as a protocol error. Keep that path,
+          // and give the client the call id in the error data.
+          if (error instanceof McpError) {
+            throw new McpError(
+              error.code,
+              error.message.replace(`MCP error ${error.code}: `, ""),
+              {
+                ...(typeof error.data === "object" ? error.data : {}),
+                "ai.ctxpipe/callId": callId,
+              },
+            )
+          }
+          if (!input.toResult) throw error
+          return withMeta(input.toResult(exception))
         } finally {
           span.end()
         }

@@ -5,7 +5,6 @@ import {
   createWorkspaceChatPermissionHandler,
   decideChatPermission,
   decideChatToolPermission,
-  isMcpOriginConversation,
   parseChatJudgeReply,
 } from "./chat-sandbox-policy.js"
 
@@ -230,13 +229,6 @@ describe("decideChatToolPermission", () => {
         defaultBranch: "main",
       }),
     ).toBe("deny")
-  })
-})
-
-describe("isMcpOriginConversation", () => {
-  it("marks MCP-origin threads so the UI list can exclude them", () => {
-    expect(isMcpOriginConversation("mcp")).toBe(true)
-    expect(isMcpOriginConversation("ui")).toBe(false)
   })
 })
 

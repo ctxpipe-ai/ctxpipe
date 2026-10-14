@@ -42,12 +42,6 @@ export function decideChatPermission(input: {
   return "deny"
 }
 
-export function isMcpOriginConversation(
-  origin: string | null | undefined,
-): boolean {
-  return origin === "mcp"
-}
-
 export function workspaceAllowsConversationEdits(
   writeStatus: string,
   readOnlyReason?: string | null,
