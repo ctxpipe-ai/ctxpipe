@@ -20,7 +20,7 @@ permissions:
 jobs:
   remind:
     name: Ask for the mcp-evals label
-    if: "!contains(github.event.pull_request.labels.*.name, 'mcp-evals')"
+    if: "github.event.pull_request.head.repo.fork != true && !contains(github.event.pull_request.labels.*.name, 'mcp-evals')"
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

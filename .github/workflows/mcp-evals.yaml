@@ -35,7 +35,10 @@ jobs:
     name: MCPJam evals
     if: |
       github.event_name != 'pull_request' ||
+      (github.event.action == 'labeled' && github.event.label.name == 'mcp-evals') ||
+      (github.event.action == 'synchronize' &&
       contains(github.event.pull_request.labels.*.name, 'mcp-evals')
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 90
     services:
@@ -61,8 +64,7 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-    # Local values only. Secrets are set on the steps that need them, after
-    # `pnpm install`, so install scripts cannot read them.
+    # Local values only. Secrets stay on the eval steps that need them.
     env:
       MCPJAM_TELEMETRY_DISABLED: "1"
       DATABASE_URL: postgresql://ctxpipe_app:ctxpipe@localhost:5432/ctxpipe
@@ -75,6 +77,8 @@ jobs:
       MODEL_EMBEDDING_NAME: ${{ vars.MODEL_EMBEDDING_NAME }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v6
         with:
@@ -84,6 +88,8 @@ jobs:
         with:
           bun-version: 1.4.2
       - run: pnpm install --frozen-lockfile
+      - name: Install the SCIP TypeScript indexer
+        run: npm install --global @sourcegraph/scip-typescript@0.4.0
       - name: Restore native revision index tools
         id: zoekt
         uses: actions/cache@v4
@@ -119,11 +125,10 @@ jobs:
         run: |
           nohup bash scripts/codesearch-host-dev.sh > "$RUNNER_TEMP/codesearch.log" 2>&1 &
           for _ in $(seq 60); do
-            code="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3001/ || true)"
-            [ "$code" != "000" ] && exit 0
+            code="$(curl --max-time 5 -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3001/ || true)"
+            [[ "$code" =~ ^2[0-9][0-9]$ ]] && exit 0
             sleep 2
           done
-          tail -n 50 "$RUNNER_TEMP/codesearch.log"
           exit 1
       - name: Start the backend from this checkout
         working-directory: apps/backend
@@ -132,11 +137,10 @@ jobs:
         run: |
           nohup bun run src/server.ts > "$RUNNER_TEMP/backend.log" 2>&1 &
           for _ in $(seq 60); do
-            code="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/mcp || true)"
-            [ "$code" != "000" ] && exit 0
+            code="$(curl --max-time 5 -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/mcp || true)"
+            [[ "$code" == "401" || "$code" =~ ^2[0-9][0-9]$ ]] && exit 0
             sleep 2
           done
-          tail -n 50 "$RUNNER_TEMP/backend.log"
           exit 1
       - name: Seed the fixture organizations and create the eval key
         working-directory: apps/backend
@@ -178,14 +182,18 @@ jobs:
               echo '```'
             fi
           } >> "$GITHUB_STEP_SUMMARY"
-      - name: Upload pass rates and logs
+      - name: Prepare public results
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/mcp-eval-results.json" ]; then
+            jq '{result: {iterations: .result.iterations, passes: .result.passes}, rates: .rates, report: {passed: .report.passed, aggregates: .report.aggregates}}' "$RUNNER_TEMP/mcp-eval-results.json" > "$RUNNER_TEMP/mcp-eval-public-results.json"
+          fi
+      - name: Upload pass rates
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: mcp-eval-results
           path: |
-            ${{ runner.temp }}/mcp-eval-results.json
-            ${{ runner.temp }}/backend.log
-            ${{ runner.temp }}/codesearch.log
+            ${{ runner.temp }}/mcp-eval-public-results.json
             apps/backend/evals/mcp/baseline.json
           if-no-files-found: ignore

@@ -28,19 +28,17 @@ pnpm --filter @ctxpipe/backend exec bun evals/mcp/run-seed.ts prepare /tmp/mcp-e
 
 The command creates three bare Git repositories and prints a JSON map of their URLs. The `harbor-payments` repository also has a `next` branch with one more commit (the second projection, see below). It refuses an existing output directory. Keep these repositories while the evaluation uses them.
 
-For local codesearch on the same host, use these file URLs. For Docker, mount the repository directory at the same absolute path in the backend and codesearch containers.
+For a local run, use the file URLs on the same host. If you use Docker, mount the repository directory at the same absolute path in the backend and codesearch containers.
 
-For a preview, publish the three bare repositories to dedicated test remotes that both services can read. Use `git push <test-remote> main` from each prepared bare repository. Use `git push <test-remote> main next` for `harbor-payments`. Put the three remote URLs in a JSON file with the keys `harbor-payments`, `harbor-platform`, and `meadow-payments`. The seed reads these remotes and refuses content that differs from the fixtures. It never pushes Git data itself.
+## Seed a local database
 
-## Seed a local or preview database
-
-Use a migrated test database, a live FalkorDB, codesearch, and the normal embedding provider configuration. Run the command with the backend environment of the target. Use the `ctxpipe_app` database role. Do not run it against production.
+Use a migrated local test database, a live FalkorDB, codesearch, and the normal embedding provider configuration. Use the `ctxpipe_app` database role. Do not run it against production.
 
 ```sh
 pnpm --filter @ctxpipe/backend exec bun --env-file=.env.local evals/mcp/run-seed.ts seed trial-1 USER_ID /tmp/mcp-eval-remotes.json
 ```
 
-Replace `USER_ID` with an existing test user's id. For a preview, run the command in that preview's backend environment. The command adds that user to both fixture organizations. It does not create credentials or print secrets. Connect the evaluation client as that user and consent to both organizations, or create a personal API key with both organizations.
+Replace `USER_ID` with an existing local test user's id. The command adds that user to both fixture organizations. It does not create credentials or print secrets. Connect the evaluation client as that user and consent to both organizations, or create a personal API key with both organizations.
 
 The run name determines the organization slugs: `mcp-eval-trial-1-harbor` and `mcp-eval-trial-1-meadow`. Use a new run name for each seed. An existing run is refused before its data changes. A failed run can leave partial fixture data; use a fresh disposable database or a new run name after you correct the cause.
 
