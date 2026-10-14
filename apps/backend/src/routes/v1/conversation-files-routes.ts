@@ -17,6 +17,7 @@ import {
   readConversationSandboxFile,
   removeConversationSandboxPath,
   renameConversationSandboxPath,
+  UnsafeConversationPathError,
   writeConversationSandboxFile,
 } from "../../domain/workspaces/conversation-files.js"
 import {
@@ -380,6 +381,11 @@ const getTurnChangesRoute = createRoute({
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Not found",
     },
+    409: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description:
+        "turn_running: a turn holds the conversation and records its changes when it ends (ask again later)",
+    },
   },
 })
 
@@ -631,6 +637,10 @@ fileRoutes.get("/:conversationId/files/tree", readWithoutWait)
 fileRoutes.get("/:conversationId/files/status", readWithoutWait)
 fileRoutes.get("/:conversationId/files/blob", readDuringTurn)
 fileRoutes.use("/:conversationId/files/*", withConversationFileLock)
+// A turn records its changes before it releases the lock. A read while the
+// lock is held would miss them, so it answers 409 and the UI asks again.
+fileRoutes.get("/:conversationId/turns", readWithoutWait)
+fileRoutes.use("/:conversationId/turns", withConversationFileLock)
 export const conversationFileRoutes = fileRoutes
   .openapi(listTreeRoute, async (c) => {
     if (!requireUser(c)) return c.json({ error: "Unauthorized" }, 401)
@@ -813,23 +823,30 @@ export const conversationFileRoutes = fileRoutes
         409,
       )
     }
-    if (body.deletePath) {
-      await removeConversationSandboxPath({ handle, path: body.path })
-    } else {
-      if (body.from && body.from !== body.path) {
-        await renameConversationSandboxPath({
-          handle,
-          from: body.from,
-          to: body.path,
-        })
+    try {
+      if (body.deletePath) {
+        await removeConversationSandboxPath({ handle, path: body.path })
+      } else {
+        if (body.from && body.from !== body.path) {
+          await renameConversationSandboxPath({
+            handle,
+            from: body.from,
+            to: body.path,
+          })
+        }
+        if (body.body != null) {
+          await writeConversationSandboxFile({
+            handle,
+            path: body.path,
+            body: body.body,
+          })
+        }
       }
-      if (body.body != null) {
-        await writeConversationSandboxFile({
-          handle,
-          path: body.path,
-          body: body.body,
-        })
+    } catch (error) {
+      if (error instanceof UnsafeConversationPathError) {
+        return c.json({ error: "unsafe_path" }, 400)
       }
+      throw error
     }
     const snapshot = await conversationFileSnapshot({
       handle,

@@ -5,7 +5,14 @@ import { CHOOSE_WORKSPACES_HINT } from "@/features/workspace-sources/ChooseWorks
 import { docsWorkspace } from "@/features/workspaces/workspace-fixtures"
 import { slackChannelsHandler } from "@/mocks/slack-handlers"
 import { workspaceListHandler } from "@/mocks/workspace-handlers"
-import { workspaceSourceChangeHandlers } from "@/mocks/workspace-sources-handlers"
+import {
+  connectionUsageHandler,
+  connectionUsageItem,
+  workspaceSourceChangeHandlers,
+  workspaceSourceFixture,
+  workspaceSourceList,
+  workspaceSourcesHandler,
+} from "@/mocks/workspace-sources-handlers"
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
 import { SlackSetupDialog } from "./SlackSetupDialog"
@@ -136,6 +143,7 @@ export const ChooseWorkspaces: Story = {
             syncTarget: null,
           }),
           workspaceListHandler([docsWorkspace]),
+          connectionUsageHandler([]),
           slackChannelsHandler(),
           ...workspaceSourceChangeHandlers(addCalls),
         ],
@@ -173,7 +181,16 @@ export const ChooseWorkspaces: Story = {
         },
       },
     })
-    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false))
+    // A source change opens a pull request; capture starts after the merge.
+    await expect(
+      await body.findByRole("heading", {
+        name: "Merge the pull request",
+      }),
+    ).toBeVisible()
+    await expect(
+      body.getByRole("link", { name: "acme/docs#7" }),
+    ).toHaveAttribute("href", "https://github.com/acme/docs/pull/7")
+    await expect(onOpenChange).not.toHaveBeenCalled()
   },
 }
 
@@ -185,6 +202,7 @@ export const CaptureWorkspace: Story = {
         page: [
           statusHandler(installedStatus),
           workspaceListHandler([docsWorkspace]),
+          connectionUsageHandler([]),
           slackChannelsHandler(),
         ],
       },
@@ -202,6 +220,98 @@ export const CaptureWorkspace: Story = {
     await expect(
       body.getByRole("button", { name: "Add to Workspaces" }),
     ).toBeVisible()
+  },
+}
+
+/** The Docs Workspace already captures #eng through a Slack source. */
+const manageHandlers = (calls: typeof addCalls) => [
+  statusHandler(installedStatus),
+  workspaceListHandler([docsWorkspace]),
+  connectionUsageHandler([
+    connectionUsageItem({
+      workspaceSlug: docsWorkspace.slug,
+      workspaceName: docsWorkspace.displayName,
+      sources: [
+        {
+          sourceKey: "slack",
+          provider: "slack",
+          status: "ok",
+          scopeSummary: "1 Slack channel",
+        },
+      ],
+    }),
+  ]),
+  workspaceSourcesHandler(
+    workspaceSourceList({
+      items: [
+        workspaceSourceFixture({
+          sourceKey: "slack",
+          provider: "slack",
+          connectionId,
+          scope: { channels: ["C0ENG0001"] },
+        }),
+      ],
+    }),
+  ),
+  slackChannelsHandler(),
+  ...workspaceSourceChangeHandlers(calls),
+]
+
+const manageCalls: typeof addCalls = []
+
+/** Manage starts from the current Workspaces and channels, and saves a change. */
+export const ManageKeepsTheCurrentScope: Story = {
+  parameters: { msw: { handlers: { page: manageHandlers(manageCalls) } } },
+  beforeEach: () => {
+    manageCalls.length = 0
+  },
+  play: async ({ canvasElement }) => {
+    const body = within(canvasElement.ownerDocument.body)
+    await expect(
+      await body.findByRole("checkbox", { name: docsWorkspace.displayName }),
+    ).toBeChecked()
+    await expect(
+      await body.findByRole("checkbox", { name: /^#?\s*eng$/ }),
+    ).toBeChecked()
+    const save = body.getByRole("button", { name: "Save changes" })
+    await expect(save).toBeDisabled()
+    await userEvent.click(body.getByRole("checkbox", { name: /incidents/ }))
+    await userEvent.click(save)
+    await waitFor(() => expect(manageCalls).toHaveLength(1))
+    await expect(manageCalls[0]).toMatchObject({
+      method: "PUT",
+      path: `/${orgSlug}/api/v1/workspaces/${docsWorkspace.slug}/sources/slack`,
+      body: {
+        source: {
+          provider: "slack",
+          connectionId,
+          scope: { channels: ["C0ENG0001", "G0INC0001"] },
+        },
+      },
+    })
+    await expect(
+      await body.findByRole("heading", { name: "Merge the pull request" }),
+    ).toBeVisible()
+  },
+}
+
+/** Unchecking a Workspace on Manage removes its Slack source. */
+export const ManageRemovesAnUncheckedWorkspace: Story = {
+  parameters: { msw: { handlers: { page: manageHandlers(manageCalls) } } },
+  beforeEach: () => {
+    manageCalls.length = 0
+  },
+  play: async ({ canvasElement }) => {
+    const body = within(canvasElement.ownerDocument.body)
+    await userEvent.click(
+      await body.findByRole("checkbox", { name: docsWorkspace.displayName }),
+    )
+    await userEvent.click(body.getByRole("button", { name: "Save changes" }))
+    await waitFor(() => expect(manageCalls).toHaveLength(1))
+    await expect(manageCalls[0]).toMatchObject({
+      method: "DELETE",
+      path: `/${orgSlug}/api/v1/workspaces/${docsWorkspace.slug}/sources/slack`,
+    })
   },
 }
 
