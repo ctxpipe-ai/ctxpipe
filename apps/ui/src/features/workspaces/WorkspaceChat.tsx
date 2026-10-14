@@ -7,7 +7,7 @@ import { useNavigate } from "@tanstack/react-router"
 import type { ReactNode } from "react"
 import { useSelectNav } from "@/components/ShellLayoutContext"
 import { Button } from "@/components/ui/Button"
-import { Skeleton, SkeletonSuspense } from "@/components/ui/Skeleton"
+import { SkeletonSuspense, SkeletonText } from "@/components/ui/Skeleton"
 import { chatColumnClassName } from "@/features/chat/chat-column"
 import { chatDraftKey } from "@/features/chat/chat-draft"
 import { ConversationThreadSkeleton } from "@/features/chat/components/ConversationThreadSkeleton"
@@ -143,7 +143,9 @@ function WorkspaceChatResumeFallback(props: {
   return (
     <WorkspaceChatChrome
       workspace={props.workspace}
-      title={listTitle ?? <Skeleton className="inline-block h-4 w-40" />}
+      title={
+        listTitle ?? <SkeletonText className="w-40" boneClassName="w-full" />
+      }
       headerExtra={props.headerExtra}
     >
       <ConversationThreadSkeleton />
