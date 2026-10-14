@@ -3,7 +3,10 @@ import { HttpResponse, http } from "msw"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 import { pagerdutyServicesHandler } from "@/mocks/pagerduty-handlers"
 import { workspaceListHandler } from "@/mocks/workspace-handlers"
-import { workspaceSourceChangeHandlers } from "@/mocks/workspace-sources-handlers"
+import {
+  connectionUsageHandler,
+  workspaceSourceChangeHandlers,
+} from "@/mocks/workspace-sources-handlers"
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
 import { docsWorkspace } from "../../workspaces/workspace-fixtures"
@@ -197,6 +200,7 @@ const installedHandlers = [
   workspaceListHandler([docsWorkspace]),
   pagerdutyServicesHandler,
   ...workspaceSourceChangeHandlers(addCalls),
+  connectionUsageHandler([]),
 ]
 
 export const AddToWorkspaces: Story = {
