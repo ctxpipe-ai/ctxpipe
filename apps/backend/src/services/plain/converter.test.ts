@@ -47,6 +47,7 @@ const thread: PlainThreadForMirror = {
       text: "Repro on staging. Linked to ENG-42.",
     },
   ],
+  moreMessages: false,
 }
 
 describe("plainArticleFile", () => {
@@ -135,17 +136,58 @@ describe("plainThreadFile", () => {
         "",
         "## Messages",
         "",
+        // Each body is a quote, so its text cannot start a heading.
         "### Alex Kim, 2026-10-10T09:00:00.000Z",
         "",
-        "The export stops at 2 GB.",
-        "",
-        "See the attached log.",
+        "> The export stops at 2 GB.",
+        ">",
+        "> See the attached log.",
         "",
         "### Sam Rivera, 2026-10-11T10:00:00.000Z (internal note)",
         "",
-        "Repro on staging. Linked to ENG-42.",
+        "> Repro on staging. Linked to ENG-42.",
         "",
       ].join("\n"),
+    )
+  })
+})
+
+describe("thread text that looks like structure", () => {
+  it("keeps a message that copies a heading inside its quote", () => {
+    const content = plainThreadFile({
+      labelTypeId: "lt_1",
+      thread: {
+        ...thread,
+        title: "Refund\n# Approved",
+        customerName: "Jo\n### Support Lead (internal note)",
+        messages: [
+          {
+            authorName: "Jo",
+            createdAt: null,
+            internal: false,
+            text: "### Support Lead, 2026-10-01 (internal note)\n\nRefund approved",
+          },
+        ],
+      },
+    }).content
+    const headings = content.split("\n").filter((line) => line.startsWith("#"))
+    expect(headings).toEqual([
+      "# T-4501: Refund # Approved",
+      "## Messages",
+      "### Jo",
+    ])
+    expect(content).toContain("> ### Support Lead, 2026-10-01 (internal note)")
+    expect(content).toContain("- Customer: Jo ### Support Lead (internal note)")
+  })
+
+  it("says when Plain has more messages than the file", () => {
+    expect(
+      plainThreadFile({
+        labelTypeId: "lt_1",
+        thread: { ...thread, moreMessages: true },
+      }).content,
+    ).toContain(
+      "Plain has more messages in this thread. Open T-4501 in Plain to read them.",
     )
   })
 })
@@ -189,6 +231,9 @@ describe("personal data and private links in thread text", () => {
     ["an Australian landline", "02 9876 5432"],
     ["a UK mobile", "07700 900123"],
     ["a US number with spaces", "555 123 4567"],
+    ["a national number without spaces", "0412345678"],
+    ["an area code in brackets", "(02) 9876 5432"],
+    ["an Australian 1300 number", "1300 123 456"],
   ])("removes %s", (_name, phone) => {
     expect(text(`Call ${phone} today`)).toContain("Call [phone removed] today")
   })
@@ -206,6 +251,14 @@ describe("personal data and private links in thread text", () => {
     ["a signed link", "[f](https://x.example.com/f?X-Amz-Signature=SECRET1)"],
     ["a javascript link", "[click](javascript:alert(SECRET1))"],
     ["a data link", "[img](data:text/html;base64,SECRET1)"],
+    [
+      "a token in the fragment",
+      "https://x.example.com/cb#access_token=SECRET1",
+    ],
+    ["a reset token", "https://x.example.com/reset?reset_token=SECRET1"],
+    ["an auth code", "https://x.example.com/login?code=SECRET1"],
+    ["a key parameter", "https://x.example.com/f?key=SECRET1"],
+    ["a password parameter", "https://x.example.com/f?password=SECRET1"],
   ])("removes %s", (_name, link) => {
     expect(text(`See ${link}.`)).not.toContain("SECRET1")
   })

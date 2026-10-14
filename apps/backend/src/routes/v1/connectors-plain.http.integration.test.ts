@@ -21,8 +21,11 @@ import {
   connectionDirectory,
   connections,
 } from "../../db/schema/connections.js"
-import { getPlainWebhookTarget } from "../../models/plain-connector.js"
-import { PLAIN_REQUIRED_PERMISSIONS } from "../../services/plain/client.js"
+import { PLAIN_REQUIRED_PERMISSIONS } from "../../domain/workspace-sources/providers/plain.js"
+import {
+  getPlainWebhookTarget,
+  savePlainWebhookTarget,
+} from "../../models/plain-connector.js"
 import {
   contextStorage,
   withTestRequestLogger,
@@ -149,11 +152,13 @@ describe("Plain connector routes (Postgres + msw)", () => {
   const connected = async () => {
     const res = await connect({ apiKey: GOOD_KEY })
     expect(res.status).toBe(200)
-    return (await res.json()) as {
-      connectionId: string
-      webhookConfigured: boolean
-    }
+    return (await res.json()) as { connectionId: string }
   }
+
+  const status = async (connectionId: string) =>
+    (await (
+      await request(`/plain/status?connectionId=${connectionId}`)
+    ).json()) as Record<string, unknown>
 
   async function storedConfig(connectionId: string) {
     const [row] = await withOrgDbContext(seed.orgId, (db) =>
@@ -210,9 +215,8 @@ describe("Plain connector routes (Postgres + msw)", () => {
   })
 
   it("connects with a checked key, creates the webhook target, and stores the secrets encrypted", async () => {
-    const { connectionId, webhookConfigured } = await connected()
+    const { connectionId } = await connected()
 
-    expect(webhookConfigured).toBe(true)
     expect(pl.createdTargets).toHaveLength(1)
     const target = pl.createdTargets[0]
     expect(target?.url).toBe(
@@ -237,11 +241,7 @@ describe("Plain connector routes (Postgres + msw)", () => {
         displayName: "Acme Support",
       }),
     )
-    expect(
-      await (
-        await request(`/plain/status?connectionId=${connectionId}`)
-      ).json(),
-    ).toEqual({
+    expect(await status(connectionId)).toEqual({
       status: "installed",
       workspaceName: "Acme Support",
       webhookConfigured: true,
@@ -265,33 +265,56 @@ describe("Plain connector routes (Postgres + msw)", () => {
     // For example, a self-hosted ctx| that Plain cannot reach.
     pl.refuseTarget = "The URL must be public"
 
-    const { connectionId, webhookConfigured } = await connected()
+    const { connectionId } = await connected()
 
-    expect(webhookConfigured).toBe(false)
-    expect(
-      await (
-        await request(`/plain/status?connectionId=${connectionId}`)
-      ).json(),
-    ).toMatchObject({ status: "installed", webhookConfigured: false })
+    expect(await status(connectionId)).toMatchObject({
+      status: "installed",
+      webhookConfigured: false,
+    })
 
     // A reconnect tries again.
     pl.refuseTarget = null
-    const again = await connect({ connectionId, apiKey: GOOD_KEY })
-    expect(await again.json()).toEqual({
-      connectionId,
+    expect((await connect({ connectionId, apiKey: GOOD_KEY })).status).toBe(200)
+    expect(await status(connectionId)).toMatchObject({
       webhookConfigured: true,
     })
   })
 
-  it("keeps the webhook target on a reconnect, and refuses another workspace", async () => {
+  it("replaces the webhook target on a reconnect, and refuses another workspace", async () => {
+    // A target that a Plain admin deleted, or an old URL, heals on a reconnect.
     const { connectionId } = await connected()
 
-    const res = await connect({ connectionId, apiKey: GOOD_KEY })
+    expect((await connect({ connectionId, apiKey: GOOD_KEY })).status).toBe(200)
 
-    expect(await res.json()).toEqual({ connectionId, webhookConfigured: true })
-    expect(pl.createdTargets).toHaveLength(1)
+    expect(pl.createdTargets).toHaveLength(2)
+    expect(pl.deletedTargets).toEqual(["wht_1"])
+    expect((await getPlainWebhookTarget(connectionId, env))?.webhookToken).toBe(
+      pl.createdTargets[1]?.headers[0]?.value,
+    )
     pl.workspaceId = "w_other"
     expect((await connect({ connectionId, apiKey: GOOD_KEY })).status).toBe(409)
+  })
+
+  it("saves a new target only over the target that the request read", async () => {
+    // Two parallel connects: the one that saves second loses, and deletes
+    // its own target in Plain.
+    const { connectionId } = await connected()
+    const save = (previousTargetId: string | null) =>
+      savePlainWebhookTarget({
+        orgId: seed.orgId,
+        connectionId,
+        env,
+        previousTargetId,
+        webhookTargetId: "wht_late",
+        webhookToken: "late-token",
+      })
+
+    expect(await save(null)).toBe(false)
+    expect(await save("wht_other")).toBe(false)
+    expect((await getPlainWebhookTarget(connectionId, env))?.webhookToken).toBe(
+      pl.createdTargets[0]?.headers[0]?.value,
+    )
+    expect(await save("wht_1")).toBe(true)
   })
 
   it("lists the Help Centers and labels for the scope picker", async () => {

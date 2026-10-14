@@ -1,29 +1,10 @@
 import { z } from "zod"
 import { assertNotInOrgDbContext } from "../../db/client.js"
+import { PLAIN_REQUIRED_PERMISSIONS } from "../../domain/workspace-sources/providers/plain.js"
 import type {
   PlainArticleForMirror,
   PlainThreadForMirror,
 } from "./converter.js"
-
-const PLAIN_API_URL = "https://core-api.uk.plain.com/graphql/v1"
-
-/** A source keeps this many of the newest threads of a label. */
-export const PLAIN_THREADS_PER_LABEL = 100
-
-/**
- * The permissions of the machine-user API key (ADR-055): read the content,
- * and create and delete the one webhook target of the connection.
- */
-export const PLAIN_REQUIRED_PERMISSIONS = [
-  "helpCenter:read",
-  "labelType:read",
-  "thread:read",
-  "timeline:read",
-  "customer:read",
-  "user:read",
-  "webhookTarget:create",
-  "webhookTarget:delete",
-]
 
 /** The header that carries the webhook token of the connection. */
 export const PLAIN_WEBHOOK_TOKEN_HEADER = "X-Ctxpipe-Webhook-Token"
@@ -59,7 +40,7 @@ async function plainRequest<T extends z.ZodTypeAny>(
 ): Promise<z.infer<T>> {
   assertNotInOrgDbContext()
   for (let attempt = 0; ; attempt += 1) {
-    const response = await fetch(PLAIN_API_URL, {
+    const response = await fetch("https://core-api.uk.plain.com/graphql/v1", {
       signal: AbortSignal.timeout(30_000),
       method: "POST",
       headers: {
@@ -104,28 +85,54 @@ async function plainRequest<T extends z.ZodTypeAny>(
 const iso = z
   .object({ iso8601: z.string() })
   .transform((value) => value.iso8601)
-const pageInfo = z.object({
-  hasNextPage: z.boolean(),
-  endCursor: z.string().nullable(),
-})
-const connection = <T extends z.ZodTypeAny>(node: T) =>
-  z.object({ edges: z.array(z.object({ node })), pageInfo })
 
-/** Every node of a connection, page by page from a null cursor. */
+type Page<T> = {
+  nodes: T[]
+  pageInfo: { hasNextPage: boolean; endCursor: string | null }
+}
+
+/** A Relay connection, as its nodes and its page info. */
+const connection = <T extends z.ZodTypeAny>(node: T) =>
+  z
+    .object({
+      edges: z.array(z.object({ node })),
+      pageInfo: z.object({
+        hasNextPage: z.boolean(),
+        endCursor: z.string().nullable(),
+      }),
+    })
+    .transform(
+      ({ edges, pageInfo }): Page<z.infer<T>> => ({
+        nodes: edges.map((edge) => (edge as { node: z.infer<T> }).node),
+        pageInfo,
+      }),
+    )
+
+const LAST_PAGE = {
+  nodes: [],
+  pageInfo: { hasNextPage: false, endCursor: null },
+}
+
+/**
+ * The nodes of a connection, page by page from a null cursor, up to
+ * `limit`. A cursor that comes back again is an error, not a loop.
+ */
 async function readPages<T>(
-  readPage: (after: string | null) => Promise<{
-    nodes: T[]
-    pageInfo: { hasNextPage: boolean; endCursor: string | null }
-  }>,
+  readPage: (after: string | null) => Promise<Page<T>>,
+  limit = Number.POSITIVE_INFINITY,
 ): Promise<T[]> {
   const nodes: T[] = []
+  const seen = new Set<string>()
   let after: string | null = null
   do {
-    const page = await readPage(after)
+    const page: Page<T> = await readPage(after)
     nodes.push(...page.nodes)
     after = page.pageInfo.hasNextPage ? page.pageInfo.endCursor : null
-  } while (after)
-  return nodes
+    if (after !== null && seen.has(after))
+      throw new Error("Plain gave the same page cursor two times")
+    if (after !== null) seen.add(after)
+  } while (after !== null && nodes.length < limit)
+  return nodes.slice(0, limit)
 }
 
 /**
@@ -182,26 +189,25 @@ export async function listPlainHelpCenters(
     internalName: z.string(),
     isDeleted: z.boolean(),
   })
-  const centers = await readPages(async (after) => {
-    const data = await plainRequest(
-      apiKey,
-      {
-        name: "PlainHelpCenters",
-        query: `query PlainHelpCenters($after: String) {
-          helpCenters(first: 100, after: $after) {
-            edges { node { id internalName isDeleted } }
-            pageInfo { hasNextPage endCursor }
-          }
-        }`,
-        variables: { after },
-      },
-      z.object({ helpCenters: connection(node) }),
-    )
-    return {
-      nodes: data.helpCenters.edges.map((edge) => edge.node),
-      pageInfo: data.helpCenters.pageInfo,
-    }
-  })
+  const centers = await readPages(
+    async (after) =>
+      (
+        await plainRequest(
+          apiKey,
+          {
+            name: "PlainHelpCenters",
+            query: `query PlainHelpCenters($after: String) {
+              helpCenters(first: 100, after: $after) {
+                edges { node { id internalName isDeleted } }
+                pageInfo { hasNextPage endCursor }
+              }
+            }`,
+            variables: { after },
+          },
+          z.object({ helpCenters: connection(node) }),
+        )
+      ).helpCenters,
+  )
   return centers
     .filter((center) => !center.isDeleted)
     .map((center) => ({ id: center.id, name: center.internalName }))
@@ -211,28 +217,29 @@ export async function listPlainHelpCenters(
 export async function listPlainLabelTypes(
   apiKey: string,
 ): Promise<Array<{ id: string; name: string }>> {
-  return readPages(async (after) => {
-    const data = await plainRequest(
-      apiKey,
-      {
-        name: "PlainLabelTypes",
-        query: `query PlainLabelTypes($after: String) {
-          labelTypes(filters: { isArchived: false }, first: 100, after: $after) {
-            edges { node { id name } }
-            pageInfo { hasNextPage endCursor }
-          }
-        }`,
-        variables: { after },
-      },
-      z.object({
-        labelTypes: connection(z.object({ id: z.string(), name: z.string() })),
-      }),
-    )
-    return {
-      nodes: data.labelTypes.edges.map((edge) => edge.node),
-      pageInfo: data.labelTypes.pageInfo,
-    }
-  })
+  return readPages(
+    async (after) =>
+      (
+        await plainRequest(
+          apiKey,
+          {
+            name: "PlainLabelTypes",
+            query: `query PlainLabelTypes($after: String) {
+              labelTypes(filters: { isArchived: false }, first: 100, after: $after) {
+                edges { node { id name } }
+                pageInfo { hasNextPage endCursor }
+              }
+            }`,
+            variables: { after },
+          },
+          z.object({
+            labelTypes: connection(
+              z.object({ id: z.string(), name: z.string() }),
+            ),
+          }),
+        )
+      ).labelTypes,
+  )
 }
 
 const articleNode = z.object({
@@ -276,12 +283,9 @@ export async function listPlainHelpCenterArticles(input: {
     )
     if (!data.helpCenter || data.helpCenter.isDeleted) {
       missing = true
-      return { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } }
+      return LAST_PAGE
     }
-    return {
-      nodes: data.helpCenter.articles.edges.map((edge) => edge.node),
-      pageInfo: data.helpCenter.articles.pageInfo,
-    }
+    return data.helpCenter.articles
   })
   if (missing) return "not_found"
   return articles
@@ -296,18 +300,6 @@ export async function listPlainHelpCenterArticles(input: {
       updatedAt: article.updatedAt,
     }))
 }
-
-const threadNode = z.object({
-  id: z.string(),
-  ref: z.string(),
-  title: z.string(),
-  status: z.string(),
-  priority: z.number(),
-  createdAt: iso,
-  updatedAt: iso,
-  customer: z.object({ fullName: z.string() }).nullable(),
-  labels: z.array(z.object({ labelType: z.object({ name: z.string() }) })),
-})
 
 /** The name of a timeline actor, without an email address. */
 const actorSchema = z
@@ -325,119 +317,110 @@ const actorSchema = z
       null,
   )
 
-const messageNode = z.object({
-  timestamp: iso,
-  llmText: z.string().nullable(),
-  entry: z.object({ __typename: z.string() }),
-  actor: actorSchema,
+const threadNode = z.object({
+  id: z.string(),
+  ref: z.string(),
+  title: z.string(),
+  status: z.string(),
+  priority: z.number(),
+  createdAt: iso,
+  updatedAt: iso,
+  customer: z.object({ fullName: z.string() }).nullable(),
+  labels: z.array(z.object({ labelType: z.object({ name: z.string() }) })),
+  timelineEntries: connection(
+    z.object({
+      timestamp: iso,
+      llmText: z.string().nullable(),
+      entry: z.object({ __typename: z.string() }),
+      actor: actorSchema,
+    }),
+  ),
 })
 
-/** The messages and notes of one thread, oldest first. */
-async function listThreadMessages(
-  apiKey: string,
-  threadId: string,
-): Promise<PlainThreadForMirror["messages"]> {
-  const entries = await readPages(async (after) => {
-    const data = await plainRequest(
-      apiKey,
-      {
-        name: "PlainThreadMessages",
-        query: `query PlainThreadMessages($threadId: ID!, $after: String) {
-          thread(threadId: $threadId) {
-            timelineEntries(filters: { entryTypes: [EMAIL, CHAT, NOTE, SLACK_MESSAGE, SLACK_REPLY, MS_TEAMS_MESSAGE, DISCORD_MESSAGE] }, first: 100, after: $after) {
-              edges { node {
-                timestamp { iso8601 }
-                llmText
-                entry { __typename }
-                actor {
-                  __typename
-                  ... on UserActor { user { fullName } }
-                  ... on CustomerActor { customer { fullName } }
-                  ... on MachineUserActor { machineUser { publicName } }
-                }
-              } }
-              pageInfo { hasNextPage endCursor }
-            }
-          }
-        }`,
-        variables: { threadId, after },
-      },
-      z.object({
-        thread: z
-          .object({ timelineEntries: connection(messageNode) })
-          .nullable(),
-      }),
-    )
-    return data.thread
-      ? {
-          nodes: data.thread.timelineEntries.edges.map((edge) => edge.node),
-          pageInfo: data.thread.timelineEntries.pageInfo,
-        }
-      : { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } }
-  })
-  return entries.flatMap((entry) =>
-    entry.llmText?.trim()
-      ? [
-          {
-            authorName: entry.actor,
-            createdAt: entry.timestamp,
-            internal: entry.entry.__typename === "NoteEntry",
-            text: entry.llmText,
-          },
-        ]
-      : [],
-  )
-}
-
 /**
- * The newest threads of a label (spam excluded), each with its messages
- * and notes, or `not_found` when the label does not exist.
+ * The newest 100 threads of a label (spam excluded), or `not_found` when
+ * the label does not exist or is archived. One request reads 25 threads
+ * with the first 50 messages and notes of each, so a label costs at most
+ * four requests. A longer thread is marked, not read further.
  */
 export async function listPlainLabelThreads(input: {
   apiKey: string
   labelTypeId: string
 }): Promise<PlainThreadForMirror[] | "not_found"> {
-  const data = await plainRequest(
-    input.apiKey,
-    {
-      name: "PlainLabelThreads",
-      query: `query PlainLabelThreads($labelTypeId: ID!, $first: Int!) {
-        labelType(labelTypeId: $labelTypeId) { id }
-        threads(
-          filters: { labelTypeIds: [$labelTypeId], isMarkedAsSpam: false }
-          sortBy: { field: CREATED_AT, direction: DESC }
-          first: $first
-        ) {
-          edges { node { id ref title status priority createdAt { iso8601 } updatedAt { iso8601 } customer { fullName } labels { labelType { name } } } }
-          pageInfo { hasNextPage endCursor }
-        }
-      }`,
-      variables: {
-        labelTypeId: input.labelTypeId,
-        first: PLAIN_THREADS_PER_LABEL,
+  let missing = false
+  const threads = await readPages(async (after) => {
+    const data = await plainRequest(
+      input.apiKey,
+      {
+        name: "PlainLabelThreads",
+        query: `query PlainLabelThreads($labelTypeId: ID!, $after: String) {
+          labelType(labelTypeId: $labelTypeId) { isArchived }
+          threads(
+            filters: { labelTypeIds: [$labelTypeId], isMarkedAsSpam: false }
+            sortBy: { field: CREATED_AT, direction: DESC }
+            first: 25
+            after: $after
+          ) {
+            edges { node {
+              id ref title status priority createdAt { iso8601 } updatedAt { iso8601 }
+              customer { fullName }
+              labels { labelType { name } }
+              timelineEntries(filters: { entryTypes: [EMAIL, CHAT, NOTE, SLACK_MESSAGE, SLACK_REPLY, MS_TEAMS_MESSAGE, DISCORD_MESSAGE, MERGED_THREAD_MESSAGE] }, first: 50) {
+                edges { node {
+                  timestamp { iso8601 }
+                  llmText
+                  entry { __typename }
+                  actor {
+                    __typename
+                    ... on UserActor { user { fullName } }
+                    ... on CustomerActor { customer { fullName } }
+                    ... on MachineUserActor { machineUser { publicName } }
+                  }
+                } }
+                pageInfo { hasNextPage endCursor }
+              }
+            } }
+            pageInfo { hasNextPage endCursor }
+          }
+        }`,
+        variables: { labelTypeId: input.labelTypeId, after },
       },
-    },
-    z.object({
-      labelType: z.object({ id: z.string() }).nullable(),
-      threads: connection(threadNode),
-    }),
-  )
-  if (!data.labelType) return "not_found"
-  const threads: PlainThreadForMirror[] = []
-  for (const { node } of data.threads.edges)
-    threads.push({
-      id: node.id,
-      ref: node.ref,
-      title: node.title,
-      status: node.status,
-      priority: node.priority,
-      customerName: node.customer?.fullName ?? null,
-      labels: node.labels.map((label) => label.labelType.name),
-      createdAt: node.createdAt,
-      updatedAt: node.updatedAt,
-      messages: await listThreadMessages(input.apiKey, node.id),
-    })
-  return threads
+      z.object({
+        labelType: z.object({ isArchived: z.boolean() }).nullable(),
+        threads: connection(threadNode),
+      }),
+    )
+    if (!data.labelType || data.labelType.isArchived) {
+      missing = true
+      return LAST_PAGE
+    }
+    return data.threads
+  }, 100)
+  if (missing) return "not_found"
+  return threads.map((thread) => ({
+    id: thread.id,
+    ref: thread.ref,
+    title: thread.title,
+    status: thread.status,
+    priority: thread.priority,
+    customerName: thread.customer?.fullName ?? null,
+    labels: thread.labels.map((label) => label.labelType.name),
+    createdAt: thread.createdAt,
+    updatedAt: thread.updatedAt,
+    messages: thread.timelineEntries.nodes.flatMap((entry) =>
+      entry.llmText?.trim()
+        ? [
+            {
+              authorName: entry.actor,
+              createdAt: entry.timestamp,
+              internal: entry.entry.__typename === "NoteEntry",
+              text: entry.llmText,
+            },
+          ]
+        : [],
+    ),
+    moreMessages: thread.timelineEntries.pageInfo.hasNextPage,
+  }))
 }
 
 const mutationErrorSchema = z.object({ message: z.string() }).nullable()

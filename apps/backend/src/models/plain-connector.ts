@@ -147,15 +147,22 @@ export async function savePlainConnection(input: {
   return { ok: true, connection: toConnection(row, input.env) }
 }
 
-/** Save the webhook target that ctx| created in Plain, and its token. */
+/**
+ * Save the webhook target that ctx| created in Plain, and its token. The
+ * save applies only while the row still has `previousTargetId` (the target
+ * that the request read), so of two parallel connects only one saves.
+ * Gives false when the row changed: the caller deletes its own target.
+ */
 export async function savePlainWebhookTarget(input: {
   orgId: string
   connectionId: string
   env: Env
+  previousTargetId: string | null
   webhookTargetId: string
   webhookToken: string
-}): Promise<void> {
-  await withOrgDbContext(input.orgId, (db) =>
+}): Promise<boolean> {
+  const current = sql`${connections.config}->>'webhookTargetId'`
+  const updated = await withOrgDbContext(input.orgId, (db) =>
     db
       .update(connections)
       .set({
@@ -168,8 +175,17 @@ export async function savePlainWebhookTarget(input: {
         })}::jsonb`,
         updatedAt: new Date(),
       })
-      .where(plainRowWhere(input.orgId, input.connectionId)),
+      .where(
+        and(
+          plainRowWhere(input.orgId, input.connectionId),
+          input.previousTargetId === null
+            ? sql`${current} is null`
+            : sql`${current} = ${input.previousTargetId}`,
+        ),
+      )
+      .returning({ id: connections.id }),
   )
+  return updated.length > 0
 }
 
 /**

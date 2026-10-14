@@ -67,8 +67,8 @@ async function visible(element: HTMLElement) {
   return element
 }
 
-const workspacesHandlers = (webhookConfigured: boolean) => [
-  plainStatusHandler(plainStoryStatus({ webhookConfigured })),
+const workspacesHandlers = [
+  plainStatusHandler(plainStoryStatus()),
   workspaceListHandler([docsWorkspace]),
   connectionUsageHandler([]),
   plainCatalogHandler,
@@ -79,10 +79,8 @@ export const ConnectWithKey: Story = {
     msw: {
       handlers: {
         page: [
-          recordConnect(() =>
-            HttpResponse.json({ connectionId, webhookConfigured: true }),
-          ),
-          ...workspacesHandlers(true),
+          recordConnect(() => HttpResponse.json({ connectionId })),
+          ...workspacesHandlers,
         ],
       },
     },
@@ -102,7 +100,6 @@ export const ConnectWithKey: Story = {
     await expect(
       await body.findByRole("heading", { name: "Add Plain to Workspaces" }),
     ).toBeVisible()
-    await expect(body.queryByText(/Live updates are off/)).toBeNull()
     await expect(calls).toEqual([{ apiKey: "plainApiKey_fixture" }])
   },
 }
@@ -143,18 +140,6 @@ export const KeyRefused: Story = {
   },
 }
 
-export const WithoutLiveUpdates: Story = {
-  args: { connectionId },
-  parameters: { msw: { handlers: { page: workspacesHandlers(false) } } },
-  play: async ({ canvasElement }) => {
-    const body = within(canvasElement.ownerDocument.body)
-    await visible(
-      await body.findByRole("heading", { name: "Add Plain to Workspaces" }),
-    )
-    await expect(body.getByText(/Live updates are off/)).toBeVisible()
-  },
-}
-
 const addCalls: { method: string; path: string; body: unknown }[] = []
 
 export const AddToWorkspaces: Story = {
@@ -164,7 +149,7 @@ export const AddToWorkspaces: Story = {
     msw: {
       handlers: {
         page: [
-          ...workspacesHandlers(true),
+          ...workspacesHandlers,
           ...workspaceSourceChangeHandlers(addCalls),
         ],
       },
@@ -211,9 +196,7 @@ export const Reconnect: Story = {
       handlers: {
         page: [
           plainStatusHandler(plainStoryStatus({ status: "revoked" })),
-          recordConnect(() =>
-            HttpResponse.json({ connectionId, webhookConfigured: true }),
-          ),
+          recordConnect(() => HttpResponse.json({ connectionId })),
         ],
       },
     },

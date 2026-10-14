@@ -51,11 +51,7 @@ const connectRoute = createRoute({
     200: {
       content: {
         "application/json": {
-          schema: z.object({
-            connectionId: z.string(),
-            /** False when Plain refused the webhook target: no live updates. */
-            webhookConfigured: z.boolean(),
-          }),
+          schema: z.object({ connectionId: z.string() }),
         },
       },
       description: "The connection is created, or its key is replaced",
@@ -120,48 +116,59 @@ const deleteRoute = createRoute({
 })
 
 /**
- * Create the webhook target of a connection that has none. Plain sends only
- * to a public HTTPS URL, so a refusal leaves the connection without live
- * updates: the daily sync and "Sync now" still work. Gives true when the
- * connection has a target.
+ * Create a new webhook target for a connection, then remove the target that
+ * it replaces. A reconnect so also heals a target that a Plain admin
+ * deleted, or one with an old URL. Plain sends only to a public HTTPS URL:
+ * a refusal keeps the old target (if any), and the daily sync and "Sync
+ * now" still work. A save that loses to a parallel connect, or fails,
+ * deletes the new target, so Plain keeps no target with an unknown token.
  */
-async function ensureWebhookTarget(input: {
+async function replaceWebhookTarget(input: {
   orgId: string
   env: Env
   connection: PlainConnection
-}): Promise<boolean> {
+}): Promise<void> {
   const { orgId, env, connection } = input
-  if (connection.webhookTargetId) return true
+  const apiKey = connection.apiKey
+  const previous = connection.webhookTargetId
   const token = randomBytes(32).toString("base64url")
+  let created: string
   try {
-    const webhookTargetId = await createPlainWebhookTarget({
-      apiKey: connection.apiKey,
+    created = await createPlainWebhookTarget({
+      apiKey,
       url: `${env.AUTH_BASE_URL.replace(/\/$/, "")}/api/v1/webhook/plain/${connection.id}`,
       token,
     })
-    try {
-      await savePlainWebhookTarget({
-        orgId,
-        connectionId: connection.id,
-        env,
-        webhookTargetId,
-        webhookToken: token,
-      })
-    } catch (saveError) {
-      await deletePlainWebhookTarget({
-        apiKey: connection.apiKey,
-        webhookTargetId,
-      })
-      throw saveError
-    }
-    return true
   } catch (caught) {
     getLogger().warn("plain_webhook_create_failed", {
       connectionId: connection.id,
       error: formatUnknownError(caught),
     })
-    return false
+    return
   }
+  const saved = await savePlainWebhookTarget({
+    orgId,
+    connectionId: connection.id,
+    env,
+    previousTargetId: previous,
+    webhookTargetId: created,
+    webhookToken: token,
+  }).catch((caught: unknown) => {
+    getLogger().warn("plain_webhook_save_failed", {
+      connectionId: connection.id,
+      error: formatUnknownError(caught),
+    })
+    return false
+  })
+  const unused = saved ? previous : created
+  if (unused)
+    await deletePlainWebhookTarget({ apiKey, webhookTargetId: unused }).catch(
+      (caught: unknown) =>
+        getLogger().warn("plain_webhook_delete_failed", {
+          connectionId: connection.id,
+          error: formatUnknownError(caught),
+        }),
+    )
 }
 
 /**
@@ -193,12 +200,12 @@ export const plainConnectorRoutes = new OpenAPIHono<AppEnv>()
             },
             409,
           )
-    const webhookConfigured = await ensureWebhookTarget({
+    await replaceWebhookTarget({
       orgId,
       env: c.var.env,
       connection: saved.connection,
     })
-    return c.json({ connectionId: saved.connection.id, webhookConfigured }, 200)
+    return c.json({ connectionId: saved.connection.id }, 200)
   })
   .openapi(statusRoute, async (c) => {
     const orgId = c.get("orgId")

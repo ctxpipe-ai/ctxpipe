@@ -471,6 +471,7 @@ describe("Plain mirror units", () => {
       createdAt: null,
       updatedAt: null,
       messages: [],
+      moreMessages: false,
     },
   })
 

@@ -9,13 +9,13 @@ import {
   it,
   vi,
 } from "vitest"
+import { PLAIN_REQUIRED_PERMISSIONS } from "../../domain/workspace-sources/providers/plain.js"
 import {
   createPlainWebhookTarget,
   listPlainHelpCenterArticles,
   listPlainHelpCenters,
   listPlainLabelThreads,
   listPlainLabelTypes,
-  PLAIN_REQUIRED_PERMISSIONS,
   PlainUnauthorizedError,
   verifyPlainApiKey,
 } from "./client.js"
@@ -185,78 +185,71 @@ describe("listPlainHelpCenterArticles", () => {
 })
 
 describe("listPlainLabelThreads", () => {
-  it("reads the newest threads of a label, and the messages of each thread", async () => {
+  const thread = (id: string, entries: unknown[], more = false) => ({
+    id,
+    ref: "T-12",
+    title: "Export fails",
+    status: "TODO",
+    priority: 1,
+    createdAt: iso("2026-03-01T00:00:00.000Z"),
+    updatedAt: iso("2026-03-02T00:00:00.000Z"),
+    customer: { fullName: "Robin Lee" },
+    labels: [{ labelType: { name: "Bug" } }],
+    timelineEntries: {
+      edges: entries.map((node) => ({ node })),
+      pageInfo: { hasNextPage: more, endCursor: more ? "m1" : null },
+    },
+  })
+
+  it("reads the newest threads of a label with their messages, in one request for each page", async () => {
     plain({
       PlainLabelThreads: () => ({
-        labelType: { id: "lt_1" },
+        labelType: { isArchived: false },
         threads: page([
-          {
-            id: "th_1",
-            ref: "T-12",
-            title: "Export fails",
-            status: "TODO",
-            priority: 1,
-            createdAt: iso("2026-03-01T00:00:00.000Z"),
-            updatedAt: iso("2026-03-02T00:00:00.000Z"),
-            customer: { fullName: "Robin Lee" },
-            labels: [{ labelType: { name: "Bug" } }],
-          },
-        ]),
-      }),
-      PlainThreadMessages: (variables) => ({
-        thread: {
-          timelineEntries: variables.after
-            ? page([
-                {
-                  timestamp: iso("2026-03-01T02:00:00.000Z"),
-                  llmText: "Looking at the logs.",
-                  entry: { __typename: "NoteEntry" },
-                  actor: {
-                    __typename: "UserActor",
-                    user: { fullName: "Sam Rivera" },
-                  },
+          thread(
+            "th_1",
+            [
+              {
+                timestamp: iso("2026-03-01T01:00:00.000Z"),
+                llmText: "The export button gives an error.",
+                entry: { __typename: "EmailEntry" },
+                actor: {
+                  __typename: "CustomerActor",
+                  customer: { fullName: "Robin Lee" },
                 },
-              ])
-            : page(
-                [
-                  {
-                    timestamp: iso("2026-03-01T01:00:00.000Z"),
-                    llmText: "The export button gives an error.",
-                    entry: { __typename: "EmailEntry" },
-                    actor: {
-                      __typename: "CustomerActor",
-                      customer: { fullName: "Robin Lee" },
-                    },
-                  },
-                  {
-                    timestamp: iso("2026-03-01T01:30:00.000Z"),
-                    llmText: null,
-                    entry: { __typename: "ChatEntry" },
-                    actor: { __typename: "SystemActor" },
-                  },
-                ],
-                "m1",
-              ),
-        },
+              },
+              {
+                timestamp: iso("2026-03-01T01:30:00.000Z"),
+                llmText: null,
+                entry: { __typename: "ChatEntry" },
+                actor: { __typename: "SystemActor" },
+              },
+              {
+                timestamp: iso("2026-03-01T02:00:00.000Z"),
+                llmText: "Looking at the logs.",
+                entry: { __typename: "NoteEntry" },
+                actor: {
+                  __typename: "UserActor",
+                  user: { fullName: "Sam Rivera" },
+                },
+              },
+            ],
+            true,
+          ),
+        ]),
       }),
     })
     const threads = await listPlainLabelThreads({
       apiKey: "key",
       labelTypeId: "lt_1",
     })
-    expect(operations[0]?.variables).toEqual({
-      labelTypeId: "lt_1",
-      first: 100,
-    })
+    expect(operations.map((operation) => operation.variables)).toEqual([
+      { labelTypeId: "lt_1", after: null },
+    ])
     expect(operations[0]?.query).toContain(
       "sortBy: { field: CREATED_AT, direction: DESC }",
     )
-    expect(operations.slice(1).map((operation) => operation.variables)).toEqual(
-      [
-        { threadId: "th_1", after: null },
-        { threadId: "th_1", after: "m1" },
-      ],
-    )
+    expect(operations[0]?.query).toContain("MERGED_THREAD_MESSAGE")
     expect(threads).toEqual([
       {
         id: "th_1",
@@ -283,14 +276,41 @@ describe("listPlainLabelThreads", () => {
             text: "Looking at the logs.",
           },
         ],
+        // The thread has more messages than one page: the file says so.
+        moreMessages: true,
       },
     ])
   })
 
-  it("gives not_found for a missing label", async () => {
+  it("stops at 100 threads", async () => {
+    let next = 0
     plain({
-      PlainLabelThreads: () => ({ labelType: null, threads: page([]) }),
+      PlainLabelThreads: () => {
+        next += 1
+        return {
+          labelType: { isArchived: false },
+          threads: {
+            edges: Array.from({ length: 25 }, (_, n) => ({
+              node: thread(`th_${next}_${n}`, []),
+            })),
+            pageInfo: { hasNextPage: true, endCursor: `c${next}` },
+          },
+        }
+      },
     })
+    const threads = await listPlainLabelThreads({
+      apiKey: "key",
+      labelTypeId: "lt_1",
+    })
+    expect(threads).toHaveLength(100)
+    expect(operations).toHaveLength(4)
+  })
+
+  it.each([
+    ["a missing label", null],
+    ["an archived label", { isArchived: true }],
+  ])("gives not_found for %s", async (_name, labelType) => {
+    plain({ PlainLabelThreads: () => ({ labelType, threads: page([]) }) })
     expect(
       await listPlainLabelThreads({ apiKey: "key", labelTypeId: "lt_1" }),
     ).toBe("not_found")
@@ -317,6 +337,23 @@ describe("catalog lists", () => {
       { id: "lt_1", name: "Bug" },
     ])
     expect(operations[1]?.query).toContain("filters: { isArchived: false }")
+  })
+})
+
+describe("readPages", () => {
+  it("stops when Plain gives the same cursor again", async () => {
+    plain({
+      PlainHelpCenters: () => ({
+        helpCenters: {
+          edges: [],
+          pageInfo: { hasNextPage: true, endCursor: "same" },
+        },
+      }),
+    })
+    await expect(listPlainHelpCenters("key")).rejects.toThrow(
+      "Plain gave the same page cursor two times",
+    )
+    expect(operations).toHaveLength(2)
   })
 })
 

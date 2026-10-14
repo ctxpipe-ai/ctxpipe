@@ -2,6 +2,7 @@
 
 import { IconExternalLink } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { PLAIN_REQUIRED_PERMISSIONS } from "backend/domain/workspace-sources/providers/plain"
 import { useState } from "react"
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
@@ -24,18 +25,6 @@ import { PlainMark } from "./PlainMark"
 
 const externalLink =
   "font-medium text-teal-400 underline decoration-teal-400/50 underline-offset-4 hover:text-teal-300 hover:decoration-teal-300"
-
-/** The permissions of the machine-user API key, as the backend checks them. */
-const KEY_PERMISSIONS = [
-  "helpCenter:read",
-  "labelType:read",
-  "thread:read",
-  "timeline:read",
-  "customer:read",
-  "user:read",
-  "webhookTarget:create",
-  "webhookTarget:delete",
-]
 
 type PlainSetupDialogProps = {
   orgSlug: string
@@ -130,26 +119,18 @@ export function PlainSetupDialog({
     if (!connectionId || !status) return null
     if (step === "workspaces") {
       return (
-        <div className="space-y-4">
-          {status.webhookConfigured ? null : (
-            <InlineAlert variant="warning">
-              Live updates are off: Plain did not accept the webhook. Threads
-              sync once a day and when you select Sync now.
-            </InlineAlert>
-          )}
-          <AddToWorkspacesStep
-            orgSlug={orgSlug}
-            provider="plain"
-            connectionId={connectionId}
-            label="Plain"
-            description="the Help Centers and labels for each"
-            items="the Help Centers and labels"
-            onDone={(urls) => {
-              setPullRequestUrls(urls ?? [])
-              setWorkspacesDone(true)
-            }}
-          />
-        </div>
+        <AddToWorkspacesStep
+          orgSlug={orgSlug}
+          provider="plain"
+          connectionId={connectionId}
+          label="Plain"
+          description="the Help Centers and labels for each"
+          items="the Help Centers and labels"
+          onDone={(urls) => {
+            setPullRequestUrls(urls ?? [])
+            setWorkspacesDone(true)
+          }}
+        />
       )
     }
     return (
@@ -265,7 +246,7 @@ function ConnectStep(props: {
           webhook target for live updates, and keeps the key encrypted.
         </p>
         <ul className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
-          {KEY_PERMISSIONS.map((permission) => (
+          {PLAIN_REQUIRED_PERMISSIONS.map((permission) => (
             <li key={permission}>
               <code className="font-mono text-xs text-foreground">
                 {permission}

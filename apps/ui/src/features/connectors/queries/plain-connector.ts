@@ -38,7 +38,7 @@ export async function fetchPlainConnectorStatus(
 export async function connectPlain(
   orgSlug: string,
   body: { apiKey: string; connectionId?: string },
-): Promise<{ connectionId: string; webhookConfigured: boolean }> {
+): Promise<{ connectionId: string }> {
   const res = await apiFetch(base(orgSlug), {
     method: "POST",
     credentials: "include",

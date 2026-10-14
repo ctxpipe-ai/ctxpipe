@@ -1,6 +1,22 @@
 import { z } from "zod"
 import type { SourceScopeDefinition } from "./scope.js"
 
+/**
+ * The permissions of the machine-user API key (ADR-055): read the content,
+ * and create and delete the one webhook target of the connection. The
+ * backend checks them at connect; the setup lists them.
+ */
+export const PLAIN_REQUIRED_PERMISSIONS = [
+  "helpCenter:read",
+  "labelType:read",
+  "thread:read",
+  "timeline:read",
+  "customer:read",
+  "user:read",
+  "webhookTarget:create",
+  "webhookTarget:delete",
+]
+
 /** A Plain id, for example `lt_01HXYZ`. It is also a path segment. */
 const plainIdSchema = z
   .string()

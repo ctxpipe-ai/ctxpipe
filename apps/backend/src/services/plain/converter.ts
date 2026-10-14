@@ -31,6 +31,8 @@ export type PlainThreadForMirror = {
     /** The plain-text form that Plain gives (`llmText`). */
     text: string
   }>
+  /** Plain has more messages than the file shows. */
+  moreMessages: boolean
 }
 
 /**
@@ -59,7 +61,10 @@ function frontMatter(fields: Array<[string, string | null]>): string[] {
   ]
 }
 
-/** A URL that carries a credential: a signed URL, a token, or another scheme. */
+/**
+ * A URL that carries a credential: a signed URL, a token, a key, a code, or
+ * a password in the query or the fragment, or another scheme.
+ */
 function isPrivateUrl(url: string): boolean {
   // A link with another scheme (javascript:, data:) is never kept.
   const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(url)?.[1]?.toLowerCase()
@@ -72,7 +77,9 @@ function isPrivateUrl(url: string): boolean {
     isConnectorAssetCredentialUrl(absolute, {
       includeGenericCredentials: true,
     }) ||
-    /[?&](api[_-]?key|access[_-]?token|token|secret|signature)=/i.test(absolute)
+    /[?&#][\w.-]*(token|key|secret|password|passwd|signature)=|[?&#](code|pwd|sig|auth)=/i.test(
+      absolute,
+    )
   )
 }
 
@@ -108,13 +115,29 @@ function redactThreadText(text: string): string {
         "[phone removed]",
       )
       // A national number that starts with 0 (Australia, the UK): 9 to 11
-      // digits in groups. The digit count keeps a spaced date out.
-      .replace(/\b0\d{1,4}(?:[ -]\d{2,6}){1,3}\b/g, (match) => {
-        const digits = match.replace(/\D/g, "").length
-        return digits >= 9 && digits <= 11 ? "[phone removed]" : match
-      })
+      // digits, in groups, in one run, or after an area code in brackets.
+      // The digit count keeps a spaced date out.
+      .replace(
+        /\(0\d{1,4}\)\s?\d{3,4}[ -]?\d{3,4}|\b0\d{1,4}(?:[ -]?\d{2,6}){1,3}\b/g,
+        (match) => {
+          const digits = match.replace(/\D/g, "").length
+          return digits >= 9 && digits <= 11 ? "[phone removed]" : match
+        },
+      )
+      // An Australian 1300 or 1800 number.
+      .replace(/\b1[38]00[ -]?\d{3}[ -]?\d{3}\b/g, "[phone removed]")
   )
 }
+
+/** Text on one line: a title or a name cannot start a heading. */
+const oneLine = (text: string) => text.replace(/\s*\n\s*/g, " ")
+
+/** A message body as a quote: its text cannot start a heading. */
+const quote = (text: string) =>
+  text
+    .split("\n")
+    .map((line) => (line ? `> ${line}` : ">"))
+    .join("\n")
 
 /**
  * Article HTML as Markdown. An image is a text stub in this version. A
@@ -178,19 +201,22 @@ export function plainThreadFile(input: {
       ["created_at", thread.createdAt],
       ["updated_at", thread.updatedAt],
     ]),
-    `# ${thread.ref}: ${redactThreadText(thread.title)}`,
+    `# ${thread.ref}: ${oneLine(redactThreadText(thread.title))}`,
     "",
     `- Status: ${thread.status}`,
     `- Priority: ${priority}`,
   ]
-  if (thread.labels.length) lines.push(`- Labels: ${thread.labels.join(", ")}`)
+  if (thread.labels.length)
+    lines.push(`- Labels: ${oneLine(thread.labels.join(", "))}`)
   if (thread.customerName)
-    lines.push(`- Customer: ${redactThreadText(thread.customerName)}`)
+    lines.push(`- Customer: ${oneLine(redactThreadText(thread.customerName))}`)
   lines.push("", "## Messages", "")
   if (!thread.messages.length) lines.push("No messages.", "")
   for (const message of thread.messages) {
     const heading = [
-      message.authorName ? redactThreadText(message.authorName) : "Unknown",
+      message.authorName
+        ? oneLine(redactThreadText(message.authorName))
+        : "Unknown",
       message.createdAt,
     ]
       .filter(Boolean)
@@ -198,10 +224,15 @@ export function plainThreadFile(input: {
     lines.push(
       `### ${heading}${message.internal ? " (internal note)" : ""}`,
       "",
-      redactThreadText(message.text.trim()),
+      quote(redactThreadText(message.text.trim())),
       "",
     )
   }
+  if (thread.moreMessages)
+    lines.push(
+      `Plain has more messages in this thread. Open ${thread.ref} in Plain to read them.`,
+      "",
+    )
   return {
     path: `${plainLabelRoot(input.labelTypeId)}${thread.id}.md`,
     content: lines.join("\n"),

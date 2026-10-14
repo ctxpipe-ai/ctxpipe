@@ -11,7 +11,7 @@ import {
   markPlainConnectionRevoked,
   type PlainConnection,
 } from "../../models/plain-connector.js"
-import { log } from "../../observability/logger.js"
+import { getLogger } from "../../observability/logger.js"
 import { connectorCommitFileUnchanged } from "../connectors/assets.js"
 import type { GitFileChange } from "../git/file-change.js"
 import {
@@ -193,11 +193,11 @@ export const plainSourceAdapter: SourceAdapter<PlainSourceScope> = {
           continue
         }
         // A provider outage: keep the last copy, and do not count it.
-        log.warn({
+        getLogger().warn("Plain source item capture failed", {
           step: "plain.sources.capture",
           connectionId,
           item: key,
-          message: formatUnknownError(error),
+          error: formatUnknownError(error),
         })
       }
     }

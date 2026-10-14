@@ -86,7 +86,7 @@ function answer(operationName: string, variables: Record<string, string>) {
       const id = variables.labelTypeId ?? ""
       pl.reads.push(`threads:${id}`)
       return {
-        labelType: pl.missing.has(`label:${id}`) ? null : { id },
+        labelType: pl.missing.has(`label:${id}`) ? null : { isArchived: false },
         threads: page(
           (pl.labelThreads.get(id) ?? []).map((threadId) => ({
             id: threadId,
@@ -98,27 +98,22 @@ function answer(operationName: string, variables: Record<string, string>) {
             updatedAt: at,
             customer: { fullName: "Robin Lee" },
             labels: [{ labelType: { name: "Bug" } }],
+            timelineEntries: page([
+              {
+                timestamp: at,
+                // The text carries an email; the file must not.
+                llmText: "It fails. Write to robin@example.com",
+                entry: { __typename: "EmailEntry" },
+                actor: {
+                  __typename: "CustomerActor",
+                  customer: { fullName: "Robin Lee" },
+                },
+              },
+            ]),
           })),
         ),
       }
     }
-    case "PlainThreadMessages":
-      return {
-        thread: {
-          timelineEntries: page([
-            {
-              timestamp: at,
-              // The text carries an email; the file must not.
-              llmText: "It fails. Write to robin@example.com",
-              entry: { __typename: "EmailEntry" },
-              actor: {
-                __typename: "CustomerActor",
-                customer: { fullName: "Robin Lee" },
-              },
-            },
-          ]),
-        },
-      }
     case "PlainHelpCenters":
       pl.reads.push("helpCenters")
       return {
@@ -146,7 +141,7 @@ const server = setupServer(
       ? `helpCenter:${variables.helpCenterId}`
       : `label:${variables.labelTypeId}`
     const status = pl.status.get(key)
-    if (status && operationName !== "PlainThreadMessages") {
+    if (status) {
       pl.reads.push(`failed:${key}`)
       return new HttpResponse(null, { status })
     }
