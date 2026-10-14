@@ -60,12 +60,15 @@ const scopedPredicates: Record<EvalIntent, string[]> = {
   dependencies: ["DEPENDS_ON", "USES_LIBRARY", "READS_FROM", "WRITES_TO"],
 }
 
-/** Recall@5 floors of the scoped walk. The measured value is higher. */
+/**
+ * Recall@5 floors of the `get_related` defaults: the call that an agent makes
+ * with only `intent`. The measured value is at or above the floor.
+ */
 const floors: Record<EvalIntent, number> = {
   ownership: 0.95,
   why: 0.95,
-  change: 0.7,
-  dependencies: 0.85,
+  change: 0.85,
+  dependencies: 0.95,
 }
 
 type Config = {
@@ -138,10 +141,30 @@ async function ranked(question: EvalQuestion, config: Config) {
   }
 }
 
-async function recallOf(config: Config): Promise<Recall> {
+/** The `get_related` tool with only `seeds` and `intent`. */
+async function toolDefaults(question: EvalQuestion) {
+  const input = z.object(getRelatedInputShape).parse({
+    workspace: "eval",
+    seeds: [question.seed],
+    intent: question.intent,
+  })
+  const tool = await rankWorkspaceRelated(
+    { id: seed.orgId, slug: seed.orgSlug },
+    { id: workspaceId, slug: "eval" },
+    "e".repeat(40),
+    input,
+    fixture.now,
+  )
+  return tool.results.map((result) => result.ref)
+}
+
+async function recallOf(config: Config | "tool"): Promise<Recall> {
   const sums = Object.fromEntries(INTENTS.map((intent) => [intent, [0, 0]]))
   for (const question of fixture.questions) {
-    const { paths } = await ranked(question, config)
+    const paths =
+      config === "tool"
+        ? await toolDefaults(question)
+        : (await ranked(question, config)).paths
     const sum = sums[question.intent] as number[]
     sum[0] = (sum[0] ?? 0) + recallAtK(question, paths)
     sum[1] = (sum[1] ?? 0) + 1
@@ -173,8 +196,9 @@ describe("graph relevance eval (synthetic engineering Workspace)", () => {
     )
     if (!row) throw new Error("The fixture Workspace is missing.")
     projection = publishedProjection(projectionFromWorkspace(row))
+    rows.set("tool defaults (only intent)", await recallOf("tool"))
     const configs: Array<[string, Config]> = [
-      ["tool defaults (all edges, fan-out 50)", { scoped: false }],
+      ["all edges, fan-out 50", { scoped: false }],
       ["scoped walk", { scoped: true }],
       ["scoped, intent general", { scoped: true, general: true }],
       ["scoped, truth off", { scoped: true, signalWeights: { truth: 0 } }],
@@ -224,10 +248,10 @@ describe("graph relevance eval (synthetic engineering Workspace)", () => {
     }
   })
 
-  it("keeps recall@5 at or above the floor for each intent", () => {
-    const scoped = rows.get("scoped walk") as Recall
+  it("keeps recall@5 of the tool defaults at or above the floor for each intent", () => {
+    const defaults = rows.get("tool defaults (only intent)") as Recall
     for (const intent of INTENTS) {
-      expect(scoped[intent], intent).toBeGreaterThanOrEqual(floors[intent])
+      expect(defaults[intent], intent).toBeGreaterThanOrEqual(floors[intent])
     }
   })
 
