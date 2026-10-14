@@ -41,6 +41,11 @@ repositories and tools that the Workspace reads.
     - **Paste URL**: any git URL. Repositories outside GitHub work as
       read-only Workspaces.
 
+    To keep the Workspace in one folder of a larger repository, such as a
+    monorepo, type that folder in **Root folder** (for example
+    `docs/context`). Leave the field empty to use the whole repository. See
+    [Root folder](#root-folder).
+
     Choose **Create Workspace**.
   </Step>
 
@@ -74,10 +79,30 @@ repositories and tools that the Workspace reads.
 A repository can be the workspace repository of only one Workspace in an
 organization. Other Workspaces can still add it as a linked repository.
 
+## Root folder
+
+The root folder is the folder in the workspace repository that holds the
+Workspace. The default is the repository root.
+
+- ctx| reads knowledge files, `AGENTS.md`, and `.ctxpipe/sources.yaml` only
+  below the root folder. Paths in the Files pane, in conversations, and in MCP
+  tools are relative to it.
+- ctx| writes only below the root folder. This applies to setup commits,
+  connector mirrors, source pull requests, ingestion, and conversation
+  commits. ctx| refuses a conversation push that changes a file outside the
+  root folder, and the agent must undo that change before it can push.
+- The root folder is a relative path, such as `docs/context`. It cannot
+  start with `/`, contain `..` or `.git`, or use characters other than
+  letters, numbers, `.`, `_`, `-`, and `/`.
+
+When you change the root folder in **Settings**, ctx| reads the Workspace
+again from the new folder. The current index keeps serving until the new one
+is ready. Files in the old folder stay where they are.
+
 ## What ctx| adds to the repository
 
 On a writable repository, ctx| makes one setup commit if these files are
-missing:
+missing below the root folder:
 
 - `AGENTS.md` with the Workspace `name` in its front matter and a short folder
   map;
@@ -94,6 +119,7 @@ Open the **Settings** tab in a Workspace to:
   URLs. Changing the slug breaks old links;
 - change the **workspace repository**. The current index keeps serving until
   the new repository is indexed;
+- change the [root folder](#root-folder) of the Workspace in its repository;
 - add and remove [linked repositories](/docs/workspaces/linked-repositories);
 - see whether the Workspace is writable and whether its index is ready;
 - delete the Workspace. Deleting removes the Workspace, its conversations, and
