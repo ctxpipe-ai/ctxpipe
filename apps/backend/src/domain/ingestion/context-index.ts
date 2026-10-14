@@ -194,7 +194,7 @@ export function unitsAtStepBase(input: {
   for (const unit of parsed)
     units.set(unit.path, {
       path: unit.path,
-      kind: unit.kind,
+      kind: unit.kind ?? null,
       links: unit.links,
     })
   return [...units.values()].sort((a, b) =>

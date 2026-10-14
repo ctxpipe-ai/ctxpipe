@@ -84,8 +84,6 @@ type ApplyResult = {
   skipped: Array<{ path: string | null; reason: string }>
   more: boolean
 }
-type Resolution = Record<string, unknown>
-
 const OWN = "knowledge/services/shop-api.md"
 const OWN_FILE = front(
   {
@@ -168,7 +166,7 @@ async function step(
     return JSON.parse(result.stdout)
   }
   const resolutionsFile = join(root, "out", "resolutions.json")
-  const apply = (resolutions: Resolution[], path: string | null = ".") => {
+  const apply = (resolutions: unknown[], path: string | null = ".") => {
     writeFileSync(resolutionsFile, JSON.stringify({ resolutions }))
     const result = script(
       "apply",

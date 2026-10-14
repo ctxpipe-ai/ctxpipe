@@ -107,8 +107,10 @@ const rule = (n: number, sources: Record<string, Evidence>): Rule => ({
   value: "yes",
   sources,
 })
-const fiveRules = (url: string) =>
-  [1, 2, 3, 4, 5].map((n) => rule(n, { [url]: documented("README.md") }))
+const fiveRules = (url: string): [Rule, ...Rule[]] => {
+  const sources = () => ({ [url]: documented("README.md") })
+  return [rule(1, sources()), ...[2, 3, 4, 5].map((n) => rule(n, sources()))]
+}
 
 let root: string
 let sourceDir: string
@@ -318,10 +320,13 @@ describe("area files in the patch validator", () => {
       })
 
     /** B's view of the file: the base text with B's changes. */
-    const joined = (mutate: (rules: Rule[]) => Rule[], extra = {}) => {
-      const rules = mutate(
-        fiveRules(A).map((r) => ({ ...r, sources: { ...r.sources } })),
-      )
+    const joined = (
+      mutate: (rules: [Rule, ...Rule[]]) => Rule[],
+      extra = {},
+    ) => {
+      const copy = (r: Rule): Rule => ({ ...r, sources: { ...r.sources } })
+      const [first, ...rest] = fiveRules(A)
+      const rules = mutate([copy(first), ...rest.map(copy)])
       return stagedDoc(
         areaBody({
           rules,
@@ -368,7 +373,7 @@ describe("area files in the patch validator", () => {
 
     it("rejects a change to another source's evidence, a shared rule's text, or its section", async () => {
       const ctx = base()
-      const changes: Array<(rules: Rule[]) => Rule[]> = [
+      const changes: Array<(rules: [Rule, ...Rule[]]) => Rule[]> = [
         (rules) => {
           rules[0].sources[A] = documented("AGENTS.md")
           return rules

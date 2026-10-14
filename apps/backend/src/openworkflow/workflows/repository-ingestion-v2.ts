@@ -264,7 +264,7 @@ export function defineRepositoryIngestionV2Workflow(
 
         const workspaces: Extract<
           IngestionV2Output,
-          { status: "done" }
+          { workspaces: unknown }
         >["workspaces"] = []
         for (const destination of destinations) {
           const parts = shardOutputs.flatMap((output) =>

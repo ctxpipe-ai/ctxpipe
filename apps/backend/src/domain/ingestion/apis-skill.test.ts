@@ -854,7 +854,7 @@ describe("write-apis", () => {
     const a = await fixture(BILLING_SOURCE)
     const b = await fixture(BILLING_SOURCE)
     expect(a.write(plan)).toEqual(b.write(plan))
-    const listing = (s: ReturnType<typeof fixture>) =>
+    const listing = (s: Awaited<ReturnType<typeof fixture>>) =>
       execFileSync("sh", [
         "-c",
         `cd ${s.contextDir}/../../out/files && find . -type f | sort | xargs cat`,

@@ -103,6 +103,13 @@ function patterns(dir: string, ...literals: string[]) {
   }>
 }
 
+/** The result for the first pattern; fails the test when it is missing. */
+function firstPattern(dir: string, ...literals: string[]) {
+  const [first] = patterns(dir, ...literals)
+  if (!first) throw new Error("patterns.mjs gave no result")
+  return first
+}
+
 const VITEST = 'import { it } from "vitest"\n'
 
 describe("pattern counting (concept 5.4)", () => {
@@ -113,7 +120,7 @@ describe("pattern counting (concept 5.4)", () => {
         files: { "src/a.test.ts": VITEST, "lib/b.test.ts": VITEST },
       },
     ])
-    const [result] = patterns(repo.dir, 'from "vitest"')
+    const result = firstPattern(repo.dir, 'from "vitest"')
     expect(result.placement).toBe("none")
     expect(result.files).toBe(2)
   })
@@ -129,7 +136,7 @@ describe("pattern counting (concept 5.4)", () => {
         },
       },
     ])
-    const [result] = patterns(repo.dir, 'from "vitest"')
+    const result = firstPattern(repo.dir, 'from "vitest"')
     expect(result.placement).toBe("rules")
     expect(result.evidence).toEqual([
       "lib/c.test.ts",
@@ -183,7 +190,7 @@ describe("pattern counting (concept 5.4)", () => {
         },
       },
     ])
-    const [result] = patterns(repo.dir, 'from "vitest"')
+    const result = firstPattern(repo.dir, 'from "vitest"')
     expect(result.files).toBe(2)
     expect(result.placement).toBe("none")
   })
@@ -209,7 +216,7 @@ describe("pattern counting (concept 5.4)", () => {
         },
       },
     ])
-    const [result] = patterns(repo.dir, 'from "jest"')
+    const result = firstPattern(repo.dir, 'from "jest"')
     expect(result.trend).toEqual({ older: 4, newest: 1, state: "falling" })
     expect(result.placement).toBe("being-replaced")
   })
@@ -217,7 +224,7 @@ describe("pattern counting (concept 5.4)", () => {
   it("treats a pattern as plain text, never as a regular expression", async () => {
     const repo = source("literal", [{ days: 10, files: { "a.ts": "x\n" } }])
     const started = Date.now()
-    const [result] = patterns(repo.dir, "(a+)+$", "a\nb", "--option")
+    const result = firstPattern(repo.dir, "(a+)+$", "a\nb", "--option")
     expect(result.placement).toBe("none")
     expect(Date.now() - started).toBeLessThan(10_000)
   })
