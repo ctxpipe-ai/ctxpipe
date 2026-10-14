@@ -33,9 +33,9 @@ import {
  * Increase this number when the node or edge shape changes. A new version
  * gives each revision a new key, so a ready revision has no graph under its
  * key. The graph read then starts a rebuild, which projects it again.
- * Version 2 adds `path`, `degree`, `inDegree`, and `outDegree` to each node.
+ * Version 3 stores validity bounds as fixed-format UTC timestamps.
  */
-const workspaceGraphProjectionVersion = 2
+const workspaceGraphProjectionVersion = 3
 
 export function workspaceGraphRevisionKey(revision: WorkspaceRevision): string {
   return createHash("sha256")
@@ -95,7 +95,11 @@ export async function writeWorkspaceRevisionGraph(
       SET n.workspaceId = $workspaceId, n.kind = node.kind, n.name = node.name, n.summary = node.summary, n.path = node.path`,
       { projectionKey, workspaceId: revision.workspaceId, nodes },
     )
-  const claims = hydrateUnitsToProjectionClaims(units)
+  const claims = hydrateUnitsToProjectionClaims(units).map((claim) => ({
+    ...claim,
+    validFrom: normalizeValidityBound(claim.validFrom),
+    validTo: normalizeValidityBound(claim.validTo),
+  }))
   if (claims.length)
     await graph.executeQuery(workspaceClaimsQuery, { projectionKey, claims })
   // Count the edges that the graph holds. A claim without a target unit
@@ -122,6 +126,18 @@ export async function writeWorkspaceRevisionGraph(
       completedAt: new Date().toISOString(),
     },
   )
+}
+
+/** A non-time value is no bound. A time without an offset uses UTC. */
+function normalizeValidityBound(value: string | null): string | null {
+  const raw = value?.trim()
+  if (!raw || !/^\d{4}-\d{2}-\d{2}/.test(raw)) return null
+  const utc =
+    raw.length > 10 && !/(?:z|[+-]\d{2}(?::?\d{2})?)$/i.test(raw.slice(10))
+      ? `${raw}Z`
+      : raw
+  const time = new Date(utc)
+  return Number.isNaN(time.getTime()) ? null : time.toISOString()
 }
 
 /** Build the derived graph from a captured PostgreSQL projection, never by parsing Git again. */
@@ -177,30 +193,52 @@ export class WorkspaceGraphMissingError extends Error {
   override readonly name = "WorkspaceGraphMissingError"
 }
 
-/** Read one immutable derived graph; missing/corrupt data never becomes an empty Postgres fallback. */
-export async function readWorkspaceGraph(input: {
+type WorkspaceGraphReadInput = {
   orgId: string
   orgSlug: string
   projection: PublishedProjection | null
-}) {
+}
+
+/**
+ * Run `read` on the graph of the published revision when the graph store
+ * holds its completion marker. A graph without the marker gives
+ * `WorkspaceGraphMissingError`.
+ */
+export async function withCompleteWorkspaceGraph<T>(
+  input: WorkspaceGraphReadInput,
+  read: (graph: {
+    client: GraphClient
+    projectionKey: string
+    marker: { get: (key: string) => unknown }
+  }) => Promise<T>,
+  options?: { deadline?: number },
+): Promise<T> {
   const projection = input.projection
   if (projection?.kind !== "active" || projection.stores.graph.kind !== "ready")
     throw new WorkspaceGraphUnavailableError(
       "Workspace graph projection is unavailable.",
     )
-  const revision = projection.revision
-  const projectionKey = workspaceGraphRevisionKey(revision)
+  const projectionKey = workspaceGraphRevisionKey(projection.revision)
   return withGraphClient(input, async () => {
-    const graph = getGraphClient()
-    const marker = await graph.executeQuery(
+    const client = getGraphClient()
+    const result = await client.executeQuery(
       "MATCH (p:WorkspaceProjection {projectionKey: $projectionKey}) RETURN p.nodeCount AS nodeCount, p.claimCount AS claimCount, p.completedAt AS completedAt",
       { projectionKey },
+      options,
     )
-    const complete = marker.records[0]
-    if (!complete)
+    const marker = result.records[0]
+    if (!marker)
       throw new WorkspaceGraphMissingError(
         "Workspace graph projection is unavailable.",
       )
+    return read({ client, projectionKey, marker })
+  })
+}
+
+/** Read one immutable derived graph; missing/corrupt data never becomes an empty Postgres fallback. */
+export async function readWorkspaceGraph(input: WorkspaceGraphReadInput) {
+  return withCompleteWorkspaceGraph(input, async (store) => {
+    const { client: graph, projectionKey, marker: complete } = store
     const nodeResult = await graph.executeQuery(
       `MATCH (n:WorkspaceKnowledgeUnit {projectionKey: $projectionKey})
       RETURN n.id AS id, n.kind AS kind, n.name AS name, n.summary AS summary ORDER BY n.id`,

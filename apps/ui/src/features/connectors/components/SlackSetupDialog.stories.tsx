@@ -173,7 +173,16 @@ export const ChooseWorkspaces: Story = {
         },
       },
     })
-    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false))
+    // A source change opens a pull request; capture starts after the merge.
+    await expect(
+      await body.findByRole("heading", {
+        name: "Merge the pull request to start capture",
+      }),
+    ).toBeVisible()
+    await expect(
+      body.getByRole("link", { name: "acme/docs#7" }),
+    ).toHaveAttribute("href", "https://github.com/acme/docs/pull/7")
+    await expect(onOpenChange).not.toHaveBeenCalled()
   },
 }
 
