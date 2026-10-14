@@ -57,7 +57,7 @@ describe("rankRelated personalized PageRank", () => {
     const results = byId(
       rank({
         nodes: [node("a"), node("b")],
-        signals: [signal("a", "b")],
+        signals: [signal("a", "b", 1)],
         seeds: ["a"],
         options: { restart: 0.15, includeSeeds: true },
       }),
@@ -87,7 +87,7 @@ describe("rankRelated personalized PageRank", () => {
     const results = byId(
       rank({
         nodes: [node("a"), node("b"), node("c")],
-        signals: [signal("a", "b"), signal("b", "c")],
+        signals: [signal("a", "b", 1), signal("b", "c", 1)],
         seeds: ["a"],
         options: { restart: 0.15, direction: "out", includeSeeds: true },
       }),
@@ -235,55 +235,24 @@ describe("rankRelated hub penalty", () => {
   })
 })
 
-describe("rankRelated authority and recency", () => {
-  const decisions = [
-    node("s"),
-    node("accepted", "Decision", { status: "accepted" }),
-    node("superseded", "Decision", { status: "superseded" }),
-  ]
-  const decisionSignals = [signal("s", "accepted"), signal("s", "superseded")]
-
-  it("ranks an accepted decision above a superseded one", () => {
-    expect(
-      rank({ nodes: decisions, signals: decisionSignals, seeds: ["s"] }).map(
-        (result) => result.id,
-      ),
-    ).toEqual(["accepted", "superseded"])
-  })
-
-  it("keeps the status out of a question about history", () => {
-    const results = byId(
-      rank({
-        nodes: decisions,
-        signals: decisionSignals,
-        seeds: ["s"],
-        options: { intent: "why" },
-      }),
-    )
-    expect(results.get("superseded")?.ppr).toBeCloseTo(
-      results.get("accepted")?.ppr ?? 0,
-      9,
-    )
-  })
-
-  const pullRequests = [
-    node("s"),
-    node("new", "PullRequest", {
-      reviewDecision: "APPROVED",
-      eventDate: "2026-09-20T00:00:00.000Z",
+describe("rankRelated recency", () => {
+  const changes = [
+    signal("s", "new", 0.8, {
+      predicate: "CHANGED",
+      validFrom: "2026-09-20T00:00:00.000Z",
     }),
-    node("old", "PullRequest", {
-      reviewDecision: "APPROVED",
-      eventDate: "2025-09-20T00:00:00.000Z",
+    signal("s", "old", 0.8, {
+      predicate: "CHANGED",
+      validFrom: "2025-09-20T00:00:00.000Z",
     }),
   ]
-  const prSignals = [signal("s", "new"), signal("s", "old")]
+  const changeNodes = [node("s"), node("new"), node("old")]
 
-  it("ranks a recent pull request first for the change intent", () => {
+  it("ranks a recent change edge first for the change intent", () => {
     expect(
       rank({
-        nodes: pullRequests,
-        signals: prSignals,
+        nodes: changeNodes,
+        signals: changes,
         seeds: ["s"],
         options: { intent: "change" },
       }).map((result) => result.id),
@@ -293,10 +262,14 @@ describe("rankRelated authority and recency", () => {
   it("uses recencyHalfLifeDays", () => {
     const results = byId(
       rank({
-        nodes: pullRequests,
-        signals: prSignals,
+        nodes: changeNodes,
+        signals: changes,
         seeds: ["s"],
-        options: { intent: "change", recencyHalfLifeDays: 36_500 },
+        options: {
+          intent: "change",
+          recencyHalfLifeDays: 36_500,
+          signalWeights: { truth: 0 },
+        },
       }),
     )
     const ratio =
@@ -304,6 +277,7 @@ describe("rankRelated authority and recency", () => {
     expect(ratio).toBeGreaterThan(1)
     expect(ratio).toBeLessThan(1.01)
   })
+
   it("dates a change edge by its validFrom, the merge date", () => {
     const ratio = (options: RelevanceOptions) => {
       const results = byId(
@@ -450,38 +424,37 @@ describe("rankRelated query match", () => {
 describe("rankRelated: a signal at weight 0 has no effect", () => {
   const nodes = [
     node("s"),
-    node("d1", "Decision", { status: "superseded", degree: 50 }),
-    node("d2", "Decision", { status: "accepted", degree: 2 }),
-    node("p1", "PullRequest", {
-      degree: 9,
-      eventDate: "2024-01-01T00:00:00.000Z",
-    }),
-    node("p2", "PullRequest", {
-      degree: 1,
-      reviewDecision: "APPROVED",
-      eventDate: "2026-09-01T00:00:00.000Z",
-    }),
+    node("d1", "Decision", { degree: 50 }),
+    node("d2", "Decision", { degree: 2 }),
+    node("p1", "PullRequest", { degree: 9 }),
+    node("p2", "PullRequest", { degree: 1 }),
   ]
   const signals = [
     signal("s", "d1", 0.3),
     signal("s", "d2", 0.9),
-    signal("s", "p1", 0.5),
-    signal("s", "p2", 0.7),
+    signal("s", "p1", 0.5, {
+      predicate: "CHANGED",
+      validFrom: "2024-01-01T00:00:00.000Z",
+    }),
+    signal("s", "p2", 0.7, {
+      predicate: "CHANGED",
+      validFrom: "2026-09-01T00:00:00.000Z",
+    }),
   ]
-  const neutral = {
-    nodes: nodes.map((item) => ({
-      id: item.id,
-      kind: "note",
-      degree: null,
-    })),
-    signals: signals.map((item) => ({ ...item, confidence: 0.5 })),
-  }
   const off = {
-    signalWeights: { truth: 0, authority: 0, recency: 0 },
+    signalWeights: { truth: 0, recency: 0 },
     hubPenalty: 0,
   }
 
   it("gives the same ranking as a graph without the signal", () => {
+    const neutral = {
+      nodes: nodes.map((item) => ({ ...item, degree: null })),
+      signals: signals.map((item) => ({
+        ...item,
+        confidence: 0.5,
+        validFrom: null,
+      })),
+    }
     const strip = (results: ReturnType<typeof rankRelated>) =>
       results.map((result) => [result.id, result.ppr])
     const actual = strip(
@@ -496,14 +469,14 @@ describe("rankRelated: a signal at weight 0 has no effect", () => {
 
   it.each([
     "truth",
-    "authority",
     "recency",
     "hubPenalty",
   ] as const)("turns off %s alone", (name) => {
     const base: RelevanceOptions = {
       intent: "change",
-      signalWeights: { truth: 1, authority: 1, recency: 1 },
+      signalWeights: { truth: 1, recency: 1 },
       hubPenalty: 0.5,
+      predicateWeights: { LINKS_TO: 3 },
     }
     const zero: RelevanceOptions =
       name === "hubPenalty"
@@ -514,16 +487,15 @@ describe("rankRelated: a signal at weight 0 has no effect", () => {
           }
     // Make the graph neutral in this one signal only.
     const flat = {
-      nodes: nodes.map((item) => {
-        if (name === "authority")
-          return { ...item, status: null, reviewDecision: null }
-        if (name === "recency") return { ...item, eventDate: null }
-        if (name === "hubPenalty") return { ...item, degree: null }
+      nodes: nodes.map((item) =>
+        name === "hubPenalty" ? { ...item, degree: null } : item,
+      ),
+      signals: signals.map((item) => {
+        if (name === "truth") return { ...item, confidence: 0.5 }
+        // A predicate that is not a change has no recency factor.
+        if (name === "recency") return { ...item, predicate: "LINKS_TO" }
         return item
       }),
-      signals: signals.map((item) =>
-        name === "truth" ? { ...item, confidence: 0.5 } : item,
-      ),
     }
     const ppr = (results: ReturnType<typeof rankRelated>) =>
       results.map((result) => [result.id, result.ppr])
@@ -695,5 +667,319 @@ describe("rankRelated input from the graph expansion", () => {
     expect(result?.path).toEqual([
       expect.objectContaining({ from: "s", to: "t", predicate: "LINKS_TO" }),
     ])
+  })
+})
+
+describe("rankRelated option bounds", () => {
+  const input = {
+    nodes: [node("s"), node("t")],
+    signals: [signal("s", "t")],
+    seeds: ["s"],
+  }
+
+  it.each([
+    ["hubPenalty", { hubPenalty: -1 }],
+    ["restart", { restart: 0 }],
+    ["restart", { restart: 1 }],
+    ["restart", { restart: 1.5 }],
+    ["recencyHalfLifeDays", { recencyHalfLifeDays: 0 }],
+    ["recencyHalfLifeDays", { recencyHalfLifeDays: Number.NaN }],
+    ["diversity", { diversity: 1.5 }],
+    ["diversity", { diversity: -0.1 }],
+    ["queryWeight", { queryWeight: 2 }],
+    ["queryWeight", { queryWeight: Number.NaN }],
+    ["signalWeights.truth", { signalWeights: { truth: -1 } }],
+    ["signalWeights.recency", { signalWeights: { recency: -1 } }],
+  ] as const)("throws a RangeError that names %s", (name, options) => {
+    expect(() => rank({ ...input, options })).toThrow(RangeError)
+    expect(() => rank({ ...input, options })).toThrow(name)
+  })
+
+  it("accepts the edges of the ranges", () => {
+    expect(() =>
+      rank({
+        ...input,
+        options: { queryWeight: 1, diversity: 1, hubPenalty: 0, restart: 0.01 },
+      }),
+    ).not.toThrow()
+  })
+
+  it("gives a path weight of at most 1 even with a large predicate weight", () => {
+    const [result] = rank({
+      ...input,
+      options: { predicateWeights: { LINKS_TO: 50 } },
+    })
+    expect(result?.path[0]?.weight).toBeGreaterThan(0)
+    expect(result?.path[0]?.weight).toBeLessThanOrEqual(1)
+  })
+})
+
+describe("rankRelated validBetween", () => {
+  const nodes = [node("s"), node("t")]
+  const ended = [
+    signal("s", "t", 0.8, {
+      validFrom: "2025-03-01T00:00:00.000Z",
+      validTo: "2025-06-01T00:00:00.000Z",
+    }),
+  ]
+
+  it("ranks the target of an edge that ended inside the window", () => {
+    const results = rank({
+      nodes,
+      signals: ended,
+      seeds: ["s"],
+      options: {
+        validBetween: {
+          from: new Date("2025-01-01T00:00:00.000Z"),
+          to: new Date("2025-12-31T00:00:00.000Z"),
+        },
+      },
+    })
+    expect(results.map((result) => result.id)).toEqual(["t"])
+  })
+
+  it("drops the edge without the window, because it ended before now", () => {
+    expect(rank({ nodes, signals: ended, seeds: ["s"] })).toEqual([])
+  })
+
+  it("drops an edge that ended before the window", () => {
+    const results = rank({
+      nodes,
+      signals: ended,
+      seeds: ["s"],
+      options: {
+        validBetween: {
+          from: new Date("2025-07-01T00:00:00.000Z"),
+          to: new Date("2025-12-31T00:00:00.000Z"),
+        },
+      },
+    })
+    expect(results).toEqual([])
+  })
+
+  it("drops an edge that starts after the window", () => {
+    const results = rank({
+      nodes,
+      signals: ended,
+      seeds: ["s"],
+      options: {
+        validBetween: {
+          from: new Date("2024-01-01T00:00:00.000Z"),
+          to: new Date("2025-02-01T00:00:00.000Z"),
+        },
+      },
+    })
+    expect(results).toEqual([])
+  })
+
+  it("throws a RangeError for a window that ends before it starts", () => {
+    expect(() =>
+      rank({
+        nodes,
+        signals: ended,
+        seeds: ["s"],
+        options: {
+          validBetween: {
+            from: new Date("2025-12-31T00:00:00.000Z"),
+            to: new Date("2025-01-01T00:00:00.000Z"),
+          },
+        },
+      }),
+    ).toThrow(RangeError)
+  })
+})
+
+describe("rankRelated kinds", () => {
+  const nodes = [
+    node("s"),
+    ...["a1", "a2", "a3"].map((id) => node(id, "alpha")),
+    ...["b1", "b2", "b3", "b4"].map((id) => node(id, "beta")),
+  ]
+  // The beta units have the stronger edges, so they fill the top of the ranking.
+  const signals = [
+    ...["a1", "a2", "a3"].map((id) => signal("s", id, 0.3)),
+    ...["b1", "b2", "b3", "b4"].map((id) => signal("s", id, 0.9)),
+  ]
+
+  it("returns limit results of the kept kinds when enough exist", () => {
+    const results = rank({
+      nodes,
+      signals,
+      seeds: ["s"],
+      options: { kinds: ["alpha"], limit: 3 },
+    })
+    expect(results.map((result) => result.id).sort()).toEqual([
+      "a1",
+      "a2",
+      "a3",
+    ])
+  })
+
+  it("applies maxPerKind and diversity to the kept kinds only", () => {
+    const results = rank({
+      nodes,
+      signals,
+      seeds: ["s"],
+      options: { kinds: ["alpha", "BETA"], maxPerKind: 2, limit: 10 },
+    })
+    expect(results).toHaveLength(4)
+  })
+
+  it("still walks through a unit of a kind that is left out", () => {
+    const results = rank({
+      nodes: [node("s"), node("mid", "beta"), node("far", "alpha")],
+      signals: [signal("s", "mid"), signal("mid", "far")],
+      seeds: ["s"],
+      options: { kinds: ["alpha"] },
+    })
+    expect(results.map((result) => result.id)).toEqual(["far"])
+    expect(results[0]?.path.map((step) => step.to)).toEqual(["mid", "far"])
+  })
+})
+
+describe("rankRelated has no node-level authority", () => {
+  it("gives a pull request and a note of the same structure the same score", () => {
+    for (const intent of ["general", "change", "why"] as const) {
+      const results = byId(
+        rank({
+          nodes: [
+            node("s"),
+            node("pr", "PullRequest"),
+            node("note", "note"),
+            node("thread", "Thread"),
+            node("decision", "Decision"),
+          ],
+          signals: ["pr", "note", "thread", "decision"].map((id) =>
+            signal("s", id),
+          ),
+          seeds: ["s"],
+          options: { intent },
+        }),
+      )
+      const scores = new Set(
+        ["pr", "note", "thread", "decision"].map(
+          (id) => results.get(id)?.score,
+        ),
+      )
+      expect(scores.size).toBe(1)
+    }
+  })
+})
+
+describe("rankRelated absolute weight of a sole step", () => {
+  const ppr = (confidence: number) =>
+    byId(
+      rank({
+        nodes: [node("s"), node("t")],
+        signals: [signal("s", "t", confidence)],
+        seeds: ["s"],
+        options: { direction: "out" },
+      }),
+    ).get("t")?.ppr ?? 0
+
+  it("gives a weak sole edge less mass than a strong one", () => {
+    expect(ppr(0.06)).toBeLessThan(ppr(1))
+  })
+
+  it("sends the remainder to the restart vector", () => {
+    // p_t = 0.85 w p_s; the rest of the mass returns to s.
+    const w = 0.5
+    const results = byId(
+      rank({
+        nodes: [node("s"), node("t")],
+        signals: [signal("s", "t", w)],
+        seeds: ["s"],
+        options: { direction: "out", includeSeeds: true },
+      }),
+    )
+    const sum = (results.get("s")?.ppr ?? 0) + (results.get("t")?.ppr ?? 0)
+    expect(sum).toBeCloseTo(1, 9)
+    expect(results.get("t")?.ppr).toBeCloseTo(
+      0.85 * w * (results.get("s")?.ppr ?? 0),
+      9,
+    )
+  })
+})
+
+describe("rankRelated path cost", () => {
+  const input = {
+    nodes: [node("s"), node("x"), node("t")],
+    signals: [
+      signal("s", "t", 0.3),
+      signal("s", "x", 0.6),
+      signal("x", "t", 0.6),
+    ],
+    seeds: ["s"],
+  }
+
+  it.each([
+    "general",
+    "why",
+    "change",
+  ] as const)("prefers the 2-hop path of weight 0.36 over the 1-hop of 0.3 for %s", (intent) => {
+    const t = byId(
+      rank({ ...input, options: { intent, direction: "out" } }),
+    ).get("t")
+    expect(t?.path.map((step) => step.to)).toEqual(["x", "t"])
+  })
+})
+
+describe("rankRelated determinism", () => {
+  const nodes = [
+    node("s"),
+    ...["a", "b", "c", "d", "e"].map((id) => node(id, id < "c" ? "k1" : "k2")),
+  ]
+  const signals = [
+    signal("s", "a", 0.7),
+    signal("s", "b", 0.7),
+    signal("a", "c", 0.5),
+    signal("b", "c", 0.5),
+    signal("c", "d", 0.9),
+    signal("c", "d", 0.4, { source: "other" }),
+    signal("a", "e", 0.2),
+    signal("b", "e", 0.2),
+  ]
+
+  it("gives the same results and paths for reversed input order", () => {
+    const options = { diversity: 0.3, direction: "both" } as const
+    const forward = rankRelated({
+      nodes,
+      signals,
+      seeds: ["s"],
+      options: { now: NOW, ...options },
+    })
+    const reversed = rankRelated({
+      nodes: [...nodes].reverse(),
+      signals: [...signals].reverse(),
+      seeds: ["s"],
+      options: { now: NOW, ...options },
+    })
+    expect(reversed).toEqual(forward)
+  })
+
+  it("breaks a tie by id with a plain comparison", () => {
+    const results = rank({
+      nodes: [node("s"), node("B"), node("a")],
+      signals: [signal("s", "B"), signal("s", "a")],
+      seeds: ["s"],
+    })
+    // Code-unit order: "B" < "a". localeCompare would put "a" first.
+    expect(results.map((result) => result.id)).toEqual(["B", "a"])
+  })
+})
+
+describe("rankRelated restart share of the query", () => {
+  it("gives the query hits exactly queryWeight of the restart mass", () => {
+    const results = byId(
+      rank({
+        nodes: [node("s"), node("q")],
+        signals: [],
+        seeds: ["s"],
+        queryHits: [{ id: "q", score: 0.03 }],
+        options: { queryWeight: 0.5, includeSeeds: true },
+      }),
+    )
+    expect(results.get("s")?.ppr).toBeCloseTo(0.5, 9)
+    expect(results.get("q")?.ppr).toBeCloseTo(0.5, 9)
   })
 })
