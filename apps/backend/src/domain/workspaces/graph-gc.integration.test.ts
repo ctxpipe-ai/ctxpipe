@@ -16,6 +16,7 @@ import {
   workspaceGraphKeys,
 } from "./graph-gc.js"
 import {
+  hasWorkspaceGraph,
   readWorkspaceGraph,
   workspaceGraphRevisionKey,
   writeWorkspaceRevisionGraph,
@@ -297,7 +298,7 @@ it("removes the nodes of a write that stopped before its marker, after the grace
   })
   expect(await count(stopped, "WorkspaceKnowledgeUnit")).toBe(2)
   // Readers do not serve the key, because the marker lacks the counts.
-  expect(await hasGraph(stopped)).toBe(false)
+  expect(await hasWorkspaceGraph({ ...org, revision: stopped })).toBe(false)
 
   expect(await gc(use, afterGrace)).toEqual({ removed: 1 })
   expect(await none(stopped)).toBe(true)
