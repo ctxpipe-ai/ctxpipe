@@ -1,5 +1,6 @@
 import type { Env } from "../../config/env.js"
 import type { ModelTier } from "../../retrieval/services/providers/providerTypes.js"
+import { parseSandboxCallbackHost } from "../workspaces/sandbox-callback-host.js"
 import type { IngestSkillBundle } from "./skill-bundle.js"
 
 /*
@@ -104,15 +105,18 @@ export type IngestShardRuntimeFactory = {
  * never the worker's own address or port. It is `AUTH_BASE_URL` (the API
  * origin on Railway and AWS), with two changes:
  * - `SANDBOX_CALLBACK_HOST` names the API on the sandbox network (Compose):
- *   plain HTTP to that host, on the API container's port 3000. The port of
- *   `AUTH_BASE_URL` is the public port, which can be another;
+ *   plain HTTP to that host, on `PORT`. Compose gives the worker the `PORT`
+ *   of the API service config. The port of `AUTH_BASE_URL` is the public
+ *   port, which can be another. The host is checked as for the chat callback;
  * - a `localhost` API (host dev) is `host.docker.internal` from a container.
  */
 export function ingestCallbackOrigin(
-  env: Pick<Env, "AUTH_BASE_URL" | "SANDBOX_CALLBACK_HOST">,
+  env: Pick<Env, "AUTH_BASE_URL" | "SANDBOX_CALLBACK_HOST" | "PORT">,
 ): string {
   if (env.SANDBOX_CALLBACK_HOST)
-    return new URL(`http://${env.SANDBOX_CALLBACK_HOST}:3000`).origin
+    return new URL(
+      `http://${parseSandboxCallbackHost(env.SANDBOX_CALLBACK_HOST.trim())}:${env.PORT}`,
+    ).origin
   const api = new URL(env.AUTH_BASE_URL)
   if (
     ["localhost", "127.0.0.1", "[::1]"].includes(api.hostname) ||
