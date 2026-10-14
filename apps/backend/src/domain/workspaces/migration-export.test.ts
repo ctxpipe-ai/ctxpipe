@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest"
+import { parse } from "yaml"
 import {
   completedNoOpExportSha,
   importedObjectMarkdown,
   importKeyForExportedObject,
   importKeyFromDedup,
   isoDate,
-  MIGRATION_EXPORT_KIND,
-  migrationExportFiles,
+  migrationLinkedRepositoryUrls,
+  migrationSourcesFile,
   noOpExportUsesResolvedTip,
   objectTitleFromPayload,
   planKnowledgeProjection,
@@ -16,17 +17,110 @@ import {
 import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
 
 describe("migration export", () => {
-  it("writes knowledge/<area>/<unit>.md and repositories/*.md", () => {
-    expect(MIGRATION_EXPORT_KIND).toBe("migration_export")
-    const files = migrationExportFiles({
-      imported: [{ slug: "billing", body: "Billing\n", area: "services" }],
-      takenPaths: ["knowledge/services/billing.md"],
-      linkedUrls: ["https://github.com/acme/app.git"],
-    })
-    expect(files.map((file) => file.path)).toEqual([
-      "knowledge/services/billing-2.md",
-      "repositories/app.md",
+  it("links the other org repositories only in the first Workspace", () => {
+    const repositories = [
+      { id: "repo_app", gitUrl: "https://github.com/acme/app.git" },
+      { id: "repo_api", gitUrl: "git@github.com:Acme/API.git" },
+      { id: "repo_docs", gitUrl: "https://github.com/acme/docs" },
+    ]
+    const workspaceByRepositoryId = new Map([
+      ["repo_app", "ws_app"],
+      ["repo_docs", "ws_docs"],
     ])
+    expect(
+      migrationLinkedRepositoryUrls({
+        workspaceId: "ws_app",
+        firstWorkspaceId: "ws_app",
+        repositories,
+        workspaceByRepositoryId,
+      }),
+    ).toEqual(["git@github.com:Acme/API.git"])
+    expect(
+      migrationLinkedRepositoryUrls({
+        workspaceId: "ws_docs",
+        firstWorkspaceId: "ws_app",
+        repositories,
+        workspaceByRepositoryId,
+      }),
+    ).toEqual([])
+  })
+
+  it("writes the linked repositories as one GitHub source of sources.yaml", () => {
+    const text = migrationSourcesFile({
+      sourcesFile: null,
+      connectionId: "con_gh",
+      gitUrls: [
+        "git@github.com:Acme/API.git",
+        "https://github.com/acme/web",
+        "https://gitlab.com/acme/tools",
+      ],
+    })
+    expect(parse(text ?? "")).toEqual({
+      version: 1,
+      sources: [
+        {
+          id: "linked-repositories",
+          provider: "github",
+          connection: "con_gh",
+          repositories: ["acme/api", "acme/web"],
+        },
+      ],
+    })
+    // A second run changes nothing.
+    expect(
+      migrationSourcesFile({
+        sourcesFile: text,
+        connectionId: "con_gh",
+        gitUrls: ["https://github.com/acme/api", "https://github.com/acme/web"],
+      }),
+    ).toBeNull()
+  })
+
+  it("adds only the repositories that no GitHub source of the file links", () => {
+    const text = migrationSourcesFile({
+      sourcesFile:
+        "# Owned by the team\nversion: 1\nsources:\n  - id: code\n    provider: github\n    connection: con_gh\n    repositories: [acme/web]\n",
+      connectionId: "con_gh",
+      gitUrls: ["https://github.com/acme/web", "https://github.com/acme/api"],
+    })
+    expect(text).toContain("# Owned by the team")
+    expect(parse(text ?? "").sources).toEqual([
+      {
+        id: "code",
+        provider: "github",
+        connection: "con_gh",
+        repositories: ["acme/web"],
+      },
+      {
+        id: "linked-repositories",
+        provider: "github",
+        connection: "con_gh",
+        repositories: ["acme/api"],
+      },
+    ])
+    const grown = migrationSourcesFile({
+      sourcesFile: text,
+      connectionId: "con_gh",
+      gitUrls: ["https://github.com/acme/jobs"],
+    })
+    expect(parse(grown ?? "").sources[1].repositories).toEqual([
+      "acme/api",
+      "acme/jobs",
+    ])
+    expect(
+      migrationSourcesFile({
+        sourcesFile: "version: 2\n",
+        connectionId: "con_gh",
+        gitUrls: ["https://github.com/acme/api"],
+      }),
+    ).toBeNull()
+    expect(
+      migrationSourcesFile({
+        sourcesFile: null,
+        connectionId: "con_gh",
+        gitUrls: ["https://gitlab.com/acme/tools"],
+      }),
+    ).toBeNull()
   })
 
   it("writes import_key and claim temporality without obj_ jargon", () => {
@@ -149,12 +243,10 @@ describe("migration export", () => {
         },
       ],
       existingKnowledge: [],
-      linkedUrls: ["https://github.com/acme/docs"],
     })
     expect(planned.wouldChange).toBe(true)
     expect(planned.files.map((file) => file.path)).toEqual([
       "knowledge/services/billing.md",
-      "repositories/docs.md",
     ])
     expect(planned.files[0]?.content).toContain("import_key: svc:repo_app:./")
     expect(planned.files[0]?.content).toContain("kind: Service")
@@ -202,7 +294,6 @@ describe("migration export", () => {
         },
       ],
       existingKnowledge: [],
-      linkedUrls: [],
       workspaceRepositoryUrl: "https://github.com/acme/docs",
       repositoryGitUrlById: new Map([
         ["repo_app", "https://github.com/acme/app.git"],
@@ -263,7 +354,6 @@ Ledger lives here.
       existingKnowledge: [
         { path: "knowledge/payments/billing.md", content: thin },
       ],
-      linkedUrls: [],
     })
     expect(thinPlan.files[0]?.path).toBe("knowledge/payments/billing.md")
     expect(thinPlan.wouldChange).toBe(true)
@@ -292,7 +382,6 @@ Ledger lives here.
       existingKnowledge: [
         { path: "knowledge/payments/billing.md", content: existing },
       ],
-      linkedUrls: [],
     })
     expect(planned.files[0]?.path).toBe("knowledge/payments/billing.md")
     expect(planned.wouldChange).toBe(false)
@@ -321,7 +410,6 @@ Ledger lives here.
       existingKnowledge: [
         { path: "knowledge/imported/billing.md", content: existing },
       ],
-      linkedUrls: [],
     })
     expect(planned.files[0]?.path).toBe("knowledge/imported/billing.md")
     expect(planned.wouldChange).toBe(false)
@@ -350,7 +438,6 @@ Ledger lives here.
           content: "# Billing\n\nLedger lives here.",
         },
       ],
-      linkedUrls: [],
       classifyUnkeyed: async () => "merge",
     })
     expect(planned.files[0]?.path).toBe("knowledge/services/billing.md")
@@ -379,7 +466,6 @@ Ledger lives here.
           content: "Ledger lives here.",
         },
       ],
-      linkedUrls: [],
       classifyUnkeyed: async () => "new_name",
     })
     expect(planned.files[0]?.path).toBe("knowledge/services/billing-2.md")
@@ -417,7 +503,6 @@ Ledger lives here.
           content: "Ledger lives here.",
         },
       ],
-      linkedUrls: [],
       classifyUnkeyed: async () => "merge",
     })
     expect(planned.files.map((file) => file.path).sort()).toEqual([
@@ -450,7 +535,6 @@ Ledger lives here.
           content: "Pay twelve",
         },
       ],
-      linkedUrls: [],
       workspaceRepositoryUrl: "https://github.com/acme/docs.git",
       repositoryGitUrlById: new Map([
         ["repo_ws", "https://github.com/acme/docs"],
@@ -485,7 +569,6 @@ Ledger lives here.
       existingKnowledge: [
         { path: "knowledge/services/billing.md", content: existing },
       ],
-      linkedUrls: [],
       stampImportKey: false,
     })
     expect(planned.files[0]?.path).toBe("knowledge/services/billing.md")

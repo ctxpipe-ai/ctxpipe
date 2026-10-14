@@ -1,6 +1,18 @@
 import { createHash } from "node:crypto"
 import { isAlias, isMap, isSeq } from "yaml"
 import {
+  applySourceFileChange,
+  SourceChangeError,
+} from "../workspace-sources/edit.js"
+import { githubScopeSchema } from "../workspace-sources/providers/github.js"
+import {
+  type ParsedSourceEntry,
+  parseSourceEntry,
+  type SourceEntry,
+  sourcesFileSchema,
+} from "../workspace-sources/sources-file.js"
+import { parseSourcesYaml } from "../workspace-sources/sources-yaml.js"
+import {
   assignImportedRepository,
   classifyUnkeyedKnowledgeCollision,
   mergeImportedClaims,
@@ -19,41 +31,100 @@ import {
   knowledgeAreaFromObjectKind,
   parseSimpleFrontMatter,
 } from "./layout.js"
-import { changeLinkedRepository } from "./link-declarations.js"
 import { linkedRepositoryUrlSchema } from "./linked-repository-url.js"
 import { normalizeSlug, normalizeWorkspaceRepositoryUrl } from "./slug.js"
+import { githubRepoFullNameFromWorkspaceUrl } from "./write-status.js"
 
 export const MIGRATION_EXPORT_KIND = "migration_export"
 
-export function migrationExportFiles(input: {
-  imported: ReadonlyArray<{ slug: string; body: string; area?: string }>
-  takenPaths: Iterable<string>
-  existingFiles?: ReadonlyArray<{ path: string; content: string }>
-  linkedUrls: Iterable<string>
-}): Array<{ path: string; content: string }> {
-  const taken = new Set(input.takenPaths)
-  const files: Array<{ path: string; content: string }> = []
-  for (const item of input.imported) {
-    const path = nextKnowledgeUnitPath(item.area ?? "topics", item.slug, taken)
-    taken.add(path)
-    files.push({ path, content: item.body })
+/**
+ * The org repositories (the legacy `repositories` table) that the migration
+ * links into a Workspace: only the first Workspace of the org links them,
+ * and a repository that is the repository of a Workspace is not linked.
+ */
+export function migrationLinkedRepositoryUrls(input: {
+  workspaceId: string
+  firstWorkspaceId: string | null
+  repositories: ReadonlyArray<{ id: string; gitUrl: string }>
+  workspaceByRepositoryId: ReadonlyMap<string, string>
+}): string[] {
+  if (input.workspaceId !== input.firstWorkspaceId) return []
+  return input.repositories
+    .filter((repository) => !input.workspaceByRepositoryId.has(repository.id))
+    .map((repository) => repository.gitUrl)
+}
+
+/**
+ * Link GitHub repositories through `.ctxpipe/sources.yaml` (ADR-050): add
+ * each repository that no GitHub source of the file links to the source
+ * `linked-repositories`. It returns the new file text, or null when the file
+ * already links each repository, when no URL is a GitHub repository, or when
+ * the file is not a valid version 1 file.
+ */
+export function migrationSourcesFile(input: {
+  sourcesFile: string | null
+  connectionId: string
+  gitUrls: Iterable<string>
+}): string | null {
+  const key = "linked-repositories"
+  const wanted = new Map<string, string>()
+  for (const url of input.gitUrls) {
+    const name = githubRepoFullNameFromWorkspaceUrl(url)
+    if (name && !wanted.has(name.toLowerCase()))
+      wanted.set(name.toLowerCase(), name)
   }
-  const occupied = new Map(
-    [...taken].map((path) => [path, { path, content: "" }]),
+  if (!wanted.size) return null
+  let entries: ParsedSourceEntry[]
+  try {
+    const file = sourcesFileSchema.safeParse(
+      parseSourcesYaml(input.sourcesFile?.trim() ? input.sourcesFile : ""),
+    )
+    if (input.sourcesFile?.trim() && !file.success) return null
+    entries = file.success ? file.data.sources.map(parseSourceEntry) : []
+  } catch {
+    return null
+  }
+  const github = entries.flatMap((parsed) =>
+    parsed.ok && parsed.entry.provider === "github" ? [parsed.entry] : [],
   )
-  for (const file of input.existingFiles ?? []) occupied.set(file.path, file)
-  for (const url of input.linkedUrls) {
-    const linked = changeLinkedRepository({
-      files: [...occupied.values()],
-      action: "link",
-      gitUrl: url,
-    })
-    for (const file of linked.files) {
-      occupied.set(file.path, file)
-      files.push(file)
-    }
+  const linked = (entry: SourceEntry) => {
+    const scope = githubScopeSchema.safeParse(entry.scope)
+    return scope.success ? scope.data.repositories : []
   }
-  return files
+  const covered = new Set(
+    github.flatMap(linked).map((name) => name.toLowerCase()),
+  )
+  const missing = [...wanted]
+    .filter(([lower]) => !covered.has(lower))
+    .map(([, name]) => name)
+  if (!missing.length) return null
+  const current = github.find((entry) => entry.key === key)
+  const keyTaken = entries.some(
+    (parsed) => (parsed.ok ? parsed.entry.key : parsed.key) === key,
+  )
+  try {
+    return applySourceFileChange(
+      input.sourcesFile,
+      current
+        ? {
+            action: "edit",
+            sourceKey: key,
+            provider: "github",
+            connectionId: current.connectionId,
+            scope: { repositories: [...linked(current), ...missing] },
+          }
+        : {
+            action: "add",
+            sourceKey: keyTaken ? undefined : key,
+            provider: "github",
+            connectionId: input.connectionId,
+            scope: { repositories: missing },
+          },
+    ).text
+  } catch (error) {
+    if (error instanceof SourceChangeError) return null
+    throw error
+  }
 }
 
 export function importKeyFromDedup(
@@ -460,7 +531,6 @@ export async function planKnowledgeProjection(input: {
   objects: readonly ExportObjectRow[]
   claims: readonly ExportClaimRow[]
   existingKnowledge: readonly ExistingKnowledgeFile[]
-  linkedUrls: Iterable<string>
   workspaceRepositoryUrl?: string | null
   repositoryGitUrlById?: ReadonlyMap<string, string>
   knownKnowledgePaths?: Readonly<Record<string, string>>
@@ -693,15 +763,6 @@ export async function planKnowledgeProjection(input: {
       ),
     })
   }
-  files.push(
-    ...migrationExportFiles({
-      imported: [],
-      takenPaths: taken,
-      linkedUrls: input.linkedUrls,
-      existingFiles: input.existingKnowledge,
-    }),
-  )
-
   const contentByPath = new Map(
     input.existingKnowledge.map((file) => [file.path, file.content]),
   )

@@ -94,7 +94,6 @@ export async function planCapturedExtraction(input: {
       validFrom: null,
       validTo: null,
     })),
-    linkedUrls: [],
     existingKnowledge: input.existingKnowledge,
   })
   const files = new Map(

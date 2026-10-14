@@ -20,7 +20,7 @@ A connection (`connections` row, [ADR-018](ADR-018-unified-connections-table.md)
 - The per-connection sync repository (`connections.config` `repositoryId` / `branch` / `enabled`) and the in-repository scope files (`<provider>/config.yaml`, `pendingConfigPullUrl`) in [ADR-022](ADR-022-linear-connector-git-native-mirror.md), [ADR-023](ADR-023-notion-connector-git-native-mirror.md), [ADR-025](ADR-025-slack-connector-git-native-mirror.md) (sync target), [ADR-031](ADR-031-github-pr-scoped-mirror.md) (scope source), and [ADR-034](ADR-034-pagerduty-connector-git-native-mirror.md). Phase 3 removes them after the migration is verified.
 - In [ADR-018](ADR-018-unified-connections-table.md), `connections.config` no longer holds scope or a sync target. The table stays.
 - [ADR-028](ADR-028-git-native-connector-assets.md) asset rules apply unchanged, inside each Workspace's managed path.
-- `workspace_linked_repositories` is retired in phase 3; GitHub sources in the file replace it.
+- `workspace_linked_repositories` is no longer a store of links. GitHub sources in the file replace it. It stays only as the hydrate projection of the linked remotes, because it holds the pinned ref and SHAs of each linked repository ([ADR-046](ADR-046-workspace-revision-projection-identity.md)). It goes when those pins have another home.
 
 ## Consequences
 
@@ -29,3 +29,7 @@ A connection (`connections` row, [ADR-018](ADR-018-unified-connections-table.md)
 - Mirror commits can race user edits on the default branch. Managed paths belong only to the mirror, so a rebase and retry resolves it.
 - Storage grows with overlap, because each Workspace keeps its own copy.
 - The GitHub App needs write access to each Workspace repository, as git-backed Workspaces already do.
+
+## Revision 2026-10-14: upgrade from the repository list
+
+On `main`, the org `repositories` table holds the linked repositories of an organization. The SQL backfill that makes the first Workspaces no longer copies them into `workspace_linked_repositories`. The knowledge export of the first Workspace of the org (`org_first_workspaces`) reads that table and adds each other GitHub repository to the GitHub source `linked-repositories` in `.ctxpipe/sources.yaml`, with the Workspace's GitHub connection. It writes no `repositories/*.md` file. A repository that a GitHub source of the file already links is not added again, so a second export changes nothing. A repository that is not on GitHub is not linked.

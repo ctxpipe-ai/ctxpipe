@@ -42,6 +42,14 @@ declaration from `repositories/` and stops searching it.
 You can also add or remove declarations in `repositories/` directly with git.
 See [Knowledge files](/docs/workspaces/knowledge-files#linked-repository-declarations).
 
+## Repositories from before Workspaces
+
+When an organization moves to Workspaces, ctx| links the organization's
+other repositories to its first Workspace. The knowledge export adds them to
+the GitHub source `linked-repositories` in `.ctxpipe/sources.yaml` of that
+Workspace. A repository that is not on GitHub is not linked; add it again
+with its Git URL.
+
 ## Indexing status
 
 | Status | Meaning |

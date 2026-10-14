@@ -3,7 +3,11 @@ import { parseEnv } from "../../config/env.js"
 import { isConnectorMirrorPath } from "../../domain/codeIngestion/connectorMirrorPaths.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import { linkedRepositoryUrlSchema } from "../../domain/workspaces/linked-repository-url.js"
-import { planKnowledgeProjection } from "../../domain/workspaces/migration-export.js"
+import {
+  migrationLinkedRepositoryUrls,
+  migrationSourcesFile,
+  planKnowledgeProjection,
+} from "../../domain/workspaces/migration-export.js"
 import {
   sameWorkspaceRevision,
   workspaceRevisionSchema,
@@ -28,7 +32,6 @@ import {
   persistWriteJobPreparedCommit,
 } from "../../models/workspace-write-jobs.js"
 import {
-  listLinkedRepositories,
   persistWriteJobCommitSha,
   persistWriteJobStatus,
 } from "../../models/workspaces.js"
@@ -98,7 +101,16 @@ export const workspaceMigrationExport = defineWorkflow(
             { name: "load-legacy-source" },
             async () => {
               const source = await loadKnowledgeProjectionSource()
-              const linked = await listLinkedRepositories(input.workspaceId)
+              // Main's store of linked repositories is the org `repositories`
+              // table. The export links them through sources.yaml (ADR-050).
+              const linkedUrls = migrationLinkedRepositoryUrls({
+                workspaceId: input.workspaceId,
+                firstWorkspaceId: source.firstWorkspaceId,
+                repositories: [...source.repositoryGitUrlById].map(
+                  ([id, gitUrl]) => ({ id, gitUrl }),
+                ),
+                workspaceByRepositoryId: source.workspaceByRepositoryId,
+              })
               return {
                 ...source,
                 workspaceByRepositoryId: [...source.workspaceByRepositoryId],
@@ -110,10 +122,7 @@ export const workspaceMigrationExport = defineWorkflow(
                       : []
                   },
                 ),
-                linkedUrls: linked.flatMap((row) => {
-                  const safe = linkedRepositoryUrlSchema.safeParse(row.gitUrl)
-                  return safe.success ? [safe.data] : []
-                }),
+                linkedUrls,
               }
             },
           )
@@ -141,16 +150,21 @@ export const workspaceMigrationExport = defineWorkflow(
             const transformed = await step.run(
               { name: "transform-migration-export" },
               async () => {
-                const existingKnowledge = await readGitFiles(
+                const sourcesPath = ".ctxpipe/sources.yaml"
+                const existing = await readGitFiles(
                   acquired.pack,
                   (path) =>
-                    path.endsWith(".md") &&
-                    !isConnectorMirrorPath(path) &&
-                    (path.startsWith("knowledge/") ||
-                      path.startsWith("repositories/")),
+                    path === sourcesPath ||
+                    (path.endsWith(".md") &&
+                      !isConnectorMirrorPath(path) &&
+                      path.startsWith("knowledge/")),
                 )
+                const existingKnowledge = existing.filter(
+                  (file) => file.path !== sourcesPath,
+                )
+                const { linkedUrls, ...projectionSource } = source
                 const plan = await planKnowledgeProjection({
-                  ...source,
+                  ...projectionSource,
                   workspaceId: input.workspaceId,
                   workspaceRepositoryUrl: revision.remote.url,
                   workspaceByRepositoryId: new Map(
@@ -160,8 +174,20 @@ export const workspaceMigrationExport = defineWorkflow(
                   existingKnowledge,
                   stampImportKey: true,
                 })
+                const sourcesFile = migrationSourcesFile({
+                  sourcesFile:
+                    existing.find((file) => file.path === sourcesPath)
+                      ?.content ?? null,
+                  connectionId,
+                  gitUrls: linkedUrls,
+                })
                 return {
-                  files: plan.wouldChange ? plan.files : [],
+                  files: [
+                    ...(plan.wouldChange ? plan.files : []),
+                    ...(sourcesFile
+                      ? [{ path: sourcesPath, content: sourcesFile }]
+                      : []),
+                  ],
                   knowledgePaths: plan.knowledgePaths,
                 }
               },
