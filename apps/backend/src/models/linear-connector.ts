@@ -1018,7 +1018,7 @@ async function resolveRepositoryIdForLinearSync(
   orgId: string,
   sync: LinearBindingPatchInput,
   defaultGithubConnectionId: string | undefined,
-): Promise<{ repositoryId: string; didCreate: boolean }> {
+): Promise<{ repositoryId: string }> {
   if (sync.repositoryId) {
     const [byId] = await tx
       .select({ id: repositories.id })
@@ -1030,7 +1030,7 @@ async function resolveRepositoryIdForLinearSync(
         ),
       )
       .limit(1)
-    if (byId) return { repositoryId: byId.id, didCreate: false }
+    if (byId) return { repositoryId: byId.id }
     throw new Error("Repository not found for organization")
   }
 
@@ -1045,7 +1045,7 @@ async function resolveRepositoryIdForLinearSync(
       and(eq(repositories.orgId, orgId), eq(repositories.gitUrl, sync.gitUrl)),
     )
     .limit(1)
-  if (byUrl) return { repositoryId: byUrl.id, didCreate: false }
+  if (byUrl) return { repositoryId: byUrl.id }
 
   const repositoryId = generateObjectId("repo")
   const [created] = await tx
@@ -1073,7 +1073,7 @@ async function resolveRepositoryIdForLinearSync(
     .returning({ id: repositoryCheckouts.id })
   if (!checkout) throw new Error("Failed to create repository checkout")
 
-  return { repositoryId, didCreate: true }
+  return { repositoryId }
 }
 
 export async function patchLinearConnectorConfig(input: {
@@ -1088,11 +1088,6 @@ export async function patchLinearConnectorConfig(input: {
   /** Stale config PR on the previous repo/branch; caller should close best-effort. */
   supersededConfigPullUrl?: string | null
   supersededConfigRepositoryId?: string | null
-  repositoryIngestion?: {
-    orgId: string
-    repositoryId: string
-    targetBranch?: string
-  }
 }> {
   const defaultGithubConnectionId = (
     await listGithubConnectionsForOrg(input.orgId)
@@ -1118,29 +1113,14 @@ export async function patchLinearConnectorConfig(input: {
 
     let supersededConfigPullUrl: string | null | undefined
     let supersededConfigRepositoryId: string | null | undefined
-    let repositoryIngestion:
-      | {
-          orgId: string
-          repositoryId: string
-          targetBranch?: string
-        }
-      | undefined
 
     if (input.binding !== undefined) {
-      const { repositoryId, didCreate } =
-        await resolveRepositoryIdForLinearSync(
-          tx,
-          input.orgId,
-          input.binding,
-          defaultGithubConnectionId,
-        )
-      if (didCreate) {
-        repositoryIngestion = {
-          orgId: input.orgId,
-          repositoryId,
-          targetBranch: input.binding.branch,
-        }
-      }
+      const { repositoryId } = await resolveRepositoryIdForLinearSync(
+        tx,
+        input.orgId,
+        input.binding,
+        defaultGithubConnectionId,
+      )
       const [connectionRow] = await tx
         .select()
         .from(connections)
@@ -1188,7 +1168,6 @@ export async function patchLinearConnectorConfig(input: {
       scopes: input.scopes ?? [],
       supersededConfigPullUrl,
       supersededConfigRepositoryId,
-      repositoryIngestion,
     }
   })
 }

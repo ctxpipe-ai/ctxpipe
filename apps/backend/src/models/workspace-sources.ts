@@ -135,21 +135,6 @@ export async function listConnectionSourceRows(input: {
   )
 }
 
-/** True when any Workspace source row uses the connection, in any status. */
-export async function connectionHasWorkspaceSources(input: {
-  orgId: string
-  connectionId: string
-}): Promise<boolean> {
-  const rows = await withOrgDbContext(input.orgId, (db) =>
-    db
-      .select({ id: workspaceSources.id })
-      .from(workspaceSources)
-      .where(eq(workspaceSources.connectionId, input.connectionId))
-      .limit(1),
-  )
-  return rows.length > 0
-}
-
 /**
  * The connections of each organization that have at least one `ok` source,
  * with the provider of those sources. Rows are org-isolated, so the read

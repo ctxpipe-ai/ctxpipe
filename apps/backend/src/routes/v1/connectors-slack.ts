@@ -16,7 +16,6 @@ import {
   upsertSlackConnectionFromOAuth,
 } from "../../models/slack-connector.js"
 import { getLogger } from "../../observability/logger.js"
-import { enqueueLegacySyncRepositoryIngestion } from "../../openworkflow/legacy-sync-repository-ingestion.js"
 import {
   assertSlackOAuthConfigured,
   botTokenFromConnection,
@@ -754,24 +753,6 @@ export const slackConnectorRoutes = slackOAuthStartRoutes
           branch: body.branch,
         }),
       )
-      if (target.repositoryIngestion) {
-        await enqueueLegacySyncRepositoryIngestion(
-          {
-            connectionId: installed.connection.id,
-            orgId: target.repositoryIngestion.orgId,
-            repositoryId: target.repositoryIngestion.repositoryId,
-            ...(target.repositoryIngestion.targetBranch !== undefined
-              ? { targetBranch: target.repositoryIngestion.targetBranch }
-              : {}),
-          },
-          {
-            error: (error) =>
-              getLogger().error(error, {
-                step: "slack.repository_ingestion.enqueue",
-              }),
-          },
-        )
-      }
       return c.json(
         { accepted: true as const, setupPhase: target.setupPhase },
         200,

@@ -1271,7 +1271,7 @@ async function resolveRepositoryIdForPagerdutySync(
   orgId: string,
   sync: BindingPatchInput,
   githubConnectionId: string | undefined,
-): Promise<{ repositoryId: string; didCreate: boolean }> {
+): Promise<{ repositoryId: string }> {
   if (sync.repositoryId) {
     const [byId] = await tx
       .select({ id: repositories.id })
@@ -1283,7 +1283,7 @@ async function resolveRepositoryIdForPagerdutySync(
         ),
       )
       .limit(1)
-    if (byId) return { repositoryId: byId.id, didCreate: false }
+    if (byId) return { repositoryId: byId.id }
   }
 
   const gitUrl = sync.gitUrl
@@ -1300,7 +1300,7 @@ async function resolveRepositoryIdForPagerdutySync(
     .from(repositories)
     .where(and(eq(repositories.orgId, orgId), eq(repositories.gitUrl, gitUrl)))
     .limit(1)
-  if (byUrl) return { repositoryId: byUrl.id, didCreate: false }
+  if (byUrl) return { repositoryId: byUrl.id }
 
   const id = generateObjectId("repo")
   const checkoutId = generateObjectId("co")
@@ -1328,7 +1328,7 @@ async function resolveRepositoryIdForPagerdutySync(
     .returning({ id: repositoryCheckouts.id })
   if (!checkout) throw new Error("Failed to create repository checkout")
 
-  return { repositoryId: id, didCreate: true }
+  return { repositoryId: id }
 }
 
 export async function patchPagerdutyConnectorConfig(input: {
@@ -1337,11 +1337,6 @@ export async function patchPagerdutyConnectorConfig(input: {
   syncTarget?: BindingPatchInput
 }): Promise<{
   bindingChanged: boolean
-  repositoryIngestion?: {
-    orgId: string
-    repositoryId: string
-    targetBranch?: string
-  }
 }> {
   return withOrgDbContext(input.orgId, async (db) => {
     if (input.syncTarget === undefined) {
@@ -1364,28 +1359,12 @@ export async function patchPagerdutyConnectorConfig(input: {
       (githubConnections.length === 1 ? githubConnections[0]?.id : undefined)
 
     return db.transaction(async (tx) => {
-      let repositoryIngestion:
-        | {
-            orgId: string
-            repositoryId: string
-            targetBranch?: string
-          }
-        | undefined
-
-      const { repositoryId, didCreate } =
-        await resolveRepositoryIdForPagerdutySync(
-          tx,
-          input.orgId,
-          syncTarget,
-          githubConnectionId,
-        )
-      if (didCreate) {
-        repositoryIngestion = {
-          orgId: input.orgId,
-          repositoryId,
-          targetBranch: syncTarget.branch,
-        }
-      }
+      const { repositoryId } = await resolveRepositoryIdForPagerdutySync(
+        tx,
+        input.orgId,
+        syncTarget,
+        githubConnectionId,
+      )
 
       await tx.execute(
         sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
@@ -1435,7 +1414,6 @@ export async function patchPagerdutyConnectorConfig(input: {
 
       return {
         bindingChanged: plan.changed,
-        repositoryIngestion,
       }
     })
   })
