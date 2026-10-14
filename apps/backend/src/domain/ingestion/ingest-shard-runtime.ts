@@ -104,18 +104,16 @@ export type IngestShardRuntimeFactory = {
  * never the worker's own address or port. It is `AUTH_BASE_URL` (the API
  * origin on Railway and AWS), with two changes:
  * - `SANDBOX_CALLBACK_HOST` names the API on the sandbox network (Compose):
- *   plain HTTP to that host, on the port of `AUTH_BASE_URL` (else 3000);
+ *   plain HTTP to that host, on the API container's port 3000. The port of
+ *   `AUTH_BASE_URL` is the public port, which can be another;
  * - a `localhost` API (host dev) is `host.docker.internal` from a container.
  */
 export function ingestCallbackOrigin(
   env: Pick<Env, "AUTH_BASE_URL" | "SANDBOX_CALLBACK_HOST">,
 ): string {
+  if (env.SANDBOX_CALLBACK_HOST)
+    return new URL(`http://${env.SANDBOX_CALLBACK_HOST}:3000`).origin
   const api = new URL(env.AUTH_BASE_URL)
-  if (env.SANDBOX_CALLBACK_HOST) {
-    const callback = new URL(`http://${env.SANDBOX_CALLBACK_HOST}`)
-    callback.port = api.port || "3000"
-    return callback.origin
-  }
   if (
     ["localhost", "127.0.0.1", "[::1]"].includes(api.hostname) ||
     api.hostname.endsWith(".localhost")

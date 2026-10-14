@@ -25,6 +25,17 @@ describe("ingestCallbackOrigin", () => {
     )
   })
 
+  it("uses the container port 3000 in Compose, also when the public port is another", () => {
+    const env = parseEnv({
+      ...base,
+      AUTH_BASE_URL: "https://ctxpipe.example.com:8443",
+      SANDBOX_CALLBACK_HOST: "backend.sandbox.ctxpipe.internal",
+    })
+    expect(ingestCallbackOrigin(env)).toBe(
+      "http://backend.sandbox.ctxpipe.internal:3000",
+    )
+  })
+
   it("uses the public API origin on AWS and Railway, not the worker's PORT", () => {
     const env = parseEnv({
       ...base,
