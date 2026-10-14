@@ -78,7 +78,8 @@ export function decodeCursorWithAnchor(
     !Number.isInteger(payload.o) ||
     payload.o < 0 ||
     (payload.t !== undefined &&
-      (typeof payload.t !== "number" || !Number.isFinite(payload.t)))
+      (typeof payload.t !== "number" ||
+        Number.isNaN(new Date(payload.t).getTime())))
   ) {
     throw invalidCursor()
   }

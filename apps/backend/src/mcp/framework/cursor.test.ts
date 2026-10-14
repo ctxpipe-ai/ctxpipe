@@ -38,6 +38,17 @@ describe("cursor", () => {
     )
   })
 
+  it("gives invalid_cursor for an anchor outside the date range", () => {
+    const valid = encodeCursor({ ...bound, offset: 1, anchor: 1 })
+    const payload = JSON.parse(Buffer.from(valid, "base64url").toString("utf8"))
+    const forged = Buffer.from(
+      JSON.stringify({ ...payload, t: 9e15 }),
+    ).toString("base64url")
+    expect(() => decodeCursorWithAnchor(forged, bound)).toThrowError(
+      expect.objectContaining({ code: "invalid_cursor" }),
+    )
+  })
+
   it("is opaque: no id, SHA or scope in clear text", () => {
     const cursor = encodeCursor({ ...bound, offset: 20 })
     for (const value of ["org_a", "ws_a", bound.sha, "search_knowledge"]) {
