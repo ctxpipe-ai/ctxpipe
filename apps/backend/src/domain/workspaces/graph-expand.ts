@@ -161,8 +161,9 @@ function rows<T extends z.ZodObject>(
 /**
  * Walk the published Workspace graph from `seeds`, one bounded Cypher query
  * for each hop. Each node expands at most `maxFanOut` matching edges: the
- * strongest edge of each predicate, then the second strongest, and so on. The walk never reads the whole graph: it stops at a cap and marks
- * the result `partial`. The result is sorted by id, so it does not depend on
+ * strongest edge of each predicate, then the second strongest, and so on.
+ * The walk never reads the whole graph: it stops at a cap and marks the
+ * result `partial`. The result is sorted by id, so it does not depend on
  * the write order of the graph.
  */
 export async function expandWorkspaceGraph(
@@ -308,20 +309,31 @@ export async function expandHop(
   // The fan-out takes the edges of a node in turns by predicate, the
   // strongest edge of each predicate first, so that one predicate with many
   // edges does not fill the fan-out of a node. Of equal edges, the newest
-  // (`validFrom`) comes first.
+  // (`validFrom`) comes first. Round 1 holds at most `perNodeLimit`
+  // predicates, those with the strongest edges, and each predicate reads at
+  // most `perNodeLimit` edges in its own subquery. Thus the memory of a node
+  // stays at most perNodeLimit² edges, however many edges a hub has.
   // Validity compares ISO strings. An edge is valid in the window when it
   // starts before the window ends and ends after the window starts.
+  const match = `MATCH (f:WorkspaceKnowledgeUnit {projectionKey: $projectionKey, id: fromId})${pattern}(n:WorkspaceKnowledgeUnit {projectionKey: $projectionKey})
+      WHERE r.confidence >= $minConfidence
+        ${input.predicates ? "AND r.predicate IN $predicates" : ""}
+        AND (r.validFrom IS NULL OR r.validFrom <= $windowTo)
+        AND (r.validTo IS NULL OR r.validTo > $windowFrom)`
   const result = await client.executeQuery(
     `UNWIND $frontier AS fromId
     CALL {
       WITH fromId
-      MATCH (f:WorkspaceKnowledgeUnit {projectionKey: $projectionKey, id: fromId})${pattern}(n:WorkspaceKnowledgeUnit {projectionKey: $projectionKey})
-      WHERE r.confidence >= $minConfidence
-        ${input.predicates ? "AND r.predicate IN $predicates" : ""}
-        AND (r.validFrom IS NULL OR r.validFrom <= $windowTo)
-        AND (r.validTo IS NULL OR r.validTo > $windowFrom)
-      WITH DISTINCT r ORDER BY r.confidence DESC, coalesce(r.validFrom, '') DESC, r.id
-      WITH r.predicate AS predicate, collect(r)[0..$perNodeLimit] AS ranked
+      ${match}
+      WITH fromId, r.predicate AS predicate, max(r.confidence) AS best
+      ORDER BY best DESC, predicate LIMIT $perNodeLimit
+      CALL {
+        WITH fromId, predicate
+        ${match} AND r.predicate = predicate
+        WITH DISTINCT r ORDER BY r.confidence DESC, coalesce(r.validFrom, '') DESC, r.id
+        LIMIT $perNodeLimit
+        RETURN collect(r) AS ranked
+      }
       UNWIND range(0, size(ranked) - 1) AS rank
       WITH ranked[rank] AS r, rank
       RETURN r ORDER BY rank, r.confidence DESC, coalesce(r.validFrom, '') DESC, r.id LIMIT $perNodeLimit

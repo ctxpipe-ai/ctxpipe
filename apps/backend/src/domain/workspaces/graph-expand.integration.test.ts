@@ -234,6 +234,78 @@ describe("expandWorkspaceGraph on FalkorDB", () => {
     expect(wide.cappedHubs).toEqual([])
   })
 
+  it(
+    "reads at most the fan-out of each predicate of a hub with 3,000 edges of one predicate",
+    { timeout: 60_000 },
+    async () => {
+      const notes = Array.from({ length: 3000 }, (_, i) => `note-${i}.md`)
+      const others = ["A", "B", "C", "D", "E", "F"].map((letter, i) => ({
+        to: `other-${letter}.md`,
+        predicate: `REL_${letter}`,
+        confidence: 0.3 + i * 0.1,
+      }))
+      const projection = await publish([
+        unit("hub.md", [
+          ...notes.map((to, i) => ({
+            to,
+            predicate: "PART_OF",
+            confidence: 0.2 + (i % 1000) / 2000,
+          })),
+          ...others,
+        ]),
+        ...notes.map((path) => unit(path)),
+        ...others.map(({ to }) => unit(to)),
+      ])
+      const hop = (maxFanOut: number) =>
+        withGraphClient(org, () =>
+          expandHop(getGraphClient(), {
+            projectionKey: workspaceGraphRevisionKey(projection.revision),
+            frontier: [id("hub.md")],
+            direction: "out",
+            predicates: undefined,
+            minConfidence: 0,
+            maxFanOut,
+            remainingEdges: 25_000,
+            seenEdges: [],
+            window: {
+              from: "2026-01-01T00:00:00.000Z",
+              to: "2026-01-01T00:00:00.000Z",
+            },
+          }),
+        )
+      // Round 1 holds the strongest edge of each of the 7 predicates. Rounds
+      // 2 and 3 hold only PART_OF edges. The fan-out of 9 stops there, and
+      // one more edge is the probe that marks the hub.
+      const wide = await hop(9)
+      expect(wide.cappedHubs).toEqual([id("hub.md")])
+      expect(wide.edges).toHaveLength(10)
+      const kept = wide.edges.filter((edge) => !edge.probe)
+      expect(kept.map((edge) => edge.predicate).sort()).toEqual([
+        "PART_OF",
+        "PART_OF",
+        "PART_OF",
+        "REL_A",
+        "REL_B",
+        "REL_C",
+        "REL_D",
+        "REL_E",
+        "REL_F",
+      ])
+      for (const edge of kept.filter((edge) => edge.predicate === "PART_OF"))
+        expect(edge.confidence).toBeCloseTo(0.6995)
+      // More predicates than the fan-out: the predicates with the strongest
+      // edges win.
+      const narrow = await hop(2)
+      expect(
+        narrow.edges
+          .filter((edge) => !edge.probe)
+          .map((edge) => edge.predicate)
+          .sort(),
+      ).toEqual(["REL_E", "REL_F"])
+      expect(narrow.edges).toHaveLength(3)
+    },
+  )
+
   it("stops an in-flight query at its server deadline", async () => {
     await publish([unit("slow.md")])
     await withGraphClient(org, async () => {
@@ -444,11 +516,12 @@ describe("expandWorkspaceGraph on FalkorDB", () => {
     })
     expect(nodeIds(result)).toEqual([id("seed-0.md")])
     expect(result).toMatchObject({ partial: true, partialReason: "max_nodes" })
+    // A test can give the walk up to 60 s, so the timeouts stop there.
     for (const caps of [
       { maxNodes: 5_001 },
       { maxEdges: 25_001 },
-      { hopTimeoutMs: 1_001 },
-      { totalTimeoutMs: 3_001 },
+      { hopTimeoutMs: 60_001 },
+      { totalTimeoutMs: 60_001 },
     ]) {
       await expect(expand(projection, { seeds, caps })).rejects.toThrow()
     }
