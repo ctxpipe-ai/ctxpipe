@@ -527,26 +527,29 @@ describe("ingestion v2 with a failed shard", () => {
       const runId = handle.workflowRun.id
       try {
         // The parent saw the failed shard 0: its child step failed, and the
-        // parent is no longer running.
+        // parent is parked. OpenWorkflow 0.10 parks a run as `running` with
+        // no worker (the `sleeping` status is deprecated).
         const deadline = Date.now() + 300_000
         let parentStatus = ""
         for (;;) {
           const rows = await getSystemDb().execute<{
             step: string | null
             run: string
+            parked: boolean
           }>(sql`
             select
               (select sa.status from openworkflow.step_attempts sa
                 where sa.namespace_id = wr.namespace_id
                   and sa.workflow_run_id = wr.id and sa.step_name = 'shard:0'
                 order by sa.created_at desc limit 1) as step,
-              wr.status as run
+              wr.status as run,
+              wr.worker_id is null as parked
             from openworkflow.workflow_runs wr
             where wr.namespace_id = ${openWorkflowNamespaceId()}
               and wr.id = ${runId}
           `)
           const row = rows.rows[0]
-          if (row?.step === "failed" && row.run !== "running") {
+          if (row?.step === "failed" && (row.run !== "running" || row.parked)) {
             parentStatus = row.run
             break
           }
@@ -557,7 +560,7 @@ describe("ingestion v2 with a failed shard", () => {
         expect(wide.waiting).toBe(true)
         // Shard 1 still runs, so the parent waits: the run is not failed,
         // and the tip check keeps the refs that shard 1 writes.
-        expect(parentStatus).toBe("sleeping")
+        expect(parentStatus).toBe("running")
         expect(Object.keys(refsOf(contexts[0] ?? ""))).toContain(
           `refs/ctxpipe/ingest/${runId}/${workspaceIds[0]}/shards/1`,
         )
