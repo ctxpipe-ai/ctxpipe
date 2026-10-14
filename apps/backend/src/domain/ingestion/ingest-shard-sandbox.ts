@@ -42,6 +42,7 @@ import {
   runIngestShardStep,
 } from "./ingest-shard-ops.js"
 import {
+  type IngestRuntimeStep,
   type IngestShardRuntime,
   type IngestShardRuntimeFactory,
   type IngestShardSpec,
@@ -71,13 +72,19 @@ function ingestModels() {
   return { medium: medium.modelBase, fast: fast.modelBase }
 }
 
-/** The T07 context index of a destination at its pinned revision. */
+/**
+ * The T07 context index of a destination at a step base: the projection at
+ * the pinned revision, changed by the run's step commits up to `base`
+ * (ADR-052 section 6). `ref` is the run ref that holds `base`.
+ */
 async function contextIndexJson(input: {
   orgId: string
   workspaceId: string
   url: string
   githubConnectionId: string
   sha: string
+  base: string
+  ref?: string
   sourceUrl: string
 }): Promise<string> {
   const env = parseEnv(process.env)
@@ -89,22 +96,30 @@ async function contextIndexJson(input: {
   const dir = await mkdtemp(join(tmpdir(), "ctxpipe-ingest-index-"))
   try {
     await runGit(dir, ["init", "--quiet", "--bare"])
-    await runGit(
-      dir,
-      [
-        "fetch",
-        "--quiet",
-        "--no-tags",
-        "--depth=1",
-        "--",
-        input.url,
-        input.sha,
-      ],
-      { env: gitRemoteEnvironment({ url: input.url, token }) },
-    )
+    const fetch = (what: string) =>
+      runGit(
+        dir,
+        ["fetch", "--quiet", "--no-tags", "--depth=1", "--", input.url, what],
+        { env: gitRemoteEnvironment({ url: input.url, token }) },
+      )
+    await fetch(input.sha)
+    if (input.base !== input.sha) {
+      // The base is the run ref's tip; a fetch by name needs no SHA wants.
+      if (input.ref) await fetch(input.ref)
+      const present = await runGit(dir, [
+        "cat-file",
+        "-e",
+        `${input.base}^{commit}`,
+      ]).then(
+        () => true,
+        () => false,
+      )
+      if (!present) await fetch(input.base)
+    }
     const { json } = await buildContextIndex({
       workspaceId: input.workspaceId,
       sha: input.sha,
+      base: input.base,
       sourceUrl: input.sourceUrl,
       repoDir: dir,
     })
@@ -263,25 +278,29 @@ function shardRuntime(spec: IngestShardSpec): IngestShardRuntime {
     shard: spec.shard,
     workspaceId: firstWorkspace,
   }
+  // One index for each Workspace and step base; a new base is a new index.
   const indexes = new Map<string, Promise<string>>()
-  const indexOf = (workspaceId: string) => {
+  const indexOf = (step: IngestRuntimeStep) => {
     const destination = spec.destinations.find(
-      (d) => d.workspaceId === workspaceId,
+      (d) => d.workspaceId === step.workspaceId,
     )
     if (!destination)
       throw new Error("The step's Workspace is not in the shard")
-    let pending = indexes.get(workspaceId)
+    const key = `${step.workspaceId}:${step.baseCommit}`
+    let pending = indexes.get(key)
     if (!pending) {
       pending = contextIndexJson({
         orgId: spec.orgId,
-        workspaceId,
+        workspaceId: step.workspaceId,
         url: destination.url,
         githubConnectionId: destination.githubConnectionId,
         sha: destination.pinnedRevision,
+        base: step.baseCommit,
+        ...(step.fetchRef ? { ref: step.fetchRef } : {}),
         sourceUrl: spec.source.url,
       })
-      pending.catch(() => indexes.delete(workspaceId))
-      indexes.set(workspaceId, pending)
+      pending.catch(() => indexes.delete(key))
+      indexes.set(key, pending)
     }
     return pending
   }
@@ -364,7 +383,7 @@ function shardRuntime(spec: IngestShardSpec): IngestShardRuntime {
               spec.destinations.find((d) => d.workspaceId === step.workspaceId)
                 ?.url ?? "",
             sourceUrl: spec.source.url,
-            index: await indexOf(step.workspaceId),
+            index: await indexOf(step),
             ...(models
               ? {
                   model: `ctxpipe/${step.tier === "fast" ? models.fast : models.medium}`,

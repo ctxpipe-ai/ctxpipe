@@ -1,18 +1,23 @@
 import { spawn } from "node:child_process"
 import { listWorkspaceUnitsAtRevision } from "../../models/workspaces.js"
-import { resolveHydrateLink } from "../workspaces/hydrate.js"
+import {
+  hydrateKnowledgeTree,
+  resolveHydrateLink,
+} from "../workspaces/hydrate.js"
 import {
   fileOwnership,
   fileSources,
   parseYamlObject,
   splitFrontMatter,
 } from "./patch-validator.js"
+import { runGit } from "./run-git.js"
 
 /**
  * The context index of one Workspace (CTX-584, concept section 4.2). The host
- * builds it from the active projection at the pinned revision and stages it as
- * `/ctxpipe/context/<workspaceId>.index.json`. The agent reads it before it
- * writes, so the file is compact and bounded.
+ * builds it from the active projection at the pinned revision, changed by the
+ * files that the run's earlier steps wrote up to the step base (ADR-052
+ * section 6), and stages it as `/ctxpipe/context/<workspaceId>.index.json`.
+ * The agent reads it before it writes, so the file is compact and bounded.
  */
 
 export type ContextIndexEntry = {
@@ -147,28 +152,141 @@ export function buildContextIndexEntries(input: {
   })
 }
 
+type IndexUnit = { path: string; kind: string | null; links: string[] }
+
 /**
- * Builds the index from the units projected at `sha` (the pinned revision)
- * and the raw files of that revision in `repoDir`. The result depends only on
- * the revision and the source, so the same input gives the same JSON.
+ * The units of the index at the step base: the projection at the pinned
+ * revision, with each file that changed between the pinned revision and the
+ * base parsed again as hydrate parses it. A deleted file has no unit.
+ */
+export function unitsAtStepBase(input: {
+  workspaceId: string
+  projection: readonly IndexUnit[]
+  changed: ReadonlyArray<{ path: string; content: string | null }>
+}): IndexUnit[] {
+  const units = new Map(input.projection.map((unit) => [unit.path, unit]))
+  for (const { path } of input.changed) units.delete(path)
+  const { units: parsed } = hydrateKnowledgeTree({
+    workspaceId: input.workspaceId,
+    files: input.changed.flatMap((file) =>
+      file.content === null ? [] : [{ path: file.path, content: file.content }],
+    ),
+  })
+  for (const unit of parsed)
+    units.set(unit.path, {
+      path: unit.path,
+      kind: unit.kind,
+      links: unit.links,
+    })
+  return [...units.values()].sort((a, b) =>
+    a.path < b.path ? -1 : a.path > b.path ? 1 : 0,
+  )
+}
+
+/** The paths that changed between two commits of `repoDir`, with their text at `base`. */
+async function changedFiles(
+  repoDir: string,
+  pinnedRevision: string,
+  base: string,
+): Promise<Array<{ path: string; content: string | null }>> {
+  if (base === pinnedRevision) return []
+  const out = (
+    await runGit(repoDir, [
+      "diff-tree",
+      "-r",
+      "-z",
+      "--no-renames",
+      "--name-status",
+      pinnedRevision,
+      base,
+    ])
+  ).toString("utf8")
+  const fields = out.split("\0").filter(Boolean)
+  const deleted: string[] = []
+  const written: string[] = []
+  for (let i = 0; i + 1 < fields.length; i += 2) {
+    const status = fields[i] ?? ""
+    const path = fields[i + 1] ?? ""
+    if (status.startsWith("D")) deleted.push(path)
+    else written.push(path)
+  }
+  const raw = await readGitFiles(repoDir, base, written)
+  return [
+    ...deleted.map((path) => ({ path, content: null })),
+    ...written.map((path) => ({ path, content: raw.get(path) ?? null })),
+  ]
+}
+
+/**
+ * Builds the index of a step from the projection at the pinned revision and
+ * the commits from there to `base` (the step base) in `repoDir`. The result
+ * depends only on the two commits and the source, so the same input gives
+ * the same JSON.
+ */
+export async function contextIndexAtStepBase(input: {
+  workspaceId: string
+  projection: readonly IndexUnit[]
+  pinnedRevision: string
+  base: string
+  sourceUrl: string
+  repoDir: string
+}): Promise<{ index: ContextIndex; json: string }> {
+  const units = unitsAtStepBase({
+    workspaceId: input.workspaceId,
+    projection: input.projection,
+    changed: await changedFiles(
+      input.repoDir,
+      input.pinnedRevision,
+      input.base,
+    ),
+  })
+  const raw = await readGitFiles(
+    input.repoDir,
+    input.base,
+    units.map((unit) => unit.path),
+  )
+  return renderContextIndex({
+    workspaceId: input.workspaceId,
+    revision: input.base,
+    entries: buildContextIndexEntries({
+      units,
+      raw,
+      sourceUrl: input.sourceUrl,
+    }),
+  })
+}
+
+/**
+ * Builds the index of a step: the units projected at `sha` (the pinned
+ * revision) from the database, changed by the commits up to `base` (the step
+ * base; the pinned revision when absent). `repoDir` holds both commits.
  */
 export async function buildContextIndex(input: {
   workspaceId: string
   sha: string
+  base?: string
   sourceUrl: string
   repoDir: string
 }): Promise<{ index: ContextIndex; json: string }> {
-  const units = await listWorkspaceUnitsAtRevision(input.workspaceId, input.sha)
-  const raw = await readGitFiles(
-    input.repoDir,
-    input.sha,
-    units.map((unit) => unit.path),
-  )
-  const all = buildContextIndexEntries({
-    units,
-    raw,
+  return contextIndexAtStepBase({
+    workspaceId: input.workspaceId,
+    projection: await listWorkspaceUnitsAtRevision(
+      input.workspaceId,
+      input.sha,
+    ),
+    pinnedRevision: input.sha,
+    base: input.base ?? input.sha,
     sourceUrl: input.sourceUrl,
+    repoDir: input.repoDir,
   })
+}
+
+function renderContextIndex(input: {
+  workspaceId: string
+  revision: string
+  entries: ContextIndexEntry[]
+}): { index: ContextIndex; json: string } {
+  const all = input.entries
   // Keep owned entries first when a cap applies; then restore path order.
   const ranked = [...all].sort(
     (a, b) =>
@@ -179,7 +297,7 @@ export async function buildContextIndex(input: {
   const render = (entries: ContextIndexEntry[]) => {
     const index: ContextIndex = {
       workspaceId: input.workspaceId,
-      revision: input.sha,
+      revision: input.revision,
       total: all.length,
       truncated: entries.length < all.length,
       entries: [...entries].sort((a, b) =>
