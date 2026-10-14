@@ -26,15 +26,15 @@ import { handleMcpTransportRequest } from "../mcp/transport.js"
 import { withTestRequestLogger } from "../test/hono-test-logger.js"
 import { registerAuthRoutes } from "./auth.js"
 
-/** The shipped read tools, in `tools/list` order. */
+/** The shipped read tools. `listToolNames` sorts, so this list is sorted too. */
 const READ_TOOLS = [
-  "list_workspaces",
-  "search_knowledge",
-  "search_code",
   "find_symbol",
-  "read_file",
-  "list_files",
   "get_related",
+  "list_files",
+  "list_workspaces",
+  "read_file",
+  "search_code",
+  "search_knowledge",
 ]
 const WRITE_TOOL = "scope_test_write"
 
@@ -395,10 +395,9 @@ describe("MCP scopes (Postgres)", () => {
     expect(token.expiresIn).toBeLessThanOrEqual(3600)
     const headers = { authorization: `Bearer ${token.accessToken}` }
 
-    expect(await listToolNames(`${baseUrl}/mcp`, headers)).toEqual([
-      ...READ_TOOLS,
-      WRITE_TOOL,
-    ])
+    expect(await listToolNames(`${baseUrl}/mcp`, headers)).toEqual(
+      [...READ_TOOLS, WRITE_TOOL].sort(),
+    )
     const response = await callTool(`${baseUrl}/mcp`, headers, WRITE_TOOL)
     expect(response.status).toBe(200)
     expect(await response.text()).toContain("written")
