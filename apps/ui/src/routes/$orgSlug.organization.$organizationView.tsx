@@ -23,7 +23,7 @@ export function OrganizationViewRoutePage() {
   if (isPending || orgsPending) {
     return (
       <main className="mx-auto max-w-3xl px-2 py-2 text-zinc-100 sm:px-6 sm:py-10">
-        <PageBodySkeleton label="Loading organisation settings" />
+        <PageBodySkeleton label="Loading organization settings" />
       </main>
     )
   }
@@ -63,7 +63,7 @@ export function OrganizationSettingsBody(props: {
       )}
     >
       <h1 className="mb-6 font-mono text-xs font-normal uppercase tracking-[0.24em] text-teal-400 sm:mb-8">
-        organisation settings
+        organization settings
       </h1>
       {isApiKeys ? (
         <div className="flex w-full grow flex-col gap-4 md:flex-row md:gap-12">
@@ -72,7 +72,7 @@ export function OrganizationSettingsBody(props: {
             <OrganizationApiKeysCard organizationId={organizationId} />
           ) : (
             <p className="text-sm text-muted-foreground">
-              This organisation could not be loaded.
+              This organization could not be loaded.
             </p>
           )}
         </div>

@@ -293,6 +293,9 @@ export async function conversationWorktreeVersion(
  * The path must not be in git metadata (a `.git` part at any depth), and no
  * part of it that exists can be a symlink.
  */
+/** A client-supplied path that the conversation worktree must not touch. */
+export class UnsafeConversationPathError extends Error {}
+
 async function assertConversationPathWritable(
   handle: JobSandboxHandle,
   path: string,
@@ -306,7 +309,7 @@ async function assertConversationPathWritable(
     })
     if (checked.exitCode === 0 && checked.stdout === "ok") return
   }
-  throw new Error(`Unsafe path: ${path}`)
+  throw new UnsafeConversationPathError(`Unsafe path: ${path}`)
 }
 
 export async function writeConversationSandboxFile(input: {
@@ -340,7 +343,9 @@ export async function renameConversationSandboxPath(input: {
     !conversationPathIsSafe(input.from) ||
     !conversationPathIsSafe(input.to)
   ) {
-    throw new Error(`Unsafe path: ${input.from} → ${input.to}`)
+    throw new UnsafeConversationPathError(
+      `Unsafe path: ${input.from} → ${input.to}`,
+    )
   }
   if (input.from === input.to) return
   await assertConversationPathWritable(input.handle, input.from)
