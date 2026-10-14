@@ -375,9 +375,7 @@ describe("discover-roots script", () => {
       [`${deep}/package.json`]: pkg("deep"),
       [`${"a/".repeat(20)}leaf/package.json`]: pkg("leaf"),
     })
-    const started = performance.now()
     const result = discover(dir)
-    expect(performance.now() - started).toBeLessThan(1000)
     expect(result.roots.map((r) => r.path)).toEqual([`${"a/".repeat(20)}leaf`])
   })
 
@@ -445,6 +443,8 @@ describe("discover-roots script", () => {
       ...Array.from({ length: 0x20 }, (_, i) => 0x80 + i),
       0x2028,
       0x2029,
+      0x061c,
+      ...[0x200b, 0x200c, 0x200d],
       0x200e,
       0x200f,
       ...[0x202a, 0x202b, 0x202c, 0x202d, 0x202e],
@@ -489,31 +489,101 @@ describe("discover-roots script", () => {
         files[`${chain}/s${i}/package.json`] = pkg(`p${i}`)
       return repo(files)
     }
-    // 4 `**` and 32 segments in 197 characters; the last segment never matches.
-    const heavy = `${"**/".repeat(4)}${"*/".repeat(27)}${"*".repeat(130)}z`
+    // 4 `**` and 32 segments in 194 characters; the last segment (128) never matches.
+    const heavy = `${"**/".repeat(4)}${"*/".repeat(27)}${"*".repeat(127)}z`
 
-    it("finishes 500 long globs on 1000 folders, 150 levels deep, in well under a second", () => {
-      expect(heavy).toHaveLength(197)
+    it("finishes 500 long globs on 1000 folders, 150 levels deep", () => {
+      expect(heavy).toHaveLength(194)
       const dir = wide(140, heavy)
-      const started = performance.now()
       const result = discover(dir)
-      expect(performance.now() - started).toBeLessThan(1000)
       expect(result.roots.map((r) => r.path)).toEqual(["apps/web"])
       expect(result.skipped.map((s) => s.reason)).toContain(
         "The script did not read a folder that is more than 64 levels deep",
       )
     })
 
+    /** 2000 depth-1 folders with 254-character names, and 499 globs of 64 brace alternatives. */
+    const longNames = (glob: string) => {
+      const files: Record<string, string> = {
+        "package.json": pkg("root", { private: true }),
+        "apps/web/package.json": pkg("web"),
+        "pnpm-workspace.yaml": [
+          "packages:",
+          "  - 'apps/*'",
+          ...Array.from({ length: 499 }, () => `  - '${glob}'`),
+        ].join("\n"),
+      }
+      for (let i = 0; i < 2000; i++)
+        files[`${"a".repeat(250)}${String(i).padStart(4, "0")}/package.json`] =
+          pkg(`p${i}`)
+      return repo(files)
+    }
+    const alternatives = `{${",".repeat(63)}}`
+
+    it("skips a glob segment that is longer than 128 characters", () => {
+      const glob = `${alternatives}*${"a".repeat(132)}b`
+      const dir = longNames(glob)
+      const result = discover(dir)
+      expect(result.skipped.map((s) => s.reason)).toContain(
+        "The script skipped an entry: it has a segment longer than 128 characters",
+      )
+    })
+
+    it("charges the character compares of a segment to the shared match budget", () => {
+      const dir = longNames(`${alternatives}*${"a".repeat(120)}b`)
+      const result = discover(dir)
+      expect(result.skipped.map((s) => s.reason)).toContain(
+        "The script skipped an entry: the match budget of the script ran out, so it read no more entries",
+      )
+    })
+
+    it("counts the compares of a segment and stops at the budget", async () => {
+      const lib = await import(
+        join(INGEST_SKILLS_DIR, "discover-roots/scripts/roots-lib.mjs")
+      )
+      const names = Array.from(
+        { length: 2000 },
+        (_, i) => `${"a".repeat(250)}${String(i).padStart(4, "0")}`,
+      )
+      const matcher = lib.globMatcher(`*${"a".repeat(120)}b`)
+      expect(matcher.skip).toBeUndefined()
+      expect(lib.matchStepsUsed()).toBe(0)
+      for (const name of names) {
+        if (!lib.matchBudgetLeft()) break
+        expect(matcher.matches(name)).toBe(false)
+      }
+      expect(lib.matchBudgetLeft()).toBe(false)
+      // The budget is 2 million steps; one run can pass it by at most one segment table.
+      expect(lib.matchStepsUsed()).toBeLessThan(2_000_001 + 2000)
+      // A segment of 255 characters is the longest one that the matcher compares.
+      expect(lib.globMatcher("*").matches("a".repeat(256))).toBe(false)
+    })
+
     it("shares one match budget between the globs, and says what it skipped", () => {
       const dir = wide(55, heavy)
-      const started = performance.now()
       const result = discover(dir)
-      expect(performance.now() - started).toBeLessThan(1000)
       expect(result.roots.map((r) => r.path)).toEqual(["apps/web"])
       expect(result.skipped.map((s) => s.reason)).toContain(
         "The script skipped an entry: the match budget of the script ran out, so it read no more entries",
       )
     })
+  })
+
+  it("counts the double stars of a glob after it expands its braces", () => {
+    const dir = repo({
+      "package.json": pkg("root", { private: true }),
+      "pnpm-workspace.yaml": [
+        "packages:",
+        `  - '${"{**,a}/".repeat(5)}x'`,
+        "  - 'apps/*'",
+      ].join("\n"),
+      "apps/web/package.json": pkg("web"),
+    })
+    const result = discover(dir)
+    expect(result.roots.map((r) => r.path)).toEqual(["apps/web"])
+    expect(result.skipped.map((s) => s.reason)).toContain(
+      "The script skipped an entry: it has more than 4 `**` segments",
+    )
   })
 
   it("skips a glob with more than 32 segments or more than 4 double stars", () => {

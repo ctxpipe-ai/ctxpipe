@@ -33,12 +33,21 @@ const MAX_ENTRIES = 500
 const MAX_BRACE_ALTERNATIVES = 64
 const MAX_SEGMENTS = 32
 const MAX_DOUBLE_STARS = 4
+/** Longest glob segment, and longest path name segment that the matcher compares. */
+const MAX_GLOB_SEGMENT = 128
+const MAX_NAME_SEGMENT = 255
 /** Folders deeper than this have no match, and the script skips them. */
 export const MAX_DEPTH = 64
 export const MAX_ROOTS = 2000
-/** Match steps for one script run, shared by each glob. */
+/**
+ * Match steps for one script run, shared by each glob. A step is one cell of
+ * the segment table or one character compare inside `matchSegment`.
+ */
 const MAX_MATCH_STEPS = 2_000_000
 let matchSteps = 0
+
+/** Steps the shared match budget has used so far. */
+export const matchStepsUsed = () => matchSteps
 
 /** True while the shared match budget has steps left. */
 export const matchBudgetLeft = () => matchSteps <= MAX_MATCH_STEPS
@@ -56,7 +65,7 @@ export function safePath(text) {
     text.length > 0 &&
     text.length <= 300 &&
     // biome-ignore lint/suspicious/noControlCharactersInRegex: the check refuses control and direction characters
-    !/[\u0000-\u001f\u007f-\u009f\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069`]/.test(
+    !/[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069`]/.test(
       text,
     ) &&
     !text.includes("..")
@@ -133,6 +142,22 @@ export function globMatcher(glob, { codeowners = false } = {}) {
   if (!alternatives) return { skip: "it has an unbalanced brace" }
   if (alternatives.length > MAX_BRACE_ALTERNATIVES)
     return { skip: `it expands to more than ${MAX_BRACE_ALTERNATIVES} globs` }
+  // Braces can make a `**` segment, so count after the expansion.
+  if (
+    alternatives.some(
+      (text) =>
+        text.split("/").filter((s) => s === "**").length > MAX_DOUBLE_STARS,
+    )
+  )
+    return { skip: `it has more than ${MAX_DOUBLE_STARS} \`**\` segments` }
+  if (
+    alternatives.some((text) =>
+      text.split("/").some((s) => s.length > MAX_GLOB_SEGMENT),
+    )
+  )
+    return {
+      skip: `it has a segment longer than ${MAX_GLOB_SEGMENT} characters`,
+    }
   const patterns = alternatives.map((text) => {
     let segments = text.split("/")
     if (codeowners) {
@@ -202,13 +227,19 @@ function matchSegments(pattern, parts) {
   return match(0, 0)
 }
 
-/** One segment against `*` and `?`, with one backtrack point. */
+/**
+ * One segment against `*` and `?`, with one backtrack point. Each loop turn
+ * is a step of the shared budget. A name longer than MAX_NAME_SEGMENT has no
+ * match, and so does a run that is out of budget (each caller checks).
+ */
 function matchSegment(glob, text) {
+  if (text.length > MAX_NAME_SEGMENT) return false
   let g = 0
   let t = 0
   let star = -1
   let mark = 0
   while (t < text.length) {
+    if (++matchSteps > MAX_MATCH_STEPS) return false
     if (g < glob.length && (glob[g] === "?" || glob[g] === text[t])) {
       g++
       t++
