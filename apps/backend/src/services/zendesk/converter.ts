@@ -70,9 +70,19 @@ function linkText(value: string): string {
 
 /** A URL that carries a credential: a signed URL, a token, or a Zendesk attachment token path. */
 function isPrivateUrl(url: string): boolean {
+  // A link with another scheme (javascript:, data:) is never kept.
+  const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(url)?.[1]?.toLowerCase()
+  if (scheme && !["http", "https", "mailto"].includes(scheme)) return true
+  // A relative link resolves first, so its query is checked too.
+  const absolute = scheme
+    ? url
+    : `https://zendesk.invalid${url.startsWith("/") ? "" : "/"}${url}`
   return (
-    isConnectorAssetCredentialUrl(url, { includeGenericCredentials: true }) ||
-    /\/attachments\/token\//.test(url)
+    isConnectorAssetCredentialUrl(absolute, {
+      includeGenericCredentials: true,
+    }) ||
+    /\/attachments\/token\//.test(absolute) ||
+    /[?&](api[_-]?key|access[_-]?token|token|secret|signature)=/i.test(absolute)
   )
 }
 
@@ -97,15 +107,23 @@ function withoutPrivateUrls(text: string): string {
  * addresses and phone numbers. Other personal data can remain.
  */
 function redactTicketText(text: string): string {
-  return withoutPrivateUrls(text)
-    .replace(
-      /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g,
-      "[email removed]",
-    )
-    .replace(
-      /\+\d[\d\s().-]{7,}\d|\(\d{3}\)\s?\d{3}[-.\s]\d{4}|\b\d{3}[-.]\d{3}[-.]\d{4}\b/g,
-      "[phone removed]",
-    )
+  return (
+    withoutPrivateUrls(text)
+      .replace(
+        /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g,
+        "[email removed]",
+      )
+      .replace(
+        /\+\d[\d\s().-]{7,}\d|\(\d{3}\)\s?\d{3}[-.\s]\d{4}|\b\d{3}[-. ]\d{3}[-. ]\d{4}\b/g,
+        "[phone removed]",
+      )
+      // A national number that starts with 0 (Australia, the UK): 9 to 11
+      // digits in groups. The digit count keeps a spaced date out.
+      .replace(/\b0\d{1,4}(?:[ -]\d{2,6}){1,3}\b/g, (match) => {
+        const digits = match.replace(/\D/g, "").length
+        return digits >= 9 && digits <= 11 ? "[phone removed]" : match
+      })
+  )
 }
 
 /**

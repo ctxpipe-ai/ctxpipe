@@ -224,3 +224,43 @@ describe("private links in article bodies", () => {
     expect(body(`<p>${html}</p>`)).not.toContain("s1")
   })
 })
+
+describe("more personal data and link forms", () => {
+  const text = (body: string) =>
+    zendeskTicketFile({
+      viewId: "1",
+      ticket: {
+        ...ticket,
+        comments: [
+          {
+            ...ticket.comments[0],
+            body,
+          } as ZendeskTicketForMirror["comments"][number],
+        ],
+      },
+    }).content
+
+  it.each([
+    ["an Australian mobile", "0412 345 678"],
+    ["an Australian mobile with a short prefix", "04 1234 5678"],
+    ["an Australian landline", "02 9876 5432"],
+    ["a UK mobile", "07700 900123"],
+    ["a US number with spaces", "555 123 4567"],
+  ])("removes %s", (_name, phone) => {
+    expect(text(`Call ${phone} today`)).toContain("Call [phone removed] today")
+  })
+
+  it("keeps versions, dates, times, and long ids", () => {
+    const body = "v0.12.3 on 2026-10-14 at 09:00, build 1700000000, ticket 4501"
+    expect(text(body)).toContain(body)
+  })
+
+  it.each([
+    ["a relative link with a token", "[log](/files/log?token=SECRET1)"],
+    ["an api_key parameter", "[api](https://x.example.com/v1?api_key=SECRET1)"],
+    ["a javascript link", "[click](javascript:alert(SECRET1))"],
+    ["a data link", "[img](data:text/html;base64,SECRET1)"],
+  ])("keeps only the text of %s", (_name, link) => {
+    expect(text(`See ${link}.`)).not.toContain("SECRET1")
+  })
+})
