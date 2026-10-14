@@ -356,7 +356,7 @@ describe("libraries skill", () => {
     expect(s.patch().ops).toEqual([])
   })
 
-  it("adds USES_LIBRARY claims only to mapped Service and Codebase files of this source", async () => {
+  it("adds USES_LIBRARY claims only to mapped Service and Repository files of this source", async () => {
     const service = (name: string, sources: string[]) =>
       front({ kind: "Service", name, sources }, `# ${name}\n`)
     const s = step(PNPM_SHOP, {
@@ -400,6 +400,26 @@ describe("libraries skill", () => {
           `- to: \\.\\./libraries/${id}\\.md\\n\\s+predicate: USES_LIBRARY\\n\\s+evidence:\\n\\s+path: apps/api/package\\.json`,
         ),
       )
+  })
+
+  it("finds a knowledge/codebases/ file of kind Repository and adds USES_LIBRARY claims to it", async () => {
+    const s = step(PNPM_SHOP, {
+      "knowledge/codebases/shop.md": front(
+        { kind: "Repository", name: "shop", sources: [SOURCE_URL] },
+        "# shop\n",
+      ),
+    })
+    s.mapFiles({ "apps/api": ["knowledge/codebases/shop.md"] })
+    const out = s.run("libraries")
+    expect(out.ops).toContainEqual({
+      op: "update",
+      path: "knowledge/codebases/shop.md",
+    })
+    expect(out.skipped).toEqual([])
+    const result = await s.validate("libraries")
+    expect(result.rejections).toEqual([])
+    const shop = s.show(result.tree, "knowledge/codebases/shop.md")
+    expect(shop).toMatch(/predicate: USES_LIBRARY/)
   })
 
   it("writes at most 30 files in a step and continues on the next page", async () => {
@@ -742,17 +762,270 @@ describe("ownership skill", () => {
     ])
   })
 
-  it("matches a slow CODEOWNERS pattern in well under one second, and skips an unsafe root", async () => {
+  it("sees a claim to a path with a space, so a second run and a second page add no claim", async () => {
+    const service = (name: string) =>
+      front({ kind: "Service", name, sources: [SOURCE_URL] }, `# ${name}\n`)
+    const s = step(
+      { ...PNPM_SHOP, CODEOWNERS: "/apps/ @example-org/payments\n" },
+      {
+        "knowledge/services/my api.md": service("My API"),
+        "knowledge/services/web.md": service("Web"),
+      },
+    )
+    s.mapFiles({
+      "apps/api": ["knowledge/services/my api.md"],
+      "apps/web": ["knowledge/services/web.md"],
+    })
+    const first = s.run("ownership")
+    expect(first.ops).toEqual([
+      { op: "create", path: "knowledge/teams/example-org-payments.md" },
+    ])
+    const page = await s.validate("ownership")
+    expect(page.rejections).toEqual([])
+    s.advance(page.tree)
+    expect(s.run("ownership").ops).toEqual([])
+    s.advance(page.tree)
+    expect(s.run("ownership").ops).toEqual([])
+    const team = s.show(page.tree, "knowledge/teams/example-org-payments.md")
+    expect(team.match(/to: "?\.\.\/services\/my api\.md"?$/gm)).toHaveLength(1)
+  })
+
+  it("does not match a team file whose name only has the same letters as the team", async () => {
+    const lookalike = front(
+      { kind: "Team", name: "acmep/latform" },
+      "# Lookalike\n",
+    )
+    const s = step(
+      { ...PNPM_SHOP, CODEOWNERS: "* @acme/platform\n" },
+      {
+        "knowledge/teams/lookalike.md": lookalike,
+        "knowledge/teams/acme-platform.md": front(
+          { kind: "Team", name: "acmep/latform" },
+          "# At the default path\n",
+        ),
+      },
+    )
+    const out = s.run("ownership")
+    expect(out.ops).toEqual([])
+    expect(out.skipped).toEqual([
+      {
+        path: "knowledge/teams/acme-platform.md",
+        reason: "A file with another name has this path",
+      },
+    ])
+  })
+
+  it("matches an existing team file whose name is the team with the slash kept", async () => {
+    const human = front({ kind: "Team", name: "Acme/Platform" }, "# Platform\n")
+    const s = step(
+      { ...PNPM_SHOP, CODEOWNERS: "* @acme/platform\n" },
+      { "knowledge/teams/platform.md": human },
+    )
+    const out = s.run("ownership")
+    expect(out.ops).toEqual([
+      { op: "update", path: "knowledge/teams/platform.md" },
+    ])
+  })
+
+  it("keeps a claim target with spaces that is longer than 80 characters, so a second run adds no claim", async () => {
+    const longName = `my ${"long ".repeat(24)}api`
+    const servicePath = `knowledge/services/${longName}.md`
+    const s = step(
+      { ...PNPM_SHOP, CODEOWNERS: "/apps/ @example-org/payments\n" },
+      {
+        [servicePath]: front(
+          { kind: "Service", name: "Long API", sources: [SOURCE_URL] },
+          "# Long API\n",
+        ),
+      },
+    )
+    s.mapFiles({ "apps/api": [servicePath] })
+    expect(s.run("ownership").ops).toEqual([
+      { op: "create", path: "knowledge/teams/example-org-payments.md" },
+    ])
+    const page = await s.validate("ownership")
+    expect(page.rejections).toEqual([])
+    const team = s.show(page.tree, "knowledge/teams/example-org-payments.md")
+    expect(team).toContain(`${longName}.md`)
+    s.advance(page.tree)
+    const second = s.run("ownership")
+    expect(second.ops).toEqual([])
+    expect(second.skipped).toEqual([])
+  })
+
+  it("does not count a folded claim target as claimed when its first line is a prefix, and skips the file with a reason", () => {
+    const s = step(
+      { ...PNPM_SHOP, CODEOWNERS: "/apps/ @example-org/payments\n" },
+      {
+        "knowledge/teams/payments-team.md": [
+          "---",
+          "kind: Team",
+          "name: example-org/payments",
+          "claims:",
+          "  - to: ../apps/web.md",
+          "      deeper",
+          "    predicate: OWNS",
+          "    evidence:",
+          "      path: README.md",
+          "      kind: model",
+          "---",
+          "# Payments team",
+          "",
+        ].join("\n"),
+        "knowledge/apps/web.md": front(
+          { kind: "App", name: "Web", sources: [SOURCE_URL] },
+          "# Web\n",
+        ),
+      },
+    )
+    s.mapFiles({ "apps/web": ["knowledge/apps/web.md"] })
+    const out = s.run("ownership")
+    expect(out.ops).toEqual([])
+    expect(out.skipped).toContainEqual({
+      path: "knowledge/teams/payments-team.md",
+      reason: "The file has a claim target that the script cannot read",
+    })
+  })
+
+  it("reads a double-quoted claim target with a YAML escape and a trailing comment", () => {
+    const s = step(
+      { ...PNPM_SHOP, CODEOWNERS: "/apps/ @example-org/payments\n" },
+      {
+        "knowledge/teams/payments-team.md": [
+          "---",
+          "kind: Team",
+          "name: example-org/payments",
+          "claims:",
+          '  - to: "\\x2e\\x2e/apps/web.md" # the web app',
+          "    predicate: OWNS",
+          "    evidence:",
+          "      path: README.md",
+          "      kind: model",
+          "---",
+          "# Payments team",
+          "",
+        ].join("\n"),
+        "knowledge/apps/web.md": front(
+          { kind: "App", name: "Web", sources: [SOURCE_URL] },
+          "# Web\n",
+        ),
+      },
+    )
+    s.mapFiles({ "apps/web": ["knowledge/apps/web.md"] })
+    const out = s.run("ownership")
+    expect(out.skipped).toEqual([])
+    // The claim is known, so the script adds no second claim: only Related lines change.
+    expect(out.ops).toEqual([
+      { op: "update", path: "knowledge/teams/payments-team.md" },
+    ])
+    const staged = readFileSync(
+      join(s.root, "out", "files", "knowledge/teams/payments-team.md"),
+      "utf8",
+    )
+    expect(staged.match(/predicate: OWNS/g)).toHaveLength(1)
+  })
+
+  it("finishes 2000 CODEOWNERS rules on 100 deep roots and says what it skipped", () => {
+    const roots = Array.from(
+      { length: 100 },
+      (_, i) => `r${i}/${Array.from({ length: 58 }, () => "a").join("/")}`,
+    )
+    const s = step(
+      {
+        "README.md": "# Shop\n",
+        CODEOWNERS: Array.from(
+          { length: 2000 },
+          (_, i) => `**/* @example-org/team${i}`,
+        ).join("\n"),
+      },
+      {},
+    )
+    s.writeRoots(
+      roots.map((path) => ({ path, manifests: [], evidence: [], files: [] })),
+    )
+    const out = s.run("ownership")
+    expect(out.skipped.map((k) => k.reason)).toContain(
+      "The match budget of the script ran out, so it found no owner for the remaining roots",
+    )
+  })
+
+  describe("work limits per segment", () => {
+    const longRoots = Array.from(
+      { length: 2000 },
+      (_, i) => `${"a".repeat(250)}${String(i).padStart(4, "0")}`,
+    )
+    const ownerRun = (pattern: string) => {
+      const s = step(
+        {
+          "README.md": "# Shop\n",
+          CODEOWNERS: Array.from(
+            { length: 2000 },
+            () => `${pattern} @example-org/slow`,
+          ).join("\n"),
+        },
+        {},
+      )
+      s.writeRoots(
+        longRoots.map((path) => ({
+          path,
+          manifests: [],
+          evidence: [],
+          files: [],
+        })),
+      )
+      const out = s.run("ownership")
+      return { out }
+    }
+
+    it("skips a pattern segment that is longer than 128 characters", () => {
+      const { out } = ownerRun(`*${"a".repeat(132)}b`)
+      expect(out.ops).toEqual([])
+      expect(out.skipped.map((k) => k.reason)).toContain(
+        "Line 1 has a pattern that the script cannot match: it has a segment longer than 128 characters",
+      )
+    })
+
+    it("charges the character compares of a segment to the shared match budget", () => {
+      const { out } = ownerRun(`*${"a".repeat(120)}b`)
+      expect(out.ops).toEqual([])
+      expect(out.skipped.map((k) => k.reason)).toContain(
+        "The match budget of the script ran out, so it found no owner for the remaining roots",
+      )
+    })
+  })
+
+  it("skips a root that is more than 64 levels deep, and a pattern with too many segments", () => {
+    const s = step(
+      {
+        "README.md": "# Shop\n",
+        CODEOWNERS: `${"a/".repeat(33)}b @example-org/a\n* @example-org/platform\n`,
+      },
+      {},
+    )
+    s.writeRoots(
+      [`${"d/".repeat(70)}x`, "apps/web"].map((path) => ({
+        path,
+        manifests: [],
+        evidence: [],
+        files: [],
+      })),
+    )
+    const out = s.run("ownership")
+    expect(out.skipped.map((k) => k.reason)).toEqual([
+      "Line 1 has a pattern that the script cannot match: it has more than 32 segments",
+      "The root is more than 64 levels deep, so the script found no owner for it",
+    ])
+  })
+
+  it("matches a slow CODEOWNERS pattern, and skips an unsafe root", async () => {
     const deep = `${"a/".repeat(40)}x`
-    const started = performance.now()
     const { out, owned } = await owners(
       {
         "README.md": "# Shop\n",
-        CODEOWNERS: `${"**/".repeat(12)}leaf @example-org/deep\n* @example-org/platform\n`,
+        CODEOWNERS: `${"**/".repeat(4)}leaf @example-org/deep\n* @example-org/platform\n`,
       },
       [deep, "apps/bad\n`x"],
     )
-    expect(performance.now() - started).toBeLessThan(5000)
     expect(owned).toEqual({
       "knowledge/teams/example-org-platform.md": [deep],
     })

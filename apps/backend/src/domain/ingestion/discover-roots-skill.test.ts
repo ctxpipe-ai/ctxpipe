@@ -370,14 +370,12 @@ describe("discover-roots script", () => {
     const dir = repo({
       "package.json": pkg("root", {
         private: true,
-        workspaces: [`${"**/".repeat(12)}leaf`, `${"*/".repeat(30)}y`],
+        workspaces: [`${"**/".repeat(4)}leaf`, `${"*/".repeat(30)}y`],
       }),
       [`${deep}/package.json`]: pkg("deep"),
       [`${"a/".repeat(20)}leaf/package.json`]: pkg("leaf"),
     })
-    const started = performance.now()
     const result = discover(dir)
-    expect(performance.now() - started).toBeLessThan(1000)
     expect(result.roots.map((r) => r.path)).toEqual([`${"a/".repeat(20)}leaf`])
   })
 
@@ -438,6 +436,175 @@ describe("discover-roots script", () => {
           "A folder with a package manifest has a name that the script does not quote",
       },
     ])
+  })
+
+  it("does not give a folder whose name has a C1 control or an invisible direction character", () => {
+    const bad = [
+      ...Array.from({ length: 0x20 }, (_, i) => 0x80 + i),
+      0x2028,
+      0x2029,
+      0x061c,
+      ...[0x200b, 0x200c, 0x200d],
+      0x200e,
+      0x200f,
+      ...[0x202a, 0x202b, 0x202c, 0x202d, 0x202e],
+      ...[0x2066, 0x2067, 0x2068, 0x2069],
+    ].map((code) => String.fromCodePoint(code))
+    const dir = repo({
+      "package.json": pkg("root", { private: true, workspaces: ["apps/*"] }),
+      "apps/web/package.json": pkg("web"),
+      "apps/caf\u00e9/package.json": pkg("cafe"),
+      ...Object.fromEntries(
+        bad.map((c, i) => [`apps/x${i}${c}y/package.json`, pkg(`bad${i}`)]),
+      ),
+    })
+    const result = discover(dir)
+    expect(result.roots.map((r) => r.path)).toEqual([
+      "apps/caf\u00e9",
+      "apps/web",
+    ])
+    expect(result.skipped).toEqual([
+      {
+        manifest: null,
+        reason:
+          "A folder with a package manifest has a name that the script does not quote",
+      },
+    ])
+  })
+
+  describe("work limits", () => {
+    /** 1000 package folders below one chain of `depth` folders. */
+    const wide = (depth: number, glob: string) => {
+      const chain = Array.from({ length: depth }, () => "a").join("/")
+      const files: Record<string, string> = {
+        "package.json": pkg("root", { private: true }),
+        "apps/web/package.json": pkg("web"),
+        "pnpm-workspace.yaml": [
+          "packages:",
+          "  - 'apps/*'",
+          ...Array.from({ length: 499 }, () => `  - '${glob}'`),
+        ].join("\n"),
+      }
+      for (let i = 0; i < 1000; i++)
+        files[`${chain}/s${i}/package.json`] = pkg(`p${i}`)
+      return repo(files)
+    }
+    // 4 `**` and 32 segments in 194 characters; the last segment (128) never matches.
+    const heavy = `${"**/".repeat(4)}${"*/".repeat(27)}${"*".repeat(127)}z`
+
+    it("finishes 500 long globs on 1000 folders, 150 levels deep", () => {
+      expect(heavy).toHaveLength(194)
+      const dir = wide(140, heavy)
+      const result = discover(dir)
+      expect(result.roots.map((r) => r.path)).toEqual(["apps/web"])
+      expect(result.skipped.map((s) => s.reason)).toContain(
+        "The script did not read a folder that is more than 64 levels deep",
+      )
+    })
+
+    /** 2000 depth-1 folders with 254-character names, and 499 globs of 64 brace alternatives. */
+    const longNames = (glob: string) => {
+      const files: Record<string, string> = {
+        "package.json": pkg("root", { private: true }),
+        "apps/web/package.json": pkg("web"),
+        "pnpm-workspace.yaml": [
+          "packages:",
+          "  - 'apps/*'",
+          ...Array.from({ length: 499 }, () => `  - '${glob}'`),
+        ].join("\n"),
+      }
+      for (let i = 0; i < 2000; i++)
+        files[`${"a".repeat(250)}${String(i).padStart(4, "0")}/package.json`] =
+          pkg(`p${i}`)
+      return repo(files)
+    }
+    const alternatives = `{${",".repeat(63)}}`
+
+    it("skips a glob segment that is longer than 128 characters", () => {
+      const glob = `${alternatives}*${"a".repeat(132)}b`
+      const dir = longNames(glob)
+      const result = discover(dir)
+      expect(result.skipped.map((s) => s.reason)).toContain(
+        "The script skipped an entry: it has a segment longer than 128 characters",
+      )
+    })
+
+    it("charges the character compares of a segment to the shared match budget", () => {
+      const dir = longNames(`${alternatives}*${"a".repeat(120)}b`)
+      const result = discover(dir)
+      expect(result.skipped.map((s) => s.reason)).toContain(
+        "The script skipped an entry: the match budget of the script ran out, so it read no more entries",
+      )
+    })
+
+    it("counts the compares of a segment and stops at the budget", async () => {
+      const lib = await import(
+        join(INGEST_SKILLS_DIR, "discover-roots/scripts/roots-lib.mjs")
+      )
+      const names = Array.from(
+        { length: 2000 },
+        (_, i) => `${"a".repeat(250)}${String(i).padStart(4, "0")}`,
+      )
+      const matcher = lib.globMatcher(`*${"a".repeat(120)}b`)
+      expect(matcher.skip).toBeUndefined()
+      expect(lib.matchStepsUsed()).toBe(0)
+      for (const name of names) {
+        if (!lib.matchBudgetLeft()) break
+        expect(matcher.matches(name)).toBe(false)
+      }
+      expect(lib.matchBudgetLeft()).toBe(false)
+      // The budget is 2 million steps; one run can pass it by at most one segment table.
+      expect(lib.matchStepsUsed()).toBeLessThan(2_000_001 + 2000)
+      // A segment of 255 characters is the longest one that the matcher compares.
+      expect(lib.globMatcher("*").matches("a".repeat(256))).toBe(false)
+    })
+
+    it("shares one match budget between the globs, and says what it skipped", () => {
+      const dir = wide(55, heavy)
+      const result = discover(dir)
+      expect(result.roots.map((r) => r.path)).toEqual(["apps/web"])
+      expect(result.skipped.map((s) => s.reason)).toContain(
+        "The script skipped an entry: the match budget of the script ran out, so it read no more entries",
+      )
+    })
+  })
+
+  it("counts the double stars of a glob after it expands its braces", () => {
+    const dir = repo({
+      "package.json": pkg("root", { private: true }),
+      "pnpm-workspace.yaml": [
+        "packages:",
+        `  - '${"{**,a}/".repeat(5)}x'`,
+        "  - 'apps/*'",
+      ].join("\n"),
+      "apps/web/package.json": pkg("web"),
+    })
+    const result = discover(dir)
+    expect(result.roots.map((r) => r.path)).toEqual(["apps/web"])
+    expect(result.skipped.map((s) => s.reason)).toContain(
+      "The script skipped an entry: it has more than 4 `**` segments",
+    )
+  })
+
+  it("skips a glob with more than 32 segments or more than 4 double stars", () => {
+    const dir = repo({
+      "package.json": pkg("root", { private: true }),
+      "pnpm-workspace.yaml": [
+        "packages:",
+        `  - '${Array.from({ length: 33 }, () => "a").join("/")}'`,
+        "  - '**/**/x/**/y/**/z/**'",
+        "  - 'apps/*'",
+      ].join("\n"),
+      "apps/web/package.json": pkg("web"),
+    })
+    const result = discover(dir)
+    expect(result.roots.map((r) => r.path)).toEqual(["apps/web"])
+    expect(result.skipped.map((s) => s.reason)).toEqual(
+      expect.arrayContaining([
+        "The script skipped an entry: it has more than 32 segments",
+        "The script skipped an entry: it has more than 4 `**` segments",
+      ]),
+    )
   })
 
   it("finds Rush projects in rush.json, a JSON file with comments", () => {

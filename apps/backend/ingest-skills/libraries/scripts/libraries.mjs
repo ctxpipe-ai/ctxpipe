@@ -3,7 +3,7 @@
 // steps. It finds the architectural libraries in the dependency manifests of
 // each root, and writes one knowledge/libraries/<id>.md file for each. A file
 // that already describes the library gets new Related lines. Each mapped
-// root file of kind Service or Codebase gets a USES_LIBRARY claim to the
+// root file of kind Service or Repository gets a USES_LIBRARY claim to the
 // library file. No model runs. A step writes at most 30 files; the host runs
 // it again while the result has `more: true`.
 //
@@ -162,8 +162,8 @@ function catalogEntry(ecosystem, dep) {
 }
 
 const SAFE_PACKAGE = /^[@A-Za-z0-9][@A-Za-z0-9_./:-]{0,199}$/
-/** Kinds of a root file that can use a library (allowed connection Service USES_LIBRARY Library). */
-const USES_LIBRARY_KINDS = new Set(["Service", "Codebase"])
+/** Kinds of a root file that can use a library. These are validator kind names (`knowledge/codebases/` holds `Repository`). */
+const USES_LIBRARY_KINDS = new Set(["Service", "Repository"])
 const files = new Set(trackedFiles(source))
 const found = new Map()
 for (const root of roots) {

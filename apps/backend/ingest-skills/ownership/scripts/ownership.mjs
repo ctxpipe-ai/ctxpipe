@@ -10,14 +10,11 @@
 // node ownership.mjs --root /ctxpipe --source /ctxpipe/source/<handle> \
 //   --source-url <url> --roots <root-to-file map>
 
-import {
-  findExisting,
-  relativeTo,
-  scriptStep,
-  writeStep,
-} from "../../bin/knowledge-lib.mjs"
+import { relativeTo, scriptStep, writeStep } from "../../bin/knowledge-lib.mjs"
 import {
   globMatcher,
+  MAX_DEPTH,
+  matchBudgetLeft,
   readTracked,
   trackedFiles,
 } from "../../discover-roots/scripts/roots-lib.mjs"
@@ -107,9 +104,30 @@ const plans = []
 if (codeowners) {
   const parsed = rules(readTracked(source, codeowners))
   const teams = new Map()
+  const outOfBudget = () =>
+    skipped.push({
+      path: codeowners,
+      reason:
+        "The match budget of the script ran out, so it found no owner for the remaining roots",
+    })
   for (const root of roots) {
+    if (root.path.split("/").length > MAX_DEPTH) {
+      skipped.push({
+        path: codeowners,
+        reason: `The root is more than ${MAX_DEPTH} levels deep, so the script found no owner for it`,
+      })
+      continue
+    }
     let owner = null
-    for (const rule of parsed) if (rule.matches(root.path)) owner = rule
+    for (const rule of parsed) {
+      if (!matchBudgetLeft()) break
+      if (rule.matches(root.path)) owner = rule
+    }
+    // A run out of budget can miss a later rule, so it gives no owner.
+    if (!matchBudgetLeft()) {
+      outOfBudget()
+      break
+    }
     if (!owner) continue
     if (owner.unknown) {
       skipped.push({
@@ -128,7 +146,17 @@ if (codeowners) {
   const taken = new Map()
   for (const key of [...teams.keys()].sort()) {
     const { team, roots: owned } = teams.get(key)
-    const existing = findExisting(index, "Team", [key])
+    // A team name keeps the slash: "@acmep/latform" is not "acme/platform".
+    const existing =
+      index
+        .filter(
+          (e) =>
+            e.kind === "Team" &&
+            typeof e.title === "string" &&
+            e.title.toLowerCase() === key.toLowerCase(),
+        )
+        .map((e) => e.path)
+        .sort()[0] ?? null
     const path =
       existing ?? `knowledge/teams/${slug(team.org)}-${slug(team.name)}.md`
     if (taken.has(path)) {
@@ -141,7 +169,8 @@ if (codeowners) {
     taken.set(path, key)
     plans.push({
       path,
-      expectName: existing ? undefined : key,
+      expectName: key,
+      exactName: true,
       claims: owned.flatMap((o) =>
         o.root.files.map((file) => ({
           to: relativeTo(path, file.path),

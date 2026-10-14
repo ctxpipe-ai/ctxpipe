@@ -11,7 +11,7 @@
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { posix } from "node:path"
-import { safePath } from "../discover-roots/scripts/roots-lib.mjs"
+import { MAX_ROOTS, safePath } from "../discover-roots/scripts/roots-lib.mjs"
 import {
   baseBlob,
   blobContent,
@@ -54,7 +54,12 @@ export function scriptStep(argv = process.argv.slice(2)) {
   if (!Array.isArray(listed)) fail(`${rootsFile} has no roots list`)
   const skipped = []
   const roots = []
-  for (const entry of listed) {
+  if (listed.length > MAX_ROOTS)
+    skipped.push({
+      path: null,
+      reason: `The script read only the first ${MAX_ROOTS} roots of the roots file`,
+    })
+  for (const entry of listed.slice(0, MAX_ROOTS)) {
     if (!safePath(entry?.path)) {
       skipped.push({
         path: null,
@@ -194,13 +199,94 @@ function newFile({ kind, name, summary, intro, claims, related }) {
   return `---\n${yaml.join("\n")}\n---\n\n# ${name}\n\n${intro}\n\n## Related\n\n${lines.join("\n")}\n`
 }
 
-/** Claim targets already in a front matter block: "to predicate". */
+const YAML_ESCAPES = {
+  0: "\0",
+  a: "\x07",
+  b: "\b",
+  t: "\t",
+  "\t": "\t",
+  n: "\n",
+  v: "\v",
+  f: "\f",
+  r: "\r",
+  e: "\x1b",
+  " ": " ",
+  '"': '"',
+  "/": "/",
+  "\\": "\\",
+  N: "\u0085",
+  _: "\u00a0",
+  L: "\u2028",
+  P: "\u2029",
+}
+
+/** Text of a YAML double-quoted body with its escapes decoded, or null for an escape it does not know. */
+function decodeDoubleQuoted(body) {
+  let out = ""
+  for (let i = 0; i < body.length; i++) {
+    if (body[i] !== "\\") {
+      out += body[i]
+      continue
+    }
+    const code = body[++i]
+    const width = { x: 2, u: 4, U: 8 }[code]
+    if (width) {
+      const hex = body.slice(i + 1, i + 1 + width)
+      if (!new RegExp(`^[0-9a-fA-F]{${width}}$`).test(hex)) return null
+      const point = Number.parseInt(hex, 16)
+      if (point > 0x10ffff) return null
+      out += String.fromCodePoint(point)
+      i += width
+    } else if (code !== undefined && Object.hasOwn(YAML_ESCAPES, code))
+      out += YAML_ESCAPES[code]
+    else return null
+  }
+  return out
+}
+
+/**
+ * The value of a YAML `to:` scalar on one line: double quoted, single quoted,
+ * or plain. Null for any value that this function cannot decode in full (a
+ * block scalar, a flow value, an anchor, a tag, an unknown escape, a quote
+ * that does not close on the line). A caller never treats null as a match.
+ */
+function claimTarget(raw) {
+  const text = raw.trim()
+  if (text.startsWith('"')) {
+    const end = /^"((?:[^"\\]|\\.)*)"\s*(?:#.*)?$/.exec(text)
+    return end ? decodeDoubleQuoted(end[1]) : null
+  }
+  if (text.startsWith("'")) {
+    const end = /^'((?:[^']|'')*)'\s*(?:#.*)?$/.exec(text)
+    return end ? end[1].replaceAll("''", "'") : null
+  }
+  if (text === "" || /^[|>&*![{%@`#]/.test(text)) return null
+  const plain = text.replace(/\s+#.*$/, "")
+  return plain.includes(": ") ? null : plain
+}
+
+/**
+ * Claims already in a front matter block, as "to predicate" with the target
+ * decoded: the validator rewrites the quotes, so a path with a space can be
+ * plain, single quoted, or double quoted. Null when a `to:` value cannot be
+ * decoded in full, or continues on the next line.
+ */
 function existingClaims(yaml) {
   const found = new Set()
+  const lines = yaml.split("\n")
   let to = null
-  for (const line of yaml.split("\n")) {
-    const toMatch = /^\s*-?\s*to:\s*["']?([^"'\s]+)["']?\s*$/.exec(line)
-    if (toMatch) to = toMatch[1]
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    const toMatch = /^(\s*-?\s*)to:(.*)$/.exec(line)
+    if (toMatch) {
+      to = claimTarget(toMatch[2])
+      const next = lines[i + 1] ?? ""
+      // A deeper, non-empty next line continues a folded value.
+      const keyColumn = toMatch[1].length
+      const nextColumn = /^\s*/.exec(next)?.[0].length ?? 0
+      if (to === null || (next.trim() !== "" && nextColumn > keyColumn))
+        return null
+    }
     const predicate = /^\s*predicate:\s*["']?([A-Z0-9_]+)["']?\s*$/.exec(line)
     if (predicate && to) found.add(`${to} ${predicate[1]}`)
   }
@@ -243,7 +329,9 @@ function mergeFile(text, { claims, related }) {
   const yaml = front[1]
   const body = text.slice(front[0].length)
   const known = existingClaims(yaml)
-  const newClaims = claims.filter((c) => !known.has(`${c.to} ${c.predicate}`))
+  if (known === null && claims.length)
+    return { skip: "The file has a claim target that the script cannot read" }
+  const newClaims = claims.filter((c) => !known?.has(`${c.to} ${c.predicate}`))
   let header = front[0]
   if (newClaims.length) {
     const next = withClaims(yaml, newClaims)
@@ -274,10 +362,11 @@ function mergeFile(text, { claims, related }) {
 
 /**
  * Write the planned files to the staged tree and write patch.json. A plan is
- * { path, create, claims, related, expectName? }. `create` is
+ * { path, create, claims, related, expectName?, exactName? }. `create` is
  * { kind, name, summary, intro } for a new file, or null when the script
  * only adds to an existing file. When `expectName` is set, an existing file
- * at the path must have that name. Plans for one path are joined.
+ * at the path must have that name; letters and digits only, unless
+ * `exactName` is set (then the same text, in any letter case). Plans for one path are joined.
  *
  * A step writes at most MAX_STEP_OPS files. `more` is true when a plan waits
  * for the next page: the host runs the skill again on the new base until
@@ -295,6 +384,7 @@ export function writeStep(step, plans, skipped = []) {
         ...same,
         create: same.create ?? plan.create,
         expectName: same.expectName ?? plan.expectName,
+        exactName: same.exactName ?? plan.exactName,
         claims: [...same.claims, ...plan.claims],
         related: [...same.related, ...plan.related],
       })
@@ -315,7 +405,9 @@ export function writeStep(step, plans, skipped = []) {
     if (
       plan.expectName &&
       before !== null &&
-      nameKey(name) !== nameKey(plan.expectName)
+      (plan.exactName
+        ? name?.toLowerCase() !== plan.expectName.toLowerCase()
+        : nameKey(name) !== nameKey(plan.expectName))
     ) {
       skipped.push({
         path: plan.path,

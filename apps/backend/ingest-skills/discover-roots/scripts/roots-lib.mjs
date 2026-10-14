@@ -31,10 +31,31 @@ const PACKAGE_MARKERS = [
 const MAX_ENTRY_LENGTH = 200
 const MAX_ENTRIES = 500
 const MAX_BRACE_ALTERNATIVES = 64
+const MAX_SEGMENTS = 32
+const MAX_DOUBLE_STARS = 4
+/** Longest glob segment, and longest path name segment that the matcher compares. */
+const MAX_GLOB_SEGMENT = 128
+const MAX_NAME_SEGMENT = 255
+/** Folders deeper than this have no match, and the script skips them. */
+export const MAX_DEPTH = 64
+export const MAX_ROOTS = 2000
+/**
+ * Match steps for one script run, shared by each glob. A step is one cell of
+ * the segment table or one character compare inside `matchSegment`.
+ */
+const MAX_MATCH_STEPS = 2_000_000
+let matchSteps = 0
+
+/** Steps the shared match budget has used so far. */
+export const matchStepsUsed = () => matchSteps
+
+/** True while the shared match budget has steps left. */
+export const matchBudgetLeft = () => matchSteps <= MAX_MATCH_STEPS
 
 /**
  * True when a path or a name is safe to write into a Markdown line or a YAML
- * value: no control character, no newline, no backtick, no `..`, at most 300
+ * value: no control character (C0 or C1), no newline or line separator, no
+ * invisible direction character, no backtick, no `..`, at most 300
  * characters. apps/backend/src/domain/ingestion/discovered-roots.ts has the
  * same rule.
  */
@@ -43,8 +64,10 @@ export function safePath(text) {
     typeof text === "string" &&
     text.length > 0 &&
     text.length <= 300 &&
-    // biome-ignore lint/suspicious/noControlCharactersInRegex: the check refuses control characters
-    !/[\u0000-\u001f\u007f`]/.test(text) &&
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: the check refuses control and direction characters
+    !/[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069`]/.test(
+      text,
+    ) &&
     !text.includes("..")
   )
 }
@@ -110,10 +133,31 @@ function cleanEntry(value) {
 export function globMatcher(glob, { codeowners = false } = {}) {
   if (glob.length > MAX_ENTRY_LENGTH)
     return { skip: `it is longer than ${MAX_ENTRY_LENGTH} characters` }
+  const segmentsOfGlob = glob.split("/").filter(Boolean)
+  if (segmentsOfGlob.length > MAX_SEGMENTS)
+    return { skip: `it has more than ${MAX_SEGMENTS} segments` }
+  if (segmentsOfGlob.filter((s) => s === "**").length > MAX_DOUBLE_STARS)
+    return { skip: `it has more than ${MAX_DOUBLE_STARS} \`**\` segments` }
   const alternatives = codeowners ? [glob] : expandBraces(glob)
   if (!alternatives) return { skip: "it has an unbalanced brace" }
   if (alternatives.length > MAX_BRACE_ALTERNATIVES)
     return { skip: `it expands to more than ${MAX_BRACE_ALTERNATIVES} globs` }
+  // Braces can make a `**` segment, so count after the expansion.
+  if (
+    alternatives.some(
+      (text) =>
+        text.split("/").filter((s) => s === "**").length > MAX_DOUBLE_STARS,
+    )
+  )
+    return { skip: `it has more than ${MAX_DOUBLE_STARS} \`**\` segments` }
+  if (
+    alternatives.some((text) =>
+      text.split("/").some((s) => s.length > MAX_GLOB_SEGMENT),
+    )
+  )
+    return {
+      skip: `it has a segment longer than ${MAX_GLOB_SEGMENT} characters`,
+    }
   const patterns = alternatives.map((text) => {
     let segments = text.split("/")
     if (codeowners) {
@@ -129,6 +173,7 @@ export function globMatcher(glob, { codeowners = false } = {}) {
   return {
     matches: (path) => {
       const parts = path === "." ? [] : path.split("/")
+      if (parts.length > MAX_DEPTH) return false
       return patterns.some((pattern) => matchSegments(pattern, parts))
     },
   }
@@ -168,6 +213,8 @@ function matchSegments(pattern, parts) {
     if (p === pattern.length) return s === parts.length
     const key = p * (parts.length + 1) + s
     if (memo.has(key)) return memo.get(key)
+    // The result of a run that is out of budget is not used: each caller checks.
+    if (++matchSteps > MAX_MATCH_STEPS) return false
     const ok =
       pattern[p] === "**"
         ? match(p + 1, s) || (s < parts.length && match(p, s + 1))
@@ -180,13 +227,19 @@ function matchSegments(pattern, parts) {
   return match(0, 0)
 }
 
-/** One segment against `*` and `?`, with one backtrack point. */
+/**
+ * One segment against `*` and `?`, with one backtrack point. Each loop turn
+ * is a step of the shared budget. A name longer than MAX_NAME_SEGMENT has no
+ * match, and so does a run that is out of budget (each caller checks).
+ */
 function matchSegment(glob, text) {
+  if (text.length > MAX_NAME_SEGMENT) return false
   let g = 0
   let t = 0
   let star = -1
   let mark = 0
   while (t < text.length) {
+    if (++matchSteps > MAX_MATCH_STEPS) return false
     if (g < glob.length && (glob[g] === "?" || glob[g] === text[t])) {
       g++
       t++
@@ -428,14 +481,19 @@ export function discoverRoots(source) {
   const folders = new Set(["."])
   const markersOf = new Map()
   let unsafeFolder = false
+  let tooDeep = false
   for (const file of files) {
     const parts = file.split("/")
-    for (let i = 1; i < parts.length; i++)
+    for (let i = 1; i < parts.length && i <= MAX_DEPTH; i++)
       folders.add(parts.slice(0, i).join("/"))
     const name = parts.at(-1)
     if (!PACKAGE_MARKERS.includes(name)) continue
     const dir = parts.length === 1 ? "." : parts.slice(0, -1).join("/")
     if (ignoredFolder(dir)) continue
+    if (parts.length - 1 > MAX_DEPTH) {
+      tooDeep = true
+      continue
+    }
     if (!safePath(dir)) {
       unsafeFolder = true
       continue
@@ -443,11 +501,17 @@ export function discoverRoots(source) {
     markersOf.set(dir, [...(markersOf.get(dir) ?? []), name].sort())
   }
   const rootFiles = new Set(files.filter((f) => !f.includes("/")))
-  const nested = [...markersOf.keys()].filter((d) => d !== ".").sort()
+  const allNested = [...markersOf.keys()].filter((d) => d !== ".").sort()
+  const nested = allNested.slice(0, MAX_ROOTS)
   const candidate = (path) => ({ path, manifests: markersOf.get(path) ?? [] })
 
   const roots = new Map()
+  let rootsFull = false
   const addRoot = (path, evidence) => {
+    if (!roots.has(path) && roots.size >= MAX_ROOTS) {
+      rootsFull = true
+      return
+    }
     const root = roots.get(path) ?? {
       path,
       manifests: markersOf.get(path) ?? [],
@@ -463,6 +527,16 @@ export function discoverRoots(source) {
       manifest: null,
       reason:
         "A folder with a package manifest has a name that the script does not quote",
+    })
+  if (tooDeep)
+    skipped.push({
+      manifest: null,
+      reason: `The script did not read a folder that is more than ${MAX_DEPTH} levels deep`,
+    })
+  if (allNested.length > nested.length)
+    skipped.push({
+      manifest: null,
+      reason: `The script read only the first ${MAX_ROOTS} folders with a package manifest`,
     })
   const skipEntry = (manifest, reason) =>
     skipped.push({ manifest, reason: `The script skipped an entry: ${reason}` })
@@ -490,6 +564,15 @@ export function discoverRoots(source) {
       if (matcher.skip) skipEntry(found.manifest, matcher.skip)
       else entries.push({ entry, exclude, matches: matcher.matches })
     }
+    let budgetSkipped = false
+    const budgetSkip = () => {
+      if (budgetSkipped) return
+      budgetSkipped = true
+      skipEntry(
+        found.manifest,
+        "the match budget of the script ran out, so it read no more entries",
+      )
+    }
     const hasMarker = (dir) =>
       found.markers
         ? found.markers.some((m) => markersOf.get(dir)?.includes(m))
@@ -497,10 +580,19 @@ export function discoverRoots(source) {
     const excludes = entries.filter((e) => e.exclude)
     const excluded = (dir) => excludes.some((e) => e.matches(dir))
     for (const { entry, matches } of entries.filter((e) => !e.exclude)) {
+      if (!matchBudgetLeft()) {
+        budgetSkip()
+        continue
+      }
       const named = isGlob(entry) ? nested.filter(matches) : [entry]
       const hits = named.filter(
         (dir) => folders.has(dir) && !excluded(dir) && hasMarker(dir),
       )
+      // A run out of budget can miss a match or an exclude: drop its result.
+      if (!matchBudgetLeft()) {
+        budgetSkip()
+        continue
+      }
       for (const dir of hits) addRoot(dir, found.manifest)
       if (hits.length === 0 && (named.length === 0 || !named.every(excluded))) {
         const what = found.markers ? found.markers.join(" or ") : "files"
@@ -533,6 +625,12 @@ export function discoverRoots(source) {
         candidates: nested.map(candidate),
       })
   }
+
+  if (rootsFull)
+    skipped.push({
+      manifest: null,
+      reason: `The script gives at most ${MAX_ROOTS} roots`,
+    })
 
   // An entry with no candidate gives the model no choice, so no model runs for it.
   for (const entry of ambiguous.filter((a) => a.candidates.length === 0))

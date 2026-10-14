@@ -1,6 +1,8 @@
-import { HttpResponse, http } from "msw"
+import { createServer } from "node:http"
+import type { AddressInfo } from "node:net"
+import { HttpResponse, http, passthrough } from "msw"
 import { setupServer } from "msw/node"
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { AgentVaultUnavailableError, openRunVault } from "./agent-vault.js"
 
 /**
@@ -74,5 +76,44 @@ describe("openRunVault with unmatchedHosts deny", () => {
     )
     expect(calls.deleted).toHaveLength(1)
     expect(calls.sessions).toBe(0)
+  })
+
+  it("fails closed when the answer to the settings call stops in its body", async () => {
+    // A socket stall is real network behavior, so this API is a local server.
+    const deleted: string[] = []
+    let stalled: () => void = () => undefined
+    const reached = new Promise<void>((resolve) => {
+      stalled = resolve
+    })
+    const api = createServer((request, response) => {
+      response.setHeader("content-type", "application/json")
+      if (request.method === "PATCH") {
+        // The headers arrive; the body never ends.
+        response.write('{"unmatched')
+        stalled()
+        return
+      }
+      if (request.method === "DELETE") deleted.push(request.url ?? "")
+      response.end(JSON.stringify({ token: "owner-token" }))
+    })
+    await new Promise<void>((resolve) => api.listen(0, "127.0.0.1", resolve))
+    server.use(http.all(/^http:\/\/127\.0\.0\.1:\d+\//, () => passthrough()))
+    const address = `http://127.0.0.1:${(api.address() as AddressInfo).port}`
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    try {
+      const outcome = open(address).then(
+        () => "opened",
+        (error: unknown) => error,
+      )
+      await reached
+      // The 10 second timeout covers the body, not only the headers.
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(await outcome).toBeInstanceOf(AgentVaultUnavailableError)
+    } finally {
+      vi.useRealTimers()
+      api.closeAllConnections()
+      api.close()
+    }
+    expect(deleted).toHaveLength(1)
   })
 })

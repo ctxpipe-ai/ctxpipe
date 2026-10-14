@@ -234,7 +234,7 @@ export function SlackSetupDialog({
               </h3>
               <p className="mt-2 text-sm text-muted-foreground">
                 ctxpipe could not load this connection. If you removed Slack
-                earlier, start a fresh authorisation.
+                earlier, start a fresh authorization.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">

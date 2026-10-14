@@ -17,7 +17,7 @@ function OrgSettingsRedirect() {
     return (
       <div className="flex min-h-screen items-center bg-zinc-950 px-6 py-16">
         <PageBodySkeleton
-          label="Loading organisation settings"
+          label="Loading organization settings"
           className="mx-auto"
         />
       </div>

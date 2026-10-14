@@ -13,6 +13,7 @@ import { z } from "zod"
 import { isConnectorMirrorPath } from "../codeIngestion/connectorMirrorPaths.js"
 import { KNOWLEDGE_KIND_FOLDERS } from "../workspaces/layout.js"
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
+import { type AreaFile, checkAreaChange, parseAreaBody } from "./area-file.js"
 import { runGit as git } from "./run-git.js"
 
 /**
@@ -28,6 +29,7 @@ export type PatchRule =
   | "base_blob_mismatch"
   | "ownership"
   | "additive_only"
+  | "shared_file"
   | "human_section"
   | "front_matter"
   | "evidence"
@@ -481,8 +483,20 @@ async function checkWrite(
   }
   const ownership =
     op.op === "create" ? "sole" : fileOwnership(before ?? "", context.sourceUrl)
-  const result =
-    ownership === "sole"
+  // A generated area file is shared: its own rules (area-file.ts) apply to
+  // each source, also to one that the file does not list yet.
+  if (op.path.startsWith("knowledge/instructions/") && !AREA_PATH.test(op.path))
+    return {
+      rule: "path",
+      reason:
+        "An area file is knowledge/instructions/<slug>.md with a lower-case slug",
+    }
+  const areaFile =
+    AREA_PATH.test(op.path) &&
+    (op.op === "create" || generatedByHost(before ?? ""))
+  const result = areaFile
+    ? await checkAreaWrite(op, text, before, context)
+    : ownership === "sole"
       ? await checkFullWrite(op, text, before, context)
       : await checkAdditiveWrite(text, before ?? "", context)
   if ("rule" in result) return result
@@ -495,6 +509,126 @@ async function checkWrite(
 }
 
 type WriteOutput = { output: string; links: string[]; claimTargets: string[] }
+
+const AREA_PATH = /^knowledge\/instructions\/[a-z0-9]+(?:-[a-z0-9]+)*\.md$/
+
+function generatedByHost(raw: string): boolean {
+  const front = splitFrontMatter(raw)
+  return (
+    (front ? parseYamlObject(front.yaml) : null)?.generated_by === GENERATED_BY
+  )
+}
+
+/** A new area file, or an update of a generated one (concept section 5.3). */
+async function checkAreaWrite(
+  op: StagedOp,
+  text: string,
+  before: string | undefined,
+  context: CheckContext,
+): Promise<WriteOutput | CheckFailure> {
+  const shared = (reason: string): CheckFailure => ({
+    rule: "shared_file",
+    reason,
+  })
+  const front = splitFrontMatter(text)
+  if (!front)
+    return { rule: "front_matter", reason: "The file has no front matter" }
+  const raw = parseYamlObject(front.yaml)
+  if (!raw)
+    return {
+      rule: "front_matter",
+      reason: "The front matter is not a YAML map",
+    }
+  const parsed = FrontMatterSchema.safeParse(raw)
+  if (!parsed.success)
+    return { rule: "front_matter", reason: zodReason(parsed.error) }
+  const attributes = parsed.data
+  if (attributes.kind !== "InstructionUnit")
+    return {
+      rule: "front_matter",
+      reason: "The kind for knowledge/instructions/ is InstructionUnit",
+    }
+  const baseFront = before ? splitFrontMatter(before) : null
+  const baseAttributes = baseFront
+    ? (parseYamlObject(baseFront.yaml) ?? {})
+    : {}
+  for (const field of HOST_FIELDS) {
+    if (!(field in raw)) continue
+    if (
+      op.op === "create" ||
+      !isDeepStrictEqual(raw[field], baseAttributes[field])
+    )
+      return { rule: "front_matter", reason: `Only the host sets ${field}` }
+  }
+  if (!isDeepStrictEqual(raw.claims, baseAttributes.claims))
+    return { rule: "front_matter", reason: "An area file has no claims" }
+
+  if (
+    !isDeepStrictEqual(humanBlocks(text), humanBlocks(before ?? "")) ||
+    markerCount(text) !== markerCount(before ?? "")
+  )
+    return {
+      rule: "human_section",
+      reason: "The human section must not change",
+    }
+  const content = contentProblem(text)
+  if (content) return content
+  const heading = deniedHeading(front.body)
+  if (heading) return heading
+  const injection = injectionProblem(text)
+  if (injection) return injection
+
+  const beforeSources = fileSources(before ?? "")
+  const others = beforeSources.filter((s) => s !== context.sourceUrl)
+  if (others.length > 0 && attributes.name !== baseAttributes.name)
+    return shared("Only the source that owns the file alone can rename it")
+  if (others.length > 0 && attributes.summary !== baseAttributes.summary)
+    return shared(
+      "Only the source that owns the file alone can change the summary",
+    )
+
+  const withoutHuman = (body: string) => body.replace(HUMAN_BLOCK, "")
+  const after = parseAreaBody(withoutHuman(front.body), normalizeSourceUrl)
+  if ("error" in after) return shared(after.error)
+  let beforeArea: AreaFile | null = null
+  if (before && baseFront) {
+    const read = parseAreaBody(withoutHuman(baseFront.body), normalizeSourceUrl)
+    beforeArea = "error" in read ? null : read
+  }
+  const change = checkAreaChange({
+    before: beforeArea,
+    after,
+    source: context.sourceUrl,
+    beforeSources,
+  })
+  if ("error" in change) return shared(change.error)
+  for (const path of change.freshEvidence)
+    if (!(await context.evidenceExists(path)))
+      return {
+        rule: "evidence",
+        reason: "An evidence path does not exist at the source revision",
+      }
+
+  const stamped = {
+    kind: attributes.kind,
+    name: attributes.name,
+    ...(attributes.summary === undefined
+      ? {}
+      : { summary: attributes.summary }),
+    generated_by: GENERATED_BY,
+    sources: change.sources,
+    source_sha: context.source.sha,
+    skill: context.skill,
+    bundle: context.bundle,
+  }
+  const known = new Set((before ?? "").split("\n"))
+  const addedLines = front.body.split("\n").filter((line) => !known.has(line))
+  return {
+    output: `---\n${stringify(stamped)}---\n${front.body}`,
+    links: markdownLinks(addedLines.join("\n")),
+    claimTargets: [],
+  }
+}
 
 /** A new file, or a file that only this source owns. */
 async function checkFullWrite(
@@ -552,6 +686,8 @@ async function checkFullWrite(
   if (heading) return heading
   const injection = injectionProblem(text)
   if (injection) return injection
+  const quote = await unsourcedQuoteProblem(front.body, context)
+  if (quote) return quote
 
   const claims = attributes.claims ?? []
   const baseClaims = Array.isArray(baseAttributes.claims)
@@ -578,7 +714,7 @@ async function checkFullWrite(
     bundle: context.bundle,
   }
   return {
-    output: `---\n${stringify(stamped)}---\n${front.body}`,
+    output: `---\n${stringify(stamped, { lineWidth: 0 })}---\n${front.body}`,
     links: markdownLinks(front.body),
     claimTargets: claims.map((c) => c.to),
   }
@@ -657,7 +793,7 @@ async function checkAdditiveWrite(
     if (!document.has("claims")) document.set("claims", document.createNode([]))
     const seq = document.get("claims", true) as YAMLSeq
     for (const claim of added) seq.add(document.createNode(stampClaim(claim)))
-    header = `---\n${document.toString()}---\n`
+    header = `---\n${document.toString({ lineWidth: 0 })}---\n`
   }
   return {
     output: `${header}${newFront.body}`,
@@ -835,6 +971,85 @@ function injectionProblem(text: string): CheckFailure | null {
       }
   }
   return null
+}
+
+/**
+ * A block quote or fenced block that holds an injection phrase must give
+ * its source with a `Source: <path>` line, as its last line or as the next
+ * line after it, and the path must exist at the source revision (ADR-052
+ * section 5). Without it, a model can carry an instruction into a file as a
+ * quote.
+ */
+async function unsourcedQuoteProblem(
+  body: string,
+  context: CheckContext,
+): Promise<CheckFailure | null> {
+  const fail = (reason: string): CheckFailure => ({
+    rule: "suspected_injection",
+    reason,
+  })
+  for (const block of quotedBlocks(body)) {
+    const text = block.lines.join(" ").replace(/\s+/g, " ")
+    if (!INJECTION_PHRASES.some((pattern) => pattern.test(text))) continue
+    if (!block.source) return fail("Quoted instruction text has no Source line")
+    if (!(await context.evidenceExists(block.source)))
+      return fail(
+        "The Source path of a quote does not exist at the source revision",
+      )
+  }
+  return null
+}
+
+const SOURCE_LINE = /^\s*Source:\s*`?([^`\s]+)`?\s*$/
+
+/** Block quotes and fenced blocks, each with the path of its Source line. */
+function quotedBlocks(
+  body: string,
+): Array<{ lines: string[]; source: string | null }> {
+  const lines = body.split("\n")
+  const blocks: Array<{ lines: string[]; source: string | null }> = []
+  const nextLine = (from: number) => {
+    let i = from
+    while (i < lines.length && (lines[i] ?? "").trim() === "") i++
+    return lines[i] ?? ""
+  }
+  let i = 0
+  while (i < lines.length) {
+    const line = lines[i] ?? ""
+    const fence = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1]
+    const inner: string[] = []
+    if (fence) {
+      i++
+      while (i < lines.length) {
+        const current = lines[i] ?? ""
+        const marker = /^ {0,3}(`{3,}|~{3,})/.exec(current)?.[1]
+        i++
+        if (
+          marker &&
+          marker[0] === fence[0] &&
+          marker.length >= fence.length &&
+          current.trim() === marker
+        )
+          break
+        inner.push(current)
+      }
+    } else if (/^ {0,3}>/.test(line)) {
+      while (i < lines.length && /^ {0,3}>/.test(lines[i] ?? "")) {
+        inner.push((lines[i] ?? "").replace(/^ {0,3}>+ ?/, ""))
+        i++
+      }
+    } else {
+      i++
+      continue
+    }
+    const last = [...inner].reverse().find((l) => l.trim() !== "") ?? ""
+    const source =
+      SOURCE_LINE.exec(fence ? "" : last)?.[1] ??
+      SOURCE_LINE.exec(nextLine(i))?.[1] ??
+      null
+    blocks.push({ lines: inner, source })
+  }
+  return blocks
 }
 
 /** Removes fenced code blocks and inline code spans. */
