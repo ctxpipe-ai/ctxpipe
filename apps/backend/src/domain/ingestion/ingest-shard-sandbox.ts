@@ -7,6 +7,7 @@ import {
   workspaceCheckoutKey,
 } from "../../../../../shared/workspace-checkout.js"
 import { type Env, parseEnv } from "../../config/env.js"
+import { listWorkspaceUnitsAtRevision } from "../../models/workspaces.js"
 import { gitRemoteEnvironment } from "../../services/git/clone-tree.js"
 import { ingestSandboxThreadId } from "../workspaces/chat-lifecycle.js"
 import { workspaceChatDockerImage } from "../workspaces/chat-runtime.js"
@@ -26,7 +27,8 @@ import {
   mintWorkspaceIngestToolsCapability,
 } from "../workspaces/workspace-chat-run-capability.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../workspaces/write-status.js"
-import { buildContextIndex } from "./context-index.js"
+import { stepContextIndex } from "./context-index.js"
+import { holdScratch, releaseScratch } from "./held-scratch.js"
 import { ingestOpenCodeConfig } from "./ingest-opencode.js"
 import {
   assertIngestProvider,
@@ -73,60 +75,77 @@ function ingestModels() {
 }
 
 /**
- * The T07 context index of a destination at a step base: the projection at
- * the pinned revision, changed by the run's step commits up to `base`
- * (ADR-052 section 6). `ref` is the run ref that holds `base`.
+ * The T07 context index of each step of one Workspace in a shard (ADR-052
+ * section 6): one scratch repository and one projection, kept for the shard
+ * on this worker. Each step fetches only its new commits.
  */
-async function contextIndexJson(input: {
+function heldStepIndex(input: {
   orgId: string
+  runId: string
+  shard: number
   workspaceId: string
   url: string
   githubConnectionId: string
-  sha: string
-  base: string
-  ref?: string
+  pinnedRevision: string
   sourceUrl: string
-}): Promise<string> {
-  const env = parseEnv(process.env)
-  const token = await resolveRepositoryReadCredential({
-    orgId: input.orgId,
-    env,
-    remote: { url: input.url, connectionId: input.githubConnectionId },
-  })
-  const dir = await mkdtemp(join(tmpdir(), "ctxpipe-ingest-index-"))
-  try {
-    await runGit(dir, ["init", "--quiet", "--bare"])
-    const fetch = (what: string) =>
-      runGit(
+}) {
+  return holdScratch(
+    `index:${input.runId}:${input.shard}:${input.workspaceId}`,
+    async () => {
+      const dir = await mkdtemp(join(tmpdir(), "ctxpipe-ingest-index-"))
+      try {
+        await runGit(dir, ["init", "--quiet", "--bare"])
+      } catch (error) {
+        await rm(dir, { recursive: true, force: true })
+        throw error
+      }
+      return {
         dir,
-        ["fetch", "--quiet", "--no-tags", "--depth=1", "--", input.url, what],
-        { env: gitRemoteEnvironment({ url: input.url, token }) },
-      )
-    await fetch(input.sha)
-    if (input.base !== input.sha) {
-      // The base is the run ref's tip; a fetch by name needs no SHA wants.
-      if (input.ref) await fetch(input.ref)
-      const present = await runGit(dir, [
-        "cat-file",
-        "-e",
-        `${input.base}^{commit}`,
-      ]).then(
-        () => true,
-        () => false,
-      )
-      if (!present) await fetch(input.base)
-    }
-    const { json } = await buildContextIndex({
-      workspaceId: input.workspaceId,
-      sha: input.sha,
-      base: input.base,
-      sourceUrl: input.sourceUrl,
-      repoDir: dir,
-    })
-    return json
-  } finally {
-    await rm(dir, { recursive: true, force: true })
-  }
+        index: stepContextIndex({
+          workspaceId: input.workspaceId,
+          pinnedRevision: input.pinnedRevision,
+          sourceUrl: input.sourceUrl,
+          repoDir: dir,
+          projection: () =>
+            listWorkspaceUnitsAtRevision(
+              input.workspaceId,
+              input.pinnedRevision,
+            ),
+          fetch: async (what, into) => {
+            const token = await resolveRepositoryReadCredential({
+              orgId: input.orgId,
+              env: parseEnv(process.env),
+              remote: {
+                url: input.url,
+                connectionId: input.githubConnectionId,
+              },
+            })
+            await runGit(
+              dir,
+              [
+                "fetch",
+                "--quiet",
+                "--no-tags",
+                "--depth=1",
+                "--",
+                input.url,
+                `+${what}:${into}`,
+              ],
+              { env: gitRemoteEnvironment({ url: input.url, token }) },
+            )
+          },
+        }),
+      }
+    },
+  )
+}
+
+/** Delete this worker's index repositories of one shard. */
+export function releaseIngestStepIndexes(
+  runId: string,
+  shard: number,
+): Promise<void> {
+  return releaseScratch(`index:${runId}:${shard}:`)
 }
 
 /** The GitHub repositories of a shard: the source and each destination. */
@@ -278,31 +297,23 @@ function shardRuntime(spec: IngestShardSpec): IngestShardRuntime {
     shard: spec.shard,
     workspaceId: firstWorkspace,
   }
-  // One index for each Workspace and step base; a new base is a new index.
-  const indexes = new Map<string, Promise<string>>()
-  const indexOf = (step: IngestRuntimeStep) => {
+  const indexOf = async (step: IngestRuntimeStep) => {
     const destination = spec.destinations.find(
       (d) => d.workspaceId === step.workspaceId,
     )
     if (!destination)
       throw new Error("The step's Workspace is not in the shard")
-    const key = `${step.workspaceId}:${step.baseCommit}`
-    let pending = indexes.get(key)
-    if (!pending) {
-      pending = contextIndexJson({
-        orgId: spec.orgId,
-        workspaceId: step.workspaceId,
-        url: destination.url,
-        githubConnectionId: destination.githubConnectionId,
-        sha: destination.pinnedRevision,
-        base: step.baseCommit,
-        ...(step.fetchRef ? { ref: step.fetchRef } : {}),
-        sourceUrl: spec.source.url,
-      })
-      pending.catch(() => indexes.delete(key))
-      indexes.set(key, pending)
-    }
-    return pending
+    const held = await heldStepIndex({
+      orgId: spec.orgId,
+      runId: spec.runId,
+      shard: spec.shard,
+      workspaceId: step.workspaceId,
+      url: destination.url,
+      githubConnectionId: destination.githubConnectionId,
+      pinnedRevision: destination.pinnedRevision,
+      sourceUrl: spec.source.url,
+    })
+    return (await held.index.at(step.baseCommit, step.fetchRef)).json
   }
 
   /**

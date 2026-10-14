@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { afterAll, describe, expect, it } from "vitest"
-import { contextIndexAtStepBase } from "./context-index.js"
+import { contextIndexAtStepBase, stepContextIndex } from "./context-index.js"
 
 /*
  * The index of a step is built at the step base (ADR-052 section 6): a file
@@ -106,5 +106,96 @@ describe("contextIndexAtStepBase", () => {
     expect(index.entries.map((e) => [e.path, e.owned])).toEqual([
       [SERVICE, false],
     ])
+  })
+})
+
+describe("stepContextIndex", () => {
+  it("keeps one scratch repository for a Workspace, fetches only new commits, and parses only changed files", async () => {
+    const work = mkdtempSync(join(tmpdir(), "context-index-work-"))
+    const scratch = mkdtempSync(join(tmpdir(), "context-index-scratch-"))
+    made.push(work, scratch)
+    git(work, "init", "-q", "-b", "main")
+    const pinned = commit(work, {
+      [SERVICE]: "---\nkind: Service\nname: api\n---\n# API service\n",
+      [OLD]: "---\nkind: Database\nname: old\n---\n# Old store\n",
+    })
+    const first = commit(work, {
+      [API]: `---\nkind: API\nname: Orders API\nsources:\n  - ${SOURCE_URL}\n---\n# Orders API\n\nServed by [api](../services/api.md).\n`,
+      [OPERATION]:
+        "---\nkind: Operation\nname: GET /orders\n---\n# GET /orders\n",
+    })
+    git(work, "update-ref", "refs/ctxpipe/ingest/run/ws/shards/0", first)
+    git(scratch, "init", "-q", "--bare")
+    const fetched: string[] = []
+    let projections = 0
+    const projection = [
+      { path: SERVICE, kind: "Service", links: [] },
+      { path: OLD, kind: "Database", links: [] },
+    ]
+    const index = stepContextIndex({
+      workspaceId: "ws_index",
+      pinnedRevision: pinned,
+      sourceUrl: SOURCE_URL,
+      repoDir: scratch,
+      projection: async () => {
+        projections++
+        return projection
+      },
+      fetch: async (what, into) => {
+        fetched.push(what)
+        git(scratch, "fetch", "-q", "--no-tags", work, `+${what}:${into}`)
+      },
+    })
+    const ref = "refs/ctxpipe/ingest/run/ws/shards/0"
+
+    const atFirst = await index.at(first, ref)
+    expect(fetched).toEqual([pinned, ref])
+    expect(index.parsed).toBe(2)
+    expect(atFirst.json).toBe(
+      (
+        await contextIndexAtStepBase({
+          workspaceId: "ws_index",
+          projection,
+          pinnedRevision: pinned,
+          base: first,
+          sourceUrl: SOURCE_URL,
+          repoDir: work,
+        })
+      ).json,
+    )
+
+    // The next step: one changed file and one deleted file.
+    const second = commit(work, {
+      [OPERATION]:
+        "---\nkind: Operation\nname: GET /orders/{id}\n---\n# GET /orders/{id}\n",
+      [OLD]: null,
+    })
+    git(work, "update-ref", ref, second)
+    const atSecond = await index.at(second, ref)
+    expect(fetched).toEqual([pinned, ref, ref])
+    expect(index.parsed).toBe(3)
+    expect(projections).toBe(1)
+    expect(atSecond.index.entries.map((e) => [e.path, e.title])).toEqual([
+      [API, "Orders API"],
+      [OPERATION, "GET /orders/{id}"],
+      [SERVICE, "api"],
+    ])
+    expect(atSecond.json).toBe(
+      (
+        await contextIndexAtStepBase({
+          workspaceId: "ws_index",
+          projection,
+          pinnedRevision: pinned,
+          base: second,
+          sourceUrl: SOURCE_URL,
+          repoDir: work,
+        })
+      ).json,
+    )
+
+    // The same base again: no fetch and no parse.
+    await index.at(second, ref)
+    expect(fetched).toHaveLength(3)
+    expect(index.parsed).toBe(3)
   })
 })

@@ -5,6 +5,7 @@ import {
   IngestRefRefusedError,
   ingestRefName,
 } from "../../domain/ingestion/ingest-refs.js"
+import { releaseIngestStepIndexes } from "../../domain/ingestion/ingest-shard-sandbox.js"
 import {
   ingestSourceTree,
   releaseIngestSourceTree,
@@ -108,11 +109,15 @@ export function defineRepositoryIngestionV2Workflow(
           ingestionRunId: run.id,
           sourceSha: input.sha,
         }),
-        // A failed run also deletes the worker's copy of the source tree.
+        // A failed run also deletes the worker's copy of the source tree,
+        // and the index repositories of its repository step (shard 0).
         () =>
           cleanUpUnlessParked(
             () => ingest(),
-            () => releaseIngestSourceTree(run.id, input.sha),
+            async () => {
+              await releaseIngestSourceTree(run.id, input.sha)
+              await releaseIngestStepIndexes(run.id, 0)
+            },
           ),
       )
 

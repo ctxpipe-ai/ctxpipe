@@ -139,76 +139,79 @@ function titleOf(raw: string): string | null {
   return title ? title.slice(0, MAX_TITLE) : null
 }
 
+/** One entry of a unit; its links hold each resolved target in the text. */
+function entryOf(
+  unit: IndexUnit,
+  raw: string,
+  sourceUrl: string,
+): ContextIndexEntry {
+  const dir = unit.path.split("/").slice(0, -1).join("/")
+  // A claim target is a link too: the agent finds an API's operations.
+  const links = [
+    ...new Set(
+      [...unit.links, ...claimTargets(raw)].map((href) =>
+        resolveHydrateLink(dir, href),
+      ),
+    ),
+  ]
+    .filter((target) => target !== unit.path)
+    .sort()
+  return {
+    path: unit.path,
+    kind: unit.kind,
+    title: titleOf(raw),
+    summary: summaryOf(raw),
+    links,
+    sources: fileSources(raw).slice(0, MAX_SOURCES),
+    owned: fileOwnership(raw, sourceUrl) !== "foreign",
+  }
+}
+
+/** Keep only the links to other units of the index. */
+function linkedEntries(
+  entries: readonly ContextIndexEntry[],
+): ContextIndexEntry[] {
+  const paths = new Set(entries.map((entry) => entry.path))
+  return entries.map((entry) => ({
+    ...entry,
+    links: entry.links
+      .filter((target) => paths.has(target))
+      .slice(0, MAX_LINKS),
+  }))
+}
+
 /** Pure step: the entries of the given raw files for one source. */
 export function buildContextIndexEntries(input: {
   units: ReadonlyArray<{ path: string; kind: string | null; links: string[] }>
   raw: ReadonlyMap<string, string>
   sourceUrl: string
 }): ContextIndexEntry[] {
-  const paths = new Set(input.units.map((unit) => unit.path))
-  return input.units.map(({ path, kind, links }) => {
-    const raw = input.raw.get(path) ?? ""
-    const dir = path.split("/").slice(0, -1).join("/")
-    // A claim target is a link too: the agent finds an API's operations.
-    const resolved = [
-      ...new Set(
-        [...links, ...claimTargets(raw)].map((href) =>
-          resolveHydrateLink(dir, href),
-        ),
-      ),
-    ]
-      .filter((target) => target !== path && paths.has(target))
-      .sort()
-    return {
-      path,
-      kind,
-      title: titleOf(raw),
-      summary: summaryOf(raw),
-      links: resolved.slice(0, MAX_LINKS),
-      sources: fileSources(raw).slice(0, MAX_SOURCES),
-      owned: fileOwnership(raw, input.sourceUrl) !== "foreign",
-    }
-  })
+  return linkedEntries(
+    input.units.map((unit) =>
+      entryOf(unit, input.raw.get(unit.path) ?? "", input.sourceUrl),
+    ),
+  )
 }
 
 type IndexUnit = { path: string; kind: string | null; links: string[] }
 
-/**
- * The units of the index at the step base: the projection at the pinned
- * revision, with each file that changed between the pinned revision and the
- * base parsed again as hydrate parses it. A deleted file has no unit.
- */
-export function unitsAtStepBase(input: {
-  workspaceId: string
-  projection: readonly IndexUnit[]
-  changed: ReadonlyArray<{ path: string; content: string | null }>
-}): IndexUnit[] {
-  const units = new Map(input.projection.map((unit) => [unit.path, unit]))
-  for (const { path } of input.changed) units.delete(path)
-  const { units: parsed } = hydrateKnowledgeTree({
-    workspaceId: input.workspaceId,
-    files: input.changed.flatMap((file) =>
-      file.content === null ? [] : [{ path: file.path, content: file.content }],
-    ),
-  })
-  for (const unit of parsed)
-    units.set(unit.path, {
-      path: unit.path,
-      kind: unit.kind ?? null,
-      links: unit.links,
-    })
-  return [...units.values()].sort((a, b) =>
-    a.path < b.path ? -1 : a.path > b.path ? 1 : 0,
+/** The units of written files, parsed as hydrate parses them. */
+function parseUnits(
+  workspaceId: string,
+  files: ReadonlyArray<{ path: string; content: string }>,
+): IndexUnit[] {
+  return hydrateKnowledgeTree({ workspaceId, files: [...files] }).units.map(
+    (unit) => ({ path: unit.path, kind: unit.kind ?? null, links: unit.links }),
   )
 }
 
-/** The paths that changed between two commits of `repoDir`, with their text at `base`. */
+/** The paths that changed between two commits of `repoDir`, with their text at `to`. */
 async function changedFiles(
   repoDir: string,
-  pinnedRevision: string,
-  base: string,
+  from: string,
+  to: string,
 ): Promise<Array<{ path: string; content: string | null }>> {
-  if (base === pinnedRevision) return []
+  if (from === to) return []
   const out = (
     await runGit(repoDir, [
       "diff-tree",
@@ -216,8 +219,8 @@ async function changedFiles(
       "-z",
       "--no-renames",
       "--name-status",
-      pinnedRevision,
-      base,
+      from,
+      to,
     ])
   ).toString("utf8")
   const fields = out.split("\0").filter(Boolean)
@@ -229,11 +232,104 @@ async function changedFiles(
     if (status.startsWith("D")) deleted.push(path)
     else written.push(path)
   }
-  const raw = await readGitFiles(repoDir, base, written)
+  const raw = await readGitFiles(repoDir, to, written)
   return [
     ...deleted.map((path) => ({ path, content: null })),
     ...written.map((path) => ({ path, content: raw.get(path) ?? null })),
   ]
+}
+
+/**
+ * The index of each step of one Workspace in one shard (ADR-052 section 6).
+ * It keeps one scratch repository and one projection: the first call reads
+ * the projection at the pinned revision; each later call fetches only the
+ * commits that the scratch repository does not have, and parses again only
+ * the files that changed since the last base. `fetch` puts `what` (a SHA or
+ * a ref name) at the local ref `into`, so the next fetch tells the remote
+ * what the repository has. `parsed` counts the files parsed again.
+ */
+export function stepContextIndex(source: {
+  workspaceId: string
+  pinnedRevision: string
+  sourceUrl: string
+  repoDir: string
+  projection: () => Promise<readonly IndexUnit[]>
+  fetch: (what: string, into: string) => Promise<void>
+}) {
+  let state: {
+    base: string
+    entries: Map<string, ContextIndexEntry>
+  } | null = null
+  let fetches = 0
+  let queue: Promise<unknown> = Promise.resolve()
+  const has = (commit: string) =>
+    runGit(source.repoDir, ["cat-file", "-e", `${commit}^{commit}`]).then(
+      () => true,
+      () => false,
+    )
+  const fetchInto = (what: string) =>
+    source.fetch(what, `refs/ctxpipe-index/${fetches++}`)
+
+  const at = async (base: string, ref?: string) => {
+    if (!state) {
+      if (!(await has(source.pinnedRevision)))
+        await fetchInto(source.pinnedRevision)
+      const units = await source.projection()
+      const raw = await readGitFiles(
+        source.repoDir,
+        source.pinnedRevision,
+        units.map((unit) => unit.path),
+      )
+      state = {
+        base: source.pinnedRevision,
+        entries: new Map(
+          units.map((unit) => [
+            unit.path,
+            entryOf(unit, raw.get(unit.path) ?? "", source.sourceUrl),
+          ]),
+        ),
+      }
+    }
+    if (base !== state.base) {
+      if (ref && !(await has(base))) await fetchInto(ref)
+      if (!(await has(base))) await fetchInto(base)
+      const changed = await changedFiles(source.repoDir, state.base, base)
+      for (const { path } of changed) state.entries.delete(path)
+      const written = changed.flatMap((file) =>
+        file.content === null
+          ? []
+          : [{ path: file.path, content: file.content }],
+      )
+      builder.parsed += written.length
+      const text = new Map(written.map((file) => [file.path, file.content]))
+      for (const unit of parseUnits(source.workspaceId, written))
+        state.entries.set(
+          unit.path,
+          entryOf(unit, text.get(unit.path) ?? "", source.sourceUrl),
+        )
+      state.base = base
+    }
+    return renderContextIndex({
+      workspaceId: source.workspaceId,
+      revision: base,
+      entries: linkedEntries([...state.entries.values()]),
+    })
+  }
+
+  const builder = {
+    parsed: 0,
+    /** The index at `base`; `ref` is the run ref that holds `base`. */
+    at(
+      base: string,
+      ref?: string,
+    ): Promise<{ index: ContextIndex; json: string }> {
+      // One step at a time: each call starts from the last base.
+      const next = queue.then(() => at(base, ref))
+      queue = next.catch(() => undefined)
+      return next
+    },
+  }
+  return builder
 }
 
 /**
@@ -250,29 +346,13 @@ export async function contextIndexAtStepBase(input: {
   sourceUrl: string
   repoDir: string
 }): Promise<{ index: ContextIndex; json: string }> {
-  const units = unitsAtStepBase({
-    workspaceId: input.workspaceId,
-    projection: input.projection,
-    changed: await changedFiles(
-      input.repoDir,
-      input.pinnedRevision,
-      input.base,
-    ),
-  })
-  const raw = await readGitFiles(
-    input.repoDir,
-    input.base,
-    units.map((unit) => unit.path),
-  )
-  return renderContextIndex({
-    workspaceId: input.workspaceId,
-    revision: input.base,
-    entries: buildContextIndexEntries({
-      units,
-      raw,
-      sourceUrl: input.sourceUrl,
-    }),
-  })
+  return stepContextIndex({
+    ...input,
+    projection: async () => input.projection,
+    fetch: async (what) => {
+      throw new Error(`The repository does not hold ${what}`)
+    },
+  }).at(input.base)
 }
 
 /**

@@ -11,7 +11,10 @@ import type {
   IngestShardRuntime,
   IngestShardRuntimeFactory,
 } from "../../domain/ingestion/ingest-shard-runtime.js"
-import { sandboxIngestShardRuntime } from "../../domain/ingestion/ingest-shard-sandbox.js"
+import {
+  releaseIngestStepIndexes,
+  sandboxIngestShardRuntime,
+} from "../../domain/ingestion/ingest-shard-sandbox.js"
 import {
   ingestSourceTree,
   releaseIngestSourceTree,
@@ -273,16 +276,18 @@ export function defineIngestionShardWorkflow(deps: IngestionV2Deps) {
           ingestionRunId: input.runId,
           shard: input.shard,
         }),
-        // The child's own copy of the source tree goes when the child ends,
-        // also when it fails. A sibling child has its own copy.
+        // The child's own copy of the source tree and its index
+        // repositories go when the child ends, also when it fails. A sibling
+        // child has its own copies.
         () =>
-          cleanUpUnlessParked(runShard, () =>
-            releaseIngestSourceTree(
+          cleanUpUnlessParked(runShard, async () => {
+            await releaseIngestSourceTree(
               input.runId,
               input.source.sha,
               shardTreeHolder(input),
-            ),
-          ),
+            )
+            await releaseIngestStepIndexes(input.runId, input.shard)
+          }),
       )
     },
   )
