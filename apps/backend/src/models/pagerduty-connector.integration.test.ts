@@ -512,7 +512,7 @@ describeWithDatabase("PagerDuty connection storage (Postgres)", () => {
     expect(["tok_a", "tok_b"]).toContain(stored?.accessToken)
   })
 
-  it("preserves the latest binding when re-authorising a revoked account", async () => {
+  it("preserves the latest binding when re-authorizing a revoked account", async () => {
     const connectionId = generateObjectId("con")
     await insertConnection(
       connectionId,
@@ -641,7 +641,7 @@ describeWithDatabase("PagerDuty connection storage (Postgres)", () => {
     })
   })
 
-  it("rejects a second authorised account on the same connection", async () => {
+  it("rejects a second authorized account on the same connection", async () => {
     const connectionId = generateObjectId("con")
     await insertConnection(
       connectionId,
@@ -668,7 +668,7 @@ describeWithDatabase("PagerDuty connection storage (Postgres)", () => {
         ),
       ),
     ).rejects.toThrow(
-      "PagerDuty authorised account does not match this connection",
+      "PagerDuty authorized account does not match this connection",
     )
     const stored = await readConnection(connectionId)
     expect(stored).toMatchObject({
@@ -677,7 +677,7 @@ describeWithDatabase("PagerDuty connection storage (Postgres)", () => {
     })
   })
 
-  it("rejects tokens when the row OAuth app changed during authorisation", async () => {
+  it("rejects tokens when the row OAuth app changed during authorization", async () => {
     const draftId = generateObjectId("con")
     await insertConnection(
       draftId,
@@ -703,7 +703,7 @@ describeWithDatabase("PagerDuty connection storage (Postgres)", () => {
         ),
       ),
     ).rejects.toThrow(
-      "PagerDuty OAuth app changed during authorisation. Try again.",
+      "PagerDuty OAuth app changed during authorization. Try again.",
     )
     const stored = await readConnection(draftId)
     expect(stored).toMatchObject({
@@ -828,7 +828,7 @@ describeWithDatabase("PagerDuty connection storage (Postgres)", () => {
         }),
       ),
     ).rejects.toThrow(
-      "PagerDuty OAuth app cannot be changed after account authorisation",
+      "PagerDuty OAuth app cannot be changed after account authorization",
     )
     const stored = await readConnection(connectionId)
     expect(stored?.oauthClientId).toBeNull()
@@ -866,10 +866,10 @@ describeWithDatabase("PagerDuty connection storage (Postgres)", () => {
     })
   })
 
-  it("does not reuse an authorised pending connection as a draft", async () => {
-    const authorisedId = generateObjectId("con")
+  it("does not reuse an authorized pending connection as a draft", async () => {
+    const authorizedId = generateObjectId("con")
     await insertConnection(
-      authorisedId,
+      authorizedId,
       storedConfig({
         accountId: "acme",
         status: "pending",
@@ -887,11 +887,11 @@ describeWithDatabase("PagerDuty connection storage (Postgres)", () => {
       }),
     )
 
-    expect(draft.id).not.toBe(authorisedId)
+    expect(draft.id).not.toBe(authorizedId)
     expect(draft.accountId).toMatch(/^pending:con_/)
     expect(draft.accessToken).toBeNull()
-    await expect(readConnection(authorisedId)).resolves.toMatchObject({
-      id: authorisedId,
+    await expect(readConnection(authorizedId)).resolves.toMatchObject({
+      id: authorizedId,
       accountId: "acme",
       accessToken: "access-old",
     })
