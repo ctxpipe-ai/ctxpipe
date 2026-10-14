@@ -4,6 +4,7 @@ import { type Env, parseEnv } from "../../config/env.js"
 import {
   IngestRefRefusedError,
   ingestRefName,
+  type PushIngestStepInput,
 } from "../../domain/ingestion/ingest-refs.js"
 import { ingestStepSignal } from "../../domain/ingestion/ingest-shard-ops.js"
 import type {
@@ -29,6 +30,7 @@ import {
 } from "../../domain/ingestion/ingestion-plan.js"
 import { INGESTION_SHARD_WORKFLOW_NAME } from "../../domain/ingestion/ingestion-run.js"
 import { withIngestionOrg } from "../../domain/ingestion/ingestion-v2-resolve.js"
+import type { PatchStepResult } from "../../domain/ingestion/patch-validator.js"
 import {
   type IngestSkillBundle,
   readIngestSkillBundle,
@@ -237,9 +239,18 @@ export function defineIngestionShardWorkflow(deps: IngestionV2Deps) {
               if (!current) continue
               await runSkillPages({
                 step: (name, fn) =>
-                  step.run({ name, retryPolicy: { maximumAttempts: 1 } }, fn),
+                  step.run({ name, retryPolicy: { maximumAttempts: 1 } }, () =>
+                    withIngestionOrg(input.orgId, fn),
+                  ),
                 run: input,
-                env: env(),
+                broker: workspaceSkillBroker({
+                  orgId: input.orgId,
+                  runId: input.runId,
+                  source: input.source,
+                  destination,
+                  env: env(),
+                  holder: shardTreeHolder(input),
+                }),
                 runtime,
                 root,
                 skill,
@@ -254,7 +265,6 @@ export function defineIngestionShardWorkflow(deps: IngestionV2Deps) {
                 runBase:
                   input.start[destination.workspaceId]?.tip ??
                   destination.pinnedRevision,
-                holder: shardTreeHolder(input),
                 state: current,
               })
             }
@@ -296,14 +306,80 @@ export function defineIngestionShardWorkflow(deps: IngestionV2Deps) {
 /** The run fields that a skill step reads. */
 type SkillRun = Pick<
   IngestionShardInput,
-  "orgId" | "runId" | "bundle" | "source" | "authorTime" | "roots"
+  "runId" | "bundle" | "source" | "authorTime" | "roots"
 >
+
+/**
+ * The ref jobs of one skill step for one Workspace. In production it is the
+ * write broker (`workspaceSkillBroker`); a contract test gives a local remote.
+ */
+export type SkillStepBroker = {
+  /** The step's commit on the ref tip after a crash after the push, or null. */
+  find(
+    ref: string,
+    step: string,
+  ): Promise<{
+    sha: string
+    ops: number
+    more: boolean
+  } | null>
+  /** The files of each step commit from the pinned revision to `tip`. */
+  listFiles(
+    pinnedRevision: string,
+    tip: string,
+  ): Promise<Array<{ step: string; paths: string[] }>>
+  push(
+    input: Omit<PushIngestStepInput, "remote" | "job">,
+  ): Promise<{ sha: string; validation: PatchStepResult; more: boolean }>
+  /** True when `path` exists in the source at the run's SHA. */
+  sourcePathExists(path: string): Promise<boolean>
+}
+
+/** The write broker of one Workspace, with the source tree of `holder`. */
+export function workspaceSkillBroker(input: {
+  orgId: string
+  runId: string
+  source: IngestionShardInput["source"]
+  destination: IngestDestination
+  env: Env
+  /** The holder of the source tree copy; the parent has none. */
+  holder?: string
+}): SkillStepBroker {
+  const job = {
+    runId: input.runId,
+    workspaceId: input.destination.workspaceId,
+    generation: input.destination.generation,
+  }
+  const source = ingestSourceTree({
+    orgId: input.orgId,
+    runId: input.runId,
+    source: input.source,
+    sha: input.source.sha,
+    env: input.env,
+    ...(input.holder ? { holder: input.holder } : {}),
+  })
+  return {
+    find: (ref, step) =>
+      findWorkspaceStepCommit(
+        { orgId: input.orgId, job, ref, step },
+        input.env,
+      ),
+    listFiles: (pinnedRevision, tip) =>
+      listWorkspaceIngestStepFiles(
+        { orgId: input.orgId, job, pinnedRevision, tip },
+        input.env,
+      ),
+    push: (push) =>
+      pushWorkspaceIngestStep({ ...push, orgId: input.orgId, job }, input.env),
+    sourcePathExists: (path) => source.exists(path),
+  }
+}
 
 type SkillPages = {
   /** One workflow step: `step.run` with no OpenWorkflow retry. */
   step: (name: string, fn: () => Promise<StepResult>) => Promise<StepResult>
   run: SkillRun
-  env: Env
+  broker: SkillStepBroker
   runtime: IngestShardRuntime
   /** The root of a root step; null for a repository-wide step. */
   root: string | null
@@ -316,8 +392,6 @@ type SkillPages = {
    * shard ref (on the assembled ref), the pinned revision otherwise.
    */
   runBase: string
-  /** The holder of the source tree copy; the parent has none. */
-  holder?: string
   /** The Workspace's tip and counts; each page adds to them. */
   state: IngestionShardWorkspace
 }
@@ -346,9 +420,7 @@ export async function runSkillPages(ctx: SkillPages): Promise<void> {
     const oldTip = state.tip
     const opsBefore = state.ops
     const result = await ctx.step(name, () =>
-      withIngestionOrg(ctx.run.orgId, () =>
-        runSkillStep({ ...ctx, name, oldTip, opsBefore }),
-      ),
+      runSkillStep({ ...ctx, name, oldTip, opsBefore }),
     )
     if (result.partial) {
       state.partial++
@@ -384,21 +456,13 @@ export async function runSkillPages(ctx: SkillPages): Promise<void> {
 async function runSkillStep(
   ctx: SkillPages & { name: string; oldTip: string | null; opsBefore: number },
 ): Promise<StepResult> {
-  const { run, destination, ref, runBase } = ctx
-  const job = {
-    runId: run.runId,
-    workspaceId: destination.workspaceId,
-    generation: destination.generation,
-  }
+  const { run, destination, ref, runBase, broker } = ctx
   let reason = ""
   for (let attempt = 1; attempt <= STEP_ATTEMPTS; attempt++) {
     try {
       // A crash after the push: the step's commit is the ref tip, and its
       // `Ctxpipe-More` trailer says whether a next page waits.
-      const found = await findWorkspaceStepCommit(
-        { orgId: run.orgId, job, ref, step: ctx.name },
-        ctx.env,
-      )
+      const found = await broker.find(ref, ctx.name)
       if (found)
         return { tip: found.sha, ops: found.ops, rejects: 0, more: found.more }
       const baseCommit = ctx.oldTip ?? runBase
@@ -415,15 +479,7 @@ async function runSkillStep(
         run.roots,
         baseCommit === destination.pinnedRevision
           ? []
-          : await listWorkspaceIngestStepFiles(
-              {
-                orgId: run.orgId,
-                job,
-                pinnedRevision: destination.pinnedRevision,
-                tip: baseCommit,
-              },
-              ctx.env,
-            ),
+          : await broker.listFiles(destination.pinnedRevision, baseCommit),
       )
       const { tar } = await ctx.runtime.runStep({
         name: ctx.name,
@@ -437,40 +493,27 @@ async function runSkillStep(
         rootMap,
         signal: ingestStepSignal(),
       })
-      const source = ingestSourceTree({
-        orgId: run.orgId,
-        runId: run.runId,
-        source: run.source,
-        sha: run.source.sha,
-        env: ctx.env,
-        ...(ctx.holder ? { holder: ctx.holder } : {}),
-      })
       const pushed = await withIngestStepOutput(tar, (stagedDir) =>
-        pushWorkspaceIngestStep(
-          {
-            orgId: run.orgId,
-            job,
-            ref,
-            oldTip: ctx.oldTip,
-            pinnedRevision: runBase,
-            baseCommit,
-            commit: {
-              step: ctx.name,
-              bundle: run.bundle,
-              authorTime: new Date(run.authorTime),
-            },
-            patch: {
-              stagedDir,
-              source: { url: run.source.url, sha: run.source.sha },
-              skill: ctx.skill.name,
-              sourcePathExists: (path) => source.exists(path),
-              workspaceOpsBefore: ctx.opsBefore,
-              // The host root of the package units of a root step (CTX-657).
-              ...(ctx.root === null ? {} : { root: ctx.root }),
-            },
+        broker.push({
+          ref,
+          oldTip: ctx.oldTip,
+          pinnedRevision: runBase,
+          baseCommit,
+          commit: {
+            step: ctx.name,
+            bundle: run.bundle,
+            authorTime: new Date(run.authorTime),
           },
-          ctx.env,
-        ),
+          patch: {
+            stagedDir,
+            source: { url: run.source.url, sha: run.source.sha },
+            skill: ctx.skill.name,
+            sourcePathExists: (path) => broker.sourcePathExists(path),
+            workspaceOpsBefore: ctx.opsBefore,
+            // The host root of the package units of a root step (CTX-657).
+            ...(ctx.root === null ? {} : { root: ctx.root }),
+          },
+        }),
       )
       // T11 reads the rejected ops from the logs; the step output keeps counts.
       for (const rejection of pushed.validation.rejections)

@@ -42,6 +42,7 @@ import {
   ingestionShard,
   productionIngestionV2Deps,
   runSkillPages,
+  workspaceSkillBroker,
 } from "./ingestion-shard.js"
 import { repositoryIndex } from "./repository-index.js"
 
@@ -254,16 +255,23 @@ export function defineRepositoryIngestionV2Workflow(
             if (!state) continue
             await runSkillPages({
               step: (name, fn) =>
-                step.run({ name, retryPolicy: { maximumAttempts: 1 } }, fn),
+                step.run({ name, retryPolicy: { maximumAttempts: 1 } }, () =>
+                  withIngestionOrg(input.orgId, fn),
+                ),
               run: {
-                orgId: input.orgId,
                 runId: run.id,
                 bundle: scope.bundle,
                 source,
                 authorTime: input.authorTime,
                 roots,
               },
-              env: env(),
+              broker: workspaceSkillBroker({
+                orgId: input.orgId,
+                runId: run.id,
+                source,
+                destination,
+                env: env(),
+              }),
               runtime,
               root: null,
               skill,
