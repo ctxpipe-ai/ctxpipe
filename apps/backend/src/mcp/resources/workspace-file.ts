@@ -1,8 +1,13 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js"
-import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js"
+import {
+  ErrorCode,
+  McpError,
+  type ReadResourceResult,
+} from "@modelcontextprotocol/sdk/types.js"
 import { z } from "zod"
 import { getLogger } from "../../observability/logger.js"
+import { runMcpResourceRead } from "../correlation.js"
 import {
   McpToolError,
   type McpToolErrorCode,
@@ -63,6 +68,7 @@ function variable(value: string | string[] | undefined, name: string): string {
  * same org check. The org comes from the URI and must be in the orgs of the
  * connection; the read runs in the RLS context of that org.
  * A resource read returns the first page only; page with the `read_file` tool.
+ * Each read has the span, call id, and attribution of a tool call.
  */
 export function registerWorkspaceFileResource(server: McpServer): void {
   server.registerResource(
@@ -73,56 +79,59 @@ export function registerWorkspaceFileResource(server: McpServer): void {
       description:
         "A knowledge unit or a linked repository file of a Workspace. The path is a ref from search_knowledge, search_code, or list_files.",
     },
-    async (uri, variables) => {
-      try {
-        const rawInput = {
-          org: variable(variables.org, "org"),
-          workspace: variable(variables.workspace, "workspace"),
-          ref: variable(variables.ref, "ref"),
-        }
-        const parsed = z
-          .object({ org: orgArgument, ...readFileInputShape })
-          .safeParse(rawInput)
-        if (!parsed.success) {
-          throw new McpToolError(
-            "invalid_ref",
-            "The resource URI is not valid.",
-          )
-        }
-        const { org, ...input } = parsed.data
-        const file = await withCallOrg(org, async (callOrg) => {
-          return readFileByRef(callOrg, input)
-        })
-        return {
-          contents: [
-            {
-              uri: uri.href,
-              mimeType: file.ref.endsWith(".md")
-                ? "text/markdown"
-                : "text/plain",
-              text: file.content,
-              _meta: {
-                served: file.served,
-                startLine: file.startLine,
-                endLine: file.endLine,
-                totalLines: file.totalLines,
-                nextStartLine: file.nextStartLine,
-                truncated: file.truncated,
-              },
-            },
-          ],
-        }
-      } catch (error) {
-        if (error instanceof McpToolError) throw protocolError(error)
-        getLogger().error(
-          error instanceof Error ? error : new Error(String(error)),
-          { step: "mcp.resource" },
-        )
-        throw new McpError(
-          ErrorCode.InternalError,
-          "ctxpipe could not read the resource. Try again.",
-        )
-      }
-    },
+    (uri, variables, extra) =>
+      runMcpResourceRead({ resourceName: "workspace-file", extra }, () =>
+        readWorkspaceFile(uri, variables),
+      ),
   )
+}
+
+async function readWorkspaceFile(
+  uri: URL,
+  variables: Record<string, string | string[]>,
+): Promise<ReadResourceResult> {
+  try {
+    const rawInput = {
+      org: variable(variables.org, "org"),
+      workspace: variable(variables.workspace, "workspace"),
+      ref: variable(variables.ref, "ref"),
+    }
+    const parsed = z
+      .object({ org: orgArgument, ...readFileInputShape })
+      .safeParse(rawInput)
+    if (!parsed.success) {
+      throw new McpToolError("invalid_ref", "The resource URI is not valid.")
+    }
+    const { org, ...input } = parsed.data
+    const file = await withCallOrg(org, async (callOrg) => {
+      return readFileByRef(callOrg, input)
+    })
+    return {
+      contents: [
+        {
+          uri: uri.href,
+          mimeType: file.ref.endsWith(".md") ? "text/markdown" : "text/plain",
+          text: file.content,
+          _meta: {
+            served: file.served,
+            startLine: file.startLine,
+            endLine: file.endLine,
+            totalLines: file.totalLines,
+            nextStartLine: file.nextStartLine,
+            truncated: file.truncated,
+          },
+        },
+      ],
+    }
+  } catch (error) {
+    if (error instanceof McpToolError) throw protocolError(error)
+    getLogger().error(
+      error instanceof Error ? error : new Error(String(error)),
+      { step: "mcp.resource" },
+    )
+    throw new McpError(
+      ErrorCode.InternalError,
+      "ctxpipe could not read the resource. Try again.",
+    )
+  }
 }

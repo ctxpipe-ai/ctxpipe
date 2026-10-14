@@ -233,6 +233,34 @@ export async function runMcpToolCall<R extends ToolResult>(
   input: { toolName: string; extra: ToolCallExtra },
   fn: (call: McpToolCall) => Promise<R>,
 ): Promise<R> {
+  return runMcpCall(
+    { kind: "tool", name: input.toolName, extra: input.extra },
+    fn,
+  )
+}
+
+/**
+ * Run one `resources/read` with the same correlation as a tool call: the
+ * `mcp.resource <name>` span, the call id, and the attribution. A resource
+ * read has no tool result, so each error goes back to the SDK as it is.
+ * Do not pass the URI here: it holds a path.
+ */
+export async function runMcpResourceRead<
+  R extends { _meta?: Record<string, unknown> },
+>(
+  input: { resourceName: string; extra: ToolCallExtra },
+  fn: (call: McpToolCall) => Promise<R>,
+): Promise<R> {
+  return runMcpCall(
+    { kind: "resource", name: input.resourceName, extra: input.extra },
+    fn,
+  )
+}
+
+async function runMcpCall<R extends { _meta?: Record<string, unknown> }>(
+  input: { kind: "tool" | "resource"; name: string; extra: ToolCallExtra },
+  fn: (call: McpToolCall) => Promise<R>,
+): Promise<R> {
   const correlation = readMcpCorrelation({
     meta: input.extra._meta,
     headers: input.extra.requestInfo?.headers,
@@ -245,9 +273,9 @@ export async function runMcpToolCall<R extends ToolResult>(
       : `name:${correlation.clientName ?? "unknown"}`,
   })
   const callId = generateObjectId("call")
-  const toolName = input.toolName.slice(0, 100)
+  const name = input.name.slice(0, 100)
   const attributes: AttributionInput = {
-    "ctxpipe.mcp.tool": toolName,
+    [input.kind === "tool" ? "ctxpipe.mcp.tool" : "ctxpipe.mcp.resource"]: name,
     "ctxpipe.mcp.call.id": callId,
     "ctxpipe.mcp.connection.key": connectionKey,
     "ctxpipe.mcp.client.name": correlation.clientName,
@@ -272,7 +300,7 @@ export async function runMcpToolCall<R extends ToolResult>(
   return trace
     .getTracer("ctxpipe-backend")
     .startActiveSpan(
-      `mcp.tool ${toolName}`,
+      `mcp.${input.kind} ${name}`,
       { links },
       callContext,
       async (span) => {
@@ -288,12 +316,13 @@ export async function runMcpToolCall<R extends ToolResult>(
             message: exception.message,
           })
           // The SDK sends an McpError as a protocol error. Keep that path.
-          if (error instanceof McpError) throw error
+          if (error instanceof McpError || input.kind === "resource")
+            throw error
           // Same shape as the SDK tool error, plus the call id.
           return withMeta({
             content: [{ type: "text", text: exception.message }],
             isError: true,
-          } as R)
+          } as unknown as R)
         } finally {
           span.end()
         }

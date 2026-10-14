@@ -1,3 +1,4 @@
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { SpanStatusCode } from "@opentelemetry/api"
 import type { ReadableSpan } from "@opentelemetry/sdk-trace-base"
 import { initLogger } from "evlog"
@@ -10,6 +11,7 @@ import { recordSpans } from "../../test/spans.js"
 import type { AppEnv } from "../app/env.js"
 import { backendOtelMiddleware } from "../observability/http.js"
 import { readMcpCorrelation, runMcpToolCall } from "./correlation.js"
+import { registerWorkspaceFileResource } from "./resources/workspace-file.js"
 import { handleMcpTransportRequest } from "./transport.js"
 
 const spans = recordSpans()
@@ -40,6 +42,7 @@ function buildApp(
   tool: (args: Record<string, unknown>) => Promise<unknown> = async () => ({
     content: [{ type: "text" as const, text: "ok" }],
   }),
+  registerResources: (server: McpServer) => void = () => {},
 ) {
   const app = new Hono<AppEnv>()
   app.use(contextStorage())
@@ -93,6 +96,7 @@ function buildApp(
               },
           ),
       )
+      registerResources(server)
     }),
   )
   return app
@@ -373,6 +377,43 @@ describe("MCP call correlation", () => {
     expect(result._meta?.["ai.ctxpipe/callId"]).toBe(
       span.attributes["ctxpipe.mcp.call.id"],
     )
+    expect(span.status.code).toBe(SpanStatusCode.ERROR)
+  })
+})
+
+describe("MCP resource read correlation", () => {
+  it("reads the workspace-file resource in an mcp.resource span with a call id", async () => {
+    const app = buildApp({ userId: "user_1" }, undefined, (server) =>
+      registerWorkspaceFileResource(server),
+    )
+    // A URI with a bad percent escape fails before any database read.
+    const response = await app.request("http://backend.test/mcp", {
+      method: "POST",
+      headers: {
+        accept: "application/json, text/event-stream",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "resources/read",
+        params: {
+          uri: "ctxpipe://acme/payments/knowledge/%E0%A4%A.md",
+          _meta: { "ai.ctxpipe/conversationId": "conv-res" },
+        },
+      }),
+    })
+    expect(response.status).toBe(200)
+    expect(await response.text()).toContain("invalid_ref")
+
+    const span = spans.spanNamed("mcp.resource workspace-file")
+    if (!span) throw new Error("no resource span")
+    expect(span.attributes).toMatchObject({
+      "ctxpipe.mcp.resource": "workspace-file",
+      "ctxpipe.mcp.conversation.id": "conv-res",
+    })
+    expect(span.attributes["ctxpipe.mcp.call.id"]).toMatch(/^call_[a-z0-9]+$/)
+    expect(span.attributes["ctxpipe.mcp.tool"]).toBeUndefined()
     expect(span.status.code).toBe(SpanStatusCode.ERROR)
   })
 })
