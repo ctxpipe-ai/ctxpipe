@@ -4,7 +4,7 @@ import { Checkbox } from "@/components/ui/Checkbox"
 import { CheckboxGroup } from "@/components/ui/CheckboxGroup"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { Radio, RadioGroup } from "@/components/ui/RadioGroup"
-import { Skeleton, SkeletonLine } from "@/components/ui/Skeleton"
+import { Skeleton, SkeletonText } from "@/components/ui/Skeleton"
 import { workspaceListOptions } from "@/features/workspaces/queries"
 import {
   type ChooseWorkspacesValue,
@@ -42,11 +42,14 @@ export function ChooseWorkspacesStep(props: {
       {listQuery.isPending ? (
         <div className="flex flex-col gap-2" aria-busy>
           <span className="sr-only">Loading Workspaces</span>
-          <SkeletonLine className="h-3.5 w-24" />
+          <SkeletonText className="text-sm" boneClassName="h-3.5 w-24" />
           {[0, 1, 2].map((row) => (
             <div key={row} className="flex h-5 items-center gap-2">
-              <Skeleton className="size-4 shrink-0" />
-              <SkeletonLine className="h-3.5 w-40" />
+              <Skeleton className="size-4.5 shrink-0" />
+              <SkeletonText
+                className="min-w-0 flex-1 text-sm"
+                boneClassName="h-3.5 w-40"
+              />
             </div>
           ))}
         </div>

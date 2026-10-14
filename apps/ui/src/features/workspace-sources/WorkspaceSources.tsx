@@ -19,7 +19,7 @@ import { Dialog } from "@/components/ui/Dialog"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { Link as TextLink } from "@/components/ui/Link"
 import { Modal } from "@/components/ui/Modal"
-import { Skeleton, SkeletonLine, SkeletonText } from "@/components/ui/Skeleton"
+import { Skeleton, SkeletonText } from "@/components/ui/Skeleton"
 import { orgConnectionsOptions } from "@/features/connectors/queries/org-connections"
 import type { WorkspaceLinkedRepository } from "@/features/workspaces/types"
 import { focusVisibleClassName } from "@/lib/focus-styles"
@@ -292,20 +292,24 @@ function scrollIntoViewWhenHashMatches(element: HTMLElement | null) {
 
 function SourcesSkeleton() {
   return (
-    <div className="mt-3 flex flex-col" aria-busy>
+    <div className="mt-3 flex flex-col divide-y divide-white/[0.06]" aria-busy>
       <span className="sr-only">Loading sources</span>
       {[0, 1].map((group) => (
         <div key={group} className="py-3">
           <div className="flex items-center gap-3">
             <Skeleton className="size-8 shrink-0 rounded-md" />
-            <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-              <SkeletonLine className="h-3.5 w-24" />
-              <SkeletonLine className="h-3 w-16" />
+            <div className="min-w-0 flex-1">
+              <SkeletonText className="text-sm" boneClassName="h-3.5 w-24" />
+              <SkeletonText className="text-xs" boneClassName="w-16" />
             </div>
           </div>
-          <div className="mt-2 flex flex-col gap-1.5 py-1 pl-11">
-            <SkeletonLine className="h-3.5 w-40" />
-            <SkeletonLine className="h-3 w-28" />
+          <div className="mt-1 pl-11">
+            <div className="flex items-start gap-2 py-1">
+              <div className="min-w-0 flex-1 py-0.5">
+                <SkeletonText className="text-sm" boneClassName="h-3.5 w-40" />
+                <SkeletonText className="text-xs" boneClassName="w-28" />
+              </div>
+            </div>
           </div>
         </div>
       ))}

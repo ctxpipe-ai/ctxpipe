@@ -10,7 +10,7 @@ import { Checkbox } from "@/components/ui/Checkbox"
 import { CheckboxGroup } from "@/components/ui/CheckboxGroup"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { SearchField } from "@/components/ui/SearchField"
-import { Skeleton, SkeletonLine } from "@/components/ui/Skeleton"
+import { Skeleton, SkeletonText } from "@/components/ui/Skeleton"
 import {
   notionConnectorKeys,
   searchNotionResources,
@@ -128,8 +128,11 @@ export function NotionScopeEditor(props: SourceScopeEditorProps) {
             <span className="sr-only">Searching Notion</span>
             {[0, 1, 2].map((row) => (
               <div key={row} className="flex h-5 items-center gap-2">
-                <Skeleton className="size-4 shrink-0" />
-                <SkeletonLine className="h-3.5 w-48" />
+                <Skeleton className="size-4.5 shrink-0" />
+                <SkeletonText
+                  className="min-w-0 flex-1 text-sm"
+                  boneClassName="h-3.5 w-48"
+                />
               </div>
             ))}
           </div>

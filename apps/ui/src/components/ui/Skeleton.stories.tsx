@@ -112,7 +112,27 @@ export const Lines: Story = {
   ),
 }
 
-/** No bone shows before the delay; the row keeps its final box all the time. */
+/**
+ * The CSS wait animation that runs the delay. The play test sets its time
+ * itself, so it does not depend on the wall clock.
+ */
+const waitAnimation = (bone: HTMLElement) => {
+  const wait = bone
+    .getAnimations()
+    .find(
+      (animation) =>
+        animation instanceof CSSAnimation &&
+        animation.animationName === "ctx-skeleton-wait",
+    )
+  if (!wait) throw new Error("The bone has no wait animation")
+  return wait
+}
+
+/**
+ * No bone shows before the delay; the row keeps its final box all the time.
+ * The play test pauses the wait animation and sets its time: one millisecond
+ * before the delay the bones are hidden, at the delay they show.
+ */
 export const WaitsForDelay: Story = {
   tags: ["workspace-golden"],
   render: () => (
@@ -121,20 +141,28 @@ export const WaitsForDelay: Story = {
     </div>
   ),
   play: async ({ canvasElement, mount }) => {
-    const mountedAt = performance.now()
     await mount()
     const row = within(canvasElement).getByTestId("row")
     const height = row.getBoundingClientRect().height
     expect(height).toBe(32)
+    const animations = bones(canvasElement).map(waitAnimation)
+    expect(animations.length).toBeGreaterThan(0)
+    for (const animation of animations) {
+      expect(animation.effect?.getComputedTiming().duration).toBe(
+        SKELETON_DELAY_MS,
+      )
+      animation.pause()
+      animation.currentTime = 0
+    }
     expect(allHidden(canvasElement)).toBe(true)
-    await sleep(SKELETON_DELAY_MS - 200 - (performance.now() - mountedAt))
+    for (const animation of animations) {
+      animation.currentTime = SKELETON_DELAY_MS - 1
+    }
     expect(allHidden(canvasElement)).toBe(true)
-    await waitFor(() => expect(allVisible(canvasElement)).toBe(true), {
-      timeout: SKELETON_DELAY_MS,
-    })
-    expect(performance.now() - mountedAt).toBeGreaterThanOrEqual(
-      SKELETON_DELAY_MS,
-    )
+    for (const animation of animations) {
+      animation.currentTime = SKELETON_DELAY_MS
+    }
+    expect(allVisible(canvasElement)).toBe(true)
     expect(row.getBoundingClientRect().height).toBe(height)
   },
 }
