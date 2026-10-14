@@ -1289,6 +1289,56 @@ describe("findSuspectedSecret", () => {
     ["a feature word", "auth: required"],
     ["a bearer placeholder", 'curl -H "Authorization: Bearer $TOKEN"'],
     ["a host and port", "See https://example.com:8443/docs@v2 for details."],
+    ["two YAML lines", "- key: deployment.environment\n  value: production"],
+    [
+      "a YAML key list item",
+      "- key: ctxpipe-remote-forge-lifecycle\n  function: main",
+    ],
+    ["a call value", "INTERNAL_TOKEN: preserve(),"],
+    ["a call with an object", "export const auth = betterAuth({"],
+    ["a call with a string", 'apiKey: cdk.SecretValue.secretsManager("x"),'],
+    ["a shortened value", "MODEL_API_KEY=sk-or-v1-... docker compose up"],
+    [
+      "an angle placeholder with spaces",
+      "OPENAI_API_KEY=<short-lived model token>",
+    ],
+    [
+      "a bearer placeholder with spaces",
+      "Authorization: Bearer <setup access token>",
+    ],
+    ["a brace placeholder", '"x-api-key": "{env:CTXPIPE_API_KEY}"'],
+    [
+      "a CI template in a table",
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: the case is a literal CI template
+      "| `CLOUD_SECRET_ACCESS_KEY` | `${{cold.SECRET_ACCESS_KEY}}` |",
+    ],
+    ["a word in a table", "| `MODEL_PROVIDER_API_KEY` | Usually | - |"],
+    [
+      "a package in a table",
+      "| `passkey` | `@better-auth/passkey` | WebAuthn |",
+    ],
+    [
+      "a sentence with a key word",
+      "- the last research pass: ByteRover CLI 3.15.1",
+    ],
+    [
+      "a test value in words",
+      "AUTH_SECRET: ci-auth-secret-must-be-at-least-32-chars",
+    ],
+    ["a token word with digits", "authorization: 'Bearer token123'"],
+    [
+      "a shell variable before a colon",
+      '-v "$PWD:/workspace" -w /workspace/app',
+    ],
+    [
+      "a template in a URL",
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: the case is a literal Compose template
+      "postgresql://${DB_USER:-app}:${DB_PASSWORD:-app}@postgres:5432/app",
+    ],
+    [
+      "a password that is part of the user",
+      "postgresql://shop_app:shop@localhost/shop",
+    ],
     [
       "a certificate body",
       `MIIDdzCCAl+gAwIBAgIEAgAAuTANBgkqhkiG9w0BAQUFADBaMQswCQYDVQQGEwJJ${"E".repeat(500)}`,
@@ -1339,6 +1389,10 @@ describe("findSuspectedSecret", () => {
     ["a value with no digit", "DB_PASSWORD=CorrectHorseBatteryStaple"],
     ["a random key value", `cache_key: ${real}`],
     ["an AWS key id with EXAMPLE", "AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE"],
+    ["a token after x-", `use x-${ghp}`],
+    ["a token after your-", `use your-${ghp}`],
+    ["an AWS key id inside a word", `pre_${FAKE.aws}`],
+    ["a random value before more words", `password: ${real} is the value`],
     [
       "a private key body",
       `MIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQ${"Ab3d".repeat(110)}`,
