@@ -18,6 +18,7 @@ the source instead of assuming every provider is a continuous workspace sync.
 | **Confluence** | Scoped mirror | Selected spaces and pages | Merged `confluence/config.yaml` plus Forge events |
 | **Slack** | Intent capture | One existing thread at a time | A user mentions the bot inside that thread |
 | **PagerDuty** | Scoped mirror | Selected services' incidents and alerts | Merged `pagerduty/config.yaml` plus supported incident events |
+| **Zendesk** | Scoped mirror | Help Center articles of selected categories, and the latest tickets of selected views | Merged `.ctxpipe/sources.yaml` plus Help Center webhooks and a daily sync |
 
 The important distinction is **scope**. A scoped mirror keeps an approved subset
 current. Slack does not have a channel scope or history backfill: users promote a
@@ -46,6 +47,7 @@ Use separate Workspaces when different sources need different audiences.
   <Card title="Confluence" href="/docs/connections/source-connectors/confluence" description="Connect Atlassian, approve space scope, and merge it into Git." />
   <Card title="Slack" href="/docs/connections/source-connectors/slack" description="Capture valuable threads on demand without mirroring channels." />
   <Card title="PagerDuty" href="/docs/connections/source-connectors/pagerduty" description="Mirror selected incident context through reviewable Git scope." />
+  <Card title="Zendesk" href="/docs/connections/source-connectors/zendesk" description="Sync Help Center articles and the latest tickets of selected views." />
   <Card title="Connected sources" href="/docs/connections/connected-sources" description="See the complete source catalog and availability." />
 </Cards>
 
