@@ -651,6 +651,18 @@ async function checkAreaWrite(
     }
   const content = contentProblem(text)
   if (content) return content
+  // The script writes human sections at the end of an area file. A human
+  // section that moves into a rule or the summary would change what its
+  // text means, so it must stay there.
+  const firstHuman = text.indexOf(HUMAN_OPEN)
+  if (
+    firstHuman !== -1 &&
+    text.slice(firstHuman).replace(HUMAN_BLOCK, "").trim() !== ""
+  )
+    return {
+      rule: "human_section",
+      reason: "A human section of an area file stays at the end of the file",
+    }
   const heading = deniedHeading(front.body)
   if (heading) return heading
   // An area file has no place for a quote, so the scan reads all of its

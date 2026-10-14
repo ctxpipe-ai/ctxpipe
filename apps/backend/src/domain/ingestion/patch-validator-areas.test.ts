@@ -512,6 +512,20 @@ describe("area files in the patch validator", () => {
       expect(result.rejections.map((r) => r.rule)).toEqual(["human_section"])
     })
 
+    it("rejects a human section that moves away from the end of the file", async () => {
+      const ctx = base()
+      const text = joined((rules) => {
+        rules[0].sources[B] = documented("AGENTS.md")
+        return rules
+      })
+      const moved = text
+        .replace(`\n${HUMAN}`, "")
+        .replace("## Rules", `${HUMAN}\n## Rules`)
+      expect(moved).not.toBe(text)
+      const result = await run(ctx, stage(ctx, { [AREA]: moved }), B)
+      expect(result.rejections.map((r) => r.rule)).toEqual(["human_section"])
+    })
+
     it("rejects injected text in a new rule", async () => {
       const ctx = base()
       const text = joined((rules) => {
