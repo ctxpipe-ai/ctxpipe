@@ -159,6 +159,20 @@ export async function registerAtlassianInstallIntent(
   return { id: json.id }
 }
 
+/**
+ * Cancel a setup that has not started: the server deletes the pending
+ * connection only while it is empty (409 otherwise, which is fine here).
+ */
+export async function cancelAtlassianSetup(
+  orgSlug: string,
+  atlassianConnectionId: string,
+): Promise<void> {
+  await client[":orgSlug"].api.v1.connectors.atlassian.installation.$delete({
+    param: { orgSlug },
+    query: { connectionId: atlassianConnectionId },
+  })
+}
+
 type GitHubRepoItem = {
   id: number
   full_name: string

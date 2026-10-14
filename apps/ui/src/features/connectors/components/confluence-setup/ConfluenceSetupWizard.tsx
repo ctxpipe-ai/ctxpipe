@@ -3,6 +3,7 @@
 import HyperDX from "@hyperdx/browser"
 import {
   keepPreviousData,
+  useMutation,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query"
@@ -19,9 +20,11 @@ import {
 } from "../../confluence-setup-model"
 import {
   atlassianConnectorKeys,
+  cancelAtlassianSetup,
   fetchAtlassianConnectorStatus,
   fetchOrgAtlassianOauth,
 } from "../../queries/atlassian-connector"
+import { orgConnectionsKeys } from "../../queries/org-connections"
 import type { AtlassianConnectorStatus } from "../../types"
 import { ConfluenceMark } from "../ConfluenceMark"
 import { ConnectorSetupStepper } from "../ConnectorSetupStepper"
@@ -175,19 +178,33 @@ export function ConfluenceSetupWizard({
           )
       : ("link" as const)
 
+  // Closing a setup before the Forge install was opened deletes its empty
+  // draft, so a cancelled "Add Confluence" leaves no connector entry. The
+  // server keeps a draft with progress. After "Install", the Marketplace can
+  // still bind the install to the draft, so it stays.
+  const cancelSetup = useMutation({
+    mutationFn: (connectionId: string) =>
+      cancelAtlassianSetup(orgSlug, connectionId),
+    onSettled: () =>
+      queryClient.invalidateQueries({
+        queryKey: orgConnectionsKeys.list(orgSlug),
+      }),
+  })
+  const close = () => {
+    if (atlassianConnectionId && !waitForInstall && !status?.isInstalled)
+      cancelSetup.mutate(atlassianConnectionId)
+    setWaitForInstall(false)
+    setWorkspacesDone(false)
+    setPullRequestUrls([])
+    setManualStepIndex(null)
+    prevServerStepIndexRef.current = null
+    onOpenChange(false)
+  }
+
   return (
     <Modal
       isOpen={isOpen}
-      onOpenChange={(open) => {
-        if (!open) {
-          setWaitForInstall(false)
-          setWorkspacesDone(false)
-          setPullRequestUrls([])
-          setManualStepIndex(null)
-          prevServerStepIndexRef.current = null
-        }
-        onOpenChange(open)
-      }}
+      onOpenChange={(open) => (open ? onOpenChange(true) : close())}
       isDismissable
       className="max-w-[min(92vw,720px)]"
     >
@@ -209,11 +226,7 @@ export function ConfluenceSetupWizard({
               </p>
             </div>
           </div>
-          <Button
-            variant="secondary"
-            className="rounded-md"
-            onPress={() => onOpenChange(false)}
-          >
+          <Button variant="secondary" className="rounded-md" onPress={close}>
             Close
           </Button>
         </div>
@@ -331,7 +344,7 @@ export function ConfluenceSetupWizard({
             {bodyId === "complete" ? (
               <SetupCompleteStep
                 pullRequestUrls={pullRequestUrls}
-                onClose={() => onOpenChange(false)}
+                onClose={close}
               />
             ) : null}
           </div>

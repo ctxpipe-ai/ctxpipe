@@ -301,6 +301,55 @@ export const WaitForInstall: Story = {
   },
 }
 
+/** Each cancel request: the connection id it names. */
+const cancelCalls: string[] = []
+const installationDelete = http.delete(
+  ({ request }) =>
+    new URL(request.url).pathname ===
+    `/${orgSlug}/api/v1/connectors/atlassian/installation`,
+  ({ request }) => {
+    cancelCalls.push(
+      new URL(request.url).searchParams.get("connectionId") ?? "",
+    )
+    return new HttpResponse(null, { status: 204 })
+  },
+)
+const installHandlers = [
+  status(sInstall),
+  capabilitiesHosted,
+  installationPost,
+  installationDelete,
+  orgAtlassianOauthGet(true, false),
+]
+
+/** Close before the Forge install opens: the empty draft is cancelled. */
+export const CloseBeforeInstallCancelsDraft: Story = {
+  render: () => wizard(),
+  parameters: { msw: { handlers: { page: installHandlers } } },
+  play: async () => {
+    cancelCalls.length = 0
+    const body = within(document.body)
+    await userEvent.click(await body.findByRole("button", { name: "Close" }))
+    await waitFor(() => expect(cancelCalls).toEqual([atlassianConnectionId]))
+  },
+}
+
+/**
+ * Close after "Install": the Marketplace can still bind the install to the
+ * draft, so it stays.
+ */
+export const CloseAfterInstallKeepsDraft: Story = {
+  render: () => wizard({ initialWaitForInstall: true }),
+  parameters: { msw: { handlers: { page: installHandlers } } },
+  play: async () => {
+    cancelCalls.length = 0
+    const body = within(document.body)
+    await userEvent.click(await body.findByRole("button", { name: "Close" }))
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    await expect(cancelCalls).toEqual([])
+  },
+}
+
 export const AddToWorkspaces: Story = {
   name: "06 / Add to Workspaces",
   render: () => wizard(),

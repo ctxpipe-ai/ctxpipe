@@ -252,6 +252,64 @@ export async function resolveForgeInstallationForOrg(
   return r.status === "ok" ? r.installation : undefined
 }
 
+/**
+ * True for a pending Forge draft that only "Add Confluence" created: no
+ * Atlassian app, no site, no provisioning and no install. The Atlassian
+ * account link belongs to the user, not to the draft, so it does not count.
+ */
+export function isEmptyForgeSetupDraft(config: ForgeConnectionConfig): boolean {
+  return (
+    config.status === "pending" &&
+    config.provisionStatus === "idle" &&
+    !config.cloudId &&
+    !config.installationId &&
+    !config.installationContext &&
+    !config.appId &&
+    !config.appSystemToken &&
+    !config.atlassianOAuthClientId &&
+    !config.atlassianOAuthClientSecret &&
+    !config.confluenceSiteHost &&
+    !config.confluenceForgeInstallUrl &&
+    !config.forgeScopedApiToken &&
+    !config.forgeOperatorEmail &&
+    !config.provisionWorkflowRunId &&
+    !config.lastProvisionAt &&
+    !config.sourceSync
+  )
+}
+
+/**
+ * Delete a Forge draft while it is still empty, when the user cancels the
+ * setup. A draft with progress stays, so the user can finish or remove it.
+ */
+export async function deleteEmptyForgeSetupDraft(
+  orgId: string,
+  connectionId: string,
+): Promise<"deleted" | "kept" | "missing"> {
+  const outcome = await withOrgDbContext(orgId, async (db) => {
+    const [row] = await db
+      .select()
+      .from(connections)
+      .where(
+        and(
+          eq(connections.id, connectionId),
+          eq(connections.orgId, orgId),
+          eq(connections.type, CONNECTION_TYPE_FORGE),
+        ),
+      )
+      .limit(1)
+    if (!row) return "missing"
+    const config = parseForgeConnectionConfig(
+      row.config as Record<string, unknown>,
+    )
+    if (!isEmptyForgeSetupDraft(config)) return "kept"
+    await db.delete(connections).where(eq(connections.id, connectionId))
+    return "deleted"
+  })
+  if (outcome === "deleted") await deleteConnectionDirectory(connectionId)
+  return outcome
+}
+
 /** Must run inside {@link withOrgDbContext} for the given `orgId`. */
 export async function deleteForgeConnectionById(
   orgId: string,

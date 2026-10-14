@@ -6,6 +6,7 @@ import {
   userMessageForProvisionError,
 } from "../../lib/forge-provision-error-map.js"
 import {
+  deleteEmptyForgeSetupDraft,
   deleteForgeConnectionById,
   deleteForgeInstallationByOrgId,
   type ForgeInstallation,
@@ -103,6 +104,29 @@ const registerAtlassianInstallationRoute = createRoute({
       content: { "application/json": { schema: ErrorResponseSchema } },
       description:
         "User already has a pending Confluence/Forge install intent in another organization",
+    },
+  },
+})
+
+const cancelAtlassianInstallationRoute = createRoute({
+  method: "delete",
+  path: "/installation",
+  request: {
+    query: z.object({ connectionId: z.string().min(1) }),
+  },
+  responses: {
+    204: {
+      description:
+        "The setup was cancelled: the empty pending connection is deleted (idempotent)",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    409: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description:
+        "The connection has setup progress or is installed, so it stays listed",
     },
   },
 })
@@ -534,6 +558,24 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
       },
       200,
     )
+  })
+  .openapi(cancelAtlassianInstallationRoute, async (c) => {
+    if (!c.get("user") || !c.get("session")) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+    const orgId = c.get("orgId")
+    if (!orgId) return c.json({ error: "Unauthorized" }, 401)
+    const { connectionId } = c.req.valid("query")
+    const outcome = await deleteEmptyForgeSetupDraft(orgId, connectionId)
+    if (outcome === "kept")
+      return c.json(
+        {
+          error:
+            "This Confluence setup has progress. Finish it, or remove it on the Connectors page.",
+        },
+        409,
+      )
+    return c.body(null, 204)
   })
   .openapi(getStatusRoute, async (c) => {
     if (!c.get("user") || !c.get("session")) {
