@@ -622,8 +622,12 @@ async function checkAreaWrite(
   if (content) return content
   const heading = deniedHeading(front.body)
   if (heading) return heading
-  const injection = injectionProblem(text)
+  // An area file has no place for a quote, so the scan reads all of its
+  // text: code spans, fenced blocks, and block quotes too.
+  const injection = injectionProblem(text, { everywhere: true })
   if (injection) return injection
+  const secret = secretProblem(withoutHumanText(text))
+  if (secret) return secret
 
   const beforeSources = fileSources(before ?? "")
   const others = beforeSources.filter((s) => s !== context.sourceUrl)
@@ -655,6 +659,14 @@ async function checkAreaWrite(
         rule: "evidence",
         reason: "An evidence path does not exist at the source revision",
       }
+  for (const { pattern, paths } of change.freshPatterns)
+    for (const path of paths)
+      if (!(await context.sourceText(path))?.includes(pattern))
+        return {
+          rule: "evidence",
+          reason:
+            "An evidence file of an inferred rule does not hold the rule's pattern at the source revision",
+        }
 
   const stamped = {
     kind: attributes.kind,
@@ -735,13 +747,7 @@ async function checkFullWrite(
   if (injection) return injection
   const quote = await unsourcedQuoteProblem(front.body, context)
   if (quote) return quote
-  // Human sections stay as they are, so only the rest of the file is scanned.
-  const secret = secretProblem(
-    humanBlocks(text).reduce(
-      (rest, block) => rest.replace(block, block.replace(/[^\n]/g, "")),
-      text,
-    ),
-  )
+  const secret = secretProblem(withoutHumanText(text))
   if (secret) return secret
 
   const claims = attributes.claims ?? []
@@ -926,6 +932,14 @@ const HUMAN_MARKER = new RegExp(
   "g",
 )
 
+/**
+ * Human sections stay as they are, so a scan reads only the rest of the
+ * file. Each human line becomes empty, so line numbers stay correct.
+ */
+function withoutHumanText(text: string): string {
+  return text.replace(HUMAN_BLOCK, (block) => block.replace(/[^\n]+/g, ""))
+}
+
 function humanBlocks(text: string): string[] {
   return [...text.matchAll(HUMAN_BLOCK)].map((m) => m[0])
 }
@@ -1013,13 +1027,22 @@ const INJECTION_PHRASES = [
   /<\|?(?:im_start|im_end|endoftext)\|?>|\[\/?INST\]|<<\/?SYS>>/i,
 ]
 
-/** Scans text outside fenced code and block quotes (concept section 6). */
-function injectionProblem(text: string): CheckFailure | null {
-  const outside = withoutCode(text)
-    .split("\n")
-    .filter((line) => !/^ {0,3}>/.test(line))
-    .join("\n")
-    .replace(/\s+/g, " ")
+/**
+ * Scans text outside fenced code and block quotes (concept section 6), or
+ * all of the text when `everywhere` is set.
+ */
+function injectionProblem(
+  text: string,
+  options: { everywhere?: boolean } = {},
+): CheckFailure | null {
+  const outside = (
+    options.everywhere
+      ? text
+      : withoutCode(text)
+          .split("\n")
+          .filter((line) => !/^ {0,3}>/.test(line))
+          .join("\n")
+  ).replace(/\s+/g, " ")
   for (const pattern of INJECTION_PHRASES) {
     if (pattern.test(outside))
       return {

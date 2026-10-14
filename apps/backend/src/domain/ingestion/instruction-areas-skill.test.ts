@@ -555,7 +555,7 @@ describe("the instruction-areas skill", () => {
     const area = context.show(result.tree, AREA)
     expect(area).toContain(`- source \`${URL_A}\`, documented: \`AGENTS.md\``)
     expect(area).toContain(
-      `- source \`${URL_A}\`, inferred: \`lib/c.test.ts\`, \`src/a.test.ts\`, \`src/b.test.ts\``,
+      `- source \`${URL_A}\`, inferred from \`from "vitest"\`: \`lib/c.test.ts\`, \`src/a.test.ts\`, \`src/b.test.ts\``,
     )
     const codebaseText = context.show(
       result.tree,
@@ -822,6 +822,26 @@ describe("the instruction-areas skill", () => {
     expect(reasons).toContain("no verified document")
     expect(reasons).toContain("no valid key, value, or text")
     expect(reasons).toContain("a new area needs 5")
+  })
+
+  it("does not take a short quote such as 'the' as evidence", async () => {
+    const context = contextRepo()
+    const proposal = unitTesting("vitest")
+    const rules = (
+      proposal.areas[0] as { rules: Array<Record<string, unknown>> }
+    ).rules
+    rules[2] = { ...rules[2], documents: [{ path: "AGENTS.md", quote: "the" }] }
+    const step = ingest(
+      context,
+      shop(),
+      URL_A,
+      "knowledge/codebases/shop.md",
+      proposal,
+    )
+    const reasons = step.summary.skipped.map((s) => s.reason).join("\n")
+    expect(reasons).toContain(
+      "The rule mocking of unit-testing has no verified document",
+    )
   })
 
   it("lets the host reject injected rule text that the script cannot tell", async () => {

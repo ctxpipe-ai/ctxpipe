@@ -8,7 +8,8 @@
 //   ## Summary          one paragraph
 //   ## Rules            - <rule text>
 //                         - topic: `<key>` = `<value>` (core)
-//                         - source `<url>`, documented|inferred: `<path>`, ...
+//                         - source `<url>`, documented: `<path>`, ...
+//                         - source `<url>`, inferred from `<pattern>`: `<path>`, ...
 //   ## Repository notes - `<url>`: <text>
 //   ## Being replaced   rules, in the same form as Rules
 
@@ -50,7 +51,7 @@ const HUMAN_CLOSE = "<!-- /ctxpipe:human -->"
 const TOPIC =
   /^ {2}- topic: `([a-z0-9][a-z0-9-]{0,59})` = `([^`\n]{1,100})`( \(core\))?$/
 const SOURCE =
-  /^ {2}- source `([^`\s]{1,300})`, (documented|inferred): (`[^`\n]{1,300}`(?:, `[^`\n]{1,300}`)*)$/
+  /^ {2}- source `([^`\s]{1,300})`, (documented|inferred(?: from `([^`\n]{3,200})`)?): (`[^`\n]{1,300}`(?:, `[^`\n]{1,300}`)*)$/
 const NOTE = /^- `([^`\s]{1,300})`: (\S.{0,299})$/
 const RULE = /^- (\S.{0,299})$/
 const SECTIONS = ["Summary", "Rules", "Repository notes", "Being replaced"]
@@ -221,10 +222,17 @@ function parseAreaBody(body) {
       }
       const source = SOURCE.exec(line)
       if (source) {
-        rule.sources.set(normalizeUrl(source[1]), {
-          basis: source[2],
-          paths: [...source[3].matchAll(/`([^`\n]+)`/g)].map((m) => m[1]),
-        })
+        const paths = [...source[4].matchAll(/`([^`\n]+)`/g)].map((m) => m[1])
+        rule.sources.set(
+          normalizeUrl(source[1]),
+          source[2] === "documented"
+            ? { basis: "documented", paths }
+            : {
+                basis: "inferred",
+                paths,
+                ...(source[3] ? { pattern: source[3] } : {}),
+              },
+        )
         continue
       }
       return { error: "A line does not match the rule format" }
@@ -248,7 +256,7 @@ function ruleLines(rule) {
     `  - topic: \`${rule.key}\` = \`${rule.value}\`${rule.core ? " (core)" : ""}`,
     ...[...rule.sources].map(
       ([url, e]) =>
-        `  - source \`${url}\`, ${e.basis}: ${e.paths.map((p) => `\`${p}\``).join(", ")}`,
+        `  - source \`${url}\`, ${e.basis}${e.pattern === undefined ? "" : ` from \`${e.pattern}\``}: ${e.paths.map((p) => `\`${p}\``).join(", ")}`,
     ),
   ].join("\n")
 }
