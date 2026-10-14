@@ -11,6 +11,7 @@ import { dirname, join } from "node:path"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { parse as parseYaml, stringify } from "yaml"
 import {
+  findSuspectedSecret,
   gitSourcePathExists,
   type PatchStepResult,
   validatePatchStep,
@@ -260,6 +261,21 @@ type RuleCase = {
 }
 
 const SIXTY_KIB = "a".repeat(60 * 1024)
+
+// Secret-shaped values are built at run time, so no literal token is in the repository.
+const FAKE = {
+  github: `ghp_${"A1b2C3d4E5".repeat(4)}`,
+  githubPat: `github_pat_${"11AbCdEfGh".repeat(5)}`,
+  aws: `AKIA${"Q7RZ2M4KX9PLW3TN"}`,
+  slack: `xoxb-${"1234567890"}-${"abcDEF123456"}`,
+  stripe: `sk_live_${"4eC39HqLyjWDarjtT1zdp7dc"}`,
+  openai: `sk-${"proj"}-${"Ab12Cd34Ef56Gh78Ij90Kl12Mn34Op56"}`,
+  google: `AIza${"SyD4x9Kq2Lm7Np3Rs8Tv1Wx6Yz0Ab5Cd-Ef"}`,
+  jwt: `eyJ${"hbGciOiJIUzI1NiJ9"}.eyJ${"zdWIiOiIxMjM0NTY3ODkwIn0"}.${"dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"}`,
+  privateKey: `-----BEGIN ${"RSA PRIVATE"} KEY-----`,
+  connection: `postgres://billing:${"Tr0ub4dor3x9"}@db.internal:5432/billing`,
+  assignment: `STRIPE_WEBHOOK_SECRET=${"whsec9f8e7d6c5b4a3"}`,
+}
 const SEVENTY_KIB = "a".repeat(70 * 1024)
 
 const ruleCases: RuleCase[] = [
@@ -566,6 +582,32 @@ const ruleCases: RuleCase[] = [
       "knowledge/services/front-matter-injected.md",
     ],
     accepted: ["knowledge/services/quoted.md"],
+  },
+  {
+    rule: "suspected_secret",
+    name: "rejects a credential in the body, the front matter, or a Related line",
+    files: {
+      "knowledge/services/config.md": service(
+        "Config",
+        "# Config\n\nSet `GITHUB_TOKEN` in the environment.\n\n```\nGITHUB_TOKEN=<your-token>\n```\n",
+      ),
+      "knowledge/services/leaked.md": service(
+        "Leaked",
+        `# Leaked\n\n\`\`\`\n${FAKE.assignment}\n\`\`\`\n`,
+      ),
+      "knowledge/services/front-matter-leaked.md": service(
+        "Leaked",
+        undefined,
+        { summary: `Uses ${FAKE.github}` },
+      ),
+      "knowledge/apps/portal.md": `${HUMAN_PORTAL}- [Billing](../services/billing.md) ${FAKE.aws}\n`,
+    },
+    rejected: [
+      "knowledge/apps/portal.md",
+      "knowledge/services/front-matter-leaked.md",
+      "knowledge/services/leaked.md",
+    ],
+    accepted: ["knowledge/services/config.md"],
   },
 ]
 
@@ -1112,5 +1154,67 @@ describe("validatePatchStep review fixes", () => {
       "knowledge/instructions/unit-testing.md",
     ])
     expect(rulesOf(result)).toEqual(["front_matter"])
+  })
+})
+
+describe("findSuspectedSecret", () => {
+  it.each(Object.entries(FAKE))("rejects a %s value", (_, value) => {
+    const text = `# Notes\n\nThe file has:\n\n    ${value}\n`
+    const finding = findSuspectedSecret(text)
+    expect(finding?.line).toBe(5)
+    expect(finding?.reason).toContain("line 5")
+    expect(finding?.reason).not.toContain(value)
+    for (const part of value
+      .split(/[^A-Za-z0-9]+/)
+      .filter((p) => p.length >= 8))
+      expect(finding?.reason).not.toContain(part)
+  })
+
+  it.each([
+    [
+      "a variable name alone",
+      "Set GITHUB_TOKEN and AWS_SECRET_ACCESS_KEY first.",
+    ],
+    ["an empty value", "API_KEY="],
+    ["an angle placeholder", "API_KEY=<your-api-key>"],
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: the case is a literal shell placeholder
+    ["a shell placeholder", "DATABASE_PASSWORD=${DATABASE_PASSWORD}"],
+    ["a changeme value", "AUTH_SECRET=changeme"],
+    [
+      "an x placeholder",
+      "OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    ],
+    ["a your- value", "SLACK_BOT_TOKEN=your-slack-bot-token"],
+    ["an example value", "AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE"],
+    ["a short value", "PASSWORD=abc1"],
+    ["a reference", "const apiKey = process.env.API_KEY"],
+    ["a sentence after a label", "Token: the GitHub token with repo scope"],
+    ["a URL without a password", "postgres://billing@db.internal:5432/billing"],
+    [
+      "a URL with a placeholder password",
+      "postgres://user:password@localhost:5432/app",
+    ],
+    ["a public key block", "-----BEGIN PUBLIC KEY-----"],
+    [
+      "a kebab-case word with sk-",
+      "sk-learn-is-a-python-library-for-machine-learning",
+    ],
+  ])("accepts %s", (_, text) => {
+    expect(findSuspectedSecret(`# Notes\n\n${text}\n`)).toBeNull()
+  })
+
+  it("keeps the work linear on a 2 MiB hostile file", () => {
+    const size = 2 * 1024 * 1024
+    for (const unit of ["sk-", "a://b", "eyJ-", "x:y@", "A=", "-----BEGIN "]) {
+      const text = unit.repeat(Math.ceil(size / unit.length))
+      const meter = { work: 0 }
+      expect(findSuspectedSecret(text, meter)).toBeNull()
+      expect(meter.work).toBeGreaterThanOrEqual(text.length)
+      expect(meter.work).toBeLessThanOrEqual(8 * text.length)
+    }
+    const lines = `${FAKE.openai.slice(0, 10)} word\n`.repeat(size / 20)
+    const meter = { work: 0 }
+    expect(findSuspectedSecret(lines, meter)).toBeNull()
+    expect(meter.work).toBeLessThanOrEqual(8 * lines.length)
   })
 })
