@@ -1,0 +1,119 @@
+# HTTP and queue clients and config readers for Go. A one-argument call
+# needs a function context, or the Go grammar reads `http.Get(x)` as a type
+# conversion. A composite literal is matched through its keyed element.
+id: go-http
+language: Go
+message: http call net-http URL
+rule:
+  any:
+    - pattern:
+        context: 'func f() { http.Get($URL) }'
+        selector: call_expression
+    - pattern:
+        context: 'func f() { http.Head($URL) }'
+        selector: call_expression
+    - pattern: http.Post($URL, $$$A)
+    - pattern: http.PostForm($URL, $$$A)
+---
+id: go-http-request
+language: Go
+message: http call net-http URL
+rule:
+  any:
+    - pattern: http.NewRequest($M, $URL, $$$A)
+    - pattern: http.NewRequestWithContext($C, $M, $URL, $$$A)
+---
+id: go-env
+language: Go
+message: config read os-getenv NAME
+rule:
+  any:
+    - pattern:
+        context: 'func f() { os.Getenv($NAME) }'
+        selector: call_expression
+    - pattern:
+        context: 'func f() { viper.GetString($NAME) }'
+        selector: call_expression
+constraints:
+  NAME:
+    all:
+      - regex: (?i)(^|_|\.)(URL|URI|HOST|ADDR|ADDRESS|ENDPOINT|BROKERS?|TOPICS?|QUEUES?|STREAMS?|SUBJECT|CHANNEL|SERVICE)(_|\.|"$)
+      - not:
+          regex: (?i)(^|[_."])(DATABASE|DB|POSTGRES|POSTGRESQL|MYSQL|MONGO|MONGODB|REDIS|SENTRY|OTEL|OTLP)(_|\.|")
+---
+id: go-kafka-produce
+language: Go
+message: stream produce kafka T
+rule:
+  all:
+    - any:
+        - pattern: 'kafka.Writer{$$$A}'
+        - pattern: 'kafka.WriterConfig{$$$A}'
+        - pattern: 'sarama.ProducerMessage{$$$A}'
+    - has:
+        stopBy: end
+        pattern:
+          context: 'T{Topic: $T}'
+          selector: keyed_element
+---
+id: go-kafka-consume
+language: Go
+message: stream consume kafka T
+rule:
+  all:
+    - pattern: 'kafka.ReaderConfig{$$$A}'
+    - has:
+        stopBy: end
+        pattern:
+          context: 'T{Topic: $T}'
+          selector: keyed_element
+---
+id: go-kafka-partition
+language: Go
+message: stream consume kafka T
+rule:
+  pattern: $C.ConsumePartition($T, $$$A)
+---
+id: go-sqs-produce
+language: Go
+message: queue produce sqs Q
+rule:
+  all:
+    - pattern: 'sqs.SendMessageInput{$$$A}'
+    - has:
+        stopBy: end
+        pattern:
+          context: 'T{QueueUrl: $Q}'
+          selector: keyed_element
+---
+id: go-sqs-consume
+language: Go
+message: queue consume sqs Q
+rule:
+  all:
+    - pattern: 'sqs.ReceiveMessageInput{$$$A}'
+    - has:
+        stopBy: end
+        pattern:
+          context: 'T{QueueUrl: $Q}'
+          selector: keyed_element
+---
+id: go-nats-produce
+language: Go
+message: stream produce nats S
+rule:
+  pattern: $N.Publish($S, $$$A)
+constraints:
+  N:
+    regex: (?i)^(nc|nats|js|conn)$
+---
+id: go-nats-consume
+language: Go
+message: stream consume nats S
+rule:
+  any:
+    - pattern: $N.Subscribe($S, $$$A)
+    - pattern: $N.QueueSubscribe($S, $$$A)
+constraints:
+  N:
+    regex: (?i)^(nc|nats|js|conn)$

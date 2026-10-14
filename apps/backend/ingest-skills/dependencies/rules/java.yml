@@ -1,0 +1,76 @@
+# HTTP and queue clients and config readers for Java.
+id: java-rest-template
+language: Java
+message: http call rest-template URL
+rule:
+  pattern: $T.$M($URL, $$$A)
+constraints:
+  T:
+    regex: (?i)(resttemplate|restclient)
+  M:
+    regex: ^(getForObject|getForEntity|postForObject|postForEntity|exchange|put|delete)$
+---
+id: java-feign
+language: Java
+message: http call feign N
+rule:
+  all:
+    - pattern: '@FeignClient($$$A)'
+    - has:
+        stopBy: end
+        pattern:
+          context: '@A(name = $N) class X {}'
+          selector: element_value_pair
+---
+id: java-env
+language: Java
+message: config read system-getenv NAME
+rule:
+  pattern: System.getenv($NAME)
+constraints:
+  NAME:
+    all:
+      - regex: (^|_)(URL|URI|HOST|ADDR|ADDRESS|ENDPOINT|BROKERS?|TOPICS?|QUEUES?|STREAMS?|SUBJECT|CHANNEL|SERVICE)(_|["']$)
+      - not:
+          regex: (^|["_])(DATABASE|DB|POSTGRES|POSTGRESQL|MYSQL|MONGO|MONGODB|REDIS|SENTRY|OTEL|OTLP)(_|")
+---
+id: java-kafka-produce
+language: Java
+message: stream produce kafka T
+rule:
+  any:
+    - pattern: new ProducerRecord<>($T, $$$A)
+    - pattern: new ProducerRecord<$$$G>($T, $$$A)
+---
+id: java-kafka-consume
+language: Java
+message: stream consume kafka T
+rule:
+  all:
+    - pattern: '@KafkaListener($$$A)'
+    - has:
+        stopBy: end
+        pattern:
+          context: '@A(topics = $T) class X {}'
+          selector: element_value_pair
+---
+id: java-rabbit-produce
+language: Java
+message: queue produce amqp Q
+rule:
+  pattern: $T.convertAndSend($Q, $$$A)
+constraints:
+  T:
+    regex: (?i)rabbit
+---
+id: java-rabbit-consume
+language: Java
+message: queue consume amqp Q
+rule:
+  all:
+    - pattern: '@RabbitListener($$$A)'
+    - has:
+        stopBy: end
+        pattern:
+          context: '@A(queues = $Q) class X {}'
+          selector: element_value_pair
