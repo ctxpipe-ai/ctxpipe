@@ -284,7 +284,7 @@ describe("list_workspaces through MCP", () => {
         orgId: seed.orgId,
         slug: "broken",
         displayName: "Broken links",
-        workspaceRepositoryUrl: "https://github.com/example/context",
+        workspaceRepositoryUrl: "https://github.com/example/broken-links",
         desiredDefaultBranch: "main",
       })
       await db.insert(workspaceLinkedRepositories).values(
