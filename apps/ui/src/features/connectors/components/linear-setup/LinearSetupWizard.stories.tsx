@@ -1,14 +1,21 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { useQuery } from "@tanstack/react-query"
 import { delay, HttpResponse, http } from "msw"
+import { type ComponentProps, useState } from "react"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
+import { Button } from "@/components/ui/Button"
 import { CHOOSE_WORKSPACES_HINT } from "@/features/workspace-sources/ChooseWorkspacesStep"
+import { workspaceSourcesOptions } from "@/features/workspace-sources/queries"
 import { docsWorkspace } from "@/features/workspaces/workspace-fixtures"
 import { linearAvailableScopesHandler } from "@/mocks/linear-handlers"
 import { workspaceListHandler } from "@/mocks/workspace-handlers"
 import {
+  connectionUsageHandler,
+  connectionUsageItem,
   workspaceSourceChangeHandlers,
   workspaceSourceFixture,
   workspaceSourceList,
+  workspaceSourcesHandler,
 } from "@/mocks/workspace-sources-handlers"
 import { entryPageInnerDecorators } from "../../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../../.storybook/decorators/with-story-route"
@@ -172,6 +179,7 @@ export const ChooseWorkspaces: Story = {
           statusHandler(baseStatus),
           workspaceListHandler([docsWorkspace]),
           linearAvailableScopesHandler(),
+          connectionUsageHandler([]),
           ...workspaceSourceChangeHandlers(addCalls),
         ],
       },
@@ -236,6 +244,7 @@ export const MergeStepShowsTheMerge: Story = {
           statusHandler(baseStatus),
           workspaceListHandler([docsWorkspace]),
           linearAvailableScopesHandler(),
+          connectionUsageHandler([]),
           http.post(`/${orgSlug}/api/v1/workspaces/docs/sources`, () =>
             HttpResponse.json({
               outcome: "pull_request",
@@ -303,5 +312,182 @@ export const MergeStepShowsTheMerge: Story = {
     await expect(
       body.getByRole("link", { name: "acme/docs#7" }),
     ).toHaveAttribute("href", pullRequestUrl)
+  },
+}
+
+const manageCalls: typeof addCalls = []
+
+/**
+ * The Docs Workspace already syncs the Engineering team through this
+ * connection. Manage starts from that scope and saves a change.
+ */
+export const ManageKeepsTheCurrentScope: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          oauthAppHandler({
+            globalLinearOauthConfigured: true,
+            oauthAppSaved: false,
+          }),
+          statusHandler(baseStatus),
+          workspaceListHandler([docsWorkspace]),
+          linearAvailableScopesHandler(),
+          connectionUsageHandler([
+            connectionUsageItem({
+              workspaceSlug: docsWorkspace.slug,
+              workspaceName: docsWorkspace.displayName,
+              sources: [
+                {
+                  sourceKey: "linear-3",
+                  provider: "linear",
+                  status: "ok",
+                  scopeSummary: "1 Linear team",
+                },
+              ],
+            }),
+          ]),
+          workspaceSourcesHandler(
+            workspaceSourceList({
+              items: [
+                workspaceSourceFixture({
+                  sourceKey: "linear-3",
+                  provider: "linear",
+                  connectionId,
+                  scope: { teams: ["ENG"] },
+                }),
+              ],
+            }),
+          ),
+          ...workspaceSourceChangeHandlers(manageCalls),
+        ],
+      },
+    },
+  },
+  beforeEach: () => {
+    manageCalls.length = 0
+  },
+  play: async ({ canvasElement }) => {
+    const body = within(canvasElement.ownerDocument.body)
+    await expect(
+      await body.findByRole("checkbox", { name: docsWorkspace.displayName }),
+    ).toBeChecked()
+    await expect(
+      await body.findByRole("checkbox", { name: /Engineering/ }),
+    ).toBeChecked()
+    const save = body.getByRole("button", { name: "Save changes" })
+    await expect(save).toBeDisabled()
+    await userEvent.click(body.getByRole("checkbox", { name: /Operations/ }))
+    await userEvent.click(save)
+    await waitFor(() => expect(manageCalls).toHaveLength(1))
+    await expect(manageCalls[0]).toMatchObject({
+      method: "PUT",
+      path: `/${orgSlug}/api/v1/workspaces/${docsWorkspace.slug}/sources/linear-3`,
+      body: {
+        source: {
+          provider: "linear",
+          connectionId,
+          scope: { teams: expect.arrayContaining(["ENG", "OPS"]) },
+        },
+      },
+    })
+  },
+}
+
+/** The Linear teams of the Docs source on the server. */
+let currentTeams = ["ENG"]
+
+/**
+ * The connector card: Manage opens the dialog, and Close closes it. The app
+ * keeps a read in its cache after the dialog closes. Storybook does not, so
+ * this observer keeps the Docs sources in the cache.
+ */
+function ManageButton(props: ComponentProps<typeof LinearSetupWizard>) {
+  const [isOpen, setIsOpen] = useState(false)
+  useQuery(workspaceSourcesOptions(orgSlug, docsWorkspace.slug))
+  return (
+    <>
+      <Button onPress={() => setIsOpen(true)}>Manage</Button>
+      <LinearSetupWizard {...props} isOpen={isOpen} onOpenChange={setIsOpen} />
+    </>
+  )
+}
+
+/**
+ * A merge changes the scope while the dialog is closed. Manage then starts
+ * from the new scope, not from the scope of the first open.
+ */
+export const ManageAgainShowsTheNewScope: Story = {
+  render: (args) => <ManageButton {...args} />,
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          oauthAppHandler({
+            globalLinearOauthConfigured: true,
+            oauthAppSaved: false,
+          }),
+          statusHandler(baseStatus),
+          workspaceListHandler([docsWorkspace]),
+          linearAvailableScopesHandler(),
+          connectionUsageHandler([
+            connectionUsageItem({
+              workspaceSlug: docsWorkspace.slug,
+              workspaceName: docsWorkspace.displayName,
+              sources: [
+                {
+                  sourceKey: "linear-3",
+                  provider: "linear",
+                  status: "ok",
+                  scopeSummary: "1 Linear team",
+                },
+              ],
+            }),
+          ]),
+          http.get(`/${orgSlug}/api/v1/workspaces/docs/sources`, () =>
+            HttpResponse.json(
+              workspaceSourceList({
+                items: [
+                  workspaceSourceFixture({
+                    sourceKey: "linear-3",
+                    provider: "linear",
+                    connectionId,
+                    scope: { teams: currentTeams },
+                  }),
+                ],
+              }),
+            ),
+          ),
+        ],
+      },
+    },
+  },
+  beforeEach: () => {
+    currentTeams = ["ENG"]
+  },
+  play: async ({ canvasElement }) => {
+    const body = within(canvasElement.ownerDocument.body)
+    await userEvent.click(await body.findByRole("button", { name: "Manage" }))
+    await expect(
+      await body.findByRole("checkbox", { name: /Engineering/ }),
+    ).toBeChecked()
+    await userEvent.click(body.getByRole("button", { name: "Close" }))
+    await waitFor(() =>
+      expect(
+        body.queryByRole("checkbox", { name: /Engineering/ }),
+      ).not.toBeInTheDocument(),
+    )
+
+    currentTeams = ["OPS"]
+    await userEvent.click(body.getByRole("button", { name: "Manage" }))
+    await expect(
+      await body.findByRole("checkbox", { name: /Operations/ }),
+    ).toBeChecked()
+    await expect(
+      body.getByRole("checkbox", { name: /Engineering/ }),
+    ).not.toBeChecked()
+    await expect(
+      body.getByRole("button", { name: "Save changes" }),
+    ).toBeDisabled()
   },
 }

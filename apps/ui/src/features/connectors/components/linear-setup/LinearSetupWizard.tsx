@@ -7,12 +7,9 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
 import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
-import { ChooseWorkspacesStep } from "@/features/workspace-sources/ChooseWorkspacesStep"
+import { AddToWorkspacesStep } from "@/features/workspace-sources/AddToWorkspacesStep"
 import { PullRequestsToMerge } from "@/features/workspace-sources/PullRequestsToMerge"
-import {
-  type OpenedPullRequest,
-  useAddToWorkspaces,
-} from "@/features/workspace-sources/useAddToWorkspaces"
+import type { OpenedPullRequest } from "@/features/workspace-sources/useAddToWorkspaces"
 import {
   getLinearSetupCurrentIndex,
   getLinearSetupSteps,
@@ -62,17 +59,7 @@ export function LinearSetupWizard({
   // dialog stays open on the merge step; a direct commit closes it.
   const [pullRequests, setPullRequests] = useState<OpenedPullRequest[]>([])
   if (!isOpen && pullRequests.length) setPullRequests([])
-  const adding = useAddToWorkspaces({
-    orgSlug,
-    connectionId: connectionId ?? "",
-    provider: "linear",
-    onAdded: (opened) =>
-      opened.length ? setPullRequests(opened) : onOpenChange(false),
-  })
-  const close = () => {
-    adding.reset()
-    onOpenChange(false)
-  }
+  const close = () => onOpenChange(false)
 
   useEffect(() => {
     if (!isOpen) return
@@ -142,8 +129,8 @@ export function LinearSetupWizard({
   return (
     <Modal
       isOpen={isOpen}
-      onOpenChange={(open) => (open ? onOpenChange(true) : close())}
-      isDismissable={!adding.isPending}
+      onOpenChange={onOpenChange}
+      isDismissable
       className="max-w-[min(92vw,720px)]"
     >
       <div className="p-6">
@@ -216,28 +203,17 @@ export function LinearSetupWizard({
             </Button>
           </div>
         ) : body === "workspaces" && connectionId ? (
-          <div className="flex flex-col gap-5">
-            <ChooseWorkspacesStep
-              orgSlug={orgSlug}
-              provider="linear"
-              connectionId={connectionId}
-              value={adding.value}
-              onChange={adding.setValue}
-            />
-            <div className="flex justify-end gap-2 border-t border-border pt-4">
-              <Button variant="quiet" onPress={close}>
-                Skip for now
-              </Button>
-              <Button
-                variant="primary"
-                isDisabled={!adding.canAdd}
-                isPending={adding.isPending}
-                onPress={adding.add}
-              >
-                Add to Workspaces
-              </Button>
-            </div>
-          </div>
+          <AddToWorkspacesStep
+            orgSlug={orgSlug}
+            provider="linear"
+            connectionId={connectionId}
+            label="Linear"
+            description="the teams and projects for each"
+            items="the teams"
+            onDone={(opened) =>
+              opened?.length ? setPullRequests(opened) : close()
+            }
+          />
         ) : (
           <p className="text-sm text-destructive">
             The Linear connection identifier is missing. Close this dialog and

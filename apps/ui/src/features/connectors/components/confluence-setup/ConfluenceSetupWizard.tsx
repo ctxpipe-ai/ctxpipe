@@ -11,6 +11,7 @@ import { useEffect, useRef, useState } from "react"
 import { Button } from "@/components/ui/Button"
 import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
+import { AddToWorkspacesStep } from "@/features/workspace-sources/AddToWorkspacesStep"
 import type { OpenedPullRequest } from "@/features/workspace-sources/useAddToWorkspaces"
 import { pollWhileOk } from "@/lib/api-result"
 import {
@@ -29,7 +30,6 @@ import { orgConnectionsKeys } from "../../queries/org-connections"
 import type { AtlassianConnectorStatus } from "../../types"
 import { ConfluenceMark } from "../ConfluenceMark"
 import { ConnectorSetupStepper } from "../ConnectorSetupStepper"
-import { AddToWorkspacesStep } from "./steps/AddToWorkspacesStep"
 import { InstallForgeStep } from "./steps/InstallForgeStep"
 import { LinkAtlassianStep } from "./steps/LinkAtlassianStep"
 import { RegisterAtlassianOauthStep } from "./steps/RegisterAtlassianOauthStep"
@@ -327,7 +327,11 @@ export function ConfluenceSetupWizard({
             {bodyId === "workspaces" && atlassianConnectionId ? (
               <AddToWorkspacesStep
                 orgSlug={orgSlug}
-                atlassianConnectionId={atlassianConnectionId}
+                provider="confluence"
+                connectionId={atlassianConnectionId}
+                label="Confluence"
+                description="the spaces and pages for each"
+                items="the spaces"
                 replacedConfigPullUrl={status.pendingConfigPullUrl}
                 onDone={(opened) => {
                   setManualStepIndex(null)

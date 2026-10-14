@@ -57,9 +57,11 @@ export function useAddToWorkspaces(input: {
   )
   const [prefilled, setPrefilled] = useState(false)
 
+  // Manage starts from a new read: a cached read can be from before a merge.
   const usageQuery = useQuery({
     ...connectionUsageOptions(orgSlug, connectionId),
     enabled: manage && Boolean(connectionId),
+    refetchOnMount: "always",
   })
   // The step holds one scope for each Workspace, so Manage leaves out a
   // Workspace that has more than one source of the connection.
@@ -73,18 +75,21 @@ export function useAddToWorkspaces(input: {
       : []
   })
   const sourceQueries = useQueries({
-    queries: managed.map((item) =>
-      workspaceSourcesOptions(orgSlug, item.workspaceSlug),
-    ),
+    queries: managed.map((item) => ({
+      ...workspaceSourcesOptions(orgSlug, item.workspaceSlug),
+      refetchOnMount: "always" as const,
+    })),
   })
   const loadFailed =
     manage &&
     (usageQuery.isError || sourceQueries.some((query) => query.isError))
-  const ready =
-    !manage ||
-    (usageQuery.isSuccess && sourceQueries.every((query) => query.isSuccess))
+  const loaded =
+    usageQuery.isSuccess &&
+    !usageQuery.isFetching &&
+    sourceQueries.every((query) => query.isSuccess && !query.isFetching)
+  const ready = !manage || prefilled
   const existing: Record<string, ExistingWorkspaceSource> = {}
-  if (manage && ready)
+  if (manage && (prefilled || loaded))
     managed.forEach((item, index) => {
       const source = sourceQueries[index]?.data?.items.find(
         (candidate) => candidate.sourceKey === item.sourceKey,
@@ -95,7 +100,7 @@ export function useAddToWorkspaces(input: {
           scope: source.scope,
         }
     })
-  if (manage && ready && !prefilled) {
+  if (manage && loaded && !prefilled) {
     setPrefilled(true)
     setValue(chooseWorkspacesFromExisting(existing))
   }
