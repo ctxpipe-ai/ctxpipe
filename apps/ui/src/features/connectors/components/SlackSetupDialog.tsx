@@ -8,10 +8,10 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { InlineLoader } from "@/components/ui/InlineLoader"
-import { Link } from "@/components/ui/Link"
 import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
 import { ChooseWorkspacesStep } from "@/features/workspace-sources/ChooseWorkspacesStep"
+import { PullRequestsToMerge } from "@/features/workspace-sources/PullRequestsToMerge"
 import { useAddToWorkspaces } from "@/features/workspace-sources/useAddToWorkspaces"
 import { orgConnectionsKeys } from "../queries/org-connections"
 import {
@@ -216,7 +216,11 @@ export function SlackSetupDialog({
           <div className="mb-6">
             <ConnectorSetupStepper
               steps={SLACK_SETUP_STEPS}
-              currentIndex={setupStepIndex}
+              currentIndex={
+                pullRequestUrls.length
+                  ? SLACK_SETUP_STEPS.length
+                  : setupStepIndex
+              }
             />
           </div>
         ) : null}
@@ -289,27 +293,10 @@ export function SlackSetupDialog({
           />
         ) : setupView === "workspaces" && pullRequestUrls.length ? (
           <div className="space-y-4">
-            <div>
-              <h3 className="text-base font-medium text-foreground">
-                Merge the pull request
-              </h3>
-              <p className="mt-2 text-sm text-muted-foreground">
-                The Slack source change is a pull request on the Workspace
-                repository. It applies after the merge. Until then, a mention in
-                a new channel replies that no Workspace has the channel.
-              </p>
-              <ul className="mt-2 space-y-1 text-sm">
-                {pullRequestUrls.map((url) => (
-                  <li key={url}>
-                    <Link href={url} target="_blank" rel="noreferrer">
-                      {url
-                        .replace(/^https:\/\/github\.com\//, "")
-                        .replace("/pull/", "#")}
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </div>
+            <PullRequestsToMerge
+              urls={pullRequestUrls}
+              detail="The Slack source change applies after the merge. Until then, a mention in a new channel replies that no Workspace has the channel."
+            />
             <Button
               variant="secondary"
               className="rounded-md"

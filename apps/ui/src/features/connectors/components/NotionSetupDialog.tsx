@@ -186,19 +186,19 @@ export function NotionSetupDialog({
     }
     return (
       <div className="space-y-4">
-        <div>
-          <h3 className="text-base font-medium text-foreground">
-            Notion is connected
-          </h3>
-          {pullRequestUrls.length ? (
-            <PullRequestsToMerge urls={pullRequestUrls} />
-          ) : (
+        {pullRequestUrls.length ? (
+          <PullRequestsToMerge urls={pullRequestUrls} />
+        ) : (
+          <div>
+            <h3 className="text-base font-medium text-foreground">
+              Notion is connected
+            </h3>
             <p className="mt-2 text-sm text-muted-foreground">
               Add Notion to a Workspace from the connector card, or change the
               pages of a Workspace in its settings.
             </p>
-          )}
-        </div>
+          </div>
+        )}
         <Button
           variant="secondary"
           className="rounded-md"

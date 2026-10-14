@@ -198,19 +198,19 @@ export function PagerdutySetupDialog({
     }
     return (
       <div className="space-y-4">
-        <div>
-          <h3 className="text-base font-medium text-foreground">
-            PagerDuty is connected
-          </h3>
-          {pullRequestUrls.length ? (
-            <PullRequestsToMerge urls={pullRequestUrls} />
-          ) : (
+        {pullRequestUrls.length ? (
+          <PullRequestsToMerge urls={pullRequestUrls} />
+        ) : (
+          <div>
+            <h3 className="text-base font-medium text-foreground">
+              PagerDuty is connected
+            </h3>
             <p className="mt-2 text-sm text-muted-foreground">
               Add PagerDuty to a Workspace from the connector card, or change
               the services of a Workspace in its settings.
             </p>
-          )}
-        </div>
+          </div>
+        )}
         <Button
           variant="secondary"
           className="rounded-md"
