@@ -115,6 +115,7 @@ export const docsWorkspace: Workspace = {
   slug: "docs",
   displayName: "Docs",
   workspaceRepositoryUrl: "https://github.com/acme/docs",
+  rootPath: "",
   githubConnectionId: "con_1",
   desiredGeneration: 1,
   desiredSha: "abc123def456",
@@ -1467,3 +1468,10 @@ export const eligibleGithubRepos = [
     clone_url: "https://github.com/acme/web.git",
   },
 ]
+
+/** A Workspace in the folder docs/context of a larger repository. */
+export const rootFolderWorkspaceDetail: WorkspaceDetail = {
+  ...docsWorkspaceDetail,
+  workspaceRepositoryUrl: "https://github.com/acme/platform",
+  rootPath: "docs/context",
+}

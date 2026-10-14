@@ -4,6 +4,8 @@ export type Workspace = {
   slug: string
   displayName: string
   workspaceRepositoryUrl: string
+  /** Folder in the repository that holds the Workspace; "" is the whole repository. */
+  rootPath: string
   githubConnectionId: string | null
   desiredGeneration: number
   desiredSha: string | null

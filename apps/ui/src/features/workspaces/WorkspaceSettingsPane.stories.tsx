@@ -25,6 +25,7 @@ import {
   hydratingWorkspaceDetail,
   projectionLagWorkspaceDetail,
   readOnlyWorkspaceDetail,
+  rootFolderWorkspaceDetail,
   skippedFilesWorkspaceDetail,
 } from "./workspace-fixtures"
 
@@ -262,6 +263,77 @@ export const HydrateFailed: Story = {
   },
   play: async ({ canvasElement }) => {
     await within(canvasElement).findByText("Loading failed")
+  },
+}
+
+const rootFolderPatches: unknown[] = []
+
+/**
+ * The Workspace lives in docs/context of a larger repository. The root folder
+ * field explains the setting, refuses a path that leaves the repository, and
+ * saves a new folder on its own.
+ */
+export const RootFolder: Story = {
+  args: {
+    workspace: rootFolderWorkspaceDetail,
+  },
+  decorators: [
+    (Story) => (
+      <>
+        <Story />
+        <Toaster />
+      </>
+    ),
+  ],
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceListHandler([docsWorkspace]),
+          githubInstallationReposHandler(),
+          http.patch(
+            ({ request }) =>
+              /\/api\/v1\/workspaces\/[^/]+$/.test(
+                new URL(request.url).pathname,
+              ),
+            async ({ request }) => {
+              const body = (await request.json()) as { rootPath?: string }
+              rootFolderPatches.push(body)
+              return HttpResponse.json({
+                ...rootFolderWorkspaceDetail,
+                rootPath: body.rootPath ?? rootFolderWorkspaceDetail.rootPath,
+              })
+            },
+          ),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    rootFolderPatches.length = 0
+    const canvas = within(canvasElement)
+    const field = await canvas.findByRole("textbox", { name: /root folder/i })
+    await expect(field).toHaveValue("docs/context")
+    await expect(
+      canvas.getByText(/reads and changes files only in this folder/i),
+    ).toBeVisible()
+    const save = canvas.getByRole("button", { name: /save root folder/i })
+    await expect(save).toBeDisabled()
+
+    await userEvent.clear(field)
+    await userEvent.type(field, "../secrets")
+    await expect(
+      await canvas.findByText(/use a relative folder path/i),
+    ).toBeVisible()
+    await expect(save).toBeDisabled()
+
+    await userEvent.clear(field)
+    await userEvent.type(field, "handbook/context/")
+    await expect(save).toBeEnabled()
+    await userEvent.click(save)
+    await waitFor(() =>
+      expect(rootFolderPatches).toEqual([{ rootPath: "handbook/context" }]),
+    )
   },
 }
 
