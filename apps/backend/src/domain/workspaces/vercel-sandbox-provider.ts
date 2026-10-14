@@ -87,6 +87,28 @@ export type VercelCredentials = {
 let resolvedScope: Promise<VercelCredentials> | undefined
 
 /**
+ * The OIDC issuer of our team's sandbox tokens, `https://oidc.vercel.com/<team
+ * slug>`. Only a slug in `VERCEL_TEAM_ID` gives it: a team-scoped token
+ * cannot read the team to find the slug of an id.
+ */
+export function vercelOidcIssuer(
+  env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  const team = env.VERCEL_TEAM_ID?.trim()
+  if (!team || team.startsWith("team_")) return undefined
+  return `https://oidc.vercel.com/${team}`
+}
+
+/** True when the backend can start Vercel sandboxes. */
+export function vercelConfigured(env: NodeJS.ProcessEnv = process.env) {
+  return Boolean(
+    env.VERCEL_TOKEN?.trim() &&
+      env.VERCEL_TEAM_ID?.trim() &&
+      env.VERCEL_PROJECT_ID?.trim(),
+  )
+}
+
+/**
  * The deploy passes the team and project by slug or id. Team-scoped tokens
  * cannot read the team itself, so both ids come from the project lookup,
  * once per process.
@@ -222,8 +244,13 @@ const firewalls = new Map<
 
 export type ConversationFirewall = ReturnType<typeof conversationFirewall>
 
-/** The input of a hosted firewall policy. */
-export type HostedPolicyInput = Parameters<typeof hostedNetworkPolicy>[0]
+/**
+ * The input of a hosted firewall policy. `sandboxName` is set on each update
+ * after create; the ingest policy binds its scope to it.
+ */
+export type HostedPolicyInput = Parameters<typeof hostedNetworkPolicy>[0] & {
+  sandboxName?: string
+}
 
 /**
  * The hosted firewall of a conversation's sandbox; see `hostedNetworkPolicy`.
@@ -249,6 +276,7 @@ export function conversationFirewall(
           gitToken: state.gitToken,
           backendHost,
           turn: state.turn,
+          sandboxName: name,
         }),
       })
     })
@@ -264,7 +292,7 @@ export function conversationFirewall(
     if (state && !state.turn && !state.dirty) firewalls.delete(name)
   }
   /** Record a sandbox that was created or resumed, with its token. */
-  const attach = (sandbox: Sandbox, gitToken: string | undefined) => {
+  const record = (sandbox: Sandbox, gitToken: string | undefined) => {
     const state = firewalls.get(sandbox.name)
     if (state) {
       state.sandbox = sandbox
@@ -277,13 +305,24 @@ export function conversationFirewall(
         queue: Promise.resolve(),
       })
   }
+  // A custom policy (ingest) binds its scope to the sandbox name, so a new
+  // sandbox starts with "deny-all" and a resumed one keeps an old scope.
+  const bindsName = policy !== hostedNetworkPolicy
   return {
     /** The policy for a new sandbox (no turn yet), with this GitHub token. */
     policy: (gitToken: string) => policy({ gitToken, backendHost }),
-    attach,
+    /**
+     * Record a sandbox that was created or resumed, with its token. A policy
+     * that binds the sandbox name gets applied now.
+     */
+    async attach(sandbox: Sandbox, gitToken: string | undefined) {
+      record(sandbox, gitToken)
+      if (bindsName && firewalls.get(sandbox.name)?.gitToken)
+        await apply(sandbox.name)
+    },
     /** Replace the GitHub token, keeping a running turn's rules. */
     async rotateGitToken(sandbox: Sandbox, gitToken: string) {
-      attach(sandbox, undefined)
+      record(sandbox, undefined)
       const state = stateOf(sandbox.name)
       const previous = state.gitToken
       state.gitToken = gitToken
@@ -394,7 +433,7 @@ async function refreshGitAccess(
   access: ConversationSandboxAccess,
 ): Promise<void> {
   const current = await access.tokens.get(sandbox.name)
-  access.firewall.attach(sandbox, current?.token)
+  await access.firewall.attach(sandbox, current?.token)
   if (!current) {
     await rotateGitToken(sandbox, access, undefined)
     return
@@ -511,7 +550,17 @@ export function vercelConversationProvider(input: {
           sandbox = await fromAgent()
         }
       } else sandbox = await fromAgent()
-      access.firewall.attach(sandbox, gitToken)
+      try {
+        await access.firewall.attach(sandbox, gitToken)
+      } catch (error) {
+        // No row holds the token yet: stop the sandbox and revoke it here,
+        // or both stay orphaned.
+        await sandbox.stop().catch(() => undefined)
+        await (access.revokeGitToken ?? revokeGithubToken)(gitToken).catch(
+          () => undefined,
+        )
+        throw error
+      }
       await access.tokens.put(sandbox.name, gitToken)
       return conversationHandle(sandbox, input.agentPassword)
     },

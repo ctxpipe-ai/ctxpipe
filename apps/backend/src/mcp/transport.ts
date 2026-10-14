@@ -2,11 +2,11 @@ import { StreamableHTTPTransport } from "@hono/mcp"
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import {
   CallToolRequestSchema,
+  ReadResourceRequestSchema,
   SUPPORTED_PROTOCOL_VERSIONS,
 } from "@modelcontextprotocol/sdk/types.js"
 import type { Context } from "hono"
 import type { AppEnv } from "../app/env.js"
-import { currentMcpActor, currentOrgIdOrNull } from "../auth/context.js"
 import {
   disableToolsOutsideScopes,
   grantedMcpScopes,
@@ -18,12 +18,13 @@ import {
   applyAttribution,
 } from "../observability/attribution.js"
 import { getLogger } from "../observability/logger.js"
-import { mcpAdvisorThreadId, mcpClientConversationId } from "./advisorThread.js"
+import { INSTRUCTION_RULES } from "./framework/instructions.js"
 import {
   serverDiscoverResponse,
   serverDiscoverResult,
 } from "./framework/server-discover.js"
 import { getMcpServerImplementation } from "./mcp-server-info.js"
+import { workspaceFileResourceName } from "./resources/workspace-file.js"
 
 function isLoopbackHostname(hostname: string): boolean {
   return (
@@ -133,19 +134,29 @@ export async function handleMcpTransportRequest(
     )
   }
 
-  // Streamable HTTP returns the Response before tools/call runs, so the
-  // server span and request log would otherwise close without these fields.
-  // SSE stays on: clients send progress notifications and accept event-stream.
-  const toolAttribution = attributionFromToolsCall(messages)
-  if (toolAttribution) applyAttribution(toolAttribution)
+  // Streamable HTTP returns the Response before tools/call or resources/read
+  // runs, so the server span and request log would otherwise close without
+  // these fields.
+  const callAttribution = attributionFromCall(messages)
+  if (callAttribution) applyAttribution(callAttribution)
 
-  const instructions =
+  let instructions: string | undefined
+  if (
     options.instructions &&
     rpcMethods.some(
       (method) => method === "initialize" || method === "server/discover",
     )
-      ? await options.instructions()
-      : undefined
+  ) {
+    try {
+      instructions = await options.instructions()
+    } catch (error) {
+      // The handshake must not fail: send the fixed rules without the orgs.
+      log.error(error instanceof Error ? error : new Error(String(error)), {
+        step: "mcp.instructions",
+      })
+      instructions = INSTRUCTION_RULES
+    }
+  }
   const implementation = getMcpServerImplementation(c.get("env").AUTH_BASE_URL)
   const server = new McpServer(
     implementation,
@@ -216,32 +227,19 @@ export async function handleMcpTransportRequest(
   }
 }
 
-function attributionFromToolsCall(
+function attributionFromCall(
   messages: readonly unknown[],
 ): AttributionInput | undefined {
   for (const message of messages) {
-    const parsed = CallToolRequestSchema.safeParse(message)
-    if (!parsed.success) continue
-    const name = parsed.data.params.name.slice(0, 100)
-    const args = parsed.data.params.arguments ?? {}
-    const rawConversationId = mcpClientConversationId(args.conversationId)
-    let conversationId: string | undefined
-    const orgId = currentOrgIdOrNull()
-    if (name === "ctx_advisor" && rawConversationId && orgId) {
-      conversationId = mcpAdvisorThreadId({
-        orgId,
-        actor: currentMcpActor(),
-        currentProjectName:
-          typeof args.currentProjectName === "string"
-            ? args.currentProjectName
-            : undefined,
-        conversationId: rawConversationId,
-      })
+    const tool = CallToolRequestSchema.safeParse(message)
+    if (tool.success) {
+      return { "ctxpipe.mcp.tool": tool.data.params.name.slice(0, 100) }
     }
-    return {
-      "ctxpipe.mcp.tool": name,
-      ...(conversationId ? { "ctxpipe.conversation.id": conversationId } : {}),
-    }
+    const read = ReadResourceRequestSchema.safeParse(message)
+    if (!read.success) continue
+    // The name only, never the URI: it holds a path.
+    const resource = workspaceFileResourceName(read.data.params.uri)
+    if (resource) return { "ctxpipe.mcp.resource": resource }
   }
   return undefined
 }

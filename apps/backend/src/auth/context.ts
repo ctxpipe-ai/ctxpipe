@@ -22,7 +22,7 @@ function requestOrg(): { id?: string; slug?: string } {
 }
 
 /** The org of the request or the org context, or null when there is none. */
-export function currentOrgIdOrNull(): string | null {
+function currentOrgIdOrNull(): string | null {
   return orgIdStorage.getStore()?.id ?? requestOrg().id ?? null
 }
 

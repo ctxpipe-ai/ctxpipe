@@ -2,9 +2,7 @@ name: MCP evals
 
 # MCPJam evals for the public MCP tools (CTX-574, ADR-051 section 10).
 # Nightly, on the label `mcp-evals`, and by hand. The suite needs a seeded
-# target; see apps/backend/evals/mcp/README.md. It picks its checks from the
-# tool list of the server, so this file is the same before and after the
-# ctx_advisor cutover.
+# target with the seven read tools; see apps/backend/evals/mcp/README.md.
 on:
   schedule:
     - cron: "17 3 * * *"

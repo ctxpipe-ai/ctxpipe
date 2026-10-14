@@ -70,14 +70,15 @@ Workspace chat is stock TanStack (`useChat` + persistence + sandbox) against git
 ## MCP and product interfaces
 
 - REST routes are organization-scoped under `/:orgSlug/api/v1`.
-- The product MCP is a Streamable HTTP endpoint at `/mcp`. `ctx_advisor` is
-  a deprecated shim onto Workspace chat for the org's first Workspace. Humans
-  default to OAuth: grants are bound to one organization before consent;
-  explicit `orgSlug` remains for legacy/manual clients and cannot override a
-  bound grant. Organization-owned API keys (`x-api-key`) are the
-  non-interactive twin of that binding: one org per key, no user session,
-  MCP-only, advisor conversations with `userId` null. Personal user keys
-  remain. See [ADR-026](decisions/ADR-026-claude-plugin-mcp-distribution.md)
+- The product MCP is a Streamable HTTP endpoint at `/mcp`. It has seven
+  read-only tools (`list_workspaces`, `search_knowledge`, `search_code`,
+  `find_symbol`, `read_file`, `list_files`, `get_related`); `ctx_advisor` is
+  removed. Humans default to OAuth: a grant holds a set of organizations that
+  the user ticks at consent and edits on Connected apps. Each call names one
+  organization with the `org` argument; the `?orgSlug=` URL parameter is
+  ignored. Organization-owned API keys (`x-api-key`) are the non-interactive
+  twin of that binding: one org per key, no user session, MCP-only. Personal
+  user keys remain and read every organization that the user is a member of. See [ADR-051](decisions/ADR-051-mcp-read-surface.md), [ADR-026](decisions/ADR-026-claude-plugin-mcp-distribution.md)
   and [ADR-030](decisions/ADR-030-organization-owned-mcp-api-keys.md).
 - Claude Code, Cowork, and Claude Tag install the hosted MCP through the plugin
   at `plugins/ctxpipe` (marketplace `.claude-plugin/marketplace.json`). The

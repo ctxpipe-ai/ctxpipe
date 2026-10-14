@@ -25,7 +25,7 @@ and tools on a **test organization**.
   `npx ctxpipe doctor mcp` checks HTTP routing, TLS or reachability, the
   unauthenticated Bearer challenge, and OAuth discovery. A `ready-for-oauth`
   result does **not** prove that browser OAuth, authenticated `tools/list`, or
-  `ctx_advisor` work. The command does not accept bearer tokens and does not
+  an MCP tool call work. The command does not accept bearer tokens and does not
   test STDIO servers.
 </Callout>
 
@@ -98,8 +98,8 @@ npx @mcpjam/cli@3.24.0 tools list \
 npx @mcpjam/cli@3.24.0 tools call \
   --url "$AUTH_BASE_URL/mcp" \
   --credentials-file .mcpjam/credentials.json \
-  --tool-name ctx_advisor \
-  --tool-args '{"prompt":"Health check: confirm org MCP access."}'
+  --tool-name list_workspaces \
+  --tool-args '{}'
 ```
 
 For a visual OAuth and JSON-RPC timeline on a local origin:

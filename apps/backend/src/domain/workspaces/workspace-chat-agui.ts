@@ -61,17 +61,6 @@ export function workspaceChatRunError(message: string): StreamChunk {
   } as StreamChunk
 }
 
-export function aguiTextDelta(chunk: object): string {
-  const record = chunk as Record<string, unknown>
-  if (
-    record.type === "TEXT_MESSAGE_CONTENT" &&
-    typeof record.delta === "string"
-  ) {
-    return record.delta
-  }
-  return ""
-}
-
 export function isWorkspaceChatRenameChunk(chunk: object): string | null {
   const record = chunk as Record<string, unknown>
   if (record.type !== "CUSTOM" || record.name !== WORKSPACE_CHAT_RENAME_EVENT) {

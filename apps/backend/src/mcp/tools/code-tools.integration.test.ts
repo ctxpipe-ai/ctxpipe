@@ -1,7 +1,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js"
-import { eq, sql } from "drizzle-orm"
+import { eq, inArray, sql } from "drizzle-orm"
 import { evlog } from "evlog/hono"
 import { Hono } from "hono"
 import { contextStorage } from "hono/context-storage"
@@ -459,9 +459,13 @@ it("bounds large search results and marks truncation instead of returning respon
     },
   })
   expect(result.isError).not.toBe(true)
+  // Each snippet is cut to 4,000 characters, so two lines fit in the budget.
   expect(result.structuredContent).toMatchObject({
     truncated: true,
-    results: [{ ref: "example/alpha:src/index.ts" }],
+    results: [
+      { ref: "example/alpha:src/index.ts", startLine: 1 },
+      { ref: "example/alpha:src/index.ts", startLine: 2 },
+    ],
   })
   expect(
     JSON.stringify({
@@ -547,56 +551,65 @@ it("preserves the fan-out limit, excluded repositories, skips, and narrowing hin
       })
     }
   })
-  let requested: string[] = []
-  server.use(
-    http.post("http://codesearch.test/:repository/graph", ({ params }) => {
-      requested.push(String(params.repository))
-      return HttpResponse.json({
-        ok: true,
-        results: [],
-        ...(params.repository === ids[2] ? { index: "unreadable" } : {}),
-      })
-    }),
-    http.post(
-      "http://codesearch.test/:repository/structural-search",
-      ({ params }) => {
+  // The wide Workspace adds repositories to the org scope. Remove it, so later
+  // tests see only the seeded repository.
+  try {
+    let requested: string[] = []
+    server.use(
+      http.post("http://codesearch.test/:repository/graph", ({ params }) => {
         requested.push(String(params.repository))
-        return HttpResponse.json({ matches: [] })
-      },
-    ),
-  )
-  for (const [name, args] of [
-    ["find_symbol", { symbol: "charge", relation: "definition" }],
-    [
-      "search_code",
-      { query: "charge($A)", mode: "structural", language: "typescript" },
-    ],
-  ] as const) {
-    requested = []
-    const result = await callTool({
-      name,
-      arguments: {
-        org: seed.orgSlug,
-        workspace: "wide",
-        excludeRepositories: ["git@github.com:example/wide-01.git"],
-        ...args,
-      },
-    })
-    expect(result.isError).not.toBe(true)
-    expect(requested).toHaveLength(10)
-    expect(requested).not.toContain(ids[1])
-    expect(requested).not.toContain(ids[11])
-    expect(result.structuredContent?.excluded).toEqual(["example/wide-01"])
-    expect(result.structuredContent?.skipped).toContainEqual({
-      repository: "example/wide-11",
-      reason: "over_limit",
-    })
-    if (name === "find_symbol")
-      expect(result.structuredContent?.skipped).toContainEqual({
-        repository: "example/wide-02",
-        reason: "failed",
+        return HttpResponse.json({
+          ok: true,
+          results: [],
+          ...(params.repository === ids[2] ? { index: "unreadable" } : {}),
+        })
+      }),
+      http.post(
+        "http://codesearch.test/:repository/structural-search",
+        ({ params }) => {
+          requested.push(String(params.repository))
+          return HttpResponse.json({ matches: [] })
+        },
+      ),
+    )
+    for (const [name, args] of [
+      ["find_symbol", { symbol: "charge", relation: "definition" }],
+      [
+        "search_code",
+        { query: "charge($A)", mode: "structural", language: "typescript" },
+      ],
+    ] as const) {
+      requested = []
+      const result = await callTool({
+        name,
+        arguments: {
+          org: seed.orgSlug,
+          workspace: "wide",
+          excludeRepositories: ["git@github.com:example/wide-01.git"],
+          ...args,
+        },
       })
-    expect(result.structuredContent?.hint).toMatch(/repositories.*workspace/)
+      expect(result.isError).not.toBe(true)
+      expect(requested).toHaveLength(10)
+      expect(requested).not.toContain(ids[1])
+      expect(requested).not.toContain(ids[11])
+      expect(result.structuredContent?.excluded).toEqual(["example/wide-01"])
+      expect(result.structuredContent?.skipped).toContainEqual({
+        repository: "example/wide-11",
+        reason: "over_limit",
+      })
+      if (name === "find_symbol")
+        expect(result.structuredContent?.skipped).toContainEqual({
+          repository: "example/wide-02",
+          reason: "failed",
+        })
+      expect(result.structuredContent?.hint).toMatch(/repositories.*workspace/)
+    }
+  } finally {
+    await withOrgDbContext(seed.orgId, async (db) => {
+      await db.delete(workspaces).where(eq(workspaces.id, wideWorkspaceId))
+      await db.delete(repositories).where(inArray(repositories.id, ids))
+    })
   }
 })
 

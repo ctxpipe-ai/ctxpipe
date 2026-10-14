@@ -97,10 +97,10 @@ This section amends [ADR-026](ADR-026-claude-plugin-mcp-distribution.md) Decisio
   4. With a `query`, Postgres runs one hybrid search over the chunks of the explored units only.
   5. The backend runs personalized PageRank (power iteration) on the explored subgraph. The seeds and the query hits make the restart vector.
   6. Score: `ppr^(1 − queryWeight) × (0.1 + queryMatch)^queryWeight`. Then MMR diversity, and a path explanation for each result (the path with the highest weight product).
-  7. The explored subgraph and the ranking are cached in process by projection key and parameter hash for 10 minutes. A cursor holds the key and offset.
+  7. The ranking is cached in process for 10 minutes by revision, parameter hash, and ranking time. A cursor holds the offset and the ranking time. A page after the entry ended, or on another replica, ranks again as of that time and gives the same order. One call loads the projection once and refuses to run when it does not hold the served revision. To silence a predicate, give it the weight 0 in `predicateWeights`. `predicates` is not case-sensitive.
 - **Where the work runs:** FalkorDB does the seed lookup and the filtered expansion. The backend does the scoring, so it works the same on each graph engine and an eval can turn off each signal. FalkorDB's built-in PageRank is global, not personalized, so it is not used.
 - **Never load the whole graph.** The chat graph tools use the same bounded expansion. Chat `graph_neighbors` preserves parallel claims as separate edges. The Graph pane still merges parallel claims. The projection stores `path`, `degree`, `inDegree`, and `outDegree` on each node. A revision graph is immutable, so the stored degree is always correct. A projection version enters the projection key, so each Workspace graph projects again one time on the next hydrate.
-- **Target:** p95 under 300 ms for depth 2 on a 50,000-edge graph.
+- **Target:** p95 under 300 ms for depth 2 on a 50,000-edge graph. The check is `pnpm --filter @ctxpipe/backend test:latency` (needs Postgres and FalkorDB). It is outside the PR suite, because a wall-clock bound is flaky on shared runners.
 
 ### 7. Reuse from PR #350
 

@@ -19,7 +19,7 @@ export type CaseContext = {
 
 export type CaseOutcome = { passed: boolean; failures: string[] }
 
-export type ToolSetMode = "advisor" | "read-tools"
+export type ToolSetMode = "read-tools"
 
 export const readToolNames = [
   "list_workspaces",
@@ -31,19 +31,20 @@ export const readToolNames = [
   "get_related",
 ] as const
 
-/**
- * Pick the check mode from the tool list of the server. Before the P3-7 cutover
- * `/mcp` offers only `ctx_advisor`. After it, `/mcp` offers the seven read tools
- * and no advisor. Any other mix is a bad release.
- */
+/** Require the current public read-tool surface. */
 export function detectToolSet(names: readonly string[]): ToolSetMode {
-  const present = readToolNames.filter((name) => names.includes(name))
-  const advisor = names.includes("ctx_advisor")
-  if (advisor && present.length === 0) return "advisor"
-  if (!advisor && present.length === readToolNames.length) return "read-tools"
   const missing = readToolNames.filter((name) => !names.includes(name))
+  const unexpected = names.filter(
+    (name) => !(readToolNames as readonly string[]).includes(name),
+  )
+  if (
+    missing.length === 0 &&
+    unexpected.length === 0 &&
+    names.length === readToolNames.length
+  )
+    return "read-tools"
   throw new Error(
-    `Unexpected tool set. ctx_advisor: ${advisor}. Missing read tools: ${missing.join(", ") || "none"}. The server must offer either ctx_advisor alone or the seven read tools alone.`,
+    `Unexpected tool set. Missing read tools: ${missing.join(", ") || "none"}. Unexpected tools: ${unexpected.join(", ") || "none"}. The server must offer exactly the seven read tools.`,
   )
 }
 
@@ -76,6 +77,8 @@ function argMatches(
   if ("startsWith" in rule)
     return typeof value === "string" && value.startsWith(rule.startsWith)
   if ("present" in rule) return value !== undefined && value !== null
+  if ("includes" in rule)
+    return Array.isArray(value) && value.includes(rule.includes)
   if ("emptyArray" in rule) return Array.isArray(value) && value.length === 0
   const wanted = normalizeRepositoryRef(rule.includesRepository)
   return (
@@ -118,12 +121,6 @@ export function checkCase(
     if (answer.includes(text.toLowerCase()))
       failures.push(`answer contains "${text}"`)
   }
-  if (context.mode === "advisor") {
-    if (!transcript.calls.some((call) => call.tool === "ctx_advisor"))
-      failures.push("ctx_advisor was not called")
-    return { passed: failures.length === 0, failures }
-  }
-
   const { calls } = transcript
   const { orgs } = context
   for (const rule of evalCase.calls ?? []) {

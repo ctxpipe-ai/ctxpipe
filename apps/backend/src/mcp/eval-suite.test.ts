@@ -28,6 +28,7 @@ import {
 } from "../../evals/mcp/gate.js"
 import { registerMcpReadTools } from "./framework/tool-registry.js"
 import { findSymbolTool } from "./tools/find-symbol.js"
+import { getRelatedTool } from "./tools/get-related.js"
 import { listFilesTool } from "./tools/list-files.js"
 import { listWorkspaces } from "./tools/list-workspaces.js"
 import { readFileTool } from "./tools/read-file.js"
@@ -118,12 +119,6 @@ describe("eval case data", () => {
     }
   })
 
-  it("gives each advisor case an answer check", () => {
-    const advisor = evalCases.filter((item) => item.advisor)
-    expect(advisor.length).toBeGreaterThanOrEqual(4)
-    for (const item of advisor) expect(item.facts?.length).toBeGreaterThan(0)
-  })
-
   it("names the seeded orgs only through placeholders", () => {
     const rules = evalCases.flatMap((item) => [
       ...(item.calls ?? []),
@@ -146,6 +141,7 @@ describe("eval case data", () => {
       findSymbolTool,
       readFileTool,
       listFilesTool,
+      getRelatedTool,
     ])
     const [clientSide, serverSide] = InMemoryTransport.createLinkedPair()
     const client = new Client({ name: "eval-schema-client", version: "0.0.0" })
@@ -162,12 +158,8 @@ describe("eval case data", () => {
       for (const tool of Array.isArray(rule.tool) ? rule.tool : [rule.tool]) {
         if (tool === "*") continue
         expect(readToolNames as readonly string[]).toContain(tool)
-        // get_related lands with P3-6; until then its names are not checked.
         const schema = schemas.get(tool)
-        if (!schema) {
-          expect(tool).toBe("get_related")
-          continue
-        }
+        if (!schema) throw new Error(`Unregistered tool ${tool}`)
         const properties = (schema.properties ?? {}) as Record<
           string,
           { enum?: unknown[] }
@@ -426,29 +418,33 @@ describe("checkCase", () => {
     expect(run({ mode: "literal", language: "javascript" }).passed).toBe(false)
   })
 
-  it("judges the advisor on its answer only", () => {
-    const item = byId("incident-history")
-    const advisor: CaseContext = { orgs, mode: "advisor" }
-    expect(
+  it("requires the graph seed and intent, and a relevant result", () => {
+    const item = byId("get-related-governing-decision")
+    const judge = (args: Record<string, unknown>, resultText: string) =>
       checkCase(
         item,
         {
-          text: "On May 12.",
-          calls: [call("ctx_advisor", { question: "replay incident" })],
+          text: "The idempotency decision governs it.",
+          calls: [
+            call(
+              "get_related",
+              { org: orgs.harbor, workspace: "payments", ...args },
+              { resultText },
+            ),
+          ],
         },
-        advisor,
-      ).passed,
-    ).toBe(true)
+        read,
+      )
+    const args = { seeds: ["knowledge/services/settlement.md"], intent: "why" }
+    expect(judge(args, "knowledge/decisions/idempotency.md").passed).toBe(true)
+    expect(judge({}, "knowledge/decisions/idempotency.md").passed).toBe(false)
     expect(
-      checkCase(item, { text: "On May 12.", calls: [] }, advisor).failures,
-    ).toEqual(["ctx_advisor was not called"])
-    expect(
-      checkCase(
-        item,
-        { text: "Unknown.", calls: [call("ctx_advisor", {})] },
-        advisor,
+      judge(
+        { ...args, seeds: ["knowledge/services/ledger.md"] },
+        "knowledge/decisions/idempotency.md",
       ).passed,
     ).toBe(false)
+    expect(judge(args, "").passed).toBe(false)
   })
 })
 
@@ -547,8 +543,11 @@ describe("transcriptFromMessages", () => {
 })
 
 describe("detectToolSet", () => {
-  it("names the advisor era, the read-tool era, and refuses a mix", () => {
-    expect(detectToolSet(["ctx_advisor"])).toBe("advisor")
+  it("accepts only the seven read tools", () => {
+    expect(() => detectToolSet(["ctx_advisor"])).toThrow("Unexpected tool set")
+    expect(() => detectToolSet([...readToolNames, "unknown"])).toThrow(
+      "unknown",
+    )
     expect(detectToolSet([...readToolNames])).toBe("read-tools")
     expect(() => detectToolSet(["ctx_advisor", "list_workspaces"])).toThrow(
       "Unexpected tool set",
@@ -645,7 +644,7 @@ describe("evaluateGate", () => {
 
   it("fails an empty run", () => {
     expect(
-      evaluateGate({ mode: "advisor", models: {} }, null, ids).passed,
+      evaluateGate({ mode: "read-tools", models: {} }, null, ids).passed,
     ).toBe(false)
   })
 
@@ -659,6 +658,6 @@ describe("baseline.json", () => {
     const stored = JSON.parse(
       readFileSync(join(evalsDirectory, "baseline.json"), "utf8"),
     ) as Baseline
-    expect(Object.keys(stored).sort()).toEqual(["advisor", "read-tools"])
+    expect(Object.keys(stored).sort()).toEqual(["read-tools"])
   })
 })

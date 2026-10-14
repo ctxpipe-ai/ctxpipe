@@ -67,8 +67,6 @@ async function main() {
     meadow: `mcp-eval-${run}-meadow`,
   }
   const url = new URL(required("MCP_EVAL_URL"))
-  // Before the cutover, the org comes from this parameter. After it, the server ignores it.
-  url.searchParams.set("orgSlug", orgs.harbor)
 
   const manager = new MCPClientManager()
   await manager.connectToServer("ctxpipe", {
@@ -86,10 +84,7 @@ async function main() {
     }
     const selected =
       values.cases?.split(",") ?? evalCases.map((item) => item.id)
-    const active = evalCases.filter(
-      (item) =>
-        selected.includes(item.id) && (mode === "read-tools" || item.advisor),
-    )
+    const active = evalCases.filter((item) => selected.includes(item.id))
     const instructions = manager.getInitializationInfo("ctxpipe")?.instructions
     const context: CaseContext = { orgs, mode }
     console.log(

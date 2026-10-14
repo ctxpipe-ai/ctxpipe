@@ -59,7 +59,11 @@ async function run(handle: Sandbox, command: string): Promise<string> {
 /**
  * Stop every process of the agent user, again and again until none is left,
  * so a process that forks while it is stopped is also stopped. The real uid
- * in /proc/<pid>/status counts; a process cannot hide it.
+ * in /proc/<pid>/status counts; a process cannot hide it. Each round freezes
+ * all found processes first, so none can fork or write while the round kills
+ * them. A process can exit before its signal arrives; the script uses
+ * `|| true` there, because under `set -e` that failed `kill` stops the whole
+ * script with no message.
  */
 const STOP_AGENT_PROCESSES = `uid=$(id -u ${INGEST_AGENT_USER})
 found() {
@@ -73,7 +77,8 @@ i=0
 while [ "$i" -lt 100 ]; do
   left=$(found)
   [ -z "$left" ] && break
-  for p in $left; do kill -KILL "$p" 2>/dev/null; done
+  for p in $left; do kill -STOP "$p" 2>/dev/null || true; done
+  for p in $left; do kill -KILL "$p" 2>/dev/null || true; done
   sleep 0.1
   i=$((i + 1))
 done
@@ -248,7 +253,7 @@ export async function startIngestStep(
         : []),
       `git -C ${context} checkout -q --detach ${input.baseCommit}`,
       `test "$(git -C ${context} rev-parse HEAD)" = ${input.baseCommit}`,
-      `rm -rf ${INGEST_OUT_ROOT} ${INGEST_HOME} ${INGEST_STEP_OUTPUT}`,
+      `rm -rf ${INGEST_OUT_ROOT} ${INGEST_HOME} ${INGEST_STEP_OUTPUT} || { echo "Cannot empty ${INGEST_OUT_ROOT} and ${INGEST_HOME}" >&2; exit 1; }`,
       `mkdir -p ${INGEST_OUT_ROOT}/files ${INGEST_HOME}`,
       `chown -R ${agent}:${agent} ${INGEST_OUT_ROOT} ${INGEST_HOME}`,
       `chmod 755 ${INGEST_OUT_ROOT} ${INGEST_HOME}`,

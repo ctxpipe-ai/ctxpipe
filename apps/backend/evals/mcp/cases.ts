@@ -18,6 +18,7 @@ export type ArgRule =
   /** The argument is an array with an item that names this repository (handle or URL). */
   | { includesRepository: string }
   | { emptyArray: true }
+  | { includes: Json }
 
 export type CallRule = {
   /** One tool name, or a list where any name satisfies the rule. `*` means any tool. */
@@ -33,8 +34,6 @@ export type EvalCase = {
   prompt: string
   /** Remote URL of the repository the agent works in. `null`: no repository. */
   workingRepository: string | null
-  /** The case also runs against `ctx_advisor` before the cutover (answer checks only). */
-  advisor?: true
   /** Each rule needs a matching call. */
   calls?: CallRule[]
   /** Each group: all these tools run in one assistant step (parallel calls). */
@@ -79,7 +78,6 @@ export const evalCases: EvalCase[] = [
     prompt:
       "I am adding retry handling to the settlement submit path in this repository. How long must we keep idempotency keys? Harbor Labs has a standard for it.",
     workingRepository: sshRemote,
-    advisor: true,
     calls: [{ tool: "search_knowledge", args: { org: { equals: "$harbor" } } }],
     resultsMention: ["knowledge/decisions/idempotency.md"],
     facts: ["48 hours"],
@@ -90,7 +88,6 @@ export const evalCases: EvalCase[] = [
     prompt:
       "Open the Harbor Labs decision about idempotency key retention in the Payments Workspace and tell me why they chose that period.",
     workingRepository: sshRemote,
-    advisor: true,
     calls: [
       {
         tool: "read_file",
@@ -109,7 +106,6 @@ export const evalCases: EvalCase[] = [
     prompt:
       "A settlement consumer fell behind. How do we replay settlement events safely at Harbor Labs?",
     workingRepository: httpsRemote,
-    advisor: true,
     calls: [{ tool: "search_knowledge", args: { org: { equals: "$harbor" } } }],
     resultsMention: ["knowledge/operations/replay.md"],
     facts: ["consumer", "idempotency key"],
@@ -120,7 +116,6 @@ export const evalCases: EvalCase[] = [
     prompt:
       "Did a settlement replay ever send duplicate payments at Harbor Labs? When did it happen?",
     workingRepository: sshRemote,
-    advisor: true,
     calls: [{ tool: "search_knowledge", args: { org: { equals: "$harbor" } } }],
     resultsMention: ["pagerduty/incidents/HBR-3.md"],
     facts: ["May 12"],
@@ -131,9 +126,10 @@ export const evalCases: EvalCase[] = [
     prompt:
       "Is there a Linear ticket about duplicate settlement at Harbor Labs? What does it ask for?",
     workingRepository: sshRemote,
-    advisor: true,
     calls: [{ tool: "search_knowledge", args: { org: { equals: "$harbor" } } }],
-    resultsMention: ["linear/issues/HBR-17.md"],
+    resultsMention: [
+      "linear/teams/HBR/issues/hbr-17--7c1d2e3f-4a5b-4c6d-8e7f-90a1b2c3d4e5.md",
+    ],
     facts: ["HBR-17", "key"],
   },
   {
@@ -148,6 +144,8 @@ export const evalCases: EvalCase[] = [
         args: {
           org: { equals: "$harbor" },
           workspace: { equals: "payments" },
+          seeds: { includes: "knowledge/services/settlement.md" },
+          intent: { equals: "why" },
         },
       },
     ],

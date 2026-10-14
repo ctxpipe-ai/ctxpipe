@@ -2,21 +2,46 @@
 
 Distributes the hosted ctx| MCP (`https://app.ctxpipe.ai/mcp`) as a Claude plugin. Same package for Claude Code, Cowork, and Claude Tag in Slack.
 
-The plugin declares the remote server. It does **not** skip OAuth. The first use
-signs the caller into ctx| and binds the OAuth grant to one organization:
+The plugin declares the remote server and the `ctxpipe-context` skill. It does
+**not** skip OAuth. The first use signs the caller into ctx| and creates an
+OAuth grant with a set of organizations:
 
-- one membership → that organization
-- several memberships → the active organization is shown at consent and can
-  be changed; if none is active, Claude asks for a selection first
+- consent lists your organizations; the active one is ticked and you can tick
+  more (at least one)
+- each tool call names one organization in `org`; one session can use several
+- a removed membership or an unticked organization denies the next call, with
+  no reconnect
 
-Changing the active organization in ctx| later does not retarget the grant.
-Reconnect ctxpipe to choose another organization. `orgSlug` remains supported
-for manual and legacy client configurations; the community plugin does not
-need it. Do not put tokens in the query string.
+Change the set in **Connected apps** in ctx| settings (`/.auth/account/connected-apps`).
+The `/mcp` URL has no `orgSlug`. The server ignores `?orgSlug=`, so old
+configurations do not fail. Do not put tokens in the query string.
 
 Claude requests `offline_access`, so browser sign-out does not disconnect the
 installed plugin. Revoke or disconnect the Claude MCP connection to remove its
 access.
+
+## Tools and skill
+
+Version 0.2.0 replaces the `ctx_advisor` tool and the `ctx-advisor` skill with
+seven read-only tools. Claude does the reasoning and ctx| returns facts with
+refs it can cite:
+
+| Tool | Job |
+| -- | -- |
+| `list_workspaces` | List the organizations and Workspaces you can read. |
+| `search_knowledge` | Search knowledge units: ADRs, standards, service pages, mirrored sources. |
+| `get_related` | Find units near seed refs in the graph and relevant to a query. |
+| `search_code` | Search linked repositories (literal, regex, or structural). |
+| `find_symbol` | Find definitions, references, callers, and callees. |
+| `list_files` | List a folder of a Workspace repository or a linked repository. |
+| `read_file` | Read a unit or a repository file by ref. |
+
+A client can also open one ref as the resource `ctxpipe://{org}/{workspace}/{+ref}`.
+
+The `ctxpipe-context` skill teaches Claude when to call each tool, to name the
+organization in every call, to send independent calls in parallel, and not to
+search the repository it works in. A client that calls `ctx_advisor` fails after
+the upgrade: update the plugin and use the tools above.
 
 ## Claude Code
 
@@ -26,7 +51,7 @@ access.
 ```
 
 Then open `/mcp`, connect **ctxpipe**, and complete the ctx| OAuth prompt. Follow
-[`SETUP.md`](./SETUP.md) to verify `ctx_advisor`, not merely the redirect.
+[`SETUP.md`](./SETUP.md) to verify `list_workspaces`, not merely the redirect.
 
 Self-host: copy this folder and change `.mcp.json` to your public `/mcp` origin.
 
@@ -35,14 +60,14 @@ Self-host: copy this folder and change `.mcp.json` to your public `/mcp` origin.
 A custom MCP URL pasted into claude.ai does **not** apply in `@Claude`
 channels. Attach this plugin to the Access bundle, then add an **MCP
 Connector** credential for `app.ctxpipe.ai` (or your self-host host). The owner
-signs in once and selects the ctx| organization the channel agent may use.
+signs in once and ticks the ctx| organizations the channel agent may use.
 Claude Tag requires this admin connection; the plugin removes URL entry, not
 the connection and consent boundary.
 
 Start a **new** thread after attaching the plugin. Existing threads keep the tool set they started with.
 
 ```text
-@Claude use ctx_advisor. What standards apply before we change this auth flow?
+@Claude search ctx| knowledge. What standards apply before we change this auth flow?
 ```
 
 Team/Enterprise owners can upload a ZIP of this folder or vendor it into a
@@ -70,10 +95,10 @@ perform during build or deployment.
 
 ## Permissions and data
 
-`ctx_advisor` reads context already available to the selected ctx| organization.
-It does not change connected source systems. ctx| stores the MCP conversation
-and normal operational telemetry so follow-up calls retain context. Membership
-in the OAuth-bound organization is checked on every request.
+The read tools return context already available to the ticked ctx|
+organizations. They do not change connected source systems. ctx| stores normal
+operational telemetry for each call. Membership in the
+organization and the grant set are checked on every call.
 
 See [Data processing](https://docs.ctxpipe.ai/docs/resources/data-processing).
 
@@ -84,9 +109,8 @@ the preferred path. Manual custom connectors remain supported as a fallback:
 
 `https://app.ctxpipe.ai/mcp`
 
-or an explicitly scoped legacy/manual URL:
-
-`https://app.ctxpipe.ai/mcp?orgSlug=your-org`
+Older configurations that add `?orgSlug=your-org` keep working: the server
+ignores the parameter.
 
 ## What this is not
 

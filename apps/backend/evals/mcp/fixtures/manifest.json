@@ -30,21 +30,42 @@
       "organization": "harbor",
       "slug": "payments",
       "name": "Harbor Payments",
-      "repositories": ["is", "yocto-queue"]
+      "repositories": ["is", "yocto-queue"],
+      "updatedAt": {
+        "knowledge/services/ledger.md": "2026-01-15T09:00:00Z",
+        "knowledge/services/settlement.md": "2026-02-20T09:00:00Z",
+        "knowledge/decisions/idempotency.md": "2026-04-20T09:00:00Z",
+        "knowledge/operations/replay.md": "2026-05-12T09:00:00Z",
+        "pagerduty/incidents/HBR-3.md": "2026-05-13T09:00:00Z",
+        "linear/teams/HBR/issues/hbr-17--7c1d2e3f-4a5b-4c6d-8e7f-90a1b2c3d4e5.md": "2026-05-28T09:00:00Z"
+      }
     },
     {
       "key": "harbor-platform",
       "organization": "harbor",
       "slug": "platform",
       "name": "Harbor Platform",
-      "repositories": ["is"]
+      "repositories": ["is"],
+      "updatedAt": {
+        "knowledge/services/queue.md": "2026-03-05T09:00:00Z",
+        "knowledge/operations/capacity.md": "2026-05-02T09:00:00Z"
+      }
     },
     {
       "key": "meadow-payments",
       "organization": "meadow",
       "slug": "payments",
       "name": "Meadow Payments",
-      "repositories": []
+      "repositories": [],
+      "updatedAt": {
+        "knowledge/decisions/batch.md": "2026-03-15T09:00:00Z",
+        "knowledge/services/settlement.md": "2026-05-20T09:00:00Z"
+      }
     }
-  ]
+  ],
+  "secondProjection": {
+    "workspace": "harbor-payments",
+    "branch": "next",
+    "date": "2026-06-15T12:00:00Z"
+  }
 }
