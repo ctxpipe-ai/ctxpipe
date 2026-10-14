@@ -1,7 +1,9 @@
 import { crc32 } from "node:zlib"
+import { chat } from "@tanstack/ai"
 import { HttpResponse, http } from "msw"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { useMswServer } from "../../../test/msw.js"
+import { bedrockModelProvider } from "../../retrieval/services/providers/bedrockModelProvider.js"
 import { handleBedrockChatCompletion } from "./bedrockOpenAiProxy.js"
 
 // biome-ignore lint/correctness/useHookAtTopLevel: Vitest owns this MSW lifecycle.
@@ -62,7 +64,10 @@ function eventStreamFrame(eventType: string, payload: unknown): Uint8Array {
 }
 
 describe("handleBedrockChatCompletion", () => {
-  it("answers a non-streaming request as an OpenAI chat completion", async () => {
+  it.each([
+    "end_turn",
+    "max_tokens",
+  ])("answers a non-streaming request with stop reason %s", async (stopReason) => {
     stubAwsCredentials()
     let sent: Record<string, unknown> = {}
     server.use(
@@ -78,7 +83,7 @@ describe("handleBedrockChatCompletion", () => {
               content: [{ text: "Hello " }, { text: "there" }],
             },
           },
-          stopReason: "end_turn",
+          stopReason,
           usage: { inputTokens: 4, outputTokens: 2, totalTokens: 6 },
           metrics: { latencyMs: 1 },
         })
@@ -104,7 +109,12 @@ describe("handleBedrockChatCompletion", () => {
     expect(body).toMatchObject({
       object: "chat.completion",
       model: "fast-model",
-      choices: [{ message: { role: "assistant", content: "Hello there" } }],
+      choices: [
+        {
+          message: { role: "assistant", content: "Hello there" },
+          finish_reason: stopReason === "max_tokens" ? "length" : "stop",
+        },
+      ],
     })
     expect(sent).toMatchObject({
       system: [{ text: "Be brief." }],
@@ -118,7 +128,10 @@ describe("handleBedrockChatCompletion", () => {
     })
   })
 
-  it("streams text deltas as OpenAI chunks and ends with [DONE]", async () => {
+  it.each([
+    "end_turn",
+    "max_tokens",
+  ])("streams text and the final stop reason %s", async (stopReason) => {
     stubAwsCredentials()
     server.use(
       http.post(
@@ -136,7 +149,7 @@ describe("handleBedrockChatCompletion", () => {
                 delta: { text: "lo" },
               }),
               eventStreamFrame("contentBlockStop", { contentBlockIndex: 0 }),
-              eventStreamFrame("messageStop", { stopReason: "end_turn" }),
+              eventStreamFrame("messageStop", { stopReason }),
             ]),
             {
               headers: { "content-type": "application/vnd.amazon.eventstream" },
@@ -155,7 +168,17 @@ describe("handleBedrockChatCompletion", () => {
       .filter(Boolean)
       .map((line) => line.replace(/^data: /, ""))
     expect(events.at(-1)).toBe("[DONE]")
-    const deltas = events.slice(0, -1).map(
+    expect(JSON.parse(events.at(-2) ?? "null")).toMatchObject({
+      object: "chat.completion.chunk",
+      choices: [
+        {
+          index: 0,
+          delta: {},
+          finish_reason: stopReason === "max_tokens" ? "length" : "stop",
+        },
+      ],
+    })
+    const deltas = events.slice(0, -2).map(
       (json) =>
         JSON.parse(json) as {
           object: string
@@ -187,19 +210,85 @@ describe("handleBedrockChatCompletion", () => {
     server.use(
       http.post(converseUrl("fast-model"), () =>
         HttpResponse.json(
-          { message: "Too many requests" },
+          { message: "Invalid request" },
           {
-            status: 429,
-            headers: { "x-amzn-errortype": "ThrottlingException" },
+            status: 400,
+            headers: { "x-amzn-errortype": "ValidationException" },
           },
         ),
       ),
     )
     await expect(
-      handleBedrockChatCompletion(
-        { ...(env as object), MODEL_BEDROCK_AWS_REGION: "us-east-1" } as never,
-        { model: "fast-model", messages: [{ role: "user", content: "hi" }] },
-      ),
+      handleBedrockChatCompletion(env, {
+        model: "fast-model",
+        messages: [{ role: "user", content: "hi" }],
+      }),
     ).rejects.toThrow()
-  }, 30_000)
+  })
+})
+
+it("merges consecutive roles through the host provider", async () => {
+  stubAwsCredentials()
+  let sent: unknown
+  server.use(
+    http.post(converseUrl("fast-model"), async ({ request }) => {
+      sent = await request.json()
+      return HttpResponse.json({
+        output: { message: { role: "assistant", content: [{ text: "ok" }] } },
+        stopReason: "end_turn",
+      })
+    }),
+  )
+  const { chat: adapter } = bedrockModelProvider({
+    models: ["fast-model"],
+    apiKey: "",
+    env: { MODEL_BEDROCK_AWS_REGION: "us-east-1" },
+    temperature: 0.2,
+    modelParams: { sampling: { maxTokens: 20, topP: 0.8 } },
+  })
+  expect(
+    await chat({
+      adapter,
+      stream: false,
+      systemPrompts: ["Be brief."],
+      messages: [
+        { role: "user", content: "first" },
+        { role: "user", content: "second" },
+        { role: "assistant", content: "answer" },
+        { role: "assistant", content: "more" },
+      ],
+    }),
+  ).toBe("ok")
+  expect(sent).toMatchObject({
+    system: [{ text: "Be brief." }],
+    messages: [
+      { role: "user", content: [{ text: "first" }, { text: "second" }] },
+      { role: "assistant", content: [{ text: "answer" }, { text: "more" }] },
+    ],
+    inferenceConfig: { temperature: 0.2, maxTokens: 20, topP: 0.8 },
+  })
+})
+
+it.each([
+  false,
+  true,
+])("rejects an aborted request (stream=%s)", async (stream) => {
+  stubAwsCredentials()
+  server.use(
+    http.post(
+      stream ? streamUrl("fast-model") : converseUrl("fast-model"),
+      () => HttpResponse.json({}),
+    ),
+  )
+  await expect(
+    handleBedrockChatCompletion(
+      env,
+      {
+        model: "fast-model",
+        stream,
+        messages: [{ role: "user", content: "hi" }],
+      },
+      AbortSignal.abort(),
+    ),
+  ).rejects.toMatchObject({ name: "AbortError" })
 })

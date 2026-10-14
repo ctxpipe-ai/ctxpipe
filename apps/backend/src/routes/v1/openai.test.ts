@@ -25,12 +25,6 @@ vi.mock("@aws-sdk/client-bedrock-runtime", () => {
       this.input = input
     }
   }
-  class MockConverseCommand {
-    input: unknown
-    constructor(input: unknown) {
-      this.input = input
-    }
-  }
   class MockBedrockRuntimeClient {
     send = mockBedrockSend
     config: unknown
@@ -42,8 +36,6 @@ vi.mock("@aws-sdk/client-bedrock-runtime", () => {
   return {
     BedrockRuntimeClient: MockBedrockRuntimeClient,
     InvokeModelCommand: MockInvokeModelCommand,
-    ConverseCommand: MockConverseCommand,
-    ConverseStreamCommand: MockConverseCommand,
   }
 })
 
@@ -310,40 +302,6 @@ describe("v1/openai proxy", () => {
     expect(res.status).toBe(400)
     const body = (await res.json()) as { allowedModels: string[] }
     expect(body.allowedModels).toEqual(["openai/gpt-5.5"])
-  })
-
-  it("handles Bedrock chat via native Converse when MODEL_PROVIDER=bedrock", async () => {
-    mockBedrockSend.mockResolvedValue({
-      output: {
-        message: { role: "assistant", content: [{ text: "from bedrock" }] },
-      },
-    })
-    const app = appWithRoutes({
-      authed: true,
-      orgId: "org_acme",
-      modelProvider: "bedrock",
-      bedrockRegion: "us-east-1",
-    })
-    const res = await app.request("/acme/api/v1/openai/v1/chat/completions", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        model: "gpt-5.4-nano",
-        messages: [{ role: "user", content: "hi" }],
-      }),
-    })
-    expect(res.status).toBe(200)
-    const command = mockBedrockSend.mock.calls[0]?.[0] as {
-      input: { modelId?: string; messages?: unknown }
-    }
-    expect(command.input.modelId).toBe("gpt-5.4-nano")
-    expect(command.input.messages).toEqual([
-      { role: "user", content: [{ text: "hi" }] },
-    ])
-    const body = (await res.json()) as {
-      choices: Array<{ message: { content: string } }>
-    }
-    expect(body.choices[0]?.message.content).toBe("from bedrock")
   })
 
   it("forwards chat completions to upstream with the server-side API key", async () => {

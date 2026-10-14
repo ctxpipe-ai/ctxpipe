@@ -1,4 +1,4 @@
-import { delay, HttpResponse, http } from "msw"
+import { HttpResponse, http } from "msw"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { useMswServer } from "../../../test/msw.js"
 import { createLogger, withLogger } from "../../observability/logger.js"
@@ -192,8 +192,7 @@ describe("selectSlackMentionIntent", () => {
     vi.stubEnv("MODEL_PROVIDER_URL", "https://models.test/v1")
     vi.stubEnv("MODEL_FAST_NAME", "fast")
     server.use(
-      http.post("https://models.test/v1/chat/completions", async () => {
-        await delay(1)
+      http.post("https://models.test/v1/chat/completions", () => {
         return HttpResponse.json({ error: "boom" }, { status: 400 })
       }),
     )
