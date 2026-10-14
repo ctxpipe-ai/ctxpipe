@@ -10,6 +10,8 @@ import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
 import { afterAll, beforeAll, expect, it, vi } from "vitest"
 import {
+  advanceMcpEvalWorkspace,
+  mcpEvalManifest,
   prepareMcpEvalRepositories,
   seedMcpEval,
 } from "../../evals/mcp/seed.js"
@@ -23,6 +25,7 @@ import { searchKnowledge } from "../domain/workspaces/knowledge-search.js"
 import {
   getWorkspaceProjection,
   listWorkspaceKnowledgeFiles,
+  listWorkspaceKnowledgeUnits,
 } from "../models/workspaces.js"
 import { closeGraphDb } from "../platform/graph/client.js"
 
@@ -36,6 +39,11 @@ let directory: string
 let graph: FalkorDB
 let result: Awaited<ReturnType<typeof seedMcpEval>>
 const cloneRequests: Array<{ targetHash: string }> = []
+const scipRequests: string[] = []
+const issuePath =
+  "linear/teams/HBR/issues/hbr-17--7c1d2e3f-4a5b-4c6d-8e7f-90a1b2c3d4e5.md"
+const harborDates: Record<string, string> =
+  mcpEvalManifest.workspaces[0]?.updatedAt ?? {}
 const server = setupServer(
   http.post("https://eval-model.test/v1/embeddings", async ({ request }) => {
     const { input } = (await request.json()) as { input: string[] }
@@ -46,6 +54,13 @@ const server = setupServer(
       })),
     })
   }),
+  http.post(
+    "http://eval-codesearch.test/:repo/index/scip/:language",
+    ({ params }) => {
+      scipRequests.push(String(params.language))
+      return HttpResponse.json({ ok: true })
+    },
+  ),
   http.post(
     "http://eval-codesearch.test/:repo/index/:phase",
     async ({ request, params }) => {
@@ -64,11 +79,11 @@ const server = setupServer(
       if (params.phase === "detect-languages")
         return HttpResponse.json({
           ok: true,
-          detectedLanguages: [],
-          languagesToIndex: [],
+          detectedLanguages: ["typescript"],
+          languagesToIndex: ["typescript"],
         })
       if (params.phase === "merge-scip")
-        return HttpResponse.json({ ok: true, shardCount: 0 })
+        return HttpResponse.json({ ok: true, shardCount: 1 })
       return HttpResponse.json({ ok: true })
     },
   ),
@@ -95,6 +110,7 @@ afterAll(async () => {
   server.close()
   const orgIds = [
     run,
+    `second-${run}`,
     `changed-${run}`,
     `missing-${run}`,
     `extra-${run}`,
@@ -165,18 +181,12 @@ it(
       })
     }
     expect(cloneRequests).toHaveLength(5)
-    expect(
-      cloneRequests.filter(
-        (request) =>
-          request.targetHash === "ab85d9bca9564eb0f867ab45e3cbf45659d9ac4c",
-      ),
-    ).toHaveLength(1)
-    expect(
-      cloneRequests.filter(
-        (request) =>
-          request.targetHash === "0ac610dfa4e5cbd929b2e9b8fc34f5417f2f788b",
-      ),
-    ).toHaveLength(1)
+    for (const upstream of mcpEvalManifest.upstreamRepositories)
+      expect(
+        cloneRequests.filter((request) => request.targetHash === upstream.sha),
+      ).toHaveLength(1)
+    // Each of the five indexes reaches the SCIP phase.
+    expect(scipRequests).toEqual(Array(5).fill("typescript"))
     const [harbor, meadow] = result.organizations
     const payments = result.workspaces[0]
     if (!harbor || !meadow || !payments)
@@ -187,19 +197,12 @@ it(
       query: "idempotency",
       sources: ["linear"],
     })
-    expect(found.map((hit) => hit.path)).toEqual(["linear/issues/HBR-17.md"])
+    expect(found.map((hit) => hit.path)).toEqual([issuePath])
     expect(found[0]).toMatchObject({
       title: "Reject duplicate settlement",
       source: "linear",
-      updatedAt: new Date("2026-06-01T12:00:00Z"),
+      updatedAt: new Date(harborDates[issuePath] ?? ""),
     })
-    expect(
-      await searchKnowledge({
-        orgId: meadow.id,
-        workspaceIds: [payments.id],
-        query: "idempotency",
-      }),
-    ).toEqual([])
   },
 )
 
@@ -240,5 +243,155 @@ it.each(["changed", "missing", "extra"])(
     await expect(
       seedMcpEval({ run: `${change}-${run}`, userId, remotes }),
     ).rejects.toThrow("does not match the evaluation fixture")
+  },
+)
+
+it("gives mirror files their kind and joins them to the Workspace by reference", async () => {
+  const [harbor] = result.organizations
+  const payments = result.workspaces[0]
+  if (!harbor || !payments) throw new Error("Seed result is incomplete")
+  await withOrgIdContext(harbor, async () => {
+    const { units } = await listWorkspaceKnowledgeUnits(payments.id)
+    const unit = (path: string) => {
+      const found = units.find((unit) => unit.path === path)
+      if (!found) throw new Error(`Unit is absent: ${path}`)
+      return found
+    }
+    expect(unit(issuePath)).toMatchObject({ kind: "Issue", source: "linear" })
+    expect(unit("pagerduty/incidents/HBR-3.md")).toMatchObject({
+      kind: "Incident",
+    })
+    // The incident names the ticket by its Linear URL, and the decision links it.
+    expect(unit("pagerduty/incidents/HBR-3.md").links).toContain(
+      `workspace:${issuePath}`,
+    )
+    expect(unit("knowledge/decisions/idempotency.md").links).toContain(
+      `workspace:${issuePath}`,
+    )
+    const projection = await getWorkspaceProjection(payments.id)
+    if (projection.kind !== "active") throw new Error("Projection is absent")
+    const graphRead = await readWorkspaceGraph({
+      orgId: harbor.id,
+      orgSlug: harbor.slug,
+      projection,
+    })
+    const issue = unit(issuePath).servingId
+    expect(graphRead.nodes.find((node) => node.id === issue)?.kind).toBe(
+      "Issue",
+    )
+    expect(
+      graphRead.edges.filter((edge) => edge.targetId === issue),
+    ).not.toHaveLength(0)
+  })
+})
+
+it("gives units different update times that a time filter can use", async () => {
+  const [harbor] = result.organizations
+  const payments = result.workspaces[0]
+  if (!harbor || !payments) throw new Error("Seed result is incomplete")
+  const since = new Date("2026-05-01T00:00:00Z")
+  const hits = await searchKnowledge({
+    orgId: harbor.id,
+    workspaceIds: [payments.id],
+    query: "settlement",
+    updatedAfter: since,
+  })
+  const expected = Object.entries(harborDates)
+    .filter(([, date]) => new Date(date) > since)
+    .map(([path]) => path)
+    .sort()
+  expect(expected).toHaveLength(3)
+  expect(hits.map((hit) => hit.path).sort()).toEqual(expected)
+  for (const hit of hits)
+    expect(hit.updatedAt).toEqual(new Date(harborDates[hit.path] ?? ""))
+  const all = await searchKnowledge({
+    orgId: harbor.id,
+    workspaceIds: [payments.id],
+    query: "settlement",
+  })
+  expect(
+    new Set(all.map((hit) => hit.updatedAt.toISOString())).size,
+  ).toBeGreaterThan(3)
+})
+
+it("keeps one organization's content out of the other's search", async () => {
+  const [harbor, meadow] = result.organizations
+  const harborPayments = result.workspaces[0]
+  const meadowPayments = result.workspaces[2]
+  if (!harbor || !meadow || !harborPayments || !meadowPayments)
+    throw new Error("Seed result is incomplete")
+  expect(meadowPayments.slug).toBe(harborPayments.slug)
+  // Vector ranking returns the nearest chunks of the scope, so the proof is
+  // that no hit holds the marker, not that the list is empty.
+  const harborHits = await searchKnowledge({
+    orgId: harbor.id,
+    workspaceIds: [harborPayments.id],
+    query: "MEADOW_ONLY_42",
+  })
+  expect(harborHits.some((hit) => hit.text.includes("MEADOW_ONLY_42"))).toBe(
+    false,
+  )
+  const meadowHits = await searchKnowledge({
+    orgId: meadow.id,
+    workspaceIds: [meadowPayments.id],
+    query: "MEADOW_ONLY_42",
+  })
+  expect(meadowHits[0]).toMatchObject({
+    path: "knowledge/services/settlement.md",
+  })
+  expect(meadowHits[0]?.text).toContain("MEADOW_ONLY_42")
+  expect(
+    await searchKnowledge({
+      orgId: meadow.id,
+      workspaceIds: [harborPayments.id],
+      query: "MEADOW_ONLY_42",
+    }),
+  ).toEqual([])
+})
+
+it(
+  "moves a Workspace to a second projection",
+  { timeout: 60_000 },
+  async () => {
+    const remotes = await prepareMcpEvalRepositories(
+      join(directory, "second-projection"),
+    )
+    const seeded = await seedMcpEval({ run: `second-${run}`, userId, remotes })
+    const first = seeded.workspaces.find(
+      (workspace) =>
+        workspace.key === mcpEvalManifest.secondProjection.workspace,
+    )
+    const harbor = seeded.organizations[0]
+    if (!first || !harbor) throw new Error("Seed result is incomplete")
+    const moved = await advanceMcpEvalWorkspace({
+      run: `second-${run}`,
+      userId,
+      remotes,
+    })
+    expect(moved).toMatchObject({ id: first.id, orgId: first.orgId })
+    expect(moved.sha).not.toBe(first.sha)
+    await withOrgIdContext(harbor, async () => {
+      const projection = await getWorkspaceProjection(first.id)
+      expect(projection).toMatchObject({
+        kind: "active",
+        revision: { sha: moved.sha },
+        stores: {
+          embeddings: { kind: "ready" },
+          graph: { kind: "ready" },
+          index: { kind: "ready" },
+        },
+      })
+    })
+    const refunds = await searchKnowledge({
+      orgId: harbor.id,
+      workspaceIds: [first.id],
+      query: "refund service",
+    })
+    expect(refunds.map((hit) => hit.path)).toContain(
+      "knowledge/services/refunds.md",
+    )
+    expect(new Set(refunds.map((hit) => hit.projectionSha))).toEqual(
+      new Set([moved.sha]),
+    )
   },
 )

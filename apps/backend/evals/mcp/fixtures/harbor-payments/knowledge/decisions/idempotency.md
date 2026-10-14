@@ -12,4 +12,4 @@ claims:
 
 Retries can arrive the next day. Keep each key for 48 hours to prevent duplicate settlement.
 
-The [ticket](../../linear/issues/HBR-17.md) records the defect.
+The [ticket](../../linear/teams/HBR/issues/hbr-17--7c1d2e3f-4a5b-4c6d-8e7f-90a1b2c3d4e5.md) records the defect.
