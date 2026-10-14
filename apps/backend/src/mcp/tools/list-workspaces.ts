@@ -5,16 +5,60 @@ import { workspaceSources } from "../../db/schema/workspace_sources.js"
 import { workspaces } from "../../db/schema/workspaces.js"
 import { publishedProjection } from "../../domain/workspaces/revision.js"
 import { projectionFromWorkspace } from "../../models/workspaces.js"
-import { truncateText } from "../framework/budget.js"
+import { fitPage, truncateText } from "../framework/budget.js"
 import {
-  listOrgRepositoryUrls,
-  loadOrgRepositoryHandles,
+  listOrgRepositoryLinks,
+  loadWorkspaceHandles,
   resolveCallWorkspace,
+  workspaceLinkHandles,
 } from "../framework/call-workspace.js"
+import { decodeCursor, encodeCursor } from "../framework/cursor.js"
 import { RepositoryHandles } from "../framework/repository-handles.js"
+import {
+  type Skipped,
+  servedSchema,
+  skippedSchema,
+  workspaceArgument,
+} from "../framework/schemas.js"
 import { orgRequired } from "../framework/tool-errors.js"
 import { listToolOrgs } from "../framework/tool-org.js"
 import { defineMcpReadTool } from "../framework/tool-registry.js"
+
+/** Workspaces in one page of list mode (ADR-051 §5). */
+const PAGE_SIZE = 100
+
+type ListedWorkspace = {
+  slug: string
+  title: string
+  repositories: number
+  ready: boolean
+}
+
+/** One row of the flat list that list mode pages: a Workspace, or an org with none. */
+type ListItem = {
+  org: string
+  workspace: ListedWorkspace | null
+  skipped: Skipped | null
+}
+
+/** Group a page of items by org, in order. */
+function groupByOrg(page: readonly ListItem[]) {
+  const orgs: Array<{
+    org: string
+    workspaces: ListedWorkspace[]
+    skipped: Skipped[]
+  }> = []
+  for (const item of page) {
+    let entry = orgs.at(-1)
+    if (entry?.org !== item.org) {
+      entry = { org: item.org, workspaces: [], skipped: [] }
+      orgs.push(entry)
+    }
+    if (item.workspace) entry.workspaces.push(item.workspace)
+    if (item.skipped) entry.skipped.push(item.skipped)
+  }
+  return orgs
+}
 
 export const listWorkspaces = defineMcpReadTool({
   name: "list_workspaces",
@@ -23,7 +67,18 @@ export const listWorkspaces = defineMcpReadTool({
     "List the Workspaces this connection can read. Omit org to list all allowed orgs. Send independent calls in parallel.",
   org: "optional",
   alwaysLoad: true,
-  inputShape: { workspace: z.string().min(1).max(64).optional() },
+  inputShape: {
+    workspace: workspaceArgument
+      .optional()
+      .describe(
+        "Workspace slug. Omit it to list Workspaces; name one for its repositories, sources, and readiness.",
+      ),
+    cursor: z
+      .string()
+      .max(2_048)
+      .optional()
+      .describe("The cursor of the last list result, for the next page."),
+  },
   outputSchema: z.object({
     orgs: z
       .array(
@@ -37,16 +92,16 @@ export const listWorkspaces = defineMcpReadTool({
               ready: z.boolean(),
             }),
           ),
+          skipped: z.array(skippedSchema),
         }),
       )
       .optional(),
+    cursor: z.string().optional(),
+    truncated: z.boolean().optional(),
     org: z.string().optional(),
     workspace: z.string().optional(),
     title: z.string().optional(),
-    served: z
-      .object({ branch: z.string(), sha: z.string() })
-      .nullable()
-      .optional(),
+    served: servedSchema.nullable().optional(),
     readiness: z
       .object({
         knowledge: z.string(),
@@ -65,20 +120,14 @@ export const listWorkspaces = defineMcpReadTool({
         }),
       )
       .optional(),
-    excluded: z.array(z.string()).optional(),
+    skipped: z.array(skippedSchema).optional(),
   }),
-  async run({ workspace }, { org }) {
+  async run({ workspace, cursor }, { org }) {
     if (workspace) {
       if (!org) throw orgRequired()
       const resolved = await resolveCallWorkspace(org, workspace)
-      const handles = await loadOrgRepositoryHandles(org)
-      const repositories = [
-        ...new Set(
-          (await listOrgRepositoryUrls(org, resolved.id)).map(
-            (url) => handles.resolve(url).handle,
-          ),
-        ),
-      ].sort()
+      const { linked, invalid } = await loadWorkspaceHandles(org, resolved.id)
+      const repositories = [...linked].sort()
       const { row, sources } = await withOrgDbContext(org.id, async (db) => {
         const [row] = await db
           .select()
@@ -133,37 +182,75 @@ export const listWorkspaces = defineMcpReadTool({
         },
         repositories,
         sources,
-        excluded: [],
+        skipped: invalid
+          ? [{ workspace: resolved.slug, reason: "invalid_url" as const }]
+          : [],
       }
     }
-    const orgs = org ? [org] : await listToolOrgs()
-    const result = []
-    for (const allowed of orgs) {
-      const rows = await withOrgDbContext(allowed.id, (db) =>
-        db
-          .select()
-          .from(workspaces)
-          .where(eq(workspaces.orgId, allowed.id))
-          .orderBy(asc(workspaces.slug)),
-      )
-      const summaries = []
+    const items: ListItem[] = []
+    for (const allowed of org ? [org] : await listToolOrgs()) {
+      const [rows, links] = await Promise.all([
+        withOrgDbContext(allowed.id, (db) =>
+          db
+            .select()
+            .from(workspaces)
+            .where(eq(workspaces.orgId, allowed.id))
+            .orderBy(asc(workspaces.slug)),
+        ),
+        listOrgRepositoryLinks(allowed),
+      ])
+      const handles = RepositoryHandles.from(links.map((link) => link.gitUrl))
+      if (rows.length === 0) {
+        items.push({ org: allowed.slug, workspace: null, skipped: null })
+      }
       for (const row of rows) {
         const projection = publishedProjection(projectionFromWorkspace(row))
-        summaries.push({
-          slug: row.slug,
-          title: truncateText(row.displayName.replace(/\s+/g, " ").trim(), 32),
-          repositories: RepositoryHandles.from(
-            await listOrgRepositoryUrls(allowed, row.id),
-          ).list().length,
-          ready:
-            projection?.kind === "active" &&
-            Object.values(projection.stores).every(
-              (store) => store.kind === "ready",
+        const { linked, invalid } = workspaceLinkHandles(
+          handles,
+          links.filter((link) => link.workspaceId === row.id),
+        )
+        items.push({
+          org: allowed.slug,
+          workspace: {
+            slug: row.slug,
+            title: truncateText(
+              row.displayName.replace(/\s+/g, " ").trim(),
+              32,
             ),
+            repositories: linked.size,
+            ready:
+              projection?.kind === "active" &&
+              Object.values(projection.stores).every(
+                (store) => store.kind === "ready",
+              ),
+          },
+          skipped: invalid
+            ? { workspace: row.slug, reason: "invalid_url" }
+            : null,
         })
       }
-      result.push({ org: allowed.slug, workspaces: summaries })
     }
-    return { orgs: result }
+    const binding = {
+      orgId: org?.id ?? "*",
+      workspaceId: null,
+      scope: JSON.stringify(["list_workspaces", org?.slug ?? null]),
+      sha: JSON.stringify(
+        items.map((item) => [item.org, item.workspace?.slug ?? null]),
+      ),
+    }
+    const offset = cursor ? decodeCursor(cursor, binding) : 0
+    const page = fitPage(items, {
+      offset,
+      limit: PAGE_SIZE,
+      maxTokens: 4_000,
+      result: (fitted) => ({ orgs: groupByOrg(fitted), truncated: true }),
+    })
+    return {
+      orgs: groupByOrg(page.page),
+      ...(page.truncated ? { truncated: true } : {}),
+      ...(page.nextOffset === null
+        ? {}
+        : { cursor: encodeCursor({ ...binding, offset: page.nextOffset }) }),
+    }
   },
 })

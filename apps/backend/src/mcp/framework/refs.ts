@@ -30,13 +30,30 @@ export function checkPath(path: string, ref: string): string {
   return path
 }
 
+/** {@link checkPath} for a path in a repository: no `.git` segment either. */
+export function checkRepositoryPath(path: string, ref: string): string {
+  checkPath(path, ref)
+  if (path.split("/").some((segment) => segment.toLowerCase() === ".git")) {
+    throw new McpToolError(
+      "invalid_ref",
+      `"${ref}" is not a valid ref. A repository path has no .git folder.`,
+    )
+  }
+  return path
+}
+
 /**
  * The part before the first `:` names a repository only when `resolve`
  * finds it, so `owner/name`, `host/owner/name`, and another letter case all
  * work. A handle has no `:`. A prefix that names no linked repository makes
- * the whole ref a unit path.
+ * the whole ref a unit path. With `linked` (the handles that one Workspace
+ * links), a prefix is a repository only when it is in that set (ADR-051 §4).
  */
-export function parseRef(ref: string, handles: RepositoryHandles): ParsedRef {
+export function parseRef(
+  ref: string,
+  handles: RepositoryHandles,
+  linked?: ReadonlySet<string>,
+): ParsedRef {
   const colon = ref.indexOf(":")
   if (colon > 0) {
     let repository: HandledRepository | null = null
@@ -46,12 +63,12 @@ export function parseRef(ref: string, handles: RepositoryHandles): ParsedRef {
       if (!(error instanceof McpToolError)) throw error
       if (error.code !== "repository_not_found") throw error
     }
-    if (repository) {
+    if (repository && (!linked || linked.has(repository.handle))) {
       return {
         kind: "file",
         handle: repository.handle,
         url: repository.url,
-        path: checkPath(ref.slice(colon + 1), ref),
+        path: checkRepositoryPath(ref.slice(colon + 1), ref),
       }
     }
   }

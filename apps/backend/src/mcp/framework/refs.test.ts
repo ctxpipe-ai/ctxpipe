@@ -83,6 +83,34 @@ describe("parseRef", () => {
     )
   })
 
+  it("reads a prefix as a repository only when the Workspace links it", () => {
+    const linked = new Set(["example/api"])
+    expect(
+      parseRef("example/payments-api:src/limits.ts", handles, linked),
+    ).toEqual({ kind: "unit", path: "example/payments-api:src/limits.ts" })
+    expect(
+      parseRef("gitlab.example.com/example/api:README.md", handles, new Set()),
+    ).toMatchObject({ kind: "unit" })
+    expect(
+      parseRef("example/payments-api:src/limits.ts", handles, new Set(["example/payments-api"])),
+    ).toMatchObject({ kind: "file", handle: "example/payments-api" })
+  })
+
+  it.each([
+    "example/payments-api:.git/config",
+    "example/payments-api:src/.GIT/hooks/x",
+  ])("refuses a .git segment in the file ref %j", (ref) => {
+    expect(() => parseRef(ref, handles)).toThrowError(
+      expect.objectContaining({ code: "invalid_ref" }),
+    )
+  })
+
+  it("keeps a .git segment in a unit path", () => {
+    expect(parseRef("notes/.git/readme.md", handles)).toMatchObject({
+      kind: "unit",
+    })
+  })
+
   it.each([
     "",
     "   ",

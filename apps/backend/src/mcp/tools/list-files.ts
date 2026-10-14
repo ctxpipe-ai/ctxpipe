@@ -7,21 +7,21 @@ import {
   globCheckoutFiles,
 } from "../../domain/codeIngestion/codesearchClient.js"
 import { log } from "../../observability/logger.js"
-import { pageWithinBudget } from "../framework/budget.js"
+import { fitPage } from "../framework/budget.js"
 import {
   requireServed,
   resolveCallWorkspace,
 } from "../framework/call-workspace.js"
 import { decodeCursor, encodeCursor } from "../framework/cursor.js"
-import { checkPath } from "../framework/refs.js"
-import { McpToolError } from "../framework/tool-errors.js"
-import { defineMcpReadTool } from "../framework/tool-registry.js"
+import { requireLinkedRepository } from "../framework/org-code.js"
+import { checkPath, checkRepositoryPath } from "../framework/refs.js"
 import {
-  excludeRepositoriesArgument,
-  requireLinkedRepository,
+  excludeRepositoriesSchema,
   servedSchema,
   workspaceArgument,
-} from "./read-file.js"
+} from "../framework/schemas.js"
+import { McpToolError } from "../framework/tool-errors.js"
+import { defineMcpReadTool } from "../framework/tool-registry.js"
 
 /** Entries that one codesearch glob gives at most. */
 const GLOB_LIMIT = 5_000
@@ -112,8 +112,12 @@ export const listFilesTool = defineMcpReadTool({
         "Folder to list, relative to the repository root. Default: the root.",
       ),
     limit: z.number().int().min(1).max(500).optional().describe("Default 200."),
-    cursor: z.string().max(512).optional(),
-    excludeRepositories: excludeRepositoriesArgument,
+    cursor: z
+      .string()
+      .max(2_048)
+      .optional()
+      .describe("The cursor of the last result, for the next page."),
+    excludeRepositories: excludeRepositoriesSchema.optional(),
   },
   outputSchema: z.object({
     repository: z
@@ -131,17 +135,29 @@ export const listFilesTool = defineMcpReadTool({
         ref: z.string().optional(),
       }),
     ),
+    truncated: z
+      .boolean()
+      .optional()
+      .describe(
+        "The folder has more entries than one listing holds, or an entry was cut.",
+      ),
     cursor: z.string().optional(),
   }),
   async run(input, { org }) {
     const trimmed = (input.path ?? "").replace(/\/+$/, "")
-    const folder = trimmed === "" ? "" : checkPath(trimmed, input.path ?? "")
+    const folder =
+      trimmed === ""
+        ? ""
+        : input.repository === undefined
+          ? checkPath(trimmed, input.path ?? "")
+          : checkRepositoryPath(trimmed, input.path ?? "")
     const workspace = await resolveCallWorkspace(org, input.workspace)
     const workspaceServed = requireServed(workspace)
 
     let handle: string | null = null
     let served: z.infer<typeof servedSchema> = workspaceServed
     let entries: Entry[]
+    let listTruncated = false
     if (input.repository === undefined) {
       entries = await listUnitFolder(org.id, workspace.id, folder)
     } else {
@@ -157,6 +173,7 @@ export const listFilesTool = defineMcpReadTool({
         const found = await globCheckoutFiles({
           repositoryId: repository.repositoryId,
           orgId: org.id,
+          sha: repository.sha,
           request: {
             pattern: "*",
             path: folder,
@@ -165,6 +182,7 @@ export const listFilesTool = defineMcpReadTool({
             limit: GLOB_LIMIT,
           },
         })
+        listTruncated = found.truncated
         entries = found.entries.map((entry) =>
           entry.type === "dir"
             ? { path: entry.path, type: "dir" }
@@ -193,21 +211,29 @@ export const listFilesTool = defineMcpReadTool({
     const binding = {
       orgId: org.id,
       workspaceId: workspace.id,
-      sha: served.sha ?? served.branch,
+      sha: served.sha,
       scope: JSON.stringify(["list_files", handle, folder]),
     }
     const offset = input.cursor ? decodeCursor(input.cursor, binding) : 0
-    const page = pageWithinBudget(sortEntries(entries), {
+    const page = fitPage(sortEntries(entries), {
       offset,
       limit: input.limit ?? 200,
       maxTokens: 4_000,
-      measure: (entry) => JSON.stringify(entry),
+      result: (fitted) => ({
+        repository: handle,
+        path: folder,
+        served,
+        entries: fitted,
+        truncated: true,
+      }),
     })
+    const truncated = listTruncated || page.cut
     return {
       repository: handle,
       path: folder,
       served,
       entries: page.page,
+      ...(truncated ? { truncated: true } : {}),
       ...(page.nextOffset === null
         ? {}
         : { cursor: encodeCursor({ ...binding, offset: page.nextOffset }) }),

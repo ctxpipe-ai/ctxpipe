@@ -1,5 +1,6 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js"
 import { eq } from "drizzle-orm"
 import { evlog } from "evlog/hono"
 import { Hono } from "hono"
@@ -33,11 +34,13 @@ let seed: SeededOrg
 let client: Client
 let workspaceId: string
 
-async function call(args: Record<string, unknown> = {}) {
-  return client.callTool({
+async function call(
+  args: Record<string, unknown> = {},
+): Promise<CallToolResult> {
+  return (await client.callTool({
     name: "search_knowledge",
     arguments: { org: seed.orgSlug, query: "handbook", ...args },
-  })
+  })) as CallToolResult
 }
 
 describe("search_knowledge through the MCP client", () => {
@@ -256,22 +259,66 @@ describe("search_knowledge through the MCP client", () => {
     expect(found).toHaveLength(20)
     expect(new Set(found).size).toBe(20)
   })
-  it("reports readiness and lets the client select a ready Workspace", async () => {
+  it("skips a Workspace that is not ready, and fails only when the call names it", async () => {
     await withOrgDbContext(seed.orgId, (db) =>
       db
         .update(workspaces)
         .set({ activeProjectionSha: null })
         .where(eq(workspaces.id, workspaceId)),
     )
-    expect((await call())._meta?.["ai.ctxpipe/error"]).toMatchObject({
-      code: "workspace_not_ready",
-      retryable: true,
-    })
+    const byDefault = await call()
+    expect(byDefault.isError).not.toBe(true)
+    expect(byDefault.structuredContent?.hits).toMatchObject([
+      { ref: "linear/task.md" },
+    ])
+    expect(byDefault.structuredContent?.skipped).toEqual([
+      { workspace: "handbook", reason: "not_ready" },
+    ])
+    expect(
+      (await call({ workspaces: ["handbook"] }))._meta?.["ai.ctxpipe/error"],
+    ).toMatchObject({ code: "workspace_not_ready", retryable: true })
     const ready = await call({ workspaces: ["decisions"] })
     expect(ready.isError).not.toBe(true)
+    expect(ready.structuredContent?.skipped).toEqual([])
     expect(ready.structuredContent?.hits).toMatchObject([
       { ref: "linear/task.md" },
     ])
+  })
+
+  it("gives no hits and the skipped list when no Workspace is ready", async () => {
+    await withOrgDbContext(seed.orgId, (db) =>
+      db
+        .update(workspaces)
+        .set({ activeProjectionSha: null })
+        .where(eq(workspaces.orgId, seed.orgId)),
+    )
+    const result = await call()
+    expect(result.isError).not.toBe(true)
+    expect(result.structuredContent?.hits).toEqual([])
+    expect(result.structuredContent?.skipped).toEqual([
+      { workspace: "decisions", reason: "not_ready" },
+      { workspace: "handbook", reason: "not_ready" },
+    ])
+  })
+
+  it("refuses more than eight Workspaces without an explicit selection", async () => {
+    for (let index = 0; index < 7; index++) {
+      const extraId = `${workspaceId}_extra_${index}`
+      await seedKnowledgeWorkspace(seed.orgId, extraId, sha)
+      await withOrgDbContext(seed.orgId, (db) =>
+        db
+          .update(workspaces)
+          .set({ slug: `extra-${index}`, desiredDefaultBranch: "main" })
+          .where(eq(workspaces.id, extraId)),
+      )
+    }
+    const refused = await call()
+    expect(refused._meta?.["ai.ctxpipe/error"]).toMatchObject({
+      code: "invalid_argument",
+      retryable: false,
+    })
+    const named = await call({ workspaces: ["handbook", "decisions"] })
+    expect(named.isError).not.toBe(true)
   })
 
   it("does not disclose a foreign Workspace or search an unknown org", async () => {

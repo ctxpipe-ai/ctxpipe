@@ -1,16 +1,19 @@
-import { encode } from "@toon-format/toon"
 import { z } from "zod"
 import { searchKnowledge } from "../../domain/workspaces/knowledge-search.js"
-import { pageWithinBudget, truncateText } from "../framework/budget.js"
+import { fitPage, truncateText } from "../framework/budget.js"
 import {
   listOrgWorkspaceSlugs,
   requireServed,
   resolveCallWorkspace,
 } from "../framework/call-workspace.js"
 import { decodeCursor, encodeCursor } from "../framework/cursor.js"
+import { servedSchema, type Skipped, skippedSchema } from "../framework/schemas.js"
+import { McpToolError } from "../framework/tool-errors.js"
 import { defineMcpReadTool } from "../framework/tool-registry.js"
 
-const servedSchema = z.object({ branch: z.string(), sha: z.string() })
+/** Workspaces one call searches when it names none (ADR-051 §4). */
+const MAX_DEFAULT_WORKSPACES = 8
+
 const hitSchema = z.object({
   workspace: z.string(),
   ref: z.string(),
@@ -34,50 +37,100 @@ export const searchKnowledgeTool = defineMcpReadTool({
   org: "required",
   inputShape: {
     query: z.string().trim().min(1).max(4_000),
-    workspaces: z.array(z.string().min(1).max(64)).min(1).max(8).optional(),
-    kinds: z.array(z.string().min(1)).max(50).optional(),
-    pathPrefix: z.string().max(1_024).optional(),
-    sources: z.array(z.string().min(1)).max(50).optional(),
-    updatedAfter: z.iso.datetime({ offset: true }).optional(),
-    validAt: z.iso.datetime({ offset: true }).optional(),
-    limit: z.number().int().min(1).max(50).default(10),
-    cursor: z.string().max(2_048).optional(),
+    workspaces: z
+      .array(z.string().min(1).max(64))
+      .min(1)
+      .max(MAX_DEFAULT_WORKSPACES)
+      .optional()
+      .describe(
+        "Workspace slugs from list_workspaces. Omit it to search all Workspaces of the org (at most 8; Workspaces that are not ready are skipped).",
+      ),
+    kinds: z
+      .array(z.string().min(1))
+      .max(50)
+      .optional()
+      .describe("Only units of these kinds."),
+    pathPrefix: z
+      .string()
+      .max(1_024)
+      .optional()
+      .describe("Only units whose path starts with this prefix."),
+    sources: z
+      .array(z.string().min(1))
+      .max(50)
+      .optional()
+      .describe("Only units from these sources."),
+    updatedAfter: z.iso
+      .datetime({ offset: true })
+      .optional()
+      .describe("Only units updated after this time (ISO 8601)."),
+    validAt: z.iso
+      .datetime({ offset: true })
+      .optional()
+      .describe("Only units valid at this time (ISO 8601)."),
+    limit: z
+      .number()
+      .int()
+      .min(1)
+      .max(50)
+      .default(10)
+      .describe("Hits in one page. Default 10."),
+    cursor: z
+      .string()
+      .max(2_048)
+      .optional()
+      .describe("The cursor of the last result, for the next page."),
   },
   outputSchema: z.object({
     hits: z.array(hitSchema),
+    skipped: z.array(skippedSchema),
     cursor: z.string().optional(),
     truncated: z.boolean().optional(),
   }),
   async run(input, { org }) {
-    const workspaces = await Promise.all(
-      [...new Set(input.workspaces ?? (await listOrgWorkspaceSlugs(org)))]
-        .sort()
-        .map((slug) => resolveCallWorkspace(org, slug)),
+    const named = input.workspaces !== undefined
+    const slugs = [
+      ...new Set(input.workspaces ?? (await listOrgWorkspaceSlugs(org))),
+    ].sort()
+    if (!named && slugs.length > MAX_DEFAULT_WORKSPACES) {
+      throw new McpToolError(
+        "invalid_argument",
+        `The org has ${slugs.length} Workspaces; a call searches at most ${MAX_DEFAULT_WORKSPACES}. Name them in workspaces.`,
+      )
+    }
+    const resolved = await Promise.all(
+      slugs.map((slug) => resolveCallWorkspace(org, slug)),
     )
-    for (const workspace of workspaces) requireServed(workspace)
-    const hits = await searchKnowledge({
-      orgId: org.id,
-      workspaceIds: workspaces.map((w) => w.id),
-      query: input.query,
-      kinds: input.kinds,
-      pathPrefix: input.pathPrefix,
-      sources: input.sources,
-      updatedAfter: input.updatedAfter
-        ? new Date(input.updatedAfter)
-        : undefined,
-      validAt: input.validAt ? new Date(input.validAt) : undefined,
-      limit: 50,
+    const skipped: Skipped[] = []
+    const workspaces = resolved.flatMap((workspace) => {
+      if (workspace.served) return [{ ...workspace, served: workspace.served }]
+      if (named) requireServed(workspace)
+      skipped.push({ workspace: workspace.slug, reason: "not_ready" })
+      return []
     })
+    const hits =
+      workspaces.length === 0
+        ? []
+        : await searchKnowledge({
+            orgId: org.id,
+            workspaceIds: workspaces.map((w) => w.id),
+            query: input.query,
+            kinds: input.kinds,
+            pathPrefix: input.pathPrefix,
+            sources: input.sources,
+            updatedAfter: input.updatedAfter
+              ? new Date(input.updatedAfter)
+              : undefined,
+            validAt: input.validAt ? new Date(input.validAt) : undefined,
+            limit: 50,
+          })
     const { cursor, ...parameters } = input
     const binding = {
       orgId: org.id,
       workspaceId: null,
       scope: JSON.stringify(["search_knowledge", parameters]),
       sha: JSON.stringify([
-        workspaces.map((workspace) => [
-          workspace.id,
-          requireServed(workspace).sha,
-        ]),
+        workspaces.map((workspace) => [workspace.id, workspace.served.sha]),
         [
           ...new Set(
             hits.map((hit) => `${hit.workspaceId}:${hit.projectionSha}`),
@@ -100,18 +153,18 @@ export const searchKnowledgeTool = defineMcpReadTool({
         startLine: hit.startLine,
         endLine: hit.endLine,
         score: hit.score,
-        served: { ...requireServed(workspace), sha: hit.projectionSha },
+        served: { ...workspace.served, sha: hit.projectionSha },
       }
     })
-    // The wire holds the TOON text and the JSON, so one item costs both.
-    const { page, nextOffset, truncated } = pageWithinBudget(items, {
+    const { page, nextOffset, truncated } = fitPage(items, {
       offset,
       limit: input.limit,
-      maxTokens: 5_000,
-      measure: (item) => encode(item) + JSON.stringify(item),
+      maxTokens: 4_000,
+      result: (fitted) => ({ hits: fitted, skipped }),
     })
     return {
       hits: page,
+      skipped,
       ...(nextOffset === null
         ? {}
         : { cursor: encodeCursor({ ...binding, offset: nextOffset }) }),

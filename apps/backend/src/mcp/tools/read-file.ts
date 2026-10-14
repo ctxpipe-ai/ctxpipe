@@ -1,88 +1,53 @@
 import { and, eq } from "drizzle-orm"
 import { z } from "zod"
 import { withOrgDbContext } from "../../db/client.js"
-import { workspaceKnowledgeUnits } from "../../db/schema/workspaces.js"
+import {
+  workspaceKnowledgeChunks,
+  workspaceKnowledgeUnits,
+} from "../../db/schema/workspaces.js"
 import { fetchCheckoutFileBytes } from "../../domain/codeIngestion/codesearchClient.js"
+import { chunkKnowledgeBody } from "../../domain/workspaces/knowledge-chunks.js"
 import { log } from "../../observability/logger.js"
-import { truncateText } from "../framework/budget.js"
+import { fitPage } from "../framework/budget.js"
 import {
   type CallWorkspace,
   loadOrgRepositoryHandles,
+  loadWorkspaceHandles,
   requireServed,
   resolveCallWorkspace,
 } from "../framework/call-workspace.js"
-import { type CodeRepository, resolveCodeScope } from "../framework/org-code.js"
+import {
+  type CodeRepository,
+  requireLinkedRepository,
+} from "../framework/org-code.js"
 import { formatRef, parseRef } from "../framework/refs.js"
+import {
+  excludeRepositoriesSchema,
+  servedSchema,
+  workspaceArgument,
+} from "../framework/schemas.js"
 import { McpToolError } from "../framework/tool-errors.js"
 import type { CallOrg } from "../framework/tool-org.js"
 import { defineMcpReadTool } from "../framework/tool-registry.js"
 
 /**
- * Characters of escaped text for one read. The text goes into the response
- * two times (TOON text and `structuredContent`), so two reads and the other
- * fields stay under the 24,000-character hard cap (ADR-051 §5).
+ * A unit and the file line before its first body line: the lines of front
+ * matter. The chunk rows hold file lines, and the first chunk starts at its
+ * body line, so the difference is the offset (ADR-051 §6). Without chunk
+ * rows the offset is 0.
  */
-const READ_BUDGET_CHARS = 9_000
-
-export const workspaceArgument = z
-  .string()
-  .min(1)
-  .max(64)
-  .describe("Workspace slug from list_workspaces.")
-
-export const excludeRepositoriesArgument = z
-  .array(z.string().min(1).max(512))
-  .max(20)
-  .optional()
-  .describe(
-    "Repositories the agent has open locally (handles or git URLs). Pass the output of `git remote get-url origin`. A ref into one of them gives excluded_repository.",
-  )
-
-/** The branch and SHA of the content. A repository checkout can have no SHA. */
-export const servedSchema = z.object({
-  branch: z.string(),
-  sha: z.string().nullable(),
-})
-
-/**
- * One linked repository of the Workspace, ready to read from its published
- * checkout. Exclusion and the Workspace link are checked before any
- * codesearch request.
- */
-export async function requireLinkedRepository(
-  org: CallOrg,
-  workspace: CallWorkspace,
-  repository: string,
-  excludeRepositories: readonly string[],
-): Promise<CodeRepository> {
-  const scope = await resolveCodeScope(org, {
-    workspaceId: workspace.id,
-    repositories: [repository],
-    excludeRepositories,
-  })
-  const [excluded] = scope.excluded
-  if (excluded) {
-    throw new McpToolError(
-      "excluded_repository",
-      `The call excludes "${excluded}". Read that repository from the local checkout.`,
-    )
-  }
-  const [linked] = scope.repositories
-  if (linked) return linked
-  throw new McpToolError(
-    "workspace_not_ready",
-    `Repository "${scope.skipped[0]?.repository ?? repository}" has no index yet. Try again in a few minutes.`,
-  )
-}
-
 async function readUnit(
   org: CallOrg,
   workspace: CallWorkspace,
   path: string,
-): Promise<string | null> {
-  const [row] = await withOrgDbContext(org.id, (db) =>
-    db
-      .select({ body: workspaceKnowledgeUnits.body })
+): Promise<{ text: string; lineOffset: number; sha: string } | null> {
+  return withOrgDbContext(org.id, async (db) => {
+    const [row] = await db
+      .select({
+        servingId: workspaceKnowledgeUnits.servingId,
+        body: workspaceKnowledgeUnits.body,
+        projectionSha: workspaceKnowledgeUnits.projectionSha,
+      })
       .from(workspaceKnowledgeUnits)
       .where(
         and(
@@ -91,9 +56,27 @@ async function readUnit(
           eq(workspaceKnowledgeUnits.path, path),
         ),
       )
-      .limit(1),
-  )
-  return row?.body ?? null
+      .limit(1)
+    if (!row) return null
+    const [first] = await db
+      .select({ startLine: workspaceKnowledgeChunks.startLine })
+      .from(workspaceKnowledgeChunks)
+      .where(
+        and(
+          eq(workspaceKnowledgeChunks.orgId, org.id),
+          eq(workspaceKnowledgeChunks.workspaceId, workspace.id),
+          eq(workspaceKnowledgeChunks.unitId, row.servingId),
+          eq(workspaceKnowledgeChunks.ordinal, 0),
+        ),
+      )
+      .limit(1)
+    const bodyStart = chunkKnowledgeBody(row.body)[0]?.startLine
+    const lineOffset =
+      first && bodyStart !== undefined
+        ? Math.max(0, first.startLine - bodyStart)
+        : 0
+    return { text: row.body, lineOffset, sha: row.projectionSha }
+  })
 }
 
 /** The published checkout of the repository; codesearch keeps the read inside it. */
@@ -107,6 +90,7 @@ async function readRepositoryFile(
     bytes = await fetchCheckoutFileBytes({
       repositoryId: repository.repositoryId,
       orgId: org.id,
+      sha: repository.sha,
       path,
     })
   } catch {
@@ -136,73 +120,23 @@ function splitLines(text: string): string[] {
   return lines
 }
 
-/** Characters of a line in JSON and TOON text, with its newline. */
-function escapedLength(line: string): number {
-  return JSON.stringify(line).length - 1
-}
-
-/**
- * Lines from `startLine` to `endLine` within the read budget. A page always
- * has one line; a line over the budget is cut, and the read marks
- * `truncated`.
- */
-export function readLines(
-  text: string,
-  range: { startLine: number; endLine?: number },
-): {
-  content: string
-  startLine: number
-  endLine: number
-  totalLines: number
-  nextStartLine: number | null
-  truncated: boolean
-} {
-  const lines = splitLines(text)
-  const totalLines = lines.length
-  const last = Math.min(range.endLine ?? totalLines, totalLines)
-  const page: string[] = []
-  let used = 0
-  let truncated = false
-  for (let index = range.startLine - 1; index < last; index += 1) {
-    const line = lines[index] as string
-    const cost = escapedLength(line)
-    if (page.length > 0 && used + cost > READ_BUDGET_CHARS) break
-    if (cost > READ_BUDGET_CHARS) {
-      let cut = truncateText(line, READ_BUDGET_CHARS)
-      while (escapedLength(cut) > READ_BUDGET_CHARS) {
-        cut = truncateText(cut, Math.floor(cut.length * 0.8))
-      }
-      page.push(cut)
-      truncated = true
-      break
-    }
-    page.push(line)
-    used += cost
-  }
-  const endLine = range.startLine - 1 + page.length
-  return {
-    content: page.join("\n"),
-    startLine: range.startLine,
-    endLine,
-    totalLines,
-    nextStartLine: endLine < last ? endLine + 1 : null,
-    truncated,
-  }
-}
-
 export const readFileTool = defineMcpReadTool({
   name: "read_file",
   title: "Read file",
   description: [
     "Read a knowledge unit or a linked repository file by ref, with a line range.",
-    "A unit ref is its path (knowledge/services/api.md). A repository file ref is <handle>:<path> (example/api:src/index.ts).",
+    "A unit ref is its path (knowledge/services/api.md) and needs workspace. A repository file ref is <handle>:<path> (example/api:src/index.ts); workspace is optional for it.",
     "Use refs from search_knowledge, search_code, find_symbol, get_related, or list_files.",
-    "A long file comes in pages: send nextStartLine as startLine for the next page.",
+    "Line numbers are file lines. A long file comes in pages: send nextStartLine as startLine for the next page.",
     "Do not read the repository you have open locally: pass it in excludeRepositories.",
   ].join(" "),
   org: "required",
   inputShape: {
-    workspace: workspaceArgument,
+    workspace: workspaceArgument
+      .optional()
+      .describe(
+        "Workspace slug from list_workspaces. Needed for a unit path. For <handle>:<path> it limits the read to repositories this Workspace links.",
+      ),
     ref: z.string().min(1).max(1_024).describe("Unit path or <handle>:<path>."),
     startLine: z
       .number()
@@ -216,7 +150,7 @@ export const readFileTool = defineMcpReadTool({
       .min(1)
       .optional()
       .describe("Last line, inclusive."),
-    excludeRepositories: excludeRepositoriesArgument,
+    excludeRepositories: excludeRepositoriesSchema.optional(),
   },
   outputSchema: z.object({
     ref: z.string(),
@@ -239,14 +173,32 @@ export const readFileTool = defineMcpReadTool({
         "endLine must not be before startLine.",
       )
     }
-    const workspace = await resolveCallWorkspace(org, input.workspace)
-    const workspaceServed = requireServed(workspace)
-    const ref = parseRef(input.ref, await loadOrgRepositoryHandles(org))
+    const workspace = input.workspace
+      ? await resolveCallWorkspace(org, input.workspace)
+      : undefined
+    let ref: ReturnType<typeof parseRef>
+    if (workspace) {
+      const { handles, linked } = await loadWorkspaceHandles(org, workspace.id)
+      ref = parseRef(input.ref, handles, linked)
+    } else {
+      ref = parseRef(input.ref, await loadOrgRepositoryHandles(org))
+      if (ref.kind === "unit") {
+        throw new McpToolError(
+          "invalid_argument",
+          "A knowledge unit ref needs workspace. Name the Workspace, or read a repository file as <handle>:<path>.",
+        )
+      }
+    }
     let text: string | null
+    let lineOffset = 0
     let served: z.infer<typeof servedSchema>
     if (ref.kind === "unit") {
-      text = await readUnit(org, workspace, ref.path)
-      served = workspaceServed
+      if (!workspace) throw new Error("A unit ref has a Workspace")
+      const workspaceServed = requireServed(workspace)
+      const unit = await readUnit(org, workspace, ref.path)
+      text = unit?.text ?? null
+      lineOffset = unit?.lineOffset ?? 0
+      served = { branch: workspaceServed.branch, sha: unit?.sha ?? workspaceServed.sha }
     } else {
       const repository = await requireLinkedRepository(
         org,
@@ -263,13 +215,52 @@ export const readFileTool = defineMcpReadTool({
         `No file "${input.ref}". Use a ref from a result or from list_files.`,
       )
     }
-    const lines = readLines(text, { startLine, endLine: input.endLine })
-    if (startLine > lines.totalLines && lines.totalLines > 0) {
+    // File lines: the first line of the text is line `lineOffset + 1`. Lines
+    // of front matter are not in a unit text, so a read starts at its body.
+    const lines = splitLines(text)
+    const totalLines = lineOffset + lines.length
+    const last = Math.min(input.endLine ?? totalLines, totalLines)
+    if (input.endLine !== undefined && last <= lineOffset) {
       throw new McpToolError(
         "invalid_argument",
-        `startLine ${startLine} is after the last line (${lines.totalLines}).`,
+        `Lines 1 to ${lineOffset} of this unit are front matter. Read from line ${lineOffset + 1}.`,
       )
     }
-    return { ref: formatRef(ref), served, ...lines }
+    if (startLine > totalLines && lines.length > 0) {
+      throw new McpToolError(
+        "invalid_argument",
+        `startLine ${startLine} is after the last line (${totalLines}).`,
+      )
+    }
+    const first = Math.max(startLine, lineOffset + 1)
+    const page = fitPage(lines, {
+      offset: first - lineOffset - 1,
+      limit: Math.max(0, last - first + 1),
+      maxTokens: 6_000,
+      result: (fitted) => {
+        const end = first + fitted.length - 1
+        return {
+          ref: formatRef(ref),
+          served,
+          content: fitted.join("\n"),
+          startLine: first,
+          endLine: end,
+          totalLines,
+          nextStartLine: end < last ? end + 1 : null,
+          truncated: true,
+        }
+      },
+    })
+    const end = first + page.page.length - 1
+    return {
+      ref: formatRef(ref),
+      served,
+      content: page.page.join("\n"),
+      startLine: first,
+      endLine: end,
+      totalLines,
+      nextStartLine: end < last ? end + 1 : null,
+      truncated: page.cut,
+    }
   },
 })

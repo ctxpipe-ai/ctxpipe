@@ -29,7 +29,7 @@ import {
 import { generateObjectId } from "../lib/id.js"
 import { registerMcpRoutes } from "../routes/mcp.js"
 import { withTestRequestLogger } from "../test/hono-test-logger.js"
-import { pageWithinBudget } from "./framework/budget.js"
+import { fitPage } from "./framework/budget.js"
 import {
   loadOrgRepositoryHandles,
   requireServed,
@@ -137,11 +137,11 @@ const probePage = defineMcpReadTool({
       scope: "probe_page",
     }
     const offset = cursor ? decodeCursor(cursor, binding) : 0
-    const page = pageWithinBudget(ITEMS, {
+    const page = fitPage(ITEMS, {
       offset,
       limit: 3,
       maxTokens: 4_000,
-      measure: (item) => item,
+      result: (fitted) => ({ items: fitted }),
     })
     return {
       items: page.page,
