@@ -121,14 +121,14 @@ export function ConfluenceConnectionCard({
       actionLabel={
         isError
           ? "Retry"
-          : isPending || oauthPending || primary.kind === "none"
+          : isPending || oauthPending
             ? undefined
             : primary.label
       }
       onAction={
         isError
           ? () => void refetch()
-          : isPending || oauthPending || primary.kind === "none"
+          : isPending || oauthPending
             ? undefined
             : onOpenWizard
       }

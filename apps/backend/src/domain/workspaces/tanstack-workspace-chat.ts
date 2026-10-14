@@ -144,6 +144,7 @@ import {
   workspaceChatOtelMiddleware,
 } from "./workspace-chat-otel.js"
 import { workspaceChatPersistence } from "./workspace-chat-persistence.js"
+import { withOrderedTranscript } from "./workspace-chat-reasoning-steps.js"
 import { updateConversationSandboxRevision } from "./workspace-chat-revision-transition.js"
 import {
   mintWorkspaceChatRunCapability,
@@ -814,11 +815,13 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
   // for the sandbox sweep and never fails the turn.
   const revokeTurnGitTokens = () => built.release()
   const stream = await chat({
-    adapter: opencodeText(built.contract.opencodeModel, {
-      ...opencodeListen,
-      permissionMode: runtime.permissionMode,
-      onPermissionRequest: runtime.onPermissionRequest,
-    }),
+    adapter: withOrderedTranscript(
+      opencodeText(built.contract.opencodeModel, {
+        ...opencodeListen,
+        permissionMode: runtime.permissionMode,
+        onPermissionRequest: runtime.onPermissionRequest,
+      }),
+    ),
     threadId: input.conversationId,
     runId: input.runId,
     context: {

@@ -228,9 +228,13 @@ it.each([
           if (mode === "source") {
             // The source owns the Workspace repository, so the old binding
             // to the same repository writes nothing (one writer).
+            // The reply links the thread file in the Workspace in the app.
+            const threadLink = expect.stringMatching(
+              /\/ws\/[^/?]+\?pane=file%3Aslack%252Fchannels%252FC0FIX0001%252Fthreads%252F2023%252F11%252F1700000000\.000000%252Fthread\.md$/,
+            )
             expect(result).toMatchObject({
               kind: "captured",
-              workspaceCount: 1,
+              workspaces: [{ url: threadLink }],
               capture: { status: "completed", messageCount: 1 },
             })
             await expect
@@ -271,7 +275,9 @@ it.each([
             ).toMatchObject([
               {
                 body: {
-                  text: "Engineering context captured into 1 Workspace.",
+                  text: expect.stringMatching(
+                    /^Engineering context captured into <[^|]+\?pane=file%3Aslack%252Fchannels%252FC0FIX0001%252F[^|]+\|[^>]+>\.$/,
+                  ),
                 },
               },
             ])
