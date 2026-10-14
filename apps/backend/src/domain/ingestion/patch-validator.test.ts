@@ -1099,7 +1099,14 @@ describe("validatePatchStep review fixes", () => {
         files: {
           "knowledge/instructions/unit-testing.md": doc(
             { kind: "InstructionUnit", name: "Unit testing" },
-            "# Unit testing\n",
+            `# Unit testing\n\n## Summary\n\nHow the code is tested.\n\n## Rules\n\n${[
+              1, 2, 3, 4, 5,
+            ]
+              .map(
+                (n) =>
+                  `- Rule ${n}.\n  - topic: \`rule-${n}\` = \`yes\`\n  - source \`${SOURCE_URL}\`, documented: \`src/billing.ts\`\n`,
+              )
+              .join("\n")}`,
           ),
           "knowledge/instructions/wrong.md": doc(
             { kind: "Service", name: "Wrong" },
