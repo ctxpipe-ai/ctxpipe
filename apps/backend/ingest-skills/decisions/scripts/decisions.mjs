@@ -8,13 +8,19 @@
 // context file. No script writes a file.
 //
 // node decisions.mjs --root /ctxpipe --source /ctxpipe/source/<handle> \
-//   --source-url <url> --roots <root-to-file map> [--offset <n>] [--check]
+//   --source-url <url> --roots <root-to-file map> [--check]
+//
+// Paging (ADR-052 section 6): a page is the first 20 decision files, in the
+// run order, whose context file this run has not written yet at the step
+// base. The host runs the skill again on the new tip while `more` is true,
+// so the script computes the page again from the tip; there is no offset.
 //
 // Without --check, the script prints the entries of one page (20 decision
 // files) to stdout. With --check, it compares the staged tree in
 // <root>/out/files with the entries and prints the problems; it exits with 1
 // when there are problems.
 
+import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { readFileSync } from "node:fs"
 import { posix } from "node:path"
@@ -130,10 +136,8 @@ const STATUS_LABEL = {
 const { step, source, repository, roots, index, skipped } = scriptStep()
 const args = process.argv.slice(2)
 const check = args.includes("--check")
-const offsetAt = args.indexOf("--offset")
-const offset = offsetAt === -1 ? 0 : Number(args[offsetAt + 1])
-if (!Number.isInteger(offset) || offset < 0)
-  fail("Give a whole number after --offset")
+if (args.includes("--offset"))
+  fail("--offset is gone: the host pages with patch.json more")
 
 const tracked = trackedFiles(source)
 const trackedSet = new Set(tracked)
@@ -372,8 +376,32 @@ function stale() {
   return out.sort()
 }
 
-const page = order.slice(offset, offset + PAGE_SIZE)
-const next = offset + PAGE_SIZE < order.length ? offset + PAGE_SIZE : null
+/** The run's SHA: the source checkout is at it. */
+const runSha = execFileSync("git", ["-C", source, "rev-parse", "HEAD"])
+  .toString("utf8")
+  .trim()
+
+/**
+ * True when an earlier page of this run wrote the context file of `c`: the
+ * file names the decision file, and a full write has the run's `source_sha`.
+ */
+function done(c) {
+  let blob = null
+  try {
+    blob = baseBlob(step, c.target)
+  } catch {
+    return false
+  }
+  if (!blob) return false
+  const text = blobContent(step, blob).toString("utf8")
+  if (!text.includes(`\`${c.path}\``)) return false
+  if (c.write === "additive") return true
+  return new RegExp(`^source_sha: ["']?${runSha}["']?$`, "m").test(text)
+}
+
+const waiting = order.filter((c) => !done(c))
+const page = waiting.slice(0, PAGE_SIZE)
+const more = waiting.length > PAGE_SIZE
 
 function entryOf(c) {
   const rel = (path) => relativeTo(c.target, path)
@@ -402,13 +430,12 @@ function entryOf(c) {
 }
 
 if (!check) {
-  const staleFiles = next === null && skipped.length === 0 ? stale() : []
+  const staleFiles = !more && skipped.length === 0 ? stale() : []
   const result = {
     repository,
     total: order.length,
-    offset,
-    next,
-    more: next !== null,
+    done: order.length - waiting.length,
+    more,
     decisions: page.map(entryOf),
     stale: staleFiles.slice(0, MAX_STALE),
     skipped: skipped.slice(0, MAX_SKIPPED),

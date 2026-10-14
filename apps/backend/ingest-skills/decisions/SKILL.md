@@ -7,7 +7,7 @@ description: Write a knowledge file for each decision file (ADR) of the source r
 
 The host runs this skill once for each repository, on the assembled ref after the root steps. A script finds the decision files and reads what a script can read. You read each decision file and write one context file for it.
 
-1. The host gives the source handle, the source URL, the root-to-file map (ADR-052 section 6), and an optional `--offset <n>` in the step prompt. Run `node /ctxpipe/skills/decisions/scripts/decisions.mjs --source /ctxpipe/source/<handle> --source-url <url> --roots <root-to-file map> [--offset <n>]`.
+1. The step prompt gives the arguments: `--source`, `--source-url`, and `--roots` (the root-to-file map, ADR-052 section 6). Run `node /ctxpipe/skills/decisions/scripts/decisions.mjs <arguments>`.
 2. The script writes JSON that matches `schema.json` to stdout. Each entry in `decisions` is one decision file of the source (`path`). It gives the context file to write (`target`) and how (`write`):
    - `create`: a new file.
    - `update`: a file that this source already wrote, or that describes the same decision. Change it with `ctxpipe-stage <target>`, and keep what is still true.
@@ -50,10 +50,10 @@ The host runs this skill once for each repository, on the assembled ref after th
    - each item of `supersedes` becomes a claim `predicate: SUPERSEDES`, `to` from the item, and `evidence.path` from the item.
 
    Do not add an `INFLUENCES` or a `SUPERSEDES` claim of your own. Scope and replacement follow fixed rules (below), and a claim from reading prose is not one of them. You may add other claims with `evidence.kind: model` when the text states them and the target is a file in the context.
-6. When the entry has `related`, add each file as a line in `## Related`. For `additive`, add only the claims and the Related lines.
+6. When the entry has `related`, add each file as a line in `## Related`. For `additive`, add only the claims and the Related lines, and one Related line that names the decision file: ``- Decision `<path>` of the source``. The script finds the files of earlier pages by the decision file path.
 7. For each path in `stale`, run `ctxpipe-delete <path> --reason "The decision file left the source"`.
-8. Run `node /ctxpipe/skills/decisions/scripts/decisions.mjs ... --check` with the same arguments. Fix each problem that it lists, and run it again until it prints no problem. Then run `ctxpipe-finish`.
-9. When `more` is true, the host commits the step and runs the skill again with `--offset <next>`. A page is at most 20 decision files.
+8. Run `node /ctxpipe/skills/decisions/scripts/decisions.mjs <arguments> --check`. Fix each problem that it lists, and run it again until it prints no problem.
+9. Run `ctxpipe-finish`. When the result has `more: true`, run `ctxpipe-finish --more`: the host commits the step and runs the skill again on the new tip. The script then gives the next decision files (at most 20 for each page); it finds the ones that this run already wrote.
 
 ## Rules that the script applies
 

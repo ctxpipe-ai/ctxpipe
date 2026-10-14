@@ -62,8 +62,6 @@ function commit(dir: string, files: Record<string, string>) {
 const front = (attributes: object, body: string) =>
   `---\n${stringify(attributes)}---\n${body}`
 
-const kindOf = (text: string) => /^kind: (\S+)$/m.exec(text)?.[1] ?? null
-
 type Result = {
   path: string
   name: string | null
