@@ -49,6 +49,8 @@ export type PatchStepResult = {
   accepted: AcceptedOp[]
   rejections: PatchRejection[]
   status: "complete" | "partial"
+  /** `patch.json` says that files wait for a next page (ADR-052 section 6). */
+  more: boolean
 }
 
 export type PatchStepInput = {
@@ -168,6 +170,7 @@ const PatchJsonSchema = z.object({
       }),
     )
     .max(10_000),
+  more: z.boolean().optional(),
 })
 
 /** Ownership of a file at the base commit, from the host-only fields. */
@@ -267,7 +270,8 @@ export async function validatePatchStep(
   const sourceUrl = normalizeSourceUrl(input.source.url)
 
   const baseEntries = await listTree(input.repoDir, input.baseCommit)
-  const meta = await readPatchJson(input.stagedDir, reject)
+  const patch = await readPatchJson(input.stagedDir, reject)
+  const meta = patch.ops
   const rejectedBeforeOps = rejections.length
   const staged = await readStagedFiles(input.stagedDir, reject)
   const stagedRejections = rejections.length - rejectedBeforeOps
@@ -480,6 +484,7 @@ export async function validatePatchStep(
     accepted: accepted.map(({ op, path }) => ({ op, path })),
     rejections,
     status: total > 0 && opRejections * 2 > total ? "partial" : "complete",
+    more: patch.more,
   }
 }
 
@@ -1272,7 +1277,10 @@ function zodReason(error: z.ZodError): string {
 async function readPatchJson(
   stagedDir: string,
   reject: (path: string, rule: PatchRule, reason: string) => void,
-): Promise<Map<string, z.infer<typeof PatchJsonSchema>["ops"][number]>> {
+): Promise<{
+  ops: Map<string, z.infer<typeof PatchJsonSchema>["ops"][number]>
+  more: boolean
+}> {
   const entries = new Map<
     string,
     z.infer<typeof PatchJsonSchema>["ops"][number]
@@ -1285,7 +1293,7 @@ async function readPatchJson(
       "patch_json",
       "patch.json must be a regular file of at most 1 MiB",
     )
-    return entries
+    return { ops: entries, more: false }
   }
   const raw = await readFile(file, "utf8")
   let parsed: z.infer<typeof PatchJsonSchema>
@@ -1293,14 +1301,14 @@ async function readPatchJson(
     parsed = PatchJsonSchema.parse(JSON.parse(raw))
   } catch {
     reject("patch.json", "patch_json", "patch.json does not match the schema")
-    return entries
+    return { ops: entries, more: false }
   }
   for (const op of parsed.ops) {
     if (entries.has(op.path))
       reject(op.path, "patch_json", "patch.json names the path more than once")
     else entries.set(op.path, op)
   }
-  return entries
+  return { ops: entries, more: parsed.more === true }
 }
 
 async function readStagedFiles(

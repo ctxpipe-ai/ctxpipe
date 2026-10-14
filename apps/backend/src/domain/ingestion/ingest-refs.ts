@@ -3,7 +3,6 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { setTimeout as sleep } from "node:timers/promises"
 import { stringify } from "yaml"
-import { stagedPatchMore } from "./ingest-step-output.js"
 import {
   disallowedPathReason,
   MAX_WORKSPACE_OPS,
@@ -132,7 +131,6 @@ export async function pushIngestStep(
   input: PushIngestStepInput,
 ): Promise<{ sha: string; validation: PatchStepResult; more: boolean }> {
   assertJobRef(input.job, input.ref)
-  const more = await stagedPatchMore(input.patch.stagedDir)
   const base = input.oldTip ?? input.pinnedRevision
   if (input.baseCommit !== base)
     throw new IngestRefRefusedError(
@@ -151,10 +149,10 @@ export async function pushIngestStep(
       parents: [base],
       runId: input.job.runId,
       ...input.commit,
-      more,
+      more: validation.more,
     })
     await pushWithLease(repoDir, input.remote, input.ref, input.oldTip, sha)
-    return { sha, validation, more }
+    return { sha, validation, more: validation.more }
   })
 }
 

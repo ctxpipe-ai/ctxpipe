@@ -1,12 +1,4 @@
-import {
-  lstat,
-  mkdir,
-  mkdtemp,
-  readFile,
-  rm,
-  symlink,
-  writeFile,
-} from "node:fs/promises"
+import { lstat, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -139,26 +131,5 @@ export async function withIngestStepOutput<T>(
     return await fn(dir)
   } finally {
     await rm(dir, { recursive: true, force: true })
-  }
-}
-
-/**
- * The `more` of a step output (ADR-052 section 6): `patch.json` says that
- * files wait for a next page. A missing or bad `patch.json` is no `more`; the
- * validator rejects it.
- */
-export async function stagedPatchMore(stagedDir: string): Promise<boolean> {
-  try {
-    const file = join(stagedDir, "patch.json")
-    const stat = await lstat(file)
-    if (!stat.isFile() || stat.size > 1024 * 1024) return false
-    const parsed: unknown = JSON.parse(await readFile(file, "utf8"))
-    return (
-      typeof parsed === "object" &&
-      parsed !== null &&
-      (parsed as { more?: unknown }).more === true
-    )
-  } catch {
-    return false
   }
 }

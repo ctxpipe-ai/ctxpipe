@@ -262,8 +262,9 @@ export function stepContextIndex(source: {
   } | null = null
   let fetches = 0
   let queue: Promise<unknown> = Promise.resolve()
-  const has = (commit: string) =>
-    runGit(source.repoDir, ["cat-file", "-e", `${commit}^{commit}`]).then(
+  // A test may pin the empty tree, so any object counts.
+  const has = (object: string) =>
+    runGit(source.repoDir, ["cat-file", "-e", object]).then(
       () => true,
       () => false,
     )
