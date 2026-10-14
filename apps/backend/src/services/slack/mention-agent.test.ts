@@ -57,14 +57,19 @@ describe("formatSlackMentionStatusText", () => {
     )
   })
 
-  it("names the number of Workspaces that got the thread", () => {
+  it("links each Workspace that got the thread", () => {
     expect(
       formatSlackMentionStatusText({
         kind: "captured",
         capture: { status: "completed", messageCount: 2 },
-        workspaceCount: 2,
+        workspaces: [
+          { name: "context", url: "https://app.example/acme/ws/context" },
+          { name: "R&D <ops>", url: "https://app.example/acme/ws/rd" },
+        ],
       }),
-    ).toBe("Engineering context captured into 2 Workspaces.")
+    ).toBe(
+      "Engineering context captured into <https://app.example/acme/ws/context|context>, <https://app.example/acme/ws/rd|R&amp;D &lt;ops&gt;>.",
+    )
   })
 })
 
