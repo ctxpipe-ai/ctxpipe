@@ -2,9 +2,9 @@
 
 1. Open Claude's MCP connections and connect **ctxpipe**.
 2. Complete ctx| sign-in in the browser.
-3. Confirm the organization shown on consent. For multi-organization accounts,
-   use **Change organization** if it is not the intended one; ctx| shows the
-   chooser first when no valid organization is active.
+3. On the consent page, tick the organizations that Claude may read. The
+   organization of your current session is ticked. Tick at least one. Edit the
+   set later on **Connected apps**.
 4. Return to Claude and call `list_workspaces` with no arguments.
 
 Setup is complete only when `list_workspaces` lists at least one organization

@@ -54,8 +54,7 @@ default branch of each repository.
 ## The repository you work in
 
 ctx| serves the default branch. Your agent works on a local branch with newer
-files. Thus the agent must read the working repository from disk, not from
-ctx|. `search_code` and `find_symbol` need an `excludeRepositories` list. Put
+files. The agent must read the working repository from disk, not from ctx|. `search_code` and `find_symbol` need an `excludeRepositories` list. Put
 your working repository in it. Send `[]` to exclude nothing. `read_file` refuses
 an excluded repository.
 

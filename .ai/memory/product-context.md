@@ -78,7 +78,7 @@ Workspace chat is stock TanStack (`useChat` + persistence + sandbox) against git
   organization with the `org` argument; the `?orgSlug=` URL parameter is
   ignored. Organization-owned API keys (`x-api-key`) are the non-interactive
   twin of that binding: one org per key, no user session, MCP-only. Personal
-  user keys remain and carry an org set. See [ADR-051](decisions/ADR-051-mcp-read-surface.md), [ADR-026](decisions/ADR-026-claude-plugin-mcp-distribution.md)
+  user keys remain and read every organization that the user is a member of. See [ADR-051](decisions/ADR-051-mcp-read-surface.md), [ADR-026](decisions/ADR-026-claude-plugin-mcp-distribution.md)
   and [ADR-030](decisions/ADR-030-organization-owned-mcp-api-keys.md).
 - Claude Code, Cowork, and Claude Tag install the hosted MCP through the plugin
   at `plugins/ctxpipe` (marketplace `.claude-plugin/marketplace.json`). The

@@ -122,7 +122,7 @@ The CLI never mints keys. Create them in the product, then interpolate `CTXPIPE_
 | Who can mint | You, for yourself | Organization admin or owner |
 | Authenticates | You as a member | The organization — not the person who minted the key |
 | MCP URL | Generic `/mcp` | Generic `/mcp` |
-| Organizations | The organizations that you set when you made the key. Your membership is checked on each call | The one organization of the key. The `org` argument must match it |
+| Organizations | Every organization that you are a member of. Your membership is checked on each call | The one organization of the key. The `org` argument must match it |
 | REST (`/:orgSlug/api/v1`) | Yes, as that user | No. Organization keys are MCP `/mcp` only |
 
 One organization key binds one organization. A tool call with another `org` gets the same `org_not_found` error as an unknown organization. The minter leaving the organization does not revoke the key. Members never see the plaintext after create; the secret is shown once.
