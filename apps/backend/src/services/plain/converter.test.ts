@@ -203,9 +203,32 @@ describe("thread text that looks like structure", () => {
       },
     }).content
     expect(Date.now() - started).toBeLessThan(1_500)
-    expect(content).toContain("# T-4501: Slow title")
+    // A title keeps 1,000 characters.
+    expect(content).toContain("# T-4501: Slow \n")
     expect(content).toContain("The rest of this message is in Plain.")
     expect(content.length).toBeLessThan(25_000)
+  })
+
+  it("redacts before the cut, and caps long names", () => {
+    const started = Date.now()
+    const longName = "[](".repeat(66_666)
+    const content = plainThreadFile({
+      labelTypeId: "lt_1",
+      thread: {
+        ...thread,
+        customerName: longName,
+        messages: Array.from({ length: 50 }, () => ({
+          authorName: longName,
+          createdAt: null,
+          internal: false,
+          // The address crosses the cut at 20,000 characters.
+          text: `${"x".repeat(19_990)} jo.smith@example.com and more`,
+        })),
+      },
+    }).content
+    expect(Date.now() - started).toBeLessThan(1_500)
+    expect(content).not.toContain("jo.smith")
+    expect(content).not.toContain("example.c")
   })
 
   it("says when Plain has more messages than the file", () => {
@@ -266,9 +289,15 @@ describe("personal data and private links in thread text", () => {
     expect(text(`Call ${phone} today`)).toContain("Call [phone removed] today")
   })
 
+  it("removes a number right after a word", () => {
+    expect(text("Call Mob+61 412 345 678 today")).toContain(
+      "Call Mob[phone removed] today",
+    )
+  })
+
   it("keeps versions, dates, times, time zones, long ids, and plain links", () => {
     const body =
-      "v0.12.3 on 2026-10-14 at 09:00 UTC+10 2026-10-14 09:30, build 1700000000. Docs: https://help.example.com/reset"
+      "v0.12.3 on 2026-10-14 at 09:00 UTC+10 2026-10-14 09:30 or GMT +11 2026-10-15 08:00, build 1700000000. Docs: https://help.example.com/reset"
     expect(text(body)).toContain(body)
   })
 

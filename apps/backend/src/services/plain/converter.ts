@@ -112,7 +112,7 @@ function redactThreadText(text: string): string {
       )
       .replace(
         // A time zone such as UTC+10 is not a phone number.
-        /(?<![A-Za-z])\+\d[\d\s().-]{7,30}\d|\(\d{3}\)\s?\d{3}[-.\s]\d{4}|\b\d{3}[-. ]\d{3}[-. ]\d{4}\b/g,
+        /(?<!(?:UTC|GMT)\s?)\+\d[\d\s().-]{7,30}\d|\(\d{3}\)\s?\d{3}[-.\s]\d{4}|\b\d{3}[-. ]\d{3}[-. ]\d{4}\b/g,
         "[phone removed]",
       )
       // A national number that starts with 0 (Australia, the UK): 9 to 11
@@ -133,6 +133,9 @@ function redactThreadText(text: string): string {
 /** Text on one line: a title or a name cannot start a heading. */
 const oneLine = (text: string) => text.replace(/\s+/g, " ")
 
+/** A title or a name from a customer: short, redacted, and on one line. */
+const field = (text: string) => oneLine(redactThreadText(text.slice(0, 1_000)))
+
 /**
  * A message body as a quote: its text cannot start a heading. Markdown also
  * breaks a line at a carriage return, so each line break counts.
@@ -143,7 +146,11 @@ const quote = (text: string) =>
     .map((line) => (line ? `> ${line}` : ">"))
     .join("\n")
 
-/** A message keeps 20,000 characters; Plain has the rest. */
+/**
+ * A message keeps 20,000 characters; Plain has the rest. The redaction runs
+ * first (on at most 100,000 characters), so the cut cannot split an
+ * address or a number.
+ */
 const cut = (text: string) =>
   text.length > 20_000
     ? `${text.slice(0, 20_000)}\n\n[The rest of this message is in Plain.]`
@@ -182,10 +189,11 @@ export function plainArticleFile(input: {
       ["created_at", article.createdAt],
       ["updated_at", article.updatedAt],
     ]),
-    `# ${article.title}`,
+    `# ${oneLine(article.title)}`,
     "",
   ]
-  if (article.groupName) lines.push(`- Group: ${article.groupName}`, "")
+  if (article.groupName)
+    lines.push(`- Group: ${oneLine(article.groupName)}`, "")
   const body = articleBodyMarkdown(article.contentHtml).trim()
   if (body) lines.push(body, "")
   return {
@@ -211,7 +219,7 @@ export function plainThreadFile(input: {
       ["created_at", thread.createdAt],
       ["updated_at", thread.updatedAt],
     ]),
-    `# ${thread.ref}: ${oneLine(redactThreadText(thread.title))}`,
+    `# ${thread.ref}: ${field(thread.title)}`,
     "",
     `- Status: ${thread.status}`,
     `- Priority: ${priority}`,
@@ -219,16 +227,14 @@ export function plainThreadFile(input: {
   if (thread.labels.length)
     lines.push(`- Labels: ${oneLine(thread.labels.join(", "))}`)
   if (thread.customerName)
-    lines.push(`- Customer: ${oneLine(redactThreadText(thread.customerName))}`)
+    lines.push(`- Customer: ${field(thread.customerName)}`)
   lines.push("", "## Messages", "")
   if (!thread.messages.length) lines.push("No messages.", "")
   for (const message of thread.messages) {
     // A fixed prefix gives the kind: a display name cannot change it.
     const kind = message.internal ? "Internal note" : "Message"
     const heading = [
-      message.authorName
-        ? oneLine(redactThreadText(message.authorName))
-        : "Unknown",
+      message.authorName ? field(message.authorName) : "Unknown",
       message.createdAt,
     ]
       .filter(Boolean)
@@ -236,7 +242,7 @@ export function plainThreadFile(input: {
     lines.push(
       `### ${kind}: ${heading}`,
       "",
-      quote(redactThreadText(cut(message.text.trim()))),
+      quote(cut(redactThreadText(message.text.trim().slice(0, 100_000)))),
       "",
     )
   }
