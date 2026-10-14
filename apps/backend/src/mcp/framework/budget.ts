@@ -83,10 +83,11 @@ export function shrinkItem<T>(item: T): T | null {
  * One page of `items` from `offset` that fits the real result: at most
  * `limit` items, `maxTokens` TOON tokens, and the hard cap of
  * {@link HARD_CAP_CHARS} characters on the wire. `result` builds the whole
- * structured result for a page, so the other fields count too. The page
- * always has one item when one remains, so a cursor walk makes progress. An
+ * structured result for a page, so the other fields count too. The cursor
+ * always moves past the items it leaves out, so a cursor walk makes progress. An
  * item that does not fit alone is cut with `shrink` (default
- * {@link shrinkItem}), and the page is `truncated`. A tool that pages with
+ * {@link shrinkItem}), and the page is `truncated`. An item that cannot be cut
+ * enough is left out and returned in `dropped`. A tool that pages with
  * this never gives `response_too_large`.
  */
 export function fitPage<T>(
@@ -105,6 +106,8 @@ export function fitPage<T>(
   truncated: boolean
   /** An item was cut with `shrink`. */
   cut: boolean
+  /** Items left out because they cannot fit alone, even cut. */
+  dropped: T[]
 } {
   const start = options.offset ?? 0
   const shrink = options.shrink ?? shrinkItem
@@ -131,36 +134,62 @@ export function fitPage<T>(
     if (floor > HARD_CAP_CHARS) break
   }
   if (candidates.length === 0) {
-    return { page: [], nextOffset: null, truncated: false, cut: false }
+    return {
+      page: [],
+      nextOffset: null,
+      truncated: false,
+      cut: false,
+      dropped: [],
+    }
   }
 
-  let page: T[]
+  // An item with nothing left to cut that is still over budget is dropped, so
+  // a page is never over the cap.
+  const dropped: T[] = []
   let cut = false
-  if (fits(candidates.slice(0, 1))) {
-    // The largest prefix that fits; each measure is of a whole page.
-    let low = 1
-    let high = candidates.length
-    while (low < high) {
-      const middle = Math.ceil((low + high) / 2)
-      if (fits(candidates.slice(0, middle))) low = middle
-      else high = middle - 1
-    }
-    page = candidates.slice(0, low)
-  } else {
-    let item = candidates[0] as T
-    while (!fits([item])) {
+  let page: T[] = []
+  let skip = 0
+  while (skip < candidates.length) {
+    let item = candidates[skip] as T
+    let fitted = fits([item])
+    let shrunk = false
+    while (!fitted) {
       const smaller = shrink(item)
       if (smaller === null) break
       item = smaller
+      shrunk = true
+      fitted = fits([item])
     }
-    page = [item]
-    cut = true
+    if (!fitted) {
+      dropped.push(candidates[skip] as T)
+      skip += 1
+      continue
+    }
+    if (shrunk) {
+      page = [item]
+      cut = true
+      skip += 1
+      break
+    }
+    // The largest prefix that fits; each measure is of a whole page.
+    const rest = candidates.slice(skip)
+    let low = 1
+    let high = rest.length
+    while (low < high) {
+      const middle = Math.ceil((low + high) / 2)
+      if (fits(rest.slice(0, middle))) low = middle
+      else high = middle - 1
+    }
+    page = rest.slice(0, low)
+    skip += low
+    break
   }
-  const next = start + page.length
+  const next = start + skip
   return {
     page,
     nextOffset: next < items.length ? next : null,
-    truncated: cut || page.length < candidates.length,
+    truncated: cut || dropped.length > 0 || skip < candidates.length,
     cut,
+    dropped,
   }
 }

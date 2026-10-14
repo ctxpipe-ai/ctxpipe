@@ -29,6 +29,7 @@ describe("fitPage", () => {
       nextOffset: 3,
       truncated: false,
       cut: false,
+      dropped: [],
     })
   })
 
@@ -40,6 +41,7 @@ describe("fitPage", () => {
       nextOffset: null,
       truncated: false,
       cut: false,
+      dropped: [],
     })
   })
 
@@ -97,6 +99,37 @@ describe("fitPage", () => {
     expect(page.cut).toBe(true)
     expect(page.nextOffset).toBe(1)
     expect(() => toolSuccess({ content: page.page[0] })).not.toThrow()
+  })
+})
+
+describe("fitPage with an item that cannot be cut", () => {
+  it("drops it, records it, and never returns an over-cap page", () => {
+    const huge = {
+      id: "huge",
+      values: Array.from({ length: 200_000 }, () => 1),
+    }
+    const small = { id: "small", values: [1] }
+    const result = (page: unknown[]) => ({ items: page })
+    const first = fitPage([huge, small], {
+      limit: 10,
+      maxTokens: 4_000,
+      result,
+    })
+    expect(first.page).toEqual([])
+    expect(first.dropped).toEqual([huge])
+    expect(first.truncated).toBe(true)
+    expect(first.nextOffset).toBe(1)
+    const fit = fitPage([huge, small], {
+      offset: 1,
+      limit: 10,
+      maxTokens: 4_000,
+      result,
+    })
+    expect(fit.page).toEqual([small])
+    expect(fit.nextOffset).toBeNull()
+    const alone = fitPage([huge], { limit: 10, maxTokens: 4_000, result })
+    expect(alone.page).toEqual([])
+    expect(() => toolSuccess(result(alone.page))).not.toThrow()
   })
 })
 
