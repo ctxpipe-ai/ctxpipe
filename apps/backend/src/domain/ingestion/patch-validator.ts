@@ -15,7 +15,11 @@ import { KNOWLEDGE_KIND_FOLDERS } from "../workspaces/layout.js"
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
 import { type AreaFile, checkAreaChange, parseAreaBody } from "./area-file.js"
 import { runGit as git } from "./run-git.js"
-import { findSuspectedSecret } from "./secret-scan.js"
+import {
+  findSuspectedSecret,
+  type WorkMeter,
+  withoutHumanText,
+} from "./secret-scan.js"
 
 export { findSuspectedSecret } from "./secret-scan.js"
 
@@ -77,6 +81,8 @@ export type PatchStepInput = {
   rootGone?: boolean
   /** Repositories that the Workspace knows (sources and linked repositories). */
   linkableRepositories?: readonly string[]
+  /** Counts the characters that the text checks read, so a test can check the bound. */
+  meter?: WorkMeter
 }
 
 /** The 12 allowlist folders and their kinds. Patterns are not extracted (ADR-052). */
@@ -103,6 +109,10 @@ export const MAX_WORKSPACE_OPS = 300
 const MAX_DELETE_SHARE = 0.2
 /** A source file above this size is not read to check a quote or a pattern. */
 const MAX_SOURCE_READ_BYTES = 1024 * 1024
+/** Distinct source paths that one step checks or reads with git. */
+const MAX_SOURCE_READS = 200
+/** Quotes and inferred-rule patterns that one step compares with source text. */
+const MAX_SOURCE_COMPARES = 200
 const HUMAN_OPEN = "<!-- ctxpipe:human -->"
 const HUMAN_CLOSE = "<!-- /ctxpipe:human -->"
 
@@ -271,6 +281,8 @@ type Candidate = {
   path: string
   /** Final file text for create and update. */
   output?: string
+  /** The text that the model wrote, for the scan of the whole step. */
+  written?: { yaml: string; body: string }
   /** Links to check against the result tree. */
   links: string[]
   claimTargets: string[]
@@ -342,31 +354,80 @@ export async function validatePatchStep(
     const blob = baseEntries.get(path)
     return blob ? baseBlobs.get(blob)?.toString("utf8") : undefined
   }
-  const evidenceCache = new Map<string, Promise<boolean>>()
-  const evidenceExists = (path: string) => {
-    let hit = evidenceCache.get(path)
+  const meter = input.meter ?? { work: 0 }
+  // Each distinct path is read from git once per step, and the step reads
+  // at most MAX_SOURCE_READS paths. A path above the limit counts as absent.
+  const budget = { reads: 0, compares: 0, spent: false }
+  const cached = <T>(
+    cache: Map<string, Promise<T>>,
+    absent: T,
+    load: (path: string) => Promise<T>,
+  ) => {
+    return (path: string): Promise<T> => {
+      let hit = cache.get(path)
+      if (!hit) {
+        if (budget.reads >= MAX_SOURCE_READS) {
+          budget.spent = true
+          return Promise.resolve(absent)
+        }
+        budget.reads++
+        hit = load(path)
+        cache.set(path, hit)
+      }
+      return hit
+    }
+  }
+  const evidenceExists = cached(
+    new Map<string, Promise<boolean>>(),
+    false,
+    input.sourcePathExists,
+  )
+  const sourceText = cached(
+    new Map<string, Promise<string | null>>(),
+    null,
+    input.readSourceFile,
+  )
+  // The quote check compares with the normalized text, made once per path.
+  const quotableCache = new Map<string, Promise<string | null>>()
+  const quotableSource = (path: string) => {
+    let hit = quotableCache.get(path)
     if (!hit) {
-      hit = input.sourcePathExists(path)
-      evidenceCache.set(path, hit)
+      hit = sourceText(path).then((text) => {
+        if (text === null) return null
+        meter.work += text.length
+        return quotableText(text)
+      })
+      quotableCache.set(path, hit)
     }
     return hit
   }
-  const sourceTextCache = new Map<string, Promise<string | null>>()
-  const sourceText = (path: string) => {
-    let hit = sourceTextCache.get(path)
-    if (!hit) {
-      hit = input.readSourceFile(path)
-      sourceTextCache.set(path, hit)
+  // Each compare reads the source text once, so the step makes at most
+  // MAX_SOURCE_COMPARES of them.
+  const sourceIncludes = async (
+    source: Promise<string | null>,
+    part: string,
+  ): Promise<boolean | "spent"> => {
+    if (budget.compares >= MAX_SOURCE_COMPARES) {
+      budget.spent = true
+      return "spent"
     }
-    return hit
+    budget.compares++
+    const text = await source
+    if (text === null) return false
+    meter.work += text.length + part.length
+    return text.includes(part)
   }
   const context: CheckContext = {
     sourceUrl,
     source: input.source,
     skill: input.skill,
     bundle: input.bundle,
+    meter,
     evidenceExists,
-    sourceText,
+    quoteInSource: (path, quote) =>
+      sourceIncludes(quotableSource(path), quotableText(quote)),
+    patternInSource: (path, pattern) =>
+      sourceIncludes(sourceText(path), pattern),
   }
 
   let candidates: Candidate[] = []
@@ -451,17 +512,37 @@ export async function validatePatchStep(
       })
       continue
     }
+    budget.spent = false
     const checked = await checkWrite(op, before, context)
-    if ("rule" in checked) reject(op.path, checked.rule, checked.reason)
+    if ("rule" in checked)
+      reject(
+        op.path,
+        checked.rule,
+        budget.spent
+          ? `${checked.reason}. The step reads at most ${MAX_SOURCE_READS} source paths and compares at most ${MAX_SOURCE_COMPARES} quotes or patterns with them`
+          : checked.reason,
+      )
     else candidates.push(checked)
   }
-  for (const path of splitSecretPaths(candidates)) {
-    reject(
-      path,
-      "suspected_secret",
-      "The end of one file and the start of the next have a value that looks like a secret",
+  // A value can be cut over files. The scan reads the bodies and then the
+  // front matter of all written files, each in path order and without the
+  // blank lines at its ends, as one text.
+  const written = candidates.flatMap((c) => (c.written ? [c] : []))
+  if (
+    findSuspectedSecret(
+      [
+        ...written.map((c) => c.written?.body.trim()),
+        ...written.map((c) => c.written?.yaml.trim()),
+      ].join("\n"),
+      meter,
     )
-  }
+  )
+    for (const c of written)
+      reject(
+        c.path,
+        "suspected_secret",
+        "The text that the step writes, read as one text, has a value that looks like a secret",
+      )
   candidates = candidates.filter(
     (c) => !rejections.some((r) => r.path === c.path),
   )
@@ -530,8 +611,12 @@ type CheckContext = {
   source: { url: string; sha: string }
   skill: string
   bundle: string
+  meter: WorkMeter
   evidenceExists: (path: string) => Promise<boolean>
-  sourceText: (path: string) => Promise<string | null>
+  /** True when the quote, whitespace normalized, is text of the source file. */
+  quoteInSource: (path: string, quote: string) => Promise<boolean | "spent">
+  /** True when the source file holds the pattern of an inferred rule. */
+  patternInSource: (path: string, pattern: string) => Promise<boolean | "spent">
 }
 
 type CheckFailure = { rule: PatchRule; reason: string }
@@ -574,19 +659,28 @@ async function checkWrite(
   if ("rule" in result) return result
   // The scan reads the text that is stored: YAML escapes in the staged
   // front matter are decoded by then. An additive write scans its own part.
+  let written = { yaml: "", body: result.added ?? "" }
   if (areaFile || ownership === "sole") {
-    const secret = secretProblem(result.output)
+    const secret = secretProblem(result.output, context.meter)
     if (secret) return secret
+    written = splitFrontMatter(result.output) ?? written
   }
   if (Buffer.byteLength(result.output) > MAX_FILE_BYTES)
     return {
       rule: "size_cap",
       reason: `The file is larger than ${MAX_FILE_BYTES} bytes`,
     }
-  return { op: op.op, path: op.path, ...result }
+  const { added: _added, ...rest } = result
+  return { op: op.op, path: op.path, ...rest, written }
 }
 
-type WriteOutput = { output: string; links: string[]; claimTargets: string[] }
+type WriteOutput = {
+  output: string
+  links: string[]
+  claimTargets: string[]
+  /** The text that an additive write adds. */
+  added?: string
+}
 
 const AREA_PATH = /^knowledge\/instructions\/[a-z0-9]+(?:-[a-z0-9]+)*\.md$/
 
@@ -663,11 +757,15 @@ async function checkAreaWrite(
       rule: "human_section",
       reason: "A human section of an area file stays at the end of the file",
     }
-  const heading = deniedHeading(front.body)
+  // A human section is the same as at the base, so the heading and
+  // injection rules read only the text that the model wrote.
+  const heading = deniedHeading(withoutHumanText(front.body, context.meter))
   if (heading) return heading
   // An area file has no place for a quote, so the scan reads all of its
   // text: code spans, fenced blocks, and block quotes too.
-  const injection = injectionProblem(text, { everywhere: true })
+  const injection = injectionProblem(withoutHumanText(text, context.meter), {
+    everywhere: true,
+  })
   if (injection) return injection
 
   const beforeSources = fileSources(before ?? "")
@@ -702,7 +800,7 @@ async function checkAreaWrite(
       }
   for (const { pattern, paths } of change.freshPatterns)
     for (const path of paths)
-      if (!(await context.sourceText(path))?.includes(pattern))
+      if ((await context.patternInSource(path, pattern)) !== true)
         return {
           rule: "evidence",
           reason:
@@ -782,11 +880,15 @@ async function checkFullWrite(
 
   const content = contentProblem(text)
   if (content) return content
-  const heading = deniedHeading(front.body)
+  // A human section is the same as at the base, so the heading, injection,
+  // and quote rules read only the text that the model wrote.
+  const body = withoutHumanText(front.body, context.meter)
+  const heading = deniedHeading(body)
   if (heading) return heading
-  const injection = injectionProblem(text)
+  const injection =
+    injectionProblem(front.yaml, { everywhere: true }) ?? injectionProblem(body)
   if (injection) return injection
-  const quote = await unsourcedQuoteProblem(front.body, context)
+  const quote = await unsourcedQuoteProblem(body, context)
   if (quote) return quote
 
   const claims = attributes.claims ?? []
@@ -882,17 +984,20 @@ async function checkAdditiveWrite(
     }
   const content = contentProblem(addedText)
   if (content) return content
-  const injection = injectionProblem(addedText)
+  // A Related line has no place for a Source line, so the scan reads the
+  // text of its code spans too.
+  const injection = injectionProblem(addedText, { inlineCode: true })
   if (injection) return injection
   // The lines before the added text are read too, so that a value cut
   // between them is found. A value in the old lines alone is not ours.
   const kept = baseFront.body.trimEnd().split("\n").slice(-3).join("\n")
   const secret =
-    secretProblem(addedText, "of the added text ") ??
-    (findSuspectedSecret(kept)
+    secretProblem(addedText, context.meter, "of the added text ") ??
+    (findSuspectedSecret(kept, context.meter)
       ? null
       : secretProblem(
           `${kept}\n${addedText}`,
+          context.meter,
           "of the added text and the lines before it, ",
         ))
   if (secret) return secret
@@ -911,6 +1016,7 @@ async function checkAdditiveWrite(
     output: `${header}${newFront.body}`,
     links: markdownLinks(related),
     claimTargets: added.map((c) => c.to),
+    added: addedText,
   }
 }
 
@@ -1011,7 +1117,7 @@ function contentProblem(text: string): CheckFailure | null {
     tokens.length % 2
   )
     return fail("The human-section markers are not in pairs")
-  const prose = withoutCode(text)
+  const prose = withoutCode(text, false)
     .split(HUMAN_OPEN)
     .join("")
     .split(HUMAN_CLOSE)
@@ -1069,37 +1175,41 @@ const INJECTION_PHRASES = [
 ]
 
 /**
- * Scans text outside fenced code and block quotes (concept section 6), or
- * all of the text when `everywhere` is set.
+ * Scans text outside fenced code, block quotes, and inline code (concept
+ * section 6). `inlineCode` scans the text of code spans too, and
+ * `everywhere` scans all of the text.
  */
 function injectionProblem(
   text: string,
-  options: { everywhere?: boolean } = {},
+  options: { everywhere?: boolean; inlineCode?: boolean } = {},
 ): CheckFailure | null {
   const outside = (
     options.everywhere
       ? text
-      : withoutCode(text)
+      : withoutCode(text, options.inlineCode ?? false)
           .split("\n")
           .filter((line) => !/^ {0,3}>/.test(line))
           .join("\n")
   ).replace(/\s+/g, " ")
-  for (const pattern of INJECTION_PHRASES) {
-    if (pattern.test(outside))
-      return {
-        rule: "suspected_injection",
-        reason: "The text looks like an instruction to an agent",
-      }
-  }
+  if (hasInstruction(outside))
+    return {
+      rule: "suspected_injection",
+      reason: "The text looks like an instruction to an agent",
+    }
   return null
 }
 
+function hasInstruction(text: string): boolean {
+  return INJECTION_PHRASES.some((pattern) => pattern.test(text))
+}
+
 /**
- * A block quote or fenced block that holds an injection phrase must give
- * its source with a `Source: <path>` line, as its last line or as the next
- * line after it. The quoted text, with whitespace normalized, must occur in
- * that file at the source revision (ADR-052 section 5). Without it, a model
- * can carry an instruction into a file as a quote.
+ * A block quote, fenced block, or inline code that holds an injection
+ * phrase must give its source with a `Source: <path>` line, as its last
+ * line or as the next line after it. Each quoted text, with whitespace
+ * normalized, must occur in that file at the source revision (ADR-052
+ * section 5). Without it, a model can carry an instruction into a file as
+ * a quote.
  */
 async function unsourcedQuoteProblem(
   body: string,
@@ -1110,16 +1220,13 @@ async function unsourcedQuoteProblem(
     reason,
   })
   for (const block of quotedBlocks(body)) {
-    const text = block.lines.join(" ").replace(/\s+/g, " ")
-    if (!INJECTION_PHRASES.some((pattern) => pattern.test(text))) continue
+    if (!hasInstruction(block.text)) continue
     if (!block.source) return fail("Quoted instruction text has no Source line")
-    const source = await context.sourceText(block.source)
-    if (source === null)
-      return fail(
-        "The Source path of a quote is not a file at the source revision",
-      )
-    if (!quotableText(source).includes(quotableText(block.lines.join("\n"))))
-      return fail("The quoted text is not in its Source file")
+    for (const quote of block.quotes)
+      if ((await context.quoteInSource(block.source, quote)) !== true)
+        return fail(
+          "The quoted text is not in its Source file at the source revision",
+        )
   }
   return null
 }
@@ -1136,27 +1243,40 @@ function quotableText(text: string): string {
 
 const SOURCE_LINE = /^\s*Source:\s*`?([^`\s]+)`?\s*$/
 
-/** Block quotes and fenced blocks, each with the path of its Source line. */
-function quotedBlocks(
-  body: string,
-): Array<{ lines: string[]; source: string | null }> {
+type QuotedBlock = {
+  /** The text that the injection phrases are tested on. */
+  text: string
+  /** The parts that must be text of the Source file. */
+  quotes: string[]
+  source: string | null
+}
+
+/**
+ * Block quotes, fenced blocks, and paragraphs with inline code, each with
+ * the path of its Source line. For a paragraph, the phrases are tested on
+ * its text with the code spans in it, so that a phrase cut between prose
+ * and code is found; each code span is a quote.
+ */
+function quotedBlocks(body: string): QuotedBlock[] {
   const lines = body.split("\n")
-  const blocks: Array<{ lines: string[]; source: string | null }> = []
+  const blocks: QuotedBlock[] = []
   const nextLine = (from: number) => {
     let i = from
     while (i < lines.length && (lines[i] ?? "").trim() === "") i++
     return lines[i] ?? ""
   }
+  const fenceOf = (line: string) => /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1]
+  const quoteLine = (line: string) => /^ {0,3}>/.test(line)
   let i = 0
   while (i < lines.length) {
     const line = lines[i] ?? ""
-    const fence = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1]
+    const fence = fenceOf(line)
     const inner: string[] = []
     if (fence) {
       i++
       while (i < lines.length) {
         const current = lines[i] ?? ""
-        const marker = /^ {0,3}(`{3,}|~{3,})/.exec(current)?.[1]
+        const marker = fenceOf(current)
         i++
         if (
           marker &&
@@ -1167,56 +1287,52 @@ function quotedBlocks(
           break
         inner.push(current)
       }
-    } else if (/^ {0,3}>/.test(line)) {
-      while (i < lines.length && /^ {0,3}>/.test(lines[i] ?? "")) {
+    } else if (quoteLine(line)) {
+      while (i < lines.length && quoteLine(lines[i] ?? "")) {
         inner.push((lines[i] ?? "").replace(/^ {0,3}>+ ?/, ""))
         i++
       }
+    } else if (line.trim() !== "") {
+      const paragraph: string[] = []
+      while (
+        i < lines.length &&
+        (lines[i] ?? "").trim() !== "" &&
+        !fenceOf(lines[i] ?? "") &&
+        !quoteLine(lines[i] ?? "")
+      )
+        paragraph.push(lines[i++] ?? "")
+      const spans = paragraph.flatMap((l) => codeSpans(l).map((s) => s.text))
+      if (spans.length === 0) continue
+      const inside = SOURCE_LINE.exec(paragraph.at(-1) ?? "")
+      if (inside) paragraph.pop()
+      blocks.push({
+        text: withoutCode(paragraph.join("\n"), true).replace(/\s+/g, " "),
+        quotes: spans,
+        source: inside?.[1] ?? SOURCE_LINE.exec(nextLine(i))?.[1] ?? null,
+      })
+      continue
     } else {
       i++
       continue
     }
     const lastIndex = inner.findLastIndex((l) => l.trim() !== "")
     const inside = fence ? undefined : SOURCE_LINE.exec(inner[lastIndex] ?? "")
-    const source = inside?.[1] ?? SOURCE_LINE.exec(nextLine(i))?.[1] ?? null
+    const quoted = inside ? inner.slice(0, lastIndex) : inner
     blocks.push({
-      lines: inside ? inner.slice(0, lastIndex) : inner,
-      source,
+      text: quoted.join(" ").replace(/\s+/g, " "),
+      quotes: [quoted.join("\n")],
+      source: inside?.[1] ?? SOURCE_LINE.exec(nextLine(i))?.[1] ?? null,
     })
   }
   return blocks
 }
 
-/**
- * A value cut over two files: the last lines of the body of each written
- * file and the first lines of the body of the next one, in path order.
- * Returns the paths of both files when only the joined text has a secret.
- */
-function splitSecretPaths(candidates: readonly Candidate[]): string[] {
-  const writes = candidates.filter((c) => c.op !== "delete")
-  const body = (c: Candidate | undefined) => {
-    const text = c?.output ?? ""
-    return splitFrontMatter(text)?.body ?? text
-  }
-  const paths: string[] = []
-  for (let i = 0; i + 1 < writes.length; i++) {
-    const tail = body(writes[i]).trimEnd().split("\n").slice(-3)
-    const head = body(writes[i + 1])
-      .replace(/^\n+/, "")
-      .split("\n", 3)
-    const joined = `${tail.join("\n")}\n${head.join("\n")}`
-    if (
-      findSuspectedSecret(joined) &&
-      !findSuspectedSecret(tail.join("\n")) &&
-      !findSuspectedSecret(head.join("\n"))
-    )
-      paths.push(writes[i]?.path ?? "", writes[i + 1]?.path ?? "")
-  }
-  return [...new Set(paths)]
-}
-
-function secretProblem(text: string, where = ""): CheckFailure | null {
-  const finding = findSuspectedSecret(text)
+function secretProblem(
+  text: string,
+  meter: WorkMeter,
+  where = "",
+): CheckFailure | null {
+  const finding = findSuspectedSecret(text, meter)
   if (!finding) return null
   return {
     rule: "suspected_secret",
@@ -1224,8 +1340,11 @@ function secretProblem(text: string, where = ""): CheckFailure | null {
   }
 }
 
-/** Removes fenced code blocks and inline code spans. */
-function withoutCode(text: string): string {
+/**
+ * Removes fenced code blocks and inline code spans. With `keepSpanText`, a
+ * code span keeps its text and loses only its backticks.
+ */
+function withoutCode(text: string, keepSpanText: boolean): string {
   const out: string[] = []
   let fence: string | null = null
   for (const line of text.split("\n")) {
@@ -1246,13 +1365,58 @@ function withoutCode(text: string): string {
       out.push("")
       continue
     }
-    out.push(line.replace(/(`+)[^`\n]*?\1/g, ""))
+    let kept = ""
+    let at = 0
+    for (const span of codeSpans(line)) {
+      kept += line.slice(at, span.start) + (keepSpanText ? span.text : "")
+      at = span.end
+    }
+    out.push(kept + line.slice(at))
   }
   return out.join("\n")
 }
 
+/**
+ * The code spans of one line, in linear time: a run of n backticks opens a
+ * span that the next run of exactly n backticks closes.
+ */
+function codeSpans(
+  line: string,
+): Array<{ start: number; end: number; text: string }> {
+  const runs: Array<{ at: number; length: number }> = []
+  for (let i = line.indexOf("`"); i !== -1; i = line.indexOf("`", i)) {
+    let j = i
+    while (line[j] === "`") j++
+    runs.push({ at: i, length: j - i })
+    i = j
+  }
+  const next: number[] = []
+  const later = new Map<number, number>()
+  for (let k = runs.length - 1; k >= 0; k--) {
+    const length = runs[k]?.length ?? 0
+    next[k] = later.get(length) ?? -1
+    later.set(length, k)
+  }
+  const spans: Array<{ start: number; end: number; text: string }> = []
+  for (let k = 0; k < runs.length; ) {
+    const open = runs[k]
+    const close = runs[next[k] ?? -1]
+    if (!open || !close) {
+      k++
+      continue
+    }
+    spans.push({
+      start: open.at,
+      end: close.at + close.length,
+      text: line.slice(open.at + open.length, close.at),
+    })
+    k = (next[k] ?? k) + 1
+  }
+  return spans
+}
+
 function markdownLinks(body: string): string[] {
-  const prose = withoutCode(body)
+  const prose = withoutCode(body, false)
   const links: string[] = []
   for (const m of prose.matchAll(
     /\]\(\s*<?([^)\s>]*)>?(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\s*\)/g,
