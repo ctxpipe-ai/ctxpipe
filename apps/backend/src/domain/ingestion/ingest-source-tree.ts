@@ -4,6 +4,7 @@ import { join } from "node:path"
 import type { Env } from "../../config/env.js"
 import { gitRemoteEnvironment } from "../../services/git/clone-tree.js"
 import { resolveRepositoryReadCredential } from "../workspaces/resolve-revision.js"
+import { heldScratch, holdScratch, releaseScratch } from "./held-scratch.js"
 import { runGit } from "./run-git.js"
 
 /*
@@ -12,7 +13,8 @@ import { runGit } from "./run-git.js"
  * patch validator checks evidence paths against it. One worker process keeps
  * one copy for each run, SHA, and holder: the parent and each shard child
  * have their own copy, so a child that ends deletes only its own copy and
- * never the copy of a sibling that still runs.
+ * never the copy of a sibling that still runs. A copy that no one used for
+ * an hour goes at the next fetch (`held-scratch.ts`).
  */
 
 export type SourceTree = {
@@ -22,10 +24,8 @@ export type SourceTree = {
   exists(path: string): Promise<boolean>
 }
 
-const trees = new Map<string, Promise<string>>()
-
 function treeKey(runId: string, sha: string, holder = "run") {
-  return `${runId}:${sha}:${holder}`
+  return `tree:${runId}:${sha}:${holder}`
 }
 
 async function fetchTree(input: {
@@ -33,7 +33,7 @@ async function fetchTree(input: {
   source: { url: string; githubConnectionId: string }
   sha: string
   env: Env
-}): Promise<string> {
+}): Promise<{ dir: string }> {
   const dir = await mkdtemp(join(tmpdir(), "ctxpipe-ingest-source-"))
   try {
     const token = await resolveRepositoryReadCredential({
@@ -59,7 +59,7 @@ async function fetchTree(input: {
       ],
       { env: gitRemoteEnvironment({ url: input.source.url, token }) },
     )
-    return dir
+    return { dir }
   } catch (error) {
     await rm(dir, { recursive: true, force: true })
     throw error
@@ -73,20 +73,11 @@ export function ingestSourceTree(input: {
   source: { url: string; githubConnectionId: string }
   sha: string
   env: Env
-  /** `shard:<n>` for a shard child; the parent has none. */
+  /** `${mode}:${shard}` for a shard child; the parent has none. */
   holder?: string
 }): SourceTree {
   const key = treeKey(input.runId, input.sha, input.holder)
-  const dir = () => {
-    let pending = trees.get(key)
-    if (!pending) {
-      pending = fetchTree(input)
-      // A failed fetch is not kept, so the step retry fetches again.
-      pending.catch(() => trees.delete(key))
-      trees.set(key, pending)
-    }
-    return pending
-  }
+  const dir = async () => (await holdScratch(key, () => fetchTree(input))).dir
   return {
     async paths() {
       const out = await runGit(await dir(), [
@@ -112,19 +103,15 @@ export function ingestSourceTree(input: {
 }
 
 /** Delete this process's copy of the run's source tree for one holder. */
-export async function releaseIngestSourceTree(
+export function releaseIngestSourceTree(
   runId: string,
   sha: string,
   holder?: string,
 ): Promise<void> {
-  const key = treeKey(runId, sha, holder)
-  const pending = trees.get(key)
-  trees.delete(key)
-  const dir = await pending?.catch(() => undefined)
-  if (dir) await rm(dir, { recursive: true, force: true })
+  return releaseScratch(treeKey(runId, sha, holder))
 }
 
 /** The number of source tree copies that this process holds (for tests). */
 export function heldIngestSourceTrees(runId: string): number {
-  return [...trees.keys()].filter((key) => key.startsWith(`${runId}:`)).length
+  return heldScratch(`tree:${runId}:`)
 }
