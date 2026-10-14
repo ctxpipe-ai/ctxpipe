@@ -69,6 +69,7 @@
     "@scalar/hono-api-reference": "^0.9.44",
     "@scure/base": "^2.0.0",
     "@sindresorhus/slugify": "^3.0.0",
+    "@smithy/node-http-handler": "4.9.1",
     "@tanstack/ai": "^0.63.0",
     "@tanstack/ai-opencode": "^0.4.14",
     "@tanstack/ai-persistence": "^0.7.1",

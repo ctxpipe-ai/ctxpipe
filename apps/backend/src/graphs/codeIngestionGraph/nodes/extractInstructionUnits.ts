@@ -19,7 +19,7 @@ import { isConnectorMirrorPath } from "../../../domain/codeIngestion/connectorMi
 import { isUnderDependencyVendorPath } from "../../../domain/codeIngestion/dependencyVendorPaths.js"
 import { mapPool } from "../../../lib/mapPool.js"
 import { getLogger } from "../../../observability/logger.js"
-import { getModel } from "../../../retrieval/services/modelProvider.js"
+import { getModel } from "../../../retrieval/services/legacyModelProvider.js"
 import type {
   CodeIngestionState,
   ExtractedClaim,
