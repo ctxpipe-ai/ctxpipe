@@ -229,6 +229,7 @@ describe("decisions skill in the sandbox", () => {
         skill: "decisions",
         bundle: bundle.name,
         sourcePathExists: async () => true,
+        readSourceFile: async () => null,
         linkableRepositories: [SOURCE_URL],
       })
       expect(validated.rejections).toEqual([])

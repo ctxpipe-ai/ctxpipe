@@ -1,11 +1,22 @@
 import { spawn } from "node:child_process"
 
-/** Runs git with an optional stdin; the exit status and stderr decide the result. */
+export class GitOutputTooLargeError extends Error {}
+
+/**
+ * Runs git with an optional stdin; the exit status and stderr decide the
+ * result. Output larger than `maxOutputBytes` (default 256 MiB) stops git
+ * and fails the call, so that a large repository cannot fill the memory.
+ */
 export function runGit(
   cwd: string,
   args: string[],
-  options: { input?: Buffer | string; env?: NodeJS.ProcessEnv } = {},
+  options: {
+    input?: Buffer | string
+    env?: NodeJS.ProcessEnv
+    maxOutputBytes?: number
+  } = {},
 ): Promise<Buffer> {
+  const limit = options.maxOutputBytes ?? 256 * 1024 * 1024
   return new Promise((resolve, reject) => {
     const child = spawn("git", args, {
       cwd,
@@ -14,10 +25,28 @@ export function runGit(
     })
     const out: Buffer[] = []
     const err: Buffer[] = []
-    child.stdout.on("data", (chunk: Buffer) => out.push(chunk))
-    child.stderr.on("data", (chunk: Buffer) => err.push(chunk))
+    let size = 0
+    let tooLarge = false
+    child.stdout.on("data", (chunk: Buffer) => {
+      if (tooLarge) return
+      size += chunk.length
+      if (size > limit) {
+        tooLarge = true
+        out.length = 0
+        child.kill()
+        reject(
+          new GitOutputTooLargeError(
+            `git ${args[0]} output is larger than ${limit} bytes`,
+          ),
+        )
+      } else out.push(chunk)
+    })
+    child.stderr.on("data", (chunk: Buffer) => {
+      if (err.length < 64) err.push(chunk)
+    })
     child.on("error", reject)
     child.on("close", (code) => {
+      if (tooLarge) return
       if (code === 0) resolve(Buffer.concat(out))
       else
         reject(

@@ -18,7 +18,7 @@ import {
   INJECTION_CASES,
   type InjectionCase,
 } from "./injection-fixtures.js"
-import { gitSourcePathExists, validatePatchStep } from "./patch-validator.js"
+import { gitSource, validatePatchStep } from "./patch-validator.js"
 import { INGEST_SKILLS_DIR } from "./skill-bundle.js"
 
 /*
@@ -125,7 +125,7 @@ function validate(stagedDir: string) {
     source: { url: FIXTURE_SOURCE_URL, sha: sourceSha },
     skill: "apis",
     bundle: "bundle-fixture",
-    sourcePathExists: gitSourcePathExists(sourceDir, sourceSha),
+    ...gitSource(sourceDir, sourceSha),
     linkableRepositories: [FIXTURE_OTHER_SOURCE_URL],
   })
 }

@@ -11,7 +11,7 @@ import { dirname, join } from "node:path"
 import { afterAll, describe, expect, it } from "vitest"
 import { stringify } from "yaml"
 import { writeStepIndex } from "../../test/ingest-step-index.js"
-import { gitSourcePathExists, validatePatchStep } from "./patch-validator.js"
+import { gitSource, validatePatchStep } from "./patch-validator.js"
 import { INGEST_SKILLS_DIR } from "./skill-bundle.js"
 
 /*
@@ -186,7 +186,7 @@ async function step(
       source: { url: SOURCE_URL, sha: sourceSha },
       skill: "dependencies",
       bundle: "ingest-0000000000000000",
-      sourcePathExists: gitSourcePathExists(sourceDir, sourceSha),
+      ...gitSource(sourceDir, sourceSha),
       linkableRepositories: [SOURCE_URL],
     })
   /** Commit a validated tree as the next base and empty the step output. */

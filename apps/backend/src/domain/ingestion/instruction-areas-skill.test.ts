@@ -11,7 +11,7 @@ import { dirname, join } from "node:path"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { stringify } from "yaml"
 import { writeStepIndex } from "../../test/ingest-step-index.js"
-import { gitSourcePathExists, validatePatchStep } from "./patch-validator.js"
+import { gitSource, validatePatchStep } from "./patch-validator.js"
 import { INGEST_SKILLS_DIR } from "./skill-bundle.js"
 
 /*
@@ -221,7 +221,23 @@ describe("pattern counting (concept 5.4)", () => {
     expect(result.placement).toBe("being-replaced")
   })
 
-  it("treats a pattern as plain text, never as a regular expression", async () => {
+  it("takes at most 10 calls of 10 patterns in one step", () => {
+    const repo = source("budget", [
+      { days: 40, files: { "src/a.test.ts": VITEST } },
+    ])
+    const many = Array.from({ length: 15 }, (_, i) => `literal-${i}`)
+    expect(patterns(repo.dir, ...many)).toHaveLength(10)
+    for (let call = 2; call <= 10; call++) patterns(repo.dir, 'from "vitest"')
+    const refused = spawnSync(
+      process.execPath,
+      [join(SKILL, "patterns.mjs"), "--source", repo.dir, "--pattern", "x-y-z"],
+      { encoding: "utf8", env: baseEnv, timeout: 30_000 },
+    )
+    expect(refused.status).toBe(2)
+    expect(refused.stderr).toContain("10 times")
+  })
+
+  it("treats a pattern as plain text, never as a regular expression", () => {
     const repo = source("literal", [{ days: 10, files: { "a.ts": "x\n" } }])
     const started = Date.now()
     const result = firstPattern(repo.dir, "(a+)+$", "a\nb", "--option")
@@ -460,7 +476,7 @@ async function ingest(
       source: { url, sha: repo.sha },
       skill: "instruction-areas",
       bundle: "ingest-0000000000000000",
-      sourcePathExists: gitSourcePathExists(repo.dir, repo.sha),
+      ...gitSource(repo.dir, repo.sha),
       linkableRepositories: [URL_A, URL_B, URL_C],
       rootGone,
     })
@@ -601,7 +617,7 @@ describe("the instruction-areas skill", () => {
     const area = context.show(result.tree, AREA)
     expect(area).toContain(`- source \`${URL_A}\`, documented: \`AGENTS.md\``)
     expect(area).toContain(
-      `- source \`${URL_A}\`, inferred: \`lib/c.test.ts\`, \`src/a.test.ts\`, \`src/b.test.ts\``,
+      `- source \`${URL_A}\`, inferred from \`from "vitest"\`: \`lib/c.test.ts\`, \`src/a.test.ts\`, \`src/b.test.ts\``,
     )
     const codebaseText = context.show(
       result.tree,
@@ -870,6 +886,26 @@ describe("the instruction-areas skill", () => {
     expect(reasons).toContain("no verified document")
     expect(reasons).toContain("no valid key, value, or text")
     expect(reasons).toContain("a new area needs 5")
+  })
+
+  it("does not take a short quote such as 'the' as evidence", async () => {
+    const context = contextRepo()
+    const proposal = unitTesting("vitest")
+    const rules = (
+      proposal.areas[0] as { rules: Array<Record<string, unknown>> }
+    ).rules
+    rules[2] = { ...rules[2], documents: [{ path: "AGENTS.md", quote: "the" }] }
+    const step = await ingest(
+      context,
+      shop(),
+      URL_A,
+      "knowledge/codebases/shop.md",
+      proposal,
+    )
+    const reasons = step.summary.skipped.map((s) => s.reason).join("\n")
+    expect(reasons).toContain(
+      "The rule mocking of unit-testing has no verified document",
+    )
   })
 
   it("lets the host reject injected rule text that the script cannot tell", async () => {

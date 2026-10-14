@@ -14,7 +14,8 @@ import { isDeepStrictEqual } from "node:util"
  *   ## Summary          one paragraph
  *   ## Rules            - <rule text>
  *                         - topic: `<key>` = `<value>` (core)
- *                         - source `<url>`, documented|inferred: `<path>`, ...
+ *                         - source `<url>`, documented: `<path>`, ...
+ *                         - source `<url>`, inferred from `<pattern>`: `<path>`, ...
  *   ## Repository notes - `<url>`: <text>
  *   ## Being replaced   rules, in the same form as Rules
  */
@@ -22,6 +23,8 @@ import { isDeepStrictEqual } from "node:util"
 export type AreaEvidence = {
   basis: "documented" | "inferred"
   paths: string[]
+  /** The literal text that each evidence file of an inferred rule holds. */
+  pattern?: string
 }
 
 export type AreaRule = {
@@ -59,7 +62,7 @@ const SECTION_ORDER = [
 const TOPIC =
   /^ {2}- topic: `([a-z0-9][a-z0-9-]{0,59})` = `([^`\n]{1,100})`( \(core\))?$/
 const SOURCE =
-  /^ {2}- source `([^`\s]{1,300})`, (documented|inferred): (`[^`\n]{1,300}`(?:, `[^`\n]{1,300}`)*)$/
+  /^ {2}- source `([^`\s]{1,300})`, (documented|inferred(?: from `([^`\n]{3,200})`)?): (`[^`\n]{1,300}`(?:, `[^`\n]{1,300}`)*)$/
 const NOTE = /^- `([^`\s]{1,300})`: (\S.{0,299})$/
 const RULE = /^- (\S.{0,299})$/
 
@@ -154,7 +157,7 @@ export function parseAreaBody(
       const source = SOURCE.exec(line)
       if (source) {
         const url = normalize(source[1] ?? "")
-        const paths = [...(source[3] ?? "").matchAll(/`([^`\n]+)`/g)].map(
+        const paths = [...(source[4] ?? "").matchAll(/`([^`\n]+)`/g)].map(
           (m) => m[1] ?? "",
         )
         if (rule.sources.has(url))
@@ -165,10 +168,13 @@ export function parseAreaBody(
           }
         if (paths.some((p) => !relativePath(p)))
           return { error: "An evidence path is not a relative source path" }
-        rule.sources.set(url, {
-          basis: source[2] as AreaEvidence["basis"],
-          paths,
-        })
+        const pattern = source[3]
+        rule.sources.set(
+          url,
+          source[2] === "documented"
+            ? { basis: "documented", paths }
+            : { basis: "inferred", paths, ...(pattern ? { pattern } : {}) },
+        )
         continue
       }
       return { error: `A line in ${name} does not match the rule format` }
@@ -208,6 +214,8 @@ export type AreaChange =
       sources: string[]
       /** Evidence paths that this source added or changed: the host checks that they exist. */
       freshEvidence: string[]
+      /** Inferred evidence that this source added or changed: the host checks that each file holds the pattern. */
+      freshPatterns: Array<{ pattern: string; paths: string[] }>
     }
 
 /**
@@ -295,6 +303,7 @@ export function checkAreaChange(input: {
     if (own) beforeEvidence.set(rule.key, own)
   }
   const fresh: string[] = []
+  const freshPatterns: Array<{ pattern: string; paths: string[] }> = []
   let hasOwn = after.notes.some((n) => n.source === source)
   for (const rule of after.rules) {
     const own = rule.sources.get(source)
@@ -302,17 +311,21 @@ export function checkAreaChange(input: {
     hasOwn = true
     if (isDeepStrictEqual(beforeEvidence.get(rule.key), own)) continue
     if (own.basis === "inferred") {
-      if (own.paths.length < MIN_INFERRED_FILES)
+      const files = new Set(own.paths)
+      if (own.pattern === undefined)
+        return { error: "A rule that a script inferred needs its pattern" }
+      if (files.size < MIN_INFERRED_FILES)
         return {
           error: `A rule that a script inferred needs evidence in at least ${MIN_INFERRED_FILES} files`,
         }
       if (
-        new Set(own.paths.map((p) => posix.dirname(p))).size <
+        new Set([...files].map((p) => posix.dirname(p))).size <
         MIN_INFERRED_DIRECTORIES
       )
         return {
           error: `A rule that a script inferred needs evidence in at least ${MIN_INFERRED_DIRECTORIES} folders`,
         }
+      freshPatterns.push({ pattern: own.pattern, paths: [...files] })
     }
     fresh.push(...own.paths)
   }
@@ -332,5 +345,9 @@ export function checkAreaChange(input: {
         error: `A new area file needs at least ${MIN_NEW_AREA_RULES} rules`,
       }
   }
-  return { sources: [...sources].sort(), freshEvidence: [...new Set(fresh)] }
+  return {
+    sources: [...sources].sort(),
+    freshEvidence: [...new Set(fresh)],
+    freshPatterns,
+  }
 }

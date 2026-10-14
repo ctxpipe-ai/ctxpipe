@@ -15,6 +15,8 @@ import {
   tomlTables,
 } from "../../discover-roots/scripts/roots-lib.mjs"
 
+const MAX_MANIFEST_CHARS = 256 * 1024
+
 export const KINDS = ["App", "Library", "Service"]
 
 /** Dependencies that make a JavaScript package a client application. */
@@ -96,7 +98,9 @@ function safeName(text) {
 export function classifyRoot(source, files, rootPath) {
   const dir = rootPath === "." ? "" : `${rootPath}/`
   const has = (path) => files.has(`${dir}${path}`)
-  const read = (path) => readTracked(source, `${dir}${path}`)
+  // A manifest is small; a longer text is cut, so each rule reads a bounded text.
+  const read = (path) =>
+    readTracked(source, `${dir}${path}`).slice(0, MAX_MANIFEST_CHARS)
   const signals = []
   let name = null
   const signal = (kind, strength, path, reason) =>
@@ -160,8 +164,11 @@ export function classifyRoot(source, files, rootPath) {
 
   if (has("pubspec.yaml")) {
     const text = read("pubspec.yaml")
-    name ??= safeName(/^name:\s*(\S+)\s*$/m.exec(text)?.[1])
-    if (/^\s+flutter:\s*$/m.test(text) && !/^\s+plugin:\s*$/m.test(text))
+    name ??= safeName(/^name:[ \t]*(\S+)[ \t]*$/m.exec(text)?.[1])
+    if (
+      /^[ \t]+flutter:[ \t]*$/m.test(text) &&
+      !/^[ \t]+plugin:[ \t]*$/m.test(text)
+    )
       signal("App", "strong", "pubspec.yaml", "It is a Flutter app")
     else signal("Library", "weak", "pubspec.yaml", "It is a Dart package")
   }
@@ -173,14 +180,14 @@ export function classifyRoot(source, files, rootPath) {
       /^\s*name\s*=/.test(l),
     )
     name ??= safeName(/=\s*"([^"]*)"/.exec(nameLine ?? "")?.[1])
-    if (/^\s*\[\[bin\]\]/m.test(text) || has("src/main.rs"))
+    if (/^[ \t]*\[\[bin\]\]/m.test(text) || has("src/main.rs"))
       signal("Service", "strong", "Cargo.toml", "The crate builds a binary")
     else if (tables.has("lib") || has("src/lib.rs"))
       signal("Library", "strong", "Cargo.toml", "The crate is a library")
   }
 
   if (has("go.mod")) {
-    const module = /^module\s+(\S+)/m.exec(read("go.mod"))?.[1] ?? ""
+    const module = /^module[ \t]+(\S+)/m.exec(read("go.mod"))?.[1] ?? ""
     const segments = module.split("/").filter((s) => !/^v\d+$/.test(s))
     name ??= safeName(segments.at(-1))
     const main = [...files].some(

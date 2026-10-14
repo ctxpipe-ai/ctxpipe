@@ -221,11 +221,32 @@ export function classifyTarget(raw, { configName = false } = {}) {
     prefixed !== text || (/^`/.test(prefixed) && inner.includes("${"))
   if (templated) {
     if (!inner.includes("{") || !hasLiteralPart(inner)) return null
-    return TARGET_SHAPE.test(inner) ? { kind: "template", text: inner } : null
+    const clean = withoutSecrets(inner)
+    return TARGET_SHAPE.test(clean) ? { kind: "template", text: clean } : null
   }
-  return inner.length <= MAX_TARGET && TARGET_SHAPE.test(inner)
-    ? { kind: "literal", text: inner }
+  const clean = withoutSecrets(inner)
+  return clean.length <= MAX_TARGET && TARGET_SHAPE.test(clean)
+    ? { kind: "literal", text: clean }
     : null
+}
+
+/**
+ * A target without the parts that can hold a credential: the `user:pass@`
+ * of a URL, and its query and fragment (`?key=…`). The model never sees
+ * them, and the dependency is the host and path.
+ */
+export function withoutSecrets(target) {
+  const scheme = target.indexOf("://")
+  let text = target
+  if (scheme !== -1) {
+    const start = scheme + 3
+    const slash = text.indexOf("/", start)
+    const authorityEnd = slash === -1 ? text.length : slash
+    const at = text.lastIndexOf("@", authorityEnd - 1)
+    if (at >= start) text = text.slice(0, start) + text.slice(at + 1)
+  }
+  const query = text.search(/[?#]/)
+  return query === -1 ? text : text.slice(0, query)
 }
 
 /** Split a rule message "<type> <direction> <client> <variable>"; null for an unknown message. */

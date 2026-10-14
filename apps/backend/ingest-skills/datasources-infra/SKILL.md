@@ -11,7 +11,7 @@ The host runs this skill once, in the repository-wide step (no `--path`), after 
 
 1. Run `node /ctxpipe/skills/datasources-infra/scripts/find-stores.mjs <arguments>`. The script skips the files of deeper roots. The source checkout is read-only.
 2. The script writes JSON that matches `schema.json` to stdout: `roots`, one entry for each root of the map. Each `stores` entry has a `type`, a hint `category`, its `evidence` (a file, a `rule`, and a safe `detail` such as a variable name), and `existing`: the context files of the same kind whose title holds the store name. Each `infrastructure` entry has the same fields. `skipped` lists what the script did not read.
-3. For each store, read its evidence files and the code that uses it (ripgrep and the file tools). Decide:
+3. For each store, read its evidence files and the code that uses it (ripgrep and the file tools). An evidence file can be a `.env*` or `*.tfvars` file. Read only the variable names in it, never its values: use `rg -o '^[A-Za-z_][A-Za-z0-9_]*' <file>`, not the read tool. Decide:
    - the role: primary store for the domain data, cache, session store, search index, analytics, object storage, or a store that only local development or a test uses (for example a Compose service with no deploy file);
    - whether the root uses it. A driver in a manifest shows only that the root declares it. A Terraform or CDK resource shows that the repository provisions it, not that this root reads it;
    - whether it is one store or two. Evidence names one store when it shares a Compose service name, a variable name, a Terraform address, or a CDK construct. Two variable names for one engine are two stores when the code uses them for different jobs. Two roots that use the same store share one file.

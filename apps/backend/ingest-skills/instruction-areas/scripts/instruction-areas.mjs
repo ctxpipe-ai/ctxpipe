@@ -72,6 +72,9 @@ const complete = proposal?.complete === true
 const KEY = /^[a-z0-9][a-z0-9-]{0,59}$/
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
+/** A shorter quote, for example "the", is in almost every file, so it proves nothing. */
+const MIN_QUOTE_LENGTH = 20
+
 /** Paths of the documents whose quote is in the file, at most 5. */
 function documentEvidence(documents) {
   const paths = []
@@ -80,7 +83,7 @@ function documentEvidence(documents) {
     if (
       typeof doc?.path !== "string" ||
       typeof quote !== "string" ||
-      quote.length < 3 ||
+      quote.length < MIN_QUOTE_LENGTH ||
       quote.length > 300 ||
       quote.includes("\n")
     )
@@ -118,10 +121,10 @@ function evaluate(area) {
       })
       continue
     }
-    if (typeof raw.pattern !== "string") {
+    if (typeof raw.pattern !== "string" || raw.pattern.includes("`")) {
       skip(
         null,
-        `The rule ${key} of ${area.slug} has no verified document and no pattern`,
+        `The rule ${key} of ${area.slug} has no verified document and no pattern without a backtick`,
       )
       continue
     }
@@ -136,6 +139,7 @@ function evaluate(area) {
     kept.push({
       ...rule,
       basis: "inferred",
+      pattern: raw.pattern,
       evidence: measured.evidence,
       section: measured.placement === "rules" ? "rules" : "replaced",
     })
@@ -226,7 +230,11 @@ const outputs = new Map() // path -> text
 const deletes = new Map() // path -> reason
 const report = []
 
-const toEvidence = (rule) => ({ basis: rule.basis, paths: rule.evidence })
+const toEvidence = (rule) => ({
+  basis: rule.basis,
+  paths: rule.evidence,
+  ...(rule.pattern === undefined ? {} : { pattern: rule.pattern }),
+})
 
 /** The file's rules and notes without this source, and without a rule that has no evidence left. */
 function withoutSource(parsed) {
