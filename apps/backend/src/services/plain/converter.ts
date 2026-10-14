@@ -90,10 +90,10 @@ function isPrivateUrl(url: string): boolean {
 function withoutPrivateUrls(text: string): string {
   return text
     .replace(
-      /\[([^\]]*)\]\((\S+?)(?:\s+"[^"]*")?\)/g,
+      /\[([^\]]{0,500})\]\((\S{1,2048}?)(?:\s+"[^"]{0,500}")?\)/g,
       (link, label: string, url: string) => (isPrivateUrl(url) ? label : link),
     )
-    .replace(/https?:\/\/[^\s<>()"']+/g, (url) =>
+    .replace(/https?:\/\/[^\s<>()"']{1,2048}/g, (url) =>
       isPrivateUrl(url) ? "[link removed]" : url,
     )
 }
@@ -107,11 +107,12 @@ function redactThreadText(text: string): string {
   return (
     withoutPrivateUrls(text)
       .replace(
-        /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g,
+        /[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,253}\.[A-Za-z]{2,24}/g,
         "[email removed]",
       )
       .replace(
-        /\+\d[\d\s().-]{7,}\d|\(\d{3}\)\s?\d{3}[-.\s]\d{4}|\b\d{3}[-. ]\d{3}[-. ]\d{4}\b/g,
+        // A time zone such as UTC+10 is not a phone number.
+        /(?<![A-Za-z])\+\d[\d\s().-]{7,30}\d|\(\d{3}\)\s?\d{3}[-.\s]\d{4}|\b\d{3}[-. ]\d{3}[-. ]\d{4}\b/g,
         "[phone removed]",
       )
       // A national number that starts with 0 (Australia, the UK): 9 to 11
@@ -130,14 +131,23 @@ function redactThreadText(text: string): string {
 }
 
 /** Text on one line: a title or a name cannot start a heading. */
-const oneLine = (text: string) => text.replace(/\s*\n\s*/g, " ")
+const oneLine = (text: string) => text.replace(/\s+/g, " ")
 
-/** A message body as a quote: its text cannot start a heading. */
+/**
+ * A message body as a quote: its text cannot start a heading. Markdown also
+ * breaks a line at a carriage return, so each line break counts.
+ */
 const quote = (text: string) =>
   text
-    .split("\n")
+    .split(/\r\n?|[\n\u2028\u2029\u0085]/)
     .map((line) => (line ? `> ${line}` : ">"))
     .join("\n")
+
+/** A message keeps 20,000 characters; Plain has the rest. */
+const cut = (text: string) =>
+  text.length > 20_000
+    ? `${text.slice(0, 20_000)}\n\n[The rest of this message is in Plain.]`
+    : text
 
 /**
  * Article HTML as Markdown. An image is a text stub in this version. A
@@ -213,6 +223,8 @@ export function plainThreadFile(input: {
   lines.push("", "## Messages", "")
   if (!thread.messages.length) lines.push("No messages.", "")
   for (const message of thread.messages) {
+    // A fixed prefix gives the kind: a display name cannot change it.
+    const kind = message.internal ? "Internal note" : "Message"
     const heading = [
       message.authorName
         ? oneLine(redactThreadText(message.authorName))
@@ -222,9 +234,9 @@ export function plainThreadFile(input: {
       .filter(Boolean)
       .join(", ")
     lines.push(
-      `### ${heading}${message.internal ? " (internal note)" : ""}`,
+      `### ${kind}: ${heading}`,
       "",
-      quote(redactThreadText(message.text.trim())),
+      quote(redactThreadText(cut(message.text.trim()))),
       "",
     )
   }

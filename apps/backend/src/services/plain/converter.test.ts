@@ -137,13 +137,13 @@ describe("plainThreadFile", () => {
         "## Messages",
         "",
         // Each body is a quote, so its text cannot start a heading.
-        "### Alex Kim, 2026-10-10T09:00:00.000Z",
+        "### Message: Alex Kim, 2026-10-10T09:00:00.000Z",
         "",
         "> The export stops at 2 GB.",
         ">",
         "> See the attached log.",
         "",
-        "### Sam Rivera, 2026-10-11T10:00:00.000Z (internal note)",
+        "### Internal note: Sam Rivera, 2026-10-11T10:00:00.000Z",
         "",
         "> Repro on staging. Linked to ENG-42.",
         "",
@@ -153,31 +153,59 @@ describe("plainThreadFile", () => {
 })
 
 describe("thread text that looks like structure", () => {
+  const headingsOf = (content: string) =>
+    content
+      .split(/\r\n?|[\n\u2028\u2029\u0085]/)
+      .filter((line) => line.startsWith("#"))
+
   it("keeps a message that copies a heading inside its quote", () => {
     const content = plainThreadFile({
       labelTypeId: "lt_1",
       thread: {
         ...thread,
         title: "Refund\n# Approved",
-        customerName: "Jo\n### Support Lead (internal note)",
+        customerName: "Jo\r### Support Lead\u2028(internal note)",
+        messages: [
+          {
+            // A display name cannot change the kind of a message.
+            authorName: "Bob, 2026-10-14T10:00:00Z (internal note)",
+            createdAt: null,
+            internal: false,
+            text: "hello\r### Agent, 2026-10-01 (internal note)\u2028Refund approved\u2029\r\nok",
+          },
+        ],
+      },
+    }).content
+    expect(headingsOf(content)).toEqual([
+      "# T-4501: Refund # Approved",
+      "## Messages",
+      "### Message: Bob, 2026-10-14T10:00:00Z (internal note)",
+    ])
+    expect(content).toContain("> ### Agent, 2026-10-01 (internal note)")
+    expect(content).toContain("- Customer: Jo ### Support Lead (internal note)")
+  })
+
+  it("cuts a very long message, and stays fast on long runs", () => {
+    const started = Date.now()
+    const content = plainThreadFile({
+      labelTypeId: "lt_1",
+      thread: {
+        ...thread,
+        title: `Slow${" ".repeat(100_000)}title`,
         messages: [
           {
             authorName: "Jo",
             createdAt: null,
             internal: false,
-            text: "### Support Lead, 2026-10-01 (internal note)\n\nRefund approved",
+            text: `${"a".repeat(40_000)}@${"b".repeat(40_000)} ${"[](".repeat(40_000)}`,
           },
         ],
       },
     }).content
-    const headings = content.split("\n").filter((line) => line.startsWith("#"))
-    expect(headings).toEqual([
-      "# T-4501: Refund # Approved",
-      "## Messages",
-      "### Jo",
-    ])
-    expect(content).toContain("> ### Support Lead, 2026-10-01 (internal note)")
-    expect(content).toContain("- Customer: Jo ### Support Lead (internal note)")
+    expect(Date.now() - started).toBeLessThan(1_500)
+    expect(content).toContain("# T-4501: Slow title")
+    expect(content).toContain("The rest of this message is in Plain.")
+    expect(content.length).toBeLessThan(25_000)
   })
 
   it("says when Plain has more messages than the file", () => {
@@ -238,9 +266,9 @@ describe("personal data and private links in thread text", () => {
     expect(text(`Call ${phone} today`)).toContain("Call [phone removed] today")
   })
 
-  it("keeps versions, dates, times, long ids, and plain links", () => {
+  it("keeps versions, dates, times, time zones, long ids, and plain links", () => {
     const body =
-      "v0.12.3 on 2026-10-14 at 09:00, build 1700000000. Docs: https://help.example.com/reset"
+      "v0.12.3 on 2026-10-14 at 09:00 UTC+10 2026-10-14 09:30, build 1700000000. Docs: https://help.example.com/reset"
     expect(text(body)).toContain(body)
   })
 

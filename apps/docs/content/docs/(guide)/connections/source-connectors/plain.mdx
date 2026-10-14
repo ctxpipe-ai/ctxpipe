@@ -125,3 +125,9 @@ Removing the connector deletes the webhook target in Plain while the key
 works, then the saved key. The Workspace sources that use it stop syncing.
 Files in GitHub stay. When the key no longer works, delete the target in
 **Settings → Webhooks** in Plain.
+
+### More than one ctx| target in Plain
+
+A failed request can leave an extra ctx| webhook target in Plain. ctx|
+refuses its events. Delete each ctx| target in **Settings → Webhooks** in
+Plain except the newest, or delete all of them and select **Reconnect Plain**.
