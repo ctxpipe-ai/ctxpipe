@@ -1,10 +1,12 @@
 import type { Env } from "../../config/env.js"
+import { formatUnknownError } from "../../db/transientDbRetry.js"
 import {
   getZendeskConnection,
   markZendeskConnectionRevoked,
   saveRefreshedZendeskTokens,
   type ZendeskConnection,
 } from "../../models/zendesk-connector.js"
+import { log } from "../../observability/logger.js"
 import {
   refreshZendeskToken,
   ZendeskAuthorizationRevokedError,
@@ -12,22 +14,22 @@ import {
 
 /**
  * The access token of a caller that lost the refresh race: another caller
- * spent the same refresh token and saved new tokens. Read the row a few
- * times, because the winner saves after its refresh returns.
+ * spent the same refresh token and saved new tokens. Read the row for up
+ * to 5 seconds, because the winner saves after its refresh returns.
  */
 async function tokenOfRaceWinner(
   orgId: string,
   connection: ZendeskConnection,
   env: Env,
 ): Promise<string | null> {
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
     const current = await getZendeskConnection(orgId, connection.id, env)
     if (
       current?.accessToken &&
       current.refreshTokenEnc !== connection.refreshTokenEnc
     )
       return current.accessToken
-    await new Promise((resolve) => setTimeout(resolve, 300))
+    await new Promise((resolve) => setTimeout(resolve, 500))
   }
   return null
 }
@@ -72,12 +74,34 @@ export async function freshZendeskAccessToken(input: {
       })
     throw error
   }
-  await saveRefreshedZendeskTokens({
-    orgId,
-    connectionId: connection.id,
-    env,
-    spentRefreshTokenEnc: connection.refreshTokenEnc,
-    tokens,
-  })
+  // Zendesk spent the old refresh token, so a lost save strands the
+  // connection: try again, and log an error when the save does not land.
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      const saved = await saveRefreshedZendeskTokens({
+        orgId,
+        connectionId: connection.id,
+        env,
+        spentRefreshTokenEnc: connection.refreshTokenEnc,
+        tokens,
+      })
+      if (!saved)
+        log.error({
+          step: "zendesk.tokens.save_lost",
+          connectionId: connection.id,
+          message: "Another caller saved Zendesk tokens first",
+        })
+      break
+    } catch (error) {
+      if (attempt >= 3) {
+        log.error({
+          step: "zendesk.tokens.save_failed",
+          connectionId: connection.id,
+          message: formatUnknownError(error),
+        })
+        break
+      }
+    }
+  }
   return tokens.accessToken
 }

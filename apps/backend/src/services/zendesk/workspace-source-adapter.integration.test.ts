@@ -339,6 +339,37 @@ describe("Zendesk source adapter (Postgres + msw)", () => {
     expect(zd.reads.sort()).toEqual(["categories", "views"])
   })
 
+  it("does not revoke a connection whose token expired during the sync", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    const start = Date.UTC(2026, 9, 14, 12)
+    vi.setSystemTime(new Date(start))
+    const connection = await seed.addConnection("zendesk", {
+      ...installed(),
+      // Valid at the start, expired when the view is read.
+      accessTokenExpiresAt: new Date(start + 90_000).toISOString(),
+    })
+    const both = await addSource(connection, "zd-expiry", {
+      categories: ["36"],
+      views: ["90"],
+    })
+    server.use(
+      http.get(`${API}/views/:id/tickets`, () => {
+        vi.setSystemTime(new Date(start + 120_000))
+        return HttpResponse.json({}, { status: 401 })
+      }),
+    )
+
+    const writes = await sync(connection)
+
+    expect(writes.get(both)?.keepPrefixes).toEqual([
+      "zendesk/tickets/views/90/",
+    ])
+    expect(await getZendeskConnectionStatus(seed.orgId, connection)).toBe(
+      "installed",
+    )
+    server.resetHandlers()
+  })
+
   it("keeps every file and marks the connection revoked when Zendesk refuses its token", async () => {
     const connection = await seed.addConnection("zendesk", installed())
     const docs = await addSource(connection, "zd-revoked", {

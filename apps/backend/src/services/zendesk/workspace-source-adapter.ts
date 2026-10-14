@@ -205,7 +205,12 @@ export const zendeskSourceAdapter: SourceAdapter<ZendeskSourceScope> = {
         keepPaths.push(item.root)
         if (error instanceof ZendeskAuthorizationRevokedError) {
           revoked = true
-          if (connection.accessTokenEnc)
+          // A token that expired during this sync is not a revoke: the next
+          // sync refreshes it.
+          const expired =
+            connection.accessTokenExpiresAt !== null &&
+            Date.parse(connection.accessTokenExpiresAt) <= Date.now()
+          if (connection.accessTokenEnc && !expired)
             await markZendeskConnectionRevoked({
               orgId,
               connectionId,

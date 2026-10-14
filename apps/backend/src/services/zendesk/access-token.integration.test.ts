@@ -133,5 +133,6 @@ describe("freshZendeskAccessToken (Postgres + msw)", () => {
       }),
     ).rejects.toBeInstanceOf(ZendeskAuthorizationRevokedError)
     expect(await getZendeskConnectionStatus(seed.orgId, id)).toBe("revoked")
-  })
+    // Before the revoke, the caller waits up to 5 seconds for a race winner.
+  }, 10_000)
 })
