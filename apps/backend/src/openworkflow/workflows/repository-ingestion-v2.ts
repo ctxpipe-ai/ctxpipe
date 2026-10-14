@@ -28,7 +28,7 @@ import {
   withLogger,
 } from "../../observability/logger.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
-import { cleanUpUnlessParked } from "../isSleepSignal.js"
+import { cleanUpUnlessParked, settledChildren } from "../isSleepSignal.js"
 import {
   type IngestionRoot,
   type IngestionShardInput,
@@ -236,30 +236,28 @@ export function defineRepositoryIngestionV2Workflow(
         for (let n = 0; n < shards; n += SHARD_BATCH) {
           // Wait for every child of the batch, also when one fails, so the
           // run never ends (and cleans up) while a sibling still runs.
-          const settled = await Promise.allSettled(
-            Array.from({ length: Math.min(SHARD_BATCH, shards - n) }, (_, i) =>
-              step.runWorkflow(
-                deps.shard.spec,
-                child(
-                  n + i,
-                  "roots",
-                  roots.slice(
-                    (n + i) * INGEST_SHARD_MAX_ROOTS,
-                    (n + i + 1) * INGEST_SHARD_MAX_ROOTS,
+          const settled = settledChildren(
+            await Promise.allSettled(
+              Array.from(
+                { length: Math.min(SHARD_BATCH, shards - n) },
+                (_, i) =>
+                  step.runWorkflow(
+                    deps.shard.spec,
+                    child(
+                      n + i,
+                      "roots",
+                      roots.slice(
+                        (n + i) * INGEST_SHARD_MAX_ROOTS,
+                        (n + i + 1) * INGEST_SHARD_MAX_ROOTS,
+                      ),
+                      runBase,
+                    ),
+                    { name: `shard:${n + i}` },
                   ),
-                  runBase,
-                ),
-                { name: `shard:${n + i}` },
               ),
             ),
           )
-          for (const result of settled)
-            if (result.status === "rejected") throw result.reason
-          shardOutputs.push(
-            ...settled.flatMap((r) =>
-              r.status === "fulfilled" ? [r.value] : [],
-            ),
-          )
+          shardOutputs.push(...settled)
         }
 
         const workspaces: Extract<
