@@ -17,6 +17,7 @@ import {
   readConversationSandboxFile,
   removeConversationSandboxPath,
   renameConversationSandboxPath,
+  UnsafeConversationPathError,
   writeConversationSandboxFile,
 } from "../../domain/workspaces/conversation-files.js"
 import {
@@ -822,23 +823,30 @@ export const conversationFileRoutes = fileRoutes
         409,
       )
     }
-    if (body.deletePath) {
-      await removeConversationSandboxPath({ handle, path: body.path })
-    } else {
-      if (body.from && body.from !== body.path) {
-        await renameConversationSandboxPath({
-          handle,
-          from: body.from,
-          to: body.path,
-        })
+    try {
+      if (body.deletePath) {
+        await removeConversationSandboxPath({ handle, path: body.path })
+      } else {
+        if (body.from && body.from !== body.path) {
+          await renameConversationSandboxPath({
+            handle,
+            from: body.from,
+            to: body.path,
+          })
+        }
+        if (body.body != null) {
+          await writeConversationSandboxFile({
+            handle,
+            path: body.path,
+            body: body.body,
+          })
+        }
       }
-      if (body.body != null) {
-        await writeConversationSandboxFile({
-          handle,
-          path: body.path,
-          body: body.body,
-        })
+    } catch (error) {
+      if (error instanceof UnsafeConversationPathError) {
+        return c.json({ error: "unsafe_path" }, 400)
       }
+      throw error
     }
     const snapshot = await conversationFileSnapshot({
       handle,
