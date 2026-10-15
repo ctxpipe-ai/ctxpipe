@@ -324,8 +324,19 @@ export const ConversationLoading: Story = {
         { timeout: 15_000 },
       ),
     ).toBeVisible()
-    expect(canvas.queryByRole("list", { name: "Workspace files" })).toBeNull()
-    expect(canvas.queryByText("Loading workspace")).not.toBeInTheDocument()
+    expect(canvas.queryByLabelText("Workspace files")).toBeNull()
+    // The whole-surface skeleton shows while the Workspace loads. It must hand
+    // over to the conversation's own skeleton, which stays: the conversation
+    // never loads in this story.
+    await waitFor(
+      () => {
+        expect(canvas.queryByText("Loading workspace")).not.toBeInTheDocument()
+      },
+      { timeout: 5000 },
+    )
+    expect(
+      canvas.getByRole("navigation", { name: "Main navigation" }),
+    ).toBeVisible()
   },
 }
 
@@ -343,12 +354,13 @@ export const ConversationNavIsChatOnly: Story = {
     await canvas.findByPlaceholderText(
       "What should ctxpipe do in this Workspace?",
     )
-    expect(canvas.queryByRole("list", { name: "Workspace files" })).toBeNull()
-    await userEvent.click(canvas.getByRole("link", { name: "Repo layout" }))
+    expect(canvas.queryByLabelText("Workspace files")).toBeNull()
+    // The conversation list loads after the composer shows.
+    await userEvent.click(await canvas.findByRole("link", { name: "Repo layout" }))
     await waitFor(() => {
       expect(canvas.getByText("How is billing structured?")).toBeInTheDocument()
     })
-    expect(canvas.queryByRole("list", { name: "Workspace files" })).toBeNull()
+    expect(canvas.queryByLabelText("Workspace files")).toBeNull()
     await userEvent.click(
       canvas.getByRole("link", { name: "New conversation in Docs" }),
     )
@@ -359,7 +371,7 @@ export const ConversationNavIsChatOnly: Story = {
         ),
       ).toBeInTheDocument()
     })
-    expect(canvas.queryByRole("list", { name: "Workspace files" })).toBeNull()
+    expect(canvas.queryByLabelText("Workspace files")).toBeNull()
     expect(canvas.queryByText("Loading workspace")).not.toBeInTheDocument()
   },
 }
@@ -378,12 +390,13 @@ export const ConversationKeepsExplicitPaneSearch: Story = {
     await canvas.findByPlaceholderText(
       "What should ctxpipe do in this Workspace?",
     )
-    expect(canvas.getByRole("list", { name: "Workspace files" })).toBeVisible()
-    await userEvent.click(canvas.getByRole("link", { name: "Repo layout" }))
+    expect(canvas.getByLabelText("Workspace files")).toBeVisible()
+    // The conversation list loads after the composer shows.
+    await userEvent.click(await canvas.findByRole("link", { name: "Repo layout" }))
     await waitFor(() => {
       expect(canvas.getByText("How is billing structured?")).toBeInTheDocument()
     })
-    expect(canvas.getByRole("list", { name: "Workspace files" })).toBeVisible()
+    expect(canvas.getByLabelText("Workspace files")).toBeVisible()
   },
 }
 
