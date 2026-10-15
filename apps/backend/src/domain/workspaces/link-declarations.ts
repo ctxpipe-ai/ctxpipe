@@ -1,54 +1,67 @@
+import { SourceChangeError } from "../workspace-sources/edit.js"
 import {
-  isLinkedRepositoryDeclaration,
-  parseLinkedRepositoryMarkdown,
-} from "./layout.js"
+  linkGithubRepositories,
+  unlinkGithubRepository,
+} from "../workspace-sources/github-links.js"
+import { SOURCES_FILE_PATH } from "../workspace-sources/sources-file.js"
 import { linkedRepositoryUrlSchema } from "./linked-repository-url.js"
-import {
-  displayNameFromGitUrl,
-  normalizeSlug,
-  normalizeWorkspaceRepositoryUrl,
-} from "./slug.js"
+import { upgradeLinkedRepositories } from "./migration-export.js"
+import { githubRepoFullNameFromWorkspaceUrl } from "./write-status.js"
 
-function declares(file: { path: string; content: string }, target: string) {
-  if (!isLinkedRepositoryDeclaration(file.path)) return false
-  const parsed = parseLinkedRepositoryMarkdown(file.content)
-  return (
-    !parsed.malformed && normalizeWorkspaceRepositoryUrl(parsed.git) === target
-  )
-}
-
-/** Whether any well-formed declaration in `files` links `gitUrl`. */
-export function declaresLinkedRepository(
-  files: ReadonlyArray<{ path: string; content: string }>,
-  gitUrl: string,
-): boolean {
-  const target = normalizeWorkspaceRepositoryUrl(gitUrl)
-  return files.some((file) => declares(file, target))
-}
-
-/** Edit the canonical declaration, preserving every other repository's document. */
+/**
+ * Link or unlink one repository in `.ctxpipe/sources.yaml` (ADR-050). Link
+ * adds it to a GitHub source of `connectionId`; unlink removes it from each
+ * GitHub source. Before the edit, the GitHub `repositories/*.md` files in
+ * `files` move into the sources file (the upgrade of ADR-050), so the edit
+ * also converts a Workspace that the export did not convert. `refused` tells
+ * why the change cannot go into the file: the repository is not on GitHub,
+ * or the file is not valid.
+ */
 export function changeLinkedRepository(input: {
-  files: ReadonlyArray<{ path: string; content: string }>
+  sourcesFile: string | null
   action: "link" | "unlink"
   gitUrl: string
-}): { files: Array<{ path: string; content: string }>; deletePaths: string[] } {
-  const target = linkedRepositoryUrlSchema.parse(input.gitUrl)
-  const matches = input.files.filter((file) => declares(file, target))
-  if (input.action === "unlink")
-    return { files: [], deletePaths: matches.map((file) => file.path) }
-  if (matches.length) return { files: [], deletePaths: [] }
-  const name = normalizeSlug(displayNameFromGitUrl(input.gitUrl))
-  const occupied = new Set(input.files.map((file) => file.path))
-  let suffix = 1
-  let path = `repositories/${name}.md`
-  while (occupied.has(path)) path = `repositories/${name}-${++suffix}.md`
+  connectionId: string
+  files?: ReadonlyArray<{ path: string; content: string }>
+}): {
+  files: Array<{ path: string; content: string }>
+  deletePaths: string[]
+  refused: string | null
+} {
+  const name = githubRepoFullNameFromWorkspaceUrl(
+    linkedRepositoryUrlSchema.parse(input.gitUrl),
+  )
+  if (!name)
+    return {
+      files: [],
+      deletePaths: [],
+      refused: "Only a GitHub repository can be linked to a Workspace",
+    }
+  const upgrade = upgradeLinkedRepositories({
+    sourcesFile: input.sourcesFile,
+    connectionId: input.connectionId,
+    files: input.files ?? [],
+  })
+  const upgraded = upgrade.sourcesFile ?? input.sourcesFile
+  let text: string | null
+  try {
+    text =
+      input.action === "link"
+        ? linkGithubRepositories({
+            sourcesFile: upgraded,
+            connectionId: input.connectionId,
+            repositories: [{ name, ref: null }],
+          })
+        : unlinkGithubRepository({ sourcesFile: upgraded, name })
+  } catch (error) {
+    if (error instanceof SourceChangeError)
+      return { files: [], deletePaths: [], refused: error.message }
+    throw error
+  }
+  const content = text ?? upgrade.sourcesFile
   return {
-    files: [
-      {
-        path,
-        content: `---\ngit: ${JSON.stringify(target)}\n---\n`,
-      },
-    ],
-    deletePaths: [],
+    files: content === null ? [] : [{ path: SOURCES_FILE_PATH, content }],
+    deletePaths: upgrade.deletePaths,
+    refused: null,
   }
 }

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest"
-import { FILE_ERROR_SOURCE_KEY, planSourceRows } from "./projection-plan.js"
+import {
+  FILE_ERROR_SOURCE_KEY,
+  planSourceRows,
+  unmatchedSourceDetail,
+} from "./projection-plan.js"
 
 const connections = new Map([
   ["con_linear1", { id: "con_linear1", type: "linear" }],
@@ -96,5 +100,67 @@ sources:
       connections,
     })
     expect(bomb).toMatchObject({ sourceKey: ".file", status: "invalid" })
+  })
+
+  it("shows each repository file that cannot move as an invalid row", async () => {
+    const rows = await planSourceRows({
+      text: null,
+      connections,
+      leftoverFiles: [
+        {
+          path: "repositories/tools.md",
+          reason: "ctx| links only GitHub repositories",
+        },
+      ],
+    })
+    expect(rows).toEqual([
+      {
+        sourceKey: "repositories/tools.md",
+        provider: null,
+        connectionId: null,
+        scope: {},
+        status: "invalid",
+        statusDetail:
+          "repositories/tools.md: ctx| links only GitHub repositories. Move the link into .ctxpipe/sources.yaml or remove the file.",
+      },
+    ])
+  })
+})
+
+describe("unmatchedSourceDetail", () => {
+  const plan = (text: string) => planSourceRows({ text, connections })
+
+  it("tells when a missing source can still be in the file", async () => {
+    expect(unmatchedSourceDetail(await plan("version: [\n"))).toBe(
+      "The sources file cannot be read",
+    )
+    expect(
+      unmatchedSourceDetail(
+        await plan(`version: 1
+sources:
+  - id: Not An Id
+    provider: linear
+    connection: con_linear1
+    teams: [ENG]
+`),
+      ),
+    ).toBe("An entry without a readable id can be this source")
+  })
+
+  it("gives null when every entry has a readable id", async () => {
+    expect(unmatchedSourceDetail(await plan("version: 1\nsources: []\n"))).toBe(
+      null,
+    )
+    expect(
+      unmatchedSourceDetail(
+        await plan(`version: 1
+sources:
+  - id: issues
+    provider: linear
+    connection: con_linear1
+    teams: 5
+`),
+      ),
+    ).toBe(null)
   })
 })

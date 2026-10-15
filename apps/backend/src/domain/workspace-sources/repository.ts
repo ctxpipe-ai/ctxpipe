@@ -1,4 +1,5 @@
 import { type Env, parseEnv } from "../../config/env.js"
+import { workspaceRootPath } from "../workspaces/root-path.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../workspaces/write-status.js"
 
 /**
@@ -12,6 +13,7 @@ export function workspaceGithubRepository(
     workspaceRepositoryUrl: string
     githubConnectionId: string | null
     desiredDefaultBranch?: string | null
+    rootPath?: string
   },
   env: Env = parseEnv(process.env),
 ) {
@@ -25,5 +27,7 @@ export function workspaceGithubRepository(
     repositoryName,
     githubConnectionId: workspace.githubConnectionId,
     branch: workspace.desiredDefaultBranch ?? "main",
+    // File reads and pull requests stay below the Workspace root folder.
+    rootPath: workspaceRootPath(workspace),
   }
 }

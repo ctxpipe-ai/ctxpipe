@@ -26,11 +26,15 @@ import { gitSourceMatchesQuery } from "@/features/repositories/gitSourcesFilter"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { eligibleInstallationRepos } from "./gitUrl"
 import { fetchWorkspaces, workspaceKeys } from "./queries"
+import { normalizeRootFolder, rootFolderError } from "./rootFolder"
+import { WorkspaceRootFolderField } from "./WorkspaceRootFolderField"
 
 export type WorkspaceRepositoryChoice = {
   gitUrl: string
   githubConnectionId?: string
   source: "select" | "paste"
+  /** Normalized root folder; "" is the whole repository. */
+  rootPath: string
 }
 
 type Mode = "select" | "create" | "paste"
@@ -38,6 +42,7 @@ type Mode = "select" | "create" | "paste"
 export function WorkspaceRepositoryPicker(props: {
   orgSlug: string
   currentUrl?: string
+  currentRootPath?: string
   submitLabel: string
   pending?: boolean
   error?: string | null
@@ -49,6 +54,9 @@ export function WorkspaceRepositoryPicker(props: {
   const [searchQuery, setSearchQuery] = useState("")
   const [sort, setSort] = useState<GithubRepoSort>("pushed-desc")
   const [selectedId, setSelectedId] = useState<number | null>(null)
+  const [rootFolder, setRootFolder] = useState(props.currentRootPath ?? "")
+  const rootFolderValid = rootFolderError(rootFolder) === null
+  const rootPath = normalizeRootFolder(rootFolder)
 
   const existing = useQuery({
     queryKey: workspaceKeys.list(orgSlug),
@@ -107,6 +115,13 @@ export function WorkspaceRepositoryPicker(props: {
           </InlineAlert>
         </div>
       ) : null}
+      <div className="mb-4">
+        <WorkspaceRootFolderField
+          value={rootFolder}
+          onChange={setRootFolder}
+          isDisabled={pending}
+        />
+      </div>
       <Tabs
         selectedKey={mode}
         onSelectionChange={(key) => {
@@ -148,8 +163,13 @@ export function WorkspaceRepositoryPicker(props: {
                 setSelectedId(selected ? id : null)
               }}
               onSubmit={(gitUrl, githubConnectionId) => {
-                if (!githubConnectionId) return
-                onSubmit({ gitUrl, githubConnectionId, source: "select" })
+                if (!githubConnectionId || !rootFolderValid) return
+                onSubmit({
+                  gitUrl,
+                  githubConnectionId,
+                  source: "select",
+                  rootPath,
+                })
               }}
               githubConnectionId={selectedRepo?.githubConnectionId}
               accessReady={accessReady}
@@ -184,8 +204,8 @@ export function WorkspaceRepositoryPicker(props: {
               className="flex items-end gap-2"
               onSubmit={(event) => {
                 event.preventDefault()
-                if (gitUrl.trim()) {
-                  onSubmit({ gitUrl: gitUrl.trim(), source: "paste" })
+                if (gitUrl.trim() && rootFolderValid) {
+                  onSubmit({ gitUrl: gitUrl.trim(), source: "paste", rootPath })
                 }
               }}
             >
@@ -204,7 +224,7 @@ export function WorkspaceRepositoryPicker(props: {
                 type="submit"
                 variant="primary"
                 className="shrink-0"
-                isDisabled={pending || !gitUrl.trim()}
+                isDisabled={pending || !gitUrl.trim() || !rootFolderValid}
               >
                 {submitLabel}
               </Button>

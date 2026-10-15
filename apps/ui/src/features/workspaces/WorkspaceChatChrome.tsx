@@ -199,10 +199,10 @@ export function WorkspaceChatChrome(props: {
 /**
  * The CTA button: Sync, Create PR and Show PR use the primary Button variant
  * (light face, dark text, hover and pressed states). This only shrinks it to
- * 28px, centered on the 32px trigger row.
+ * 27px, centered on the 37px trigger row (5px above and below).
  */
 const ctaClassName =
-  "my-1 h-7 -translate-y-px gap-1.5 border-0 px-2.5 text-xs font-normal leading-none"
+  "my-[5px] h-[27px] gap-1.5 border-0 px-2.5 text-xs font-normal leading-none"
 
 /** The CTA face is the `cta` token: the primary face, a little dimmer in dark mode. */
 const ctaPrimaryClassName = "bg-cta hover:bg-cta/90 pressed:bg-cta/80"

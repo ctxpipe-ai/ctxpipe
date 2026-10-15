@@ -1,5 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
+import { directWriteRoute } from "../../auth/write-grant.js"
 import { workspaceAllowsConversationEdits } from "../../domain/workspaces/chat-sandbox-policy.js"
 import {
   HYDRATE_SKIP_REASONS,
@@ -10,6 +11,10 @@ import {
   type ProjectionState,
   publishedProjection,
 } from "../../domain/workspaces/revision.js"
+import {
+  workspaceRootPath,
+  workspaceRootPathSchema,
+} from "../../domain/workspaces/root-path.js"
 import {
   createWorkspaceLifecycle,
   relinkWorkspaceLifecycle,
@@ -53,7 +58,7 @@ const WorkspaceSkippedFileSchema = z
       .openapi({ description: "Path in the Workspace repository" }),
     reason: z.enum(HYDRATE_SKIP_REASONS).openapi({
       description:
-        "`malformed`: the front matter, or the `git` URL of a linked-repository file, is not valid. `duplicate_repository`: the file links a repository that an earlier file links, or the Workspace repository itself.",
+        "`malformed`: the front matter is not valid. `duplicate_repository`: only in results of an earlier version, when a `repositories/*.md` file linked a repository that was already linked.",
     }),
   })
   .openapi("WorkspaceSkippedFile")
@@ -65,6 +70,10 @@ const WorkspaceSchema = z
     slug: z.string(),
     displayName: z.string(),
     workspaceRepositoryUrl: z.string(),
+    rootPath: z.string().openapi({
+      description:
+        'Folder in the repository that holds the Workspace. ctx| reads and changes files only below it. `""` is the repository root.',
+    }),
     githubConnectionId: z.string().nullable(),
     desiredGeneration: z.number().int(),
     desiredSha: z.string().nullable(),
@@ -115,6 +124,10 @@ const CreateWorkspaceRequestSchema = z
     slug: z.string().min(1).optional(),
     githubConnectionId: z.string().min(1).optional(),
     source: WorkspaceAddSourceSchema.optional(),
+    rootPath: workspaceRootPathSchema.optional().openapi({
+      description:
+        'Folder in the repository that holds the Workspace, for example `docs/context`. Omit it or send `""` for the repository root.',
+    }),
   })
   .openapi("CreateWorkspaceRequest")
 
@@ -125,6 +138,10 @@ const UpdateWorkspaceRequestSchema = z
     workspaceRepositoryUrl: z.string().min(1).optional(),
     githubConnectionId: z.string().min(1).nullable().optional(),
     source: WorkspaceAddSourceSchema.optional(),
+    rootPath: workspaceRootPathSchema.optional().openapi({
+      description:
+        'Folder in the repository that holds the Workspace, for example `docs/context`. Omit it or send `""` for the repository root.',
+    }),
   })
   .openapi("UpdateWorkspaceRequest")
 
@@ -152,6 +169,7 @@ function serializeWorkspace(
     slug: string
     displayName: string
     workspaceRepositoryUrl: string
+    rootPath: string
     githubConnectionId: string | null
     desiredGeneration: number
     desiredSha: string | null
@@ -174,6 +192,7 @@ function serializeWorkspace(
     slug: row.slug,
     displayName: row.displayName,
     workspaceRepositoryUrl: row.workspaceRepositoryUrl,
+    rootPath: workspaceRootPath(row),
     githubConnectionId: row.githubConnectionId,
     desiredGeneration: row.desiredGeneration,
     desiredSha: row.desiredSha,
@@ -212,35 +231,37 @@ const listWorkspacesRoute = createRoute({
   },
 })
 
-const createWorkspaceRoute = createRoute({
-  method: "post",
-  path: "/",
-  request: {
-    body: {
-      content: {
-        "application/json": { schema: CreateWorkspaceRequestSchema },
+const createWorkspaceRoute = createRoute(
+  directWriteRoute({
+    method: "post",
+    path: "/",
+    request: {
+      body: {
+        content: {
+          "application/json": { schema: CreateWorkspaceRequestSchema },
+        },
       },
     },
-  },
-  responses: {
-    201: {
-      content: { "application/json": { schema: WorkspaceSchema } },
-      description: "Created Workspace",
+    responses: {
+      201: {
+        content: { "application/json": { schema: WorkspaceSchema } },
+        description: "Created Workspace",
+      },
+      400: {
+        content: { "application/json": { schema: ErrorResponseSchema } },
+        description: "Invalid request",
+      },
+      401: {
+        content: { "application/json": { schema: ErrorResponseSchema } },
+        description: "Unauthorized",
+      },
+      409: {
+        content: { "application/json": { schema: ErrorResponseSchema } },
+        description: "Workspace repository URL already used",
+      },
     },
-    400: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Invalid request",
-    },
-    401: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unauthorized",
-    },
-    409: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Workspace repository URL already used",
-    },
-  },
-})
+  }),
+)
 
 const getWorkspaceRoute = createRoute({
   method: "get",
@@ -262,73 +283,77 @@ const getWorkspaceRoute = createRoute({
   },
 })
 
-const patchWorkspaceRoute = createRoute({
-  method: "patch",
-  path: "/{workspaceSlug}",
-  request: {
-    params: WorkspaceSlugParamsSchema,
-    body: {
-      content: {
-        "application/json": { schema: UpdateWorkspaceRequestSchema },
+const patchWorkspaceRoute = createRoute(
+  directWriteRoute({
+    method: "patch",
+    path: "/{workspaceSlug}",
+    request: {
+      params: WorkspaceSlugParamsSchema,
+      body: {
+        content: {
+          "application/json": { schema: UpdateWorkspaceRequestSchema },
+        },
       },
     },
-  },
-  responses: {
-    200: {
-      content: { "application/json": { schema: WorkspaceSchema } },
-      description: "Updated Workspace",
+    responses: {
+      200: {
+        content: { "application/json": { schema: WorkspaceSchema } },
+        description: "Updated Workspace",
+      },
+      400: {
+        content: { "application/json": { schema: ErrorResponseSchema } },
+        description: "Invalid request",
+      },
+      401: {
+        content: { "application/json": { schema: ErrorResponseSchema } },
+        description: "Unauthorized",
+      },
+      404: {
+        content: { "application/json": { schema: ErrorResponseSchema } },
+        description: "Not found",
+      },
+      409: {
+        content: { "application/json": { schema: ErrorResponseSchema } },
+        description:
+          "Slug or workspace repository URL conflict, or a rename that cannot be written to the Workspace repository",
+      },
     },
-    400: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Invalid request",
-    },
-    401: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unauthorized",
-    },
-    404: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Not found",
-    },
-    409: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description:
-        "Slug or workspace repository URL conflict, or a rename that cannot be written to the Workspace repository",
-    },
-  },
-})
+  }),
+)
 
-const deleteWorkspaceRoute = createRoute({
-  method: "delete",
-  path: "/{workspaceSlug}",
-  request: {
-    params: WorkspaceSlugParamsSchema,
-    body: {
-      content: {
-        "application/json": { schema: DeleteWorkspaceRequestSchema },
+const deleteWorkspaceRoute = createRoute(
+  directWriteRoute({
+    method: "delete",
+    path: "/{workspaceSlug}",
+    request: {
+      params: WorkspaceSlugParamsSchema,
+      body: {
+        content: {
+          "application/json": { schema: DeleteWorkspaceRequestSchema },
+        },
       },
     },
-  },
-  responses: {
-    204: { description: "Deleted Workspace" },
-    400: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "confirmName does not match the display name",
+    responses: {
+      204: { description: "Deleted Workspace" },
+      400: {
+        content: { "application/json": { schema: ErrorResponseSchema } },
+        description: "confirmName does not match the display name",
+      },
+      401: {
+        content: { "application/json": { schema: ErrorResponseSchema } },
+        description: "Unauthorized",
+      },
+      404: {
+        content: { "application/json": { schema: ErrorResponseSchema } },
+        description: "Not found",
+      },
+      409: {
+        content: { "application/json": { schema: ErrorResponseSchema } },
+        description: "Workspace sandboxes could not be destroyed",
+      },
     },
-    401: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unauthorized",
-    },
-    404: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Not found",
-    },
-    409: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Workspace sandboxes could not be destroyed",
-    },
-  },
-})
+  }),
+)
 
 const touchWorkspaceRoute = createRoute({
   method: "post",
@@ -347,45 +372,50 @@ const touchWorkspaceRoute = createRoute({
   },
 })
 
-const retryPrepareWorkspaceRoute = createRoute({
-  method: "post",
-  path: "/{workspaceSlug}/retry-prepare",
-  request: { params: WorkspaceSlugParamsSchema },
-  responses: {
-    200: {
-      content: { "application/json": { schema: WorkspaceSchema } },
-      description: "Retry Workspace prepare",
+const retryPrepareWorkspaceRoute = createRoute(
+  directWriteRoute({
+    method: "post",
+    path: "/{workspaceSlug}/retry-prepare",
+    request: { params: WorkspaceSlugParamsSchema },
+    responses: {
+      200: {
+        content: { "application/json": { schema: WorkspaceSchema } },
+        description: "Retry Workspace prepare",
+      },
+      401: {
+        content: { "application/json": { schema: ErrorResponseSchema } },
+        description: "Unauthorized",
+      },
+      404: {
+        content: { "application/json": { schema: ErrorResponseSchema } },
+        description: "Not found",
+      },
     },
-    401: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unauthorized",
-    },
-    404: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Not found",
-    },
-  },
-})
+  }),
+)
 
-const checkWriteAccessWorkspaceRoute = createRoute({
-  method: "post",
-  path: "/{workspaceSlug}/check-write-access",
-  request: { params: WorkspaceSlugParamsSchema },
-  responses: {
-    200: {
-      content: { "application/json": { schema: WorkspaceSchema } },
-      description: "Check Workspace write access again",
+// The tip check resumes paused write jobs and queues a migration export.
+const checkWriteAccessWorkspaceRoute = createRoute(
+  directWriteRoute({
+    method: "post",
+    path: "/{workspaceSlug}/check-write-access",
+    request: { params: WorkspaceSlugParamsSchema },
+    responses: {
+      200: {
+        content: { "application/json": { schema: WorkspaceSchema } },
+        description: "Check Workspace write access again",
+      },
+      401: {
+        content: { "application/json": { schema: ErrorResponseSchema } },
+        description: "Unauthorized",
+      },
+      404: {
+        content: { "application/json": { schema: ErrorResponseSchema } },
+        description: "Not found",
+      },
     },
-    401: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unauthorized",
-    },
-    404: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Not found",
-    },
-  },
-})
+  }),
+)
 
 export const workspaceRoutes = new OpenAPIHono<AppEnv>()
   .openapi(listWorkspacesRoute, async (c) => {
@@ -418,6 +448,7 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
       slug: body.slug,
       githubConnectionId: body.githubConnectionId,
       source: body.source,
+      rootPath: body.rootPath,
       log: c.get("log"),
     })
     return c.json(serializeWorkspace(created, null), 201)
@@ -475,13 +506,16 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
       body.workspaceRepositoryUrl !== undefined ||
       body.githubConnectionId !== undefined ||
       body.source !== undefined
+    const rootMoved =
+      body.rootPath !== undefined &&
+      body.rootPath !== workspaceRootPath(current)
     const trimmedName = body.displayName?.trim()
     // The settings form always sends the name, so only a new name renames.
     const renamed =
       trimmedName && trimmedName !== current.displayName
         ? trimmedName
         : undefined
-    if (renamed && bindingSubmitted)
+    if (renamed && (bindingSubmitted || rootMoved))
       return c.json(
         {
           error:
@@ -525,6 +559,7 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
       nextSlug: body.slug,
       persistConnection,
       bindingSubmitted,
+      rootPath: body.rootPath,
       log: c.get("log"),
     })
     if (!updated) return c.json({ error: "Not found" }, 404)

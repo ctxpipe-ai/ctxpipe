@@ -12,16 +12,11 @@ import {
   finalizeNotionBindingAfterContentWorkflow,
   getNotionBindingWithRepoByConnectionId,
 } from "../../models/notion-connector.js"
-import {
-  createLogger,
-  getLogger,
-  withLogger,
-} from "../../observability/logger.js"
+import { createLogger, withLogger } from "../../observability/logger.js"
 import { parseNotionConfigYamlContent } from "../../services/notion/config-yaml.js"
 import { loadNotionConnection } from "../../services/notion/connection-load.js"
 import { captureNotionContent } from "../../services/notion/sync.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
-import { enqueueLegacySyncRepositoryIngestion } from "../legacy-sync-repository-ingestion.js"
 import { parsedNotionRepoScopeSchema } from "../notion-scope-repo-schema.js"
 import { workspaceConnectorMirror } from "./workspace-connector-mirror.js"
 
@@ -182,26 +177,6 @@ export const notionSyncContent = defineWorkflow(
                 { name: "commit-notion-mirror" },
               )
             : null
-        if (captured.status !== "failed") {
-          await step.run({ name: "ingest-notion-content" }, () =>
-            enqueueLegacySyncRepositoryIngestion(
-              {
-                connectionId: input.connectionId,
-                orgId: input.orgId,
-                repositoryId: context.binding.repositoryId,
-                targetBranch: context.binding.branch,
-                indexingReason: "Syncing Notion content",
-              },
-              {
-                error: (error) =>
-                  getLogger().error(error, {
-                    step: "notion-sync-content.ingestion",
-                    connectionId: input.connectionId,
-                  }),
-              },
-            ),
-          )
-        }
         await step.run({ name: "finalize-setup-phase" }, () =>
           finalizeNotionBindingAfterContentWorkflow({
             connectionId: input.connectionId,

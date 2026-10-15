@@ -272,7 +272,8 @@ const creatorState = { orgCreated: false, orgCompleted: false }
  * GitHub, and lands on Home, because the new organization has no Workspace.
  */
 export const AdminFlowSkipGithubLandsOnHome: Story = {
-  tags: ["workspace-golden"],
+  // Reduced motion shows the hero at once, so the play does not wait on the typing timer.
+  tags: ["workspace-golden", "reduced-motion"],
   render: () => <OnboardingJourney urlOrgSlug={null} />,
   beforeEach: () => {
     creatorSession.reset()
@@ -292,12 +293,11 @@ export const AdminFlowSkipGithubLandsOnHome: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    const getStarted = await canvas.findByRole("button", {
-      name: "Get started",
-    })
-    // The button shows after the typed hero.
-    await waitFor(() => expect(getStarted).toBeVisible(), { timeout: 4000 })
-    await userEvent.click(getStarted)
+    // The reveal runs in an effect, so the button can still be transparent at first.
+    await waitFor(() =>
+      expect(canvas.getByRole("button", { name: "Get started" })).toBeVisible(),
+    )
+    await userEvent.click(canvas.getByRole("button", { name: "Get started" }))
     await canvas.findByRole("heading", { name: "How ctx| works" })
     expect(
       canvas.getAllByRole("button", { name: /^Go to slide/ }),

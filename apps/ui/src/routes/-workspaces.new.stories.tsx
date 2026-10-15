@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, userEvent, within } from "storybook/test"
 import {
   githubInstallationReposHandler,
+  orgGithubConnectionsHandler,
   workspaceListHandler,
 } from "@/mocks/workspace-handlers"
 import { orgPageDecorators } from "../../.storybook/decorators/entry-page-decorators"
@@ -24,7 +25,11 @@ const meta = {
     } satisfies StoryRouteParams,
     msw: {
       handlers: {
-        page: [workspaceListHandler([]), githubInstallationReposHandler()],
+        page: [
+          workspaceListHandler([]),
+          orgGithubConnectionsHandler(),
+          githubInstallationReposHandler(),
+        ],
       },
     },
   },

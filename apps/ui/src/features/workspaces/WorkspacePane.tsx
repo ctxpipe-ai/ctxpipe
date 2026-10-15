@@ -347,7 +347,7 @@ export function WorkspacePane(props: {
                   <span className="relative size-4">
                     <IconArrowsDiagonal2
                       className={cn(
-                        "absolute inset-0 transition-[opacity,scale] ease-out",
+                        "absolute inset-0 transition-[opacity,scale] duration-100 ease-out",
                         props.maximized
                           ? "scale-75 opacity-0"
                           : "scale-100 opacity-100",
@@ -357,7 +357,7 @@ export function WorkspacePane(props: {
                     />
                     <IconArrowsDiagonalMinimize
                       className={cn(
-                        "absolute inset-0 transition-[opacity,scale] ease-out",
+                        "absolute inset-0 transition-[opacity,scale] duration-100 ease-out",
                         props.maximized
                           ? "scale-100 opacity-100"
                           : "scale-75 opacity-0",

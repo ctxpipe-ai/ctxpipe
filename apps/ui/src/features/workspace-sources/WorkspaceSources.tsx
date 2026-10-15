@@ -430,8 +430,12 @@ export function WorkspaceSources(props: {
       connectionsOf(provider).length > 0 ||
       (provider === "github" && (linkedRepositories?.length ?? 0) > 0),
   )
+  const linkErrors = data?.linkErrors ?? []
   const isEmpty =
-    groups.length === 0 && unknownProvider.length === 0 && !data?.fileError
+    groups.length === 0 &&
+    unknownProvider.length === 0 &&
+    !data?.fileError &&
+    linkErrors.length === 0
 
   return (
     // The section is the container of the table columns (`source-table.ts`).
@@ -523,6 +527,28 @@ export function WorkspaceSources(props: {
               </InlineAlert>
             </div>
           ) : null}
+          {linkErrors.length > 0 ? (
+            <div className="mt-4">
+              <InlineAlert
+                variant="warning"
+                title={
+                  linkErrors.length === 1
+                    ? "A repository link was not saved"
+                    : `${linkErrors.length} repository links were not saved`
+                }
+              >
+                <ul className="flex flex-col gap-1">
+                  {linkErrors.map((error) => (
+                    <li key={error.gitUrl}>
+                      {error.action === "link" ? "Link" : "Unlink"}{" "}
+                      <code className="font-mono">{error.gitUrl}</code>:{" "}
+                      {error.reason}
+                    </li>
+                  ))}
+                </ul>
+              </InlineAlert>
+            </div>
+          ) : null}
           <div className="mt-4 overflow-hidden rounded-md border border-white/[0.06]">
             <div aria-hidden className={sourceTableHeadClassName}>
               <span>Source</span>
@@ -549,7 +575,11 @@ export function WorkspaceSources(props: {
                         pending={pendingOf(source.sourceKey)}
                         showDetail
                         onEdit={null}
-                        onRemove={canEdit ? () => setRemoving(source) : null}
+                        onRemove={
+                          canEdit && source.removable
+                            ? () => setRemoving(source)
+                            : null
+                        }
                       />
                     ))}
                   </ul>
@@ -668,7 +698,9 @@ export function WorkspaceSources(props: {
                                 : null
                             }
                             onRemove={
-                              canEdit ? () => setRemoving(source) : null
+                              canEdit && source.removable
+                                ? () => setRemoving(source)
+                                : null
                             }
                           />
                         ))}

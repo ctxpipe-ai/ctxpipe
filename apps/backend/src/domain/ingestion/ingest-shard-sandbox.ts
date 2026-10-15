@@ -88,6 +88,7 @@ function heldStepIndex(input: {
   githubConnectionId: string
   pinnedRevision: string
   sourceUrl: string
+  rootPath: string | undefined
 }) {
   return holdScratch(
     `index:${input.runId}:${input.shard}:${input.workspaceId}`,
@@ -106,6 +107,7 @@ function heldStepIndex(input: {
           pinnedRevision: input.pinnedRevision,
           sourceUrl: input.sourceUrl,
           repoDir: dir,
+          rootPath: input.rootPath,
           projection: () =>
             listWorkspaceUnitsAtRevision(
               input.workspaceId,
@@ -312,6 +314,7 @@ function shardRuntime(spec: IngestShardSpec): IngestShardRuntime {
       githubConnectionId: destination.githubConnectionId,
       pinnedRevision: destination.pinnedRevision,
       sourceUrl: spec.source.url,
+      rootPath: destination.rootPath,
     })
     return (await held.index.at(step.baseCommit, step.fetchRef)).json
   }

@@ -116,6 +116,13 @@ export function conversationBranchPushTool(input: {
           uncommitted,
           next: "Only ctx| adds or changes the generated_by and sources front matter fields, because they give a file to ingestion. A new commit that undoes the change is not sufficient, because each commit is checked. Remove the change from every unpushed commit (for example, `git reset --soft` to the last pushed commit, undo the change, and commit again), then push again.",
         }
+      if (outcome.status === "skipped" && outcome.reason === "outside_root")
+        return {
+          pushed: false,
+          reason: outcome.reason,
+          uncommitted,
+          next: "Your commits change files outside the Workspace root folder. Undo those changes in new commits or rebase them out, keep only files below the root folder, and push again.",
+        }
       return { pushed: false, reason: outcome.reason, uncommitted }
     },
   }

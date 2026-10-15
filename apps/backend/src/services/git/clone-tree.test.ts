@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process"
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { createServer } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -50,6 +50,48 @@ describe("clone-tree", { timeout: 30_000 }, () => {
     expect(await listMarkdownFilesAtGitSha({ url: dir, sha })).toEqual([
       { path: "knowledge.md", content: "# SHA-256 knowledge\n" },
     ])
+  })
+
+  it("resolves a linked ref that is a branch, a light tag, or an annotated tag", async () => {
+    dir = await mkdtemp(join(tmpdir(), "ctxpipe-tag-tip-"))
+    const git = async (...args: string[]) =>
+      (
+        await execFileAsync("git", [
+          "-C",
+          dir as string,
+          "-c",
+          "user.name=Contract",
+          "-c",
+          "user.email=contract@example.test",
+          ...args,
+        ])
+      ).stdout.trim()
+    await git("init", "-b", "main")
+    await writeFile(join(dir, "a.md"), "# A\n")
+    await git("add", ".")
+    await git("commit", "-m", "First")
+    const first = await git("rev-parse", "HEAD")
+    await git("tag", "v1")
+    await git("tag", "-a", "v1-annotated", "-m", "Release")
+    await writeFile(join(dir, "a.md"), "# A2\n")
+    await git("commit", "-am", "Second")
+    const second = await git("rev-parse", "HEAD")
+
+    expect(await resolveGitRemoteTip({ url: dir, branch: "main" })).toEqual({
+      sha: second,
+      branch: "main",
+    })
+    expect(await resolveGitRemoteTip({ url: dir, branch: "v1" })).toEqual({
+      sha: first,
+      branch: "v1",
+    })
+    // An annotated tag resolves to its commit, not to the tag object.
+    expect(
+      await resolveGitRemoteTip({ url: dir, branch: "v1-annotated" }),
+    ).toEqual({ sha: first, branch: "v1-annotated" })
+    expect(await resolveGitRemoteTip({ url: dir, branch: "missing" })).toBe(
+      null,
+    )
   })
 
   it("reports the introducing and the last commit time of each Markdown path", async () => {
@@ -107,6 +149,63 @@ describe("clone-tree", { timeout: 30_000 }, () => {
       {
         path: "kept.md",
         introducingCommitTimestamp: "2026-01-01T00:00:00.000Z",
+        lastCommitTimestamp: "2026-01-01T00:00:00.000Z",
+      },
+    ])
+  })
+
+  it("reads only the Markdown below a Workspace root folder, with root-relative paths", async () => {
+    dir = await mkdtemp(join(tmpdir(), "ctxpipe-root-tree-"))
+    const git = async (...args: string[]) =>
+      (
+        await execFileAsync("git", ["-C", dir as string, ...args], {
+          env: {
+            ...process.env,
+            GIT_AUTHOR_DATE: "2026-01-01T00:00:00Z",
+            GIT_COMMITTER_DATE: "2026-01-01T00:00:00Z",
+          },
+        })
+      ).stdout.trim()
+    await git("init", "-b", "main")
+    await mkdir(join(dir, "docs/context/.ctxpipe"), { recursive: true })
+    await writeFile(join(dir, "README.md"), "# Repo\n")
+    await writeFile(join(dir, "docs/context/AGENTS.md"), "# Context\n")
+    await writeFile(
+      join(dir, "docs/context/.ctxpipe/sources.yaml"),
+      "sources: []\n",
+    )
+    await git("add", ".")
+    await git(
+      "-c",
+      "user.name=Contract",
+      "-c",
+      "user.email=contract@example.test",
+      "commit",
+      "-m",
+      "seed",
+    )
+    const files = await listMarkdownFilesAtGitSha({
+      url: dir,
+      sha: await git("rev-parse", "HEAD"),
+      includeIntroducingCommits: true,
+      extraPaths: [".ctxpipe/sources.yaml"],
+      root: "docs/context",
+    })
+    expect(
+      files.map(({ path, content, lastCommitTimestamp }) => ({
+        path,
+        content,
+        lastCommitTimestamp,
+      })),
+    ).toEqual([
+      {
+        path: ".ctxpipe/sources.yaml",
+        content: "sources: []\n",
+        lastCommitTimestamp: undefined,
+      },
+      {
+        path: "AGENTS.md",
+        content: "# Context\n",
         lastCommitTimestamp: "2026-01-01T00:00:00.000Z",
       },
     ])

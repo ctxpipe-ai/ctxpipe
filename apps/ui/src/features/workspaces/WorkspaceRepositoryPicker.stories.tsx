@@ -180,6 +180,33 @@ export const PasteUrl: Story = {
   },
 }
 
+/** A Workspace in a folder of a larger repository: the root folder goes with the choice. */
+export const PasteUrlWithRootFolder: Story = {
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement)
+    await expect(
+      canvas.getByText(/leave it empty to use the whole repository/i),
+    ).toBeVisible()
+    await userEvent.type(
+      canvas.getByRole("textbox", { name: /root folder/i }),
+      "docs/context/",
+    )
+    await userEvent.click(canvas.getByRole("tab", { name: /paste url/i }))
+    await userEvent.type(
+      canvas.getByLabelText(/git url/i),
+      "https://github.com/acme/platform.git",
+    )
+    await userEvent.click(
+      canvas.getByRole("button", { name: /create workspace/i }),
+    )
+    await expect(args.onSubmit).toHaveBeenCalledWith({
+      gitUrl: "https://github.com/acme/platform.git",
+      source: "paste",
+      rootPath: "docs/context",
+    })
+  },
+}
+
 export const SaveError: Story = {
   args: {
     error: "That git URL is already used by another Workspace.",

@@ -26,9 +26,11 @@ import {
 
 const SOURCE_URL = "https://github.com/fixture/source-app"
 const SECOND_URL = "https://github.com/fixture/second-workspace.git"
-const DECLARATION = `---\ngit: ${JSON.stringify(SOURCE_URL)}\n---\n`
+// The fixture puts its GitHub connection id in place of `{{connectionId}}`.
+const SOURCES =
+  'version: 1\nsources:\n  - id: linked-repositories\n    provider: github\n    connection: "{{connectionId}}"\n    repositories: [fixture/source-app]\n'
 const FILES = [
-  { path: "repositories/source-app.md", body: DECLARATION },
+  { path: ".ctxpipe/sources.yaml", body: SOURCES },
   { path: "knowledge/owner.md", body: "# Owner text\n" },
 ]
 const pullPath = (number: number) =>
@@ -361,9 +363,9 @@ it(
 
           // Unlinking B: new pull requests stop, earlier files stay.
           await writeLink(`wjob_${f.id}_unlink`, "unlink")
-          expect(filesIn(f, remoteB)).not.toContain(
-            "repositories/source-app.md",
-          )
+          expect(
+            f.git("--git-dir", remoteB, "show", "main:.ctxpipe/sources.yaml"),
+          ).not.toContain("fixture/source-app")
           await expect
             .poll(() => linkedTo(workspaceB), { timeout: 60_000 })
             .toEqual([])

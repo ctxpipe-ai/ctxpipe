@@ -45,7 +45,7 @@ describe("getOrgDb ambient-context audit", () => {
 
   it("getSystemDb does not query tenant tables except the migrate-role allowlist", () => {
     const tenantTables =
-      "connections|repositories|objects|claims|claimEvidence|workspaces|workspaceLinkedRepositories|workspaceWriteJobs|workspaceSandboxInstances|workspaceKnowledgeUnits|workspaceKnowledgeChunks|workspaceRepositoryCommits|workspaceCommitProjections|orgMemberPreferences|conversationMessages|conversations|confluenceSpaces|confluenceSyncTargets|orgOnboarding|repositoryCheckouts"
+      "connections|repositories|objects|claims|claimEvidence|workspaces|workspaceWriteJobs|workspaceSandboxInstances|workspaceKnowledgeUnits|workspaceKnowledgeChunks|workspaceRepositoryCommits|workspaceCommitProjections|orgMemberPreferences|conversationMessages|conversations|confluenceSpaces|confluenceSyncTargets|orgOnboarding|repositoryCheckouts"
     const tenantFrom = new RegExp(
       `(?:\\.from\\(\\s*(?:${tenantTables})\\s*\\)|\\.(?:insert|update|delete)\\(\\s*(?:${tenantTables})\\s*\\)|\\.query\\.(?:${tenantTables}))`,
     )

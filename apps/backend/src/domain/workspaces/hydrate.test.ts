@@ -106,36 +106,11 @@ describe("hydrateKnowledgeTree", () => {
         ?.confidence,
     ).toBeNull()
     expect(result.skipped).toEqual([{ path: "broken.md", reason: "malformed" }])
-    expect(result.linked).toEqual([
-      {
-        path: "repositories/billing.md",
-        git: "https://github.com/acme/billing",
-        branch: null,
-      },
-    ])
+    // A repository file is not a link and not a unit (ADR-050).
+    expect(result.linked).toEqual([])
   })
 
-  it("keeps the first linked remote and skips duplicate git URLs", () => {
-    const result = hydrateKnowledgeTree({
-      workspaceId: "ws_1",
-      files: [
-        {
-          path: "repositories/billing.md",
-          content: "---\ngit: https://github.com/acme/billing.git\n---\n",
-        },
-        {
-          path: "repositories/billing-dup.md",
-          content: "---\ngit: https://github.com/acme/billing.git\n---\n",
-        },
-      ],
-    })
-    expect(result.linked).toHaveLength(1)
-    expect(result.skipped).toEqual([
-      { path: "repositories/billing-dup.md", reason: "duplicate_repository" },
-    ])
-  })
-
-  it("links the repositories of GitHub sources after the repository files", () => {
+  it("links only the repositories of GitHub sources, with their ref, once each", () => {
     const result = hydrateKnowledgeTree({
       workspaceId: "ws_1",
       workspaceUrl: "https://github.com/acme/knowledge",
@@ -143,7 +118,7 @@ describe("hydrateKnowledgeTree", () => {
         {
           path: "repositories/billing.md",
           content:
-            "---\ngit: https://github.com/acme/billing.git\nbranch: release\n---\n",
+            "---\ngit: https://github.com/acme/legacy.git\nbranch: release\n---\n",
         },
       ],
       sourcesFile: [
@@ -152,15 +127,24 @@ describe("hydrateKnowledgeTree", () => {
         "  - id: product-repos",
         "    provider: github",
         "    connection: con_github1",
-        "    repositories: [acme/billing, acme/web, acme/knowledge]",
+        "    repositories: [{name: acme/billing, ref: release}, acme/web, acme/knowledge]",
+        "  - id: again",
+        "    provider: github",
+        "    connection: con_github1",
+        "    repositories: [acme/web]",
+        "  - id: other-org",
+        "    provider: github",
+        "    connection: con_elsewhere",
+        "    repositories: [acme/secret]",
       ].join("\n"),
       githubConnectionIds: new Set(["con_github1"]),
     })
     expect(result.linked).toEqual([
       {
-        path: "repositories/billing.md",
+        path: ".ctxpipe/sources.yaml",
         git: "https://github.com/acme/billing",
         branch: "release",
+        connectionId: "con_github1",
       },
       {
         path: ".ctxpipe/sources.yaml",
@@ -170,23 +154,6 @@ describe("hydrateKnowledgeTree", () => {
       },
     ])
     expect(result.skipped).toEqual([])
-  })
-
-  it("skips a linked-repository file that names the Workspace repository", () => {
-    const result = hydrateKnowledgeTree({
-      workspaceId: "ws_1",
-      workspaceUrl: "https://github.com/acme/knowledge",
-      files: [
-        {
-          path: "repositories/self.md",
-          content: "---\ngit: git@github.com:Acme/Knowledge.git\n---\n",
-        },
-      ],
-    })
-    expect(result.linked).toEqual([])
-    expect(result.skipped).toEqual([
-      { path: "repositories/self.md", reason: "duplicate_repository" },
-    ])
   })
 
   it("keeps the ontology kind from front matter for the workspace graph", () => {

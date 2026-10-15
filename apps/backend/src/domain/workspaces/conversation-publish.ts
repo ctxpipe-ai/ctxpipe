@@ -53,6 +53,10 @@ import {
   sameWorkspaceRevision,
   type WorkspaceRevision,
 } from "./revision.js"
+import {
+  gitChangesOutsideWorkspaceRoot,
+  workspaceRootPath,
+} from "./root-path.js"
 import { workspaceChatPersistence } from "./workspace-chat-persistence.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "./write-status.js"
 
@@ -119,6 +123,8 @@ export type SessionPublishSkip =
   | "no_changes"
   /** The commits add or change `generated_by` or `sources` front matter. */
   | "host_only_field"
+  /** The commits change a file outside the Workspace root folder. */
+  | "outside_root"
 
 /** A publish that was attempted and did not reach GitHub. */
 export type SessionPublishFailure =
@@ -557,6 +563,20 @@ async function brokerPush(input: {
       // through a pull request that a person merges.
       if (await addsOwnershipField(directory, packBase, sha))
         throw new PublishRefused("host_only_field")
+      // The agent may change files only below the Workspace root folder.
+      const rootPath = workspaceRootPath(revision)
+      if (
+        rootPath &&
+        (
+          await gitChangesOutsideWorkspaceRoot({
+            directory,
+            base: packBase,
+            head: sha,
+            rootPath,
+          })
+        ).length
+      )
+        throw new PublishRefused("outside_root")
       // The write token only ever reaches this conversation's session branch,
       // never a branch that is (or became) the default.
       const latestDefault = await resolveGitRemoteTip({

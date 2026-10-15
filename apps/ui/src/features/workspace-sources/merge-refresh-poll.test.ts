@@ -68,6 +68,7 @@ function sources(state: ReadState): WorkspaceSourceListResponse {
     items: [],
     canEdit: true,
     pendingChanges: typeof state === "object" ? state.open.map(pull) : [],
+    linkErrors: [],
   }
 }
 

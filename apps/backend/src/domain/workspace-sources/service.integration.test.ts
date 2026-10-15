@@ -612,3 +612,62 @@ it(
     )
   },
 )
+
+it(
+  "offers remove only for a row whose id a remove can name",
+  { timeout: 60_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      { github: true, githubWriteView: "writable", writeStatus: "writable" },
+      async (f) => {
+        f.server.use(
+          http.get(
+            "https://api.github.com/repos/fixture/hydration-contract/pulls",
+            () => HttpResponse.json([]),
+          ),
+        )
+        const linear = await addLinearConnection(f)
+        const invalid = {
+          provider: null,
+          connectionId: null,
+          scope: {},
+          status: "invalid" as const,
+          statusDetail: "Not valid",
+        }
+        await replaceWorkspaceSourceRows({
+          orgId: f.org.id,
+          workspaceId: f.workspaceId,
+          revision: f.sha,
+          rows: [
+            {
+              sourceKey: "eng",
+              provider: "linear",
+              connectionId: linear,
+              scope: { teams: ["ENG"] },
+              status: "ok",
+              statusDetail: null,
+            },
+            // An entry without a valid id, and a repository file that the
+            // upgrade cannot move: neither has an id in the file.
+            { ...invalid, sourceKey: ".entry-2" },
+            { ...invalid, sourceKey: "repositories/tools.md" },
+          ],
+        })
+
+        const sources = await withOrgIdContext(f.org, async () => {
+          const workspace = await getWorkspaceById(f.workspaceId)
+          if (!workspace) throw new Error("Missing fixture Workspace")
+          return listWorkspaceSources(workspace)
+        })
+
+        expect(
+          sources.items.map((item) => [item.sourceKey, item.removable]).sort(),
+        ).toEqual([
+          [".entry-2", false],
+          ["eng", true],
+          ["repositories/tools.md", false],
+        ])
+      },
+    )
+  },
+)

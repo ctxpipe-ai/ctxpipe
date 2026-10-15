@@ -107,6 +107,34 @@ describe("contextIndexAtStepBase", () => {
       [SERVICE, false],
     ])
   })
+  it("reads the files below the Workspace root folder with root-relative paths", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "context-index-"))
+    made.push(dir)
+    git(dir, "init", "-q", "-b", "main")
+    const pinned = commit(dir, {
+      [`docs/ctx/${SERVICE}`]:
+        "---\nkind: Service\nname: api\nsummary: Inside.\n---\n# API\n",
+      [SERVICE]: "---\nkind: Service\nname: api\nsummary: Outside.\n---\n",
+    })
+    const base = commit(dir, {
+      [`docs/ctx/${OPERATION}`]:
+        "---\nkind: Operation\nname: GET /orders\n---\n# GET /orders\n",
+      [OLD]: "---\nkind: Database\nname: old\n---\n# Outside\n",
+    })
+    const { index } = await contextIndexAtStepBase({
+      workspaceId: "ws_index",
+      projection: [{ path: SERVICE, kind: "Service", links: [] }],
+      pinnedRevision: pinned,
+      base,
+      sourceUrl: SOURCE_URL,
+      repoDir: dir,
+      rootPath: "docs/ctx",
+    })
+    expect(index.entries.map((e) => [e.path, e.summary])).toEqual([
+      [OPERATION, null],
+      [SERVICE, "Inside."],
+    ])
+  })
 })
 
 describe("stepContextIndex", () => {
