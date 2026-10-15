@@ -205,7 +205,7 @@ const ctaClassName =
   "my-[5px] h-[27px] gap-1.5 border-0 px-2.5 text-xs font-normal leading-none"
 
 /** The CTA face is the `cta` token: the primary face, a little dimmer in dark mode. */
-const ctaPrimaryClassName = "bg-cta hovered:bg-cta/90 pressed:bg-cta/80"
+const ctaPrimaryClassName = "bg-cta hover:bg-cta/90 pressed:bg-cta/80"
 
 function ctaPlan(cta: ConversationCtaChrome) {
   const prExists =
