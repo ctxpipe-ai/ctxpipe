@@ -271,6 +271,84 @@ it(
   },
 )
 
+/** The hydrate runs that the tip check queued for one Workspace tip. */
+async function tipHydrateRuns(f: NativeHydrationFixture, sha: string) {
+  const backend = await BackendPostgres.connect(f.databaseUrl, {
+    namespaceId: openWorkflowNamespaceId(),
+    runMigrations: false,
+  })
+  try {
+    return (await backend.listWorkflowRuns({ limit: 1000 })).data.filter(
+      (run) => {
+        const input = run.input as {
+          workspaceId?: string
+          revision?: { sha?: string }
+        }
+        return (
+          run.workflowName === "workspace-hydrate" &&
+          input?.workspaceId === f.workspaceId &&
+          input.revision?.sha === sha
+        )
+      },
+    )
+  } finally {
+    await backend.stop()
+  }
+}
+
+async function runTipCheck(f: NativeHydrationFixture) {
+  const handle = await f.runner.runWorkflow(workspaceTipCheck.spec, {
+    orgId: f.org.id,
+  })
+  return handle.result({ timeoutMs: 30_000 })
+}
+
+it(
+  "cron hydrates a tip that an earlier failed run stored but did not queue",
+  { timeout: 90_000 },
+  async () => {
+    // Writable, with no completed migration export: the export-gated cron
+    // fallback does not apply.
+    await withNativeHydrationFixture(
+      { github: true, githubWriteView: "writable" },
+      async (f) => {
+        await f.publish()
+        const sha = pushSourcesFile(f)
+        // The failed run stored the tip in `desired_sha`, then stopped.
+        expect((await f.resolveRevision(true)).sha).toBe(sha)
+
+        expect(await runTipCheck(f)).toMatchObject({ updated: 0 })
+        expect(await tipHydrateRuns(f, sha)).toHaveLength(1)
+      },
+    )
+  },
+)
+
+it.each([
+  ["writable", "writable"],
+  ["read-only", "missing"],
+] as const)(
+  "cron queues one hydrate for a %s Workspace tip across runs during an in-flight hydrate",
+  { timeout: 90_000 },
+  async (_label, githubWriteView) => {
+    await withNativeHydrationFixture(
+      { github: true, githubWriteView },
+      async (f) => {
+        await f.publish()
+        const sha = pushSourcesFile(f)
+
+        expect(await runTipCheck(f)).toMatchObject({ updated: 1 })
+        // No worker serves this queue, so the hydrate stays pending.
+        expect(await tipHydrateRuns(f, sha)).toEqual([
+          expect.objectContaining({ status: "pending" }),
+        ])
+        expect(await runTipCheck(f)).toMatchObject({ updated: 0 })
+        expect(await tipHydrateRuns(f, sha)).toHaveLength(1)
+      },
+    )
+  },
+)
+
 it(
   "cron records no access on a ready Workspace that loses its credential, then backs off",
   { timeout: 90_000 },

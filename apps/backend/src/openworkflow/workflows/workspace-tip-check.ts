@@ -18,7 +18,10 @@ import {
   type WorkspaceRevision,
 } from "../../domain/workspaces/revision.js"
 import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
-import { shouldEnqueueCronHydrate } from "../../domain/workspaces/tip-resolve.js"
+import {
+  servedShaForTip,
+  shouldEnqueueCronHydrate,
+} from "../../domain/workspaces/tip-resolve.js"
 import {
   destroySandboxesForWorkspace,
   jobSandboxesDueForDestroy,
@@ -150,6 +153,7 @@ export const workspaceTipCheck = defineWorkflow(
         resolvedTip: string
         revision: WorkspaceRevision
       }> = []
+      const tips = new Map<string, WorkspaceRevision>()
       const startedAt = new Date()
       const noAccess = new Set<string>()
       let linkedNoAccess = 0
@@ -184,6 +188,7 @@ export const workspaceTipCheck = defineWorkflow(
           noAccess.add(workspace.id)
           return null
         })
+        if (resolved) tips.set(workspace.id, resolved.revision)
         if (
           resolved &&
           (resolved.revision.sha !== workspace.desiredSha ||
@@ -220,11 +225,31 @@ export const workspaceTipCheck = defineWorkflow(
             quietLog,
           )
         }
+        const projection = await getWorkspaceProjection(workspace.id)
+        const tip = tips.get(workspace.id)
+        const served = tip ? servedShaForTip(projection, tip) : null
+        // An earlier run can store the tip in `desired_sha` and then fail
+        // before it queues the hydrate. Thus compare the tip with the served
+        // SHA too. The key names the served SHA and the tip, so a run during
+        // a queued or running hydrate, or after a failed hydrate of the same
+        // tip, starts no second hydrate for 24 hours.
         if (
-          updated.some((item) => item.workspaceId === workspace.id) ||
+          tip &&
+          (served !== tip.sha ||
+            updated.some((item) => item.workspaceId === workspace.id))
+        ) {
+          await enqueueWorkspaceHydrate(
+            { orgId: input.orgId, workspaceId: workspace.id },
+            { error: () => undefined },
+            {
+              idempotencyKey: (revision) =>
+                `workspace-tip-hydrate:${revision.workspaceId}:${revision.generation}:${revision.defaultBranch}:${served ?? "none"}:${revision.sha}`,
+            },
+          )
+        } else if (
           shouldEnqueueCronHydrate({
             migrationExportSha: exportShas.get(workspace.id) ?? null,
-            projection: await getWorkspaceProjection(workspace.id),
+            projection,
             writeStatus: writeStatusById.get(workspace.id),
           })
         ) {

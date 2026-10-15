@@ -1,4 +1,25 @@
-import type { ProjectionState } from "./revision.js"
+import {
+  type ProjectionState,
+  publishedProjection,
+  sameWorkspaceBinding,
+  type WorkspaceRevision,
+} from "./revision.js"
+
+/**
+ * The SHA that serves reads for this tip, or null when no published
+ * projection has the same binding. A tip that differs from this SHA needs a
+ * hydrate, also when `desired_sha` already holds the tip.
+ */
+export function servedShaForTip(
+  projection: ProjectionState,
+  tip: WorkspaceRevision,
+): string | null {
+  const published = publishedProjection(projection)
+  if (published?.kind === "legacy") return published.sha
+  return published && sameWorkspaceBinding(published.revision, tip)
+    ? published.revision.sha
+    : null
+}
 
 export function isDefaultBranchPush(
   ref: string,
