@@ -8,6 +8,7 @@ import {
   githubScopeRepositories,
   githubScopeSchema,
 } from "../domain/workspace-sources/providers/github.js"
+import type { SourceStatus } from "../domain/workspace-sources/sources-file.js"
 import { normalizeWorkspaceRepositoryUrl } from "../domain/workspaces/slug.js"
 import { generateObjectId } from "../lib/id.js"
 import { log } from "../observability/logger.js"
@@ -374,7 +375,7 @@ export function listServedRepositoryPins(
 async function listPins(
   db: Queryable,
   filter: { orgId?: string; workspaceId?: string },
-  statuses: readonly string[],
+  statuses: readonly SourceStatus[],
 ): Promise<LinkedRepositoryPin[]> {
   const rows = await db
     .select({
