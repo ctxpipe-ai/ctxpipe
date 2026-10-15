@@ -114,7 +114,6 @@ export function GithubConnectionCard({
         onConfirm: () => removeMutation.mutate(),
       }}
       workspace={connectorDash(installation?.accountSlug)}
-      scope="GitHub App"
       actionLabel={
         isError
           ? "Retry"

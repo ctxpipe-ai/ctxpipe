@@ -4,10 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { ConnectorUsedIn } from "@/features/workspace-sources/ConnectorUsedIn"
 import { useConnectorSync } from "@/features/workspace-sources/useConnectorSync"
-import {
-  formatSelectedItemCount,
-  resolveConnectorHealth,
-} from "../connectorHealth"
+import { resolveConnectorHealth } from "../connectorHealth"
 import { getPagerdutyCardCtaLabel } from "../pagerduty-setup-model"
 import { orgConnectionsKeys } from "../queries/org-connections"
 import {
@@ -96,11 +93,6 @@ export function PagerdutyConnectionCard({
         onConfirm: () => removeMutation.mutate(),
       }}
       workspace={connectorDash(status?.accountName)}
-      scope={
-        status?.syncTarget && status.selectedServiceCount != null
-          ? formatSelectedItemCount(status.selectedServiceCount)
-          : "Set in each Workspace"
-      }
       actionLabel={isError ? "Retry" : (actionLabel ?? undefined)}
       onAction={
         isError

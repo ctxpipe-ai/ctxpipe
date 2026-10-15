@@ -89,7 +89,6 @@ export function SlackConnectionCard({
           onConfirm: () => removeMutation.mutate(),
         }}
         workspace={connectorDash(status?.teamName)}
-        scope="—"
         actionLabel={
           isError
             ? "Retry"
