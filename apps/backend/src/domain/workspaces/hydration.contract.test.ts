@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process"
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { eq } from "drizzle-orm"
 import { BackendPostgres } from "openworkflow/postgres"
@@ -99,19 +99,17 @@ it(
     withNativeHydrationFixture(
       { count: 100, traceGitCommands: true },
       async (f) => {
-        const { gitTrace } = f
+        // A runner can start Git processes that the hydration does not own,
+        // for example from a Git wrapper. A shell starts three of them here.
+        // They must not count against the budget.
+        execFileSync("sh", ["-c", "git version; git version; git version"])
         await f.publish()
-        const gitCommands = readFileSync(gitTrace, "utf8")
-          .trim()
-          .split("\n")
-          .map((line) => JSON.parse(line))
-          .filter(
-            (event) => event.event === "start" && !event.sid.includes("/"),
-          )
+        const gitCommands = f.gitCommands()
         expect(
           gitCommands.length,
-          "native git command budget per immutable tree",
+          `native git command budget per immutable tree:\n${gitCommands.join("\n")}`,
         ).toBeLessThanOrEqual(8)
+        expect(gitCommands).not.toContain("version")
       },
     ),
 )
