@@ -403,6 +403,130 @@ it(
   },
 )
 
+const HUMAN_UNIT = "---\nkind: Service\nname: Checkout\n---\n\n# Checkout\n"
+const GENERATED_UNIT =
+  "---\nkind: Service\nname: Billing\ngenerated_by: ctxpipe-extract\nsources:\n  - https://github.com/fixture/billing\n---\n\n# Billing\n"
+
+// CTX-722: a chat agent cannot change the Workspace sources config, and it
+// cannot give a person's file to ingestion.
+it.each([
+  {
+    name: "edits the sources config",
+    edit: "printf 'sources:\\n  - other\\n' > .ctxpipe/sources.yaml",
+    reason: "host_only_path",
+  },
+  {
+    name: "deletes the sources config",
+    edit: "git rm -q .ctxpipe/sources.yaml",
+    reason: "host_only_path",
+  },
+  {
+    name: "renames the sources config",
+    edit: "git mv .ctxpipe/sources.yaml sources.yaml",
+    reason: "host_only_path",
+  },
+  {
+    name: "adds a file under .ctxpipe",
+    edit: "printf '# Skill\\n' > .ctxpipe/skill.md",
+    reason: "host_only_path",
+  },
+  {
+    name: "adds generated_by to a human file",
+    edit: `printf '%s' ${shellSingleQuote(HUMAN_UNIT.replace("name: Checkout\n", "name: Checkout\ngenerated_by: ctxpipe-extract\n"))} > knowledge/services/checkout.md`,
+    reason: "host_only_field",
+  },
+  {
+    name: "copies a generated file to a new path",
+    edit: "cp knowledge/services/billing.md knowledge/services/billing-copy.md",
+    reason: "host_only_field",
+  },
+  {
+    name: "removes generated_by and sources from a generated file",
+    edit: `printf '%s' ${shellSingleQuote("---\nkind: Service\nname: Billing\n---\n\n# Billing\n")} > knowledge/services/billing.md`,
+    reason: null,
+  },
+  {
+    name: "renames a generated file",
+    edit: "git mv knowledge/services/billing.md knowledge/services/billing-v2.md",
+    reason: null,
+  },
+])(
+  "conversation publish when the agent $name",
+  { timeout: 30_000 },
+  async ({ edit, reason }) => {
+    await withNativeHydrationFixture(
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        files: [
+          { path: ".ctxpipe/sources.yaml", body: "sources: []\n" },
+          { path: "knowledge/services/checkout.md", body: HUMAN_UNIT },
+          { path: "knowledge/services/billing.md", body: GENERATED_UNIT },
+        ],
+      },
+      async (f) => {
+        const conversationId = `conv_${f.id}`
+        const raw = await localProcessSandbox().create({ id: conversationId })
+        try {
+          await withOrgDbContext(f.org.id, (db) =>
+            db.insert(conversations).values({
+              id: conversationId,
+              orgId: f.org.id,
+              userId: `user_${f.id}`,
+              workspaceId: f.workspaceId,
+            }),
+          )
+          await raw.process.exec("git init -b main")
+          await raw.process.exec(`git fetch ${shellSingleQuote(f.remote)} main`)
+          await raw.process.exec("git checkout -B main FETCH_HEAD")
+          f.git(
+            "config",
+            "--file",
+            process.env.GIT_CONFIG_GLOBAL ?? "missing",
+            "--add",
+            `url.${f.remote}.insteadOf`,
+            "https://github.com/fixture/hydration-contract.git",
+          )
+          await recordSandbox(f, conversationId, raw.id, f.revision)
+          expect((await raw.process.exec(edit)).exitCode).toBe(0)
+
+          const result = await withOrgIdContext(f.org, () =>
+            withUserIdContext(`user_${f.id}`, () =>
+              pushConversationSession({
+                handle: adaptTanstackHandle(raw),
+                conversationId,
+                orgId: f.org.id,
+                workspaceId: f.workspaceId,
+                env: parseEnv(process.env),
+                commit: { subject: "Conversation edit" },
+              }),
+            ),
+          )
+
+          const branch = conversationSessionBranch(conversationId)
+          if (reason) {
+            expect(result).toEqual({ status: "skipped", reason, dirty: false })
+            expect(
+              f.git("--git-dir", f.remote, "rev-list", "--all", "--count"),
+            ).toBe("1")
+          } else {
+            expect(result).toMatchObject({ status: "pushed", branch })
+          }
+          expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(f.sha)
+        } finally {
+          await raw.destroy()
+          await withOrgDbContext(f.org.id, (db) =>
+            db
+              .delete(conversations)
+              .where(eq(conversations.id, conversationId)),
+          )
+        }
+      },
+    )
+  },
+)
+
 it("writes no push entry for a conversation that was deleted meanwhile", async () => {
   await withNativeHydrationFixture({}, async (f) => {
     const live = `conv_${f.id}_live`
