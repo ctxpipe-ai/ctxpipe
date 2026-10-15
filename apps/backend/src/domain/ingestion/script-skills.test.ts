@@ -1107,6 +1107,35 @@ describe("ownership skill", () => {
       expect(lib.existingClaims("kind: Team")).toEqual(new Set())
     })
 
+    it("reads no claim when a continuation line holds non-ASCII whitespace", async () => {
+      const lib = await import(join(INGEST_SKILLS_DIR, "bin/knowledge-lib.mjs"))
+      const whitespace = [
+        " ",
+        "　",
+        " ",
+        " ",
+        "﻿",
+        " ",
+        " ",
+        "\u000b",
+        "\u000c",
+        " ",
+      ]
+      for (const space of whitespace)
+        for (const text of [
+          `claims:\n  - to: knowledge/a.md\n      ${space}\n    predicate: OWNS\n`,
+          `claims:\n  - to: knowledge/a.md\n      ${space}#x\n    predicate: OWNS\n`,
+        ])
+          expect(lib.existingClaims(text)).toBeNull()
+    })
+
+    it("reads a target with a long run of inner spaces", async () => {
+      const lib = await import(join(INGEST_SKILLS_DIR, "bin/knowledge-lib.mjs"))
+      const target = `a${" ".repeat(200_000)}b`
+      const text = `claims:\n  - to: ${target}\n    predicate: OWNS\n`
+      expect(lib.existingClaims(text)).toEqual(new Set([`${target} OWNS`]))
+    })
+
     it("resets the target for each claim item", () => {
       const s = teamStep([
         "claims:",
