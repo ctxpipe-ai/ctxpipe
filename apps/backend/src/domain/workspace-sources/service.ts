@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto"
 import { requireCurrentOrgId } from "../../auth/context.js"
+import { parseEnv } from "../../config/env.js"
 import { listOrgConnections } from "../../models/org-connections.js"
 import {
   listConnectionSourceRows,
@@ -19,12 +20,14 @@ import type {
   WorkspaceSourceChangeResult,
   WorkspaceSourceListResponse,
 } from "../../routes/v1/workspace-sources-contract.js"
+import { listMarkdownFilesAtGitSha } from "../../services/git/clone-tree.js"
 import {
   createPullRequestWithFiles,
   getFileContent,
   listOpenPullRequestsByBranchPrefix,
 } from "../../services/github/installation-write-client.js"
 import { workspaceAllowsConversationEdits } from "../workspaces/chat-sandbox-policy.js"
+import { resolveRepositoryReadCredential } from "../workspaces/resolve-revision.js"
 import { WORKSPACE_WRITE_STATUSES } from "../workspaces/write-status.js"
 import { SOURCE_ADAPTERS } from "./adapter.js"
 import {
@@ -36,7 +39,13 @@ import {
 } from "./edit.js"
 import { FILE_ERROR_SOURCE_KEY } from "./projection-plan.js"
 import { workspaceGithubRepository } from "./repository.js"
-import { checkSourcePath, SOURCE_FILES_FOLDER } from "./source-file.js"
+import {
+  checkSourcePath,
+  SOURCE_FILE_MAX_BYTES,
+  SOURCE_FILES_FOLDER,
+} from "./source-file.js"
+import { parseSourceFile } from "./source-file-text.js"
+import { SOURCES_FOLDER_PREFIX } from "./source-tree.js"
 import {
   SOURCE_SCOPES,
   type SourceProvider,
@@ -156,6 +165,50 @@ function stillApplies(
     : sourcePaths.has(change.path)
 }
 
+/**
+ * The body of each source file at the served revision, by path: one tree read
+ * of `sources/` from git. A file over the size limit has no body here. The
+ * list still answers without bodies when git cannot be read.
+ */
+async function readSourceBodies(
+  workspace: WorkspaceRecord,
+  revision: string | undefined,
+): Promise<Map<string, string>> {
+  const bodies = new Map<string, string>()
+  if (!revision) return bodies
+  try {
+    const env = parseEnv(process.env)
+    const remote = {
+      url: workspace.workspaceRepositoryUrl,
+      connectionId: workspace.githubConnectionId,
+    }
+    const files = await listMarkdownFilesAtGitSha({
+      url: remote.url,
+      sha: revision,
+      extraFolders: [SOURCES_FOLDER_PREFIX],
+      token: await resolveRepositoryReadCredential({
+        orgId: workspace.orgId,
+        env,
+        remote,
+      }),
+    })
+    for (const file of files) {
+      if (!file.path.startsWith(SOURCES_FOLDER_PREFIX)) continue
+      if (Buffer.byteLength(file.content) > SOURCE_FILE_MAX_BYTES) continue
+      const parsed = parseSourceFile(file.path, file.content)
+      const body = parsed.ok ? parsed.body.trim() : ""
+      if (body) bodies.set(file.path, body)
+    }
+  } catch (error) {
+    getLogger().warn("Could not read the source file bodies", {
+      step: "workspace_sources.read_bodies",
+      workspaceId: workspace.id,
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
+  return bodies
+}
+
 export async function listWorkspaceSources(
   workspace: WorkspaceRecord,
 ): Promise<WorkspaceSourceListResponse> {
@@ -175,6 +228,7 @@ export async function listWorkspaceSources(
     connectionIds: new Set(names.keys()),
     adapters: SOURCE_ADAPTERS,
   })
+  const bodies = await readSourceBodies(workspace, rows[0]?.revision)
   const fileRow = rows.find((row) => row.sourceKey === FILE_ERROR_SOURCE_KEY)
   const sourcePaths = new Set(projected.map((row) => row.sourceKey))
   return {
@@ -194,6 +248,9 @@ export async function listWorkspaceSources(
         scopeSummary: scopeSummary(row),
         status: row.status,
         statusDetail: row.statusDetail,
+        ...(bodies.has(row.sourceKey)
+          ? { description: bodies.get(row.sourceKey) }
+          : {}),
         // A row of a legacy entry or of a repository file has no source
         // file that a remove can name.
         removable: checkSourcePath(row.sourceKey).ok,

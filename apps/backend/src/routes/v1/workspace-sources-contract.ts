@@ -35,6 +35,12 @@ export const WorkspaceSourceSchema = z
     scopeSummary: z.string(),
     status: StatusSchema,
     statusDetail: z.string().nullable(),
+    /**
+     * The body of the source file (what the source is for), read from git at
+     * `revision`. Absent when the file has no body, is over 64 KiB, or git
+     * cannot be read.
+     */
+    description: z.string().optional(),
     /** False when the row has no source file, so a remove cannot name it. */
     removable: z.boolean(),
     /** The Workspace commit SHA that the row came from. */
