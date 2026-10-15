@@ -46,6 +46,7 @@ import {
 } from "./workflows/workspace-link-unlink.js"
 import { workspaceMigrationExport } from "./workflows/workspace-migration-export.js"
 import { workspaceOpsFolderList } from "./workflows/workspace-ops-folder-list.js"
+import { workspaceOwnershipMigration } from "./workflows/workspace-ownership-migration.js"
 import {
   workspaceRenameRewrite,
   workspaceRenameRewriteInputSchema,

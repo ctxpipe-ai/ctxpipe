@@ -1,8 +1,11 @@
 import { execFileSync } from "node:child_process"
 import { expect, it } from "vitest"
 import { parse } from "yaml"
+import { z } from "zod"
 import { withOrgIdContext } from "../../auth/withAuth.js"
+import { parseEnv } from "../../config/env.js"
 import { reconcileWorkspaceWriteJob } from "../../models/workspace-write-jobs.js"
+import { defineWorkflow } from "../../openworkflow/defineObservedWorkflow.js"
 import { enqueueWriteJob } from "../../openworkflow/enqueue-workspace-write-commit.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
@@ -223,6 +226,92 @@ it(
           ).toBe("0")
         } finally {
           await worker?.stop()
+          await backend.stop()
+        }
+      },
+    )
+  },
+)
+
+it(
+  "runs the migration before an ingestion v2 publish, and makes no second commit",
+  { timeout: 90_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        files,
+      },
+      async (f) => {
+        const { BackendPostgres } = await import("openworkflow/postgres")
+        const { OpenWorkflow } = await import("openworkflow")
+        const { migrateOwnershipBeforePublish, workspaceOwnershipMigration } =
+          await import(
+            "../../openworkflow/workflows/workspace-ownership-migration.js"
+          )
+        const backend = await BackendPostgres.connect(f.databaseUrl, {
+          namespaceId: openWorkflowNamespaceId(),
+          runMigrations: false,
+        })
+        const runner = new OpenWorkflow({ backend })
+        // The publish run of ingestion v2 calls the helper the same way.
+        const publish = defineWorkflow(
+          {
+            name: `test-ownership-before-publish-${f.id}`,
+            schema: z.object({ orgId: z.string(), workspaceId: z.string() }),
+          },
+          async ({ input, step, run }) => ({
+            committed: await migrateOwnershipBeforePublish({
+              step,
+              orgId: input.orgId,
+              runId: run.id,
+              workspaceIds: [input.workspaceId],
+              env: parseEnv(process.env),
+            }),
+          }),
+        )
+        runner.implementWorkflow(publish.spec, publish.fn)
+        runner.implementWorkflow(
+          workspaceOwnershipMigration.spec,
+          workspaceOwnershipMigration.fn,
+        )
+        const worker = runner.newWorker({ concurrency: 2 })
+        await worker.start()
+        try {
+          const runPublish = async () => {
+            const handle = await runner.runWorkflow(publish.spec, {
+              orgId: f.org.id,
+              workspaceId: f.workspaceId,
+            })
+            return handle.result({ timeoutMs: 60_000 })
+          }
+          expect(await runPublish()).toEqual({ committed: true })
+          const migrated = f.git(
+            "--git-dir",
+            f.remote,
+            "rev-parse",
+            "refs/heads/main",
+          )
+          expect(
+            fileOwnership(
+              f.git(
+                "--git-dir",
+                f.remote,
+                "show",
+                "refs/heads/main:knowledge/services/billing.md",
+              ),
+              "https://github.com/acme/billing",
+            ),
+          ).toBe("sole")
+
+          expect(await runPublish()).toEqual({ committed: false })
+          expect(
+            f.git("--git-dir", f.remote, "rev-parse", "refs/heads/main"),
+          ).toBe(migrated)
+        } finally {
+          await worker.stop()
           await backend.stop()
         }
       },
