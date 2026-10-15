@@ -629,13 +629,15 @@ export const TabChangeKeepsPosition: Story = {
       return { top: r.top, bottom: r.bottom, x: r.x, width: r.width }
     }
     await expect(a).toHaveAttribute("aria-selected", "true")
-    // Wait for the mount fade to end so no frame skews the numbers.
+    // Wait for the mount fade and the fonts, so no late font swap changes a tab width.
+    await document.fonts.ready
     await waitFor(() => expect(box(a).top).toBe(box(b).top))
     const before = { a: box(a), b: box(b) }
     expect(before.a.top).toBe(before.b.top)
     expect(before.a.bottom).toBe(before.b.bottom)
     await userEvent.click(b)
     await waitFor(() => expect(b).toHaveAttribute("aria-selected", "true"))
+    await document.fonts.ready
     const after = { a: box(a), b: box(b) }
     expect(after).toEqual(before)
   },

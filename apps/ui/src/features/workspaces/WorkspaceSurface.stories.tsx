@@ -925,7 +925,11 @@ export const DiffTriggerNoChanges: Story = {
     await userEvent.click(
       await page.findByRole("tab", { name: "Diff" }, { timeout: 15_000 }),
     )
-    expect(await page.findByText("No changes on this branch")).toBeVisible()
+    // Retry the whole check: a re-render can replace the found element.
+    await waitFor(
+      () => expect(page.getByText("No changes on this branch")).toBeVisible(),
+      { timeout: 15_000 },
+    )
   },
 }
 
