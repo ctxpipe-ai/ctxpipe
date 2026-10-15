@@ -30,6 +30,7 @@ vi.mock("../../../openworkflow/enqueue-notion-push-sync.js", () => ({
 }))
 vi.mock("../../../services/github/installation-write-client.js", () => ({
   compareCommitsTouchesPath: vi.fn(),
+  workspaceRootPathOfRepository: async () => "",
 }))
 
 import { listInstallationsByGithubInstallationId } from "../../../models/github-installation.js"

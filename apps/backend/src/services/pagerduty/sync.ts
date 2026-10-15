@@ -2,9 +2,6 @@ import { and, eq } from "drizzle-orm"
 import type { Env } from "../../config/env.js"
 import { getOrgDb, withOrgDbContext } from "../../db/client.js"
 import { repositories } from "../../db/schema/repositories.js"
-import { workspaces } from "../../db/schema/workspaces.js"
-import { workspaceRootPath } from "../../domain/workspaces/root-path.js"
-import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
 import { resolvePagerdutyOAuthAppCreds } from "../../lib/connection-config.js"
 import type {
   PagerdutyBinding,
@@ -26,6 +23,7 @@ import {
   createPullRequestWithFiles,
   getFileContent,
   parseGithubPullNumberFromUrl,
+  workspaceRootPathOfRepository,
 } from "../github/installation-write-client.js"
 import {
   getPagerdutyIncident,
@@ -149,17 +147,12 @@ export async function resolveFreshAccessToken(input: {
 async function resolveRepoContextForBinding(
   orgId: string,
   binding: PagerdutyBinding,
-): Promise<{
-  repositoryName: string
-  githubConnectionId: string
-  rootPath: string
-}> {
+): Promise<{ repositoryName: string; githubConnectionId: string }> {
   return withOrgDbContext(orgId, async () => {
     const db = getOrgDb()
     const [row] = await db
       .select({
         name: repositories.name,
-        gitUrl: repositories.gitUrl,
         githubConnectionId: repositories.githubConnectionId,
       })
       .from(repositories)
@@ -178,24 +171,9 @@ async function resolveRepoContextForBinding(
         "PagerDuty binding repository has no GitHub connection; link the repository to a GitHub installation first",
       )
     }
-    // The config file lives below the root folder of the Workspace on this repository.
-    const [workspace] = await db
-      .select({ rootPath: workspaces.rootPath })
-      .from(workspaces)
-      .where(
-        and(
-          eq(workspaces.orgId, orgId),
-          eq(
-            workspaces.workspaceRepositoryUrl,
-            normalizeWorkspaceRepositoryUrl(row.gitUrl),
-          ),
-        ),
-      )
-      .limit(1)
     return {
       repositoryName: row.name,
       githubConnectionId: row.githubConnectionId,
-      rootPath: workspaceRootPath(workspace),
     }
   })
 }
@@ -224,8 +202,12 @@ export async function syncPagerdutyConfigYaml(input: {
   binding: PagerdutyBinding
   services: PagerdutyConfigService[]
 }): Promise<{ changed: boolean; pullUrl?: string }> {
-  const { repositoryName, githubConnectionId, rootPath } =
+  const { repositoryName, githubConnectionId } =
     await resolveRepoContextForBinding(input.orgId, input.binding)
+  const rootPath = await workspaceRootPathOfRepository({
+    orgId: input.orgId,
+    repositoryName,
+  })
   const current = await getFileContent({
     orgId: input.orgId,
     env: input.env,

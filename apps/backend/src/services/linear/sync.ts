@@ -15,6 +15,7 @@ import {
   getFileContent,
   getPullRequestHeadBranch,
   parseGithubPullNumberFromUrl,
+  workspaceRootPathOfRepository,
 } from "../github/installation-write-client.js"
 import {
   downloadLinearMirrorAssets,
@@ -46,6 +47,10 @@ export async function syncLinearConfigYaml(input: {
   if (!githubConnectionId) {
     throw new Error("Linear sync repository has no GitHub connection")
   }
+  const rootPath = await workspaceRootPathOfRepository({
+    orgId: input.orgId,
+    repositoryName: input.target.repositoryName,
+  })
   let current = await getFileContent({
     orgId: input.orgId,
     env: input.env,
@@ -53,6 +58,7 @@ export async function syncLinearConfigYaml(input: {
     githubConnectionId,
     branch: input.target.branch,
     path: LINEAR_CONFIG_PATH,
+    rootPath,
   })
   if (input.target.pendingConfigPullUrl) {
     const pendingBranch = await getPullRequestHeadBranch({
@@ -71,6 +77,7 @@ export async function syncLinearConfigYaml(input: {
           githubConnectionId,
           branch: pendingBranch,
           path: LINEAR_CONFIG_PATH,
+          rootPath,
         })) ?? current
     }
   }
@@ -110,6 +117,7 @@ export async function syncLinearConfigYaml(input: {
     featureBranchPrefix: "ctxpipe/linear-config",
     ...getLinearConfigPullRequestPayload({ orgSlug: input.orgSlug }),
     files: [{ path: LINEAR_CONFIG_PATH, content: next }],
+    rootPath,
   })
   return {
     changed: true,

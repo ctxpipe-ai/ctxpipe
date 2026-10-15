@@ -1,5 +1,8 @@
 import type { Env } from "../../config/env.js"
-import { getFileContent } from "../github/installation-write-client.js"
+import {
+  getFileContent,
+  workspaceRootPathOfRepository,
+} from "../github/installation-write-client.js"
 import {
   type ParsedPagerdutyRepoConfig,
   parsePagerdutyConfigYamlContent,
@@ -22,6 +25,7 @@ export async function loadPagerdutyScopeFromRepo(input: {
     githubConnectionId: input.githubConnectionId,
     branch: input.branch,
     path: PAGERDUTY_CONFIG_PATH,
+    rootPath: await workspaceRootPathOfRepository(input),
   })
   return parsePagerdutyConfigYamlContent(raw)
 }

@@ -10,14 +10,12 @@ import {
   enqueueNotionFullSyncAfterConfigPush,
   loadNotionScopeForGithubPush,
 } from "../../../openworkflow/enqueue-notion-push-sync.js"
+import { connectorConfigPush } from "../../../services/confluence/github-push-config-sync.js"
 import {
-  githubCommitsMissingPathEntirely,
-  githubPushTouchesPath,
-} from "../../../services/confluence/github-push-config-sync.js"
-import { compareCommitsTouchesPath } from "../../../services/github/installation-write-client.js"
+  compareCommitsTouchesPath,
+  workspaceRootPathOfRepository,
+} from "../../../services/github/installation-write-client.js"
 import { NOTION_CONFIG_PATH } from "../../../services/notion/config-from-repo.js"
-
-const GIT_EMPTY_TREE_SHA = "0000000000000000000000000000000000000000"
 
 type GithubWebhookLog = { error: (e: Error) => void }
 
@@ -43,23 +41,13 @@ export async function maybeEnqueueNotionSyncOnConfigPush(input: {
   if (!defaultBranch) return
   if (input.ref !== `refs/heads/${defaultBranch}`) return
 
-  const touchedByCommitLists = githubPushTouchesPath({
+  const push = connectorConfigPush({
     commits: input.commits,
+    before: input.before,
+    after: input.after,
     path: NOTION_CONFIG_PATH,
   })
-  const before = input.before
-  const after = input.after
-  const canCompare =
-    Boolean(before && after) &&
-    before !== GIT_EMPTY_TREE_SHA &&
-    after !== GIT_EMPTY_TREE_SHA
-  const needsCompareFallback =
-    githubCommitsMissingPathEntirely({
-      commits: input.commits,
-      path: NOTION_CONFIG_PATH,
-    }) && canCompare
-
-  if (!touchedByCommitLists && !needsCompareFallback) return
+  if (!push.mayTouch) return
 
   const env = parseEnv(process.env as Record<string, string | undefined>)
   const compareConfigPathCache = new Map<string, Promise<boolean>>()
@@ -81,26 +69,31 @@ export async function maybeEnqueueNotionSyncOnConfigPush(input: {
     const repositoryRow = repository
     const repositoryGithubConnectionId = repository.githubConnectionId
 
-    async function resolveConfigPathTouchedForRepo(): Promise<boolean> {
-      if (touchedByCommitLists) return true
-      if (!needsCompareFallback || !before || !after) return false
-      const cached = compareConfigPathCache.get(repositoryRow.id)
-      if (cached) return cached
-      const promise = compareCommitsTouchesPath({
-        orgId: installationRow.orgId,
-        env,
-        repositoryName: repositoryRow.name,
-        githubConnectionId: repositoryGithubConnectionId,
-        baseSha: before,
-        headSha: after,
-        path: NOTION_CONFIG_PATH,
-      }).catch((err: unknown) => {
-        input.log.error(err instanceof Error ? err : new Error(String(err)))
-        return false
+    // The config file is relative to the root folder of the org's Workspace.
+    const rootPath = await workspaceRootPathOfRepository({
+      orgId: installationRow.orgId,
+      repositoryName: repositoryRow.name,
+    })
+    const resolveConfigPathTouchedForRepo = () =>
+      push.touches(rootPath, (path, base, head) => {
+        const key = `${repositoryRow.id}:${path}`
+        const cached = compareConfigPathCache.get(key)
+        if (cached) return cached
+        const promise = compareCommitsTouchesPath({
+          orgId: installationRow.orgId,
+          env,
+          repositoryName: repositoryRow.name,
+          githubConnectionId: repositoryGithubConnectionId,
+          baseSha: base,
+          headSha: head,
+          path,
+        }).catch((err: unknown) => {
+          input.log.error(err instanceof Error ? err : new Error(String(err)))
+          return false
+        })
+        compareConfigPathCache.set(key, promise)
+        return promise
       })
-      compareConfigPathCache.set(repositoryRow.id, promise)
-      return promise
-    }
 
     if (!(await resolveConfigPathTouchedForRepo())) continue
 

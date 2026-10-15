@@ -1,5 +1,8 @@
 import type { Env } from "../../config/env.js"
-import { getFileContent } from "../github/installation-write-client.js"
+import {
+  getFileContent,
+  workspaceRootPathOfRepository,
+} from "../github/installation-write-client.js"
 import type { ParsedLinearRepoConfig } from "./config-yaml.js"
 import { parseLinearConfigYamlContent } from "./config-yaml.js"
 
@@ -19,6 +22,7 @@ export async function loadLinearScopeFromRepo(input: {
     githubConnectionId: input.githubConnectionId,
     branch: input.branch,
     path: LINEAR_CONFIG_PATH,
+    rootPath: await workspaceRootPathOfRepository(input),
   })
   return parseLinearConfigYamlContent(raw)
 }

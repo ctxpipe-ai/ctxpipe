@@ -1,13 +1,19 @@
 import type { Env } from "../../config/env.js"
+import { withOrgDbContext } from "../../db/client.js"
 import {
   sameWorkspaceRevision,
   type WorkspaceRevision,
 } from "../../domain/workspaces/revision.js"
+import { workspaceRootPath } from "../../domain/workspaces/root-path.js"
+import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
 import {
   type GitHubInstallation,
   getInstallationOctokitForOrg,
 } from "../../models/github-installation.js"
-import { getDesiredWorkspaceRevision } from "../../models/workspaces.js"
+import {
+  getDesiredWorkspaceRevision,
+  listOrgWorkspaces,
+} from "../../models/workspaces.js"
 import { workspaceRepositoryPath } from "../git/root-folder.js"
 
 type InstallationContext = NonNullable<
@@ -25,6 +31,27 @@ type BaseInput = {
   env: Env
   /** When the org has multiple GitHub App connections, selects the installation token. */
   githubConnectionId?: string
+}
+
+/**
+ * The root folder of the org's Workspace on the GitHub repository
+ * `repositoryName` (`owner/name`), or `""` when no Workspace uses it.
+ * Connector config files are relative to this folder (CTX-709).
+ */
+export async function workspaceRootPathOfRepository(input: {
+  orgId: string
+  repositoryName: string
+}): Promise<string> {
+  const url = normalizeWorkspaceRepositoryUrl(
+    `https://github.com/${input.repositoryName}`,
+  )
+  const workspace = (
+    await withOrgDbContext(input.orgId, () => listOrgWorkspaces(input.orgId))
+  ).find(
+    (row) =>
+      normalizeWorkspaceRepositoryUrl(row.workspaceRepositoryUrl) === url,
+  )
+  return workspaceRootPath(workspace)
 }
 
 /** Maps root-relative change paths below the Workspace root folder. Throws on an unsafe path. */

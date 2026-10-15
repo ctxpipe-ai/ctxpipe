@@ -20,6 +20,7 @@ import {
   createPullRequestWithFiles,
   getFileContent,
   parseGithubPullNumberFromUrl,
+  workspaceRootPathOfRepository,
 } from "../github/installation-write-client.js"
 import {
   buildNotionDatabaseMirrorFiles,
@@ -173,6 +174,10 @@ export async function syncNotionConfigYaml(input: {
 }): Promise<{ changed: boolean; pullUrl?: string }> {
   const { repositoryName, githubConnectionId } =
     await resolveRepoContextForBinding(input.orgId, input.binding)
+  const rootPath = await workspaceRootPathOfRepository({
+    orgId: input.orgId,
+    repositoryName,
+  })
   const current = await getFileContent({
     orgId: input.orgId,
     env: input.env,
@@ -180,6 +185,7 @@ export async function syncNotionConfigYaml(input: {
     githubConnectionId,
     branch: input.binding.branch,
     path: NOTION_CONFIG_PATH,
+    rootPath,
   })
   const next = renderNotionConfigYaml({
     resources: input.resources.map((resource) => ({
@@ -217,6 +223,7 @@ export async function syncNotionConfigYaml(input: {
     commitMessage: pr.commitMessage,
     files: [{ path: NOTION_CONFIG_PATH, content: next }],
     featureBranchPrefix: "ctxpipe/notion-config",
+    rootPath,
   })
   return { changed: true, pullUrl: pull.pullUrl }
 }

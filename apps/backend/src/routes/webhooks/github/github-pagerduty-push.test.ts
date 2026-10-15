@@ -3,6 +3,7 @@ import { maybeActivatePagerdutySyncOnConfigPush } from "./github-pagerduty-push.
 
 const mocks = vi.hoisted(() => ({
   compareCommits: vi.fn(),
+  rootPath: vi.fn(),
   findRepository: vi.fn(),
   getConnection: vi.fn(),
   listInstallations: vi.fn(),
@@ -43,6 +44,7 @@ vi.mock("../../../openworkflow/workflows/pagerduty-sync-content.js", () => ({
 }))
 vi.mock("../../../services/github/installation-write-client.js", () => ({
   compareCommitsTouchesPath: mocks.compareCommits,
+  workspaceRootPathOfRepository: mocks.rootPath,
 }))
 vi.mock("../../../services/pagerduty/config-from-repo.js", () => ({
   PAGERDUTY_CONFIG_PATH: "pagerduty/config.yaml",
@@ -51,6 +53,7 @@ vi.mock("../../../services/pagerduty/config-from-repo.js", () => ({
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mocks.rootPath.mockResolvedValue("")
   mocks.listInstallations.mockResolvedValue([
     { id: "con_github", orgId: "org_1" },
   ])
@@ -98,6 +101,35 @@ describe("PagerDuty config push activation", () => {
       connectionId: "con_pd",
       repositoryId: "repo_1",
       branch: "main",
+    })
+    expect(mocks.runWorkflow).toHaveBeenCalledWith(
+      { name: "pagerduty-sync-content" },
+      { orgId: "org_1", connectionId: "con_pd" },
+    )
+  })
+
+  it("reads the config file below the Workspace root folder", async () => {
+    mocks.rootPath.mockResolvedValue("docs/ctx")
+    const push = {
+      installationId: 42,
+      githubConnectionId: "con_github",
+      repoFullName: "acme/context",
+      ref: "refs/heads/main",
+      log: { error: vi.fn() },
+    }
+    await maybeActivatePagerdutySyncOnConfigPush({
+      ...push,
+      commits: [{ modified: ["pagerduty/config.yaml"] }],
+    })
+    expect(mocks.runWorkflow).not.toHaveBeenCalled()
+
+    await maybeActivatePagerdutySyncOnConfigPush({
+      ...push,
+      commits: [{ modified: ["docs/ctx/pagerduty/config.yaml"] }],
+    })
+    expect(mocks.rootPath).toHaveBeenCalledWith({
+      orgId: "org_1",
+      repositoryName: "acme/context",
     })
     expect(mocks.runWorkflow).toHaveBeenCalledWith(
       { name: "pagerduty-sync-content" },

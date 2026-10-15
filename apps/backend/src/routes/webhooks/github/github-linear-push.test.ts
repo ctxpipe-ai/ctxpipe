@@ -3,6 +3,7 @@ import { maybeActivateLinearSyncOnConfigPush } from "./github-linear-push.js"
 
 const mocks = vi.hoisted(() => ({
   compareCommits: vi.fn(),
+  rootPath: vi.fn(),
   findRepository: vi.fn(),
   getConnection: vi.fn(),
   listInstallations: vi.fn(),
@@ -45,6 +46,7 @@ vi.mock("../../../openworkflow/workflows/linear-sync-content.js", () => ({
 }))
 vi.mock("../../../services/github/installation-write-client.js", () => ({
   compareCommitsTouchesPath: mocks.compareCommits,
+  workspaceRootPathOfRepository: mocks.rootPath,
 }))
 vi.mock("../../../services/linear/config-from-repo.js", () => ({
   LINEAR_CONFIG_PATH: "linear/config.yaml",
@@ -53,6 +55,7 @@ vi.mock("../../../services/linear/config-from-repo.js", () => ({
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mocks.rootPath.mockResolvedValue("")
   mocks.listInstallations.mockResolvedValue([
     { id: "con_github", orgId: "org_1" },
   ])

@@ -9,7 +9,10 @@ import {
   getLinearBindingWithRepoByConnectionId,
   listLinearConnectionsForOrg,
 } from "../../models/linear-connector.js"
-import { getFileContent } from "../github/installation-write-client.js"
+import {
+  getFileContent,
+  workspaceRootPathOfRepository,
+} from "../github/installation-write-client.js"
 import { LINEAR_CONFIG_PATH } from "./config-from-repo.js"
 import { parseLinearConfigYamlContent } from "./config-yaml.js"
 
@@ -113,6 +116,10 @@ export const linearSourceMigrationHook: SourceMigrationHook = {
         githubConnectionId: target.githubConnectionId,
         branch: target.branch,
         path: LINEAR_CONFIG_PATH,
+        rootPath: await workspaceRootPathOfRepository({
+          orgId,
+          repositoryName: target.repositoryName,
+        }),
       })
       bindings.push(
         ...linearLegacyBindings({
