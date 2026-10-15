@@ -391,6 +391,33 @@ it(
 )
 
 it(
+  "cron queues a hydrate again when the unfinished one is older than 3 hours",
+  { timeout: 90_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      { github: true, githubWriteView: "missing" },
+      async (f) => {
+        await f.publish()
+        const sha = pushSourcesFile(f)
+        await runTipCheck(f)
+        const [stuck] = await tipHydrateRuns(f, sha)
+        if (!stuck?.idempotencyKey) throw new Error("Expected a keyed hydrate")
+        // The run stays pending, as if it started 4 hours ago, with the key
+        // of that hour.
+        const earlier = new Date(Date.now() - 4 * 3_600_000)
+        await getSystemDb().execute(
+          sql`update openworkflow.workflow_runs set created_at = ${earlier.toISOString()}::timestamptz, idempotency_key = ${`${stuck.idempotencyKey.slice(0, -13)}${earlier.toISOString().slice(0, 13)}`} where id = ${stuck.id}`,
+        )
+        await runTipCheck(f)
+        expect((await tipHydrateRuns(f, sha)).map((run) => run.status)).toEqual(
+          ["pending", "pending"],
+        )
+      },
+    )
+  },
+)
+
+it(
   "cron records no access on a ready Workspace that loses its credential, then backs off",
   { timeout: 90_000 },
   async () => {
