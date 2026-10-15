@@ -97,8 +97,9 @@ describe("get_related arguments", () => {
   })
 
   it("applies the documented defaults", () => {
+    // No intent default: the tool infers the intent from the query.
+    expect(schema.parse(base).intent).toBeUndefined()
     expect(schema.parse(base)).toMatchObject({
-      intent: "general",
       direction: "both",
       maxDepth: 2,
       maxFanOut: 50,

@@ -76,11 +76,15 @@ const scopedPredicates = (intent: EvalIntent) => [
  * of the intent come first, so the rules of a hub service do not crowd out
  * its decisions and dependencies on free-form predicates. On free-form
  * predicates, the gateway that calls a service still ranks among its
- * dependencies.
+ * dependencies. With no intent but the question as `query`, `get_related`
+ * infers the intent from the words of the question (`inferIntent`), so its
+ * floors are the floors of the call with the intent. With no query, the one
+ * page of five cannot hold the gold of all four questions (1 owner, 2
+ * decisions, 5 changes, and up to 5 dependencies), so those floors stay low.
  */
 const floors: Record<
   EvalVocabulary,
-  Record<"intent" | "no intent", Record<EvalIntent, number>>
+  Record<ToolMode, Record<EvalIntent, number>>
 > = {
   canonical: {
     intent: { ownership: 0.95, why: 0.95, change: 0.9, dependencies: 0.95 },
@@ -90,6 +94,7 @@ const floors: Record<
       change: 0.25,
       dependencies: 0.22,
     },
+    question: { ownership: 0.95, why: 0.95, change: 0.9, dependencies: 0.95 },
   },
   "free-form": {
     intent: { ownership: 0.95, why: 0.95, change: 0.9, dependencies: 0.8 },
@@ -99,6 +104,7 @@ const floors: Record<
       change: 0.25,
       dependencies: 0.22,
     },
+    question: { ownership: 0.95, why: 0.95, change: 0.9, dependencies: 0.8 },
   },
 }
 
@@ -115,6 +121,20 @@ type Config = {
 }
 
 type Recall = Record<EvalIntent, number>
+
+/** The `get_related` call: only `intent`, no `intent`, or no `intent` and the question as `query`. */
+type ToolMode = "intent" | "no intent" | "question"
+
+/** The question that an agent asks about the seed service, in plain words. */
+function questionText(question: EvalQuestion): string {
+  const service = question.seed.split("/").pop()?.replace(/\.md$/, "")
+  return {
+    ownership: `Who owns the ${service} service?`,
+    why: `Why is the ${service} service built this way?`,
+    change: `What changed recently in ${service}?`,
+    dependencies: `What does ${service} depend on?`,
+  }[question.intent]
+}
 
 /** Share of the gold paths (at most `k`) that the first `k` results hold. */
 function recallAtK(question: EvalQuestion, ranked: readonly string[]): number {
@@ -188,12 +208,17 @@ function evalSuite(vocabulary: EvalVocabulary) {
     }
   }
 
-  /** The `get_related` tool with only `seeds` and `intent`, or with no `intent`. */
-  async function toolDefaults(question: EvalQuestion, withIntent: boolean) {
+  /**
+   * The `get_related` tool with only `seeds` and `intent`, with no `intent`,
+   * or with no `intent` and the question as `query`.
+   */
+  async function toolDefaults(question: EvalQuestion, mode: ToolMode) {
+    const withIntent = mode === "intent"
     const input = z.object(getRelatedInputShape).parse({
       workspace: "eval",
       seeds: [question.seed],
       ...(withIntent ? { intent: question.intent } : {}),
+      ...(mode === "question" ? { query: questionText(question) } : {}),
     })
     const tool = await rankWorkspaceRelated(
       { id: seed.orgId, slug: seed.orgSlug },
@@ -207,14 +232,12 @@ function evalSuite(vocabulary: EvalVocabulary) {
     return tool.results.map((result) => result.ref)
   }
 
-  async function recallOf(
-    config: Config | "intent" | "no intent",
-  ): Promise<Recall> {
+  async function recallOf(config: Config | ToolMode): Promise<Recall> {
     const sums = Object.fromEntries(INTENTS.map((intent) => [intent, [0, 0]]))
     for (const question of fixture.questions) {
       const paths =
-        config === "intent" || config === "no intent"
-          ? await toolDefaults(question, config === "intent")
+        typeof config === "string"
+          ? await toolDefaults(question, config)
           : (await ranked(question, config)).paths
       const sum = sums[question.intent] as number[]
       sum[0] = (sum[0] ?? 0) + recallAtK(question, paths)
@@ -246,6 +269,10 @@ function evalSuite(vocabulary: EvalVocabulary) {
     projection = publishedProjection(projectionFromWorkspace(row))
     rows.set("tool defaults (only intent)", await recallOf("intent"))
     rows.set("tool defaults (no intent)", await recallOf("no intent"))
+    rows.set(
+      "tool defaults (no intent, question as query)",
+      await recallOf("question"),
+    )
     const configs: Array<[string, Config]> = [
       ["all edges, fan-out 50", { scoped: false }],
       [
@@ -303,11 +330,14 @@ function evalSuite(vocabulary: EvalVocabulary) {
   it.each([
     "intent",
     "no intent",
+    "question",
   ] as const)("keeps recall@5 of the tool defaults (%s) at or above the floor for each intent", (mode) => {
     const defaults = rows.get(
-      mode === "intent"
-        ? "tool defaults (only intent)"
-        : "tool defaults (no intent)",
+      {
+        intent: "tool defaults (only intent)",
+        "no intent": "tool defaults (no intent)",
+        question: "tool defaults (no intent, question as query)",
+      }[mode],
     ) as Recall
     for (const intent of INTENTS) {
       expect(defaults[intent], intent).toBeGreaterThanOrEqual(
