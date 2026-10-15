@@ -381,9 +381,7 @@ describe("graph relevance eval (synthetic engineering Workspace, canonical vocab
         `${question.intent} ${question.seed}`,
       ).toEqual(paths.slice(0, 5))
     }
-    // 24 tool calls: the harness limit is far above their real time, so the
-    // load of the machine does not fail the test.
-  }, 120_000)
+  })
 })
 
 describe("graph relevance eval (synthetic engineering Workspace, free-form vocabulary)", () => {
