@@ -825,7 +825,7 @@ describe("ingestion v2 publish", () => {
         `if [ -f "${flag}" ]; then`,
         `case " $* " in *" ls-remote "*"--symref"*"context-a-${suffix}"*)`,
         `  T=$("$REAL_GIT" --git-dir="${bare}" rev-parse main)`,
-        `  C=$(echo race | "$REAL_GIT" --git-dir="${bare}" commit-tree "$T^{tree}" -p "$T")`,
+        `  C=$(echo race | GIT_AUTHOR_NAME=person GIT_AUTHOR_EMAIL=person@example.test GIT_COMMITTER_NAME=person GIT_COMMITTER_EMAIL=person@example.test "$REAL_GIT" --git-dir="${bare}" commit-tree "$T^{tree}" -p "$T")`,
         `  "$REAL_GIT" --git-dir="${bare}" update-ref refs/heads/main "$C" "$T" ;;`,
         "esac",
         "fi",
