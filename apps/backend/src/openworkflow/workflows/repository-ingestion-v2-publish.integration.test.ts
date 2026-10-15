@@ -39,7 +39,10 @@ import {
 import { standInIngestShardRuntime } from "../../test/ingest-shard-stand-in.js"
 import { openWorkflowNamespaceId } from "../namespace.js"
 import { defineIngestionShardWorkflow } from "./ingestion-shard.js"
-import { defineRepositoryIngestionV2Workflow } from "./repository-ingestion-v2.js"
+import {
+  defineRepositoryIngestionV2Workflow,
+  type IngestionV2Output,
+} from "./repository-ingestion-v2.js"
 import { workspaceExtractIngest } from "./workspace-extract-ingest.js"
 import { workspaceSemanticMerge } from "./workspace-semantic-merge.js"
 
@@ -632,7 +635,7 @@ describe("ingestion v2 publish", () => {
   )
   /** The publish of context A is refused or fails; context B publishes. */
   function expectOnlyContextBPublished(
-    result: Awaited<ReturnType<ReturnType<typeof startRun>["result"]>>,
+    result: IngestionV2Output,
     runId: string,
   ) {
     expect(result).toMatchObject({ status: "partial" })
