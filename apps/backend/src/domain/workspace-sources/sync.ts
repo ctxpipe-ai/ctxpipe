@@ -279,8 +279,8 @@ async function readExistingManaged(
 
 /**
  * Delete the managed files of removed or narrowed sources in one commit for
- * each provider. Paths that another `ok` source of the Workspace still owns
- * stay.
+ * each provider. Paths that the last good target of a remaining source of the
+ * Workspace owns stay, also when that source is not `ok`.
  */
 export async function cleanupRemovedSources(input: {
   orgId: string
