@@ -54,6 +54,7 @@ import {
   type IngestionV2Output,
 } from "./repository-ingestion-v2.js"
 import { defineWorkspaceExtractIngestWorkflow } from "./workspace-extract-ingest.js"
+import { workspaceOwnershipMigration } from "./workspace-ownership-migration.js"
 import { workspaceSemanticMerge } from "./workspace-semantic-merge.js"
 
 /*
@@ -482,6 +483,11 @@ beforeAll(async () => {
     workspaceSemanticMerge.spec,
     workspaceSemanticMerge.fn,
   )
+  // A run outside shadow mode runs the ownership migration first.
+  runner.implementWorkflow(
+    workspaceOwnershipMigration.spec,
+    workspaceOwnershipMigration.fn,
+  )
   worker = runner.newWorker({ concurrency: 4 })
   await worker.start()
 }, 120_000)
@@ -807,30 +813,57 @@ describe("ingestion v2 publish", () => {
     },
   )
 
+  /** A git wrapper: each tip read of context A comes after one more commit of a person, while `flag` exists. */
+  function raceContextA(flag: string): string {
+    const bare = join(remotes, contexts[0] ?? "")
+    return wrapGit(
+      `race-bin-${flag.split("/").pop()}`,
+      [
+        `if [ -f "${flag}" ]; then`,
+        `case " $* " in *" ls-remote "*"--symref"*"context-a-${suffix}"*)`,
+        `  T=$("$REAL_GIT" --git-dir="${bare}" rev-parse main)`,
+        `  C=$(echo race | "$REAL_GIT" --git-dir="${bare}" commit-tree "$T^{tree}" -p "$T")`,
+        `  "$REAL_GIT" --git-dir="${bare}" update-ref refs/heads/main "$C" "$T" ;;`,
+        "esac",
+        "fi",
+      ].join("\n"),
+    )
+  }
+
+  /** The completed ownership migrations of one run. */
+  async function migrationsDone(runId: string): Promise<number> {
+    const rows = await getSystemDb().execute<{ n: number }>(sql`
+      select count(*)::int as n from openworkflow.workflow_runs
+      where namespace_id = ${openWorkflowNamespaceId()}
+        and workflow_name = 'workspace-write-ownership-migration'
+        and input->>'jobId' like ${`wjob_${runId}_%_ownership`}
+        and status = 'completed'
+    `)
+    return rows.rows[0]?.n ?? 0
+  }
+
   it(
     "marks a Workspace partial and keeps its refs when the default branch wins the push race three times",
     { timeout: 420_000 },
     async () => {
       const bare = join(remotes, contexts[0] ?? "")
-      // Each tip read of context A comes after one more commit of a person.
-      const bin = wrapGit(
-        "race-bin",
-        [
-          `case " $* " in *" ls-remote "*"--symref"*"context-a-${suffix}"*)`,
-          `  T=$("$REAL_GIT" --git-dir="${bare}" rev-parse main)`,
-          `  C=$(echo race | "$REAL_GIT" --git-dir="${bare}" commit-tree "$T^{tree}" -p "$T")`,
-          `  "$REAL_GIT" --git-dir="${bare}" update-ref refs/heads/main "$C" "$T" ;;`,
-          "esac",
-        ].join("\n"),
-      )
-      const handle = await startRun("2026-10-10T00:00:00.000Z")
-      let result: Awaited<ReturnType<typeof handle.result>>
+      // The race starts after the ownership migration of each Workspace.
+      const flag = join(folder, "race-publish")
+      const bin = raceContextA(flag)
+      let result: IngestionV2Output
+      let runId: string
       try {
+        const handle = await startRun("2026-10-10T00:00:00.000Z")
+        runId = handle.workflowRun.id
+        await expect
+          .poll(() => migrationsDone(runId), { timeout: 120_000 })
+          .toBe(contexts.length)
+        writeFileSync(flag, "")
         result = await handle.result({ timeoutMs: 400_000 })
       } finally {
+        rmSync(flag, { force: true })
         vi.stubEnv("PATH", process.env.PATH?.replace(`${bin}:`, "") ?? "")
       }
-      const runId = handle.workflowRun.id
       const entry = expectOnlyContextBPublished(result, runId)
       expect(entry?.refused).toMatch(/default branch kept changing/)
       // The partial log names a fixed cause, not model or customer text.
@@ -845,6 +878,44 @@ describe("ingestion v2 publish", () => {
       expect(partialLogs.map((event) => event.reason)).toEqual(
         partialLogs.map(() => "failed"),
       )
+      expect(git(bare, "log", "-1", "--format=%B", "main")).not.toContain(
+        `Ctxpipe-Run: ${runId}`,
+      )
+      expect(refsOf(contexts[0] ?? "", runId)).not.toEqual([])
+    },
+  )
+
+  it(
+    "marks a Workspace partial and keeps its refs when its ownership migration fails, and publishes the others",
+    { timeout: 420_000 },
+    async () => {
+      const bare = join(remotes, contexts[0] ?? "")
+      // The race runs from the start: the migration of context A fails.
+      const flag = join(folder, "race-migration")
+      writeFileSync(flag, "")
+      const bin = raceContextA(flag)
+      let result: IngestionV2Output
+      let runId: string
+      try {
+        const handle = await startRun("2026-10-11T00:00:00.000Z")
+        runId = handle.workflowRun.id
+        result = await handle.result({ timeoutMs: 400_000 })
+      } finally {
+        rmSync(flag, { force: true })
+        vi.stubEnv("PATH", process.env.PATH?.replace(`${bin}:`, "") ?? "")
+      }
+      const entry = expectOnlyContextBPublished(result, runId)
+      expect(entry?.refused).toBe("The ownership migration failed")
+      const partialLogs = loggedEvents.filter(
+        (event) =>
+          event.level === "warn" &&
+          event.ingestionRunId === runId &&
+          event.workspaceId === workspaceIds[0] &&
+          String(event.step).startsWith("ownership-migration:"),
+      )
+      expect(partialLogs.map((event) => event.reason)).toEqual([
+        "ownership_migration_failed",
+      ])
       expect(git(bare, "log", "-1", "--format=%B", "main")).not.toContain(
         `Ctxpipe-Run: ${runId}`,
       )

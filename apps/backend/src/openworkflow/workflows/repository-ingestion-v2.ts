@@ -168,20 +168,23 @@ export function defineRepositoryIngestionV2Workflow(
         // Before the first v2 publish to a Workspace, its old extracted files
         // move to ingestion v2 ownership (ADR-052 section 3). Then the run
         // reads the new revisions.
-        if (
-          !input.shadow &&
-          !resolved.skipped &&
-          (await migrateOwnershipBeforePublish({
+        // A Workspace whose migration fails is `partial`: it publishes
+        // nothing and keeps its refs, and the other Workspaces go on.
+        let migrationFailed = new Set<string>()
+        if (!input.shadow && !resolved.skipped) {
+          const migration = await migrateOwnershipBeforePublish({
             step,
             orgId: input.orgId,
             runId: run.id,
             workspaceIds: resolved.destinations.map((d) => d.workspaceId),
             env: env(),
-          }))
-        )
-          resolved = await step.run({ name: "resolve-migrated" }, () =>
-            resolveIngestionV2Run(input),
-          )
+          })
+          migrationFailed = new Set(migration.failed)
+          if (migration.committed)
+            resolved = await step.run({ name: "resolve-migrated" }, () =>
+              resolveIngestionV2Run(input),
+            )
+        }
         if (resolved.skipped || resolved.destinations.length === 0)
           return {
             status: "skipped",
@@ -522,7 +525,16 @@ export function defineRepositoryIngestionV2Workflow(
           for (const destination of destinations) {
             const { workspaceId } = destination
             const entry = workspaces.find((w) => w.workspaceId === workspaceId)
-            if (entry?.assembled) {
+            if (entry && migrationFailed.has(workspaceId)) {
+              entry.refused = "The ownership migration failed"
+              entry.partial += 1
+              keepRefs.add(workspaceId)
+              getLogger().warn("ingestion-v2.partial", {
+                step: `ownership-migration:${workspaceId}`,
+                workspaceId,
+                reason: "ownership_migration_failed",
+              })
+            } else if (entry?.assembled) {
               const assembled = entry.assembled
               const revision = await step.run(
                 { name: `publish-revision:${workspaceId}` },

@@ -262,15 +262,14 @@ it(
             name: `test-ownership-before-publish-${f.id}`,
             schema: z.object({ orgId: z.string(), workspaceId: z.string() }),
           },
-          async ({ input, step, run }) => ({
-            committed: await migrateOwnershipBeforePublish({
+          async ({ input, step, run }) =>
+            migrateOwnershipBeforePublish({
               step,
               orgId: input.orgId,
               runId: run.id,
               workspaceIds: [input.workspaceId],
               env: parseEnv(process.env),
             }),
-          }),
         )
         runner.implementWorkflow(publish.spec, publish.fn)
         runner.implementWorkflow(
@@ -287,7 +286,7 @@ it(
             })
             return handle.result({ timeoutMs: 60_000 })
           }
-          expect(await runPublish()).toEqual({ committed: true })
+          expect(await runPublish()).toEqual({ committed: true, failed: [] })
           const migrated = f.git(
             "--git-dir",
             f.remote,
@@ -306,7 +305,7 @@ it(
             ),
           ).toBe("sole")
 
-          expect(await runPublish()).toEqual({ committed: false })
+          expect(await runPublish()).toEqual({ committed: false, failed: [] })
           expect(
             f.git("--git-dir", f.remote, "rev-parse", "refs/heads/main"),
           ).toBe(migrated)

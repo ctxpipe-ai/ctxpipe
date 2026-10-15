@@ -4,6 +4,7 @@ import { withIngestionOrg } from "../../domain/ingestion/ingestion-v2-resolve.js
 import { ownershipMigrationFiles } from "../../domain/ingestion/ownership-migration.js"
 import { resolveWorkspaceReadRevision } from "../../domain/workspaces/resolve-revision.js"
 import { log } from "../../observability/logger.js"
+import { isWorkflowControlSignal } from "../isSleepSignal.js"
 import { defineKnowledgeRewriteWorkflow } from "./workspace-knowledge-rewrite.js"
 
 /**
@@ -36,8 +37,10 @@ type Step = Parameters<Workflow<unknown, unknown, unknown>["fn"]>[0]["step"]
  * only when a Workspace changes, so an idle Workspace can get its first v2
  * publish before hydrate runs; without this step its old files are foreign
  * to ingestion v2. The migration is idempotent: a Workspace with no old file
- * makes no commit. It returns true when a migration made a commit, so the
- * caller must read the Workspace revisions again.
+ * makes no commit. `committed` is true when a migration made a commit, so the
+ * caller must read the Workspace revisions again. A migration that fails
+ * (for example, the default branch moves at each read) fails only its
+ * Workspace: `failed` names it, and the run goes on with the others.
  */
 export async function migrateOwnershipBeforePublish(input: {
   step: Step
@@ -45,36 +48,48 @@ export async function migrateOwnershipBeforePublish(input: {
   runId: string
   workspaceIds: readonly string[]
   env: Env
-}): Promise<boolean> {
+}): Promise<{ committed: boolean; failed: string[] }> {
   let committed = false
+  const failed: string[] = []
   for (const workspaceId of input.workspaceIds) {
-    const revision = await input.step.run(
-      { name: `ownership-revision:${workspaceId}` },
-      async () => {
-        const resolved = await withIngestionOrg(input.orgId, () =>
-          resolveWorkspaceReadRevision({
-            orgId: input.orgId,
-            workspaceId,
-            env: input.env,
-            refresh: true,
-          }),
-        )
-        if (!resolved) throw new Error("The Workspace has no revision")
-        // The token stays out of the step output.
-        return { ...resolved.revision, access: "write-default" as const }
-      },
-    )
-    const result = await input.step.runWorkflow(
-      workspaceOwnershipMigration.spec,
-      {
-        orgId: input.orgId,
+    try {
+      const revision = await input.step.run(
+        { name: `ownership-revision:${workspaceId}` },
+        async () => {
+          const resolved = await withIngestionOrg(input.orgId, () =>
+            resolveWorkspaceReadRevision({
+              orgId: input.orgId,
+              workspaceId,
+              env: input.env,
+              refresh: true,
+            }),
+          )
+          if (!resolved) throw new Error("The Workspace has no revision")
+          // The token stays out of the step output.
+          return { ...resolved.revision, access: "write-default" as const }
+        },
+      )
+      const result = await input.step.runWorkflow(
+        workspaceOwnershipMigration.spec,
+        {
+          orgId: input.orgId,
+          workspaceId,
+          jobId: `wjob_${input.runId}_${workspaceId}_ownership`,
+          revision,
+        },
+        { name: `ownership-migration:${workspaceId}` },
+      )
+      if (result.committed) committed = true
+    } catch (error) {
+      // A control signal parks the run while the child runs.
+      if (isWorkflowControlSignal(error)) throw error
+      failed.push(workspaceId)
+      // A fixed code: the cause text can hold repository text.
+      log.warn({
+        step: "ingestion-v2.ownership-migration-failed",
         workspaceId,
-        jobId: `wjob_${input.runId}_${workspaceId}_ownership`,
-        revision,
-      },
-      { name: `ownership-migration:${workspaceId}` },
-    )
-    if (result.committed) committed = true
+      })
+    }
   }
-  return committed
+  return { committed, failed }
 }
