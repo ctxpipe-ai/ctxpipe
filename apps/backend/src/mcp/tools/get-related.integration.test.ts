@@ -411,10 +411,12 @@ describe("get_related through the MCP client on live Postgres and FalkorDB", () 
     expect(refs(result)).toEqual(["knowledge/teams/payments.md"])
   })
 
-  it("returns the connection saturation runbook first without an intent", async () => {
+  // A service that links a runbook, a team, a service and a decision. Only
+  // the runbook matches the query.
+  const seedRunbookWorkspace = async (slug: string) => {
     await seedRelatedWorkspace({
       seed,
-      slug: "runbook-query",
+      slug,
       sha: sha("d"),
       chunks: true,
       units: [
@@ -442,12 +444,28 @@ describe("get_related through the MCP client on live Postgres and FalkorDB", () 
         },
       ],
     })
+  }
+
+  it("returns the connection saturation runbook first without an intent", async () => {
+    await seedRunbookWorkspace("runbook-query")
     const result = await related({
       workspace: "runbook-query",
       seeds: ["seed.md"],
       query: "connection saturation runbook",
     })
     expect(refs(result)[0]).toBe("runbook.md")
+  })
+
+  it("keeps the connection saturation runbook before the decisions for intent why", async () => {
+    await seedRunbookWorkspace("runbook-why")
+    const result = await related({
+      workspace: "runbook-why",
+      seeds: ["seed.md"],
+      intent: "why",
+      query: "connection saturation runbook",
+    })
+    expect(refs(result)[0]).toBe("runbook.md")
+    expect(refs(result)).toContain("decision.md")
   })
 
   it("does not repeat a full intent walk that already has an answer", async () => {

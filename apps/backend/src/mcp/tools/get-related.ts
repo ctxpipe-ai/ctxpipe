@@ -482,7 +482,8 @@ export async function rankWorkspaceRelated(
       )
   }
   // A unit keeps the node and the rank of the first walk that found it. The
-  // answers of all walks come before the other results, as in one walk.
+  // answers of all walks (`answer` of `rankRelated`) come before the other
+  // results, as in one walk.
   const nodes = new Map<string, ExpandedNode>()
   const edgeIds = new Set<string>()
   for (const { expansion } of walks) {
@@ -492,21 +493,10 @@ export async function rankWorkspaceRelated(
   }
   const refOf = (id: string) => nodes.get(id)?.path ?? id
   const rankedIds = new Set<string>()
-  const ordered =
-    input.intent === "general"
-      ? walks.flatMap((step) => step.ranked)
-      : [
-          ...walks.flatMap((step) =>
-            step.ranked.filter((result) =>
-              isAnswerKind(input.intent, result.kind),
-            ),
-          ),
-          ...walks.flatMap((step) =>
-            step.ranked.filter(
-              (result) => !isAnswerKind(input.intent, result.kind),
-            ),
-          ),
-        ]
+  const ordered = [
+    ...walks.flatMap((step) => step.ranked.filter((result) => result.answer)),
+    ...walks.flatMap((step) => step.ranked.filter((result) => !result.answer)),
+  ]
   const ranked = ordered
     .filter((result) => !rankedIds.has(result.id) && rankedIds.add(result.id))
     .slice(0, RANKED_LIMIT)

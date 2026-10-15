@@ -126,6 +126,8 @@ export type RelatedResult = {
   queryMatch: number
   /** The highest-weight path from a seed; empty for a seed or a lone hit. */
   path: RelevancePathStep[]
+  /** True for a unit of an answer kind of the intent or a strong query hit. */
+  answer: boolean
 }
 
 type IntentPreset = {
@@ -764,13 +766,13 @@ export function rankRelated(input: {
     candidate.queryMatch >= STRONG_QUERY_MATCH
   const answers = selectDiverse(candidates.filter(isAnswer), selection)
   const selected = [
-    ...answers,
+    ...answers.map((candidate) => ({ candidate, answer: true })),
     ...selectDiverse(
       candidates.filter((candidate) => !isAnswer(candidate)),
       { ...selection, limit: limit - answers.length },
-    ),
+    ).map((candidate) => ({ candidate, answer: false })),
   ]
-  return selected.map((candidate) => ({
+  return selected.map(({ candidate, answer }) => ({
     id: candidate.node.id,
     kind: candidate.node.kind,
     score: candidate.score,
@@ -782,6 +784,7 @@ export function rankRelated(input: {
       predicate: step.edge.predicate,
       weight: step.pathWeight,
     })),
+    answer,
   }))
 }
 

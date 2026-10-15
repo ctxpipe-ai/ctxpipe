@@ -1066,6 +1066,22 @@ describe("rankRelated answer kinds of the intent", () => {
     expect(result.indexOf("playbook")).toBeLessThan(result.indexOf("library"))
   })
 
+  it("marks the answer kinds and the strong query hits as answers", () => {
+    const result = rankRelated({
+      ...input,
+      nodes: [...input.nodes, node("runbook", "Runbook", { degree: 1 })],
+      signals: [...input.signals, signal("s", "runbook", 0.9)],
+      queryHits: [{ id: "runbook", score: 2 / 61 }],
+      options: { now: NOW, intent: "why" },
+    })
+    const answer = new Map(result.map((ranked) => [ranked.id, ranked.answer]))
+    expect(result[0]?.id).toBe("runbook")
+    expect(answer.get("runbook")).toBe(true)
+    expect(answer.get("decision")).toBe(true)
+    expect(answer.get("rule0")).toBe(false)
+    expect(answer.get("library")).toBe(false)
+  })
+
   it("keeps a weak query hit after the answer kinds with no intent", () => {
     const result = rankRelated({
       ...input,
