@@ -395,11 +395,11 @@ export const AddToWorkspaces: Story = {
   play: async ({ canvasElement }) => {
     addCalls.length = 0
     const body = within(canvasElement.ownerDocument.body)
-    await expect(
-      await body.findByRole("heading", {
-        name: "Add Confluence to Workspaces",
-      }),
-    ).toBeVisible()
+    const heading = await body.findByRole("heading", {
+      name: "Add Confluence to Workspaces",
+    })
+    // The modal fades in; wait until the step is visible.
+    await waitFor(() => expect(heading).toBeVisible())
     const add = body.getByRole("button", { name: "Add to Workspaces" })
     await expect(add).toBeDisabled()
     await userEvent.click(
@@ -410,9 +410,10 @@ export const AddToWorkspaces: Story = {
     )
     await userEvent.click(add)
     // The add opened a pull request: the last step is the merge.
-    await expect(
-      await body.findByRole("heading", { name: "Merge the pull request" }),
-    ).toBeVisible()
+    const merge = await body.findByRole("heading", {
+      name: "Merge the pull request",
+    })
+    await waitFor(() => expect(merge).toBeVisible())
     // The sync starts after the merge, so the last step links the pull request.
     await expect(
       body.getByRole("link", { name: "acme/docs#7" }),

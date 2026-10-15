@@ -6,6 +6,7 @@ import { parseNameStatus } from "../../services/git/name-status.js"
 import {
   type GitPack,
   nativeGit,
+  packRootTree,
   withGitDirectory,
 } from "../../services/git/pack.js"
 import { resolveHydrateLink, sourcePathOf } from "./hydrate.js"
@@ -64,15 +65,22 @@ export async function nativeRenameRewriteFiles(
         }
         return files
       }
-      const previous = await filesAt(previousSha)
-      const current = await filesAt(pack.sha)
+      // Both trees are the Workspace root folder, so paths are root-relative.
+      const previousTree = await packRootTree(directory, {
+        sha: previousSha,
+        root: pack.root,
+      })
+      const currentTree = await packRootTree(directory, pack)
+      if (!previousTree || !currentTree) return []
+      const previous = await filesAt(previousTree)
+      const current = await filesAt(currentTree)
       const diff = [
         "diff",
         "--find-renames=50%",
         "--name-status",
         "-z",
-        previousSha,
-        pack.sha,
+        previousTree,
+        currentTree,
       ]
       const candidates = renamePairs(await nativeGit(directory, diff)).filter(
         (pair) => previous.has(pair.from) && current.has(pair.to),

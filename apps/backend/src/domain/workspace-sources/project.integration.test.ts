@@ -4,6 +4,7 @@ import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { workspaceSources } from "../../db/schema/workspace_sources.js"
+import { lastGoodTarget } from "../../models/workspace-source-state.js"
 import { listWorkspaceSourceRows } from "../../models/workspace-sources.js"
 import { seedSourcesOrg } from "../../test/workspace-sources-fixture.js"
 import { projectWorkspaceSources } from "./project.js"
@@ -108,9 +109,31 @@ sources:
       ".ctxpipe/sources.yaml": "version: [\n",
     })
     await project(broken)
-    expect((await rows()).map((row) => [row.sourceKey, row.status])).toEqual([
-      [".file", "invalid"],
+    // The file may still have `eng-issues`, so its row stays, with its last
+    // good scope, until the file can be read again.
+    expect(
+      (await rows())
+        .map((row) => [
+          row.sourceKey,
+          row.status,
+          row.statusDetail,
+          lastGoodTarget(row)?.scope ?? null,
+        ])
+        .sort(),
+    ).toEqual([
+      [".file", "invalid", expect.any(String), null],
+      [
+        "eng-issues",
+        "invalid",
+        "The sources file cannot be read",
+        { channels: ["C0ENG0001", "C0OPS0001"] },
+      ],
     ])
+    expect(await project(broken)).toEqual({
+      removed: [],
+      changed: [],
+      added: [],
+    })
 
     const removed = await repo.commit({ ".ctxpipe/sources.yaml": null })
     await project(removed)

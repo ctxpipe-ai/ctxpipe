@@ -24,8 +24,13 @@ import {
   updateWorkspace,
   workspaceKeys,
 } from "./queries"
+import { normalizeRootFolder, rootFolderError } from "./rootFolder"
 import type { WorkspaceDetail, WorkspaceSkippedFile } from "./types"
-import { WorkspaceRepositoryPicker } from "./WorkspaceRepositoryPicker"
+import {
+  type WorkspaceRepositoryChoice,
+  WorkspaceRepositoryPicker,
+} from "./WorkspaceRepositoryPicker"
+import { WorkspaceRootFolderField } from "./WorkspaceRootFolderField"
 import { workspaceDeleteNameMatches } from "./workspaceDeleteNameMatches"
 import { useWriteCheckStall } from "./writeCheckStall"
 import { writeStatusLabel } from "./writeStatusLabel"
@@ -182,6 +187,9 @@ export function WorkspaceSettingsPane(props: {
   const [relinkError, setRelinkError] = useState<string | null>(null)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [confirmName, setConfirmName] = useState("")
+  const [rootFolder, setRootFolder] = useState(workspace.rootPath ?? "")
+  const rootFolderChanged =
+    normalizeRootFolder(rootFolder) !== (workspace.rootPath ?? "")
 
   const dirty =
     displayName.trim() !== workspace.displayName ||
@@ -219,15 +227,12 @@ export function WorkspaceSettingsPane(props: {
   })
 
   const relinkMutation = useMutation({
-    mutationFn: (choice: {
-      gitUrl: string
-      githubConnectionId?: string
-      source: "select" | "paste"
-    }) =>
+    mutationFn: (choice: WorkspaceRepositoryChoice) =>
       updateWorkspace(orgSlug, workspace.slug, {
         workspaceRepositoryUrl: choice.gitUrl,
         githubConnectionId: choice.githubConnectionId ?? null,
         source: choice.source,
+        rootPath: choice.rootPath,
       }),
     onSuccess: () => {
       setRelinkError(null)
@@ -236,6 +241,21 @@ export function WorkspaceSettingsPane(props: {
       toast.success("Workspace repository updated")
     },
     onError: (error: Error) => setRelinkError(error.message),
+  })
+
+  const rootFolderMutation = useMutation({
+    mutationFn: () =>
+      updateWorkspace(orgSlug, workspace.slug, {
+        rootPath: normalizeRootFolder(rootFolder),
+      }),
+    onSuccess: (updated) => {
+      setRootFolder(updated.rootPath)
+      invalidate()
+      toast.success("Root folder saved")
+    },
+    onError: (error: Error) => {
+      toast.error(error.message)
+    },
   })
 
   const checkWriteMutation = useMutation({
@@ -466,6 +486,32 @@ export function WorkspaceSettingsPane(props: {
                   </Button>
                 </div>
               </div>
+              <form
+                className="mt-4 flex flex-col gap-3"
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  if (rootFolderChanged && rootFolderError(rootFolder) === null)
+                    rootFolderMutation.mutate()
+                }}
+              >
+                <WorkspaceRootFolderField
+                  value={rootFolder}
+                  onChange={setRootFolder}
+                  isDisabled={rootFolderMutation.isPending}
+                />
+                <div className="flex justify-end">
+                  <Button
+                    type="submit"
+                    variant="secondary"
+                    isPending={rootFolderMutation.isPending}
+                    isDisabled={
+                      !rootFolderChanged || rootFolderError(rootFolder) !== null
+                    }
+                  >
+                    Save root folder
+                  </Button>
+                </div>
+              </form>
             </section>
           </SettingsGroup>
 
@@ -529,6 +575,7 @@ export function WorkspaceSettingsPane(props: {
             <WorkspaceRepositoryPicker
               orgSlug={orgSlug}
               currentUrl={workspace.workspaceRepositoryUrl}
+              currentRootPath={workspace.rootPath}
               submitLabel="Save"
               pending={relinkMutation.isPending}
               error={relinkError}

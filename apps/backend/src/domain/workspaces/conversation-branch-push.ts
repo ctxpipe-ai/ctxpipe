@@ -109,12 +109,19 @@ export function conversationBranchPushTool(input: {
           // the sandbox's read credential to fetch.
           next: `The branch on GitHub has commits you do not have. Fetch them with \`${SANDBOX_READ_GIT} fetch origin "$(git branch --show-current)"\`, then run \`git rebase FETCH_HEAD\` on the session branch, resolve any conflicts, and push again.`,
         }
-      if (outcome.status === "skipped" && outcome.reason === "host_only_field")
+      if (
+        outcome.status === "skipped" &&
+        (outcome.reason === "host_only_field" ||
+          outcome.reason === "outside_root")
+      )
         return {
           pushed: false,
           reason: outcome.reason,
           uncommitted,
-          next: "Only ctx| adds or changes the generated_by and sources front matter fields, because they give a file to ingestion. A new commit that undoes the change is not sufficient, because each commit is checked. Remove the change from every unpushed commit (for example, `git reset --soft` to the last pushed commit, undo the change, and commit again), then push again.",
+          next:
+            outcome.reason === "outside_root"
+              ? "Your commits change files outside the Workspace root folder. Undo those changes in new commits or rebase them out, keep only files below the root folder, and push again."
+              : "Only ctx| adds or changes the generated_by and sources front matter fields, because they give a file to ingestion. A new commit that undoes the change is not sufficient, because each commit is checked. Remove the change from every unpushed commit (for example, `git reset --soft` to the last pushed commit, undo the change, and commit again), then push again.",
         }
       return { pushed: false, reason: outcome.reason, uncommitted }
     },

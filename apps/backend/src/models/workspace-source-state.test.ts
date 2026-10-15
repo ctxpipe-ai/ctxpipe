@@ -1,6 +1,8 @@
+import { initLogger } from "evlog"
 import { describe, expect, it } from "vitest"
 import {
   githubPins,
+  lastGoodTarget,
   parseSourceState,
   planSourceStates,
   reconcileGithubState,
@@ -51,6 +53,63 @@ describe("parseSourceState", () => {
         state: { provider: "github", repositories: [pin] },
       }),
     ).toEqual([])
+  })
+})
+
+describe("lastGoodTarget", () => {
+  const target = {
+    provider: "linear",
+    connectionId: "con_linear1",
+    scope: { teams: ["ENG"] },
+  }
+  const row = (status: string, state: unknown) => ({
+    id: "wsrc_1",
+    provider: "linear",
+    connectionId: "con_linear1",
+    scope: { teams: ["OPS"] },
+    status,
+    state,
+  })
+
+  it("gives the columns of a valid row", () => {
+    expect(lastGoodTarget(row("ok", {}))).toEqual({
+      ...target,
+      scope: { teams: ["OPS"] },
+    })
+    expect(
+      lastGoodTarget({ ...row("ok", {}), provider: null, connectionId: null }),
+    ).toBe(null)
+  })
+
+  it("gives the kept target of an invalid row, or null", () => {
+    expect(lastGoodTarget(row("invalid", { lastGoodTarget: target }))).toEqual(
+      target,
+    )
+    expect(lastGoodTarget(row("invalid", {}))).toBe(null)
+    expect(
+      lastGoodTarget(row("invalid", { lastGoodTarget: { provider: 5 } })),
+    ).toBe(null)
+  })
+
+  it("keeps the GitHub pins of a state that also has a target", () => {
+    expect(
+      githubPins({
+        id: "wsrc_1",
+        provider: "github",
+        state: {
+          provider: "github",
+          repositories: [pin],
+          lastGoodTarget: target,
+        },
+      }),
+    ).toEqual([pin])
+    expect(
+      parseSourceState({
+        id: "wsrc_1",
+        provider: "linear",
+        state: { lastGoodTarget: target },
+      }),
+    ).toBe(null)
   })
 })
 
@@ -107,6 +166,9 @@ describe("planSourceStates", () => {
     id: `wsrc_${sourceKey}`,
     sourceKey,
     provider: "github",
+    connectionId: "con_github1",
+    scope: {},
+    status: "ok",
     state: { provider: "github", repositories: pins },
   })
   const api = {
@@ -159,7 +221,16 @@ describe("planSourceStates", () => {
       provider: "github",
       repositories: [pin],
     })
-    expect(states.get("old")).toEqual({ provider: "github", repositories: [] })
+    // The broken row keeps the target of its last valid entry.
+    expect(states.get("old")).toEqual({
+      provider: "github",
+      repositories: [],
+      lastGoodTarget: {
+        provider: "github",
+        connectionId: "con_github1",
+        scope: {},
+      },
+    })
   })
 
   it("gives a non-GitHub row an empty state and skips the Workspace repository", () => {
@@ -336,5 +407,49 @@ describe("planSourceStates for source files", () => {
       indexedSha: null,
     })
     expect(next?.id).not.toBe("wlr_main")
+  })
+})
+
+describe("an invalid row whose stored target does not parse", () => {
+  it("logs once when the projection writes it, not on each read, and keeps it", () => {
+    const events: unknown[] = []
+    initLogger({
+      silent: true,
+      drain: (ctx) => {
+        events.push(ctx.event)
+      },
+    })
+    const warn = () =>
+      events.filter((event) =>
+        JSON.stringify(event).includes("workspace_sources.state_invalid"),
+      )
+    const target = { provider: "linear", connectionId: "", scope: 1 }
+    const row = {
+      id: "wsrc_held",
+      sourceKey: "issues",
+      provider: "linear",
+      connectionId: "con_linear",
+      scope: {},
+      status: "invalid",
+      state: { lastGoodTarget: target },
+    }
+    expect(lastGoodTarget(row)).toBeNull()
+    expect(lastGoodTarget(row)).toBeNull()
+    expect(warn()).toHaveLength(0)
+
+    const states = planSourceStates({
+      existing: [row],
+      planned: [
+        {
+          sourceKey: "issues",
+          provider: "linear",
+          status: "invalid",
+          scope: {},
+        },
+      ],
+      workspaceUrl: null,
+    })
+    expect(states.get("issues")).toEqual({ lastGoodTarget: target })
+    expect(warn()).toHaveLength(1)
   })
 })

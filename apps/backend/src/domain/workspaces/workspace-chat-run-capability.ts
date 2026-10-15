@@ -107,6 +107,7 @@ async function currentRunState(
         connectionId: workspaces.githubConnectionId,
         sha: workspaces.desiredSha,
         defaultBranch: workspaces.desiredDefaultBranch,
+        rootPath: workspaces.rootPath,
       })
       .from(sandboxLocks)
       .innerJoin(
@@ -142,6 +143,7 @@ async function currentRunState(
         sha: current.sha,
         defaultBranch: current.defaultBranch,
         access: "read",
+        ...(current.rootPath ? { rootPath: current.rootPath } : {}),
       }),
     }
   })

@@ -9,6 +9,7 @@ import {
   githubPins,
   planSourceStates,
   type SourceState,
+  type StoredSourceState,
 } from "../models/workspace-source-state.js"
 import { orgSql } from "../models/workspace-sql.js"
 
@@ -90,7 +91,7 @@ export async function insertProjectedSourceRows(
   db: Db | Tx,
   rows: Array<typeof workspaceSources.$inferInsert>,
 ): Promise<void> {
-  const states = new Map<string, SourceState | Record<string, never>>()
+  const states = new Map<string, StoredSourceState>()
   for (const workspaceId of new Set(rows.map((row) => row.workspaceId))) {
     const planned = rows
       .filter((row) => row.workspaceId === workspaceId)

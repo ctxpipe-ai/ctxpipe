@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
+import { workspaceRelativePath } from "./root-folder.js"
 
 const execFileAsync = promisify(execFile)
 
@@ -301,6 +302,11 @@ export async function listMarkdownFilesAtGitSha(input: {
    * the trees and only the blobs under the folder.
    */
   prefix?: string
+  /**
+   * Workspace root folder. Only files below it are read, and every path
+   * (including `extraPaths`, `extraFolders` and `prefix`) is relative to it.
+   */
+  root?: string
 }): Promise<
   Array<{
     path: string
@@ -317,14 +323,22 @@ export async function listMarkdownFilesAtGitSha(input: {
     async (dir, fetchBlobs) => {
       const inFolder = (path: string) =>
         input.extraFolders?.some((folder) => path.startsWith(folder)) ?? false
-      const listed = (await listTreeEntries(dir, prefix)).filter(
-        (entry) =>
+      const listed = (
+        await listTreeEntries(
+          dir,
+          prefix ? `${input.root ? `${input.root}/` : ""}${prefix}` : undefined,
+        )
+      ).flatMap((entry) => {
+        const path = workspaceRelativePath(input.root ?? "", entry.path)
+        return path !== null &&
           entry.kind === "blob" &&
-          (!prefix || entry.path.startsWith(prefix)) &&
-          (entry.path.endsWith(".md") ||
-            input.extraPaths?.includes(entry.path) ||
-            inFolder(entry.path)),
-      )
+          (!prefix || path.startsWith(prefix)) &&
+          (path.endsWith(".md") ||
+            input.extraPaths?.includes(path) ||
+            inFolder(path))
+          ? [{ ...entry, repositoryPath: entry.path, path }]
+          : []
+      })
       // Check the size before the read, so a large blob is never in memory.
       const tooLarge = (entry: (typeof listed)[number]) =>
         input.extraFolderMaxBytes !== undefined &&
@@ -420,11 +434,15 @@ export async function listMarkdownFilesAtGitSha(input: {
         return {
           path: entry.path,
           content: bytes.toString("utf8"),
-          ...(introduced.has(entry.path)
-            ? { introducingCommitTimestamp: introduced.get(entry.path) }
+          ...(introduced.has(entry.repositoryPath)
+            ? {
+                introducingCommitTimestamp: introduced.get(
+                  entry.repositoryPath,
+                ),
+              }
             : {}),
-          ...(lastChanged.has(entry.path)
-            ? { lastCommitTimestamp: lastChanged.get(entry.path) }
+          ...(lastChanged.has(entry.repositoryPath)
+            ? { lastCommitTimestamp: lastChanged.get(entry.repositoryPath) }
             : {}),
         }
       })

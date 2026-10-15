@@ -73,10 +73,13 @@ const scopedPredicates = (intent: EvalIntent) => [
  * that an agent makes with only `intent`, and the call with no `intent`. The
  * measured value is at or above the floor. With no intent, one first page
  * must serve four kinds of question (an owner, decisions, five changes, and
- * the dependencies), so its floors are lower. On free-form predicates, the
- * rules of a hub service still crowd out its decisions and dependencies.
- * With no intent, the walk of all edges skips FROM_SOURCE, so a hub source
- * does not crowd out the other answers, and the provenance floor is 0.
+ * the dependencies), so its floors are lower. With no intent, the walk of all edges
+ * skips FROM_SOURCE, so a hub source does not crowd out the other answers, and
+ * the provenance floor is 0. The units of the answer kinds
+ * of the intent come first, so the rules of a hub service do not crowd out
+ * its decisions and dependencies on free-form predicates. On free-form
+ * predicates, the gateway that calls a service still ranks among its
+ * dependencies.
  */
 const floors: Record<
   EvalVocabulary,
@@ -86,31 +89,31 @@ const floors: Record<
     intent: {
       ownership: 0.95,
       why: 0.95,
-      change: 0.85,
+      change: 0.9,
       dependencies: 0.95,
       provenance: 0.95,
     },
     "no intent": {
       ownership: 0.8,
-      why: 0.45,
-      change: 0.2,
-      dependencies: 0.1,
+      why: 0.65,
+      change: 0.25,
+      dependencies: 0.22,
       provenance: 0,
     },
   },
   "free-form": {
     intent: {
       ownership: 0.95,
-      why: 0.45,
-      change: 0.8,
-      dependencies: 0.09,
+      why: 0.95,
+      change: 0.9,
+      dependencies: 0.8,
       provenance: 0.95,
     },
     "no intent": {
       ownership: 0.95,
-      why: 0.45,
-      change: 0.2,
-      dependencies: 0.1,
+      why: 0.65,
+      change: 0.25,
+      dependencies: 0.22,
       provenance: 0,
     },
   },

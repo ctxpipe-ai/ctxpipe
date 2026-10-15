@@ -237,6 +237,63 @@ describe("clone-tree", { timeout: 30_000 }, () => {
     ])
   })
 
+  it("reads only the Markdown below a Workspace root folder, with root-relative paths", async () => {
+    dir = await mkdtemp(join(tmpdir(), "ctxpipe-root-tree-"))
+    const git = async (...args: string[]) =>
+      (
+        await execFileAsync("git", ["-C", dir as string, ...args], {
+          env: {
+            ...process.env,
+            GIT_AUTHOR_DATE: "2026-01-01T00:00:00Z",
+            GIT_COMMITTER_DATE: "2026-01-01T00:00:00Z",
+          },
+        })
+      ).stdout.trim()
+    await git("init", "-b", "main")
+    await mkdir(join(dir, "docs/context/.ctxpipe"), { recursive: true })
+    await writeFile(join(dir, "README.md"), "# Repo\n")
+    await writeFile(join(dir, "docs/context/AGENTS.md"), "# Context\n")
+    await writeFile(
+      join(dir, "docs/context/.ctxpipe/sources.yaml"),
+      "sources: []\n",
+    )
+    await git("add", ".")
+    await git(
+      "-c",
+      "user.name=Contract",
+      "-c",
+      "user.email=contract@example.test",
+      "commit",
+      "-m",
+      "seed",
+    )
+    const files = await listMarkdownFilesAtGitSha({
+      url: dir,
+      sha: await git("rev-parse", "HEAD"),
+      includeIntroducingCommits: true,
+      extraPaths: [".ctxpipe/sources.yaml"],
+      root: "docs/context",
+    })
+    expect(
+      files.map(({ path, content, lastCommitTimestamp }) => ({
+        path,
+        content,
+        lastCommitTimestamp,
+      })),
+    ).toEqual([
+      {
+        path: ".ctxpipe/sources.yaml",
+        content: "sources: []\n",
+        lastCommitTimestamp: undefined,
+      },
+      {
+        path: "AGENTS.md",
+        content: "# Context\n",
+        lastCommitTimestamp: "2026-01-01T00:00:00.000Z",
+      },
+    ])
+  })
+
   it("reads an authenticated Git remote without putting the token in Git arguments or origin", async () => {
     dir = await mkdtemp(join(tmpdir(), "ctxpipe-private-tree-"))
     const git = async (...args: string[]) =>

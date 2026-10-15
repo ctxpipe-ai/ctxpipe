@@ -23,6 +23,7 @@ import {
   createPullRequestWithFiles,
   getFileContent,
   parseGithubPullNumberFromUrl,
+  workspaceRootPathOfRepository,
 } from "../github/installation-write-client.js"
 import {
   getPagerdutyIncident,
@@ -203,6 +204,10 @@ export async function syncPagerdutyConfigYaml(input: {
 }): Promise<{ changed: boolean; pullUrl?: string }> {
   const { repositoryName, githubConnectionId } =
     await resolveRepoContextForBinding(input.orgId, input.binding)
+  const rootPath = await workspaceRootPathOfRepository({
+    orgId: input.orgId,
+    repositoryName,
+  })
   const current = await getFileContent({
     orgId: input.orgId,
     env: input.env,
@@ -210,6 +215,7 @@ export async function syncPagerdutyConfigYaml(input: {
     githubConnectionId,
     branch: input.binding.branch,
     path: PAGERDUTY_CONFIG_PATH,
+    rootPath,
   })
   const next = renderPagerdutyConfigYaml({
     accountId: input.connection.accountId,
@@ -247,6 +253,7 @@ export async function syncPagerdutyConfigYaml(input: {
     commitMessage: pr.commitMessage,
     files: [{ path: PAGERDUTY_CONFIG_PATH, content: next }],
     featureBranchPrefix: "ctxpipe/pagerduty-config",
+    rootPath,
   })
   return { changed: true, pullUrl: pull.pullUrl }
 }

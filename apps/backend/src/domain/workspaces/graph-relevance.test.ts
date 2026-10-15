@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import type { GraphExpansion } from "./graph-expand.js"
 import {
   INTENT_PRESETS,
+  isAnswerKind,
   RELEVANCE_INTENTS,
   type RelevanceNode,
   type RelevanceOptions,
@@ -620,11 +621,12 @@ describe("rankRelated diversity", () => {
   // A seed links to a hub with twelve leaves of one kind, and weakly to five
   // nodes of other kinds.
   const leaves = Array.from({ length: 12 }, (_, index) => `leaf${index}`)
-  const others = ["decision", "runbook", "ticket", "incident", "service"]
+  // No kind here answers an intent, so only MMR decides the order.
+  const others = ["runbook", "ticket", "page", "channel", "wiki"]
   const input = {
     nodes: [
       node("s"),
-      node("hub", "team"),
+      node("hub", "folder"),
       ...leaves.map((id) => node(id, "repository")),
       ...others.map((kind) => node(`other-${kind}`, kind)),
     ],
@@ -654,7 +656,7 @@ describe("rankRelated diversity", () => {
 
   it("spreads the kinds when no neighbors are shared", () => {
     const repositories = Array.from({ length: 6 }, (_, index) => `repo${index}`)
-    const kinds = ["incident", "runbook", "ticket"]
+    const kinds = ["page", "runbook", "ticket"]
     const flat = {
       nodes: [
         node("s"),
@@ -1041,5 +1043,133 @@ describe("rankRelated restart share of the query", () => {
     )
     expect(results.get("s")?.ppr).toBeCloseTo(0.5, 9)
     expect(results.get("q")?.ppr).toBeCloseTo(0.5, 9)
+  })
+})
+
+describe("rankRelated answer kinds of the intent", () => {
+  // A hub service with many rules on a strong free-form edge, one decision
+  // and one owner on weaker free-form edges, and one library.
+  const rules = Array.from({ length: 8 }, (_, index) => `rule${index}`)
+  const input = {
+    nodes: [
+      node("s", "Service"),
+      ...rules.map((id) => node(id, "Rule", { degree: 1 })),
+      node("decision", "Decision", { degree: 1 }),
+      node("owner", "team", { degree: 1 }),
+      node("library", "library", { degree: 1 }),
+      node("change", "pull_request", { degree: 1 }),
+    ],
+    signals: [
+      ...rules.map((id) => signal(id, "s", 0.9, { predicate: "ENFORCED_ON" })),
+      signal("decision", "s", 0.4, { predicate: "GOVERNS" }),
+      signal("owner", "s", 0.4),
+      signal("s", "library", 0.4, { predicate: "IMPORTS" }),
+      signal("change", "s", 0.4, {
+        predicate: "TOUCHED",
+        validFrom: "2026-09-01T00:00:00.000Z",
+      }),
+    ],
+    seeds: ["s"],
+  }
+  const ids = (options: RelevanceOptions) =>
+    rank({ ...input, options }).map((result) => result.id)
+
+  it("ranks the units of the answer kinds of the intent before stronger units of other kinds", () => {
+    expect(ids({ intent: "why" })[0]).toBe("decision")
+    expect(ids({ intent: "ownership" })[0]).toBe("owner")
+    expect(ids({ intent: "dependencies" })[0]).toBe("library")
+    expect(ids({ intent: "change" })[0]).toBe("change")
+  })
+
+  it("keeps the other units after the answers, in score order", () => {
+    const ranked = ids({ intent: "why" })
+    expect(ranked).toHaveLength(12)
+    expect(ranked.slice(1, 9).every((id) => id.startsWith("rule"))).toBe(true)
+  })
+
+  it("lets the connection saturation runbook query outrank answer kinds with no intent", () => {
+    const result = rankRelated({
+      ...input,
+      nodes: [...input.nodes, node("runbook", "Runbook", { degree: 1 })],
+      signals: [...input.signals, signal("s", "runbook", 0.9)],
+      // Hybrid search also returns weaker semantic hits for other units.
+      queryHits: [
+        { id: "runbook", score: 2 / 61 },
+        { id: "decision", score: 1 / 62 },
+        { id: "owner", score: 1 / 63 },
+        { id: "library", score: 1 / 64 },
+      ],
+      options: { now: NOW, limit: 5 },
+    })
+    expect(result[0]?.id).toBe("runbook")
+  })
+
+  it("ranks a strong query hit that is not the best one before a weakly related answer kind with no intent", () => {
+    const result = rankRelated({
+      ...input,
+      nodes: [
+        ...input.nodes,
+        node("runbook", "Runbook", { degree: 1 }),
+        node("playbook", "Runbook", { degree: 1 }),
+      ],
+      signals: [
+        ...input.signals,
+        signal("s", "runbook", 0.9),
+        signal("s", "playbook", 0.4),
+      ],
+      queryHits: [
+        { id: "runbook", score: 2 / 61 },
+        { id: "playbook", score: (0.8 * 2) / 61 },
+      ],
+      options: { now: NOW },
+    }).map((ranked) => ranked.id)
+    expect(result.indexOf("playbook")).toBeLessThan(result.indexOf("library"))
+  })
+
+  it("marks the answer kinds and the strong query hits as answers", () => {
+    const result = rankRelated({
+      ...input,
+      nodes: [...input.nodes, node("runbook", "Runbook", { degree: 1 })],
+      signals: [...input.signals, signal("s", "runbook", 0.9)],
+      queryHits: [{ id: "runbook", score: 2 / 61 }],
+      options: { now: NOW, intent: "why" },
+    })
+    const answer = new Map(result.map((ranked) => [ranked.id, ranked.answer]))
+    expect(result[0]?.id).toBe("runbook")
+    expect(answer.get("runbook")).toBe(true)
+    expect(answer.get("decision")).toBe(true)
+    expect(answer.get("rule0")).toBe(false)
+    expect(answer.get("library")).toBe(false)
+  })
+
+  it("keeps a weak query hit after the answer kinds with no intent", () => {
+    const result = rankRelated({
+      ...input,
+      queryHits: [
+        { id: "rule0", score: 2 / 61 },
+        { id: "rule1", score: 0.2 * (2 / 61) },
+      ],
+      options: { now: NOW },
+    }).map((ranked) => ranked.id)
+    expect(result.indexOf("rule1")).toBeGreaterThan(result.indexOf("library"))
+  })
+
+  it("does not reorder an intent with no answer kinds", () => {
+    expect(ids({ intent: "structure" })[0]).toMatch(/^rule/)
+  })
+
+  it("applies limit to the answers first", () => {
+    expect(ids({ intent: "why", limit: 1 })).toEqual(["decision"])
+  })
+})
+
+describe("isAnswerKind", () => {
+  it("compares kinds without case and separators, and takes every kind for an intent with no list", () => {
+    expect(isAnswerKind("change", "pull-request")).toBe(true)
+    expect(isAnswerKind("change", "Decision")).toBe(false)
+    expect(isAnswerKind("general", "Decision")).toBe(true)
+    expect(isAnswerKind("general", "note")).toBe(false)
+    expect(isAnswerKind("structure", "note")).toBe(true)
+    expect(isAnswerKind("why", null)).toBe(false)
   })
 })

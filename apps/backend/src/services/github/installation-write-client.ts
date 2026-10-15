@@ -1,13 +1,20 @@
 import type { Env } from "../../config/env.js"
+import { withOrgDbContext } from "../../db/client.js"
 import {
   sameWorkspaceRevision,
   type WorkspaceRevision,
 } from "../../domain/workspaces/revision.js"
+import { workspaceRootPath } from "../../domain/workspaces/root-path.js"
+import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
 import {
   type GitHubInstallation,
   getInstallationOctokitForOrg,
 } from "../../models/github-installation.js"
-import { getDesiredWorkspaceRevision } from "../../models/workspaces.js"
+import {
+  getDesiredWorkspaceRevision,
+  listOrgWorkspaces,
+} from "../../models/workspaces.js"
+import { workspaceRepositoryPath } from "../git/root-folder.js"
 
 type InstallationContext = NonNullable<
   Awaited<ReturnType<typeof getInstallationOctokitForOrg>>
@@ -24,6 +31,46 @@ type BaseInput = {
   env: Env
   /** When the org has multiple GitHub App connections, selects the installation token. */
   githubConnectionId?: string
+}
+
+/**
+ * The root folder of the org's Workspace on the GitHub repository
+ * `repositoryName` (`owner/name`), or `""` when no Workspace uses it.
+ * Connector config files are relative to this folder (CTX-709).
+ */
+export async function workspaceRootPathOfRepository(input: {
+  orgId: string
+  repositoryName: string
+}): Promise<string> {
+  const url = normalizeWorkspaceRepositoryUrl(
+    `https://github.com/${input.repositoryName}`,
+  )
+  const workspace = (
+    await withOrgDbContext(input.orgId, () => listOrgWorkspaces(input.orgId))
+  ).find(
+    (row) =>
+      normalizeWorkspaceRepositoryUrl(row.workspaceRepositoryUrl) === url,
+  )
+  return workspaceRootPath(workspace)
+}
+
+/** Maps root-relative change paths below the Workspace root folder. Throws on an unsafe path. */
+function withRootedPaths<
+  T extends { files: CommitFile[]; deletePaths?: string[]; rootPath?: string },
+>(input: T): T {
+  if (input.rootPath === undefined) return input
+  const root = input.rootPath
+  return {
+    ...input,
+    rootPath: undefined,
+    files: input.files.map((file) => ({
+      ...file,
+      path: workspaceRepositoryPath(root, file.path),
+    })),
+    deletePaths: input.deletePaths?.map((path) =>
+      workspaceRepositoryPath(root, path),
+    ),
+  }
 }
 
 export type CommitFile = {
@@ -311,8 +358,13 @@ export type GitHubFileBytes =
   | { kind: "bytes"; bytes: Buffer }
 
 export async function getFileContentBytes(
-  input: BaseInput & { branch: string; path: string },
+  input: BaseInput & { branch: string; path: string; rootPath?: string },
 ): Promise<GitHubFileBytes> {
+  if (input.rootPath)
+    input = {
+      ...input,
+      path: workspaceRepositoryPath(input.rootPath, input.path),
+    }
   const context = await getInstallationContext(input)
   for (let a = 0; a < GITHUB_API_MAX_ATTEMPTS; a += 1) {
     let data: Awaited<
@@ -355,7 +407,7 @@ export async function getFileContentBytes(
 }
 
 export async function getFileContent(
-  input: BaseInput & { branch: string; path: string },
+  input: BaseInput & { branch: string; path: string; rootPath?: string },
 ): Promise<string | undefined> {
   const file = await getFileContentBytes(input)
   if (file.kind === "missing") return undefined
@@ -398,8 +450,11 @@ export async function commitFiles(
     deletePaths?: string[]
     /** When set, commit against this parent and refuse overlay-on-latest-head. */
     expectedParentSha?: string
+    /** Workspace root folder; paths are relative to it and never leave it. */
+    rootPath?: string
   },
 ) {
+  input = withRootedPaths(input)
   const context = await getInstallationContext(input, { contents: "write" })
   await assertConfigBranch(context, input.branch)
   const fileEntries: GitTreeEntry[] = []
@@ -567,8 +622,12 @@ export async function createPullRequestWithFiles(
     requireNewBranch?: boolean
     /** Defaults to the historical Confluence prefix. */
     featureBranchPrefix?: string
+    /** Workspace root folder; paths are relative to it and never leave it. */
+    rootPath?: string
   },
 ) {
+  // Check the paths before any branch exists.
+  withRootedPaths(input)
   const context = await getInstallationContext(input, {
     contents: "write",
     pull_requests: "write",
@@ -610,6 +669,7 @@ export async function createPullRequestWithFiles(
     message: input.commitMessage,
     files: input.files,
     deletePaths: input.deletePaths,
+    rootPath: input.rootPath,
   })
 
   const { data: pull } = await withTransientGitHubRetry(() =>

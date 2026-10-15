@@ -4,10 +4,12 @@ import { getSystemDb } from "../../db/client.js"
 import { log } from "../../observability/logger.js"
 import { enqueueWorkspaceWriteCommit } from "../../openworkflow/enqueue-workspace-write-commit.js"
 import {
+  packRootTree,
   readGitPackFromRemote,
   withGitDirectory,
 } from "../../services/git/pack.js"
 import { resolveWorkspaceReadRevision } from "../workspaces/resolve-revision.js"
+import { workspaceRootPath } from "../workspaces/root-path.js"
 import { listExistingBlobs } from "./existing-blobs.js"
 import { diffSlice } from "./slice-diff.js"
 import { readSliceTarget } from "./slice-target.js"
@@ -17,7 +19,8 @@ import type { ExistingBlob, StampOwner, WorkspaceSliceWrite } from "./sync.js"
  * The production slice writer: read the Workspace head, drop the write when
  * the sources changed after the rows' revision, and queue one connector
  * mirror commit fenced by the sources fence id (`sourcesFenceAt`: the
- * `sources/` tree and `.ctxpipe/sources.yaml`).
+ * `sources/` tree and `.ctxpipe/sources.yaml`). A cleanup is fenced only on
+ * its removed targets: the head sources must not have them.
  */
 export async function writeWorkspaceSlice(
   write: WorkspaceSliceWrite,
@@ -40,6 +43,9 @@ export async function writeWorkspaceSlice(
       token: resolved.token,
       headSha: resolved.revision.sha,
       rowsRevision: write.sourcesRevision,
+      root: workspaceRootPath(resolved.revision),
+
+      removed: write.removed,
     })
   })
   // The next projection plans a new write from the changed sources file.
@@ -57,7 +63,9 @@ export async function writeWorkspaceSlice(
         mirror: {
           provider: write.provider,
           connectionId: write.connectionId,
-          sourcesBlobSha: captured.sourcesBlobSha,
+          ...(write.removed
+            ? { removedTargets: write.removed }
+            : { sourcesBlobSha: captured.sourcesBlobSha }),
         },
         mergeFiles: change.files,
         mergeDeletePaths: change.deletePaths,
@@ -104,10 +112,14 @@ export async function readWorkspaceBlobs(input: {
       sha: resolved.revision.sha,
       additionalShas: [],
       token: resolved.token,
+      root: workspaceRootPath(resolved.revision),
     })
     return withGitDirectory(
       pack.sha,
-      (directory) => listExistingBlobs(directory, pack.sha, input.owners),
+      async (directory) => {
+        const tree = await packRootTree(directory, pack)
+        return tree ? listExistingBlobs(directory, tree, input.owners) : []
+      },
       pack,
     )
   })

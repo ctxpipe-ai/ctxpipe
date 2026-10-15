@@ -1,5 +1,8 @@
 import type { Env } from "../../config/env.js"
-import { getFileContent } from "../github/installation-write-client.js"
+import {
+  getFileContent,
+  workspaceRootPathOfRepository,
+} from "../github/installation-write-client.js"
 import type { ParsedConfluenceRepoConfig } from "./config-yaml.js"
 import { parseConfluenceConfigYamlContent } from "./config-yaml.js"
 
@@ -19,6 +22,7 @@ export async function loadConfluenceScopeFromRepo(input: {
     githubConnectionId: input.githubConnectionId,
     branch: input.branch,
     path: CONFLUENCE_CONFIG_PATH,
+    rootPath: await workspaceRootPathOfRepository(input),
   })
   return parseConfluenceConfigYamlContent(raw)
 }

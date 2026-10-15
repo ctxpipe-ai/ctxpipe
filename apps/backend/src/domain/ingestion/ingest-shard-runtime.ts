@@ -24,6 +24,8 @@ export type IngestDestination = {
   pinnedRevision: string
   /** The org repository row of the Workspace repository, for the tool bridge. */
   repositoryId: string | null
+  /** The Workspace root folder; absent or `""` is the repository root. */
+  rootPath?: string
 }
 
 export type IngestShardSpec = {

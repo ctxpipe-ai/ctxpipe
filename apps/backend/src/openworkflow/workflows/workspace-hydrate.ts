@@ -30,6 +30,7 @@ import {
   type WorkspaceRevision,
   workspaceRevisionSchema,
 } from "../../domain/workspaces/revision.js"
+import { workspaceRootPath } from "../../domain/workspaces/root-path.js"
 import { listOrgConnections } from "../../models/org-connections.js"
 import { listWorkspaceSourceRows } from "../../models/workspace-sources.js"
 import { getMigrationExportSha } from "../../models/workspace-write-jobs.js"
@@ -214,6 +215,7 @@ export const workspaceHydrate = defineWorkflow(
                       ...SOURCES_TREE_READ,
                       url: revision.remote.url,
                       sha: revision.sha,
+                      root: workspaceRootPath(revision),
                       token:
                         token ??
                         (await resolveRepositoryReadCredential({
@@ -252,6 +254,7 @@ export const workspaceHydrate = defineWorkflow(
                       url: revision.remote.url,
                       sha: revision.sha,
                       additionalShas: [planning.previousSha],
+                      root: workspaceRootPath(revision),
                       token:
                         token ??
                         (await resolveRepositoryReadCredential({

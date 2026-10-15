@@ -6,6 +6,7 @@ import type { Db } from "../db/client.js"
 import { workspaceSources } from "../db/schema/workspace_sources.js"
 import { linkingOrder } from "../domain/workspace-sources/github-sources.js"
 import { githubSourceScopeRepositories } from "../domain/workspace-sources/providers/github.js"
+import type { SourceStatus } from "../domain/workspace-sources/sources-file.js"
 import { normalizeWorkspaceRepositoryUrl } from "../domain/workspaces/slug.js"
 import { generateObjectId } from "../lib/id.js"
 import { log } from "../observability/logger.js"
@@ -40,6 +41,26 @@ export const sourceStateSchema = z.discriminatedUnion("provider", [
 export type SourceState = z.infer<typeof sourceStateSchema>
 export type GithubSourceState = Extract<SourceState, { provider: "github" }>
 
+export const sourceTargetSchema = z.object({
+  provider: z.string().min(1),
+  connectionId: z.string().min(1),
+  scope: z.record(z.string(), z.unknown()),
+})
+
+/** The provider, connection and scope of one source entry. */
+export type SourceTarget = z.infer<typeof sourceTargetSchema>
+
+/**
+ * The stored state of one row: the provider state, and only on an `invalid`
+ * row the key `lastGoodTarget`. That key holds the target of the last valid
+ * entry of the source, because the files of that target can be in git. A
+ * later removal or change of the source cleans them up. A stored target that
+ * does not parse stays as it is, so that the row keeps its files.
+ */
+export type StoredSourceState = (SourceState | { provider?: never }) & {
+  lastGoodTarget?: unknown
+}
+
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0]
 type Queryable = Db | Tx
 
@@ -49,7 +70,7 @@ export function parseSourceState(row: {
   provider: string | null
   state: unknown
 }): SourceState | null {
-  const state = row.state
+  const state = withoutTarget(row.state)
   if (
     state == null ||
     (typeof state === "object" &&
@@ -69,6 +90,71 @@ export function parseSourceState(row: {
       : parsed.error.message,
   })
   return null
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+function withoutTarget(state: unknown): unknown {
+  if (!isRecord(state) || !("lastGoodTarget" in state)) return state
+  const { lastGoodTarget: _target, ...rest } = state
+  return rest
+}
+
+/** The `lastGoodTarget` key of a stored state as stored, or null. */
+function storedTarget(state: unknown): unknown {
+  return isRecord(state) ? (state.lastGoodTarget ?? null) : null
+}
+
+/** The columns of a source row that give its last good target. */
+type SourceTargetRow = {
+  id: string
+  provider: string | null
+  connectionId: string | null
+  scope: Record<string, unknown>
+  status: string
+  state: unknown
+}
+
+/**
+ * The provider, connection and scope of the last valid entry of a source, or
+ * null when it had none. The files of this target can be in git. A valid row
+ * is its own target. An `invalid` row keeps the target in its state.
+ */
+export function lastGoodTarget(row: SourceTargetRow): SourceTarget | null {
+  if (row.status === "invalid")
+    return sourceTargetSchema.safeParse(storedTarget(row.state)).data ?? null
+  if (row.provider === null || row.connectionId === null) return null
+  return {
+    provider: row.provider,
+    connectionId: row.connectionId,
+    scope: row.scope,
+  }
+}
+
+/**
+ * Tell if a row holds the files of a target: a valid row holds its own, an
+ * `invalid` row holds its stored `lastGoodTarget`, also when that key does
+ * not parse.
+ */
+export function holdsTarget(row: SourceTargetRow): boolean {
+  return row.status === "invalid"
+    ? storedTarget(row.state) !== null
+    : lastGoodTarget(row) !== null
+}
+
+/** A GitHub state with `repositories` that keeps the target of `row`. */
+function withPins(
+  row: { state: unknown },
+  repositories: GithubRepositoryPin[],
+): StoredSourceState {
+  const target = storedTarget(row.state)
+  return {
+    provider: "github",
+    repositories,
+    ...(target !== null ? { lastGoodTarget: target } : {}),
+  }
 }
 
 /** The GitHub pins of one row, or none. */
@@ -129,15 +215,11 @@ const SERVING_SOURCE_STATUSES = ["ok"] as const
  * the pins of the repositories that its scope names (they link nothing while
  * the row cannot link) until the row recovers. A
  * repository is linked only once: the Workspace repository and a repository
- * of an earlier row are not linked again.
+ * of an earlier row are not linked again. An `invalid` row keeps the last
+ * good target of its source (see {@link lastGoodTarget}).
  */
 export function planSourceStates(input: {
-  existing: ReadonlyArray<{
-    id: string
-    sourceKey: string
-    provider: string | null
-    state: unknown
-  }>
+  existing: ReadonlyArray<SourceTargetRow & { sourceKey: string }>
   planned: ReadonlyArray<{
     sourceKey: string
     provider: string | null
@@ -146,14 +228,17 @@ export function planSourceStates(input: {
   }>
   workspaceUrl: string | null
   now?: Date
-}): Map<string, SourceState | Record<string, never>> {
-  const pinsByRow = new Map(
-    input.existing.map((row) => [row.sourceKey, githubPins(row)]),
+}): Map<string, StoredSourceState> {
+  const byKey = new Map(
+    input.existing.map((row) => [
+      row.sourceKey,
+      { row, pins: githubPins(row) },
+    ]),
   )
   // A pin belongs to its repository URL and ref, not to a row or a path, so
   // a renamed source file keeps its pin (ADR-050, revision 2026-10-16).
   const pool = new Map<string, GithubRepositoryPin>()
-  for (const pins of pinsByRow.values())
+  for (const { pins } of byKey.values())
     for (const pin of pins) {
       const key = `${pin.gitUrl} ${pin.ref ?? ""}`
       if (!pool.has(key)) pool.set(key, pin)
@@ -163,7 +248,7 @@ export function planSourceStates(input: {
       ? [normalizeWorkspaceRepositoryUrl(input.workspaceUrl)]
       : [],
   )
-  const states = new Map<string, SourceState | Record<string, never>>()
+  const states = new Map<string, StoredSourceState>()
   const linking = (status: string) =>
     (LINKING_SOURCE_STATUSES as readonly string[]).includes(status)
   for (const planned of linkingOrder(input.planned)) {
@@ -190,29 +275,56 @@ export function planSourceStates(input: {
   // A row that cannot link keeps its own pins and the pins of the
   // repositories that its scope names (by URL and ref), so a file that is
   // renamed and invalid at the same revision keeps its pin. Each pin goes to
-  // one row only.
+  // one row only. An `invalid` row also keeps the last good target.
   const kept = new Set<string>()
   for (const planned of input.planned) {
-    if (planned.provider !== "github" || linking(planned.status)) continue
-    const named = new Set(
-      githubSourceScopeRepositories(planned.scope).map(
-        ({ name, ref }) =>
-          `${normalizeWorkspaceRepositoryUrl(`https://github.com/${name}`)} ${ref ?? ""}`,
-      ),
-    )
-    const repositories = [
-      ...(pinsByRow.get(planned.sourceKey) ?? []),
-      ...[...pool.entries()].flatMap(([key, pin]) =>
-        named.has(key) ? [pin] : [],
-      ),
-    ].filter((pin) => {
-      if (linked.has(pin.gitUrl) || kept.has(pin.id)) return false
-      kept.add(pin.id)
-      return true
-    })
-    states.set(planned.sourceKey, { provider: "github", repositories })
+    const current = byKey.get(planned.sourceKey)
+    if (planned.provider === "github" && !linking(planned.status)) {
+      const named = new Set(
+        githubSourceScopeRepositories(planned.scope).map(
+          ({ name, ref }) =>
+            `${normalizeWorkspaceRepositoryUrl(`https://github.com/${name}`)} ${ref ?? ""}`,
+        ),
+      )
+      const repositories = [
+        ...(current?.pins ?? []),
+        ...[...pool.entries()].flatMap(([key, pin]) =>
+          named.has(key) ? [pin] : [],
+        ),
+      ].filter((pin) => {
+        if (linked.has(pin.gitUrl) || kept.has(pin.id)) return false
+        kept.add(pin.id)
+        return true
+      })
+      states.set(planned.sourceKey, { provider: "github", repositories })
+    }
+    if (planned.status !== "invalid" || !current) continue
+    const target = heldTargetOf(current.row)
+    if (target !== null)
+      states.set(planned.sourceKey, {
+        ...(states.get(planned.sourceKey) ?? {}),
+        lastGoodTarget: target,
+      })
   }
   return states
+}
+
+/**
+ * The target that an `invalid` row keeps from its current row. A stored
+ * target that does not parse stays as it is, and the projection logs it.
+ */
+function heldTargetOf(current: SourceTargetRow): unknown {
+  const target =
+    current.status === "invalid"
+      ? storedTarget(current.state)
+      : lastGoodTarget(current)
+  if (target !== null && !sourceTargetSchema.safeParse(target).success)
+    log.warn({
+      step: "workspace_sources.state_invalid",
+      sourceId: current.id,
+      message: "The last good target does not parse; the row keeps it",
+    })
+  return target
 }
 
 /** The same state. jsonb does not keep the key order, so compare by value. */
@@ -309,7 +421,7 @@ export function listServedRepositoryPins(
 async function listPins(
   db: Queryable,
   filter: { orgId?: string; workspaceId?: string },
-  statuses: ReadonlyArray<(typeof workspaceSources.$inferSelect)["status"]>,
+  statuses: readonly SourceStatus[],
 ): Promise<LinkedRepositoryPin[]> {
   const rows = await db
     .select({
@@ -404,12 +516,7 @@ export async function updateLinkedRepositoryPin(
       next[index] = { ...current, ...patch }
       await tx
         .update(workspaceSources)
-        .set({
-          state: {
-            provider: "github",
-            repositories: next,
-          } satisfies SourceState,
-        })
+        .set({ state: withPins(row, next) })
         .where(eq(workspaceSources.id, row.id))
       return true
     }
@@ -440,14 +547,14 @@ export async function clearLinkedRepositoryShas(
       await tx
         .update(workspaceSources)
         .set({
-          state: {
-            provider: "github",
-            repositories: pins.map((pin) =>
+          state: withPins(
+            row,
+            pins.map((pin) =>
               gitUrls.has(normalize(pin.gitUrl))
                 ? { ...pin, desiredSha: null, indexedSha: null }
                 : pin,
             ),
-          } satisfies SourceState,
+          ),
         })
         .where(eq(workspaceSources.id, row.id))
     }

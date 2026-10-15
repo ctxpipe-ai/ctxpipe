@@ -17,6 +17,7 @@ const meta = {
   decorators: [...entryPageInnerDecorators],
   parameters: {
     layout: "fullscreen",
+    storyRoute: { pattern: "flat", path: "/onboarding" },
   },
   args: {
     currentSlide: 1,

@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util"
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
 import { githubSourceScopeRepositories } from "./providers/github.js"
 import {
@@ -23,6 +24,9 @@ import { parseSourcesYaml } from "./sources-yaml.js"
  */
 export const FILE_ERROR_SOURCE_KEY = ".file"
 
+/** The key prefix of an entry whose id cannot be read. */
+const UNREADABLE_ID_KEY_PREFIX = ".entry-"
+
 export type PlannedSourceRow = {
   sourceKey: string
   provider: SourceProvider | null
@@ -30,6 +34,23 @@ export type PlannedSourceRow = {
   scope: Record<string, unknown>
   status: SourceStatus
   statusDetail: string | null
+}
+
+/**
+ * Tell why a projection cannot know if a source that is not in its rows left
+ * the file, or return null. While the file cannot be read, or while an entry
+ * has an id that cannot be read, a source that seems removed can still be in
+ * the file. The projection then keeps its row as `invalid`, with this detail,
+ * and its files stay.
+ */
+export function unmatchedSourceDetail(
+  rows: readonly PlannedSourceRow[],
+): string | null {
+  if (rows.some((row) => row.sourceKey === FILE_ERROR_SOURCE_KEY))
+    return "The sources file cannot be read"
+  if (rows.some((row) => row.sourceKey.startsWith(UNREADABLE_ID_KEY_PREFIX)))
+    return "An entry without a readable id can be this source"
+  return null
 }
 
 export type SourceConnection = { id: string; type: string }
@@ -298,7 +319,7 @@ function planLegacyYamlSources(text: string | null): {
     const parsed = parseSourceEntry(raw)
     const sourceKey = parsed.ok
       ? parsed.entry.key
-      : (parsed.key ?? `.entry-${index + 1}`)
+      : (parsed.key ?? `${UNREADABLE_ID_KEY_PREFIX}${index + 1}`)
     const first = sources.get(sourceKey)
     if (first) {
       sources.set(sourceKey, {
@@ -535,4 +556,42 @@ function applyCrossSourceRules(
         )
         .join("; ")
   }
+}
+
+/**
+ * Tell if the sources (the YAML text and the source files) have none of
+ * `targets`, by provider, connection and scope. A file or an entry id that
+ * cannot be read can hold a target, so then the result is false.
+ */
+export async function sourcesHaveNone(
+  sources: { text: string | null; sourceFiles?: ReadonlyArray<SourceFileBlob> },
+  targets: ReadonlyArray<{
+    provider: string | null
+    connectionId: string | null
+    scope: unknown
+  }>,
+): Promise<boolean> {
+  const rows = await planSourceRows({
+    text: sources.text,
+    files: sources.sourceFiles,
+    connections: new Map(),
+  })
+  return (
+    unmatchedSourceDetail(rows) === null &&
+    // A source file that cannot be read can be one of the targets.
+    !rows.some(
+      (row) =>
+        row.status === "invalid" &&
+        row.sourceKey.startsWith("sources/") &&
+        Object.keys(row.scope).length === 0,
+    ) &&
+    !rows.some((row) =>
+      targets.some(
+        (target) =>
+          target.provider === row.provider &&
+          target.connectionId === row.connectionId &&
+          isDeepStrictEqual(target.scope, row.scope),
+      ),
+    )
+  )
 }

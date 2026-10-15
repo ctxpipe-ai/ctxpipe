@@ -6,10 +6,12 @@ import { getSlackBindingWithRepoByConnectionId } from "../../models/slack-connec
 import {
   type GitPack,
   nativeGit,
+  packRootTree,
   readGitFiles,
   withGitDirectory,
 } from "../../services/git/pack.js"
 import { githubSourceRepositories } from "../workspace-sources/github-sources.js"
+import { sourcesHaveNone } from "../workspace-sources/projection-plan.js"
 import {
   isSourcesTreePath,
   sourcesFenceAt,
@@ -42,7 +44,7 @@ export async function assertConnectorMirrorBinding(
   revision: WorkspaceRevision,
 ): Promise<void> {
   // A Workspace source sync has no binding: the sources fence id fences it.
-  if ("sourcesBlobSha" in source) return
+  if ("sourcesBlobSha" in source || "removedTargets" in source) return
   // GitHub has no binding; assertConnectorMirrorScope checks the link.
   if (source.provider === "github") return
   const bindingReaders = {
@@ -80,12 +82,27 @@ export async function assertConnectorMirrorScope(
   if ("sourcesBlobSha" in source) {
     const fence = await withGitDirectory(
       pack.sha,
-      (directory) => sourcesFenceAt(directory, pack.sha),
+      (directory) => sourcesFenceAt(directory, pack),
       pack,
     )
     if (fence !== source.sourcesBlobSha)
       throw new Error(
         "Workspace sources changed; discard this capture and sync the current sources",
+      )
+    return
+  }
+  if ("removedTargets" in source) {
+    const { sourcesFile, sourceFiles } = splitSourcesTree(
+      await readGitFiles(pack, isSourcesTreePath),
+    )
+    if (
+      !(await sourcesHaveNone(
+        { text: sourcesFile, sourceFiles },
+        source.removedTargets,
+      ))
+    )
+      throw new Error(
+        "A removed Workspace source is in the sources again; discard this cleanup",
       )
     return
   }
@@ -114,14 +131,14 @@ export async function assertConnectorMirrorScope(
     )
 }
 
-/** The blob id of `path` at the pack's commit, or null when it is absent. */
+/** The blob id of root-relative `path` at the pack's commit, or null when it is absent. */
 async function blobShaAt(pack: GitPack, path: string): Promise<string | null> {
   return withGitDirectory(
     pack.sha,
     async (directory) => {
-      const entry = (
-        await nativeGit(directory, ["ls-tree", pack.sha, "--", path])
-      )
+      const tree = await packRootTree(directory, pack)
+      if (!tree) return null
+      const entry = (await nativeGit(directory, ["ls-tree", tree, "--", path]))
         .toString()
         .trim()
       return entry ? (entry.split(/\s+/)[2] ?? null) : null

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { setTimeout as sleep } from "node:timers/promises"
 import { stringify } from "yaml"
+import { workspaceRelativePath } from "../../services/git/root-folder.js"
 import { parseYamlObject, splitFrontMatter } from "./front-matter.js"
 import {
   disallowedPathReason,
@@ -175,6 +176,8 @@ export async function pushIngestAssemble(input: {
   opsBefore?: number
   remote: IngestRemote
   commit: IngestStepCommit
+  /** Workspace root folder; `""` (the default) is the repository root. */
+  rootPath?: string
   /**
    * The semantic merge of the paths that two shards change: `resolve` gets
    * each conflict (`current` is the result so far, `incoming` the next
@@ -188,6 +191,7 @@ export async function pushIngestAssemble(input: {
     resolve: IngestConflictResolver
   } & Pick<PatchStepInput, "source" | "sourcePathExists" | "readSourceFile">
 }): Promise<{ sha: string; ops: number }> {
+  const rootPath = input.rootPath ?? ""
   const ref = ingestRefName({
     runId: input.job.runId,
     workspaceId: input.job.workspaceId,
@@ -263,7 +267,12 @@ export async function pushIngestAssemble(input: {
           `The shard ${shard} does not start at the pinned revision`,
         )
       for (const change of await diffTree(repoDir, input.pinnedRevision, tip)) {
-        const reason = disallowedPathReason(change.path)
+        const relative = workspaceRelativePath(rootPath, change.path)
+        const reason =
+          relative === null
+            ? "The path is outside the Workspace root folder"
+            : (disallowedPathReason(relative) ??
+              (change.regularFile ? null : "Only regular files are allowed"))
         if (reason) throw new IngestRefRefusedError(`${change.path}: ${reason}`)
         const key = change.path.toLowerCase()
         const same = changes.get(key)
@@ -307,6 +316,7 @@ export async function pushIngestAssemble(input: {
         opsBefore: opsBefore + changes.size - conflicts.length,
         bundle: input.commit.bundle,
         merge: input.semanticMerge,
+        rootPath,
       })
     const sha = await commitStep(repoDir, {
       tree,
@@ -685,6 +695,7 @@ async function mergeConflicts(
     merge: NonNullable<
       Parameters<typeof pushIngestAssemble>[0]["semanticMerge"]
     >
+    rootPath: string
   },
 ): Promise<string> {
   const text = async (spec: string | null) =>
@@ -764,6 +775,8 @@ async function mergeConflicts(
     try {
       const ops: Array<{ op: string; path: string; baseBlob?: string }> = []
       for (const conflict of conflicts) {
+        // The validator takes paths relative to the Workspace root folder.
+        const path = workspaceRelativePath(input.rootPath, conflict.path) ?? ""
         const baseBlob = await runGit(repoDir, [
           "rev-parse",
           "--verify",
@@ -776,16 +789,15 @@ async function mergeConflicts(
         const content = current.get(conflict.path) ?? null
         if (content === null) {
           // A path that is not in the pinned revision is already absent.
-          if (baseBlob)
-            ops.push({ op: "delete", path: conflict.path, baseBlob })
+          if (baseBlob) ops.push({ op: "delete", path, baseBlob })
           continue
         }
         ops.push({
           op: baseBlob ? "update" : "create",
-          path: conflict.path,
+          path,
           ...(baseBlob ? { baseBlob } : {}),
         })
-        const file = join(stagedDir, "files", conflict.path)
+        const file = join(stagedDir, "files", path)
         await mkdir(dirname(file), { recursive: true })
         await writeFile(
           file,
@@ -803,6 +815,7 @@ async function mergeConflicts(
         skill: "semantic-merge",
         bundle: input.bundle,
         workspaceOpsBefore: opsBefore,
+        rootPath: input.rootPath,
         ...(root === undefined ? {} : { root }),
       })
       if (result.rejections.length)
@@ -854,7 +867,14 @@ async function diffTree(
   repoDir: string,
   from: string,
   to: string,
-): Promise<Array<{ path: string; indexLine: string; blob: string | null }>> {
+): Promise<
+  Array<{
+    path: string
+    indexLine: string
+    blob: string | null
+    regularFile: boolean
+  }>
+> {
   const out = (
     await runGit(repoDir, ["diff-tree", "-r", "-z", "--no-renames", from, to])
   ).toString()
@@ -863,6 +883,7 @@ async function diffTree(
     path: string
     indexLine: string
     blob: string | null
+    regularFile: boolean
   }> = []
   for (let i = 0; i + 1 < fields.length; i += 2) {
     const meta = fields[i] ?? ""
@@ -874,6 +895,9 @@ async function diffTree(
     changes.push({
       path,
       blob: status === "D" ? null : newSha,
+      // A delete has mode 000000; a symlink (120000) or a submodule
+      // (160000) can point outside the Workspace root folder.
+      regularFile: status === "D" || newMode === "100644",
       indexLine:
         status === "D"
           ? `0 ${"0".repeat(newSha.length)}\t${path}\0`

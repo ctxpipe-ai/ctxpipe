@@ -1,5 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
+import { directWriteRoute } from "../../auth/write-grant.js"
 import { SourceChangeError } from "../../domain/workspace-sources/edit.js"
 import { unlinkWorkspaceRepository } from "../../domain/workspace-sources/service.js"
 import {
@@ -60,36 +61,38 @@ const listLinkedRoute = createRoute({
   },
 })
 
-const deleteLinkedRoute = createRoute({
-  method: "delete",
-  path: "/{workspaceSlug}/linked-repositories/{linkedId}",
-  request: { params: LinkedRepositoryParamsSchema },
-  responses: {
-    200: {
-      content: {
-        "application/json": { schema: WorkspaceSourceChangeResultSchema },
+const deleteLinkedRoute = createRoute(
+  directWriteRoute({
+    method: "delete",
+    path: "/{workspaceSlug}/linked-repositories/{linkedId}",
+    request: { params: LinkedRepositoryParamsSchema },
+    responses: {
+      200: {
+        content: {
+          "application/json": { schema: WorkspaceSourceChangeResultSchema },
+        },
+        description: "The pull request that unlinks the repository",
       },
-      description: "The pull request that unlinks the repository",
+      400: {
+        content: { "application/json": { schema: ErrorResponseSchema } },
+        description: "Invalid request",
+      },
+      401: {
+        content: { "application/json": { schema: ErrorResponseSchema } },
+        description: "Unauthorized",
+      },
+      404: {
+        content: { "application/json": { schema: ErrorResponseSchema } },
+        description: "Not found",
+      },
+      409: {
+        content: { "application/json": { schema: ErrorResponseSchema } },
+        description:
+          "The Workspace is read-only, or no file of the default branch links the repository",
+      },
     },
-    400: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Invalid request",
-    },
-    401: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unauthorized",
-    },
-    404: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Not found",
-    },
-    409: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description:
-        "The Workspace is read-only, or no file of the default branch links the repository",
-    },
-  },
-})
+  }),
+)
 
 function linkedRepositoryParams(c: {
   req: { param: () => Record<string, string> }

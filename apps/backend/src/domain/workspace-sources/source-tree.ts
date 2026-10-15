@@ -1,5 +1,9 @@
 import { createHash } from "node:crypto"
-import { nativeGit } from "../../services/git/pack.js"
+import {
+  type GitPack,
+  nativeGit,
+  packRootTree,
+} from "../../services/git/pack.js"
 import type { SourceFileBlob } from "./projection-plan.js"
 import { SOURCE_FILE_MAX_BYTES, SOURCE_FILES_FOLDER } from "./source-file.js"
 import { SOURCES_FILE_PATH } from "./sources-file.js"
@@ -71,14 +75,16 @@ export function splitSourcesTree<
  * planned it. It is the blob id of `.ctxpipe/sources.yaml` when only that
  * file exists, the tree id of `sources/` when only that folder exists, and a
  * hash of both when both exist (until CTX-721 T11). Null when neither
- * exists. Each form is a 40-character hex id, as the old blob id was.
+ * exists. The paths are below the Workspace root folder (`commit.root`). Each form is a 40-character hex id, as the old blob id was.
  */
 export async function sourcesFenceAt(
   directory: string,
-  sha: string,
+  commit: Pick<GitPack, "sha" | "root">,
 ): Promise<string | null> {
+  const tree = await packRootTree(directory, commit)
+  if (!tree) return null
   const listing = (
-    await nativeGit(directory, ["ls-tree", sha, "--", ...SOURCES_TREE_PATHS])
+    await nativeGit(directory, ["ls-tree", tree, "--", ...SOURCES_TREE_PATHS])
   ).toString()
   const ids = new Map(
     listing

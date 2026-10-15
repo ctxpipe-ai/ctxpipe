@@ -74,9 +74,25 @@ array. CI job **Storybook Playwright golden journey** runs
 those plays in Chromium by opening each story iframe. Do not add a
 parallel jsdom component-test stack.
 
+CI job **Storybook Playwright all plays** runs every story that has a `play`
+function, in 4 shards, with the same runner: `STORYBOOK_PLAYS=all node
+scripts/ci/storybook-golden.mjs`. Narrow a local run with `STORYBOOK_ONLY=<id or
+file part>[,...]` and `STORYBOOK_SHARD=i/n`; set `STORYBOOK_URL` to reuse a
+running Storybook. A story tagged `reduced-motion` runs with reduced-motion
+emulation. A flaky play is a bug: wait for the real state, never add a retry or
+a longer timeout. A modal renders in a portal, so query it from
+`canvasElement.ownerDocument.body`. The file tree is a shadow root whose rows
+are buttons with an `aria-label`, not text.
+
 Keep security and request-contract assertions in focused Vitest tests. Use
 **`@storybook/addon-a11y`** for Storybook accessibility verification. The MCP
 **`run-story-tests`** tool applies when that integration exists.
+
+## Play timing
+
+- Before a play measures layout (sizes or positions), run `await document.fonts.ready`.
+- Assert visibility or style inside `waitFor(() => expect(...))`. Do not assert right after `findBy...`. A fade or a re-render can then not fail the check.
+- With React Aria components, use the Tailwind `hover:` variant. The plugin maps it to `data-hovered`. There is no `hovered:` variant.
 
 ## Quick reference (commands)
 
@@ -85,6 +101,7 @@ Keep security and request-contract assertions in focused Vitest tests. Use
 | Start Storybook | `pnpm --filter @ctxpipe/ui storybook` |
 | Build static | `pnpm --filter @ctxpipe/ui build-storybook` |
 | Golden plays (uses `STORYBOOK_URL` if set) | `pnpm test:storybook-golden` |
+| Every play, one shard | `STORYBOOK_PLAYS=all STORYBOOK_SHARD=1/4 node scripts/ci/storybook-golden.mjs` |
 
 ## Related docs in-repo
 

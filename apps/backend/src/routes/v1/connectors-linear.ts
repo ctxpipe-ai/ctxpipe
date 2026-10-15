@@ -1,6 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import { hasOrgAdminOrOwnerRole } from "../../auth/withAuth.js"
+import { directWriteRoute } from "../../auth/write-grant.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { linearOauthAppSavedInConfig } from "../../lib/connection-config.js"
 import { orgHasAnyGithubConnection } from "../../models/github-installation.js"
@@ -346,56 +347,62 @@ const getConfigRoute = createRoute({
   },
 })
 
-const patchConfigRoute = createRoute({
-  method: "patch",
-  path: "/config",
-  request: {
-    query: ConnectionIdQuerySchema,
-    body: {
-      content: {
-        "application/json": {
-          schema: LinearPatchConfigRequestSchema,
+const patchConfigRoute = createRoute(
+  directWriteRoute(
+    {
+      method: "patch",
+      path: "/config",
+      request: {
+        query: ConnectionIdQuerySchema,
+        body: {
+          content: {
+            "application/json": {
+              schema: LinearPatchConfigRequestSchema,
+            },
+          },
+        },
+      },
+      responses: {
+        200: {
+          content: {
+            "application/json": {
+              schema: z.object({
+                accepted: z.literal(true),
+                savedCount: z.number().int(),
+                configPrEnqueued: z.boolean(),
+                workflowName: z.string().optional(),
+              }),
+            },
+          },
+          description:
+            "Submit scope for a git configuration pull request and store the repository binding in connection config",
+        },
+        400: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Invalid or ambiguous Linear configuration",
+        },
+        401: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Unauthorized",
+        },
+        404: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Unknown Linear connection",
+        },
+        409: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description:
+            "Linear configuration pull request creation is in progress",
+        },
+        503: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Failed to enqueue Linear configuration pull request",
         },
       },
     },
-  },
-  responses: {
-    200: {
-      content: {
-        "application/json": {
-          schema: z.object({
-            accepted: z.literal(true),
-            savedCount: z.number().int(),
-            configPrEnqueued: z.boolean(),
-            workflowName: z.string().optional(),
-          }),
-        },
-      },
-      description:
-        "Submit scope for a git configuration pull request and store the repository binding in connection config",
-    },
-    400: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Invalid or ambiguous Linear configuration",
-    },
-    401: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unauthorized",
-    },
-    404: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unknown Linear connection",
-    },
-    409: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Linear configuration pull request creation is in progress",
-    },
-    503: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Failed to enqueue Linear configuration pull request",
-    },
-  },
-})
+    { orgAdmin: true },
+  ),
+)
 
 const deleteLinearConnectorRoute = createRoute({
   method: "delete",
@@ -418,37 +425,42 @@ const deleteLinearConnectorRoute = createRoute({
   },
 })
 
-const retryLinearSyncRoute = createRoute({
-  method: "post",
-  path: "/retry",
-  request: { query: ConnectionIdQuerySchema },
-  responses: {
-    202: {
-      content: {
-        "application/json": {
-          schema: z.object({ accepted: z.literal(true) }),
+const retryLinearSyncRoute = createRoute(
+  directWriteRoute(
+    {
+      method: "post",
+      path: "/retry",
+      request: { query: ConnectionIdQuerySchema },
+      responses: {
+        202: {
+          content: {
+            "application/json": {
+              schema: z.object({ accepted: z.literal(true) }),
+            },
+          },
+          description: "Retry a failed Linear content sync",
+        },
+        400: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Ambiguous Linear connection",
+        },
+        409: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Linear content sync retry already claimed",
+        },
+        401: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Unauthorized",
+        },
+        404: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Unknown or incomplete Linear connection",
         },
       },
-      description: "Retry a failed Linear content sync",
     },
-    400: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Ambiguous Linear connection",
-    },
-    409: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Linear content sync retry already claimed",
-    },
-    401: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unauthorized",
-    },
-    404: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unknown or incomplete Linear connection",
-    },
-  },
-})
+    { orgAdmin: true },
+  ),
+)
 
 const retryLinearConfigRoute = createRoute({
   method: "post",

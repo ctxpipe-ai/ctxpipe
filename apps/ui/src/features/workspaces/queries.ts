@@ -888,6 +888,8 @@ export function conversationGitBlobOptions(
 }
 
 class ConversationSandboxBusy extends Error {
+  /** The backend answered 409. The error reporter treats it as expected. */
+  readonly status = 409
   constructor() {
     super("Conversation sandbox is not ready")
   }
@@ -909,7 +911,11 @@ export function conversationGitStatusOptions(
     }): Promise<PolledFiles<ConversationGitStatusResponse>> => {
       const status = await fetchConversationGitStatus(orgSlug, conversationId)
       if ("blocked" in status) {
-        if (!status.busy) throw new Error("Conversation sandbox is not ready")
+        if (!status.busy) {
+          throw Object.assign(new Error("Conversation sandbox is not ready"), {
+            status: 409,
+          })
+        }
         const cached = client.getQueryData<ConversationGitStatusResponse>(
           workspaceKeys.conversationGitStatus(orgSlug, conversationId),
         )
@@ -955,8 +961,11 @@ export async function fetchConversationTurnChanges(
 export function conversationTurnChangesOptions(
   orgSlug: string,
   conversationId: string,
+  /** False while the conversation has no server row: the route answers 404. */
+  enabled = true,
 ) {
   return queryOptions({
+    enabled,
     queryKey: workspaceKeys.conversationTurnChanges(orgSlug, conversationId),
     queryFn: () => fetchConversationTurnChanges(orgSlug, conversationId),
     // A turn records its changes just before it ends, and the backend answers
@@ -993,6 +1002,7 @@ export async function createWorkspace(
     slug?: string
     githubConnectionId?: string
     source?: "select" | "paste"
+    rootPath?: string
   },
 ): Promise<Workspace> {
   const client = await getApiClient()
@@ -1012,6 +1022,7 @@ export async function updateWorkspace(
     workspaceRepositoryUrl?: string
     githubConnectionId?: string | null
     source?: "select" | "paste"
+    rootPath?: string
   },
 ): Promise<Workspace> {
   const client = await getApiClient()

@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { sourceTargetSchema } from "../../models/workspace-source-state.js"
 import {
   gitFileChangeSchema,
   repositoryFilePathSchema,
@@ -24,25 +25,38 @@ const githubMirrorSourceSchema = z
   .object({ provider: z.literal("github"), gitUrl: linkedRepositoryUrlSchema })
   .strict()
 
+const workspaceSourcesProviderSchema = z.enum([
+  "github",
+  "linear",
+  "notion",
+  "slack",
+  "confluence",
+  "pagerduty",
+])
+
 /**
  * A Workspace source sync (ADR-050): the scope is `.ctxpipe/sources.yaml` of
- * the target Workspace. A change of that file discards the write.
+ * the target Workspace. A change of that file discards the write. A cleanup
+ * of removed sources has `removedTargets` instead: it is discarded only when
+ * the sources at the head have one of these targets again.
  */
-const workspaceSourcesMirrorSchema = z
-  .object({
-    provider: z.enum([
-      "github",
-      "linear",
-      "notion",
-      "slack",
-      "confluence",
-      "pagerduty",
-    ]),
-    connectionId: z.string().min(1),
-    /** The sources fence id (`sourcesFenceAt`); the name is from the YAML-only fence. */
-    sourcesBlobSha: gitObjectIdSchema.nullable(),
-  })
-  .strict()
+const workspaceSourcesMirrorSchema = z.union([
+  z
+    .object({
+      provider: workspaceSourcesProviderSchema,
+      connectionId: z.string().min(1),
+      /** The sources fence id (`sourcesFenceAt`); the name is from the YAML-only fence. */
+      sourcesBlobSha: gitObjectIdSchema.nullable(),
+    })
+    .strict(),
+  z
+    .object({
+      provider: workspaceSourcesProviderSchema,
+      connectionId: z.string().min(1),
+      removedTargets: z.array(sourceTargetSchema).min(1),
+    })
+    .strict(),
+])
 export type WorkspaceSourcesMirrorSource = z.infer<
   typeof workspaceSourcesMirrorSchema
 >
