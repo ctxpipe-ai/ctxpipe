@@ -11,7 +11,6 @@ import {
 } from "../../services/github/installation-write-client.js"
 import { isLinkedRepositoryDeclaration } from "../workspaces/layout.js"
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
-import { applySourceFileChange } from "./edit.js"
 import {
   planSourceMigration,
   SOURCE_MIGRATION_HOOKS,
@@ -20,6 +19,7 @@ import {
 } from "./migration-plan.js"
 import { workspaceGithubRepository } from "./repository.js"
 import { SOURCES_FILE_PATH, type SourceProvider } from "./sources-file.js"
+import { applySourcesYamlChange } from "./sources-yaml-edit.js"
 
 const MIGRATION_BRANCH_PREFIX = "ctxpipe/sources/migrate"
 
@@ -136,7 +136,7 @@ export async function runSourceMigration(input: {
         throw new Error("The Workspace has no connected GitHub repository")
       let text = workspace.sourcesFile
       for (const change of changes)
-        text = applySourceFileChange(text, change).text
+        text = applySourcesYamlChange(text, change).text
       if (!input.apply || text === null) continue
       const [open] = await listOpenPullRequestsByBranchPrefix({
         ...workspace.repository,

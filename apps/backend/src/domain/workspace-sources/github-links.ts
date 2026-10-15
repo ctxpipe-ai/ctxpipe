@@ -1,4 +1,4 @@
-import { applySourceFileChange, SourceChangeError } from "./edit.js"
+import { SourceChangeError } from "./edit.js"
 import {
   githubScopeRepositories,
   githubScopeSchema,
@@ -10,6 +10,7 @@ import {
   sourcesFileSchema,
 } from "./sources-file.js"
 import { parseSourcesYaml } from "./sources-yaml.js"
+import { applySourcesYamlChange } from "./sources-yaml-edit.js"
 
 /** The id of the GitHub source that link and the upgrade make. */
 export const LINKED_REPOSITORIES_SOURCE_KEY = "linked-repositories"
@@ -105,7 +106,7 @@ export function linkGithubRepositories(input: {
   let text = input.sourcesFile
   for (const { entry, items, changed } of github) {
     if (!changed) continue
-    text = applySourceFileChange(text, {
+    text = applySourcesYamlChange(text, {
       action: "edit",
       sourceKey: entry.key,
       provider: "github",
@@ -119,7 +120,7 @@ export function linkGithubRepositories(input: {
         (parsed.ok ? parsed.entry.key : parsed.key) ===
         LINKED_REPOSITORIES_SOURCE_KEY,
     )
-    text = applySourceFileChange(text, {
+    text = applySourcesYamlChange(text, {
       action: "add",
       sourceKey: keyTaken ? undefined : LINKED_REPOSITORIES_SOURCE_KEY,
       provider: "github",
@@ -148,7 +149,7 @@ export function unlinkGithubRepository(input: {
     const kept = items.filter((item) => item.name.toLowerCase() !== target)
     if (kept.length === items.length) continue
     changed = true
-    text = applySourceFileChange(
+    text = applySourcesYamlChange(
       text,
       kept.length
         ? {

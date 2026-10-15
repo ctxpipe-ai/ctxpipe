@@ -7,13 +7,13 @@ import { slackSourceMigrationHook } from "../../services/slack/source-migration.
 import { parseLinkedRepositoryMarkdown } from "../workspaces/layout.js"
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../workspaces/write-status.js"
-import type { SourceChange } from "./edit.js"
 import {
   parseSourceEntry,
   type SourceProvider,
   sourcesFileSchema,
 } from "./sources-file.js"
 import { parseSourcesYaml } from "./sources-yaml.js"
+import type { SourcesYamlChange } from "./sources-yaml-edit.js"
 
 /** What one existing connection syncs today, read from its config (ADR-050 migration). */
 export type LegacySourceBinding =
@@ -139,7 +139,7 @@ export function planSourceMigration(input: {
   linked: ReadonlyArray<{ workspaceId: string; gitUrl: string }>
   bindings: readonly LegacySourceBinding[]
 }): {
-  changes: Map<string, SourceChange[]>
+  changes: Map<string, SourcesYamlChange[]>
   /** The repository files that the GitHub source replaces, per Workspace. */
   deletePaths: Map<string, string[]>
   report: SourceMigrationReport
@@ -149,7 +149,7 @@ export function planSourceMigration(input: {
     alreadyPresent: [],
     unmapped: [],
   }
-  const changes = new Map<string, SourceChange[]>()
+  const changes = new Map<string, SourcesYamlChange[]>()
   const present = new Map(
     input.workspaces.map((workspace) => [
       workspace.id,
@@ -158,7 +158,7 @@ export function planSourceMigration(input: {
   )
   const add = (
     workspaceId: string,
-    change: Extract<SourceChange, { action: "add" }>,
+    change: Extract<SourcesYamlChange, { action: "add" }>,
   ) => {
     const pair = `${change.provider}:${change.connectionId}`
     const item = {
