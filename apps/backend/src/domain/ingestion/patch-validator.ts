@@ -132,7 +132,7 @@ const CONFIDENCE = { script: 0.7, model: 0.5 } as const
 const MAX_FILE_BYTES = 64 * 1024
 const MAX_STAGED_BYTES = 2 * 1024 * 1024
 const MAX_PATCH_JSON_BYTES = 1024 * 1024
-const MAX_STEP_OPS = 30
+export const MAX_STEP_OPS = 30
 export const MAX_WORKSPACE_OPS = 300
 const MAX_DELETE_SHARE = 0.2
 /** A source file above this size is not read to check a quote or a pattern. */
@@ -779,7 +779,8 @@ type WriteOutput = {
   added?: string
 }
 
-const AREA_PATH = /^knowledge\/instructions\/[a-z0-9]+(?:-[a-z0-9]+)*\.md$/
+export const AREA_PATH =
+  /^knowledge\/instructions\/[a-z0-9]+(?:-[a-z0-9]+)*\.md$/
 
 function generatedByHost(raw: string): boolean {
   const front = splitFrontMatter(raw)
@@ -1239,7 +1240,7 @@ function humanSectionProblem(
   return null
 }
 
-function humanBlocks(text: string): string[] {
+export function humanBlocks(text: string): string[] {
   return [...text.matchAll(HUMAN_BLOCK)].map((m) => m[0])
 }
 
@@ -1799,7 +1800,7 @@ export function parseYamlObject(yaml: string): Record<string, unknown> | null {
   }
 }
 
-function normalizeSourceUrl(url: string): string {
+export function normalizeSourceUrl(url: string): string {
   return normalizeWorkspaceRepositoryUrl(url).replace(/\.git$/i, "")
 }
 

@@ -53,7 +53,10 @@ export function extractionEvidencePath(
 
 /** Expire only evidence inspected by this capture; preserve unknown metadata and prose. */
 export function retractExtractionClaims(input: {
-  extraction: CapturedExtraction
+  extraction: Pick<
+    CapturedExtraction,
+    "claims" | "repositoryUrl" | "retraction"
+  >
   workspaceRepositoryUrl: string
   files: ExistingKnowledgeFile[]
   referencePaths: ReadonlyMap<string, string>

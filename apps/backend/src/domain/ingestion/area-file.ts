@@ -198,6 +198,63 @@ export function parseAreaBody(
   return { title, summary, rules, notes }
 }
 
+/**
+ * The area body (no human blocks) without the evidence lines and notes of
+ * `source`. A rule that has no other source line goes too. Each other line
+ * stays as it is. `source` is a normalized URL.
+ */
+export function withoutAreaSource(
+  body: string,
+  source: string,
+  normalize: (url: string) => string,
+): string {
+  const out: string[] = []
+  // The lines of the open rule; a rule with no source line left goes.
+  let rule: string[] = []
+  let ruleSources = 0
+  const flush = () => {
+    if (ruleSources > 0) out.push(...rule)
+    rule = []
+    ruleSources = 0
+  }
+  let section: string | null = null
+  for (const line of body.split("\n")) {
+    const heading = /^## (.+?)\s*$/.exec(line)
+    if (heading) {
+      flush()
+      section = heading[1] ?? null
+      out.push(line)
+      continue
+    }
+    if (section === "Rules" || section === "Being replaced") {
+      if (RULE.test(line)) {
+        flush()
+        rule.push(line)
+        continue
+      }
+      if (rule.length > 0 && line.startsWith("  - ")) {
+        const evidence = SOURCE.exec(line)
+        if (evidence) {
+          if (normalize(evidence[1] ?? "") === source) continue
+          ruleSources++
+        }
+        rule.push(line)
+        continue
+      }
+      flush()
+      out.push(line)
+      continue
+    }
+    if (section === "Repository notes") {
+      const note = NOTE.exec(line)
+      if (note && normalize(note[1] ?? "") === source) continue
+    }
+    out.push(line)
+  }
+  flush()
+  return out.join("\n")
+}
+
 function relativePath(path: string): boolean {
   return (
     path.length > 0 &&
