@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest"
 import type { GraphExpansion } from "./graph-expand.js"
 import {
+  INTENT_PRESETS,
+  RELEVANCE_INTENTS,
   type RelevanceNode,
   type RelevanceOptions,
   type RelevanceSignal,
@@ -327,6 +329,64 @@ describe("rankRelated intent presets", () => {
     expect(
       (ownership.get("team")?.ppr ?? 0) / (ownership.get("doc")?.ppr ?? 1),
     ).toBeCloseTo(3, 6)
+  })
+
+  it("walks FROM_SOURCE only for the provenance intent, which weights it most", () => {
+    for (const intent of RELEVANCE_INTENTS) {
+      expect(
+        INTENT_PRESETS[intent].walk?.includes("FROM_SOURCE") ?? false,
+        intent,
+      ).toBe(intent === "provenance")
+    }
+    const input = {
+      nodes: [node("s"), node("source"), node("doc")],
+      signals: [
+        signal("s", "source", 0.8, { predicate: "FROM_SOURCE" }),
+        signal("s", "doc", 0.8),
+      ],
+      seeds: ["s"],
+    }
+    const provenance = byId(
+      rank({ ...input, options: { intent: "provenance" } }),
+    )
+    expect(
+      (provenance.get("source")?.ppr ?? 0) / (provenance.get("doc")?.ppr ?? 1),
+    ).toBeCloseTo(3, 6)
+  })
+
+  it("ranks the sources of a seed first and their other units last for provenance", () => {
+    const siblings = ["x1", "x2", "x3", "x4"]
+    const input = {
+      nodes: [
+        node("s"),
+        node("src", "Source"),
+        node("doc"),
+        ...siblings.map((id) => node(id)),
+      ],
+      signals: [
+        signal("s", "src", 1, { predicate: "FROM_SOURCE" }),
+        ...siblings.map((id) =>
+          signal(id, "src", 1, { predicate: "FROM_SOURCE" }),
+        ),
+        signal("s", "doc", 0.3),
+      ],
+      seeds: ["s"],
+    }
+    for (const diversity of [0, 0.3]) {
+      const ids = rank({
+        ...input,
+        options: { intent: "provenance", diversity, limit: 3 },
+      }).map((result) => result.id)
+      expect(ids[0], `diversity ${diversity}`).toBe("src")
+      expect(ids[1], `diversity ${diversity}`).toBe("doc")
+    }
+    const ofSource = rank({
+      ...input,
+      seeds: ["src"],
+      options: { intent: "provenance", limit: 6 },
+    }).map((result) => result.id)
+    expect(ofSource.slice(0, 5).sort()).toEqual(["s", ...siblings].sort())
+    expect(ofSource[5]).toBe("doc")
   })
 
   it("ignores a predicate weight that is not a finite number of 0 or more", () => {

@@ -56,6 +56,7 @@ const INTENTS: readonly EvalIntent[] = [
   "why",
   "change",
   "dependencies",
+  "provenance",
 ]
 
 /**
@@ -74,27 +75,43 @@ const scopedPredicates = (intent: EvalIntent) => [
  * must serve four kinds of question (an owner, decisions, five changes, and
  * the dependencies), so its floors are lower. On free-form predicates, the
  * rules of a hub service still crowd out its decisions and dependencies.
+ * With no intent, the walk of all edges skips FROM_SOURCE, so a hub source
+ * does not crowd out the other answers, and the provenance floor is 0.
  */
 const floors: Record<
   EvalVocabulary,
   Record<"intent" | "no intent", Record<EvalIntent, number>>
 > = {
   canonical: {
-    intent: { ownership: 0.95, why: 0.95, change: 0.85, dependencies: 0.95 },
+    intent: {
+      ownership: 0.95,
+      why: 0.95,
+      change: 0.85,
+      dependencies: 0.95,
+      provenance: 0.95,
+    },
     "no intent": {
       ownership: 0.8,
       why: 0.45,
       change: 0.2,
       dependencies: 0.1,
+      provenance: 0,
     },
   },
   "free-form": {
-    intent: { ownership: 0.95, why: 0.45, change: 0.8, dependencies: 0.09 },
+    intent: {
+      ownership: 0.95,
+      why: 0.45,
+      change: 0.8,
+      dependencies: 0.09,
+      provenance: 0.95,
+    },
     "no intent": {
       ownership: 0.95,
       why: 0.45,
       change: 0.2,
       dependencies: 0.1,
+      provenance: 0,
     },
   },
 }
@@ -150,7 +167,8 @@ function evalSuite(vocabulary: EvalVocabulary) {
         // The defaults of `get_related`, except the fan-out of a scoped walk:
         // no node of the fixture has more than 1,000 matching edges, so no
         // tie in the edge order decides which edges the walk keeps. The
-        // unscoped walk is the `general` walk: all edges, fan-out 50.
+        // unscoped walk is the `general` walk: all edges except the hub
+        // source edges, fan-out 50.
         maxDepth: 2,
         direction: "both",
         minConfidence: 0.2,

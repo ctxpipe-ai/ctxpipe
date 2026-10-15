@@ -6,6 +6,8 @@ import type {
   PreviousSourceRow,
   SourceFileBlob,
 } from "../workspace-sources/projection-plan.js"
+import { SOURCES_FOLDER_PREFIX } from "../workspace-sources/source-tree.js"
+import { FROM_SOURCE_PREDICATE } from "./graph-relevance.js"
 import { effectiveValidFrom } from "./hydrate-phases.js"
 import { markdownLines } from "./knowledge-chunks.js"
 import {
@@ -147,9 +149,11 @@ export function hydrateKnowledgeTree(input: {
     units.push({
       path,
       servingId: servingIdForKnowledgePath(input.workspaceId, path),
-      kind:
-        typeof parsed.attributes.kind === "string" &&
-        parsed.attributes.kind.trim()
+      // A source file has no `kind` key (ADR-050); its folder sets the kind.
+      kind: path.startsWith(SOURCES_FOLDER_PREFIX)
+        ? "Source"
+        : typeof parsed.attributes.kind === "string" &&
+            parsed.attributes.kind.trim()
           ? parsed.attributes.kind.trim()
           : mirrorUnitKind(path),
       body: parsed.body,
@@ -178,24 +182,44 @@ export function hydrateKnowledgeTree(input: {
     const extra = references.get(unit.path)
     if (extra) unit.links.push(...extra)
   }
-  const changes = pullRequestChangedClaims(
-    units.map((unit) => ({
-      ...unit,
-      attributes: attributes.get(unit.path) ?? {},
-    })),
-  )
-  for (const unit of units) unit.claims.push(...(changes.get(unit.path) ?? []))
-
-  // A repository that an earlier entry or the Workspace names is not a skip.
-  for (const source of githubSourceRepositories(
+  // Each GitHub repository of the Workspace, from every connection. The
+  // CHANGED lookup uses all of them; `linked` keeps the connected ones.
+  const repositories = githubSourceRepositories(
     input.sourcesFile ?? null,
-    input.githubConnectionIds ?? new Set(),
+    null,
     input.sourceFiles,
     {
       previousRows: input.previousSourceRows,
       workspaceUrl: input.workspaceUrl,
     },
-  )) {
+  )
+  const changes = pullRequestChangedClaims(
+    units.map((unit) => ({
+      ...unit,
+      attributes: attributes.get(unit.path) ?? {},
+    })),
+    new Map(
+      repositories
+        .filter((source) => source.path.startsWith(SOURCES_FOLDER_PREFIX))
+        .map((source) => [source.path, source.gitUrl]),
+    ),
+  )
+  for (const unit of units) unit.claims.push(...(changes.get(unit.path) ?? []))
+  const sourcePaths = new Set(
+    units
+      .filter((unit) => unit.path.startsWith(SOURCES_FOLDER_PREFIX))
+      .map((unit) => unit.path),
+  )
+  for (const unit of units) {
+    unit.claims.push(
+      ...fromSourceClaims(attributes.get(unit.path) ?? {}, sourcePaths),
+    )
+  }
+
+  // A repository that an earlier entry or the Workspace names is not a skip.
+  const connectionIds = input.githubConnectionIds ?? new Set()
+  for (const source of repositories) {
+    if (!connectionIds.has(source.connectionId)) continue
     if (seenLinked.has(source.gitUrl)) continue
     seenLinked.add(source.gitUrl)
     linked.push({
@@ -207,6 +231,44 @@ export function hydrateKnowledgeTree(input: {
   }
 
   return { units, skipped, linked }
+}
+
+/**
+ * The source file path that one `sources` entry names (ADR-050), from the
+ * Workspace root. A URL, another path or a value that is not text gives null.
+ */
+export function sourcePathOf(entry: unknown): string | null {
+  if (typeof entry !== "string") return null
+  const path = resolveHydrateLink("", entry.trim())
+  return path.startsWith(SOURCES_FOLDER_PREFIX) ? path : null
+}
+
+/** The source file paths in the `sources` front matter of a unit. */
+export function sourcePathsOf(attributes: Record<string, unknown>): string[] {
+  const raw = attributes.sources
+  if (!Array.isArray(raw)) return []
+  return raw.flatMap((entry) => sourcePathOf(entry) ?? [])
+}
+
+/**
+ * One `FROM_SOURCE` claim for each path in the `sources` front matter that
+ * names a source file (ADR-050). A URL or another path makes no claim.
+ */
+function fromSourceClaims(
+  attributes: Record<string, unknown>,
+  sourcePaths: ReadonlySet<string>,
+): HydrateClaim[] {
+  const targets = new Set(
+    sourcePathsOf(attributes).filter((path) => sourcePaths.has(path)),
+  )
+  return [...targets].map((path) => ({
+    to: `${WORKSPACE_LINK_SCHEME}${path}`,
+    predicate: FROM_SOURCE_PREDICATE,
+    confidence: 1,
+    validFrom: null,
+    validTo: null,
+    source: "git",
+  }))
 }
 
 function unitTitle(frontMatterTitle: unknown, body: string): string | null {

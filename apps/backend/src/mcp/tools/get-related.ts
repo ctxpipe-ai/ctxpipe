@@ -65,7 +65,7 @@ export const getRelatedInputShape = {
     .enum(RELEVANCE_INTENTS)
     .default("general")
     .describe(
-      "The kind of question: why (decisions), ownership, change (recent changes), dependencies, structure, or general.",
+      "The kind of question: why (decisions), ownership, change (recent changes), dependencies, structure, provenance (the sources that a unit came from), or general.",
     ),
   predicates: z
     .array(name)
@@ -73,7 +73,7 @@ export const getRelatedInputShape = {
     .max(50)
     .optional()
     .describe(
-      "Walk only edges with these predicates. Not case-sensitive. Default: the edges of the intent and the link edges, then all edges when that finds fewer than limit results (all edges for general).",
+      "Walk only edges with these predicates. Not case-sensitive. Default: the edges of the intent and the link edges, then all edges when that finds fewer than limit results (all edges for general). Only provenance or these predicates walk FROM_SOURCE.",
     ),
   predicateWeights: z
     .record(name, z.number().min(0))
@@ -353,7 +353,7 @@ export async function rankWorkspaceRelated(
   const projection = await loadProjection(org, workspace, sha)
   const seedIds = await resolveSeeds(org, workspace.id, sha, input.seeds)
   // Walk the graph and rank what the walk found. No `predicates` walks all
-  // edges.
+  // edges, except the edges to a hub source (FROM_SOURCE).
   const walk = async (
     predicates: string[] | undefined,
     diversity = input.diversity,
@@ -543,7 +543,7 @@ export const getRelatedTool = defineMcpReadTool({
   name: "get_related",
   title: "Get related knowledge",
   description:
-    "Find knowledge related to seed refs AND relevant to your query, ranked by graph proximity, edge confidence, recency and query match. Each result can explain why (the path of predicates from a seed). Set intent for the question: why, ownership, change, dependencies, structure. Each intent first walks its own edges and the link edges (ownership: OWNS; why: decisions, incidents, rules and dependencies; change: changes; dependencies: dependency edges); with fewer than limit results, results from all edges follow. general walks all edges. Give predicates to walk only those edges. Filter by predicates, kinds, direction, depth and time. Use it after search_knowledge to find owners, dependencies, decisions, incidents and changes. For plain neighbors, set maxDepth 1 and no query. The default maxDepth is 2.",
+    "Find knowledge related to seed refs AND relevant to your query, ranked by graph proximity, edge confidence, recency and query match. Each result can explain why (the path of predicates from a seed). Set intent for the question: why, ownership, change, dependencies, structure, provenance. Each intent first walks its own edges and the link edges (ownership: OWNS; why: decisions, incidents, rules and dependencies; change: changes; dependencies: dependency edges; provenance: FROM_SOURCE, the sources a unit came from); with fewer than limit results, results from all edges follow. general walks all edges. No walk of all edges follows FROM_SOURCE. Give predicates to walk only those edges. Filter by predicates, kinds, direction, depth and time. Use it after search_knowledge to find owners, dependencies, decisions, incidents and changes. For plain neighbors, set maxDepth 1 and no query. The default maxDepth is 2.",
   org: "required",
   inputShape: getRelatedInputShape,
   outputSchema: z.object({
