@@ -151,6 +151,38 @@ describe("search_knowledge through the MCP client", () => {
       ],
     })
   })
+  it("defaults to 8 hits, allows at most 20, and sums up the claims of each hit", async () => {
+    await seedKnowledgeUnits(
+      seed.orgId,
+      sha,
+      Array.from({ length: 10 }, (_, index) => ({
+        id: `unit_limit_${index}`,
+        workspaceId,
+        path: `limit/${index}.md`,
+        title: `Handbook ${index}`,
+        updatedAt: "2026-01-01T00:00:00Z",
+        body: `# Handbook ${index}\n\nThe handbook page ${index}.`,
+        claims: Array.from({ length: index === 0 ? 7 : 0 }, (_, claim) => ({
+          to: `knowledge/teams/team-${claim}.md`,
+          predicate: "OWNED_BY",
+        })),
+      })),
+    )
+    const result = await call({ pathPrefix: "limit/" })
+    const hits = result.structuredContent?.hits as Array<{
+      ref: string
+      claims?: string
+    }>
+    expect(hits).toHaveLength(8)
+    for (const hit of hits)
+      if (hit.ref !== "limit/0.md") expect(hit.claims).toBeUndefined()
+    const [claimed] = (await call({ pathPrefix: "limit/0" })).structuredContent
+      ?.hits as Array<{ claims?: string }>
+    expect(claimed?.claims).toBe(
+      "OWNED_BY knowledge/teams/team-0.md; OWNED_BY knowledge/teams/team-1.md; OWNED_BY knowledge/teams/team-2.md; OWNED_BY knowledge/teams/team-3.md; OWNED_BY knowledge/teams/team-4.md; +2 more",
+    )
+    expect((await call({ limit: 21 })).isError).toBe(true)
+  })
   it("applies each filter and limits the call to selected Workspaces", async () => {
     expect((await call()).structuredContent?.hits).toHaveLength(2)
     for (const filter of [
@@ -234,7 +266,7 @@ describe("search_knowledge through the MCP client", () => {
     for (let page = 0; page < 20; page++) {
       const result = await call({
         pathPrefix: "large/",
-        limit: 50,
+        limit: 20,
         ...(cursor ? { cursor } : {}),
       })
       expect(result.isError).not.toBe(true)
@@ -248,9 +280,13 @@ describe("search_knowledge through the MCP client", () => {
       expect(Math.ceil((text[0]?.text.length ?? 0) / 4)).toBeLessThanOrEqual(
         4_000,
       )
-      const hits = result.structuredContent?.hits as Array<{ ref: string }>
+      const hits = result.structuredContent?.hits as Array<{
+        ref: string
+        snippet: string
+      }>
       expect(hits.length).toBeGreaterThan(0)
-      if (page === 0) expect(result.structuredContent?.truncated).toBe(true)
+      for (const hit of hits)
+        expect(hit.snippet.length).toBeLessThanOrEqual(600)
       found.push(...hits.map((hit) => hit.ref))
       cursor = result.structuredContent?.cursor
       if (!cursor) break
