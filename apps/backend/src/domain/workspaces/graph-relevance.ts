@@ -187,18 +187,11 @@ const LINK_PREDICATES = ["LINKS_TO", "REFERENCES", "MENTIONS"]
 /**
  * The predicate of the edge from a unit to the `Source` unit that it came
  * from (ADR-050). A `Source` unit has one such edge from each of its units,
- * so it is a hub.
+ * so it is a hub. The walk of all edges (also the fallback walk) does not
+ * follow these edges (`expandWorkspaceGraph`). Only the `provenance` intent,
+ * or `predicates` that name them, walk them.
  */
 export const FROM_SOURCE_PREDICATE = "FROM_SOURCE"
-
-/**
- * The walk of all edges (also the fallback walk) does not follow these
- * edges. Only the `provenance` intent, or `predicates` that name them, walk
- * them.
- */
-export const DEFAULT_WALK_SKIPPED_PREDICATES: readonly string[] = [
-  FROM_SOURCE_PREDICATE,
-]
 
 function weightAll(predicates: readonly string[], weight: number) {
   return Object.fromEntries(predicates.map((predicate) => [predicate, weight]))
@@ -270,8 +263,8 @@ export const INTENT_PRESETS: Readonly<Record<RelevanceIntent, IntentPreset>> = {
   },
   // A source with many units is still the source of each of them.
   provenance: {
-    walk: ["FROM_SOURCE", ...LINK_PREDICATES],
-    predicates: { FROM_SOURCE: 3 },
+    walk: [FROM_SOURCE_PREDICATE, ...LINK_PREDICATES],
+    predicates: { [FROM_SOURCE_PREDICATE]: 3 },
     signals: BASE_SIGNALS,
     hubPenalty: 0,
   },

@@ -112,17 +112,27 @@ export function workspaceGraphFromSignals(input: {
     if (!edge || confidence <= 0) return []
     return [{ ...edge, confidence }]
   })
+  // A `Source` unit has an edge from each of its units (ADR-050). The pane
+  // shows at most 20 of them for each source, so that one source does not
+  // draw thousands of edges.
+  const sourceEdges = new Map<string, number>()
+  const shown = edges.filter((edge) => {
+    if (edge.predicate !== FROM_SOURCE_PREDICATE) return true
+    const count = (sourceEdges.get(edge.targetId) ?? 0) + 1
+    sourceEdges.set(edge.targetId, count)
+    return count <= 20
+  })
   return {
     metrics: {
       totalNodes: nodes.length,
       totalEdges: edges.length,
       lastUpdatedAt: input.lastUpdatedAt ?? null,
       nodesReturned: nodes.length,
-      edgesReturned: edges.length,
-      truncated: false,
+      edgesReturned: shown.length,
+      truncated: shown.length < edges.length,
     },
     nodes,
-    edges,
+    edges: shown,
   }
 }
 

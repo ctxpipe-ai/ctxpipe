@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { GraphExpansion } from "./graph-expand.js"
 import {
-  DEFAULT_WALK_SKIPPED_PREDICATES,
   INTENT_PRESETS,
   RELEVANCE_INTENTS,
   type RelevanceNode,
@@ -333,7 +332,6 @@ describe("rankRelated intent presets", () => {
   })
 
   it("walks FROM_SOURCE only for the provenance intent, which weights it most", () => {
-    expect(DEFAULT_WALK_SKIPPED_PREDICATES).toEqual(["FROM_SOURCE"])
     for (const intent of RELEVANCE_INTENTS) {
       expect(
         INTENT_PRESETS[intent].walk?.includes("FROM_SOURCE") ?? false,

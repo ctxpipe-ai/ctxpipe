@@ -15,7 +15,6 @@ import {
 import { WorkspaceGraphUnavailableError } from "../../domain/workspaces/graph-projection.js"
 import { WorkspaceGraphBuildingError } from "../../domain/workspaces/graph-rebuild.js"
 import {
-  DEFAULT_WALK_SKIPPED_PREDICATES,
   INTENT_PRESETS,
   RELEVANCE_INTENTS,
   rankRelated,
@@ -368,9 +367,6 @@ export async function rankWorkspaceRelated(
       maxDepth: input.maxDepth,
       direction: input.direction,
       predicates,
-      excludePredicates: predicates
-        ? undefined
-        : [...DEFAULT_WALK_SKIPPED_PREDICATES],
       minConfidence: input.minConfidence,
       maxFanOut: input.maxFanOut,
       validAt: input.validBetween

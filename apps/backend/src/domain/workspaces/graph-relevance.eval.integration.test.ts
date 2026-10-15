@@ -45,7 +45,6 @@ import {
 } from "../../test/related-fixture.js"
 import { expandWorkspaceGraph, type GraphExpansion } from "./graph-expand.js"
 import {
-  DEFAULT_WALK_SKIPPED_PREDICATES,
   INTENT_PRESETS,
   type RelevanceOptions,
   rankRelated,
@@ -175,9 +174,6 @@ function evalSuite(vocabulary: EvalVocabulary) {
         minConfidence: 0.2,
         maxFanOut: scoped ? 1_000 : 50,
         predicates: scoped ? scopedPredicates(question.intent) : undefined,
-        excludePredicates: scoped
-          ? undefined
-          : [...DEFAULT_WALK_SKIPPED_PREDICATES],
         validAt: fixture.now.toISOString(),
         caps,
       })
