@@ -12,7 +12,7 @@ import { tool } from "langchain"
 import { z } from "zod/v3"
 import { requireCurrentOrgId } from "../../../auth/context.js"
 import { getLogger } from "../../../observability/logger.js"
-import { getModel } from "../../../retrieval/services/modelProvider.js"
+import { getModel } from "../../../retrieval/services/legacyModelProvider.js"
 import {
   REPO_EXPLORER_TOOLS_HINT,
   standardRepoExplorerTools,
