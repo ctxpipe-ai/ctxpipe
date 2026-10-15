@@ -448,6 +448,28 @@ async function refreshGitAccess(
   )
 }
 
+/**
+ * Wait until the system CA bundle is whole. The firewall adds its CA to
+ * `/etc/ssl/certs/ca-certificates.crt` after the sandbox starts, and a git
+ * command that reads the file during the write fails with "error adding trust
+ * anchors". A whole bundle is not empty and ends with a complete certificate.
+ * After the wait the call goes on, so a missing bundle never blocks a start.
+ */
+async function waitForCaBundle(handle: SandboxHandle): Promise<void> {
+  const bundle = "/etc/ssl/certs/ca-certificates.crt"
+  const check = `test -s ${bundle} && tail -n 1 ${bundle} | grep -q -- '-----END CERTIFICATE-----'`
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const result = await handle.process.exec(check).catch(() => undefined)
+    if (result?.exitCode === 0) {
+      // The same file, read again, shows a finished write.
+      await new Promise((resolve) => setTimeout(resolve, 250))
+      const again = await handle.process.exec(check).catch(() => undefined)
+      if (again?.exitCode === 0) return
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500))
+  }
+}
+
 /** The stock handle, with the agent port behind the OpenCode password and kill enabled. */
 function conversationHandle(
   sandbox: Sandbox,
@@ -562,7 +584,9 @@ export function vercelConversationProvider(input: {
         throw error
       }
       await access.tokens.put(sandbox.name, gitToken)
-      return conversationHandle(sandbox, input.agentPassword)
+      const handle = conversationHandle(sandbox, input.agentPassword)
+      await waitForCaBundle(handle)
+      return handle
     },
     async resume({ id }) {
       let sandbox: Sandbox
@@ -573,7 +597,9 @@ export function vercelConversationProvider(input: {
         return null
       }
       await refreshGitAccess(sandbox, access)
-      return conversationHandle(sandbox, input.agentPassword)
+      const handle = conversationHandle(sandbox, input.agentPassword)
+      await waitForCaBundle(handle)
+      return handle
     },
     async destroy({ id }) {
       await deleteVercelSandbox({
