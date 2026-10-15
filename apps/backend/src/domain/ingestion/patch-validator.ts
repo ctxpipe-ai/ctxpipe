@@ -1240,6 +1240,16 @@ function humanSectionProblem(
   return null
 }
 
+/**
+ * True when `after` has front matter and keeps each human section of
+ * `before` byte for byte in its body (the check of a staged write). A host
+ * edit outside a patch step uses it.
+ */
+export function humanSectionsKept(before: string, after: string): boolean {
+  const front = splitFrontMatter(after)
+  return front !== null && humanSectionProblem(front, before) === null
+}
+
 export function humanBlocks(text: string): string[] {
   return [...text.matchAll(HUMAN_BLOCK)].map((m) => m[0])
 }

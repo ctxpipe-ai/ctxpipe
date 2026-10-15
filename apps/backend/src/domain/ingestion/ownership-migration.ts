@@ -59,19 +59,8 @@ export function ownershipMigrationFiles(input: {
   for (const file of input.files) {
     if (!file.path.startsWith("knowledge/") || !file.path.endsWith(".md"))
       continue
-    const parsed = parseSimpleFrontMatter(file.content)
-    if (parsed.malformed || parsed.attributes.generated_by !== "ctxpipe")
-      continue
-    const source = parsed.attributes.source
-    if (
-      typeof source !== "string" ||
-      !/^(?:(?:https?|ssh|git):\/\/|git@)/i.test(source.trim())
-    )
-      continue
-    const sourceUrl = normalizeWorkspaceRepositoryUrl(
-      source.split("#")[0] ?? "",
-    )
-    if (sourceUrl === workspaceUrl) continue
+    const sourceUrl = legacySourceUrl(file.content, workspaceUrl)
+    if (!sourceUrl) continue
     out.push({
       path: file.path,
       content: updateKnowledgeMetadata(file.content, (document) => {
@@ -87,7 +76,11 @@ export function ownershipMigrationFiles(input: {
             input.onDroppedClaim?.({ path: file.path, index, reason }),
         )
         const summary = document.get("summary")
-        const name = fileName(document.get("name"), parsed.body, file.path)
+        const name = fileName(
+          document.get("name"),
+          parseSimpleFrontMatter(file.content).body,
+          file.path,
+        )
         if (!isMap(document.contents)) return
         for (const pair of [...document.contents.items]) {
           const key = isScalar(pair.key) ? pair.key.value : pair.key
@@ -108,6 +101,29 @@ export function ownershipMigrationFiles(input: {
     })
   }
   return out
+}
+
+/**
+ * The source repository of a file that the old pipeline wrote and that the
+ * migration gives to ingestion v2: a `generated_by: ctxpipe` file with an
+ * absolute `source` URL that is not the Workspace repository. Null for each
+ * other file. `workspaceUrl` is normalized.
+ */
+export function legacySourceUrl(
+  content: string,
+  workspaceUrl: string,
+): string | null {
+  const parsed = parseSimpleFrontMatter(content)
+  if (parsed.malformed || parsed.attributes.generated_by !== "ctxpipe")
+    return null
+  const source = parsed.attributes.source
+  if (
+    typeof source !== "string" ||
+    !/^(?:(?:https?|ssh|git):\/\/|git@)/i.test(source.trim())
+  )
+    return null
+  const sourceUrl = normalizeWorkspaceRepositoryUrl(source.split("#")[0] ?? "")
+  return sourceUrl === workspaceUrl ? null : sourceUrl
 }
 
 function legacyClaims(

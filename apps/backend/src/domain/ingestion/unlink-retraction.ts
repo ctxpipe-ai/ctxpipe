@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -14,23 +15,29 @@ import {
   updateKnowledgeMetadata,
 } from "../workspaces/knowledge-metadata.js"
 import { retractExtractionClaims } from "../workspaces/retract-extraction.js"
+import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
 import {
   checkAreaChange,
   parseAreaBody,
   withoutAreaSource,
 } from "./area-file.js"
 import {
+  legacySourceUrl,
+  ownershipMigrationFiles,
+} from "./ownership-migration.js"
+import {
   AREA_PATH,
   fileOwnership,
   fileSources,
   humanBlocks,
+  humanSectionsKept,
   MAX_STEP_OPS,
   normalizeSourceUrl,
+  parseYamlObject,
   splitFrontMatter,
   validatePatchStep,
 } from "./patch-validator.js"
 
-const HUMAN_OPEN = "<!-- ctxpipe:human -->"
 const HOST_FIELDS = [
   "generated_by",
   "sources",
@@ -56,8 +63,15 @@ const HOST_FIELDS = [
  *   Another shared file loses only the repository in `sources`.
  * - Each open claim whose `source` names the repository gets `valid_to`
  *   (the ADR-052 full retraction). A closed claim keeps its dates.
+ * - An old pipeline file that the ownership migration did not move yet is
+ *   retracted as the migration would give it: a `generated_by: ctxpipe` file
+ *   whose absolute `source` URL is the repository (`legacySourceUrl`) is the
+ *   repository's file. Else a later migration would give it to ingestion v2
+ *   with only the unlinked repository in `sources`.
  *
- * Human sections stay byte for byte.
+ * Human sections stay byte for byte. Each edit gets the checks of a staged
+ * write: the same human sections, and front matter that is a YAML map. An
+ * edit of a file that is not an area file keeps the body byte for byte.
  */
 export async function planUnlinkRetraction(input: {
   pack: GitPack
@@ -70,20 +84,35 @@ export async function planUnlinkRetraction(input: {
     input.pack,
     (path) => path.startsWith("knowledge/") && path.endsWith(".md"),
   )
+  const workspaceUrl = normalizeWorkspaceRepositoryUrl(
+    input.workspaceRepositoryUrl,
+  )
   const deletePaths: string[] = []
+  // Old pipeline files: the patch validator reads ownership at the pack, where
+  // they are not migrated, so the plan checks them itself (below).
+  const legacyDeletePaths: string[] = []
   const kept: Array<{ path: string; content: string }> = []
   for (const file of before) {
-    const ownership = fileOwnership(file.content, source)
-    if (ownership === "sole" && humanBlocks(file.content).length === 0)
-      deletePaths.push(file.path)
+    const legacy = legacySourceUrl(file.content, workspaceUrl)
+    const migrated =
+      legacy !== null && normalizeSourceUrl(legacy) === source
+        ? ownershipMigrationFiles({
+            workspaceRepositoryUrl: input.workspaceRepositoryUrl,
+            files: [file],
+          })[0]
+        : undefined
+    const content = migrated?.content ?? file.content
+    const ownership = fileOwnership(content, source)
+    if (ownership === "sole" && humanBlocks(content).length === 0)
+      (migrated ? legacyDeletePaths : deletePaths).push(file.path)
     else if (ownership === "sole")
-      kept.push({ path: file.path, content: toHumanFile(file.content) })
+      kept.push({ path: file.path, content: toHumanFile(content) })
     else if (ownership === "shared")
       kept.push({
         path: file.path,
-        content: withoutSharedSource(file.path, file.content, source),
+        content: withoutSharedSource(file.path, content, source),
       })
-    else kept.push(file)
+    else kept.push({ path: file.path, content })
   }
   const retracted = retractExtractionClaims({
     extraction: {
@@ -99,9 +128,22 @@ export async function planUnlinkRetraction(input: {
   const files = retracted
     .filter((file) => original.get(file.path) !== file.content)
     .map((file) => ({ path: file.path, content: file.content }))
+  for (const file of files)
+    checkRetractionEdit(file.path, original.get(file.path) ?? "", file.content)
   if (deletePaths.length)
     await validateDeletes(input.pack, input.sourceUrl, deletePaths)
-  return { files, deletePaths }
+  return { files, deletePaths: [...deletePaths, ...legacyDeletePaths].sort() }
+}
+
+/** The checks of a staged write that apply to a host edit (ADR-052 section 3). */
+function checkRetractionEdit(path: string, before: string, after: string) {
+  const front = splitFrontMatter(after)
+  if (!front || !parseYamlObject(front.yaml))
+    throw new Error(`The retraction of ${path} has no YAML front matter`)
+  if (!humanSectionsKept(before, after))
+    throw new Error(`The retraction of ${path} changes a human section`)
+  if (!AREA_PATH.test(path) && front.body !== splitFrontMatter(before)?.body)
+    throw new Error(`The retraction of ${path} changes the body`)
 }
 
 /** The extracted part goes; the body and the legacy claims (history) stay. */
@@ -129,13 +171,29 @@ function withoutSharedSource(
   if (AREA_PATH.test(path)) {
     const front = splitFrontMatter(content)
     if (!front) throw new Error(`The area file ${path} has no front matter`)
-    // The script writes human sections at the end of an area file.
-    const humanAt = front.body.indexOf(HUMAN_OPEN)
-    const generated = humanAt === -1 ? front.body : front.body.slice(0, humanAt)
-    const rest = humanAt === -1 ? "" : front.body.slice(humanAt)
-    const edited = withoutAreaSource(generated, source, normalizeSourceUrl)
-    const beforeArea = parseAreaBody(generated, normalizeSourceUrl)
-    const afterArea = parseAreaBody(edited, normalizeSourceUrl)
+    // Each human section stands in as one marker, so that the edit reads
+    // the evidence lines before and after it. A human section can be in the
+    // middle of the file, because a person can move it there.
+    const blocks = humanBlocks(front.body)
+    // A random tag, so that no text of the file looks like a marker.
+    const tag = `ctxpipe-human-${randomUUID()}`
+    const marker = (i: number) => `${tag}:${i}:${tag}`
+    const markers = () => new RegExp(`${tag}:(\\d+):${tag}`, "g")
+    let marked = front.body
+    for (const [i, block] of blocks.entries())
+      marked = marked.replace(block, () => marker(i))
+    const edited = withoutAreaSource(marked, source, normalizeSourceUrl)
+    if (
+      (edited.match(markers()) ?? []).join("") !==
+      blocks.map((_, i) => marker(i)).join("")
+    )
+      throw new Error(
+        `The retraction of ${path} would move or remove a human section`,
+      )
+    // The validator reads an area body with no human sections.
+    const unmarked = (body: string) => body.replace(markers(), "")
+    const beforeArea = parseAreaBody(unmarked(marked), normalizeSourceUrl)
+    const afterArea = parseAreaBody(unmarked(edited), normalizeSourceUrl)
     if ("error" in beforeArea || "error" in afterArea)
       throw new Error(
         `The area file ${path} has a form that the host cannot read`,
@@ -150,7 +208,20 @@ function withoutSharedSource(
       throw new Error(
         `The retraction of ${path} fails a check: ${change.error}`,
       )
-    next = `${content.slice(0, content.length - front.body.length)}${edited}${rest}`
+    // `sources` loses the repository, so no evidence line or note of it
+    // can stay.
+    if (
+      afterArea.rules.some((rule) => rule.sources.has(source)) ||
+      afterArea.notes.some((note) => normalizeSourceUrl(note.source) === source)
+    )
+      throw new Error(
+        `The retraction of ${path} leaves evidence of the repository`,
+      )
+    const restored = edited.replace(
+      markers(),
+      (_, i: string) => blocks[Number(i)] ?? "",
+    )
+    next = `${content.slice(0, content.length - front.body.length)}${restored}`
   }
   return updateKnowledgeMetadata(next, (document) => {
     const listed = document.get("sources", true)
