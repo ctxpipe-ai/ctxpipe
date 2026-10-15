@@ -26,7 +26,10 @@ function stubAwsCredentials() {
 }
 
 /** One binary `application/vnd.amazon.eventstream` frame, as ConverseStream sends it. */
-function eventStreamFrame(eventType: string, payload: unknown): Uint8Array {
+function eventStreamFrame(
+  eventType: string,
+  payload: unknown,
+): Uint8Array<ArrayBuffer> {
   const text = new TextEncoder()
   const header = (name: string, value: string) => {
     const n = text.encode(name)

@@ -8,12 +8,6 @@
       "count": 1
     },
     {
-      "file": "../backend/src/routes/v1/bedrockOpenAiProxy.ts",
-      "code": 2769,
-      "message": "No overload matches this call.\n  Overload 1 of 2, '(model: string, params?: Omit<ChatBedrockConverseInput, \"model\"> | undefined): ChatBedrockConverse', gave the following error.\n    Argument of type '{ additionalModelRequestFields?: Record<string, unknown> | undefined; topP?: number | undefined; maxTokens?: number | undefined; temperature?: number | undefined; model: string; region: string; streaming: boolean; }' is not assignable to parameter of type 'string'.\n  Overload 2 of 2, '(fields?: ChatBedrockConverseInput | undefined): ChatBedrockConverse', gave the following error.\n    Argument of type '{ additionalModelRequestFields?: Record<string, unknown> | undefined; topP?: number | undefined; maxTokens?: number | undefined; temperature?: number | undefined; model: string; region: string; streaming: true; }' is not assignable to parameter of type 'ChatBedrockConverseInput'.\n      Types of property 'additionalModelRequestFields' are incompatible.\n        Type 'Record<string, unknown> | undefined' is not assignable to type 'DocumentType | undefined'.\n          Type 'Record<string, unknown>' is not assignable to type 'DocumentType | undefined'.\n            Type 'Record<string, unknown>' is missing the following properties from type 'DocumentType[]': length, pop, push, concat, and 29 more.",
-      "count": 1
-    },
-    {
       "file": "../backend/src/routes/v1/openai.ts",
       "code": 2345,
       "message": "Argument of type '{ model?: unknown; stream?: unknown; messages?: unknown[] | undefined; temperature?: number | undefined; }' is not assignable to parameter of type 'OpenAiChatBody'.\n  Types of property 'model' are incompatible.\n    Type 'unknown' is not assignable to type 'string | undefined'.",
