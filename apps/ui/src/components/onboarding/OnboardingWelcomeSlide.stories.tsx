@@ -16,6 +16,7 @@ const meta = {
   ],
   parameters: {
     layout: "centered",
+    storyRoute: { pattern: "flat", path: "/onboarding" },
   },
   args: {
     onGetStarted: fn(),
