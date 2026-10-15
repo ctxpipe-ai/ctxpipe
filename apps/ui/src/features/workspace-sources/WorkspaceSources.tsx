@@ -11,7 +11,7 @@ import {
   type SourceProvider,
   type SourceStatus,
 } from "backend/domain/workspace-sources/sources-file"
-import { type ComponentType, type ReactNode, useState } from "react"
+import { type ComponentType, type ReactNode, useMemo, useState } from "react"
 import { Heading, Link } from "react-aria-components"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
@@ -328,7 +328,7 @@ export function WorkspaceSources(props: {
   const {
     orgSlug,
     workspaceSlug,
-    linkedRepositories = [],
+    linkedRepositories,
     workspaceRepositoryUrl = null,
   } = props
   const queryClient = useQueryClient()
@@ -367,6 +367,14 @@ export function WorkspaceSources(props: {
   const canEdit = data?.canEdit ?? false
   const directCommitAllowed = data?.directCommitAllowed ?? false
   const items = data?.items ?? []
+  const githubRepositories = useMemo(
+    () =>
+      repositoryRows(
+        linkedRepositories ?? [],
+        (data?.items ?? []).filter((item) => item.provider === "github"),
+      ),
+    [linkedRepositories, data?.items],
+  )
   const pendingChanges = data?.pendingChanges ?? []
   const pendingOf = (sourceKey: string) =>
     pendingChanges.find((change) => change.sourceKey === sourceKey)
@@ -376,7 +384,7 @@ export function WorkspaceSources(props: {
       items.some((item) => item.provider === provider) ||
       pendingChanges.some((change) => change.provider === provider) ||
       connectionsOf(provider).length > 0 ||
-      (provider === "github" && linkedRepositories.length > 0),
+      (provider === "github" && (linkedRepositories?.length ?? 0) > 0),
   )
   const isEmpty =
     groups.length === 0 && unknownProvider.length === 0 && !data?.fileError
@@ -391,7 +399,11 @@ export function WorkspaceSources(props: {
         <SkeletonText className="text-sm" boneClassName="h-3.5 w-48" />
       ) : data && !isEmpty ? (
         <p className="text-sm text-muted-foreground">
-          {connectorsSummary(items, pendingChanges, linkedRepositories.length)}
+          {connectorsSummary(
+            items,
+            pendingChanges,
+            linkedRepositories?.length ?? 0,
+          )}
         </p>
       ) : null}
       {data && isEmpty ? null : (
@@ -487,9 +499,7 @@ export function WorkspaceSources(props: {
               )
               // The GitHub group counts repositories, not source entries.
               const repositories =
-                provider === "github"
-                  ? repositoryRows(linkedRepositories, sources)
-                  : null
+                provider === "github" ? githubRepositories : null
               const attention = repositories
                 ? repositories.filter(repositoryNeedsAttention).length
                 : sources.filter((item) => item.status !== "ok").length
@@ -546,7 +556,7 @@ export function WorkspaceSources(props: {
                         orgSlug={orgSlug}
                         workspaceSlug={workspaceSlug}
                         workspaceRepositoryUrl={workspaceRepositoryUrl}
-                        linkedRepositories={linkedRepositories}
+                        rows={githubRepositories}
                         sources={sources}
                         connections={connectionsOf(provider)}
                         canEdit={canEdit}

@@ -1073,7 +1073,24 @@ export const GithubManyRepositories: Story = {
   parameters: {
     msw: {
       handlers: {
-        page: [workspaceSourcesHandler(workspaceSourceList()), connected],
+        page: [
+          workspaceSourcesHandler(
+            workspaceSourceList({
+              items: [
+                {
+                  ...githubSource,
+                  scope: {
+                    repositories: manyLinkedRepositories.map((repo) =>
+                      repo.gitUrl.replace("https://github.com/", ""),
+                    ),
+                  },
+                  scopeSummary: "312 repositories",
+                },
+              ],
+            }),
+          ),
+          connected,
+        ],
       },
     },
   },
@@ -1087,12 +1104,24 @@ export const GithubManyRepositories: Story = {
     await expect(list.getAllByRole("listitem")).toHaveLength(5)
     await expect(list.getAllByText("Indexed with issues")).toHaveLength(4)
 
-    await userEvent.click(canvas.getByRole("button", { name: "Show all 312" }))
+    await expect(list.queryByText("Linked by a repositories file")).toBeNull()
+    const toggle = canvas.getByRole("button", { name: "Show all 312" })
+    await expect(listElement.id).not.toBe("")
+    await expect(toggle).toHaveAttribute("aria-controls", listElement.id)
+    await expect(toggle).toHaveAttribute("aria-expanded", "false")
+    toggle.focus()
+    await expect(toggle).toHaveFocus()
+    await userEvent.keyboard("{Enter}")
+    await expect(toggle).toHaveAttribute("aria-expanded", "true")
+    await expect(toggle).toHaveAttribute("aria-controls", listElement.id)
     await expect(list.getAllByRole("listitem")).toHaveLength(312)
     await expect(listElement.scrollHeight).toBeGreaterThan(
       listElement.clientHeight,
     )
-    await userEvent.click(canvas.getByRole("button", { name: "Show fewer" }))
+    await expect(toggle).toHaveAccessibleName("Show fewer")
+    await expect(toggle).toHaveFocus()
+    await userEvent.keyboard(" ")
+    await expect(toggle).toHaveAttribute("aria-expanded", "false")
     await expect(list.getAllByRole("listitem")).toHaveLength(5)
 
     const filter = canvas.getByRole("searchbox", {
@@ -1106,5 +1135,81 @@ export const GithubManyRepositories: Story = {
     await expect(
       await list.findByText("No repositories match that filter."),
     ).toBeVisible()
+  },
+}
+
+let filterRepositories: string[] = []
+
+/** The filter stays available after an unlink reduces the count to eight. */
+export const GithubFilterSurvivesUnlink: Story = {
+  beforeEach: () => {
+    filterRepositories = Array.from(
+      { length: 9 },
+      (_, index) => `acme/service-${index + 1}`,
+    )
+  },
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          connected,
+          http.get("*/api/v1/workspaces/:slug/sources", () =>
+            HttpResponse.json(
+              workspaceSourceList({
+                directCommitAllowed: true,
+                items: [
+                  {
+                    ...githubSource,
+                    scope: { repositories: filterRepositories },
+                  },
+                ],
+              }),
+            ),
+          ),
+          http.put(
+            "*/api/v1/workspaces/:slug/sources/product-repos",
+            async ({ request }) => {
+              const body = (await request.json()) as {
+                source: { scope: { repositories: string[] } }
+              }
+              filterRepositories = body.source.scope.repositories
+              return HttpResponse.json({
+                outcome: "commit_queued",
+                sourceKey: "product-repos",
+              })
+            },
+          ),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("9 repositories")
+    const filter = canvas.getByRole("searchbox", {
+      name: "Filter linked repositories",
+    })
+    await userEvent.type(filter, "service-9")
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Unlink acme/service-9" }),
+    )
+    await canvas.findByText("8 repositories")
+    await expect(
+      canvas.getByRole("searchbox", {
+        name: "Filter linked repositories",
+      }),
+    ).toHaveValue("service-9")
+    await expect(
+      canvas.getByText("No repositories match that filter."),
+    ).toBeVisible()
+    await userEvent.clear(filter)
+    await userEvent.click(canvas.getByRole("button", { name: "Show all 8" }))
+    const list = within(
+      canvas.getByRole("list", { name: "GitHub repositories" }),
+    )
+    await expect(list.getAllByRole("listitem")).toHaveLength(8)
+    await expect(
+      list.queryByRole("link", { name: "acme/service-9" }),
+    ).toBeNull()
   },
 }

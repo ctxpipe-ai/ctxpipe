@@ -1,7 +1,7 @@
 import HyperDX from "@hyperdx/browser"
 import { IconGitBranch, IconUnlink } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useMemo, useState } from "react"
+import { useId, useMemo, useState } from "react"
 import { Heading } from "react-aria-components"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
@@ -159,7 +159,7 @@ export function GithubSourceRepositories(props: {
   orgSlug: string
   workspaceSlug: string
   workspaceRepositoryUrl: string | null
-  linkedRepositories: WorkspaceLinkedRepository[]
+  rows: RepositoryRow[]
   sources: WorkspaceSource[]
   connections: SourceConnectionOption[]
   canEdit: boolean
@@ -167,18 +167,11 @@ export function GithubSourceRepositories(props: {
   addOpen: boolean
   onAddOpenChange: (open: boolean) => void
 }) {
-  const {
-    orgSlug,
-    workspaceSlug,
-    linkedRepositories,
-    sources,
-    canEdit,
-    directCommitAllowed,
-  } = props
+  const { orgSlug, workspaceSlug, rows, canEdit, directCommitAllowed } = props
   const queryClient = useQueryClient()
   const [query, setQuery] = useState("")
   const [showAll, setShowAll] = useState(false)
-  const rows = repositoryRows(linkedRepositories, sources)
+  const listId = useId()
   const filtered = rows.filter((row) =>
     gitSourceMatchesQuery(row.title, row.gitUrl, query),
   )
@@ -245,7 +238,7 @@ export function GithubSourceRepositories(props: {
         </p>
       ) : (
         <>
-          {rows.length > 8 ? (
+          {rows.length > 8 || query !== "" ? (
             <SearchField
               value={query}
               onChange={setQuery}
@@ -255,6 +248,7 @@ export function GithubSourceRepositories(props: {
             />
           ) : null}
           <ul
+            id={listId}
             aria-label="GitHub repositories"
             className={cn(
               "mt-1 flex flex-col",
@@ -338,6 +332,8 @@ export function GithubSourceRepositories(props: {
             <Button
               variant="quiet"
               className="mt-1 h-8 px-2 text-xs text-muted-foreground tabular-nums"
+              aria-expanded={expanded}
+              aria-controls={listId}
               onPress={() => setShowAll(!showAll)}
             >
               {showAll ? "Show fewer" : `Show all ${rows.length}`}
