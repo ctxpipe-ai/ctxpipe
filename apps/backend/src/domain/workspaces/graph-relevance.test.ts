@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest"
 import type { GraphExpansion } from "./graph-expand.js"
 import {
+  DEFAULT_WALK_SKIPPED_PREDICATES,
+  INTENT_PRESETS,
+  RELEVANCE_INTENTS,
   type RelevanceNode,
   type RelevanceOptions,
   type RelevanceSignal,
@@ -326,6 +329,30 @@ describe("rankRelated intent presets", () => {
     const ownership = byId(rank({ ...input, options: { intent: "ownership" } }))
     expect(
       (ownership.get("team")?.ppr ?? 0) / (ownership.get("doc")?.ppr ?? 1),
+    ).toBeCloseTo(3, 6)
+  })
+
+  it("walks FROM_SOURCE only for the provenance intent, which weights it most", () => {
+    expect(DEFAULT_WALK_SKIPPED_PREDICATES).toEqual(["FROM_SOURCE"])
+    for (const intent of RELEVANCE_INTENTS) {
+      expect(
+        INTENT_PRESETS[intent].walk?.includes("FROM_SOURCE") ?? false,
+        intent,
+      ).toBe(intent === "provenance")
+    }
+    const input = {
+      nodes: [node("s"), node("source"), node("doc")],
+      signals: [
+        signal("s", "source", 0.8, { predicate: "FROM_SOURCE" }),
+        signal("s", "doc", 0.8),
+      ],
+      seeds: ["s"],
+    }
+    const provenance = byId(
+      rank({ ...input, options: { intent: "provenance" } }),
+    )
+    expect(
+      (provenance.get("source")?.ppr ?? 0) / (provenance.get("doc")?.ppr ?? 1),
     ).toBeCloseTo(3, 6)
   })
 

@@ -436,6 +436,11 @@ describe("expandWorkspaceGraph on FalkorDB", () => {
         }),
       ),
     ).toEqual(["a.md", "b.md", "e.md"].map(id))
+    expect(
+      nodeIds(
+        await expand(projection, { seeds, excludePredicates: ["OWNED_BY"] }),
+      ),
+    ).toEqual(["a.md", "b.md", "d.md", "e.md"].map(id))
   })
 
   it("stops at maxDepth and gives each node its hop", async () => {

@@ -32,6 +32,7 @@ export const RELEVANCE_INTENTS = [
   "change",
   "dependencies",
   "structure",
+  "provenance",
 ] as const
 
 export type RelevanceIntent = (typeof RELEVANCE_INTENTS)[number]
@@ -183,6 +184,16 @@ const STRUCTURAL_PREDICATES = [
  */
 const LINK_PREDICATES = ["LINKS_TO", "REFERENCES", "MENTIONS"]
 
+/**
+ * A `Source` unit has an edge from each unit that came from it, so it is a
+ * hub (ADR-050). The walk of all edges (also the fallback walk) does not
+ * follow these edges. Only the `provenance` intent, or `predicates` that
+ * name them, walk them.
+ */
+export const DEFAULT_WALK_SKIPPED_PREDICATES: readonly string[] = [
+  "FROM_SOURCE",
+]
+
 function weightAll(predicates: readonly string[], weight: number) {
   return Object.fromEntries(predicates.map((predicate) => [predicate, weight]))
 }
@@ -250,6 +261,13 @@ export const INTENT_PRESETS: Readonly<Record<RelevanceIntent, IntentPreset>> = {
     predicates: weightAll(STRUCTURAL_PREDICATES, 3),
     signals: BASE_SIGNALS,
     hubPenalty: BASE_HUB_PENALTY,
+  },
+  // A source with many units is still the source of each of them.
+  provenance: {
+    walk: ["FROM_SOURCE", ...LINK_PREDICATES],
+    predicates: { FROM_SOURCE: 3 },
+    signals: BASE_SIGNALS,
+    hubPenalty: 0,
   },
 }
 
