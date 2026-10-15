@@ -312,8 +312,9 @@ export const Triggers: Story = {
     const canvas = within(canvasElement)
     await userEvent.click(canvas.getByRole("button", { name: "Graph" }))
     expect(args.onPane).toHaveBeenCalledWith({ kind: "graph" })
+    // The triggers have no visible border.
     expect(canvas.getByRole("button", { name: "Files" })).toHaveClass(
-      "border-white/10",
+      "border-transparent",
     )
   },
 }
