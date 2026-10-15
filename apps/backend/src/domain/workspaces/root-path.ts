@@ -52,11 +52,13 @@ export type WorkspaceRootViolation = {
 }
 
 /**
- * Finds the changes from `base` to `head` that leave the root folder: a path
- * outside it, a new symlink below it whose target is outside it, or a new
- * submodule (gitlink) below it, which points to another repository. Git
- * records a write through an existing symlink at the target path, so the
- * path check also catches that case.
+ * Finds the changes in each commit from `base` to `head` that leave the root
+ * folder: a path outside it, a new symlink below it whose target is outside
+ * it, or a new submodule (gitlink) below it, which points to another
+ * repository. Each commit is compared with its first parent, because the
+ * history keeps a change that a later commit removes. Git records a write
+ * through an existing symlink at the target path, so the path check also
+ * catches that case.
  */
 export async function gitChangesOutsideWorkspaceRoot(input: {
   directory: string
@@ -64,14 +66,48 @@ export async function gitChangesOutsideWorkspaceRoot(input: {
   head: string
   rootPath: string
 }): Promise<WorkspaceRootViolation[]> {
+  const commits = (
+    await nativeGit(input.directory, [
+      "rev-list",
+      "--parents",
+      `${input.base}..${input.head}`,
+    ])
+  )
+    .toString("utf8")
+    .split("\n")
+    .filter(Boolean)
+  const violations: WorkspaceRootViolation[] = []
+  for (const line of commits) {
+    const [commit = "", parent] = line.split(" ")
+    const before =
+      parent ??
+      (
+        await nativeGit(
+          input.directory,
+          ["hash-object", "-t", "tree", "--stdin"],
+          "",
+        )
+      )
+        .toString("utf8")
+        .trim()
+    violations.push(...(await changesOutsideRoot(input, before, commit)))
+  }
+  return violations
+}
+
+async function changesOutsideRoot(
+  input: { directory: string; rootPath: string },
+  base: string,
+  head: string,
+): Promise<WorkspaceRootViolation[]> {
   const raw = (
     await nativeGit(input.directory, [
       "diff-tree",
       "-r",
       "-z",
       "--no-renames",
-      input.base,
-      input.head,
+      base,
+      head,
     ])
   ).toString("utf8")
   const fields = raw.split("\0")

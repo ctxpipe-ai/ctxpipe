@@ -238,6 +238,77 @@ describe("gitChangesOutsideWorkspaceRoot", () => {
     ).resolves.toEqual([{ path: "docs/link", reason: "symlink_outside_root" }])
   })
 
+  it("rejects a file outside the root folder that a later commit removes", async () => {
+    const { dir, base } = repository()
+    write(dir, "src/leak.ts", "export const secret = 1\n")
+    commit(dir)
+    git(dir, ["rm", "-q", "src/leak.ts"])
+    write(dir, "docs/context/knowledge/b.md", "# B\n")
+    const head = commit(dir)
+    await expect(
+      gitChangesOutsideWorkspaceRoot({
+        directory: dir,
+        base,
+        head,
+        rootPath: "docs/context",
+      }),
+    ).resolves.toEqual([
+      { path: "src/leak.ts", reason: "outside_root" },
+      { path: "src/leak.ts", reason: "outside_root" },
+    ])
+  })
+
+  it("rejects a file outside the root folder in a merged commit without a parent", async () => {
+    const { dir, base } = repository()
+    git(dir, ["checkout", "-q", "--orphan", "other"])
+    git(dir, ["rm", "-q", "-r", "--cached", "."])
+    write(dir, "src/leak.ts", "export const secret = 1\n")
+    git(dir, ["add", "src/leak.ts"])
+    git(dir, ["commit", "-q", "-m", "orphan"])
+    git(dir, ["checkout", "-q", "-f", "main"])
+    git(dir, [
+      "merge",
+      "-q",
+      "-s",
+      "ours",
+      "--allow-unrelated-histories",
+      "-m",
+      "merge",
+      "other",
+    ])
+    const head = git(dir, ["rev-parse", "HEAD"])
+    await expect(
+      gitChangesOutsideWorkspaceRoot({
+        directory: dir,
+        base,
+        head,
+        rootPath: "docs/context",
+      }),
+    ).resolves.toEqual([{ path: "src/leak.ts", reason: "outside_root" }])
+  })
+
+  it("rejects a submodule below the root folder that a later commit removes", async () => {
+    const { dir, base } = repository()
+    git(dir, [
+      "update-index",
+      "--add",
+      "--cacheinfo",
+      `160000,${base},docs/context/vendor`,
+    ])
+    git(dir, ["commit", "-q", "-m", "submodule"])
+    git(dir, ["rm", "-q", "--cached", "docs/context/vendor"])
+    git(dir, ["commit", "-q", "-m", "remove"])
+    const head = git(dir, ["rev-parse", "HEAD"])
+    await expect(
+      gitChangesOutsideWorkspaceRoot({
+        directory: dir,
+        base,
+        head,
+        rootPath: "docs/context",
+      }),
+    ).resolves.toEqual([{ path: "docs/context/vendor", reason: "submodule" }])
+  })
+
   it("rejects a new submodule below the root folder", async () => {
     const { dir, base } = repository()
     git(dir, [
