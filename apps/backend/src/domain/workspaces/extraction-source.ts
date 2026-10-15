@@ -1,18 +1,22 @@
 import { isDeepStrictEqual } from "node:util"
+import { z } from "zod"
 import { assertRepositoryIngestionRequest } from "../../models/repository-ingestion-requests.js"
+import type { GitFileChange } from "../../services/git/file-change.js"
 import {
   type GitPack,
   nativeGit,
   readGitFiles,
   withGitDirectory,
 } from "../../services/git/pack.js"
+import { readGitCommitChanges } from "../../services/git/write-tree.js"
+import { disallowedPathReason } from "../ingestion/patch-validator.js"
 import type { WorkspaceExtraction } from "./extraction.js"
 import {
   isLinkedRepositoryDeclaration,
   parseLinkedRepositoryMarkdown,
   parseSimpleFrontMatter,
 } from "./layout.js"
-import type { WorkspaceRevision } from "./revision.js"
+import { gitObjectIdSchema, type WorkspaceRevision } from "./revision.js"
 import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
 
 /** The first valid declaration in Git tree order is the canonical clone authority. */
@@ -126,4 +130,78 @@ async function assertSourceClaimsOnly(
     throw new Error(
       "Extraction may only update claims in its source declaration",
     )
+}
+
+/**
+ * The source of a publish from an ingestion v2 run (ADR-052 section 6, T21):
+ * the run, and the tip of its assembled ref in the Workspace repository. The
+ * publish replays the delta from the pinned revision (the command's revision)
+ * to `tip`. `retract` is false for a `partial` Workspace: then the publish
+ * keeps each file that the delta deletes, because a failed root gets no
+ * retraction (concept section 7.3).
+ */
+export const ingestPublishSourceSchema = z
+  .object({
+    runId: z.string().min(1),
+    tip: gitObjectIdSchema,
+    retract: z.boolean(),
+  })
+  .strict()
+
+export type IngestPublishSource = z.infer<typeof ingestPublishSourceSchema>
+
+/**
+ * The files of a publish, from the delta between the pinned revision and the
+ * assembled tip. Each step commit passed the patch validator, so a path out
+ * of the allowlist here is a defect: the publish stops and writes nothing.
+ */
+export function ingestPublishChanges(
+  delta: { files: GitFileChange[]; deletePaths: string[] },
+  retract: boolean,
+): { files: GitFileChange[]; deletePaths: string[] } {
+  for (const path of [
+    ...delta.files.map((file) => file.path),
+    ...delta.deletePaths,
+  ]) {
+    const reason = disallowedPathReason(path)
+    if (reason) throw new Error(`The assembled ref changes ${path}: ${reason}`)
+  }
+  return {
+    files: delta.files,
+    deletePaths: retract ? delta.deletePaths : [],
+  }
+}
+
+/**
+ * Reads the publish delta. `pack` holds the pinned revision (`pinned`) and
+ * the assembled tip. The tip must be a commit of the run (its `Ctxpipe-Run`
+ * trailer), so a command cannot publish a commit of another run.
+ */
+export async function readIngestPublishChanges(
+  pack: GitPack,
+  pinned: string,
+  source: IngestPublishSource,
+): Promise<{ files: GitFileChange[]; deletePaths: string[] }> {
+  const tipPack = { ...pack, sha: source.tip }
+  const run = await withGitDirectory(
+    source.tip,
+    async (directory) =>
+      (
+        await nativeGit(directory, [
+          "log",
+          "-1",
+          "--format=%(trailers:key=Ctxpipe-Run,valueonly,unfold)",
+          source.tip,
+        ])
+      )
+        .toString()
+        .trim(),
+    tipPack,
+  )
+  if (run !== source.runId)
+    throw new Error("The assembled tip is not a commit of the ingestion run")
+  return ingestPublishChanges(
+    await readGitCommitChanges(tipPack, pinned),
+    source.retract,
+  )
 }
