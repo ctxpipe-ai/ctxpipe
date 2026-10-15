@@ -356,7 +356,9 @@ export const ConversationNavIsChatOnly: Story = {
     )
     expect(canvas.queryByLabelText("Workspace files")).toBeNull()
     // The conversation list loads after the composer shows.
-    await userEvent.click(await canvas.findByRole("link", { name: "Repo layout" }))
+    await userEvent.click(
+      await canvas.findByRole("link", { name: "Repo layout" }),
+    )
     await waitFor(() => {
       expect(canvas.getByText("How is billing structured?")).toBeInTheDocument()
     })
@@ -392,7 +394,9 @@ export const ConversationKeepsExplicitPaneSearch: Story = {
     )
     expect(canvas.getByLabelText("Workspace files")).toBeVisible()
     // The conversation list loads after the composer shows.
-    await userEvent.click(await canvas.findByRole("link", { name: "Repo layout" }))
+    await userEvent.click(
+      await canvas.findByRole("link", { name: "Repo layout" }),
+    )
     await waitFor(() => {
       expect(canvas.getByText("How is billing structured?")).toBeInTheDocument()
     })

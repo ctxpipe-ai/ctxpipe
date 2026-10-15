@@ -13,6 +13,7 @@ import { fileURLToPath } from "node:url"
 import {
   selectGoldenStories,
   selectPlayStories,
+  shardStories,
 } from "./storybook-golden-select.mjs"
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
@@ -101,15 +102,12 @@ const chosenStories = (index) => {
     const filtered = only.length
       ? stories.filter((story) =>
           only.some(
-            (part) => story.id.includes(part) || story.importPath.includes(part),
+            (part) =>
+              story.id.includes(part) || story.importPath.includes(part),
           ),
         )
       : stories
-    const shard = process.env.STORYBOOK_SHARD
-    if (!shard) return filtered
-    const [at, count] = shard.split("/").map(Number)
-    if (!(at >= 1 && at <= count)) fail(`Bad STORYBOOK_SHARD ${shard}`)
-    return filtered.filter((_, position) => position % count === at - 1)
+    return shardStories(filtered, process.env.STORYBOOK_SHARD)
   } catch (error) {
     fail(error.message)
   }

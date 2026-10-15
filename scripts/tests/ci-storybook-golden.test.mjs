@@ -6,6 +6,8 @@ import {
   isGoldenPlaySuccess,
   requiredStories,
   selectGoldenStories,
+  selectPlayStories,
+  shardStories,
 } from "../ci/storybook-golden-select.mjs"
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
@@ -337,4 +339,45 @@ test("CI requires the Storybook Playwright golden job without retries", () => {
   assert.doesNotMatch(runner, /phase === "completed"/)
   assert.doesNotMatch(runner, /--retry(?:ies)?(?:=|\s+)/)
   void root
+})
+
+test("the all-plays selection keeps every story with a play function, sorted", () => {
+  const index = {
+    entries: {
+      b: { id: "b", type: "story", tags: ["play-fn"] },
+      a: { id: "a", type: "story", tags: ["play-fn", "workspace-golden"] },
+      c: { id: "c", type: "story", tags: [] },
+      d: { id: "d", type: "docs", tags: ["play-fn"] },
+    },
+  }
+  assert.deepEqual(
+    selectPlayStories(index).map((story) => story.id),
+    ["a", "b"],
+  )
+})
+
+test("shards cover every story exactly once", () => {
+  const stories = Array.from({ length: 10 }, (_, at) => ({ id: `s${at}` }))
+  const shards = [1, 2, 3].map((at) => shardStories(stories, `${at}/3`))
+  assert.deepEqual(
+    shards
+      .flat()
+      .map((story) => story.id)
+      .sort(),
+    stories.map((story) => story.id).sort(),
+  )
+  assert.equal(shardStories(stories, undefined), stories)
+  assert.throws(() => shardStories(stories, "0/3"))
+  assert.throws(() => shardStories(stories, "4/3"))
+  assert.throws(() => shardStories(stories, "x"))
+})
+
+test("CI runs every story with a play function in shards", () => {
+  const workflow = readFileSync(
+    new URL("../../.github/workflows/ci.yaml", import.meta.url),
+    "utf8",
+  )
+  assert.match(workflow, /name: Storybook Playwright all plays/)
+  assert.match(workflow, /STORYBOOK_PLAYS: all/)
+  assert.match(workflow, /STORYBOOK_SHARD: \$\{\{ matrix\.shard \}\}\/4/)
 })

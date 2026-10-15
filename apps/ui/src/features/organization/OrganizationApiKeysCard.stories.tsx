@@ -127,9 +127,7 @@ export const CreateNamedKey: Story = {
     const created = await page.findByText("API key created")
     await waitFor(() => expect(created).toBeVisible())
     await expect(page.getByText("org_plaintext_shown_once")).toBeVisible()
-    await expect(page.getAllByText(/CTXPIPE_API_KEY/).length).toBeGreaterThan(
-      0,
-    )
+    await expect(page.getAllByText(/CTXPIPE_API_KEY/).length).toBeGreaterThan(0)
   },
 }
 

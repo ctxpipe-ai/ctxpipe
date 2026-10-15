@@ -486,7 +486,9 @@ export const DeleteLastWorkspaceEmptiesHome: Story = {
     // Query again on each try: Home swaps the disabled composer for a new one when the list loads.
     await waitFor(() =>
       expect(
-        canvas.getByPlaceholderText("What should ctxpipe do in this Workspace?"),
+        canvas.getByPlaceholderText(
+          "What should ctxpipe do in this Workspace?",
+        ),
       ).toBeEnabled(),
     )
     await userEvent.click(
