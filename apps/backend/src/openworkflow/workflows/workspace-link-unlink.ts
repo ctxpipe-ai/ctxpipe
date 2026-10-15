@@ -1,5 +1,7 @@
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
+import { ingestionPublishPipeline } from "../../domain/ingestion/ingestion-v2-config.js"
+import { planUnlinkRetraction } from "../../domain/ingestion/unlink-retraction.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import { isLinkedRepositoryDeclaration } from "../../domain/workspaces/layout.js"
 import { changeLinkedRepository } from "../../domain/workspaces/link-declarations.js"
@@ -115,15 +117,36 @@ export const workspaceLinkUnlink = defineWorkflow(
           }
           const changes = await step.run(
             { name: "transform-link-unlink" },
-            async () =>
-              changeLinkedRepository({
+            async () => {
+              const declarations = changeLinkedRepository({
                 files: await readGitFiles(
                   acquired.pack,
                   isLinkedRepositoryDeclaration,
                 ),
                 action: input.linkAction,
                 gitUrl: input.linkGitUrl,
-              }),
+              })
+              if (
+                input.linkAction !== "unlink" ||
+                ingestionPublishPipeline() !== "v2"
+              )
+                return declarations
+              // While ingestion v2 publishes, the same commit retracts what
+              // the repository owns (ADR-052 section 3).
+              const retraction = await planUnlinkRetraction({
+                pack: acquired.pack,
+                sourceUrl: input.linkGitUrl,
+                workspaceRepositoryUrl: revision.remote.url,
+                observedAt: new Date(run.createdAt).toISOString(),
+              })
+              return {
+                files: [...declarations.files, ...retraction.files],
+                deletePaths: [
+                  ...declarations.deletePaths,
+                  ...retraction.deletePaths,
+                ],
+              }
+            },
           )
           const files = changes.files
           if (!files.length && !changes.deletePaths.length) {
