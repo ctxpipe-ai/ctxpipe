@@ -135,6 +135,11 @@ const playInitScript = () => {
     channel.on("playFunctionThrewException", (error) => {
       record({ ok: false, error: serialize(error) })
     })
+    // A render error never reaches the play phase, so it must fail here.
+    for (const name of ["storyThrewException", "storyErrored"])
+      channel.on(name, (error) => {
+        record({ ok: false, error: serialize(error) })
+      })
     channel.on("storyRenderPhaseChanged", (info) => {
       const phase = info?.newPhase ?? info?.phase
       if (phase === "played") record({ ok: true, phase })
