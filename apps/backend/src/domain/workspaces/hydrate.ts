@@ -137,9 +137,11 @@ export function hydrateKnowledgeTree(input: {
     units.push({
       path,
       servingId: servingIdForKnowledgePath(input.workspaceId, path),
-      kind:
-        typeof parsed.attributes.kind === "string" &&
-        parsed.attributes.kind.trim()
+      // A source file has no `kind` key (ADR-050); its folder sets the kind.
+      kind: path.startsWith(SOURCES_FOLDER_PREFIX)
+        ? "Source"
+        : typeof parsed.attributes.kind === "string" &&
+            parsed.attributes.kind.trim()
           ? parsed.attributes.kind.trim()
           : mirrorUnitKind(path),
       body: parsed.body,
@@ -168,21 +170,38 @@ export function hydrateKnowledgeTree(input: {
     const extra = references.get(unit.path)
     if (extra) unit.links.push(...extra)
   }
+  const sourceFiles = input.files
+    .filter((file) => file.path.startsWith(SOURCES_FOLDER_PREFIX))
+    .map((file) => ({ path: file.path, text: file.content }))
   const changes = pullRequestChangedClaims(
     units.map((unit) => ({
       ...unit,
       attributes: attributes.get(unit.path) ?? {},
     })),
+    new Map(
+      githubSourceRepositories(null, null, sourceFiles).map((source) => [
+        source.path,
+        source.gitUrl,
+      ]),
+    ),
   )
   for (const unit of units) unit.claims.push(...(changes.get(unit.path) ?? []))
+  const sourcePaths = new Set(
+    units
+      .filter((unit) => unit.path.startsWith(SOURCES_FOLDER_PREFIX))
+      .map((unit) => unit.path),
+  )
+  for (const unit of units) {
+    unit.claims.push(
+      ...fromSourceClaims(attributes.get(unit.path)?.sources, sourcePaths),
+    )
+  }
 
   // A repository that an earlier entry or the Workspace names is not a skip.
   for (const source of githubSourceRepositories(
     input.sourcesFile ?? null,
     input.githubConnectionIds ?? new Set(),
-    input.files
-      .filter((file) => file.path.startsWith(SOURCES_FOLDER_PREFIX))
-      .map((file) => ({ path: file.path, text: file.content })),
+    sourceFiles,
   )) {
     if (seenLinked.has(source.gitUrl)) continue
     seenLinked.add(source.gitUrl)
@@ -195,6 +214,31 @@ export function hydrateKnowledgeTree(input: {
   }
 
   return { units, skipped, linked }
+}
+
+/**
+ * One `FROM_SOURCE` claim for each path in the `sources` front matter that
+ * names a source file (ADR-050). A URL or another path makes no claim.
+ */
+function fromSourceClaims(
+  raw: unknown,
+  sourcePaths: ReadonlySet<string>,
+): HydrateClaim[] {
+  if (!Array.isArray(raw)) return []
+  const targets = new Set<string>()
+  for (const entry of raw) {
+    if (typeof entry !== "string") continue
+    const path = resolveHydrateLink("", entry.trim())
+    if (sourcePaths.has(path)) targets.add(path)
+  }
+  return [...targets].map((path) => ({
+    to: `${WORKSPACE_LINK_SCHEME}${path}`,
+    predicate: "FROM_SOURCE",
+    confidence: 1,
+    validFrom: null,
+    validTo: null,
+    source: "git",
+  }))
 }
 
 function unitTitle(frontMatterTitle: unknown, body: string): string | null {
