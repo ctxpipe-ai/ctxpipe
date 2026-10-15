@@ -11,6 +11,7 @@ import {
 } from "yaml"
 import { z } from "zod"
 import { isConnectorMirrorPath } from "../codeIngestion/connectorMirrorPaths.js"
+import { isHostOnlyPath } from "../workspaces/host-only.js"
 import { KNOWLEDGE_KIND_FOLDERS } from "../workspaces/layout.js"
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
 import { type AreaFile, checkAreaChange, parseAreaBody } from "./area-file.js"
@@ -232,6 +233,7 @@ export function disallowedPathReason(path: string): string | null {
   const segments = path.split("/")
   if (segments.some((s) => s === "" || s === "." || s === ".."))
     return "The path has an empty, '.', or '..' segment"
+  if (isHostOnlyPath(path)) return "Only ctx| writes host-only paths"
   if (segments.some((s) => s.startsWith(".")))
     return "Dot paths are not allowed"
   if (path !== path.normalize("NFC"))
