@@ -357,6 +357,9 @@ export function WorkspaceSettingsPane(props: {
               }
             >
               {workspace.readOnlyReason}
+              {workspace.writeStatus === "read_only"
+                ? " After you fix it, reload this page. ctxpipe checks again at most once a minute."
+                : null}
             </InlineAlert>
           </div>
         ) : null}

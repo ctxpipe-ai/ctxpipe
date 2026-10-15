@@ -30,7 +30,9 @@ function forbiddenResponse(description: string) {
  * branch of a Workspace repository without a pull request: a signed-in
  * session, or an OAuth token with `ctxpipe:write`. An OAuth token without
  * that scope and an API key get 403. API keys have no permissions, so they
- * cannot hold a write grant.
+ * cannot hold a write grant. On REST, `requireAuth` refuses an org API key with
+ * 401 first, so it never reaches this check. The check stays as defense in
+ * depth for a route under /mcp or a route that skips `requireAuth`.
  */
 export const requireWriteGrant: MiddlewareHandler<AppEnv> = async (c, next) => {
   if (c.get("personalApiKeyId") || c.get("orgApiKey")) {
