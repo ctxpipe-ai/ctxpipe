@@ -91,29 +91,48 @@ const ownerTokens = new Map<string, Promise<string>>()
 type AvResponse = { ok: boolean; status: number; body: Record<string, unknown> }
 
 /**
- * One request to the Agent Vault API. The timeout covers the whole exchange,
- * and the body is read here, so no response is left unread and no timer
- * outlives the request.
+ * A fetch whose timeout covers the whole exchange: the body is read here,
+ * under the timer, so a body that stops cannot hang the caller and no timer
+ * outlives the request. The SDK clears its own timer at the headers, so it
+ * uses this fetch too.
  */
-async function avFetch(
-  access: AgentVaultAccess,
-  path: string,
-  init: { method?: string; token?: string; body?: unknown } = {},
-): Promise<AvResponse> {
+async function boundedFetch(
+  input: string | URL | Request,
+  init: RequestInit = {},
+): Promise<Response> {
   const abort = new AbortController()
   const timer = setTimeout(
     () => abort.abort(new Error(`No answer in ${REQUEST_TIMEOUT_MS} ms`)),
     REQUEST_TIMEOUT_MS,
   )
   try {
-    const response = await fetch(`${access.address}${path}`, {
+    const response = await fetch(input, {
+      ...init,
+      signal: init.signal
+        ? AbortSignal.any([init.signal, abort.signal])
+        : abort.signal,
+    })
+    const body = await response.arrayBuffer()
+    return new Response(body.byteLength === 0 ? null : body, response)
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/** One request to the Agent Vault API, with its JSON body parsed. */
+async function avFetch(
+  access: AgentVaultAccess,
+  path: string,
+  init: { method?: string; token?: string; body?: unknown } = {},
+): Promise<AvResponse> {
+  try {
+    const response = await boundedFetch(`${access.address}${path}`, {
       method: init.method ?? "GET",
       headers: {
         "content-type": "application/json",
         ...(init.token ? { authorization: `Bearer ${init.token}` } : {}),
       },
       ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
-      signal: abort.signal,
     })
     const text = await response.text()
     let body: Record<string, unknown> = {}
@@ -129,8 +148,6 @@ async function avFetch(
       `Agent Vault is not reachable at ${access.address}`,
       { cause: error },
     )
-  } finally {
-    clearTimeout(timer)
   }
 }
 
@@ -186,6 +203,8 @@ async function asOwner<T>(
       new AgentVault({
         token,
         address: access.address,
+        // The SDK calls only the function; it never preconnects.
+        fetch: boundedFetch as typeof fetch,
         timeout: REQUEST_TIMEOUT_MS,
       }),
       token,
