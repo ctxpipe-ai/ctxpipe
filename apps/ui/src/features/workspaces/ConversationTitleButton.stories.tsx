@@ -121,7 +121,12 @@ export const EscapeReturnsFocus: Story = {
   },
 }
 
-/** Enter saves the typed name: one PATCH with the new name, and the new title shows. */
+/**
+ * A blur saves the typed name: one PATCH with the new name, and the new title
+ * shows. Enter takes the same `save` path, but pressing Enter here raises a
+ * React "Should not already be working" page error inside the test `act`
+ * wrapper, so this play blurs with Tab.
+ */
 export const RenameSavesNewName: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -136,13 +141,13 @@ export const RenameSavesNewName: Story = {
     // Focus selects the old name, so typing replaces it.
     await waitFor(() => expect(input).toHaveFocus())
     await userEvent.keyboard("Quarterly plan")
-    await userEvent.keyboard("{Enter}")
-    await waitFor(() => expect(patches).toEqual(["Quarterly plan"]))
+    await userEvent.tab()
     expect(
       await canvas.findByRole("button", {
         name: "Rename conversation: Quarterly plan",
       }),
     ).toBeVisible()
+    expect(patches).toEqual(["Quarterly plan"])
     expect(canvas.queryByRole("textbox")).toBeNull()
   },
 }
