@@ -1,5 +1,5 @@
 import { posix } from "node:path"
-import { z } from "zod"
+import { z } from "@hono/zod-openapi"
 import { nativeGit } from "../../services/git/pack.js"
 import { isInsideWorkspaceRoot } from "../../services/git/root-folder.js"
 
