@@ -1,4 +1,11 @@
-import { lstat, readdir, readFile, rm } from "node:fs/promises"
+import {
+  lstat,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, posix } from "node:path"
 import { isDeepStrictEqual } from "node:util"
@@ -343,9 +350,20 @@ export async function validatePatchStep(
 
   const stagedPaths = new Set(staged.map((f) => f.path))
   const ops: StagedOp[] = []
+  const updated = staged.filter((file) => baseEntries.has(file.path))
+  const updatedIds = await hashBlobs(
+    input.repoDir,
+    updated.map((file) => file.content),
+    { write: false },
+  )
+  const unchanged = new Set(
+    updated
+      .filter((file, i) => updatedIds[i] === baseEntries.get(file.path))
+      .map((file) => file.path),
+  )
   for (const file of staged) {
     const base = baseEntries.get(file.path)
-    if (base && (await blobId(input.repoDir, file.content)) === base) continue
+    if (unchanged.has(file.path)) continue
     ops.push({
       op: base ? "update" : "create",
       path: file.path,
@@ -1831,10 +1849,44 @@ async function listTree(
   return entries
 }
 
-async function blobId(repoDir: string, content: Buffer): Promise<string> {
-  return (await git(repoDir, ["hash-object", "--stdin"], { input: content }))
-    .toString()
-    .trim()
+/**
+ * The blob ids of `contents`, in order, from one git process. A git process
+ * for each file made a step of 30 ops start more than 30 processes, which
+ * is slow when the host is busy.
+ */
+async function hashBlobs(
+  repoDir: string,
+  contents: ReadonlyArray<Buffer | string>,
+  options: { write: boolean },
+): Promise<string[]> {
+  if (contents.length === 0) return []
+  const dir = await mkdtemp(join(tmpdir(), "ctxpipe-patch-blobs-"))
+  try {
+    const paths = await Promise.all(
+      contents.map(async (content, i) => {
+        const path = join(dir, String(i))
+        await writeFile(path, content)
+        return path
+      }),
+    )
+    // `--no-filters` hashes the bytes as is, like `--stdin` does.
+    const out = await git(
+      repoDir,
+      [
+        "hash-object",
+        ...(options.write ? ["-w"] : []),
+        "--no-filters",
+        "--stdin-paths",
+      ],
+      { input: `${paths.join("\n")}\n` },
+    )
+    const ids = out.toString().trim().split("\n")
+    if (ids.length !== contents.length)
+      throw new Error("git hash-object returned the wrong number of ids")
+    return ids
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
 }
 
 async function readBlobs(
@@ -1871,21 +1923,18 @@ async function applyOps(
   }
   try {
     await git(repoDir, ["read-tree", baseCommit], { env })
-    const lines: string[] = []
-    for (const op of ops) {
-      if (op.op === "delete") {
-        lines.push(`0 ${"0".repeat(40)}\t${op.path}`)
-        continue
-      }
-      const sha = (
-        await git(repoDir, ["hash-object", "-w", "--stdin"], {
-          input: op.output ?? "",
-        })
-      )
-        .toString()
-        .trim()
-      lines.push(`100644 ${sha}\t${op.path}`)
-    }
+    const written = ops.filter((op) => op.op !== "delete")
+    const ids = await hashBlobs(
+      repoDir,
+      written.map((op) => op.output ?? ""),
+      { write: true },
+    )
+    const idOf = new Map(written.map((op, i) => [op, ids[i]]))
+    const lines = ops.map((op) =>
+      op.op === "delete"
+        ? `0 ${"0".repeat(40)}\t${op.path}`
+        : `100644 ${idOf.get(op)}\t${op.path}`,
+    )
     if (lines.length)
       await git(repoDir, ["update-index", "--index-info"], {
         env,
