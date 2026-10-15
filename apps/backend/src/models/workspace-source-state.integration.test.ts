@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { withOrgIdContext } from "../auth/withAuth.js"
 import { withOrgDbContext } from "../db/client.js"
 import { workspaceSources } from "../db/schema/workspace_sources.js"
 import type { PlannedSourceRow } from "../domain/workspace-sources/projection-plan.js"
@@ -12,6 +13,10 @@ import { replaceWorkspaceSourceRows } from "./workspace-sources.js"
 import { getLinkedReadBinding, listLinkedRepositories } from "./workspaces.js"
 
 let seed: Awaited<ReturnType<typeof seedSourcesOrg>>
+
+/** Run in the org context of a request: the org-scoped models need it. */
+const inOrg = <T>(fn: () => Promise<T>) =>
+  withOrgIdContext({ id: seed.orgId, slug: seed.orgId }, fn)
 
 const github = (
   sourceKey: string,
@@ -118,7 +123,7 @@ describe("workspace source state (Postgres)", () => {
     // The linked-repositories API keeps the stable id.
     expect(
       (
-        await withOrgDbContext(seed.orgId, () =>
+        await inOrg(() =>
           listLinkedRepositories(workspaceId),
         )
       )
@@ -226,7 +231,7 @@ describe("workspace source state (Postgres)", () => {
       revision: "a".repeat(40),
       rows: plan,
     })
-    const [linked] = await withOrgDbContext(seed.orgId, () =>
+    const [linked] = await inOrg(() =>
       listLinkedRepositories(workspaceId),
     )
     if (!linked) throw new Error("web is not linked")
@@ -238,12 +243,12 @@ describe("workspace source state (Postgres)", () => {
         .where(eq(workspaceSources.workspaceId, workspaceId)),
     )
     expect(
-      await withOrgDbContext(seed.orgId, () =>
+      await inOrg(() =>
         listLinkedRepositories(workspaceId),
       ),
     ).toEqual([])
     expect(
-      await withOrgDbContext(seed.orgId, () => getLinkedReadBinding(linked.id)),
+      await inOrg(() => getLinkedReadBinding(linked.id)),
     ).toBeNull()
 
     await replaceWorkspaceSourceRows({
@@ -254,7 +259,7 @@ describe("workspace source state (Postgres)", () => {
     })
     expect(
       (
-        await withOrgDbContext(seed.orgId, () =>
+        await inOrg(() =>
           listLinkedRepositories(workspaceId),
         )
       ).map((row) => row.gitUrl),

@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util"
 import { and, eq, inArray, sql } from "drizzle-orm"
 import { getSystemDb, withOrgDbContext } from "../db/client.js"
 import { organizations } from "../db/schema/auth.js"
@@ -17,7 +18,10 @@ import {
 
 export type WorkspaceSourceRow = typeof workspaceSources.$inferSelect
 
-/** The same source entry: provider, connection and scope, not the status. */
+/**
+ * The same source entry: provider, connection and scope, not the status.
+ * jsonb does not keep the key order of the stored scope, so compare by value.
+ */
 export function sameSource(
   row: Pick<WorkspaceSourceRow, "provider" | "connectionId" | "scope">,
   planned: Pick<PlannedSourceRow, "provider" | "connectionId" | "scope">,
@@ -25,7 +29,7 @@ export function sameSource(
   return (
     row.provider === planned.provider &&
     row.connectionId === planned.connectionId &&
-    JSON.stringify(row.scope) === JSON.stringify(planned.scope)
+    isDeepStrictEqual(row.scope, planned.scope)
   )
 }
 
