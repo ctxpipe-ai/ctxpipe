@@ -526,6 +526,7 @@ export function defineRepositoryIngestionV2Workflow(
             const { workspaceId } = destination
             const entry = workspaces.find((w) => w.workspaceId === workspaceId)
             if (entry && migrationFailed.has(workspaceId)) {
+              entry.published = null
               entry.refused = "The ownership migration failed"
               entry.partial += 1
               keepRefs.add(workspaceId)

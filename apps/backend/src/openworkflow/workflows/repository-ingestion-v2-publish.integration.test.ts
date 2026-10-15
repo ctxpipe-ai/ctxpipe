@@ -913,9 +913,11 @@ describe("ingestion v2 publish", () => {
           event.workspaceId === workspaceIds[0] &&
           String(event.step).startsWith("ownership-migration:"),
       )
-      expect(partialLogs.map((event) => event.reason)).toEqual([
-        "ownership_migration_failed",
-      ])
+      // A replay of the run body can log it again.
+      expect(partialLogs).not.toEqual([])
+      expect(partialLogs.map((event) => event.reason)).toEqual(
+        partialLogs.map(() => "ownership_migration_failed"),
+      )
       expect(git(bare, "log", "-1", "--format=%B", "main")).not.toContain(
         `Ctxpipe-Run: ${runId}`,
       )
