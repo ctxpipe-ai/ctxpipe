@@ -721,7 +721,11 @@ async function createNativeHydrationFixture(
       }))
     for (const file of expected) {
       mkdirSync(dirname(join(directory, file.path)), { recursive: true })
-      writeFileSync(join(directory, file.path), file.body)
+      // `{{connectionId}}` stands for the fixture's GitHub connection id.
+      writeFileSync(
+        join(directory, file.path),
+        file.body.replaceAll("{{connectionId}}", connectionId),
+      )
     }
     git("add", ".")
     for (const file of options.files ?? []) {

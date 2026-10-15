@@ -154,8 +154,8 @@ describe("workspaceChatOpenCodeContract", () => {
     expect(prompt).toMatch(
       /Each Markdown file in it, connector mirrors included, is a knowledge unit/,
     )
-    expect(prompt).toMatch(/except AGENTS\.md, \.agents\/, and repositories\//)
-    expect(prompt).toMatch(/repositories\/<name>\.md/)
+    expect(prompt).toMatch(/except AGENTS\.md and \.agents\//)
+    expect(prompt).toMatch(/\.ctxpipe\/sources\.yaml/)
     expect(prompt).toMatch(/Linked repositories are read-only and not cloned/)
     expect(prompt).toMatch(/\.ai\/memory\/lessons-learned\.md/)
     expect(prompt).toMatch(/\.ai\/memory\/decisions\//)

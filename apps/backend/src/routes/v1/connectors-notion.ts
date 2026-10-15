@@ -32,7 +32,6 @@ import { getLogger } from "../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
 import { enqueueConnectorConfigSync } from "../../openworkflow/enqueue-connector-config-sync.js"
 import { enqueueConnectorContentSync } from "../../openworkflow/enqueue-connector-content-sync.js"
-import { enqueueLegacySyncRepositoryIngestion } from "../../openworkflow/legacy-sync-repository-ingestion.js"
 import { notionSyncConfig } from "../../openworkflow/workflows/notion-sync-config.js"
 import { notionSyncContent } from "../../openworkflow/workflows/notion-sync-content.js"
 import { getPullRequestHeadBranch } from "../../services/github/installation-write-client.js"
@@ -1245,28 +1244,11 @@ notionConnectorRoutes
     // but still needs its initial content sync.
     const resourcesChanged = body.resources !== undefined && !resourcesMatch
 
-    const saved = await patchNotionConnectorConfig({
+    await patchNotionConnectorConfig({
       orgId,
       connectionId: installed.connection.id,
       ...(body.syncTarget !== undefined ? { syncTarget: body.syncTarget } : {}),
     })
-
-    if (saved.repositoryIngestion) {
-      await enqueueLegacySyncRepositoryIngestion(
-        {
-          connectionId: installed.connection.id,
-          repositoryId: saved.repositoryIngestion.repositoryId,
-          orgId: saved.repositoryIngestion.orgId,
-          ...(saved.repositoryIngestion.targetBranch !== undefined
-            ? { targetBranch: saved.repositoryIngestion.targetBranch }
-            : {}),
-        },
-        {
-          error: (err) =>
-            getLogger().error(err, { step: "repositoryIngestion.enqueue" }),
-        },
-      )
-    }
 
     let configPrEnqueued = false
     if (resourcesChanged && body.resources !== undefined) {

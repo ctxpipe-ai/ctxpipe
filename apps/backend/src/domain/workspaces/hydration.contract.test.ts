@@ -616,14 +616,9 @@ it(
       expect(await next.result({ timeoutMs: 30_000 })).toMatchObject({
         hydrated: true,
         units: 1,
-        skipped: 2,
-        diagnostics: [
-          { path: "broken.md", reason: "malformed" },
-          {
-            path: "repositories/self.md",
-            reason: "duplicate_repository",
-          },
-        ],
+        // A repository file is not a link or a unit any more (ADR-050).
+        skipped: 1,
+        diagnostics: [{ path: "broken.md", reason: "malformed" }],
       })
       const replaced = await readSnapshot()
       expect(replaced.projection).toMatchObject({
@@ -645,13 +640,7 @@ it(
         published: false,
         reason: "no_repository",
       })
-      const brokenSkipped = [
-        { path: "broken.md", reason: "malformed" },
-        {
-          path: "repositories/self.md",
-          reason: "duplicate_repository",
-        },
-      ]
+      const brokenSkipped = [{ path: "broken.md", reason: "malformed" }]
       expect(await storedSkipped()).toEqual(brokenSkipped)
       const detail = await workspaceHttpApp(org, workspaceRoutes).request(
         "/workspaces/knowledge",
@@ -770,7 +759,6 @@ it(
             orgId: org.id,
             revision: rejectedRevision,
             displayName: null,
-            remotes: [],
             units: [duplicate, duplicate],
             skipped: [],
             embeddingModel: "fixture-embedding",

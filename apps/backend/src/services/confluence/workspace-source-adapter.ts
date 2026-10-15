@@ -134,7 +134,7 @@ export const confluenceSourceAdapter: SourceAdapter<ConfluenceSourceScope> = {
   provider: "confluence",
   managedPaths: (scope) =>
     scope.spaces.map((space) => `confluence/${space.key}/`),
-  async fetchEach({ orgId, connectionId, scopes, countFailures }) {
+  async fetch({ orgId, connectionId, scopes, countFailures }) {
     const ready = await readyClient(orgId, connectionId)
     if (!ready)
       throw new Error("Forge installation is not ready for Confluence sync")
@@ -220,7 +220,7 @@ export const confluenceSourceAdapter: SourceAdapter<ConfluenceSourceScope> = {
         },
       },
     })
-    return each
+    return { filesByScope: each }
   },
   async syncStatus({ orgId, connectionId, scope }) {
     const ready = await readyClient(orgId, connectionId)

@@ -78,33 +78,6 @@ export const workspaces = pgTable.withRLS(
   ],
 )
 
-export const workspaceLinkedRepositories = pgTable.withRLS(
-  "workspace_linked_repositories",
-  {
-    id: text("id").primaryKey(),
-    orgId: text("org_id").notNull(),
-    workspaceId: text("workspace_id")
-      .notNull()
-      .references(() => workspaces.id, { onDelete: "cascade" }),
-    gitUrl: text("git_url").notNull(),
-    desiredRef: text("desired_ref"),
-    desiredSha: text("desired_sha"),
-    indexedSha: text("indexed_sha"),
-    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
-      .notNull()
-      .defaultNow(),
-  },
-  (t) => [
-    unique("workspace_linked_repositories_workspace_id_git_url_uidx").on(
-      t.workspaceId,
-      t.gitUrl,
-    ),
-    index("workspace_linked_repositories_workspace_id_idx").on(t.workspaceId),
-    index("workspace_linked_repositories_org_id_idx").on(t.orgId),
-    orgIsolationPolicy(t.orgId),
-  ],
-)
-
 export const workspaceKnowledgeUnits = pgTable.withRLS(
   "workspace_knowledge_units",
   {
@@ -254,6 +227,8 @@ export const workspaceWriteJobs = pgTable.withRLS(
       mirror?: ConnectorMirrorSource
       linkAction?: "link" | "unlink"
       linkGitUrl?: string
+      /** Why the job failed, when it failed for a known reason. */
+      failureReason?: string
       displayName?: string
       defaultBranch?: string
       jobWorkspaceUrl?: string

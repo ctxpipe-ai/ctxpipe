@@ -640,13 +640,61 @@ export const UnlinkSendsChange: Story = {
   },
 }
 
+/** An unlink keeps the branch or tag of the other repositories of the source. */
+export const UnlinkKeepsOtherRefs: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceSourcesHandler(
+            workspaceSourceList({
+              items: [
+                {
+                  ...githubSource,
+                  scope: {
+                    repositories: [
+                      "acme/api",
+                      { name: "acme/web", ref: "release" },
+                    ],
+                  },
+                },
+              ],
+            }),
+          ),
+          connected,
+          ...workspaceSourceChangeHandlers(editCalls),
+        ],
+      },
+    },
+  },
+  beforeEach: () => {
+    editCalls.length = 0
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Unlink acme/api" }),
+    )
+    await waitFor(() => expect(editCalls).toHaveLength(1))
+    await expect(editCalls[0]).toMatchObject({
+      method: "PUT",
+      path: "/acme/api/v1/workspaces/docs/sources/product-repos",
+      body: {
+        source: {
+          scope: { repositories: [{ name: "acme/web", ref: "release" }] },
+        },
+      },
+    })
+  },
+}
+
 const unlinkCalls: ChangeCall[] = []
 
 /**
- * The last repository of a GitHub source goes: the source goes, and a
- * repositories file that links the same repository goes too.
+ * The last repository of a GitHub source goes: the source goes. The unlink
+ * command does not run too, because the source change edits the same file.
  */
-export const UnlinkLastRepositoryRemovesEveryLink: Story = {
+export const UnlinkLastRepositoryRemovesTheSource: Story = {
   args: {
     linkedRepositories: [
       {
@@ -707,23 +755,17 @@ export const UnlinkLastRepositoryRemovesEveryLink: Story = {
     await userEvent.click(
       await canvas.findByRole("button", { name: "Unlink acme/api" }),
     )
-    await waitFor(() => expect(unlinkCalls).toHaveLength(2))
-    await expect(unlinkCalls).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          method: "DELETE",
-          path: "/acme/api/v1/workspaces/docs/linked-repositories/lnk_api",
-        }),
-        expect.objectContaining({
-          method: "DELETE",
-          path: "/acme/api/v1/workspaces/docs/sources/product-repos",
-        }),
-      ]),
-    )
+    await waitFor(() => expect(unlinkCalls).toHaveLength(1))
+    await expect(unlinkCalls).toEqual([
+      expect.objectContaining({
+        method: "DELETE",
+        path: "/acme/api/v1/workspaces/docs/sources/product-repos",
+      }),
+    ])
   },
 }
 
-export const LegacyLinkedRepositoryShows: Story = {
+export const LinkedRepositoryWithoutSourceShows: Story = {
   args: {
     linkedRepositories: [
       {
@@ -757,7 +799,9 @@ export const LegacyLinkedRepositoryShows: Story = {
     await expect(list.getAllByRole("listitem")).toHaveLength(3)
     await expect(list.getByText("acme/legacy")).toBeVisible()
     await expect(list.getByText("Indexed")).toBeVisible()
-    await expect(list.getByText("Linked by a repositories file")).toBeVisible()
+    await expect(
+      list.getByText("Not in sources.yaml any more. It goes at the next sync."),
+    ).toBeVisible()
   },
 }
 
@@ -867,6 +911,74 @@ export const FileNotValid: Story = {
     const canvas = within(canvasElement)
     await canvas.findByText("The sources file is not valid")
     await expect(canvas.getByText("version: Expected 1")).toBeVisible()
+  },
+}
+
+export const RefusedLinkAndRepositoryFile: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceSourcesHandler(
+            workspaceSourceList({
+              items: [
+                linearSource,
+                workspaceSourceFixture({
+                  sourceKey: "old-entry",
+                  provider: null,
+                  connectionId: null,
+                  connectionName: null,
+                  status: "invalid",
+                  statusDetail: "The provider is not known",
+                  scopeSummary: "Unknown provider",
+                }),
+                workspaceSourceFixture({
+                  sourceKey: "repositories/tools.md",
+                  provider: null,
+                  connectionId: null,
+                  connectionName: null,
+                  status: "invalid",
+                  statusDetail:
+                    "repositories/tools.md: ctx| links only GitHub repositories. Move the link into .ctxpipe/sources.yaml or remove the file.",
+                  scopeSummary: "Repository file",
+                  removable: false,
+                }),
+              ],
+              linkErrors: [
+                {
+                  action: "link",
+                  gitUrl: "https://gitlab.com/acme/tools",
+                  reason:
+                    "Only a GitHub repository can be linked to a Workspace",
+                  failedAt: "2026-10-14T10:00:00.000Z",
+                },
+              ],
+            }),
+          ),
+          connected,
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("A repository link was not saved")
+    await expect(
+      canvas.getByText(/Only a GitHub repository can be linked to a Workspace/),
+    ).toBeVisible()
+    await expect(
+      canvas.getByText("https://gitlab.com/acme/tools"),
+    ).toBeVisible()
+    // The repository file shows its error, but a remove cannot name it.
+    await expect(
+      canvas.getByText(/repositories\/tools\.md: ctx\| links only GitHub/),
+    ).toBeVisible()
+    await expect(
+      canvas.queryByRole("button", { name: "Remove repositories/tools.md" }),
+    ).toBeNull()
+    await expect(
+      canvas.getByRole("button", { name: "Remove old-entry" }),
+    ).toBeVisible()
   },
 }
 

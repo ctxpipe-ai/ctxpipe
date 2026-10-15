@@ -94,7 +94,7 @@ describe("Workspace source sync frame (Postgres)", () => {
     expect(writes.map((write) => write.workspaceId)).toEqual([docs])
   })
 
-  it("with fetchEach, gives each Workspace only the files of its own scopes", async () => {
+  it("with filesByScope, gives each Workspace only the files of its own scopes", async () => {
     const forge = await seed.addConnection("forge")
     const all = await seed.addWorkspace("each-all")
     const some = await seed.addWorkspace("each-some")
@@ -119,14 +119,16 @@ describe("Workspace source sync frame (Postgres)", () => {
       adapter: {
         provider: "confluence",
         managedPaths: () => ["confluence/ENG/"],
-        async fetchEach({ scopes }) {
+        async fetch({ scopes }) {
           fetched.push(scopes)
           // The same page has a different path in each layout.
-          return scopes.map((scope) =>
-            (scope.spaces as string[]).includes("one-page")
-              ? [{ path: "confluence/ENG/home--1.md", content: "# Home" }]
-              : [{ path: "confluence/ENG/1/index.md", content: "# Home" }],
-          )
+          return {
+            filesByScope: scopes.map((scope) =>
+              (scope.spaces as string[]).includes("one-page")
+                ? [{ path: "confluence/ENG/home--1.md", content: "# Home" }]
+                : [{ path: "confluence/ENG/1/index.md", content: "# Home" }],
+            ),
+          }
         },
       },
       write: async (write) => {
@@ -145,6 +147,47 @@ describe("Workspace source sync frame (Postgres)", () => {
       [all]: ["confluence/ENG/1/index.md"],
       [some]: ["confluence/ENG/home--1.md"],
     })
+  })
+
+  it("with filesByScope, skips the write of a Workspace whose scope failed", async () => {
+    const forge = await seed.addConnection("forge")
+    const ok = await seed.addWorkspace("each-ok")
+    const failed = await seed.addWorkspace("each-failed")
+    await replaceWorkspaceSourceRows({
+      orgId: seed.orgId,
+      workspaceId: ok,
+      revision: "d".repeat(40),
+      rows: [source("docs", forge, ["ENG"])],
+    })
+    await replaceWorkspaceSourceRows({
+      orgId: seed.orgId,
+      workspaceId: failed,
+      revision: "e".repeat(40),
+      rows: [source("docs", forge, ["ENG", "broken"])],
+    })
+    const writes: WorkspaceSliceWrite[] = []
+    await syncConnectionSources({
+      orgId: seed.orgId,
+      connectionId: forge,
+      env: parseEnv(process.env),
+      adapter: {
+        provider: "confluence",
+        managedPaths: () => ["confluence/ENG/"],
+        async fetch({ scopes }) {
+          return {
+            filesByScope: scopes.map((scope) =>
+              (scope.spaces as string[]).includes("broken")
+                ? null
+                : [{ path: "confluence/ENG/1/index.md", content: "# Home" }],
+            ),
+          }
+        },
+      },
+      write: async (write) => {
+        writes.push(write)
+      },
+    })
+    expect(writes.map((write) => write.workspaceId)).toEqual([ok])
   })
 
   it("deletes only the managed paths that no remaining source owns", async () => {
@@ -185,6 +228,13 @@ describe("Workspace source sync frame (Postgres)", () => {
         ownedPrefixes: ["confluence/HR/"],
         keepPrefixes: [],
         sourcesRevision: "f".repeat(40),
+        removed: [
+          {
+            provider: "confluence",
+            connectionId: forge,
+            scope: { spaces: ["ENG", "HR"] },
+          },
+        ],
       },
     ])
   })
@@ -217,6 +267,91 @@ describe("Workspace source sync frame (Postgres)", () => {
         },
       ],
       adapters: { confluence: adapter },
+      write: async (write) => {
+        writes.push(write)
+      },
+    })
+    expect(writes).toMatchObject([
+      { ownedPrefixes: ["confluence/"], keepPrefixes: ["confluence/ENG/"] },
+    ])
+  })
+
+  it("keeps the files of a remaining source whose entry is invalid for now", async () => {
+    const forge = await seed.addConnection("forge")
+    const workspaceId = await seed.addWorkspace("held")
+    await replaceWorkspaceSourceRows({
+      orgId: seed.orgId,
+      workspaceId,
+      revision: "a".repeat(40),
+      rows: [source("eng-docs", forge, ["ENG"])],
+    })
+    // An entry without a readable id can be `eng-docs`, so its row stays as
+    // `invalid` with its last good scope.
+    await replaceWorkspaceSourceRows({
+      orgId: seed.orgId,
+      workspaceId,
+      revision: "b".repeat(40),
+      rows: [
+        {
+          ...source(".entry-1", forge, []),
+          scope: {},
+          status: "invalid",
+          statusDetail: "The id is not valid",
+        },
+      ],
+    })
+    const { adapter } = fakeSourceAdapter({})
+    const writes: WorkspaceSliceWrite[] = []
+    await cleanupRemovedSources({
+      orgId: seed.orgId,
+      workspaceId,
+      revision: "b".repeat(40),
+      removed: [
+        {
+          provider: "confluence",
+          connectionId: forge,
+          scope: { spaces: ["ENG", "HR"] },
+        },
+      ],
+      adapters: { confluence: adapter },
+      write: async (write) => {
+        writes.push(write)
+      },
+    })
+    expect(writes).toMatchObject([{ ownedPrefixes: ["confluence/HR/"] }])
+  })
+
+  it("keeps the files of a held source in a full sync of a wider source", async () => {
+    const forge = await seed.addConnection("forge")
+    const workspaceId = await seed.addWorkspace("held-sync")
+    await replaceWorkspaceSourceRows({
+      orgId: seed.orgId,
+      workspaceId,
+      revision: "a".repeat(40),
+      rows: [source("eng-docs", forge, ["ENG"])],
+    })
+    // `eng-docs` is held as `invalid`; a new `all` source owns every space.
+    await replaceWorkspaceSourceRows({
+      orgId: seed.orgId,
+      workspaceId,
+      revision: "b".repeat(40),
+      rows: [
+        source("all", forge, ["*"]),
+        {
+          ...source(".entry-2", forge, []),
+          scope: {},
+          status: "invalid",
+          statusDetail: "The id is not valid",
+        },
+      ],
+    })
+    const { adapter } = fakeSourceAdapter({ HR: { policy: "# HR" } })
+    const writes: WorkspaceSliceWrite[] = []
+    await syncConnectionSources({
+      orgId: seed.orgId,
+      connectionId: forge,
+      env: parseEnv(process.env),
+      adapter,
       write: async (write) => {
         writes.push(write)
       },
