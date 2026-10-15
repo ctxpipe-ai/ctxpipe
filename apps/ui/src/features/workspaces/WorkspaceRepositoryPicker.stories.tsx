@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import { expect, fn, userEvent, within } from "storybook/test"
+import { githubConnectorBootstrapHandler } from "@/features/connectors/mocks/github-bootstrap-msw"
 import {
   githubInstallationReposHandler,
   orgGithubConnectionsHandler,
@@ -102,8 +103,42 @@ export const SelectGitHubEmpty: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await canvas.findByText(/no installation repositories/i)
+    await canvas.findByText(/no repository is free to use/i)
     await canvas.findByRole("link", { name: /change access/i })
+  },
+}
+
+/**
+ * The org has no GitHub connection. The tab offers "Connect GitHub" in
+ * place, and "Paste a git URL" opens the Paste URL tab.
+ */
+export const NoGithubConnection: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceListHandler([docsWorkspace]),
+          orgGithubConnectionsHandler([]),
+          githubConnectorBootstrapHandler({
+            orgSlug: "acme",
+            hostedDefaultAppInstallUrl:
+              "https://github.com/apps/ctxpipe/installations/new",
+          }),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByRole("heading", { name: "Connect GitHub" })
+    await expect(
+      canvas.getByRole("button", { name: "Connect GitHub" }),
+    ).toBeVisible()
+    await expect(canvas.queryByText(/ctxpipe has access to/)).toBeNull()
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Paste a git URL" }),
+    )
+    await expect(await canvas.findByLabelText(/git url/i)).toBeVisible()
   },
 }
 
@@ -142,6 +177,33 @@ export const PasteUrl: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.click(canvas.getByRole("tab", { name: /paste url/i }))
+  },
+}
+
+/** A Workspace in a folder of a larger repository: the root folder goes with the choice. */
+export const PasteUrlWithRootFolder: Story = {
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement)
+    await expect(
+      canvas.getByText(/leave it empty to use the whole repository/i),
+    ).toBeVisible()
+    await userEvent.type(
+      canvas.getByRole("textbox", { name: /root folder/i }),
+      "docs/context/",
+    )
+    await userEvent.click(canvas.getByRole("tab", { name: /paste url/i }))
+    await userEvent.type(
+      canvas.getByLabelText(/git url/i),
+      "https://github.com/acme/platform.git",
+    )
+    await userEvent.click(
+      canvas.getByRole("button", { name: /create workspace/i }),
+    )
+    await expect(args.onSubmit).toHaveBeenCalledWith({
+      gitUrl: "https://github.com/acme/platform.git",
+      source: "paste",
+      rootPath: "docs/context",
+    })
   },
 }
 

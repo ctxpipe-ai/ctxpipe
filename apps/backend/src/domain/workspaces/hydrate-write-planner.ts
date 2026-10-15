@@ -7,7 +7,10 @@ import {
   claimsUpgradeRemainder,
   validFromPersistRemainder,
 } from "./hydrate-write-jobs.js"
+import { parseLinkedRepositoryMarkdown } from "./layout.js"
+import { upgradeLinkedRepositories } from "./migration-export.js"
 import type { WorkspaceRevision } from "./revision.js"
+import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "./write-status.js"
 
 export type HydrateWriteRequirement =
@@ -27,6 +30,8 @@ export type HydrateWriteRequirement =
       previousSha?: string
     }
   | { kind: "rename_rewrite"; remainder: number; previousSha: string }
+  /** Moves the GitHub `repositories/*.md` files into the sources file. */
+  | { kind: "link_unlink"; remainder: number; linkGitUrl: string }
 
 /** Plan from committed files, before hydrate supplies derived valid_from values. */
 export function planHydrateWrites(input: {
@@ -34,6 +39,8 @@ export function planHydrateWrites(input: {
   displayName: string
   files: Array<{ path: string; content: string }>
   publishPipeline: IngestionPublishPipeline
+  /** The text of `.ctxpipe/sources.yaml`, or null. */
+  sourcesFile?: string | null
 }): HydrateWriteRequirement[] {
   if (!githubRepoFullNameFromWorkspaceUrl(input.revision.remote.url)) return []
   const { units } = hydrateKnowledgeTree({
@@ -60,7 +67,29 @@ export function planHydrateWrites(input: {
           }).length
         : 0,
   }
-  return (Object.keys(remaining) as Array<keyof typeof remaining>)
+  const planned: HydrateWriteRequirement[] = (
+    Object.keys(remaining) as Array<keyof typeof remaining>
+  )
     .filter((kind) => remaining[kind] > 0)
     .map((kind) => ({ kind, remainder: remaining[kind] }))
+  // ADR-050: a Workspace that the export did not convert (for example, one
+  // exported before the upgrade) still has `repositories/*.md` files that
+  // link nothing. One link edit of the first file moves them all.
+  const connectionId = input.revision.remote.connectionId
+  if (connectionId) {
+    const { deletePaths } = upgradeLinkedRepositories({
+      sourcesFile: input.sourcesFile ?? null,
+      connectionId,
+      files: input.files,
+    })
+    const first = existing.get(deletePaths[0] ?? "")
+    const parsed = first ? parseLinkedRepositoryMarkdown(first) : null
+    if (parsed && !parsed.malformed)
+      planned.push({
+        kind: "link_unlink",
+        remainder: deletePaths.length,
+        linkGitUrl: normalizeWorkspaceRepositoryUrl(parsed.git),
+      })
+  }
+  return planned
 }

@@ -2,8 +2,13 @@ import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { isConnectorMirrorPath } from "../../domain/codeIngestion/connectorMirrorPaths.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
+import { isLinkedRepositoryDeclaration } from "../../domain/workspaces/layout.js"
 import { linkedRepositoryUrlSchema } from "../../domain/workspaces/linked-repository-url.js"
-import { planKnowledgeProjection } from "../../domain/workspaces/migration-export.js"
+import {
+  migrationLinkedRepositoryUrls,
+  planKnowledgeProjection,
+  upgradeLinkedRepositories,
+} from "../../domain/workspaces/migration-export.js"
 import {
   sameWorkspaceRevision,
   workspaceRevisionSchema,
@@ -28,10 +33,10 @@ import {
   persistWriteJobPreparedCommit,
 } from "../../models/workspace-write-jobs.js"
 import {
-  listLinkedRepositories,
   persistWriteJobCommitSha,
   persistWriteJobStatus,
 } from "../../models/workspaces.js"
+import { getLogger } from "../../observability/logger.js"
 import { readGitFiles } from "../../services/git/pack.js"
 import {
   commitGitTree,
@@ -98,7 +103,16 @@ export const workspaceMigrationExport = defineWorkflow(
             { name: "load-legacy-source" },
             async () => {
               const source = await loadKnowledgeProjectionSource()
-              const linked = await listLinkedRepositories(input.workspaceId)
+              // Main's store of linked repositories is the org `repositories`
+              // table. The export links them through sources.yaml (ADR-050).
+              const linkedUrls = migrationLinkedRepositoryUrls({
+                workspaceId: input.workspaceId,
+                firstWorkspaceId: source.firstWorkspaceId,
+                repositories: [...source.repositoryGitUrlById].map(
+                  ([id, gitUrl]) => ({ id, gitUrl }),
+                ),
+                workspaceByRepositoryId: source.workspaceByRepositoryId,
+              })
               return {
                 ...source,
                 workspaceByRepositoryId: [...source.workspaceByRepositoryId],
@@ -110,10 +124,7 @@ export const workspaceMigrationExport = defineWorkflow(
                       : []
                   },
                 ),
-                linkedUrls: linked.flatMap((row) => {
-                  const safe = linkedRepositoryUrlSchema.safeParse(row.gitUrl)
-                  return safe.success ? [safe.data] : []
-                }),
+                linkedUrls,
               }
             },
           )
@@ -141,16 +152,27 @@ export const workspaceMigrationExport = defineWorkflow(
             const transformed = await step.run(
               { name: "transform-migration-export" },
               async () => {
-                const existingKnowledge = await readGitFiles(
+                const sourcesPath = ".ctxpipe/sources.yaml"
+                const existing = await readGitFiles(
                   acquired.pack,
                   (path) =>
-                    path.endsWith(".md") &&
-                    !isConnectorMirrorPath(path) &&
-                    (path.startsWith("knowledge/") ||
-                      path.startsWith("repositories/")),
+                    path === sourcesPath ||
+                    isLinkedRepositoryDeclaration(path) ||
+                    (path.endsWith(".md") &&
+                      !isConnectorMirrorPath(path) &&
+                      path.startsWith("knowledge/")),
                 )
+                const existingKnowledge = existing.filter(
+                  (file) =>
+                    file.path !== sourcesPath &&
+                    !isLinkedRepositoryDeclaration(file.path),
+                )
+                const currentSources =
+                  existing.find((file) => file.path === sourcesPath)?.content ??
+                  null
+                const { linkedUrls, ...projectionSource } = source
                 const plan = await planKnowledgeProjection({
-                  ...source,
+                  ...projectionSource,
                   workspaceId: input.workspaceId,
                   workspaceRepositoryUrl: revision.remote.url,
                   workspaceByRepositoryId: new Map(
@@ -160,12 +182,33 @@ export const workspaceMigrationExport = defineWorkflow(
                   existingKnowledge,
                   stampImportKey: true,
                 })
+                // ADR-050: the `repositories/*.md` files and the org
+                // repositories move into the sources file.
+                const upgrade = upgradeLinkedRepositories({
+                  sourcesFile: currentSources,
+                  connectionId,
+                  files: existing,
+                  repositories: linkedUrls.map((gitUrl) => ({ gitUrl })),
+                })
                 return {
-                  files: plan.wouldChange ? plan.files : [],
+                  files: [
+                    ...(plan.wouldChange ? plan.files : []),
+                    ...(upgrade.sourcesFile
+                      ? [{ path: sourcesPath, content: upgrade.sourcesFile }]
+                      : []),
+                  ],
+                  deletePaths: upgrade.deletePaths,
                   knowledgePaths: plan.knowledgePaths,
+                  skipped: upgrade.skipped,
                 }
               },
             )
+            // A repository or file that cannot move stays out of the sources
+            // file; the projection shows a leftover file as a source error.
+            if (transformed.skipped.length)
+              getLogger().set({
+                migrationExport: { skippedLinks: transformed.skipped },
+              })
             await step.run({ name: "record-knowledge-paths" }, () =>
               persistWriteJobKnowledgePaths(
                 input.jobId,
@@ -173,7 +216,8 @@ export const workspaceMigrationExport = defineWorkflow(
               ),
             )
             const files = transformed.files
-            if (!files.length) {
+            const deletePaths = transformed.deletePaths
+            if (!files.length && !deletePaths.length) {
               const refreshed = await step.run({ name: "confirm-no-op" }, () =>
                 refreshWorkspaceWriteRevision(input, revision, env),
               )
@@ -190,19 +234,19 @@ export const workspaceMigrationExport = defineWorkflow(
               }
             }
             const staged = await step.run({ name: "stage" }, () =>
-              stageGitFiles(acquired.pack, files),
+              stageGitFiles(acquired.pack, files, deletePaths),
             )
             await step.run({ name: "validate" }, () =>
-              validateGitTree(
-                staged,
-                files.map((file) => file.path),
-              ),
+              validateGitTree(staged, [
+                ...files.map((file) => file.path),
+                ...deletePaths,
+              ]),
             )
             const subject = await step.run({ name: "commit-subject" }, () =>
               generateCommitSubject({
                 repoName: repositoryName.split("/")[1] ?? repositoryName,
                 trigger: "migration_export",
-                fileNames: files.map((file) => file.path),
+                fileNames: [...files.map((file) => file.path), ...deletePaths],
               }),
             )
             const committed = await step.run({ name: "commit" }, async () => {

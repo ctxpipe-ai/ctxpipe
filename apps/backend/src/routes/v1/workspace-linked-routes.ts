@@ -1,5 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
+import { directWriteRoute } from "../../auth/write-grant.js"
 import {
   getWorkspaceBySlug,
   listLinkedRepositories,
@@ -66,33 +67,35 @@ const listLinkedRoute = createRoute({
   },
 })
 
-const deleteLinkedRoute = createRoute({
-  method: "delete",
-  path: "/{workspaceSlug}/linked-repositories/{linkedId}",
-  request: { params: LinkedRepositoryParamsSchema },
-  responses: {
-    202: {
-      content: { "application/json": { schema: LinkedWriteQueuedSchema } },
-      description: "Unlink write queued",
+const deleteLinkedRoute = createRoute(
+  directWriteRoute({
+    method: "delete",
+    path: "/{workspaceSlug}/linked-repositories/{linkedId}",
+    request: { params: LinkedRepositoryParamsSchema },
+    responses: {
+      202: {
+        content: { "application/json": { schema: LinkedWriteQueuedSchema } },
+        description: "Unlink write queued",
+      },
+      400: {
+        content: { "application/json": { schema: ErrorResponseSchema } },
+        description: "Invalid request",
+      },
+      401: {
+        content: { "application/json": { schema: ErrorResponseSchema } },
+        description: "Unauthorized",
+      },
+      404: {
+        content: { "application/json": { schema: ErrorResponseSchema } },
+        description: "Not found",
+      },
+      409: {
+        content: { "application/json": { schema: ErrorResponseSchema } },
+        description: "Write status unknown",
+      },
     },
-    400: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Invalid request",
-    },
-    401: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unauthorized",
-    },
-    404: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Not found",
-    },
-    409: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Write status unknown",
-    },
-  },
-})
+  }),
+)
 
 function linkedRepositoryParams(c: {
   req: { param: () => Record<string, string> }

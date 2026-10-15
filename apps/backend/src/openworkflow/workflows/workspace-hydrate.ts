@@ -14,6 +14,7 @@ import {
 } from "../../domain/workspaces/hydrate.js"
 import { importKeyCleanupRemainder } from "../../domain/workspaces/hydrate-write-jobs.js"
 import { planHydrateWrites } from "../../domain/workspaces/hydrate-write-planner.js"
+import { upgradeLinkedRepositories } from "../../domain/workspaces/migration-export.js"
 import { nativeRenameRewriteFiles } from "../../domain/workspaces/native-rename-rewrite.js"
 import {
   resolveRepositoryReadCredential,
@@ -26,6 +27,7 @@ import {
   type WorkspaceRevision,
   workspaceRevisionSchema,
 } from "../../domain/workspaces/revision.js"
+import { workspaceRootPath } from "../../domain/workspaces/root-path.js"
 import { listOrgConnections } from "../../models/org-connections.js"
 import { getMigrationExportSha } from "../../models/workspace-write-jobs.js"
 import { reserveHydrateWrites } from "../../models/workspace-write-planning.js"
@@ -208,6 +210,7 @@ export const workspaceHydrate = defineWorkflow(
                       extraPaths: [SOURCES_FILE_PATH],
                       url: revision.remote.url,
                       sha: revision.sha,
+                      root: workspaceRootPath(revision),
                       token:
                         token ??
                         (await resolveRepositoryReadCredential({
@@ -239,12 +242,13 @@ export const workspaceHydrate = defineWorkflow(
               const plan = await step.run(
                 { name: "plan-remaining-writes" },
                 async () => {
-                  const { files } = await readTree()
+                  const { files, sourcesFile } = await readTree()
                   const remaining = planHydrateWrites({
                     revision,
                     displayName: workspace.displayName,
                     files,
                     publishPipeline,
+                    sourcesFile,
                   })
                   if (await getMigrationExportSha(workspace.id, revision)) {
                     remaining.push({
@@ -260,6 +264,7 @@ export const workspaceHydrate = defineWorkflow(
                       url: revision.remote.url,
                       sha: revision.sha,
                       additionalShas: [planning.previousSha],
+                      root: workspaceRootPath(revision),
                       token:
                         token ??
                         (await resolveRepositoryReadCredential({
@@ -316,6 +321,12 @@ export const workspaceHydrate = defineWorkflow(
                       jobId: command.jobId,
                       kind: command.kind,
                       previousSha: command.previousSha,
+                      ...(command.linkGitUrl
+                        ? {
+                            linkAction: "link" as const,
+                            linkGitUrl: command.linkGitUrl,
+                          }
+                        : {}),
                       jobGeneration: revision.generation,
                       jobWorkspaceUrl: revision.remote.url,
                       jobDesiredSha: revision.sha,
@@ -397,8 +408,9 @@ export const workspaceHydrate = defineWorkflow(
 
             let activated = !pending.postgres
             if (pending.postgres) {
-              // Before the linked table changes, so a replay still sees which
-              // GitHub links are new and the backfill key dedupes the enqueue.
+              // Before the sources projection changes the pinned state, so a
+              // replay still sees which GitHub links are new and the backfill
+              // key dedupes the enqueue.
               await step.run(
                 { name: "enqueue-github-pr-backfills" },
                 async () => {
@@ -419,7 +431,6 @@ export const workspaceHydrate = defineWorkflow(
                   orgId: input.orgId,
                   revision,
                   displayName,
-                  remotes: parsed.linked,
                   skipped: parsed.skipped,
                   embeddingModel: embeddingModelId(),
                   units: applyEffectiveValidFromToUnits(
@@ -461,6 +472,16 @@ export const workspaceHydrate = defineWorkflow(
                     workspaceId: workspace.id,
                     revision: revision.sha,
                     text: sourcesFile,
+                    leftoverFiles: revision.remote.connectionId
+                      ? upgradeLinkedRepositories({
+                          sourcesFile,
+                          connectionId: revision.remote.connectionId,
+                          files,
+                        }).skipped.map(({ item, reason }) => ({
+                          path: item,
+                          reason,
+                        }))
+                      : [],
                     env,
                   }),
               )

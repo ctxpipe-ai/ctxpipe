@@ -15,13 +15,11 @@ import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { organizations } from "../../db/schema/auth.js"
 import { repositories } from "../../db/schema/repositories.js"
 import { repositoryCheckouts } from "../../db/schema/repository_checkouts.js"
-import {
-  workspaceLinkedRepositories,
-  workspaces,
-} from "../../db/schema/workspaces.js"
+import { workspaces } from "../../db/schema/workspaces.js"
 import { generateObjectId } from "../../lib/id.js"
 import { registerMcpRoutes } from "../../routes/mcp.js"
 import { withTestRequestLogger } from "../../test/hono-test-logger.js"
+import { insertLinkedRepositoryRows } from "../../test/workspace-links-fixture.js"
 import { loadOrgRepositoryHandles } from "../framework/call-workspace.js"
 import { parseRef } from "../framework/refs.js"
 import { registerMcpReadTools } from "../framework/tool-registry.js"
@@ -108,7 +106,8 @@ beforeAll(async () => {
       workspaceRepositoryUrl: `/tmp/code-tools-${workspaceId}`,
       desiredDefaultBranch: "main",
     })
-    await db.insert(workspaceLinkedRepositories).values(
+    await insertLinkedRepositoryRows(
+      db,
       ["alpha", "unindexed"].map((name) => ({
         id: generateObjectId("wlr"),
         orgId: seed.orgId,
@@ -532,7 +531,7 @@ it("preserves the fan-out limit, excluded repositories, skips, and narrowing hin
       ids.push(id)
       const name = `example/wide-${String(index).padStart(2, "0")}`
       const gitUrl = `https://github.com/${name}.git`
-      await db.insert(workspaceLinkedRepositories).values({
+      await insertLinkedRepositoryRows(db, {
         id: generateObjectId("wlr"),
         orgId: seed.orgId,
         workspaceId: wideWorkspaceId,

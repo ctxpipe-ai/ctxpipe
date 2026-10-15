@@ -38,6 +38,8 @@ export const workspaces = pgTable.withRLS(
     slug: text("slug").notNull(),
     displayName: text("display_name").notNull(),
     workspaceRepositoryUrl: text("workspace_repository_url").notNull(),
+    /** Root folder in the repository (CTX-709); `""` is the repository root. */
+    rootPath: text("root_path").notNull().default(""),
     githubConnectionId: text("github_connection_id").references(
       () => connections.id,
       { onDelete: "set null" },
@@ -75,33 +77,6 @@ export const workspaces = pgTable.withRLS(
       t.workspaceRepositoryUrl,
     ),
     index("workspaces_org_id_idx").on(t.orgId),
-    orgIsolationPolicy(t.orgId),
-  ],
-)
-
-export const workspaceLinkedRepositories = pgTable.withRLS(
-  "workspace_linked_repositories",
-  {
-    id: text("id").primaryKey(),
-    orgId: text("org_id").notNull(),
-    workspaceId: text("workspace_id")
-      .notNull()
-      .references(() => workspaces.id, { onDelete: "cascade" }),
-    gitUrl: text("git_url").notNull(),
-    desiredRef: text("desired_ref"),
-    desiredSha: text("desired_sha"),
-    indexedSha: text("indexed_sha"),
-    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
-      .notNull()
-      .defaultNow(),
-  },
-  (t) => [
-    unique("workspace_linked_repositories_workspace_id_git_url_uidx").on(
-      t.workspaceId,
-      t.gitUrl,
-    ),
-    index("workspace_linked_repositories_workspace_id_idx").on(t.workspaceId),
-    index("workspace_linked_repositories_org_id_idx").on(t.orgId),
     orgIsolationPolicy(t.orgId),
   ],
 )
@@ -257,6 +232,8 @@ export const workspaceWriteJobs = pgTable.withRLS(
       linkAction?: "link" | "unlink"
       linkGitUrl?: string
       publishPipeline?: "legacy" | "v2"
+      /** Why the job failed, when it failed for a known reason. */
+      failureReason?: string
       displayName?: string
       defaultBranch?: string
       jobWorkspaceUrl?: string

@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { workspaceRootPathSchema } from "./root-path.js"
 
 export const gitObjectIdSchema = z
   .string()
@@ -19,6 +20,12 @@ export const workspaceRevisionSchema = z
     defaultBranch: z.string().min(1),
     sha: gitObjectIdSchema,
     access: z.enum(["read", "publish-session", "write-default"]),
+    /**
+     * Workspace root folder (CTX-709); absent for the repository root. A new
+     * root folder starts a new generation, so the binding check needs no
+     * second comparison.
+     */
+    rootPath: workspaceRootPathSchema.optional(),
   })
   .readonly()
 

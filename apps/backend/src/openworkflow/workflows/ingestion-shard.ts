@@ -41,6 +41,7 @@ import {
   type IngestSkillBundle,
   readIngestSkillBundle,
 } from "../../domain/ingestion/skill-bundle.js"
+import { workspaceRootPathSchema } from "../../domain/workspaces/root-path.js"
 import {
   findWorkspaceStepCommit,
   listWorkspaceIngestStepFiles,
@@ -76,6 +77,7 @@ export const ingestionDestinationSchema = z.object({
   generation: z.number().int(),
   pinnedRevision: sha,
   repositoryId: z.string().nullable(),
+  rootPath: workspaceRootPathSchema.optional(),
 })
 
 /** A planned root, as `resolveDiscoveredRoots` gave it. */

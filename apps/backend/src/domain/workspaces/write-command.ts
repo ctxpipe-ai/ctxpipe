@@ -19,6 +19,7 @@ import {
 } from "./extraction-source.js"
 import { resolveRepositoryReadCredential } from "./resolve-revision.js"
 import { sameWorkspaceRevision, type WorkspaceRevision } from "./revision.js"
+import { workspaceRootPath } from "./root-path.js"
 import type { WorkspaceWriteKind } from "./write-jobs.js"
 
 export type WorkspaceWriteCommand = {
@@ -121,6 +122,7 @@ export async function acquireWorkspaceWriteRevision(
     sha: revision.sha,
     additionalShas: previousSha ? [previousSha] : [],
     token,
+    root: workspaceRootPath(revision),
   })
   if (input.mirror) await assertConnectorMirrorScope(input.mirror, pack)
   if (input.extraction)

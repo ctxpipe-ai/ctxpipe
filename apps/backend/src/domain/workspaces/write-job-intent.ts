@@ -60,6 +60,8 @@ export type WorkspaceWriteJobPayload = {
   linkGitUrl?: string
   /** The publish pipeline when the job was queued (ADR-052 phase 4). */
   publishPipeline?: IngestionPublishPipeline
+  /** Why the job failed, when it failed for a known reason. */
+  failureReason?: string
   defaultBranch?: string
   jobWorkspaceUrl?: string
   conflictParentSha?: string | null

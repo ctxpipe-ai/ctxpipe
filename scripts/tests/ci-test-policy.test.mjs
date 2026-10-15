@@ -402,3 +402,34 @@ test("CI runs the full-tree proof policy; workflow_dispatch does not select chan
     "changed-file selection would hide branch-new skipIf and rewritten owned mocks",
   )
 })
+
+test("proof policy accepts spyOn on an imported network SDK and refuses it on a repo module", () => {
+  const directory = mkdtempSync(join(tmpdir(), "ctxpipe-proof-policy-"))
+  try {
+    const file = join(directory, "contract.test.ts")
+    const check = (source) => {
+      writeFileSync(file, source)
+      return spawnSync(
+        process.execPath,
+        [
+          fileURLToPath(
+            new URL("../ci/check-test-policy.mjs", import.meta.url),
+          ),
+          file,
+        ],
+        { encoding: "utf8" },
+      )
+    }
+    const accepted = check(
+      'import HyperDX from "@hyperdx/browser"; import { vi, test } from "vitest"; test("proof", () => { vi.spyOn(HyperDX, "addAction") })',
+    )
+    assert.equal(accepted.status, 0, accepted.stderr)
+    const refused = check(
+      'import owned from "./owned.js"; import { vi, test } from "vitest"; test("proof", () => { vi.spyOn(owned, "run") })',
+    )
+    assert.notEqual(refused.status, 0)
+    assert.match(refused.stderr + refused.stdout, /owned collaborators/)
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})

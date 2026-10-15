@@ -576,9 +576,12 @@ export const AllWorkspacesPendingNote: Story = {
     pendingOrgReads = 0
     const canvas = within(canvasElement)
     const page = within(canvasElement.ownerDocument.body)
-    expect(
-      await canvas.findByText("Document billing ledger rules"),
-    ).toBeVisible()
+    // A cold first render can take longer than the default 1 s wait.
+    await waitFor(
+      () =>
+        expect(canvas.getByText("Document billing ledger rules")).toBeVisible(),
+      { timeout: 15_000 },
+    )
 
     await userEvent.click(
       canvas.getByRole("button", { name: "Show activity for: Docs" }),

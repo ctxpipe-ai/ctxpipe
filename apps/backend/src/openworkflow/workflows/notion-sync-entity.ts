@@ -4,16 +4,11 @@ import { withOrgDbContext } from "../../db/client.js"
 import { legacyBindingHandedOver } from "../../domain/workspace-sources/legacy-handover.js"
 import { captureConnectorMirrorTarget } from "../../domain/workspaces/capture-connector-mirror.js"
 import { getNotionBindingWithRepoByConnectionId } from "../../models/notion-connector.js"
-import {
-  createLogger,
-  getLogger,
-  withLogger,
-} from "../../observability/logger.js"
+import { createLogger, withLogger } from "../../observability/logger.js"
 import { parseNotionConfigYamlContent } from "../../services/notion/config-yaml.js"
 import { loadNotionConnection } from "../../services/notion/connection-load.js"
 import { captureNotionIncrementalContent } from "../../services/notion/sync.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
-import { enqueueLegacySyncRepositoryIngestion } from "../legacy-sync-repository-ingestion.js"
 import { workspaceConnectorMirror } from "./workspace-connector-mirror.js"
 
 const inputSchema = z.object({
@@ -147,26 +142,6 @@ export const notionSyncEntity = defineWorkflow(
                 { name: "commit-notion-mirror" },
               )
             : null
-        if (result?.committed) {
-          await step.run({ name: "ingest-notion-content" }, () =>
-            enqueueLegacySyncRepositoryIngestion(
-              {
-                connectionId: input.connectionId,
-                orgId: input.orgId,
-                repositoryId: context.binding.repositoryId,
-                targetBranch: context.binding.branch,
-                indexingReason: "Syncing Notion content",
-              },
-              {
-                error: (error) =>
-                  getLogger().error(error, {
-                    step: "notion-sync-entity.ingestion",
-                    connectionId: input.connectionId,
-                  }),
-              },
-            ),
-          )
-        }
         return {
           written: result?.committed ? captured.written : 0,
           deleted: result?.committed ? captured.deleted : 0,

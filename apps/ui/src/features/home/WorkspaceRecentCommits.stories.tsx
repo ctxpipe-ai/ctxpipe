@@ -75,16 +75,23 @@ export const OpensInNewTab: Story = {
     if (!icon) throw new Error("The hash link has no external-link icon")
     expect(getComputedStyle(icon).opacity).toBe("0")
 
+    // Each wait names its step, so a failure shows which state never came.
+    const iconOpacity = (step: string, opacity: string) =>
+      waitFor(() => {
+        const seen = getComputedStyle(icon).opacity
+        if (seen !== opacity)
+          throw new Error(`${step}: icon opacity is ${seen}, not ${opacity}`)
+      })
     await userEvent.hover(hash)
-    await waitFor(() => expect(getComputedStyle(icon).opacity).toBe("1"))
+    await iconOpacity("on hover", "1")
     await userEvent.unhover(hash)
-    await waitFor(() => expect(getComputedStyle(icon).opacity).toBe("0"))
+    await iconOpacity("after hover", "0")
 
     // The time comes first in the tab order, then the hash.
     await userEvent.tab()
     await userEvent.tab()
     expect(hash).toHaveFocus()
-    await waitFor(() => expect(getComputedStyle(icon).opacity).toBe("1"))
+    await iconOpacity("on keyboard focus", "1")
     expect(getComputedStyle(hash).outlineStyle).toBe("solid")
     expect(getComputedStyle(hash).outlineWidth).toBe("2px")
   },

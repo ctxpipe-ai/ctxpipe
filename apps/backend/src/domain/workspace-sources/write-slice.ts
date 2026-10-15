@@ -4,11 +4,12 @@ import { getSystemDb } from "../../db/client.js"
 import { log } from "../../observability/logger.js"
 import { enqueueWorkspaceWriteCommit } from "../../openworkflow/enqueue-workspace-write-commit.js"
 import {
-  listTreeBlobs,
+  listPackBlobs,
   readGitPackFromRemote,
   withGitDirectory,
 } from "../../services/git/pack.js"
 import { resolveWorkspaceReadRevision } from "../workspaces/resolve-revision.js"
+import { workspaceRootPath } from "../workspaces/root-path.js"
 import { diffSlice } from "./slice-diff.js"
 import { readSliceTarget } from "./slice-target.js"
 import type { WorkspaceSliceWrite } from "./sync.js"
@@ -16,7 +17,8 @@ import type { WorkspaceSliceWrite } from "./sync.js"
 /**
  * The production slice writer: read the Workspace head, drop the write when
  * the sources file changed after the rows' revision, and queue one connector
- * mirror commit fenced by the blob of `.ctxpipe/sources.yaml`.
+ * mirror commit fenced by the blob of `.ctxpipe/sources.yaml`. A cleanup is
+ * fenced only on its removed targets: the head file must not have them.
  */
 export async function writeWorkspaceSlice(
   write: WorkspaceSliceWrite,
@@ -39,6 +41,9 @@ export async function writeWorkspaceSlice(
       token: resolved.token,
       headSha: resolved.revision.sha,
       rowsRevision: write.sourcesRevision,
+      root: workspaceRootPath(resolved.revision),
+
+      removed: write.removed,
     })
   })
   // The next projection plans a new write from the changed sources file.
@@ -56,7 +61,9 @@ export async function writeWorkspaceSlice(
         mirror: {
           provider: write.provider,
           connectionId: write.connectionId,
-          sourcesBlobSha: captured.sourcesBlobSha,
+          ...(write.removed
+            ? { removedTargets: write.removed }
+            : { sourcesBlobSha: captured.sourcesBlobSha }),
         },
         mergeFiles: change.files,
         mergeDeletePaths: change.deletePaths,
@@ -101,10 +108,11 @@ export async function readWorkspaceBlobs(input: {
       sha: resolved.revision.sha,
       additionalShas: [],
       token: resolved.token,
+      root: workspaceRootPath(resolved.revision),
     })
     return withGitDirectory(
       pack.sha,
-      (directory) => listTreeBlobs(directory, pack.sha),
+      (directory) => listPackBlobs(directory, pack),
       pack,
     )
   })

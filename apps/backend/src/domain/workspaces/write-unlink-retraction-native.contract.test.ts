@@ -235,14 +235,11 @@ async function linkThenUnlink(
 
         await run(`wjob_${f.id}_link`, "link")
         const linked = git("rev-parse", "refs/heads/main")
-        const declaration = git(
-          "ls-tree",
-          "-r",
-          "--name-only",
-          "refs/heads/main",
-          "repositories/",
+        // A link edits the sources file (ADR-050), so an unlink edits it too.
+        const declaration = ".ctxpipe/sources.yaml"
+        expect(show(declaration)).toContain(
+          UNLINKED.replace("https://github.com/", ""),
         )
-        expect(declaration).toMatch(/^repositories\/[^/\n]+\.md$/)
 
         unlinking = true
         await run(`wjob_${f.id}_unlink`, "unlink")
@@ -274,7 +271,7 @@ function expectRetraction(input: {
       "D\tknowledge/services/billing.md",
       "D\tknowledge/services/invoices.md",
       "M\tknowledge/services/ledger.md",
-      `D\t${input.declaration}`,
+      `M\t${input.declaration}`,
       ...(input.alsoDeleted ?? []).map((path) => `D\t${path}`),
     ].sort(),
   )
@@ -327,7 +324,7 @@ it(
           "1",
         )
         expect(git("diff", "--name-status", linked, "refs/heads/main")).toBe(
-          `D\t${declaration}`,
+          `M\t${declaration}`,
         )
       },
     )
@@ -439,7 +436,7 @@ it(
           "1",
         )
         expect(git("diff", "--name-status", linked, "refs/heads/main")).toBe(
-          `D\t${declaration}`,
+          `M\t${declaration}`,
         )
       },
     )

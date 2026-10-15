@@ -311,6 +311,10 @@ export function conversationGitTreeLivePollHandler(input: {
   )
 }
 
+/**
+ * A busy conversation: the tree answers 409 turn_running `missingHits` times,
+ * then the tree. The Files pane asks again only on turn_running.
+ */
 export function conversationGitTreeEventuallyHandler(
   tree: WorkspaceGitTreeResponse & { branch?: string },
   missingHits = 2,
@@ -323,7 +327,7 @@ export function conversationGitTreeEventuallyHandler(
       hits += 1
       if (hits <= missingHits) {
         await delay(1500)
-        return HttpResponse.json({ error: "missing_sandbox" }, { status: 409 })
+        return HttpResponse.json({ error: "turn_running" }, { status: 409 })
       }
       return HttpResponse.json(tree)
     },

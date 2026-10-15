@@ -6,6 +6,7 @@ import {
   ingestionPublishPipelineSchema,
 } from "../../domain/ingestion/ingestion-v2-config.js"
 import { planUnlinkRetraction } from "../../domain/ingestion/unlink-retraction.js"
+import { SOURCES_FILE_PATH } from "../../domain/workspace-sources/sources-file.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import { isLinkedRepositoryDeclaration } from "../../domain/workspaces/layout.js"
 import { changeLinkedRepository } from "../../domain/workspaces/link-declarations.js"
@@ -34,6 +35,7 @@ import {
   persistWriteJobCommitSha,
   persistWriteJobStatus,
 } from "../../models/workspaces.js"
+import { getLogger } from "../../observability/logger.js"
 import { readGitFiles } from "../../services/git/pack.js"
 import {
   commitGitTree,
@@ -147,15 +149,22 @@ export function defineWorkspaceLinkUnlinkWorkflow(
             const changes = await step.run(
               { name: "transform-link-unlink" },
               async () => {
+                const files = await readGitFiles(
+                  acquired.pack,
+                  (path) =>
+                    path === SOURCES_FILE_PATH ||
+                    isLinkedRepositoryDeclaration(path),
+                )
                 const declarations = changeLinkedRepository({
-                  files: await readGitFiles(
-                    acquired.pack,
-                    isLinkedRepositoryDeclaration,
-                  ),
+                  sourcesFile:
+                    files.find((file) => file.path === SOURCES_FILE_PATH)
+                      ?.content ?? null,
+                  files,
                   action: input.linkAction,
                   gitUrl: input.linkGitUrl,
+                  connectionId,
                 })
-                if (!planned) return declarations
+                if (!planned || declarations.refused) return declarations
                 // While ingestion v2 publishes, the same commit retracts what
                 // the repository owns (ADR-052 section 3).
                 const retraction = await planUnlinkRetraction({
@@ -165,6 +174,7 @@ export function defineWorkspaceLinkUnlinkWorkflow(
                   observedAt: new Date(run.createdAt).toISOString(),
                 })
                 return {
+                  refused: null,
                   files: [...declarations.files, ...retraction.files],
                   deletePaths: [
                     ...declarations.deletePaths,
@@ -173,6 +183,17 @@ export function defineWorkspaceLinkUnlinkWorkflow(
                 }
               },
             )
+            if (changes.refused) {
+              const refused = changes.refused
+              getLogger().set({ linkRefused: refused })
+              await step.run({ name: "fail-refused" }, () =>
+                persistWriteJobStatus(input.jobId, "failed", refused),
+              )
+              return {
+                committed: false as const,
+                reason: "refused" as const,
+              }
+            }
             const files = changes.files
             if (!files.length && !changes.deletePaths.length) {
               const refreshed = await step.run({ name: "confirm-no-op" }, () =>

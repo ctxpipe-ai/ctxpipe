@@ -26,6 +26,7 @@ import {
   ensureWorkspaceCheckout,
   markRepositoryIndexingReady,
 } from "../../src/models/repositories.js"
+import { replaceWorkspaceSourceRows } from "../../src/models/workspace-sources.js"
 import {
   captureWorkspaceRevision,
   commitHydrateProjection,
@@ -234,7 +235,6 @@ async function publishWorkspaceRevision(input: {
       orgId: org.id,
       revision,
       displayName: fixture.name,
-      remotes: parsed.linked,
       units: parsed.units,
       skipped: parsed.skipped,
       embeddingModel: embeddingModelId(),
@@ -277,11 +277,40 @@ async function publishWorkspaceRevision(input: {
     throw new Error("Fixture index changed before publication")
 }
 
-/** Pin each linked repository of a Workspace to its manifest SHA. */
-async function pinLinkedRepositories(
-  workspaceId: string,
-  upstreams: FixtureUpstream[],
-) {
+/**
+ * Link each upstream repository through a GitHub source row, with the
+ * manifest SHA as its ref, and pin it to that SHA. The fixtures have no
+ * GitHub connection, so the seed writes the projection row itself.
+ */
+async function pinLinkedRepositories(input: {
+  orgId: string
+  workspaceId: string
+  revisionSha: string
+  upstreams: FixtureUpstream[]
+}) {
+  const { workspaceId, upstreams } = input
+  await replaceWorkspaceSourceRows({
+    orgId: input.orgId,
+    workspaceId,
+    revision: input.revisionSha,
+    rows: upstreams.length
+      ? [
+          {
+            sourceKey: "linked-repositories",
+            provider: "github",
+            connectionId: "con_mcp_eval",
+            scope: {
+              repositories: upstreams.map((upstream) => ({
+                name: new URL(upstream.url).pathname.slice(1),
+                ref: upstream.sha,
+              })),
+            },
+            status: "ok",
+            statusDetail: null,
+          },
+        ]
+      : [],
+  })
   for (const upstream of upstreams) {
     const link = (await listLinkedRepositories(workspaceId)).find(
       (link) => link.gitUrl === upstream.url,
@@ -460,7 +489,12 @@ export async function seedMcpEval(input: {
           })
           indexed.set(cacheKey, repository.id)
         }
-        await pinLinkedRepositories(workspace.id, upstreams)
+        await pinLinkedRepositories({
+          orgId: org.id,
+          workspaceId: workspace.id,
+          revisionSha: revision.sha,
+          upstreams,
+        })
         await assertProjectionReady(workspace.id)
         seeded.push({
           key: fixture.key,
@@ -525,16 +559,18 @@ export async function advanceMcpEvalWorkspace(input: {
         revision,
         files,
       })
-      await pinLinkedRepositories(
-        workspace.id,
-        fixture.repositories.map((key) => {
+      await pinLinkedRepositories({
+        orgId: org.id,
+        workspaceId: workspace.id,
+        revisionSha: revision.sha,
+        upstreams: fixture.repositories.map((key) => {
           const upstream = manifest.upstreamRepositories.find(
             (repo) => repo.key === key,
           )
           if (!upstream) throw new Error(`Missing upstream pin: ${key}`)
           return upstream
         }),
-      )
+      })
       await assertProjectionReady(workspace.id)
       return { key: fixture.key, id: workspace.id, orgId: org.id, sha: tip.sha }
     }),

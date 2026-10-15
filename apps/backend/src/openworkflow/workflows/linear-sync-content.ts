@@ -14,11 +14,7 @@ import {
   refreshLinearConnectionTokensWithLock,
 } from "../../models/linear-connector.js"
 import { getLinearOauthAppCreds } from "../../models/linear-oauth-app.js"
-import {
-  createLogger,
-  getLogger,
-  withLogger,
-} from "../../observability/logger.js"
+import { createLogger, withLogger } from "../../observability/logger.js"
 import {
   linearTokenExpiresAt,
   refreshLinearOAuthToken,
@@ -31,7 +27,6 @@ import {
 } from "../../services/linear/content.js"
 import { captureLinearContent } from "../../services/linear/sync.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
-import { enqueueLegacySyncRepositoryIngestion } from "../legacy-sync-repository-ingestion.js"
 import { workspaceConnectorMirror } from "./workspace-connector-mirror.js"
 
 const LinearSyncContentInputSchema = z.object({
@@ -228,27 +223,6 @@ export const linearSyncContent = defineWorkflow(
           written: captured.files.length,
           deleted: captured.deletePaths.length,
           failures: captured.failures,
-        }
-
-        if (result.status !== "failed") {
-          await step.run({ name: "ingest-linear-content" }, () =>
-            enqueueLegacySyncRepositoryIngestion(
-              {
-                connectionId: input.connectionId,
-                repositoryId: context.target.repositoryId,
-                orgId: input.orgId,
-                targetBranch: context.target.branch,
-                indexingReason: "Syncing Linear content",
-              },
-              {
-                error: (error) =>
-                  getLogger().error(error, {
-                    step: "linear-sync-content.ingestion",
-                    connectionId: input.connectionId,
-                  }),
-              },
-            ),
-          )
         }
 
         await step.run({ name: "finalize-linear-sync" }, () =>

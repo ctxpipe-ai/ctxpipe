@@ -257,13 +257,21 @@ export async function fetchCheckoutFileBytes(input: {
   sha?: string
   legacy?: true
   path: string
+  /**
+   * A folder of the checkout: `path` is relative to it, and codesearch never
+   * reads outside it, also through a symlink.
+   */
+  root?: string
 }): Promise<Uint8Array | null> {
   const res = await fetchWithAuth(
     `${codesearchBaseUrl()}/${input.repositoryId}/files-query`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ paths: [input.path] }),
+      body: JSON.stringify({
+        paths: [input.path],
+        ...(input.root ? { root: input.root } : {}),
+      }),
     },
     input.repositoryId,
     input.orgId,
