@@ -2155,6 +2155,18 @@ describe("validatePatchStep after the ownership migration", () => {
     ])
   })
 
+  it("deletes a migrated file with closed legacy claims when its root is gone", async () => {
+    const path = "knowledge/services/history.md"
+    const base = commitOn(baseCommit, { [path]: migratedWithClaims(path) })
+    const result = await run(stage({ deletes: [path], base }), {
+      baseCommit: base,
+      rootGone: true,
+    })
+    expect(result.rejections).toEqual([])
+    expect(result.accepted).toEqual([{ op: "delete", path }])
+    expect(treeHas(result.tree, path)).toBe(false)
+  })
+
   const relabel = (claim: Record<string, unknown>) =>
     claim.evidence &&
     (claim.evidence as { kind?: unknown }).kind === "legacy" &&
