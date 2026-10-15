@@ -228,6 +228,88 @@ export const OneProviderSeveralSources: Story = {
   },
 }
 
+const goneLinearSources = ["old-issues", "old-projects"].map((sourceKey) =>
+  workspaceSourceFixture({
+    sourceKey,
+    provider: "linear",
+    connectionId: "con_gone",
+    connectionName: null,
+    status: "connection_missing",
+    statusDetail: "The connection con_gone does not exist",
+    scopeSummary: "1 team",
+  }),
+)
+
+/**
+ * Two sources share one reason. The Linear header shows the reason once,
+ * with the count, and the rows do not repeat it. A wide section shows the
+ * table columns.
+ */
+export const SharedReasonShowsOnce: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceSourcesHandler(
+            workspaceSourceList({
+              items: [linearSource, ...goneLinearSources],
+            }),
+          ),
+          connected,
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("3 sources from 1 connector · 2 need attention")
+    const section = canvasElement.querySelector<HTMLElement>("#source-linear")
+    if (!section) throw new Error("Missing Linear group")
+    const group = within(section)
+    await expect(
+      group.getAllByText("The connection con_gone does not exist"),
+    ).toHaveLength(1)
+    await expect(group.getByText("· 2 sources")).toBeVisible()
+    await expect(group.getAllByText("Connection missing")).toHaveLength(2)
+    await expect(canvas.getByText("Key", { exact: true })).toBeVisible()
+  },
+}
+
+/**
+ * In a narrow pane the table folds: no column header, and each row shows
+ * its connection and key under the title.
+ */
+export const NarrowPaneFoldsTable: Story = {
+  decorators: [
+    (Story) => (
+      <div className="w-[30rem]">
+        <Story />
+      </div>
+    ),
+  ],
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceSourcesHandler(
+            workspaceSourceList({ items: [linearSource] }),
+          ),
+          connected,
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("eng-issues")
+    await expect(canvas.getByText("Key", { exact: true })).not.toBeVisible()
+    await expect(canvas.getByText("Acme Linear")).toBeVisible()
+    await expect(
+      canvas.getByRole("button", { name: "Edit eng-issues" }),
+    ).toBeVisible()
+  },
+}
+
 export const NeedsAttention: Story = {
   parameters: {
     msw: {
