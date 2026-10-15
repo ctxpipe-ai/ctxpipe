@@ -121,33 +121,45 @@ export const EscapeReturnsFocus: Story = {
   },
 }
 
-/**
- * A blur saves the typed name: one PATCH with the new name, and the new title
- * shows. Enter takes the same `save` path, but pressing Enter here raises a
- * React "Should not already be working" page error inside the test `act`
- * wrapper, so this play blurs with Tab.
- */
+async function renameTo(
+  canvasElement: HTMLElement,
+  name: string,
+  commit: () => Promise<void>,
+) {
+  const canvas = within(canvasElement)
+  await userEvent.click(
+    await canvas.findByRole("button", {
+      name: "Rename conversation: New conversation",
+    }),
+  )
+  const input = await canvas.findByRole("textbox", {
+    name: "Conversation name",
+  })
+  // Focus selects the old name, so typing replaces it.
+  await waitFor(() => expect(input).toHaveFocus())
+  await userEvent.keyboard(name)
+  await commit()
+  expect(
+    await canvas.findByRole("button", {
+      name: `Rename conversation: ${name}`,
+    }),
+  ).toBeVisible()
+  expect(canvas.queryByRole("textbox")).toBeNull()
+  // A late blur or a second save would add a request.
+  await new Promise((resolve) => setTimeout(resolve, 300))
+  expect(patches).toEqual([name])
+}
+
+/** Enter saves the typed name once: one PATCH with the new name, and the new title shows. */
 export const RenameSavesNewName: Story = {
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await userEvent.click(
-      await canvas.findByRole("button", {
-        name: "Rename conversation: New conversation",
-      }),
-    )
-    const input = await canvas.findByRole("textbox", {
-      name: "Conversation name",
-    })
-    // Focus selects the old name, so typing replaces it.
-    await waitFor(() => expect(input).toHaveFocus())
-    await userEvent.keyboard("Quarterly plan")
-    await userEvent.tab()
-    expect(
-      await canvas.findByRole("button", {
-        name: "Rename conversation: Quarterly plan",
-      }),
-    ).toBeVisible()
-    expect(patches).toEqual(["Quarterly plan"])
-    expect(canvas.queryByRole("textbox")).toBeNull()
-  },
+  play: ({ canvasElement }) =>
+    renameTo(canvasElement, "Quarterly plan", () =>
+      userEvent.keyboard("{Enter}"),
+    ),
+}
+
+/** A blur saves the typed name once, the same way. */
+export const RenameSavesOnBlur: Story = {
+  play: ({ canvasElement }) =>
+    renameTo(canvasElement, "Quarterly plan", () => userEvent.tab()),
 }
