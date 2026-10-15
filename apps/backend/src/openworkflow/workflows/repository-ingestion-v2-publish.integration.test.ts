@@ -34,6 +34,7 @@ import {
 import { organizations } from "../../db/schema/auth.js"
 import { connections } from "../../db/schema/connections.js"
 import { workspaces, workspaceWriteJobs } from "../../db/schema/workspaces.js"
+import type { IngestionPublishPipeline } from "../../domain/ingestion/ingestion-v2-config.js"
 import { withIngestionOrg } from "../../domain/ingestion/ingestion-v2-resolve.js"
 import { readIngestSkillBundle } from "../../domain/ingestion/skill-bundle.js"
 import { cleanUpWorkspaceIngestRefs } from "../../domain/workspaces/write-broker.js"
@@ -52,17 +53,8 @@ import {
   defineRepositoryIngestionV2Workflow,
   type IngestionV2Output,
 } from "./repository-ingestion-v2.js"
-import { workspaceExtractIngest } from "./workspace-extract-ingest.js"
+import { defineWorkspaceExtractIngestWorkflow } from "./workspace-extract-ingest.js"
 import { workspaceSemanticMerge } from "./workspace-semantic-merge.js"
-
-// The publish pipeline switch is a committed value (`legacy` until the
-// switch); a run outside shadow mode needs `v2`.
-vi.mock("../../domain/ingestion/ingestion-v2-config.js", async (original) => ({
-  ...(await original<
-    typeof import("../../domain/ingestion/ingestion-v2-config.js")
-  >()),
-  ingestionPublishPipeline: () => "v2",
-}))
 
 /*
  * Ingestion v2 publish (T21), with real Postgres, a real OpenWorkflow worker,
@@ -199,6 +191,11 @@ let backend: BackendPostgres
 let worker: ReturnType<OpenWorkflow["newWorker"]>
 let runner: OpenWorkflow
 let parent: ReturnType<typeof defineRepositoryIngestionV2Workflow>
+// The committed switch that the publish push step reads.
+const committed: { pipeline: IngestionPublishPipeline } = { pipeline: "v2" }
+const workspaceExtractIngest = defineWorkspaceExtractIngestWorkflow({
+  committedPipeline: () => committed.pipeline,
+})
 let sourceSha: string
 let wideSha: string
 const pinned: string[] = []
@@ -326,6 +323,7 @@ function startRun(authorTime: string, source = sourceName, sha = sourceSha) {
   return runner.runWorkflow(parent.spec, {
     orgId,
     shadow: false,
+    publishPipeline: "v2",
     source: {
       url: `https://github.com/${source}`,
       githubConnectionId: connectionId,
@@ -555,7 +553,7 @@ describe("ingestion v2 publish", () => {
   )
 
   it(
-    "makes the same commit when the publish is replayed",
+    "makes the same commit when the publish is replayed, and stops it after a switch back to legacy",
     { timeout: 520_000 },
     async () => {
       const first = await startRun("2026-10-05T00:00:00.000Z")
@@ -618,6 +616,34 @@ describe("ingestion v2 publish", () => {
           ),
       )
       expect(jobs).toHaveLength(1)
+
+      // The job was queued while the switch was v2. After a switch back to
+      // legacy, the push step stops it, and the default branch stays.
+      await withOrgDbContext(orgId, (db) =>
+        db
+          .delete(workspaceWriteJobs)
+          .where(
+            and(
+              eq(workspaceWriteJobs.workspaceId, workspaceIds[0] ?? ""),
+              eq(workspaceWriteJobs.kind, "extract_ingest"),
+            ),
+          ),
+      )
+      git(bare, "update-ref", "refs/heads/main", pinned[0] ?? "", before)
+      committed.pipeline = "legacy"
+      try {
+        const stopped = await runner.runWorkflow(
+          workspaceExtractIngest.spec,
+          rows.rows[0]?.input as never,
+        )
+        await expect(stopped.result({ timeoutMs: 100_000 })).resolves.toEqual({
+          committed: false,
+          reason: "publish_pipeline_legacy",
+        })
+      } finally {
+        committed.pipeline = "v2"
+      }
+      expect(git(bare, "rev-parse", "main")).toBe(pinned[0])
     },
   )
 

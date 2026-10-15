@@ -1,6 +1,6 @@
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
-import { ingestionPublishPipeline } from "../../domain/ingestion/ingestion-v2-config.js"
+import { ingestionPublishPipelineSchema } from "../../domain/ingestion/ingestion-v2-config.js"
 import { planUnlinkRetraction } from "../../domain/ingestion/unlink-retraction.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import { isLinkedRepositoryDeclaration } from "../../domain/workspaces/layout.js"
@@ -49,6 +49,11 @@ export const workspaceLinkUnlinkInputSchema = z
     revision: workspaceRevisionSchema,
     linkAction: z.enum(["link", "unlink"]),
     linkGitUrl: linkedRepositoryUrlSchema,
+    /**
+     * The publish pipeline when the job was queued. While it is `v2`, an
+     * unlink also retracts what the repository owns (ADR-052 section 3).
+     */
+    publishPipeline: ingestionPublishPipelineSchema.default("legacy"),
   })
   .strict()
   .refine(
@@ -128,7 +133,7 @@ export const workspaceLinkUnlink = defineWorkflow(
               })
               if (
                 input.linkAction !== "unlink" ||
-                ingestionPublishPipeline() !== "v2"
+                input.publishPipeline !== "v2"
               )
                 return declarations
               // While ingestion v2 publishes, the same commit retracts what

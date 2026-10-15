@@ -1,17 +1,10 @@
-import { expect, it, vi } from "vitest"
+import { expect, it } from "vitest"
 import { parse, stringify } from "yaml"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { reconcileWorkspaceWriteJob } from "../../models/workspace-write-jobs.js"
 import { enqueueWriteJob } from "../../openworkflow/enqueue-workspace-write-commit.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
-
-// The publish pipeline switch is a committed value (`legacy` until the
-// switch); the unlink retraction runs only while it is `v2`.
-vi.mock("../ingestion/ingestion-v2-config.js", async (original) => ({
-  ...(await original<typeof import("../ingestion/ingestion-v2-config.js")>()),
-  ingestionPublishPipeline: () => "v2",
-}))
 
 const UNLINKED = "https://github.com/acme/billing"
 const OTHER = "https://github.com/acme/ledger"
@@ -160,6 +153,8 @@ it(
                   jobId,
                   linkAction,
                   linkGitUrl: `${UNLINKED}.git`,
+                  // Queued while ingestion v2 publishes.
+                  publishPipeline: "v2",
                 },
                 log,
               ),

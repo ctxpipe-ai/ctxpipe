@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm"
 import { withOrgDbContext } from "../db/client.js"
 import { repositories } from "../db/schema/repositories.js"
 import type { IngestionV2Input } from "../domain/ingestion/ingestion-run.js"
+import { ingestionPublishPipeline } from "../domain/ingestion/ingestion-v2-config.js"
 import { normalizeWorkspaceRepositoryUrl } from "../domain/workspaces/slug.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../domain/workspaces/write-status.js"
 import { runWorkflowWithWorkerWake } from "./client.js"
@@ -48,6 +49,7 @@ export async function startIngestionV2Shadow(input: {
     {
       orgId: input.orgId,
       shadow: true,
+      publishPipeline: ingestionPublishPipeline(),
       source: { url, githubConnectionId: repository.githubConnectionId },
       sha: input.sha,
       authorTime: new Date().toISOString(),

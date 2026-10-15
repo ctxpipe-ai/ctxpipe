@@ -20,7 +20,6 @@ import {
   ingestionV2InputSchema,
   ingestionV2Status,
 } from "../../domain/ingestion/ingestion-run.js"
-import { ingestionPublishPipeline } from "../../domain/ingestion/ingestion-v2-config.js"
 import {
   resolveIngestionV2Run,
   withIngestionOrg,
@@ -156,7 +155,7 @@ export function defineRepositoryIngestionV2Workflow(
       )
 
       async function ingest(): Promise<IngestionV2Output> {
-        if (!input.shadow && ingestionPublishPipeline() !== "v2")
+        if (!input.shadow && input.publishPipeline !== "v2")
           // Only a run while the switch is v2 may take files over from the
           // old pipeline and publish.
           throw new Error(
@@ -553,6 +552,7 @@ export function defineRepositoryIngestionV2Workflow(
                     workspaceId,
                     jobId: ingestPublishJobId(run.id, workspaceId),
                     revision,
+                    publishPipeline: input.publishPipeline,
                     ingest: {
                       runId: run.id,
                       tip: assembled,

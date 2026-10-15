@@ -256,6 +256,7 @@ export const workspaceWriteJobs = pgTable.withRLS(
       mirror?: ConnectorMirrorSource
       linkAction?: "link" | "unlink"
       linkGitUrl?: string
+      publishPipeline?: "legacy" | "v2"
       displayName?: string
       defaultBranch?: string
       jobWorkspaceUrl?: string

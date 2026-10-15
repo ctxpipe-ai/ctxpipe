@@ -1,5 +1,6 @@
 import { parseEnv } from "../config/env.js"
 import { assertNotInOrgDbContext, withOrgDbContext } from "../db/client.js"
+import { ingestionPublishPipeline } from "../domain/ingestion/ingestion-v2-config.js"
 import { captureUnbornBootstrapBinding } from "../domain/workspaces/bootstrap-unborn.js"
 import { connectorMirrorContentSchema } from "../domain/workspaces/connector-mirror-input.js"
 import { linkedRepositoryUrlSchema } from "../domain/workspaces/linked-repository-url.js"
@@ -327,6 +328,7 @@ export async function enqueueWriteJob(
           jobId,
           revision,
           extraction: input.extraction,
+          publishPipeline: input.publishPipeline ?? ingestionPublishPipeline(),
         })
         await persistBoundWriteJob({
           admissionStatus,
@@ -334,6 +336,7 @@ export async function enqueueWriteJob(
           kind: input.kind,
           revision,
           extraction: command.extraction,
+          publishPipeline: command.publishPipeline,
         })
         bound = true
         await runWorkflowWithWorkerWake(workspaceExtractIngest.spec, command, {
@@ -422,6 +425,7 @@ export async function enqueueWriteJob(
           revision,
           linkAction: input.linkAction,
           linkGitUrl: input.linkGitUrl,
+          publishPipeline: input.publishPipeline ?? ingestionPublishPipeline(),
         })
         await persistBoundWriteJob({
           admissionStatus,
@@ -430,6 +434,7 @@ export async function enqueueWriteJob(
           revision,
           linkAction: command.linkAction,
           linkGitUrl: command.linkGitUrl,
+          publishPipeline: command.publishPipeline,
         })
         bound = true
         await runWorkflowWithWorkerWake(workspaceLinkUnlink.spec, command, {

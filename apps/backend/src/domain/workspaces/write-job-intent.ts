@@ -1,6 +1,10 @@
 import { z } from "zod"
 import type { GitFileChange } from "../../services/git/file-change.js"
 import { gitFileChangeSchema } from "../../services/git/file-change.js"
+import {
+  type IngestionPublishPipeline,
+  ingestionPublishPipelineSchema,
+} from "../ingestion/ingestion-v2-config.js"
 import type { UnbornBootstrapBinding } from "./bootstrap-input.js"
 import type { ConnectorMirrorSource } from "./connector-mirror-input.js"
 import { connectorMirrorSourceSchema } from "./connector-mirror-input.js"
@@ -54,6 +58,8 @@ export type WorkspaceWriteJobPayload = {
   displayName?: string
   linkAction?: "link" | "unlink"
   linkGitUrl?: string
+  /** The publish pipeline when the job was queued (ADR-052 phase 4). */
+  publishPipeline?: IngestionPublishPipeline
   defaultBranch?: string
   jobWorkspaceUrl?: string
   conflictParentSha?: string | null
@@ -100,6 +106,8 @@ export const workspaceWriteJobInputSchema = writeJobBaseSchema.extend({
   displayName: z.string().trim().min(1).optional(),
   linkAction: z.enum(["link", "unlink"]).optional(),
   linkGitUrl: z.string().min(1).optional(),
+  /** Empty: the enqueue reads the committed switch. */
+  publishPipeline: ingestionPublishPipelineSchema.optional(),
   conflictParentSha: z.string().nullable().optional(),
   remoteTipSha: z.string().nullable().optional(),
   mergeFiles: z.array(gitFileChangeSchema).optional(),
@@ -118,6 +126,7 @@ export type WriteJobEnqueueFields = Pick<
   | "defaultBranch"
   | "linkAction"
   | "linkGitUrl"
+  | "publishPipeline"
   | "jobWorkspaceUrl"
   | "conflictParentSha"
   | "remoteTipSha"
@@ -135,6 +144,7 @@ export function writeJobIntentPayload(
   if (input.displayName !== undefined) payload.displayName = input.displayName
   if (input.linkAction) payload.linkAction = input.linkAction
   if (input.linkGitUrl) payload.linkGitUrl = input.linkGitUrl
+  if (input.publishPipeline) payload.publishPipeline = input.publishPipeline
   if (input.defaultBranch) payload.defaultBranch = input.defaultBranch
   if (input.jobWorkspaceUrl) payload.jobWorkspaceUrl = input.jobWorkspaceUrl
   if (input.conflictParentSha !== undefined) {
@@ -214,6 +224,9 @@ export function enqueueInputFromPausedJob(input: {
     ...(payload.previousSha ? { previousSha: payload.previousSha } : {}),
     ...(payload.linkAction ? { linkAction: payload.linkAction } : {}),
     ...(payload.linkGitUrl ? { linkGitUrl: payload.linkGitUrl } : {}),
+    ...(payload.publishPipeline
+      ? { publishPipeline: payload.publishPipeline }
+      : {}),
     ...(payload.conflictParentSha !== undefined
       ? { conflictParentSha: payload.conflictParentSha }
       : {}),

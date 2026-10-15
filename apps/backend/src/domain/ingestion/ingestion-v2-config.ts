@@ -1,3 +1,4 @@
+import { z } from "zod"
 import { otelDeploymentEnvironment } from "../../observability/otel.js"
 
 /**
@@ -31,8 +32,32 @@ export function ingestionV2ShadowEnabled(): boolean {
  * publishes again and writes `generated_by: ctxpipe` on each file it
  * changes. When it goes back to `v2`, the migration moves those files again.
  */
-export type IngestionPublishPipeline = "legacy" | "v2"
+export const ingestionPublishPipelineSchema = z.enum(["legacy", "v2"])
+export type IngestionPublishPipeline = z.infer<
+  typeof ingestionPublishPipelineSchema
+>
+
+/**
+ * A trigger reads the committed value and puts it in the run input of the
+ * workflow (and in the write job payload). Each step that checks the switch
+ * reads the input. The push step also compares the input with the committed
+ * value at push time: a job that was queued before a switch stops
+ * (`publishPipelineStopped`).
+ */
 
 export function ingestionPublishPipeline(): IngestionPublishPipeline {
   return "legacy"
+}
+
+/**
+ * True when a publish job must not push: the pipeline of the job (`legacy`
+ * for an old extract ingest, `v2` for an ingestion v2 publish), the
+ * pipeline when the job was queued, and the committed value now must agree.
+ */
+export function publishPipelineStopped(input: {
+  job: IngestionPublishPipeline
+  queued: IngestionPublishPipeline
+  committed: IngestionPublishPipeline
+}): boolean {
+  return input.queued !== input.job || input.committed !== input.job
 }

@@ -498,6 +498,8 @@ export async function persistBoundWriteJob(input: {
   admissionStatus?: "queued" | "paused"
   linkAction?: "link" | "unlink"
   linkGitUrl?: string
+  /** Stored for a later resume; not part of the command identity. */
+  publishPipeline?: "legacy" | "v2"
   displayName?: string
   previousSha?: string
   extraction?: WorkspaceExtraction
@@ -519,6 +521,9 @@ export async function persistBoundWriteJob(input: {
         ? { linkAction: input.linkAction, linkGitUrl: input.linkGitUrl }
         : {}),
       ...(input.deletePaths ? { mergeDeletePaths: input.deletePaths } : {}),
+      ...(input.publishPipeline
+        ? { publishPipeline: input.publishPipeline }
+        : {}),
       jobWorkspaceUrl: input.revision.remote.url,
       defaultBranch: input.revision.defaultBranch,
       ...(input.workflowRunId ? { workflowRunId: input.workflowRunId } : {}),
