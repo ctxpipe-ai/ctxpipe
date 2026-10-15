@@ -6,6 +6,7 @@ import {
   getGraphEdgeTypes,
   getGraphNodeKinds,
   isAllowedConnection,
+  isValidGraphEdgeType,
   PREDICATE_DESCRIPTIONS,
 } from "./allowedConnections.js"
 import { CoreNodeType, CoreRelType } from "./core.js"
@@ -78,6 +79,13 @@ describe("ontology consistency (ADR-033)", () => {
     expect(EXTENSION_TRAVERSAL_PREDICATES).not.toContain("DECLARED_IN")
   })
 
+  it("accepts package and repository changes from a pull request", () => {
+    expect(isValidGraphEdgeType("CHANGED")).toBe(true)
+    for (const kind of ["Service", "App", "Library", "Repository"]) {
+      expect(isAllowedConnection("PullRequest", "CHANGED", kind)).toBe(true)
+    }
+  })
+
   it("a pull request resolves an issue; only that direction is allowed", () => {
     expect(isAllowedConnection("PullRequest", "RESOLVES", "Issue")).toBe(true)
     expect(isAllowedConnection("Issue", "RESOLVES", "PullRequest")).toBe(false)
@@ -94,5 +102,23 @@ describe("ontology consistency (ADR-033)", () => {
         true,
       )
     }
+  })
+})
+
+describe("ingestion v2 skill claims (ADR-052 section 6)", () => {
+  it("allows each triple that the skills write", () => {
+    for (const subject of ["Repository", "Service", "App", "Library"])
+      expect(
+        isAllowedConnection(subject, "FOLLOWS", "InstructionUnit"),
+        subject,
+      ).toBe(true)
+    expect(isAllowedConnection("Repository", "USES_LIBRARY", "Library")).toBe(
+      true,
+    )
+    for (const predicate of ["READS_FROM", "WRITES_TO", "DEPENDS_ON"])
+      expect(isAllowedConnection("App", predicate, "Database"), predicate).toBe(
+        true,
+      )
+    expect(isAllowedConnection("App", "RUNS_ON", "Infrastructure")).toBe(true)
   })
 })

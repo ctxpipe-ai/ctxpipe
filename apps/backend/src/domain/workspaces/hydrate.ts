@@ -14,6 +14,7 @@ import {
   referenceLinks,
   WORKSPACE_LINK_SCHEME,
 } from "./mirror-units.js"
+import { pullRequestChangedClaims } from "./pull-request-changes.js"
 import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
 
 export function servingIdForKnowledgePath(
@@ -166,6 +167,13 @@ export function hydrateKnowledgeTree(input: {
     const extra = references.get(unit.path)
     if (extra) unit.links.push(...extra)
   }
+  const changes = pullRequestChangedClaims(
+    units.map((unit) => ({
+      ...unit,
+      attributes: attributes.get(unit.path) ?? {},
+    })),
+  )
+  for (const unit of units) unit.claims.push(...(changes.get(unit.path) ?? []))
 
   // A repository that an earlier entry or the Workspace names is not a skip.
   for (const source of githubSourceRepositories(

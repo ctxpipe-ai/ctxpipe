@@ -1,0 +1,143 @@
+# HTTP and queue clients and config readers for Python. The first line of
+# typescript.yml says how `message` is read.
+id: py-requests
+language: Python
+message: http call requests URL
+rule:
+  any:
+    - pattern: $X.$M($URL)
+    - pattern: $X.$M($URL, $$$A)
+constraints:
+  X:
+    regex: ^(requests|httpx|self\.session|self\._session|session|client|self\.client|self\._client|self\.http|http)$
+  M:
+    regex: ^(get|post|put|patch|delete|head)$
+---
+id: py-urlopen
+language: Python
+message: http call urllib URL
+rule:
+  any:
+    - pattern: urllib.request.urlopen($URL)
+    - pattern: urllib.request.urlopen($URL, $$$A)
+---
+id: py-env
+language: Python
+message: config read os-environ NAME
+rule:
+  any:
+    - pattern: os.getenv($NAME)
+    - pattern: os.getenv($NAME, $$$A)
+    - pattern: os.environ[$NAME]
+    - pattern: os.environ.get($NAME)
+    - pattern: os.environ.get($NAME, $$$A)
+constraints:
+  NAME:
+    all:
+      - regex: (^|_)(URL|URI|HOST|ADDR|ADDRESS|ENDPOINT|BROKERS?|TOPICS?|QUEUES?|STREAMS?|SUBJECT|CHANNEL|SERVICE)(_|["']$)
+      - not:
+          regex: (^|[_"'])(DATABASE|DB|POSTGRES|POSTGRESQL|MYSQL|MONGO|MONGODB|REDIS|SENTRY|OTEL|OTLP)(_|["'])
+---
+id: py-kafka-produce
+language: Python
+message: stream produce kafka T
+rule:
+  any:
+    - pattern: $P.send($T)
+    - pattern: $P.send($T, $$$A)
+    - pattern: $P.produce($T)
+    - pattern: $P.produce($T, $$$A)
+constraints:
+  P:
+    regex: (?i)producer
+---
+id: py-kafka-consume
+language: Python
+message: stream consume kafka T
+rule:
+  any:
+    - pattern: KafkaConsumer($T)
+    - pattern: KafkaConsumer($T, $$$A)
+    - pattern: AIOKafkaConsumer($T)
+    - pattern: AIOKafkaConsumer($T, $$$A)
+---
+id: py-sqs-produce
+language: Python
+message: queue produce sqs Q
+rule:
+  all:
+    - pattern: $S.$M($$$A)
+    - has:
+        stopBy: end
+        pattern:
+          context: f(QueueUrl=$Q)
+          selector: keyword_argument
+constraints:
+  M:
+    regex: ^(send_message|send_message_batch)$
+---
+id: py-sqs-consume
+language: Python
+message: queue consume sqs Q
+rule:
+  all:
+    - pattern: $S.receive_message($$$A)
+    - has:
+        stopBy: end
+        pattern:
+          context: f(QueueUrl=$Q)
+          selector: keyword_argument
+---
+id: py-sns-produce
+language: Python
+message: stream produce sns Q
+rule:
+  all:
+    - pattern: $S.$M($$$A)
+    - has:
+        stopBy: end
+        pattern:
+          context: f(TopicArn=$Q)
+          selector: keyword_argument
+constraints:
+  M:
+    regex: ^(publish|publish_batch)$
+---
+id: py-kinesis-produce
+language: Python
+message: stream produce kinesis Q
+rule:
+  all:
+    - pattern: $S.$M($$$A)
+    - has:
+        stopBy: end
+        pattern:
+          context: f(StreamName=$Q)
+          selector: keyword_argument
+constraints:
+  M:
+    regex: ^(put_record|put_records)$
+---
+id: py-pika-produce
+language: Python
+message: queue produce amqp Q
+rule:
+  all:
+    - pattern: $C.basic_publish($$$A)
+    - has:
+        stopBy: end
+        pattern:
+          context: f(routing_key=$Q)
+          selector: keyword_argument
+---
+id: py-pika-consume
+language: Python
+message: queue consume amqp Q
+rule:
+  all:
+    - pattern: $C.basic_consume($$$A)
+    - has:
+        stopBy: end
+        pattern:
+          context: f(queue=$Q)
+          selector: keyword_argument

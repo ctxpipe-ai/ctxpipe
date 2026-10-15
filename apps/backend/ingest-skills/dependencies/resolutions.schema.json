@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "dependencies resolutions (written by the model)",
+  "type": "object",
+  "required": ["resolutions"],
+  "properties": {
+    "resolutions": {
+      "type": "array",
+      "maxItems": 300,
+      "items": {
+        "type": "object",
+        "required": ["id", "kind"],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": ["service", "api", "stream", "ignore"]
+          },
+          "path": {
+            "type": "string",
+            "description": "A context file: Service, API or Operation, or Stream."
+          },
+          "name": {
+            "type": "string",
+            "description": "A new stream name, when no Stream file exists.",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,99}$"
+          },
+          "direction": {
+            "enum": ["produce", "consume"],
+            "description": "Only for a config candidate."
+          },
+          "root": {
+            "type": "string",
+            "description": "The root of the candidate. Only in the repository-wide step (no --path)."
+          }
+        }
+      }
+    }
+  }
+}
