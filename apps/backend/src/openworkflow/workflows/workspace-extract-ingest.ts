@@ -4,6 +4,10 @@ import { isConnectorMirrorPath } from "../../domain/codeIngestion/connectorMirro
 import { planStoredExtraction } from "../../domain/workspaces/captured-extraction.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import { workspaceExtractionSchema } from "../../domain/workspaces/extraction.js"
+import {
+  ingestPublishSourceSchema,
+  readIngestPublishChanges,
+} from "../../domain/workspaces/extraction-source.js"
 import { isLinkedRepositoryDeclaration } from "../../domain/workspaces/layout.js"
 import {
   sameWorkspaceRevision,
@@ -53,7 +57,13 @@ export const workspaceExtractIngestInputSchema = z
     workspaceId: z.string().min(1),
     jobId: z.string().min(1),
     revision: workspaceRevisionSchema,
-    extraction: workspaceExtractionSchema,
+    /** The old pipeline: a stored extraction capture. */
+    extraction: workspaceExtractionSchema.optional(),
+    /**
+     * Ingestion v2 (ADR-052 section 6, T21): the assembled ref tip of a run.
+     * `revision.sha` is the run's pinned revision.
+     */
+    ingest: ingestPublishSourceSchema.optional(),
   })
   .strict()
   .refine(
@@ -61,6 +71,11 @@ export const workspaceExtractIngestInputSchema = z
       input.workspaceId === input.revision.workspaceId &&
       input.revision.access === "write-default",
     "A write-default revision for the matching workspace is required",
+  )
+  .refine(
+    (input) =>
+      (input.extraction === undefined) !== (input.ingest === undefined),
+    "An extraction or an ingestion v2 source is required, not both",
   )
 
 export const workspaceExtractIngest = defineWorkflow(
@@ -97,19 +112,27 @@ export const workspaceExtractIngest = defineWorkflow(
             revision: input.revision,
             workflowRunId: run.id,
             extraction: input.extraction,
+            ingest: input.ingest,
           }),
         )
-        const identity = await step.run(
-          { name: "load-extraction-path-identity" },
-          () => loadExtractionPathIdentity(input.revision),
-        )
+        const identity = input.extraction
+          ? await step.run({ name: "load-extraction-path-identity" }, () =>
+              loadExtractionPathIdentity(input.revision),
+            )
+          : null
         for (let refreshAttempt = 0; refreshAttempt < 3; refreshAttempt++) {
           let acquired: NonNullable<
             Awaited<ReturnType<typeof acquireWorkspaceWriteRevision>>
           >
           for (;;) {
             const candidate = await step.run({ name: "acquire-revision" }, () =>
-              acquireWorkspaceWriteRevision(input, revision, env),
+              // An ingestion v2 publish also fetches the assembled tip.
+              acquireWorkspaceWriteRevision(
+                input,
+                revision,
+                env,
+                input.ingest?.tip,
+              ),
             )
             if (candidate) {
               acquired = candidate
@@ -126,6 +149,18 @@ export const workspaceExtractIngest = defineWorkflow(
           const transformed = await step.run(
             { name: "transform-extract-ingest" },
             async () => {
+              if (input.ingest)
+                return {
+                  ...(await readIngestPublishChanges(
+                    acquired.pack,
+                    revision.sha,
+                    input.ingest,
+                  )),
+                  knowledgePaths: {} as Record<string, string>,
+                }
+              if (!input.extraction || !identity)
+                throw new Error("The extraction command has no capture")
+              const extraction = input.extraction
               const existingKnowledge = await readGitFiles(
                 acquired.pack,
                 (path) => path.endsWith(".md") && !isConnectorMirrorPath(path),
@@ -133,7 +168,7 @@ export const workspaceExtractIngest = defineWorkflow(
               const plan = await planStoredExtraction({
                 ...identity,
                 orgId: input.orgId,
-                extraction: input.extraction,
+                extraction,
                 workspaceId: input.workspaceId,
                 workspaceRepositoryUrl: revision.remote.url,
                 existingKnowledge,
@@ -145,21 +180,34 @@ export const workspaceExtractIngest = defineWorkflow(
                 (file) =>
                   !file.path.startsWith(".agents/") &&
                   (!isLinkedRepositoryDeclaration(file.path) ||
-                    file.path === input.extraction.sourceDeclaration?.path) &&
+                    file.path === extraction.sourceDeclaration?.path) &&
                   !isConnectorMirrorPath(file.path) &&
                   existing.get(file.path) !== file.content,
               )
-              return { files, knowledgePaths: plan.knowledgePaths }
+              return {
+                files,
+                deletePaths: [] as string[],
+                knowledgePaths: plan.knowledgePaths,
+              }
             },
           )
-          await step.run({ name: "record-knowledge-paths" }, () =>
-            persistWriteJobKnowledgePaths(
-              input.jobId,
-              transformed.knowledgePaths,
-            ),
-          )
-          const files = transformed.files
-          if (!files.length) {
+          if (input.extraction)
+            await step.run({ name: "record-knowledge-paths" }, () =>
+              persistWriteJobKnowledgePaths(
+                input.jobId,
+                transformed.knowledgePaths,
+              ),
+            )
+          const { files, deletePaths } = transformed
+          if (!files.length && !deletePaths.length && input.ingest) {
+            // The delta is from the pinned revision, so a later tip cannot
+            // add to it: there is nothing to confirm.
+            await step.run({ name: "complete-no-op" }, () =>
+              persistWriteJobStatus(input.jobId, "completed"),
+            )
+            return { committed: false as const, reason: "no_changes" as const }
+          }
+          if (!files.length && !deletePaths.length) {
             const refreshed = await step.run({ name: "confirm-no-op" }, () =>
               refreshWorkspaceWriteRevision(input, revision, env),
             )
@@ -176,20 +224,25 @@ export const workspaceExtractIngest = defineWorkflow(
             }
           }
           const staged = await step.run({ name: "stage" }, () =>
-            stageGitFiles(acquired.pack, files),
+            stageGitFiles(acquired.pack, files, deletePaths),
           )
           await step.run({ name: "validate" }, () =>
-            validateGitTree(
-              staged,
-              files.map((file) => file.path),
-            ),
+            validateGitTree(staged, [
+              ...files.map((file) => file.path),
+              ...deletePaths,
+            ]),
           )
-          const subject = await step.run({ name: "commit-subject" }, () =>
-            generateCommitSubject({
-              repoName: repositoryName.split("/")[1] ?? repositoryName,
-              trigger: "extract_ingest",
-              fileNames: files.map((file) => file.path),
-            }),
+          const subject = await step.run(
+            { name: "commit-subject" },
+            async () =>
+              input.ingest
+                ? // A fixed message: the same run makes the same commit.
+                  `Update extracted knowledge\n\nCtxpipe-Run: ${input.ingest.runId}`
+                : generateCommitSubject({
+                    repoName: repositoryName.split("/")[1] ?? repositoryName,
+                    trigger: "extract_ingest",
+                    fileNames: files.map((file) => file.path),
+                  }),
           )
           const committed = await step.run({ name: "commit" }, async () => {
             const pack = await commitGitTree(staged, {

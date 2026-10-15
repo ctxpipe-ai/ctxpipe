@@ -8,6 +8,7 @@ import {
   type WorkspaceExtraction,
   workspaceExtractionSchema,
 } from "./extraction.js"
+import type { IngestPublishSource } from "./extraction-source.js"
 import type { WorkspaceRevision } from "./revision.js"
 import type { WorkspaceWriteKind } from "./write-jobs.js"
 import { shouldEnqueueWorkspaceWriteJob } from "./write-jobs.js"
@@ -40,6 +41,8 @@ export type WorkspaceWritePlanning = {
 export type WorkspaceWriteJobPayload = {
   bootstrapBinding?: UnbornBootstrapBinding
   extraction?: WorkspaceExtraction
+  /** An ingestion v2 publish (T21): the run and its assembled tip. */
+  ingest?: IngestPublishSource
   revision?: WorkspaceRevision
   planning?: WorkspaceWritePlanning
   workflowRunId?: string
