@@ -37,7 +37,6 @@ const shared = {
     onConfirm: () => {},
   },
   workspace: "acme",
-  scope: "12 repositories",
   actionLabel: "Link to a workspace",
   onAction: () => {},
 }
@@ -62,7 +61,6 @@ export const PendingSetup: Story = {
     ...shared,
     health: "setup_pending",
     workspace: "—",
-    scope: "0 selected items",
     actionLabel: "Complete GitHub install",
   },
   play: async ({ canvasElement }) => {
@@ -169,7 +167,6 @@ export const Checking: Story = {
     ...shared,
     health: "checking",
     workspace: "—",
-    scope: "—",
     actionLabel: undefined,
     onAction: undefined,
   },

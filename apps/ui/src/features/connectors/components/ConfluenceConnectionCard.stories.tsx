@@ -353,8 +353,9 @@ export const InstalledNotInWorkspaces: Story = {
     await userEvent.click(
       canvas.getByRole("button", { name: "Expand Atlassian Confluence" }),
     )
-    await canvas.findByText("Set in each Workspace")
     await canvas.findByText("No Workspaces yet")
+    // Each Workspace has its own scope, so the card shows none (ADR-050).
+    await expect(canvas.queryAllByText("Scope")).toHaveLength(0)
     expect(
       canvas.getByRole("button", { name: "Add to a Workspace" }),
     ).toBeVisible()

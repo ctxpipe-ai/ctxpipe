@@ -32,10 +32,6 @@ export function connectorHealthLabel(health: ConnectorHealth): string {
   }
 }
 
-export function formatSelectedItemCount(count: number): string {
-  return `${count} selected item${count === 1 ? "" : "s"}`
-}
-
 /**
  * `draft` comes from the server: the row never finished setup. A row that is
  * not a draft and not connected (revoked, uninstalled, or not linked for this
