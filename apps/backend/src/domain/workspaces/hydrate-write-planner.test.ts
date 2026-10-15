@@ -18,10 +18,7 @@ const revision: WorkspaceRevision = {
 const declaration = (git: string, branch?: string) =>
   `---\ngit: ${git}\n${branch ? `branch: ${branch}\n` : ""}---\n`
 
-function plan(
-  files: Array<{ path: string; content: string }>,
-  sourcesFile: string | null,
-) {
+function plan(files: Array<{ path: string; content: string }>) {
   const bootstrapped = bootstrapWorkspaceFiles({
     displayName: "Knowledge",
     existing: new Map(),
@@ -30,26 +27,22 @@ function plan(
     revision,
     displayName: "Knowledge",
     files: [...bootstrapped, ...files],
-    sourcesFile,
-  }).filter((requirement) => requirement.kind === "link_unlink")
+  })
 }
 
 describe("planHydrateWrites: repository files of ADR-050", () => {
-  it("plans no link edit for repository files (the conversion moves them)", () => {
+  it("plans no write for repository files (the conversion moves them)", () => {
     expect(
-      plan(
-        [
-          {
-            path: "repositories/web.md",
-            content: declaration("https://github.com/Acme/Web.git", "stable"),
-          },
-          {
-            path: "repositories/api.md",
-            content: declaration("https://github.com/acme/api"),
-          },
-        ],
-        null,
-      ),
+      plan([
+        {
+          path: "repositories/web.md",
+          content: declaration("https://github.com/Acme/Web.git", "stable"),
+        },
+        {
+          path: "repositories/api.md",
+          content: declaration("https://github.com/acme/api"),
+        },
+      ]),
     ).toEqual([])
   })
 })

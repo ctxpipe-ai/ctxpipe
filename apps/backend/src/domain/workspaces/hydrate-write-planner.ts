@@ -24,16 +24,12 @@ export type HydrateWriteRequirement =
       previousSha?: string
     }
   | { kind: "rename_rewrite"; remainder: number; previousSha: string }
-  /** Moves the GitHub `repositories/*.md` files into the sources file. */
-  | { kind: "link_unlink"; remainder: number; linkGitUrl: string }
 
 /** Plan from committed files, before hydrate supplies derived valid_from values. */
 export function planHydrateWrites(input: {
   revision: WorkspaceRevision
   displayName: string
   files: Array<{ path: string; content: string }>
-  /** The text of `.ctxpipe/sources.yaml`, or null. */
-  sourcesFile?: string | null
 }): HydrateWriteRequirement[] {
   if (!githubRepoFullNameFromWorkspaceUrl(input.revision.remote.url)) return []
   const { units } = hydrateKnowledgeTree({
