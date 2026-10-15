@@ -24,7 +24,10 @@ import {
   resolveIngestionV2Run,
   withIngestionOrg,
 } from "../../domain/ingestion/ingestion-v2-resolve.js"
-import { resolveSemanticConflicts } from "../../domain/workspaces/semantic-merge.js"
+import {
+  resolveIngestConflicts,
+  SemanticResolveError,
+} from "../../domain/workspaces/semantic-merge.js"
 import {
   deleteWorkspaceIngestRefs,
   pushWorkspaceIngestAssemble,
@@ -75,11 +78,11 @@ import { workspaceExtractIngest } from "./workspace-extract-ingest.js"
  * validator; a rejected merge publishes nothing and makes the Workspace
  * `partial`. A `partial` Workspace publishes its accepted ops, but the
  * deletes of a failed root stay out: a failed root gets no retraction. A
- * refused assemble publishes the run base. A publish that fails (the
- * semantic merge model fails, or the default branch wins each push race)
- * also makes the Workspace `partial`, and the other Workspaces publish. Then
- * `delete-refs` deletes the run's refs, but not the refs of a failed
- * publish. The tip check deletes the refs that stay (the run is then
+ * refused assemble publishes the run base; so does an assemble whose merge
+ * model fails. A publish that fails (the merge model fails, or the default
+ * branch wins each push race) also makes the Workspace `partial`, and the
+ * other Workspaces publish. Then `delete-refs` deletes the run's refs, but
+ * not the refs of a Workspace whose merge model or publish failed. The tip check deletes the refs that stay (the run is then
  * finished and not a shadow run).
  */
 
@@ -332,6 +335,12 @@ export function defineRepositoryIngestionV2Workflow(
           shardOutputs.push(...settled)
         }
 
+        /**
+         * The Workspaces whose merge model failed (at assemble or publish),
+         * or whose publish lost each push race: their refs stay for the
+         * tip check.
+         */
+        const keepRefs = new Set<string>()
         const workspaces: Extract<
           IngestionV2Output,
           { workspaces: unknown }
@@ -352,7 +361,7 @@ export function defineRepositoryIngestionV2Workflow(
             },
             async (): Promise<
               | { tip: string; ops: number }
-              | { tip: null; ops: 0; refused: string }
+              | { tip: null; ops: 0; refused: string; keepRefs?: true }
             > => {
               try {
                 const result = await withIngestionOrg(input.orgId, () =>
@@ -382,7 +391,7 @@ export function defineRepositoryIngestionV2Workflow(
                       // Two shards that change one path: the semantic
                       // merge, whose files the patch validator checks.
                       semanticMerge: {
-                        resolve: resolveSemanticConflicts,
+                        resolve: resolveIngestConflicts,
                         source: { url: input.source.url, sha: input.sha },
                         sourcePathExists: (path) =>
                           ingestSourceTree({
@@ -407,7 +416,11 @@ export function defineRepositoryIngestionV2Workflow(
                 )
                 return { tip: result.sha, ops: result.ops }
               } catch (error) {
-                if (!(error instanceof IngestRefRefusedError)) throw error
+                // A failed merge model is a refused assemble too, but the
+                // run keeps the refs of the Workspace.
+                const failed = error instanceof SemanticResolveError
+                if (!(error instanceof IngestRefRefusedError) && !failed)
+                  throw error
                 getLogger().warn("ingestion-v2.partial", {
                   step: assembleStep,
                   workspaceId: destination.workspaceId,
@@ -417,10 +430,12 @@ export function defineRepositoryIngestionV2Workflow(
                   tip: null,
                   ops: 0,
                   refused: error.message.slice(0, 300),
+                  ...(failed ? { keepRefs: true as const } : {}),
                 }
               }
             },
           )
+          if ("keepRefs" in assembled) keepRefs.add(destination.workspaceId)
           const firstPart = first.find(
             (w) => w.workspaceId === destination.workspaceId,
           )
@@ -476,8 +491,6 @@ export function defineRepositoryIngestionV2Workflow(
 
         await release()
 
-        /** The Workspaces whose publish failed: their refs stay. */
-        const failedPublish = new Set<string>()
         if (!input.shadow)
           for (const destination of destinations) {
             const { workspaceId } = destination
@@ -537,7 +550,7 @@ export function defineRepositoryIngestionV2Workflow(
                   ? published.commitSha
                   : null
                 if (!published.committed && published.reason === "failed")
-                  failedPublish.add(workspaceId)
+                  keepRefs.add(workspaceId)
                 if (
                   !published.committed &&
                   (published.reason === "refused" ||
@@ -569,7 +582,7 @@ export function defineRepositoryIngestionV2Workflow(
         // publish.
         if (!input.shadow)
           for (const { workspaceId, generation } of destinations.filter(
-            (d) => !failedPublish.has(d.workspaceId),
+            (d) => !keepRefs.has(d.workspaceId),
           ))
             await step.run(
               {

@@ -17,6 +17,26 @@ const resolutionSchema = z
   })
   .strict()
 
+/** The merge model gave no usable resolution (timeout, size, or schema). */
+export class SemanticResolveError extends Error {
+  constructor(message: string) {
+    super(`The semantic merge failed: ${message}`)
+    this.name = "SemanticResolveError"
+  }
+}
+
+/**
+ * The resolver of an ingestion v2 merge: each failure is a
+ * `SemanticResolveError`, so the caller can make the Workspace `partial`.
+ */
+export function resolveIngestConflicts(conflicts: GitMergeConflict[]) {
+  return resolveSemanticConflicts(conflicts).catch((error: unknown) => {
+    throw new SemanticResolveError(
+      error instanceof Error ? error.message : String(error),
+    )
+  })
+}
+
 /**
  * Ask the model to resolve overlapping three-way conflicts. Its output is
  * data: a schema-checked replacement for exactly the conflicting paths, which

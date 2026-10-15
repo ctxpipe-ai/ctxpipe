@@ -15,7 +15,10 @@ import {
   sameWorkspaceRevision,
   workspaceRevisionSchema,
 } from "../../domain/workspaces/revision.js"
-import { resolveSemanticConflicts } from "../../domain/workspaces/semantic-merge.js"
+import {
+  resolveIngestConflicts,
+  SemanticResolveError,
+} from "../../domain/workspaces/semantic-merge.js"
 import {
   attemptWorkspaceCommit,
   captureSemanticHandoff,
@@ -55,9 +58,6 @@ import { workspaceSemanticMerge } from "./workspace-semantic-merge.js"
 export function extractionHydrateKey(jobId: string): string {
   return `${jobId}:hydrate`
 }
-
-/** The semantic merge model failed (timeout, size, or a schema mismatch). */
-class SemanticResolveError extends Error {}
 
 export const workspaceExtractIngestInputSchema = z
   .object({
@@ -177,16 +177,7 @@ export const workspaceExtractIngest = defineWorkflow(
                         withheldRoots: ingest.withheldRoots,
                         bundle: ingest.bundle,
                         semanticMerge: {
-                          resolve: (conflicts) =>
-                            resolveSemanticConflicts(conflicts).catch(
-                              (error: unknown) => {
-                                throw new SemanticResolveError(
-                                  error instanceof Error
-                                    ? error.message
-                                    : String(error),
-                                )
-                              },
-                            ),
+                          resolve: resolveIngestConflicts,
                           source: { url: source.url, sha: sourceSha },
                           sourcePathExists: (path) => sourceTree().exists(path),
                           readSourceFile: (path) => sourceTree().read(path),
@@ -205,11 +196,7 @@ export const workspaceExtractIngest = defineWorkflow(
                   // keeps the refs.
                   if (error instanceof SemanticResolveError)
                     return {
-                      failed:
-                        `The semantic merge failed: ${error.message}`.slice(
-                          0,
-                          300,
-                        ),
+                      failed: error.message.slice(0, 300),
                     }
                   throw error
                 } finally {
