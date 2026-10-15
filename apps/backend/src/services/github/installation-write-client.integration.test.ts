@@ -6,7 +6,7 @@ import {
   githubTokenHandlers,
   insertGithubConnection,
   stubGithubApp,
-} from "../../../test/ingest-github.js"
+} from "../../test/ingest-github.js"
 import { useMswServer } from "../../../test/msw.js"
 import { parseEnv } from "../../config/env.js"
 import {
