@@ -167,6 +167,8 @@ The CTX-586 design v2 sets the limits below. The code is different, and we accep
 | `list_files` | A size for each entry | A size for knowledge unit files only | The codesearch glob gives no file size. |
 | `list_files` | `glob` filter | With `glob`, only matching files are listed, not folders | A folder list does not help to find files by pattern, and it costs context. |
 | `list_workspaces` | Description from the Workspace `AGENTS.md` | Read from the published index checkout through codesearch; omitted when the checkout is not indexed or codesearch fails | The projection does not keep `AGENTS.md`. The description is optional, so the call does not fail. |
+| `search_code` | `pathGlob` for text and structural modes | One meaning in every mode: a gitignore-style glob. A glob with no `/` matches at any depth; a glob with a `/` starts at the repository root. A `!` negation gives `invalid_argument`. | Zoekt and ast-grep must give the same files for one glob. |
+| `list_workspaces` | Detail mode lists all repositories | Detail mode lists 50 repositories for each page and gives a `cursor` for the next page. The header holds at most 10 sources and 10 unit kinds; the rest is a count (`sourcesNotShown`, `unitKindsNotShown`). A title is cut at 60 characters. A repository handle is never cut. | The detail page must stay inside 600 tokens. |
 | `find_symbol` | `language` input | The file extension decides, else the SCIP indexer scheme. With `language`, each repository gives its full 200 rows before the filter | Codesearch has no language filter for SCIP. |
 
 ## Consequences

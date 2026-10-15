@@ -221,6 +221,50 @@ export function pathGlobRegex(glob: string): string {
   return `^${out}$`
 }
 
+/**
+ * Check a `pathGlob` of `search_code`. It is a gitignore-style glob: a glob
+ * with no `/` matches at any depth, and a glob with a `/` starts at the
+ * repository root. A `!` negation is not allowed in any mode.
+ */
+export function checkPathGlob(glob: string): string {
+  if (glob.startsWith("!")) {
+    throw new McpToolError(
+      "invalid_argument",
+      "pathGlob does not allow a ! negation. Search the paths that you want.",
+    )
+  }
+  return glob
+}
+
+/**
+ * A regex query goes inside `(...)`, so that `file:` and `case:` apply to
+ * the whole query. A query with an unbalanced parenthesis, or a trailing
+ * backslash, could close the group early or escape it, so it is rejected.
+ */
+function checkRegex(query: string): string {
+  let open = 0
+  let escaped = false
+  let inClass = false
+  for (const char of query) {
+    if (escaped) escaped = false
+    else if (char === "\\") escaped = true
+    else if (inClass) inClass = char !== "]"
+    else if (char === "[") inClass = true
+    else if (char === "(") open += 1
+    else if (char === ")") {
+      open -= 1
+      if (open < 0) break
+    }
+  }
+  if (open !== 0 || escaped || inClass) {
+    throw new McpToolError(
+      "invalid_argument",
+      "query: the regex has an unbalanced ( ), [ ], or a trailing backslash.",
+    )
+  }
+  return query
+}
+
 /** One file of a Zoekt answer, with its matching lines. */
 export type CodeFileMatches = {
   repository: string
@@ -255,7 +299,15 @@ export async function searchCodeText(
   )
   const atoms = [
     ...(input.pathGlob
-      ? [`file:${zoektLiteralQuery(pathGlobRegex(input.pathGlob))}`]
+      ? [
+          `file:${zoektLiteralQuery(
+            pathGlobRegex(
+              checkPathGlob(input.pathGlob).includes("/")
+                ? input.pathGlob
+                : `**/${input.pathGlob}`,
+            ),
+          )}`,
+        ]
       : []),
     ...(input.caseSensitive === undefined
       ? []
@@ -265,7 +317,7 @@ export async function searchCodeText(
     input.mode === "literal"
       ? zoektLiteralQuery(input.query)
       : atoms.length > 0
-        ? `(${input.query})`
+        ? `(${checkRegex(input.query)})`
         : input.query
   let found: Awaited<ReturnType<typeof codeSearch>> = []
   if (scope.repositories.length > 0) {

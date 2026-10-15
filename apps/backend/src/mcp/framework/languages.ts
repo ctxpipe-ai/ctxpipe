@@ -14,7 +14,7 @@ const LANGUAGES: Record<string, { name: string; extensions: string[] }> = {
   ruby: { name: "Ruby", extensions: ["rb"] },
   csharp: { name: "C#", extensions: ["cs"] },
   c: { name: "C", extensions: ["c", "h"] },
-  cpp: { name: "C++", extensions: ["cc", "cpp", "cxx", "hpp", "hh"] },
+  cpp: { name: "C++", extensions: ["cc", "cpp", "cxx", "hpp", "hh", "h"] },
   swift: { name: "Swift", extensions: ["swift"] },
   php: { name: "PHP", extensions: ["php"] },
 }
@@ -88,6 +88,9 @@ export function inLanguage(
   if (item.path) {
     // TypeScript indexes JavaScript too: the extension decides.
     const pathKey = keyOfPath(item.path)
+    // A `.h` header can be C or C++: it is in both.
+    if (extensionOf(item.path) === "h" && (key === "c" || key === "cpp"))
+      return true
     if (pathKey) return pathKey === key
   }
   const scheme = item.symbol?.split(" ", 1)[0]

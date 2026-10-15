@@ -184,7 +184,7 @@ export const listFilesTool = defineMcpReadTool({
       .boolean()
       .optional()
       .describe(
-        "The folder has more entries than one listing holds, or an entry was cut.",
+        "The folder has more entries than one listing holds, an entry was cut, or with glob, files may lie deeper than depth.",
       ),
     cursor: z.string().optional(),
   }),
@@ -255,6 +255,17 @@ export const listFilesTool = defineMcpReadTool({
     if (input.glob) {
       const match = new RegExp(pathGlobRegex(input.glob))
       const prefix = folder ? `${folder}/` : ""
+      // A folder at the last level may hold files that the depth hides. Show
+      // the miss with `truncated`.
+      if (
+        entries.some(
+          (entry) =>
+            entry.type === "dir" &&
+            entry.path.slice(prefix.length).split("/").length >= input.depth,
+        )
+      ) {
+        listTruncated = true
+      }
       entries = entries.filter(
         (entry) =>
           entry.type === "file" && match.test(entry.path.slice(prefix.length)),

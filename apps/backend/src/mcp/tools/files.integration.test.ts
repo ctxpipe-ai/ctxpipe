@@ -674,6 +674,109 @@ describe("read_file and list_files (Postgres + msw codesearch + MCP SDK Client)"
       ).toBe("invalid_argument")
     })
 
+    describe("front matter size", () => {
+      const insertUnit = async (
+        path: string,
+        body: string,
+        claimCount: number,
+      ) => {
+        const servingId = generateObjectId("wku")
+        await withOrgDbContext(seed.orgId, (db) =>
+          db.insert(workspaceKnowledgeUnits).values({
+            servingId,
+            orgId: seed.orgId,
+            workspaceId: paymentsId,
+            path,
+            body,
+            projectionSha: sha2,
+            kind: "Standard",
+            title: "T".repeat(5_000),
+            source: "authored",
+            updatedAt: new Date("2026-09-01T00:00:00Z"),
+            claims: Array.from({ length: claimCount }, (_, index) => ({
+              to: `knowledge/${"t".repeat(5_000)}-${index}.md`,
+              predicate: "APPLIES_TO",
+              confidence: 0.9,
+              validFrom: null,
+              validTo: null,
+              source: "s".repeat(5_000),
+            })),
+          }),
+        )
+        return servingId
+      }
+      const remove = (servingId: string) =>
+        withOrgDbContext(seed.orgId, (db) =>
+          db
+            .delete(workspaceKnowledgeUnits)
+            .where(eq(workspaceKnowledgeUnits.servingId, servingId)),
+        )
+
+      it("cuts a long title and long claim strings, and keeps the front matter", async () => {
+        const id = await insertUnit("knowledge/long-title.md", "Body.\n", 3)
+        try {
+          const result = await call("read_file", {
+            ref: "knowledge/long-title.md",
+          })
+          const frontMatter = result.structuredContent?.frontMatter as {
+            title: string
+            claims: Array<{ to: string; source: string }>
+          }
+          expect(frontMatter.title).toHaveLength(200)
+          expect(frontMatter.claims).toHaveLength(3)
+          for (const claim of frontMatter.claims) {
+            expect(claim.to.length).toBeLessThanOrEqual(200)
+            expect(claim.source.length).toBeLessThanOrEqual(200)
+          }
+          expect(result.structuredContent?.content).toBe("Body.")
+        } finally {
+          await remove(id)
+        }
+      })
+
+      it("leaves out front matter that is still too large, and a page walk moves forward", async () => {
+        const body = Array.from(
+          { length: 40 },
+          (_, index) => `${index} ${"w".repeat(2_000)}`,
+        ).join("\n")
+        const id = await insertUnit("knowledge/huge-front-matter.md", body, 20)
+        try {
+          let startLine: number | null = 1
+          let pages = 0
+          const seen: number[] = []
+          while (startLine !== null) {
+            const result = await call("read_file", {
+              ref: "knowledge/huge-front-matter.md",
+              startLine,
+            })
+            expect(result.isError).toBeFalsy()
+            const page = result.structuredContent as {
+              content: string
+              startLine: number
+              nextStartLine: number | null
+              frontMatterOmitted?: boolean
+            }
+            if (pages === 0) {
+              expect(page.frontMatterOmitted).toBe(true)
+              expect(page).not.toHaveProperty("frontMatter")
+            }
+            expect(page.content.length).toBeGreaterThan(0)
+            if (page.nextStartLine !== null) {
+              expect(page.nextStartLine).toBeGreaterThan(startLine)
+            }
+            seen.push(page.startLine)
+            startLine = page.nextStartLine
+            pages += 1
+            expect(pages).toBeLessThan(50)
+          }
+          expect(pages).toBeGreaterThan(1)
+          expect(new Set(seen).size).toBe(seen.length)
+        } finally {
+          await remove(id)
+        }
+      })
+    })
+
     it("fits lines full of quotes and backslashes in the hard cap, and loses no line in a page walk", async () => {
       const lines: string[] = []
       let startLine: number | null = 1
@@ -892,6 +995,17 @@ describe("read_file and list_files (Postgres + msw codesearch + MCP SDK Client)"
           globbed.structuredContent as { entries: Array<{ path: string }> }
         ).entries.map((entry) => entry.path),
       ).toEqual(["src/limits.ts"])
+      expect(globbed.structuredContent).not.toHaveProperty("truncated")
+      // A folder at the last level may hold files that the depth hides.
+      const shallow = await call("list_files", {
+        repository: handle("payments-api"),
+        depth: 1,
+        glob: "**/*.ts",
+      })
+      expect(shallow.structuredContent).toMatchObject({
+        entries: [],
+        truncated: true,
+      })
       const src = await call("list_files", {
         repository: handle("payments-api"),
         path: "src",

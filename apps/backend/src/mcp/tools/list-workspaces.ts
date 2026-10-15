@@ -41,17 +41,21 @@ const PAGE_SIZE = 100
 /** Repositories in one page of detail mode (ADR-051 §5). */
 const REPOSITORY_PAGE_SIZE = 50
 
+/** Sources and unit kinds that the detail header lists; the rest is a count. */
+const MAX_HEADER_ITEMS = 10
+
 /**
  * The first paragraph of a Workspace `AGENTS.md`, on one line, at most 300
  * characters. Headings, comments, tables and code fences are not a
  * description.
  */
 export function agentsDescription(markdown: string): string | null {
-  const { body } = parseSimpleFrontMatter(markdown)
-  for (const block of body.split(/\r?\n\s*\r?\n/)) {
+  const { body } = parseSimpleFrontMatter(markdown.slice(0, 16 * 1024))
+  const withoutComments = body.replace(/<!--[\s\S]*?(-->|$)/g, "")
+  for (const block of withoutComments.split(/\r?\n\s*\r?\n/)) {
     const text = block
       .split(/\r?\n/)
-      .filter((line) => !/^\s*(#|<!--|\||```|>)/.test(line))
+      .filter((line) => !/^\s*(#|\||```|>)/.test(line))
       .join(" ")
       .replace(/\s+/g, " ")
       .trim()
@@ -189,6 +193,16 @@ export const listWorkspaces = defineMcpReadTool({
       .record(z.string(), z.number().int())
       .optional()
       .describe("Knowledge units of the served revision, for each kind."),
+    unitKindsNotShown: z
+      .number()
+      .int()
+      .optional()
+      .describe("Kinds of units that units leaves out."),
+    sourcesNotShown: z
+      .number()
+      .int()
+      .optional()
+      .describe("Sources that sources leaves out."),
     sources: z
       .array(
         z.object({
@@ -271,7 +285,7 @@ export const listWorkspaces = defineMcpReadTool({
         : {
             org: org.slug,
             workspace: resolved.slug,
-            title: resolved.title,
+            title: truncateText(resolved.title, 60),
             ...(description ? { description } : {}),
             served: resolved.served,
             readiness: {
@@ -280,8 +294,19 @@ export const listWorkspaces = defineMcpReadTool({
               graph: storeKind("graph"),
               index: storeKind("index"),
             },
-            units,
-            sources,
+            units: Object.fromEntries(
+              Object.entries(units).slice(0, MAX_HEADER_ITEMS),
+            ),
+            ...(Object.keys(units).length > MAX_HEADER_ITEMS
+              ? {
+                  unitKindsNotShown:
+                    Object.keys(units).length - MAX_HEADER_ITEMS,
+                }
+              : {}),
+            sources: sources.slice(0, MAX_HEADER_ITEMS),
+            ...(sources.length > MAX_HEADER_ITEMS
+              ? { sourcesNotShown: sources.length - MAX_HEADER_ITEMS }
+              : {}),
             skipped: invalid
               ? [{ workspace: resolved.slug, reason: "invalid_url" as const }]
               : [],
@@ -296,6 +321,8 @@ export const listWorkspaces = defineMcpReadTool({
         offset: cursor ? decodeCursor(cursor, binding) : 0,
         limit: REPOSITORY_PAGE_SIZE,
         maxTokens: 600,
+        // A handle is never cut: a cut handle names another repository.
+        shrink: () => null,
         result: (fitted) => ({
           ...header,
           repositories: fitted,

@@ -294,6 +294,30 @@ it("narrows a search to a path glob and sets the case rule", async () => {
     code: "invalid_argument",
   })
   expect(requests).toHaveLength(3)
+
+  // One meaning in every mode: a glob with no / matches at any depth.
+  expect(
+    (await call({ query: "x", mode: "literal", pathGlob: "*.ts" })).isError,
+  ).not.toBe(true)
+  expect(requests.at(-1)?.Q).toBe('"x" file:"^(?:.*/)?[^/]*\\\\.ts$"')
+  // No ! negation in any mode, and a regex cannot close the (...) group early.
+  for (const args of [
+    { query: "x", mode: "literal", pathGlob: "!*.ts" },
+    {
+      query: "x",
+      mode: "structural",
+      language: "typescript",
+      pathGlob: "!*.ts",
+    },
+    { query: "a) file:x (b", mode: "regex", caseSensitive: true },
+    { query: "a\\", mode: "regex", pathGlob: "*.ts" },
+  ]) {
+    const refused = await call(args)
+    expect(refused._meta?.["ai.ctxpipe/error"]).toMatchObject({
+      code: "invalid_argument",
+    })
+  }
+  expect(requests).toHaveLength(4)
 })
 
 it("requires a language for structural search and converts ast-grep matches to file refs", async () => {

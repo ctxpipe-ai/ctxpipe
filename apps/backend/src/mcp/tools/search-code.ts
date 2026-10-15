@@ -4,6 +4,7 @@ import { resolveCallWorkspace } from "../framework/call-workspace.js"
 import { decodeCursor } from "../framework/cursor.js"
 import { languageOfPath } from "../framework/languages.js"
 import {
+  checkPathGlob,
   resolveCodeScope,
   searchCodeText,
   structuralSearchAcrossRepositories,
@@ -94,7 +95,7 @@ export const searchCodeTool = defineMcpReadTool({
       .max(512)
       .optional()
       .describe(
-        "Only files whose path matches this glob, such as src/**/*.ts. * and ? stay in one folder; ** crosses folders.",
+        "Only files whose path matches this gitignore-style glob, such as *.ts or src/**/*.ts. A glob with no / matches at any depth; a glob with a / starts at the repository root. * and ? stay in one folder; ** crosses folders. No ! negation. Same in every mode.",
       ),
     caseSensitive: z
       .boolean()
@@ -172,7 +173,9 @@ export const searchCodeTool = defineMcpReadTool({
             {
               pattern: input.query,
               lang: input.language,
-              ...(input.pathGlob ? { globs: [input.pathGlob] } : {}),
+              ...(input.pathGlob
+                ? { globs: [checkPathGlob(input.pathGlob)] }
+                : {}),
             },
             { limit: input.limit, offset },
           )

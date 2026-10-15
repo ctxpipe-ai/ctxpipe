@@ -267,6 +267,97 @@ describe("list_workspaces through MCP", () => {
       await client.close()
     }
   })
+  it("keeps the detail page in budget with a long title and many sources, and cuts no handle", async () => {
+    const id = generateObjectId("ws")
+    const revision = {
+      workspaceId: id,
+      generation: 1,
+      remote: { url: "https://github.com/example/crowded", connectionId: null },
+      defaultBranch: "main",
+      sha: "d".repeat(40),
+      access: "read" as const,
+    }
+    const handles = Array.from(
+      { length: 60 },
+      (_, index) =>
+        `example/service-with-a-rather-long-name-${String(index).padStart(2, "0")}`,
+    )
+    await withOrgDbContext(seed.orgId, async (db) => {
+      await db.insert(workspaces).values({
+        id,
+        orgId: seed.orgId,
+        slug: "crowded",
+        displayName: `Crowded ${"title ".repeat(40)}`,
+        workspaceRepositoryUrl: revision.remote.url,
+        desiredDefaultBranch: "main",
+        activeRevision: revision,
+        hydratePhases: {
+          url: revision.remote.url,
+          sha: revision.sha,
+          revision,
+          embeddings: true,
+          graph: { revision, result: { kind: "ready" } },
+          index: { revision, result: { kind: "ready" } },
+        },
+      })
+      await insertLinkedRepositoryRows(
+        db,
+        handles.map((handle) => ({
+          id: generateObjectId("wlr"),
+          orgId: seed.orgId,
+          workspaceId: id,
+          gitUrl: `https://github.com/${handle}`,
+        })),
+      )
+      await insertProjectedSourceRows(
+        db,
+        Array.from({ length: 30 }, (_, index) => ({
+          id: generateObjectId("wsrc"),
+          orgId: seed.orgId,
+          workspaceId: id,
+          sourceKey: `source-with-a-long-key-${String(index).padStart(2, "0")}`,
+          provider: "github" as const,
+          status: "ok" as const,
+          revision: revision.sha,
+        })),
+      )
+    })
+    const client = await connect()
+    try {
+      const walked: string[] = []
+      let cursor: unknown
+      let first = true
+      do {
+        const result = await call(client, "list_workspaces", {
+          org: seed.orgSlug,
+          workspace: "crowded",
+          ...(cursor ? { cursor } : {}),
+        })
+        expect(result.isError).not.toBe(true)
+        expect(
+          estimateTokens(result.content?.[0]?.text ?? ""),
+        ).toBeLessThanOrEqual(600)
+        if (first) {
+          expect((result.structuredContent?.title as string).length).toBe(60)
+          // 30 links of the Workspace plus the linked-repositories source.
+          expect(result.structuredContent?.sources).toHaveLength(10)
+          expect(result.structuredContent?.sourcesNotShown).toBe(21)
+          first = false
+        }
+        walked.push(
+          ...((result.structuredContent?.repositories as string[]) ?? []),
+        )
+        cursor = result.structuredContent?.cursor
+      } while (cursor)
+      expect(walked.sort()).toEqual([...handles].sort())
+    } finally {
+      await client.close()
+      await withOrgDbContext(seed.orgId, (db) =>
+        db.delete(workspaces).where(eq(workspaces.id, id)),
+      )
+    }
+  })
+
   it("pages 100 Workspaces at a time with a cursor", async () => {
     const client = await connect()
     try {
