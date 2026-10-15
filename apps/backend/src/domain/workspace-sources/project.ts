@@ -82,9 +82,7 @@ export async function projectWorkspaceSources(input: {
     checkAccess,
     leftoverFiles: input.leftoverFiles,
     workspaceUrl: workspace?.url ?? null,
-    previousOkKeys: new Set(
-      previous.filter((row) => row.status === "ok").map((row) => row.sourceKey),
-    ),
+    previousRows: previous,
     managedPaths: (entry) =>
       adapters[entry.provider]?.managedPaths(entry.scope) ?? [],
   })

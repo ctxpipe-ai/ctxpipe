@@ -58,6 +58,11 @@ export type ParsedSourceFile =
       /** Present when the folder or the front matter gives a known provider. */
       provider: SourceProvider | null
       connectionId: string | null
+      /**
+       * The scope, when the scope keys parse but another key is wrong. Thus a
+       * GitHub row that is invalid for a time keeps the pin of its repository.
+       */
+      scope?: Record<string, unknown>
       detail: string
     }
 
@@ -160,6 +165,16 @@ export function parseSourceFrontMatter(
       : null
   const provider = sourceProviderSchema.safeParse(record?.provider)
   const connection = sourceConnectionIdSchema.safeParse(record?.connection)
+  const rawScope = Object.fromEntries(
+    Object.entries(record ?? {}).filter(
+      ([key]) =>
+        !COMMON_KEYS.has(key) &&
+        !(REFUSED_KEYS as readonly string[]).includes(key),
+    ),
+  )
+  const scope = checked.ok
+    ? SOURCE_FILE_SCOPES[checked.provider].schema.safeParse(rawScope)
+    : null
   const fail = (detail: string): ParsedSourceFile => ({
     ok: false,
     path,
@@ -169,6 +184,7 @@ export function parseSourceFrontMatter(
         ? provider.data
         : null,
     connectionId: connection.success ? connection.data : null,
+    ...(scope?.success ? { scope: scope.data } : {}),
     detail,
   })
   if (!checked.ok) return fail(checked.reason)
@@ -186,11 +202,9 @@ export function parseSourceFrontMatter(
     )
   if (!connection.success)
     return fail(`connection: ${issuesText(connection.error)}`)
-  const rawScope = Object.fromEntries(
-    Object.entries(record).filter(([key]) => !COMMON_KEYS.has(key)),
-  )
-  const scope = SOURCE_FILE_SCOPES[provider.data].schema.safeParse(rawScope)
-  if (!scope.success) return fail(issuesText(scope.error))
+  // The provider equals the provider of the path, so `scope` is its scope.
+  if (!scope?.success)
+    return fail(scope ? issuesText(scope.error) : "The scope does not parse")
   // A scope schema that strips unknown keys still must not hide a typo.
   const unknown = Object.keys(rawScope).filter((key) => !(key in scope.data))
   if (unknown.length) return fail(`Unknown scope keys: ${unknown.join(", ")}`)

@@ -1,5 +1,6 @@
 import YAML from "yaml"
 import {
+  checkSourcePath,
   type ParsedSourceFile,
   parseSourceFrontMatter,
   SOURCE_FILE_MAX_BYTES,
@@ -17,12 +18,11 @@ const FRONT_MATTER = /^---[ \t]*\r?\n((?:.*\n)*?)---[ \t]*(?:\r?\n|$)/
  */
 export function parseSourceFile(path: string, text: string): ParsedSourceFile {
   const invalid = (detail: string): ParsedSourceFile => {
-    // parseSourceFrontMatter of no front matter fails; it gives the provider of the path folder.
-    const fromPath = parseSourceFrontMatter(path, null, "")
+    const checked = checkSourcePath(path)
     return {
       ok: false,
       path,
-      provider: fromPath.ok ? null : fromPath.provider,
+      provider: checked.ok ? checked.provider : null,
       connectionId: null,
       detail,
     }

@@ -1,12 +1,18 @@
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
 import { githubSourceScopeRepositories } from "./providers/github.js"
-import { checkSourcePath, SOURCE_FILE_SCOPES } from "./source-file.js"
+import {
+  checkSourcePath,
+  SOURCE_FILE_MAX_BYTES,
+  SOURCE_FILE_SCOPES,
+  SOURCE_FILES_FOLDER,
+} from "./source-file.js"
 import { parseSourceFile } from "./source-file-text.js"
 import {
   parseSourceEntry,
   type SourceEntry,
   type SourceProvider,
   type SourceStatus,
+  sourceProviderSchema,
   sourcesFileSchema,
 } from "./sources-file.js"
 import { parseSourcesYaml } from "./sources-yaml.js"
@@ -51,54 +57,131 @@ function fileError(detail: string): PlannedSourceRow[] {
   ]
 }
 
-/** One blob under `sources/`, with its path relative to the Workspace root folder. */
-export type SourceFileBlob = { path: string; text: string }
+/**
+ * One blob under `sources/`, with its path relative to the Workspace root
+ * folder. `omitted` tells why the tree read did not read the text: the blob
+ * is larger than the limit, or it is not text.
+ */
+export type SourceFileBlob = {
+  path: string
+  text: string
+  omitted?: "too_large" | "binary"
+}
+
+/**
+ * A row of the previous projected revision. Its status and scope decide the
+ * winner of a conflict across sources.
+ */
+export type PreviousSourceRow = {
+  sourceKey: string
+  provider: string | null
+  connectionId: string | null
+  scope: unknown
+  status: string
+}
+
+/**
+ * The statuses of a row that holds its repositories and managed paths in the
+ * rules across sources. A row keeps the hold while its access or its
+ * connection is gone for a time, so another source cannot take its place.
+ */
+const HOLDING_STATUSES: ReadonlySet<string> = new Set<SourceStatus>([
+  "ok",
+  "out_of_access",
+  "connection_missing",
+])
 
 /**
  * A parsed source before the connection checks: a valid entry, or the
  * fields of an invalid one with its reason.
  */
 type ParsedSource =
-  | { entry: SourceEntry }
+  | { entry: SourceEntry; origin: "file" | "yaml" }
   | {
       entry: null
       sourceKey: string
       provider: SourceProvider | null
       connectionId: string | null
-      /** The scope of the first entry of a duplicate YAML id. */
+      /** The scope, when it parses (for a duplicate YAML id: of the first entry). */
       scope?: Record<string, unknown>
       detail: string
     }
 
-/**
- * Turn the sources of one Workspace revision into the rows of its
- * projection (ADR-050, revision 2026-10-16). Each file under `sources/`
- * gives one row, keyed by its path. Until the conversion is done (CTX-721
- * T11), the entries of `.ctxpipe/sources.yaml` (`text`) also give rows,
- * keyed by their ids. Each `repositories/*.md` file in `leftoverFiles` (a
- * file that the ADR-050 upgrade cannot move) gets an invalid row, keyed by
- * its path.
- *
- * Then the rules across sources apply to the rows of both inputs: a GitHub
- * source must not name the Workspace repository, two `ok` sources must not
- * name the same repository, and the managed paths of two `ok` sources must
- * not overlap. Of two sources in conflict, the one in `previousOkKeys` (the
- * `ok` rows of the previous projected revision) stays `ok`; else the first
- * key in byte order stays `ok`. The other becomes `invalid`.
- */
-export async function planSourceRows(input: {
+/** The input of {@link resolveSourceRows}. */
+export type SourceRowsInput = {
   text: string | null
   /** Every blob under `sources/` at the revision. */
   files?: ReadonlyArray<SourceFileBlob>
-  connections: ReadonlyMap<string, SourceConnection>
-  checkAccess?: SourceAccessCheck
+  /**
+   * The org's connections. Null when the caller does not know them: then each
+   * connection exists and has the type of its provider.
+   */
+  connections: ReadonlyMap<string, SourceConnection> | null
   leftoverFiles?: ReadonlyArray<{ path: string; reason: string }>
   /** The Workspace repository URL; a GitHub source must not name it. */
   workspaceUrl?: string | null
-  previousOkKeys?: ReadonlySet<string>
+  /** The rows of the previous projected revision. */
+  previousRows?: ReadonlyArray<PreviousSourceRow>
   /** The managed paths of a valid source (the provider adapter's). */
   managedPaths?: (entry: SourceEntry) => readonly string[]
-}): Promise<PlannedSourceRow[]> {
+}
+
+/**
+ * Turn the sources of one Workspace revision into the rows of its
+ * projection (ADR-050, revision 2026-10-16), with no access check. Each file
+ * under `sources/` gives one row, keyed by its path. Until the conversion is
+ * done (CTX-721 T11), the entries of `.ctxpipe/sources.yaml` (`text`) also
+ * give rows, keyed by their ids. Each `repositories/*.md` file in
+ * `leftoverFiles` (a file that the ADR-050 upgrade cannot move) gets an
+ * invalid row, keyed by its path.
+ *
+ * Then the rules across sources apply to the rows of both inputs: a GitHub
+ * source file must not name the Workspace repository (a YAML entry only
+ * skips it), two sources must not name the same repository, and the managed
+ * paths of two sources must not overlap. Only a row with a status in
+ * {@link HOLDING_STATUSES} takes part. Of two sources in conflict, the one
+ * that held the repository or path at the previous revision stays; else the
+ * first key in byte order stays. The other becomes `invalid`.
+ *
+ * The projection and the linked set of hydrate both use this function, so
+ * they agree on each winner.
+ */
+export function resolveSourceRows(input: SourceRowsInput): PlannedSourceRow[] {
+  return resolve(input).rows
+}
+
+/**
+ * {@link resolveSourceRows}, then the access check of each `ok` row. A row
+ * out of its connection's reach becomes `out_of_access`. It keeps its hold,
+ * so the access check does not change the winner of a conflict.
+ */
+export async function planSourceRows(
+  input: SourceRowsInput & {
+    connections: ReadonlyMap<string, SourceConnection>
+    checkAccess?: SourceAccessCheck
+  },
+): Promise<PlannedSourceRow[]> {
+  const { rows, entries } = resolve(input)
+  const checkAccess = input.checkAccess
+  const connections = input.connections
+  if (!checkAccess) return rows
+  for (const row of rows) {
+    const entry = entries.get(row.sourceKey)
+    const connection = entry && connections.get(entry.connectionId)
+    if (row.status !== "ok" || !entry || !connection) continue
+    const accessIssue = await checkAccess(entry, connection)
+    if (typeof accessIssue === "string") {
+      row.status = "out_of_access"
+      row.statusDetail = accessIssue
+    } else row.statusDetail = accessIssue?.okDetail ?? row.statusDetail
+  }
+  return rows
+}
+
+function resolve(input: SourceRowsInput): {
+  rows: PlannedSourceRow[]
+  entries: Map<string, SourceEntry>
+} {
   const legacy = planLegacyYamlSources(input.text)
   const parsed = [
     ...legacy.sources,
@@ -107,19 +190,24 @@ export async function planSourceRows(input: {
       .map(parseSourceBlob),
   ]
   const rows: PlannedSourceRow[] = [...legacy.fileErrors]
-  for (const source of parsed) rows.push(await checkSource(source, input))
-  applyCrossSourceRules(rows, parsed, input)
-  return [
-    ...rows,
+  for (const source of parsed) rows.push(checkSource(source, input))
+  const entries = new Map(
+    parsed.flatMap((source) =>
+      source.entry ? [[source.entry.key, source.entry] as const] : [],
+    ),
+  )
+  applyCrossSourceRules(rows, entries, input)
+  rows.push(
     ...(input.leftoverFiles ?? []).map((file) => ({
       sourceKey: file.path,
       provider: null,
       connectionId: null,
       scope: {},
       status: "invalid" as const,
-      statusDetail: `${file.path}: ${file.reason}. Move the link into .ctxpipe/sources.yaml or remove the file.`,
+      statusDetail: `${file.path}: ${file.reason}. Move the link into a file under ${SOURCE_FILES_FOLDER}/github/ or remove the file.`,
     })),
-  ]
+  )
+  return { rows, entries }
 }
 
 /** Byte order of two ASCII keys (paths and YAML ids are ASCII). */
@@ -128,16 +216,23 @@ function compareKeys(a: string, b: string): number {
 }
 
 function parseSourceBlob(blob: SourceFileBlob): ParsedSource {
-  if (!blob.path.endsWith(".md")) {
+  const invalid = (detail: string): ParsedSource => {
     const checked = checkSourcePath(blob.path)
     return {
       entry: null,
       sourceKey: blob.path,
-      provider: null,
+      provider: checked.ok ? checked.provider : null,
       connectionId: null,
-      detail: checked.ok ? "A source file name ends with .md" : checked.reason,
+      detail,
     }
   }
+  const checked = checkSourcePath(blob.path)
+  if (!checked.ok && !blob.path.endsWith(".md")) return invalid(checked.reason)
+  if (blob.omitted === "too_large")
+    return invalid(
+      `The file is larger than ${SOURCE_FILE_MAX_BYTES / 1024} KiB`,
+    )
+  if (blob.omitted === "binary") return invalid("The file is not text")
   const parsed = parseSourceFile(blob.path, blob.text)
   if (!parsed.ok)
     return {
@@ -146,6 +241,7 @@ function parseSourceBlob(blob: SourceFileBlob): ParsedSource {
       provider: parsed.provider,
       connectionId: parsed.connectionId,
       detail: parsed.detail,
+      ...(parsed.scope ? { scope: parsed.scope } : {}),
     }
   return {
     entry: {
@@ -154,6 +250,7 @@ function parseSourceBlob(blob: SourceFileBlob): ParsedSource {
       connectionId: parsed.source.connectionId,
       scope: parsed.source.scope,
     },
+    origin: "file",
   }
 }
 
@@ -210,7 +307,7 @@ function planLegacyYamlSources(text: string | null): {
     sources.set(
       sourceKey,
       parsed.ok
-        ? { entry: parsed.entry }
+        ? { entry: parsed.entry, origin: "yaml" }
         : {
             entry: null,
             sourceKey,
@@ -223,15 +320,14 @@ function planLegacyYamlSources(text: string | null): {
   return { sources: [...sources.values()], fileErrors: [] }
 }
 
-/** The status of one source by itself: parse, connection, and access. */
-async function checkSource(
+/** The status of one source by itself: parse, connection, and Workspace repository. */
+function checkSource(
   source: ParsedSource,
   input: {
-    connections: ReadonlyMap<string, SourceConnection>
-    checkAccess?: SourceAccessCheck
+    connections: ReadonlyMap<string, SourceConnection> | null
     workspaceUrl?: string | null
   },
-): Promise<PlannedSourceRow> {
+): PlannedSourceRow {
   if (!source.entry)
     return {
       sourceKey: source.sourceKey,
@@ -248,45 +344,44 @@ async function checkSource(
     connectionId: entry.connectionId,
     scope: entry.scope,
   }
-  const connection = input.connections.get(entry.connectionId)
+  const expectedType = SOURCE_FILE_SCOPES[entry.provider].connectionType
+  const connection = input.connections
+    ? input.connections.get(entry.connectionId)
+    : { id: entry.connectionId, type: expectedType }
   if (!connection)
     return {
       ...base,
       status: "connection_missing",
       statusDetail: "The connection does not exist in this organization",
     }
-  const expectedType = SOURCE_FILE_SCOPES[entry.provider].connectionType
   if (connection.type !== expectedType)
     return {
       ...base,
       status: "invalid",
       statusDetail: `The connection is a ${connection.type} connection, not ${expectedType}`,
     }
-  if (input.workspaceUrl && entry.provider === "github") {
-    const workspace = repositoryKey(input.workspaceUrl)
-    if (
-      githubRepositoryKeys(entry).some((repository) => repository === workspace)
-    )
-      return {
-        ...base,
-        status: "invalid",
-        statusDetail:
-          "The source names the Workspace repository. A Workspace cannot link its own repository.",
-      }
-  }
-  const accessIssue = input.checkAccess
-    ? await input.checkAccess(entry, connection)
-    : null
-  return typeof accessIssue === "string"
-    ? { ...base, status: "out_of_access", statusDetail: accessIssue }
-    : { ...base, status: "ok", statusDetail: accessIssue?.okDetail ?? null }
+  // A YAML entry that names the Workspace repository stays ok and links only
+  // its other repositories, as before the source files (ADR-050 decision 15).
+  if (
+    source.origin === "file" &&
+    input.workspaceUrl &&
+    entry.provider === "github" &&
+    githubRepositoryKeys(entry).includes(repositoryKey(input.workspaceUrl))
+  )
+    return {
+      ...base,
+      status: "invalid",
+      statusDetail:
+        "The source names the Workspace repository. A Workspace cannot link its own repository.",
+    }
+  return { ...base, status: "ok", statusDetail: null }
 }
 
 function repositoryKey(url: string): string {
   return normalizeWorkspaceRepositoryUrl(url).toLowerCase()
 }
 
-function githubRepositoryKeys(entry: SourceEntry): string[] {
+function githubRepositoryKeys(entry: { scope: unknown }): string[] {
   return githubSourceScopeRepositories(entry.scope).map(({ name }) =>
     repositoryKey(`https://github.com/${name}`),
   )
@@ -298,45 +393,87 @@ function pathsOverlap(a: string, b: string): boolean {
   return folder(a).startsWith(folder(b)) || folder(b).startsWith(folder(a))
 }
 
+/** What a source holds: its repositories and its managed paths. */
+type Holds = { repositories: string[]; paths: readonly string[] }
+
+function holdsOverlap(a: Holds, b: Holds): boolean {
+  return (
+    a.repositories.some((repository) => b.repositories.includes(repository)) ||
+    a.paths.some((path) => b.paths.some((other) => pathsOverlap(path, other)))
+  )
+}
+
 /**
- * Make each `ok` row that conflicts with a stronger `ok` row invalid. A row
- * of `previousOkKeys` is stronger than a new row; of two such rows, or two
- * new rows, the first key in byte order is stronger.
+ * Make each holding row that conflicts with a stronger holding row invalid.
+ * A row that held at the previous revision is the strongest. A new key that
+ * holds what a removed holding row held (a rename) is next. Of two rows of
+ * the same strength, the first key in byte order is stronger.
  */
 function applyCrossSourceRules(
   rows: PlannedSourceRow[],
-  parsed: readonly ParsedSource[],
-  input: {
-    previousOkKeys?: ReadonlySet<string>
-    managedPaths?: (entry: SourceEntry) => readonly string[]
-  },
+  entries: ReadonlyMap<string, SourceEntry>,
+  input: Pick<
+    SourceRowsInput,
+    "previousRows" | "managedPaths" | "workspaceUrl"
+  >,
 ): void {
-  const entries = new Map(
-    parsed.flatMap((source) =>
-      source.entry ? [[source.entry.key, source.entry] as const] : [],
-    ),
+  const workspace = input.workspaceUrl
+    ? repositoryKey(input.workspaceUrl)
+    : null
+  const holdsOf = (entry: SourceEntry): Holds => ({
+    repositories:
+      entry.provider === "github"
+        ? githubRepositoryKeys(entry).filter(
+            (repository) => repository !== workspace,
+          )
+        : [],
+    paths: input.managedPaths?.(entry) ?? [],
+  })
+  const previous = input.previousRows ?? []
+  const currentKeys = new Set(rows.map((row) => row.sourceKey))
+  const previousKeys = new Set(previous.map((row) => row.sourceKey))
+  const heldBefore = previous.filter((row) => HOLDING_STATUSES.has(row.status))
+  const heldKeys = new Set(heldBefore.map((row) => row.sourceKey))
+  const removedHolds = heldBefore.flatMap((row) => {
+    const provider = sourceProviderSchema.safeParse(row.provider)
+    if (!provider.success || currentKeys.has(row.sourceKey)) return []
+    const scope =
+      row.scope && typeof row.scope === "object"
+        ? (row.scope as Record<string, unknown>)
+        : {}
+    return [
+      holdsOf({
+        key: row.sourceKey,
+        provider: provider.data,
+        connectionId: row.connectionId ?? "",
+        scope,
+      }),
+    ]
+  })
+  const candidates = rows.flatMap((row) => {
+    const entry = entries.get(row.sourceKey)
+    if (!entry || !HOLDING_STATUSES.has(row.status)) return []
+    const holds = holdsOf(entry)
+    const strength = heldKeys.has(row.sourceKey)
+      ? 2
+      : !previousKeys.has(row.sourceKey) &&
+          removedHolds.some((removed) => holdsOverlap(removed, holds))
+        ? 1
+        : 0
+    return [{ row, holds, strength }]
+  })
+  candidates.sort(
+    (a, b) =>
+      b.strength - a.strength || compareKeys(a.row.sourceKey, b.row.sourceKey),
   )
-  const wasOk = (key: string) => input.previousOkKeys?.has(key) ?? false
-  const candidates = rows
-    .filter((row) => row.status === "ok" && entries.has(row.sourceKey))
-    .sort(
-      (a, b) =>
-        Number(wasOk(b.sourceKey)) - Number(wasOk(a.sourceKey)) ||
-        compareKeys(a.sourceKey, b.sourceKey),
-    )
   const repositories = new Map<string, string>()
   const managed: Array<{ path: string; sourceKey: string }> = []
-  for (const row of candidates) {
-    const entry = entries.get(row.sourceKey)
-    if (!entry) continue
-    const ownRepositories =
-      entry.provider === "github" ? githubRepositoryKeys(entry) : []
-    const ownPaths = input.managedPaths?.(entry) ?? []
-    const repositoryConflict = ownRepositories
+  for (const { row, holds } of candidates) {
+    const repositoryConflict = holds.repositories
       .map((repository) => repositories.get(repository))
       .find((key) => key !== undefined)
     const pathConflict = managed.find((other) =>
-      ownPaths.some((path) => pathsOverlap(path, other.path)),
+      holds.paths.some((path) => pathsOverlap(path, other.path)),
     )
     if (repositoryConflict !== undefined) {
       row.status = "invalid"
@@ -348,9 +485,9 @@ function applyCrossSourceRules(
       row.statusDetail = `${pathConflict.sourceKey} already syncs ${pathConflict.path}, which overlaps this source`
       continue
     }
-    for (const repository of ownRepositories)
+    for (const repository of holds.repositories)
       repositories.set(repository, row.sourceKey)
-    for (const path of ownPaths)
+    for (const path of holds.paths)
       managed.push({ path, sourceKey: row.sourceKey })
   }
 }
