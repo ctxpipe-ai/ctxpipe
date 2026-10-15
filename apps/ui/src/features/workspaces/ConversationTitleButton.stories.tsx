@@ -124,7 +124,7 @@ export const EscapeReturnsFocus: Story = {
 async function renameTo(
   canvasElement: HTMLElement,
   name: string,
-  commit: () => Promise<void>,
+  commit: () => Promise<unknown>,
 ) {
   const canvas = within(canvasElement)
   await userEvent.click(
