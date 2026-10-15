@@ -505,8 +505,6 @@ export async function persistBoundWriteJob(input: {
   deletePaths?: string[]
   workflowRunId?: string
   admissionStatus?: "queued" | "paused"
-  linkAction?: "link" | "unlink"
-  linkGitUrl?: string
   displayName?: string
   previousSha?: string
   extraction?: WorkspaceExtraction
@@ -522,9 +520,6 @@ export async function persistBoundWriteJob(input: {
         ? { displayName: input.displayName }
         : {}),
       ...(input.files ? { mergeFiles: input.files } : {}),
-      ...(input.linkAction
-        ? { linkAction: input.linkAction, linkGitUrl: input.linkGitUrl }
-        : {}),
       ...(input.deletePaths ? { mergeDeletePaths: input.deletePaths } : {}),
       jobWorkspaceUrl: input.revision.remote.url,
       defaultBranch: input.revision.defaultBranch,
@@ -567,8 +562,6 @@ export async function persistBoundWriteJob(input: {
     if (
       !isDeepStrictEqual(row.payload?.mergeFiles, input.files) ||
       !isDeepStrictEqual(row.payload?.mergeDeletePaths, input.deletePaths) ||
-      row.payload?.linkAction !== input.linkAction ||
-      row.payload?.linkGitUrl !== input.linkGitUrl ||
       !isDeepStrictEqual(row.payload?.mirror, input.mirror) ||
       !isDeepStrictEqual(row.payload?.extraction, input.extraction) ||
       row.payload?.previousSha !== input.previousSha ||

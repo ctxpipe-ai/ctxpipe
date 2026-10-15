@@ -44,7 +44,6 @@
     "src/domain/workspaces/workspace-unborn-bootstrap-native.contract.test.ts": 17,
     "src/domain/workspaces/write-export-native.contract.test.ts": 28,
     "src/domain/workspaces/write-extract-native.contract.test.ts": 22,
-    "src/domain/workspaces/write-link-native.contract.test.ts": 5,
     "src/domain/workspaces/write-maintenance-native.contract.test.ts": 9,
     "src/domain/workspaces/write-merge-native.contract.test.ts": 52,
     "src/domain/workspaces/write-mirror-native.contract.test.ts": 67,

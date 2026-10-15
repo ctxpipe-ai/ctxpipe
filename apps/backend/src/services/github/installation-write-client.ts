@@ -647,6 +647,16 @@ export async function mergePullRequest(
     contents: "write",
     pull_requests: "write",
   })
+  const urlRepository = input.pullUrl.match(
+    /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\//,
+  )
+  if (
+    urlRepository?.[1]?.toLowerCase() !== context.owner.toLowerCase() ||
+    urlRepository[2]?.toLowerCase() !== context.repo.toLowerCase()
+  )
+    throw new Error(
+      `Pull request ${input.pullUrl} is not in ${context.owner}/${context.repo}`,
+    )
   const { data } = await withTransientGitHubRetry(() =>
     context.octokit.rest.pulls.merge({
       owner: context.owner,

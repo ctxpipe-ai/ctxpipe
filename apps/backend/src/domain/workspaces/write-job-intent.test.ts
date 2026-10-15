@@ -9,17 +9,13 @@ import {
 } from "./write-job-intent.js"
 
 describe("writeJobIntentPayload", () => {
-  it("stores first-create link fields so a paused job can resume", () => {
+  it("stores the paused job fields so it can resume", () => {
     expect(
       writeJobIntentPayload({
         kind: "bootstrap",
-        linkAction: "link",
-        linkGitUrl: "https://github.com/acme/app.git",
         jobWorkspaceUrl: "https://github.com/acme/docs",
       }),
     ).toEqual({
-      linkAction: "link",
-      linkGitUrl: "https://github.com/acme/app.git",
       jobWorkspaceUrl: "https://github.com/acme/docs",
     })
   })
@@ -103,7 +99,7 @@ describe("shouldResumePausedWriteJob", () => {
 })
 
 describe("enqueueInputFromPausedJob", () => {
-  it("replays the stored link payload onto the same job id", () => {
+  it("replays the stored payload onto the same job id", () => {
     expect(
       enqueueInputFromPausedJob({
         orgId: "org_1",
@@ -114,8 +110,6 @@ describe("enqueueInputFromPausedJob", () => {
           generation: 1,
           desiredSha: null,
           payload: {
-            linkAction: "link",
-            linkGitUrl: "https://github.com/acme/app.git",
             jobWorkspaceUrl: "https://github.com/acme/docs",
           },
         },
@@ -128,8 +122,6 @@ describe("enqueueInputFromPausedJob", () => {
       jobGeneration: 1,
       jobDesiredSha: null,
       jobWorkspaceUrl: "https://github.com/acme/docs",
-      linkAction: "link",
-      linkGitUrl: "https://github.com/acme/app.git",
     })
   })
 })

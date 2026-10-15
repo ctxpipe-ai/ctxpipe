@@ -15,7 +15,10 @@ import { closeDb, getSystemDb, initDb } from "../db/client.js"
 import { organizations } from "../db/schema/auth.js"
 import { listCheckoutTree } from "../domain/codeIngestion/codesearchClient.js"
 import { workspaceGithubRepository } from "../domain/workspace-sources/repository.js"
-import { addWorkspaceSources } from "../domain/workspace-sources/service.js"
+import {
+  addWorkspaceSources,
+  findOpenAddPullRequest,
+} from "../domain/workspace-sources/service.js"
 import { ensureOrgRepositoryForGitUrl } from "../domain/workspaces/ensure-org-repository.js"
 import { hydrateUnitsToProjectionClaims } from "../domain/workspaces/hydrate.js"
 import { publishedProjection } from "../domain/workspaces/revision.js"
@@ -130,29 +133,39 @@ async function linkToWorkspace(
     throw new Error("link needs a Workspace and a repository on GitHub")
   // The Workspace takes the source by a pull request, as for a person. The
   // validator is the operator, so it merges that pull request itself.
-  const added = await withValidatorRequest(run, () =>
-    addWorkspaceSources({
-      workspace,
-      changes: [
-        {
-          action: "add",
-          provider: "github",
-          connectionId: repository.githubConnectionId,
-          scope: { repository: repositoryName },
-        },
-      ],
-    }),
-  )
-  if (added.outcome !== "pull_request")
-    throw new Error("link did not open a pull request")
-  await mergePullRequest({ ...repository, pullUrl: added.pullRequestUrl })
-  say(`  link merged ${added.pullRequestUrl}`)
+  // A rerun after a crash reuses the add pull request that is still open.
+  let pullUrl = await findOpenAddPullRequest({ workspace, repositoryName })
+  if (!pullUrl) {
+    const added = await withValidatorRequest(run, () =>
+      addWorkspaceSources({
+        workspace,
+        changes: [
+          {
+            action: "add",
+            provider: "github",
+            connectionId: repository.githubConnectionId,
+            scope: { repository: repositoryName },
+          },
+        ],
+      }),
+    )
+    if (added.outcome !== "pull_request")
+      throw new Error("link did not open a pull request")
+    pullUrl = added.pullRequestUrl
+  }
+  await mergePullRequest({ ...repository, pullUrl })
+  say(`  link merged ${pullUrl}`)
   // The tip check reads the new default branch tip and hydrates it.
-  await withValidatorRequest(run, () =>
+  let tipCheckError = "the run did not start"
+  const tipCheckStarted = await withValidatorRequest(run, () =>
     enqueueWorkspaceTipCheck(run.orgId, {
-      error: (error) => say(`  tip check not started: ${error.message}`),
+      error: (error) => {
+        tipCheckError = error.message
+      },
     }),
   )
+  if (!tipCheckStarted)
+    throw new Error(`link tip check not started: ${tipCheckError}`)
   for (;;) {
     if (await isLinked()) return
     if (Date.now() > deadline) throw new Error("link timed out")

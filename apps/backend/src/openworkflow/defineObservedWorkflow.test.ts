@@ -71,13 +71,13 @@ describe("defineObservedWorkflow", () => {
   })
 
   it("lets a body re-parse its strict input schema when enqueue added telemetry", async () => {
-    // Workspace write workflows (link-unlink, extract-ingest, bootstrap, …) parse
+    // Workspace write workflows (extract-ingest, bootstrap, …) parse
     // `queuedInput` with their own strict schema as their first line.
     const schema = z
       .object({ orgId: z.string(), workspaceId: z.string() })
       .strict()
     const workflow = defineWorkflow(
-      { name: "workspace-write-link-unlink-strict", schema },
+      { name: "workspace-write-ops-folder-list-strict", schema },
       async ({ input }) => ({
         input: schema.parse(input),
         attribution: readAttribution(),

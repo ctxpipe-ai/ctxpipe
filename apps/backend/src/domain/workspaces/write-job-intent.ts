@@ -49,8 +49,6 @@ export type WorkspaceWriteJobPayload = {
   previousSha?: string
   mirror?: ConnectorMirrorSource
   displayName?: string
-  linkAction?: "link" | "unlink"
-  linkGitUrl?: string
   /** Why the job failed, when it failed for a known reason. */
   failureReason?: string
   defaultBranch?: string
@@ -95,8 +93,6 @@ export const workspaceWriteJobInputSchema = writeJobBaseSchema.extend({
     .regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/)
     .optional(),
   displayName: z.string().trim().min(1).optional(),
-  linkAction: z.enum(["link", "unlink"]).optional(),
-  linkGitUrl: z.string().min(1).optional(),
   conflictParentSha: z.string().nullable().optional(),
   remoteTipSha: z.string().nullable().optional(),
   mergeFiles: z.array(gitFileChangeSchema).optional(),
@@ -113,8 +109,6 @@ export type WriteJobEnqueueFields = Pick<
   | "mirror"
   | "displayName"
   | "defaultBranch"
-  | "linkAction"
-  | "linkGitUrl"
   | "jobWorkspaceUrl"
   | "conflictParentSha"
   | "remoteTipSha"
@@ -130,8 +124,6 @@ export function writeJobIntentPayload(
   if (input.mirror) payload.mirror = input.mirror
   if (input.previousSha) payload.previousSha = input.previousSha
   if (input.displayName !== undefined) payload.displayName = input.displayName
-  if (input.linkAction) payload.linkAction = input.linkAction
-  if (input.linkGitUrl) payload.linkGitUrl = input.linkGitUrl
   if (input.defaultBranch) payload.defaultBranch = input.defaultBranch
   if (input.jobWorkspaceUrl) payload.jobWorkspaceUrl = input.jobWorkspaceUrl
   if (input.conflictParentSha !== undefined) {
@@ -209,8 +201,6 @@ export function enqueueInputFromPausedJob(input: {
     ...(payload.extraction ? { extraction: payload.extraction } : {}),
     ...(payload.mirror ? { mirror: payload.mirror } : {}),
     ...(payload.previousSha ? { previousSha: payload.previousSha } : {}),
-    ...(payload.linkAction ? { linkAction: payload.linkAction } : {}),
-    ...(payload.linkGitUrl ? { linkGitUrl: payload.linkGitUrl } : {}),
     ...(payload.conflictParentSha !== undefined
       ? { conflictParentSha: payload.conflictParentSha }
       : {}),

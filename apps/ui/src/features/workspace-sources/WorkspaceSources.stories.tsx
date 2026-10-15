@@ -829,7 +829,7 @@ export const FileNotValid: Story = {
   },
 }
 
-export const RefusedLinkAndRepositoryFile: Story = {
+export const RefusedRepositoryFile: Story = {
   parameters: {
     msw: {
       handlers: {

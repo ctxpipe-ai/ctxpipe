@@ -4,7 +4,6 @@
   "OpenWorkflow native write jobs": [
     "src/domain/workspaces/write-workflow-native.contract.test.ts",
     "src/domain/workspaces/write-maintenance-native.contract.test.ts",
-    "src/domain/workspaces/write-link-native.contract.test.ts",
     "src/domain/workspaces/write-ops-native.contract.test.ts",
     "src/domain/workspaces/commit-subject.contract.test.ts",
     "src/domain/workspaces/write-export-native.contract.test.ts",

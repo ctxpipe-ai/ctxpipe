@@ -533,6 +533,23 @@ export async function addWorkspaceSources(input: {
 }
 
 /**
+ * The URL of an open pull request that adds a GitHub repository as a source,
+ * or undefined. A caller that retries an add uses it so that a rerun does not
+ * open a second pull request.
+ */
+export async function findOpenAddPullRequest(input: {
+  workspace: WorkspaceRecord
+  repositoryName: string
+}): Promise<string | undefined> {
+  const [owner, name] = input.repositoryName.split("/")
+  if (!owner || !name) return undefined
+  const path = githubSourcePath(owner, name)
+  return (await pendingChanges(input.workspace)).find(
+    (change) => change.action === "add" && change.path === path,
+  )?.pullRequestUrl
+}
+
+/**
  * Unlink one repository by a pull request that removes it from each file of
  * the default branch that links it: its file under `sources/`, its entry in
  * the legacy `.ctxpipe/sources.yaml`, and its `repositories/*.md`
