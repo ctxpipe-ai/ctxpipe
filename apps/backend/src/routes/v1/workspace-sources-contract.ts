@@ -145,7 +145,7 @@ const errors = {
     description:
       "Conflict: the key exists (add), the Workspace is read-only, or the file is not valid",
   },
-} as const
+}
 
 const changeOk = {
   200: {
@@ -154,7 +154,7 @@ const changeOk = {
     },
     description: "The file change: a PR (awaiting merge) or a queued commit",
   },
-} as const
+}
 
 export const listWorkspaceSourcesRoute = createRoute({
   method: "get",
