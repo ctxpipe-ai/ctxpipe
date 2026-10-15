@@ -24,6 +24,23 @@ function isCancellation(error: unknown): boolean {
   return name === "AbortError" || name === "CancelledError"
 }
 
+/**
+ * A 409 that polling queries get while a turn runs or a sandbox starts. Other
+ * 409 answers (a stale worktree, a name conflict) are real failures.
+ */
+function isExpectedState(
+  source: "query" | "mutation",
+  error: unknown,
+): boolean {
+  if (source !== "query" || !(error instanceof Error)) return false
+  if (httpStatus(error) !== "409") return false
+  return (
+    error.message === "turn_running" ||
+    error.message === "missing_sandbox" ||
+    error.message === "Conversation sandbox is not ready"
+  )
+}
+
 function recordUiException(
   source: "query" | "mutation",
   error: unknown,
@@ -40,6 +57,11 @@ function recordUiException(
     if (typeof requestId === "string" && requestId) {
       attributes["request.id"] = requestId
     }
+  }
+  // An expected state is an action, not an Error span.
+  if (isExpectedState(source, error)) {
+    HyperDX.addAction("ui_expected_state", attributes)
+    return
   }
   // Before init the SDK drops this. Recording without identity is acceptable.
   HyperDX.recordException(error, attributes)
