@@ -33,7 +33,6 @@ import { cn } from "@/lib/utils"
 import {
   createWorkspaceSource,
   deleteWorkspaceSource,
-  type SourceDelivery,
   sourceChangeMessage,
   updateWorkspaceSource,
   type WorkspaceSource,
@@ -180,18 +179,10 @@ export function GithubSourceRepositories(props: {
   sources: WorkspaceSource[]
   connections: SourceConnectionOption[]
   canEdit: boolean
-  directCommitAllowed: boolean
   addOpen: boolean
   onAddOpenChange: (open: boolean) => void
 }) {
-  const {
-    orgSlug,
-    workspaceSlug,
-    linkedRepositories,
-    sources,
-    canEdit,
-    directCommitAllowed,
-  } = props
+  const { orgSlug, workspaceSlug, linkedRepositories, sources, canEdit } = props
   const queryClient = useQueryClient()
   const [query, setQuery] = useState("")
   const [showAll, setShowAll] = useState(false)
@@ -215,34 +206,20 @@ export function GithubSourceRepositories(props: {
           await unlinkWorkspaceRepository(orgSlug, workspaceSlug, linked.id)
         return null
       }
-      const delivery: SourceDelivery = directCommitAllowed
-        ? "commit"
-        : "pull_request"
       const repositories = scopeItems(source).filter(
         (item) => !sameName(itemName(item), row.title),
       )
       if (repositories.length === 0)
-        return deleteWorkspaceSource(
-          orgSlug,
-          workspaceSlug,
-          source.sourceKey,
-          delivery,
-        )
+        return deleteWorkspaceSource(orgSlug, workspaceSlug, source.sourceKey)
       if (!source.connectionId)
         throw new Error(
           "This GitHub source has no connection. Edit sources.yaml.",
         )
-      return updateWorkspaceSource(
-        orgSlug,
-        workspaceSlug,
-        source.sourceKey,
-        {
-          provider: "github",
-          connectionId: source.connectionId,
-          scope: { repositories },
-        },
-        delivery,
-      )
+      return updateWorkspaceSource(orgSlug, workspaceSlug, source.sourceKey, {
+        provider: "github",
+        connectionId: source.connectionId,
+        scope: { repositories },
+      })
     },
     onSuccess: (result) => {
       void queryClient.invalidateQueries({
@@ -251,7 +228,7 @@ export function GithubSourceRepositories(props: {
       void queryClient.invalidateQueries({
         queryKey: workspaceSourceKeys.list(orgSlug, workspaceSlug),
       })
-      if (result) toast.success(sourceChangeMessage(result))
+      if (result) toast.success(sourceChangeMessage())
     },
     onError: (error: Error) => toast.error(error.message),
   })
@@ -389,7 +366,6 @@ function AddGithubRepositoriesModal(props: {
   workspaceSlug: string
   sources: WorkspaceSource[]
   connections: SourceConnectionOption[]
-  directCommitAllowed: boolean
   takenUrls: string[]
   isOpen: boolean
   onOpenChange: (open: boolean) => void
@@ -399,7 +375,6 @@ function AddGithubRepositoriesModal(props: {
     workspaceSlug,
     sources,
     connections,
-    directCommitAllowed,
     takenUrls,
     isOpen,
     onOpenChange,
@@ -443,15 +418,12 @@ function AddGithubRepositoriesModal(props: {
   }
 
   const addMutation = useMutation({
-    mutationFn: async (input: {
-      repos: GithubRepoItem[]
-      delivery: SourceDelivery
-    }) => {
+    mutationFn: async (repos: GithubRepoItem[]) => {
       const results = []
       for (const connectionId of new Set(
-        input.repos.map((repo) => repo.githubConnectionId ?? ""),
+        repos.map((repo) => repo.githubConnectionId ?? ""),
       )) {
-        const names = input.repos
+        const names = repos
           .filter((repo) => repo.githubConnectionId === connectionId)
           .map((repo) => repo.full_name)
         const existing = sources.find(
@@ -470,18 +442,12 @@ function AddGithubRepositoriesModal(props: {
                     repositories: [...scopeItems(existing), ...names],
                   },
                 },
-                input.delivery,
               )
-            : await createWorkspaceSource(
-                orgSlug,
-                workspaceSlug,
-                {
-                  provider: "github",
-                  connectionId,
-                  scope: { repositories: names },
-                },
-                input.delivery,
-              ),
+            : await createWorkspaceSource(orgSlug, workspaceSlug, {
+                provider: "github",
+                connectionId,
+                scope: { repositories: names },
+              }),
         )
       }
       return results
@@ -495,14 +461,11 @@ function AddGithubRepositoriesModal(props: {
       })
       HyperDX.addAction("repository_index_started")
       const first = results[0]
-      if (first) toast.success(sourceChangeMessage(first))
+      if (first) toast.success(sourceChangeMessage())
       close()
     },
     onError: (error: Error) => toast.error(error.message),
   })
-
-  const add = (delivery: SourceDelivery) =>
-    addMutation.mutate({ repos: selected, delivery })
 
   return (
     <Modal
@@ -581,20 +544,11 @@ function AddGithubRepositoriesModal(props: {
           >
             Cancel
           </Button>
-          {directCommitAllowed ? (
-            <Button
-              variant="secondary"
-              isDisabled={selected.length === 0 || addMutation.isPending}
-              onPress={() => add("commit")}
-            >
-              Commit directly
-            </Button>
-          ) : null}
           <Button
             variant="primary"
             isDisabled={selected.length === 0}
             isPending={addMutation.isPending}
-            onPress={() => add("pull_request")}
+            onPress={() => addMutation.mutate(selected)}
           >
             Open a pull request
           </Button>

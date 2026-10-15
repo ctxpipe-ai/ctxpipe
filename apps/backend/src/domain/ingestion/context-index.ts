@@ -1,15 +1,12 @@
 import { spawn } from "node:child_process"
 import { listWorkspaceUnitsAtRevision } from "../../models/workspaces.js"
+import { parseNameStatus } from "../../services/git/name-status.js"
 import {
   hydrateKnowledgeTree,
   resolveHydrateLink,
 } from "../workspaces/hydrate.js"
-import {
-  fileOwnership,
-  fileSources,
-  parseYamlObject,
-  splitFrontMatter,
-} from "./patch-validator.js"
+import { parseYamlObject, splitFrontMatter } from "./front-matter.js"
+import { fileOwnership, fileSources } from "./patch-validator.js"
 import { runGit } from "./run-git.js"
 
 /**
@@ -212,23 +209,18 @@ async function changedFiles(
   to: string,
 ): Promise<Array<{ path: string; content: string | null }>> {
   if (from === to) return []
-  const out = (
-    await runGit(repoDir, [
-      "diff-tree",
-      "-r",
-      "-z",
-      "--no-renames",
-      "--name-status",
-      from,
-      to,
-    ])
-  ).toString("utf8")
-  const fields = out.split("\0").filter(Boolean)
+  const out = await runGit(repoDir, [
+    "diff-tree",
+    "-r",
+    "-z",
+    "--no-renames",
+    "--name-status",
+    from,
+    to,
+  ])
   const deleted: string[] = []
   const written: string[] = []
-  for (let i = 0; i + 1 < fields.length; i += 2) {
-    const status = fields[i] ?? ""
-    const path = fields[i + 1] ?? ""
+  for (const { status, to: path } of parseNameStatus(out)) {
     if (status.startsWith("D")) deleted.push(path)
     else written.push(path)
   }

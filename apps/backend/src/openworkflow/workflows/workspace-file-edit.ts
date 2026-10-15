@@ -1,6 +1,7 @@
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
+import { hostOnlyRefusal } from "../../domain/workspaces/host-only.js"
 import {
   sameWorkspaceRevision,
   workspaceRevisionSchema,
@@ -95,6 +96,13 @@ export const workspaceFileEdit = defineWorkflow(
             workflowRunId: run.id,
           }),
         )
+        // Planning refuses host-only paths too, but a job queued or paused
+        // before that check can still resume here (CTX-722).
+        const refusal = hostOnlyRefusal([
+          ...input.files.map((file) => file.path),
+          ...input.deletePaths,
+        ])
+        if (refusal) throw new Error(refusal)
         for (let refreshAttempt = 0; refreshAttempt < 3; refreshAttempt++) {
           let acquired: NonNullable<
             Awaited<ReturnType<typeof acquireWorkspaceWriteRevision>>
@@ -214,7 +222,8 @@ export const workspaceFileEdit = defineWorkflow(
           if (!pushed.pushed) {
             const handoff = await step.run(
               { name: "capture-semantic-handoff" },
-              () => captureSemanticHandoff(input, revision, committed, env),
+              () =>
+                captureSemanticHandoff(input, revision, committed, env, "host"),
             )
             const result = await step.runWorkflow(
               workspaceSemanticMerge.spec,

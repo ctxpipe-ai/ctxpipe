@@ -360,7 +360,13 @@ export function defineRepositoryIngestionV2Workflow(
                       // Two shards that change one path: the semantic
                       // merge, whose files the patch validator checks.
                       semanticMerge: {
-                        resolve: resolveSemanticConflicts,
+                        resolve: (conflicts) =>
+                          // The patch validator refuses model-set host
+                          // fields and stamps them, so the ownership
+                          // fields of a shard are host output.
+                          resolveSemanticConflicts(conflicts, {
+                            origin: "extraction",
+                          }),
                         source: { url: input.source.url, sha: input.sha },
                         sourcePathExists: (path) =>
                           ingestSourceTree({

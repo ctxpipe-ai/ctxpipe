@@ -762,6 +762,56 @@ describe("validatePatchStep human files", () => {
     expect(rulesOf(result)).toEqual(["link"])
   })
 
+  it("rejects generated_by or sources that the agent adds to a human file (CTX-722)", async () => {
+    const result = await run(
+      stage({
+        files: {
+          [path]: HUMAN_PORTAL.replace(
+            "name: Portal\n",
+            "name: Portal\ngenerated_by: ctxpipe-extract\n",
+          ),
+          "knowledge/apps/no-related.md": doc(
+            { kind: "App", name: "No related", sources: [SOURCE_URL] },
+            "# No related\n\nHuman prose.\n",
+          ),
+        },
+      }),
+    )
+    expect(result.accepted).toEqual([])
+    expect(rulesOf(result)).toEqual(["additive_only", "additive_only"])
+    expect(readTree(result.tree, path)).toBe(HUMAN_PORTAL)
+  })
+
+  it("accepts an owned file that the agent writes without generated_by (CTX-722)", async () => {
+    const result = await run(
+      stage({
+        files: {
+          "knowledge/services/owned-0.md": service(
+            "Owned 0",
+            "# Owned 0\n\nNew prose.\n",
+          ),
+        },
+      }),
+    )
+    expect(result.rejections).toEqual([])
+    expect(result.accepted.map((op) => op.path)).toEqual([
+      "knowledge/services/owned-0.md",
+    ])
+  })
+
+  it("rejects a host-only path with its own reason (CTX-722)", async () => {
+    const result = await run(
+      stage({ files: { ".ctxpipe/sources.yaml": "sources: [evil]\n" } }),
+    )
+    expect(result.rejections).toEqual([
+      {
+        path: ".ctxpipe/sources.yaml",
+        rule: "path",
+        reason: "Only ctx| writes host-only paths",
+      },
+    ])
+  })
+
   it("rejects a removed claim on a human file", async () => {
     const changed = HUMAN_PORTAL.replace(
       /claims:\n[\s\S]*?(?=---)/,

@@ -918,6 +918,56 @@ it(
 )
 
 it(
+  "refuses a queued file edit of a host-only path and leaves the default branch alone",
+  { timeout: 60_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      { github: true, githubWriteView: "writable", writeStatus: "writable" },
+      async (f) => {
+        const { workspaceFileEdit } = await import(
+          "../../openworkflow/workflows/workspace-file-edit.js"
+        )
+        const spec = {
+          ...workspaceFileEdit.spec,
+          retryPolicy: { maximumAttempts: 1 },
+        }
+        f.runner.implementWorkflow(spec, workspaceFileEdit.fn)
+        await f.worker.stop()
+        const worker = f.runner.newWorker({ concurrency: 1 })
+        await worker.start()
+        try {
+          const jobId = `wjob_${f.id}_hostonly`
+          const handle = await f.runner.runWorkflow(spec, {
+            orgId: f.org.id,
+            workspaceId: f.workspaceId,
+            jobId,
+            revision: { ...f.revision, access: "write-default" },
+            files: [{ path: ".ctxpipe/sources.yaml", content: "version: 1\n" }],
+            deletePaths: [],
+          })
+          const [result] = await Promise.allSettled([
+            handle.result({ timeoutMs: 30_000 }),
+          ])
+          expect(result?.status).toBe("rejected")
+          const run = await f.backend.getWorkflowRun({
+            workflowRunId: handle.workflowRun.id,
+          })
+          expect(run?.status).toBe("failed")
+          expect(run?.error?.message).toContain(
+            ".ctxpipe/sources.yaml is host-only. Change it through a pull request.",
+          )
+          expect(
+            f.git("--git-dir", f.remote, "rev-parse", "refs/heads/main"),
+          ).toBe(f.sha)
+        } finally {
+          await worker.stop()
+        }
+      },
+    )
+  },
+)
+
+it(
   "rechecks an apparent no-op against the current default and applies the requested edit",
   { timeout: 60_000 },
   async () => {

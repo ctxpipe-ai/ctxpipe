@@ -3,13 +3,12 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { setTimeout as sleep } from "node:timers/promises"
 import { stringify } from "yaml"
+import { parseYamlObject, splitFrontMatter } from "./front-matter.js"
 import {
   disallowedPathReason,
   MAX_WORKSPACE_OPS,
   type PatchStepInput,
   type PatchStepResult,
-  parseYamlObject,
-  splitFrontMatter,
   validatePatchStep,
 } from "./patch-validator.js"
 import { runGit } from "./run-git.js"

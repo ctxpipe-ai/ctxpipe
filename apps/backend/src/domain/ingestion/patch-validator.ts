@@ -3,18 +3,14 @@ import { tmpdir } from "node:os"
 import { join, posix } from "node:path"
 import { isDeepStrictEqual } from "node:util"
 import { fromMarkdown } from "mdast-util-from-markdown"
-import {
-  parseDocument,
-  parse as parseYaml,
-  stringify,
-  type YAMLSeq,
-} from "yaml"
+import { parseDocument, stringify, type YAMLSeq } from "yaml"
 import { z } from "zod"
 import { isConnectorMirrorPath } from "../codeIngestion/connectorMirrorPaths.js"
 import { isHostOnlyPath } from "../workspaces/host-only.js"
 import { KNOWLEDGE_KIND_FOLDERS } from "../workspaces/layout.js"
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
 import { type AreaFile, checkAreaChange, parseAreaBody } from "./area-file.js"
+import { parseYamlObject, splitFrontMatter } from "./front-matter.js"
 import { GitOutputTooLargeError, runGit as git } from "./run-git.js"
 import {
   findSuspectedSecret,
@@ -114,7 +110,8 @@ const PACKAGE_KINDS: ReadonlySet<string> = new Set([
   "App",
   "Library",
 ])
-const HOST_FIELDS = [
+/** The front matter fields that only the host sets. */
+export const HOST_FIELDS = [
   "generated_by",
   "sources",
   "root",
@@ -1704,25 +1701,6 @@ function resolveRelative(from: string, target: string): string | null {
     : posix.normalize(posix.join(posix.dirname(from), path))
   if (joined === ".." || joined.startsWith("../") || joined === ".") return null
   return joined.replace(/\/$/, "")
-}
-
-export function splitFrontMatter(
-  text: string,
-): { yaml: string; body: string } | null {
-  const match = /^---[ \t]*\r?\n((?:.*\n)*?)---[ \t]*(?:\r?\n|$)/.exec(text)
-  if (!match) return null
-  return { yaml: match[1] ?? "", body: text.slice(match[0].length) }
-}
-
-export function parseYamlObject(yaml: string): Record<string, unknown> | null {
-  try {
-    const value = parseYaml(yaml) ?? {}
-    return typeof value === "object" && !Array.isArray(value)
-      ? (value as Record<string, unknown>)
-      : null
-  } catch {
-    return null
-  }
 }
 
 function normalizeSourceUrl(url: string): string {

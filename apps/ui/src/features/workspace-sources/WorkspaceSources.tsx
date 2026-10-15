@@ -36,7 +36,6 @@ import {
 import {
   deleteWorkspaceSource,
   type PendingSourceChange,
-  type SourceDelivery,
   sourceChangeMessage,
   type WorkspaceSource,
   workspaceSourceKeys,
@@ -348,18 +347,13 @@ export function WorkspaceSources(props: {
   const [githubAddOpen, setGithubAddOpen] = useState(false)
 
   const removeMutation = useMutation({
-    mutationFn: (input: { sourceKey: string; delivery: SourceDelivery }) =>
-      deleteWorkspaceSource(
-        orgSlug,
-        workspaceSlug,
-        input.sourceKey,
-        input.delivery,
-      ),
-    onSuccess: (result) => {
+    mutationFn: (sourceKey: string) =>
+      deleteWorkspaceSource(orgSlug, workspaceSlug, sourceKey),
+    onSuccess: () => {
       void queryClient.invalidateQueries({
         queryKey: workspaceSourceKeys.list(orgSlug, workspaceSlug),
       })
-      toast.success(sourceChangeMessage(result))
+      toast.success(sourceChangeMessage())
     },
     onError: (error: Error) => toast.error(error.message),
   })
@@ -374,7 +368,6 @@ export function WorkspaceSources(props: {
 
   const data = sourcesQuery.data
   const canEdit = data?.canEdit ?? false
-  const directCommitAllowed = data?.directCommitAllowed ?? false
   const items = data?.items ?? []
   const pendingChanges = data?.pendingChanges ?? []
   const pendingOf = (sourceKey: string) =>
@@ -589,7 +582,6 @@ export function WorkspaceSources(props: {
                         sources={sources}
                         connections={connectionsOf(provider)}
                         canEdit={canEdit}
-                        directCommitAllowed={directCommitAllowed}
                         addOpen={githubAddOpen}
                         onAddOpenChange={setGithubAddOpen}
                       />
@@ -646,7 +638,6 @@ export function WorkspaceSources(props: {
           orgSlug={orgSlug}
           workspaceSlug={workspaceSlug}
           connections={connectionsOf(editor.provider)}
-          directCommitAllowed={directCommitAllowed}
           target={editor}
           onClose={() => setEditor(null)}
         />
@@ -675,30 +666,11 @@ export function WorkspaceSources(props: {
                 <Button variant="quiet" onPress={close}>
                   Cancel
                 </Button>
-                {directCommitAllowed ? (
-                  <Button
-                    variant="secondary"
-                    onPress={() => {
-                      if (removing)
-                        removeMutation.mutate({
-                          sourceKey: removing.sourceKey,
-                          delivery: "commit",
-                        })
-                      close()
-                    }}
-                  >
-                    Commit directly
-                  </Button>
-                ) : null}
                 <Button
                   variant="destructive"
                   autoFocus
                   onPress={() => {
-                    if (removing)
-                      removeMutation.mutate({
-                        sourceKey: removing.sourceKey,
-                        delivery: "pull_request",
-                      })
+                    if (removing) removeMutation.mutate(removing.sourceKey)
                     close()
                   }}
                 >

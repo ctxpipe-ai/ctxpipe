@@ -73,8 +73,6 @@ export const WorkspaceSourceListResponseSchema = z
     items: z.array(WorkspaceSourceSchema),
     /** The user can change this Workspace's sources (by PR at least). */
     canEdit: z.boolean(),
-    /** The Workspace accepts a direct commit of the file (delivery `commit`). */
-    directCommitAllowed: z.boolean(),
     /** Open PRs that change the file ("awaiting merge"). Join on `sourceKey`. */
     pendingChanges: z.array(PendingSourceChangeSchema),
     /** Repository link edits that cannot go into the file, newest first. */
@@ -91,11 +89,11 @@ export const WorkspaceSourceInputSchema = z
   .openapi("WorkspaceSourceInput")
 
 const DeliverySchema = z
-  .enum(["pull_request", "commit"])
+  .literal("pull_request")
   .default("pull_request")
   .openapi("WorkspaceSourceDelivery", {
     description:
-      "pull_request opens a PR against the default branch (awaiting merge). commit queues a direct commit to the default branch through the Workspace write queue.",
+      "Every source change opens a PR against the default branch (awaiting merge). Config never changes without a PR, so no other value is accepted.",
   })
 
 export const CreateWorkspaceSourceRequestSchema = z
@@ -119,18 +117,11 @@ export const DeleteWorkspaceSourceQuerySchema = z
   .openapi("DeleteWorkspaceSourceQuery")
 
 export const WorkspaceSourceChangeResultSchema = z
-  .discriminatedUnion("outcome", [
-    z.object({
-      outcome: z.literal("pull_request"),
-      sourceKey: z.string(),
-      pullRequestUrl: z.string().url(),
-    }),
-    z.object({
-      // The durable Workspace write queue commits to the default branch.
-      outcome: z.literal("commit_queued"),
-      sourceKey: z.string(),
-    }),
-  ])
+  .object({
+    outcome: z.literal("pull_request"),
+    sourceKey: z.string(),
+    pullRequestUrl: z.string().url(),
+  })
   .openapi("WorkspaceSourceChangeResult")
 
 export const WorkspaceSourceParamsSchema = z

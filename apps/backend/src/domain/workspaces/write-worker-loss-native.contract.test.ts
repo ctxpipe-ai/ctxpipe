@@ -278,6 +278,7 @@ process.exit(result.status ?? 1);
             ? await f.runner.runWorkflow(workspaceSemanticMerge.spec, {
                 orgId: f.org.id,
                 workspaceId: f.workspaceId,
+                origin: "host",
                 jobId,
                 revision: {
                   ...(await f.resolveRevision(true)),

@@ -249,6 +249,7 @@ export const WORKSPACE_CHAT_OPENCODE_AGENT_PROMPT = [
   "Linked repositories often keep agent memory: .ai/memory/lessons-learned.md, .ai/memory/glossary.md, and ADRs, for example in .ai/memory/decisions/.",
   "Propose changes as knowledge updates, not code patches: edit or add Markdown units in this repository as the ctxpipe-knowledge skill says.",
   "The folder structure is the map of this repository. When you add, move, or delete a folder, also update the folder list in AGENTS.md.",
+  "Do not add or change the generated_by and sources front matter fields. Only ctx| writes them, and a push with such a change in any commit is refused. You can remove generated_by and sources from a file to give it to people. You can change .ctxpipe/ (the Workspace sources config): it reaches the default branch only through a pull request that a person reviews and merges.",
   "Do not create .ai/memory/ in this repository. For a linked repository, write the proposed lesson, ADR, or glossary text in your answer.",
   "Prefer the smallest tool set that answers the question.",
   "Issue independent glob, grep, and read calls in one step when they do not depend on each other.",
