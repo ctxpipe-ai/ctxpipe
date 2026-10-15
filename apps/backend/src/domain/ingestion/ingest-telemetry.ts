@@ -7,6 +7,7 @@ import {
 } from "@opentelemetry/api"
 import { langfusePropagation } from "../../observability/langfuse.js"
 import { log } from "../../observability/logger.js"
+import { isWorkflowControlSignal } from "../../openworkflow/isSleepSignal.js"
 import type { WorkspaceChatCompletionUsage } from "../workspaces/workspace-chat-model-proxy.js"
 
 /*
@@ -18,13 +19,13 @@ import type { WorkspaceChatCompletionUsage } from "../workspaces/workspace-chat-
  * a prompt, an answer, a file path of the source, or the text of a file.
  */
 
-/** The longest free text (a reason, a script error) that a log or span keeps. */
+/** The limit for a trusted diagnostic. This does not redact source text. */
 export const INGEST_TELEMETRY_TEXT_MAX = 500
 
-/** A free text, cut to `INGEST_TELEMETRY_TEXT_MAX` characters. */
+/** Keep the tail of a diagnostic so its last error line remains visible. */
 export function capIngestText(text: string): string {
   return text.length > INGEST_TELEMETRY_TEXT_MAX
-    ? `${text.slice(0, INGEST_TELEMETRY_TEXT_MAX)}...`
+    ? `...${text.slice(-INGEST_TELEMETRY_TEXT_MAX)}`
     : text
 }
 
@@ -32,7 +33,7 @@ const tracer = () => trace.getTracer("ctxpipe-ingestion")
 
 /**
  * Run `fn` in an `ingestion.*` span. The span gets an error status (the error
- * class only, never its message, which can hold script output) when `fn`
+ * type is fixed, never its message or name, which can hold source text) when `fn`
  * throws. `fn` sets the result attributes with `span.setAttributes`.
  */
 export function withIngestSpan<T>(
@@ -44,11 +45,10 @@ export function withIngestSpan<T>(
     try {
       return await fn(span)
     } catch (error) {
-      span.setAttribute(
-        "error.type",
-        error instanceof Error ? error.name : "Error",
-      )
-      span.setStatus({ code: SpanStatusCode.ERROR })
+      if (!isWorkflowControlSignal(error)) {
+        span.setAttribute("error.type", "Error")
+        span.setStatus({ code: SpanStatusCode.ERROR })
+      }
       throw error
     } finally {
       span.end()
@@ -142,8 +142,37 @@ export function startIngestModelCall(
           ? { "gen_ai.usage.cost": usage.cost }
           : {}),
       })
-      if (result.status >= 500) span.setStatus({ code: SpanStatusCode.ERROR })
+      if (result.status >= 400) span.setStatus({ code: SpanStatusCode.ERROR })
       span.end()
     },
+  }
+}
+
+/** Export a run summary only when the execution ends, not when it parks. */
+export async function withIngestRunSpan<T>(
+  attributes: Attributes,
+  fn: (attributes: Attributes) => Promise<T>,
+): Promise<T> {
+  const startTime = new Date()
+  let parked = false
+  let failed = false
+  try {
+    return await fn(attributes)
+  } catch (error) {
+    parked = isWorkflowControlSignal(error)
+    failed = !parked
+    throw error
+  } finally {
+    if (!parked) {
+      const span = tracer().startSpan("ingestion.run", {
+        attributes,
+        startTime,
+      })
+      if (failed) {
+        span.setAttribute("error.type", "Error")
+        span.setStatus({ code: SpanStatusCode.ERROR })
+      }
+      span.end()
+    }
   }
 }

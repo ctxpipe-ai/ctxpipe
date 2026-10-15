@@ -1,5 +1,5 @@
 import { gunzipSync, gzipSync } from "node:zlib"
-import type { Span } from "@opentelemetry/api"
+import type { Attributes } from "@opentelemetry/api"
 import type { Workflow } from "openworkflow"
 import { parseEnv } from "../../config/env.js"
 import {
@@ -14,7 +14,7 @@ import {
 import {
   capIngestText,
   logIngestEvent,
-  withIngestSpan,
+  withIngestRunSpan,
 } from "../../domain/ingestion/ingest-telemetry.js"
 import {
   INGEST_SHARD_MAX_ROOTS,
@@ -128,27 +128,23 @@ export function defineRepositoryIngestionV2Workflow(
           ),
       )
 
-      // One root span for the run: the source SHA and the bundle hash, then
-      // the counts of the run. Each step and shard has its own child span.
+      // Export one summary for the terminal execution. Shards run in separate
+      // workflows; their spans share the run id, not a parent span.
       function ingestWithSpan(): Promise<IngestionV2Output> {
-        return withIngestSpan(
-          "ingestion.run",
+        return withIngestRunSpan(
           {
             "ctxpipe.org.id": input.orgId,
             "ctxpipe.ingest.run.id": run.id,
             "ctxpipe.ingest.source.sha": input.sha,
             "ctxpipe.ingest.mode": input.shadow ? "shadow" : "publish",
           },
-          async (span) => {
-            const output = await ingest(span)
-            span.setAttribute("ctxpipe.ingest.status", output.status)
+          async (attributes) => {
+            const output = await ingest(attributes)
+            attributes["ctxpipe.ingest.status"] = output.status
             if ("reason" in output)
-              span.setAttribute(
-                "ctxpipe.ingest.reason",
-                capIngestText(output.reason),
-              )
+              attributes["ctxpipe.ingest.reason"] = capIngestText(output.reason)
             if ("workspaces" in output)
-              span.setAttributes({
+              Object.assign(attributes, {
                 "ctxpipe.ingest.shards": output.shards,
                 "ctxpipe.ingest.workspaces": output.workspaces.length,
                 "ctxpipe.ingest.ops": output.workspaces.reduce(
@@ -169,7 +165,9 @@ export function defineRepositoryIngestionV2Workflow(
         )
       }
 
-      async function ingest(rootSpan: Span): Promise<IngestionV2Output> {
+      async function ingest(
+        attributes: Attributes,
+      ): Promise<IngestionV2Output> {
         if (!input.shadow)
           // Publish from the ref is T21. Until then a run must not
           // replace the old pipeline's output.
@@ -260,7 +258,7 @@ export function defineRepositoryIngestionV2Workflow(
         }
         const roots = unpackRoots(scope.roots)
         const shards = Math.ceil(roots.length / INGEST_SHARD_MAX_ROOTS)
-        rootSpan.setAttributes({
+        Object.assign(attributes, {
           "ctxpipe.ingest.bundle": scope.bundle,
           "ctxpipe.ingest.roots": roots.length,
         })

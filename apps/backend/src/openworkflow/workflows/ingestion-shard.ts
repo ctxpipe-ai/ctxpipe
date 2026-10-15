@@ -48,7 +48,10 @@ import {
 } from "../../domain/workspaces/write-broker.js"
 import { createLogger, withLogger } from "../../observability/logger.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
-import { cleanUpUnlessParked } from "../isSleepSignal.js"
+import {
+  cleanUpUnlessParked,
+  isWorkflowControlSignal,
+} from "../isSleepSignal.js"
 
 /*
  * The shard child of an ingestion v2 run (ADR-052, T09). One sandbox for
@@ -356,6 +359,7 @@ export type SkillStepBroker = {
   ): Promise<{
     sha: string
     ops: number
+    rejects: number
     more: boolean
   } | null>
   /** The files of each step commit from the pinned revision to `tip`. */
@@ -553,7 +557,12 @@ async function attemptSkillStep(
       // `Ctxpipe-More` trailer says whether a next page waits.
       const found = await broker.find(ref, ctx.name)
       if (found)
-        return { tip: found.sha, ops: found.ops, rejects: 0, more: found.more }
+        return {
+          tip: found.sha,
+          ops: found.ops,
+          rejects: found.rejects,
+          more: found.more,
+        }
       const baseCommit = ctx.oldTip ?? runBase
       // A new shard ref starts at the run base, which is on the assembled ref.
       const fetchRef = ctx.oldTip
@@ -632,8 +641,14 @@ async function attemptSkillStep(
         more: pushed.more,
       }
     } catch (error) {
-      reason = error instanceof Error ? error.message : String(error)
-      if (error instanceof IngestRefRefusedError) break
+      if (isWorkflowControlSignal(error)) throw error
+      const refused = error instanceof IngestRefRefusedError
+      reason = refused ? "broker_refused" : "step_failed"
+      span.setAttribute(
+        "error.type",
+        refused ? "IngestRefRefusedError" : "Error",
+      )
+      if (refused) break
       if (attempt < STEP_ATTEMPTS) await delay(attempt * 5_000)
     }
   }

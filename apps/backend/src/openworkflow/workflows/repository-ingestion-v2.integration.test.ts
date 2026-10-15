@@ -420,6 +420,7 @@ describe("ingestion v2 in shadow mode", () => {
           span.attributes["ctxpipe.ingest.run.id"] === runId,
       )
       expect(runSpans).toHaveLength(1)
+      expect(runSpans[0]?.status.code).not.toBe(2)
       expect(runSpans[0]?.attributes).toMatchObject({
         "ctxpipe.ingest.source.sha": sourceSha,
         "ctxpipe.ingest.bundle": expect.stringMatching(/^ingest-[0-9a-f]{16}$/),
@@ -606,7 +607,11 @@ describe("ingestion v2 with a failed shard", () => {
               and wr.id = ${runId}
           `)
           const row = rows.rows[0]
-          if (row?.step === "failed" && (row.run !== "running" || row.parked)) {
+          // The parent can park before the sibling reaches its gate.
+          if (
+            row?.step === "failed" &&
+            (row.run !== "running" || (row.parked && wide.waiting))
+          ) {
             parentStatus = row.run
             break
           }

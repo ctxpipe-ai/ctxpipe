@@ -214,7 +214,10 @@ export const workspaceChatOpenaiRoutes = new OpenAPIHono<AppEnv>()
     const ingestCall = token.ingest
       ? startIngestModelCall(token.ingest, contract.modelBase)
       : undefined
+    let recorded = false
     const record = (status: number) => {
+      if (recorded) return
+      recorded = true
       observer.end()
       ingestCall?.finish({
         status,
@@ -248,8 +251,14 @@ export const workspaceChatOpenaiRoutes = new OpenAPIHono<AppEnv>()
       const response = await handleNativeBedrockResponse(
         c,
         handleBedrockChatCompletion(env, forwarded),
+        {
+          observe: (chunk) => {
+            markTtfb()
+            observer.push(chunk)
+          },
+          onObservedComplete: record,
+        },
       )
-      record(response.status)
       return response
     }
     return forwardToUpstream(c, "/v1/chat/completions", forwarded, {
@@ -260,6 +269,6 @@ export const workspaceChatOpenaiRoutes = new OpenAPIHono<AppEnv>()
         markTtfb()
         observer.push(chunk)
       },
-      onObservedComplete: () => record(200),
+      onObservedComplete: record,
     })
   })

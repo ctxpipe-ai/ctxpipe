@@ -9,6 +9,8 @@ import {
   capIngestText,
   INGEST_TELEMETRY_TEXT_MAX,
   startIngestModelCall,
+  withIngestRunSpan,
+  withIngestSpan,
 } from "./ingest-telemetry.js"
 
 const exporter = new InMemorySpanExporter()
@@ -87,5 +89,51 @@ describe("capIngestText", () => {
     expect(capIngestText("short")).toBe("short")
     const cut = capIngestText("x".repeat(5_000))
     expect(cut.length).toBe(INGEST_TELEMETRY_TEXT_MAX + 3)
+    expect(capIngestText(`${"x".repeat(5000)}last error`)).toMatch(
+      /last error$/,
+    )
+  })
+})
+
+describe("workflow control telemetry", () => {
+  it("does not mark a parked step as an error", async () => {
+    const signal = new Error("private sentinel")
+    signal.name = "SleepSignalError"
+    await expect(
+      withIngestSpan("ingestion.step", {}, async () => {
+        throw signal
+      }),
+    ).rejects.toBe(signal)
+    expect(exporter.getFinishedSpans()[0]?.status.code).not.toBe(2)
+  })
+  it("exports only the terminal run execution", async () => {
+    const signal = new Error("private sentinel")
+    signal.name = "SleepSignalError"
+    await expect(
+      withIngestRunSpan({}, async () => {
+        throw signal
+      }),
+    ).rejects.toBe(signal)
+    expect(exporter.getFinishedSpans()).toHaveLength(0)
+    await withIngestRunSpan({}, async () => "done")
+    expect(exporter.getFinishedSpans().map((s) => s.name)).toEqual([
+      "ingestion.run",
+    ])
+  })
+  it("does not export an arbitrary error name or message", async () => {
+    const error = new Error("private sentinel")
+    error.name = "private sentinel"
+    await expect(
+      withIngestSpan("ingestion.step", {}, async () => {
+        throw error
+      }),
+    ).rejects.toBe(error)
+    expect(
+      JSON.stringify(
+        exporter
+          .getFinishedSpans()
+          .map((s) => [s.attributes, s.status, s.events]),
+      ),
+    ).not.toContain("private sentinel")
   })
 })
