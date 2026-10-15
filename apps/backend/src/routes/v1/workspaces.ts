@@ -376,25 +376,28 @@ const retryPrepareWorkspaceRoute = createRoute(
   }),
 )
 
-const checkWriteAccessWorkspaceRoute = createRoute({
-  method: "post",
-  path: "/{workspaceSlug}/check-write-access",
-  request: { params: WorkspaceSlugParamsSchema },
-  responses: {
-    200: {
-      content: { "application/json": { schema: WorkspaceSchema } },
-      description: "Check Workspace write access again",
+// The tip check resumes paused write jobs and queues a migration export.
+const checkWriteAccessWorkspaceRoute = createRoute(
+  directWriteRoute({
+    method: "post",
+    path: "/{workspaceSlug}/check-write-access",
+    request: { params: WorkspaceSlugParamsSchema },
+    responses: {
+      200: {
+        content: { "application/json": { schema: WorkspaceSchema } },
+        description: "Check Workspace write access again",
+      },
+      401: {
+        content: { "application/json": { schema: ErrorResponseSchema } },
+        description: "Unauthorized",
+      },
+      404: {
+        content: { "application/json": { schema: ErrorResponseSchema } },
+        description: "Not found",
+      },
     },
-    401: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unauthorized",
-    },
-    404: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Not found",
-    },
-  },
-})
+  }),
+)
 
 export const workspaceRoutes = new OpenAPIHono<AppEnv>()
   .openapi(listWorkspacesRoute, async (c) => {

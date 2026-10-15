@@ -5,6 +5,7 @@ import { evlog } from "evlog/hono"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../../test/db.js"
 import type { AppEnv } from "../../app/env.js"
+import { getAuth } from "../../auth/config.js"
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb } from "../../db/client.js"
 import {
@@ -24,54 +25,108 @@ import { registerV1Routes } from "./index.js"
 vi.hoisted(() => vi.stubEnv("MODEL_PROVIDER_API_KEY", "test-key"))
 
 /**
- * Each REST route that queues a write which lands on the default branch of
+ * Each REST route that causes a write which lands on the default branch of
  * the Workspace repository without a pull request. The Workspace and the
- * connection do not exist: a request that passes the write gate gets a 400
- * or 404 from the handler, not a 401 or 403.
+ * connection do not exist: a request that passes the write gate gets
+ * `expectedStatus` from the handler.
  */
 const DIRECT_WRITE_ROUTES: ReadonlyArray<{
   method: string
   path: string
   body?: unknown
+  expectedStatus: number
   /**
-   * The org admin gate in front of the route reads a Better Auth session, so
-   * it already refuses each OAuth token with its own 403.
+   * The org admin check in front of the route reads a Better Auth session, so
+   * it refuses each OAuth access token with its own 403 before the write gate.
    */
-  adminSessionOnly?: true
+  orgAdmin?: true
 }> = [
-  { method: "POST", path: "/workspaces", body: { name: "Gate test" } },
-  { method: "PATCH", path: "/workspaces/missing-ws", body: { name: "New" } },
+  {
+    method: "POST",
+    path: "/workspaces",
+    body: { name: "Gate test" },
+    expectedStatus: 400,
+  },
+  {
+    method: "PATCH",
+    path: "/workspaces/missing-ws",
+    body: { name: "New" },
+    expectedStatus: 404,
+  },
   {
     method: "DELETE",
     path: "/workspaces/missing-ws",
     body: { confirmName: "missing-ws" },
+    expectedStatus: 404,
   },
-  { method: "POST", path: "/workspaces/missing-ws/retry-prepare" },
+  {
+    method: "POST",
+    path: "/workspaces/missing-ws/retry-prepare",
+    expectedStatus: 404,
+  },
+  {
+    method: "POST",
+    path: "/workspaces/missing-ws/check-write-access",
+    expectedStatus: 404,
+  },
   {
     method: "POST",
     path: "/workspaces/missing-ws/files/jobs",
     body: { kind: "file", path: "notes/a.md", content: "a" },
+    expectedStatus: 400,
   },
   {
     method: "DELETE",
     path: "/workspaces/missing-ws/linked-repositories/lnk_missing",
+    expectedStatus: 404,
   },
-  { method: "POST", path: "/workspaces/missing-ws/sources", body: {} },
-  { method: "PUT", path: "/workspaces/missing-ws/sources/src-a", body: {} },
-  { method: "DELETE", path: "/workspaces/missing-ws/sources/src-a" },
+  {
+    method: "POST",
+    path: "/workspaces/missing-ws/sources",
+    body: {},
+    expectedStatus: 400,
+  },
+  {
+    method: "PUT",
+    path: "/workspaces/missing-ws/sources/src-a",
+    body: {},
+    expectedStatus: 400,
+  },
+  {
+    method: "DELETE",
+    path: "/workspaces/missing-ws/sources/src-a",
+    expectedStatus: 404,
+  },
   {
     method: "POST",
     path: "/connectors/con_missing/sync",
-    adminSessionOnly: true,
+    expectedStatus: 404,
+    orgAdmin: true,
   },
+  ...(["linear", "notion", "pagerduty"] as const).flatMap((connector) => [
+    {
+      method: "PATCH",
+      path: `/connectors/${connector}/config?connectionId=con_missing`,
+      body: { scopes: [] },
+      // Linear finds no connection. Notion and PagerDuty refuse the body first.
+      expectedStatus: connector === "linear" ? 404 : 400,
+      orgAdmin: true as const,
+    },
+    {
+      method: "POST",
+      path: `/connectors/${connector}/retry?connectionId=con_missing`,
+      expectedStatus: 404,
+      orgAdmin: true as const,
+    },
+  ]),
 ]
 
 /** Read routes that a read-only OAuth token and an API key still reach. */
 const READ_ROUTES = [
-  "/workspaces",
-  "/workspaces/missing-ws",
-  "/workspaces/missing-ws/sources",
-  "/workspaces/missing-ws/linked-repositories",
+  { path: "/workspaces", expectedStatus: 200 },
+  { path: "/workspaces/missing-ws", expectedStatus: 404 },
+  { path: "/workspaces/missing-ws/sources", expectedStatus: 404 },
+  { path: "/workspaces/missing-ws/linked-repositories", expectedStatus: 404 },
 ]
 
 describe("Direct-write REST routes need a session or the ctxpipe:write scope (Postgres)", () => {
@@ -80,22 +135,29 @@ describe("Direct-write REST routes need a session or the ctxpipe:write scope (Po
   let readToken = ""
   let writeToken = ""
   let legacyToken = ""
+  let readJwt = ""
+  let sessionToken = ""
 
   function requireSeed(): SeededOrg {
     if (!seed) throw new Error("seedOrg did not run")
     return seed
   }
 
+  async function seededSession(): Promise<{ id: string; token: string }> {
+    const [session] = await getSystemDb()
+      .select({ id: sessions.id, token: sessions.token })
+      .from(sessions)
+      .where(eq(sessions.userId, requireSeed().userId))
+      .limit(1)
+    if (!session) throw new Error("sign-up did not store a session")
+    return session
+  }
+
   /** An opaque OAuth access token of the seeded user with these scopes. */
   async function opaqueToken(scopes: string[]): Promise<string> {
     const s = requireSeed()
     const db = getSystemDb()
-    const [session] = await db
-      .select({ id: sessions.id })
-      .from(sessions)
-      .where(eq(sessions.userId, s.userId))
-      .limit(1)
-    if (!session) throw new Error("sign-up did not store a session")
+    const session = await seededSession()
     const clientId = `write_gate_${generateObjectId("oac")}`
     clientIds.push(clientId)
     const token = `write_gate_token_${clientId}`
@@ -123,6 +185,25 @@ describe("Direct-write REST routes need a session or the ctxpipe:write scope (Po
     return token
   }
 
+  /** A JWT access token from the server's own key with the `ctxpipe:read` scope. */
+  async function readScopeJwt(): Promise<string> {
+    const env = parseEnv(process.env as Record<string, string | undefined>)
+    const session = await seededSession()
+    const { token } = await getAuth().api.signJWT({
+      body: {
+        payload: {
+          sub: requireSeed().userId,
+          sid: session.id,
+          aud: env.AUTH_BASE_URL,
+          // The issuer that withAuth accepts.
+          iss: new URL("/.auth/api/v1/auth", env.AUTH_BASE_URL).toString(),
+          scope: "openid ctxpipe:read",
+        },
+      },
+    })
+    return token
+  }
+
   beforeAll(async () => {
     if (!process.env.DATABASE_URL) {
       throw new Error("DATABASE_URL is required for this integration test")
@@ -131,6 +212,8 @@ describe("Direct-write REST routes need a session or the ctxpipe:write scope (Po
     readToken = await opaqueToken(["openid", "ctxpipe:read"])
     writeToken = await opaqueToken(["openid", "ctxpipe:read", "ctxpipe:write"])
     legacyToken = await opaqueToken(["openid", "offline_access"])
+    readJwt = await readScopeJwt()
+    sessionToken = (await seededSession()).token
   })
 
   afterAll(async () => {
@@ -185,67 +268,100 @@ describe("Direct-write REST routes need a session or the ctxpipe:write scope (Po
     )
   }
 
-  async function expectWriteGrantRefusal(
-    response: Response,
-    route: { adminSessionOnly?: true },
-  ) {
+  async function expectWriteGrantRefusal(response: Response) {
     expect(response.status).toBe(403)
-    if (route.adminSessionOnly) return
     expect(await response.json()).toMatchObject({
       code: "write_grant_required",
     })
   }
 
+  async function expectOrgAdminRefusal(response: Response) {
+    expect(response.status).toBe(403)
+    expect(await response.json()).toEqual({ error: "Forbidden" })
+  }
+
   for (const route of DIRECT_WRITE_ROUTES) {
     const name = `${route.method} ${route.path}`
+
+    it(`refuses a personal API key at the write gate on ${name}`, async () => {
+      await expectWriteGrantRefusal(
+        await send(route, { "x-api-key": requireSeed().personalApiKey }),
+      )
+    })
+
+    it(`refuses an org API key (MCP-only) before the write gate on ${name}`, async () => {
+      const response = await send(route, {
+        "x-api-key": requireSeed().orgApiKey,
+      })
+      expect(response.status).toBe(401)
+    })
+
+    it(`lets a cookie session through the gate on ${name}`, async () => {
+      const response = await send(route, { cookie: requireSeed().cookie })
+      expect(response.status).toBe(route.expectedStatus)
+    })
+
+    it(`lets a Better Auth session token sent as Bearer through the gate on ${name}`, async () => {
+      const response = await send(route, {
+        authorization: `Bearer ${sessionToken}`,
+      })
+      expect(response.status).toBe(route.expectedStatus)
+    })
+
+    if (route.orgAdmin) {
+      for (const [label, token] of [
+        ["a ctxpipe:read OAuth token", () => readToken],
+        ["a ctxpipe:write OAuth token", () => writeToken],
+        ["an OAuth token from before the ctxpipe scopes", () => legacyToken],
+        ["a ctxpipe:read JWT access token", () => readJwt],
+      ] as const) {
+        it(`refuses ${label} at the org admin check before the write gate on ${name}`, async () => {
+          await expectOrgAdminRefusal(
+            await send(route, { authorization: `Bearer ${token()}` }),
+          )
+        })
+      }
+      continue
+    }
 
     it(`refuses a ctxpipe:read OAuth token on ${name}`, async () => {
       const response = await send(route, {
         authorization: `Bearer ${readToken}`,
       })
-      await expectWriteGrantRefusal(response, route)
-      if (route.adminSessionOnly) return
+      await expectWriteGrantRefusal(response)
       const challenge = response.headers.get("www-authenticate") ?? ""
       expect(challenge).toContain('error="insufficient_scope"')
       expect(challenge).toContain('scope="ctxpipe:read ctxpipe:write"')
     })
 
+    it(`refuses a ctxpipe:read JWT access token on ${name}`, async () => {
+      await expectWriteGrantRefusal(
+        await send(route, { authorization: `Bearer ${readJwt}` }),
+      )
+    })
+
     it(`refuses an OAuth token from before the ctxpipe scopes on ${name}`, async () => {
       await expectWriteGrantRefusal(
         await send(route, { authorization: `Bearer ${legacyToken}` }),
-        route,
       )
     })
 
-    it(`refuses a personal API key on ${name}`, async () => {
-      await expectWriteGrantRefusal(
-        await send(route, { "x-api-key": requireSeed().personalApiKey }),
-        route,
-      )
-    })
-
-    it(`lets a cookie session through the gate on ${name}`, async () => {
-      const response = await send(route, { cookie: requireSeed().cookie })
-      expect([401, 403]).not.toContain(response.status)
-    })
-
-    if (route.adminSessionOnly) continue
     it(`lets a ctxpipe:write OAuth token through the gate on ${name}`, async () => {
       const response = await send(route, {
         authorization: `Bearer ${writeToken}`,
       })
-      expect([401, 403]).not.toContain(response.status)
+      expect(response.status).toBe(route.expectedStatus)
     })
   }
 
-  for (const path of READ_ROUTES) {
-    it(`still serves GET ${path} to a ctxpipe:read OAuth token and an API key`, async () => {
-      for (const credential of [
+  for (const { path, expectedStatus } of READ_ROUTES) {
+    it(`still serves GET ${path} to a ctxpipe:read OAuth token and a personal API key`, async () => {
+      for (const credential of <Record<string, string>[]>[
         { authorization: `Bearer ${readToken}` },
         { "x-api-key": requireSeed().personalApiKey },
       ]) {
         const response = await send({ method: "GET", path }, credential)
-        expect([401, 403]).not.toContain(response.status)
+        expect(response.status).toBe(expectedStatus)
       }
     })
   }
@@ -259,7 +375,13 @@ describe("Direct-write REST routes need a session or the ctxpipe:write scope (Po
     ).json()) as {
       paths: Record<
         string,
-        Record<string, { description?: string; responses?: object }>
+        Record<
+          string,
+          {
+            description?: string
+            responses?: Record<string, { content?: object }>
+          }
+        >
       >
     }
     const stated = Object.entries(spec.paths).flatMap(([path, operations]) =>
@@ -270,31 +392,37 @@ describe("Direct-write REST routes need a session or the ctxpipe:write scope (Po
         .map(([method]) => `${method.toUpperCase()} ${path}`),
     )
     const base = "/{orgSlug}/api/v1"
+    const adminOnly = [
+      `POST ${base}/connectors/{connectionId}/sync`,
+      ...["linear", "notion", "pagerduty"].flatMap((connector) => [
+        `PATCH ${base}/connectors/${connector}/config`,
+        `POST ${base}/connectors/${connector}/retry`,
+      ]),
+    ]
     expect(stated.sort()).toEqual(
       [
         `POST ${base}/workspaces`,
         `PATCH ${base}/workspaces/{workspaceSlug}`,
         `DELETE ${base}/workspaces/{workspaceSlug}`,
         `POST ${base}/workspaces/{workspaceSlug}/retry-prepare`,
+        `POST ${base}/workspaces/{workspaceSlug}/check-write-access`,
         `POST ${base}/workspaces/{workspaceSlug}/files/jobs`,
         `DELETE ${base}/workspaces/{workspaceSlug}/linked-repositories/{linkedId}`,
         `POST ${base}/workspaces/{workspaceSlug}/sources`,
         `PUT ${base}/workspaces/{workspaceSlug}/sources/{sourceKey}`,
         `DELETE ${base}/workspaces/{workspaceSlug}/sources/{sourceKey}`,
-        `POST ${base}/connectors/{connectionId}/sync`,
+        ...adminOnly,
       ].sort(),
     )
-    expect(
-      spec.paths[`${base}/workspaces/{workspaceSlug}/files/jobs`]?.post
-        ?.responses,
-    ).toHaveProperty("403")
-  })
-
-  it("lists the Workspaces of the org for a ctxpipe:read OAuth token", async () => {
-    const response = await send(
-      { method: "GET", path: "/workspaces" },
-      { authorization: `Bearer ${readToken}` },
-    )
-    expect(response.status).toBe(200)
+    for (const entry of stated) {
+      const [method, path] = entry.split(" ") as [string, string]
+      const operation = spec.paths[path]?.[method.toLowerCase()]
+      expect(operation?.responses?.["403"]?.content).toHaveProperty(
+        "application/json",
+      )
+      expect(operation?.description?.includes("org admin or owner")).toBe(
+        adminOnly.includes(entry),
+      )
+    }
   })
 })
