@@ -42,12 +42,12 @@ export function getZendeskSetupStep(
 }
 
 /**
- * The card action, or null. Zendesk lets only an admin add the webhook,
- * so a connection without it can authorize again as an admin.
+ * The card action. Zendesk lets only an admin add the webhook, so a
+ * connection without it can authorize again as an admin. As on the other
+ * cards, Manage opens the Workspaces step once the connection is complete.
  */
 export function getZendeskCardCtaLabel(status: SetupStatus): string | null {
   if (status.status === "revoked") return "Reconnect Zendesk"
-  return status.status === "installed" && !status.webhookConfigured
-    ? "Add the webhook"
-    : null
+  if (status.status !== "installed") return null
+  return status.webhookConfigured ? "Manage" : "Add the webhook"
 }

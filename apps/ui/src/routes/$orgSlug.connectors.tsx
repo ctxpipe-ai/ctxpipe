@@ -305,9 +305,9 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
                   key={row.id}
                   orgSlug={orgSlug}
                   connectionId={row.id}
-                  onOpenSetup={({ reconnect }) => {
+                  onOpenSetup={(options) => {
                     setZendeskConnectionId(row.id)
-                    setZendeskReconnect(reconnect)
+                    setZendeskReconnect(Boolean(options?.reconnect))
                     setZendeskSetupOpen(true)
                   }}
                 />

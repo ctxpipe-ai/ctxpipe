@@ -18,7 +18,8 @@ import { ZendeskMark } from "./ZendeskMark"
 type ZendeskConnectionCardProps = {
   orgSlug: string
   connectionId: string
-  onOpenSetup: (options: { reconnect: true }) => void
+  /** With `reconnect`, the setup opens at the authorization. */
+  onOpenSetup: (options?: { reconnect: true }) => void
 }
 
 export function ZendeskConnectionCard({
@@ -81,7 +82,10 @@ export function ZendeskConnectionCard({
         isError
           ? () => void refetch()
           : actionLabel
-            ? () => onOpenSetup({ reconnect: true })
+            ? () =>
+                actionLabel === "Manage"
+                  ? onOpenSetup()
+                  : onOpenSetup({ reconnect: true })
             : undefined
       }
     >

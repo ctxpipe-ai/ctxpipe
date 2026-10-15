@@ -78,6 +78,7 @@ describe("getZendeskCardCtaLabel", () => {
     expect(getZendeskCardCtaLabel(status({ webhookConfigured: false }))).toBe(
       "Add the webhook",
     )
-    expect(getZendeskCardCtaLabel(status())).toBeNull()
+    // As on the other cards: Manage opens the Workspaces step.
+    expect(getZendeskCardCtaLabel(status())).toBe("Manage")
   })
 })

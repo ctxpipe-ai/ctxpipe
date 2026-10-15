@@ -68,6 +68,14 @@ export const Connected: Story = {
     await expect(
       canvas.queryByRole("button", { name: /^Reconnect/ }),
     ).toBeNull()
+    // As on the other connector cards, Manage opens the setup at the
+    // Workspaces step, not at the authorization.
+    onOpenSetup.mockClear()
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Expand Zendesk" }),
+    )
+    await userEvent.click(await canvas.findByRole("button", { name: "Manage" }))
+    await expect(onOpenSetup).toHaveBeenCalledWith()
   },
 }
 
