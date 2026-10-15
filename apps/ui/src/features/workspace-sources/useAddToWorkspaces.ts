@@ -28,7 +28,7 @@ import {
 export type OpenedPullRequest = {
   url: string
   workspaceSlug: string
-  sourceKey: string
+  path: string
   /** The scope of the source after the merge, or null for a remove. */
   scope: Record<string, unknown> | null
 }
@@ -71,7 +71,7 @@ export function useAddToWorkspaces(input: {
     )
     const [only] = sources
     return sources.length === 1 && only
-      ? [{ workspaceSlug: item.workspaceSlug, sourceKey: only.sourceKey }]
+      ? [{ workspaceSlug: item.workspaceSlug, path: only.path }]
       : []
   })
   const sourceQueries = useQueries({
@@ -92,11 +92,11 @@ export function useAddToWorkspaces(input: {
   if (manage && (prefilled || loaded))
     managed.forEach((item, index) => {
       const source = sourceQueries[index]?.data?.items.find(
-        (candidate) => candidate.sourceKey === item.sourceKey,
+        (candidate) => candidate.path === item.path,
       )
       if (source)
         existing[item.workspaceSlug] = {
-          sourceKey: item.sourceKey,
+          path: item.path,
           scope: source.scope,
         }
     })
@@ -122,13 +122,13 @@ export function useAddToWorkspaces(input: {
               ? updateWorkspaceSource(
                   orgSlug,
                   change.workspaceSlug,
-                  change.sourceKey,
+                  change.path,
                   change.source,
                 )
               : deleteWorkspaceSource(
                   orgSlug,
                   change.workspaceSlug,
-                  change.sourceKey,
+                  change.path,
                 ),
         ),
       ),
@@ -142,25 +142,21 @@ export function useAddToWorkspaces(input: {
         })
       const pullRequests = results.flatMap((result, index) => {
         const change = list[index]
-        return result.outcome === "pull_request" && change
+        return change
           ? [
               {
                 url: result.pullRequestUrl,
                 workspaceSlug: change.workspaceSlug,
-                sourceKey: result.sourceKey,
+                path: result.path,
                 scope: change.kind === "remove" ? null : change.source.scope,
               },
             ]
           : []
       })
       toast.success(
-        pullRequests.length
-          ? manage
-            ? "Pull request opened. The change applies after the merge."
-            : "Pull request opened. The source starts to sync after the merge."
-          : manage
-            ? "Sources changed"
-            : "Source added",
+        manage
+          ? "Pull request opened. The change applies after the merge."
+          : "Pull request opened. The source starts to sync after the merge.",
       )
       setValue(emptyChooseWorkspaces())
       setPrefilled(false)

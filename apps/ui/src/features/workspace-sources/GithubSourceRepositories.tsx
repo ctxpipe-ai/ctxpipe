@@ -32,10 +32,9 @@ import type { WorkspaceLinkedRepository } from "@/features/workspaces/types"
 import { cn } from "@/lib/utils"
 import {
   createWorkspaceSource,
+  createWorkspaceSourcesBatch,
   deleteWorkspaceSource,
-  type SourceDelivery,
   sourceChangeMessage,
-  updateWorkspaceSource,
   type WorkspaceSource,
   workspaceSourceKeys,
 } from "./queries"
@@ -57,8 +56,15 @@ function itemName(item: ScopeItem): string {
   return typeof item === "string" ? item : item.name
 }
 
-/** The items of a GitHub source, as the file has them (refs stay). */
+/**
+ * The repositories of a GitHub source. A source file names one `repository`
+ * (with an optional `ref`); a legacy `.ctxpipe/sources.yaml` row lists
+ * `repositories`.
+ */
 function scopeItems(source: WorkspaceSource): ScopeItem[] {
+  const { repository, ref } = source.scope
+  if (typeof repository === "string")
+    return [typeof ref === "string" ? { name: repository, ref } : repository]
   const value = source.scope.repositories
   return Array.isArray(value)
     ? value.filter(
@@ -162,7 +168,7 @@ export function repositoryRows(
     for (const name of scopeRepositories(source)) {
       if (rows.some((row) => sameName(row.title, name))) continue
       rows.push({
-        key: `${source.sourceKey}:${name}`,
+        key: `${source.path}:${name}`,
         title: name,
         gitUrl: `https://github.com/${name}.git`,
         linked: null,
@@ -178,8 +184,8 @@ export function repositoryRows(
 
 /**
  * The GitHub section body of the Workspace sources: one list of the linked
- * repositories. The GitHub sources of `.ctxpipe/sources.yaml` are the only
- * links; each change goes through that file.
+ * repositories. Each GitHub source file under `sources/github/` links one
+ * repository; each change goes through that file.
  */
 export function GithubSourceRepositories(props: {
   orgSlug: string
@@ -189,11 +195,10 @@ export function GithubSourceRepositories(props: {
   sources: WorkspaceSource[]
   connections: SourceConnectionOption[]
   canEdit: boolean
-  directCommitAllowed: boolean
   addOpen: boolean
   onAddOpenChange: (open: boolean) => void
 }) {
-  const { orgSlug, workspaceSlug, rows, canEdit, directCommitAllowed } = props
+  const { orgSlug, workspaceSlug, rows, canEdit } = props
   const queryClient = useQueryClient()
   const [query, setQuery] = useState("")
   const [showAll, setShowAll] = useState(false)
@@ -218,34 +223,13 @@ export function GithubSourceRepositories(props: {
           return unlinkWorkspaceRepository(orgSlug, workspaceSlug, linked.id)
         return null
       }
-      const delivery: SourceDelivery = directCommitAllowed
-        ? "commit"
-        : "pull_request"
-      const repositories = scopeItems(source).filter(
-        (item) => !sameName(itemName(item), row.title),
-      )
-      if (repositories.length === 0)
-        return deleteWorkspaceSource(
-          orgSlug,
-          workspaceSlug,
-          source.sourceKey,
-          delivery,
-        )
-      if (!source.connectionId)
+      // One file holds one repository, so an unlink deletes the file. A
+      // legacy row has no file that a delete can name.
+      if (!source.removable)
         throw new Error(
-          "This GitHub source has no connection. Edit sources.yaml.",
+          "This repository is in .ctxpipe/sources.yaml. Edit that file.",
         )
-      return updateWorkspaceSource(
-        orgSlug,
-        workspaceSlug,
-        source.sourceKey,
-        {
-          provider: "github",
-          connectionId: source.connectionId,
-          scope: { repositories },
-        },
-        delivery,
-      )
+      return deleteWorkspaceSource(orgSlug, workspaceSlug, source.path)
     },
     onSuccess: (result) => {
       void queryClient.invalidateQueries({
@@ -254,7 +238,7 @@ export function GithubSourceRepositories(props: {
       void queryClient.invalidateQueries({
         queryKey: workspaceSourceKeys.list(orgSlug, workspaceSlug),
       })
-      if (result) toast.success(sourceChangeMessage(result))
+      if (result) toast.success(sourceChangeMessage())
     },
     onError: (error: Error) => toast.error(error.message),
   })
@@ -295,7 +279,9 @@ export function GithubSourceRepositories(props: {
                 const status = row.linked
                   ? linkedStatus(row.linked)
                   : pendingTag
-                const canUnlink = row.source ? canEdit : true
+                const canUnlink = row.source
+                  ? canEdit && row.source.removable
+                  : true
                 return (
                   <li key={row.key} className={sourceRowClassName}>
                     {webUrl ? (
@@ -328,7 +314,7 @@ export function GithubSourceRepositories(props: {
                             ·
                           </span>
                           <code className="truncate font-mono">
-                            {row.source.sourceKey}
+                            {row.source.path}
                           </code>
                         </>
                       ) : (
@@ -357,6 +343,27 @@ export function GithubSourceRepositories(props: {
                         </Button>
                       ) : null}
                     </div>
+                    {row.source?.description ? (
+                      <p
+                        className={cn(
+                          sourceRowNoteClassName,
+                          "line-clamp-2 text-muted-foreground",
+                        )}
+                      >
+                        {row.source.description}
+                      </p>
+                    ) : null}
+                    {row.source && !row.source.removable ? (
+                      <p
+                        className={cn(
+                          sourceRowNoteClassName,
+                          "text-muted-foreground",
+                        )}
+                      >
+                        Defined in .ctxpipe/sources.yaml. Edit that file to
+                        unlink it.
+                      </p>
+                    ) : null}
                     {row.linked?.indexingStatus === "complete_with_issues" &&
                     row.linked.indexingError ? (
                       <p
@@ -410,9 +417,7 @@ export function GithubSourceRepositories(props: {
 function AddGithubRepositoriesModal(props: {
   orgSlug: string
   workspaceSlug: string
-  sources: WorkspaceSource[]
   connections: SourceConnectionOption[]
-  directCommitAllowed: boolean
   takenUrls: string[]
   isOpen: boolean
   onOpenChange: (open: boolean) => void
@@ -420,9 +425,7 @@ function AddGithubRepositoriesModal(props: {
   const {
     orgSlug,
     workspaceSlug,
-    sources,
     connections,
-    directCommitAllowed,
     takenUrls,
     isOpen,
     onOpenChange,
@@ -466,47 +469,31 @@ function AddGithubRepositoriesModal(props: {
   }
 
   const addMutation = useMutation({
-    mutationFn: async (input: {
-      repos: GithubRepoItem[]
-      delivery: SourceDelivery
-    }) => {
+    mutationFn: async (repos: GithubRepoItem[]) => {
+      // One source file for each repository. The server names each file
+      // sources/github/<owner>/<name>.md. Several repositories share one
+      // request, so they share one pull request (the route takes 20).
+      const toInput = (repo: GithubRepoItem) => ({
+        provider: "github" as const,
+        connectionId: repo.githubConnectionId ?? "",
+        scope: { repository: repo.full_name },
+      })
+      const [only] = repos
+      if (repos.length === 1 && only)
+        return [
+          await createWorkspaceSource(orgSlug, workspaceSlug, toInput(only)),
+        ]
       const results = []
-      for (const connectionId of new Set(
-        input.repos.map((repo) => repo.githubConnectionId ?? ""),
-      )) {
-        const names = input.repos
-          .filter((repo) => repo.githubConnectionId === connectionId)
-          .map((repo) => repo.full_name)
-        const existing = sources.find(
-          (source) => source.connectionId === connectionId,
-        )
+      for (let i = 0; i < repos.length; i += 20)
         results.push(
-          existing
-            ? await updateWorkspaceSource(
-                orgSlug,
-                workspaceSlug,
-                existing.sourceKey,
-                {
-                  provider: "github",
-                  connectionId,
-                  scope: {
-                    repositories: [...scopeItems(existing), ...names],
-                  },
-                },
-                input.delivery,
-              )
-            : await createWorkspaceSource(
-                orgSlug,
-                workspaceSlug,
-                {
-                  provider: "github",
-                  connectionId,
-                  scope: { repositories: names },
-                },
-                input.delivery,
-              ),
+          await createWorkspaceSourcesBatch(
+            orgSlug,
+            workspaceSlug,
+            repos.slice(i, i + 20).map((repo) => ({
+              source: toInput(repo),
+            })),
+          ),
         )
-      }
       return results
     },
     onSuccess: (results) => {
@@ -518,14 +505,25 @@ function AddGithubRepositoriesModal(props: {
       })
       HyperDX.addAction("repository_index_started")
       const first = results[0]
-      if (first) toast.success(sourceChangeMessage(first))
+      if (first)
+        toast.success(
+          results.length > 1
+            ? `${results.length} pull requests opened. Each change applies after its merge.`
+            : sourceChangeMessage(),
+          {
+            action: {
+              label: "View pull request",
+              onClick: () =>
+                window.open(first.pullRequestUrl, "_blank", "noopener"),
+            },
+          },
+        )
       close()
     },
     onError: (error: Error) => toast.error(error.message),
   })
 
-  const add = (delivery: SourceDelivery) =>
-    addMutation.mutate({ repos: selected, delivery })
+  const add = () => addMutation.mutate(selected)
 
   return (
     <Modal
@@ -544,8 +542,8 @@ function AddGithubRepositoriesModal(props: {
           Add repositories
         </Heading>
         <p className="mt-1 text-sm text-muted-foreground">
-          Select repositories from GitHub. The change goes to the sources file
-          of this Workspace.
+          Select repositories from GitHub. Each repository gets a source file
+          under sources/github/ in this Workspace.
         </p>
 
         <div className="mt-5 space-y-3">
@@ -604,20 +602,11 @@ function AddGithubRepositoriesModal(props: {
           >
             Cancel
           </Button>
-          {directCommitAllowed ? (
-            <Button
-              variant="secondary"
-              isDisabled={selected.length === 0 || addMutation.isPending}
-              onPress={() => add("commit")}
-            >
-              Commit directly
-            </Button>
-          ) : null}
           <Button
             variant="primary"
             isDisabled={selected.length === 0}
             isPending={addMutation.isPending}
-            onPress={() => add("pull_request")}
+            onPress={() => add()}
           >
             Open a pull request
           </Button>

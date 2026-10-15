@@ -325,7 +325,6 @@ export const AddToWorkspaces: Story = {
               ],
             },
           },
-          delivery: "pull_request",
         },
       },
     ])

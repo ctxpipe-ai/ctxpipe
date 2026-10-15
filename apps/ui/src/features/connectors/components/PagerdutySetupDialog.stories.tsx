@@ -245,7 +245,6 @@ export const AddToWorkspaces: Story = {
             connectionId,
             scope: { services: ["PSVC001"] },
           },
-          delivery: "pull_request",
         },
       },
     ])

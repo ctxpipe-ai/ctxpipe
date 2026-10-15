@@ -91,8 +91,8 @@ describe("chooseWorkspacesRequests", () => {
 describe("Manage: the step from the existing sources", () => {
   const slack = { provider: "slack" as const, connectionId: "con_slack1" }
   const existing = {
-    docs: { sourceKey: "slack", scope: { channels: ["C0ENG0001"] } },
-    eng: { sourceKey: "slack-2", scope: { channels: ["C0OPS0001"] } },
+    docs: { path: "slack", scope: { channels: ["C0ENG0001"] } },
+    eng: { path: "slack-2", scope: { channels: ["C0OPS0001"] } },
   }
 
   it("selects one Workspace with its scope", () => {
@@ -137,7 +137,7 @@ describe("Manage: the step from the existing sources", () => {
         base,
         {
           docs: {
-            sourceKey: "linear",
+            path: "linear",
             scope: { projects: ["p1"], teams: ["ENG"] },
           },
         },
@@ -164,7 +164,7 @@ describe("Manage: the step from the existing sources", () => {
       {
         kind: "update",
         workspaceSlug: "docs",
-        sourceKey: "slack",
+        path: "slack",
         source: { ...slack, scope: { channels: ["C0ENG0001", "C0NEW0001"] } },
       },
       {
@@ -172,7 +172,7 @@ describe("Manage: the step from the existing sources", () => {
         workspaceSlug: "ops",
         source: { ...slack, scope: { channels: ["C0OPS0001"] } },
       },
-      { kind: "remove", workspaceSlug: "eng", sourceKey: "slack-2" },
+      { kind: "remove", workspaceSlug: "eng", path: "slack-2" },
     ])
   })
 
@@ -181,7 +181,7 @@ describe("Manage: the step from the existing sources", () => {
       "eng",
     ])
     expect(chooseWorkspacesChanges(value, slack, existing)).toEqual([
-      { kind: "remove", workspaceSlug: "docs", sourceKey: "slack" },
+      { kind: "remove", workspaceSlug: "docs", path: "slack" },
     ])
   })
 
@@ -189,8 +189,8 @@ describe("Manage: the step from the existing sources", () => {
     expect(
       chooseWorkspacesChanges(emptyChooseWorkspaces(), slack, existing),
     ).toEqual([
-      { kind: "remove", workspaceSlug: "docs", sourceKey: "slack" },
-      { kind: "remove", workspaceSlug: "eng", sourceKey: "slack-2" },
+      { kind: "remove", workspaceSlug: "docs", path: "slack" },
+      { kind: "remove", workspaceSlug: "eng", path: "slack-2" },
     ])
   })
 

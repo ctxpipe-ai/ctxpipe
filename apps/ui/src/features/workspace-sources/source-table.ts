@@ -1,5 +1,5 @@
 /**
- * The columns of the Workspace sources table: Source, Connection, Key,
+ * The columns of the Workspace sources table: Source, Connection, File,
  * Status, and actions. The table is a container query on the Sources
  * section. Below 48rem a row folds: the title, with the connection and key
  * under it, then the status and the actions at the right.

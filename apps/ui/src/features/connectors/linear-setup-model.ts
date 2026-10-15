@@ -2,7 +2,7 @@ import type { LinearConnectorStatus } from "./queries/linear-connector"
 
 /**
  * Connect Linear, then choose the Workspaces that sync from it (ADR-050).
- * Each Workspace keeps its teams and projects in `.ctxpipe/sources.yaml`.
+ * Each Workspace keeps its teams and projects in a source file under `sources/linear/`.
  */
 export const LINEAR_SETUP_STEPS = [
   { id: "connect", label: "Connect Linear workspace" },
