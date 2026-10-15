@@ -19,3 +19,21 @@ export function ingestionV2ShadowEnabled(): boolean {
     inProduction || /^(?:pr-[\w.-]+|development|local-[\w.-]+)$/.test(label)
   )
 }
+
+/**
+ * The pipeline that publishes extracted knowledge to Workspaces (ADR-052
+ * phase 4). `legacy` is the old pipeline. `v2` is ingestion v2: hydrate then
+ * moves the old extracted files to ingestion v2 ownership
+ * (`ownership_migration`), and the old pipeline stops its publish.
+ *
+ * This is committed config, not an env var. To roll back within one release,
+ * set it to `legacy` again: the old pipeline publishes again and writes
+ * `generated_by: ctxpipe` on each file it changes. When it goes back to `v2`,
+ * the migration moves those files again.
+ */
+export type IngestionPublishPipeline = "legacy" | "v2"
+
+export function ingestionPublishPipeline(): IngestionPublishPipeline {
+  // Ingestion v2 cannot publish until T21 (publish from the ref) is merged.
+  return "legacy"
+}

@@ -2,6 +2,7 @@ import { z } from "zod"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
+import { ingestionPublishPipeline } from "../../domain/ingestion/ingestion-v2-config.js"
 import { projectWorkspaceSources } from "../../domain/workspace-sources/project.js"
 import { SOURCES_FILE_PATH } from "../../domain/workspace-sources/sources-file.js"
 import { nativeFolderSetChanged } from "../../domain/workspaces/folder-list.js"
@@ -237,6 +238,7 @@ export const workspaceHydrate = defineWorkflow(
                     revision,
                     displayName: workspace.displayName,
                     files,
+                    publishPipeline: ingestionPublishPipeline(),
                   })
                   if (await getMigrationExportSha(workspace.id, revision)) {
                     remaining.push({

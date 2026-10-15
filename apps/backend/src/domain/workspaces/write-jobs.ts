@@ -11,6 +11,7 @@ export const WORKSPACE_WRITE_JOB_KINDS = [
   "link_unlink",
   "ui_file_edit",
   "import_key_cleanup",
+  "ownership_migration",
 ] as const
 
 export type WorkspaceWriteJobKind = (typeof WORKSPACE_WRITE_JOB_KINDS)[number]

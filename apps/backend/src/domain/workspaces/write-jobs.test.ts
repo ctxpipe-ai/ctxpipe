@@ -28,6 +28,7 @@ describe("workspace write job kinds", () => {
       "link_unlink",
       "ui_file_edit",
       "import_key_cleanup",
+      "ownership_migration",
     ])
     expect(isWorkspaceWriteJobKind("bootstrap")).toBe(true)
     expect(isWorkspaceWriteJobKind("maintenance")).toBe(false)

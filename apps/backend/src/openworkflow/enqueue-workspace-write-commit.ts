@@ -203,6 +203,7 @@ export async function enqueueWriteJob(
     claims_upgrade: workspaceClaimsUpgrade,
     valid_from_persist: workspaceValidFromPersist,
     import_key_cleanup: workspaceImportKeyCleanup,
+    ownership_migration: workspaceOwnershipMigration,
     ops_folder_map: workspaceOpsFolderList,
   }
   const snapshotWorkflow = snapshotWriteWorkflows[input.kind]
