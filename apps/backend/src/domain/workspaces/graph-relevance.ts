@@ -185,13 +185,19 @@ const STRUCTURAL_PREDICATES = [
 const LINK_PREDICATES = ["LINKS_TO", "REFERENCES", "MENTIONS"]
 
 /**
- * A `Source` unit has an edge from each unit that came from it, so it is a
- * hub (ADR-050). The walk of all edges (also the fallback walk) does not
- * follow these edges. Only the `provenance` intent, or `predicates` that
- * name them, walk them.
+ * The predicate of the edge from a unit to the `Source` unit that it came
+ * from (ADR-050). A `Source` unit has one such edge from each of its units,
+ * so it is a hub.
+ */
+export const FROM_SOURCE_PREDICATE = "FROM_SOURCE"
+
+/**
+ * The walk of all edges (also the fallback walk) does not follow these
+ * edges. Only the `provenance` intent, or `predicates` that name them, walk
+ * them.
  */
 export const DEFAULT_WALK_SKIPPED_PREDICATES: readonly string[] = [
-  "FROM_SOURCE",
+  FROM_SOURCE_PREDICATE,
 ]
 
 function weightAll(predicates: readonly string[], weight: number) {

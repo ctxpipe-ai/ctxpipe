@@ -2,6 +2,7 @@ import {
   combineWorkspaceSignals,
   decayWorkspaceSignal,
 } from "./claim-confidence.js"
+import { FROM_SOURCE_PREDICATE } from "./graph-relevance.js"
 import type { HydrateUnit, hydrateUnitsToProjectionClaims } from "./hydrate.js"
 
 export type WorkspaceGraphPayload = {
@@ -128,7 +129,9 @@ export function workspaceGraphFromSignals(input: {
 /**
  * Graph health for one Workspace projection (ADR-033 §8 on git-canonical
  * knowledge). Join density is the share of units whose claims cite at least
- * two distinct sources; body links carry no source and do not count.
+ * two distinct sources; body links carry no source and do not count. An edge
+ * to a `Source` unit (FROM_SOURCE) does not count for orphans or joins: almost
+ * each unit has one, so it would hide the units that no other unit names.
  */
 export type WorkspaceGraphQuality = {
   totalUnits: number
@@ -151,11 +154,12 @@ export function computeWorkspaceGraphQuality(
   const predicates: Record<string, number> = {}
   let sourced = 0
   for (const claim of claims) {
+    predicates[claim.predicate] = (predicates[claim.predicate] ?? 0) + 1
+    if (claim.source) sourced += 1
+    if (claim.predicate === FROM_SOURCE_PREDICATE) continue
     touched.add(claim.subjectId)
     touched.add(claim.objectId)
-    predicates[claim.predicate] = (predicates[claim.predicate] ?? 0) + 1
     if (!claim.source) continue
-    sourced += 1
     for (const id of [claim.subjectId, claim.objectId]) {
       const seen = sources.get(id) ?? new Set<string>()
       seen.add(claim.source)

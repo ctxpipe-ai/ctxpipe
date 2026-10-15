@@ -372,6 +372,48 @@ describe("computeWorkspaceGraphQuality", () => {
     })
     expect(quality.joinDensity).toBeCloseTo(2 / 3)
   })
+
+  it("does not count a FROM_SOURCE edge for orphans or joins", () => {
+    const { units } = hydrateKnowledgeTree({
+      workspaceId: "ws_1",
+      files: [
+        {
+          path: "sources/github/acme/shop.md",
+          content:
+            "---\nprovider: github\nconnection: con_github1\nrepository: acme/shop\n---\n",
+        },
+        {
+          path: "sources/linear/eng.md",
+          content: "---\nprovider: linear\nconnection: con_linear1\n---\n",
+        },
+        {
+          path: "knowledge/services/api.md",
+          content: `---\n${stringify({
+            sources: ["sources/github/acme/shop.md", "sources/linear/eng.md"],
+            claims: [
+              {
+                to: "../notes/plain.md",
+                predicate: "REFERENCES",
+                source: "../../linear/issues/PAY-1.md",
+              },
+            ],
+          })}---\nAPI.`,
+        },
+        { path: "knowledge/notes/plain.md", content: "Plain." },
+      ],
+    })
+    const quality = computeWorkspaceGraphQuality(
+      units,
+      hydrateUnitsToProjectionClaims(units),
+    )
+    expect(quality).toMatchObject({
+      totalUnits: 4,
+      totalClaims: 3,
+      multiSourceUnits: 0,
+      orphanUnits: 2,
+      predicates: { FROM_SOURCE: 2, REFERENCES: 1 },
+    })
+  })
 })
 
 describe("hydrateKnowledgeTree pull request changes", () => {
