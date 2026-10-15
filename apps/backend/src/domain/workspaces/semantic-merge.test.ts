@@ -241,3 +241,20 @@ it("treats a missing or unknown origin as an agent write", () => {
   for (const origin of [undefined, "person"])
     expect(writeOriginSchema.parse(origin)).toBe("agent")
 })
+
+// CTX-721: each file under sources/ is one source. Only the host writes it
+// without a pull request.
+it("lets a host write change sources/ and refuses an agent or extraction write", () => {
+  const write = {
+    files: [{ path: "sources/github/example-org/web.md", content: "a\n" }],
+    deletePaths: ["sources/linear/eng.md"],
+    current: new Map<string, string>(),
+  }
+  expect(() =>
+    assertWriteOriginAllowed({ origin: "host", ...write }),
+  ).not.toThrow()
+  for (const origin of ["agent", "extraction"] as const)
+    expect(() => assertWriteOriginAllowed({ origin, ...write })).toThrow(
+      /host-only/,
+    )
+})

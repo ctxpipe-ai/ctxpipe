@@ -7,6 +7,11 @@ describe("isHostOnlyPath", () => {
     ".ctxpipe/skills/release/SKILL.md",
     ".ctxpipe",
     ".CTXPIPE/sources.yaml",
+    "sources",
+    "sources/github/example-org/checkout-api.md",
+    "sources/linear/eng.md",
+    "Sources/github/evil/exfil.md",
+    "SOURCES/notion/wiki.md",
   ])("finds the host-only path %s", (path) => {
     expect(isHostOnlyPath(path)).toBe(true)
   })
@@ -17,6 +22,9 @@ describe("isHostOnlyPath", () => {
     "docs/.ctxpipe/sources.yaml",
     ".ctxpipe-notes.md",
     ".agents/skills/x/SKILL.md",
+    "knowledge/sources/notes.md",
+    "sources-notes.md",
+    "sourcesx/github/a.md",
   ])("lets the agent write %s", (path) => {
     expect(isHostOnlyPath(path)).toBe(false)
   })
