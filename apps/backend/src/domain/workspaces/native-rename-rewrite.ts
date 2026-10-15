@@ -1,12 +1,13 @@
 import { isUtf8 } from "node:buffer"
 import { posix } from "node:path"
 import { fromMarkdown } from "mdast-util-from-markdown"
-import { isAlias, isMap, isSeq } from "yaml"
+import { isAlias, isMap, isScalar, isSeq } from "yaml"
 import {
   type GitPack,
   nativeGit,
   withGitDirectory,
 } from "../../services/git/pack.js"
+import { SOURCES_FOLDER_PREFIX } from "../workspace-sources/source-tree.js"
 import { resolveHydrateLink } from "./hydrate.js"
 import {
   editableMetadataNode,
@@ -219,6 +220,29 @@ function rewriteDocument(
         const to = claim.get("to")
         if (typeof to === "string" && claimTarget(to, index) !== to)
           claim.set("to", claimTarget(to, index))
+      }
+    })
+  }
+  // `sources` holds source paths from the Workspace root (ADR-050), not
+  // links from the file, so a renamed source file keeps its units.
+  const movedSource = (entry: unknown): string | null => {
+    if (typeof entry !== "string") return null
+    const resolved = resolveHydrateLink("", entry.trim())
+    if (!resolved.startsWith(SOURCES_FOLDER_PREFIX)) return null
+    const moved = renames.find((pair) => pair.from === resolved)?.to
+    return moved && current.has(moved) ? moved : null
+  }
+  const sources = parseSimpleFrontMatter(next).attributes.sources
+  if (Array.isArray(sources) && sources.some((entry) => movedSource(entry))) {
+    next = updateKnowledgeMetadata(next, (document) => {
+      const sequence = editableMetadataNode(document, "sources")
+      if (!isSeq(sequence)) return
+      for (let index = 0; index < sequence.items.length; index++) {
+        let item = sequence.items[index]
+        if (isAlias(item)) item = materializeMetadataAlias(document, item)
+        if (!isScalar(item)) continue
+        const moved = movedSource(item.value)
+        if (moved) sequence.set(index, moved)
       }
     })
   }
