@@ -113,7 +113,7 @@ export const requiredStories = [
   "ScrollsToSourceAnchor",
   "EditSendsChange",
   "ReadOnlyHidesChanges",
-  "DirectCommitQueued",
+  "AddSeveralSendsOneBatch",
   "PickerShowsConnectionNames",
   "ChooseWorkspacesMulti",
   "SelectAllPagesOfASpace",
