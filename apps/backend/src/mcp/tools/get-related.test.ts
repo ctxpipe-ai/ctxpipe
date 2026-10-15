@@ -41,8 +41,7 @@ describe("get_related arguments", () => {
     ["diversity", 1.01],
     ["hubPenalty", -1],
     ["hubPenalty", 0],
-    ["hubPenalty", 7],
-    ["hubPenalty", Number.POSITIVE_INFINITY],
+    ["hubPenalty", 1],
     ["recencyHalfLifeDays", 0],
     ["recencyHalfLifeDays", -1],
     ["recencyHalfLifeDays", 0.5],
@@ -82,8 +81,12 @@ describe("get_related arguments", () => {
     ).toBe(false)
     expect(rejects({ maxDepth: 0 })).toBe(false)
     expect(rejects({ maxDepth: 5 })).toBe(false)
-    expect(rejects({ maxFanOut: 0 })).toBe(false)
-    expect(rejects({ maxFanOut: 1_001 })).toBe(false)
+    expect(rejects({ maxFanOut: 4 })).toBe(false)
+    expect(rejects({ maxFanOut: 201 })).toBe(false)
+    // The tool allows less than rankRelated: a hub penalty above 1 hides
+    // every hub.
+    expect(rejects({ hubPenalty: 1.01 })).toBe(false)
+    expect(rankAccepts({ hubPenalty: 7 })).toBe(true)
     expect(rejects({ minConfidence: 1.1 })).toBe(false)
     expect(rejects({ limit: 51 })).toBe(false)
     expect(rejects({ maxTokens: 499 })).toBe(false)
@@ -92,7 +95,7 @@ describe("get_related arguments", () => {
     expect(rejects({ predicateWeights: { OWNS: -1 } })).toBe(false)
     expect(rejects({ intent: "authority" })).toBe(false)
     expect(
-      rejects({ maxDepth: 4, maxFanOut: 1_000, limit: 50, maxTokens: 8_000 }),
+      rejects({ maxDepth: 4, maxFanOut: 200, limit: 50, maxTokens: 8_000 }),
     ).toBe(true)
   })
 
@@ -114,10 +117,42 @@ describe("get_related arguments", () => {
     expect(Object.keys(getRelatedInputShape)).not.toContain("authority")
   })
 
-  it("has one way to silence a predicate: a weight of 0", () => {
-    expect(Object.keys(getRelatedInputShape)).not.toContain("excludePredicates")
+  it("excludes predicates from the walk and kinds from the results", () => {
     expect(
-      schema.safeParse({ ...base, predicateWeights: { OWNS: 0 } }).success,
-    ).toBe(true)
+      schema.parse({
+        ...base,
+        excludePredicates: ["mentions"],
+        excludeKinds: ["Thread"],
+      }),
+    ).toMatchObject({
+      excludePredicates: ["mentions"],
+      excludeKinds: ["Thread"],
+    })
+    expect(schema.safeParse({ ...base, excludePredicates: [] }).success).toBe(
+      false,
+    )
+    const nodes = [
+      { id: "a", kind: "Service", degree: 2 },
+      { id: "b", kind: "Thread", degree: 1 },
+      { id: "c", kind: "Team", degree: 1 },
+    ]
+    const signal = (id: string, targetId: string) => ({
+      id,
+      sourceId: "a",
+      targetId,
+      predicate: "RELATES_TO",
+      confidence: 1,
+      validFrom: null,
+      validTo: null,
+      source: null,
+      lastObservedAt: null,
+    })
+    const ranked = rankRelated({
+      nodes,
+      signals: [signal("e1", "b"), signal("e2", "c")],
+      seeds: ["a"],
+      options: { excludeKinds: ["thread"] },
+    })
+    expect(ranked.map((result) => result.id)).toEqual(["c"])
   })
 })

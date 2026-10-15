@@ -322,8 +322,8 @@ describe("org-level code search (Postgres + msw codesearch)", () => {
       {
         repository: name("alpha"),
         path: "src/index.ts",
-        line: 3,
-        snippet: "const charge = 1",
+        language: null,
+        matches: [{ line: 3, snippet: "const charge = 1" }],
       },
     ])
   })
