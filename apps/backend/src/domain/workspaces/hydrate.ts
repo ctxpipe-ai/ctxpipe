@@ -3,6 +3,7 @@ import { base32nopad } from "@scure/base"
 import { connectorMirrorRoot } from "../codeIngestion/connectorMirrorPaths.js"
 import { githubSourceRepositories } from "../workspace-sources/github-sources.js"
 import { SOURCES_FOLDER_PREFIX } from "../workspace-sources/source-tree.js"
+import { FROM_SOURCE_PREDICATE } from "./graph-relevance.js"
 import { effectiveValidFrom } from "./hydrate-phases.js"
 import { markdownLines } from "./knowledge-chunks.js"
 import {
@@ -170,19 +171,24 @@ export function hydrateKnowledgeTree(input: {
     const extra = references.get(unit.path)
     if (extra) unit.links.push(...extra)
   }
-  const sourceFiles = input.files
-    .filter((file) => file.path.startsWith(SOURCES_FOLDER_PREFIX))
-    .map((file) => ({ path: file.path, text: file.content }))
+  // Each GitHub repository of the Workspace, from every connection. The
+  // CHANGED lookup uses all of them; `linked` keeps the connected ones.
+  const repositories = githubSourceRepositories(
+    input.sourcesFile ?? null,
+    null,
+    input.files
+      .filter((file) => file.path.startsWith(SOURCES_FOLDER_PREFIX))
+      .map((file) => ({ path: file.path, text: file.content })),
+  )
   const changes = pullRequestChangedClaims(
     units.map((unit) => ({
       ...unit,
       attributes: attributes.get(unit.path) ?? {},
     })),
     new Map(
-      githubSourceRepositories(null, null, sourceFiles).map((source) => [
-        source.path,
-        source.gitUrl,
-      ]),
+      repositories
+        .filter((source) => source.path.startsWith(SOURCES_FOLDER_PREFIX))
+        .map((source) => [source.path, source.gitUrl]),
     ),
   )
   for (const unit of units) unit.claims.push(...(changes.get(unit.path) ?? []))
@@ -198,11 +204,9 @@ export function hydrateKnowledgeTree(input: {
   }
 
   // A repository that an earlier entry or the Workspace names is not a skip.
-  for (const source of githubSourceRepositories(
-    input.sourcesFile ?? null,
-    input.githubConnectionIds ?? new Set(),
-    sourceFiles,
-  )) {
+  const connectionIds = input.githubConnectionIds ?? new Set()
+  for (const source of repositories) {
+    if (!connectionIds.has(source.connectionId)) continue
     if (seenLinked.has(source.gitUrl)) continue
     seenLinked.add(source.gitUrl)
     linked.push({
@@ -246,7 +250,7 @@ function fromSourceClaims(
   )
   return [...targets].map((path) => ({
     to: `${WORKSPACE_LINK_SCHEME}${path}`,
-    predicate: "FROM_SOURCE",
+    predicate: FROM_SOURCE_PREDICATE,
     confidence: 1,
     validFrom: null,
     validTo: null,

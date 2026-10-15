@@ -16,6 +16,7 @@ import {
   withGraphClient,
 } from "../../platform/graph/client.js"
 import { ensureWorkspaceGraphIndexes } from "../../platform/graph/indexes.js"
+import { FROM_SOURCE_PREDICATE } from "./graph-relevance.js"
 import { type HydrateUnit, hydrateUnitsToProjectionClaims } from "./hydrate.js"
 import {
   type PublishedProjection,
@@ -111,12 +112,12 @@ export async function writeWorkspaceRevisionGraph(
       `MATCH (n:WorkspaceKnowledgeUnit {projectionKey: $projectionKey})
       OPTIONAL MATCH (n)-[o:WorkspaceSignal {projectionKey: $projectionKey}]->()
       WITH n, count(o) AS outDegree,
-        sum(CASE WHEN o.predicate = 'FROM_SOURCE' THEN 1 ELSE 0 END) AS provenanceDegree
+        sum(CASE WHEN o.predicate = $fromSource THEN 1 ELSE 0 END) AS provenanceDegree
       OPTIONAL MATCH (n)<-[i:WorkspaceSignal {projectionKey: $projectionKey}]-()
       WITH n, outDegree, provenanceDegree, count(i) AS inDegree
       SET n.outDegree = outDegree, n.inDegree = inDegree,
         n.degree = outDegree - provenanceDegree + inDegree`,
-      { projectionKey },
+      { projectionKey, fromSource: FROM_SOURCE_PREDICATE },
     )
   await graph.executeQuery(
     `MERGE (p:WorkspaceProjection {projectionKey: $projectionKey})
