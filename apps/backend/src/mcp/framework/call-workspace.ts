@@ -85,21 +85,24 @@ export async function listOrgWorkspaceSlugs(org: CallOrg): Promise<string[]> {
 }
 
 /**
- * Git URLs of every repository that a Workspace of the org links, oldest
+ * Every repository link of the org: the Workspace and the git URL, oldest
  * first. Two stores hold links during the ADR-050 migration: the GitHub
  * sources of `.ctxpipe/sources.yaml` (the `workspace_sources` projection,
  * `ok` rows only) and the legacy `workspace_linked_repositories` table, which
  * ADR-050 phase 3 retires. Only this function reads them. With
  * `workspaceId`, only the links of that Workspace.
  */
-export async function listOrgRepositoryUrls(
+export async function listOrgRepositoryLinks(
   org: CallOrg,
   workspaceId?: string,
-): Promise<string[]> {
+): Promise<Array<{ workspaceId: string; gitUrl: string }>> {
   const [legacy, sources] = await withOrgDbContext(org.id, (db) =>
     Promise.all([
       db
-        .select({ gitUrl: workspaceLinkedRepositories.gitUrl })
+        .select({
+          workspaceId: workspaceLinkedRepositories.workspaceId,
+          gitUrl: workspaceLinkedRepositories.gitUrl,
+        })
         .from(workspaceLinkedRepositories)
         .where(
           and(
@@ -111,7 +114,10 @@ export async function listOrgRepositoryUrls(
         )
         .orderBy(asc(workspaceLinkedRepositories.createdAt)),
       db
-        .select({ scope: workspaceSources.scope })
+        .select({
+          workspaceId: workspaceSources.workspaceId,
+          scope: workspaceSources.scope,
+        })
         .from(workspaceSources)
         .where(
           and(
@@ -129,10 +135,23 @@ export async function listOrgRepositoryUrls(
   const fromSources = sources.flatMap((row) => {
     const scope = githubScopeSchema.safeParse(row.scope)
     return scope.success
-      ? scope.data.repositories.map((name) => `https://github.com/${name}`)
+      ? scope.data.repositories.map((name) => ({
+          workspaceId: row.workspaceId,
+          gitUrl: `https://github.com/${name}`,
+        }))
       : []
   })
-  return [...legacy.map((row) => row.gitUrl), ...fromSources]
+  return [...legacy, ...fromSources]
+}
+
+/** Git URLs of the repository links of the org, or of one Workspace. */
+export async function listOrgRepositoryUrls(
+  org: CallOrg,
+  workspaceId?: string,
+): Promise<string[]> {
+  return (await listOrgRepositoryLinks(org, workspaceId)).map(
+    (link) => link.gitUrl,
+  )
 }
 
 /**
@@ -144,4 +163,46 @@ export async function loadOrgRepositoryHandles(
   org: CallOrg,
 ): Promise<RepositoryHandles> {
   return RepositoryHandles.from(await listOrgRepositoryUrls(org))
+}
+
+/**
+ * The handles of the links of one Workspace, from the org-level `handles`.
+ * `invalid` is true when a stored URL has no handle, because it does not
+ * parse as a git address; the URL is left out and never echoed.
+ */
+export function workspaceLinkHandles(
+  handles: RepositoryHandles,
+  links: ReadonlyArray<{ gitUrl: string }>,
+): { linked: Set<string>; invalid: boolean } {
+  const linked = new Set<string>()
+  let invalid = false
+  for (const link of links) {
+    try {
+      linked.add(handles.resolve(link.gitUrl).handle)
+    } catch (error) {
+      if (!(error instanceof McpToolError)) throw error
+      invalid = true
+    }
+  }
+  return { linked, invalid }
+}
+
+/** The org-level handles, and the handles that one Workspace links. */
+export async function loadWorkspaceHandles(
+  org: CallOrg,
+  workspaceId: string,
+): Promise<{
+  handles: RepositoryHandles
+  linked: Set<string>
+  invalid: boolean
+}> {
+  const links = await listOrgRepositoryLinks(org)
+  const handles = RepositoryHandles.from(links.map((link) => link.gitUrl))
+  return {
+    handles,
+    ...workspaceLinkHandles(
+      handles,
+      links.filter((link) => link.workspaceId === workspaceId),
+    ),
+  }
 }

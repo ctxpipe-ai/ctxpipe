@@ -26,6 +26,16 @@ import { handleMcpTransportRequest } from "../mcp/transport.js"
 import { withTestRequestLogger } from "../test/hono-test-logger.js"
 import { registerAuthRoutes } from "./auth.js"
 
+/** The shipped read tools. `listToolNames` sorts, so this list is sorted too. */
+const READ_TOOLS = [
+  "find_symbol",
+  "get_related",
+  "list_files",
+  "list_workspaces",
+  "read_file",
+  "search_code",
+  "search_knowledge",
+]
 const WRITE_TOOL = "scope_test_write"
 
 /** SQL of the data migration that gives old OAuth clients the MCP scopes. */
@@ -371,9 +381,7 @@ describe("MCP scopes (Postgres)", () => {
     )
     const headers = { authorization: `Bearer ${token.accessToken}` }
 
-    expect(await listToolNames(`${baseUrl}/mcp`, headers)).toEqual([
-      "ctx_advisor",
-    ])
+    expect(await listToolNames(`${baseUrl}/mcp`, headers)).toEqual(READ_TOOLS)
     expectInsufficientScope(
       await callTool(`${baseUrl}/mcp`, headers, WRITE_TOOL),
     )
@@ -387,10 +395,9 @@ describe("MCP scopes (Postgres)", () => {
     expect(token.expiresIn).toBeLessThanOrEqual(3600)
     const headers = { authorization: `Bearer ${token.accessToken}` }
 
-    expect(await listToolNames(`${baseUrl}/mcp`, headers)).toEqual([
-      "ctx_advisor",
-      WRITE_TOOL,
-    ])
+    expect(await listToolNames(`${baseUrl}/mcp`, headers)).toEqual(
+      [...READ_TOOLS, WRITE_TOOL].sort(),
+    )
     const response = await callTool(`${baseUrl}/mcp`, headers, WRITE_TOOL)
     expect(response.status).toBe(200)
     expect(await response.text()).toContain("written")
@@ -398,9 +405,7 @@ describe("MCP scopes (Postgres)", () => {
 
   it("reads a grant from before the ctxpipe scopes as read", async () => {
     const headers = { authorization: `Bearer ${await legacyOpaqueToken()}` }
-    expect(await listToolNames(`${baseUrl}/mcp`, headers)).toEqual([
-      "ctx_advisor",
-    ])
+    expect(await listToolNames(`${baseUrl}/mcp`, headers)).toEqual(READ_TOOLS)
     expectInsufficientScope(
       await callTool(`${baseUrl}/mcp`, headers, WRITE_TOOL),
     )
@@ -437,9 +442,7 @@ describe("MCP scopes (Postgres)", () => {
     }
     expect(refreshed.scope?.split(" ")).not.toContain("ctxpipe:write")
     const headers = { authorization: `Bearer ${refreshed.access_token}` }
-    expect(await listToolNames(`${baseUrl}/mcp`, headers)).toEqual([
-      "ctx_advisor",
-    ])
+    expect(await listToolNames(`${baseUrl}/mcp`, headers)).toEqual(READ_TOOLS)
     expectInsufficientScope(
       await callTool(`${baseUrl}/mcp`, headers, WRITE_TOOL),
     )
@@ -601,7 +604,7 @@ describe("MCP scopes (Postgres)", () => {
     const s = requireSeed()
     const headers = headersFor(s)
     const url = `${baseUrl}/mcp?orgSlug=${s.orgSlug}`
-    expect(await listToolNames(url, headers)).toEqual(["ctx_advisor"])
+    expect(await listToolNames(url, headers)).toEqual(READ_TOOLS)
     expectInsufficientScope(await callTool(url, headers, WRITE_TOOL))
   })
 })

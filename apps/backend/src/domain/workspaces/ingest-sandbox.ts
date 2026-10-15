@@ -107,7 +107,8 @@ export function ingestSandbox(input: {
     key,
     /**
      * Attach to the shard's sandbox, or create it. At capacity this waits
-     * (outside every lock) until a slot is free or `signal` aborts.
+     * (outside every lock) until a slot is free or `signal` aborts. An
+     * abort rejects with `signal.reason`, wherever the start was.
      */
     async ensure(): Promise<SandboxHandle> {
       for (;;) {
@@ -118,9 +119,16 @@ export function ingestSandbox(input: {
         } catch (error) {
           if (!(error instanceof IngestSandboxSlotsFull)) throw error
         }
-        await delay(input.slotPollMs ?? 5_000, undefined, {
-          signal: abortController.signal,
-        })
+        try {
+          await delay(input.slotPollMs ?? 5_000, undefined, {
+            signal: abortController.signal,
+          })
+        } catch (error) {
+          // The wait ends with the signal's reason, as a start that the
+          // signal ends does (`throwIfAborted`), not with Node's AbortError.
+          abortController.signal.throwIfAborted()
+          throw error
+        }
       }
     },
     /** Attach to the shard's sandbox if it exists; never create one. */

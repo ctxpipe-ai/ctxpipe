@@ -16,6 +16,18 @@ import { WORKSPACE_CHAT_FIREWALL_PLACEHOLDER as PLACEHOLDER } from "./workspace-
 
 const image = workspaceChatDockerImage()
 
+function sectionsOf(stdout: string): Record<string, string> {
+  return Object.fromEntries(
+    stdout
+      .split("== ")
+      .filter(Boolean)
+      .map((section) => {
+        const [name, ...rest] = section.split("\n")
+        return [name, rest.join("\n").trim()]
+      }),
+  )
+}
+
 describe("Agent Vault adds sandbox credentials in flight", () => {
   it(
     "keeps every credential out of the sandbox while Git, HTTP and gh calls get them",
@@ -102,15 +114,7 @@ grep -c -e "${modelToken}" -e "${fixture.gitToken}" -e "${ghToken}" /tmp/environ
 `,
           )
           expect(result.exitCode, `${result.stdout}\n${result.stderr}`).toBe(0)
-          const sections = Object.fromEntries(
-            result.stdout
-              .split("== ")
-              .filter(Boolean)
-              .map((section) => {
-                const [name, ...rest] = section.split("\n")
-                return [name, rest.join("\n").trim()]
-              }),
-          )
+          const sections = sectionsOf(result.stdout)
           const curl = JSON.parse(sections.curl ?? "{}")
           expect(curl.headers.authorization).toBe(`Bearer ${modelToken}`)
           // An exact rule: a `..` path keeps the sandbox's own header.
@@ -265,15 +269,7 @@ ${code("--noproxy '*' http://1.1.1.1/")}
 `,
           )
           expect(result.exitCode, `${result.stdout}\n${result.stderr}`).toBe(0)
-          const sections = Object.fromEntries(
-            result.stdout
-              .split("== ")
-              .filter(Boolean)
-              .map((section) => {
-                const [name, ...rest] = section.split("\n")
-                return [name, rest.join("\n").trim()]
-              }),
-          )
+          const sections = sectionsOf(result.stdout)
           const output = `${result.stdout}\n${result.stderr}`
           expect(
             JSON.parse(sections.model ?? "{}").headers?.authorization,
@@ -332,6 +328,61 @@ ${code("--noproxy '*' http://1.1.1.1/")}
 ${code("https://example.com/")}`,
           )
           expect(still.stdout).toBe("403")
+        } finally {
+          await vault.close()
+        }
+      })
+    },
+  )
+
+  it(
+    "Node fetch reaches a plain-HTTP host with a rule through a closed vault; other hosts and paths stay closed",
+    { timeout: 180_000 },
+    async () => {
+      // Node's fetch tunnels each URL through the proxy, and Agent Vault
+      // closes a tunnel that carries plain HTTP. The model proxy and the tool
+      // bridge are plain HTTP on Docker hosts. OpenCode (Bun) sends them in
+      // absolute form; the image makes Node do the same for skill scripts.
+      await withAgentVault({ image, closed: true }, async (fixture) => {
+        const base = `http://${fixture.upstream}:8080`
+        const vault = await openRunVault({
+          access: fixture.access,
+          runKey: `test:${crypto.randomUUID()}`,
+          ttlSeconds: 600,
+          rules: [
+            bearerUrlRule("tool-bridge", `${base}/echo/bridge`, "bridge-token"),
+          ],
+          unmatchedHosts: "deny",
+        })
+        try {
+          const fetchStatus = (url: string, body = false) =>
+            `node -e 'fetch("${url}").then(async r => console.log(r.status${body ? ", await r.text()" : ""}), e => console.log("ERR", e.cause?.message ?? e.message))'`
+          const result = await fixture.sandbox(
+            vault.env,
+            `${writeProxyCaCommand(vault.caPem)}
+echo "== allowed"
+${fetchStatus(`${base}/echo/bridge`, true)}
+echo "== other-path"
+${fetchStatus(`${base}/echo/other`)}
+echo "== other-host"
+${fetchStatus("http://example.com/")}
+`,
+          )
+          const output = `${result.stdout}\n${result.stderr}`
+          expect(result.exitCode, output).toBe(0)
+          const sections = sectionsOf(result.stdout)
+          const [status, ...body] = (sections.allowed ?? "").split(" ")
+          expect(status, output).toBe("200")
+          expect(
+            JSON.parse(body.join(" ") || "{}").headers?.authorization,
+            output,
+          ).toBe("Bearer bridge-token")
+          expect(
+            JSON.parse(body.join(" ") || "{}").headers?.["proxy-authorization"],
+            output,
+          ).toBeUndefined()
+          expect(sections["other-path"], output).toBe("403")
+          expect(sections["other-host"], output).toBe("403")
         } finally {
           await vault.close()
         }

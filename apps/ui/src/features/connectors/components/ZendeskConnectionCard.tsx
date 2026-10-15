@@ -76,7 +76,6 @@ export function ZendeskConnectionCard({
         onConfirm: () => removeMutation.mutate(),
       }}
       workspace={connectorDash(status?.subdomain)}
-      scope="Set in each Workspace"
       actionLabel={isError ? "Retry" : (actionLabel ?? undefined)}
       onAction={
         isError

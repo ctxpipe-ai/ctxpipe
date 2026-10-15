@@ -251,7 +251,8 @@ function graphNeighborsTool(input: ChatGraphTool): WorkspaceChatTanstackTool {
         typeof limitRaw === "number" && Number.isFinite(limitRaw)
           ? Math.min(50, Math.max(1, Math.floor(limitRaw)))
           : 20
-      // The expansion keeps the `limit` strongest valid edges of the node.
+      // The expansion keeps at most `limit` valid edges of the node: the
+      // strongest edge of each predicate first, then the next of each.
       const graph = await expandOrRetry(() =>
         input.expand({ seeds: [nodeId], maxDepth: 1, maxFanOut: limit }),
       )

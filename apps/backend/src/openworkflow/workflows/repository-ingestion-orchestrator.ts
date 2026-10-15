@@ -1,5 +1,6 @@
 import { z } from "zod"
 import { withOrgDbContext } from "../../db/client.js"
+import { ingestionV2ShadowEnabled } from "../../domain/ingestion/ingestion-v2-config.js"
 import {
   markRepositoryIndexingFailed,
   repositoryIngestionBlockedByDeletion,
@@ -12,6 +13,7 @@ import {
   withLogger,
 } from "../../observability/logger.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
+import { startIngestionV2Shadow } from "../enqueue-ingestion-v2-shadow.js"
 import { isWorkflowControlSignal } from "../isSleepSignal.js"
 import { repositoryIngestion } from "./repository-ingestion.js"
 
@@ -43,7 +45,7 @@ export const repositoryIngestionOrchestrator = defineWorkflow(
           () => activateRepositoryIngestionRequest(input, run.id),
         )
         try {
-          return await step.runWorkflow(
+          const result = await step.runWorkflow(
             repositoryIngestion.spec,
             {
               repositoryId: input.repositoryId,
@@ -64,6 +66,32 @@ export const repositoryIngestionOrchestrator = defineWorkflow(
             },
             { name: "repository-ingestion-child" },
           )
+          if (
+            "targetHash" in result &&
+            result.targetHash &&
+            ingestionV2ShadowEnabled()
+          )
+            // Shadow mode (ADR-052): ingestion v2 reads the same SHA and
+            // publishes nothing. A failed start never fails this run. The
+            // switch is read before the step, so production writes no step.
+            await step.run({ name: "start-ingestion-v2-shadow" }, () =>
+              startIngestionV2Shadow({
+                orgId: input.orgId,
+                repositoryId: input.repositoryId,
+                sha: result.targetHash,
+                triggerRunId: run.id,
+              }).catch((error: unknown) => {
+                getLogger().warn("repository-ingestion-orchestrator.shadow", {
+                  step: "start-ingestion-v2-shadow",
+                  repositoryId: input.repositoryId,
+                  orgId: input.orgId,
+                  errMessage:
+                    error instanceof Error ? error.message : String(error),
+                })
+                return { started: false as const, reason: "start_failed" }
+              }),
+            )
+          return result
         } catch (err: unknown) {
           if (isWorkflowControlSignal(err)) {
             throw err

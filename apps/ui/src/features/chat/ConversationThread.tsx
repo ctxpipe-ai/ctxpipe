@@ -200,9 +200,14 @@ function renderUserParts(message: ChatMessage): ReactElement[] {
   return message.parts.flatMap((part, index) => {
     if (part.type !== "text" || !partText(part)) return []
     return [
-      <MessageResponse key={`${message.id}-${index}`}>
+      // Plain text: the user's words show as typed. Markdown would block
+      // a relative link and show "[blocked]".
+      <p
+        key={`${message.id}-${index}`}
+        className="whitespace-pre-wrap break-words text-sm leading-relaxed"
+      >
         {partText(part)}
-      </MessageResponse>,
+      </p>,
     ]
   })
 }

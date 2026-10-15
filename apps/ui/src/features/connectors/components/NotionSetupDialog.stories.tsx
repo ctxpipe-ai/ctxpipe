@@ -300,8 +300,9 @@ export const AddToWorkspaces: Story = {
       await body.findByRole("checkbox", { name: /Engineering handbook/ }),
     )
     await userEvent.click(add)
+    // The add opened a pull request: the last step is the merge.
     await expect(
-      await body.findByRole("heading", { name: "Notion is connected" }),
+      await body.findByRole("heading", { name: "Merge the pull request" }),
     ).toBeVisible()
     // The sync starts after the merge, so the last step links the pull request.
     await expect(
@@ -328,21 +329,6 @@ export const AddToWorkspaces: Story = {
         },
       },
     ])
-  },
-}
-
-export const SkipWorkspaces: Story = {
-  name: "Skip Workspaces, setup complete",
-  render: () => dialog(),
-  parameters: { msw: { handlers: { page: installedHandlers } } },
-  play: async ({ canvasElement }) => {
-    const body = within(canvasElement.ownerDocument.body)
-    await userEvent.click(
-      await body.findByRole("button", { name: "Skip for now" }),
-    )
-    await expect(
-      await body.findByRole("heading", { name: "Notion is connected" }),
-    ).toBeVisible()
   },
 }
 

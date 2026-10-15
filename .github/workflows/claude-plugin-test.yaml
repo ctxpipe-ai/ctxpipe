@@ -19,7 +19,7 @@ permissions:
 jobs:
   backend:
     name: Backend tests
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     env:
       DATABASE_URL: postgresql://ctxpipe:ctxpipe@localhost:5433/ctxpipe
       AUTH_SECRET: test-only-auth-secret-with-at-least-32-characters
@@ -61,7 +61,7 @@ jobs:
 
   ui:
     name: UI tests
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v6
         with:
@@ -79,7 +79,7 @@ jobs:
 
   package:
     name: Validate and install package
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6

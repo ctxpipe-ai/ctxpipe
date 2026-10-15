@@ -595,7 +595,7 @@ export async function createWorkspace(input: {
     const urlConflict = () =>
       createError({
         message:
-          "That git URL is already the workspace repository of another Workspace in this organisation",
+          "That git URL is already the workspace repository of another Workspace in this organization",
         status: 409,
         why: "A URL may back at most one Workspace per org",
       })
@@ -783,7 +783,7 @@ export async function updateWorkspace(
           throw createError({
             message: "That slug is already used by another Workspace",
             status: 409,
-            why: "Workspace slugs are unique per organisation",
+            why: "Workspace slugs are unique per organization",
           })
         }
         patch.slug = next
@@ -815,7 +815,7 @@ export async function updateWorkspace(
         if (conflict && conflict.id !== existing.id) {
           throw createError({
             message:
-              "That git URL is already the workspace repository of another Workspace in this organisation",
+              "That git URL is already the workspace repository of another Workspace in this organization",
             status: 409,
             why: "A URL may back at most one Workspace per org",
           })
@@ -879,13 +879,13 @@ export async function updateWorkspace(
         throw createError({
           message: "That slug is already used by another Workspace",
           status: 409,
-          why: "Workspace slugs are unique per organisation",
+          why: "Workspace slugs are unique per organization",
         })
       }
       if (isUniqueViolation(error, "workspaces_org_id_repository_url_uidx")) {
         throw createError({
           message:
-            "That git URL is already the workspace repository of another Workspace in this organisation",
+            "That git URL is already the workspace repository of another Workspace in this organization",
           status: 409,
           why: "A URL may back at most one Workspace per org",
         })
@@ -992,6 +992,16 @@ export async function listOrgWorkspaces(
       .from(workspaces)
       .where(eq(workspaces.orgId, orgId)),
   )
+}
+
+/** The projection state of every Workspace of the org, read in one query. */
+export async function listOrgWorkspaceProjections(
+  orgId: string,
+): Promise<ProjectionState[]> {
+  const rows = await orgSql(() =>
+    getOrgDb().select().from(workspaces).where(eq(workspaces.orgId, orgId)),
+  )
+  return rows.map(projectionFromWorkspace)
 }
 
 export async function listOrgLinkedRepositories(orgId: string): Promise<

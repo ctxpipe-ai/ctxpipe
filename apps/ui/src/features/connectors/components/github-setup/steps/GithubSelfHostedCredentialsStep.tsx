@@ -95,7 +95,7 @@ export function GithubSelfHostedCredentialsStep({
         </h3>
         <p className="mt-2 text-sm text-muted-foreground">
           Self-hosted deployments use a GitHub App you create under your own
-          user account or organisation.
+          user account or organization.
         </p>
         <ol className="mt-4 list-decimal space-y-6 pl-5 text-sm text-muted-foreground">
           <li>
@@ -108,7 +108,7 @@ export function GithubSelfHostedCredentialsStep({
             >
               New GitHub App (personal)
             </a>
-            , or for an organisation: open the org →{" "}
+            , or for an organization: open the org →{" "}
             <strong className="font-medium text-foreground">Settings</strong> →{" "}
             <strong className="font-medium text-foreground">
               Developer settings

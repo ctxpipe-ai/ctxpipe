@@ -48,7 +48,7 @@ export const ApiKeysEmpty: Story = {
       await canvas.findByText(/For your own scripts and agents\./),
     ).toBeVisible()
     await expect(
-      canvas.getByRole("link", { name: "Use an organisation key instead." }),
+      canvas.getByRole("link", { name: "Use an organization key instead." }),
     ).toBeVisible()
     const createButton = canvas.getByRole("button", {
       name: "Create API key",

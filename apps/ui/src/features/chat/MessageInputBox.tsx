@@ -103,7 +103,7 @@ export function MessageInputBox(props: {
               variant="primary"
               status={status}
               onStop={onStop}
-              isDisabled={isDisabled}
+              isDisabled={isDisabled && !isGenerating}
               className={cn(
                 "size-8 shrink-0 rounded-md border-0 bg-primary text-primary-foreground shadow-none",
                 "hover:bg-primary/90",

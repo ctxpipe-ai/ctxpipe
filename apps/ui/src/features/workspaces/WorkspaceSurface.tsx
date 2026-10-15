@@ -311,7 +311,7 @@ function WorkspaceSurfaceReady(props: {
           Workspace not found
         </h1>
         <p className="mt-3 text-sm text-muted-foreground">
-          That slug is not used in this organisation. Changing a slug replaces
+          That slug is not used in this organization. Changing a slug replaces
           the URL; the old slug is not kept as an alias.
         </p>
       </main>
@@ -527,7 +527,7 @@ function WorkspaceSurfaceColumns(props: {
     <div className="flex h-svh min-h-0 min-w-0" data-workspace-surface="">
       {/*
         Column visibility is CSS:
-        - maximised → hide chat
+        - maximized → hide chat
         - pane open below lg → hide chat (single column)
         - otherwise show chat
       */}

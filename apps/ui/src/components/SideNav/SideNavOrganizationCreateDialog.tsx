@@ -52,7 +52,7 @@ export function SideNavOrganizationCreateDialog({
         !("slug" in organization) ||
         typeof organization.slug !== "string"
       ) {
-        throw new Error("Failed to create organisation")
+        throw new Error("Failed to create organization")
       }
       return organization as { id: string; slug: string; name: string }
     },
@@ -81,7 +81,7 @@ export function SideNavOrganizationCreateDialog({
       setValidationError(
         error instanceof Error
           ? error.message
-          : "Failed to create organisation",
+          : "Failed to create organization",
       )
     },
   })
@@ -102,7 +102,7 @@ export function SideNavOrganizationCreateDialog({
   const handleCreate = () => {
     const trimmed = orgName.trim()
     if (!trimmed) {
-      setValidationError("Enter a name for your organisation.")
+      setValidationError("Enter a name for your organization.")
       return
     }
     const slug = orgSlug.trim()
@@ -124,16 +124,16 @@ export function SideNavOrganizationCreateDialog({
         {({ close }) => (
           <>
             <DialogHeader>
-              <DialogTitle>Create organisation</DialogTitle>
+              <DialogTitle>Create organization</DialogTitle>
               <DialogDescription>
-                Set up a new organisation workspace for your team.
+                Set up a new organization workspace for your team.
               </DialogDescription>
             </DialogHeader>
             <label
               className="mb-2 mt-4 block text-sm text-zinc-200"
               htmlFor={orgNameFieldId}
             >
-              Organisation name
+              Organization name
             </label>
             <input
               id={orgNameFieldId}
@@ -197,7 +197,7 @@ export function SideNavOrganizationCreateDialog({
                 isPending={createOrg.isPending}
                 onPress={() => handleCreate()}
               >
-                Create organisation
+                Create organization
               </Button>
             </div>
           </>

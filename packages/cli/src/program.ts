@@ -213,7 +213,7 @@ MCP auth:
 This command diagnoses ctx| HTTP routing, TLS/reachability, the unauthenticated
 Bearer challenge, and OAuth discovery. If CTXPIPE_API_KEY is set in this process,
 it sends x-api-key on initialize and expects HTTP 2xx instead of OAuth discovery.
-It does not run browser OAuth, list authenticated tools, invoke ctx_advisor, or
+It does not run browser OAuth, list authenticated tools, call an MCP tool, or
 test STDIO servers. Without CTXPIPE_API_KEY, a successful result means the
 endpoint is ready for OAuth, not that authenticated tools work.
 `,

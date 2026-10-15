@@ -92,7 +92,10 @@ function otlpDrain(): PipelineDrainFn<DrainContext> | undefined {
 }
 
 /** Initialize evlog. Call early in app bootstrap. Reads env from process.env. */
-export function initEvlog(options?: { silent?: boolean }): void {
+export function initEvlog(options?: {
+  silent?: boolean
+  stderr?: boolean
+}): void {
   const envFields = {
     service: otelServiceName(),
     environment: otelDeploymentEnvironment(),
@@ -108,7 +111,7 @@ export function initEvlog(options?: { silent?: boolean }): void {
     return
   }
   const env = parseEnv(process.env as Record<string, string | undefined>)
-  const pretty = env.NODE_ENV === "development"
+  const pretty = env.NODE_ENV === "development" && !options?.stderr
   otlpPipeline = otlpDrain()
   initLogger({
     env: {
@@ -121,7 +124,10 @@ export function initEvlog(options?: { silent?: boolean }): void {
     // Synchronous so the contract reads the active span; the export is batched.
     drain: (ctx) => {
       applyLogContract(ctx.event)
-      if (!pretty) process.stdout.write(`${JSON.stringify(ctx.event)}\n`)
+      if (!pretty)
+        (options?.stderr ? process.stderr : process.stdout).write(
+          `${JSON.stringify(ctx.event)}\n`,
+        )
       otlpPipeline?.(ctx)
     },
   })

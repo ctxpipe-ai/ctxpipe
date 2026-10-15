@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "apis plan",
+  "description": "The plan that the model writes to /ctxpipe/home/apis-plan.json. It is data only.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["root", "apis"],
+  "properties": {
+    "root": { "type": "string", "description": "The code root path, or ." },
+    "service": {
+      "type": ["string", "null"],
+      "description": "Path of the context file of kind Service for this root, from the context index"
+    },
+    "apis": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "operations"],
+        "properties": {
+          "name": { "type": "string", "maxLength": 80 },
+          "existing": {
+            "type": ["string", "null"],
+            "description": "Path of a context file of kind API that describes the same API, from the context index"
+          },
+          "summary": { "type": "string", "maxLength": 300 },
+          "operations": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["method", "path"],
+              "properties": {
+                "method": {
+                  "enum": [
+                    "GET",
+                    "POST",
+                    "PUT",
+                    "PATCH",
+                    "DELETE",
+                    "HEAD",
+                    "OPTIONS"
+                  ]
+                },
+                "path": { "type": "string" },
+                "summary": { "type": "string", "maxLength": 200 },
+                "evidence": {
+                  "type": "string",
+                  "description": "A source file that defines the operation. Necessary only when the scripts did not find it."
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

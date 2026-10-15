@@ -218,8 +218,11 @@ describe("ingest sandbox slots (Postgres)", () => {
         )
         await new Promise((resolve) => setTimeout(resolve, 500))
         expect(await getSandboxInstance(sandbox.key, org.orgId)).toBeNull()
-        abort.abort(new Error("step ended"))
-        expect(await outcome).toMatchObject({ name: "AbortError" })
+        // Whether the abort lands in the wait or in a start, the caller gets
+        // the reason: it tells a cancelled step from an ended one.
+        const reason = new Error("step ended")
+        abort.abort(reason)
+        expect(await outcome).toBe(reason)
         expect(await getSandboxInstance(sandbox.key, org.orgId)).toBeNull()
       } finally {
         await full.remove()

@@ -101,7 +101,7 @@ export const CreateNamedKey: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await expect(canvas.getByText(/For CI and shared agents\./)).toBeVisible()
-    await expect(canvas.getByText("No organisation keys")).toBeVisible()
+    await expect(canvas.getByText("No organization keys")).toBeVisible()
     await expect(
       canvas.getByRole("link", { name: "Use a personal key instead." }),
     ).toBeVisible()

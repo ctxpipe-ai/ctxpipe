@@ -87,26 +87,50 @@ export type RunVault = {
 
 const ownerTokens = new Map<string, Promise<string>>()
 
+/** What an Agent Vault request answered: the status and the parsed JSON body. */
+type AvResponse = { ok: boolean; status: number; body: Record<string, unknown> }
+
+/**
+ * One request to the Agent Vault API. The timeout covers the whole exchange,
+ * and the body is read here, so no response is left unread and no timer
+ * outlives the request.
+ */
 async function avFetch(
   access: AgentVaultAccess,
   path: string,
   init: { method?: string; token?: string; body?: unknown } = {},
-): Promise<Response> {
+): Promise<AvResponse> {
+  const abort = new AbortController()
+  const timer = setTimeout(
+    () => abort.abort(new Error(`No answer in ${REQUEST_TIMEOUT_MS} ms`)),
+    REQUEST_TIMEOUT_MS,
+  )
   try {
-    return await fetch(`${access.address}${path}`, {
+    const response = await fetch(`${access.address}${path}`, {
       method: init.method ?? "GET",
       headers: {
         "content-type": "application/json",
         ...(init.token ? { authorization: `Bearer ${init.token}` } : {}),
       },
       ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      signal: abort.signal,
     })
+    const text = await response.text()
+    let body: Record<string, unknown> = {}
+    try {
+      const parsed: unknown = JSON.parse(text)
+      if (parsed && typeof parsed === "object") body = parsed as typeof body
+    } catch {
+      // A body that is not JSON (an error page) has no fields.
+    }
+    return { ok: response.ok, status: response.status, body }
   } catch (error) {
     throw new AgentVaultUnavailableError(
       `Agent Vault is not reachable at ${access.address}`,
       { cause: error },
     )
+  } finally {
+    clearTimeout(timer)
   }
 }
 
@@ -117,15 +141,13 @@ async function login(access: AgentVaultAccess): Promise<string> {
     method: "POST",
     body: credentials,
   })
-  if (loggedIn.ok) return ((await loggedIn.json()) as { token: string }).token
+  if (loggedIn.ok && typeof loggedIn.body.token === "string")
+    return loggedIn.body.token
   // Register only while the instance has no owner (the first account becomes
   // the owner). An instance with an owner that refuses this password stays
   // closed: the password changed, or another backend owns it.
   const status = await avFetch(access, "/v1/status")
-  const initialized = status.ok
-    ? ((await status.json()) as { needs_first_user?: boolean })
-        .needs_first_user === false
-    : true
+  const initialized = status.ok ? status.body.needs_first_user === false : true
   if (initialized)
     throw new AgentVaultUnavailableError(
       `Agent Vault refused the backend's owner password (${loggedIn.status}); see "Agent Vault owner password" in the self-hosting docs`,
@@ -134,10 +156,8 @@ async function login(access: AgentVaultAccess): Promise<string> {
     method: "POST",
     body: credentials,
   })
-  const body = (await registered.json().catch(() => ({}))) as {
-    token?: string
-  }
-  if (registered.ok && body.token) return body.token
+  if (registered.ok && typeof registered.body.token === "string")
+    return registered.body.token
   throw new AgentVaultUnavailableError(
     `Agent Vault refused the backend's owner account (${loggedIn.status}, ${registered.status})`,
   )
@@ -364,10 +384,7 @@ async function setUnmatchedHostPolicy(
       `/v1/vaults/${encodeURIComponent(name)}/settings`,
       { method: "PATCH", token, body: { unmatched_host_policy: policy } },
     )
-    const body = (await response.json().catch(() => ({}))) as {
-      unmatched_host_policy?: string
-    }
-    if (!response.ok || body.unmatched_host_policy !== policy)
+    if (!response.ok || response.body.unmatched_host_policy !== policy)
       throw Object.assign(
         new AgentVaultUnavailableError(
           `Agent Vault did not set the unmatched host policy "${policy}" (${response.status})`,
@@ -406,12 +423,12 @@ export async function sweepRunVaults(
         throw Object.assign(new Error("Listing vaults failed"), {
           status: response.status,
         })
-      return (await response.json()) as {
-        vaults: Array<{ name: string; created_at: string }>
+      return response.body as {
+        vaults?: Array<{ name: string; created_at: string }>
       }
     })
     let deleted = 0
-    for (const vault of listed.vaults) {
+    for (const vault of listed.vaults ?? []) {
       if (!vault.name.startsWith(RUN_VAULT_PREFIX)) continue
       if (Date.now() - Date.parse(vault.created_at) < minAgeMs) continue
       await deleteRunVault(access, vault.name)

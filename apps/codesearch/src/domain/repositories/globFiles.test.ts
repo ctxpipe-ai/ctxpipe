@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
@@ -7,6 +7,7 @@ import {
   GlobInvalidRequestError,
   GlobPathNotFoundError,
   globFilesInCheckout,
+  globPatternDepth,
   isSkippedGlobPath,
   listCheckoutFilePaths,
   resolveGlobLimit,
@@ -34,6 +35,20 @@ describe("resolveGlobLimit", () => {
     expect(resolveGlobLimit(undefined)).toBe(50_000)
     expect(resolveGlobLimit(10)).toBe(10)
     expect(resolveGlobLimit(100_000)).toBe(50_000)
+  })
+})
+
+describe("globPatternDepth", () => {
+  it("counts the levels a pattern can match", () => {
+    expect(globPatternDepth("*")).toBe(1)
+    expect(globPatternDepth("*.ts")).toBe(1)
+    expect(globPatternDepth("src/*.ts")).toBe(2)
+    expect(globPatternDepth("{src,lib}/*/x.ts")).toBe(3)
+  })
+
+  it("has no limit with **", () => {
+    expect(globPatternDepth("**/*.md")).toBeUndefined()
+    expect(globPatternDepth("src/**")).toBeUndefined()
   })
 })
 
@@ -124,6 +139,34 @@ describe("globFilesInCheckout", () => {
     expect(result.entries).toHaveLength(1)
     expect(result.truncated).toBe(true)
     expect(result.matched).toBeGreaterThan(1)
+  })
+
+  it("stops the walk at the depth of a pattern without **", async () => {
+    const root = await setupCheckout()
+    // A folder that cannot be read fails the walk when it reads this deep.
+    const locked = join(root, "src", "nested", "locked")
+    await mkdir(locked, { recursive: true })
+    await chmod(locked, 0o000)
+    try {
+      const shallow = await globFilesInCheckout({
+        checkoutRoot: root,
+        pattern: "*",
+        path: "src",
+      })
+      expect(shallow.entries.map((e) => e.path).sort()).toEqual([
+        "src/a.ts",
+        "src/nested",
+      ])
+      const second = await globFilesInCheckout({
+        checkoutRoot: root,
+        pattern: "nested/*.ts",
+        path: "src",
+        onlyFiles: true,
+      })
+      expect(second.entries.map((e) => e.path)).toEqual(["src/nested/b.ts"])
+    } finally {
+      await chmod(locked, 0o755)
+    }
   })
 
   it("rejects path traversal via cwd", async () => {

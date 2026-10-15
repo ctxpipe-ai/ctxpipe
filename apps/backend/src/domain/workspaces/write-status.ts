@@ -13,7 +13,7 @@ export const WRITE_STATUS_REASONS = {
   nonGithubHost:
     "This remote is not GitHub. v1 can hydrate, search, and chat, but cannot commit or push. Relink to a GitHub repository the App can write.",
   githubNotConnected:
-    "GitHub is not connected for this organisation. An owner or admin must install the GitHub App and add this repository to the installation.",
+    "GitHub is not connected for this organization. An owner or admin must install the GitHub App and add this repository to the installation.",
   notInInstallation:
     "This repository is not in the GitHub App installation. An installation owner or admin must add it, then refresh.",
   contentsWriteDenied:

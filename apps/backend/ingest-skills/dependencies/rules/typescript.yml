@@ -1,0 +1,198 @@
+# HTTP and queue clients and config readers for TypeScript and JavaScript.
+# `message` is "<type> <direction> <client> <target variable>": scan-lib.mjs
+# reads it, because ast-grep JSON output has no rule metadata.
+id: ts-fetch
+language: TypeScript
+message: http call fetch URL
+rule:
+  any:
+    - pattern: fetch($URL)
+    - pattern: fetch($URL, $$$A)
+---
+id: ts-axios
+language: TypeScript
+message: http call axios URL
+rule:
+  any:
+    - pattern: axios.$M($URL)
+    - pattern: axios.$M($URL, $$$A)
+constraints:
+  M:
+    regex: ^(get|post|put|patch|delete|head)$
+---
+id: ts-axios-config
+language: TypeScript
+message: http call axios URL
+rule:
+  pattern: 'axios({ url: $URL, $$$A })'
+---
+id: ts-got
+language: TypeScript
+message: http call got URL
+rule:
+  any:
+    - pattern: got($URL)
+    - pattern: got($URL, $$$A)
+    - pattern: got.$M($URL)
+    - pattern: got.$M($URL, $$$A)
+constraints:
+  M:
+    regex: ^(get|post|put|patch|delete|head)$
+---
+id: ts-ky
+language: TypeScript
+message: http call ky URL
+rule:
+  any:
+    - pattern: ky($URL)
+    - pattern: ky($URL, $$$A)
+    - pattern: ky.$M($URL)
+    - pattern: ky.$M($URL, $$$A)
+constraints:
+  M:
+    regex: ^(get|post|put|patch|delete|head)$
+---
+id: ts-node-http
+language: TypeScript
+message: http call node-http URL
+rule:
+  any:
+    - pattern: $X.$M($URL)
+    - pattern: $X.$M($URL, $$$A)
+constraints:
+  X:
+    regex: ^https?$
+  M:
+    regex: ^(get|request)$
+---
+id: ts-env
+language: TypeScript
+message: config read process-env NAME
+rule:
+  pattern: process.env.$NAME
+constraints:
+  NAME:
+    all:
+      - regex: (^|_)(URL|URI|HOST|ADDR|ADDRESS|ENDPOINT|BROKERS?|TOPICS?|QUEUES?|STREAMS?|SUBJECT|CHANNEL|SERVICE)(_|$)
+      - not:
+          regex: (^|_)(DATABASE|DB|POSTGRES|POSTGRESQL|MYSQL|MONGO|MONGODB|REDIS|SENTRY|OTEL|OTLP)(_|$)
+---
+id: ts-config-service
+language: TypeScript
+message: config read config-service NAME
+rule:
+  pattern: $C.get($NAME)
+constraints:
+  C:
+    regex: (?i)config
+  NAME:
+    regex: ^["'`]([A-Za-z0-9_.-]*[_.-])?(URL|URI|HOST|ENDPOINT|BROKERS?|TOPICS?|QUEUES?|STREAMS?|SUBJECT)["'`]$
+---
+id: ts-kafka-send
+language: TypeScript
+message: stream produce kafka T
+rule:
+  pattern: '$P.send({ topic: $T, $$$A })'
+---
+id: ts-kafka-subscribe
+language: TypeScript
+message: stream consume kafka T
+rule:
+  pattern: '$C.subscribe({ topic: $T, $$$A })'
+---
+id: ts-amqp-produce
+language: TypeScript
+message: queue produce amqp Q
+rule:
+  any:
+    - pattern: $C.sendToQueue($Q)
+    - pattern: $C.sendToQueue($Q, $$$A)
+    - pattern: $C.publish($Q, $$$A)
+constraints:
+  C:
+    regex: (?i)^(this\.)?_?(channel|ch|confirmchannel)$
+---
+id: ts-amqp-consume
+language: TypeScript
+message: queue consume amqp Q
+rule:
+  any:
+    - pattern: $C.consume($Q)
+    - pattern: $C.consume($Q, $$$A)
+constraints:
+  C:
+    regex: (?i)^(this\.)?_?(channel|ch|confirmchannel)$
+---
+id: ts-sqs-produce
+language: TypeScript
+message: queue produce sqs Q
+rule:
+  any:
+    - pattern: 'new SendMessageCommand({ QueueUrl: $Q, $$$A })'
+    - pattern: 'new SendMessageBatchCommand({ QueueUrl: $Q, $$$A })'
+---
+id: ts-sqs-consume
+language: TypeScript
+message: queue consume sqs Q
+rule:
+  pattern: 'new ReceiveMessageCommand({ QueueUrl: $Q, $$$A })'
+---
+id: ts-sns-produce
+language: TypeScript
+message: stream produce sns Q
+rule:
+  any:
+    - pattern: 'new PublishCommand({ TopicArn: $Q, $$$A })'
+    - pattern: 'new PublishBatchCommand({ TopicArn: $Q, $$$A })'
+---
+id: ts-kinesis-produce
+language: TypeScript
+message: stream produce kinesis Q
+rule:
+  any:
+    - pattern: 'new PutRecordCommand({ StreamName: $Q, $$$A })'
+    - pattern: 'new PutRecordsCommand({ StreamName: $Q, $$$A })'
+---
+id: ts-kinesis-consume
+language: TypeScript
+message: stream consume kinesis Q
+rule:
+  pattern: 'new GetShardIteratorCommand({ StreamName: $Q, $$$A })'
+---
+id: ts-bullmq-produce
+language: TypeScript
+message: queue produce bullmq Q
+rule:
+  any:
+    - pattern: new Queue($Q)
+    - pattern: new Queue($Q, $$$A)
+---
+id: ts-bullmq-consume
+language: TypeScript
+message: queue consume bullmq Q
+rule:
+  any:
+    - pattern: new Worker($Q)
+    - pattern: new Worker($Q, $$$A)
+---
+id: ts-nats-produce
+language: TypeScript
+message: stream produce nats Q
+rule:
+  any:
+    - pattern: $N.publish($Q)
+    - pattern: $N.publish($Q, $$$A)
+constraints:
+  N:
+    regex: (?i)^(this\.)?_?(nats|nc|js|jetstream)$
+---
+id: ts-nats-consume
+language: TypeScript
+message: stream consume nats Q
+rule:
+  any:
+    - pattern: $N.subscribe($Q)
+    - pattern: $N.subscribe($Q, $$$A)
+constraints:
+  N:
+    regex: (?i)^(this\.)?_?(nats|nc|js|jetstream)$

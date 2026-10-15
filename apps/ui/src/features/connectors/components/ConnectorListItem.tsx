@@ -126,7 +126,6 @@ export function ConnectorListItem({
   health,
   remove,
   workspace,
-  scope,
   usedIn,
   sync,
   actionLabel,
@@ -149,8 +148,6 @@ export function ConnectorListItem({
    * not read as a ctx| Workspace.
    */
   workspace: ReactNode
-  /** Omit for a connection without a scope of its own. */
-  scope?: ReactNode
   /**
    * The "Used in" block: the Workspaces that use this connection. Each
    * provider card gives `<ConnectorUsedIn …/>`.
@@ -225,12 +222,6 @@ export function ConnectorListItem({
                 <dt className="text-muted-foreground">Account</dt>
                 <dd className="mt-1 text-foreground">{workspace}</dd>
               </div>
-              {scope === undefined ? null : (
-                <div>
-                  <dt className="text-muted-foreground">Scope</dt>
-                  <dd className="mt-1 text-foreground">{scope}</dd>
-                </div>
-              )}
             </dl>
             {action && !pending ? (
               <div className="flex justify-end">

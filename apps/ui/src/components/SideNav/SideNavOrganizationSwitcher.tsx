@@ -140,7 +140,7 @@ export function SideNavOrganizationSwitcher({
           message:
             error instanceof Error
               ? error.message
-              : "Failed to switch organisation",
+              : "Failed to switch organization",
         })
         setActiveOrganizationPending(false)
         return false

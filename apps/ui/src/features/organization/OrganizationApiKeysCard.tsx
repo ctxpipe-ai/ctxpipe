@@ -1,9 +1,9 @@
 /**
- * Shared personal and organisation API-key UI.
+ * Shared personal and organization API-key UI.
  *
  * Replaces better-auth-ui's <ApiKeysCard> so both ownership modes share one
  * information hierarchy and empty state. The library card's
- * `CreateApiKeyDialog` gates an organisation/personal selector on
+ * `CreateApiKeyDialog` gates an organization/personal selector on
  * `contextOrganization.apiKey` (no per-call-site opt-out). That selector would
  * mix ownership modes on both settings pages. Calling
  * `authClient.apiKey.{list,create,delete}` with an explicit config keeps each
@@ -38,7 +38,11 @@ import { GridList, GridListItem } from "@/components/ui/GridList"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { Modal } from "@/components/ui/Modal"
 import { Select, SelectItem } from "@/components/ui/Select"
-import { Skeleton, useSkeletonHold } from "@/components/ui/Skeleton"
+import {
+  Skeleton,
+  SkeletonText,
+  useSkeletonHold,
+} from "@/components/ui/Skeleton"
 import { TextField } from "@/components/ui/TextField"
 import { betterAuthShellClassNames } from "@/features/auth/betterAuthShellClassNames"
 import {
@@ -232,7 +236,7 @@ function ApiKeysCard(props: ApiKeysCardProps) {
                   params={{ organizationView: "api-keys" }}
                   className="font-medium text-teal-400 underline-offset-4 hover:underline"
                 >
-                  Use an organisation key instead.
+                  Use an organization key instead.
                 </Link>
               )}
             </p>
@@ -240,17 +244,34 @@ function ApiKeysCard(props: ApiKeysCardProps) {
         </CardHeader>
         <CardContent className="space-y-4">
           {keysLoading ? (
-            <div aria-hidden className="flex flex-col gap-3">
+            // The box of the key list: the same border, row padding and row height.
+            <div
+              aria-hidden
+              className={cn(
+                apiKeysCardClassNames?.cell,
+                "border border-zinc-700/60 bg-transparent",
+              )}
+            >
               {[1, 2, 3].map((row) => (
-                <div key={row} className="flex flex-col gap-2 py-2">
-                  <Skeleton className="h-4 w-40 max-w-full" />
-                  <Skeleton className="h-3 w-28" />
+                <div
+                  key={row}
+                  className="flex gap-3 border-transparent border-t px-3 py-2 text-sm first:border-t-0"
+                >
+                  <Skeleton className="size-4 shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <SkeletonText
+                      className="text-sm"
+                      boneClassName="w-40 max-w-full"
+                    />
+                    <SkeletonText className="text-xs" boneClassName="w-28" />
+                  </div>
+                  <Skeleton className="h-9 w-24 shrink-0 rounded-md" />
                 </div>
               ))}
             </div>
           ) : forbidden ? (
             <InlineAlert variant="error" title="Admin or owner required">
-              Only organisation admins and owners can manage these keys.
+              Only organization admins and owners can manage these keys.
             </InlineAlert>
           ) : loadError ? (
             <InlineAlert variant="error" title="Could not load API keys">
@@ -263,7 +284,7 @@ function ApiKeysCard(props: ApiKeysCardProps) {
               </span>
               <div>
                 <p className="text-sm font-medium text-foreground">
-                  No {isOrganization ? "organisation" : "personal"} keys
+                  No {isOrganization ? "organization" : "personal"} keys
                 </p>
                 <p className="mt-1 text-sm text-muted-foreground">
                   {isOrganization
@@ -275,7 +296,7 @@ function ApiKeysCard(props: ApiKeysCardProps) {
           ) : (
             <GridList
               aria-label={
-                isOrganization ? "Organisation API keys" : "Personal API keys"
+                isOrganization ? "Organization API keys" : "Personal API keys"
               }
               className={cn(
                 apiKeysCardClassNames?.cell,
@@ -341,7 +362,7 @@ function ApiKeysCard(props: ApiKeysCardProps) {
         error={
           createMutation.error
             ? isOrganization && isForbidden(createMutation.error)
-              ? "Only organisation admins and owners can mint organisation keys."
+              ? "Only organization admins and owners can mint organization keys."
               : errorMessage(createMutation.error)
             : undefined
         }

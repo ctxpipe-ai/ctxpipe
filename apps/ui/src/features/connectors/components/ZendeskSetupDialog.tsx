@@ -6,11 +6,12 @@ import { useEffect, useState } from "react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
-import { Link } from "@/components/ui/Link"
 import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
 import { TextField } from "@/components/ui/TextField"
 import { AddToWorkspacesStep } from "@/features/workspace-sources/AddToWorkspacesStep"
+import { PullRequestsToMerge } from "@/features/workspace-sources/PullRequestsToMerge"
+import type { OpenedPullRequest } from "@/features/workspace-sources/useAddToWorkspaces"
 import { retryQuery } from "@/lib/api-result"
 import { orgConnectionsKeys } from "../queries/org-connections"
 import {
@@ -29,8 +30,20 @@ import { ConnectorSetupStepper } from "./ConnectorSetupStepper"
 import { CopyableUrl } from "./notion-setup/CopyableUrl"
 import { ZendeskMark } from "./ZendeskMark"
 
-const externalLink =
-  "font-medium text-teal-400 underline decoration-teal-400/50 underline-offset-4 hover:text-teal-300 hover:decoration-teal-300"
+/** A link out of the product: teal, as the other setup dialogs show it. */
+function ExternalLink(props: { href: string; children: string }) {
+  return (
+    <a
+      href={props.href}
+      target="_blank"
+      rel="noreferrer"
+      className="inline-flex items-center gap-1 font-medium text-teal-400 hover:text-teal-300"
+    >
+      {props.children}
+      <IconExternalLink className="size-3.5" aria-hidden />
+    </a>
+  )
+}
 
 type ZendeskSetupDialogProps = {
   orgSlug: string
@@ -56,8 +69,8 @@ export function ZendeskSetupDialog({
   onConnectionIdChange,
 }: ZendeskSetupDialogProps) {
   const queryClient = useQueryClient()
-  const [workspacesDone, setWorkspacesDone] = useState(false)
-  const [pullRequestUrls, setPullRequestUrls] = useState<string[]>([])
+  const [pullRequests, setPullRequests] = useState<OpenedPullRequest[]>([])
+  const workspacesDone = pullRequests.length > 0
   const [oauthError, setOauthError] = useState<string | null>(null)
   const [reconnecting, setReconnecting] = useState(reconnect)
 
@@ -190,43 +203,13 @@ export function ZendeskSetupDialog({
             label="Zendesk"
             description="the Help Center categories and ticket views for each"
             items="the categories and views"
-            onDone={(urls) => {
-              setPullRequestUrls(urls ?? [])
-              setWorkspacesDone(true)
-            }}
+            onDone={setPullRequests}
           />
         </div>
       )
     return (
       <div className="space-y-4">
-        <div>
-          <h3 className="text-base font-medium text-foreground">
-            Zendesk is connected
-          </h3>
-          {pullRequestUrls.length ? (
-            <>
-              <p className="mt-2 text-sm text-muted-foreground">
-                Merge the pull request to start the sync.
-              </p>
-              <ul className="mt-2 space-y-1 text-sm">
-                {pullRequestUrls.map((url) => (
-                  <li key={url}>
-                    <Link href={url} target="_blank" rel="noreferrer">
-                      {url
-                        .replace(/^https:\/\/github\.com\//, "")
-                        .replace("/pull/", "#")}
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </>
-          ) : (
-            <p className="mt-2 text-sm text-muted-foreground">
-              Add Zendesk to a Workspace from the connector card, or change the
-              categories and views of a Workspace in its settings.
-            </p>
-          )}
-        </div>
+        <PullRequestsToMerge orgSlug={orgSlug} pullRequests={pullRequests} />
         <Button
           variant="secondary"
           className="rounded-md"
@@ -348,15 +331,11 @@ function RegisterStep(props: {
       <ol className="list-decimal space-y-3 pl-5 text-sm text-muted-foreground">
         <li>
           In{" "}
-          <Link
+          <ExternalLink
             href={`https://${props.status.subdomain}.zendesk.com/admin/apps-integrations/apis/apis/oauth_clients`}
-            className={externalLink}
-            target="_blank"
-            rel="noreferrer"
           >
             Admin Center, OAuth clients
-            <IconExternalLink className="ml-1 inline size-3.5" aria-hidden />
-          </Link>
+          </ExternalLink>
           , add an OAuth client of the{" "}
           <strong className="font-medium text-foreground">Confidential</strong>{" "}
           kind.

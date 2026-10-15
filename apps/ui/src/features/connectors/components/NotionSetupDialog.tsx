@@ -8,6 +8,7 @@ import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
 import { AddToWorkspacesStep } from "@/features/workspace-sources/AddToWorkspacesStep"
 import { PullRequestsToMerge } from "@/features/workspace-sources/PullRequestsToMerge"
+import type { OpenedPullRequest } from "@/features/workspace-sources/useAddToWorkspaces"
 import { useNotionOAuthConnect } from "../hooks/useNotionOAuthConnect"
 import {
   getNotionSetupCurrentIndex,
@@ -47,13 +48,13 @@ export function NotionSetupDialog({
   const oauthConnect = useNotionOAuthConnect(orgSlug)
   const [registerSaved, setRegisterSaved] = useState(false)
   const [webhookContinued, setWebhookContinued] = useState(false)
-  const [workspacesDone, setWorkspacesDone] = useState(false)
-  const [pullRequestUrls, setPullRequestUrls] = useState<string[]>([])
+  // A save always opens pull requests: the dialog then shows the merge step.
+  const [pullRequests, setPullRequests] = useState<OpenedPullRequest[]>([])
+  const workspacesDone = pullRequests.length > 0
   if (!isOpen && (registerSaved || webhookContinued || workspacesDone)) {
     setRegisterSaved(false)
     setWebhookContinued(false)
-    setWorkspacesDone(false)
-    setPullRequestUrls([])
+    setPullRequests([])
   }
 
   const oauthAppQuery = useQuery({
@@ -177,28 +178,13 @@ export function NotionSetupDialog({
           description="the pages and databases for each"
           items="the pages"
           replacedConfigPullUrl={status.pendingConfigPullUrl}
-          onDone={(urls) => {
-            setPullRequestUrls(urls ?? [])
-            setWorkspacesDone(true)
-          }}
+          onDone={setPullRequests}
         />
       )
     }
     return (
       <div className="space-y-4">
-        <div>
-          <h3 className="text-base font-medium text-foreground">
-            Notion is connected
-          </h3>
-          {pullRequestUrls.length ? (
-            <PullRequestsToMerge urls={pullRequestUrls} />
-          ) : (
-            <p className="mt-2 text-sm text-muted-foreground">
-              Add Notion to a Workspace from the connector card, or change the
-              pages of a Workspace in its settings.
-            </p>
-          )}
-        </div>
+        <PullRequestsToMerge orgSlug={orgSlug} pullRequests={pullRequests} />
         <Button
           variant="secondary"
           className="rounded-md"

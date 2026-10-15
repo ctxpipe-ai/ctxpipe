@@ -1,9 +1,6 @@
 import { execFile } from "node:child_process"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
-import { Client } from "@modelcontextprotocol/sdk/client/index.js"
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js"
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import {
   modelMessagesToUIMessages,
   RUN_CANCEL_REASON,
@@ -18,14 +15,9 @@ import { expect, it, vi } from "vitest"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { conversations } from "../../db/schema/conversations.js"
-import { workspaces } from "../../db/schema/workspaces.js"
 import { conversationIdFromIdempotencyKey } from "../../lib/id.js"
-import { registerMcpTools } from "../../mcp/tools.js"
 import { sandboxGitTokenStore } from "../../models/sandbox-git-tokens.js"
-import {
-  listSandboxInstances,
-  persistOrgFirstWorkspace,
-} from "../../models/workspaces.js"
+import { listSandboxInstances } from "../../models/workspaces.js"
 import { withNativeChatFixture } from "../../test/native-chat-fixture.js"
 import {
   recordedRunGitToken,
@@ -33,7 +25,6 @@ import {
 } from "./run-git-tokens.js"
 import { workspaceChatInstanceAccess } from "./sandbox-instance-store.js"
 import {
-  collectTanstackWorkspaceChatText,
   streamTanstackWorkspaceChat,
   warmTanstackWorkspaceChat,
   workspaceChatDockerOwnership,
@@ -476,126 +467,6 @@ it(
 )
 
 it(
-  "MCP compatibility chat uses the captured non-main workspace branch",
-  { timeout: 45_000 },
-  async () => {
-    await withNativeChatFixture(async (f) => {
-      await promisify(execFile)("git", ["branch", "-m", "trunk"], {
-        cwd: f.directory,
-      })
-      await withOrgDbContext(f.orgId, (db) =>
-        db
-          .update(workspaces)
-          .set({ desiredDefaultBranch: "trunk" })
-          .where(eq(workspaces.id, f.workspaceId)),
-      )
-      await withOrgDbContext(f.orgId, async (db) => {
-        await db.insert(workspaces).values({
-          id: `${f.workspaceId}_older`,
-          orgId: f.orgId,
-          slug: "older",
-          displayName: "Older",
-          workspaceRepositoryUrl: `${f.directory}/older`,
-          createdAt: new Date("2000-01-01"),
-        })
-        await persistOrgFirstWorkspace({
-          orgId: f.orgId,
-          workspaceId: f.workspaceId,
-          sourceRepositoryId: "repo_fixture",
-        })
-      })
-      const server = new McpServer({
-        name: "native-chat-fixture",
-        version: "1",
-      })
-      const client = new Client({ name: "native-chat-client", version: "1" })
-      registerMcpTools(server)
-      const [clientTransport, serverTransport] =
-        InMemoryTransport.createLinkedPair()
-      try {
-        await Promise.all([
-          server.connect(serverTransport),
-          client.connect(clientTransport),
-        ])
-        const tools = await client.listTools()
-        expect(tools.tools.map((tool) => tool.name)).toEqual(["ctx_advisor"])
-        const before = await (
-          await f.request(`/conversations?workspaceId=${f.workspaceId}`)
-        ).json()
-        const progress: unknown[] = []
-        const reply = await f.runInHonoContext(() =>
-          client.callTool(
-            {
-              name: "ctx_advisor",
-              arguments: {
-                prompt: "Read the workspace",
-                currentProjectName: "Fixture app",
-                conversationId: "ignored-client-id",
-              },
-            },
-            undefined,
-            { onprogress: (event) => progress.push(event) },
-          ),
-        )
-        expect(reply.isError, JSON.stringify(reply.content)).not.toBe(true)
-        expect(reply.content).toEqual([
-          { type: "text", text: "Native reply completed." },
-        ])
-        expect(progress.length).toBeGreaterThan(0)
-        const second = await f.runInHonoContext(() =>
-          client.callTool({
-            name: "ctx_advisor",
-            arguments: {
-              prompt: "A separate question",
-              conversationId: "ignored-client-id",
-            },
-          }),
-        )
-        expect(second.isError, JSON.stringify(second.content)).not.toBe(true)
-        const calls = f.modelRequests.filter((request) =>
-          Array.isArray(request.tools),
-        )
-        expect(calls).toHaveLength(2)
-        expect(JSON.stringify(calls[0]?.messages)).toContain(
-          "Project: Fixture app",
-        )
-        expect(JSON.stringify(calls[1]?.messages)).not.toContain(
-          "Read the workspace",
-        )
-        const after = await (
-          await f.request(`/conversations?workspaceId=${f.workspaceId}`)
-        ).json()
-        expect(after.items.map((item: { id: string }) => item.id)).toEqual(
-          before.items.map((item: { id: string }) => item.id),
-        )
-        for (const [slug, confirmName] of [
-          ["context", "Context"],
-          ["older", "Older"],
-        ]) {
-          const deleted = await f.request(`/workspaces/${slug}`, {
-            method: "DELETE",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ confirmName }),
-          })
-          expect(deleted.status).toBe(204)
-        }
-        const missing = await f.runInHonoContext(() =>
-          client.callTool({
-            name: "ctx_advisor",
-            arguments: { prompt: "No workspace remains" },
-          }),
-        )
-        expect(missing.isError).toBe(true)
-        expect(JSON.stringify(missing.content)).toContain("Create a Workspace")
-      } finally {
-        await client.close()
-        await server.close()
-      }
-    })
-  },
-)
-
-it(
   "masks credentials in streamed chunks and in the stored transcript",
   { timeout: 120_000 },
   async () => {
@@ -645,28 +516,6 @@ it(
         )
         expect(stored).toContain("[masked]")
         expect(stored).not.toContain(token)
-        // The MCP tool joins the text deltas of a turn into its result.
-        const collected = await collectTanstackWorkspaceChatText({
-          conversationId: f.conversationId,
-          orgId: f.orgId,
-          orgSlug: f.orgSlug,
-          workspaceId: f.workspaceId,
-          desiredUrl: f.directory,
-          desiredSha: f.sha,
-          defaultBranch: "main",
-          writeStatus: "read_only",
-          prompt: "Print it again",
-          runId: `${f.conversationId}-mask-mcp`,
-          messages: [
-            ...(await workspaceChatPersistence().stores.messages.loadThread(
-              f.conversationId,
-            )),
-            { id: "mask-again", role: "user", content: "Print it again" },
-          ],
-        })
-        if (!collected.ok) throw new Error(collected.error)
-        expect(collected.text).toContain("The token is [masked].")
-        expect(collected.text).not.toContain(token)
       },
       undefined,
       {

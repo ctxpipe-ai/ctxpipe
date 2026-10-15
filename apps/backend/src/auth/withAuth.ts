@@ -781,24 +781,16 @@ export const withNetworkOrgContext: MiddlewareHandler<AppEnv> = async (
 
 /**
  * Make `org` the org of the request: the Hono variables, the org context
- * for short org SQL, and (unless `attribute` is false) the request
- * attribution. Do not hold a request-wide transaction across HTTP, MCP, or
- * sandbox I/O — those gateways call `assertNotInOrgDbContext()`.
+ * for short org SQL, and the request attribution. Do not hold a request-wide
+ * transaction across HTTP, MCP, or sandbox I/O — those gateways call `assertNotInOrgDbContext()`.
  */
-export function bindRequestOrg(
-  c: Context<AppEnv>,
-  org: OrgContext,
-  next: Next,
-  { attribute = true }: { attribute?: boolean } = {},
-) {
+function bindRequestOrg(c: Context<AppEnv>, org: OrgContext, next: Next) {
   c.set("orgSlug", org.slug)
   c.set("orgId", org.id)
-  if (attribute) {
-    applyAttribution({
-      "ctxpipe.org.id": org.id,
-      "ctxpipe.org.slug": org.slug,
-    })
-  }
+  applyAttribution({
+    "ctxpipe.org.id": org.id,
+    "ctxpipe.org.slug": org.slug,
+  })
   return withOrgIdContext({ id: org.id, slug: org.slug }, () => next())
 }
 

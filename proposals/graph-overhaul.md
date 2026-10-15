@@ -1,5 +1,7 @@
 # Graph overhaul proposal: a compounding engineering graph
 
+> **History.** This file is a record of past work. The `ctx_advisor` tool it mentions was removed by [ADR-051](../.ai/memory/decisions/ADR-051-mcp-read-surface.md).
+
 **Status:** Discarded options note. Accepted decisions live in
 [ADR-033](../.ai/memory/decisions/ADR-033-graph-ontology-v2.md) (amends
 ADR-032, builds on ADR-031). Do not treat remaining sections as shipped

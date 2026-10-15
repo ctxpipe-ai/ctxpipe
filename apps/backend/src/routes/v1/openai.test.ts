@@ -16,24 +16,7 @@ import {
   withTestRequestLogger,
 } from "../../test/hono-test-logger.js"
 
-const mockChatInvoke = vi.hoisted(() =>
-  vi.fn(async () => ({ content: "from bedrock" })),
-)
-const mockChatStream = vi.hoisted(() => vi.fn())
-const chatBedrockConverseConstructor = vi.hoisted(() => {
-  class MockChatBedrockConverse {
-    invoke = mockChatInvoke
-    stream = mockChatStream
-    constructor(_fields: unknown) {}
-  }
-  return vi.fn(MockChatBedrockConverse)
-})
-
 const mockBedrockSend = vi.hoisted(() => vi.fn())
-
-vi.mock("@langchain/aws", () => ({
-  ChatBedrockConverse: chatBedrockConverseConstructor,
-}))
 
 vi.mock("@aws-sdk/client-bedrock-runtime", () => {
   class MockInvokeModelCommand {
@@ -44,7 +27,11 @@ vi.mock("@aws-sdk/client-bedrock-runtime", () => {
   }
   class MockBedrockRuntimeClient {
     send = mockBedrockSend
-    constructor(_config: unknown) {}
+    config: unknown
+    constructor(config: unknown) {
+      this.config = config
+    }
+    destroy() {}
   }
   return {
     BedrockRuntimeClient: MockBedrockRuntimeClient,
@@ -172,8 +159,6 @@ describe("v1/openai proxy", () => {
 
   beforeEach(() => {
     upstream = null
-    chatBedrockConverseConstructor.mockClear()
-    mockChatInvoke.mockClear()
     mockBedrockSend.mockReset()
   })
   afterEach(async () => {
@@ -317,36 +302,6 @@ describe("v1/openai proxy", () => {
     expect(res.status).toBe(400)
     const body = (await res.json()) as { allowedModels: string[] }
     expect(body.allowedModels).toEqual(["openai/gpt-5.5"])
-  })
-
-  it("handles Bedrock chat via native ChatBedrockConverse when MODEL_PROVIDER=bedrock", async () => {
-    const app = appWithRoutes({
-      authed: true,
-      orgId: "org_acme",
-      modelProvider: "bedrock",
-      bedrockRegion: "us-east-1",
-    })
-    const res = await app.request("/acme/api/v1/openai/v1/chat/completions", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        model: "gpt-5.4-nano",
-        messages: [{ role: "user", content: "hi" }],
-      }),
-    })
-    expect(res.status).toBe(200)
-    expect(chatBedrockConverseConstructor).toHaveBeenCalled()
-    expect(mockChatInvoke).toHaveBeenCalled()
-    const call = chatBedrockConverseConstructor.mock.calls[0]?.[0] as {
-      model?: string
-      region?: string
-    }
-    expect(call?.model).toBe("gpt-5.4-nano")
-    expect(call?.region).toBe("us-east-1")
-    const body = (await res.json()) as {
-      choices: Array<{ message: { content: string } }>
-    }
-    expect(body.choices[0]?.message.content).toBe("from bedrock")
   })
 
   it("forwards chat completions to upstream with the server-side API key", async () => {

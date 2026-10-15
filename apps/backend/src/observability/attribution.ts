@@ -17,6 +17,7 @@ export const ATTRIBUTION_KEYS = [
   "ctxpipe.api_key.id",
   "ctxpipe.oauth.client_id",
   "ctxpipe.mcp.tool",
+  "ctxpipe.mcp.resource",
   "ctxpipe.conversation.id",
   "ctxpipe.ingest.run.id",
   "ctxpipe.ingest.shard",

@@ -158,6 +158,10 @@ export const SaveOAuthClient: Story = {
     await visible(
       await body.findByRole("heading", { name: "Register an OAuth client" }),
     )
+    // Product links are teal, not the default blue.
+    await expect(
+      body.getByRole("link", { name: /Admin Center, OAuth clients/ }).className,
+    ).toContain("text-teal-400")
     await userEvent.type(body.getByLabelText("Unique identifier"), "ctx_local")
     await userEvent.type(body.getByLabelText("Secret"), "local-secret")
     await userEvent.click(
@@ -338,7 +342,7 @@ export const AddToWorkspaces: Story = {
       body.getByRole("button", { name: "Add to Workspaces" }),
     )
     await expect(
-      await body.findByRole("heading", { name: "Zendesk is connected" }),
+      await body.findByRole("heading", { name: "Merge the pull request" }),
     ).toBeVisible()
     await expect(addCalls).toEqual([
       {

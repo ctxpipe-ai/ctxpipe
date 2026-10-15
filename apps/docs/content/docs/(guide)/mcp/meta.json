@@ -2,6 +2,8 @@
   "title": "ctx| MCP",
   "pages": [
     "mcp-docs",
+    "use-from-your-agent",
+    "connected-apps",
     "install-mcps-via-pr",
     "local-memory"
   ]

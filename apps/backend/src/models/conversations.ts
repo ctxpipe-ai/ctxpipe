@@ -120,7 +120,7 @@ export async function ensureConversation(input: {
         throw createError({
           message: "Workspace not found",
           status: 404,
-          why: "Conversation create requires a Workspace in this organisation",
+          why: "Conversation create requires a Workspace in this organization",
         })
       }
     }
