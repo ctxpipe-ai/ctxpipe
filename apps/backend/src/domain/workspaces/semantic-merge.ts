@@ -26,15 +26,23 @@ export class SemanticResolveError extends Error {
 }
 
 /**
- * The resolver of an ingestion v2 merge: each failure is a
- * `SemanticResolveError`, so the caller can make the Workspace `partial`.
+ * The resolver of an ingestion v2 merge: each failure of the model call is a
+ * `SemanticResolveError`, so the caller can make the Workspace `partial`. A
+ * configuration error (no provider, no key) is not: it propagates, so the
+ * run fails and the operator sees it.
  */
-export function resolveIngestConflicts(conflicts: GitMergeConflict[]) {
-  return resolveSemanticConflicts(conflicts).catch((error: unknown) => {
+export async function resolveIngestConflicts(conflicts: GitMergeConflict[]) {
+  const model = await loadMergeModel()
+  return resolveWithModel(model, conflicts).catch((error: unknown) => {
     throw new SemanticResolveError(
       error instanceof Error ? error.message : String(error),
     )
   })
+}
+
+async function loadMergeModel() {
+  const { getModel } = await import("../../retrieval/services/modelProvider.js")
+  return getModel("high", { streaming: false })
 }
 
 /**
@@ -44,11 +52,16 @@ export function resolveIngestConflicts(conflicts: GitMergeConflict[]) {
  * involved, so it needs no sandbox.
  */
 export async function resolveSemanticConflicts(conflicts: GitMergeConflict[]) {
+  return resolveWithModel(await loadMergeModel(), conflicts)
+}
+
+async function resolveWithModel(
+  model: Awaited<ReturnType<typeof loadMergeModel>>,
+  conflicts: GitMergeConflict[],
+) {
   const content = JSON.stringify(conflicts)
   if (Buffer.byteLength(content) > 8 * 1024 * 1024)
     throw new Error("Semantic merge conflict input exceeds the supported size")
-  const { getModel } = await import("../../retrieval/services/modelProvider.js")
-  const model = getModel("high", { streaming: false })
   const response = await model
     .withStructuredOutput<z.infer<typeof resolutionSchema>>(resolutionSchema, {
       name: "workspace_semantic_merge",
