@@ -57,6 +57,13 @@ function checkedPath(path: string): SourceProvider {
   return checked.provider
 }
 
+/** Refuse a change whose path cannot name a source file (400), before any read. */
+export function assertSourceChangeShape(change: SourceChange): void {
+  if (change.action !== "add") checkedPath(change.path)
+  else if (change.path !== undefined) checkedPath(change.path)
+  if (change.action === "rename") checkedPath(change.newPath)
+}
+
 function githubRepository(scope: Record<string, unknown>): string | null {
   return typeof scope.repository === "string"
     ? scope.repository.toLowerCase()

@@ -29,6 +29,7 @@ import { WORKSPACE_WRITE_STATUSES } from "../workspaces/write-status.js"
 import { SOURCE_ADAPTERS } from "./adapter.js"
 import {
   applySourceFileChange,
+  assertSourceChangeShape,
   type SourceChange,
   SourceChangeError,
 } from "./edit.js"
@@ -242,6 +243,7 @@ export async function changeWorkspaceSource(input: {
   delivery: "pull_request" | "commit"
 }): Promise<WorkspaceSourceChangeResult> {
   const { workspace, change } = input
+  assertSourceChangeShape(change)
   const repository = workspaceGithubRepository(workspace)
   if (!repository)
     throw new SourceChangeError(

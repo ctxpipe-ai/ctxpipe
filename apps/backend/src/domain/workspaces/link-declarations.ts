@@ -23,9 +23,9 @@ type RepoFile = { path: string; content: string }
  * Unlink deletes the file of that repository. `files` holds each file under
  * `sources/`, `.ctxpipe/sources.yaml`, and the `repositories/*.md`
  * declarations, which a Workspace that has no conversion yet still has:
- * link moves the declaration of the same repository into the new file (it
- * keeps the branch as the ref), and unlink also removes the repository from
- * the legacy file and declarations. `refused` tells why the change cannot be
+ * link also moves each declaration into a source file (it keeps the branch
+ * as the ref), and unlink also removes the repository from the legacy file
+ * and the declarations. `refused` tells why the change cannot be
  * made: the repository is not on GitHub, or a file is in the way.
  */
 export function changeLinkedRepository(input: {
@@ -52,34 +52,54 @@ export function changeLinkedRepository(input: {
   )
   const legacyYaml =
     input.files.find((file) => file.path === SOURCES_FILE_PATH)?.content ?? null
-  // The declarations of this repository, by their normalized URL.
+  const sameName = (left: string, right: string) =>
+    left.toLowerCase() === right.toLowerCase()
+  // Each GitHub declaration, with its repository name and branch.
   const declarations = input.files.flatMap((file) => {
     if (!isLinkedRepositoryDeclaration(file.path)) return []
     const parsed = parseLinkedRepositoryMarkdown(file.content)
     if (parsed.malformed) return []
-    const gitUrl = normalizeWorkspaceRepositoryUrl(parsed.git)
-    return githubRepoFullNameFromWorkspaceUrl(gitUrl)?.toLowerCase() ===
-      name.toLowerCase()
-      ? [{ path: file.path, ref: parsed.branch }]
+    const declared = githubRepoFullNameFromWorkspaceUrl(
+      normalizeWorkspaceRepositoryUrl(parsed.git),
+    )
+    return declared
+      ? [{ path: file.path, name: declared, ref: parsed.branch }]
       : []
   })
+  const legacyLinked = (repository: string) =>
+    githubSourceRepositories(legacyYaml, null).some((linked) => {
+      const linkedName = githubRepoFullNameFromWorkspaceUrl(linked.gitUrl)
+      return linkedName !== null && sameName(linkedName, repository)
+    })
   try {
     if (input.action === "link") {
-      // A repository that the legacy file links already is a link.
-      const inLegacyYaml = githubSourceRepositories(legacyYaml, null).some(
-        (linked) =>
-          githubRepoFullNameFromWorkspaceUrl(linked.gitUrl)?.toLowerCase() ===
-          name.toLowerCase(),
-      )
-      if (inLegacyYaml) return { files: [], deletePaths: [], refused: null }
-      const changes = linkGithubSourceFile({
-        files: sourceFiles,
-        connectionId: input.connectionId,
-        repository: { name, ref: declarations[0]?.ref ?? null },
-      })
+      // The link edit also moves each repository file into a source file
+      // (the declarations of a Workspace that is not converted yet). The
+      // repository of this edit comes last. A repository that the legacy
+      // file links needs no source file.
+      let current = [...sourceFiles]
+      const writes: RepoFile[] = []
+      const wanted = [...declarations, { name, ref: null as string | null }]
+      for (const item of wanted) {
+        if (legacyLinked(item.name)) continue
+        const known = wanted.find((other) => sameName(other.name, item.name))
+        if (known !== item) continue
+        const changes = linkGithubSourceFile({
+          files: current,
+          connectionId: input.connectionId,
+          repository: item,
+        })
+        if (!changes) continue
+        writes.push(...changes.writes)
+        current = [
+          ...current.filter(
+            (file) => !changes.writes.some((write) => write.path === file.path),
+          ),
+          ...changes.writes,
+        ]
+      }
       return {
-        files: changes?.writes ?? [],
-        // A declaration goes away only when its repository has a source file.
+        files: writes,
         deletePaths: declarations.map((declaration) => declaration.path),
         refused: null,
       }
@@ -90,7 +110,9 @@ export function changeLinkedRepository(input: {
       files: yaml === null ? [] : [{ path: SOURCES_FILE_PATH, content: yaml }],
       deletePaths: [
         ...(changes?.deletes ?? []),
-        ...declarations.map((declaration) => declaration.path),
+        ...declarations
+          .filter((declaration) => sameName(declaration.name, name))
+          .map((declaration) => declaration.path),
       ],
       refused: null,
     }

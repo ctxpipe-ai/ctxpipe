@@ -48,7 +48,7 @@ describe("changeLinkedRepository", () => {
     expect(second).toEqual({ files: [], deletePaths: [], refused: null })
   })
 
-  it("link moves the declaration of the same repository and keeps its branch", () => {
+  it("link moves each repository file into a source file and keeps the branch", () => {
     const result = changeLinkedRepository({
       action: "link",
       gitUrl: "https://github.com/acme/web",
@@ -64,7 +64,14 @@ describe("changeLinkedRepository", () => {
         },
       ],
     })
-    expect(result.deletePaths).toEqual(["repositories/web.md"])
+    expect(result.deletePaths).toEqual([
+      "repositories/web.md",
+      "repositories/api.md",
+    ])
+    expect(result.files.map((file) => file.path)).toEqual([
+      "sources/github/acme/web.md",
+      "sources/github/acme/api.md",
+    ])
     expect(
       parseSourceFile(
         "sources/github/acme/web.md",

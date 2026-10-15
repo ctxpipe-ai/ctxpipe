@@ -92,7 +92,7 @@ sources:
     expect(list.status).toBe(200)
     const body = await list.json()
     expect(body).toMatchObject({
-      path: ".ctxpipe/sources.yaml",
+      path: "sources",
       revision: sha,
       fileError: null,
       canEdit: false,
@@ -100,8 +100,8 @@ sources:
       pendingChanges: [],
     })
     expect(
-      body.items.map((item: { sourceKey: string; status: string }) => [
-        item.sourceKey,
+      body.items.map((item: { path: string; status: string }) => [
+        item.path,
         item.status,
       ]),
     ).toEqual([
@@ -120,7 +120,7 @@ sources:
           workspaceId,
           workspaceName: "support",
           stat: "2 Slack channels",
-          sources: [{ sourceKey: "support-channels", status: "ok" }],
+          sources: [{ path: "support-channels", status: "ok" }],
         },
       ],
     })
@@ -145,7 +145,7 @@ sources:
     expect(change.status).toBe(409)
 
     const badKey = await app.request(
-      `/${seed.orgId}/api/v1/workspaces/${slug}/sources/Bad%20Key`,
+      `/${seed.orgId}/api/v1/workspaces/${slug}/sources?path=Bad%20Path.md`,
       { method: "DELETE" },
     )
     expect(badKey.status).toBe(400)
@@ -155,7 +155,7 @@ sources:
       await app.request(`/${seed.orgId}/api/v1/workspaces/${slug}/sources`)
     ).json()
     expect(afterRemoval.items[1]).toMatchObject({
-      sourceKey: "support-channels",
+      path: "support-channels",
       status: "connection_missing",
     })
   })

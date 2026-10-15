@@ -12,7 +12,7 @@ import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.
 import { listWorkspaceSources } from "../workspace-sources/service.js"
 
 it(
-  "links and unlinks one canonical remote in the GitHub source of sources.yaml",
+  "links and unlinks one canonical remote as a GitHub source file under sources/",
   { timeout: 60_000 },
   async () => {
     const legacy =
@@ -106,33 +106,19 @@ it(
           expect(await run(jobId, "link")).toMatchObject({
             status: "completed",
           })
-          // Link edits sources.yaml; it keeps the comment and the other
-          // entry. The GitHub repository file moves into the file with its
-          // branch as ref (the ADR-050 upgrade of a converted Workspace).
-          expect(tree()).toEqual([".ctxpipe/sources.yaml"])
-          const linked = show(".ctxpipe/sources.yaml")
-          expect(linked).toContain("# Owned by the team")
-          const issues = {
-            id: "issues",
-            provider: "linear",
-            connection: "con_linear_fixture",
-            teams: ["ENG"],
-          }
-          expect(parse(linked)).toEqual({
-            version: 1,
-            sources: [
-              issues,
-              {
-                id: "linked-repositories",
-                provider: "github",
-                connection: f.connectionId,
-                repositories: [
-                  { name: "old/other", ref: "stable" },
-                  "next/other",
-                ],
-              },
-            ],
-          })
+          // Link writes one source file for the repository and one for the
+          // repository file, which goes away. The legacy file and its
+          // comment stay as they are.
+          expect(tree()).toEqual([
+            ".ctxpipe/sources.yaml",
+            "sources/github/next/other.md",
+            "sources/github/old/other.md",
+          ])
+          expect(show("sources/github/old/other.md")).toContain("ref: stable")
+          expect(show(".ctxpipe/sources.yaml")).toContain("# Owned by the team")
+          expect(show("sources/github/next/other.md")).toBe(
+            `---\nprovider: github\nconnection: ${f.connectionId}\nrepository: next/other\n---`,
+          )
 
           // The same repository in another spelling changes nothing.
           expect(
@@ -189,18 +175,11 @@ it(
           ).toMatchObject({ status: "completed" })
           // A later edit of another repository keeps the refused one shown.
           expect(await linkErrors()).toMatchObject([refused])
-          expect(parse(show(".ctxpipe/sources.yaml"))).toEqual({
-            version: 1,
-            sources: [
-              issues,
-              {
-                id: "linked-repositories",
-                provider: "github",
-                connection: f.connectionId,
-                repositories: [{ name: "old/other", ref: "stable" }],
-              },
-            ],
-          })
+          // Unlink deletes the file of the repository and nothing else.
+          expect(tree()).toEqual([
+            ".ctxpipe/sources.yaml",
+            "sources/github/old/other.md",
+          ])
           expect(
             f.git(
               "--git-dir",
@@ -223,8 +202,8 @@ it(
   "makes the same link edit again on the new tip after a lost push race, without a semantic merge",
   { timeout: 60_000 },
   async () => {
-    const entry = (id: string, repository: string) =>
-      `  - id: ${id}\n    provider: github\n    connection: CONNECTION\n    repositories: [${repository}]\n`
+    const sourceFile = (connection: string, repository: string) =>
+      `---\nprovider: github\nconnection: ${connection}\nrepository: ${repository}\n---\n`
     await withNativeHydrationFixture(
       { github: true, githubWriteView: "writable", writeStatus: "writable" },
       async (f) => {
@@ -247,15 +226,14 @@ it(
           )
           // Another writer wins the race: the tip moves after the job took
           // its revision.
-          mkdirSync(join(f.directory, ".ctxpipe"), { recursive: true })
+          mkdirSync(join(f.directory, "sources/github/acme"), {
+            recursive: true,
+          })
           writeFileSync(
-            join(f.directory, ".ctxpipe/sources.yaml"),
-            `version: 1\nsources:\n${entry("team", "acme/team")}`.replace(
-              "CONNECTION",
-              f.connectionId,
-            ),
+            join(f.directory, "sources/github/acme/team.md"),
+            sourceFile(f.connectionId, "acme/team"),
           )
-          f.git("add", "--", ".ctxpipe/sources.yaml")
+          f.git("add", "--", "sources/github/acme/team.md")
           f.git(
             "-c",
             "user.name=Contract",
@@ -280,23 +258,16 @@ it(
           expect(await handle.result({ timeoutMs: 45_000 })).toMatchObject({
             committed: true,
           })
-          expect(
-            parse(
+          // The job makes its file on top of the file that won the race.
+          for (const name of ["team", "web"])
+            expect(
               f.git(
                 "--git-dir",
                 f.remote,
                 "show",
-                "refs/heads/main:.ctxpipe/sources.yaml",
+                `refs/heads/main:sources/github/acme/${name}.md`,
               ),
-            ).sources,
-          ).toEqual([
-            {
-              id: "team",
-              provider: "github",
-              connection: f.connectionId,
-              repositories: ["acme/team", "acme/web"],
-            },
-          ])
+            ).toContain(`repository: acme/${name}`)
           expect(f.semanticRequests).toEqual([])
           expect(
             await withOrgIdContext(f.org, () =>
@@ -316,8 +287,8 @@ it(
   "keeps a commit that lands after the new tip was read, and makes the link edit again on top of it",
   { timeout: 90_000 },
   async () => {
-    const entry = (id: string, repository: string) =>
-      `  - id: ${id}\n    provider: github\n    connection: CONNECTION\n    repositories: [${repository}]\n`
+    const sourceFile = (connection: string, repository: string) =>
+      `---\nprovider: github\nconnection: ${connection}\nrepository: ${repository}\n---\n`
     await withNativeHydrationFixture(
       { github: true, githubWriteView: "writable", writeStatus: "writable" },
       async (f) => {
@@ -348,15 +319,14 @@ it(
             workspaceLinkUnlink.fn,
           )
           // Another writer wins the first race, so the job reads the new tip.
-          mkdirSync(join(f.directory, ".ctxpipe"), { recursive: true })
+          mkdirSync(join(f.directory, "sources/github/acme"), {
+            recursive: true,
+          })
           writeFileSync(
-            join(f.directory, ".ctxpipe/sources.yaml"),
-            `version: 1\nsources:\n${entry("team", "acme/team")}`.replace(
-              "CONNECTION",
-              f.connectionId,
-            ),
+            join(f.directory, "sources/github/acme/team.md"),
+            sourceFile(f.connectionId, "acme/team"),
           )
-          f.git("add", "--", ".ctxpipe/sources.yaml")
+          f.git("add", "--", "sources/github/acme/team.md")
           commit("Link the team repository")
           f.git("push", f.remote, "HEAD:main")
           // A person writes on top of that tip. Their commit lands on main
@@ -410,14 +380,10 @@ it(
             "refs/heads/main",
           )
           expect(show("human.md")).toBe("# Human\nA note.")
-          expect(parse(show(".ctxpipe/sources.yaml")).sources).toEqual([
-            {
-              id: "team",
-              provider: "github",
-              connection: f.connectionId,
-              repositories: ["acme/team", "acme/web"],
-            },
-          ])
+          for (const name of ["team", "web"])
+            expect(show(`sources/github/acme/${name}.md`)).toContain(
+              `repository: acme/${name}`,
+            )
           expect(f.semanticRequests).toEqual([])
           expect(
             await withOrgIdContext(f.org, () =>
@@ -550,7 +516,7 @@ it(
 )
 
 it(
-  "hydrate of an exported Workspace moves its repository files into sources.yaml, and the links project",
+  "hydrate of an exported Workspace moves its repository files into source files, and the links project",
   { timeout: 90_000 },
   async () => {
     // The export of an earlier version left `repositories/*.md` files and no
@@ -611,26 +577,18 @@ it(
               )
               .split("\n")
           await expect
-            .poll(() => tree().includes(".ctxpipe/sources.yaml"), {
+            .poll(() => tree().includes("sources/github/acme/web.md"), {
               timeout: 45_000,
             })
             .toBe(true)
           expect(
             tree().filter((path) => path.startsWith("repositories/")),
           ).toEqual([])
-          expect(parse(show(".ctxpipe/sources.yaml"))).toMatchObject({
-            version: 1,
-            sources: [
-              {
-                provider: "github",
-                connection: f.connectionId,
-                repositories: expect.arrayContaining([
-                  "acme/web",
-                  { name: "acme/api", ref: "stable" },
-                ]),
-              },
-            ],
-          })
+          expect(tree().filter((path) => path.startsWith("sources/"))).toEqual([
+            "sources/github/acme/api.md",
+            "sources/github/acme/web.md",
+          ])
+          expect(show("sources/github/acme/api.md")).toContain("ref: stable")
           expect(show("notes.md")).toBe("# Notes\nTeam notes.")
           expect(f.semanticRequests).toEqual([])
           // The hydrate of the new commit projects the links.
