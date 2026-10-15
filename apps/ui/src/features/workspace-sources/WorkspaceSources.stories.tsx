@@ -322,11 +322,11 @@ export const NarrowPaneFoldsTable: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await canvas.findByText("eng-issues")
+    await canvas.findByText("sources/linear/eng-issues.md")
     await expect(canvas.getByText("File", { exact: true })).not.toBeVisible()
     await expect(canvas.getByText("Acme Linear")).toBeVisible()
     await expect(
-      canvas.getByRole("button", { name: "Edit eng-issues" }),
+      canvas.getByRole("button", { name: "Edit sources/linear/eng-issues.md" }),
     ).toBeVisible()
   },
 }
@@ -831,11 +831,7 @@ export const LinkedRepositoryWithoutSourceShows: Story = {
     await expect(list.getAllByRole("listitem")).toHaveLength(2)
     await expect(list.getByText("acme/legacy")).toBeVisible()
     await expect(list.getByText("Indexed")).toBeVisible()
-    await expect(
-      list.getByText(
-        "Not in a source file any more. It goes at the next sync.",
-      ),
-    ).toBeVisible()
+    await expect(list.getByText("Linked by a repositories file")).toBeVisible()
   },
 }
 
@@ -1047,7 +1043,9 @@ export const RefusedRepositoryFile: Story = {
     const canvas = within(canvasElement)
     // The repository file shows its error, but a remove cannot name it.
     await expect(
-      canvas.getByText(/repositories\/tools\.md: ctx\| links only GitHub/),
+      await canvas.findByText(
+        /repositories\/tools\.md: ctx\| links only GitHub/,
+      ),
     ).toBeVisible()
     await expect(
       canvas.queryByRole("button", { name: "Remove repositories/tools.md" }),
