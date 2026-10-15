@@ -26,6 +26,7 @@
     "openworkflow:doctor": "pnpm dlx @openworkflow/cli doctor",
     "rerun-skill-derivation": "bun run src/scripts/rerunSkillDerivation.ts",
     "graph-quality-report": "bun run src/scripts/graphQualityReport.ts",
+    "ingestion-compare": "bun run src/scripts/ingestionCompare.ts",
     "repo-graph-size-check": "bun run src/scripts/repoGraphSizeCheck.ts",
     "reindex-repositories": "bun run src/scripts/reindexRepositories.ts",
     "migrate-workspace-sources": "bun run src/scripts/migrateWorkspaceSources.ts",
