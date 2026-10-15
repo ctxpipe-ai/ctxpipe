@@ -21,6 +21,7 @@ import {
 } from "../../domain/workspaces/write-command.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
 import {
+  discardWriteJobPreparedCommit,
   persistBoundWriteJob,
   persistWriteJobPreparedCommit,
 } from "../../models/workspace-write-jobs.js"
@@ -206,6 +207,11 @@ export const workspaceLinkUnlink = defineWorkflow(
             )
           }
           if (!pushed.pushed) {
+            // The push lost the race, so the candidate is not on the remote.
+            // Release it: the next attempt records its own candidate.
+            await step.run({ name: "discard-candidate" }, () =>
+              discardWriteJobPreparedCommit(input.jobId, committed.sha),
+            )
             revision = await step.run(
               { name: "read-new-tip", retryPolicy: { maximumAttempts: 3 } },
               () => refreshWorkspaceWriteRevision(input, revision, env),

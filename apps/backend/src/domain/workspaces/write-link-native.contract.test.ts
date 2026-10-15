@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { expect, it } from "vitest"
 import { parse } from "yaml"
@@ -263,6 +263,127 @@ it(
               ),
             ).sources,
           ).toEqual([
+            {
+              id: "team",
+              provider: "github",
+              connection: f.connectionId,
+              repositories: ["acme/team", "acme/web"],
+            },
+          ])
+          expect(f.semanticRequests).toEqual([])
+          expect(
+            await withOrgIdContext(f.org, () =>
+              reconcileWorkspaceWriteJob(jobId),
+            ),
+          ).toMatchObject({ status: "completed" })
+        } finally {
+          await worker?.stop()
+          await backend.stop()
+        }
+      },
+    )
+  },
+)
+
+it(
+  "keeps a commit that lands after the new tip was read, and makes the link edit again on top of it",
+  { timeout: 90_000 },
+  async () => {
+    const entry = (id: string, repository: string) =>
+      `  - id: ${id}\n    provider: github\n    connection: CONNECTION\n    repositories: [${repository}]\n`
+    await withNativeHydrationFixture(
+      { github: true, githubWriteView: "writable", writeStatus: "writable" },
+      async (f) => {
+        const { BackendPostgres } = await import("openworkflow/postgres")
+        const { OpenWorkflow } = await import("openworkflow")
+        const backend = await BackendPostgres.connect(f.databaseUrl, {
+          namespaceId: openWorkflowNamespaceId(),
+          runMigrations: false,
+        })
+        const runner = new OpenWorkflow({ backend })
+        let worker: ReturnType<typeof runner.newWorker> | undefined
+        const commit = (message: string) =>
+          f.git(
+            "-c",
+            "user.name=Contract",
+            "-c",
+            "user.email=contract@example.test",
+            "commit",
+            "-m",
+            message,
+          )
+        try {
+          const { workspaceLinkUnlink } = await import(
+            "../../openworkflow/workflows/workspace-link-unlink.js"
+          )
+          runner.implementWorkflow(
+            workspaceLinkUnlink.spec,
+            workspaceLinkUnlink.fn,
+          )
+          // Another writer wins the first race, so the job reads the new tip.
+          mkdirSync(join(f.directory, ".ctxpipe"), { recursive: true })
+          writeFileSync(
+            join(f.directory, ".ctxpipe/sources.yaml"),
+            `version: 1\nsources:\n${entry("team", "acme/team")}`.replace(
+              "CONNECTION",
+              f.connectionId,
+            ),
+          )
+          f.git("add", "--", ".ctxpipe/sources.yaml")
+          commit("Link the team repository")
+          f.git("push", f.remote, "HEAD:main")
+          // A person writes on top of that tip. Their commit lands on main
+          // during the first push of the job, after the job read the new tip
+          // and staged its edit again: the last moment before the ref update.
+          writeFileSync(join(f.directory, "human.md"), "# Human\nA note.\n")
+          f.git("add", "--", "human.md")
+          commit("Add a note by hand")
+          const human = f.git("rev-parse", "HEAD")
+          f.git("push", f.remote, "HEAD:refs/heads/human-staging")
+          const landed = join(f.directory, "human-landed")
+          const hook = join(f.remote, "hooks", "pre-receive")
+          writeFileSync(
+            hook,
+            [
+              "#!/bin/sh",
+              "cat >/dev/null",
+              `if [ ! -e '${landed}' ]; then`,
+              `  touch '${landed}'`,
+              "  env -u GIT_QUARANTINE_PATH -u GIT_OBJECT_DIRECTORY -u GIT_ALTERNATE_OBJECT_DIRECTORIES \\",
+              `    git --git-dir='${f.remote}' update-ref refs/heads/main ${human}`,
+              "fi",
+              "",
+            ].join("\n"),
+            { mode: 0o755 },
+          )
+          const jobId = `wjob_${f.id}_human`
+          const handle = await runner.runWorkflow(workspaceLinkUnlink.spec, {
+            orgId: f.org.id,
+            workspaceId: f.workspaceId,
+            jobId,
+            revision: { ...f.revision, access: "write-default" },
+            linkAction: "link",
+            linkGitUrl: "https://github.com/acme/web",
+          })
+          worker = runner.newWorker({ concurrency: 1 })
+          await worker.start()
+          expect(await handle.result({ timeoutMs: 60_000 })).toMatchObject({
+            committed: true,
+          })
+          expect(existsSync(landed)).toBe(true)
+          const show = (path: string) =>
+            f.git("--git-dir", f.remote, "show", `refs/heads/main:${path}`)
+          // The human commit is still on main, under the link edit.
+          f.git(
+            "--git-dir",
+            f.remote,
+            "merge-base",
+            "--is-ancestor",
+            human,
+            "refs/heads/main",
+          )
+          expect(show("human.md")).toBe("# Human\nA note.")
+          expect(parse(show(".ctxpipe/sources.yaml")).sources).toEqual([
             {
               id: "team",
               provider: "github",
