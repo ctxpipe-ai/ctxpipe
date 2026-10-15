@@ -1,5 +1,9 @@
 import { z } from "zod"
-import { repositoryFilePathSchema } from "../../services/git/file-change.js"
+import {
+  type GitFileChange,
+  gitFileBytes,
+  repositoryFilePathSchema,
+} from "../../services/git/file-change.js"
 import type { GitMergeConflict } from "../../services/git/merge-tree.js"
 import { addedOwnershipField, isHostOnlyPath } from "./host-only.js"
 
@@ -17,6 +21,36 @@ const resolutionSchema = z
     ),
   })
   .strict()
+
+/**
+ * Refuse an agent-origin write that touches a host-only path or adds ownership
+ * fields (CTX-722). It checks every path the write changes, whether or not it
+ * conflicts. `current` holds the default branch content of the paths that
+ * exist there. Host writes (a person's edit, link or unlink, a migration, a
+ * mirror) do not call this.
+ */
+export function assertAgentWriteAllowed(input: {
+  files: readonly GitFileChange[]
+  deletePaths: readonly string[]
+  current: ReadonlyMap<string, string>
+}) {
+  if (
+    [...input.files.map((f) => f.path), ...input.deletePaths].some(
+      isHostOnlyPath,
+    )
+  )
+    throw new Error("Agent write refused on a host-only path")
+  for (const file of input.files)
+    if (
+      addedOwnershipField(
+        input.current.get(file.path) ?? null,
+        gitFileBytes(file).toString("utf8"),
+      ) !== null
+    )
+      throw new Error(
+        "Agent write added ownership fields that the default branch does not have",
+      )
+}
 
 /**
  * Ask the model to resolve overlapping three-way conflicts. Its output is

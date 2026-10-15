@@ -10,7 +10,10 @@ import {
   sameWorkspaceRevision,
   workspaceRevisionSchema,
 } from "../../domain/workspaces/revision.js"
-import { resolveSemanticConflicts } from "../../domain/workspaces/semantic-merge.js"
+import {
+  assertAgentWriteAllowed,
+  resolveSemanticConflicts,
+} from "../../domain/workspaces/semantic-merge.js"
 import {
   attemptWorkspaceCommit,
   publishWorkspaceWriteRevision,
@@ -41,6 +44,7 @@ import {
   mergeGitFiles,
   resolveGitMergeTree,
 } from "../../services/git/merge-tree.js"
+import { readGitFiles } from "../../services/git/pack.js"
 import {
   commitGitTree,
   validateGitTree,
@@ -168,6 +172,22 @@ export const workspaceSemanticMerge = defineWorkflow(
               persistWriteJobStatus(input.jobId, "running"),
             )
           }
+          // An extraction handoff is agent output. Check every path it writes,
+          // not only the paths that conflict (CTX-722).
+          if (input.extraction)
+            await step.run({ name: "check-agent-write" }, async () => {
+              const paths = new Set(input.files.map((file) => file.path))
+              const current = new Map(
+                (
+                  await readGitFiles(acquired.pack, (path) => paths.has(path))
+                ).map((file) => [file.path, file.content] as const),
+              )
+              assertAgentWriteAllowed({
+                files: input.files,
+                deletePaths: input.deletePaths,
+                current,
+              })
+            })
           const merged = await step.run(
             { name: "transform-semantic-merge" },
             () =>

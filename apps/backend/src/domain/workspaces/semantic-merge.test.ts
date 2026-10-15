@@ -9,7 +9,10 @@ import {
   it,
   vi,
 } from "vitest"
-import { resolveSemanticConflicts } from "./semantic-merge.js"
+import {
+  assertAgentWriteAllowed,
+  resolveSemanticConflicts,
+} from "./semantic-merge.js"
 
 const HUMAN = "---\nkind: Service\nname: Checkout\n---\n\n# Checkout\n"
 const GENERATED =
@@ -154,4 +157,46 @@ it("accepts ownership fields that a host write adds in a shard join", async () =
       { incomingIsHostWrite: true },
     ),
   ).resolves.toEqual(answer)
+})
+
+it("refuses an agent write to a host-only path that does not conflict", () => {
+  expect(() =>
+    assertAgentWriteAllowed({
+      files: [{ path: ".ctxpipe/sources.yaml", content: "a: 1\n" }],
+      deletePaths: [],
+      current: new Map(),
+    }),
+  ).toThrow(/host-only/)
+  expect(() =>
+    assertAgentWriteAllowed({
+      files: [],
+      deletePaths: [".CTXPIPE/sources.yaml"],
+      current: new Map(),
+    }),
+  ).toThrow(/host-only/)
+})
+
+it("refuses an agent write that adds ownership fields without a conflict", () => {
+  expect(() =>
+    assertAgentWriteAllowed({
+      files: [{ path: "knowledge/services/checkout.md", content: GENERATED }],
+      deletePaths: [],
+      current: new Map([["knowledge/services/checkout.md", HUMAN]]),
+    }),
+  ).toThrow(/ownership/)
+})
+
+it("allows an agent write that keeps the ownership fields of the default branch", () => {
+  expect(() =>
+    assertAgentWriteAllowed({
+      files: [
+        {
+          path: "knowledge/services/checkout.md",
+          content: `${GENERATED}\nMore.\n`,
+        },
+      ],
+      deletePaths: [],
+      current: new Map([["knowledge/services/checkout.md", GENERATED]]),
+    }),
+  ).not.toThrow()
 })
