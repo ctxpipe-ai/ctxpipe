@@ -158,6 +158,8 @@ async function linkThenUnlink(
   options: {
     queued: IngestionPublishPipeline
     committed: (f: Fixture) => IngestionPublishPipeline
+    /** Runs once the unlink job is paused; the unlink is queued again after it. */
+    afterPause?: (f: Fixture) => void
   },
   check: (input: {
     f: Fixture
@@ -192,28 +194,31 @@ async function linkThenUnlink(
       const show = (path: string) => git("show", `refs/heads/main:${path}`)
       let unlinking = false
       const run = async (jobId: string, linkAction: "link" | "unlink") => {
+        const intent = {
+          orgId: f.org.id,
+          workspaceId: f.workspaceId,
+          kind: "link_unlink" as const,
+          jobId,
+          linkAction,
+          linkGitUrl: `${UNLINKED}.git`,
+          publishPipeline: options.queued,
+        }
         expect(
-          await withOrgIdContext(f.org, () =>
-            enqueueWriteJob(
-              {
-                orgId: f.org.id,
-                workspaceId: f.workspaceId,
-                kind: "link_unlink",
-                jobId,
-                linkAction,
-                linkGitUrl: `${UNLINKED}.git`,
-                publishPipeline: options.queued,
-              },
-              log,
-            ),
-          ),
+          await withOrgIdContext(f.org, () => enqueueWriteJob(intent, log)),
         ).toEqual({ started: true })
+        const status = () =>
+          withOrgIdContext(f.org, () => reconcileWorkspaceWriteJob(jobId))
+        if (linkAction === "unlink" && options.afterPause) {
+          await expect
+            .poll(async () => (await status())?.status, { timeout: 30_000 })
+            .toBe("paused")
+          options.afterPause(f)
+          expect(
+            await withOrgIdContext(f.org, () => enqueueWriteJob(intent, log)),
+          ).toEqual({ started: true })
+        }
         await expect
-          .poll(
-            () =>
-              withOrgIdContext(f.org, () => reconcileWorkspaceWriteJob(jobId)),
-            { timeout: 30_000 },
-          )
+          .poll(status, { timeout: options.afterPause ? 150_000 : 30_000 })
           .toMatchObject({ status: "completed" })
       }
       try {
@@ -389,6 +394,53 @@ it(
             "knowledge/services/",
           ),
         ).not.toContain("payments.md")
+      },
+    )
+  },
+)
+
+it(
+  "plans the unlink again when the switch flips during a write-access pause",
+  { timeout: 200_000 },
+  async () => {
+    let flipped = false
+    let installed = false
+    let reads = 0
+    const hookPath = (f: Fixture) => join(f.remote, "hooks/update")
+    await linkThenUnlink(
+      {
+        queued: "v2",
+        // The first push step reads v2 and the push is rejected, so the job
+        // pauses. The switch is legacy when the push step runs again.
+        committed: (f) => {
+          reads++
+          if (!installed && !flipped) {
+            installed = true
+            writeFileSync(
+              hookPath(f),
+              '#!/bin/sh\necho "GH006: Protected branch update failed for refs/heads/main." >&2\nexit 1\n',
+              { mode: 0o755 },
+            )
+          }
+          return flipped ? "legacy" : "v2"
+        },
+        afterPause: (f) => {
+          rmSync(hookPath(f))
+          flipped = true
+        },
+      },
+      ({ git, linked, declaration }) => {
+        expect(flipped).toBe(true)
+        // One read before the rejected push, one after the pause (replan),
+        // one on the new plan. A stale pause result would add a fourth.
+        expect(reads).toBe(3)
+        // Planned again under legacy: only the declaration change.
+        expect(git("rev-list", "--count", `${linked}..refs/heads/main`)).toBe(
+          "1",
+        )
+        expect(git("diff", "--name-status", linked, "refs/heads/main")).toBe(
+          `D\t${declaration}`,
+        )
       },
     )
   },

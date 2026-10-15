@@ -119,7 +119,11 @@ export function defineWorkspaceLinkUnlinkWorkflow(
               publishPipeline: input.publishPipeline,
             }),
           )
-          for (let refreshAttempt = 0; refreshAttempt < 3; refreshAttempt++) {
+          // A no-op plan is checked against a fresh tip at most 3 times; a
+          // lost push race has its own bound.
+          let noOpChecks = 0
+          let lostRaces = 0
+          while (noOpChecks < 3) {
             let acquired: NonNullable<
               Awaited<ReturnType<typeof acquireWorkspaceWriteRevision>>
             >
@@ -176,6 +180,7 @@ export function defineWorkspaceLinkUnlinkWorkflow(
               )
               if (!sameWorkspaceRevision(refreshed, revision)) {
                 revision = refreshed
+                noOpChecks++
                 continue
               }
               await step.run({ name: "complete-no-op" }, () =>
@@ -227,7 +232,11 @@ export function defineWorkspaceLinkUnlinkWorkflow(
                   return attemptWorkspaceCommit(input, revision, committed, env)
                 },
               )
-              if ("replan" in attempt) break
+              if ("replan" in attempt) {
+                // An earlier pause result must not survive a replan.
+                pushed = undefined
+                break
+              }
               pushed = attempt
               if (pushed.pushed || pushed.reason !== "paused") break
               await step.run({ name: "pause-push" }, () =>
@@ -251,6 +260,10 @@ export function defineWorkspaceLinkUnlinkWorkflow(
                   () => refreshWorkspaceWriteRevision(input, revision, env),
                 )
               else planned = !planned
+              if (++lostRaces > 5)
+                throw new Error(
+                  "Default branch or publish pipeline kept changing during the unlink push",
+                )
               continue
             }
             const published = await step.run({ name: "publish-result" }, () =>
