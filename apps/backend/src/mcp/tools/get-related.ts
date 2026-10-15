@@ -79,6 +79,14 @@ export const getRelatedInputShape = {
     .describe(
       "Walk only edges with these predicates. Not case-sensitive. Default: the edges of the intent and the link edges, then all edges only with fewer than limit results or no answer kind (all edges for general).",
     ),
+  excludePredicates: z
+    .array(name)
+    .min(1)
+    .max(50)
+    .optional()
+    .describe(
+      "Never walk edges with these predicates. Not case-sensitive. Applies to every walk.",
+    ),
   predicateWeights: z
     .record(name, z.number().min(0))
     .refine((weights) => Object.keys(weights).length <= 50, {
@@ -93,6 +101,11 @@ export const getRelatedInputShape = {
     .describe(
       "Only results of these kinds. The walk still passes through other kinds.",
     ),
+  excludeKinds: z
+    .array(name)
+    .max(50)
+    .optional()
+    .describe("No results of these kinds. The walk still passes through them."),
   direction: z
     .enum(["out", "in", "both"])
     .default("both")
@@ -107,11 +120,11 @@ export const getRelatedInputShape = {
   maxFanOut: z
     .number()
     .int()
-    .min(1)
-    .max(1_000)
+    .min(5)
+    .max(200)
     .default(50)
     .describe(
-      "Edges that one unit expands: the strongest edge of each predicate first, then the next of each. Default 50.",
+      "Edges that one unit expands, 5 to 200: the strongest edge of each predicate first, then the next of each. Default 50.",
     ),
   minConfidence: z
     .number()
@@ -153,9 +166,10 @@ export const getRelatedInputShape = {
   hubPenalty: z
     .number()
     .min(0)
+    .max(1)
     .optional()
     .describe(
-      "Exponent of the hub penalty degree^-x. The intent sets the default.",
+      "Exponent of the hub penalty degree^-x, 0 to 1. The intent sets the default.",
     ),
   diversity: z
     .number()
@@ -388,6 +402,9 @@ export async function rankWorkspaceRelated(
       maxDepth: input.maxDepth,
       direction: input.direction,
       predicates,
+      excludePredicates: input.excludePredicates?.map((predicate) =>
+        predicate.toUpperCase(),
+      ),
       minConfidence: input.minConfidence,
       maxFanOut: input.maxFanOut,
       validAt: input.validBetween
@@ -452,6 +469,7 @@ export async function rankWorkspaceRelated(
         diversity,
         maxPerKind: input.maxPerKind,
         kinds: input.kinds,
+        excludeKinds: input.excludeKinds,
         includeSeeds: input.includeSeeds,
         limit: RANKED_LIMIT,
         now: input.validAt ? new Date(input.validAt) : now,

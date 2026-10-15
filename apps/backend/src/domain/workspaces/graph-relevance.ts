@@ -95,6 +95,8 @@ export type RelevanceOptions = {
    * unset: all kinds.
    */
   kinds?: readonly string[]
+  /** Kinds that are never a result. The walk still uses their nodes. */
+  excludeKinds?: readonly string[]
   includeSeeds?: boolean
   /** Number of results. Default 100. */
   limit?: number
@@ -725,6 +727,7 @@ export function rankRelated(input: {
   const keptKinds = options.kinds?.length
     ? new Set(options.kinds.map(kindKey))
     : null
+  const droppedKinds = new Set((options.excludeKinds ?? []).map(kindKey))
   const candidates = nodes
     .map((node, index) => {
       const nodePpr = ppr[index] ?? 0
@@ -746,7 +749,8 @@ export function rankRelated(input: {
       (candidate) =>
         candidate.ppr > 0 &&
         (options.includeSeeds || !seedSet.has(candidate.index)) &&
-        (!keptKinds || keptKinds.has(kindKey(candidate.node.kind))),
+        (!keptKinds || keptKinds.has(kindKey(candidate.node.kind))) &&
+        !droppedKinds.has(kindKey(candidate.node.kind)),
     )
     .sort((a, b) => b.score - a.score || compare(a.node.id, b.node.id))
 
