@@ -11,8 +11,9 @@ import {
   workspaceRevisionSchema,
 } from "../../domain/workspaces/revision.js"
 import {
-  assertAgentWriteAllowed,
+  assertWriteOriginAllowed,
   resolveSemanticConflicts,
+  writeOriginSchema,
 } from "../../domain/workspaces/semantic-merge.js"
 import {
   attemptWorkspaceCommit,
@@ -86,6 +87,7 @@ export const workspaceSemanticMergeInputSchema = semanticMergeContentSchema
     workspaceId: z.string().min(1),
     jobId: z.string().min(1),
     revision: workspaceRevisionSchema,
+    origin: writeOriginSchema,
     handoff: z
       .object({
         ownerRunId: z.string().min(1),
@@ -172,9 +174,9 @@ export const workspaceSemanticMerge = defineWorkflow(
               persistWriteJobStatus(input.jobId, "running"),
             )
           }
-          // An extraction handoff is agent output. Check every path it writes,
-          // not only the paths that conflict (CTX-722).
-          if (input.extraction)
+          // Check every path the write changes, not only the paths that
+          // conflict, as the origin requires (CTX-722).
+          if (input.origin !== "host")
             await step.run(
               {
                 name: "check-agent-write",
@@ -187,7 +189,8 @@ export const workspaceSemanticMerge = defineWorkflow(
                     await readGitFiles(acquired.pack, (path) => paths.has(path))
                   ).map((file) => [file.path, file.content] as const),
                 )
-                assertAgentWriteAllowed({
+                assertWriteOriginAllowed({
+                  origin: input.origin,
                   files: input.files,
                   deletePaths: input.deletePaths,
                   current,
@@ -239,7 +242,10 @@ export const workspaceSemanticMerge = defineWorkflow(
                   name: "resolve-semantic-conflicts",
                   retryPolicy: { maximumAttempts: 3 },
                 },
-                () => resolveSemanticConflicts(merged.conflicts),
+                () =>
+                  resolveSemanticConflicts(merged.conflicts, {
+                    origin: input.origin,
+                  }),
               )
             : null
           const staged = await step.run({ name: "stage" }, () =>

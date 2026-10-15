@@ -10,8 +10,9 @@ import {
   vi,
 } from "vitest"
 import {
-  assertAgentWriteAllowed,
+  assertWriteOriginAllowed,
   resolveSemanticConflicts,
+  writeOriginSchema,
 } from "./semantic-merge.js"
 
 const HUMAN = "---\nkind: Service\nname: Checkout\n---\n\n# Checkout\n"
@@ -69,14 +70,17 @@ afterEach(() => {
 
 it("refuses a conflict on a host-only path and does not send it to the model", async () => {
   await expect(
-    resolveSemanticConflicts([
-      {
-        path: ".ctxpipe/sources.yaml",
-        base: "sources: []\n",
-        current: "sources:\n  - a\n",
-        incoming: "sources:\n  - b\n",
-      },
-    ]),
+    resolveSemanticConflicts(
+      [
+        {
+          path: ".ctxpipe/sources.yaml",
+          base: "sources: []\n",
+          current: "sources:\n  - a\n",
+          incoming: "sources:\n  - b\n",
+        },
+      ],
+      { origin: "agent" },
+    ),
   ).rejects.toThrow(/host-only/)
   expect(calls).toBe(0)
 })
@@ -84,14 +88,17 @@ it("refuses a conflict on a host-only path and does not send it to the model", a
 it("refuses a resolution that adds ownership fields that no side has", async () => {
   answer = [{ path: "knowledge/services/checkout.md", content: GENERATED }]
   await expect(
-    resolveSemanticConflicts([
-      {
-        path: "knowledge/services/checkout.md",
-        base: HUMAN,
-        current: `${HUMAN}\nCurrent.\n`,
-        incoming: `${HUMAN}\nIncoming.\n`,
-      },
-    ]),
+    resolveSemanticConflicts(
+      [
+        {
+          path: "knowledge/services/checkout.md",
+          base: HUMAN,
+          current: `${HUMAN}\nCurrent.\n`,
+          incoming: `${HUMAN}\nIncoming.\n`,
+        },
+      ],
+      { origin: "agent" },
+    ),
   ).rejects.toThrow(/ownership/)
   expect(calls).toBe(1)
 })
@@ -99,14 +106,17 @@ it("refuses a resolution that adds ownership fields that no side has", async () 
 it("accepts a resolution that keeps the ownership fields of one side", async () => {
   answer = [{ path: "knowledge/services/checkout.md", content: GENERATED }]
   await expect(
-    resolveSemanticConflicts([
-      {
-        path: "knowledge/services/checkout.md",
-        base: null,
-        current: GENERATED,
-        incoming: HUMAN,
-      },
-    ]),
+    resolveSemanticConflicts(
+      [
+        {
+          path: "knowledge/services/checkout.md",
+          base: null,
+          current: GENERATED,
+          incoming: HUMAN,
+        },
+      ],
+      { origin: "agent" },
+    ),
   ).resolves.toEqual(answer)
 })
 
@@ -120,25 +130,28 @@ it("refuses to give a file back to ingestion after a person took it over", async
     current: `${HUMAN}\nPerson.\n`,
     incoming: `${GENERATED}\nHost.\n`,
   }
-  await expect(resolveSemanticConflicts([conflict])).rejects.toThrow(
-    /ownership/,
-  )
   await expect(
-    resolveSemanticConflicts([conflict], { incomingIsHostWrite: true }),
+    resolveSemanticConflicts([conflict], { origin: "agent" }),
+  ).rejects.toThrow(/ownership/)
+  await expect(
+    resolveSemanticConflicts([conflict], { origin: "extraction" }),
   ).rejects.toThrow(/ownership/)
 })
 
 it("refuses ownership fields that only the incoming side has when it is not a host write", async () => {
   answer = [{ path: "knowledge/services/checkout.md", content: GENERATED }]
   await expect(
-    resolveSemanticConflicts([
-      {
-        path: "knowledge/services/checkout.md",
-        base: HUMAN,
-        current: `${HUMAN}\nCurrent.\n`,
-        incoming: GENERATED,
-      },
-    ]),
+    resolveSemanticConflicts(
+      [
+        {
+          path: "knowledge/services/checkout.md",
+          base: HUMAN,
+          current: `${HUMAN}\nCurrent.\n`,
+          incoming: GENERATED,
+        },
+      ],
+      { origin: "agent" },
+    ),
   ).rejects.toThrow(/ownership/)
 })
 
@@ -154,21 +167,23 @@ it("accepts ownership fields that a host write adds in a shard join", async () =
           incoming: GENERATED,
         },
       ],
-      { incomingIsHostWrite: true },
+      { origin: "extraction" },
     ),
   ).resolves.toEqual(answer)
 })
 
 it("refuses an agent write to a host-only path that does not conflict", () => {
   expect(() =>
-    assertAgentWriteAllowed({
+    assertWriteOriginAllowed({
+      origin: "agent",
       files: [{ path: ".ctxpipe/sources.yaml", content: "a: 1\n" }],
       deletePaths: [],
       current: new Map(),
     }),
   ).toThrow(/host-only/)
   expect(() =>
-    assertAgentWriteAllowed({
+    assertWriteOriginAllowed({
+      origin: "agent",
       files: [],
       deletePaths: [".CTXPIPE/sources.yaml"],
       current: new Map(),
@@ -178,7 +193,8 @@ it("refuses an agent write to a host-only path that does not conflict", () => {
 
 it("refuses an agent write that adds ownership fields without a conflict", () => {
   expect(() =>
-    assertAgentWriteAllowed({
+    assertWriteOriginAllowed({
+      origin: "agent",
       files: [{ path: "knowledge/services/checkout.md", content: GENERATED }],
       deletePaths: [],
       current: new Map([["knowledge/services/checkout.md", HUMAN]]),
@@ -188,7 +204,8 @@ it("refuses an agent write that adds ownership fields without a conflict", () =>
 
 it("allows an agent write that keeps the ownership fields of the default branch", () => {
   expect(() =>
-    assertAgentWriteAllowed({
+    assertWriteOriginAllowed({
+      origin: "agent",
       files: [
         {
           path: "knowledge/services/checkout.md",
@@ -199,4 +216,28 @@ it("allows an agent write that keeps the ownership fields of the default branch"
       current: new Map([["knowledge/services/checkout.md", GENERATED]]),
     }),
   ).not.toThrow()
+})
+
+it("lets extraction output add host-stamped ownership fields but not touch a host-only path", () => {
+  expect(() =>
+    assertWriteOriginAllowed({
+      origin: "extraction",
+      files: [{ path: "knowledge/services/checkout.md", content: GENERATED }],
+      deletePaths: [],
+      current: new Map(),
+    }),
+  ).not.toThrow()
+  expect(() =>
+    assertWriteOriginAllowed({
+      origin: "extraction",
+      files: [{ path: ".ctxpipe/sources.yaml", content: "a: 1\n" }],
+      deletePaths: [],
+      current: new Map(),
+    }),
+  ).toThrow(/host-only/)
+})
+
+it("treats a missing or unknown origin as an agent write", () => {
+  for (const origin of [undefined, "person"])
+    expect(writeOriginSchema.parse(origin)).toBe("agent")
 })

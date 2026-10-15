@@ -23,23 +23,44 @@ const resolutionSchema = z
   .strict()
 
 /**
- * Refuse an agent-origin write that touches a host-only path or adds ownership
- * fields (CTX-722). It checks every path the write changes, whether or not it
- * conflicts. `current` holds the default branch content of the paths that
- * exist there. Host writes (a person's edit, link or unlink, a migration, a
- * mirror) do not call this.
+ * Who produced the files of a semantic merge (CTX-722). Each enqueue site
+ * sets it, so no caller can leave it out.
+ * - `host`: a host write (a person's edit, link or unlink, a migration, a
+ *   mirror). It has no check.
+ * - `extraction`: host code renders the files from extraction or ingestion
+ *   output, and the host stamps their ownership fields. Only the host-only
+ *   path check applies.
+ * - `agent`: any other input. The host-only path check and the ownership
+ *   field check apply.
+ * A run that has no valid origin (for example, a run queued before this
+ * field) is `agent`, so it fails closed.
  */
-export function assertAgentWriteAllowed(input: {
+export const writeOriginSchema = z
+  .enum(["host", "extraction", "agent"])
+  .catch("agent")
+
+export type WriteOrigin = z.output<typeof writeOriginSchema>
+
+/**
+ * Refuse a write that touches a host-only path or adds ownership fields
+ * (CTX-722), as its origin requires. It checks every path the write changes,
+ * whether or not it conflicts. `current` holds the default branch content of
+ * the paths that exist there.
+ */
+export function assertWriteOriginAllowed(input: {
+  origin: WriteOrigin
   files: readonly GitFileChange[]
   deletePaths: readonly string[]
   current: ReadonlyMap<string, string>
 }) {
+  if (input.origin === "host") return
   if (
     [...input.files.map((f) => f.path), ...input.deletePaths].some(
       isHostOnlyPath,
     )
   )
     throw new Error("Agent write refused on a host-only path")
+  if (input.origin === "extraction") return
   for (const file of input.files)
     if (
       addedOwnershipField(
@@ -60,7 +81,7 @@ export function assertAgentWriteAllowed(input: {
  */
 export async function resolveSemanticConflicts(
   conflicts: GitMergeConflict[],
-  options: { incomingIsHostWrite?: boolean } = {},
+  options: { origin: WriteOrigin },
 ) {
   // Only the host writes these paths (CTX-722), so no model output can.
   if (conflicts.some((conflict) => isHostOnlyPath(conflict.path)))
@@ -101,13 +122,13 @@ export async function resolveSemanticConflicts(
   // The model must not give a file to ingestion (CTX-722). The output may keep
   // the ownership fields of `current`, the default branch as it is now. A
   // person can have removed the fields of `base` there, so `base` never counts.
-  // Fields that only `incoming` has count only when a host write added them
-  // (an ingestion shard join), never when an agent controls that side.
+  // Fields that only `incoming` has count only when the host stamped them (a
+  // host or extraction origin), never when an agent controls that side.
   for (const file of resolution.files) {
     const conflict = conflicts.find(({ path }) => path === file.path)
     if (file.content === null || !conflict) continue
     const incomingAdded =
-      options.incomingIsHostWrite === true &&
+      options.origin !== "agent" &&
       conflict.incoming !== null &&
       addedOwnershipField(conflict.base, conflict.incoming) !== null
     if (

@@ -361,8 +361,11 @@ export function defineRepositoryIngestionV2Workflow(
                       // merge, whose files the patch validator checks.
                       semanticMerge: {
                         resolve: (conflicts) =>
+                          // The patch validator refuses model-set host
+                          // fields and stamps them, so the ownership
+                          // fields of a shard are host output.
                           resolveSemanticConflicts(conflicts, {
-                            incomingIsHostWrite: true,
+                            origin: "extraction",
                           }),
                         source: { url: input.source.url, sha: input.sha },
                         sourcePathExists: (path) =>

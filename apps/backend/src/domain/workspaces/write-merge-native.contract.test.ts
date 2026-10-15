@@ -733,10 +733,52 @@ it.each([
   },
 )
 
-it.each(["agent", "host"] as const)(
-  "%s-origin semantic merge of a non-conflicting .ctxpipe file",
+const GENERATED_KNOWLEDGE =
+  "---\nkind: Service\nname: Checkout\ngenerated_by: ctxpipe\n---\n\n# Checkout\n"
+
+it.each([
+  {
+    origin: "agent",
+    path: ".ctxpipe/sources.yaml",
+    content: "sources: []\n",
+    committed: false,
+  },
+  {
+    origin: "host",
+    path: ".ctxpipe/sources.yaml",
+    content: "sources: []\n",
+    committed: true,
+  },
+  {
+    origin: "extraction",
+    path: ".ctxpipe/sources.yaml",
+    content: "sources: []\n",
+    committed: false,
+  },
+  {
+    origin: "agent",
+    path: "knowledge/services/checkout.md",
+    content: GENERATED_KNOWLEDGE,
+    committed: false,
+  },
+  // A run queued before the origin field fails closed as an agent write.
+  {
+    origin: undefined,
+    path: "knowledge/services/checkout.md",
+    content: GENERATED_KNOWLEDGE,
+    committed: false,
+  },
+  // Extraction output that lost a push race: the host stamped generated_by.
+  {
+    origin: "extraction",
+    path: "knowledge/services/checkout.md",
+    content: GENERATED_KNOWLEDGE,
+    committed: true,
+  },
+] as const)(
+  "$origin-origin semantic merge of a new $path",
   { timeout: 60_000 },
-  async (origin) => {
+  async ({ origin, path, content, committed }) => {
     await withNativeHydrationFixture(
       {
         github: true,
@@ -747,10 +789,9 @@ it.each(["agent", "host"] as const)(
       async (f) => {
         const { BackendPostgres } = await import("openworkflow/postgres")
         const { OpenWorkflow } = await import("openworkflow")
-        const { workspaceSemanticMerge, workspaceSemanticMergeInputSchema } =
-          await import(
-            "../../openworkflow/workflows/workspace-semantic-merge.js"
-          )
+        const { workspaceSemanticMerge } = await import(
+          "../../openworkflow/workflows/workspace-semantic-merge.js"
+        )
         const backend = await BackendPostgres.connect(f.databaseUrl, {
           namespaceId: openWorkflowNamespaceId(),
           runMigrations: false,
@@ -764,7 +805,7 @@ it.each(["agent", "host"] as const)(
         try {
           await worker.start()
           const extraction =
-            origin === "agent"
+            origin === "extraction"
               ? await storeTestExtraction(f.org.id, {
                   repositoryId: "repo_captured",
                   repositoryUrl: f.workspaceUrl,
@@ -773,25 +814,26 @@ it.each(["agent", "host"] as const)(
                   claims: [],
                 })
               : undefined
+          // Raw input, as a queued run holds it: an old run has no origin.
+          const input = {
+            orgId: f.org.id,
+            workspaceId: f.workspaceId,
+            jobId: `wjob_${f.id}_${origin}`,
+            revision: {
+              ...(await f.resolveRevision()),
+              access: "write-default" as const,
+            },
+            previousSha: f.sha,
+            files: [{ path, content }],
+            deletePaths: [],
+            ...(origin ? { origin } : {}),
+            ...(extraction ? { extraction } : {}),
+          }
           const run = await runner.runWorkflow(
             workspaceSemanticMerge.spec,
-            workspaceSemanticMergeInputSchema.parse({
-              orgId: f.org.id,
-              workspaceId: f.workspaceId,
-              jobId: `wjob_${f.id}_${origin}`,
-              revision: {
-                ...(await f.resolveRevision()),
-                access: "write-default",
-              },
-              previousSha: f.sha,
-              files: [
-                { path: ".ctxpipe/sources.yaml", content: "sources: []\n" },
-              ],
-              deletePaths: [],
-              ...(extraction ? { extraction } : {}),
-            }),
+            input as never,
           )
-          if (origin === "agent") {
+          if (!committed) {
             await expect(run.result({ timeoutMs: 30_000 })).rejects.toThrow()
             expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(
               f.sha,
@@ -800,14 +842,9 @@ it.each(["agent", "host"] as const)(
             expect(await run.result({ timeoutMs: 30_000 })).toMatchObject({
               committed: true,
             })
-            expect(
-              f.git(
-                "--git-dir",
-                f.remote,
-                "show",
-                "main:.ctxpipe/sources.yaml",
-              ),
-            ).toBe("sources: []")
+            expect(f.git("--git-dir", f.remote, "show", `main:${path}`)).toBe(
+              content.trimEnd(),
+            )
           }
         } finally {
           await worker.stop()
