@@ -56,10 +56,11 @@ export type SourceTarget = z.infer<typeof sourceTargetSchema>
  * The stored state of one row: the provider state, and only on an `invalid`
  * row the key `lastGoodTarget`. That key holds the target of the last valid
  * entry of the source, because the files of that target can be in git. A
- * later removal or change of the source cleans them up.
+ * later removal or change of the source cleans them up. A stored target that
+ * does not parse stays as it is, so that the row keeps its files.
  */
 export type StoredSourceState = (SourceState | { provider?: never }) & {
-  lastGoodTarget?: SourceTarget
+  lastGoodTarget?: unknown
 }
 
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0]
@@ -103,17 +104,19 @@ function withoutTarget(state: unknown): unknown {
   return rest
 }
 
-/** The `lastGoodTarget` key of a stored state. An invalid key gives null. */
-function heldTarget(row: { id: string; state: unknown }): SourceTarget | null {
-  if (!isRecord(row.state) || row.state.lastGoodTarget == null) return null
-  const parsed = sourceTargetSchema.safeParse(row.state.lastGoodTarget)
-  if (parsed.success) return parsed.data
-  log.warn({
-    step: "workspace_sources.state_invalid",
-    sourceId: row.id,
-    message: parsed.error.message,
-  })
-  return null
+/** The `lastGoodTarget` key of a stored state as stored, or null. */
+function storedTarget(state: unknown): unknown {
+  return isRecord(state) ? (state.lastGoodTarget ?? null) : null
+}
+
+/** The columns of a source row that give its last good target. */
+type SourceTargetRow = {
+  id: string
+  provider: string | null
+  connectionId: string | null
+  scope: Record<string, unknown>
+  status: string
+  state: unknown
 }
 
 /**
@@ -121,15 +124,9 @@ function heldTarget(row: { id: string; state: unknown }): SourceTarget | null {
  * null when it had none. The files of this target can be in git. A valid row
  * is its own target. An `invalid` row keeps the target in its state.
  */
-export function lastGoodTarget(row: {
-  id: string
-  provider: string | null
-  connectionId: string | null
-  scope: Record<string, unknown>
-  status: string
-  state: unknown
-}): SourceTarget | null {
-  if (row.status === "invalid") return heldTarget(row)
+export function lastGoodTarget(row: SourceTargetRow): SourceTarget | null {
+  if (row.status === "invalid")
+    return sourceTargetSchema.safeParse(storedTarget(row.state)).data ?? null
   if (row.provider === null || row.connectionId === null) return null
   return {
     provider: row.provider,
@@ -138,16 +135,27 @@ export function lastGoodTarget(row: {
   }
 }
 
+/**
+ * Tell if a row holds the files of a target: a valid row holds its own, an
+ * `invalid` row holds its stored `lastGoodTarget`, also when that key does
+ * not parse.
+ */
+export function holdsTarget(row: SourceTargetRow): boolean {
+  return row.status === "invalid"
+    ? storedTarget(row.state) !== null
+    : lastGoodTarget(row) !== null
+}
+
 /** A GitHub state with `repositories` that keeps the target of `row`. */
 function withPins(
-  row: { id: string; state: unknown },
+  row: { state: unknown },
   repositories: GithubRepositoryPin[],
 ): StoredSourceState {
-  const target = heldTarget(row)
+  const target = storedTarget(row.state)
   return {
     provider: "github",
     repositories,
-    ...(target ? { lastGoodTarget: target } : {}),
+    ...(target !== null ? { lastGoodTarget: target } : {}),
   }
 }
 
@@ -211,9 +219,7 @@ const SERVING_SOURCE_STATUSES = ["ok"] as const
  * good target of its source (see {@link lastGoodTarget}).
  */
 export function planSourceStates(input: {
-  existing: ReadonlyArray<
-    Parameters<typeof lastGoodTarget>[0] & { sourceKey: string }
-  >
+  existing: ReadonlyArray<SourceTargetRow & { sourceKey: string }>
   planned: ReadonlyArray<{
     sourceKey: string
     provider: string | null
@@ -223,11 +229,14 @@ export function planSourceStates(input: {
   workspaceUrl: string | null
   now?: Date
 }): Map<string, StoredSourceState> {
-  const pinsByRow = new Map(
-    input.existing.map((row) => [row.sourceKey, githubPins(row)]),
+  const byKey = new Map(
+    input.existing.map((row) => [
+      row.sourceKey,
+      { row, pins: githubPins(row) },
+    ]),
   )
   const pool = new Map<string, GithubRepositoryPin>()
-  for (const pins of pinsByRow.values())
+  for (const { pins } of byKey.values())
     for (const pin of pins) if (!pool.has(pin.gitUrl)) pool.set(pin.gitUrl, pin)
   const linked = new Set<string>(
     input.workspaceUrl
@@ -259,26 +268,42 @@ export function planSourceStates(input: {
       reconcileGithubState([...pool.values()], wanted, input.now),
     )
   }
-  for (const planned of input.planned)
+  for (const planned of input.planned) {
+    const current = byKey.get(planned.sourceKey)
     if (planned.provider === "github" && !linking(planned.status))
       states.set(planned.sourceKey, {
         provider: "github",
-        repositories: (pinsByRow.get(planned.sourceKey) ?? []).filter(
+        repositories: (current?.pins ?? []).filter(
           (pin) => !linked.has(pin.gitUrl),
         ),
       })
-  const byKey = new Map(input.existing.map((row) => [row.sourceKey, row]))
-  for (const planned of input.planned) {
-    const current = byKey.get(planned.sourceKey)
-    const target =
-      planned.status === "invalid" && current ? lastGoodTarget(current) : null
-    if (target)
+    if (planned.status !== "invalid" || !current) continue
+    const target = heldTargetOf(current.row)
+    if (target !== null)
       states.set(planned.sourceKey, {
         ...(states.get(planned.sourceKey) ?? {}),
         lastGoodTarget: target,
       })
   }
   return states
+}
+
+/**
+ * The target that an `invalid` row keeps from its current row. A stored
+ * target that does not parse stays as it is, and the projection logs it.
+ */
+function heldTargetOf(current: SourceTargetRow): unknown {
+  const target =
+    current.status === "invalid"
+      ? storedTarget(current.state)
+      : lastGoodTarget(current)
+  if (target !== null && !sourceTargetSchema.safeParse(target).success)
+    log.warn({
+      step: "workspace_sources.state_invalid",
+      sourceId: current.id,
+      message: "The last good target does not parse; the row keeps it",
+    })
+  return target
 }
 
 /** The same state. jsonb does not keep the key order, so compare by value. */

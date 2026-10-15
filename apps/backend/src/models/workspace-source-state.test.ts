@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
+import { log } from "../observability/logger.js"
 import {
   githubPins,
   lastGoodTarget,
@@ -248,5 +249,43 @@ describe("planSourceStates", () => {
     })
     expect(states.get("issues")).toEqual({})
     expect(states.get("code")).toEqual({ provider: "github", repositories: [] })
+  })
+})
+
+describe("an invalid row whose stored target does not parse", () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it("logs once when the projection writes it, not on each read, and keeps it", () => {
+    const warn = vi.spyOn(log, "warn")
+    const target = { provider: "linear", connectionId: "", scope: 1 }
+    const row = {
+      id: "wsrc_held",
+      sourceKey: "issues",
+      provider: "linear",
+      connectionId: "con_linear",
+      scope: {},
+      status: "invalid",
+      state: { lastGoodTarget: target },
+    }
+    expect(lastGoodTarget(row)).toBeNull()
+    expect(lastGoodTarget(row)).toBeNull()
+    expect(warn).not.toHaveBeenCalled()
+
+    const states = planSourceStates({
+      existing: [row],
+      planned: [
+        {
+          sourceKey: "issues",
+          provider: "linear",
+          status: "invalid",
+          scope: {},
+        },
+      ],
+      workspaceUrl: null,
+    })
+    expect(states.get("issues")).toEqual({ lastGoodTarget: target })
+    expect(warn).toHaveBeenCalledTimes(1)
   })
 })

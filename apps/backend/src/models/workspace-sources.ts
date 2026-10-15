@@ -15,7 +15,7 @@ import { generateObjectId } from "../lib/id.js"
 import { log } from "../observability/logger.js"
 import { openWorkflowNamespaceId } from "../openworkflow/namespace.js"
 import {
-  lastGoodTarget,
+  holdsTarget,
   listLinkedRepositoryPins,
   planSourceStates,
   sameSourceState,
@@ -82,7 +82,7 @@ export async function replaceWorkspaceSourceRows(input: {
       const plannedKeys = new Set(input.rows.map((row) => row.sourceKey))
       const unmatchedDetail = unmatchedSourceDetail(input.rows)
       const held = (row: WorkspaceSourceRow) =>
-        unmatchedDetail !== null && lastGoodTarget(row) !== null
+        unmatchedDetail !== null && holdsTarget(row)
       const missing = existing.filter((row) => !plannedKeys.has(row.sourceKey))
       const removed = missing.filter((row) => !held(row))
       const plan: PlannedSourceRow[] = [

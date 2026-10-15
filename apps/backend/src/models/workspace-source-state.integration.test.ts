@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm"
+import { and, eq } from "drizzle-orm"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { withOrgIdContext } from "../auth/withAuth.js"
 import { withOrgDbContext } from "../db/client.js"
@@ -297,7 +297,12 @@ describe("workspace source state (Postgres)", () => {
       db
         .select()
         .from(workspaceSources)
-        .where(eq(workspaceSources.sourceKey, "code")),
+        .where(
+          and(
+            eq(workspaceSources.workspaceId, workspaceId),
+            eq(workspaceSources.sourceKey, "code"),
+          ),
+        ),
     )
     if (!row) throw new Error("the code row is gone")
     expect(row.status).toBe("invalid")
@@ -307,6 +312,73 @@ describe("workspace source state (Postgres)", () => {
       scope: { repositories: [web] },
     })
     expect(githubPins(row).map((pin) => pin.id)).toEqual([before?.id])
+  })
+
+  it("keeps a held row whose stored target does not parse, with that target", async () => {
+    const connection = await seed.addConnection("github")
+    const workspaceId = await seed.addWorkspace("held-unparsed")
+    const web = `acme/web-${seed.suffix}`
+    const unreadableFile: PlannedSourceRow = {
+      sourceKey: ".file",
+      provider: null,
+      connectionId: null,
+      scope: {},
+      status: "invalid",
+      statusDetail: "The YAML is not valid",
+    }
+    await replaceWorkspaceSourceRows({
+      orgId: seed.orgId,
+      workspaceId,
+      revision: "a".repeat(40),
+      rows: [github("code", connection, [web])],
+    })
+    await replaceWorkspaceSourceRows({
+      orgId: seed.orgId,
+      workspaceId,
+      revision: "b".repeat(40),
+      rows: [unreadableFile],
+    })
+    const codeRow = () =>
+      withOrgDbContext(seed.orgId, async (db) => {
+        const [row] = await db
+          .select()
+          .from(workspaceSources)
+          .where(
+            and(
+              eq(workspaceSources.workspaceId, workspaceId),
+              eq(workspaceSources.sourceKey, "code"),
+            ),
+          )
+        return row
+      })
+    const held = await codeRow()
+    if (!held) throw new Error("the code row is gone")
+    const target = { provider: "github", connectionId: "", scope: 1 }
+    await withOrgDbContext(seed.orgId, (db) =>
+      db
+        .update(workspaceSources)
+        .set({
+          state: { ...(held.state as object), lastGoodTarget: target },
+        })
+        .where(eq(workspaceSources.id, held.id)),
+    )
+
+    await replaceWorkspaceSourceRows({
+      orgId: seed.orgId,
+      workspaceId,
+      revision: "c".repeat(40),
+      rows: [unreadableFile],
+    })
+    await withOrgDbContext(seed.orgId, (db) =>
+      clearLinkedRepositoryShas(
+        db,
+        new Set([`https://github.com/${web}`]),
+        (url) => url,
+      ),
+    )
+    const row = await codeRow()
+    expect(row?.status).toBe("invalid")
+    expect(row?.state).toMatchObject({ lastGoodTarget: target })
   })
 
   it("serves only the pins of ok rows, and keeps the pins of an out_of_access row", async () => {
