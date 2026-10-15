@@ -67,6 +67,11 @@ export async function seedSourcesOrg(name: string) {
       )
       return id
     },
+    async setRootPath(id: string, rootPath: string) {
+      await withOrgDbContext(orgId, (db) =>
+        db.update(workspaces).set({ rootPath }).where(eq(workspaces.id, id)),
+      )
+    },
     /** A local git repository whose commits stand in for a Workspace remote. */
     async gitRepository() {
       const dir = await mkdtemp(join(tmpdir(), "ctxpipe-sources-"))

@@ -63,3 +63,35 @@ it("lists the body of each source file from git at the served revision", async (
     again.items.find((i) => i.path === "sources/linear/eng.md")?.description,
   ).toBe("Engineering issues.")
 })
+
+it("reads the descriptions below the root folder of the Workspace", async () => {
+  const linear = await seed.addConnection("linear")
+  const repo = await seed.gitRepository()
+  const workspaceId = await seed.addWorkspace("desc-root", repo.dir)
+  await seed.setRootPath(workspaceId, "docs/context")
+  const sha = await repo.commit({
+    "sources/linear/eng.md": `---\nprovider: linear\nconnection: ${linear}\nteams: [ENG]\n---\nOutside the root.\n`,
+    "docs/context/sources/linear/eng.md": `---\nprovider: linear\nconnection: ${linear}\nteams: [ENG]\n---\nInside the root.\n`,
+  })
+  await replaceWorkspaceSourceRows({
+    orgId: seed.orgId,
+    workspaceId,
+    revision: sha,
+    rows: [
+      {
+        sourceKey: "sources/linear/eng.md",
+        provider: "linear" as const,
+        connectionId: linear,
+        scope: { teams: ["ENG"] },
+        status: "ok" as const,
+        statusDetail: null,
+      },
+    ],
+  })
+  const list = await withOrgIdContext({ id: seed.orgId } as never, async () => {
+    const workspace = await getWorkspaceById(workspaceId)
+    if (!workspace) throw new Error("missing Workspace")
+    return listWorkspaceSources(workspace)
+  })
+  expect(list.items[0]?.description).toBe("Inside the root.")
+})

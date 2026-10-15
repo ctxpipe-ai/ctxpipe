@@ -781,13 +781,15 @@ export function rankRelated(input: {
   }
   const limit = options.limit ?? 100
   const intent = options.intent ?? "general"
-  const perKind = new Map<string, number>()
-  const selection = {
+  // One count per group: the answers and the other units each get maxPerKind.
+  const selection = (perKind: Map<string, number>) => ({
     diversity,
     maxPerKind: options.maxPerKind,
     perKind,
     neighbors,
-  }
+  })
+  const answerSelection = selection(new Map())
+  const otherSelection = selection(new Map())
   // The answers first, each group with its own MMR. A strong query hit also
   // counts as an answer: a query names a unit that the kinds of the intent
   // do not list, such as a runbook. In the answer group, the query factor of
@@ -805,14 +807,14 @@ export function rankRelated(input: {
       (candidate) => tierOf(candidate.index) === tier,
     )
     const answers = selectDiverse(pool.filter(isAnswer), {
-      ...selection,
+      ...answerSelection,
       limit: limit - selected.length,
     })
     selected.push(...answers.map((candidate) => ({ candidate, answer: true })))
     selected.push(
       ...selectDiverse(
         pool.filter((candidate) => !isAnswer(candidate)),
-        { ...selection, limit: limit - selected.length },
+        { ...otherSelection, limit: limit - selected.length },
       ).map((candidate) => ({ candidate, answer: false })),
     )
   }

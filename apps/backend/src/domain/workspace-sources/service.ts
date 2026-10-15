@@ -30,6 +30,7 @@ import { workspaceAllowsConversationEdits } from "../workspaces/chat-sandbox-pol
 import { isLinkedRepositoryDeclaration } from "../workspaces/layout.js"
 import { changeLinkedRepository } from "../workspaces/link-declarations.js"
 import { resolveRepositoryReadCredential } from "../workspaces/resolve-revision.js"
+import { workspaceRootPath } from "../workspaces/root-path.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../workspaces/write-status.js"
 import { SOURCE_ADAPTERS } from "./adapter.js"
 import {
@@ -218,6 +219,7 @@ async function readSourceBodies(
       url: workspace.workspaceRepositoryUrl,
       sha: revision,
       prefix: SOURCES_FOLDER_PREFIX,
+      root: workspaceRootPath(workspace),
       token,
     })
     for (const file of files) {

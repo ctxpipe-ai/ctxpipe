@@ -1,4 +1,5 @@
 import {
+  listPackBlobs,
   listTreeBlobs,
   nativeGit,
   packRootTree,
