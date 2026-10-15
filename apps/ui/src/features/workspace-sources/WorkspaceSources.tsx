@@ -51,6 +51,17 @@ import {
   sourceAnchorId,
   sourceProviderLabel,
 } from "./source-provider-ui"
+import {
+  sourceGroupHeadClassName,
+  sourceRowActionsClassName,
+  sourceRowClassName,
+  sourceRowMetaClassName,
+  sourceRowNoteClassName,
+  sourceRowSeparatorClassName,
+  sourceRowStatusClassName,
+  sourceRowsClassName,
+  sourceTableHeadClassName,
+} from "./source-table"
 
 // The same dot + word shape as `ConnectorHealthIndicator` on the Connectors page.
 const statusBase = "inline-flex shrink-0 items-center gap-1.5 font-mono text-xs"
@@ -132,43 +143,55 @@ function AwaitingMergeLink(props: { change: PendingSourceChange }) {
   )
 }
 
+/**
+ * The reasons that two or more sources of one group share. The group header
+ * shows each of them once, so the rows do not repeat them.
+ */
+function sharedStatusDetails(sources: WorkspaceSource[]) {
+  const counts = new Map<string, number>()
+  for (const source of sources) {
+    if (source.status === "ok" || !source.statusDetail) continue
+    counts.set(source.statusDetail, (counts.get(source.statusDetail) ?? 0) + 1)
+  }
+  return [...counts].filter(([, count]) => count > 1)
+}
+
+function SharedStatusDetails(props: { details: [string, number][] }) {
+  return props.details.map(([detail, count]) => (
+    <p key={detail} className="text-xs text-amber-200/80">
+      <span>{detail}</span>{" "}
+      <span className="text-amber-200/60">· {plural(count, "source")}</span>
+    </p>
+  ))
+}
+
 function SourceRow(props: {
   source: WorkspaceSource
   pending: PendingSourceChange | undefined
+  /** False when the group header shows the status detail. */
+  showDetail: boolean
   onEdit: (() => void) | null
   onRemove: (() => void) | null
 }) {
-  const { source, pending, onEdit, onRemove } = props
+  const { source, pending, showDetail, onEdit, onRemove } = props
   const tag = STATUS_TAG[source.status]
   return (
-    <li className="flex items-start gap-2 py-1">
-      <div className="min-w-0 flex-1 py-0.5">
-        <p className="truncate text-sm text-foreground">
-          {source.scopeSummary}
-        </p>
-        <p className="truncate text-xs text-muted-foreground">
-          {source.connectionName ?? "No connection"} ·{" "}
-          <code className="font-mono">{source.sourceKey}</code>
-        </p>
-        {source.statusDetail ? (
-          <p
-            className={cn(
-              "mt-0.5 text-xs",
-              source.status === "ok"
-                ? "text-muted-foreground"
-                : "text-amber-200/80",
-            )}
-          >
-            {source.statusDetail}
-          </p>
-        ) : null}
-        {pending ? <AwaitingMergeLink change={pending} /> : null}
-      </div>
-      <div className="flex h-8 shrink-0 items-center gap-1">
-        <span className={cn(tag.className, "mr-1")}>
-          <span className={tag.dotClassName} aria-hidden />
-          {tag.label}
+    <li className={sourceRowClassName}>
+      <p className="truncate text-sm text-foreground">{source.scopeSummary}</p>
+      <p className={sourceRowMetaClassName}>
+        <span className="truncate">
+          {source.connectionName ?? "No connection"}
         </span>
+        <span aria-hidden className={sourceRowSeparatorClassName}>
+          ·
+        </span>
+        <code className="truncate font-mono">{source.sourceKey}</code>
+      </p>
+      <span className={cn(sourceRowStatusClassName, tag.className)}>
+        <span className={tag.dotClassName} aria-hidden />
+        {tag.label}
+      </span>
+      <div className={sourceRowActionsClassName}>
         {onEdit ? (
           <Button
             variant="quiet"
@@ -190,18 +213,35 @@ function SourceRow(props: {
           </Button>
         ) : null}
       </div>
+      {(showDetail && source.statusDetail) || pending ? (
+        <div className={sourceRowNoteClassName}>
+          {showDetail && source.statusDetail ? (
+            <p
+              className={
+                source.status === "ok"
+                  ? "text-muted-foreground"
+                  : "text-amber-200/80"
+              }
+            >
+              {source.statusDetail}
+            </p>
+          ) : null}
+          {pending ? <AwaitingMergeLink change={pending} /> : null}
+        </div>
+      ) : null}
     </li>
   )
 }
 
 function PendingAddRow(props: { change: PendingSourceChange }) {
   return (
-    <li className="flex items-start gap-2 py-1">
-      <div className="min-w-0 flex-1 py-0.5">
-        <p className="truncate text-sm text-foreground">New source</p>
-        <p className="truncate text-xs text-muted-foreground">
-          <code className="font-mono">{props.change.sourceKey}</code>
-        </p>
+    <li className={sourceRowClassName}>
+      <p className="truncate text-sm text-foreground">New source</p>
+      <p className={sourceRowMetaClassName}>
+        <span className="hidden @3xl:block" />
+        <code className="truncate font-mono">{props.change.sourceKey}</code>
+      </p>
+      <div className={cn(sourceRowNoteClassName, "mt-0")}>
         <AwaitingMergeLink change={props.change} />
       </div>
     </li>
@@ -226,11 +266,11 @@ function GithubSourceNotes(props: {
   )
   if (notes.length === 0 && pendingAdds.length === 0) return null
   return (
-    <ul className="mt-1 flex flex-col gap-1">
+    <ul className={sourceRowsClassName}>
       {notes.map((source) => {
         const pending = pendingOf(source.sourceKey)
         return (
-          <li key={source.sourceKey} className="py-1">
+          <li key={source.sourceKey} className="px-3 py-2">
             <p className="truncate text-xs text-muted-foreground">
               {source.connectionName ?? "No connection"} ·{" "}
               <code className="font-mono">{source.sourceKey}</code>
@@ -252,25 +292,27 @@ function GithubSourceNotes(props: {
 }
 
 /**
- * One provider group: an icon tile, a name with a muted meta line, an
- * optional action, and the rows under the name.
+ * One provider group of the sources table: a header row (an icon tile, a
+ * name with a muted meta line, shared notes, and an optional action), then
+ * the rows of the group.
  */
 function ConnectorGroup(props: {
   id?: string
   Icon: ComponentType<{ className?: string }>
   title: string
   meta: string
+  note?: ReactNode
   action?: ReactNode
   children?: ReactNode
 }) {
-  const { id, Icon, title, meta, action, children } = props
+  const { id, Icon, title, meta, note, action, children } = props
   return (
     <div
       id={id}
       ref={id ? scrollIntoViewWhenHashMatches : undefined}
-      className="scroll-mt-4 py-3"
+      className="scroll-mt-4"
     >
-      <div className="flex items-center gap-3">
+      <div className={sourceGroupHeadClassName}>
         <span
           className="ctx-node size-8 shrink-0 rounded-md text-foreground"
           aria-hidden
@@ -280,10 +322,11 @@ function ConnectorGroup(props: {
         <div className="min-w-0 flex-1">
           <h3 className="truncate text-sm text-foreground">{title}</h3>
           <p className="truncate text-xs text-muted-foreground">{meta}</p>
+          {note}
         </div>
         {action}
       </div>
-      {children ? <div className="mt-1 pl-11">{children}</div> : null}
+      {children}
     </div>
   )
 }
@@ -296,24 +339,23 @@ function scrollIntoViewWhenHashMatches(element: HTMLElement | null) {
 
 function SourcesSkeleton() {
   return (
-    <div className="mt-3 flex flex-col divide-y divide-white/[0.06]" aria-busy>
+    <div
+      className="mt-4 flex flex-col divide-y divide-white/[0.06] overflow-hidden rounded-md border border-white/[0.06]"
+      aria-busy
+    >
       <span className="sr-only">Loading sources</span>
       {[0, 1].map((group) => (
-        <div key={group} className="py-3">
-          <div className="flex items-center gap-3">
+        <div key={group}>
+          <div className={sourceGroupHeadClassName}>
             <Skeleton className="size-8 shrink-0 rounded-md" />
             <div className="min-w-0 flex-1">
               <SkeletonText className="text-sm" boneClassName="h-3.5 w-24" />
               <SkeletonText className="text-xs" boneClassName="w-16" />
             </div>
           </div>
-          <div className="mt-1 pl-11">
-            <div className="flex items-start gap-2 py-1">
-              <div className="min-w-0 flex-1 py-0.5">
-                <SkeletonText className="text-sm" boneClassName="h-3.5 w-40" />
-                <SkeletonText className="text-xs" boneClassName="w-28" />
-              </div>
-            </div>
+          <div className="border-t border-white/[0.06] px-3 py-2">
+            <SkeletonText className="text-sm" boneClassName="h-3.5 w-40" />
+            <SkeletonText className="text-xs" boneClassName="w-28" />
           </div>
         </div>
       ))}
@@ -403,30 +445,46 @@ export function WorkspaceSources(props: {
     linkErrors.length === 0
 
   return (
-    <section className="max-w-lg" aria-labelledby="workspace-sources">
+    // The section is the container of the table columns (`source-table.ts`).
+    <section className="@container" aria-labelledby="workspace-sources">
       {/* The settings group eyebrow names this section on screen. */}
       <h2 id="workspace-sources" className="sr-only">
         Sources
       </h2>
-      {loading ? (
-        <SkeletonText className="text-sm" boneClassName="h-3.5 w-48" />
-      ) : data && !isEmpty ? (
-        <p className="text-sm text-muted-foreground">
-          {connectorsSummary(
-            items,
-            pendingChanges,
-            linkedRepositories?.length ?? 0,
+      <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
+        <div className="min-w-0">
+          {loading ? (
+            <SkeletonText className="text-sm" boneClassName="h-3.5 w-48" />
+          ) : data && !isEmpty ? (
+            <p className="text-sm font-medium text-foreground">
+              {connectorsSummary(
+                items,
+                pendingChanges,
+                linkedRepositories?.length ?? 0,
+              )}
+            </p>
+          ) : null}
+          {data && isEmpty ? null : (
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Saved in{" "}
+              <code className="font-mono">
+                {data?.path ?? ".ctxpipe/sources.yaml"}
+              </code>
+            </p>
           )}
-        </p>
-      ) : null}
-      {data && isEmpty ? null : (
-        <p className="mt-0.5 text-xs text-muted-foreground">
-          Saved in{" "}
-          <code className="font-mono">
-            {data?.path ?? ".ctxpipe/sources.yaml"}
-          </code>
-        </p>
-      )}
+        </div>
+        {data && !isEmpty && !sourcesQuery.isError ? (
+          <Link
+            href={`/${orgSlug}/connectors`}
+            className={cn(
+              "shrink-0 rounded-md text-sm text-teal-400 underline-offset-4 transition-colors hover:text-teal-300 hover:underline",
+              focusVisibleClassName,
+            )}
+          >
+            Add another connection
+          </Link>
+        ) : null}
+      </div>
 
       {loading ? (
         <SourcesSkeleton />
@@ -498,156 +556,175 @@ export function WorkspaceSources(props: {
               </InlineAlert>
             </div>
           ) : null}
-          <div className="mt-3 flex flex-col divide-y divide-white/[0.06]">
-            {unknownProvider.length > 0 ? (
-              <ConnectorGroup
-                Icon={IconAlertTriangle}
-                title="Entries not valid"
-                meta={
-                  unknownProvider.length === 1
-                    ? "1 entry"
-                    : `${unknownProvider.length} entries`
-                }
-              >
-                <ul className="flex flex-col">
-                  {unknownProvider.map((source) => (
-                    <SourceRow
-                      key={source.sourceKey}
-                      source={source}
-                      pending={pendingOf(source.sourceKey)}
-                      onEdit={null}
-                      onRemove={
-                        canEdit && source.removable
-                          ? () => setRemoving(source)
-                          : null
-                      }
-                    />
-                  ))}
-                </ul>
-              </ConnectorGroup>
-            ) : null}
-            {groups.map((provider) => {
-              const { Icon } = SOURCE_PROVIDER_UI[provider]
-              const label = sourceProviderLabel(provider)
-              const sources = items.filter((item) => item.provider === provider)
-              const pendingAdds = pendingChanges.filter(
-                (change) =>
-                  change.provider === provider &&
-                  change.action === "add" &&
-                  !sources.some((item) => item.sourceKey === change.sourceKey),
-              )
-              // The GitHub group counts repositories, not source entries.
-              const repositories =
-                provider === "github" ? githubRepositories : null
-              const attention = repositories
-                ? repositories.filter(repositoryNeedsAttention).length
-                : sources.filter((item) => item.status !== "ok").length
-              const connected = connectionsOf(provider).length > 0
-              const meta =
-                [
-                  repositories
-                    ? repositories.length > 0
-                      ? `${repositories.length} ${repositories.length === 1 ? "repository" : "repositories"}`
-                      : null
-                    : sources.length > 0
-                      ? plural(sources.length, "source")
-                      : null,
-                  attention > 0
-                    ? `${attention} ${attention === 1 ? "needs" : "need"} attention`
-                    : null,
-                  pendingAdds.length > 0
-                    ? `${pendingAdds.length} awaiting merge`
-                    : null,
-                ]
-                  .filter(Boolean)
-                  .join(" · ") || `No ${label} sources yet`
-              return (
+          <div className="mt-4 overflow-hidden rounded-md border border-white/[0.06]">
+            <div aria-hidden className={sourceTableHeadClassName}>
+              <span>Source</span>
+              <span>Connection</span>
+              <span>Key</span>
+              <span>Status</span>
+            </div>
+            <div className="flex flex-col divide-y divide-white/[0.06]">
+              {unknownProvider.length > 0 ? (
                 <ConnectorGroup
-                  key={provider}
-                  id={sourceAnchorId(provider)}
-                  Icon={Icon}
-                  title={label}
-                  meta={meta}
-                  action={
-                    provider === "github" && connected && canEdit ? (
-                      <Button
-                        variant="quiet"
-                        onPress={() => setGithubAddOpen(true)}
-                      >
-                        <IconPlus className="size-4" aria-hidden />
-                        Add repositories
-                      </Button>
-                    ) : provider !== "github" && connected && canEdit ? (
-                      <Button
-                        variant="quiet"
-                        aria-label={`Add ${label} source`}
-                        onPress={() => setEditor({ kind: "add", provider })}
-                      >
-                        <IconPlus className="size-4" aria-hidden />
-                        Add
-                      </Button>
-                    ) : null
+                  Icon={IconAlertTriangle}
+                  title="Entries not valid"
+                  meta={
+                    unknownProvider.length === 1
+                      ? "1 entry"
+                      : `${unknownProvider.length} entries`
                   }
                 >
-                  {provider === "github" ? (
-                    <>
-                      <GithubSourceRepositories
-                        orgSlug={orgSlug}
-                        workspaceSlug={workspaceSlug}
-                        workspaceRepositoryUrl={workspaceRepositoryUrl}
-                        rows={githubRepositories}
-                        sources={sources}
-                        connections={connectionsOf(provider)}
-                        canEdit={canEdit}
-                        directCommitAllowed={directCommitAllowed}
-                        addOpen={githubAddOpen}
-                        onAddOpenChange={setGithubAddOpen}
+                  <ul className={sourceRowsClassName}>
+                    {unknownProvider.map((source) => (
+                      <SourceRow
+                        key={source.sourceKey}
+                        source={source}
+                        pending={pendingOf(source.sourceKey)}
+                        showDetail
+                        onEdit={null}
+                        onRemove={
+                          canEdit && source.removable
+                            ? () => setRemoving(source)
+                            : null
+                        }
                       />
-                      <GithubSourceNotes
-                        sources={sources}
-                        pendingAdds={pendingAdds}
-                        pendingOf={pendingOf}
-                      />
-                    </>
-                  ) : sources.length === 0 &&
-                    pendingAdds.length === 0 ? null : (
-                    <ul className="flex flex-col">
-                      {sources.map((source) => (
-                        <SourceRow
-                          key={source.sourceKey}
-                          source={source}
-                          pending={pendingOf(source.sourceKey)}
-                          onEdit={
-                            canEdit
-                              ? () =>
-                                  setEditor({ kind: "edit", provider, source })
-                              : null
-                          }
-                          onRemove={
-                            canEdit && source.removable
-                              ? () => setRemoving(source)
-                              : null
-                          }
-                        />
-                      ))}
-                      {pendingAdds.map((change) => (
-                        <PendingAddRow key={change.sourceKey} change={change} />
-                      ))}
-                    </ul>
-                  )}
+                    ))}
+                  </ul>
                 </ConnectorGroup>
-              )
-            })}
+              ) : null}
+              {groups.map((provider) => {
+                const { Icon } = SOURCE_PROVIDER_UI[provider]
+                const label = sourceProviderLabel(provider)
+                const sources = items.filter(
+                  (item) => item.provider === provider,
+                )
+                const pendingAdds = pendingChanges.filter(
+                  (change) =>
+                    change.provider === provider &&
+                    change.action === "add" &&
+                    !sources.some(
+                      (item) => item.sourceKey === change.sourceKey,
+                    ),
+                )
+                // The GitHub group counts repositories, not source entries.
+                const repositories =
+                  provider === "github" ? githubRepositories : null
+                const attention = repositories
+                  ? repositories.filter(repositoryNeedsAttention).length
+                  : sources.filter((item) => item.status !== "ok").length
+                const connected = connectionsOf(provider).length > 0
+                const meta =
+                  [
+                    repositories
+                      ? repositories.length > 0
+                        ? `${repositories.length} ${repositories.length === 1 ? "repository" : "repositories"}`
+                        : null
+                      : sources.length > 0
+                        ? plural(sources.length, "source")
+                        : null,
+                    attention > 0
+                      ? `${attention} ${attention === 1 ? "needs" : "need"} attention`
+                      : null,
+                    pendingAdds.length > 0
+                      ? `${pendingAdds.length} awaiting merge`
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ") || `No ${label} sources yet`
+                // The GitHub rows are repositories; its notes keep each detail.
+                const shared = repositories ? [] : sharedStatusDetails(sources)
+                return (
+                  <ConnectorGroup
+                    key={provider}
+                    id={sourceAnchorId(provider)}
+                    Icon={Icon}
+                    title={label}
+                    meta={meta}
+                    note={<SharedStatusDetails details={shared} />}
+                    action={
+                      provider === "github" && connected && canEdit ? (
+                        <Button
+                          variant="quiet"
+                          onPress={() => setGithubAddOpen(true)}
+                        >
+                          <IconPlus className="size-4" aria-hidden />
+                          Add repositories
+                        </Button>
+                      ) : provider !== "github" && connected && canEdit ? (
+                        <Button
+                          variant="quiet"
+                          aria-label={`Add ${label} source`}
+                          onPress={() => setEditor({ kind: "add", provider })}
+                        >
+                          <IconPlus className="size-4" aria-hidden />
+                          Add
+                        </Button>
+                      ) : null
+                    }
+                  >
+                    {provider === "github" ? (
+                      <>
+                        <GithubSourceRepositories
+                          orgSlug={orgSlug}
+                          workspaceSlug={workspaceSlug}
+                          workspaceRepositoryUrl={workspaceRepositoryUrl}
+                          rows={githubRepositories}
+                          sources={sources}
+                          connections={connectionsOf(provider)}
+                          canEdit={canEdit}
+                          directCommitAllowed={directCommitAllowed}
+                          addOpen={githubAddOpen}
+                          onAddOpenChange={setGithubAddOpen}
+                        />
+                        <GithubSourceNotes
+                          sources={sources}
+                          pendingAdds={pendingAdds}
+                          pendingOf={pendingOf}
+                        />
+                      </>
+                    ) : sources.length === 0 &&
+                      pendingAdds.length === 0 ? null : (
+                      <ul className={sourceRowsClassName}>
+                        {sources.map((source) => (
+                          <SourceRow
+                            key={source.sourceKey}
+                            source={source}
+                            pending={pendingOf(source.sourceKey)}
+                            showDetail={
+                              !shared.some(
+                                ([detail]) => detail === source.statusDetail,
+                              )
+                            }
+                            onEdit={
+                              canEdit
+                                ? () =>
+                                    setEditor({
+                                      kind: "edit",
+                                      provider,
+                                      source,
+                                    })
+                                : null
+                            }
+                            onRemove={
+                              canEdit && source.removable
+                                ? () => setRemoving(source)
+                                : null
+                            }
+                          />
+                        ))}
+                        {pendingAdds.map((change) => (
+                          <PendingAddRow
+                            key={change.sourceKey}
+                            change={change}
+                          />
+                        ))}
+                      </ul>
+                    )}
+                  </ConnectorGroup>
+                )
+              })}
+            </div>
           </div>
-          <Link
-            href={`/${orgSlug}/connectors`}
-            className={cn(
-              "mt-3 inline-block rounded-md text-sm text-teal-400 underline-offset-4 transition-colors hover:text-teal-300 hover:underline",
-              focusVisibleClassName,
-            )}
-          >
-            Add another connection
-          </Link>
         </>
       )}
 
