@@ -76,6 +76,7 @@ export type WorkspaceComparison = {
     refused: string | null
     unitsWithoutClaims: number
     claimEvidence: { script: number; model: number; none: number }
+    injectionScanned: boolean
     injectionsThrough: InjectionHit[]
   }
 }
@@ -183,13 +184,14 @@ function sourceMarker(value: string): string {
 
 /**
  * The extracted units of one tree, as hydrate reads them. `generatedBy`
- * picks the pipeline. With `sourceUrl`, a v2 unit must list the source in
- * `sources`, and an old unit must have no source marker or one that names
- * the source (its `source` field or a claim `source`).
+ * picks the pipeline. `changedPaths` selects run output regardless of ownership.
+ * With `sourceUrl`, a v2 unit must list the source in `sources`. An old unit
+ * must name the source in `source` or a claim. Each old claim must name it.
  */
 export function projectExtractedTree(input: {
   files: ReadonlyArray<{ path: string; content: string }>
-  generatedBy: typeof OLD_GENERATED_BY | typeof SHADOW_GENERATED_BY
+  generatedBy?: typeof OLD_GENERATED_BY | typeof SHADOW_GENERATED_BY
+  changedPaths?: ReadonlySet<string>
   sourceUrl?: string
 }): ExtractedProjection {
   const { units } = hydrateKnowledgeTree({
@@ -217,7 +219,9 @@ export function projectExtractedTree(input: {
   const extracted: ExtractedUnit[] = []
   for (const unit of units) {
     const attrs = attributes.get(unit.path) ?? {}
-    if (attrs.generated_by !== input.generatedBy) continue
+    if (input.changedPaths) {
+      if (!input.changedPaths.has(unit.path)) continue
+    } else if (attrs.generated_by !== input.generatedBy) continue
     const rawClaims = Array.isArray(attrs.claims)
       ? (attrs.claims as unknown[]).filter(
           (c): c is Record<string, unknown> => !!c && typeof c === "object",
@@ -236,8 +240,7 @@ export function projectExtractedTree(input: {
         const markers = [attrs.source, ...rawClaims.map((c) => c.source)]
           .map(text)
           .filter((m): m is string => m !== null)
-        if (markers.length && !markers.some((m) => sourceMarker(m) === source))
-          continue
+        if (!markers.some((m) => sourceMarker(m) === source)) continue
       }
     }
     const kind = unit.kind ?? ""
@@ -246,6 +249,10 @@ export function projectExtractedTree(input: {
     const dir = unit.path.split("/").slice(0, -1).join("/")
     const claims: ExtractedUnit["claims"] = []
     for (const raw of rawClaims) {
+      if (source && input.generatedBy === OLD_GENERATED_BY) {
+        const claimSource = text(raw.source)
+        if (!claimSource || sourceMarker(claimSource) !== source) continue
+      }
       const to = text(raw.to)
       if (!to) continue
       const target = resolveHydrateLink(dir, to)
@@ -440,6 +447,9 @@ export function compareWorkspace(input: {
       unitsWithoutClaims: input.shadow.units.filter((u) => !u.claims.length)
         .length,
       claimEvidence: evidence,
+      injectionScanned:
+        input.shadow.units.length > 0 &&
+        !!input.injectionPayloads?.some((payload) => payload.text.trim()),
       injectionsThrough: findInjectionsThrough(
         input.shadow.units,
         input.injectionPayloads ?? [],
@@ -539,6 +549,8 @@ export function buildComparisonReport(
     (s, w) => s + w.quality.injectionsThrough.length,
     0,
   )
+  const injectionScanned =
+    workspaces.length > 0 && workspaces.every((w) => w.quality.injectionScanned)
   const known = (v: number | null): v is number => v !== null
   const p95Ms = {
     old: p95(runs.map((r) => r.durationMs.old).filter(known)),
@@ -581,12 +593,14 @@ export function buildComparisonReport(
     },
     {
       id: "injections",
-      status: !runs.length
-        ? "unknown"
-        : injectionsThrough <= t.injectionsThrough
-          ? "pass"
-          : "fail",
-      actual: runs.length ? injectionsThrough : null,
+      status:
+        injectionsThrough > t.injectionsThrough
+          ? "fail"
+          : injectionScanned
+            ? "pass"
+            : "unknown",
+      actual:
+        injectionScanned || injectionsThrough > 0 ? injectionsThrough : null,
       threshold: t.injectionsThrough,
     },
     {
@@ -679,6 +693,22 @@ export function renderComparisonMarkdown(
         "",
         `Unit recall ${percent(w.units.recall)} (${w.units.matched}/${w.units.old}), claim recall ${percent(w.claims.recall)} (${w.claims.matched}/${w.claims.old}), reject rate ${percent(w.quality.rejectRate)}, partial ${w.quality.partial}${w.quality.refused ? `, refused: ${w.quality.refused}` : ""}.`,
       )
+      for (const [title, groups] of [
+        ["Unit kind", w.units.byKind],
+        ["Claim predicate", w.claims.byPredicate],
+      ] as const) {
+        lines.push(
+          "",
+          `| ${title} | Old | Shadow | Matched |`,
+          "| -- | -- | -- | -- |",
+        )
+        for (const [name, counts] of Object.entries(groups).sort(([a], [b]) =>
+          a.localeCompare(b),
+        ))
+          lines.push(
+            `| ${name.replace(/\|/g, "\\|")} | ${counts.old} | ${counts.shadow} | ${counts.matched} |`,
+          )
+      }
       const list = (title: string, items: string[]) => {
         if (items.length)
           lines.push("", `${title}:`, ...items.map((i) => `- ${i}`))

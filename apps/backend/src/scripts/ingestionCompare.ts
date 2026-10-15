@@ -1,17 +1,20 @@
 /**
  * Ingestion shadow comparison (CTX-584 T20, ADR-052). For each finished
  * ingestion v2 shadow run of an org, compares the old pipeline's extracted
- * files on the Workspace default branch with the v2 files on the run's
+ * files at its published commit with the changed files on the run's
  * assembled ref, and reports recall, rejects, cost, p95 time, and the phase 3
  * exit decision. The shadow refs stay 7 days after a run, so run this inside
  * that window.
  *
  * Usage (apps/backend):
  *   bun run src/scripts/ingestionCompare.ts --org-id <org>
- *     [--run-id <id> ...] [--since <ISO time>] [--old-revision <sha>]
+ *     [--run-id <id> ...] [--since <ISO time>] --revisions revisions.json
  *     [--labels labels.json] [--costs costs.json] [--injection-fixtures]
  *     [--out report.json]
  *
+ * `revisions.json`: an object from shadow run id to Workspace id to
+ * `{ "oldPublished": <old run published SHA>, "shadowBase": <v2 pinned SHA> }`.
+ * Read these commits from the old publish result and the v2 resolve step.
  * `labels.json`: an array of `IngestionLabelSet`. `costs.json`: an object
  * from shadow run id to `{ "old": <USD>, "shadow": <USD> }` (read the model
  * cost from Langfuse). `--injection-fixtures` scans for the T19 payloads.
@@ -32,15 +35,20 @@ import {
   type RunComparison,
   renderComparisonMarkdown,
 } from "../domain/ingestion/ingestion-compare.js"
-import { compareShadowRun } from "../domain/ingestion/ingestion-compare-run.js"
+import {
+  type ComparisonRevisions,
+  compareShadowRun,
+} from "../domain/ingestion/ingestion-compare-run.js"
 import { INJECTION_CASES } from "../domain/ingestion/injection-fixtures.js"
 import { resolveRepositoryReadCredential } from "../domain/workspaces/resolve-revision.js"
 import { finishedShadowRunPairs } from "../models/ingestion-shadow-runs.js"
 import { getWorkspaceWriteAdmission } from "../models/workspaces.js"
+import { flushEvlog, initEvlog, log } from "../observability/logger.js"
 import { gitRemoteEnvironment } from "../services/git/clone-tree.js"
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url))
-config({ path: resolve(__dirname, "../../.env.local") })
+config({ path: resolve(__dirname, "../../.env.local"), quiet: true })
+initEvlog({ stderr: true })
 
 function flags(argv: string[], name: string): string[] {
   return argv.flatMap((arg, i) => {
@@ -63,7 +71,10 @@ async function main(argv: string[]): Promise<void> {
   const env = parseEnv(process.env)
   const runIds = flags(argv, "--run-id")
   const [since] = flags(argv, "--since")
-  const [oldRevision] = flags(argv, "--old-revision")
+  const revisions = readJson<Record<string, ComparisonRevisions>>(
+    flags(argv, "--revisions")[0],
+  )
+  if (!revisions) throw new Error("--revisions is required")
   const labels = readJson<IngestionLabelSet[]>(flags(argv, "--labels")[0])
   const costs =
     readJson<Record<string, { old: number | null; shadow: number | null }>>(
@@ -101,7 +112,7 @@ async function main(argv: string[]): Promise<void> {
         await compareShadowRun({
           pair,
           remoteFor,
-          ...(oldRevision ? { oldRevision } : {}),
+          revisions: revisions[pair.shadowRunId],
           ...(labels ? { labels } : {}),
           injectionPayloads: payloads,
           ...(costs[pair.shadowRunId]
@@ -118,9 +129,11 @@ async function main(argv: string[]): Promise<void> {
   }
 }
 
-main(process.argv.slice(2)).catch((error) => {
-  process.stderr.write(
-    `${error instanceof Error ? error.message : String(error)}\n`,
-  )
-  process.exit(1)
+main(process.argv.slice(2)).catch(async (error) => {
+  log.error({
+    step: "ingestion.compare",
+    message: error instanceof Error ? error.message : String(error),
+  })
+  await flushEvlog()
+  process.exitCode = 1
 })

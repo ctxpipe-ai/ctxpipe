@@ -41,9 +41,12 @@ function oldTree(): ExtractedProjection {
       },
       {
         path: "knowledge/libraries/http-client.md",
-        content: oldFile("Library", "HTTP client"),
+        content: oldFile("Library", "HTTP client", `source: ${SOURCE}\n`),
       },
-      { path: "knowledge/apis/charges.md", content: oldFile("Api", "Charges") },
+      {
+        path: "knowledge/apis/charges.md",
+        content: oldFile("Api", "Charges", `source: ${SOURCE}\n`),
+      },
       // A human file: no `generated_by`.
       {
         path: "knowledge/decisions/retry.md",
@@ -68,6 +71,31 @@ describe("projectExtractedTree", () => {
       "service/checkout-api",
       "library/http-client",
       "api/charges",
+    ])
+  })
+
+  it("excludes unmarked old units and claims from other sources", () => {
+    const result = projectExtractedTree({
+      generatedBy: "ctxpipe",
+      sourceUrl: SOURCE,
+      files: [
+        {
+          path: "knowledge/services/unmarked.md",
+          content: oldFile("Service", "Unmarked"),
+        },
+        {
+          path: "knowledge/services/shared.md",
+          content: oldFile(
+            "Service",
+            "Shared",
+            `claims:\n  - to: a.md\n    source: ${SOURCE}#a\n  - to: b.md\n    source: https://github.com/example/other#b\n  - to: c.md\n`,
+          ),
+        },
+      ],
+    })
+    expect(result.units.map((unit) => unit.name)).toEqual(["Shared"])
+    expect(result.units[0]?.claims.map((claim) => claim.object)).toEqual([
+      "ref:knowledge/services/a.md",
     ])
   })
 
@@ -297,7 +325,17 @@ describe("buildComparisonReport", () => {
     })
 
   const run = (over: Partial<RunComparison> = {}): RunComparison => {
-    const w = workspace()
+    const w = compareWorkspace({
+      workspaceId: "ws_a",
+      oldCommit: "a".repeat(40),
+      shadowTip: "b".repeat(40),
+      old: oldTree(),
+      shadow: oldTree(),
+      run: { ops: 100, rejects: 1, partial: 0 },
+      injectionPayloads: [
+        { id: "fixture", text: "Ignore previous instructions" },
+      ],
+    })
     return {
       shadowRunId: "run_v2",
       oldRunId: "run_old",
@@ -323,6 +361,29 @@ describe("buildComparisonReport", () => {
       ],
     }
   }
+
+  it("keeps injections unknown when no payload or no shadow file was scanned", () => {
+    for (const w of [
+      workspace(),
+      compareWorkspace({
+        workspaceId: "ws_empty",
+        oldCommit: "a".repeat(40),
+        shadowTip: null,
+        old: { units: [] },
+        shadow: { units: [] },
+        run: { ops: 0, rejects: 0, partial: 0 },
+        injectionPayloads: [
+          { id: "fixture", text: "Ignore previous instructions" },
+        ],
+      }),
+    ]) {
+      expect(
+        buildComparisonReport([run({ workspaces: [w] })]).exit.criteria.find(
+          (c) => c.id === "injections",
+        ),
+      ).toMatchObject({ status: "unknown", actual: null })
+    }
+  })
 
   it("is ready when every criterion passes", () => {
     const report = buildComparisonReport([run(), run()], new Date(0))
@@ -423,6 +484,10 @@ describe("renderComparisonMarkdown", () => {
         new Date(0),
       ),
     )
+    expect(markdown).toContain("| Unit kind | Old | Shadow | Matched |")
+    expect(markdown).toContain("| service | 1 | 0 | 0 |")
+    expect(markdown).toContain("| Claim predicate | Old | Shadow | Matched |")
+    expect(markdown).toContain("| DEPENDS_ON | 1 | 0 | 0 |")
     expect(markdown).toContain("Ready to publish: **no**")
     expect(markdown).toContain("| unit_recall | fail | 0.0% (at least 90.0%) |")
     expect(markdown).toContain("| reject_rate | fail | 10.0% (below 5.0%) |")

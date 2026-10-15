@@ -13,7 +13,6 @@ import {
   OLD_GENERATED_BY,
   projectExtractedTree,
   type RunComparison,
-  SHADOW_GENERATED_BY,
 } from "./ingestion-compare.js"
 import { ingestionV2InputSchema } from "./ingestion-run.js"
 import { runGit } from "./run-git.js"
@@ -120,16 +119,20 @@ function shadowWorkspaces(output: unknown): {
 const duration = (start: Date | null, end: Date | null) =>
   start && end ? end.getTime() - start.getTime() : null
 
-/**
- * Compares one shadow run with the old output (T20). For each destination
- * Workspace, the old projection is the old extracted files at
- * `oldRevision` (default: the default branch tip), and the shadow
- * projection is the v2 files of the source on the assembled ref tip.
- */
+/** Immutable commits for one run and destination Workspace. */
+export type ComparisonRevisions = Record<
+  string,
+  {
+    oldPublished: string
+    shadowBase: string
+  }
+>
+
+/** Compare the old published tree with the files changed by the shadow run. */
 export async function compareShadowRun(input: {
   pair: ShadowRunPair
   remoteFor: (workspaceId: string) => Promise<IngestRemote>
-  oldRevision?: string
+  revisions?: ComparisonRevisions
   labels?: readonly IngestionLabelSet[]
   injectionPayloads?: readonly InjectionPayload[]
   costUsd?: { old: number | null; shadow: number | null }
@@ -146,19 +149,34 @@ export async function compareShadowRun(input: {
   const compared: RunComparison["workspaces"] = []
   for (const workspace of workspaces) {
     const remote = await input.remoteFor(workspace.workspaceId)
-    const oldTree = await readMarkdownTree(remote, input.oldRevision ?? "HEAD")
+    const revisions = input.revisions?.[workspace.workspaceId]
+    if (!revisions)
+      throw new Error(
+        `Missing comparison revisions for ${workspace.workspaceId}`,
+      )
+    for (const revision of [revisions.oldPublished, revisions.shadowBase])
+      if (!/^[0-9a-f]{40}$/.test(revision))
+        throw new Error("Comparison revisions must be commit SHAs")
+    const oldTree = await readMarkdownTree(remote, revisions.oldPublished)
     const old = projectExtractedTree({
       files: oldTree.files,
       generatedBy: OLD_GENERATED_BY,
       sourceUrl,
     })
-    const shadow = workspace.assembled
-      ? projectExtractedTree({
-          files: (await readMarkdownTree(remote, workspace.assembled)).files,
-          generatedBy: SHADOW_GENERATED_BY,
-          sourceUrl,
-        })
-      : { units: [] }
+    let shadow: ExtractedProjection = { units: [] }
+    if (workspace.assembled) {
+      const base = await readMarkdownTree(remote, revisions.shadowBase)
+      const tip = await readMarkdownTree(remote, workspace.assembled)
+      const before = new Map(
+        base.files.map((file) => [file.path, file.content]),
+      )
+      const changed = new Set(
+        tip.files
+          .filter((file) => before.get(file.path) !== file.content)
+          .map((file) => file.path),
+      )
+      shadow = projectExtractedTree({ files: tip.files, changedPaths: changed })
+    }
     olds.push(old)
     shadows.push(shadow)
     compared.push(

@@ -152,8 +152,16 @@ async function workspaceRepository(runId: string, workspaceId: string) {
         "Checkout API",
         `claims:\n  - to: ../libraries/http-client.md\n    predicate: DEPENDS_ON\n    source: ${SOURCE}#package.json\n`,
       ),
-      "knowledge/libraries/http-client.md": oldFile("Library", "HTTP client"),
-      "knowledge/apis/charges.md": oldFile("Api", "Charges"),
+      "knowledge/libraries/http-client.md": oldFile(
+        "Library",
+        "HTTP client",
+        `source: ${SOURCE}\n`,
+      ),
+      "knowledge/apis/charges.md": oldFile(
+        "Api",
+        "Charges",
+        `source: ${SOURCE}\n`,
+      ),
       "knowledge/decisions/retry.md": "---\nkind: Decision\n---\n# Retry\n",
     },
     "Old pipeline output",
@@ -286,6 +294,9 @@ describe("compareShadowRun", () => {
       const asked: string[] = []
       const run = await compareShadowRun({
         pair,
+        revisions: {
+          [workspaceId]: { oldPublished: repo.base, shadowBase: repo.base },
+        },
         remoteFor: async (id) => {
           asked.push(id)
           return { url: repo.url }

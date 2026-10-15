@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
-import { readMarkdownTree } from "./ingestion-compare-run.js"
+import { compareShadowRun, readMarkdownTree } from "./ingestion-compare-run.js"
 import { runGit } from "./run-git.js"
 
 let root: string
@@ -76,4 +76,64 @@ describe("readMarkdownTree", () => {
       "git fetch failed",
     )
   })
+})
+
+it("counts changed foreign files from the run base and pins the old published commit", async () => {
+  const work = join(root, "foreign-work")
+  await runGit(root, ["init", "--quiet", "-b", "main", work])
+  const source = "https://github.com/example/source"
+  const file = (name: string, body: string) =>
+    `---\nkind: Service\ngenerated_by: ctxpipe\nsource: ${source}\n---\n# ${name}\n\n${body}\n`
+  const old = await commit(work, {
+    "knowledge/services/api.md": file("API", "Old"),
+  })
+  const base = await commit(work, {
+    "knowledge/services/unrelated.md": file("Unrelated", "Before shadow"),
+  })
+  const tip = await commit(work, {
+    "knowledge/services/api.md": file("API", "Shadow joined"),
+  })
+  await commit(work, {
+    "knowledge/services/later.md": file("Later", "After run"),
+  })
+  const pair = {
+    shadowRunId: "wr_fixture",
+    oldRunId: "wr_old",
+    status: "completed",
+    input: {
+      orgId: "org_fixture",
+      shadow: true,
+      source: { url: source, githubConnectionId: "con_fixture" },
+      sha: "c".repeat(40),
+      authorTime: "2026-10-01T00:00:00.000Z",
+    },
+    output: {
+      status: "done",
+      workspaces: [
+        {
+          workspaceId: "ws_fixture",
+          assembled: tip,
+          ops: 1,
+          rejects: 0,
+          partial: 0,
+        },
+      ],
+    },
+    shadowStartedAt: null,
+    shadowFinishedAt: null,
+    oldStartedAt: null,
+    oldFinishedAt: null,
+  }
+  const result = await compareShadowRun({
+    pair,
+    remoteFor: async () => ({ url: work }),
+    revisions: { ws_fixture: { oldPublished: old, shadowBase: base } },
+  })
+  expect(result.workspaces[0]).toMatchObject({
+    oldCommit: old,
+    units: { old: 1, shadow: 1, matched: 1, recall: 1 },
+  })
+  await expect(
+    compareShadowRun({ pair, remoteFor: async () => ({ url: work }) }),
+  ).rejects.toThrow("Missing comparison revisions")
 })
