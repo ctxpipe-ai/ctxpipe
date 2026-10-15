@@ -1,6 +1,7 @@
 import { z } from "zod"
 import { repositoryFilePathSchema } from "../../services/git/file-change.js"
 import type { GitMergeConflict } from "../../services/git/merge-tree.js"
+import { addedOwnershipField, isHostOnlyPath } from "./host-only.js"
 
 const MERGE_DEADLINE_MS = 120_000
 
@@ -24,6 +25,9 @@ const resolutionSchema = z
  * involved, so it needs no sandbox.
  */
 export async function resolveSemanticConflicts(conflicts: GitMergeConflict[]) {
+  // Only the host writes these paths (CTX-722), so no model output can.
+  if (conflicts.some((conflict) => isHostOnlyPath(conflict.path)))
+    throw new Error("Semantic merge refuses a conflict on a host-only path")
   const content = JSON.stringify(conflicts)
   if (Buffer.byteLength(content) > 8 * 1024 * 1024)
     throw new Error("Semantic merge conflict input exceeds the supported size")
@@ -57,5 +61,20 @@ export async function resolveSemanticConflicts(conflicts: GitMergeConflict[]) {
     throw new Error(
       "Semantic merge did not resolve exactly the conflicting files",
     )
+  // The model must not give a file to ingestion (CTX-722): an ownership field
+  // in its output must come from one of the three versions of the file.
+  for (const file of resolution.files) {
+    const conflict = conflicts.find(({ path }) => path === file.path)
+    if (
+      file.content !== null &&
+      conflict &&
+      [conflict.base, conflict.current, conflict.incoming].every((before) =>
+        addedOwnershipField(before, file.content ?? ""),
+      )
+    )
+      throw new Error(
+        "Semantic merge added ownership fields that no version of the file has",
+      )
+  }
   return resolution.files
 }
