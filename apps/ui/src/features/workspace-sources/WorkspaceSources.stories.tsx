@@ -832,6 +832,74 @@ export const FileNotValid: Story = {
   },
 }
 
+export const RefusedLinkAndRepositoryFile: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceSourcesHandler(
+            workspaceSourceList({
+              items: [
+                linearSource,
+                workspaceSourceFixture({
+                  sourceKey: "old-entry",
+                  provider: null,
+                  connectionId: null,
+                  connectionName: null,
+                  status: "invalid",
+                  statusDetail: "The provider is not known",
+                  scopeSummary: "Unknown provider",
+                }),
+                workspaceSourceFixture({
+                  sourceKey: "repositories/tools.md",
+                  provider: null,
+                  connectionId: null,
+                  connectionName: null,
+                  status: "invalid",
+                  statusDetail:
+                    "repositories/tools.md: ctx| links only GitHub repositories. Move the link into .ctxpipe/sources.yaml or remove the file.",
+                  scopeSummary: "Repository file",
+                  removable: false,
+                }),
+              ],
+              linkErrors: [
+                {
+                  action: "link",
+                  gitUrl: "https://gitlab.com/acme/tools",
+                  reason:
+                    "Only a GitHub repository can be linked to a Workspace",
+                  failedAt: "2026-10-14T10:00:00.000Z",
+                },
+              ],
+            }),
+          ),
+          connected,
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("A repository link was not saved")
+    await expect(
+      canvas.getByText(/Only a GitHub repository can be linked to a Workspace/),
+    ).toBeVisible()
+    await expect(
+      canvas.getByText("https://gitlab.com/acme/tools"),
+    ).toBeVisible()
+    // The repository file shows its error, but a remove cannot name it.
+    await expect(
+      canvas.getByText(/repositories\/tools\.md: ctx\| links only GitHub/),
+    ).toBeVisible()
+    await expect(
+      canvas.queryByRole("button", { name: "Remove repositories/tools.md" }),
+    ).toBeNull()
+    await expect(
+      canvas.getByRole("button", { name: "Remove old-entry" }),
+    ).toBeVisible()
+  },
+}
+
 export const LoadFailed: Story = {
   parameters: {
     msw: {
