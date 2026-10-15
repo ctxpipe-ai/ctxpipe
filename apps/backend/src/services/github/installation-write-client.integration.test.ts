@@ -1,12 +1,14 @@
 import { eq } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import {
-  type GithubTokenLog,
-  githubTokenHandlers,
-  insertGithubConnection,
-  stubGithubApp,
-} from "../../test/ingest-github.js"
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest"
 import { useMswServer } from "../../../test/msw.js"
 import { parseEnv } from "../../config/env.js"
 import {
@@ -19,6 +21,12 @@ import { organizations } from "../../db/schema/auth.js"
 import { connections } from "../../db/schema/connections.js"
 import { workspaces } from "../../db/schema/workspaces.js"
 import { generateObjectId } from "../../lib/id.js"
+import {
+  type GithubTokenLog,
+  githubTokenHandlers,
+  insertGithubConnection,
+  stubGithubApp,
+} from "../../test/ingest-github.js"
 import { loadLinearScopeFromRepo } from "../linear/config-from-repo.js"
 import { syncLinearConfigYaml } from "../linear/sync.js"
 import { loadPagerdutyScopeFromRepo } from "../pagerduty/config-from-repo.js"
@@ -43,6 +51,10 @@ const ROOT = "docs/ctx"
 
 // biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 const server = useMswServer()
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
 
 beforeAll(async () => {
   if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required")
@@ -215,6 +227,17 @@ describe("GitHub write client with a Workspace root folder", () => {
 describe("connector config files with a Workspace root folder", () => {
   it("proposes the Linear config below the root folder", async () => {
     const github = githubRepository()
+    // Octokit spaces its write requests by 1 to 2 s, which would take 5 s here. Run
+    // the short spacing timers at once; Postgres and msw keep real I/O.
+    const realSetTimeout = globalThis.setTimeout
+    vi.spyOn(globalThis, "setTimeout").mockImplementation(((
+      callback: () => void,
+      delay?: number,
+    ) =>
+      realSetTimeout(
+        callback,
+        delay !== undefined && delay <= 5_000 ? 0 : delay,
+      )) as typeof setTimeout)
     const now = new Date()
     const result = await syncLinearConfigYaml({
       orgId,
