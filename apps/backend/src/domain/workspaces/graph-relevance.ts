@@ -14,7 +14,8 @@
  * 4. MMR diversity selects the results, and the path with the highest weight
  *    product (Dijkstra on −ln w) explains each result. The path weight has no
  *    predicate weight, so the path does not depend on the intent.
- * 5. The units of an answer kind of the intent come first (`isAnswerKind`).
+ * 5. The units of an answer kind of the intent come first (`isAnswerKind`),
+ *    together with the strong query hits (`STRONG_QUERY_MATCH`).
  *    The kind of a unit, not the predicate of its edge, tells what it
  *    answers, because Workspace claims have free-form predicates.
  *
@@ -294,6 +295,12 @@ const UNDATED_RECENCY = 0.5
 
 /** A unit that the query did not find still has this query factor. */
 const QUERY_MATCH_BASE = 0.1
+
+/**
+ * A query hit with at least this share of the top query score ranks with the
+ * answers of the intent. A weaker hit can be a loose semantic match.
+ */
+const STRONG_QUERY_MATCH = 0.5
 
 const DAY_MS = 86_400_000
 const PPR_TOLERANCE = 1e-12
@@ -748,12 +755,13 @@ export function rankRelated(input: {
     limit,
     neighbors,
   }
-  // The answers first, each group with its own MMR. The groups share no
-  // kind, so `maxPerKind` counts each kind in one group only. The best hit
-  // of the query also counts as an answer: a query names a unit that the
-  // kinds of the intent do not list, such as a runbook.
+  // The answers first, each group with its own MMR. A strong query hit also
+  // counts as an answer: a query names a unit that the kinds of the intent
+  // do not list, such as a runbook. In the answer group, the query factor of
+  // the score puts a strong hit before an answer kind that the query missed.
   const isAnswer = (candidate: (typeof candidates)[number]) =>
-    isAnswerKind(intent, candidate.node.kind) || candidate.queryMatch >= 1
+    isAnswerKind(intent, candidate.node.kind) ||
+    candidate.queryMatch >= STRONG_QUERY_MATCH
   const answers = selectDiverse(candidates.filter(isAnswer), selection)
   const selected = [
     ...answers,

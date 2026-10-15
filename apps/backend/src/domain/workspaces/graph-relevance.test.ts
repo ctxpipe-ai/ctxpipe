@@ -1044,6 +1044,40 @@ describe("rankRelated answer kinds of the intent", () => {
     expect(result[0]?.id).toBe("runbook")
   })
 
+  it("ranks a strong query hit that is not the best one before a weakly related answer kind with no intent", () => {
+    const result = rankRelated({
+      ...input,
+      nodes: [
+        ...input.nodes,
+        node("runbook", "Runbook", { degree: 1 }),
+        node("playbook", "Runbook", { degree: 1 }),
+      ],
+      signals: [
+        ...input.signals,
+        signal("s", "runbook", 0.9),
+        signal("s", "playbook", 0.4),
+      ],
+      queryHits: [
+        { id: "runbook", score: 2 / 61 },
+        { id: "playbook", score: (0.8 * 2) / 61 },
+      ],
+      options: { now: NOW },
+    }).map((ranked) => ranked.id)
+    expect(result.indexOf("playbook")).toBeLessThan(result.indexOf("library"))
+  })
+
+  it("keeps a weak query hit after the answer kinds with no intent", () => {
+    const result = rankRelated({
+      ...input,
+      queryHits: [
+        { id: "rule0", score: 2 / 61 },
+        { id: "rule1", score: 0.2 * (2 / 61) },
+      ],
+      options: { now: NOW },
+    }).map((ranked) => ranked.id)
+    expect(result.indexOf("rule1")).toBeGreaterThan(result.indexOf("library"))
+  })
+
   it("does not reorder an intent with no answer kinds", () => {
     expect(ids({ intent: "structure" })[0]).toMatch(/^rule/)
   })
