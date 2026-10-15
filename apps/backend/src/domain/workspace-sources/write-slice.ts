@@ -16,7 +16,8 @@ import type { WorkspaceSliceWrite } from "./sync.js"
 /**
  * The production slice writer: read the Workspace head, drop the write when
  * the sources file changed after the rows' revision, and queue one connector
- * mirror commit fenced by the blob of `.ctxpipe/sources.yaml`.
+ * mirror commit fenced by the blob of `.ctxpipe/sources.yaml`. A cleanup is
+ * fenced only on its removed targets: the head file must not have them.
  */
 export async function writeWorkspaceSlice(
   write: WorkspaceSliceWrite,
@@ -39,6 +40,7 @@ export async function writeWorkspaceSlice(
       token: resolved.token,
       headSha: resolved.revision.sha,
       rowsRevision: write.sourcesRevision,
+      removed: write.removed,
     })
   })
   // The next projection plans a new write from the changed sources file.
@@ -56,7 +58,9 @@ export async function writeWorkspaceSlice(
         mirror: {
           provider: write.provider,
           connectionId: write.connectionId,
-          sourcesBlobSha: captured.sourcesBlobSha,
+          ...(write.removed
+            ? { removedTargets: write.removed }
+            : { sourcesBlobSha: captured.sourcesBlobSha }),
         },
         mergeFiles: change.files,
         mergeDeletePaths: change.deletePaths,

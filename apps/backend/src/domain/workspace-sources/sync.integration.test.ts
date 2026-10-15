@@ -228,6 +228,13 @@ describe("Workspace source sync frame (Postgres)", () => {
         ownedPrefixes: ["confluence/HR/"],
         keepPrefixes: [],
         sourcesRevision: "f".repeat(40),
+        removed: [
+          {
+            provider: "confluence",
+            connectionId: forge,
+            scope: { spaces: ["ENG", "HR"] },
+          },
+        ],
       },
     ])
   })

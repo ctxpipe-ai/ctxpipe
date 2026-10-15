@@ -1,5 +1,8 @@
 import type { Env } from "../../config/env.js"
-import { lastGoodTarget } from "../../models/workspace-source-state.js"
+import {
+  lastGoodTarget,
+  type SourceTarget,
+} from "../../models/workspace-source-state.js"
 import {
   listConnectionSourceRows,
   listWorkspaceSourceRows,
@@ -32,6 +35,12 @@ export type WorkspaceSliceWrite = {
    * writer drops the write when the sources file changed after it.
    */
   sourcesRevision: string
+  /**
+   * A cleanup: the targets of the removed sources. The writer drops the
+   * write only when the sources file has one of them again, because no later
+   * projection plans a dropped cleanup again.
+   */
+  removed?: SourceTarget[]
 }
 
 export type SliceWriter = (write: WorkspaceSliceWrite) => Promise<void>
@@ -270,7 +279,12 @@ export async function cleanupRemovedSources(input: {
   const writes: WorkspaceSliceWrite[] = []
   const byProvider = new Map<
     SourceProvider,
-    { connectionId: string; prefixes: Set<string>; keep: Set<string> }
+    {
+      connectionId: string
+      prefixes: Set<string>
+      keep: Set<string>
+      removed: SourceTarget[]
+    }
   >()
   for (const source of input.removed) {
     const adapter = source.provider
@@ -290,7 +304,13 @@ export async function cleanupRemovedSources(input: {
       connectionId: source.connectionId,
       prefixes: new Set<string>(),
       keep: new Set<string>(),
+      removed: [],
     }
+    entry.removed.push({
+      provider: adapter.provider,
+      connectionId: source.connectionId,
+      scope: source.scope,
+    })
     for (const prefix of stale) {
       entry.prefixes.add(prefix)
       for (const keep of kept) if (overlaps(prefix, keep)) entry.keep.add(keep)
@@ -307,6 +327,7 @@ export async function cleanupRemovedSources(input: {
       ownedPrefixes: [...entry.prefixes].sort(),
       keepPrefixes: [...entry.keep].sort(),
       sourcesRevision: input.revision,
+      removed: entry.removed,
     }
     await input.write(write)
     writes.push(write)

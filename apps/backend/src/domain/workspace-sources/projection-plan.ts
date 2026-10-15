@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util"
 import {
   parseSourceEntry,
   SOURCE_SCOPES,
@@ -176,4 +177,31 @@ async function planEntryRows(input: {
     )
   }
   return [...rows.values()]
+}
+
+/**
+ * Tell if the sources file `text` has none of `targets`, by provider,
+ * connection and scope. A file or an entry id that cannot be read can hold a
+ * target, so then the result is false.
+ */
+export async function sourcesFileHasNone(
+  text: string | null,
+  targets: ReadonlyArray<{
+    provider: string | null
+    connectionId: string | null
+    scope: unknown
+  }>,
+): Promise<boolean> {
+  const rows = await planSourceRows({ text, connections: new Map() })
+  return (
+    unmatchedSourceDetail(rows) === null &&
+    !rows.some((row) =>
+      targets.some(
+        (target) =>
+          target.provider === row.provider &&
+          target.connectionId === row.connectionId &&
+          isDeepStrictEqual(target.scope, row.scope),
+      ),
+    )
+  )
 }

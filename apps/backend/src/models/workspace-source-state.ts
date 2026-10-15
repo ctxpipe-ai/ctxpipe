@@ -43,7 +43,7 @@ export const sourceStateSchema = z.discriminatedUnion("provider", [
 export type SourceState = z.infer<typeof sourceStateSchema>
 export type GithubSourceState = Extract<SourceState, { provider: "github" }>
 
-const sourceTargetSchema = z.object({
+export const sourceTargetSchema = z.object({
   provider: z.string().min(1),
   connectionId: z.string().min(1),
   scope: z.record(z.string(), z.unknown()),
