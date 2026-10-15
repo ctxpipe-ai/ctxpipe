@@ -1,4 +1,5 @@
 import { setTimeout as delay } from "node:timers/promises"
+import { type Span, SpanStatusCode } from "@opentelemetry/api"
 import { z } from "zod"
 import { type Env, parseEnv } from "../../config/env.js"
 import {
@@ -22,6 +23,11 @@ import {
 } from "../../domain/ingestion/ingest-source-tree.js"
 import { withIngestStepOutput } from "../../domain/ingestion/ingest-step-output.js"
 import {
+  capIngestText,
+  logIngestEvent,
+  withIngestSpan,
+} from "../../domain/ingestion/ingest-telemetry.js"
+import {
   INGEST_SHARD_MAX_ROOTS,
   type IngestSkillPlan,
   ingestRootMap,
@@ -40,11 +46,7 @@ import {
   listWorkspaceIngestStepFiles,
   pushWorkspaceIngestStep,
 } from "../../domain/workspaces/write-broker.js"
-import {
-  createLogger,
-  getLogger,
-  withLogger,
-} from "../../observability/logger.js"
+import { createLogger, withLogger } from "../../observability/logger.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { cleanUpUnlessParked } from "../isSleepSignal.js"
 
@@ -156,6 +158,14 @@ export type IngestionV2Deps = {
   runtime: IngestShardRuntimeFactory
   bundle: () => Promise<IngestSkillBundle>
   env?: () => Env
+}
+
+/** The sum of one count over the Workspaces of a shard. */
+function sum(
+  workspaces: IngestionShardWorkspace[],
+  key: "ops" | "rejects" | "partial",
+): number {
+  return workspaces.reduce((total, w) => total + w[key], 0)
 }
 
 /** The holder of a shard child's own copy of the source tree. */
@@ -279,6 +289,28 @@ export function defineIngestionShardWorkflow(deps: IngestionV2Deps) {
         })
         return { shard: input.shard, workspaces: [...state.values()] }
       }
+      const runShardSpan = () =>
+        withIngestSpan(
+          "ingestion.shard",
+          {
+            "ctxpipe.org.id": input.orgId,
+            "ctxpipe.ingest.run.id": input.runId,
+            "ctxpipe.ingest.shard": String(input.shard),
+            "ctxpipe.ingest.mode": input.mode,
+            "ctxpipe.ingest.source.sha": input.source.sha,
+            "ctxpipe.ingest.bundle": input.bundle,
+          },
+          async (span) => {
+            const output = await runShard()
+            span.setAttributes({
+              "ctxpipe.ingest.workspaces": output.workspaces.length,
+              "ctxpipe.ingest.ops": sum(output.workspaces, "ops"),
+              "ctxpipe.ingest.rejects": sum(output.workspaces, "rejects"),
+              "ctxpipe.ingest.partial": sum(output.workspaces, "partial"),
+            })
+            return output
+          },
+        )
       return withLogger(
         createLogger({
           workflow: INGESTION_SHARD_WORKFLOW_NAME,
@@ -290,7 +322,7 @@ export function defineIngestionShardWorkflow(deps: IngestionV2Deps) {
         // repositories go when the child ends, also when it fails. A sibling
         // child has its own copies.
         () =>
-          cleanUpUnlessParked(runShard, async () => {
+          cleanUpUnlessParked(runShardSpan, async () => {
             await releaseIngestSourceTree(
               input.runId,
               input.source.sha,
@@ -307,7 +339,10 @@ export function defineIngestionShardWorkflow(deps: IngestionV2Deps) {
 type SkillRun = Pick<
   IngestionShardInput,
   "runId" | "bundle" | "source" | "authorTime" | "roots"
->
+> & {
+  /** The shard number, for telemetry; the parent's steps run in shard 0. */
+  shard?: number
+}
 
 /**
  * The ref jobs of one skill step for one Workspace. In production it is the
@@ -435,19 +470,34 @@ export async function runSkillPages(ctx: SkillPages): Promise<void> {
     if (!result.more) return
     if (result.ops === 0) {
       state.partial++
-      getLogger().warn("ingestion-v2.step-partial", {
-        step: label,
-        workspaceId: ctx.destination.workspaceId,
-        reason: `Page ${page} said more but the validator accepted no op`,
-      })
+      logStepPartial(
+        ctx,
+        label,
+        `Page ${page} said more but the validator accepted no op`,
+      )
       return
     }
   }
   state.partial++
-  getLogger().warn("ingestion-v2.step-partial", {
-    step: label,
+  logStepPartial(
+    ctx,
+    label,
+    `The skill still had files after ${INGEST_MAX_PAGES} pages`,
+  )
+}
+
+/** One log event for a step that ends `partial`, with its reason. */
+function logStepPartial(
+  ctx: Pick<SkillPages, "run" | "destination">,
+  step: string,
+  reason: string,
+): void {
+  logIngestEvent("warn", "ingestion-v2.step-partial", {
+    ingestionRunId: ctx.run.runId,
+    ...(ctx.run.shard === undefined ? {} : { shard: ctx.run.shard }),
     workspaceId: ctx.destination.workspaceId,
-    reason: `The skill still had files after ${INGEST_MAX_PAGES} pages`,
+    ingestStep: step,
+    reason: capIngestText(reason),
   })
 }
 
@@ -456,12 +506,48 @@ export async function runSkillPages(ctx: SkillPages): Promise<void> {
  * failed attempt, or at once when the broker refuses the job: the root keeps
  * what the earlier steps wrote, and the run goes on (no retraction).
  */
-async function runSkillStep(
+function runSkillStep(
   ctx: SkillPages & { name: string; oldTip: string | null; opsBefore: number },
+): Promise<StepResult> {
+  return withIngestSpan(
+    "ingestion.step",
+    {
+      "ctxpipe.ingest.run.id": ctx.run.runId,
+      ...(ctx.run.shard === undefined
+        ? {}
+        : { "ctxpipe.ingest.shard": String(ctx.run.shard) }),
+      "ctxpipe.ingest.step": ctx.name,
+      "ctxpipe.ingest.skill": ctx.skill.name,
+      "ctxpipe.ingest.skill.run": ctx.skill.run,
+      "ctxpipe.workspace.id": ctx.destination.workspaceId,
+      "ctxpipe.ingest.ref.base": ctx.oldTip ?? ctx.runBase,
+    },
+    async (span) => {
+      const result = await attemptSkillStep(ctx, span)
+      if (result.partial) {
+        span.setAttribute("ctxpipe.ingest.partial", true)
+        span.setStatus({ code: SpanStatusCode.ERROR, message: "partial" })
+      } else {
+        span.setAttributes({
+          "ctxpipe.ingest.ref.tip": result.tip,
+          "ctxpipe.ingest.ops": result.ops,
+          "ctxpipe.ingest.rejects": result.rejects,
+          "ctxpipe.ingest.more": result.more,
+        })
+      }
+      return result
+    },
+  )
+}
+
+async function attemptSkillStep(
+  ctx: SkillPages & { name: string; oldTip: string | null; opsBefore: number },
+  span: Span,
 ): Promise<StepResult> {
   const { run, destination, ref, runBase, broker } = ctx
   let reason = ""
   for (let attempt = 1; attempt <= STEP_ATTEMPTS; attempt++) {
+    span.setAttribute("ctxpipe.ingest.attempts", attempt)
     try {
       // A crash after the push: the step's commit is the ref tip, and its
       // `Ctxpipe-More` trailer says whether a next page waits.
@@ -519,14 +605,25 @@ async function runSkillStep(
           },
         }),
       )
-      // T11 reads the rejected ops from the logs; the step output keeps counts.
+      // The step output keeps counts; each rejected op is its own log event.
       for (const rejection of pushed.validation.rejections)
-        getLogger().warn("ingestion-v2.op-rejected", {
-          step: ctx.name,
+        logIngestEvent("warn", "ingestion-v2.op-rejected", {
+          ingestionRunId: run.runId,
+          ...(run.shard === undefined ? {} : { shard: run.shard }),
           workspaceId: destination.workspaceId,
+          ingestStep: ctx.name,
           rule: rejection.rule,
-          path: rejection.path,
-          reason: rejection.reason,
+          path: capIngestText(rejection.path),
+          reason: capIngestText(rejection.reason),
+        })
+      span.setAttribute("ctxpipe.ingest.validation", pushed.validation.status)
+      if (pushed.validation.status === "partial")
+        logIngestEvent("warn", "ingestion-v2.step-mostly-rejected", {
+          ingestionRunId: run.runId,
+          ...(run.shard === undefined ? {} : { shard: run.shard }),
+          workspaceId: destination.workspaceId,
+          ingestStep: ctx.name,
+          reason: `The validator rejected ${pushed.validation.rejections.length} ops and accepted ${pushed.validation.accepted.length}`,
         })
       return {
         tip: pushed.sha,
@@ -540,11 +637,7 @@ async function runSkillStep(
       if (attempt < STEP_ATTEMPTS) await delay(attempt * 5_000)
     }
   }
-  getLogger().warn("ingestion-v2.step-partial", {
-    step: ctx.name,
-    workspaceId: destination.workspaceId,
-    reason: reason.slice(0, 2_000),
-  })
+  logStepPartial(ctx, ctx.name, reason)
   return { partial: true }
 }
 

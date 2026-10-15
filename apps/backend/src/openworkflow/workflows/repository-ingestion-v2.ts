@@ -1,4 +1,5 @@
 import { gunzipSync, gzipSync } from "node:zlib"
+import type { Span } from "@opentelemetry/api"
 import type { Workflow } from "openworkflow"
 import { parseEnv } from "../../config/env.js"
 import {
@@ -10,6 +11,11 @@ import {
   ingestSourceTree,
   releaseIngestSourceTree,
 } from "../../domain/ingestion/ingest-source-tree.js"
+import {
+  capIngestText,
+  logIngestEvent,
+  withIngestSpan,
+} from "../../domain/ingestion/ingest-telemetry.js"
 import {
   INGEST_SHARD_MAX_ROOTS,
   planIngestRoots,
@@ -114,7 +120,7 @@ export function defineRepositoryIngestionV2Workflow(
         // and the index repositories of its repository step (shard 0).
         () =>
           cleanUpUnlessParked(
-            () => ingest(),
+            () => ingestWithSpan(),
             async () => {
               await releaseIngestSourceTree(run.id, input.sha)
               await releaseIngestStepIndexes(run.id, 0)
@@ -122,7 +128,48 @@ export function defineRepositoryIngestionV2Workflow(
           ),
       )
 
-      async function ingest(): Promise<IngestionV2Output> {
+      // One root span for the run: the source SHA and the bundle hash, then
+      // the counts of the run. Each step and shard has its own child span.
+      function ingestWithSpan(): Promise<IngestionV2Output> {
+        return withIngestSpan(
+          "ingestion.run",
+          {
+            "ctxpipe.org.id": input.orgId,
+            "ctxpipe.ingest.run.id": run.id,
+            "ctxpipe.ingest.source.sha": input.sha,
+            "ctxpipe.ingest.mode": input.shadow ? "shadow" : "publish",
+          },
+          async (span) => {
+            const output = await ingest(span)
+            span.setAttribute("ctxpipe.ingest.status", output.status)
+            if ("reason" in output)
+              span.setAttribute(
+                "ctxpipe.ingest.reason",
+                capIngestText(output.reason),
+              )
+            if ("workspaces" in output)
+              span.setAttributes({
+                "ctxpipe.ingest.shards": output.shards,
+                "ctxpipe.ingest.workspaces": output.workspaces.length,
+                "ctxpipe.ingest.ops": output.workspaces.reduce(
+                  (sum, w) => sum + w.ops,
+                  0,
+                ),
+                "ctxpipe.ingest.rejects": output.workspaces.reduce(
+                  (sum, w) => sum + w.rejects,
+                  0,
+                ),
+                "ctxpipe.ingest.partial": output.workspaces.reduce(
+                  (sum, w) => sum + w.partial,
+                  0,
+                ),
+              })
+            return output
+          },
+        )
+      }
+
+      async function ingest(rootSpan: Span): Promise<IngestionV2Output> {
         if (!input.shadow)
           // Publish from the ref is T21. Until then a run must not
           // replace the old pipeline's output.
@@ -183,7 +230,10 @@ export function defineRepositoryIngestionV2Workflow(
             .discoverRoots()
           const plan = planIngestRoots(discovered)
           for (const refused of plan.refused)
-            getLogger().warn("ingestion-v2.root-refused", refused)
+            logIngestEvent("warn", "ingestion-v2.root-refused", {
+              ingestionRunId: run.id,
+              ...refused,
+            })
           const packed = plan.partial === undefined ? packRoots(plan.roots) : ""
           const partial =
             plan.partial ??
@@ -191,7 +241,10 @@ export function defineRepositoryIngestionV2Workflow(
               ? "The root list is too large for one step output"
               : undefined)
           if (partial !== undefined) {
-            getLogger().warn("ingestion-v2.partial", { reason: partial })
+            logIngestEvent("warn", "ingestion-v2.partial", {
+              ingestionRunId: run.id,
+              reason: capIngestText(partial),
+            })
             return { partial }
           }
           return {
@@ -207,6 +260,10 @@ export function defineRepositoryIngestionV2Workflow(
         }
         const roots = unpackRoots(scope.roots)
         const shards = Math.ceil(roots.length / INGEST_SHARD_MAX_ROOTS)
+        rootSpan.setAttributes({
+          "ctxpipe.ingest.bundle": scope.bundle,
+          "ctxpipe.ingest.roots": roots.length,
+        })
 
         const child = (
           shard: number,
@@ -260,6 +317,7 @@ export function defineRepositoryIngestionV2Workflow(
                 ),
               run: {
                 runId: run.id,
+                shard: 0,
                 bundle: scope.bundle,
                 source,
                 authorTime: input.authorTime,
@@ -386,10 +444,11 @@ export function defineRepositoryIngestionV2Workflow(
                 return { tip: result.sha, ops: result.ops }
               } catch (error) {
                 if (!(error instanceof IngestRefRefusedError)) throw error
-                getLogger().warn("ingestion-v2.partial", {
-                  step: assembleStep,
+                logIngestEvent("warn", "ingestion-v2.partial", {
+                  ingestionRunId: run.id,
+                  ingestStep: assembleStep,
                   workspaceId: destination.workspaceId,
-                  reason: error.message,
+                  reason: capIngestText(error.message),
                 })
                 return {
                   tip: null,
