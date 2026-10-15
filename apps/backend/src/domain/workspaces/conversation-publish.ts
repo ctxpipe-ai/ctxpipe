@@ -22,6 +22,7 @@ import {
   gitRemoteEnvironment,
   resolveGitRemoteTip,
 } from "../../services/git/clone-tree.js"
+import { parseNameStatus } from "../../services/git/name-status.js"
 import { nativeGit, withGitDirectory } from "../../services/git/pack.js"
 import { compareBranchChanges } from "../../services/github/installation-write-client.js"
 import {
@@ -368,8 +369,16 @@ export async function pushConversationSession(input: {
       dirty,
     }
   } catch (error) {
-    if (error instanceof PublishRefused)
+    if (error instanceof PublishRefused) {
+      // The event holds no path and no file text, because those come from
+      // the agent.
+      log.info({
+        step: "conversation-session-push-refused",
+        reason: error.reason,
+        conversationId: input.conversationId,
+      })
       return { status: "skipped", reason: error.reason, dirty }
+    }
     log.warn({
       step: "conversation-session-push",
       message: error instanceof Error ? error.message : String(error),
@@ -598,51 +607,74 @@ async function brokerPush(input: {
 }
 
 /**
- * The first change from `base` to `sha` that only the host can make (CTX-722):
- * a path under a host-only folder on either side of a change, or a Markdown
- * file that gets an ownership field it did not have. A rename compares the
- * file with its old version, so an agent can move a generated file.
+ * The first change that only the host can make (CTX-722): a path under a
+ * host-only folder on either side of a change, or a file that gets an
+ * ownership field it did not have. The check reads the net change from `base`
+ * to `sha`, and each commit between them against its first parent, because
+ * the history keeps a change that a later commit removes. A commit with no
+ * parent is compared with the empty tree. A rename compares the file with its
+ * old version, so an agent can move a generated file. The old version of a
+ * file that is not Markdown has no ownership fields, so a rename to Markdown
+ * cannot bring them in.
  */
 async function hostOnlyChange(
   directory: string,
   base: string,
   sha: string,
 ): Promise<"host_only_path" | "host_only_field" | null> {
-  const fields = (
-    await nativeGit(directory, [
-      "diff-tree",
-      "-r",
-      "-z",
-      "-M",
-      "--name-status",
-      base,
-      sha,
-    ])
+  const emptyTree = async () =>
+    (await nativeGit(directory, ["hash-object", "-t", "tree", "--stdin"], ""))
+      .toString("utf8")
+      .trim()
+  const pairs: Array<[string, string]> = [[base, sha]]
+  const commits = (
+    await nativeGit(directory, ["rev-list", "--parents", `${base}..${sha}`])
   )
     .toString("utf8")
-    .split("\0")
-  const changes: Array<{ status: string; from: string; to: string }> = []
-  for (let index = 0; index < fields.length - 1; ) {
-    const status = fields[index++] ?? ""
-    const from = fields[index++] ?? ""
-    const to = status.startsWith("R") ? (fields[index++] ?? "") : from
-    changes.push({ status, from, to })
+    .split("\n")
+    .filter(Boolean)
+  for (const line of commits) {
+    const [commit = "", parent] = line.split(" ")
+    pairs.push([parent ?? (await emptyTree()), commit])
   }
-  if (
-    changes.some(({ from, to }) => isHostOnlyPath(from) || isHostOnlyPath(to))
-  )
-    return "host_only_path"
   const blob = async (commit: string, path: string) =>
     (
       await nativeGit(directory, ["cat-file", "blob", `${commit}:${path}`])
     ).toString("utf8")
-  for (const { status, from, to } of changes) {
-    if (status.startsWith("D") || !/\.md$/i.test(to)) continue
-    const before = status.startsWith("A") ? null : await blob(base, from)
-    if (addedOwnershipField(before, await blob(sha, to)))
-      return "host_only_field"
+  const isMarkdown = (path: string) => /\.md$/i.test(path)
+  let field = false
+  for (const [from, to] of pairs) {
+    const changes = parseNameStatus(
+      await nativeGit(directory, [
+        "diff-tree",
+        "-r",
+        "-z",
+        "-M",
+        "--name-status",
+        from,
+        to,
+      ]),
+    )
+    if (
+      changes.some(
+        (change) => isHostOnlyPath(change.from) || isHostOnlyPath(change.to),
+      )
+    )
+      return "host_only_path"
+    if (field) continue
+    for (const change of changes) {
+      if (change.status.startsWith("D") || !isMarkdown(change.to)) continue
+      const before =
+        change.status.startsWith("A") || !isMarkdown(change.from)
+          ? null
+          : await blob(from, change.from)
+      if (addedOwnershipField(before, await blob(to, change.to))) {
+        field = true
+        break
+      }
+    }
   }
-  return null
+  return field ? "host_only_field" : null
 }
 
 function sanitizeCredentials(

@@ -18,7 +18,6 @@ import {
   withoutHumanText,
 } from "./secret-scan.js"
 
-export { parseYamlObject, splitFrontMatter } from "./front-matter.js"
 export { findSuspectedSecret } from "./secret-scan.js"
 
 /**

@@ -466,7 +466,12 @@ it.each([
     edit: `printf '%s' ${shellSingleQuote(HUMAN_UNIT.replace("name: Checkout\n", "name: Checkout\ngenerated_by: ctxpipe-extract\n"))} > knowledge/services/checkout.md && git commit -qam add && printf '%s' ${shellSingleQuote(HUMAN_UNIT)} > knowledge/services/checkout.md && git commit -qam remove`,
     reason: "host_only_field",
   },
-] as Array<{ name: string; first?: string; edit: string; reason: string | null }>)(
+] as Array<{
+  name: string
+  first?: string
+  edit: string
+  reason: string | null
+}>)(
   "conversation publish when the agent $name",
   { timeout: 30_000 },
   async ({ first, edit, reason }) => {
