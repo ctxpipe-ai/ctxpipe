@@ -1,0 +1,39 @@
+name: MCP evals reminder
+
+# A pull request that changes the MCP tools does not run the MCPJam evals by
+# default, because each run calls paid models. This job only asks the author
+# to add the label `mcp-evals`, which starts mcp-evals.yaml (CTX-574).
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - reopened
+      - synchronize
+    paths:
+      - apps/backend/src/mcp/**
+
+permissions:
+  pull-requests: write
+
+jobs:
+  remind:
+    name: Ask for the mcp-evals label
+    if: "github.event.pull_request.head.repo.fork != true && !contains(github.event.pull_request.labels.*.name, 'mcp-evals')"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Post the reminder once
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          marker="<!-- mcp-evals-reminder -->"
+          if gh api "repos/$REPO/issues/$PR/comments" --paginate --jq '.[].body' | grep -qF "$marker"; then
+            exit 0
+          fi
+          gh pr comment "$PR" --repo "$REPO" --body "$marker
+          This pull request changes \`apps/backend/src/mcp\`. Add the label \`mcp-evals\` to run the MCPJam evals before you merge."
