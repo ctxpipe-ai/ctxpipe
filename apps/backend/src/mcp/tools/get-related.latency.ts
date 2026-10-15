@@ -1,10 +1,13 @@
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { eq } from "drizzle-orm"
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import pg from "pg"
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../../test/db.js"
 import { withOrgDbContext } from "../../db/client.js"
+import { ownerUrlForMigrate } from "../../db/owner-migrate-url.js"
 import { workspaces } from "../../db/schema/workspaces.js"
 import { closeGraphDb } from "../../platform/graph/client.js"
+import { embeddingModelServer } from "../../test/knowledge-search-fixture.js"
 import {
   callTool,
   connectToolClient,
@@ -42,18 +45,41 @@ function hubGraph(): RelatedUnit[] {
 
 let seed: SeededOrg
 let client: Client
+const modelServer = embeddingModelServer()
 
 describe("get_related latency on a 50,000-edge graph", () => {
   beforeAll(async () => {
-    if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required")
+    const databaseUrl = process.env.DATABASE_URL
+    if (!databaseUrl) throw new Error("DATABASE_URL is required")
     if (!process.env.GRAPH_DB_URI) throw new Error("GRAPH_DB_URI is required")
+    vi.stubEnv("MODEL_PROVIDER", "openai-like")
+    vi.stubEnv("MODEL_PROVIDER_API_KEY", "fixture-only")
+    vi.stubEnv("MODEL_PROVIDER_URL", "https://search-model.test/v1")
+    modelServer.listen({ onUnhandledRequest: "bypass" })
     seed = await seedOrg()
+    // The chunks let a call with a query search the explored units.
     await seedRelatedWorkspace({
       seed,
       slug: "large",
       sha: "f".repeat(40),
       units: hubGraph(),
+      chunks: true,
     })
+    // A new bulk load has no planner statistics until autovacuum analyzes
+    // it, about 30 s later. Until then, each call with a query used the whole
+    // 3 s budget; with statistics it takes about 100 ms. A served Workspace
+    // has statistics. Only the table owner can analyze.
+    const owner = new pg.Client({
+      connectionString: ownerUrlForMigrate(databaseUrl),
+    })
+    await owner.connect()
+    try {
+      await owner.query(
+        "ANALYZE workspace_knowledge_units, workspace_knowledge_chunks",
+      )
+    } finally {
+      await owner.end()
+    }
     client = await connectToolClient(seed, getRelatedTool)
   }, 300_000)
   afterAll(async () => {
@@ -66,12 +92,24 @@ describe("get_related latency on a 50,000-edge graph", () => {
       await cleanupSeededOrg(seed)
     }
     await closeGraphDb()
+    modelServer.close()
+    vi.unstubAllEnvs()
   })
 
-  it.each(["general", "ownership", "dependencies"] as const)(
-    "answers a depth 2 %s call with a p95 under 300 ms",
+  it.each([
+    { name: "general", intent: "general", query: undefined },
+    { name: "ownership", intent: "ownership", query: undefined },
+    { name: "dependencies", intent: "dependencies", query: undefined },
+    // A query adds one embedding and a hybrid search of each walk.
+    {
+      name: "dependencies with a query",
+      intent: "dependencies",
+      query: "runbook for the n42 incident",
+    },
+  ] as const)(
+    "answers a depth 2 $name call with a p95 under 300 ms",
     { timeout: 120_000 },
-    async (intent) => {
+    async ({ intent, query }) => {
       const call = (index: number) =>
         callTool(client, "get_related", {
           org: seed.orgSlug,
@@ -79,6 +117,7 @@ describe("get_related latency on a 50,000-edge graph", () => {
           seeds: [`graph/n${index * 37}.md`, `graph/n${index * 37 + 1}.md`],
           maxDepth: 2,
           intent,
+          ...(query ? { query } : {}),
           // A new restart for each call gives a new cache key: every call walks the graph.
           restart: 0.1 + index / 1_000,
         })
