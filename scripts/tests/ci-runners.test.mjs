@@ -42,7 +42,7 @@ test("ubuntu-latest fails", () => {
 
 test("a matrix runs-on expression fails", () => {
   const result = check({
-    "a.yml": "jobs:\n  a:\n    runs-on: $\{{ matrix.os }}\n",
+    "a.yml": "jobs:\n  a:\n    runs-on: $" + "{{ matrix.os }}\n",
   })
   assert.equal(result.status, 1)
 })
