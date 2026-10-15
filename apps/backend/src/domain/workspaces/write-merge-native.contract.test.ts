@@ -235,6 +235,7 @@ it.each(["valid", "out-of-scope"] as const)(
           const handle = await f.runner.runWorkflow(spec, {
             orgId: f.org.id,
             workspaceId: f.workspaceId,
+            origin: "host",
             jobId: `wjob_${f.id}_overlap`,
             revision: {
               ...(await f.resolveRevision()),
@@ -655,6 +656,7 @@ it.each([
           const command = {
             orgId: f.org.id,
             workspaceId: f.workspaceId,
+            origin: "host" as const,
             jobId: `wjob_${f.id}_modify_delete`,
             revision: {
               ...(await f.resolveRevision()),
