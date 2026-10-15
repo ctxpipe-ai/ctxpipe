@@ -466,12 +466,8 @@ export function WorkspaceSources(props: {
       connectionsOf(provider).length > 0 ||
       (provider === "github" && (linkedRepositories?.length ?? 0) > 0),
   )
-  const linkErrors = data?.linkErrors ?? []
   const isEmpty =
-    groups.length === 0 &&
-    unknownProvider.length === 0 &&
-    !data?.fileError &&
-    linkErrors.length === 0
+    groups.length === 0 && unknownProvider.length === 0 && !data?.fileError
 
   return (
     // The section is the container of the table columns (`source-table.ts`).
@@ -558,28 +554,6 @@ export function WorkspaceSources(props: {
                 title="The legacy sources file is not valid"
               >
                 {data.fileError}
-              </InlineAlert>
-            </div>
-          ) : null}
-          {linkErrors.length > 0 ? (
-            <div className="mt-4">
-              <InlineAlert
-                variant="warning"
-                title={
-                  linkErrors.length === 1
-                    ? "A repository link was not saved"
-                    : `${linkErrors.length} repository links were not saved`
-                }
-              >
-                <ul className="flex flex-col gap-1">
-                  {linkErrors.map((error) => (
-                    <li key={error.gitUrl}>
-                      {error.action === "link" ? "Link" : "Unlink"}{" "}
-                      <code className="font-mono">{error.gitUrl}</code>:{" "}
-                      {error.reason}
-                    </li>
-                  ))}
-                </ul>
               </InlineAlert>
             </div>
           ) : null}

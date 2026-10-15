@@ -505,8 +505,6 @@ export async function persistBoundWriteJob(input: {
   deletePaths?: string[]
   workflowRunId?: string
   admissionStatus?: "queued" | "paused"
-  linkAction?: "link" | "unlink"
-  linkGitUrl?: string
   displayName?: string
   previousSha?: string
   extraction?: WorkspaceExtraction
@@ -522,9 +520,6 @@ export async function persistBoundWriteJob(input: {
         ? { displayName: input.displayName }
         : {}),
       ...(input.files ? { mergeFiles: input.files } : {}),
-      ...(input.linkAction
-        ? { linkAction: input.linkAction, linkGitUrl: input.linkGitUrl }
-        : {}),
       ...(input.deletePaths ? { mergeDeletePaths: input.deletePaths } : {}),
       jobWorkspaceUrl: input.revision.remote.url,
       defaultBranch: input.revision.defaultBranch,
@@ -567,8 +562,6 @@ export async function persistBoundWriteJob(input: {
     if (
       !isDeepStrictEqual(row.payload?.mergeFiles, input.files) ||
       !isDeepStrictEqual(row.payload?.mergeDeletePaths, input.deletePaths) ||
-      row.payload?.linkAction !== input.linkAction ||
-      row.payload?.linkGitUrl !== input.linkGitUrl ||
       !isDeepStrictEqual(row.payload?.mirror, input.mirror) ||
       !isDeepStrictEqual(row.payload?.extraction, input.extraction) ||
       row.payload?.previousSha !== input.previousSha ||
@@ -861,56 +854,5 @@ export async function adoptInitializedBootstrapRevision(input: {
         updatedAt: new Date(),
       })
       .where(eq(workspaceWriteJobs.id, input.jobId))
-  })
-}
-
-/**
- * The link edits of a Workspace that cannot go into the source files under `sources/`,
- * newest first. Only the last edit of each repository counts, so a later
- * edit of the same repository that completes removes the entry.
- */
-export async function listRefusedLinkEdits(workspaceId: string): Promise<
-  Array<{
-    action: "link" | "unlink"
-    gitUrl: string
-    reason: string
-    failedAt: Date
-  }>
-> {
-  return orgSql(async () => {
-    const rows = await getOrgDb()
-      .selectDistinctOn([sql`${workspaceWriteJobs.payload}->>'linkGitUrl'`], {
-        status: workspaceWriteJobs.status,
-        payload: workspaceWriteJobs.payload,
-        updatedAt: workspaceWriteJobs.updatedAt,
-      })
-      .from(workspaceWriteJobs)
-      .where(
-        and(
-          eq(workspaceWriteJobs.workspaceId, workspaceId),
-          eq(workspaceWriteJobs.kind, "link_unlink"),
-          sql`${workspaceWriteJobs.payload}->>'linkGitUrl' is not null`,
-        ),
-      )
-      .orderBy(
-        sql`${workspaceWriteJobs.payload}->>'linkGitUrl'`,
-        sql`${workspaceWriteJobs.createdAt} desc`,
-      )
-    return rows
-      .flatMap((row) =>
-        row.status === WRITE_JOB_STATUSES.failed &&
-        row.payload?.linkGitUrl &&
-        row.payload.failureReason
-          ? [
-              {
-                action: row.payload.linkAction ?? ("link" as const),
-                gitUrl: row.payload.linkGitUrl,
-                reason: row.payload.failureReason,
-                failedAt: row.updatedAt,
-              },
-            ]
-          : [],
-      )
-      .sort((a, b) => b.failedAt.getTime() - a.failedAt.getTime())
   })
 }

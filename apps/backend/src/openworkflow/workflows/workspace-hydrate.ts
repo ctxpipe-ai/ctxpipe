@@ -308,12 +308,6 @@ export const workspaceHydrate = defineWorkflow(
                       jobId: command.jobId,
                       kind: command.kind,
                       previousSha: command.previousSha,
-                      ...(command.linkGitUrl
-                        ? {
-                            linkAction: "link" as const,
-                            linkGitUrl: command.linkGitUrl,
-                          }
-                        : {}),
                       jobGeneration: revision.generation,
                       jobWorkspaceUrl: revision.remote.url,
                       jobDesiredSha: revision.sha,

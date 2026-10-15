@@ -8,7 +8,6 @@ import {
   listWorkspaceSourceRows,
   type WorkspaceSourceRow,
 } from "../../models/workspace-sources.js"
-import { listRefusedLinkEdits } from "../../models/workspace-write-jobs.js"
 import {
   listOrgWorkspaces,
   type WorkspaceRecord,
@@ -292,10 +291,6 @@ export async function listWorkspaceSources(
     pendingChanges: (await pendingChanges(workspace))
       .filter((change) => stillApplies(change, sourcePaths))
       .map(({ newPath: _newPath, ...change }) => change),
-    linkErrors: (await listRefusedLinkEdits(workspace.id)).map((edit) => ({
-      ...edit,
-      failedAt: edit.failedAt.toISOString(),
-    })),
   }
 }
 
@@ -535,6 +530,23 @@ export async function addWorkspaceSources(input: {
     deletes: [],
   })
   return { outcome: "pull_request", paths, pullRequestUrl }
+}
+
+/**
+ * The URL of an open pull request that adds a GitHub repository as a source,
+ * or undefined. A caller that retries an add uses it so that a rerun does not
+ * open a second pull request.
+ */
+export async function findOpenAddPullRequest(input: {
+  workspace: WorkspaceRecord
+  repositoryName: string
+}): Promise<string | undefined> {
+  const [owner, name] = input.repositoryName.split("/")
+  if (!owner || !name) return undefined
+  const path = githubSourcePath(owner, name)
+  return (await pendingChanges(input.workspace)).find(
+    (change) => change.action === "add" && change.path === path,
+  )?.pullRequestUrl
 }
 
 /**

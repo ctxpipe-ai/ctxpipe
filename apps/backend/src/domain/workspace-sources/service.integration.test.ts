@@ -17,6 +17,7 @@ import { FILE_ERROR_SOURCE_KEY } from "./projection-plan.js"
 import {
   addWorkspaceSources,
   changeWorkspaceSource,
+  findOpenAddPullRequest,
   listConnectionUsage,
   listWorkspaceSources,
 } from "./service.js"
@@ -1213,6 +1214,38 @@ it(
           status: 400,
         })
         expect(pullRequests).toHaveLength(1)
+      },
+    )
+  },
+)
+
+it(
+  "finds the open pull request that adds one repository, and not another",
+  { timeout: 60_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      { github: true, githubWriteView: "writable", writeStatus: "writable" },
+      async (f) => {
+        f.server.use(
+          ...repositoryFiles({}),
+          gitDatabase("a".repeat(40)),
+          http.get(
+            "https://api.github.com/repos/fixture/hydration-contract/pulls",
+            () =>
+              HttpResponse.json([
+                pull(71, "ctxpipe/sources/add/github/acme/web/k71-0a1b2c3d"),
+              ]),
+          ),
+        )
+        const find = (repositoryName: string) =>
+          withOrgIdContext(f.org, async () => {
+            const workspace = await getWorkspaceById(f.workspaceId)
+            if (!workspace) throw new Error("Missing fixture Workspace")
+            return findOpenAddPullRequest({ workspace, repositoryName })
+          })
+
+        await expect(find("acme/web")).resolves.toContain("/pull/71")
+        await expect(find("acme/api")).resolves.toBeUndefined()
       },
     )
   },

@@ -43,7 +43,6 @@ export function workspaceSourceList(
     canEdit: true,
     items: [],
     pendingChanges: [],
-    linkErrors: [],
     ...overrides,
   }
 }
