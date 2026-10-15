@@ -2,10 +2,12 @@ import { z } from "zod"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb } from "../../db/client.js"
+import { githubSourcePathOf } from "../../domain/workspace-sources/github-sources.js"
 import { resolveWorkspaceReadRevision } from "../../domain/workspaces/resolve-revision.js"
 import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
 import { findRepositoriesByNormalizedGitUrls } from "../../models/repositories.js"
+import { listWorkspaceSourceRows } from "../../models/workspace-sources.js"
 import { listOrgLinkedRepositories } from "../../models/workspaces.js"
 import {
   createLogger,
@@ -80,10 +82,19 @@ async function captureTarget(input: {
     const [workspaceRepository] = await findRepositoriesByNormalizedGitUrls([
       revision.remote.url,
     ])
+    const sourcePath = githubSourcePathOf(
+      await listWorkspaceSourceRows({
+        orgId: input.orgId,
+        workspaceId: input.workspaceId,
+      }),
+      input.gitUrl,
+    )
     return {
       revision,
       connectionId,
       repository,
+      /** The GitHub source file of the repository; stamped into each file. */
+      sourcePath,
       /** The Workspace repository's org row, re-indexed after a mirror commit. */
       workspaceRepositoryId: workspaceRepository?.id ?? null,
     }
@@ -120,6 +131,7 @@ export const githubSyncPullRequest = defineWorkflow(
           env: parseEnv(process.env),
           connectionId: target.connectionId,
           repository: target.repository,
+          sourcePath: target.sourcePath,
         }
         const files: GithubPrMirrorFile[] = []
         if (input.numbers) {

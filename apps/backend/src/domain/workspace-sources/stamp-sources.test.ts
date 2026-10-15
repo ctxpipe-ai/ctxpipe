@@ -1,10 +1,6 @@
 import { createHash } from "node:crypto"
 import { describe, expect, it } from "vitest"
-import {
-  gitBlobSha,
-  readSourcesStamp,
-  stampSources,
-} from "./stamp-sources.js"
+import { gitBlobSha, readSourcesStamp, stampSources } from "./stamp-sources.js"
 
 const page = "---\nsource: linear\nid: a\n---\n# Title\n\nBody\n"
 

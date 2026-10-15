@@ -4,9 +4,7 @@ import { parse as parseYaml } from "yaml"
 const FRONT_MATTER = /^---\n([\s\S]*?)\n---(?=\n|$)/
 
 /** Split the front matter lines from the text after them, or null. */
-function split(
-  text: string,
-): { lines: string[]; after: string } | null {
+function split(text: string): { lines: string[]; after: string } | null {
   const match = FRONT_MATTER.exec(text)
   if (!match) return null
   return {

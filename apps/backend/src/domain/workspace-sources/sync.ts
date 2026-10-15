@@ -6,7 +6,9 @@ import {
 } from "../../models/workspace-sources.js"
 import type { GitFileChange } from "../../services/git/file-change.js"
 import type { SourceAdapter, SourceFetchResult } from "./adapter.js"
+import { checkSourcePath } from "./source-file.js"
 import type { SourceProvider } from "./sources-file.js"
+import { stampSources } from "./stamp-sources.js"
 
 /**
  * One commit for one Workspace in one sync cycle. Files under
@@ -37,6 +39,32 @@ export type SliceWriter = (write: WorkspaceSliceWrite) => Promise<void>
 
 function underAny(path: string, prefixes: readonly string[]): boolean {
   return prefixes.some((prefix) => path.startsWith(prefix))
+}
+
+/**
+ * One blob of a Workspace head. `sources` and `unstampedSha` are set when the
+ * reader looked at the `sources` front matter of a Markdown file: `sources`
+ * is its list (null when it has none), `unstampedSha` the blob id of the text
+ * without the list.
+ */
+export type ExistingBlob = {
+  path: string
+  sha: string
+  sources?: string[] | null
+  unstampedSha?: string
+}
+
+/** The source path of a row, or null when its key is not a source path. */
+function sourcePathOf(sourceKey: string): string | null {
+  return checkSourcePath(sourceKey).ok ? sourceKey : null
+}
+
+/** The source path of the row that owns `path`, or null. */
+function ownerOf(
+  owners: ReadonlyArray<{ path: string; prefixes: readonly string[] }>,
+  path: string,
+): string | null {
+  return owners.find((owner) => underAny(path, owner.prefixes))?.path ?? null
 }
 
 function overlaps(a: string, b: string): boolean {
@@ -76,9 +104,7 @@ export async function syncConnectionSources(input: {
    */
   manual?: boolean
   /** The blobs of one Workspace now, so that the adapter can skip unchanged files. */
-  readExisting?: (
-    workspaceId: string,
-  ) => Promise<ReadonlyArray<{ path: string; sha: string }>>
+  readExisting?: (workspaceId: string) => Promise<ReadonlyArray<ExistingBlob>>
 }): Promise<{ fetchedScopes: number; workspaces: string[] }> {
   const { adapter } = input
   const rows = (
@@ -101,7 +127,13 @@ export async function syncConnectionSources(input: {
   // Check every managed path before the provider fetch.
   const byWorkspace = new Map<
     string,
-    { prefixes: Set<string>; scopeKeys: Set<string>; revision: string }
+    {
+      prefixes: Set<string>
+      scopeKeys: Set<string>
+      revision: string
+      /** The source paths of the rows, with their managed paths. */
+      owners: Array<{ path: string; prefixes: string[] }>
+    }
   >()
   for (const row of rows) {
     const prefixes = adapter.managedPaths(row.scope)
@@ -110,7 +142,10 @@ export async function syncConnectionSources(input: {
       prefixes: new Set<string>(),
       scopeKeys: new Set<string>(),
       revision: row.revision,
+      owners: [],
     }
+    const sourcePath = sourcePathOf(row.sourceKey)
+    if (sourcePath) entry.owners.push({ path: sourcePath, prefixes })
     for (const prefix of prefixes) entry.prefixes.add(prefix)
     entry.scopeKeys.add(JSON.stringify(row.scope))
     byWorkspace.set(row.workspaceId, entry)
@@ -177,7 +212,9 @@ export async function syncConnectionSources(input: {
     const keepPrefixes = kept
       .filter((path) => underAny(path, ownedPrefixes))
       .sort()
-    const files = all.filter((file) => underAny(file.path, ownedPrefixes))
+    const files = all
+      .filter((file) => underAny(file.path, ownedPrefixes))
+      .map((file) => stampFile(file, ownerOf(entry.owners, file.path)))
     const deletePaths = result.deletePaths?.filter(
       (path) => underAny(path, ownedPrefixes) && !underAny(path, keepPrefixes),
     )
@@ -203,14 +240,31 @@ export async function syncConnectionSources(input: {
 }
 
 /**
+ * Add the `sources` front matter (ADR-050) to a Markdown file of a mirror.
+ * A file with no front matter, or with no source path, stays as it is.
+ */
+function stampFile(file: GitFileChange, sourcePath: string | null) {
+  if (!sourcePath || !file.path.endsWith(".md") || file.encoding === "base64")
+    return file
+  return { ...file, content: stampSources(file.content, [sourcePath]) }
+}
+
+/**
  * The managed files of the Workspaces. A path has its sha only when each
- * Workspace that owns the path has the same blob there.
+ * Workspace that owns the path has the same blob there. The sha of a
+ * Markdown file is the one of the text that the adapter wrote, without the
+ * `sources` list. A file with a wrong or missing list has no sha, so the
+ * adapter writes it again and the sync stamps it.
  */
 async function readExistingManaged(
-  byWorkspace: ReadonlyMap<string, { prefixes: Set<string> }>,
-  read: (
-    workspaceId: string,
-  ) => Promise<ReadonlyArray<{ path: string; sha: string }>>,
+  byWorkspace: ReadonlyMap<
+    string,
+    {
+      prefixes: Set<string>
+      owners: ReadonlyArray<{ path: string; prefixes: readonly string[] }>
+    }
+  >,
+  read: (workspaceId: string) => Promise<ReadonlyArray<ExistingBlob>>,
 ): Promise<Array<{ path: string; sha: string | null }>> {
   const shas = new Map<string, string | null>()
   const seen = new Map<string, number>()
@@ -221,11 +275,9 @@ async function readExistingManaged(
     for (const blob of await read(workspaceId)) {
       if (!underAny(blob.path, prefixes)) continue
       seen.set(blob.path, (seen.get(blob.path) ?? 0) + 1)
+      const sha = adapterSha(blob, ownerOf(entry.owners, blob.path))
       const before = shas.get(blob.path)
-      shas.set(
-        blob.path,
-        before === undefined || before === blob.sha ? blob.sha : null,
-      )
+      shas.set(blob.path, before === undefined || before === sha ? sha : null)
     }
   }
   return [...shas].map(([path, sha]) => ({
@@ -236,6 +288,17 @@ async function readExistingManaged(
         ? sha
         : null,
   }))
+}
+
+function adapterSha(blob: ExistingBlob, owner: string | null): string | null {
+  // The reader did not look at the front matter: the sha is as it is.
+  if (blob.sources === undefined || !blob.path.endsWith(".md")) return blob.sha
+  if (!owner) return blob.unstampedSha ?? blob.sha
+  const stamped =
+    blob.sources?.length === 1 && blob.sources[0] === owner
+      ? blob.unstampedSha
+      : undefined
+  return stamped ?? null
 }
 
 /**

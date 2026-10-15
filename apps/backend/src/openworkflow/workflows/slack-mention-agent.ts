@@ -137,6 +137,7 @@ export const slackMentionAgent = defineWorkflow(
                     orgId: input.orgId,
                     workspaceId,
                     env,
+                    stampRoot: "slack/",
                   }),
               }),
           )
