@@ -27,6 +27,12 @@ export type KnowledgeSearchInput = {
   limit?: number
   /** Monotonic deadline shared by all work in a related-unit call. */
   deadline?: number
+  /**
+   * The embedding of `query` (`embedQuery`), so that a caller that searches
+   * the same query more than once embeds it once. With none, the search
+   * embeds the query.
+   */
+  embedding?: Promise<number[] | null>
 }
 
 /** The best chunk of one unit. */
@@ -110,6 +116,26 @@ export async function searchKnowledge(
   }
 }
 
+/**
+ * The embedding of a search query, or null when the model call fails: the
+ * search then uses full text only. An abort of `signal` rejects.
+ */
+export async function embedQuery(
+  query: string,
+  signal?: AbortSignal,
+): Promise<number[] | null> {
+  try {
+    return await generateEmbedding(query.trim(), signal)
+  } catch (error) {
+    signal?.throwIfAborted()
+    log.warn({
+      step: "knowledge-search-embed",
+      message: `Query embedding failed; the search uses full text only: ${String(error)}`,
+    })
+    return null
+  }
+}
+
 async function runSearch(
   input: KnowledgeSearchInput,
   signal?: AbortSignal,
@@ -119,16 +145,7 @@ async function runSearch(
   if (!query || input.workspaceIds.length === 0 || input.unitIds?.length === 0)
     return []
   const limit = Math.min(Math.max(Math.trunc(input.limit ?? 10), 1), 50)
-  let embedding: number[] | null = null
-  try {
-    embedding = await generateEmbedding(query, signal)
-  } catch (error) {
-    signal?.throwIfAborted()
-    log.warn({
-      step: "knowledge-search-embed",
-      message: `Query embedding failed; the search uses full text only: ${String(error)}`,
-    })
-  }
+  const embedding = await (input.embedding ?? embedQuery(query, signal))
   const filters: SQL[] = [
     sql`c.workspace_id = ANY(${textArray(input.workspaceIds)})`,
     sql`u.projection_sha = coalesce(w.active_revision->>'sha', w.active_projection_sha)`,
@@ -216,14 +233,12 @@ async function runSearch(
           ) AS nearest`
       } else {
         if (pgvectorVersion === undefined) {
-          await setTimeBudget()
           const found = await db.execute<{ version: string }>(
             sql`SELECT extversion AS version FROM pg_extension WHERE extname = 'vector'`,
           )
           pgvectorVersion = found.rows[0]?.version ?? null
         }
         const settings = vectorScanSettings(pgvectorVersion)
-        await setTimeBudget()
         await db.execute(
           sql`SELECT set_config('hnsw.ef_search', ${String(settings.efSearch)}, true)`,
         )

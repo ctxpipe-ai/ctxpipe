@@ -727,9 +727,12 @@ describe("get_related through the MCP client on live Postgres and FalkorDB", () 
     expect(ranking.results.length).toBeGreaterThan(0)
   })
 
-  it.each([
-    1, 2,
-  ])("bounds slow query search %i by the shared total budget", async (slowAt) => {
+  // The ownership walk from the gateway is short, so a walk of all edges
+  // follows it, and both walks search the query.
+  const searchGateway = async (
+    respond: () => Promise<void>,
+    caps?: { totalTimeoutMs: number },
+  ) => {
     let requests = 0
     modelServer.use(
       http.post(
@@ -737,7 +740,7 @@ describe("get_related through the MCP client on live Postgres and FalkorDB", () 
         async ({ request }) => {
           const body = (await request.json()) as { input: string[] }
           requests += 1
-          if (requests === slowAt) await delay(1500)
+          await respond()
           return HttpResponse.json({
             data: body.input.map((text, index) => ({
               index,
@@ -759,17 +762,31 @@ describe("get_related through the MCP client on live Postgres and FalkorDB", () 
       query: "connection saturation runbook",
       intent: "ownership",
     })
-    const start = performance.now()
     const ranking = await rankWorkspaceRelated(
       { id: seed.orgId, slug: seed.orgSlug },
       { id: row?.id as string, slug: "platform" },
       sha("a"),
       input,
       new Date(),
-      { caps: { totalTimeoutMs: 500 } },
+      { caps },
     )
+    return { ranking, requests }
+  }
+
+  it("embeds the query once for both walks", async () => {
+    const { ranking, requests } = await searchGateway(async () => {})
+    expect(ranking.partial).toBe(false)
+    expect(ranking.results.length).toBeGreaterThan(0)
+    expect(requests).toBe(1)
+  })
+
+  it("bounds a slow query embedding by the shared total budget", async () => {
+    const start = performance.now()
+    const { ranking, requests } = await searchGateway(() => delay(1500), {
+      totalTimeoutMs: 500,
+    })
     expect(performance.now() - start).toBeLessThan(1200)
-    expect(requests).toBe(slowAt)
+    expect(requests).toBe(1)
     expect(ranking).toMatchObject({
       partial: true,
       partialReason: "total_timeout",

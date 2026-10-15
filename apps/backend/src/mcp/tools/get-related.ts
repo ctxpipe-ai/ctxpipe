@@ -20,7 +20,10 @@ import {
   RELEVANCE_INTENTS,
   rankRelated,
 } from "../../domain/workspaces/graph-relevance.js"
-import { searchKnowledge } from "../../domain/workspaces/knowledge-search.js"
+import {
+  embedQuery,
+  searchKnowledge,
+} from "../../domain/workspaces/knowledge-search.js"
 import {
   type PublishedProjection,
   publishedProjection,
@@ -333,6 +336,18 @@ async function resolveSeeds(
   return rows.map((row) => row.id)
 }
 
+/** The deadline of a search, or a Postgres statement timeout (57014). */
+function isTimeout(error: unknown): boolean {
+  for (let current = error; current; ) {
+    if (current instanceof DOMException && current.name === "TimeoutError")
+      return true
+    if (typeof current !== "object") return false
+    if ("code" in current && current.code === "57014") return true
+    current = "cause" in current ? current.cause : undefined
+  }
+  return false
+}
+
 /**
  * The ranking of one call as of `now`. It loads the projection once and
  * checks that it holds the served `sha`. `options.caps` lowers the walk caps,
@@ -357,6 +372,7 @@ export async function rankWorkspaceRelated(
   const startedAt = performance.now()
   const deadline = startedAt + total.totalTimeoutMs
   let searchTimedOut = false
+  let queryEmbedding: Promise<number[] | null> | undefined
   // Walk the graph and rank what the walk found. No `predicates` walks all
   // edges.
   const walk = async (
@@ -391,23 +407,30 @@ export async function rankWorkspaceRelated(
       }
       throw error
     })
-    const queryHits = input.query
+    const query = input.query
+    // Both walks search the same query, so the call embeds it once, inside
+    // the total budget.
+    if (query)
+      queryEmbedding ??= embedQuery(
+        query,
+        AbortSignal.timeout(
+          Math.max(0, Math.ceil(deadline - performance.now())),
+        ),
+      )
+    const queryHits = query
       ? (
           await searchKnowledge({
             orgId: org.id,
             workspaceIds: [workspace.id],
-            query: input.query,
+            query,
             unitIds: expansion.nodes.map((node) => node.id),
             limit: 50,
             deadline,
+            embedding: queryEmbedding,
           }).catch((error: unknown) => {
-            if (
-              !(
-                error instanceof DOMException && error.name === "TimeoutError"
-              ) &&
-              performance.now() < deadline
-            )
-              throw error
+            // Only the end of the budget makes a partial result: the
+            // deadline of the search, or a Postgres statement timeout.
+            if (!isTimeout(error)) throw error
             searchTimedOut = true
             return []
           })
