@@ -25,14 +25,96 @@ describe("ownership migration of old extracted files", () => {
     expect(migrated?.path).toBe("knowledge/services/billing.md")
     expect(front(migrated?.content ?? "")).toEqual({
       kind: "Service",
+      name: "Billing",
       generated_by: "ctxpipe-extract",
-      source: "https://github.com/Acme/Billing.git#src/index.ts",
       sources: ["https://github.com/acme/billing"],
     })
     expect(migrated?.content.endsWith(`---\n${body}`)).toBe(true)
     expect(
       fileOwnership(migrated?.content ?? "", "https://github.com/acme/billing"),
     ).toBe("sole")
+  })
+
+  it("converts the old front matter to the shape that the ingestion v2 validator accepts", () => {
+    const [migrated] = ownershipMigrationFiles({
+      workspaceRepositoryUrl,
+      files: [
+        {
+          path: "knowledge/services/orders.md",
+          content: [
+            "---",
+            "kind: Service",
+            'name: "  Orders  "',
+            "summary: Takes orders.",
+            "confidence: 0.8",
+            "aliases: [orders-api]",
+            "generated_by: ctxpipe",
+            "source: https://github.com/acme/api#src/orders.ts",
+            "claims:",
+            "  - to: ./billing.md",
+            "    predicate: CALLS",
+            "    confidence: 0.9",
+            "    valid_from: 2026-01-01T00:00:00.000Z",
+            "    source: https://github.com/acme/api.git#src/billing-client.ts",
+            "  - to: ./ledger.md",
+            "    predicate: WRITES",
+            "  - to: ./old.md",
+            "    predicate: CALLS",
+            "    valid_to: 2026-02-01T00:00:00.000Z",
+            "  - to: ./unnamed.md",
+            "  - to: ./outside.md",
+            "    predicate: READS",
+            "    source: ../../outside.ts",
+            "---",
+            "",
+            "# Orders API",
+            "",
+          ].join("\n"),
+        },
+      ],
+    })
+    expect(front(migrated?.content ?? "")).toEqual({
+      kind: "Service",
+      name: "Orders",
+      summary: "Takes orders.",
+      generated_by: "ctxpipe-extract",
+      sources: ["https://github.com/acme/api"],
+      claims: [
+        {
+          to: "./billing.md",
+          predicate: "CALLS",
+          evidence: { path: "src/billing-client.ts", kind: "model" },
+          confidence: 0.9,
+        },
+        {
+          to: "./ledger.md",
+          predicate: "WRITES",
+          evidence: { path: "src/orders.ts", kind: "model" },
+        },
+      ],
+    })
+  })
+
+  it("names a file from its first heading, or else from its path", () => {
+    const migrated = ownershipMigrationFiles({
+      workspaceRepositoryUrl,
+      files: [
+        {
+          path: "knowledge/services/headed.md",
+          content:
+            "---\nkind: Service\ngenerated_by: ctxpipe\nsource: https://github.com/acme/api#a.ts\n---\n\nIntro.\n\n# Headed Service\n",
+        },
+        {
+          path: "knowledge/libraries/no-name.md",
+          content:
+            "---\nkind: Library\ngenerated_by: ctxpipe\nsource: https://github.com/acme/api#package.json\n---\n\nNo heading.\n",
+        },
+      ],
+    })
+    expect(migrated.map((file) => front(file.content).name)).toEqual([
+      "Headed Service",
+      "no-name",
+    ])
   })
 
   it("moves a file that the import-key cleanup already changed", () => {

@@ -127,8 +127,8 @@ it(
           const billing = show("knowledge/services/billing.md")
           expect(parse(billing.split("---")[1] ?? "")).toEqual({
             kind: "Service",
+            name: "Billing",
             generated_by: "ctxpipe-extract",
-            source: "https://github.com/acme/billing.git#src/index.ts",
             sources: ["https://github.com/acme/billing"],
           })
           expect(

@@ -10,6 +10,7 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { parse as parseYaml, stringify } from "yaml"
+import { ownershipMigrationFiles } from "./ownership-migration.js"
 import {
   findSuspectedSecret,
   gitSource,
@@ -1979,5 +1980,54 @@ describe("findSuspectedSecret", () => {
     const meter = { work: 0 }
     expect(findSuspectedSecret(lines, meter)).toBeNull()
     expect(meter.work).toBeLessThanOrEqual(32 * lines.length)
+  })
+})
+
+describe("validatePatchStep after the ownership migration", () => {
+  it("accepts a v2 edit that keeps the front matter of a migrated old file", async () => {
+    const path = "knowledge/services/migrated.md"
+    const human =
+      "<!-- ctxpipe:human -->\nA human note.\n<!-- /ctxpipe:human -->\n"
+    const [migrated] = ownershipMigrationFiles({
+      workspaceRepositoryUrl: "https://github.com/example-org/context",
+      files: [
+        {
+          path,
+          content: [
+            "---",
+            "import_key: repo_1:service:migrated",
+            "kind: Service",
+            "confidence: 0.8",
+            "generated_by: ctxpipe",
+            `source: ${SOURCE_URL}.git#src/billing.ts`,
+            "claims:",
+            "  - to: ./billing.md",
+            "    predicate: CALLS",
+            "    confidence: 0.9",
+            "    valid_from: 2026-01-01T00:00:00.000Z",
+            `    source: ${SOURCE_URL}#package.json`,
+            "---",
+            "",
+            "# Migrated",
+            "",
+            "Old text.",
+            "",
+            human,
+          ].join("\n"),
+        },
+      ],
+    })
+    const content = migrated?.content ?? ""
+    const base = commitOn(baseCommit, { [path]: content })
+    const front = content.slice(0, content.indexOf("\n---\n") + 5)
+    const result = await run(
+      stage({
+        files: { [path]: `${front}\n# Migrated\n\nNew text.\n\n${human}` },
+        base,
+      }),
+      { baseCommit: base },
+    )
+    expect(result.rejections).toEqual([])
+    expect(result.accepted.map((op) => op.path)).toEqual([path])
   })
 })
