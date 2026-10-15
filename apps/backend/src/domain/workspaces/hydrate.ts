@@ -187,7 +187,10 @@ export function hydrateKnowledgeTree(input: {
   const repositories = githubSourceRepositories(
     input.sourcesFile ?? null,
     null,
-    input.sourceFiles,
+    input.sourceFiles ??
+      input.files
+        .filter((file) => file.path.startsWith(SOURCES_FOLDER_PREFIX))
+        .map((file) => ({ path: file.path, text: file.content })),
     {
       previousRows: input.previousSourceRows,
       workspaceUrl: input.workspaceUrl,

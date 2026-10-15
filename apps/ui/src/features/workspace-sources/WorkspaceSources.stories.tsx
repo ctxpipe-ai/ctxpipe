@@ -947,6 +947,7 @@ export const AddSeveralSendsOneBatch: Story = {
     })
   },
 }
+
 export const RemoveSendsChange: Story = {
   parameters: {
     msw: {
@@ -1163,9 +1164,12 @@ export const PickerShowsConnectionNames: Story = {
     await userEvent.click(
       dialog.getByRole("button", { name: "Open a pull request" }),
     )
-    await waitFor(() => expect(pickerCalls).toHaveLength(2))
+    // Both repositories go in one batch request.
+    await waitFor(() => expect(pickerCalls).toHaveLength(1))
     await expect(
-      pickerCalls.map((call) => (call.body as { source: unknown }).source),
+      (
+        pickerCalls[0]?.body as { sources: Array<{ source: unknown }> }
+      ).sources.map((item) => item.source),
     ).toEqual(
       expect.arrayContaining([
         {

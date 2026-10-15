@@ -118,7 +118,9 @@ describe("parseSourceFile", () => {
   })
 
   it("gives the provider, connection, and body of a file", () => {
-    const parsed = parseSourceFile(examples[0].path, examples[0].text)
+    const [example] = examples
+    if (!example) throw new Error("No example")
+    const parsed = parseSourceFile(example.path, example.text)
     expect(parsed).toEqual({
       ok: true,
       source: {

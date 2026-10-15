@@ -1154,11 +1154,11 @@ it(
 )
 
 it(
-  "lands a host direct-commit edit of a source file under sources/ (CTX-721)",
+  "refuses a queued Files edit of a source file under sources/ (CTX-721)",
   { timeout: 60_000 },
   async () => {
-    // Only agent writes without a pull request refuse sources/. A direct
-    // commit from the Sources settings is a host write for a person.
+    // A source changes only by a pull request (CTX-721). No queued Files edit
+    // of `sources/` lands, so the default branch stays as it is.
     await withNativeHydrationFixture(
       {
         github: true,
@@ -1187,6 +1187,12 @@ it(
         const content =
           "---\nrepository: https://github.com/example-org/checkout-api\n---\n"
         try {
+          const before = f.git(
+            "--git-dir",
+            f.remote,
+            "rev-parse",
+            "refs/heads/main",
+          )
           const jobId = `wjob_${f.id}_source_edit`
           const accepted = await withOrgIdContext(f.org, () =>
             enqueueWriteJob(
@@ -1216,10 +1222,10 @@ it(
                 ),
               { timeout: 30_000 },
             )
-            .toBe("completed")
+            .toBe("failed")
           expect(
-            f.git("--git-dir", f.remote, "show", `refs/heads/main:${path}`),
-          ).toBe(content.trimEnd())
+            f.git("--git-dir", f.remote, "rev-parse", "refs/heads/main"),
+          ).toBe(before)
         } finally {
           await worker.stop()
           await backend.stop()

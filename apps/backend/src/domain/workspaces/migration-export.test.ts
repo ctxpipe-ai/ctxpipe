@@ -514,7 +514,6 @@ Ledger lives here.
       ],
       claims: [],
       existingKnowledge: [{ path: ".ctxpipe/billing.md", content: existing }],
-      linkedUrls: [],
     })
     expect(planned.files.map((file) => file.path)).not.toContain(
       ".ctxpipe/billing.md",

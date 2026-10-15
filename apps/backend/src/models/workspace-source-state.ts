@@ -309,7 +309,7 @@ export function listServedRepositoryPins(
 async function listPins(
   db: Queryable,
   filter: { orgId?: string; workspaceId?: string },
-  statuses: readonly string[],
+  statuses: ReadonlyArray<(typeof workspaceSources.$inferSelect)["status"]>,
 ): Promise<LinkedRepositoryPin[]> {
   const rows = await db
     .select({
