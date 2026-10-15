@@ -78,6 +78,14 @@ fragment LinearDocumentNode on Document {
   }
 }
 
+fragment LinearRelationNode on IssueRelation {
+  type
+  relatedIssue {
+    id
+    identifier
+  }
+}
+
 fragment LinearIssueCore on Issue {
   id
   identifier
@@ -111,11 +119,27 @@ fragment LinearIssueCore on Issue {
     id
     name
   }
+  parent {
+    id
+    identifier
+  }
+  projectMilestone {
+    id
+    name
+  }
   assignee {
     ...LinearActor
   }
   creator {
     ...LinearActor
+  }
+  relations(first: 10) {
+    nodes {
+      ...LinearRelationNode
+    }
+    pageInfo {
+      ...LinearPageInfo
+    }
   }
   labels(first: 20) {
     nodes {
@@ -474,6 +498,19 @@ query IssueLabelsPage($id: String!, $after: String!) {
     labels(first: 50, after: $after) {
       nodes {
         ...LinearLabelNode
+      }
+      pageInfo {
+        ...LinearPageInfo
+      }
+    }
+  }
+}
+
+query IssueRelationsPage($id: String!, $after: String!) {
+  issue(id: $id) {
+    relations(first: 50, after: $after) {
+      nodes {
+        ...LinearRelationNode
       }
       pageInfo {
         ...LinearPageInfo

@@ -31,7 +31,7 @@ export const workspaceChromeTabIdleClassName = [
   "box-border my-0.5 -translate-y-px inline-flex h-8 shrink-0 cursor-pointer items-center justify-center px-[7px]",
   "rounded-md border border-b-0 border-transparent bg-transparent",
   "text-sm font-medium leading-none text-zinc-400",
-  "transition-colors hover:bg-teal-900/30 hover:text-zinc-50",
+  "transition-[color,background-color] hover:bg-teal-900/30 hover:text-zinc-50",
 ].join(" ")
 
 /** Gap between conversation + pane tabs (both columns). Sit 1px over the card hairline. */

@@ -10,6 +10,7 @@ import { connections } from "../../db/schema/connections.js"
 import { encodeLinearTokensForDb } from "../../lib/connection-config.js"
 import { upsertConnectionDirectory } from "../../models/connection-directory.js"
 import { getLinearBindingWithRepoByConnectionId } from "../../models/linear-connector.js"
+import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { linearSyncContent } from "../../openworkflow/workflows/linear-sync-content.js"
 import { linearSyncEntity } from "../../openworkflow/workflows/linear-sync-entity.js"
 import { workspaceConnectorMirror } from "../../openworkflow/workflows/workspace-connector-mirror.js"
@@ -24,7 +25,7 @@ it.each(["entity", "full", "rebind"] as const)(
       "version: 1\nsource: linear\nworkspace:\n  id: provider-workspace\n  name: Fixture\nscope: {}\n"
     await withNativeHydrationFixture(
       {
-        namespaceId: "default",
+        namespaceId: openWorkflowNamespaceId(),
         github: true,
         githubWriteView: "writable",
         writeStatus: "writable",

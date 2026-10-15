@@ -1,6 +1,7 @@
 import { parseArgs } from "node:util"
 import { BackendPostgres } from "openworkflow/postgres"
 import { Pool } from "pg"
+import { openWorkflowNamespaceId } from "../openworkflow/namespace.js"
 import {
   backfillConnectorContentAdmissions,
   previewConnectorContentAdmissions,
@@ -29,7 +30,10 @@ try {
     `${JSON.stringify({ mode: values.apply ? "apply" : "preview", plans }, null, 2)}\n`,
   )
   if (values.apply) {
-    const backend = await BackendPostgres.connect(url, { runMigrations: false })
+    const backend = await BackendPostgres.connect(url, {
+      runMigrations: false,
+      namespaceId: openWorkflowNamespaceId(),
+    })
     try {
       await backfillConnectorContentAdmissions(pool, backend, scope)
     } finally {

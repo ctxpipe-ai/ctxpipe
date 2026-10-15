@@ -3,7 +3,10 @@ import { HttpResponse, http } from "msw"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 import { pagerdutyServicesHandler } from "@/mocks/pagerduty-handlers"
 import { workspaceListHandler } from "@/mocks/workspace-handlers"
-import { workspaceSourceChangeHandlers } from "@/mocks/workspace-sources-handlers"
+import {
+  connectionUsageHandler,
+  workspaceSourceChangeHandlers,
+} from "@/mocks/workspace-sources-handlers"
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
 import { docsWorkspace } from "../../workspaces/workspace-fixtures"
@@ -197,6 +200,7 @@ const installedHandlers = [
   workspaceListHandler([docsWorkspace]),
   pagerdutyServicesHandler,
   ...workspaceSourceChangeHandlers(addCalls),
+  connectionUsageHandler([]),
 ]
 
 export const AddToWorkspaces: Story = {
@@ -223,9 +227,14 @@ export const AddToWorkspaces: Story = {
       await body.findByRole("checkbox", { name: "checkout-api" }),
     )
     await userEvent.click(add)
+    // The add opened a pull request: the last step is the merge.
     await expect(
-      await body.findByRole("heading", { name: "PagerDuty is connected" }),
+      await body.findByRole("heading", { name: "Merge the pull request" }),
     ).toBeVisible()
+    // The sync starts after the merge, so the last step links the pull request.
+    await expect(
+      body.getByRole("link", { name: "acme/docs#7" }),
+    ).toHaveAttribute("href", "https://github.com/acme/docs/pull/7")
     await expect(addCalls).toEqual([
       {
         method: "POST",
@@ -240,21 +249,6 @@ export const AddToWorkspaces: Story = {
         },
       },
     ])
-  },
-}
-
-export const SkipWorkspaces: Story = {
-  name: "Skip Workspaces, setup complete",
-  render: () => dialog(),
-  parameters: { msw: { handlers: { page: installedHandlers } } },
-  play: async ({ canvasElement }) => {
-    const body = within(canvasElement.ownerDocument.body)
-    await userEvent.click(
-      await body.findByRole("button", { name: "Skip for now" }),
-    )
-    await expect(
-      await body.findByRole("heading", { name: "PagerDuty is connected" }),
-    ).toBeVisible()
   },
 }
 

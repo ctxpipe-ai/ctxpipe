@@ -3,7 +3,9 @@ import {
   type RunGitTokenStore,
   sandboxGitTokenStore,
 } from "../../models/sandbox-git-tokens.js"
+import { unfinishedOrgWorkflowRunIds } from "../../models/workspace-sandboxes.js"
 import { log } from "../../observability/logger.js"
+import { INGESTION_V2_WORKFLOW_NAME } from "../ingestion/ingestion-run.js"
 import { revokeGithubToken } from "./clone-credentials.js"
 import { withSandboxLockIfFree } from "./sandbox-lock-store.js"
 
@@ -12,6 +14,10 @@ import { withSandboxLockIfFree } from "./sandbox-lock-store.js"
  * run's token is in its Agent Vault vault, a local run's clone token is in
  * its environment). Each is recorded under `run:<conversation>:<label>:<window>` and revoked when the
  * turn ends. The conversation sandbox sweep revokes what a turn end could not.
+ *
+ * An ingest shard (ADR-052) records its tokens under its thread,
+ * `ingest:<run>:<shard>:<label>:<window>`. `destroy` of the shard's sandbox
+ * revokes them; the sweep revokes those of finished runs.
  *
  * GitHub installation tokens are valid for 60 minutes. A token is used only
  * in the 50-minute window it was minted in, so a token in use has at least
@@ -29,6 +35,14 @@ type RunTokenOptions = {
   revoke?: (token: string) => Promise<void>
 }
 
+/** Whose tokens: a conversation's, or an ingest shard's (its thread id). */
+type RunTokenOwner = { conversationId: string } | { ingestThreadId: string }
+
+const keyBase = (owner: RunTokenOwner) =>
+  "ingestThreadId" in owner
+    ? `${owner.ingestThreadId}:`
+    : `run:${owner.conversationId}:`
+
 const storeFor = (input: RunTokenOptions) =>
   input.store ??
   sandboxGitTokenStore(
@@ -41,14 +55,14 @@ const storeFor = (input: RunTokenOptions) =>
  * new uncached token from `mint`, recorded before it is returned.
  */
 export async function recordedRunGitToken(
-  input: RunTokenOptions & {
-    conversationId: string
-    label: string
-    mint: () => Promise<string | undefined>
-  },
+  input: RunTokenOptions &
+    RunTokenOwner & {
+      label: string
+      mint: () => Promise<string | undefined>
+    },
 ): Promise<string | undefined> {
   const store = storeFor(input)
-  const key = `run:${input.conversationId}:${input.label}:${Math.floor(Date.now() / WINDOW_MS)}`
+  const key = `${keyBase(input)}${input.label}:${Math.floor(Date.now() / WINDOW_MS)}`
   const recorded = await store.get(key)
   if (recorded) return recorded.token
   const minted = await input.mint()
@@ -59,7 +73,7 @@ export async function recordedRunGitToken(
     log.warn({
       step: "workspace-chat-run-token-revoke",
       message: `Revoking an unused run GitHub token failed: ${String(error)}`,
-      conversationId: input.conversationId,
+      tokenOwner: keyBase(input),
     }),
   )
   return (await store.get(key))?.token
@@ -73,14 +87,14 @@ export async function recordedRunGitToken(
  * count of tokens left is returned.
  */
 export async function revokeRunGitTokens(
-  input: RunTokenOptions & {
-    conversationId: string
-    prefixes?: string[]
-    minAgeMs?: number
-  },
+  input: RunTokenOptions &
+    RunTokenOwner & {
+      prefixes?: string[]
+      minAgeMs?: number
+    },
 ): Promise<number> {
   const store = storeFor(input)
-  const base = `run:${input.conversationId}:`
+  const base = keyBase(input)
   let left = 0
   try {
     const rows = (
@@ -102,7 +116,7 @@ export async function revokeRunGitTokens(
         log.warn({
           step: "workspace-chat-run-token-revoke",
           message: `Revoking a run GitHub token failed: ${String(error)}`,
-          conversationId: input.conversationId,
+          tokenOwner: base,
         })
       }
     }
@@ -111,7 +125,7 @@ export async function revokeRunGitTokens(
     log.warn({
       step: "workspace-chat-run-token-revoke",
       message: `Reading the run GitHub tokens failed: ${String(error)}`,
-      conversationId: input.conversationId,
+      tokenOwner: base,
     })
   }
   return left
@@ -146,6 +160,36 @@ export async function revokeIdleRunGitTokens(
         }),
     )
     if (outcome.busy || outcome.value > 0) pending = true
+  }
+  return pending
+}
+
+/**
+ * The sweep's backstop for ingest shards: revoke the tokens of each shard
+ * whose ingestion run is finished or unknown (a `destroy` that did not run).
+ * Returns true when a token is left for a later sweep.
+ */
+export async function revokeFinishedIngestGitTokens(
+  input: RunTokenOptions,
+): Promise<boolean> {
+  const store = storeFor(input)
+  // `ingest:<run>:<shard>:<label>:<window>`
+  const threads = new Map<string, string>()
+  for (const row of await store.list("ingest:")) {
+    const [, runId, shard] = row.key.split(":")
+    if (runId && shard) threads.set(`ingest:${runId}:${shard}`, runId)
+  }
+  if (threads.size === 0) return false
+  const unfinished = await unfinishedOrgWorkflowRunIds(
+    input.orgId,
+    INGESTION_V2_WORKFLOW_NAME,
+    [...new Set(threads.values())],
+  )
+  let pending = false
+  for (const [ingestThreadId, runId] of threads) {
+    if (unfinished.has(runId)) continue
+    if ((await revokeRunGitTokens({ ...input, store, ingestThreadId })) > 0)
+      pending = true
   }
   return pending
 }

@@ -6,7 +6,7 @@ import type {
   WorkspaceSourceListResponse,
 } from "backend/routes/v1/workspace-sources-contract"
 import { getApiClient } from "@/lib/api"
-import { readApiJson } from "@/lib/api-result"
+import { pollWhileOk, readApiJson } from "@/lib/api-result"
 
 export type {
   ConnectionUsageResponse,
@@ -44,6 +44,39 @@ export const workspaceSourceKeys = {
     ["connection-usage", orgSlug, connectionId] as const,
 }
 
+/** The open source pull requests that a query last listed. */
+const pendingMergeSeen = new WeakMap<
+  object,
+  { open: Set<string>; until: number }
+>()
+
+/**
+ * Refresh a list for 2 minutes after an open source pull request leaves it.
+ * A merge closes the pull request about 15 s before the Workspace records
+ * its source, so a read in between shows neither. While a pull request is
+ * open, each window focus also reads again: the user usually merges it on
+ * GitHub in another tab.
+ */
+function refreshAfterMerge<T>(pullRequestUrls: (data: T) => string[]) {
+  const openUrls = (query: { state: { data: T | undefined } }) =>
+    query.state.data === undefined ? [] : pullRequestUrls(query.state.data)
+  return {
+    refetchOnWindowFocus: (query: { state: { data: T | undefined } }) =>
+      openUrls(query).length > 0 ? ("always" as const) : true,
+    refetchInterval: (query: {
+      state: { status: string; data: T | undefined }
+    }) => {
+      const open = new Set(openUrls(query))
+      const seen = pendingMergeSeen.get(query) ?? { open, until: 0 }
+      if ([...seen.open].some((url) => !open.has(url)))
+        seen.until = Date.now() + 120_000
+      seen.open = open
+      pendingMergeSeen.set(query, seen)
+      return Date.now() < seen.until ? pollWhileOk(5_000)(query) : false
+    },
+  }
+}
+
 export function workspaceSourcesOptions(
   orgSlug: string,
   workspaceSlug: string,
@@ -59,6 +92,9 @@ export function workspaceSourcesOptions(
         message: "Failed to load Workspace sources",
       })
     },
+    ...refreshAfterMerge<WorkspaceSourceListResponse>((data) =>
+      data.pendingChanges.map((change) => change.pullRequestUrl),
+    ),
   })
 }
 
@@ -74,6 +110,11 @@ export function connectionUsageOptions(orgSlug: string, connectionId: string) {
         message: "Failed to load the Workspaces of this connector",
       })
     },
+    ...refreshAfterMerge<ConnectionUsageResponse>((data) =>
+      data.items.flatMap((item) =>
+        item.pendingChanges.map((change) => change.pullRequestUrl),
+      ),
+    ),
   })
 }
 

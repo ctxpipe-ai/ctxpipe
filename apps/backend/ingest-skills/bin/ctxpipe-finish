@@ -1,0 +1,16 @@
+#!/usr/bin/env node
+// ctxpipe-finish: write patch.json for the staged tree and the recorded
+// deletes. The base blob of a file is the one ctxpipe-stage recorded, else
+// the blob at the base commit. Unchanged staged files make no op.
+// `--more` tells the host that files wait for a next page; a `more` that a
+// script of the step already wrote in patch.json stays.
+import { currentStep, fail, parseArgs, writePatch } from "./stage-lib.mjs"
+
+const { root, args } = parseArgs()
+for (const arg of args) if (arg !== "--more") fail(`Unknown argument ${arg}`)
+const more = args.includes("--more")
+const ops = writePatch(currentStep(root), { more })
+const count = (op) => ops.filter((o) => o.op === op).length
+process.stdout.write(
+  `patch.json: ${count("create")} create, ${count("update")} update, ${count("delete")} delete${more ? ", more" : ""}\n`,
+)

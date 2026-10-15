@@ -1,6 +1,5 @@
-import { ChatOpenAI } from "@langchain/openai"
-
 import type { ModelParams } from "../modelParams.js"
+import { openAiHostAdapter } from "./openAiHostAdapter.js"
 import type {
   OpenAiCompatibleFetch,
   ProviderCallOpts,
@@ -13,7 +12,7 @@ function isNonEmptyRecord(value: Record<string, unknown>): boolean {
   return Object.keys(value).length > 0
 }
 
-/** OpenRouter gateway request body fields via LangChain `modelKwargs`. */
+/** Map canonical parameters to OpenRouter request fields. */
 export function lowerOpenRouterParams(
   params: ModelParams | undefined,
 ): Record<string, unknown> | undefined {
@@ -82,7 +81,6 @@ export function openrouterModelProvider(
   opts: ProviderCallOpts,
 ): ProviderCallResult {
   const baseURL = opts.env.MODEL_PROVIDER_URL?.trim() || DEFAULT_OPENROUTER_BASE
-  const primary = opts.models[0] ?? ""
   const fallbacks = opts.models.slice(1)
 
   const lowered = lowerOpenRouterParams(opts.modelParams)
@@ -96,14 +94,7 @@ export function openrouterModelProvider(
   const fetchFn = bearerFetch(opts.apiKey)
 
   return {
-    chat: new ChatOpenAI({
-      model: primary,
-      apiKey: opts.apiKey,
-      temperature: opts.temperature,
-      streaming: opts.streaming ?? true,
-      modelKwargs,
-      configuration: { baseURL },
-    }),
+    chat: openAiHostAdapter(opts, "openrouter", baseURL, fetchFn, modelKwargs),
     fetch: fetchFn,
   }
 }

@@ -352,7 +352,7 @@ function OrgSetupPage() {
               </h2>
               <p className="text-zinc-300">
                 Invite external users ({pendingExternalRecipients.join(", ")})?
-                They will receive access to your organisations engineering
+                They will receive access to your organizations engineering
                 knowledge via this app and MCP.
               </p>
               <div className="mt-6 flex justify-end gap-3">

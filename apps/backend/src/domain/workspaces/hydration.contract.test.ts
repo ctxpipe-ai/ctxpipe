@@ -18,11 +18,12 @@ import {
   getWorkspaceProjection,
   getWorkspaceProjectionSnapshot,
   listWorkspaceKnowledgeUnits,
+  markKnowledgeEmbeddingsReady,
   persistEmbeddingFailure,
   persistHydrateFailure,
-  persistUnitEmbeddings,
 } from "../../models/workspaces.js"
 import { enqueueWorkspaceHydrate } from "../../openworkflow/enqueue-workspace-hydrate.js"
+import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { workspaceHydrate } from "../../openworkflow/workflows/workspace-hydrate.js"
 import { workspaceIndex } from "../../openworkflow/workflows/workspace-index.js"
 import { workspaceRoutes } from "../../routes/v1/workspaces.js"
@@ -368,6 +369,7 @@ it(
       const { databaseUrl, org, workspaceId, workspaceUrl, sha } = f
       await f.publish()
       const queue = await BackendPostgres.connect(databaseUrl, {
+        namespaceId: openWorkflowNamespaceId(),
         runMigrations: false,
       })
       try {
@@ -470,7 +472,7 @@ it(
             index: { kind: "failed" },
           },
         })
-        await persistUnitEmbeddings({ revision: active.revision })
+        await markKnowledgeEmbeddingsReady({ revision: active.revision })
         expect(await getWorkspaceProjection(workspaceId)).toMatchObject({
           kind: "active",
           stores: {
@@ -891,6 +893,7 @@ it(
       await f.publish()
       const { revision } = await replaceGeneration(f)
       const indexQueue = await BackendPostgres.connect(databaseUrl, {
+        namespaceId: openWorkflowNamespaceId(),
         runMigrations: false,
       })
       try {
@@ -936,11 +939,11 @@ it(
       await withOrgIdContext(org, async () => {
         const [unit] = (await getWorkspaceProjectionSnapshot(workspaceId)).units
         if (!unit) throw new Error("Expected the active knowledge unit")
-        expect(await persistUnitEmbeddings({ revision })).toBe(false)
+        expect(await markKnowledgeEmbeddingsReady({ revision })).toBe(false)
         expect(
           (await getWorkspaceProjectionSnapshot(workspaceId)).units[0]
-            ?.embedding,
-        ).toEqual(Array(2000).fill(0.01))
+            ?.embedded,
+        ).toBe(true)
       })
     }),
 )

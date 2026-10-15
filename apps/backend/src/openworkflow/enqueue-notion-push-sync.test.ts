@@ -14,6 +14,7 @@ import {
   enqueueConnectorContentSync,
 } from "./enqueue-connector-content-sync.js"
 import { enqueueNotionFullSyncAfterConfigPush } from "./enqueue-notion-push-sync.js"
+import { openWorkflowNamespaceId } from "./namespace.js"
 
 it.each([false, true])(
   "accepts a durable Notion activation (canceled before activation: %s)",
@@ -54,6 +55,7 @@ it.each([false, true])(
         if (!connection) throw new Error("Fixture connection missing")
         await upsertConnectionDirectory(connection)
         const backend = await BackendPostgres.connect(f.databaseUrl, {
+          namespaceId: openWorkflowNamespaceId(),
           runMigrations: false,
         })
         try {

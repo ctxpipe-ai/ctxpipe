@@ -7,6 +7,7 @@ import type { GitHubInstallationShape } from "../../models/connection-rows.js"
 import {
   githubConnectionToShape,
   githubRowHasAppCredentials,
+  githubRowHasOwnApp,
 } from "../../models/connection-rows.js"
 import {
   completeGithubDraftCredentials,
@@ -975,10 +976,7 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
       if (body.connectionId && !connectionRow) {
         return c.json({ error: "Unknown GitHub connection" }, 404)
       }
-      if (
-        connectionRow &&
-        githubRowHasAppCredentials(connectionRow, c.var.env)
-      ) {
+      if (connectionRow && githubRowHasOwnApp(connectionRow, c.var.env)) {
         if (
           !(await githubAppOwnsInstallation(
             connectionRow,

@@ -1,0 +1,513 @@
+import type { SandboxHandle, SandboxProvider } from "@tanstack/ai-sandbox"
+import { dockerSandbox } from "@tanstack/ai-sandbox-docker"
+import type { NetworkPolicy } from "@vercel/sandbox"
+import Docker from "dockerode"
+import { parseEnv } from "../../config/env.js"
+import {
+  getGithubInstallationByConnectionId,
+  getWorkspaceGithubReadToken,
+} from "../../models/github-installation.js"
+import {
+  type SandboxGitTokenStore,
+  sandboxGitTokenStore,
+} from "../../models/sandbox-git-tokens.js"
+import {
+  type AgentVaultAccess,
+  AgentVaultUnavailableError,
+  agentVaultAccess,
+  deleteRunVault,
+  openRunVault,
+  type RunVault,
+  runVaultName,
+  setRunVaultRules,
+  writeProxyCa,
+} from "./agent-vault.js"
+import {
+  INGEST_SHARD_LIMIT_MS,
+  ingestSandboxThreadId,
+} from "./chat-lifecycle.js"
+import { ingestEgressForwardUrl } from "./ingest-egress-proxy.js"
+import { recordedRunGitToken, revokeRunGitTokens } from "./run-git-tokens.js"
+import {
+  bearerUrlRule,
+  githubFetchCredentialRules,
+  modelProxyCredentialRules,
+  type SandboxCredentialRule,
+} from "./sandbox-credential-rules.js"
+import {
+  type ConversationFirewall,
+  conversationFirewall,
+  type HostedPolicyInput,
+  type HostedTurnCredentials,
+  type VercelCredentials,
+  vercelConfigured,
+  vercelConversationProvider,
+  vercelOidcIssuer,
+} from "./vercel-sandbox-provider.js"
+
+/**
+ * False until the T12 live check proves the hosted egress proxy (T03b,
+ * `ingestNetworkPolicy` and `ingestEgressProxy`) on Vercel. Until then,
+ * `vercelIngestSandboxProvider` refuses to start.
+ */
+export const VERCEL_INGEST_EGRESS_PROVEN = false
+
+/**
+ * Whether hosted ingest egress is on: the egress route is mounted and ingest
+ * sandboxes may start. One predicate for both, so a sandbox never starts
+ * without the route that serves it.
+ */
+export function hostedIngestEgressEnabled(
+  env: NodeJS.ProcessEnv = process.env,
+  proven: boolean = VERCEL_INGEST_EGRESS_PROVEN,
+): boolean {
+  return proven && vercelConfigured(env) && Boolean(vercelOidcIssuer(env))
+}
+
+/** A repository that an ingest shard reads, and its GitHub connection. */
+export type IngestRepository = {
+  /** `owner/name`, as the sandbox writes it in `https://<host>/<owner>/<name>.git`. */
+  fullName: string
+  githubConnectionId: string
+}
+
+/**
+ * What one ingest step may reach (ADR-052). Nothing else: an ingest sandbox
+ * has no open internet, no GitHub push, and no GitHub REST API.
+ */
+export type IngestEgress = {
+  /**
+   * The run's source repository and each destination Workspace repository.
+   * The sandbox can only fetch them (the run's ingest refs too).
+   */
+  repositories: IngestRepository[]
+  /** The model proxy base URL as the sandbox sees it (`…/openai/v1`). */
+  modelProxyUrl: string
+  /** The step's `workspace-ingest-model` capability. */
+  capability: string
+  /** The exact URL of the step's tool bridge, and its token. */
+  bridge: { url: string; token: string }
+  /** Defaults to `github.com`; tests use a local Git server. */
+  gitHost?: string
+}
+
+/** One GitHub read token and the repositories it may fetch. */
+export type IngestGitAccess = { token: string; repositories: string[] }
+
+/**
+ * The repositories of each GitHub connection. Throws when a connection does
+ * not cover one of its repositories (no installation, or another owner):
+ * the step would fail later inside the sandbox.
+ */
+async function coveredRepositoryGroups(
+  orgId: string,
+  repositories: IngestRepository[],
+): Promise<Map<string, string[]>> {
+  const groups = new Map<string, string[]>()
+  for (const repository of repositories) {
+    const names = groups.get(repository.githubConnectionId) ?? []
+    groups.set(repository.githubConnectionId, names)
+    if (!names.includes(repository.fullName)) names.push(repository.fullName)
+  }
+  for (const [connectionId, names] of groups) {
+    const installation = await getGithubInstallationByConnectionId(
+      orgId,
+      connectionId,
+    )
+    const owner = installation?.accountSlug?.toLowerCase()
+    const uncovered = names.filter(
+      (name) =>
+        !installation?.installationId ||
+        name.split("/")[0]?.toLowerCase() !== owner,
+    )
+    if (uncovered.length > 0)
+      throw new Error(
+        `The GitHub connection ${connectionId} does not cover ${uncovered.join(", ")}`,
+      )
+  }
+  return groups
+}
+
+/**
+ * One read token per GitHub connection, each for that connection's
+ * repositories. The token has the read permissions of a Workspace read token
+ * (contents, issues, pull requests, metadata); the egress rules allow only
+ * Git fetch with it. Each token is recorded under the shard's thread, so
+ * `destroy` (or the sweep, after the run) revokes it.
+ */
+export async function ingestGitAccess(input: {
+  orgId: string
+  runId: string
+  shard: number
+  repositories: IngestRepository[]
+}): Promise<IngestGitAccess[]> {
+  const env = parseEnv(process.env as Record<string, string | undefined>)
+  const groups = await coveredRepositoryGroups(input.orgId, input.repositories)
+  const access: IngestGitAccess[] = []
+  for (const [connectionId, repositories] of groups) {
+    const token = await recordedRunGitToken({
+      orgId: input.orgId,
+      ingestThreadId: ingestSandboxThreadId(input.runId, input.shard),
+      label: `git:${connectionId}`,
+      mint: () =>
+        getWorkspaceGithubReadToken(input.orgId, env, {
+          githubConnectionId: connectionId,
+          repoFullNames: repositories,
+        }),
+    })
+    if (!token)
+      throw new Error(
+        `The GitHub connection ${connectionId} gave no read token for ${repositories.join(", ")}`,
+      )
+    access.push({ token, repositories })
+  }
+  return access
+}
+
+function revokeIngestGitTokens(input: {
+  orgId: string
+  runId: string
+  shard: number
+}): Promise<number> {
+  return revokeRunGitTokens({
+    orgId: input.orgId,
+    ingestThreadId: ingestSandboxThreadId(input.runId, input.shard),
+  })
+}
+
+/** The credential rules of one ingest step; the only requests it can send. */
+export function ingestCredentialRules(
+  egress: IngestEgress,
+  git: IngestGitAccess[],
+): SandboxCredentialRule[] {
+  return [
+    ...git.flatMap((entry) =>
+      githubFetchCredentialRules(
+        entry.token,
+        entry.repositories,
+        egress.gitHost,
+      ),
+    ),
+    ...modelProxyCredentialRules(egress.modelProxyUrl, egress.capability),
+    bearerUrlRule("tool-bridge", egress.bridge.url, egress.bridge.token),
+  ]
+}
+
+function requireAccess(access: AgentVaultAccess | undefined): AgentVaultAccess {
+  const resolved = access ?? agentVaultAccess()
+  if (!resolved)
+    throw new AgentVaultUnavailableError(
+      "Docker ingest sandboxes need Agent Vault (AGENT_VAULT_ADDR is not set)",
+    )
+  return resolved
+}
+
+/** The vault's session outlives the shard limit, with a margin. */
+const INGEST_VAULT_TTL_SECONDS = INGEST_SHARD_LIMIT_MS / 1000 + 15 * 60
+
+/**
+ * A direct connection (not through the proxy) must fail: HTTP and HTTPS to
+ * a public IPv4 address, and HTTP to a public IPv6 address. The DinD and AWS
+ * sandbox hosts drop it with iptables; an internal Docker network has no
+ * route. Only these hosts are supported; host dev is refused.
+ */
+async function assertEgressForcedThroughProxy(
+  handle: SandboxHandle,
+): Promise<void> {
+  const probe = await handle.process.exec(
+    `command -v curl >/dev/null 2>&1 || { echo no-curl; exit 0; }
+for url in http://1.1.1.1/ https://1.1.1.1/ 'http://[2606:4700:4700::1111]/'; do
+  if curl -sk --noproxy '*' --connect-timeout 3 -m 5 -o /dev/null "$url"; then echo "open $url"; exit 0; fi
+done
+echo closed`,
+  )
+  if (probe.stdout.trim() !== "closed")
+    throw new Error(
+      `Docker ingest sandboxes need a host that forces each connection through Agent Vault (the DinD or AWS sandbox host, or an internal network); a direct connection was not refused (${probe.stdout.trim() || probe.stderr.trim()})`,
+    )
+}
+
+/**
+ * The Docker provider of one ingest shard. `create` opens the shard's vault
+ * with `unmatchedHosts: "deny"`: the proxy forwards only the rules of
+ * {@link ingestCredentialRules} and refuses each other request. The
+ * container gets the vault's proxy session in its environment, and the
+ * proxy CA. Then `create` refuses a host where a direct connection is not
+ * refused. `destroy` deletes the container and the vault, and always
+ * revokes the shard's GitHub tokens.
+ */
+export function dockerIngestSandboxProvider(input: {
+  orgId: string
+  runId: string
+  shard: number
+  image: string
+  /**
+   * The egress of the step that creates the sandbox. Absent: the provider
+   * can only resume and destroy (the end of a shard).
+   */
+  egress?: IngestEgress
+  /** Defaults to the deployment's (`AGENT_VAULT_ADDR`). */
+  access?: AgentVaultAccess
+  /**
+   * An internal Docker network: the container moves there from the default
+   * bridge after create. Without it, the sandbox host must drop direct
+   * connections (DinD, AWS).
+   */
+  network?: string
+  /** Ports to publish, for example the OpenCode server's (T09). */
+  publishPorts?: number[]
+}): SandboxProvider {
+  const docker = dockerSandbox({
+    image: input.image,
+    dockerodeOptions: { timeout: 120_000 },
+    ...(input.publishPorts ? { publishPorts: input.publishPorts } : {}),
+  })
+  const runKey = ingestSandboxThreadId(input.runId, input.shard)
+  return {
+    name: docker.name,
+    capabilities: () => docker.capabilities(),
+    async create(createInput) {
+      const access = requireAccess(input.access)
+      const egress = input.egress
+      if (!egress)
+        throw new Error(
+          "Only a step with its egress can make an ingest sandbox",
+        )
+      let vault: RunVault | undefined
+      let handle: SandboxHandle | undefined
+      try {
+        const git = await ingestGitAccess({
+          ...input,
+          repositories: egress.repositories,
+        })
+        vault = await openRunVault({
+          access,
+          runKey,
+          ttlSeconds: INGEST_VAULT_TTL_SECONDS,
+          rules: ingestCredentialRules(egress, git),
+          unmatchedHosts: "deny",
+        })
+        handle = await docker.create({
+          ...createInput,
+          env: { ...createInput.env, ...vault.env },
+        })
+        if (input.network) {
+          const daemon = new Docker({ timeout: 30_000 })
+          await daemon
+            .getNetwork(input.network)
+            .connect({ Container: handle.id })
+          await daemon.getNetwork("bridge").disconnect({ Container: handle.id })
+        }
+        await writeProxyCa(handle, vault.caPem)
+        await assertEgressForcedThroughProxy(handle)
+        return handle
+      } catch (error) {
+        if (handle)
+          await docker.destroy({ id: handle.id }).catch(() => undefined)
+        await vault?.close()
+        await revokeIngestGitTokens(input)
+        throw error
+      }
+    },
+    resume: (resumeInput) => docker.resume(resumeInput),
+    async destroy(destroyInput) {
+      try {
+        await docker.destroy(destroyInput)
+      } finally {
+        try {
+          await deleteRunVault(
+            requireAccess(input.access),
+            runVaultName(runKey),
+          )
+        } finally {
+          // A token that is left is logged; the sweep revokes it after the run.
+          await revokeIngestGitTokens(input)
+        }
+      }
+    },
+  }
+}
+
+/**
+ * Give a later step of the shard its own credentials: the step's capability,
+ * its tool bridge, and GitHub tokens of the current window. Call it while the
+ * step holds the shard lock, before the agent runs. It replaces the whole
+ * rule set: a repository that the step does not list cannot be fetched.
+ */
+export async function refreshIngestSandboxEgress(input: {
+  orgId: string
+  runId: string
+  shard: number
+  egress: IngestEgress
+  access?: AgentVaultAccess
+}): Promise<void> {
+  const git = await ingestGitAccess({
+    ...input,
+    repositories: input.egress.repositories,
+  })
+  await setRunVaultRules(
+    requireAccess(input.access),
+    ingestSandboxThreadId(input.runId, input.shard),
+    ingestCredentialRules(input.egress, git),
+    { replace: true },
+  )
+}
+
+/**
+ * Private, loopback, link-local (cloud metadata), and shared address ranges.
+ * The sandbox must not reach them, also through an allowed name.
+ */
+const PRIVATE_SUBNETS = [
+  "0.0.0.0/8",
+  "10.0.0.0/8",
+  "100.64.0.0/10",
+  "127.0.0.0/8",
+  "169.254.0.0/16",
+  "172.16.0.0/12",
+  "192.168.0.0/16",
+  "fc00::/7",
+  "fe80::/10",
+  "::1/128",
+]
+
+/**
+ * The hosted firewall of an ingest sandbox (T03b). It allows two hosts,
+ * `github.com` and the backend host, and forwards each request to them to
+ * the backend egress proxy (`ingestEgressProxy`). The proxy allows only Git
+ * fetch of the shard's repositories and, during a step, the step's model
+ * proxy and tool bridge, and it adds each credential. Each other request
+ * gets 403; each other host is not allowed. The forward URL carries the
+ * sealed scope, bound to the sandbox name, so no credential is in the
+ * policy. A sandbox with no name yet (at create) gets `"deny-all"`.
+ */
+export function ingestNetworkPolicy(input: {
+  git: IngestGitAccess[]
+  backendHost: string
+  step?: HostedTurnCredentials
+  /** The Vercel sandbox name; the egress proxy refuses other sandboxes. */
+  sandboxName?: string
+  /** The seal secret (`AUTH_SECRET`); the backend opens the scope with it. */
+  secret: string
+}): NetworkPolicy {
+  if (!input.sandboxName) return "deny-all"
+  const forwardURL = ingestEgressForwardUrl(
+    {
+      sandbox: input.sandboxName,
+      // Each update seals a new scope; one shard runs at most this long.
+      exp: Date.now() + INGEST_SHARD_LIMIT_MS,
+      backendHost: input.backendHost,
+      git: input.git,
+      ...(input.step ? { step: input.step } : {}),
+    },
+    input.secret,
+  )
+  return {
+    allow: {
+      "github.com": [{ forwardURL }],
+      [input.backendHost]: [{ forwardURL }],
+    },
+    subnets: { deny: PRIVATE_SUBNETS },
+  }
+}
+
+/**
+ * The shard's hosted GitHub token, recorded under the shard's thread
+ * (`ingest:<run>:<shard>:vercel`), so `revokeFinishedIngestGitTokens`
+ * revokes it after the run as for Docker.
+ */
+export function ingestVercelTokenStore(input: {
+  orgId: string
+  runId: string
+  shard: number
+}): SandboxGitTokenStore {
+  const store = sandboxGitTokenStore(
+    input.orgId,
+    parseEnv(process.env as Record<string, string | undefined>),
+  )
+  const key = `${ingestSandboxThreadId(input.runId, input.shard)}:vercel`
+  return {
+    get: () => store.get(key),
+    put: (_sandboxId, token) => store.put(key, token),
+    take: () => store.take(key),
+  }
+}
+
+/**
+ * The hosted (Vercel) provider of one ingest shard: the conversation
+ * provider with the closed {@link ingestNetworkPolicy}, no Workspace base,
+ * and one read token for the run's repositories (one GitHub connection per
+ * hosted shard). A step calls `firewall.openTurn` with its credentials while
+ * it holds the shard lock, and `firewall.closeTurn` after. `destroy` deletes
+ * the sandbox and revokes its token.
+ *
+ * It refuses to start until {@link VERCEL_INGEST_EGRESS_PROVEN}.
+ */
+export function vercelIngestSandboxProvider(input: {
+  orgId: string
+  runId: string
+  shard: number
+  repositories: IngestRepository[]
+  backendHost: string
+  credentials: VercelCredentials
+  agentPassword: string
+  tags: Record<string, string>
+  agentSnapshot: () => Promise<string>
+}): { provider: SandboxProvider; firewall: ConversationFirewall } {
+  const env = parseEnv(process.env as Record<string, string | undefined>)
+  const names = [
+    ...new Set(input.repositories.map((repository) => repository.fullName)),
+  ]
+  const firewall = conversationFirewall(
+    input.backendHost,
+    (policy: HostedPolicyInput) =>
+      ingestNetworkPolicy({
+        git: [{ token: policy.gitToken, repositories: names }],
+        backendHost: input.backendHost,
+        secret: env.AUTH_SECRET,
+        ...(policy.sandboxName ? { sandboxName: policy.sandboxName } : {}),
+        ...(policy.turn ? { step: policy.turn } : {}),
+      }),
+  )
+  const conversation = vercelConversationProvider({
+    credentials: input.credentials,
+    agentPassword: input.agentPassword,
+    tags: input.tags,
+    agentSnapshot: input.agentSnapshot,
+    base: async () => ({ failed: async () => undefined }),
+    access: {
+      firewall,
+      tokens: ingestVercelTokenStore(input),
+      async mintGitToken() {
+        const groups = await coveredRepositoryGroups(
+          input.orgId,
+          input.repositories,
+        )
+        const [group, ...others] = [...groups]
+        if (!group || others.length > 0)
+          throw new Error(
+            "A hosted ingest shard reads the repositories of one GitHub connection",
+          )
+        const token = await getWorkspaceGithubReadToken(input.orgId, env, {
+          githubConnectionId: group[0],
+          repoFullNames: group[1],
+        })
+        if (!token)
+          throw new Error("The ingest repositories have no GitHub read token")
+        return token
+      },
+    },
+  })
+  const provider: SandboxProvider = {
+    ...conversation,
+    name: conversation.name,
+    capabilities: () => conversation.capabilities(),
+    async create(createInput) {
+      if (!hostedIngestEgressEnabled())
+        throw new Error(
+          "Hosted ingest sandboxes wait for the live Vercel egress check (T12)",
+        )
+      return conversation.create(createInput)
+    },
+  }
+  return { provider, firewall }
+}

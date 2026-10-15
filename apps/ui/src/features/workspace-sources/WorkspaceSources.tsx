@@ -11,7 +11,7 @@ import {
   type SourceProvider,
   type SourceStatus,
 } from "backend/domain/workspace-sources/sources-file"
-import { type ComponentType, type ReactNode, useState } from "react"
+import { type ComponentType, type ReactNode, useMemo, useState } from "react"
 import { Heading, Link } from "react-aria-components"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
@@ -19,7 +19,11 @@ import { Dialog } from "@/components/ui/Dialog"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { Link as TextLink } from "@/components/ui/Link"
 import { Modal } from "@/components/ui/Modal"
-import { Skeleton, SkeletonLine, SkeletonText } from "@/components/ui/Skeleton"
+import {
+  Skeleton,
+  SkeletonText,
+  useSkeletonHold,
+} from "@/components/ui/Skeleton"
 import { orgConnectionsOptions } from "@/features/connectors/queries/org-connections"
 import type { WorkspaceLinkedRepository } from "@/features/workspaces/types"
 import { focusVisibleClassName } from "@/lib/focus-styles"
@@ -292,20 +296,24 @@ function scrollIntoViewWhenHashMatches(element: HTMLElement | null) {
 
 function SourcesSkeleton() {
   return (
-    <div className="mt-3 flex flex-col" aria-busy>
+    <div className="mt-3 flex flex-col divide-y divide-white/[0.06]" aria-busy>
       <span className="sr-only">Loading sources</span>
       {[0, 1].map((group) => (
         <div key={group} className="py-3">
           <div className="flex items-center gap-3">
             <Skeleton className="size-8 shrink-0 rounded-md" />
-            <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-              <SkeletonLine className="h-3.5 w-24" />
-              <SkeletonLine className="h-3 w-16" />
+            <div className="min-w-0 flex-1">
+              <SkeletonText className="text-sm" boneClassName="h-3.5 w-24" />
+              <SkeletonText className="text-xs" boneClassName="w-16" />
             </div>
           </div>
-          <div className="mt-2 flex flex-col gap-1.5 py-1 pl-11">
-            <SkeletonLine className="h-3.5 w-40" />
-            <SkeletonLine className="h-3 w-28" />
+          <div className="mt-1 pl-11">
+            <div className="flex items-start gap-2 py-1">
+              <div className="min-w-0 flex-1 py-0.5">
+                <SkeletonText className="text-sm" boneClassName="h-3.5 w-40" />
+                <SkeletonText className="text-xs" boneClassName="w-28" />
+              </div>
+            </div>
           </div>
         </div>
       ))}
@@ -328,11 +336,12 @@ export function WorkspaceSources(props: {
   const {
     orgSlug,
     workspaceSlug,
-    linkedRepositories = [],
+    linkedRepositories,
     workspaceRepositoryUrl = null,
   } = props
   const queryClient = useQueryClient()
   const sourcesQuery = useQuery(workspaceSourcesOptions(orgSlug, workspaceSlug))
+  const loading = useSkeletonHold(sourcesQuery.isPending)
   const connectionsQuery = useQuery(orgConnectionsOptions(orgSlug))
   const [editor, setEditor] = useState<SourceEditorTarget | null>(null)
   const [removing, setRemoving] = useState<WorkspaceSource | null>(null)
@@ -367,6 +376,14 @@ export function WorkspaceSources(props: {
   const canEdit = data?.canEdit ?? false
   const directCommitAllowed = data?.directCommitAllowed ?? false
   const items = data?.items ?? []
+  const githubRepositories = useMemo(
+    () =>
+      repositoryRows(
+        linkedRepositories ?? [],
+        (data?.items ?? []).filter((item) => item.provider === "github"),
+      ),
+    [linkedRepositories, data?.items],
+  )
   const pendingChanges = data?.pendingChanges ?? []
   const pendingOf = (sourceKey: string) =>
     pendingChanges.find((change) => change.sourceKey === sourceKey)
@@ -376,7 +393,7 @@ export function WorkspaceSources(props: {
       items.some((item) => item.provider === provider) ||
       pendingChanges.some((change) => change.provider === provider) ||
       connectionsOf(provider).length > 0 ||
-      (provider === "github" && linkedRepositories.length > 0),
+      (provider === "github" && (linkedRepositories?.length ?? 0) > 0),
   )
   const isEmpty =
     groups.length === 0 && unknownProvider.length === 0 && !data?.fileError
@@ -387,11 +404,15 @@ export function WorkspaceSources(props: {
       <h2 id="workspace-sources" className="sr-only">
         Sources
       </h2>
-      {sourcesQuery.isPending ? (
+      {loading ? (
         <SkeletonText className="text-sm" boneClassName="h-3.5 w-48" />
       ) : data && !isEmpty ? (
         <p className="text-sm text-muted-foreground">
-          {connectorsSummary(items, pendingChanges, linkedRepositories.length)}
+          {connectorsSummary(
+            items,
+            pendingChanges,
+            linkedRepositories?.length ?? 0,
+          )}
         </p>
       ) : null}
       {data && isEmpty ? null : (
@@ -403,7 +424,7 @@ export function WorkspaceSources(props: {
         </p>
       )}
 
-      {sourcesQuery.isPending ? (
+      {loading ? (
         <SourcesSkeleton />
       ) : sourcesQuery.isError ? (
         <div className="mt-4">
@@ -487,9 +508,7 @@ export function WorkspaceSources(props: {
               )
               // The GitHub group counts repositories, not source entries.
               const repositories =
-                provider === "github"
-                  ? repositoryRows(linkedRepositories, sources)
-                  : null
+                provider === "github" ? githubRepositories : null
               const attention = repositories
                 ? repositories.filter(repositoryNeedsAttention).length
                 : sources.filter((item) => item.status !== "ok").length
@@ -546,7 +565,7 @@ export function WorkspaceSources(props: {
                         orgSlug={orgSlug}
                         workspaceSlug={workspaceSlug}
                         workspaceRepositoryUrl={workspaceRepositoryUrl}
-                        linkedRepositories={linkedRepositories}
+                        rows={githubRepositories}
                         sources={sources}
                         connections={connectionsOf(provider)}
                         canEdit={canEdit}

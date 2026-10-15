@@ -1,6 +1,18 @@
 # ADR-022: Linear connector Git-native mirror
 
-**Status:** Accepted (sync repository and scope file superseded by [ADR-050](ADR-050-workspace-sources-config-file.md)) | **Date:** 2026-08-08 | **Updated:** 2026-09-28 | **Tags:** connectors, linear, oauth, webhooks, git, multi-tenant
+**Status:** Accepted (sync repository and scope file superseded by [ADR-050](ADR-050-workspace-sources-config-file.md)) | **Date:** 2026-08-08 | **Updated:** 2026-10-13 | **Tags:** connectors, linear, oauth, webhooks, git, multi-tenant
+
+## Revision (2026-10-13): issue links
+
+- An issue file also records its parent issue (`parent`, `parentId`), its
+  project milestone (`milestone`, `milestoneId`), and the relations it owns
+  (`relations`: `type` and the related issue identifier). The first page
+  holds 10 relations; more come from a follow page, as for labels and
+  comments. The graph edges are in [ADR-033](ADR-033-graph-ontology-v2.md).
+- A parent or milestone change is an `Issue` update, so the webhook re-reads
+  the issue. Linear sends no webhook for an issue relation, so a relation
+  change reaches the mirror at the next update of the issue that owns it or
+  at the next full sync (known gap).
 
 ## Context
 

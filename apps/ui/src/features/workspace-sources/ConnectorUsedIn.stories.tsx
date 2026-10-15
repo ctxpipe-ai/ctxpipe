@@ -112,6 +112,70 @@ export const UsedInOneWorkspace: Story = {
   },
 }
 
+export const PullRequestAwaitingMerge: Story = {
+  args: { provider: "notion" },
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          connectionUsageHandler([
+            connectionUsageItem({
+              workspaceSlug: "docs",
+              workspaceName: "Docs",
+              stat: "",
+              pendingChanges: [
+                {
+                  sourceKey: "notion",
+                  provider: "notion",
+                  action: "add",
+                  pullRequestUrl: "https://github.com/acme/docs/pull/7",
+                  createdAt: "2026-10-13T10:00:00Z",
+                },
+              ],
+            }),
+            connectionUsageItem({
+              workspaceSlug: "ops",
+              workspaceName: "Ops",
+              stat: "2 Notion pages",
+              pendingChanges: [
+                {
+                  sourceKey: "runbooks",
+                  provider: "notion",
+                  action: "edit",
+                  pullRequestUrl: "https://github.com/acme/ops/pull/3",
+                  createdAt: "2026-10-13T10:00:00Z",
+                },
+              ],
+            }),
+          ]),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    // A Workspace with only an open pull request is a waiting step, not
+    // "No Workspaces yet", so the user does not add the source again.
+    await expect(
+      await canvas.findByRole("link", { name: "Docs" }),
+    ).toBeVisible()
+    await expect(canvas.queryByText("No Workspaces yet")).toBeNull()
+    await expect(
+      canvas.getByText("Pull request open. The sync starts after the merge."),
+    ).toBeVisible()
+    await expect(
+      canvas.getByText(
+        "Pull request open. The change applies after the merge.",
+      ),
+    ).toBeVisible()
+    const pulls = canvas.getAllByRole("link", { name: "Open pull request" })
+    await expect(pulls.map((pull) => pull.getAttribute("href"))).toEqual([
+      "https://github.com/acme/docs/pull/7",
+      "https://github.com/acme/ops/pull/3",
+    ])
+  },
+}
+
 export const UsedInManyWorkspaces: Story = {
   args: { provider: "confluence" },
   parameters: {

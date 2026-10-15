@@ -36,7 +36,7 @@ ctx| product feature. Use it to exercise OAuth and tools against a **test**
 organisation. Keep the official `pnpm mcp:inspect` workflow as an independent
 protocol reference.
 
-**In scope:** interactive DCR OAuth, `tools/list`, a test `ctx_advisor` call,
+**In scope:** interactive DCR OAuth, `tools/list`, a test `list_workspaces` call,
 protocol conformance (CI), and a visual Inspector for local HTTP(S).
 
 **Out of scope:** tenant isolation, token refresh races, dropped-session
@@ -102,8 +102,8 @@ and a test user; do not expose customer tool results or reusable credentials to
 a third-party hosted project.
 
 When a failure reproduces, correlate the MCPJam timestamp and JSON-RPC method
-with the backend's `step=mcp.request` event in Railway logs, then use the
-resulting advisor thread in Langfuse for model/tool execution details. OAuth
+with the backend's `step=mcp.request` event in Railway logs, then find the
+`mcp.tool <name>` span of the call in HyperDX by its call id. OAuth
 endpoint failures use `step=oauth.endpoint_error`. Files under `.mcpjam/` are
 gitignored, but they can still contain operational details: review them before
 sharing.

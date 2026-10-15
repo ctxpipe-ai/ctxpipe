@@ -26,6 +26,7 @@ import {
 import { seedSourcesOrg } from "../../test/workspace-sources-fixture.js"
 import { gitFileBytes } from "../git/file-change.js"
 import { getSlackThreadPath } from "./converter.js"
+import { slackCaptureWorkspaceLinks } from "./mention-agent.js"
 import {
   captureSlackThreadToSources,
   slackSourceAdapter,
@@ -279,6 +280,26 @@ describe("Slack mention capture through Workspace sources (Postgres, msw, git)",
     },
   )
 
+  it("links each Workspace that got the thread to its thread file in the app", async () => {
+    const result = await capture(ENG)
+    if (result.kind !== "captured") throw new Error("Thread not captured")
+    const slug = (name: string) =>
+      `${name}-${seed.suffix.replaceAll("_", "-")}`.slice(0, 60)
+    const pane = encodeURIComponent(`file:${encodeURIComponent(threadPath)}`)
+    const links = await slackCaptureWorkspaceLinks({
+      orgId: seed.orgId,
+      workspaceIds: result.workspaces,
+      threadPath,
+      env: env(),
+    })
+    expect(links.sort((a, b) => a.name.localeCompare(b.name))).toEqual(
+      ["both", "eng"].map((name) => ({
+        name,
+        url: `${env().AUTH_BASE_URL}/${seed.orgId}/ws/${slug(name)}?pane=${pane}`,
+      })),
+    )
+  })
+
   it("writes only into the Workspace of a channel that one source lists", async () => {
     const result = await capture(OPS)
     expect(result.kind === "captured" && result.workspaces).toEqual([
@@ -402,6 +423,23 @@ sources:
 
   it("marks a source out of access when no channel is usable", async () => {
     channelState[ENG] = { is_archived: true }
+    failures[`conversations.info:${OPS}`] = "channel_not_found"
+    expect(
+      await slackSourceAdapter.checkAccess?.({
+        orgId: seed.orgId,
+        connectionId: slack,
+        scope: { channels: [ENG, OPS] },
+        env: env(),
+      }),
+    ).toBe(
+      `Channel #eng is archived; Channel ${OPS} is not found, or the ctx| bot cannot see it`,
+    )
+  })
+
+  // Slack sends a mention only from a channel that the bot is in, and an
+  // invite changes nothing in ctx|. So a missing bot is a note, not a block.
+  it("keeps a source ok when the bot is not in its channels yet", async () => {
+    channelState[ENG] = { is_member: false }
     channelState[OPS] = { is_member: false }
     expect(
       await slackSourceAdapter.checkAccess?.({
@@ -410,7 +448,10 @@ sources:
         scope: { channels: [ENG, OPS] },
         env: env(),
       }),
-    ).toBe("Channel #eng is archived; Invite the ctx| bot to channel #ops")
+    ).toEqual({
+      okDetail:
+        "Invite the ctx| bot to channel #eng; Invite the ctx| bot to channel #ops",
+    })
   })
 
   it("checkAccess reports a revoked connection without a throw", async () => {

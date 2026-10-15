@@ -99,3 +99,23 @@ export const Thread: Story = {
     draftKey: undefined,
   },
 }
+
+/** While a turn streams the composer is locked, but Stop stays enabled and cancels the turn. */
+export const StopDuringStreamedTurn: Story = {
+  args: {
+    layout: "thread",
+    draftKey: undefined,
+    status: "streaming",
+    isDisabled: true,
+    onStop: fn(),
+  },
+  play: async ({ args, canvasElement }) => {
+    const canvas = within(canvasElement)
+    expect(canvas.getByRole("textbox")).toBeDisabled()
+    const stop = canvas.getByRole("button", { name: "Stop" })
+    expect(stop).toBeEnabled()
+    await userEvent.click(stop)
+    expect(args.onStop).toHaveBeenCalledTimes(1)
+    expect(args.sendMessage).not.toHaveBeenCalled()
+  },
+}

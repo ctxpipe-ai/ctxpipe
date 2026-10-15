@@ -66,6 +66,7 @@ export async function maybeEnqueueNotionSyncOnConfigPush(input: {
   const installationRows = await listInstallationsByGithubInstallationId(
     input.installationId,
     input.githubConnectionId,
+    env,
   )
 
   for (const installationRow of installationRows) {

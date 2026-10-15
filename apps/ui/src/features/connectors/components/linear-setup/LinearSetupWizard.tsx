@@ -2,13 +2,14 @@
 
 import HyperDX from "@hyperdx/browser"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
 import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
-import { ChooseWorkspacesStep } from "@/features/workspace-sources/ChooseWorkspacesStep"
-import { useAddToWorkspaces } from "@/features/workspace-sources/useAddToWorkspaces"
+import { AddToWorkspacesStep } from "@/features/workspace-sources/AddToWorkspacesStep"
+import { PullRequestsToMerge } from "@/features/workspace-sources/PullRequestsToMerge"
+import type { OpenedPullRequest } from "@/features/workspace-sources/useAddToWorkspaces"
 import {
   getLinearSetupCurrentIndex,
   getLinearSetupSteps,
@@ -54,16 +55,11 @@ export function LinearSetupWizard({
     queryFn: () => fetchLinearOauthApp(orgSlug, connectionId),
     enabled: isOpen,
   })
-  const adding = useAddToWorkspaces({
-    orgSlug,
-    connectionId: connectionId ?? "",
-    provider: "linear",
-    onAdded: () => onOpenChange(false),
-  })
-  const close = () => {
-    adding.reset()
-    onOpenChange(false)
-  }
+  // The pull requests that the save opened. As in the other setups, the
+  // dialog then shows the merge step.
+  const [pullRequests, setPullRequests] = useState<OpenedPullRequest[]>([])
+  if (!isOpen && pullRequests.length) setPullRequests([])
+  const close = () => onOpenChange(false)
 
   useEffect(() => {
     if (!isOpen) return
@@ -133,8 +129,8 @@ export function LinearSetupWizard({
   return (
     <Modal
       isOpen={isOpen}
-      onOpenChange={(open) => (open ? onOpenChange(true) : close())}
-      isDismissable={!adding.isPending}
+      onOpenChange={onOpenChange}
+      isDismissable
       className="max-w-[min(92vw,720px)]"
     >
       <div className="p-6">
@@ -162,7 +158,11 @@ export function LinearSetupWizard({
           <div className="mb-6">
             <ConnectorSetupStepper
               steps={setupSteps}
-              currentIndex={getLinearSetupCurrentIndex(status, oauthMeta)}
+              currentIndex={
+                pullRequests.length
+                  ? setupSteps.length
+                  : getLinearSetupCurrentIndex(status, oauthMeta)
+              }
             />
           </div>
         ) : null}
@@ -192,29 +192,26 @@ export function LinearSetupWizard({
           />
         ) : body === "connect" ? (
           <LinearConnectStep orgSlug={orgSlug} connectionId={connectionId} />
-        ) : body === "workspaces" && connectionId ? (
-          <div className="flex flex-col gap-5">
-            <ChooseWorkspacesStep
+        ) : body === "workspaces" && pullRequests.length ? (
+          <div className="space-y-4">
+            <PullRequestsToMerge
               orgSlug={orgSlug}
-              provider="linear"
-              connectionId={connectionId}
-              value={adding.value}
-              onChange={adding.setValue}
+              pullRequests={pullRequests}
             />
-            <div className="flex justify-end gap-2 border-t border-border pt-4">
-              <Button variant="quiet" onPress={close}>
-                Skip for now
-              </Button>
-              <Button
-                variant="primary"
-                isDisabled={!adding.canAdd}
-                isPending={adding.isPending}
-                onPress={adding.add}
-              >
-                Add to Workspaces
-              </Button>
-            </div>
+            <Button variant="secondary" className="rounded-md" onPress={close}>
+              Close
+            </Button>
           </div>
+        ) : body === "workspaces" && connectionId ? (
+          <AddToWorkspacesStep
+            orgSlug={orgSlug}
+            provider="linear"
+            connectionId={connectionId}
+            label="Linear"
+            description="the teams and projects for each"
+            items="the teams"
+            onDone={setPullRequests}
+          />
         ) : (
           <p className="text-sm text-destructive">
             The Linear connection identifier is missing. Close this dialog and

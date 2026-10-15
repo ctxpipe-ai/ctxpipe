@@ -46,6 +46,8 @@ it(
         "workspace-hydrate",
         "workspace-index",
         "repository-index",
+        "repository-ingestion-v2",
+        "ingestion-shard",
         "workspace-write-bootstrap",
         "workspace-write-ui-file-edit",
         "workspace-write-import-key-cleanup",
@@ -62,7 +64,6 @@ it(
         // Retired names stay registered so queued runs complete.
         "github-ensure-pr-mirror",
         "github-sync-content",
-        "workspace-write-ops-folder-map",
       ]),
     )
   },

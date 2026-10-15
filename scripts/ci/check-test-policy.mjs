@@ -512,6 +512,23 @@ try {
       return expression.getText(source)
     }
     const visit = (node) => {
+      // A test worker in the shared "default" OpenWorkflow namespace claims the
+      // open runs that a dev server or another test left there, and stalls.
+      if (
+        ts.isCallExpression(node) &&
+        node.expression.getText(source) === "BackendPostgres.connect" &&
+        !(
+          node.arguments[1] &&
+          ts.isObjectLiteralExpression(node.arguments[1]) &&
+          node.arguments[1].properties.some(
+            (property) => property.name?.getText(source) === "namespaceId",
+          )
+        )
+      )
+        complain(
+          node,
+          "A test OpenWorkflow backend needs its own namespaceId (openWorkflowNamespaceId())",
+        )
       if (
         file.endsWith(".mjs") &&
         !file.endsWith(".test.mjs") &&

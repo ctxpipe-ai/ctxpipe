@@ -99,14 +99,25 @@ aws ssm start-session --target <instance-id>
 | Sandboxes | `sudo docker ps -a` | One container per recent conversation; stopped ones are idle sandboxes |
 | Memory cap | `systemctl status ctxpipe-sandboxes.slice` | Memory in use stays below the slice limit (85% of host memory) |
 | Chat image | `sudo docker image ls ghcr.io/ctxpipe-ai/chat-sandbox` | The tag the backend's `SANDBOX_CHAT_IMAGE` names, after the first chat of a release |
+| Workspace bases | `sudo docker image ls ctxpipe-workspace-base` | At most about one image for each Workspace that had a new conversation in the last 30 days |
 | Boot log | `sudo tail -n 100 /var/log/cloud-init-output.log` | Ends with the CloudFormation success signal |
 
 Sandboxes stop after 5 minutes idle and are removed 30 days after last use;
-an organization runs at most 50 at once. If the volume still fills, check
-`docker system df` for what grows, then raise
+an organization runs at most 50 at once. A Workspace base is an image of the
+Workspace repository after clone and setup, so that a new conversation starts
+without a clone. The periodic sandbox cleanup deletes a base when a newer base
+replaces it, and deletes the current base when no new conversation
+started from it for 30 days. The same cleanup removes objects with ctxpipe
+labels (`ai.ctxpipe.*`) that no database row records. If the volume still
+fills, check `docker system df` for what grows, then raise
 `sandboxHost.dockerVolumeSizeGiB` and run `cdk deploy`; the new size replaces
-the host. Do not run `docker system prune` while conversations are active: it
-deletes stopped sandboxes that conversations would resume.
+the host.
+
+Do not run `docker system prune` or `docker container prune` while
+conversations are active: they delete stopped sandboxes that conversations
+would resume. Do not run `docker image prune -a`: it deletes Workspace bases,
+and the next new conversation of each Workspace clones the repository again
+while a new base builds.
 
 ## Chat sandboxes (Docker Compose)
 
@@ -121,24 +132,27 @@ the repository root:
 | Chat image | `docker compose --profile deploy logs chat-sandbox-image` | Ends with the image ID (`sha256:…`) |
 | Sandbox disk | `docker compose exec dind df -h /var/lib/docker` | Room left on the host disk that holds the Docker volumes |
 | What uses the disk | `docker compose exec dind docker system df` | Images, containers, and build cache sizes |
+| Workspace bases | `docker compose exec dind docker image ls ctxpipe-workspace-base` | At most about one image for each Workspace that had a new conversation in the last 30 days |
 | Sandboxes | `docker compose exec dind docker ps -a` | One container per recent conversation; stopped ones are idle sandboxes |
 | Memory cap | `docker compose exec dind cat /sys/fs/cgroup/ctxpipe-sandboxes/memory.current /sys/fs/cgroup/ctxpipe-sandboxes/memory.max` | Memory in use stays below the cap. Missing on hosts without cgroup v2 (`dind` logs a warning). |
 | Metadata block | `docker compose exec dind iptables -t raw -S PREROUTING` | Includes `-d 169.254.169.254/32 -j DROP` |
 | No published data stores | `docker port $(docker compose ps -q postgres falkordb)` | Prints nothing |
 | No host socket | `docker inspect --format '{{range .Mounts}}{{.Source}} {{end}}' $(docker compose ps -q backend worker)` | No `/var/run/docker.sock` |
 
-Sandboxes stop and are removed on the same schedule as on AWS. To free disk
-without touching sandboxes, remove superseded chat images and build cache:
+Sandboxes and Workspace bases are removed on the same schedule as on AWS. To free disk without touching sandboxes, remove untagged chat images
+and build cache:
 
 ```bash
 docker compose exec dind docker image prune -f
 docker compose exec dind docker builder prune -f
 ```
 
-`docker image prune` keeps every image a container still uses. Do not run
-`docker system prune` or `docker container prune` inside `dind` while
-conversations are active: they delete stopped sandboxes that conversations
-would resume.
+`docker image prune` without `-a` keeps every tagged image, so it keeps the
+Workspace bases. Do not run `docker system prune` or `docker container prune`
+inside `dind` while conversations are active: they delete stopped sandboxes
+that conversations would resume. Do not run `docker image prune -a`: it
+deletes Workspace bases, and the next new conversation of each Workspace
+clones the repository again while a new base builds.
 
 ## Recovery runbooks
 
@@ -188,10 +202,10 @@ would resume.
 - Run `npx ctxpipe doctor mcp --url "$AUTH_BASE_URL/mcp?orgSlug=<slug>"`.
 - A `ready-for-oauth` result means routing, the Bearer challenge, and OAuth
   discovery are coherent. It does not prove authenticated `tools/list` or
-  `ctx_advisor`.
+  a tool call.
 - Confirm `AUTH_BASE_URL` matches the public origin clients use, including TLS.
-- Confirm the MCP URL includes `orgSlug`.
-- For authenticated OAuth, `tools/list`, and `ctx_advisor`, use a version-pinned
+- Confirm the MCP URL path is `/mcp`. The server ignores `?orgSlug=`.
+- For authenticated OAuth, `tools/list`, and a `list_workspaces` call, use a version-pinned
   MCPJam client against a test organization. See
   [MCP](/docs/self-hosting/mcp).
 

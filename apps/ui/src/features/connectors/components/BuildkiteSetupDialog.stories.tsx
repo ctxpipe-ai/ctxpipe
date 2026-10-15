@@ -8,7 +8,10 @@ import {
   buildkiteStoryStatus,
 } from "@/mocks/buildkite-handlers"
 import { workspaceListHandler } from "@/mocks/workspace-handlers"
-import { workspaceSourceChangeHandlers } from "@/mocks/workspace-sources-handlers"
+import {
+  connectionUsageHandler,
+  workspaceSourceChangeHandlers,
+} from "@/mocks/workspace-sources-handlers"
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
 import { docsWorkspace } from "../../workspaces/workspace-fixtures"
@@ -89,12 +92,14 @@ export const ConnectWithToken: Story = {
     await expect(body.getByText("read_pipelines")).toBeVisible()
     await expect(body.getByText("read_builds")).toBeVisible()
     await expect(body.queryByText("read_organizations")).toBeNull()
-    await expect(
-      body.getByRole("link", { name: /API access token/ }),
-    ).toHaveAttribute(
+    const tokenLink = body.getByRole("link", { name: /API access token/ })
+    await expect(tokenLink).toHaveAttribute(
       "href",
       "https://buildkite.com/user/api-access-tokens/new",
     )
+    // Product links are teal, not the default blue.
+    await expect(tokenLink.className).toContain("text-teal-400")
+    await expect(tokenLink.className).not.toMatch(/blue/)
     await userEvent.type(slug, "acme")
     await userEvent.type(
       body.getByLabelText("API access token"),
@@ -191,6 +196,11 @@ export const SaveWebhookToken: Story = {
         "https://app.example.com/api/v1/webhook/buildkite/con_story_buildkite",
       ),
     ).toBeVisible()
+    // Each field of the Buildkite form has its own step.
+    await expect(body.getByText(/Clear every event except/)).toBeVisible()
+    await expect(
+      body.getByRole("link", { name: /Notification Services/ }).className,
+    ).toContain("text-teal-400")
     await userEvent.type(body.getByLabelText("Webhook token"), "hook-token")
     await userEvent.click(
       body.getByRole("button", { name: "Save webhook token" }),
@@ -260,6 +270,7 @@ export const AddToWorkspaces: Story = {
           workspaceListHandler([docsWorkspace]),
           buildkitePipelinesHandler,
           ...workspaceSourceChangeHandlers(addCalls),
+          connectionUsageHandler([]),
         ],
       },
     },
@@ -282,7 +293,7 @@ export const AddToWorkspaces: Story = {
     )
     await userEvent.click(add)
     await expect(
-      await body.findByRole("heading", { name: "Buildkite is connected" }),
+      await body.findByRole("heading", { name: "Merge the pull request" }),
     ).toBeVisible()
     await expect(addCalls).toEqual([
       {

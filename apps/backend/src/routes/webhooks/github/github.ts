@@ -8,7 +8,7 @@ import { ensureOrgRepositoryAndIngest } from "../../../domain/workspaces/ensure-
 import { isDefaultBranchPush } from "../../../domain/workspaces/tip-resolve.js"
 import { rebindUnboundWorkspaces } from "../../../domain/workspaces/workspace-lifecycle.js"
 import { parseGithubConnectionStored } from "../../../lib/connection-config.js"
-import { githubRowHasAppCredentials } from "../../../models/connection-rows.js"
+import { githubRowHasOwnApp } from "../../../models/connection-rows.js"
 import {
   getGithubConnectionRowByConnectionId,
   getWebhookSecretForGithubConnection,
@@ -98,7 +98,7 @@ async function registerInstallationFromConnectionWebhook(
   // webhook secret is whatever its creator saved, so a signed event proves
   // nothing either: the connection's own App must own the installation.
   if (
-    !githubRowHasAppCredentials(row, ctx.env) ||
+    !githubRowHasOwnApp(row, ctx.env) ||
     !(await githubAppOwnsInstallation(row, installationId, ctx.env))
   ) {
     ctx.log.info("github_installation_webhook_installation_not_owned", {
@@ -133,6 +133,7 @@ async function enqueueIngestionForInstallationRepos(
   const installationRows = await listInstallationsByGithubInstallationId(
     installationId,
     opts?.githubConnectionId,
+    ctx.env,
   )
   if (installationRows.length === 0) {
     return
@@ -236,6 +237,7 @@ async function processPushEvent(
   const installationRows = await listInstallationsByGithubInstallationId(
     installation.id,
     githubConnectionId,
+    ctx.env,
   )
   for (const installationRow of installationRows) {
     await enqueueWorkspaceTipCheck(installationRow.orgId, ctx.log)
@@ -273,6 +275,7 @@ async function processRepositoryEvent(
   const installationRows = await listInstallationsByGithubInstallationId(
     installation.id,
     githubConnectionId,
+    ctx.env,
   )
 
   noteResolvedWebhookConnections(installationRows)

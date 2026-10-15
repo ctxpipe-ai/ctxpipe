@@ -5,11 +5,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
-import { Link } from "@/components/ui/Link"
 import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
 import { TextField } from "@/components/ui/TextField"
 import { AddToWorkspacesStep } from "@/features/workspace-sources/AddToWorkspacesStep"
+import { PullRequestsToMerge } from "@/features/workspace-sources/PullRequestsToMerge"
+import type { OpenedPullRequest } from "@/features/workspace-sources/useAddToWorkspaces"
 import { retryQuery } from "@/lib/api-result"
 import {
   BUILDKITE_SETUP_STEPS,
@@ -27,8 +28,20 @@ import { BuildkiteMark } from "./BuildkiteMark"
 import { ConnectorSetupStepper } from "./ConnectorSetupStepper"
 import { CopyableUrl } from "./notion-setup/CopyableUrl"
 
-const externalLink =
-  "font-medium text-teal-400 underline decoration-teal-400/50 underline-offset-4 hover:text-teal-300 hover:decoration-teal-300"
+/** A link out of the product: teal, as the other setup dialogs show it. */
+function ExternalLink(props: { href: string; children: string }) {
+  return (
+    <a
+      href={props.href}
+      target="_blank"
+      rel="noreferrer"
+      className="inline-flex items-center gap-1 font-medium text-teal-400 hover:text-teal-300"
+    >
+      {props.children}
+      <IconExternalLink className="size-3.5" aria-hidden />
+    </a>
+  )
+}
 
 type BuildkiteSetupDialogProps = {
   orgSlug: string
@@ -55,9 +68,9 @@ export function BuildkiteSetupDialog({
 }: BuildkiteSetupDialogProps) {
   const queryClient = useQueryClient()
   const [webhookSkipped, setWebhookSkipped] = useState(false)
-  const [workspacesDone, setWorkspacesDone] = useState(false)
   const [replacing, setReplacing] = useState(replaceWebhook)
-  const [pullRequestUrls, setPullRequestUrls] = useState<string[]>([])
+  const [pullRequests, setPullRequests] = useState<OpenedPullRequest[]>([])
+  const workspacesDone = pullRequests.length > 0
 
   const statusQuery = useQuery({
     queryKey: buildkiteConnectorKeys.status(orgSlug, connectionId ?? ""),
@@ -146,43 +159,13 @@ export function BuildkiteSetupDialog({
           label="Buildkite"
           description="the pipelines for each"
           items="the pipelines"
-          onDone={(urls) => {
-            setPullRequestUrls(urls ?? [])
-            setWorkspacesDone(true)
-          }}
+          onDone={setPullRequests}
         />
       )
     }
     return (
       <div className="space-y-4">
-        <div>
-          <h3 className="text-base font-medium text-foreground">
-            Buildkite is connected
-          </h3>
-          {pullRequestUrls.length ? (
-            <>
-              <p className="mt-2 text-sm text-muted-foreground">
-                Merge the pull request to start the sync.
-              </p>
-              <ul className="mt-2 space-y-1 text-sm">
-                {pullRequestUrls.map((url) => (
-                  <li key={url}>
-                    <Link href={url} target="_blank" rel="noreferrer">
-                      {url
-                        .replace(/^https:\/\/github\.com\//, "")
-                        .replace("/pull/", "#")}
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </>
-          ) : (
-            <p className="mt-2 text-sm text-muted-foreground">
-              Add Buildkite to a Workspace from the connector card, or change
-              the pipelines of a Workspace in its settings.
-            </p>
-          )}
-        </div>
+        <PullRequestsToMerge orgSlug={orgSlug} pullRequests={pullRequests} />
         <Button
           variant="secondary"
           className="rounded-md"
@@ -268,15 +251,9 @@ function ConnectStep(props: {
         </h3>
         <p className="mt-2 text-sm text-muted-foreground">
           Create an{" "}
-          <Link
-            href="https://buildkite.com/user/api-access-tokens/new"
-            className={externalLink}
-            target="_blank"
-            rel="noreferrer"
-          >
+          <ExternalLink href="https://buildkite.com/user/api-access-tokens/new">
             API access token
-            <IconExternalLink className="ml-1 inline size-3.5" aria-hidden />
-          </Link>{" "}
+          </ExternalLink>{" "}
           for your organization with only the{" "}
           <code className="font-mono text-xs text-foreground">
             read_pipelines
@@ -364,37 +341,39 @@ function WebhookStep(props: {
       <ol className="list-decimal space-y-3 pl-5 text-sm text-muted-foreground">
         <li>
           In Buildkite, open{" "}
-          <Link
+          <ExternalLink
             href={`https://buildkite.com/organizations/${encodeURIComponent(props.status.organizationSlug)}/services`}
-            className={externalLink}
-            target="_blank"
-            rel="noreferrer"
           >
             Notification Services
-            <IconExternalLink className="ml-1 inline size-3.5" aria-hidden />
-          </Link>{" "}
+          </ExternalLink>{" "}
           and add a{" "}
           <strong className="font-medium text-foreground">Webhook</strong>.
         </li>
         <li>
-          Paste this URL into{" "}
           <strong className="font-medium text-foreground">Webhook URL</strong>:
+          paste this URL.
           <CopyableUrl url={props.status.webhookUrl} label="webhook URL" />
         </li>
         <li>
-          For the token, select the signature option (
+          <strong className="font-medium text-foreground">Token</strong>: select
+          the signature option (
           <code className="font-mono text-xs text-foreground">
             X-Buildkite-Signature
           </code>
           ). ctx| refuses a plain token.
         </li>
         <li>
-          Under <strong className="font-medium text-foreground">Events</strong>,
-          select only{" "}
+          <strong className="font-medium text-foreground">Events</strong>: Clear
+          every event except{" "}
           <code className="font-mono text-xs text-foreground">
             build.finished
           </code>
-          . Select the pipelines, then save the webhook.
+          . ctx| uses only that event.
+        </li>
+        <li>
+          <strong className="font-medium text-foreground">Pipelines</strong>:
+          keep all pipelines, or select the pipelines that your Workspaces sync.
+          Then save the webhook.
         </li>
         <li>Copy the token of the webhook, and paste it here.</li>
       </ol>

@@ -434,7 +434,7 @@ describe("multi-org grants (Postgres)", () => {
           await resolveOAuthGrantReference({
             userId,
             clientId: client,
-            organizationId: orgA.id,
+            organizationIds: [orgA.id],
             consent: false,
           }),
         ).toBe(orgA.id)
@@ -442,7 +442,7 @@ describe("multi-org grants (Postgres)", () => {
           await resolveOAuthGrantReference({
             userId,
             clientId: null,
-            organizationId: orgA.id,
+            organizationIds: [orgA.id],
             consent: false,
           }),
         ).toBe(orgA.id)
@@ -454,7 +454,7 @@ describe("multi-org grants (Postgres)", () => {
         resolveOAuthGrantReference({
           userId,
           clientId: null,
-          organizationId: orgA.id,
+          organizationIds: [orgA.id],
           consent: true,
         }),
       ).rejects.toThrow()
@@ -468,7 +468,7 @@ describe("multi-org grants (Postgres)", () => {
           await resolveOAuthGrantReference({
             userId,
             clientId: client,
-            organizationId: orgB.id,
+            organizationIds: [orgB.id],
             consent: false,
           }),
         ).toBe(grantId)
@@ -483,7 +483,7 @@ describe("multi-org grants (Postgres)", () => {
           await resolveOAuthGrantReference({
             userId,
             clientId: client,
-            organizationId: orgA.id,
+            organizationIds: [orgA.id],
             consent: true,
           }),
         ).toBe(grantId)
@@ -497,7 +497,7 @@ describe("multi-org grants (Postgres)", () => {
         const grantId = await resolveOAuthGrantReference({
           userId,
           clientId: client,
-          organizationId: orgB.id,
+          organizationIds: [orgB.id],
           consent: true,
         })
         grantIds.push(grantId)

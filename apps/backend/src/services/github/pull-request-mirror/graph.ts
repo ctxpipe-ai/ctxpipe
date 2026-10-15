@@ -48,10 +48,10 @@ export function githubFileDedupKey(input: {
 
 /** Linear identifiers referenced by a pull request: URLs anywhere, bare ids in title / body / branch. */
 export function linearIssueIdentifiersForPullRequest(
-  parsed: Pick<ParsedGithubPullRequest, "title" | "bodyExcerpt" | "head">,
+  parsed: Pick<ParsedGithubPullRequest, "title" | "body" | "head">,
   linearTeamKeys: ReadonlyArray<string>,
 ): string[] {
-  const text = `${parsed.title}\n${parsed.head.ref}\n${parsed.bodyExcerpt}`
+  const text = `${parsed.title}\n${parsed.head.ref}\n${parsed.body}`
   const found = new Set<string>()
   for (const url of extractUrls(text)) {
     const identifier = parseLinearIssueUrl(url)
@@ -64,11 +64,46 @@ export function linearIssueIdentifiersForPullRequest(
 }
 
 /**
+ * Linear identifiers a merged pull request closes: each id in the head branch
+ * name, and each id or Linear issue URL directly after a closing keyword in
+ * the title or body. A revert pull request closes nothing.
+ */
+export function linearIssueIdentifiersResolvedByPullRequest(
+  parsed: Pick<ParsedGithubPullRequest, "title" | "body" | "head">,
+  linearTeamKeys: ReadonlyArray<string>,
+): string[] {
+  if (
+    parsed.head.ref.startsWith("revert-") ||
+    parsed.title.startsWith('Revert "')
+  )
+    return []
+  // Linear's closing keywords and their forms, an optional colon, then the next
+  // word, which can open a Markdown link or code span: `Fixes [ENG-1](…)`.
+  const closingKeyword =
+    /\b(?:clos(?:e|es|ed|ing)|fix(?:es|ed|ing)?|resolv(?:e|es|ed|ing)|complet(?:e|es|ed|ing))(?::\s*|\s+)[[`]?(\S+)/gi
+  const found = new Set(findLinearIdentifiers(parsed.head.ref, linearTeamKeys))
+  for (const match of `${parsed.title}\n${parsed.body}`.matchAll(
+    closingKeyword,
+  )) {
+    const word =
+      (match[1] ?? "").split(/[\]`]/)[0]?.replace(/[.,;:!?)]+$/, "") ?? ""
+    const leading = /^[A-Za-z][A-Za-z0-9]*-\d+/.exec(word)?.[0] ?? ""
+    const identifier =
+      parseLinearIssueUrl(word) ??
+      findLinearIdentifiers(leading, linearTeamKeys)[0]
+    if (identifier) found.add(identifier)
+  }
+  return [...found]
+}
+
+/**
  * Deterministic graph for one mirrored pull request (ADR-031, ADR-033):
  * `PullRequest TARGETS Repository`, `PullRequest ADDED|MODIFIED|REMOVED|RENAMED File`,
  * `File PART_OF Repository|package` for paths still present, and
- * `PullRequest REFERENCES Issue` for Linear identifiers in the PR text.
- * Change edges carry `validFrom` = merge date.
+ * `PullRequest REFERENCES Issue` for Linear identifiers in the PR text, or
+ * `PullRequest RESOLVES Issue` when the merged PR closes that issue.
+ * Change edges carry `validFrom` = merge date. A pull request closed without
+ * a merge keeps only its node, `TARGETS`, and `REFERENCES`.
  */
 export function buildGithubPullRequestGraph(input: {
   parsed: ParsedGithubPullRequest
@@ -140,7 +175,8 @@ export function buildGithubPullRequestGraph(input: {
     (entry) => entry.repositoryId === input.sourceRepositoryId,
   )
 
-  for (const file of parsed.files) {
+  // A pull request closed without a merge changed nothing on the base branch.
+  for (const file of parsed.merged ? parsed.files : []) {
     const path = asLocatedPath(file.path) ?? file.path.replace(/\\/g, "/")
     const fileKey = githubFileDedupKey({
       sourceRepositoryId: input.sourceRepositoryId,
@@ -206,21 +242,31 @@ export function buildGithubPullRequestGraph(input: {
     })
   }
 
+  const resolved = new Set(
+    parsed.merged
+      ? linearIssueIdentifiersResolvedByPullRequest(
+          parsed,
+          input.linearTeamKeys ?? [],
+        )
+      : [],
+  )
   for (const identifier of linearIssueIdentifiersForPullRequest(
     parsed,
     input.linearTeamKeys ?? [],
   )) {
+    const predicate = resolved.has(identifier) ? "RESOLVES" : "REFERENCES"
     claims.push({
       subjectRef: pullKey,
       subjectKind: "PullRequest",
       objectRef: issueDedupKey(identifier),
       objectKind: "Issue",
-      predicate: "REFERENCES",
-      sourceId: sourceId(["REFERENCES", identifier]),
+      predicate,
+      sourceId: sourceId([predicate, identifier]),
       sourceType: "git",
       extractionMethod: "deterministic",
       confidence: 0.9,
       provenance: { path: input.markdownPath, identifier },
+      ...(predicate === "RESOLVES" && mergedOn ? { validFrom: mergedOn } : {}),
     })
   }
 

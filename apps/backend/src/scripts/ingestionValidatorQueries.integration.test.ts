@@ -12,6 +12,7 @@ import {
   repositoryIngestionRequests,
 } from "../db/schema/repositories.js"
 import {
+  workspaceKnowledgeChunks,
   workspaceKnowledgeUnits,
   workspaces,
   workspaceWriteJobs,
@@ -184,7 +185,6 @@ describe("ingestion validator queries (Postgres)", () => {
           kind: "Service",
           body: "API",
           projectionSha: sha,
-          embedding: [0.1, 0.2],
         },
         {
           servingId: `unit_decision_${suffix}`,
@@ -214,6 +214,19 @@ describe("ingestion validator queries (Postgres)", () => {
           projectionSha: "d".repeat(40),
         },
       ])
+      // Only the API unit is embedded: its one chunk has a vector.
+      await db.insert(workspaceKnowledgeChunks).values({
+        workspaceId,
+        unitId: `unit_api_${suffix}`,
+        chunkHash: "api",
+        occurrence: 0,
+        orgId,
+        ordinal: 0,
+        startLine: 1,
+        endLine: 1,
+        text: "API",
+        embedding: Array(2000).fill(0.1),
+      })
     })
   })
 
@@ -449,7 +462,7 @@ describe("ingestion validator queries (Postgres)", () => {
     ])
     expect(read.workspaceUnits).toHaveLength(3)
     expect(unitKinds(read.units)).toEqual({ Service: 1, Decision: 1 })
-    expect(read.units.filter((unit) => !unit.embedding)).toHaveLength(1)
+    expect(read.units.filter((unit) => !unit.embedded)).toHaveLength(1)
     expect(
       await readExtractWriteJob(`org_other_${suffix}`, {
         jobId: job?.id ?? "",

@@ -22,7 +22,7 @@ Body must be JSON with `status` equal to `"ok"`.
 
 `preview` only. Fetch the HTML at `BASE_URL/`, extract the proxied `/assets/main-*.js` filename, then:
 
-1. Compare that hash to `https://app.ctxpipe.ai`'s `/assets/main-*.js`. **Same hash is a harness FAIL** (production UI leak). Pin `UI_PROXY_URL` to `ui-pr-N`; do not continue.
+1. Compare that hash to `https://app.ctxpipe.ai`'s `/assets/main-*.js`. **Same hash is a harness FAIL** (production UI leak). Check that the PR UI image rolled (`source.image` is `pr-N-*`); do not continue.
 2. `grep -Fq 'ws/$workspaceSlug'` the **JS bundle** (single-quoted, `set -u`). Missing canary is a harness FAIL. Do not grep `/` HTML: TanStack SSR of `/` omits unmatched routes.
 
 `local` runs the Vite dev server: skip the hash compare and check only that `https://app.ctxpipe.localhost/.auth/sign-up` renders from this origin.

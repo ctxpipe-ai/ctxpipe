@@ -712,7 +712,7 @@ export const SharedPublishPending: Story = {
     )
     // Maximized, the pane hides the conversation and shows Sync, still pending.
     // Testing Library ignores `inert`, so skip the hidden conversation column's Sync.
-    await userEvent.click(page.getByRole("button", { name: "Maximise pane" }))
+    await userEvent.click(page.getByRole("button", { name: "Maximize pane" }))
     await waitFor(() => {
       const all = page.getAllByRole("button", { name: pendingName })
       for (const button of all.filter((b) => b.closest("[inert]")))
@@ -768,7 +768,7 @@ export const SingleCreatePr: Story = {
     for (const button of within(actions).getAllByRole("button"))
       expect(getComputedStyle(button).borderTopWidth).toBe("0px")
     // Maximized, the conversation is hidden: the pane header shows Create PR.
-    await userEvent.click(page.getByRole("button", { name: "Maximise pane" }))
+    await userEvent.click(page.getByRole("button", { name: "Maximize pane" }))
     await waitFor(() => {
       const buttons = visibleCreatePr()
       expect(buttons).toHaveLength(1)
@@ -1052,7 +1052,7 @@ export const MaximizedPaneMatchesHeader: Story = {
     const pane = document.querySelector("aside")
     if (!pane) throw new Error("The tools pane is missing")
     const headerNames = publishActionNames(header)
-    await userEvent.click(page.getByRole("button", { name: "Maximise pane" }))
+    await userEvent.click(page.getByRole("button", { name: "Maximize pane" }))
     await waitFor(() => {
       expect(publishActionNames(pane)).toEqual(headerNames)
       expect(

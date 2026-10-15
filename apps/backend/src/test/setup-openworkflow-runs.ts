@@ -1,14 +1,17 @@
+import { randomUUID } from "node:crypto"
 import { afterAll, vi } from "vitest"
-import { cancelOpenWorkflowRunsSince } from "./open-workflow-runs.js"
+import { cancelOpenWorkflowRuns } from "./open-workflow-runs.js"
 
-// Contract files leave open runs in the shared "default" namespace. Examples
-// are sweeps, Workspace base builds, orchestrators, and runs enqueued through
-// the module-level `ow` client. A worker claims every open run in its
-// namespace, so the next file's worker must work through them first. When a
-// file ends, the cleanup cancels the open runs that the file started. `since`
-// is the file start, so a dev server's runs on a shared DATABASE_URL stay
-// safe.
-const since = new Date()
+// Each test file gets its own OpenWorkflow namespace. A worker claims every
+// open run of its namespace, also runs it does not implement, and waits up to
+// one second after each such claim. In the shared "default" namespace, open
+// runs that a dev server or an earlier file left made a file's workers reach
+// their own runs too late. The shared client (`openworkflow/client.ts`) reads
+// this variable when the file imports it, and tests connect their backends
+// with `openWorkflowNamespaceId()`. The test policy refuses a test backend
+// without a namespace.
+const namespaceId = `test-${process.pid}-${randomUUID()}`
+process.env.OPENWORKFLOW_NAMESPACE_ID = namespaceId
 
 // This hook is registered first, so it runs after the file's own hooks.
 afterAll(async () => {
@@ -25,7 +28,10 @@ afterAll(async () => {
       5_000,
     )
   })
-  await Promise.race([cancelOpenWorkflowRunsSince(databaseUrl, since), timeout])
+  await Promise.race([
+    cancelOpenWorkflowRuns(databaseUrl, namespaceId),
+    timeout,
+  ])
     .catch((error) =>
       console.warn("Could not cancel the open OpenWorkflow runs", error),
     )

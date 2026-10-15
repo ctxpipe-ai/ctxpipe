@@ -65,6 +65,7 @@ export async function maybeActivateLinearSyncOnConfigPush(input: {
   const installations = await listInstallationsByGithubInstallationId(
     input.installationId,
     input.githubConnectionId,
+    env,
   )
 
   for (const installation of installations) {

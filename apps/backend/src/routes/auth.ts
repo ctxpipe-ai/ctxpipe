@@ -15,6 +15,7 @@ import {
   prepareBetterAuthRequest,
 } from "../auth/oauth-gateway-request.js"
 import {
+  parseOAuthConsentOrganizationIds,
   readOAuthRequestClientId,
   withOAuthRequestContext,
 } from "../auth/oauth-organization.js"
@@ -133,13 +134,14 @@ export function registerAuthRoutes(app: Hono<AppEnv>) {
     const prepared = await prepareBetterAuthRequest(c.req.raw, c.var.env)
     prepared.request = await applyMcpScopeRules(prepared.request)
     const isOAuthConsent = c.req.path.endsWith("/oauth2/consent")
-    const submittedOrganizationId =
-      c.req.header("x-ctxpipe-oauth-organization")?.trim() || null
+    const submittedOrganizationIds = parseOAuthConsentOrganizationIds(
+      c.req.header("x-ctxpipe-oauth-organization"),
+    )
     const clientId = await readOAuthRequestClientId(prepared.request)
     const response = await withOAuthRequestContext(
       {
-        submittedOrganizationId: isOAuthConsent
-          ? submittedOrganizationId
+        submittedOrganizationIds: isOAuthConsent
+          ? submittedOrganizationIds
           : undefined,
         clientId,
       },

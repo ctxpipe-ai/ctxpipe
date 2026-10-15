@@ -138,7 +138,6 @@ export const workspaceKnowledgeUnits = pgTable.withRLS(
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
       .notNull()
       .defaultNow(),
-    embedding: jsonb("embedding").$type<number[]>(),
     /** Last commit time of the path; the hydrate time when Git gives none. */
     updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
       .notNull()

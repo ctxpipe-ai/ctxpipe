@@ -100,6 +100,28 @@ describe("UI fallback proxy for unmatched backend routes", () => {
     expect(target.method).toBe("GET")
   })
 
+  it("refuses a sandbox-forwarded request outside the egress path, also after dot segments", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch")
+    const app = createApp()
+    for (const [path, headers] of [
+      [
+        "/api/v1/sandbox-egress/sealed/%2e%2e/%2e%2e/%2e%2e/acme/api/v1/health",
+        { "vercel-sandbox-oidc-token": "token", "x-api-key": "sandbox-key" },
+      ],
+      [
+        "/api/v1/sandbox-egress/sealed/../../../acme/api/v1/health",
+        { "vercel-sandbox-oidc-token": "token" },
+      ],
+      ["/acme/api/v1/health", { "vercel-forwarded-host": "github.com" }],
+      ["/dashboard", { "vercel-forwarded-path": "/dashboard" }],
+    ] as const) {
+      const res = await app.request(path, { headers })
+      expect(res.status, path).toBe(403)
+    }
+    expect(getSessionMock).not.toHaveBeenCalled()
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
   it("does not resolve Better Auth sessions for static asset paths", async () => {
     const getSession = vi.fn().mockResolvedValue(null)
     const identify = createAuthMiddleware(

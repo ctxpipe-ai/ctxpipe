@@ -3,7 +3,7 @@ import { Octokit } from "octokit"
 import { describe, expect, it } from "vitest"
 import { useMswServer } from "../../../../test/msw.js"
 import {
-  fetchMergedPullRequestPage,
+  fetchClosedPullRequestPage,
   fetchPullRequestsByNumber,
 } from "./client.js"
 
@@ -96,7 +96,7 @@ function countGraphql(
 
 const octokit = new Octokit({ auth: "fixture-only-token" })
 
-describe("fetchMergedPullRequestPage", () => {
+describe("fetchClosedPullRequestPage", () => {
   it("reads a page of pull requests and their relations in one request, the next page in one more", async () => {
     const calls = countGraphql((variables) => ({
       repository: {
@@ -109,7 +109,7 @@ describe("fetchMergedPullRequestPage", () => {
         },
       },
     }))
-    const first = await fetchMergedPullRequestPage({
+    const first = await fetchClosedPullRequestPage({
       octokit,
       owner: "acme",
       repo: "api",
@@ -134,7 +134,7 @@ describe("fetchMergedPullRequestPage", () => {
       line: 3,
     })
 
-    const second = await fetchMergedPullRequestPage({
+    const second = await fetchClosedPullRequestPage({
       octokit,
       owner: "acme",
       repo: "api",
@@ -144,6 +144,54 @@ describe("fetchMergedPullRequestPage", () => {
     expect(calls).toHaveLength(2)
     expect(calls[1]).toMatchObject({ after: "cursor-1", first: 2 })
     expect(second).toMatchObject({ nextAfter: null })
+  })
+
+  it("reads pull requests closed without a merge on the same page as merged ones", async () => {
+    const repository = [
+      pull(1),
+      pull(2, { state: "CLOSED", merged: false, mergedAt: null }),
+      pull(3, { state: "OPEN", merged: false, mergedAt: null }),
+    ]
+    const calls: string[] = []
+    server.use(
+      http.post(`${API}/graphql`, async ({ request }) => {
+        const { query } = (await request.json()) as { query: string }
+        calls.push(query)
+        // GitHub filters the connection by its `states` argument.
+        const states = /states: \[?([A-Z, ]+)\]?/.exec(query)?.[1] ?? ""
+        return HttpResponse.json({
+          data: {
+            repository: {
+              pullRequests: {
+                pageInfo: { hasNextPage: false, endCursor: null },
+                nodes: repository.filter((node) =>
+                  states.split(/,\s*/).includes(node.state),
+                ),
+              },
+            },
+          },
+        })
+      }),
+    )
+    const page = await fetchClosedPullRequestPage({
+      octokit,
+      owner: "acme",
+      repo: "api",
+      first: 20,
+      after: null,
+    })
+    expect(calls).toHaveLength(1)
+    expect(
+      page.snapshots.map((snapshot) => [
+        snapshot.number,
+        snapshot.state,
+        snapshot.merged,
+        snapshot.mergedAt,
+      ]),
+    ).toEqual([
+      [1, "closed", true, "2026-03-02T00:00:00Z"],
+      [2, "closed", false, null],
+    ])
   })
 
   it("reads one pull request over REST only when the page cannot carry it", async () => {
@@ -199,7 +247,7 @@ describe("fetchMergedPullRequestPage", () => {
         }),
       ),
     )
-    const page = await fetchMergedPullRequestPage({
+    const page = await fetchClosedPullRequestPage({
       octokit,
       owner: "acme",
       repo: "api",

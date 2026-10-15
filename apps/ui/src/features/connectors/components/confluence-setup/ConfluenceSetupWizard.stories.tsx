@@ -3,7 +3,14 @@ import { delay, HttpResponse, http } from "msw"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 import { confluenceTreeHandlers } from "@/mocks/confluence-handlers"
 import { workspaceListHandler } from "@/mocks/workspace-handlers"
-import { workspaceSourceChangeHandlers } from "@/mocks/workspace-sources-handlers"
+import {
+  connectionUsageHandler,
+  connectionUsageItem,
+  workspaceSourceChangeHandlers,
+  workspaceSourceFixture,
+  workspaceSourceList,
+  workspaceSourcesHandler,
+} from "@/mocks/workspace-sources-handlers"
 import { entryPageInnerDecorators } from "../../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../../.storybook/decorators/with-story-route"
 import { docsWorkspace } from "../../../workspaces/workspace-fixtures"
@@ -301,6 +308,73 @@ export const WaitForInstall: Story = {
   },
 }
 
+/** Each cancel request: the connection id it names. */
+const cancelCalls: string[] = []
+const installationDelete = http.delete(
+  ({ request }) =>
+    new URL(request.url).pathname ===
+    `/${orgSlug}/api/v1/connectors/atlassian/installation`,
+  ({ request }) => {
+    cancelCalls.push(
+      new URL(request.url).searchParams.get("connectionId") ?? "",
+    )
+    return new HttpResponse(null, { status: 204 })
+  },
+)
+/** Each install intent: its `installOpened` query value. */
+const intentCalls: (string | null)[] = []
+const installationPostRecorded = http.post(
+  ({ request }) =>
+    new URL(request.url).pathname ===
+    `/${orgSlug}/api/v1/connectors/atlassian/installation`,
+  ({ request }) => {
+    intentCalls.push(new URL(request.url).searchParams.get("installOpened"))
+    return HttpResponse.json({ id: atlassianConnectionId })
+  },
+)
+const installHandlers = [
+  status(sInstall),
+  capabilitiesHosted,
+  installationPostRecorded,
+  installationDelete,
+  orgAtlassianOauthGet(true, false),
+]
+
+/** Close: ask the server to delete the draft while it is empty. */
+export const CloseCancelsTheSetup: Story = {
+  render: () => wizard(),
+  parameters: { msw: { handlers: { page: installHandlers } } },
+  play: async () => {
+    cancelCalls.length = 0
+    const body = within(document.body)
+    await userEvent.click(await body.findByRole("button", { name: "Close" }))
+    await waitFor(() => expect(cancelCalls).toEqual([atlassianConnectionId]))
+  },
+}
+
+/**
+ * "Install" tells the server that the install opened, so a later cancel
+ * keeps the draft for the Marketplace install event.
+ */
+export const InstallMarksTheDraft: Story = {
+  render: () => wizard(),
+  parameters: { msw: { handlers: { page: installHandlers } } },
+  play: async () => {
+    intentCalls.length = 0
+    const open = window.open
+    window.open = () => null
+    try {
+      const body = within(document.body)
+      await userEvent.click(
+        await body.findByRole("button", { name: "Install Forge app" }),
+      )
+      await waitFor(() => expect(intentCalls).toEqual(["true"]))
+    } finally {
+      window.open = open
+    }
+  },
+}
+
 export const AddToWorkspaces: Story = {
   name: "06 / Add to Workspaces",
   render: () => wizard(),
@@ -312,6 +386,7 @@ export const AddToWorkspaces: Story = {
           orgAtlassianOauthGet(true, false),
           workspaceListHandler([docsWorkspace]),
           ...confluenceTreeHandlers,
+          connectionUsageHandler([]),
           ...workspaceSourceChangeHandlers(addCalls),
         ],
       },
@@ -334,9 +409,14 @@ export const AddToWorkspaces: Story = {
       await body.findByRole("checkbox", { name: /Engineering/ }),
     )
     await userEvent.click(add)
+    // The add opened a pull request: the last step is the merge.
     await expect(
-      await body.findByRole("heading", { name: "Confluence is connected" }),
+      await body.findByRole("heading", { name: "Merge the pull request" }),
     ).toBeVisible()
+    // The sync starts after the merge, so the last step links the pull request.
+    await expect(
+      body.getByRole("link", { name: "acme/docs#7" }),
+    ).toHaveAttribute("href", "https://github.com/acme/docs/pull/7")
     await expect(addCalls).toEqual([
       {
         method: "POST",
@@ -354,23 +434,64 @@ export const AddToWorkspaces: Story = {
   },
 }
 
-export const SkipWorkspaces: Story = {
-  name: "07 / Skip Workspaces, setup complete",
+/** The Docs Workspace already syncs the ENG space through this connection. */
+export const ManageKeepsTheCurrentScope: Story = {
+  name: "06b / Manage keeps the current scope",
   render: () => wizard(),
-  parameters: AddToWorkspaces.parameters,
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          status(sInstalled),
+          orgAtlassianOauthGet(true, false),
+          workspaceListHandler([docsWorkspace]),
+          ...confluenceTreeHandlers,
+          connectionUsageHandler([
+            connectionUsageItem({
+              workspaceSlug: docsWorkspace.slug,
+              workspaceName: docsWorkspace.displayName,
+              sources: [
+                {
+                  sourceKey: "confluence",
+                  provider: "confluence",
+                  status: "ok",
+                  scopeSummary: "1 Confluence space",
+                },
+              ],
+            }),
+          ]),
+          workspaceSourcesHandler(
+            workspaceSourceList({
+              items: [
+                workspaceSourceFixture({
+                  sourceKey: "confluence",
+                  provider: "confluence",
+                  connectionId: atlassianConnectionId,
+                  scope: { spaces: [{ key: "ENG", pages: "all" }] },
+                }),
+              ],
+            }),
+          ),
+        ],
+      },
+    },
+  },
   play: async ({ canvasElement }) => {
     const body = within(canvasElement.ownerDocument.body)
-    await userEvent.click(
-      await body.findByRole("button", { name: "Skip for now" }),
-    )
     await expect(
-      await body.findByRole("heading", { name: "Confluence is connected" }),
-    ).toBeVisible()
+      await body.findByRole("checkbox", { name: docsWorkspace.displayName }),
+    ).toBeChecked()
+    await expect(
+      await body.findByRole("checkbox", { name: /Engineering/ }),
+    ).toBeChecked()
+    await expect(
+      body.getByRole("button", { name: "Save changes" }),
+    ).toBeDisabled()
   },
 }
 
 export const ReplacedSetup: Story = {
-  name: "08 / Replaced setup with a config pull request",
+  name: "07 / Replaced setup with a config pull request",
   render: () => wizard(),
   parameters: {
     msw: {
@@ -384,6 +505,7 @@ export const ReplacedSetup: Story = {
           orgAtlassianOauthGet(true, false),
           workspaceListHandler([docsWorkspace]),
           ...confluenceTreeHandlers,
+          connectionUsageHandler([]),
         ],
       },
     },
@@ -403,7 +525,7 @@ export const ReplacedSetup: Story = {
 }
 
 export const MissingConnectionId: Story = {
-  name: "09 / Missing connection id",
+  name: "08 / Missing connection id",
   render: () => wizard({ atlassianConnectionId: undefined }),
   parameters: {
     msw: {

@@ -75,7 +75,7 @@ describe("Confluence card primary action", () => {
     ).toBe("complete")
   })
 
-  it("has no card action once the connection is installed", () => {
+  it("manages the connection once it is installed", () => {
     const currentIndex = getConfluenceCardCurrentIndex(
       installedStatus,
       undefined,
@@ -86,7 +86,7 @@ describe("Confluence card primary action", () => {
         currentIndex,
         MANAGED_CONFLUENCE_WIZARD_STEPS,
       ),
-    ).toEqual({ kind: "none" })
+    ).toEqual({ kind: "open_wizard", label: "Manage" })
   })
 
   it("continues setup until the Forge app is installed", () => {

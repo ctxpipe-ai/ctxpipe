@@ -17,6 +17,7 @@ import {
   type NativeHydrationFixture,
   withNativeHydrationFixture,
 } from "../../test/native-hydration-fixture.js"
+import { openWorkflowNamespaceId } from "../namespace.js"
 import { workspaceTipCheck } from "./workspace-tip-check.js"
 
 it(
@@ -35,6 +36,7 @@ it(
           linkedUpdated: 0,
         })
         const backend = await BackendPostgres.connect(f.databaseUrl, {
+          namespaceId: openWorkflowNamespaceId(),
           runMigrations: false,
         })
         try {
@@ -92,6 +94,7 @@ it(
         })
         await handle.result({ timeoutMs: 30_000 })
         const backend = await BackendPostgres.connect(f.databaseUrl, {
+          namespaceId: openWorkflowNamespaceId(),
           runMigrations: false,
         })
         try {
@@ -229,6 +232,7 @@ it(
           updated: 1,
         })
         const backend = await BackendPostgres.connect(f.databaseUrl, {
+          namespaceId: openWorkflowNamespaceId(),
           runMigrations: false,
         })
         try {
@@ -299,6 +303,7 @@ it(
         ])
         process.env.GIT_CONFIG_GLOBAL = gitConfig
         const backend = await BackendPostgres.connect(f.databaseUrl, {
+          namespaceId: openWorkflowNamespaceId(),
           runMigrations: false,
         })
         const hydrateRuns = async () =>

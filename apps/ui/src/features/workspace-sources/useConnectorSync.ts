@@ -19,7 +19,7 @@ const SYNCED_PROVIDERS: ReadonlySet<SourceProvider> = new Set([
 
 /**
  * "Sync now" in a connector card menu. Only an org admin or owner can start
- * a sync, and only for a connection that a Workspace uses. Returns undefined
+ * a sync, and only for a connection with an `ok` source. Returns undefined
  * when the card must not show the action.
  */
 export function useConnectorSync(input: {
@@ -47,9 +47,15 @@ export function useConnectorSync(input: {
     onSuccess: () => toast.success("Sync started. Files update after it ends."),
     onError: () => toast.error("Could not start the sync. Try again."),
   })
+  // As the server: only an `ok` source syncs. A Workspace that waits for a
+  // source pull request is in "Used in", but has nothing to sync yet.
   const canSync =
     synced &&
-    (usageQuery.data?.items.length ?? 0) > 0 &&
+    Boolean(
+      usageQuery.data?.items.some((item) =>
+        item.sources.some((source) => source.status === "ok"),
+      ),
+    ) &&
     isAdminRole(roleQuery.data?.role)
   return canSync
     ? { start: () => mutation.mutate(), isPending: mutation.isPending }

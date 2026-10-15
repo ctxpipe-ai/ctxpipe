@@ -76,6 +76,8 @@ http.createServer((req, res) => {
 export type AgentVaultFixture = {
   access: AgentVaultAccess
   network: string
+  /** The network that sandboxes join (internal with `closed`). */
+  sandboxNetwork: string
   /** The upstream's name on the test network (rules take names, not IPs). */
   upstream: string
   gitToken: string
@@ -293,6 +295,7 @@ net.createServer((client) => {
         ownerPassword: async () => ownerPassword,
       },
       network,
+      sandboxNetwork,
       upstream: "upstream.ctxpipe.test",
       gitToken,
       agentVaultName: vaultName,

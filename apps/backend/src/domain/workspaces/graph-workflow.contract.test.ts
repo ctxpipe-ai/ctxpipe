@@ -1,7 +1,7 @@
 import { rename, unlink, writeFile } from "node:fs/promises"
 import { sql } from "drizzle-orm"
 import { FalkorDB } from "falkordb"
-import { expect, it, vi } from "vitest"
+import { expect, it } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { getSystemDb } from "../../db/client.js"
 import {
@@ -10,6 +10,7 @@ import {
   getWorkspaceProjectionSnapshot,
   persistWorkspaceGraphResult,
 } from "../../models/workspaces.js"
+import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { workspaceHydrate } from "../../openworkflow/workflows/workspace-hydrate.js"
 import { workspaceTipCheck } from "../../openworkflow/workflows/workspace-tip-check.js"
 import {
@@ -25,17 +26,14 @@ import {
   withNativeHydrationFixture,
 } from "../../test/native-hydration-fixture.js"
 import { workspaceHttpApp } from "../../test/workspace-http-fixture.js"
-import { workspaceClaimsQuery } from "./graph-projection.js"
+import { expandWorkspaceGraph } from "./graph-expand.js"
+import {
+  workspaceClaimsQuery,
+  workspaceGraphRevisionKey,
+} from "./graph-projection.js"
+import { WorkspaceGraphBuildingError } from "./graph-rebuild.js"
+import { publishedProjection } from "./revision.js"
 import { workspaceChatTools } from "./workspace-chat-tools.js"
-
-// The graph route enqueues on the shared OpenWorkflow client. Give that client a
-// namespace of its own before it loads, so that a local dev worker on the shared
-// database cannot take the rebuild run.
-const routeNamespace = vi.hoisted(() => {
-  const namespace = `graph-contract-${process.pid}-${Date.now()}`
-  process.env.OPENWORKFLOW_NAMESPACE_ID = namespace
-  return namespace
-})
 
 async function withGraphHydration(
   options: NativeHydrationOptions,
@@ -209,7 +207,7 @@ it(
   async () => {
     // The fixture worker uses the namespace of the shared client, so it runs the rebuild.
     await withGraphHydration(
-      { namespaceId: routeNamespace },
+      { namespaceId: openWorkflowNamespaceId() },
       async (f, graph) => {
         await f.publish()
         const runsBefore = await hydrateRuns(f)
@@ -234,7 +232,7 @@ it(
   { timeout: 90_000 },
   async () => {
     await withGraphHydration(
-      { namespaceId: routeNamespace },
+      { namespaceId: openWorkflowNamespaceId() },
       async (f, graph, db) => {
         await f.publish()
         await graph.delete()
@@ -302,27 +300,69 @@ it(
 )
 
 it(
-  "chat graph reads report missing Falkor data for their captured revision",
-  { timeout: 60_000 },
+  "chat graph reads start one rebuild of a lost graph and ask the model to try again",
+  { timeout: 90_000 },
   async () => {
-    await withGraphHydration({}, async (f, graph) => {
-      await f.publish()
-      const snapshot = await withOrgIdContext(f.org, () =>
-        getWorkspaceProjectionSnapshot(f.workspaceId),
-      )
-      const tools = await workspaceChatTools({
-        orgId: f.org.id,
-        orgSlug: f.org.slug,
-        workspaceId: f.workspaceId,
-        snapshot,
-      })
-      const lookup = tools.find((tool) => tool.name === "graph_lookup")
-      if (!lookup) throw new Error("Missing graph lookup tool")
-      await graph.delete()
-      await expect(
-        lookup.execute({ nodeId: snapshot.units[0]?.servingId }),
-      ).rejects.toThrow("Workspace graph projection is unavailable.")
-    })
+    await withGraphHydration(
+      { namespaceId: openWorkflowNamespaceId() },
+      async (f, graph) => {
+        await f.publish()
+        const snapshot = await withOrgIdContext(f.org, () =>
+          getWorkspaceProjectionSnapshot(f.workspaceId),
+        )
+        const tools = await workspaceChatTools({
+          orgId: f.org.id,
+          orgSlug: f.org.slug,
+          workspaceId: f.workspaceId,
+          snapshot,
+        })
+        const lookup = tools.find((tool) => tool.name === "graph_lookup")
+        const neighbors = tools.find((tool) => tool.name === "graph_neighbors")
+        if (!lookup || !neighbors) throw new Error("Missing graph tools")
+        const runsBefore = await hydrateRuns(f)
+        await graph.delete()
+        const nodeId = snapshot.units[0]?.servingId
+        const answers = await Promise.all([
+          lookup.execute({ nodeId }),
+          neighbors.execute({ nodeId }),
+        ])
+        for (const answer of answers)
+          expect(String(answer)).toContain("graph_building")
+        expect(await hydrateRuns(f)).toBe(runsBefore + 1)
+        expect(await readGraphWhenRebuilt(f)).toMatchObject({
+          status: 200,
+          body: { nodes: [{ name: "document-000" }] },
+        })
+      },
+    )
+  },
+)
+
+it(
+  "the tip check starts one rebuild of a ready graph that the graph store does not hold",
+  { timeout: 90_000 },
+  async () => {
+    await withGraphHydration(
+      { namespaceId: openWorkflowNamespaceId() },
+      async (f, graph) => {
+        await f.publish()
+        const runsBefore = await hydrateRuns(f)
+        // A new projection version, or a replaced graph store, leaves no graph
+        // under the key of the ready revision.
+        await graph.delete()
+        for (let check = 0; check < 2; check++) {
+          const run = await f.runner.runWorkflow(workspaceTipCheck.spec, {
+            orgId: f.org.id,
+          })
+          await run.result({ timeoutMs: 30_000 })
+        }
+        expect(await hydrateRuns(f)).toBe(runsBefore + 1)
+        expect(await readGraphWhenRebuilt(f)).toMatchObject({
+          status: 200,
+          body: { nodes: [{ name: "document-000" }] },
+        })
+      },
+    )
   },
 )
 
@@ -841,6 +881,62 @@ it(
 )
 
 it(
+  "chat graph neighbors list the strongest valid edges by confidence",
+  { timeout: 60_000 },
+  async () => {
+    const claim = (to: string, confidence: number, extra = "") =>
+      `  - to: ${to}\n    predicate: DEPENDS_ON\n    confidence: ${confidence}\n${extra}`
+    await withGraphHydration(
+      {
+        files: [
+          {
+            path: "hub.md",
+            body: `---\nclaims:\n${[
+              claim("alpha.md", 0.3),
+              claim("bravo.md", 0.9),
+              claim("charlie.md", 0.6),
+              claim(
+                "delta.md",
+                0.95,
+                "    valid_to: 2020-01-01T00:00:00.000Z\n",
+              ),
+            ].join("")}---\n# Hub\n`,
+          },
+          { path: "alpha.md", body: "# Alpha\n" },
+          { path: "bravo.md", body: "# Bravo\n" },
+          { path: "charlie.md", body: "# Charlie\n" },
+          { path: "delta.md", body: "# Delta\n" },
+        ],
+      },
+      async (f) => {
+        await f.publish()
+        const snapshot = await withOrgIdContext(f.org, () =>
+          getWorkspaceProjectionSnapshot(f.workspaceId),
+        )
+        const tools = await workspaceChatTools({
+          orgId: f.org.id,
+          orgSlug: f.org.slug,
+          workspaceId: f.workspaceId,
+          snapshot,
+        })
+        const neighbors = tools.find((t) => t.name === "graph_neighbors")
+        const hub = snapshot.units.find((u) => u.path === "hub.md")
+        const answer = String(
+          await neighbors?.execute({ nodeId: hub?.servingId, limit: 2 }),
+        )
+        expect(answer).toContain("# Bravo")
+        expect(answer).toContain("# Charlie")
+        expect(answer.indexOf("# Bravo")).toBeLessThan(
+          answer.indexOf("# Charlie"),
+        )
+        expect(answer).not.toContain("# Alpha")
+        expect(answer).not.toContain("# Delta")
+      },
+    )
+  },
+)
+
+it(
   "chat graph lookup and neighbors exclude unknown nodes",
   { timeout: 60_000 },
   async () => {
@@ -878,7 +974,7 @@ it(
   { timeout: 90_000 },
   async () => {
     await withGraphHydration(
-      { namespaceId: routeNamespace },
+      { namespaceId: openWorkflowNamespaceId() },
       async (f, graph) => {
         await f.publish()
         // A node under the same revision key that the projection does not have.
@@ -940,5 +1036,42 @@ it(
         false,
       )
     })
+  },
+)
+
+it(
+  "bounded expansion rebuilds a projection with missing nodes",
+  { timeout: 90_000 },
+  async () => {
+    await withGraphHydration(
+      { namespaceId: openWorkflowNamespaceId() },
+      async (f, graph) => {
+        await f.publish()
+        const snapshot = await withOrgIdContext(f.org, () =>
+          getWorkspaceProjectionSnapshot(f.workspaceId),
+        )
+        const seed = snapshot.units[0]?.servingId
+        if (!seed) throw new Error("The fixture needs a seed")
+        const input = {
+          orgId: f.org.id,
+          orgSlug: f.org.slug,
+          projection: publishedProjection(snapshot.projection),
+          seeds: [seed],
+        }
+        await graph.query(
+          "MATCH (n:WorkspaceKnowledgeUnit {projectionKey: $projectionKey}) DETACH DELETE n",
+          {
+            params: { projectionKey: workspaceGraphRevisionKey(f.revision) },
+          },
+        )
+        await expect(expandWorkspaceGraph(input)).rejects.toBeInstanceOf(
+          WorkspaceGraphBuildingError,
+        )
+        expect(await readGraphWhenRebuilt(f)).toMatchObject({ status: 200 })
+        const result = await expandWorkspaceGraph(input)
+        expect(result.nodes.map((node) => node.name)).toEqual(["document-000"])
+        expect(result.partial).toBe(false)
+      },
+    )
   },
 )

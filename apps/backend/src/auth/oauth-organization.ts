@@ -34,8 +34,11 @@ export type OAuthOrganizationBinding = {
 }
 
 type OAuthRequestContext = {
-  /** `undefined` outside the consent endpoint; null when none was sent. */
-  submittedOrganizationId: string | null | undefined
+  /**
+   * The orgs that the consent ticks. `undefined` outside the consent
+   * endpoint; null when none was sent.
+   */
+  submittedOrganizationIds: string[] | null | undefined
   /** OAuth client of the authorize flow, when the request names it. */
   clientId: string | null
 }
@@ -49,8 +52,26 @@ export function withOAuthRequestContext<T>(
   return oauthRequestStorage.run(context, handler)
 }
 
-export function getOAuthConsentOrganizationId(): string | null | undefined {
-  return oauthRequestStorage.getStore()?.submittedOrganizationId
+export function getOAuthConsentOrganizationIds(): string[] | null | undefined {
+  return oauthRequestStorage.getStore()?.submittedOrganizationIds
+}
+
+/**
+ * The org ids of the `x-ctxpipe-oauth-organization` header: one id, or a
+ * comma-separated list. An empty header gives null.
+ */
+export function parseOAuthConsentOrganizationIds(
+  header: string | undefined,
+): string[] | null {
+  const ids = [
+    ...new Set(
+      (header ?? "")
+        .split(",")
+        .map((id) => id.trim())
+        .filter(Boolean),
+    ),
+  ]
+  return ids.length > 0 ? ids : null
 }
 
 export function getOAuthRequestClientId(): string | null {
@@ -118,17 +139,26 @@ export function selectOAuthOrganizationBinding(
   }
 }
 
-export function resolveOAuthConsentOrganizationId(
+/**
+ * The org set of a consent. In the consent request, every ticked org must be
+ * a membership, else null (the consent is refused). Outside it, the one org
+ * of `selectOAuthOrganizationBinding`.
+ */
+export function resolveOAuthConsentOrganizationIds(
   membershipIds: string[],
   activeOrganizationId: string | null | undefined,
-  submittedOrganizationId: string | null | undefined,
-): string | null {
-  if (submittedOrganizationId !== undefined) {
-    return submittedOrganizationId &&
-      membershipIds.includes(submittedOrganizationId)
-      ? submittedOrganizationId
+  submittedOrganizationIds: string[] | null | undefined,
+): string[] | null {
+  if (submittedOrganizationIds !== undefined) {
+    return submittedOrganizationIds &&
+      submittedOrganizationIds.length > 0 &&
+      submittedOrganizationIds.every((id) => membershipIds.includes(id))
+      ? submittedOrganizationIds
       : null
   }
-  return selectOAuthOrganizationBinding(membershipIds, activeOrganizationId)
-    .referenceId
+  const { referenceId } = selectOAuthOrganizationBinding(
+    membershipIds,
+    activeOrganizationId,
+  )
+  return referenceId ? [referenceId] : null
 }

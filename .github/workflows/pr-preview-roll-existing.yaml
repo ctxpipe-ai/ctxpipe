@@ -17,7 +17,7 @@ on:
 
 jobs:
   roll:
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 40
     # The Preview environment's VERCEL_ACCESS_TOKEN reaches only the preview
     # Vercel project (scripts/preview-sandbox-vars.sh), never production.
@@ -79,6 +79,8 @@ jobs:
           source "${GITHUB_WORKSPACE}/scripts/preview-sandbox-vars.sh"
           # shellcheck disable=SC1091
           source "${GITHUB_WORKSPACE}/scripts/preview-github-app-vars.sh"
+          # shellcheck disable=SC1091
+          source "${GITHUB_WORKSPACE}/scripts/preview-ui-private.sh"
 
           update_ui() {
             railway_graphql \
@@ -147,25 +149,7 @@ jobs:
             "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$UI_SERVICE_ID" --arg auth "http://${dollar}{{backend.RAILWAY_PRIVATE_DOMAIN}}:8080" --arg origins "https://backend-pr-${{ inputs.pr_number }}.up.railway.app" \
               '{input:{projectId:$project,environmentId:$env,serviceId:$service,skipDeploys:true,variables:{HOST:"0.0.0.0",NITRO_HOST:"0.0.0.0",AUTH_BASE_URL:$auth,AUTH_ALLOWED_ORIGINS:$origins}}}')" >/dev/null
 
-          UI_DOMAIN="$(railway_graphql \
-            'query serviceInstanceDomain($environmentId: String!, $serviceId: String!) { serviceInstance(environmentId: $environmentId, serviceId: $serviceId) { domains { serviceDomains { domain } customDomains { domain } } } }' \
-            "$(jq -nc --arg env "$ENV_ID" --arg service "$UI_SERVICE_ID" '{environmentId:$env, serviceId:$service}')" \
-            | jq -r '.data.serviceInstance.domains.customDomains[0].domain // .data.serviceInstance.domains.serviceDomains[0].domain // empty')"
-          if [[ -z "$UI_DOMAIN" ]]; then
-            UI_DOMAIN="$(railway_graphql \
-              'mutation serviceDomainCreate($input: ServiceDomainCreateInput!) { serviceDomainCreate(input: $input) { domain } }' \
-              "$(jq -nc --arg env "$ENV_ID" --arg service "$UI_SERVICE_ID" '{input:{environmentId:$env, serviceId:$service, targetPort:3002}}')" \
-              | jq -r '.data.serviceDomainCreate.domain // empty')"
-          fi
-          if [[ -n "$UI_DOMAIN" ]]; then
-            railway_graphql \
-              'mutation variableCollectionUpsert($input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: $input) }' \
-              "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$BACKEND_SERVICE_ID" --arg url "https://${UI_DOMAIN}" \
-                '{input:{projectId:$project,environmentId:$env,serviceId:$service,skipDeploys:true,variables:{UI_PROXY_URL:$url}}}')" >/dev/null
-            echo "Set backend UI_PROXY_URL=https://${UI_DOMAIN}"
-          else
-            echo "Warning: could not resolve a preview UI public domain; leaving UI_PROXY_URL unchanged" >&2
-          fi
+          point_preview_backend_at_private_ui
 
           sync_preview_otel_variables
           sync_preview_sandbox_variables
@@ -174,6 +158,9 @@ jobs:
           update_img "$BACKEND_SERVICE_ID" "$BACKEND_IMAGE"
           deploy "$BACKEND_SERVICE_ID"
           wait_ok backend "$BACKEND_SERVICE_ID" "$BACKEND_IMAGE"
+          # The backend now proxies to the UI private domain, so the UI
+          # needs no public domain. Production UI has none either.
+          remove_preview_ui_public_domains
 
           update_img "$WORKER_SERVICE_ID" "$WORKER_IMAGE"
           deploy "$WORKER_SERVICE_ID"

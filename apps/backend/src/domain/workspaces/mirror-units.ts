@@ -38,12 +38,20 @@ const LINEAR_KINDS: Record<string, string> = {
  * The kind of a Markdown file at a connector-mirror path, or null. Layouts:
  * `confluence/<KEY>/…`, `linear/teams/<KEY>/<dir>/…`,
  * `linear/projects/<id>/<dir>/…`, `slack/channels/<channel>/…`,
- * `pagerduty/incidents/…`, `buildkite/pipelines/<slug>/…`.
+ * `pagerduty/incidents/…`, `github/pulls/<owner>/<repo>/<file>.md`,
+ * `buildkite/pipelines/<slug>/…`.
  */
 export function mirrorUnitKind(path: string): string | null {
   const parts = path.split("/")
   const file = parts.at(-1)
   switch (parts[0]) {
+    case "notion":
+      if (file !== "index.md") return null
+      if (parts[1] === "pages") return "Page"
+      if (parts[1] === "databases") {
+        return parts.includes("rows") ? "Page" : "Database"
+      }
+      return null
     case "confluence":
       return parts.length >= 3 && !parts.includes("_assets") ? "Page" : null
     case "linear":
@@ -56,6 +64,8 @@ export function mirrorUnitKind(path: string): string | null {
       return parts.length === 4 && file === "index.md" ? "Channel" : null
     case "pagerduty":
       return parts[1] === "incidents" ? "Incident" : null
+    case "github":
+      return parts[1] === "pulls" && parts.length === 5 ? "PullRequest" : null
     case "buildkite":
       if (parts[1] !== "pipelines" || parts.length < 4) return null
       if (parts.length === 4 && file === "pipeline.md") return "Pipeline"
@@ -80,6 +90,32 @@ type ProviderSites = {
   linearWorkspaces: ReadonlySet<string>
 }
 
+function notionIdKey(id: string): string {
+  return id.replaceAll("-", "").toLowerCase()
+}
+
+function parseNotionPageUrl(rawUrl: string): string | null {
+  let url: URL
+  try {
+    url = new URL(rawUrl.trim())
+  } catch {
+    return null
+  }
+  const host = url.hostname.toLowerCase()
+  if (
+    host !== "notion.so" &&
+    !host.endsWith(".notion.so") &&
+    !host.endsWith(".notion.site")
+  ) {
+    return null
+  }
+  const match =
+    /(?:^|-)([a-f\d]{32}|[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12})$/i.exec(
+      url.pathname.split("/").filter(Boolean).at(-1) ?? "",
+    )
+  return match?.[1] ? `notion:${notionIdKey(match[1])}` : null
+}
+
 /** Keys that a provider URL can name. Unknown URLs give no key. */
 function urlKeys(url: string, sites: ProviderSites): string[] {
   const keys: string[] = []
@@ -96,6 +132,8 @@ function urlKeys(url: string, sites: ProviderSites): string[] {
   }
   const thread = parseSlackPermalink(url)
   if (thread) keys.push(threadDedupKey(thread.channelId, thread.ts))
+  const notionId = parseNotionPageUrl(url)
+  if (notionId) keys.push(notionId)
   return keys
 }
 
@@ -121,6 +159,16 @@ function unitKeys(
   sites: ProviderSites,
 ): string[] {
   const keys: string[] = []
+  if (typeof attributes.notion_id === "string") {
+    const id = attributes.notion_id.trim()
+    if (
+      /^(?:[a-f\d]{32}|[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12})$/i.test(
+        id,
+      )
+    ) {
+      keys.push(`notion:${notionIdKey(id)}`)
+    }
+  }
   if (typeof attributes.url === "string") {
     keys.push(...urlKeys(attributes.url, sites))
   }

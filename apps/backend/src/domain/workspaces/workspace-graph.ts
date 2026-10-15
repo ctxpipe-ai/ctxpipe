@@ -44,9 +44,10 @@ function unitSummary(body: string): string | null {
 
 export function workspaceGraphNodes(
   units: readonly HydrateUnit[],
-): WorkspaceGraphPayload["nodes"] {
+): Array<WorkspaceGraphPayload["nodes"][number] & { path: string }> {
   return units.map((unit) => ({
     id: unit.servingId,
+    path: unit.path,
     kind: unit.kind ?? "KnowledgeUnit",
     name: unitName(unit.path),
     summary: unitSummary(unit.body),

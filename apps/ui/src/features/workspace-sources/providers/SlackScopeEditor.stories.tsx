@@ -1,7 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { HttpResponse, http } from "msw"
 import { type ComponentProps, useState } from "react"
-import { expect, userEvent, waitFor, within } from "storybook/test"
+import { expect, userEvent, within } from "storybook/test"
 import {
   slackChannelsHandler,
   slackStoryChannels,
@@ -84,56 +83,20 @@ export const SearchesAndPicksChannels: Story = {
   },
 }
 
-export const ChannelWithoutTheBotIsDisabled: Story = {
+/** A channel can be chosen before the bot is invited; it says to invite the bot. */
+export const ChannelWithoutTheBotCanBeSelected: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
+    const allHands = await canvas.findByRole("checkbox", { name: /all-hands/ })
     await expect(
-      await canvas.findByRole("checkbox", { name: /all-hands/ }),
-    ).toBeDisabled()
-    await expect(
-      canvas.getByText("The bot is not in this channel."),
+      canvas.getByText(
+        "Invite the bot to this channel before you mention it there.",
+      ),
     ).toBeVisible()
-  },
-}
-
-let channelRequests = 0
-
-/** The user invites the bot in Slack, then Refresh makes the channel usable. */
-export const RefreshShowsAChannelTheBotJoined: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          http.get(/\/api\/v1\/connectors\/slack\/channels(\?|$)/, () => {
-            channelRequests += 1
-            return HttpResponse.json({
-              items:
-                channelRequests === 1
-                  ? slackStoryChannels
-                  : slackStoryChannels.map((channel) => ({
-                      ...channel,
-                      isMember: true,
-                    })),
-              truncated: false,
-            })
-          }),
-        ],
-      },
-    },
-  },
-  beforeEach: () => {
-    channelRequests = 0
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await expect(
-      await canvas.findByRole("checkbox", { name: /all-hands/ }),
-    ).toBeDisabled()
-    await userEvent.click(canvas.getByRole("button", { name: "Refresh" }))
-    await waitFor(() =>
-      expect(canvas.getByRole("checkbox", { name: /all-hands/ })).toBeEnabled(),
-    )
-    await expect(canvas.queryByRole("button", { name: "Refresh" })).toBeNull()
+    await userEvent.click(allHands)
+    await expect(JSON.parse(scopeText(canvasElement) ?? "")).toEqual({
+      channels: ["C0ALL0001"],
+    })
   },
 }
 

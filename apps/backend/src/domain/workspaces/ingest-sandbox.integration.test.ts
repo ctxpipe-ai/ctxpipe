@@ -25,6 +25,7 @@ import {
 } from "../ingestion/ingestion-run.js"
 import {
   INGEST_SHARD_LIMIT_MS,
+  ingestSandboxThreadId,
   ORG_INGEST_SANDBOX_LIMIT,
   ORG_RUNNING_SANDBOX_LIMIT,
 } from "./chat-lifecycle.js"
@@ -33,7 +34,7 @@ import {
   sweepConversationSandboxes,
   withConversationSandboxSlots,
 } from "./conversation-sandbox-lifecycle.js"
-import { ingestSandbox, ingestSandboxThreadId } from "./ingest-sandbox.js"
+import { ingestSandbox } from "./ingest-sandbox.js"
 import type { WorkspaceRevision } from "./revision.js"
 import { postgresSandboxInstanceStore } from "./sandbox-instance-store.js"
 import { postgresSandboxLocks } from "./sandbox-lock-store.js"
@@ -217,8 +218,11 @@ describe("ingest sandbox slots (Postgres)", () => {
         )
         await new Promise((resolve) => setTimeout(resolve, 500))
         expect(await getSandboxInstance(sandbox.key, org.orgId)).toBeNull()
-        abort.abort(new Error("step ended"))
-        expect(await outcome).toMatchObject({ name: "AbortError" })
+        // Whether the abort lands in the wait or in a start, the caller gets
+        // the reason: it tells a cancelled step from an ended one.
+        const reason = new Error("step ended")
+        abort.abort(reason)
+        expect(await outcome).toBe(reason)
         expect(await getSandboxInstance(sandbox.key, org.orgId)).toBeNull()
       } finally {
         await full.remove()

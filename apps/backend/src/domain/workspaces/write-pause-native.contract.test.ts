@@ -24,6 +24,7 @@ import {
   persistWriteStatus,
 } from "../../models/workspaces.js"
 import { enqueueWriteJob } from "../../openworkflow/enqueue-workspace-write-commit.js"
+import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { workspaceBootstrap } from "../../openworkflow/workflows/workspace-bootstrap.js"
 import { workspaceFileEdit } from "../../openworkflow/workflows/workspace-file-edit.js"
 import { workspaceSemanticMerge } from "../../openworkflow/workflows/workspace-semantic-merge.js"
@@ -223,6 +224,7 @@ it.each(["captured", "legacy"] as const)(
         expect(resolved?.revision.sha).not.toBe(f.sha)
         f.repairWriteAccess()
         const backend = await BackendPostgres.connect(f.databaseUrl, {
+          namespaceId: openWorkflowNamespaceId(),
           runMigrations: false,
         })
         const runner = new OpenWorkflow({ backend })
@@ -328,6 +330,7 @@ it.each(["bootstrap", "ui_file_edit"] as const)(
       async (f) => {
         await f.runner.cancelWorkflowRun(f.handle.workflowRun.id)
         const backend = await BackendPostgres.connect(f.databaseUrl, {
+          namespaceId: openWorkflowNamespaceId(),
           runMigrations: false,
         })
         const runner = new OpenWorkflow({ backend })
@@ -547,6 +550,7 @@ it(
       async (f) => {
         await f.runner.cancelWorkflowRun(f.handle.workflowRun.id)
         const backend = await BackendPostgres.connect(f.databaseUrl, {
+          namespaceId: openWorkflowNamespaceId(),
           runMigrations: false,
         })
         const runner = new OpenWorkflow({ backend })
@@ -666,6 +670,7 @@ it(
       { github: true, githubWriteView: "missing", writeStatus: "read_only" },
       async (f) => {
         const backend = await BackendPostgres.connect(f.databaseUrl, {
+          namespaceId: openWorkflowNamespaceId(),
           runMigrations: false,
         })
         const runner = new OpenWorkflow({ backend })

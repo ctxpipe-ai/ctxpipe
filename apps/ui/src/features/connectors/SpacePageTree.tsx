@@ -8,7 +8,12 @@ import {
 import { useQuery } from "@tanstack/react-query"
 import { useCallback, useEffect, useState } from "react"
 import { Checkbox } from "@/components/ui/Checkbox"
-import { SkeletonRow, useSkeletonHold } from "@/components/ui/Skeleton"
+import {
+  Skeleton,
+  SkeletonRow,
+  SkeletonText,
+  useSkeletonHold,
+} from "@/components/ui/Skeleton"
 import { apiFetch, readApiJson } from "@/lib/api-result"
 import type { ConfluencePage, ConfluenceSpace, SpaceScopeItem } from "./types"
 
@@ -335,9 +340,9 @@ function SpaceNode({
               <span className="sr-only">
                 {isSearching ? "Searching pages" : "Loading pages"}
               </span>
-              <SkeletonRow className="pl-4" />
-              <SkeletonRow className="pl-8" />
-              <SkeletonRow className="pl-8" />
+              <SkeletonRow className="h-7 pl-4" />
+              <SkeletonRow className="h-7 pl-8" />
+              <SkeletonRow className="h-7 pl-8" />
             </div>
           ) : null}
           {!isFetching && displayPages.length === 0 ? (
@@ -573,13 +578,22 @@ export function SpacePageTree({
 
   if (showSkeleton) {
     return (
-      <div className="space-y-0.5 py-2" aria-busy>
+      // The box of the loaded list: the search field, then rows of space height.
+      <div className="flex h-full min-w-0 flex-col gap-3" aria-busy>
         <span className="sr-only">Loading spaces</span>
-        <SkeletonRow />
-        <SkeletonRow className="pl-4" />
-        <SkeletonRow className="pl-4" />
-        <SkeletonRow />
-        <SkeletonRow className="pl-4" />
+        <Skeleton className="block h-[34px] w-full shrink-0" />
+        <div className="min-w-0 overflow-hidden rounded-md border border-border">
+          {[0, 1, 2, 3].map((row) => (
+            <div
+              key={row}
+              className="flex items-center gap-2 border-b border-zinc-800 px-3 py-2.5 last:border-b-0"
+            >
+              <Skeleton className="size-5 shrink-0" />
+              <Skeleton className="size-4 shrink-0" />
+              <SkeletonText className="min-w-0 flex-1" boneClassName="w-40" />
+            </div>
+          ))}
+        </div>
       </div>
     )
   }

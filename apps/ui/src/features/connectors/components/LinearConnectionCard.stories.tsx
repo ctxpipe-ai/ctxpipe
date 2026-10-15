@@ -58,6 +58,14 @@ const meta = {
             connectionUsageItem({
               workspaceSlug: "docs",
               workspaceName: "Docs",
+              sources: [
+                {
+                  sourceKey: "eng",
+                  provider: "linear",
+                  status: "ok",
+                  scopeSummary: "1 Linear team",
+                },
+              ],
             }),
           ]),
         ],
@@ -263,6 +271,43 @@ export const SyncNowHiddenForMember: Story = {
     msw: {
       handlers: {
         page: [statusHandler(connected), activeMemberRoleHandler("member")],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const body = await openActionsMenu(canvasElement)
+    await body.findByRole("menuitem", { name: "Remove connector" })
+    await expect(body.queryByRole("menuitem", { name: "Sync now" })).toBeNull()
+  },
+}
+
+/**
+ * A Workspace with only an open source pull request has nothing to sync
+ * yet: the sync starts after the merge.
+ */
+export const SyncNowHiddenWhileAwaitingMerge: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        usage: [
+          connectionUsageHandler([
+            connectionUsageItem({
+              workspaceSlug: "docs",
+              workspaceName: "Docs",
+              stat: "",
+              pendingChanges: [
+                {
+                  sourceKey: "eng",
+                  provider: "linear",
+                  action: "add",
+                  pullRequestUrl: "https://github.com/acme/docs/pull/7",
+                  createdAt: "2026-10-13T10:00:00Z",
+                },
+              ],
+            }),
+          ]),
+        ],
+        page: [statusHandler(connected), activeMemberRoleHandler("admin")],
       },
     },
   },

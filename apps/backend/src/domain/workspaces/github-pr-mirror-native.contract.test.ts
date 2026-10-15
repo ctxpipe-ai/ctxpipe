@@ -13,6 +13,7 @@ import { upsertConnectionDirectory } from "../../models/connection-directory.js"
 import { reconcileWorkspaceWriteJob } from "../../models/workspace-write-jobs.js"
 import { listOrgLinkedRepositories } from "../../models/workspaces.js"
 import { enqueueWriteJob } from "../../openworkflow/enqueue-workspace-write-commit.js"
+import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { githubSyncPullRequest } from "../../openworkflow/workflows/github-sync-pull-request.js"
 import { workspaceConnectorMirror } from "../../openworkflow/workflows/workspace-connector-mirror.js"
 import { workspaceHydrate } from "../../openworkflow/workflows/workspace-hydrate.js"
@@ -38,7 +39,7 @@ function connection<T>(nodes: T[]) {
 }
 
 /** A merged pull request as one GraphQL page returns it, relations inline. */
-function graphqlPull(number: number) {
+function graphqlPull(number: number, overrides: Record<string, unknown> = {}) {
   return {
     databaseId: number * 10,
     number,
@@ -62,6 +63,7 @@ function graphqlPull(number: number) {
     reviews: connection([]),
     comments: connection([]),
     reviewThreads: connection([]),
+    ...overrides,
   }
 }
 
@@ -72,6 +74,8 @@ function serveSourceGraphql(
   f: NativeHydrationFixture,
   input: {
     merged: number[]
+    /** Pull requests closed without a merge. */
+    unmerged?: number[]
     pageSize: number
     failOnce?: (request: GraphqlRequest) => boolean
   },
@@ -87,7 +91,7 @@ function serveSourceGraphql(
         failed.add(key)
         return HttpResponse.json({ errors: [{ message: "Fixture outage" }] })
       }
-      if (body.query.includes("MergedPullRequests")) {
+      if (body.query.includes("ClosedPullRequests")) {
         const start = body.variables.after
           ? Number(String(body.variables.after).slice("cursor-".length))
           : 0
@@ -100,7 +104,9 @@ function serveSourceGraphql(
                   hasNextPage: end < input.merged.length,
                   endCursor: `cursor-${end}`,
                 },
-                nodes: input.merged.slice(start, end).map(graphqlPull),
+                nodes: input.merged
+                  .slice(start, end)
+                  .map((number) => graphqlPull(number)),
               },
             },
           },
@@ -112,7 +118,15 @@ function serveSourceGraphql(
       return HttpResponse.json({
         data: {
           repository: Object.fromEntries(
-            numbers.map((number) => [`pr${number}`, graphqlPull(number)]),
+            numbers.map((number) => [
+              `pr${number}`,
+              graphqlPull(
+                number,
+                input.unmerged?.includes(number)
+                  ? { state: "CLOSED", merged: false, mergedAt: null }
+                  : {},
+              ),
+            ]),
           ),
         },
       })
@@ -128,6 +142,7 @@ function mergedWebhook(number: number, repository = "fixture/source-app") {
       number,
       merged: true,
       draft: false,
+      state: "closed",
       updated_at: `2026-03-${String(number).padStart(2, "0")}T00:00:00Z`,
     },
     repository: { full_name: repository },
@@ -144,7 +159,7 @@ it(
   async () => {
     await withNativeHydrationFixture(
       {
-        namespaceId: "default",
+        namespaceId: openWorkflowNamespaceId(),
         github: true,
         githubWriteView: "writable",
         writeStatus: "writable",
@@ -389,7 +404,7 @@ it(
   async () => {
     await withNativeHydrationFixture(
       {
-        namespaceId: "default",
+        namespaceId: openWorkflowNamespaceId(),
         github: true,
         githubWriteView: "writable",
         writeStatus: "writable",
@@ -448,6 +463,80 @@ it(
           expect(attempts).toHaveLength(3)
           const tree = filesIn(f, f.remote)
           for (const number of merged) expect(tree).toContain(pullPath(number))
+        } finally {
+          for (const run of (await f.backend.listWorkflowRuns({ limit: 200 }))
+            .data) {
+            if (!["completed", "failed", "canceled"].includes(run.status))
+              await f.runner.cancelWorkflowRun(run.id)
+          }
+          await worker.stop()
+        }
+      },
+    )
+  },
+)
+
+it(
+  "mirrors a pull request closed without a merge on the merged path and skips an open one",
+  { timeout: 120_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      {
+        namespaceId: openWorkflowNamespaceId(),
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        files: FILES,
+      },
+      async (f) => {
+        await f.runner.cancelWorkflowRun(f.handle.workflowRun.id)
+        const requests = serveSourceGraphql(f, {
+          merged: [],
+          unmerged: [11],
+          pageSize: 20,
+        })
+        const runner = new OpenWorkflow({ backend: f.backend })
+        runner.implementWorkflow(
+          githubSyncPullRequest.spec,
+          githubSyncPullRequest.fn,
+        )
+        runner.implementWorkflow(
+          workspaceConnectorMirror.spec,
+          workspaceConnectorMirror.fn,
+        )
+        const worker = runner.newWorker({ concurrency: 1 })
+        const sync = (number: number, state: "open" | "closed") =>
+          runner.runWorkflow(githubSyncPullRequest.spec, {
+            orgId: f.org.id,
+            workspaceId: f.workspaceId,
+            gitUrl: SOURCE_URL,
+            numbers: [number],
+            candidate: {
+              state,
+              draft: false,
+              updatedAt: "2026-03-11T00:00:00Z",
+            },
+          })
+        try {
+          await worker.start()
+          await expect(
+            (await sync(12, "open")).result({ timeoutMs: 60_000 }),
+          ).resolves.toEqual({ written: 0, skipped: "policy" })
+          expect(requests).toHaveLength(0)
+
+          await expect(
+            (await sync(11, "closed")).result({ timeoutMs: 60_000 }),
+          ).resolves.toEqual({ written: 1 })
+          expect(filesIn(f, f.remote)).toContain(pullPath(11))
+          const mirrored = f.git(
+            "--git-dir",
+            f.remote,
+            "show",
+            `refs/heads/main:${pullPath(11)}`,
+          )
+          expect(mirrored).toContain("state: closed")
+          expect(mirrored).toContain("merged: false")
+          expect(mirrored).toContain("mergedAt: null")
         } finally {
           for (const run of (await f.backend.listWorkflowRuns({ limit: 200 }))
             .data) {

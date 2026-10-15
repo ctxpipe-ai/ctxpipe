@@ -175,6 +175,41 @@ describe("connector-mirror units in the Workspace graph", () => {
     expect(unit(fixture.knowledge.path).kind).toBeNull()
   })
 
+  it("gives Notion page and database rows page kinds", () => {
+    const page = {
+      path: "notion/pages/planning--11111111-2222-3333-4444-555555555555/index.md",
+      content:
+        "---\nnotion_id: 11111111-2222-3333-4444-555555555555\n---\n# Planning\n",
+    }
+    const row = {
+      path: "notion/databases/tasks--db-1/rows/prepare--22222222-3333-4444-5555-666666666666/index.md",
+      content:
+        "---\nnotion_id: 22222222-3333-4444-5555-666666666666\n---\n# Prepare\n",
+    }
+    const database = {
+      path: "notion/databases/tasks--db-1/index.md",
+      content: "---\nnotion_id: db-1\n---\n# Tasks\n",
+    }
+    const { unit } = hydrate([page, row, database])
+    expect(unit(page.path).kind).toBe("Page")
+    expect(unit(row.path).kind).toBe("Page")
+    expect(unit(database.path).kind).toBe("Database")
+  })
+
+  it("links Notion page URLs by their page id", () => {
+    const source = knowledge(
+      "knowledge/notion-links.md",
+      "https://www.notion.so/Planning-11111111222233334444555555555555",
+    )
+    const target = {
+      path: "notion/pages/planning--11111111-2222-3333-4444-555555555555/index.md",
+      content:
+        "---\nnotion_id: 11111111-2222-3333-4444-555555555555\n---\n# Planning\n",
+    }
+    const { edges } = hydrate([source, target])
+    expect(edges).toContainEqual({ from: source.path, to: target.path })
+  })
+
   it("turns links between mirrored entities into edges", () => {
     const { fixture, edges } = hydrate()
     expect(edges).toEqual(

@@ -8,8 +8,9 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
 import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
-import { ChooseWorkspacesStep } from "@/features/workspace-sources/ChooseWorkspacesStep"
-import { useAddToWorkspaces } from "@/features/workspace-sources/useAddToWorkspaces"
+import { AddToWorkspacesStep } from "@/features/workspace-sources/AddToWorkspacesStep"
+import { PullRequestsToMerge } from "@/features/workspace-sources/PullRequestsToMerge"
+import type { OpenedPullRequest } from "@/features/workspace-sources/useAddToWorkspaces"
 import { orgConnectionsKeys } from "../queries/org-connections"
 import {
   fetchSlackConnectorStatus,
@@ -74,12 +75,10 @@ export function SlackSetupDialog({
     refetchOnWindowFocus: "always",
   })
 
-  const adding = useAddToWorkspaces({
-    orgSlug,
-    connectionId: connectionId ?? "",
-    provider: "slack",
-    onAdded: () => onOpenChange(false),
-  })
+  // The pull requests that the add opened. A source, and so a capture,
+  // starts only after its pull request merges.
+  const [pullRequests, setPullRequests] = useState<OpenedPullRequest[]>([])
+  if (!isOpen && pullRequests.length) setPullRequests([])
 
   useEffect(() => {
     if (
@@ -157,16 +156,11 @@ export function SlackSetupDialog({
     isError: statusQuery.isError,
   })
 
-  const setOpen = (open: boolean) => {
-    if (!open) adding.reset()
-    onOpenChange(open)
-  }
-
   return (
     <Modal
       isOpen={isOpen}
-      onOpenChange={setOpen}
-      isDismissable={!adding.isPending}
+      onOpenChange={onOpenChange}
+      isDismissable
       className="max-w-[min(92vw,720px)]"
     >
       <div className="p-6">
@@ -197,7 +191,7 @@ export function SlackSetupDialog({
           <Button
             variant="secondary"
             className="rounded-md"
-            onPress={() => setOpen(false)}
+            onPress={() => onOpenChange(false)}
           >
             Close
           </Button>
@@ -207,7 +201,9 @@ export function SlackSetupDialog({
           <div className="mb-6">
             <ConnectorSetupStepper
               steps={SLACK_SETUP_STEPS}
-              currentIndex={setupStepIndex}
+              currentIndex={
+                pullRequests.length ? SLACK_SETUP_STEPS.length : setupStepIndex
+              }
             />
           </div>
         ) : null}
@@ -225,7 +221,7 @@ export function SlackSetupDialog({
               </h3>
               <p className="mt-2 text-sm text-muted-foreground">
                 ctxpipe could not load this connection. If you removed Slack
-                earlier, start a fresh authorisation.
+                earlier, start a fresh authorization.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -278,6 +274,21 @@ export function SlackSetupDialog({
               })
             }}
           />
+        ) : setupView === "workspaces" && pullRequests.length ? (
+          <div className="space-y-4">
+            <PullRequestsToMerge
+              orgSlug={orgSlug}
+              pullRequests={pullRequests}
+              detail="The Slack source change applies after the merge. Until then, a mention in a new channel replies that no Workspace has the channel."
+            />
+            <Button
+              variant="secondary"
+              className="rounded-md"
+              onPress={() => onOpenChange(false)}
+            >
+              Close
+            </Button>
+          </div>
         ) : setupView === "workspaces" && connectionId ? (
           <div className="flex flex-col gap-5">
             <section
@@ -287,15 +298,15 @@ export function SlackSetupDialog({
               <h4 className="font-medium text-foreground">How capture works</h4>
               <ol className="mt-2 list-decimal space-y-1 pl-5 text-muted-foreground">
                 <li>
-                  In Slack, invite the bot to a channel with{" "}
+                  Below, select the Workspaces and the channels whose threads
+                  they get.
+                </li>
+                <li>
+                  In Slack, invite the bot to each channel with{" "}
                   <code className="rounded-md bg-muted px-1 py-0.5 text-[11px]">
                     /invite {formatSlackBotMention(status?.botHandle)}
                   </code>
                   .
-                </li>
-                <li>
-                  Below, select the Workspaces and the channels whose threads
-                  they get.
                 </li>
                 <li>
                   In a thread of that channel, mention{" "}
@@ -306,26 +317,15 @@ export function SlackSetupDialog({
                 </li>
               </ol>
             </section>
-            <ChooseWorkspacesStep
+            <AddToWorkspacesStep
               orgSlug={orgSlug}
               provider="slack"
               connectionId={connectionId}
-              value={adding.value}
-              onChange={adding.setValue}
+              label="Slack"
+              description="the channels for each"
+              items="the channels"
+              onDone={setPullRequests}
             />
-            <div className="flex justify-end gap-2 border-t border-border pt-4">
-              <Button variant="quiet" onPress={() => setOpen(false)}>
-                Skip for now
-              </Button>
-              <Button
-                variant="primary"
-                isDisabled={!adding.canAdd}
-                isPending={adding.isPending}
-                onPress={adding.add}
-              >
-                Add to Workspaces
-              </Button>
-            </div>
           </div>
         ) : (
           <p className="text-sm text-destructive">

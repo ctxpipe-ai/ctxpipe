@@ -15,13 +15,23 @@ import { openWorkflowNamespaceId } from "../openworkflow/namespace.js"
 
 export type WorkspaceSourceRow = typeof workspaceSources.$inferSelect
 
-function sameRow(row: WorkspaceSourceRow, planned: PlannedSourceRow): boolean {
+/** The same source entry: provider, connection and scope, not the status. */
+export function sameSource(
+  row: Pick<WorkspaceSourceRow, "provider" | "connectionId" | "scope">,
+  planned: Pick<PlannedSourceRow, "provider" | "connectionId" | "scope">,
+): boolean {
   return (
     row.provider === planned.provider &&
     row.connectionId === planned.connectionId &&
-    row.status === planned.status &&
-    row.statusDetail === planned.statusDetail &&
     JSON.stringify(row.scope) === JSON.stringify(planned.scope)
+  )
+}
+
+function sameRow(row: WorkspaceSourceRow, planned: PlannedSourceRow): boolean {
+  return (
+    sameSource(row, planned) &&
+    row.status === planned.status &&
+    row.statusDetail === planned.statusDetail
   )
 }
 

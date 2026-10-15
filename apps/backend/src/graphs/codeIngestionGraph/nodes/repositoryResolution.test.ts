@@ -22,7 +22,7 @@ describe("resolveSourceRepositoryId", () => {
     mocks.findRepository.mockResolvedValue({ id: "repo_source" })
   })
 
-  it("resolves the source repository inside the organisation DB context", async () => {
+  it("resolves the source repository inside the organization DB context", async () => {
     await expect(
       resolveSourceRepositoryId({
         orgId: "org_1",

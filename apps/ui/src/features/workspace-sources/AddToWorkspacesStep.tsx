@@ -1,9 +1,13 @@
 import type { SourceProvider } from "backend/domain/workspace-sources/sources-file"
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
+import { InlineLoader } from "@/components/ui/InlineLoader"
 import { Link } from "@/components/ui/Link"
 import { ChooseWorkspacesStep } from "./ChooseWorkspacesStep"
-import { useAddToWorkspaces } from "./useAddToWorkspaces"
+import {
+  type OpenedPullRequest,
+  useAddToWorkspaces,
+} from "./useAddToWorkspaces"
 
 type AddToWorkspacesStepProps = {
   orgSlug: string
@@ -20,16 +24,14 @@ type AddToWorkspacesStepProps = {
    * ctx| does not use it now; the step tells the user to close it.
    */
   replacedConfigPullUrl?: string | null
-  /**
-   * After the add (with the pull requests that it opened), or when the user
-   * skips the step.
-   */
-  onDone: (pullRequestUrls?: string[]) => void
+  /** After the save, with the pull requests that it opened. */
+  onDone: (pullRequests: OpenedPullRequest[]) => void
 }
 
 /**
  * The last step of a connector setup: choose the Workspaces that sync the
- * connection, and the scope of each (ADR-050).
+ * connection, and the scope of each (ADR-050). On Manage it starts from the
+ * current sources of the connection.
  */
 export function AddToWorkspacesStep({
   orgSlug,
@@ -45,6 +47,7 @@ export function AddToWorkspacesStep({
     orgSlug,
     provider,
     connectionId,
+    manage: true,
     onAdded: onDone,
   })
   return (
@@ -67,28 +70,30 @@ export function AddToWorkspacesStep({
           instead.
         </InlineAlert>
       ) : null}
-      <ChooseWorkspacesStep
-        orgSlug={orgSlug}
-        provider={provider}
-        connectionId={connectionId}
-        value={adding.value}
-        onChange={adding.setValue}
-      />
+      {adding.loadFailed ? (
+        <InlineAlert variant="error">
+          Could not load the Workspaces that use {label}. Close this dialog and
+          try again.
+        </InlineAlert>
+      ) : adding.ready ? (
+        <ChooseWorkspacesStep
+          orgSlug={orgSlug}
+          provider={provider}
+          connectionId={connectionId}
+          value={adding.value}
+          onChange={adding.setValue}
+        />
+      ) : (
+        <InlineLoader label={`Loading the Workspaces that use ${label}`} />
+      )}
       <div className="flex justify-end gap-2">
-        <Button
-          variant="quiet"
-          isDisabled={adding.isPending}
-          onPress={() => onDone()}
-        >
-          Skip for now
-        </Button>
         <Button
           variant="primary"
           isDisabled={!adding.canAdd}
           isPending={adding.isPending}
           onPress={adding.add}
         >
-          Add to Workspaces
+          {adding.isManaging ? "Save changes" : "Add to Workspaces"}
         </Button>
       </div>
     </div>

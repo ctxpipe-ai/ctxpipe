@@ -21,6 +21,7 @@ import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.
 import { withCanceledNativeInsert } from "../../test/native-workflow-insert-failure.js"
 import { ow } from "../client.js"
 import { enqueueRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
+import { openWorkflowNamespaceId } from "../namespace.js"
 import { repositoryIngestionOrchestrator } from "./repository-ingestion-orchestrator.js"
 
 // A worker claims every open run in its namespace, also runs it does not
@@ -47,7 +48,11 @@ it(
   async () => {
     await withNativeHydrationFixture(
       // GitHub answers the repository read, so coverage binds the connection.
-      { namespaceId: "default", github: true, githubWriteView: "writable" },
+      {
+        namespaceId: openWorkflowNamespaceId(),
+        github: true,
+        githubWriteView: "writable",
+      },
       async (f) => {
         const repository = await withOrgIdContext(f.org, () =>
           ensureOrgRepositoryForGitUrl({
@@ -203,7 +208,7 @@ it(
   { timeout: 20_000 },
   async () => {
     await withNativeHydrationFixture(
-      { namespaceId: "default", github: true },
+      { namespaceId: openWorkflowNamespaceId(), github: true },
       async (f) => {
         const repository = await withOrgIdContext(f.org, () =>
           ensureOrgRepositoryForGitUrl({
@@ -254,7 +259,7 @@ it(
   { timeout: 20_000 },
   async () => {
     await withNativeHydrationFixture(
-      { namespaceId: "default", github: true },
+      { namespaceId: openWorkflowNamespaceId(), github: true },
       async (f) => {
         const repository = await withOrgIdContext(f.org, () =>
           ensureOrgRepositoryForGitUrl({
@@ -378,7 +383,7 @@ it(
   async () => {
     await withNativeHydrationFixture(
       {
-        namespaceId: "default",
+        namespaceId: openWorkflowNamespaceId(),
         github: true,
         githubWriteView: "writable",
         writeStatus: "writable",
@@ -602,7 +607,11 @@ it(
   async () => {
     await withNativeHydrationFixture(
       // GitHub answers the repository read, so coverage binds the connection.
-      { namespaceId: "default", github: true, githubWriteView: "writable" },
+      {
+        namespaceId: openWorkflowNamespaceId(),
+        github: true,
+        githubWriteView: "writable",
+      },
       async (f) => {
         const created = await withOrgIdContext(f.org, () =>
           ensureOrgRepositoryForGitUrl({

@@ -9,6 +9,7 @@ import {
 } from "../../models/workspace-write-jobs.js"
 import { persistOrgFirstWorkspace } from "../../models/workspaces.js"
 import { enqueueWriteJob } from "../../openworkflow/enqueue-workspace-write-commit.js"
+import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { storeTestExtraction } from "../../test/extraction-capture-fixture.js"
 import { seedLegacyExtractionObject } from "../../test/legacy-extraction-fixture.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
@@ -73,6 +74,7 @@ it(
         const { BackendPostgres } = await import("openworkflow/postgres")
         const { OpenWorkflow } = await import("openworkflow")
         const backend = await BackendPostgres.connect(f.databaseUrl, {
+          namespaceId: openWorkflowNamespaceId(),
           runMigrations: false,
         })
         const runner = new OpenWorkflow({ backend })
@@ -644,6 +646,7 @@ it(
           ).toBe("0")
           const { BackendPostgres } = await import("openworkflow/postgres")
           const backend = await BackendPostgres.connect(f.databaseUrl, {
+            namespaceId: openWorkflowNamespaceId(),
             runMigrations: false,
           })
           try {
@@ -699,6 +702,7 @@ it(
           await import("../../models/workspace-write-jobs.js")
         const { BackendPostgres } = await import("openworkflow/postgres")
         const backend = await BackendPostgres.connect(f.databaseUrl, {
+          namespaceId: openWorkflowNamespaceId(),
           runMigrations: false,
         })
         const input = {

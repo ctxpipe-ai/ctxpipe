@@ -20,7 +20,12 @@ export function workspaceChatCompletionsBaseUrl(input: {
     input.isolation,
     input.callbackHost,
   )
-  return `http://${host}:${input.port}/${input.orgSlug}/api/v1/workspace-chat/openai/v1`
+  return `http://${host}:${input.port}${workspaceChatCompletionsPath(input.orgSlug)}`
+}
+
+/** The path of the org's OpenAI-compatible model proxy on the API. */
+export function workspaceChatCompletionsPath(orgSlug: string): string {
+  return `/${orgSlug}/api/v1/workspace-chat/openai/v1`
 }
 
 /** Token counts and cost from an OpenAI-compatible `usage` object. */

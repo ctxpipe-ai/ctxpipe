@@ -632,55 +632,6 @@ jobs:
               echo "Set HOST/NITRO_HOST=0.0.0.0 and AUTH_BASE_URL=$auth_base for UI $service_id"
             }
 
-            # Preview UI has no production Railway domain, so duplicate-from-production
-            # leaves backend UI_PROXY_URL on a private hostname that can still resolve
-            # to the warm production UI. Pin a PR-specific public domain instead.
-            preview_ui_public_domain() {
-              local response domain created
-              response="$(railway_graphql \
-                'query serviceInstanceDomain($environmentId: String!, $serviceId: String!) { serviceInstance(environmentId: $environmentId, serviceId: $serviceId) { domains { serviceDomains { domain } customDomains { domain } } } }' \
-                "$(jq -nc --arg env "$ENV_ID" --arg service "$UI_SERVICE_ID" '{environmentId:$env, serviceId:$service}')")"
-              domain="$(echo "$response" | jq -r '.data.serviceInstance.domains.customDomains[0].domain // .data.serviceInstance.domains.serviceDomains[0].domain // empty')"
-              if [[ -n "$domain" ]]; then
-                printf '%s' "$domain"
-                return 0
-              fi
-              created="$(railway_graphql \
-                'mutation serviceDomainCreate($input: ServiceDomainCreateInput!) { serviceDomainCreate(input: $input) { id domain } }' \
-                "$(jq -nc --arg env "$ENV_ID" --arg service "$UI_SERVICE_ID" '{input:{environmentId:$env, serviceId:$service, targetPort:3002}}')" 2>/dev/null || true)"
-              domain="$(echo "${created:-}" | jq -r '.data.serviceDomainCreate.domain // empty')"
-              if [[ -z "$domain" ]]; then
-                created="$(railway_graphql \
-                  'mutation serviceDomainCreate($input: ServiceDomainCreateInput!) { serviceDomainCreate(input: $input) { id domain } }' \
-                  "$(jq -nc --arg env "$ENV_ID" --arg service "$UI_SERVICE_ID" '{input:{environmentId:$env, serviceId:$service}}')")"
-                domain="$(echo "$created" | jq -r '.data.serviceDomainCreate.domain // empty')"
-              fi
-              if [[ -z "$domain" ]]; then
-                echo "Failed to create preview UI public domain: $(echo "$created" | jq -c '{data,errors}')" >&2
-                return 1
-              fi
-              printf '%s' "$domain"
-            }
-
-            upsert_backend_ui_proxy_url() {
-              local ui_url="$1"
-              railway_graphql \
-                'mutation variableCollectionUpsert($input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: $input) }' \
-                "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$BACKEND_SERVICE_ID" --arg url "$ui_url" \
-                  '{
-                    input: {
-                      projectId: $project,
-                      environmentId: $env,
-                      serviceId: $service,
-                      skipDeploys: true,
-                      variables: {
-                        UI_PROXY_URL: $url
-                      }
-                    }
-                  }')"
-              echo "Set backend UI_PROXY_URL=$ui_url"
-            }
-
             smoke_test_preview_ui() {
               local backend_url="https://backend-pr-${PR_NUMBER}.up.railway.app"
               local prod_url="https://app.ctxpipe.ai"
@@ -1060,13 +1011,16 @@ jobs:
             upsert_database_url_without_deploy "$BACKEND_SERVICE_ID" >/dev/null
             upsert_preview_service_variables "$BACKEND_SERVICE_ID" >/dev/null
             upsert_preview_backend_wake_variables "$BACKEND_SERVICE_ID" >/dev/null
-            UI_PUBLIC_DOMAIN="$(preview_ui_public_domain)"
-            echo "Preview UI public domain: $UI_PUBLIC_DOMAIN"
-            upsert_backend_ui_proxy_url "https://${UI_PUBLIC_DOMAIN}" >/dev/null
+            # shellcheck disable=SC1091
+            source "${GITHUB_WORKSPACE}/scripts/preview-ui-private.sh"
+            point_preview_backend_at_private_ui
             pin_stateless_preview_region "backend" "$BACKEND_SERVICE_ID"
             update_source_image "$BACKEND_SERVICE_ID" "$BACKEND_IMAGE" >/dev/null
             deploy_service "$BACKEND_SERVICE_ID" >/dev/null
             wait_for_image_deploy "backend" "$BACKEND_SERVICE_ID" "$BACKEND_IMAGE"
+            # The backend now proxies to the UI private domain, so the UI
+            # needs no public domain. Production UI has none either.
+            remove_preview_ui_public_domains
 
             upsert_database_url_without_deploy "$WORKER_SERVICE_ID" >/dev/null
             upsert_preview_service_variables "$WORKER_SERVICE_ID" >/dev/null

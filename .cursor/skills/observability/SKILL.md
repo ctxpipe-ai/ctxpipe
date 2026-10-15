@@ -40,12 +40,14 @@ One key per concept. Resource attributes: `service.name` (`backend`, `openworkfl
 | `traceId` / `spanId` | Active span, top-level on the evlog event. There is no `trace_id` attribute. |
 | `enduser.id` | User id from auth. Omitted for actor `org_api_key`. |
 | `ctxpipe.org.id` / `ctxpipe.org.slug` | Org from auth. |
+| `ctxpipe.mcp.org.slug_hash` | MCP tool and resource spans: hash of the org slug of the call (ADR-051). |
 | `ctxpipe.actor.type` | `user`, `org_api_key`, `oauth_client`, `webhook`, `job`. |
 | `ctxpipe.api_key.id` | Key id. The secret is not an attribute. |
 | `ctxpipe.oauth.client_id` | OAuth client id. |
 | `ctxpipe.mcp.tool` | MCP tool name on that request. |
 | `ctxpipe.conversation.id` | Conversation or thread id. |
 | `ctxpipe.repository.id` / `ctxpipe.connection.id` | Present when the request or job input has them. |
+| `ctxpipe.ingest.*` | Ingestion v2 (ADR-052). Spans `ingestion.run` (`source.sha`, `bundle`, `status`, `shards`, `ops`, `rejects`, `partial`), `ingestion.shard`, and `ingestion.step` (`run.id`, `shard`, `step`, `skill`, `ref.base`, `ref.tip`, `ops`, `rejects`, `validation`, `attempts`, `partial`). The model proxy writes an `ingestion.model_call` generation with token usage in the Langfuse session `ingest:<run id>`. Each rejected op and each `partial` reason is a log event with `step` `ingestion-v2.op-rejected`, `ingestion-v2.step-partial`, `ingestion-v2.step-mostly-rejected`, or `ingestion-v2.partial`. No span or log holds source text. |
 
 HTTP on logs matches spans: `http.request.method`, `url.path` (no query string), `http.response.status_code`. A call this service made uses `upstream.status_code`. Wide-event `duration` is milliseconds.
 

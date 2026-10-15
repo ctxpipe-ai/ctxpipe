@@ -5,10 +5,18 @@ import { parseEnv } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { githubRepositoriesWithoutAccess } from "../../domain/workspace-sources/github-access.js"
 import {
+  collectInactiveWorkspaceGraphKeys,
+  loadWorkspaceGraphKeysInUse,
+} from "../../domain/workspaces/graph-gc.js"
+import { rebuildWorkspaceGraphWhenMissing } from "../../domain/workspaces/graph-rebuild.js"
+import {
   resolveLinkedReadRevision,
   resolveWorkspaceReadRevision,
 } from "../../domain/workspaces/resolve-revision.js"
-import type { WorkspaceRevision } from "../../domain/workspaces/revision.js"
+import {
+  publishedProjection,
+  type WorkspaceRevision,
+} from "../../domain/workspaces/revision.js"
 import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
 import { shouldEnqueueCronHydrate } from "../../domain/workspaces/tip-resolve.js"
 import {
@@ -334,6 +342,38 @@ export const workspaceTipCheck = defineWorkflow(
             })
           })
         }
+      // A ready graph that the graph store does not hold gets one rebuild, for
+      // example after a new projection version. The checks run one at a time,
+      // and each is one small marker read. A failure here must not fail
+      // the tip check; the next check tries again.
+      for (const workspace of workspaces)
+        await rebuildWorkspaceGraphWhenMissing({
+          orgId: org.id,
+          orgSlug: org.slug,
+          projection: publishedProjection(
+            await getWorkspaceProjection(workspace.id),
+          ),
+        }).catch((error: unknown) => {
+          log.warn({
+            event: "workspace_graph_rebuild_check_failed",
+            workspaceId: workspace.id,
+            message: error instanceof Error ? error.message : String(error),
+          })
+        })
+      // Remove the graphs of keys that no Workspace uses. A key goes only
+      // after a grace period, so a chat turn that is shorter than the grace
+      // period can still read the key it captured. A failure here must not
+      // fail the tip check either.
+      await collectInactiveWorkspaceGraphKeys({
+        orgId: org.id,
+        orgSlug: org.slug,
+        loadUse: () => loadWorkspaceGraphKeysInUse(org.id),
+      }).catch((error: unknown) => {
+        log.warn({
+          event: "workspace_graph_gc_failed",
+          message: error instanceof Error ? error.message : String(error),
+        })
+      })
       return { updated: updated.length, linkedUpdated }
     })
   },

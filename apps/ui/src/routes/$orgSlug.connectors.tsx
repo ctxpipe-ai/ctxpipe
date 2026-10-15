@@ -382,16 +382,10 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
         <li>
           <AddNotionConnectorButton
             orgSlug={orgSlug}
-            onRegisterRequired={({ connectionId }) => {
-              setCatalogOpen(false)
+            onStart={({ connectionId }) => {
               setNotionConnectionId(connectionId)
               setNotionSetupOpen(true)
-            }}
-            onFlowFinished={({ connectionId }) => {
               setCatalogOpen(false)
-              if (!connectionId) return
-              setNotionConnectionId(connectionId)
-              setNotionSetupOpen(true)
             }}
           />
         </li>

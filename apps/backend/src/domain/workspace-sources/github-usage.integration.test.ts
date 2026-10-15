@@ -7,6 +7,7 @@ import {
   workspaceLinkedRepositories,
   workspaces,
 } from "../../db/schema/workspaces.js"
+import { createLogger, withLogger } from "../../observability/logger.js"
 import { seedSourcesOrg } from "../../test/workspace-sources-fixture.js"
 import { repositoryKeyFromGitUrl } from "../workspaces/slug.js"
 import { listConnectionUsage } from "./service.js"
@@ -62,9 +63,12 @@ it("counts the Workspace repository and the linked repositories that use a GitHu
     await link(linker, web)
   })
 
-  const usage = await withOrgIdContext(
-    { id: seed.orgId, slug: seed.orgId },
-    () => listConnectionUsage(github),
+  // The route runs in a request; its logger records a failed pull request
+  // lookup (this test has no GitHub).
+  const usage = await withLogger(createLogger({}), () =>
+    withOrgIdContext({ id: seed.orgId, slug: seed.orgId }, () =>
+      listConnectionUsage(github),
+    ),
   )
 
   expect(

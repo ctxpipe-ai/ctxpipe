@@ -148,3 +148,20 @@ export const PlainLinkMovesCurrentNav: Story = {
     )
   },
 }
+
+export const UserMenuLinksConnectedApps: Story = {
+  tags: ["workspace-golden"],
+  parameters: SingleWorkspace.parameters,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const body = within(canvasElement.ownerDocument.body)
+    await userEvent.click(
+      await canvas.findByRole("button", { name: /User menu|User/ }),
+    )
+    const item = await body.findByRole("menuitem", { name: /Connected apps/ })
+    await expect(item.closest("a")).toHaveAttribute(
+      "href",
+      "/.auth/account/connected-apps",
+    )
+  },
+}

@@ -182,6 +182,42 @@ describe("projectClaimsFromState", () => {
     expect(executeQueryMock.mock.calls[1]?.[0]).not.toContain("UNWIND")
   })
 
+  it("projects the milestone of an issue onto its node", async () => {
+    const where = vi.fn().mockResolvedValue([
+      {
+        id: "pr_1",
+        kind: "PullRequest",
+        payload: { name: "octo/widgets#7" },
+      },
+      {
+        id: "iss_1",
+        kind: "Issue",
+        payload: { name: "ACME-12: Retry", milestone: "Beta" },
+      },
+    ])
+    getOrgDbMock.mockReturnValue({
+      select: vi.fn().mockReturnValue({
+        from: vi.fn().mockReturnValue({ where }),
+      }),
+    })
+    await withTestLogger(() =>
+      projectClaimsFromState([
+        makeClaim({
+          id: "c1",
+          subjectId: "pr_1",
+          subjectKind: "PullRequest",
+          objectId: "iss_1",
+          objectKind: "Issue",
+          predicate: "RESOLVES",
+        }),
+      ]),
+    )
+    const rows = executeQueryMock.mock.calls[0]?.[1]?.rows as Array<
+      Record<string, unknown>
+    >
+    expect(rows[0]).toMatchObject({ object_milestone: "Beta" })
+  })
+
   it("groups mixed predicates into separate batch queries", async () => {
     await withTestLogger(() =>
       projectClaimsFromState([
@@ -235,7 +271,7 @@ describe("refreshClaimProjections", () => {
     })
   })
 
-  it("loads claims inside a short organisation DB context", async () => {
+  it("loads claims inside a short organization DB context", async () => {
     const where = vi.fn().mockResolvedValue([])
     const secondJoin = vi.fn().mockReturnValue({ where })
     const firstJoin = vi.fn().mockReturnValue({ innerJoin: secondJoin })

@@ -224,6 +224,8 @@ export const ConnectionUsageItemSchema = z
         scopeSummary: z.string(),
       }),
     ),
+    /** Open source pull requests of this provider that wait for a merge. */
+    pendingChanges: z.array(PendingSourceChangeSchema),
   })
   .openapi("ConnectionUsageItem")
 

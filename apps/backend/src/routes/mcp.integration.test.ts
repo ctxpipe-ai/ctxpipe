@@ -129,12 +129,15 @@ describe("/mcp route (Postgres)", () => {
     const logged = events.find(
       (event) => (event as { step?: string }).step === "mcp.request",
     )
+    // The URL no longer names the org (ADR-051 section 3), so no slug is logged.
+    // The key's org is in the request context as `ctxpipe.org.id`.
     expect(logged).toMatchObject({
+      "ctxpipe.org.id": seed.orgId,
       mcp: {
         rpcMethods: ["initialize"],
         protocolVersion: "2025-11-25",
         authType: "api-key",
-        orgSlug: seed.orgSlug,
+        orgSlug: null,
         status: 200,
         durationMs: expect.any(Number),
       },

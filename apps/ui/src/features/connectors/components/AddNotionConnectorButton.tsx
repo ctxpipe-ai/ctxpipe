@@ -1,73 +1,42 @@
 "use client"
 
 import { IconBrandNotion } from "@tabler/icons-react"
-import { useQueryClient } from "@tanstack/react-query"
-import { useState } from "react"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { Spinner } from "@/components/ui/spinner"
-import { useNotionOAuthConnect } from "../hooks/useNotionOAuthConnect"
-import {
-  createDraftNotionConnection,
-  fetchNotionOauthApp,
-} from "../queries/notion-connector"
+import { createDraftNotionConnection } from "../queries/notion-connector"
 import { orgConnectionsKeys } from "../queries/org-connections"
 
 export type AddNotionConnectorButtonProps = {
   orgSlug: string
-  onFlowStarted?: () => void
-  onFlowFinished?: (result: { connectionId?: string }) => void
-  onRegisterRequired?: (result: { connectionId: string }) => void
+  /** Open the setup dialog. Its "Connect Notion" step starts OAuth. */
+  onStart: (args: { connectionId: string }) => void
 }
 
 export function AddNotionConnectorButton({
   orgSlug,
-  onFlowStarted,
-  onFlowFinished,
-  onRegisterRequired,
+  onStart,
 }: AddNotionConnectorButtonProps) {
   const queryClient = useQueryClient()
-  const oauth = useNotionOAuthConnect(orgSlug)
-  const [creating, setCreating] = useState(false)
-  const busy = creating || oauth.busy
-
-  const handleClick = async () => {
-    onFlowStarted?.()
-    setCreating(true)
-    try {
-      const draft = await createDraftNotionConnection(orgSlug)
+  const mutation = useMutation({
+    mutationFn: () => createDraftNotionConnection(orgSlug),
+    onSuccess: async (draft) => {
       await queryClient.invalidateQueries({
         queryKey: orgConnectionsKeys.list(orgSlug),
       })
-      const oauthApp = await fetchNotionOauthApp(orgSlug, draft.id)
-      if (!oauthApp.globalNotionOAuthConfigured && !oauthApp.oauthAppSaved) {
-        onRegisterRequired?.({ connectionId: draft.id })
-        return
-      }
-      oauth.start({
-        connectionId: draft.id,
-        onFinished: (result) => {
-          onFlowFinished?.(result)
-        },
-        onNotConfigured: () => {
-          onRegisterRequired?.({ connectionId: draft.id })
-        },
-      })
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Failed to connect Notion",
-      )
-      onFlowFinished?.({})
-    } finally {
-      setCreating(false)
-    }
-  }
+      onStart({ connectionId: draft.id })
+    },
+    onError: (error: Error) => toast.error(error.message),
+  })
 
   return (
     <button
       type="button"
-      disabled={busy}
+      disabled={mutation.isPending}
       className="group flex w-full items-start gap-4 rounded-md border border-border bg-card/40 p-4 text-left outline-none transition-colors hover:border-teal-400/40 hover:bg-foreground/[0.03] focus-visible:ring-2 focus-visible:ring-primary/50 disabled:cursor-wait disabled:opacity-60"
-      onClick={() => void handleClick()}
+      onClick={() => {
+        void mutation.mutateAsync()
+      }}
     >
       <span className="ctx-node size-12 transition-colors group-hover:border-teal-400/60 group-hover:bg-teal-400/5">
         <IconBrandNotion className="size-6 text-foreground" aria-hidden />
@@ -75,7 +44,7 @@ export function AddNotionConnectorButton({
       <span className="min-w-0">
         <span className="flex items-center gap-2 font-medium text-foreground">
           Notion
-          {busy ? (
+          {mutation.isPending ? (
             <Spinner className="size-4 text-muted-foreground" aria-hidden />
           ) : null}
         </span>

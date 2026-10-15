@@ -412,7 +412,34 @@ function htmlToMarkdown(
     },
   )
 
-  const withLineBreaks = withAnchors
+  // A table keeps its cells apart: one Markdown row for each row. Markdown
+  // needs a header row, so the first row is the header. Entities in a cell
+  // are decoded with the rest of the page below.
+  const withTables = withAnchors.replace(
+    /<table\b[^>]*>([\s\S]*?)<\/table>/gi,
+    (_full, inner: string) => {
+      const rows = [...inner.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)]
+        .map(([, row = ""]) =>
+          [...row.matchAll(/<t[hd]\b[^>]*>([\s\S]*?)<\/t[hd]>/gi)].map(
+            ([, cell = ""]) =>
+              cell
+                .replace(/<br\s*\/?>|<\/(p|div|li)>/gi, " ")
+                .replace(/<[^>]+>/g, "")
+                .replace(/\s+/g, " ")
+                .trim()
+                .replaceAll("|", "\\|"),
+          ),
+        )
+        .filter((cells) => cells.length)
+      const [header, ...body] = rows
+      if (!header) return ""
+      return `\n\n${[header, header.map(() => "---"), ...body]
+        .map((cells) => `| ${cells.join(" | ")} |`)
+        .join("\n")}\n\n`
+    },
+  )
+
+  const withLineBreaks = withTables
     .replace(/<br\s*\/?>/gi, "\n")
     .replace(/<\/(p|div|h1|h2|h3|h4|h5|h6|li|tr)>/gi, "\n")
   const withoutTags = withLineBreaks.replace(/<[^>]+>/g, "")

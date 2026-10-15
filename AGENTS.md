@@ -26,7 +26,7 @@ Agent instructions are **distributed**: this file covers repo-wide rules; apps a
 | `hyperdx` | ClickStack logs, traces, metrics, dashboards | `HYPERDX_ACCESS_KEY` = HyperDX personal access key (Bearer). UI `https://hyperdx.ctxpipe.ai`. Ingest token `HYPERDX_API_KEY` is a different secret |
 | `langfuse` | Langfuse **project** MCP (LLM traces / prompts) | `LANGFUSE_AUTH_STRING` = base64(`pk:sk`). URL is `https://langfuse.ctxpipe.ai/api/public/mcp`. See [ops/observability/USING.md](ops/observability/USING.md) |
 
-**Not wired** (intentionally): local Postgres MCP, GitHub MCP, codesearch MCP, Linear/Notion MCP, ClickHouse `mcp-clickhouse` (query through `hyperdx`).
+**Not wired** (intentionally): local Postgres MCP, GitHub MCP, codesearch MCP, Notion MCP, ClickHouse `mcp-clickhouse` (query through `hyperdx`). The Linear MCP is not in the project config either, but the issue tracker needs it: add the Linear MCP (`linear-server`) to your own agent host.
 
 **Ops debugging / logs (preference order):** Product logs and traces are OTLP. Follow [`.cursor/skills/observability/SKILL.md`](.cursor/skills/observability/SKILL.md) and [ops/observability/USING.md](ops/observability/USING.md).
 
@@ -60,15 +60,30 @@ After completing requested code changes, commit and push the current feature bra
 
 ### Sub-agent models
 
-When spawning a sub-agent (Cursor Task, Claude Code Agent, or any other harness), always set the model explicitly: **Opus at medium effort** for implementation and explore; **Opus at high effort** for review and grilling. Use the harness's own name for Opus and its effort setting.
+When spawning a sub-agent (Cursor Task, Claude Code Agent, a T3 delegated task, or any other harness), always set the model explicitly. Use the harness's own name for each model and its effort setting. The token total is the limit, not the number of agents in parallel. Use a second model family (Codex GPT) for reviews and mechanical work, so that review findings come from different blind spots. When the Codex plan has no tokens left, use the Claude fallback in the same row.
+
+| Work | Model and effort | Fallback |
+| --- | --- | --- |
+| First build of a ticket that is design-heavy or security-sensitive | Opus; effort from the estimated complexity (low, medium, high) | — |
+| Plumbing build or mechanical review fix | Codex GPT-6-Luna (simple) or GPT-6-Astra (larger); effort from the estimated complexity | Sonnet, same effort |
+| Review fix that needs a security design | Opus, medium | — |
+| First review round, Standards axis | Codex GPT-6.1-Sol | Opus, high |
+| First review round, Spec axis | Opus, high | — |
+| First review round, Simplicity axis | Codex GPT-6-Sol, high | Opus, high |
+| Security-sensitive diff (auth, sandboxes, egress, tokens, org isolation) | Opus, high, **and** Codex GPT-6.1-Sol, as two separate reviews | Opus, high only |
+| Follow-up review round (check that the listed findings are fixed and the fix adds no new problem) | Codex GPT-6-Luna, medium | Sonnet, medium |
+| Re-review of a security fix | Opus, high | — |
+| Status checks, file search, log triage | Haiku, low | — |
+
+Start most agents fresh, with a short brief that holds only the relevant context: the branch, the findings to fix or check, and the files. A Codex agent shares no history, so give it the same brief file. Reviewers do not see each other's findings. Do not resume a long-context builder for a list of fixes. Resume a builder only for a question that needs its context.
 
 ### Issue tracker
 
-Local markdown under `.ai/scratchpad/<feature>/`. See [`.ai/agents/issue-tracker.md`](.ai/agents/issue-tracker.md).
+Linear, team CTX, project Product development, through the `linear-server` MCP tools. Tickets are issues (an epic with sub-issues for a large effort); plans and specs are Linear documents linked from the epic. Write each issue id as a link. See [`.ai/agents/issue-tracker.md`](.ai/agents/issue-tracker.md).
 
 ### Triage labels
 
-Default role labels (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See [`.ai/agents/triage-labels.md`](.ai/agents/triage-labels.md).
+The Linear `Triage` state, the `Agent` label group (`needs-info`, `ready-for-agent`, `ready-for-human`), and the `Canceled` state. See [`.ai/agents/triage-labels.md`](.ai/agents/triage-labels.md).
 
 ### Domain docs
 
@@ -76,7 +91,7 @@ Single-context via `.ai/memory/` (product context, glossary, ADRs). See [`.ai/ag
 
 ### Public docs
 
-Customer-facing documentation lives in [`apps/docs/content/docs/`](apps/docs/content/docs/). Write plans, tickets, ledgers, reviews, and logs to [`.ai/scratchpad/`](.ai/scratchpad/) or [`.ai/memory/`](.ai/memory/) — never under root `docs/`.
+Customer-facing documentation lives in [`apps/docs/content/docs/`](apps/docs/content/docs/). Put plans, tickets, ledgers, reviews, and logs in Linear (see Issue tracker), and durable knowledge in [`.ai/memory/`](.ai/memory/). Never write them under root `docs/`.
 
 ### Preview environments
 
@@ -84,7 +99,7 @@ Customer-facing documentation lives in [`apps/docs/content/docs/`](apps/docs/con
 
 ### Adversarial review
 
-Every adversarial review of a diff is three Opus (high effort) axes — **Standards**, **Spec**, and **Simplicity** — via [`code-review`](.agents/skills/code-review/SKILL.md). Do not run the review as spec-only. Simplicity names the job, the thinnest machine, and leftover machinery; spec-match is not a defense. See [`simplicity-audit`](.agents/skills/simplicity-audit/SKILL.md).
+Every adversarial review of a diff is three axes — **Standards**, **Spec**, and **Simplicity** — via [`code-review`](.agents/skills/code-review/SKILL.md). Do not run the review as spec-only. Simplicity names the job, the thinnest machine, and leftover machinery; spec-match is not a defense. See [`simplicity-audit`](.agents/skills/simplicity-audit/SKILL.md).
 
 ## Architecture decisions & ADRs
 

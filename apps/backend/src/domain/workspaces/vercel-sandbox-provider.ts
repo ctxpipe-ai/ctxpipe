@@ -20,6 +20,7 @@ import {
   bearerUrlRule,
   githubCredentialRules,
   modelProxyCredentialRules,
+  type SandboxCredentialRule,
 } from "./sandbox-credential-rules.js"
 import {
   VERCEL_SANDBOX,
@@ -86,6 +87,28 @@ export type VercelCredentials = {
 let resolvedScope: Promise<VercelCredentials> | undefined
 
 /**
+ * The OIDC issuer of our team's sandbox tokens, `https://oidc.vercel.com/<team
+ * slug>`. Only a slug in `VERCEL_TEAM_ID` gives it: a team-scoped token
+ * cannot read the team to find the slug of an id.
+ */
+export function vercelOidcIssuer(
+  env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  const team = env.VERCEL_TEAM_ID?.trim()
+  if (!team || team.startsWith("team_")) return undefined
+  return `https://oidc.vercel.com/${team}`
+}
+
+/** True when the backend can start Vercel sandboxes. */
+export function vercelConfigured(env: NodeJS.ProcessEnv = process.env) {
+  return Boolean(
+    env.VERCEL_TOKEN?.trim() &&
+      env.VERCEL_TEAM_ID?.trim() &&
+      env.VERCEL_PROJECT_ID?.trim(),
+  )
+}
+
+/**
  * The deploy passes the team and project by slug or id. Team-scoped tokens
  * cannot read the team itself, so both ids come from the project lookup,
  * once per process.
@@ -142,6 +165,29 @@ export type HostedTurnCredentials = {
 }
 
 /**
+ * Each credential rule as a Vercel firewall rule on its host: an exact path
+ * match (when the rule has a path) that sets the credential and pins the
+ * `Host` header.
+ */
+export function hostRules(
+  rules: SandboxCredentialRule[],
+): Record<string, NetworkPolicyRule[]> {
+  const allow: Record<string, NetworkPolicyRule[]> = {}
+  for (const rule of rules) {
+    const entries = allow[rule.host] ?? []
+    allow[rule.host] = entries
+    entries.push({
+      ...(rule.path ? { match: { path: { exact: rule.path } } } : {}),
+      // Set the credential, and the host it is for.
+      transform: [
+        { headers: { host: rule.host, authorization: rule.authorization } },
+      ],
+    })
+  }
+  return allow
+}
+
+/**
  * The firewall of a hosted sandbox. The internet stays open (`"*"`). The
  * firewall adds each credential to the requests that need it, so no
  * credential enters the sandbox: the GitHub read token on GitHub hosts, and
@@ -175,19 +221,7 @@ export function hostedNetworkPolicy(input: {
         ]
       : []),
   ]
-  const allow: Record<string, NetworkPolicyRule[]> = {}
-  for (const rule of rules) {
-    const entries = allow[rule.host] ?? []
-    allow[rule.host] = entries
-    entries.push({
-      ...(rule.path ? { match: { path: { exact: rule.path } } } : {}),
-      // Set the credential, and the host it is for.
-      transform: [
-        { headers: { host: rule.host, authorization: rule.authorization } },
-      ],
-    })
-  }
-  return { allow: { ...allow, "*": [] } }
+  return { allow: { ...hostRules(rules), "*": [] } }
 }
 
 /**
@@ -210,8 +244,23 @@ const firewalls = new Map<
 
 export type ConversationFirewall = ReturnType<typeof conversationFirewall>
 
-/** The hosted firewall of a conversation's sandbox; see `hostedNetworkPolicy`. */
-export function conversationFirewall(backendHost: string) {
+/**
+ * The input of a hosted firewall policy. `sandboxName` is set on each update
+ * after create; the ingest policy binds its scope to it.
+ */
+export type HostedPolicyInput = Parameters<typeof hostedNetworkPolicy>[0] & {
+  sandboxName?: string
+}
+
+/**
+ * The hosted firewall of a conversation's sandbox; see `hostedNetworkPolicy`.
+ * An ingest shard passes its own `policy` (`ingestNetworkPolicy`); a step is
+ * its "turn".
+ */
+export function conversationFirewall(
+  backendHost: string,
+  policy: (input: HostedPolicyInput) => NetworkPolicy = hostedNetworkPolicy,
+) {
   const stateOf = (name: string) => {
     const state = firewalls.get(name)
     if (!state) throw new Error("The sandbox is not attached")
@@ -223,10 +272,11 @@ export function conversationFirewall(backendHost: string) {
     const run = state.queue.then(async () => {
       if (!state.gitToken) throw new Error("The sandbox has no GitHub token")
       await state.sandbox.update({
-        networkPolicy: hostedNetworkPolicy({
+        networkPolicy: policy({
           gitToken: state.gitToken,
           backendHost,
           turn: state.turn,
+          sandboxName: name,
         }),
       })
     })
@@ -242,7 +292,7 @@ export function conversationFirewall(backendHost: string) {
     if (state && !state.turn && !state.dirty) firewalls.delete(name)
   }
   /** Record a sandbox that was created or resumed, with its token. */
-  const attach = (sandbox: Sandbox, gitToken: string | undefined) => {
+  const record = (sandbox: Sandbox, gitToken: string | undefined) => {
     const state = firewalls.get(sandbox.name)
     if (state) {
       state.sandbox = sandbox
@@ -255,14 +305,24 @@ export function conversationFirewall(backendHost: string) {
         queue: Promise.resolve(),
       })
   }
+  // A custom policy (ingest) binds its scope to the sandbox name, so a new
+  // sandbox starts with "deny-all" and a resumed one keeps an old scope.
+  const bindsName = policy !== hostedNetworkPolicy
   return {
     /** The policy for a new sandbox (no turn yet), with this GitHub token. */
-    policy: (gitToken: string) =>
-      hostedNetworkPolicy({ gitToken, backendHost }),
-    attach,
+    policy: (gitToken: string) => policy({ gitToken, backendHost }),
+    /**
+     * Record a sandbox that was created or resumed, with its token. A policy
+     * that binds the sandbox name gets applied now.
+     */
+    async attach(sandbox: Sandbox, gitToken: string | undefined) {
+      record(sandbox, gitToken)
+      if (bindsName && firewalls.get(sandbox.name)?.gitToken)
+        await apply(sandbox.name)
+    },
     /** Replace the GitHub token, keeping a running turn's rules. */
     async rotateGitToken(sandbox: Sandbox, gitToken: string) {
-      attach(sandbox, undefined)
+      record(sandbox, undefined)
       const state = stateOf(sandbox.name)
       const previous = state.gitToken
       state.gitToken = gitToken
@@ -373,7 +433,7 @@ async function refreshGitAccess(
   access: ConversationSandboxAccess,
 ): Promise<void> {
   const current = await access.tokens.get(sandbox.name)
-  access.firewall.attach(sandbox, current?.token)
+  await access.firewall.attach(sandbox, current?.token)
   if (!current) {
     await rotateGitToken(sandbox, access, undefined)
     return
@@ -490,7 +550,17 @@ export function vercelConversationProvider(input: {
           sandbox = await fromAgent()
         }
       } else sandbox = await fromAgent()
-      access.firewall.attach(sandbox, gitToken)
+      try {
+        await access.firewall.attach(sandbox, gitToken)
+      } catch (error) {
+        // No row holds the token yet: stop the sandbox and revoke it here,
+        // or both stay orphaned.
+        await sandbox.stop().catch(() => undefined)
+        await (access.revokeGitToken ?? revokeGithubToken)(gitToken).catch(
+          () => undefined,
+        )
+        throw error
+      }
       await access.tokens.put(sandbox.name, gitToken)
       return conversationHandle(sandbox, input.agentPassword)
     },

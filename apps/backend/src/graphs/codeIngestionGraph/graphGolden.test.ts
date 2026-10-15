@@ -263,7 +263,8 @@ describe("graph golden spec", () => {
     expect(tripleLines(claims)).toMatchSnapshot("triples")
     // every cross-tool reference in the fixture resolves to a node of this run
     expect(summary).toEqual({
-      REFERENCES: { kept: 4, dropped: 0, stubbed: 0 },
+      REFERENCES: { kept: 3, dropped: 0, stubbed: 0 },
+      RESOLVES: { kept: 1, dropped: 0, stubbed: 0 },
       OWNS: { kept: 3, dropped: 0, stubbed: 0 },
       INFLUENCES: { kept: 2, dropped: 0, stubbed: 0 },
       SUPERSEDES: { kept: 1, dropped: 0, stubbed: 0 },
@@ -277,8 +278,9 @@ describe("graph golden spec", () => {
     expect(lines).toContain(
       `iss:linear:ENG-123 REFERENCES prq:${SOURCE_REPO}:42`,
     )
+    // the head branch names the issue, so the merged pull request resolves it
     expect(lines).toContain(
-      `prq:${SOURCE_REPO}:42 REFERENCES iss:linear:ENG-123`,
+      `prq:${SOURCE_REPO}:42 RESOLVES iss:linear:ENG-123 @2026-03-02`,
     )
     expect(lines).toContain(
       `thr:slack:C01:1709372400.123456 REFERENCES prq:${SOURCE_REPO}:42`,

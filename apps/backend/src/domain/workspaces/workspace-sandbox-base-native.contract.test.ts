@@ -28,6 +28,7 @@ import {
   countRunningSandboxes,
   getSandboxInstance,
 } from "../../models/workspaces.js"
+import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { startTestAgentVaultEnv } from "../../test/agent-vault-fixture.js"
 import {
   CHAT_IMAGE,
@@ -276,7 +277,10 @@ async function withGitRemote<T>(
 async function queuedBaseBuilds(workspaceId: string): Promise<number> {
   const url = process.env.DATABASE_URL
   if (!url) throw new Error("DATABASE_URL is required")
-  const backend = await BackendPostgres.connect(url, { runMigrations: false })
+  const backend = await BackendPostgres.connect(url, {
+    namespaceId: openWorkflowNamespaceId(),
+    runMigrations: false,
+  })
   try {
     return (await backend.listWorkflowRuns({ limit: 1000 })).data.filter(
       (run) =>

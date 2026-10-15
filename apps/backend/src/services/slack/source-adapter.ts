@@ -26,45 +26,61 @@ import { captureSlackThreadFiles, type SlackCaptureResult } from "./sync.js"
 /** The frame event of a mention capture: the channel of the thread. */
 const slackCaptureEventSchema = z.object({ channelId: z.string().min(1) })
 
-/** Why the bot cannot read a channel for good, or null. A transient failure throws. */
+/**
+ * Why the bot cannot read a channel, or null. `invite`: the bot is not in the
+ * channel. That does not block the source, because Slack sends a mention only
+ * from a channel that the bot is in, and an invite changes nothing in ctx|.
+ * A transient failure throws.
+ */
 async function channelProblem(input: {
   env: Env
   connection: SlackConnection
   channelId: string
-}): Promise<string | null> {
+}): Promise<{ text: string; invite?: true } | null> {
   const channel = input.channelId
   let info: Awaited<ReturnType<typeof resolveSlackChannelInfo>>
   try {
     info = await resolveSlackChannelInfo(input)
   } catch (error) {
     if (error instanceof SlackDirectMessageNotSupportedError)
-      return `${channel} is a direct message`
+      return { text: `${channel} is a direct message` }
     if (!(error instanceof SlackApiError)) throw error
     switch (error.slackError) {
       case "channel_not_found":
-        return `Channel ${channel} is not found, or the ctx| bot cannot see it`
+        return {
+          text: `Channel ${channel} is not found, or the ctx| bot cannot see it`,
+        }
       case "not_in_channel":
-        return `Invite the ctx| bot to channel ${channel}`
+        return {
+          text: `Invite the ctx| bot to channel ${channel}`,
+          invite: true,
+        }
       case "missing_scope":
-        return `The ctx| Slack app needs a scope to read channel ${channel}. Reinstall Slack.`
+        return {
+          text: `The ctx| Slack app needs a scope to read channel ${channel}. Reinstall Slack.`,
+        }
       case "is_archived":
-        return `Channel ${channel} is archived`
+        return { text: `Channel ${channel} is archived` }
       case "method_not_supported_for_channel_type":
-        return `${channel} is not a channel`
+        return { text: `${channel} is not a channel` }
       default:
         throw error
     }
   }
-  if (info.isArchived) return `Channel #${info.name} is archived`
-  if (!info.isMember) return `Invite the ctx| bot to channel #${info.name}`
+  if (info.isArchived) return { text: `Channel #${info.name} is archived` }
+  if (!info.isMember)
+    return {
+      text: `Invite the ctx| bot to channel #${info.name}`,
+      invite: true,
+    }
   return null
 }
 
 /**
  * Why the bot cannot read a scope. A string: no channel is usable, so the
  * source is out of access. `okDetail`: some channels are usable, so the
- * source stays `ok` and the detail names the others. A transient failure is
- * not a reason, and the channel counts as usable.
+ * source stays `ok` and the detail names the others. A channel without the
+ * bot, or with a transient failure, counts as usable.
  */
 export async function checkSlackSourceAccess(input: {
   orgId: string
@@ -82,6 +98,7 @@ export async function checkSlackSourceAccess(input: {
   )
     return "The Slack connection is not installed. Reconnect Slack."
   const problems: string[] = []
+  let blocked = 0
   for (const channelId of input.scope.channels) {
     try {
       const problem = await channelProblem({
@@ -89,7 +106,8 @@ export async function checkSlackSourceAccess(input: {
         connection,
         channelId,
       })
-      if (problem) problems.push(problem)
+      if (problem) problems.push(problem.text)
+      if (problem && !problem.invite) blocked += 1
     } catch (error) {
       log.warn({
         step: "slack_source.check_access",
@@ -101,9 +119,7 @@ export async function checkSlackSourceAccess(input: {
   }
   if (!problems.length) return null
   const detail = problems.join("; ")
-  return problems.length === input.scope.channels.length
-    ? detail
-    : { okDetail: detail }
+  return blocked === input.scope.channels.length ? detail : { okDetail: detail }
 }
 
 export const slackSourceAdapter = {

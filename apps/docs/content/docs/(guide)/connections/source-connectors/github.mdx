@@ -63,33 +63,39 @@ You can connect GitHub during onboarding, or later from the **Connectors** page.
 - Repo-native docs, ADRs, `AGENTS.md`, skills, and standards as agent context.
 - Pull requests for connector configuration, Workspace chat changes, and MCP
   setup.
-- Mirroring of **merged** pull requests (conversation, reviews, and changed
-  paths, not diffs) into a Workspace. After indexing, the
-  knowledge graph locates each changed path as a `File` (shared with
-  source-repository extract) and records `ADDED` / `MODIFIED` / `REMOVED` /
-  `RENAMED` edges from the pull request dated at merge, `PullRequest TARGETS`
-  the source repository, `File PART_OF` the owning service when that
-  repository is already classified, and `PullRequest REFERENCES Issue` when
-  the title, body, or branch names a Linear issue.
+- Mirroring of **closed** pull requests, merged or not (conversation,
+  reviews, and changed paths, not diffs), into a Workspace. After indexing,
+  the knowledge graph records `PullRequest TARGETS` the source repository and
+  `PullRequest REFERENCES Issue` when the title, body, or branch names a
+  Linear issue. For a merged pull request, the graph also locates each changed
+  path as a `File` (shared with source-repository extract) and records
+  `ADDED` / `MODIFIED` / `REMOVED` / `RENAMED` edges from the pull request
+  dated at merge, and `File PART_OF` the owning service when that repository
+  is already classified. A merged pull request `RESOLVES` an issue in place of
+  `REFERENCES` when its branch names the issue, or when a closing keyword
+  (`fixes`, `closes`, `resolves`, `completes`, and their other forms) comes
+  directly before the issue identifier or its Linear URL. A pull request
+  closed without a merge changed nothing, so it has no `File` edges.
 
-### Merged pull requests follow linked repositories
+### Closed pull requests follow linked repositories
 
-Linking a GitHub repository to a Workspace is the only setup. Its merged pull
-requests are written under `github/pulls/<owner>/<repo>/` in that Workspace's
+Linking a GitHub repository to a Workspace is the only setup. Its closed pull
+requests, merged or not, are written under `github/pulls/<owner>/<repo>/` in that Workspace's
 repository:
 
 - **When you link** the repository, from **Settings** or by committing its
-  declaration, ctx| backfills up to 200 of its most recently updated merged
+  declaration, ctx| backfills up to 200 of its most recently updated closed
   pull requests.
-- **After that**, each merged pull request, and each later review or comment on
-  it, is mirrored as GitHub reports it.
+- **After that**, each pull request that closes, and each later review or
+  comment on it, is mirrored as GitHub reports it. The file records `merged`
+  and `mergedAt`, so you can tell a merge from a close without a merge.
 - **Several Workspaces** can link the same repository. Each one gets its own
   copy of the pull requests.
 - **When you unlink** the repository, new pull requests stop arriving. Files
   already mirrored stay in the Workspace's git history and tree until you
   delete them.
 
-Draft and unmerged pull requests are not mirrored. There is no toggle and no
+Draft and open pull requests are not mirrored. There is no toggle and no
 configuration file.
 
 ## After you connect

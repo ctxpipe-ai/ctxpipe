@@ -12,6 +12,7 @@ import {
   getWriteJobCommitSha,
   persistWriteStatus,
 } from "../../models/workspaces.js"
+import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { workspaceBootstrap } from "../../openworkflow/workflows/workspace-bootstrap.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { resolveWorkspaceReadRevision } from "./resolve-revision.js"
@@ -231,6 +232,7 @@ it(
         const { BackendPostgres } = await import("openworkflow/postgres")
         const { OpenWorkflow } = await import("openworkflow")
         const backend = await BackendPostgres.connect(f.databaseUrl, {
+          namespaceId: openWorkflowNamespaceId(),
           runMigrations: false,
         })
         const runner = new OpenWorkflow({ backend })
@@ -316,6 +318,7 @@ it(
         )
         const { BackendPostgres } = await import("openworkflow/postgres")
         const backend = await BackendPostgres.connect(f.databaseUrl, {
+          namespaceId: openWorkflowNamespaceId(),
           runMigrations: false,
         })
         try {
@@ -358,7 +361,7 @@ it(
   async () => {
     await withNativeHydrationFixture(
       {
-        namespaceId: "default",
+        namespaceId: openWorkflowNamespaceId(),
         github: true,
         githubWriteView: "writable",
         writeStatus: "writable",
@@ -558,6 +561,7 @@ process.exit(result.status ?? 1);
           })
           const { BackendPostgres } = await import("openworkflow/postgres")
           const publication = await BackendPostgres.connect(f.databaseUrl, {
+            namespaceId: openWorkflowNamespaceId(),
             runMigrations: false,
           })
           try {
@@ -618,6 +622,7 @@ it(
         const { BackendPostgres } = await import("openworkflow/postgres")
         const { OpenWorkflow } = await import("openworkflow")
         const backend = await BackendPostgres.connect(f.databaseUrl, {
+          namespaceId: openWorkflowNamespaceId(),
           runMigrations: false,
         })
         const runner = new OpenWorkflow({ backend })
@@ -1011,6 +1016,7 @@ it(
           `CREATE FUNCTION public.${fixtureName}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'fixture queue admission unavailable'; END; $$`,
         )
         const backend = await BackendPostgres.connect(f.databaseUrl, {
+          namespaceId: openWorkflowNamespaceId(),
           runMigrations: false,
         })
         const runner = new OpenWorkflow({ backend })

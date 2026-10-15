@@ -1,0 +1,174 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "decisions result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "repository",
+    "total",
+    "done",
+    "more",
+    "decisions",
+    "stale",
+    "skipped"
+  ],
+  "properties": {
+    "repository": {
+      "type": "string"
+    },
+    "total": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Decision files that the script read, over all pages."
+    },
+    "done": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Decision files whose context file this run already wrote (earlier pages)."
+    },
+    "more": {
+      "type": "boolean",
+      "description": "Decision files wait for a next page. Run ctxpipe-finish --more."
+    },
+    "decisions": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "name",
+          "title",
+          "number",
+          "status",
+          "statusText",
+          "date",
+          "target",
+          "write",
+          "existing",
+          "scope",
+          "influences",
+          "supersedes",
+          "related"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "The decision file in the source repository."
+          },
+          "name": {
+            "type": "string",
+            "description": "The name for the front matter."
+          },
+          "title": {
+            "type": "string"
+          },
+          "number": {
+            "type": ["integer", "null"]
+          },
+          "status": {
+            "enum": [
+              "accepted",
+              "proposed",
+              "draft",
+              "deprecated",
+              "superseded",
+              "rejected",
+              "undeclared"
+            ]
+          },
+          "statusText": {
+            "type": ["string", "null"]
+          },
+          "date": {
+            "type": ["string", "null"]
+          },
+          "target": {
+            "type": "string",
+            "description": "The context file to write."
+          },
+          "write": {
+            "enum": ["create", "update", "additive"]
+          },
+          "existing": {
+            "type": ["string", "null"]
+          },
+          "scope": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["basis", "roots", "truncated"],
+            "properties": {
+              "basis": {
+                "enum": ["package", "reference", "repository"]
+              },
+              "roots": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "truncated": {
+                "type": "boolean"
+              }
+            }
+          },
+          "influences": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Service files, relative to the target: INFLUENCES claims."
+          },
+          "supersedes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["to", "evidence"],
+              "properties": {
+                "to": {
+                  "type": "string",
+                  "description": "The replaced decision file, relative to the target."
+                },
+                "evidence": {
+                  "type": "string",
+                  "description": "The source file that declares it."
+                }
+              }
+            }
+          },
+          "related": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "stale": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Context files of this source whose decision file has left the source."
+    },
+    "skipped": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "reason"],
+        "properties": {
+          "path": {
+            "type": ["string", "null"]
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

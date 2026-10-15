@@ -60,7 +60,8 @@ export function getPagerdutyCardCtaLabel(
   oauth?: OAuthMeta,
 ): string | null {
   if (status.installationStatus === "revoked") return "Reconnect PagerDuty"
-  if (status.isInstalled) return null
+  // The setup dialog adds a connected PagerDuty to more Workspaces.
+  if (status.isInstalled) return "Manage"
   if (shouldShowPagerdutyRegisterStep(status, oauth))
     return "Register OAuth app"
   return "Connect PagerDuty"

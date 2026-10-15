@@ -21,7 +21,6 @@ Single-context (this repo):
 /
 ├── .ai/
 │   ├── agents/                 ← skill config (this file)
-│   ├── scratchpad/             ← local issue tracker
 │   └── memory/
 │       ├── README.md
 │       ├── index.md
@@ -35,7 +34,7 @@ Single-context (this repo):
 └── apps/ …
 ```
 
-Customer-facing documentation lives in [`apps/docs/content/docs/`](../../apps/docs/content/docs/). Write plans, tickets, ledgers, reviews, and logs to [`.ai/scratchpad/`](../scratchpad/) or [`.ai/memory/`](../memory/) — never under root `docs/`.
+Customer-facing documentation lives in [`apps/docs/content/docs/`](../../apps/docs/content/docs/). Put plans, tickets, ledgers, reviews, and logs in Linear ([issue-tracker.md](issue-tracker.md)), and durable knowledge in [`.ai/memory/`](../memory/). Never write them under root `docs/`.
 
 ## Use the glossary's vocabulary
 

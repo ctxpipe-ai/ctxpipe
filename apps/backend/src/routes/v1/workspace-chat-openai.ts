@@ -1,5 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
+import { startIngestModelCall } from "../../domain/ingestion/ingest-telemetry.js"
 import {
   observeWorkspaceChatCompletionStream,
   recordWorkspaceChatProxyCompletion,
@@ -9,7 +10,10 @@ import {
   beginWorkspaceChatProxyGeneration,
   workspaceChatTurnId,
 } from "../../domain/workspaces/workspace-chat-otel.js"
-import { verifyWorkspaceChatRunCapability } from "../../domain/workspaces/workspace-chat-run-capability.js"
+import {
+  verifyWorkspaceChatRunCapability,
+  verifyWorkspaceIngestRunCapability,
+} from "../../domain/workspaces/workspace-chat-run-capability.js"
 import {
   verifyWorkspaceChatToken,
   workspaceChatBearerToken,
@@ -90,22 +94,43 @@ function contractFromEnv(env: AppEnv["Variables"]["env"]) {
   })
 }
 
+/**
+ * The caller of a model call: a chat turn, or an ingest step (ADR-052). An
+ * ingest step has no conversation: it is attributed to its run, shard, and
+ * step.
+ */
+type ModelCaller = {
+  orgId: string
+  orgSlug?: string
+  conversationId?: string
+  runId?: string
+  ingest?: { runId: string; shard: number; step: string }
+}
+
 async function chatTokenFromRequest(
   c: Parameters<Parameters<OpenAPIHono<AppEnv>["openapi"]>[1]>[0],
-) {
+): Promise<ModelCaller | undefined> {
   const presented = workspaceChatBearerToken(c.req.header("authorization"))
   if (!presented) return undefined
-  return (
-    verifyWorkspaceChatToken({
-      authSecret: c.var.env.AUTH_SECRET,
-      token: presented,
-    }) ??
+  const authSecret = c.var.env.AUTH_SECRET
+  const chat =
+    verifyWorkspaceChatToken({ authSecret, token: presented }) ??
     (await verifyWorkspaceChatRunCapability({
-      authSecret: c.var.env.AUTH_SECRET,
+      authSecret,
       token: presented,
       purpose: "workspace-chat-model",
     }))
-  )
+  if (chat) return chat
+  const ingest = await verifyWorkspaceIngestRunCapability({
+    authSecret,
+    token: presented,
+  })
+  if (!ingest) return undefined
+  return {
+    orgId: ingest.orgId,
+    orgSlug: ingest.orgSlug,
+    ingest: { runId: ingest.runId, shard: ingest.shard, step: ingest.step },
+  }
 }
 
 export const workspaceChatOpenaiRoutes = new OpenAPIHono<AppEnv>()
@@ -127,6 +152,11 @@ export const workspaceChatOpenaiRoutes = new OpenAPIHono<AppEnv>()
     applyAttribution({
       "ctxpipe.org.id": token.orgId,
       "ctxpipe.conversation.id": token.conversationId,
+      "ctxpipe.ingest.run.id": token.ingest?.runId,
+      "ctxpipe.ingest.shard": token.ingest
+        ? String(token.ingest.shard)
+        : undefined,
+      "ctxpipe.ingest.step": token.ingest?.step,
       ...(token.orgSlug ? { "ctxpipe.org.slug": token.orgSlug } : {}),
     })
     const env = c.var.env
@@ -162,19 +192,40 @@ export const workspaceChatOpenaiRoutes = new OpenAPIHono<AppEnv>()
           }
         : {}),
     }
-    const turnId = workspaceChatTurnId(token)
-    beginWorkspaceChatProxyGeneration(turnId, {
-      model: contract.modelBase,
-      messages: body.messages,
-    })
+    // An ingest step has no chat turn to add a generation to.
+    const turnId = token.conversationId
+      ? workspaceChatTurnId({
+          conversationId: token.conversationId,
+          runId: token.runId,
+        })
+      : undefined
+    if (turnId)
+      beginWorkspaceChatProxyGeneration(turnId, {
+        model: contract.modelBase,
+        messages: body.messages,
+      })
     const startedAt = Date.now()
     let ttfbMs: number | null = null
     const observer = observeWorkspaceChatCompletionStream()
     const markTtfb = () => {
       if (ttfbMs == null) ttfbMs = Date.now() - startedAt
     }
+    // An ingest step has a model call in the Langfuse session of its run.
+    const ingestCall = token.ingest
+      ? startIngestModelCall(token.ingest, contract.modelBase)
+      : undefined
+    let recorded = false
     const record = (status: number) => {
+      if (recorded) return
+      recorded = true
       observer.end()
+      ingestCall?.finish({
+        status,
+        durationMs: Date.now() - startedAt,
+        finishReason: observer.finishReason,
+        responseModel: observer.responseModel,
+        usage: observer.usage,
+      })
       recordWorkspaceChatProxyCompletion(turnId, {
         ttfbMs: ttfbMs ?? Date.now() - startedAt,
         durationMs: Date.now() - startedAt,
@@ -192,14 +243,22 @@ export const workspaceChatOpenaiRoutes = new OpenAPIHono<AppEnv>()
       method: "POST",
       path: "/v1/chat/completions",
       conversationId: token.conversationId,
+      ingestRunId: token.ingest?.runId,
+      ingestStep: token.ingest?.step,
       orgId: token.orgId,
     })
     if (env.MODEL_PROVIDER === "bedrock") {
       const response = await handleNativeBedrockResponse(
         c,
         handleBedrockChatCompletion(env, forwarded),
+        {
+          observe: (chunk) => {
+            markTtfb()
+            observer.push(chunk)
+          },
+          onObservedComplete: record,
+        },
       )
-      record(response.status)
       return response
     }
     return forwardToUpstream(c, "/v1/chat/completions", forwarded, {
@@ -210,6 +269,6 @@ export const workspaceChatOpenaiRoutes = new OpenAPIHono<AppEnv>()
         markTtfb()
         observer.push(chunk)
       },
-      onObservedComplete: () => record(200),
+      onObservedComplete: record,
     })
   })

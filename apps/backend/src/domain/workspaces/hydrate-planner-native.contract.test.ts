@@ -5,6 +5,7 @@ import { BackendPostgres } from "openworkflow/postgres"
 import { expect, it } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
+import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { workspaceHydrate } from "../../openworkflow/workflows/workspace-hydrate.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { bootstrapWorkspaceFiles } from "./bootstrap.js"
@@ -30,6 +31,7 @@ it(
       async (f) => {
         const backend = await BackendPostgres.connect(f.databaseUrl, {
           runMigrations: false,
+          namespaceId: openWorkflowNamespaceId(),
         })
 
         try {
@@ -93,6 +95,7 @@ it(
       async (f) => {
         const backend = await BackendPostgres.connect(f.databaseUrl, {
           runMigrations: false,
+          namespaceId: openWorkflowNamespaceId(),
         })
         const runner = new OpenWorkflow({ backend })
         const { workspaceClaimsUpgrade } = await import(
@@ -241,6 +244,7 @@ it.each([
         )
         const backend = await BackendPostgres.connect(f.databaseUrl, {
           runMigrations: false,
+          namespaceId: openWorkflowNamespaceId(),
         })
         try {
           await f.worker.start()
@@ -312,6 +316,7 @@ it(
       async (f) => {
         const backend = await BackendPostgres.connect(f.databaseUrl, {
           runMigrations: false,
+          namespaceId: openWorkflowNamespaceId(),
         })
         try {
           await f.publish()
@@ -396,6 +401,7 @@ it(
       async (f) => {
         const backend = await BackendPostgres.connect(f.databaseUrl, {
           runMigrations: false,
+          namespaceId: openWorkflowNamespaceId(),
         })
         try {
           await f.publish()

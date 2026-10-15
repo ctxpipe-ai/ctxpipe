@@ -18,8 +18,45 @@ export type GraphClient = {
   executeQuery(
     query: string,
     params?: Record<string, unknown>,
+    options?: {
+      /** Absolute deadline from performance.now(). */
+      deadline?: number
+    },
   ): Promise<{ records: Array<{ get: (key: string) => unknown }> }>
   close(): Promise<void>
+}
+
+/** A graph query reached its monotonic deadline, locally or on the server. */
+export class GraphQueryTimeoutError extends Error {
+  override readonly name = "GraphQueryTimeoutError"
+}
+
+async function withinDeadline<T>(
+  deadline: number | undefined,
+  run: (timeoutMs: number | undefined) => Promise<T>,
+): Promise<T> {
+  const remaining =
+    deadline === undefined ? undefined : deadline - performance.now()
+  if (remaining !== undefined && remaining < 1)
+    throw new GraphQueryTimeoutError("Graph query deadline exceeded.")
+  try {
+    const result = await run(
+      remaining === undefined ? undefined : Math.floor(remaining),
+    )
+    if (deadline !== undefined && performance.now() >= deadline)
+      throw new GraphQueryTimeoutError("Graph query deadline exceeded.")
+    return result
+  } catch (error) {
+    if (
+      deadline !== undefined &&
+      error instanceof Error &&
+      /timed out|timeout/i.test(error.message)
+    )
+      throw new GraphQueryTimeoutError("Graph query deadline exceeded.", {
+        cause: error,
+      })
+    throw error
+  }
 }
 
 export function getConfig(): {
@@ -103,7 +140,7 @@ function createFalkorDbGraphClient(
 ): GraphClient {
   const server = serverAddressFromUrl(uri)
   return {
-    async executeQuery(query, params) {
+    async executeQuery(query, params, options) {
       assertNotInOrgDbContext()
       return traceGraphQuery(
         {
@@ -126,9 +163,11 @@ function createFalkorDbGraphClient(
           type QueryOpts = Parameters<
             ReturnType<FalkorDBInstance["selectGraph"]>["query"]
           >[1]
-          const reply = await graph.query(
-            query,
-            (serialized ? { params: serialized } : undefined) as QueryOpts,
+          const reply = await withinDeadline(options?.deadline, (timeoutMs) =>
+            graph.query(query, {
+              params: serialized,
+              ...(timeoutMs === undefined ? {} : { TIMEOUT: timeoutMs }),
+            } as QueryOpts),
           )
           const records = falkorReplyToRecords(
             reply.data as Array<Record<string, unknown>>,
@@ -151,7 +190,7 @@ function scopedBoltDriver(
 ): GraphClient {
   const server = serverAddressFromUrl(uri)
   return {
-    async executeQuery(query, params) {
+    async executeQuery(query, params, options) {
       assertNotInOrgDbContext()
       return traceGraphQuery(
         {
@@ -167,9 +206,14 @@ function scopedBoltDriver(
             params,
             provider,
           )
-          const result = database
-            ? await inner.executeQuery(query, normalizedParams, { database })
-            : await inner.executeQuery(query, normalizedParams)
+          const result = await withinDeadline(options?.deadline, (timeoutMs) =>
+            inner.executeQuery(query, normalizedParams, {
+              ...(database ? { database } : {}),
+              ...(timeoutMs === undefined
+                ? {}
+                : { transactionConfig: { timeout: timeoutMs } }),
+            }),
+          )
           return { records: result.records }
         },
       )

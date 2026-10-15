@@ -18,6 +18,7 @@ import { COMMIT_SUBJECT_MODEL } from "../../domain/workspaces/commit-subject.js"
 import { getRepositoryForOrg } from "../../models/repositories.js"
 import { withNativeIndexFixture } from "../../test/native-index-fixture.js"
 import { enqueueRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
+import { openWorkflowNamespaceId } from "../namespace.js"
 import { repositoryIndex } from "./repository-index.js"
 import { repositoryIngestion } from "./repository-ingestion.js"
 import { repositoryIngestionOrchestrator } from "./repository-ingestion-orchestrator.js"
@@ -192,6 +193,7 @@ it(
               .where(eq(repositories.id, f.repositoryId))
           })
           const backend = await BackendPostgres.connect(f.databaseUrl, {
+            namespaceId: openWorkflowNamespaceId(),
             runMigrations: false,
           })
           const runner = new OpenWorkflow({ backend })

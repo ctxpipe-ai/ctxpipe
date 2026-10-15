@@ -3,15 +3,14 @@ import { BackendPostgres } from "openworkflow/postgres"
 import postgres from "postgres"
 
 /**
- * Cancels the open runs in the "default" OpenWorkflow namespace that were
- * created at or after `since`, and returns their ids. A worker claims every
- * open run in its namespace, also runs it does not implement, so open runs
- * that one test file leaves make the workers of the next file slow. Each run
- * is canceled through OpenWorkflow, so a parent run that waits on it wakes.
+ * Cancels the open runs of one OpenWorkflow namespace and returns their ids.
+ * Each test file has its own namespace, so its open runs cannot slow the
+ * workers of another file. Each run is canceled through OpenWorkflow, so a
+ * parent run that waits on it wakes.
  */
-export async function cancelOpenWorkflowRunsSince(
+export async function cancelOpenWorkflowRuns(
   databaseUrl: string,
-  since: Date,
+  namespaceId: string,
 ): Promise<string[]> {
   const sql = postgres(databaseUrl, {
     max: 1,
@@ -20,15 +19,15 @@ export async function cancelOpenWorkflowRunsSince(
   })
   const ids = await sql<{ id: string }[]>`
       select id from openworkflow.workflow_runs
-      where namespace_id = 'default'
+      where namespace_id = ${namespaceId}
         and status in ('pending', 'running', 'sleeping')
-        and created_at >= ${since}
     `
     .then((rows) => rows.map((row) => row.id))
     .finally(() => sql.end())
   if (ids.length === 0) return []
   const backend = await BackendPostgres.connect(databaseUrl, {
     runMigrations: false,
+    namespaceId,
   })
   try {
     const ow = new OpenWorkflow({ backend })

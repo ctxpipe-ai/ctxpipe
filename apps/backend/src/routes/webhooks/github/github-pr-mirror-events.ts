@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { parseEnv } from "../../../config/env.js"
 import { normalizeWorkspaceRepositoryUrl } from "../../../domain/workspaces/slug.js"
 import { listInstallationsByGithubInstallationId } from "../../../models/github-installation.js"
 import { listGithubPrMirrorWorkspaceIds } from "../../../models/github-pr-mirror.js"
@@ -17,7 +18,7 @@ const pullRequestPayloadSchema = z.object({
       merged: z.boolean().optional(),
       merged_at: z.string().nullable().optional(),
       draft: z.boolean().optional(),
-      state: z.string().optional(),
+      state: z.enum(["open", "closed"]).optional(),
       updated_at: z.string().optional(),
     })
     .optional(),
@@ -30,6 +31,7 @@ const pullRequestPayloadSchema = z.object({
 const issueCommentPayloadSchema = z.object({
   issue: z.object({
     number: z.number().int().positive(),
+    closed_at: z.string().nullable().optional(),
     pull_request: z
       .object({ merged_at: z.string().nullable().optional() })
       .optional(),
@@ -50,10 +52,9 @@ const issueCommentPayloadSchema = z.object({
 export function candidateFromPullRequestPayload(
   pull: z.infer<typeof pullRequestPayloadSchema>["pull_request"],
 ): GithubSyncPullRequestCandidate | undefined {
-  if (!pull?.updated_at) return undefined
-  const merged = pull.merged ?? (pull.merged_at != null ? true : undefined)
-  if (merged === undefined || pull.draft === undefined) return undefined
-  return { merged, draft: pull.draft, updatedAt: pull.updated_at }
+  if (!pull?.updated_at || !pull.state || pull.draft === undefined)
+    return undefined
+  return { state: pull.state, draft: pull.draft, updatedAt: pull.updated_at }
 }
 
 /** A replayed delivery maps to the same run per Workspace. */
@@ -85,6 +86,7 @@ async function enqueueMirror(input: {
   const installations = await listInstallationsByGithubInstallationId(
     input.installationId,
     input.githubConnectionId,
+    parseEnv(process.env as Record<string, string | undefined>),
   )
   const failures: unknown[] = []
   for (const installation of installations) {
@@ -148,9 +150,10 @@ export async function maybeEnqueueGithubPrMirror(input: {
 
   if (input.eventName === "issue_comment") {
     const parsed = issueCommentPayloadSchema.safeParse(input.payload)
-    // Only comments on merged pull requests reach the mirror.
-    const mergedAt = parsed.data?.issue.pull_request?.merged_at
-    if (!parsed.success || !mergedAt) return
+    // Only comments on closed pull requests (merged or not) reach the mirror.
+    const closedAt =
+      parsed.data?.issue.pull_request && parsed.data.issue.closed_at
+    if (!parsed.success || !closedAt) return
     const version =
       parsed.data.comment?.updated_at ?? parsed.data.comment?.created_at
     await enqueueMirror({
@@ -159,9 +162,9 @@ export async function maybeEnqueueGithubPrMirror(input: {
       repositoryFullName: parsed.data.repository.full_name,
       number: parsed.data.issue.number,
       candidate: {
-        merged: true,
+        state: "closed",
         draft: false,
-        updatedAt: version ?? mergedAt,
+        updatedAt: version ?? closedAt,
       },
       version,
     })

@@ -588,9 +588,9 @@ async function createCtxpipeMcpConfigPullRequestForRepo(input: {
     head: branch,
     base: defaultBranch,
     body: [
-      "This PR adds the [ctx|](https://ctxpipe.ai) remote MCP server so your agents can use your organisation context.",
+      "This PR adds the [ctx|](https://ctxpipe.ai) remote MCP server so your agents can use your organization context.",
       "",
-      `**Organisation slug:** \`${orgSlug}\``,
+      `**Organization slug:** \`${orgSlug}\``,
       `**Agents:** ${agentLabels}`,
       "",
       "**Files**",

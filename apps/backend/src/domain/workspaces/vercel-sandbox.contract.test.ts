@@ -770,18 +770,42 @@ describe("agent snapshot and Workspace base", { timeout: 900_000 }, () => {
       tags: workspaceBaseTags(environment),
       expiration: 0,
     })
-    await bootstrapWorkspace(
-      build.handle,
-      defineWorkspace({
-        // A tiny public repository; the firewall adds the token.
-        source: gitSource({
-          url: "https://github.com/octocat/Hello-World.git",
-          ref: "master",
-          auth: { token: "" },
+    // The stock clone ignores the exit code of `git clone`. A failed clone
+    // left a base with no `.git`, and the test failed later, at the
+    // conversation. The production build checks `git rev-parse HEAD` after
+    // the clone (workspace-sandbox-base.ts); do the same check here. A clone
+    // that fails 3 times is an outside fault: the error tells so.
+    const helloWorld = "https://github.com/octocat/Hello-World.git"
+    let cloned = ""
+    for (let attempt = 1; attempt <= 3 && !cloned; attempt++) {
+      if (attempt > 1) await new Promise((r) => setTimeout(r, 2_000 * attempt))
+      await bootstrapWorkspace(
+        build.handle,
+        defineWorkspace({
+          // A tiny public repository; the firewall adds the token.
+          source: gitSource({
+            url: helloWorld,
+            ref: "master",
+            auth: { token: "" },
+          }),
+          setup: [...WORKSPACE_CHAT_VERCEL_SETUP],
         }),
-        setup: [...WORKSPACE_CHAT_VERCEL_SETUP],
-      }),
-    )
+      )
+      const head = await build.handle.process.exec("git rev-parse HEAD")
+      if (head.exitCode === 0 && head.stdout.trim()) cloned = head.stdout
+      else
+        report(
+          `[vercel] base clone attempt ${attempt} has no commit: ${head.stderr.trim()}`,
+        )
+    }
+    if (!cloned) {
+      const probe = await build.handle.process.exec(
+        `git ls-remote --heads -- ${helloWorld} 2>&1 | tail -n 5`,
+      )
+      throw new Error(
+        `Outside service unavailable: the base builder could not clone ${helloWorld} in 3 attempts: ${probe.stdout.trim() || "no output"}`,
+      )
+    }
     // The builder's internet is open; only GitHub gets a credential.
     expect(await npmReachable(build.handle)).toBe(true)
     report(
@@ -824,7 +848,12 @@ describe("agent snapshot and Workspace base", { timeout: 900_000 }, () => {
     expect(source, "conversation fell back from the base snapshot").toBe(
       snapshotId,
     )
-    expect(await conversation.fs.exists("/workspace/.git")).toBe(true)
+    // The builder had a commit (checked above): a missing clone here means
+    // the snapshot lost files the builder wrote.
+    expect(
+      await conversation.fs.exists("/workspace/.git"),
+      `base snapshot ${snapshotId} lost the builder's clone (HEAD ${cloned.trim()})`,
+    ).toBe(true)
     expect(await conversation.fs.read("/workspace/README")).toContain(
       "Hello World",
     )

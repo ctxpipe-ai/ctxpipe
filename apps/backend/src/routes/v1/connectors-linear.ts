@@ -1324,7 +1324,7 @@ export const linearOauthCallbackRoutes = new OpenAPIHono<AppEnv>().openapi(
       }))
     ) {
       return relayError(
-        "You no longer have permission to connect Linear to this organisation",
+        "You no longer have permission to connect Linear to this organization",
       )
     }
 

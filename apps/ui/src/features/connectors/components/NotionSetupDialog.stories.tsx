@@ -3,7 +3,10 @@ import { HttpResponse, http } from "msw"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 import { notionResourcesHandler } from "@/mocks/notion-handlers"
 import { workspaceListHandler } from "@/mocks/workspace-handlers"
-import { workspaceSourceChangeHandlers } from "@/mocks/workspace-sources-handlers"
+import {
+  connectionUsageHandler,
+  workspaceSourceChangeHandlers,
+} from "@/mocks/workspace-sources-handlers"
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
 import { docsWorkspace } from "../../workspaces/workspace-fixtures"
@@ -273,6 +276,7 @@ const installedHandlers = [
   workspaceListHandler([docsWorkspace]),
   notionResourcesHandler,
   ...workspaceSourceChangeHandlers(addCalls),
+  connectionUsageHandler([]),
 ]
 
 export const AddToWorkspaces: Story = {
@@ -296,8 +300,9 @@ export const AddToWorkspaces: Story = {
       await body.findByRole("checkbox", { name: /Engineering handbook/ }),
     )
     await userEvent.click(add)
+    // The add opened a pull request: the last step is the merge.
     await expect(
-      await body.findByRole("heading", { name: "Notion is connected" }),
+      await body.findByRole("heading", { name: "Merge the pull request" }),
     ).toBeVisible()
     // The sync starts after the merge, so the last step links the pull request.
     await expect(
@@ -324,21 +329,6 @@ export const AddToWorkspaces: Story = {
         },
       },
     ])
-  },
-}
-
-export const SkipWorkspaces: Story = {
-  name: "Skip Workspaces, setup complete",
-  render: () => dialog(),
-  parameters: { msw: { handlers: { page: installedHandlers } } },
-  play: async ({ canvasElement }) => {
-    const body = within(canvasElement.ownerDocument.body)
-    await userEvent.click(
-      await body.findByRole("button", { name: "Skip for now" }),
-    )
-    await expect(
-      await body.findByRole("heading", { name: "Notion is connected" }),
-    ).toBeVisible()
   },
 }
 

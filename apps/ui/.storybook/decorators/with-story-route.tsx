@@ -18,6 +18,8 @@ export type StoryRouteParams =
   | {
       pattern: "flat"
       path: string
+      /** Query string of the first entry, with its leading `?`. */
+      search?: string
       /** More paths that also render the story, so a play can follow a navigation. */
       alsoAt?: string[]
     }
@@ -102,7 +104,9 @@ function createStoryRouter(
     )
     return createRouter({
       routeTree: rootRoute.addChildren([...siblings, ...extra]),
-      history: createMemoryHistory({ initialEntries: [spec.path] }),
+      history: createMemoryHistory({
+        initialEntries: [`${spec.path}${spec.search ?? ""}`],
+      }),
     })
   }
 

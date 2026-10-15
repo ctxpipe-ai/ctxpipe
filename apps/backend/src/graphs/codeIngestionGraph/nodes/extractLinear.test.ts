@@ -139,6 +139,11 @@ describe("renderer round trip", () => {
       teamName: "Backend",
       projectId: "p1",
       projectName: "Auth cleanup",
+      milestoneId: "m1",
+      milestone: "Beta",
+      parentId: "00000000-0001",
+      parent: "ENG-100",
+      relations: [{ type: "blocks", identifier: "ENG-124" }],
       assignee: "Alice Example",
       labels: [{ id: "l1", name: "backend" }],
       createdAt: new Date("2026-03-01T00:00:00.000Z"),
@@ -177,6 +182,9 @@ describe("renderer round trip", () => {
       teamKey: "ENG",
       team: "Backend",
       project: "Auth cleanup",
+      milestone: "Beta",
+      parent: "ENG-100",
+      relations: [{ type: "blocks", identifier: "ENG-124" }],
       labels: ["backend"],
       githubPullRequests: [
         { url: "https://github.com/acme/api/pull/42", state: "merged" },
@@ -282,6 +290,69 @@ describe("extractLinear", () => {
         githubConnectionId: "con_gh",
       }),
     )
+  })
+
+  it("gives an issue without a milestone an empty milestone, so the projection clears an old one", async () => {
+    const { extractedObjects = [] } = await extractLinear(state())
+    expect(
+      extractedObjects.find((object) => object.kind === "Issue")?.payload,
+    ).toMatchObject({ milestone: "" })
+  })
+
+  it("links the parent issue and related issues and keeps the milestone on the Issue", async () => {
+    const original = fixtures[ISSUE_PATH] ?? ""
+    fixtures[ISSUE_PATH] = original.replace(
+      "assignee: Alice Example\n",
+      [
+        "assignee: Alice Example",
+        "milestone: Beta",
+        "milestoneId: m1",
+        "parent: ENG-100",
+        "parentId: p100",
+        "relations:",
+        "  - type: blocks",
+        "    identifier: ENG-124",
+        "  - type: duplicate",
+        "    identifier: OPS-7",
+        "  - type: related",
+        "    identifier: ENG-125",
+        "  - type: related",
+        "    identifier: ENG-124",
+        "  - type: similar",
+        "    identifier: ENG-126",
+        "  - type: unknown-kind",
+        "    identifier: ENG-127",
+        "",
+      ].join("\n"),
+    )
+    try {
+      const { extractedObjects = [], extractedClaims = [] } =
+        await extractLinear(state())
+      expect(
+        extractedObjects.find((object) => object.kind === "Issue")?.payload,
+      ).toMatchObject({ milestone: "Beta" })
+      expect(
+        extractedClaims
+          .filter((claim) => claim.objectKind === "Issue")
+          .filter((claim) => claim.subjectKind === "Issue")
+          .map((claim) => [claim.subjectRef, claim.predicate, claim.objectRef]),
+      ).toEqual([
+        ["iss:linear:ENG-123", "PART_OF", "iss:linear:ENG-100"],
+        ["iss:linear:ENG-124", "DEPENDS_ON", "iss:linear:ENG-123"],
+        ["iss:linear:OPS-7", "SUPERSEDES", "iss:linear:ENG-123"],
+        ["iss:linear:ENG-123", "REFERENCES", "iss:linear:ENG-125"],
+        ["iss:linear:ENG-123", "REFERENCES", "iss:linear:ENG-124"],
+      ])
+      const sourceIds = extractedClaims.map((claim) => claim.sourceId)
+      expect(new Set(sourceIds).size).toBe(sourceIds.length)
+      for (const claim of extractedClaims) {
+        expect(
+          isConventionalEvidenceSourceId(claim.sourceId, "repo_ctx", "abc"),
+        ).toBe(true)
+      }
+    } finally {
+      fixtures[ISSUE_PATH] = original
+    }
   })
 
   it("falls back to a name-scoped pull request key when the repository is not connected", async () => {

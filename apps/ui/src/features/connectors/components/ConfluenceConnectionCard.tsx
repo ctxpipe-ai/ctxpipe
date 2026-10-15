@@ -9,10 +9,7 @@ import {
   getConfluenceCardPrimaryCta,
   getConfluenceCardStepDefs,
 } from "../confluence-setup-model"
-import {
-  formatSelectedItemCount,
-  resolveConnectorHealth,
-} from "../connectorHealth"
+import { resolveConnectorHealth } from "../connectorHealth"
 import {
   atlassianConnectorKeys,
   deleteAtlassianConnector,
@@ -21,10 +18,7 @@ import {
 } from "../queries/atlassian-connector"
 import { orgConnectionsKeys } from "../queries/org-connections"
 import { ConfluenceMark } from "./ConfluenceMark"
-import {
-  ConnectorListItem,
-  formatSyncRepositoryLine,
-} from "./ConnectorListItem"
+import { ConnectorListItem } from "./ConnectorListItem"
 
 type ConfluenceConnectionCardProps = {
   orgSlug: string
@@ -116,23 +110,17 @@ export function ConfluenceConnectionCard({
         onConfirm: () => removeMutation.mutate(),
       }}
       workspace={status?.isLinked ? "Atlassian" : "—"}
-      scope={
-        status?.syncTarget
-          ? formatSelectedItemCount(status.selectedSpaceCount)
-          : "Set in each Workspace"
-      }
-      syncRepository={formatSyncRepositoryLine(status?.syncTarget ?? null)}
       actionLabel={
         isError
           ? "Retry"
-          : isPending || oauthPending || primary.kind === "none"
+          : isPending || oauthPending
             ? undefined
             : primary.label
       }
       onAction={
         isError
           ? () => void refetch()
-          : isPending || oauthPending || primary.kind === "none"
+          : isPending || oauthPending
             ? undefined
             : onOpenWizard
       }

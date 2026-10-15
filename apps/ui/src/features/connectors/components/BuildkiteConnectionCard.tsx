@@ -81,7 +81,6 @@ export function BuildkiteConnectionCard({
         onConfirm: () => removeMutation.mutate(),
       }}
       workspace={connectorDash(status?.organizationSlug)}
-      scope="Set in each Workspace"
       actionLabel={isError ? "Retry" : (actionLabel ?? undefined)}
       onAction={
         isError

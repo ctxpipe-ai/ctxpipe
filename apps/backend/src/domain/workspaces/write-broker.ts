@@ -23,6 +23,7 @@ import {
   findStepCommit,
   IngestRefRefusedError,
   type IngestRemote,
+  listStepFiles,
   type PushIngestStepInput,
   parseIngestRef,
   pushIngestAssemble,
@@ -691,7 +692,12 @@ export async function pushWorkspaceIngestAssemble(
 export async function findWorkspaceStepCommit(
   input: { orgId: string; job: IngestBrokerJob; ref: string; step: string },
   env: Env,
-): Promise<string | null> {
+): Promise<{
+  sha: string
+  ops: number
+  rejects: number
+  more: boolean
+} | null> {
   const target = parseIngestRef(input.ref)
   if (
     target?.runId !== input.job.runId ||
@@ -710,6 +716,33 @@ export async function findWorkspaceStepCommit(
     ref: input.ref,
     runId: input.job.runId,
     step: input.step,
+  })
+}
+
+/**
+ * The paths that each step commit of the job's run wrote, from the pinned
+ * revision to `tip` (read only). The repository-wide steps build the
+ * root-to-file map from it.
+ */
+export async function listWorkspaceIngestStepFiles(
+  input: {
+    orgId: string
+    job: IngestBrokerJob
+    pinnedRevision: string
+    tip: string
+  },
+  env: Env,
+): Promise<Array<{ step: string; paths: string[] }>> {
+  const admitted = await admitIngestJob(
+    input.orgId,
+    input.job.workspaceId,
+    input.job,
+  )
+  return listStepFiles({
+    remote: await ingestReadRemote(input.orgId, admitted, env),
+    runId: input.job.runId,
+    pinnedRevision: input.pinnedRevision,
+    tip: input.tip,
   })
 }
 

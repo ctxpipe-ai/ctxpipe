@@ -26,7 +26,7 @@ describe("API-key client", () => {
     fetchMock.mockReset()
   })
 
-  it("lists only the requested organisation key configuration", async () => {
+  it("lists only the requested organization key configuration", async () => {
     const { listOrganizationApiKeys } = await import("./organizationApiKeys")
     fetchMock.mockResolvedValue(
       jsonResponse({ apiKeys: [{ id: "key_org", name: "ci" }], total: 1 }),
@@ -45,7 +45,7 @@ describe("API-key client", () => {
     )
   })
 
-  it("creates organisation-owned keys and explicitly clears a never expiry", async () => {
+  it("creates organization-owned keys and explicitly clears a never expiry", async () => {
     const { createOrganizationApiKey } = await import("./organizationApiKeys")
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ id: "key_org", key: "secret" }))
@@ -69,7 +69,7 @@ describe("API-key client", () => {
     })
   })
 
-  it("revokes only through the organisation key configuration", async () => {
+  it("revokes only through the organization key configuration", async () => {
     const { deleteOrganizationApiKey } = await import("./organizationApiKeys")
     fetchMock.mockResolvedValue(jsonResponse({ success: true }))
 
@@ -81,7 +81,7 @@ describe("API-key client", () => {
     })
   })
 
-  it("uses the personal key configuration without an organisation id", async () => {
+  it("uses the personal key configuration without an organization id", async () => {
     const { createPersonalApiKey, deletePersonalApiKey, listPersonalApiKeys } =
       await import("./organizationApiKeys")
     fetchMock

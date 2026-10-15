@@ -7,6 +7,7 @@ import { connections } from "../../db/schema/connections.js"
 import { encodeSlackBotTokenForDb } from "../../lib/connection-config.js"
 import { upsertConnectionDirectory } from "../../models/connection-directory.js"
 import { replaceWorkspaceSourceRows } from "../../models/workspace-sources.js"
+import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { slackMentionAgent } from "../../openworkflow/workflows/slack-mention-agent.js"
 import { workspaceConnectorMirror } from "../../openworkflow/workflows/workspace-connector-mirror.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
@@ -28,7 +29,9 @@ it.each([
     await withNativeHydrationFixture(
       {
         // A source write is admitted on the production namespace.
-        ...(mode === "source" ? { namespaceId: "default" } : {}),
+        ...(mode === "source"
+          ? { namespaceId: openWorkflowNamespaceId() }
+          : {}),
         slackCaptureIntent: mode === "intent",
         github: true,
         githubWriteView: "writable",
@@ -225,9 +228,13 @@ it.each([
           if (mode === "source") {
             // The source owns the Workspace repository, so the old binding
             // to the same repository writes nothing (one writer).
+            // The reply links the thread file in the Workspace in the app.
+            const threadLink = expect.stringMatching(
+              /\/ws\/[^/?]+\?pane=file%3Aslack%252Fchannels%252FC0FIX0001%252Fthreads%252F2023%252F11%252F1700000000\.000000%252Fthread\.md$/,
+            )
             expect(result).toMatchObject({
               kind: "captured",
-              workspaceCount: 1,
+              workspaces: [{ url: threadLink }],
               capture: { status: "completed", messageCount: 1 },
             })
             await expect
@@ -268,7 +275,9 @@ it.each([
             ).toMatchObject([
               {
                 body: {
-                  text: "Engineering context captured into 1 Workspace.",
+                  text: expect.stringMatching(
+                    /^Engineering context captured into <[^|]+\?pane=file%3Aslack%252Fchannels%252FC0FIX0001%252F[^|]+\|[^>]+>\.$/,
+                  ),
                 },
               },
             ])

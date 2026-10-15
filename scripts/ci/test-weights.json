@@ -14,8 +14,6 @@
     "src/domain/workspaces/write-extraction-admission-native.contract.test.ts": 3,
     "src/domain/workspaces/write-extraction-retraction-native.contract.test.ts": 18,
     "src/domain/workspaces/write-pause-native.contract.test.ts": 198,
-    "src/mcp/ctx-advisor-runtime-context.integration.test.ts": 4,
-    "src/mcp/ctx-advisor-thread-replay.integration.test.ts": 7,
     "src/models/pagerduty-connector.integration.test.ts": 5,
     "src/openworkflow/defineObservedWorkflow.test.ts": 4,
     "src/openworkflow/workflows/connector-config-native.contract.test.ts": 105,
