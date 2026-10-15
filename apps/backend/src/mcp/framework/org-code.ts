@@ -188,38 +188,90 @@ export async function resolveCodeScope(
 }
 
 /**
- * Zoekt search over the scope in one request. Matches keep the Zoekt order.
- * `literal` quotes the text; `regex` sends it as a Zoekt query (RE2). A
- * rejected query is `invalid_argument`, with no literal retry. A failed
- * request is a retryable `internal` error: Zoekt answers for all
- * repositories at once, so no single repository is at fault.
+ * A path glob as an anchored RE2 expression for the Zoekt `file:` atom. `*`
+ * and `?` stay in one path segment, `**` crosses segments, and `{a,b}` is an
+ * alternative.
+ */
+export function pathGlobRegex(glob: string): string {
+  let out = ""
+  let depth = 0
+  for (let index = 0; index < glob.length; index += 1) {
+    const char = glob[index] as string
+    if (char === "*") {
+      if (glob[index + 1] === "*") {
+        index += 1
+        if (glob[index + 1] === "/") {
+          index += 1
+          out += "(?:.*/)?"
+        } else out += ".*"
+      } else out += "[^/]*"
+    } else if (char === "?") out += "[^/]"
+    else if (char === "{") {
+      depth += 1
+      out += "(?:"
+    } else if (char === "}" && depth > 0) {
+      depth -= 1
+      out += ")"
+    } else if (char === "," && depth > 0) out += "|"
+    else out += char.replace(/[\\^$.|+()[\]{}]/g, "\\$&")
+  }
+  if (depth > 0) {
+    throw new McpToolError("invalid_argument", "pathGlob has an open brace.")
+  }
+  return `^${out}$`
+}
+
+/** One file of a Zoekt answer, with its matching lines. */
+export type CodeFileMatches = {
+  repository: string
+  path: string
+  language: string | null
+  matches: Array<{ line: number | null; snippet: string }>
+}
+
+/**
+ * Zoekt search over the scope in one request. Files keep the Zoekt order,
+ * and `limit` counts files. `literal` quotes the text; `regex` sends it as a
+ * Zoekt query (RE2). `pathGlob` adds a `file:` atom and `caseSensitive` a
+ * `case:` atom. A rejected query is `invalid_argument`, with no literal
+ * retry. A failed request is a retryable `internal` error: Zoekt answers for
+ * all repositories at once, so no single repository is at fault.
  */
 export async function searchCodeText(
   org: CallOrg,
   scope: CodeScope,
-  input: { query: string; mode: "literal" | "regex" } & Budget,
-): Promise<
-  CodeResults<{
-    repository: string
-    path: string
-    line: number | null
-    snippet: string
-  }>
-> {
+  input: {
+    query: string
+    mode: "literal" | "regex"
+    pathGlob?: string
+    caseSensitive?: boolean
+  } & Budget,
+): Promise<CodeResults<CodeFileMatches>> {
   const byZoektId = new Map(
     scope.repositories.map((repository) => [
       repository.zoektRepoId,
       repository.handle,
     ]),
   )
+  const atoms = [
+    ...(input.pathGlob
+      ? [`file:${zoektLiteralQuery(pathGlobRegex(input.pathGlob))}`]
+      : []),
+    ...(input.caseSensitive === undefined
+      ? []
+      : [input.caseSensitive ? "case:yes" : "case:no"]),
+  ]
+  const text =
+    input.mode === "literal"
+      ? zoektLiteralQuery(input.query)
+      : atoms.length > 0
+        ? `(${input.query})`
+        : input.query
   let found: Awaited<ReturnType<typeof codeSearch>> = []
   if (scope.repositories.length > 0) {
     try {
       found = await codeSearch(org.id, {
-        query:
-          input.mode === "literal"
-            ? zoektLiteralQuery(input.query)
-            : input.query,
+        query: [text, ...atoms].join(" "),
         repositories: scope.repositories.map((repository) => ({
           id: repository.repositoryId,
           name: repository.handle,
@@ -244,21 +296,27 @@ export async function searchCodeText(
       | Array<{
           FileName?: string
           RepositoryID?: number
+          Language?: string
           LineMatches?: Array<{ LineNumber?: number; Line?: string }>
         }>
       | undefined) ?? []
-  const matches = files.flatMap((file) => {
+  const matches = files.flatMap((file): CodeFileMatches[] => {
     const repository =
       file.RepositoryID === undefined
         ? undefined
         : byZoektId.get(file.RepositoryID)
     if (!repository || !file.FileName) return []
-    return (file.LineMatches ?? []).map((match) => ({
-      repository,
-      path: file.FileName as string,
-      line: typeof match.LineNumber === "number" ? match.LineNumber : null,
-      snippet: Buffer.from(match.Line ?? "", "base64").toString("utf-8"),
-    }))
+    return [
+      {
+        repository,
+        path: file.FileName,
+        language: file.Language || null,
+        matches: (file.LineMatches ?? []).map((match) => ({
+          line: typeof match.LineNumber === "number" ? match.LineNumber : null,
+          snippet: Buffer.from(match.Line ?? "", "base64").toString("utf-8"),
+        })),
+      },
+    ]
   })
   return capped(matches, scope, scope.skipped, input)
 }
