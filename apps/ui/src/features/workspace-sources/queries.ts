@@ -25,16 +25,9 @@ export type WorkspaceSourceInput = {
   scope: Record<string, unknown>
 }
 
-/** How a change reaches the sources file: a PR (the default) or a direct commit. */
-export type SourceDelivery = "pull_request" | "commit"
-
 /** The toast after a change, true to what happens next. */
-export function sourceChangeMessage(
-  result: WorkspaceSourceChangeResult,
-): string {
-  return result.outcome === "pull_request"
-    ? "Pull request opened. The change applies after the merge."
-    : "Change queued. It appears after the next sync."
+export function sourceChangeMessage(): string {
+  return "Pull request opened. The change applies after the merge."
 }
 
 export const workspaceSourceKeys = {
@@ -137,14 +130,13 @@ export async function createWorkspaceSource(
   orgSlug: string,
   workspaceSlug: string,
   source: WorkspaceSourceInput,
-  delivery: SourceDelivery = "pull_request",
 ): Promise<WorkspaceSourceChangeResult> {
   const client = await getApiClient()
   const res = await client[":orgSlug"].api.v1.workspaces[
     ":workspaceSlug"
   ].sources.$post({
     param: { orgSlug, workspaceSlug },
-    json: { source, delivery },
+    json: { source },
   })
   return readApiJson<WorkspaceSourceChangeResult>(res, {
     message: "Failed to add the source",
@@ -156,14 +148,13 @@ export async function updateWorkspaceSource(
   workspaceSlug: string,
   sourceKey: string,
   source: WorkspaceSourceInput,
-  delivery: SourceDelivery = "pull_request",
 ): Promise<WorkspaceSourceChangeResult> {
   const client = await getApiClient()
   const res = await client[":orgSlug"].api.v1.workspaces[
     ":workspaceSlug"
   ].sources[":sourceKey"].$put({
     param: { orgSlug, workspaceSlug, sourceKey },
-    json: { source, delivery },
+    json: { source },
   })
   return readApiJson<WorkspaceSourceChangeResult>(res, {
     message: "Failed to change the source",
@@ -174,14 +165,13 @@ export async function deleteWorkspaceSource(
   orgSlug: string,
   workspaceSlug: string,
   sourceKey: string,
-  delivery: SourceDelivery = "pull_request",
 ): Promise<WorkspaceSourceChangeResult> {
   const client = await getApiClient()
   const res = await client[":orgSlug"].api.v1.workspaces[
     ":workspaceSlug"
   ].sources[":sourceKey"].$delete({
     param: { orgSlug, workspaceSlug, sourceKey },
-    query: { delivery },
+    query: {},
   })
   return readApiJson<WorkspaceSourceChangeResult>(res, {
     message: "Failed to remove the source",

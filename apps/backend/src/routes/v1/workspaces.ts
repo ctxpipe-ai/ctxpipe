@@ -461,18 +461,16 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
     const workspace = await getWorkspaceBySlug(workspaceSlug)
     if (!workspace) return c.json({ error: "Not found" }, 404)
     const orgId = c.get("orgId")
-    if (orgId && workspace.writeStatus === WORKSPACE_WRITE_STATUSES.read_only) {
-      // "Then refresh" after an admin fix must start a new probe at once.
-      void enqueueWorkspaceTipCheck(orgId, c.get("log"))
-    }
     if (
       orgId &&
-      workspace.writeStatus === WORKSPACE_WRITE_STATUSES.unknown &&
-      !workspace.readOnlyReason
+      (workspace.writeStatus === WORKSPACE_WRITE_STATUSES.read_only ||
+        (workspace.writeStatus === WORKSPACE_WRITE_STATUSES.unknown &&
+          !workspace.readOnlyReason))
     ) {
-      // The UI polls this route while a check runs. Enqueue at most one probe
-      // per org each minute. A failed check (with a reason) waits for an
-      // explicit "Check again".
+      // A read-only Workspace needs a new probe after an admin fix ("Then
+      // refresh"). The UI also polls this route while a check runs. Any caller
+      // can reach this route, so queue at most one probe per org each minute.
+      // A failed check (with a reason) waits for an explicit "Check again".
       void enqueueWorkspaceTipCheck(orgId, c.get("log"), {
         idempotencyKey: `tip-check-on-demand:${orgId}:${Math.floor(Date.now() / 60_000)}`,
       })

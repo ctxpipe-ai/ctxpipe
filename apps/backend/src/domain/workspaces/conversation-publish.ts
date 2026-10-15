@@ -22,6 +22,7 @@ import {
   gitRemoteEnvironment,
   resolveGitRemoteTip,
 } from "../../services/git/clone-tree.js"
+import { parseNameStatus } from "../../services/git/name-status.js"
 import { nativeGit, withGitDirectory } from "../../services/git/pack.js"
 import { compareBranchChanges } from "../../services/github/installation-write-client.js"
 import {
@@ -39,6 +40,7 @@ import {
   UNPUSHED_COMMITS_COMMAND,
 } from "./conversation-files.js"
 import { switchToSessionBranch } from "./conversation-session-branch.js"
+import { addedOwnershipField } from "./host-only.js"
 import type { JobSandboxHandle } from "./job-worktree.js"
 import {
   type BranchChanges,
@@ -119,6 +121,8 @@ export type SessionPublishSkip =
   | "nothing_committed"
   /** The session branch is not on GitHub. */
   | "no_changes"
+  /** The commits add or change `generated_by` or `sources` front matter. */
+  | "host_only_field"
   /** The commits change a file outside the Workspace root folder. */
   | "outside_root"
 
@@ -369,8 +373,16 @@ export async function pushConversationSession(input: {
       dirty,
     }
   } catch (error) {
-    if (error instanceof PublishRefused)
+    if (error instanceof PublishRefused) {
+      // The event holds no path and no file text, because those come from
+      // the agent.
+      log.info({
+        step: "conversation-session-push-refused",
+        reason: error.reason,
+        conversationId: input.conversationId,
+      })
       return { status: "skipped", reason: error.reason, dirty }
+    }
     log.warn({
       step: "conversation-session-push",
       message: error instanceof Error ? error.message : String(error),
@@ -544,6 +556,13 @@ async function brokerPush(input: {
         file: localPack,
       })
       await nativeGit(directory, ["cat-file", "-e", `${sha}^{commit}`])
+      // The check reads the broker's own copy of the objects, not the
+      // sandbox, because the agent controls the sandbox. A change to a
+      // host-only path such as `.ctxpipe/` is allowed: the push reaches only
+      // the session branch, so the change reaches the default branch only
+      // through a pull request that a person merges.
+      if (await addsOwnershipField(directory, packBase, sha))
+        throw new PublishRefused("host_only_field")
       // The agent may change files only below the Workspace root folder.
       const rootPath = workspaceRootPath(revision)
       if (
@@ -606,6 +625,66 @@ async function brokerPush(input: {
   } finally {
     await run(`rm -f -- ${shellSingleQuote(agentPack)}`)
   }
+}
+
+/**
+ * True when a change from `base` to `sha` gives a file an ownership field
+ * that it did not have (CTX-722). Only the host sets these fields, because
+ * they give a file to ingestion. The check reads the net change from `base`
+ * to `sha`, and each commit between them against its first parent, because
+ * the history keeps a change that a later commit removes. A commit with no
+ * parent is compared with the empty tree. A rename compares the file with its
+ * old version, so an agent can move a generated file. The old version of a
+ * file that is not Markdown has no ownership fields, so a rename to Markdown
+ * cannot bring them in.
+ */
+async function addsOwnershipField(
+  directory: string,
+  base: string,
+  sha: string,
+): Promise<boolean> {
+  const emptyTree = async () =>
+    (await nativeGit(directory, ["hash-object", "-t", "tree", "--stdin"], ""))
+      .toString("utf8")
+      .trim()
+  const pairs: Array<[string, string]> = [[base, sha]]
+  const commits = (
+    await nativeGit(directory, ["rev-list", "--parents", `${base}..${sha}`])
+  )
+    .toString("utf8")
+    .split("\n")
+    .filter(Boolean)
+  for (const line of commits) {
+    const [commit = "", parent] = line.split(" ")
+    pairs.push([parent ?? (await emptyTree()), commit])
+  }
+  const blob = async (commit: string, path: string) =>
+    (
+      await nativeGit(directory, ["cat-file", "blob", `${commit}:${path}`])
+    ).toString("utf8")
+  const isMarkdown = (path: string) => /\.md$/i.test(path)
+  for (const [from, to] of pairs) {
+    const changes = parseNameStatus(
+      await nativeGit(directory, [
+        "diff-tree",
+        "-r",
+        "-z",
+        "-M",
+        "--name-status",
+        from,
+        to,
+      ]),
+    )
+    for (const change of changes) {
+      if (change.status.startsWith("D") || !isMarkdown(change.to)) continue
+      const before =
+        change.status.startsWith("A") || !isMarkdown(change.from)
+          ? null
+          : await blob(from, change.from)
+      if (addedOwnershipField(before, await blob(to, change.to))) return true
+    }
+  }
+  return false
 }
 
 function sanitizeCredentials(
