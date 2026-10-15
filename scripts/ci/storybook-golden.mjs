@@ -11,8 +11,8 @@ import { createRequire } from "node:module"
 import { extname, join, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import {
-  requiredStories,
   selectGoldenStories,
+  selectPlayStories,
 } from "./storybook-golden-select.mjs"
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
@@ -88,9 +88,28 @@ const waitFor = async (url) => {
   fail(`Storybook did not become ready at ${url}`)
 }
 
-const goldenStories = (index) => {
+// STORYBOOK_PLAYS=all runs every story that has a play function. The default
+// runs the required golden set. STORYBOOK_SHARD=i/n keeps every n-th story.
+// STORYBOOK_ONLY=a,b keeps stories whose id or file path contains a, or b.
+const mode = process.env.STORYBOOK_PLAYS === "all" ? "all" : "golden"
+
+const chosenStories = (index) => {
   try {
-    return selectGoldenStories(index)
+    const stories =
+      mode === "all" ? selectPlayStories(index) : selectGoldenStories(index)
+    const only = (process.env.STORYBOOK_ONLY ?? "").split(",").filter(Boolean)
+    const filtered = only.length
+      ? stories.filter((story) =>
+          only.some(
+            (part) => story.id.includes(part) || story.importPath.includes(part),
+          ),
+        )
+      : stories
+    const shard = process.env.STORYBOOK_SHARD
+    if (!shard) return filtered
+    const [at, count] = shard.split("/").map(Number)
+    if (!(at >= 1 && at <= count)) fail(`Bad STORYBOOK_SHARD ${shard}`)
+    return filtered.filter((_, position) => position % count === at - 1)
   } catch (error) {
     fail(error.message)
   }
@@ -137,7 +156,7 @@ try {
   const output = resolve(
     root,
     process.env.CI_TEST_RESULTS_DIR ?? ".ci-results",
-    "storybook-golden",
+    mode === "all" ? "storybook-plays" : "storybook-golden",
   )
   mkdirSync(output, { recursive: true })
   const report = join(output, "results.json")
@@ -155,7 +174,7 @@ try {
   const storybookUrl =
     url ?? `http://127.0.0.1:${process.env.STORYBOOK_PORT ?? 6007}`
   await waitFor(`${storybookUrl}/index.json`)
-  const stories = goldenStories(
+  const stories = chosenStories(
     await (await fetch(`${storybookUrl}/index.json`)).json(),
   )
   const { chromium } = createRequire(join(ui, "package.json"))("playwright")
@@ -224,7 +243,7 @@ try {
     server.close(resolveClose)
   })
   const results = {
-    numTotalTests: requiredStories.length,
+    numTotalTests: stories.length,
     numPassedTests: passed,
     numFailedTests: failed,
     numPendingTests: 0,

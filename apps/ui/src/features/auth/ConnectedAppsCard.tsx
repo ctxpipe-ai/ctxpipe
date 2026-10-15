@@ -155,8 +155,8 @@ export function ConnectedAppsCard() {
                   </div>
                   {/* The two buttons of a loaded row: Edit organizations, Revoke. */}
                   <div className="flex shrink-0 items-center gap-2">
-                    <Skeleton className="h-9 w-39 shrink-0 rounded-md" />
-                    <Skeleton className="h-9 w-25 shrink-0 rounded-md" />
+                    <Skeleton className="h-9 w-36 shrink-0 rounded-md" />
+                    <Skeleton className="h-9 w-[101px] shrink-0 rounded-md" />
                   </div>
                 </div>
               ))}

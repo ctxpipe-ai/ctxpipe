@@ -179,3 +179,12 @@ export function selectGoldenStories(index) {
     return story
   })
 }
+
+// Every story with a play function, sorted by id so shards stay stable.
+export function selectPlayStories(index) {
+  return Object.values(index.entries ?? {})
+    .filter(
+      (entry) => entry.type === "story" && (entry.tags ?? []).includes("play-fn"),
+    )
+    .sort((a, b) => (a.id < b.id ? -1 : 1))
+}
