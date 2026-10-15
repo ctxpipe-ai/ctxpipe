@@ -1,9 +1,9 @@
-import { isScalar, isSeq } from "yaml"
+import { isDeepStrictEqual } from "node:util"
 import { updateKnowledgeMetadata } from "../workspaces/knowledge-metadata.js"
+import { githubSourceScopeRepositories } from "./providers/github.js"
 import {
   checkSourcePath,
   githubSourcePath,
-  SOURCE_FILES_FOLDER,
   type SourceFile,
   sourcePathFor,
 } from "./source-file.js"
@@ -64,37 +64,61 @@ export function assertSourceChangeShape(change: SourceChange): void {
   if (change.action === "rename") checkedPath(change.newPath)
 }
 
-function githubRepository(scope: Record<string, unknown>): string | null {
-  return typeof scope.repository === "string"
-    ? scope.repository.toLowerCase()
-    : null
+/**
+ * One source of the Workspace: a projected `workspace_sources` row (its key
+ * is the path of a source file, or the id of a legacy YAML entry), or a
+ * source file.
+ */
+export type KnownSource = {
+  path: string
+  provider: string | null
+  scope: unknown
 }
 
-/** The repository (lowercase) that each GitHub file links, by path. */
-function linkedRepositories(files: ReadonlyArray<RepoFile>) {
-  const linked = new Map<string, string>()
-  for (const file of files) {
-    const parsed = parseSourceFile(file.path, file.content)
-    if (!parsed.ok || parsed.source.provider !== "github") continue
-    const repository = githubRepository(parsed.source.scope)
-    if (repository) linked.set(file.path, repository)
-  }
-  return linked
-}
-
-function assertRepositoryFree(
+/** The known sources: the projected rows, then each parsed file in `files`. */
+function knownSources(
   files: ReadonlyArray<RepoFile>,
+  sources: ReadonlyArray<KnownSource>,
+): KnownSource[] {
+  return [
+    ...sources,
+    ...files.flatMap((file) => {
+      const parsed = parseSourceFile(file.path, file.content)
+      return parsed.ok
+        ? [
+            {
+              path: file.path,
+              provider: parsed.source.provider,
+              scope: parsed.source.scope,
+            },
+          ]
+        : []
+    }),
+  ]
+}
+
+/** Refuse (409) a GitHub repository that another source already links. */
+function assertRepositoryFree(
+  known: ReadonlyArray<KnownSource>,
   scope: Record<string, unknown>,
   except?: string,
 ) {
-  const repository = githubRepository(scope)
-  if (!repository) return
-  for (const [path, linked] of linkedRepositories(files))
-    if (linked === repository && path !== except)
+  const wanted = new Set(
+    githubSourceScopeRepositories(scope).map(({ name }) => name.toLowerCase()),
+  )
+  if (!wanted.size) return
+  for (const source of known) {
+    if (source.provider !== "github" || source.path === except) continue
+    if (
+      githubSourceScopeRepositories(source.scope).some(({ name }) =>
+        wanted.has(name.toLowerCase()),
+      )
+    )
       throw new SourceChangeError(
         409,
-        `The repository is already a source in ${path}`,
+        `The repository is already a source in ${source.path}`,
       )
+  }
 }
 
 /** Render a source file and check that it parses (400 with the reason when not). */
@@ -116,8 +140,8 @@ function bodyOf(description: string | undefined): string {
   return text ? `${text}\n` : ""
 }
 
-/** A new path for an add without a path. */
-function newPath(
+/** The path of a new file for an add without a path. */
+export function sourceAddPath(
   change: Extract<SourceChange, { action: "add" }>,
   taken: ReadonlySet<string>,
 ): string {
@@ -132,43 +156,35 @@ function newPath(
 }
 
 /**
- * Change the `sources` list of a unit file: `from` becomes `to`. Returns the
- * new text, or null when the file does not name `from`. The rest of the file
- * stays as it is.
+ * Change the front matter of `content` to `source` with the YAML Document API:
+ * a key that keeps its value keeps its comments and its place.
  */
-function renameInUnit(content: string, from: string, to: string) {
-  if (!content.includes(from)) return null
-  let changed = false
-  let text: string
-  try {
-    text = updateKnowledgeMetadata(content, (document) => {
-      const list = document.get("sources", true)
-      if (!isSeq(list)) return
-      for (const item of list.items)
-        if (isScalar(item) && item.value === from) {
-          item.value = to
-          changed = true
-        }
-    })
-  } catch {
-    // A unit with malformed front matter is not ours to change.
-    return null
+function editFrontMatter(content: string, source: SourceFile): string {
+  const wanted: Record<string, unknown> = {
+    connection: source.connectionId,
+    ...source.scope,
   }
-  return changed ? text : null
+  return updateKnowledgeMetadata(content, (document) => {
+    const current: Record<string, unknown> = document.toJSON() ?? {}
+    for (const key of Object.keys(current))
+      if (key !== "provider" && !(key in wanted)) document.delete(key)
+    for (const [key, value] of Object.entries(wanted))
+      if (!isDeepStrictEqual(current[key], value)) document.set(key, value)
+  })
 }
 
 /**
- * Apply one change to the source files. `files` are the files under
- * `sources/`. The result is the files to write and the paths to delete, for
- * one commit. A rename also moves `from` to `to` in the `sources` list of
- * each file in `unitFiles` (the Markdown files outside `sources/`).
- * Nothing here reads or writes git.
+ * Apply one change to the source files. `files` are the source files that
+ * the change reads (with their text); `sources` are the other sources of the
+ * Workspace (the projected rows), for the path and repository checks. The
+ * result is the files to write and the paths to delete, for one commit. A
+ * rename is one move of the file. Nothing here reads or writes git.
  */
 export function applySourceFileChange(input: {
   files: ReadonlyArray<RepoFile>
-  unitFiles?: ReadonlyArray<RepoFile>
+  sources?: ReadonlyArray<KnownSource>
   change: SourceChange
-  /** Paths that an open pull request changes; a new file must not use one. */
+  /** Paths that an open pull request changes; a new path must not use one. */
   reservedPaths?: ReadonlySet<string>
 }): {
   writes: RepoFile[]
@@ -180,25 +196,34 @@ export function applySourceFileChange(input: {
 } {
   const { change, files } = input
   const reservedPaths = input.reservedPaths ?? new Set<string>()
+  const known = knownSources(files, input.sources ?? [])
   const byPath = new Map(files.map((file) => [file.path, file.content]))
-
-  if (change.action === "add") {
-    const taken = new Set([...byPath.keys(), ...reservedPaths])
-    const path = change.path ?? newPath(change, taken)
-    const provider = checkedPath(path)
-    if (provider !== change.provider)
-      throw new SourceChangeError(
-        400,
-        `The path is in the ${provider} folder, but the provider is ${change.provider}`,
-      )
-    if (byPath.has(path))
+  const taken = new Set([
+    ...known.map((source) => source.path),
+    ...byPath.keys(),
+  ])
+  const assertFree = (path: string) => {
+    if (taken.has(path))
       throw new SourceChangeError(409, `A source exists at ${path}`)
     if (reservedPaths.has(path))
       throw new SourceChangeError(
         409,
         `An open pull request changes ${path}. Merge or close it first.`,
       )
-    assertRepositoryFree(files, change.scope)
+  }
+
+  if (change.action === "add") {
+    const path =
+      change.path ??
+      sourceAddPath(change, new Set([...taken, ...reservedPaths]))
+    const provider = checkedPath(path)
+    if (provider !== change.provider)
+      throw new SourceChangeError(
+        400,
+        `The path is in the ${provider} folder, but the provider is ${change.provider}`,
+      )
+    assertFree(path)
+    assertRepositoryFree(known, change.scope)
     const content = renderChecked(
       {
         path,
@@ -231,18 +256,23 @@ export function applySourceFileChange(input: {
         409,
         `The file cannot be read: ${parsed.detail}. Fix it in git first.`,
       )
-    assertRepositoryFree(files, change.scope, change.path)
-    const content = renderChecked(
-      {
-        path: change.path,
-        provider,
-        connectionId: change.connectionId,
-        scope: change.scope,
-      },
+    assertRepositoryFree(known, change.scope, change.path)
+    const source = {
+      path: change.path,
+      provider,
+      connectionId: change.connectionId,
+      scope: change.scope,
+    }
+    // Check the scope as a full render, then keep the comments of the file.
+    renderChecked(source, "")
+    const edited = editFrontMatter(current, source)
+    const content =
       change.description === undefined
-        ? parsed.body
-        : bodyOf(change.description),
-    )
+        ? edited
+        : edited.slice(0, edited.length - parsed.body.length) +
+          bodyOf(change.description)
+    const reparsed = parseSourceFile(change.path, content)
+    if (!reparsed.ok) throw new SourceChangeError(400, reparsed.detail)
     return {
       writes: [{ path: change.path, content }],
       deletes: [],
@@ -259,15 +289,9 @@ export function applySourceFileChange(input: {
     )
   if (change.newPath === change.path)
     throw new SourceChangeError(400, "The new path is the old path")
-  if (byPath.has(change.newPath) || reservedPaths.has(change.newPath))
-    throw new SourceChangeError(409, `A source exists at ${change.newPath}`)
-  const units = (input.unitFiles ?? []).flatMap((file) => {
-    if (file.path.startsWith(`${SOURCE_FILES_FOLDER}/`)) return []
-    const content = renameInUnit(file.content, change.path, change.newPath)
-    return content === null ? [] : [{ path: file.path, content }]
-  })
+  assertFree(change.newPath)
   return {
-    writes: [{ path: change.newPath, content: current }, ...units],
+    writes: [{ path: change.newPath, content: current }],
     deletes: [change.path],
     path: change.newPath,
     provider,

@@ -6,12 +6,14 @@ import {
 } from "../../domain/workspace-sources/edit.js"
 import { requestConnectionSourcesSync } from "../../domain/workspace-sources/enqueue.js"
 import {
+  addWorkspaceSources,
   changeWorkspaceSource,
   listConnectionUsage,
   listWorkspaceSources,
 } from "../../domain/workspace-sources/service.js"
 import { getWorkspaceBySlug } from "../../models/workspaces.js"
 import {
+  batchCreateWorkspaceSourcesRoute,
   createWorkspaceSourceRoute,
   deleteWorkspaceSourceRoute,
   listConnectionWorkspacesRoute,
@@ -38,6 +40,23 @@ async function applyChange(
   }
 }
 
+async function applyBatch(
+  workspaceSlug: string,
+  changes: Array<Extract<SourceChange, { action: "add" }>>,
+  delivery: "pull_request" | "commit",
+) {
+  const workspace = await getWorkspaceBySlug(workspaceSlug)
+  if (!workspace) return { status: 404 as const, error: "Not found" }
+  try {
+    const result = await addWorkspaceSources({ workspace, changes, delivery })
+    return { status: 200 as const, result }
+  } catch (error) {
+    if (error instanceof SourceChangeError)
+      return { status: error.status, error: error.message }
+    throw error
+  }
+}
+
 export const workspaceSourcesRoutes = new OpenAPIHono<AppEnv>()
   .openapi(listWorkspaceSourcesRoute, async (c) => {
     if (!c.get("user") || !c.get("session"))
@@ -55,6 +74,22 @@ export const workspaceSourcesRoutes = new OpenAPIHono<AppEnv>()
     const out = await applyChange(
       c.req.valid("param").workspaceSlug,
       { action: "add", path: body.path, ...body.source },
+      body.delivery,
+    )
+    if (out.status === 200) return c.json(out.result, 200)
+    return c.json({ error: out.error }, out.status)
+  })
+  .openapi(batchCreateWorkspaceSourcesRoute, async (c) => {
+    if (!c.get("user") || !c.get("session"))
+      return c.json({ error: "Unauthorized" }, 401)
+    const body = c.req.valid("json")
+    const out = await applyBatch(
+      c.req.valid("param").workspaceSlug,
+      body.sources.map((item) => ({
+        action: "add" as const,
+        path: item.path,
+        ...item.source,
+      })),
       body.delivery,
     )
     if (out.status === 200) return c.json(out.result, 200)

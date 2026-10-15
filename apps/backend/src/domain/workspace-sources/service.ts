@@ -1,4 +1,7 @@
+import { randomBytes } from "node:crypto"
 import { requireCurrentOrgId } from "../../auth/context.js"
+import { parseEnv } from "../../config/env.js"
+import { getRepoReadCloneToken } from "../../models/github-installation.js"
 import { listOrgConnections } from "../../models/org-connections.js"
 import {
   listConnectionSourceRows,
@@ -15,13 +18,14 @@ import { getLogger } from "../../observability/logger.js"
 import { enqueueWorkspaceWriteCommit } from "../../openworkflow/enqueue-workspace-write-commit.js"
 import type {
   ConnectionUsageResponse,
+  WorkspaceSourceBatchResult,
   WorkspaceSourceChangeResult,
   WorkspaceSourceListResponse,
 } from "../../routes/v1/workspace-sources-contract.js"
+import { listMarkdownFilesAtGitSha } from "../../services/git/clone-tree.js"
 import {
   createPullRequestWithFiles,
   getFileContent,
-  listFilesInTree,
   listOpenPullRequestsByBranchPrefix,
 } from "../../services/github/installation-write-client.js"
 import { workspaceAllowsConversationEdits } from "../workspaces/chat-sandbox-policy.js"
@@ -32,10 +36,17 @@ import {
   assertSourceChangeShape,
   type SourceChange,
   SourceChangeError,
+  sourceAddPath,
 } from "./edit.js"
 import { FILE_ERROR_SOURCE_KEY } from "./projection-plan.js"
 import { workspaceGithubRepository } from "./repository.js"
-import { checkSourcePath, SOURCE_FILES_FOLDER } from "./source-file.js"
+import {
+  checkSourcePath,
+  SOURCE_FILE_MAX_BYTES,
+  SOURCE_FILES_FOLDER,
+} from "./source-file.js"
+import { parseSourceFile } from "./source-file-text.js"
+import { SOURCES_FOLDER_PREFIX } from "./source-tree.js"
 import {
   SOURCE_SCOPES,
   type SourceProvider,
@@ -45,16 +56,34 @@ import {
 import { overlaySourceStatus } from "./status-overlay.js"
 
 /**
- * Source PR branches: `ctxpipe/sources/<action>/<provider>/<name>-<ms>`.
- * `<name>` is the source path without `sources/<provider>/` and `.md`, with
- * `+` for each `/` (a path segment never has `+`). A rename names the old path.
+ * Source PR branches: `ctxpipe/sources/<action>/<name>/<suffix>`. `<name>` is
+ * the source path without `sources/` and `.md` (for example
+ * `github/acme/web`). A rename names both paths: `<old>/_to_/<new>`. A path
+ * segment never starts with `_`, so `_to_` cannot be a segment. `<suffix>` is
+ * the time and a random part, so two requests never share a branch.
  */
 const SOURCE_BRANCH_PREFIX = "ctxpipe/sources/"
 const SOURCE_BRANCH =
-  /^ctxpipe\/sources\/(add|edit|rename|remove)\/([a-z]+)\/(.+)-\d+$/
+  /^ctxpipe\/sources\/(add|edit|rename|remove)\/(.+)\/[a-z0-9]+-[a-f0-9]+$/
+const RENAME_SEPARATOR = "/_to_/"
+/** A batch add names each path in one branch: `<a>/_and_/<b>`. */
+const BATCH_SEPARATOR = "/_and_/"
 
 function branchNameOf(path: string): string {
-  return path.split("/").slice(2).join("+").replace(/\.md$/, "")
+  return path.slice(`${SOURCE_FILES_FOLDER}/`.length, -".md".length)
+}
+
+function pathOfBranchName(name: string): string {
+  return `${SOURCE_FILES_FOLDER}/${name}.md`
+}
+
+function sourceBranch(change: SourceChange, paths: string[]): string {
+  const name =
+    change.action === "rename"
+      ? `${branchNameOf(change.path)}${RENAME_SEPARATOR}${branchNameOf(change.newPath)}`
+      : paths.map(branchNameOf).join(BATCH_SEPARATOR)
+  const suffix = `${Date.now().toString(36)}-${randomBytes(4).toString("hex")}`
+  return `${SOURCE_BRANCH_PREFIX}${change.action}/${name}/${suffix}`
 }
 
 function scopeSummary(row: WorkspaceSourceRow): string {
@@ -95,17 +124,28 @@ async function pendingChanges(
     })
     return pulls.flatMap((pull) => {
       const match = SOURCE_BRANCH.exec(pull.branch)
-      const provider = sourceProviderSchema.safeParse(match?.[2])
-      if (!match || !provider.success) return []
-      return [
-        {
-          path: `${SOURCE_FILES_FOLDER}/${provider.data}/${(match[3] ?? "").replaceAll("+", "/")}.md`,
-          provider: provider.data,
-          action: match[1] as "add" | "edit" | "rename" | "remove",
-          pullRequestUrl: pull.pullUrl,
-          createdAt: pull.createdAt,
-        },
-      ]
+      if (!match) return []
+      const action = match[1] as "add" | "edit" | "rename" | "remove"
+      const name = match[2] ?? ""
+      // A batch add has one branch for several paths: one entry for each.
+      const parts = action === "add" ? name.split(BATCH_SEPARATOR) : [name]
+      return parts.flatMap((part) => {
+        const [from, to] = part.split(RENAME_SEPARATOR)
+        const path = pathOfBranchName(from ?? "")
+        const checked = checkSourcePath(path)
+        if (!checked.ok) return []
+        return [
+          {
+            path,
+            // The new path of a rename: an add must not take it.
+            ...(to ? { newPath: pathOfBranchName(to) } : {}),
+            provider: checked.provider,
+            action,
+            pullRequestUrl: pull.pullUrl,
+            createdAt: pull.createdAt,
+          },
+        ]
+      })
     })
   } catch (error) {
     // The list still shows the projection when GitHub cannot answer.
@@ -134,6 +174,51 @@ function stillApplies(
     : sourcePaths.has(change.path)
 }
 
+/**
+ * The body of each source file at the served revision, by path: one tree read
+ * of `sources/` from git. A file over the size limit has no body here. The
+ * list still answers without bodies when git cannot be read.
+ */
+async function readSourceBodies(
+  workspace: WorkspaceRecord,
+  revision: string | undefined,
+): Promise<Map<string, string>> {
+  const bodies = new Map<string, string>()
+  if (!revision) return bodies
+  try {
+    const env = parseEnv(process.env)
+    const repository = workspaceGithubRepository(workspace, env)
+    // The list runs inside the org transaction, so this reads the credential
+    // without `resolveRepositoryReadCredential`, which refuses that.
+    const token = repository
+      ? await getRepoReadCloneToken(workspace.orgId, env, {
+          repoFullName: repository.repositoryName,
+          githubConnectionId: repository.githubConnectionId,
+        })
+      : undefined
+    const files = await listMarkdownFilesAtGitSha({
+      url: workspace.workspaceRepositoryUrl,
+      sha: revision,
+      extraFolders: [SOURCES_FOLDER_PREFIX],
+      token,
+    })
+    for (const file of files) {
+      if (!file.path.startsWith(SOURCES_FOLDER_PREFIX)) continue
+      if (Buffer.byteLength(file.content) > SOURCE_FILE_MAX_BYTES) continue
+      const parsed = parseSourceFile(file.path, file.content)
+      const body = parsed.ok ? parsed.body.trim() : ""
+      if (body) bodies.set(file.path, body)
+    }
+  } catch (error) {
+    getLogger().warn("Could not read the source file bodies", {
+      step: "workspace_sources.read_bodies",
+      workspaceId: workspace.id,
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
+  return bodies
+}
+
 export async function listWorkspaceSources(
   workspace: WorkspaceRecord,
 ): Promise<WorkspaceSourceListResponse> {
@@ -153,6 +238,7 @@ export async function listWorkspaceSources(
     connectionIds: new Set(names.keys()),
     adapters: SOURCE_ADAPTERS,
   })
+  const bodies = await readSourceBodies(workspace, rows[0]?.revision)
   const fileRow = rows.find((row) => row.sourceKey === FILE_ERROR_SOURCE_KEY)
   const sourcePaths = new Set(projected.map((row) => row.sourceKey))
   return {
@@ -172,6 +258,9 @@ export async function listWorkspaceSources(
         scopeSummary: scopeSummary(row),
         status: row.status,
         statusDetail: row.statusDetail,
+        ...(bodies.has(row.sourceKey)
+          ? { description: bodies.get(row.sourceKey) }
+          : {}),
         // A row of a legacy entry or of a repository file has no source
         // file that a remove can name.
         removable: checkSourcePath(row.sourceKey).ok,
@@ -179,9 +268,9 @@ export async function listWorkspaceSources(
         updatedAt: row.updatedAt.toISOString(),
       })),
     ...editPolicy(workspace),
-    pendingChanges: (await pendingChanges(workspace)).filter((change) =>
-      stillApplies(change, sourcePaths),
-    ),
+    pendingChanges: (await pendingChanges(workspace))
+      .filter((change) => stillApplies(change, sourcePaths))
+      .map(({ newPath: _newPath, ...change }) => change),
     linkErrors: (await listRefusedLinkEdits(workspace.id)).map((edit) => ({
       ...edit,
       failedAt: edit.failedAt.toISOString(),
@@ -207,43 +296,11 @@ async function assertConnection(
     )
 }
 
-/** Read each file of `paths` from the default branch, a few at a time. */
-async function readFiles(
-  repository: NonNullable<ReturnType<typeof workspaceGithubRepository>>,
-  paths: readonly string[],
+/** The connected repository, after the read-only and delivery checks. */
+function assertCanDeliver(
+  workspace: WorkspaceRecord,
+  delivery: "pull_request" | "commit",
 ) {
-  const files: Array<{ path: string; content: string }> = []
-  for (let start = 0; start < paths.length; start += 8) {
-    const batch = await Promise.all(
-      paths.slice(start, start + 8).map(async (path) => ({
-        path,
-        content: await getFileContent({ ...repository, path }),
-      })),
-    )
-    for (const file of batch)
-      if (file.content !== undefined)
-        files.push({ path: file.path, content: file.content })
-  }
-  return files
-}
-
-/** The most Markdown files that a rename reads to change their `sources` lists. */
-const RENAME_MAX_UNIT_FILES = 2000
-
-/**
- * Change one file under `sources/` on the Workspace default branch: by a PR
- * (awaiting merge) or by a queued direct commit. A rename also changes the
- * `sources` list of each unit that names the old path, in the same commit.
- * The projection follows the files when the change lands; nothing here
- * writes `workspace_sources`.
- */
-export async function changeWorkspaceSource(input: {
-  workspace: WorkspaceRecord
-  change: SourceChange
-  delivery: "pull_request" | "commit"
-}): Promise<WorkspaceSourceChangeResult> {
-  const { workspace, change } = input
-  assertSourceChangeShape(change)
   const repository = workspaceGithubRepository(workspace)
   if (!repository)
     throw new SourceChangeError(
@@ -253,60 +310,71 @@ export async function changeWorkspaceSource(input: {
   const policy = editPolicy(workspace)
   if (!policy.canEdit)
     throw new SourceChangeError(409, "This Workspace is read-only")
-  if (input.delivery === "commit" && !policy.directCommitAllowed)
+  if (delivery === "commit" && !policy.directCommitAllowed)
     throw new SourceChangeError(
       409,
       "This Workspace does not accept a direct commit. Use a pull request.",
     )
-  if (change.action === "add" || change.action === "edit")
-    await assertConnection(
-      workspace.orgId,
-      change.provider,
-      change.connectionId,
-    )
-  const tree = await listFilesInTree(repository)
-  const files = await readFiles(
-    repository,
-    tree
-      .map((file) => file.path)
-      .filter((path) => path.startsWith(`${SOURCE_FILES_FOLDER}/`)),
-  )
-  let unitFiles: typeof files = []
-  if (change.action === "rename") {
-    const unitPaths = tree
-      .map((file) => file.path)
-      .filter(
-        (path) =>
-          path.endsWith(".md") && !path.startsWith(`${SOURCE_FILES_FOLDER}/`),
-      )
-    if (unitPaths.length > RENAME_MAX_UNIT_FILES)
-      throw new SourceChangeError(
-        409,
-        "This Workspace has too many files to rename a source here. Rename it in git.",
-      )
-    unitFiles = await readFiles(repository, unitPaths)
-  }
-  // A new path must also be free of every open source pull request: an open
-  // "remove linear" would otherwise remove a new "linear" when it merges.
-  const reservedPaths =
-    change.action === "add"
-      ? new Set((await pendingChanges(workspace)).map((pull) => pull.path))
-      : undefined
-  const next = applySourceFileChange({
-    files,
-    unitFiles,
-    change,
-    reservedPaths,
-  })
+  return repository
+}
 
+/** The projected sources of the Workspace, as the change checks read them. */
+async function projectedSources(workspace: WorkspaceRecord) {
+  return (
+    await listWorkspaceSourceRows({
+      orgId: workspace.orgId,
+      workspaceId: workspace.id,
+    })
+  )
+    .filter((row) => row.sourceKey !== FILE_ERROR_SOURCE_KEY)
+    .map((row) => ({
+      path: row.sourceKey,
+      provider: row.provider,
+      scope: row.scope,
+    }))
+}
+
+/** Read the named files from the default branch (git is the truth, not the projection). */
+async function readSourceFiles(
+  repository: NonNullable<ReturnType<typeof workspaceGithubRepository>>,
+  paths: string[],
+) {
+  return (
+    await Promise.all(
+      paths.map(async (path) => ({
+        path,
+        content: await getFileContent({ ...repository, path }),
+      })),
+    )
+  ).flatMap(({ path, content }) =>
+    content === undefined ? [] : [{ path, content }],
+  )
+}
+
+/** Commit the files by a queued direct commit or by one pull request. */
+async function deliverSourceFiles(input: {
+  workspace: WorkspaceRecord
+  repository: NonNullable<ReturnType<typeof workspaceGithubRepository>>
+  delivery: "pull_request" | "commit"
+  change: SourceChange
+  writes: Array<{ path: string; content: string }>
+  deletes: string[]
+  /** The paths that the change adds, changes, or removes. */
+  paths: string[]
+  provider: SourceProvider
+}): Promise<
+  | { outcome: "commit_queued" }
+  | { outcome: "pull_request"; pullRequestUrl: string }
+> {
+  const { workspace, change } = input
   if (input.delivery === "commit") {
     const admitted = await enqueueWorkspaceWriteCommit(
       {
         orgId: workspace.orgId,
         workspaceId: workspace.id,
         kind: "ui_file_edit",
-        mergeFiles: next.writes,
-        mergeDeletePaths: next.deletes,
+        mergeFiles: input.writes,
+        mergeDeletePaths: input.deletes,
       },
       getLogger(),
     )
@@ -315,36 +383,183 @@ export async function changeWorkspaceSource(input: {
         409,
         "The commit could not be queued. Refresh the Workspace and try again.",
       )
-    return { outcome: "commit_queued", path: next.path }
+    return { outcome: "commit_queued" }
   }
-
   const verb = {
     add: "Add",
     edit: "Change",
     rename: "Rename",
     remove: "Remove",
   }[change.action]
-  const label = SOURCE_SCOPES[next.provider].label
-  // The branch names the path that a pull request changes: for a rename, the old one.
-  const branchPath = change.action === "rename" ? change.path : next.path
+  const label = SOURCE_SCOPES[input.provider].label
+  const many = input.paths.length > 1
+  const subject = many
+    ? `${input.paths.length} sources`
+    : `the ${label} source "${input.paths[0]}"`
   // `branch` is the default branch. For createPullRequestWithFiles, `branch`
   // is the head of the pull request, so do not pass it.
-  const { branch: baseBranch, ...target } = repository
+  const { branch: baseBranch, ...target } = input.repository
   const pull = await createPullRequestWithFiles({
     ...target,
     baseBranch,
-    featureBranchPrefix: `${SOURCE_BRANCH_PREFIX}${change.action}/${next.provider}/${branchNameOf(branchPath)}`,
-    title: `${verb} the ${label} source "${next.path}"`,
-    body: `ctx| changes \`${next.path}\`. When you merge this pull request, the Workspace syncs the new sources.`,
-    commitMessage: `${verb} the ${next.path} source`,
-    files: next.writes,
-    deletePaths: next.deletes,
+    branch: sourceBranch(change, input.paths),
+    requireNewBranch: true,
+    title: `${verb} ${subject}`,
+    body: `ctx| changes ${input.paths.map((path) => `\`${path}\``).join(", ")}. When you merge this pull request, the Workspace syncs the new sources.`,
+    commitMessage: many
+      ? `${verb} ${input.paths.length} sources`
+      : `${verb} the ${input.paths[0]} source`,
+    files: input.writes,
+    deletePaths: input.deletes,
   })
-  return {
-    outcome: "pull_request",
-    path: next.path,
-    pullRequestUrl: pull.pullUrl,
+  return { outcome: "pull_request", pullRequestUrl: pull.pullUrl }
+}
+
+/** A new path must be free of every open source pull request. */
+async function reservedPathsOf(workspace: WorkspaceRecord) {
+  // An open "remove linear" would otherwise remove a new "linear" when it merges.
+  return new Set(
+    (await pendingChanges(workspace)).flatMap((pull) =>
+      pull.newPath ? [pull.path, pull.newPath] : [pull.path],
+    ),
+  )
+}
+
+/**
+ * Change one file under `sources/` on the Workspace default branch: by a PR
+ * (awaiting merge) or by a queued direct commit. A rename is one move of the
+ * file; the hydrate of the new revision changes the `sources` list of each
+ * unit that names the old path. The checks read the projected sources and
+ * only the files that the change names. The projection follows the files
+ * when the change lands; nothing here writes `workspace_sources`.
+ */
+export async function changeWorkspaceSource(input: {
+  workspace: WorkspaceRecord
+  change: SourceChange
+  delivery: "pull_request" | "commit"
+}): Promise<WorkspaceSourceChangeResult> {
+  const { workspace, change } = input
+  assertSourceChangeShape(change)
+  const repository = assertCanDeliver(workspace, input.delivery)
+  if (change.action === "add" || change.action === "edit")
+    await assertConnection(
+      workspace.orgId,
+      change.provider,
+      change.connectionId,
+    )
+  const sources = await projectedSources(workspace)
+  const reservedPaths =
+    change.action === "add" || change.action === "rename"
+      ? await reservedPathsOf(workspace)
+      : undefined
+  // Read only the files that the change names, from the default branch: the
+  // projection can be behind git.
+  const paths =
+    change.action === "add"
+      ? [
+          change.path ??
+            sourceAddPath(
+              change,
+              new Set([
+                ...sources.map((source) => source.path),
+                ...(reservedPaths ?? []),
+              ]),
+            ),
+        ]
+      : change.action === "rename"
+        ? [change.path, change.newPath]
+        : [change.path]
+  const files = await readSourceFiles(repository, paths)
+  const next = applySourceFileChange({
+    files,
+    // Git is the truth for each path that the change reads.
+    sources: sources.filter((source) => !paths.includes(source.path)),
+    change: change.action === "add" ? { ...change, path: paths[0] } : change,
+    reservedPaths,
+  })
+  const delivered = await deliverSourceFiles({
+    workspace,
+    repository,
+    delivery: input.delivery,
+    change,
+    writes: next.writes,
+    deletes: next.deletes,
+    paths: [next.path],
+    provider: next.provider,
+  })
+  return delivered.outcome === "commit_queued"
+    ? { outcome: "commit_queued", path: next.path }
+    : {
+        outcome: "pull_request",
+        path: next.path,
+        pullRequestUrl: delivered.pullRequestUrl,
+      }
+}
+
+/**
+ * Add several sources in one pull request (or one direct commit). Each add is
+ * checked as `changeWorkspaceSource` checks it, and also against the files
+ * that the earlier adds of the batch write, so two adds of one repository
+ * are refused. One refused add refuses the whole batch.
+ */
+export async function addWorkspaceSources(input: {
+  workspace: WorkspaceRecord
+  changes: Array<Extract<SourceChange, { action: "add" }>>
+  delivery: "pull_request" | "commit"
+}): Promise<WorkspaceSourceBatchResult> {
+  const { workspace, changes } = input
+  if (!changes.length)
+    throw new SourceChangeError(400, "Add at least one source")
+  for (const change of changes) assertSourceChangeShape(change)
+  const repository = assertCanDeliver(workspace, input.delivery)
+  for (const change of changes)
+    await assertConnection(
+      workspace.orgId,
+      change.provider,
+      change.connectionId,
+    )
+  const sources = await projectedSources(workspace)
+  const reservedPaths = await reservedPathsOf(workspace)
+  const taken = new Set([
+    ...sources.map((source) => source.path),
+    ...reservedPaths,
+  ])
+  const paths: string[] = []
+  for (const change of changes) {
+    const path = change.path ?? sourceAddPath(change, taken)
+    taken.add(path)
+    paths.push(path)
   }
+  const existing = await readSourceFiles(repository, paths)
+  const written: Array<{ path: string; content: string }> = []
+  let provider: SourceProvider | undefined
+  for (const [index, change] of changes.entries()) {
+    const next = applySourceFileChange({
+      files: [...existing, ...written],
+      sources: sources.filter((source) => !paths.includes(source.path)),
+      change: { ...change, path: paths[index] },
+      reservedPaths,
+    })
+    written.push(...next.writes)
+    provider ??= next.provider
+  }
+  const delivered = await deliverSourceFiles({
+    workspace,
+    repository,
+    delivery: input.delivery,
+    change: changes[0] as SourceChange,
+    writes: written,
+    deletes: [],
+    paths,
+    provider: provider as SourceProvider,
+  })
+  return delivered.outcome === "commit_queued"
+    ? { outcome: "commit_queued", paths }
+    : {
+        outcome: "pull_request",
+        paths,
+        pullRequestUrl: delivered.pullRequestUrl,
+      }
 }
 
 export async function listConnectionUsage(
@@ -440,7 +655,9 @@ export async function listConnectionUsage(
       sources: [],
       pendingChanges: [],
     }
-    item.pendingChanges = applying
+    item.pendingChanges = applying.map(
+      ({ newPath: _newPath, ...change }) => change,
+    )
     byWorkspace.set(workspace.id, item)
   }
   return { items: [...byWorkspace.values()] }

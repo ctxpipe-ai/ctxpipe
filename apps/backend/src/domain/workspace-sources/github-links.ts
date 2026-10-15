@@ -3,6 +3,7 @@ import {
   githubScopeRepositories,
   githubScopeSchema,
 } from "./providers/github.js"
+import { githubSourcePath } from "./source-file.js"
 import { parseSourceFile } from "./source-file-text.js"
 import {
   type ParsedSourceEntry,
@@ -231,12 +232,23 @@ export function linkGithubSourceFile(input: {
 
 /**
  * Unlink one GitHub repository (`owner/name`): delete each GitHub source
- * file that names it. Returns null when no file does.
+ * file that names it. Returns null when no file does. Throws
+ * {@link SourceChangeError} when the file at the path of the repository
+ * cannot be read, because then ctx| cannot tell what it links.
  */
 export function unlinkGithubSourceFile(input: {
   files: ReadonlyArray<RepoFile>
   name: string
 }): FileChanges | null {
+  const [owner = "", repository = ""] = input.name.split("/")
+  const path = githubSourcePath(owner, repository)
+  const file = input.files.find((item) => item.path === path)
+  const parsed = file ? parseSourceFile(file.path, file.content) : null
+  if (parsed && !parsed.ok)
+    throw new SourceChangeError(
+      409,
+      `${path} cannot be read: ${parsed.detail}. Fix it in git first.`,
+    )
   const deletes = githubSourceFiles(input.files)
     .filter(
       (item) => item.repository.toLowerCase() === input.name.toLowerCase(),

@@ -240,6 +240,11 @@ describe("checkSourcePath", () => {
     ["sources/linear/a/b/eng.md", /sources\/<provider>/],
     ["knowledge/linear/eng.md", /sources\//],
     [`sources/linear/${"a".repeat(101)}.md`, /segment/],
+    // Each segment is also a part of a pull request branch name.
+    ["sources/linear/a..b.md", /segment/],
+    ["sources/linear/team.lock/eng.md", /segment/],
+    ["sources/linear/eng.lock.md", /segment/],
+    ["sources/linear/team./eng.md", /segment/],
   ])("refuses %s", (path, reason) => {
     const checked = checkSourcePath(path)
     expect(checked.ok).toBe(false)

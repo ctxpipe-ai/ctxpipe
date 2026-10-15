@@ -48,39 +48,35 @@ describe("changeLinkedRepository", () => {
     expect(second).toEqual({ files: [], deletePaths: [], refused: null })
   })
 
-  it("link moves each repository file into a source file and keeps the branch", () => {
+  it("link writes only its own file and keeps another repository file byte for byte", () => {
+    const web = `${declaration("https://github.com/acme/web", "dev")}Web docs.\n`
     const result = changeLinkedRepository({
       action: "link",
-      gitUrl: "https://github.com/acme/web",
+      gitUrl: "https://github.com/acme/api",
       connectionId: "con_gh",
-      files: [
-        {
-          path: "repositories/web.md",
-          content: declaration("https://github.com/acme/web", "stable"),
-        },
-        {
-          path: "repositories/api.md",
-          content: declaration("https://github.com/acme/api"),
-        },
-      ],
+      files: [{ path: "repositories/web.md", content: web }],
     })
-    expect(result.deletePaths).toEqual([
-      "repositories/web.md",
-      "repositories/api.md",
-    ])
+    expect(result.refused).toBeNull()
+    expect(result.deletePaths).toEqual([])
     expect(result.files.map((file) => file.path)).toEqual([
-      "sources/github/acme/web.md",
       "sources/github/acme/api.md",
     ])
+  })
+
+  it("link changes nothing when a repository file already declares the repository", () => {
     expect(
-      parseSourceFile(
-        "sources/github/acme/web.md",
-        result.files[0]?.content ?? "",
-      ),
-    ).toMatchObject({
-      ok: true,
-      source: { scope: { repository: "acme/web", ref: "stable" } },
-    })
+      changeLinkedRepository({
+        action: "link",
+        gitUrl: "https://github.com/acme/web",
+        connectionId: "con_gh",
+        files: [
+          {
+            path: "repositories/web.md",
+            content: `${declaration("https://github.com/acme/web", "dev")}Body.\n`,
+          },
+        ],
+      }),
+    ).toEqual({ files: [], deletePaths: [], refused: null })
   })
 
   it("link changes nothing when the legacy file already links the repository", () => {
@@ -144,6 +140,23 @@ describe("changeLinkedRepository", () => {
     expect(result.files[0]?.path).toBe(".ctxpipe/sources.yaml")
     expect(result.files[0]?.content).toContain("acme/api")
     expect(result.files[0]?.content).not.toContain("acme/web")
+  })
+
+  it("refuses an unlink when the file of the repository cannot be read", () => {
+    const result = changeLinkedRepository({
+      action: "unlink",
+      gitUrl: "https://github.com/acme/web",
+      connectionId: "con_gh",
+      files: [
+        {
+          path: "sources/github/acme/web.md",
+          content: "---\nprovider: github\nconnection: [\n---\n",
+        },
+      ],
+    })
+    expect(result.files).toEqual([])
+    expect(result.deletePaths).toEqual([])
+    expect(result.refused).toMatch(/sources\/github\/acme\/web\.md/)
   })
 
   it("refuses a repository outside GitHub and changes nothing", () => {

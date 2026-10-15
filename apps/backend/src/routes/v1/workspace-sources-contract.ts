@@ -35,6 +35,12 @@ export const WorkspaceSourceSchema = z
     scopeSummary: z.string(),
     status: StatusSchema,
     statusDetail: z.string().nullable(),
+    /**
+     * The body of the source file (what the source is for), read from git at
+     * `revision`. Absent when the file has no body, is over 64 KiB, or git
+     * cannot be read.
+     */
+    description: z.string().optional(),
     /** False when the row has no source file, so a remove cannot name it. */
     removable: z.boolean(),
     /** The Workspace commit SHA that the row came from. */
@@ -117,6 +123,26 @@ export const CreateWorkspaceSourceRequestSchema = z
   })
   .openapi("CreateWorkspaceSourceRequest")
 
+export const BatchCreateWorkspaceSourcesRequestSchema = z
+  .object({
+    /** The new sources. One refused source refuses the whole request. */
+    sources: z
+      .array(
+        z.object({
+          /** Optional. Named as in `CreateWorkspaceSourceRequest.path`. */
+          path: z.string().optional(),
+          source: WorkspaceSourceInputSchema,
+        }),
+      )
+      .min(1)
+      .max(20),
+    delivery: DeliverySchema,
+  })
+  .openapi("BatchCreateWorkspaceSourcesRequest", {
+    description:
+      "Add several sources in one pull request or one direct commit.",
+  })
+
 export const UpdateWorkspaceSourceRequestSchema = z
   .object({
     /** The path of the source file to change. */
@@ -135,7 +161,7 @@ export const RenameWorkspaceSourceRequestSchema = z
   })
   .openapi("RenameWorkspaceSourceRequest", {
     description:
-      "Move a source file. Each unit that names the old path in its sources list gets the new path in the same commit.",
+      "Move a source file in one commit. The hydrate of the new revision gives the new path to each unit that names the old path in its sources list.",
   })
 
 export const DeleteWorkspaceSourceQuerySchema = z
@@ -157,6 +183,21 @@ export const WorkspaceSourceChangeResultSchema = z
     }),
   ])
   .openapi("WorkspaceSourceChangeResult")
+
+export const WorkspaceSourceBatchResultSchema = z
+  .discriminatedUnion("outcome", [
+    z.object({
+      outcome: z.literal("pull_request"),
+      /** The path of each added file, in request order. */
+      paths: z.array(z.string()),
+      pullRequestUrl: z.string().url(),
+    }),
+    z.object({
+      outcome: z.literal("commit_queued"),
+      paths: z.array(z.string()),
+    }),
+  ])
+  .openapi("WorkspaceSourceBatchResult")
 
 const errors = {
   400: {
@@ -216,6 +257,31 @@ export const createWorkspaceSourceRoute = createRoute({
     },
   },
   responses: { ...changeOk, ...errors },
+})
+
+export const batchCreateWorkspaceSourcesRoute = createRoute({
+  method: "post",
+  path: "/{workspaceSlug}/sources/batch",
+  request: {
+    params: WorkspaceSlugParamsSchema,
+    body: {
+      content: {
+        "application/json": {
+          schema: BatchCreateWorkspaceSourcesRequestSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      content: {
+        "application/json": { schema: WorkspaceSourceBatchResultSchema },
+      },
+      description:
+        "The file change: one PR (awaiting merge) or one queued commit",
+    },
+    ...errors,
+  },
 })
 
 export const updateWorkspaceSourceRoute = createRoute({
@@ -331,6 +397,9 @@ export type WorkspaceSourceListResponse = z.infer<
 >
 export type WorkspaceSourceChangeResult = z.infer<
   typeof WorkspaceSourceChangeResultSchema
+>
+export type WorkspaceSourceBatchResult = z.infer<
+  typeof WorkspaceSourceBatchResultSchema
 >
 export type ConnectionUsageResponse = z.infer<
   typeof ConnectionUsageResponseSchema
