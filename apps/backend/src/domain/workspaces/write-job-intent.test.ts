@@ -12,7 +12,7 @@ describe("writeJobIntentPayload", () => {
   it("stores first-create link fields so a paused job can resume", () => {
     expect(
       writeJobIntentPayload({
-        kind: "link_unlink",
+        kind: "bootstrap",
         linkAction: "link",
         linkGitUrl: "https://github.com/acme/app.git",
         jobWorkspaceUrl: "https://github.com/acme/docs",
@@ -110,7 +110,7 @@ describe("enqueueInputFromPausedJob", () => {
         workspaceId: "ws_1",
         job: {
           id: "wjob_link",
-          kind: "link_unlink",
+          kind: "bootstrap",
           generation: 1,
           desiredSha: null,
           payload: {
@@ -123,7 +123,7 @@ describe("enqueueInputFromPausedJob", () => {
     ).toEqual({
       orgId: "org_1",
       workspaceId: "ws_1",
-      kind: "link_unlink",
+      kind: "bootstrap",
       jobId: "wjob_link",
       jobGeneration: 1,
       jobDesiredSha: null,

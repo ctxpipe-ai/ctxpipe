@@ -859,15 +859,6 @@ export const RefusedLinkAndRepositoryFile: Story = {
                   removable: false,
                 }),
               ],
-              linkErrors: [
-                {
-                  action: "link",
-                  gitUrl: "https://gitlab.com/acme/tools",
-                  reason:
-                    "Only a GitHub repository can be linked to a Workspace",
-                  failedAt: "2026-10-14T10:00:00.000Z",
-                },
-              ],
             }),
           ),
           connected,
@@ -877,13 +868,6 @@ export const RefusedLinkAndRepositoryFile: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await canvas.findByText("A repository link was not saved")
-    await expect(
-      canvas.getByText(/Only a GitHub repository can be linked to a Workspace/),
-    ).toBeVisible()
-    await expect(
-      canvas.getByText("https://gitlab.com/acme/tools"),
-    ).toBeVisible()
     // The repository file shows its error, but a remove cannot name it.
     await expect(
       canvas.getByText(/repositories\/tools\.md: ctx\| links only GitHub/),

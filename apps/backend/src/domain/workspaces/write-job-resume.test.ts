@@ -16,7 +16,7 @@ describe("resumePausedWriteJobs", () => {
       jobs: [
         {
           id: "wjob_link",
-          kind: "link_unlink",
+          kind: "bootstrap",
           generation: 1,
           desiredSha: null,
           status: WRITE_JOB_STATUSES.paused,
@@ -45,7 +45,7 @@ describe("resumePausedWriteJobs", () => {
     expect(enqueue).toHaveBeenCalledWith(
       expect.objectContaining({
         jobId: "wjob_link",
-        kind: "link_unlink",
+        kind: "bootstrap",
         linkGitUrl: "https://github.com/acme/app.git",
       }),
       log,
@@ -64,7 +64,7 @@ describe("resumePausedWriteJobs", () => {
       jobs: [
         {
           id: "wjob_link",
-          kind: "link_unlink",
+          kind: "bootstrap",
           generation: 1,
           desiredSha: null,
           status: WRITE_JOB_STATUSES.paused,

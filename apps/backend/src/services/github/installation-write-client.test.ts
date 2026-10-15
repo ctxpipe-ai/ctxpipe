@@ -150,6 +150,7 @@ import {
   listFilesInTree,
   listFilesInTreeWithMetadata,
   listOpenPullRequestsByBranchPrefix,
+  mergePullRequest,
 } from "./installation-write-client.js"
 
 function writeBranchOctokit(rest: Record<string, unknown>) {
@@ -245,6 +246,31 @@ describe("getPullRequestHeadBranch", () => {
       }),
     ).resolves.toBe("ctxpipe/linear-config-123")
     expect(pullsGet).toHaveBeenCalledWith({
+      owner: "acme",
+      repo: "context",
+      pull_number: 17,
+    })
+  })
+})
+
+describe("mergePullRequest", () => {
+  it("merges the pull request with a write-scoped installation client", async () => {
+    const pullsMerge = vi.fn().mockResolvedValue({ data: { sha: "merge-sha" } })
+    getInstallationOctokitForOrgMock.mockResolvedValue({
+      installation: { installationId: 42 },
+      octokit: { rest: { pulls: { merge: pullsMerge } } },
+    })
+
+    await expect(
+      mergePullRequest({
+        orgId: "org_1",
+        repositoryName: "acme/context",
+        githubConnectionId: "con_github",
+        env: {} as Env,
+        pullUrl: "https://github.com/acme/context/pull/17",
+      }),
+    ).resolves.toBe("merge-sha")
+    expect(pullsMerge).toHaveBeenCalledWith({
       owner: "acme",
       repo: "context",
       pull_number: 17,

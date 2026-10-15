@@ -8,7 +8,6 @@ import {
   listWorkspaceSourceRows,
   type WorkspaceSourceRow,
 } from "../../models/workspace-sources.js"
-import { listRefusedLinkEdits } from "../../models/workspace-write-jobs.js"
 import {
   listOrgWorkspaces,
   type WorkspaceRecord,
@@ -292,10 +291,6 @@ export async function listWorkspaceSources(
     pendingChanges: (await pendingChanges(workspace))
       .filter((change) => stillApplies(change, sourcePaths))
       .map(({ newPath: _newPath, ...change }) => change),
-    linkErrors: (await listRefusedLinkEdits(workspace.id)).map((edit) => ({
-      ...edit,
-      failedAt: edit.failedAt.toISOString(),
-    })),
   }
 }
 

@@ -44,7 +44,6 @@ export function workspaceSourceList(
     directCommitAllowed: false,
     items: [],
     pendingChanges: [],
-    linkErrors: [],
     ...overrides,
   }
 }

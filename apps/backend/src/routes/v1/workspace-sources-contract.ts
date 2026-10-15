@@ -60,16 +60,6 @@ export const PendingSourceChangeSchema = z
   })
   .openapi("PendingWorkspaceSourceChange")
 
-export const LinkErrorSchema = z
-  .object({
-    action: z.enum(["link", "unlink"]),
-    gitUrl: z.string(),
-    /** Why the edit cannot be made. */
-    reason: z.string(),
-    failedAt: z.string().datetime(),
-  })
-  .openapi("WorkspaceSourceLinkError")
-
 export const WorkspaceSourceListResponseSchema = z
   .object({
     /** The folder of the source files in the Workspace repository. */
@@ -83,8 +73,6 @@ export const WorkspaceSourceListResponseSchema = z
     canEdit: z.boolean(),
     /** Open PRs that change a source file ("awaiting merge"). Join on `path`. */
     pendingChanges: z.array(PendingSourceChangeSchema),
-    /** Repository link edits that cannot be made, newest first. */
-    linkErrors: z.array(LinkErrorSchema),
   })
   .openapi("WorkspaceSourceListResponse")
 
