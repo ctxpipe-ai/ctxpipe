@@ -88,6 +88,7 @@ it(
           expect(queued).toMatchObject({
             workflowName: "workspace-write-semantic-merge",
             input: {
+              origin: "agent",
               previousSha: f.sha,
               revision: { sha: humanSha },
               files: command.mergeFiles,
@@ -836,7 +837,9 @@ it.each([
             input as never,
           )
           if (!committed) {
-            await expect(run.result({ timeoutMs: 30_000 })).rejects.toThrow()
+            await expect(run.result({ timeoutMs: 30_000 })).rejects.toThrow(
+              path.startsWith(".ctxpipe/") ? /host-only/ : /ownership fields/,
+            )
             expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(
               f.sha,
             )
