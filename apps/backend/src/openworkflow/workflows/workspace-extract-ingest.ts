@@ -1,21 +1,25 @@
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { isConnectorMirrorPath } from "../../domain/codeIngestion/connectorMirrorPaths.js"
+import { IngestRefRefusedError } from "../../domain/ingestion/ingest-refs.js"
+import {
+  ingestSourceTree,
+  releaseIngestSourceTree,
+} from "../../domain/ingestion/ingest-source-tree.js"
 import { planStoredExtraction } from "../../domain/workspaces/captured-extraction.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import { workspaceExtractionSchema } from "../../domain/workspaces/extraction.js"
-import {
-  ingestPublishSourceSchema,
-  readIngestPublishChanges,
-} from "../../domain/workspaces/extraction-source.js"
+import { ingestPublishSourceSchema } from "../../domain/workspaces/extraction-source.js"
 import { isLinkedRepositoryDeclaration } from "../../domain/workspaces/layout.js"
 import {
   sameWorkspaceRevision,
   workspaceRevisionSchema,
 } from "../../domain/workspaces/revision.js"
+import { resolveSemanticConflicts } from "../../domain/workspaces/semantic-merge.js"
 import {
   attemptWorkspaceCommit,
   captureSemanticHandoff,
+  mergeWorkspaceIngestPublish,
   publishWorkspaceWriteRevision,
   refreshWorkspaceWriteRevision,
 } from "../../domain/workspaces/write-broker.js"
@@ -27,6 +31,7 @@ import {
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
 import { loadExtractionPathIdentity } from "../../models/workspace-export.js"
 import {
+  discardWriteJobPreparedCommit,
   persistBoundWriteJob,
   persistWriteJobKnowledgePaths,
   persistWriteJobPreparedCommit,
@@ -126,13 +131,7 @@ export const workspaceExtractIngest = defineWorkflow(
           >
           for (;;) {
             const candidate = await step.run({ name: "acquire-revision" }, () =>
-              // An ingestion v2 publish also fetches the assembled tip.
-              acquireWorkspaceWriteRevision(
-                input,
-                revision,
-                env,
-                input.ingest?.tip,
-              ),
+              acquireWorkspaceWriteRevision(input, revision, env),
             )
             if (candidate) {
               acquired = candidate
@@ -149,15 +148,51 @@ export const workspaceExtractIngest = defineWorkflow(
           const transformed = await step.run(
             { name: "transform-extract-ingest" },
             async () => {
-              if (input.ingest)
-                return {
-                  ...(await readIngestPublishChanges(
-                    acquired.pack,
-                    revision.sha,
-                    input.ingest,
-                  )),
-                  knowledgePaths: {} as Record<string, string>,
+              if (input.ingest) {
+                const { source, sourceSha, ...ingest } = input.ingest
+                // Its own copy of the source tree, for the validator.
+                const holder = `publish:${input.workspaceId}`
+                const sourceTree = () =>
+                  ingestSourceTree({
+                    orgId: input.orgId,
+                    runId: ingest.runId,
+                    source,
+                    sha: sourceSha,
+                    env,
+                    holder,
+                  })
+                try {
+                  return {
+                    ...(await mergeWorkspaceIngestPublish(
+                      {
+                        orgId: input.orgId,
+                        workspaceId: input.workspaceId,
+                        runId: ingest.runId,
+                        pinnedRevision: input.revision.sha,
+                        tip: ingest.tip,
+                        current: revision.sha,
+                        withheldRoots: ingest.withheldRoots,
+                        bundle: ingest.bundle,
+                        semanticMerge: {
+                          resolve: resolveSemanticConflicts,
+                          source: { url: source.url, sha: sourceSha },
+                          sourcePathExists: (path) => sourceTree().exists(path),
+                          readSourceFile: (path) => sourceTree().read(path),
+                        },
+                      },
+                      env,
+                    )),
+                    knowledgePaths: {} as Record<string, string>,
+                  }
+                } catch (error) {
+                  // A merge that fails the patch validator: the Workspace
+                  // is `partial`, and the publish writes nothing.
+                  if (!(error instanceof IngestRefRefusedError)) throw error
+                  return { refused: error.message.slice(0, 300) }
+                } finally {
+                  await releaseIngestSourceTree(ingest.runId, sourceSha, holder)
                 }
+              }
               if (!input.extraction || !identity)
                 throw new Error("The extraction command has no capture")
               const extraction = input.extraction
@@ -191,6 +226,16 @@ export const workspaceExtractIngest = defineWorkflow(
               }
             },
           )
+          if ("refused" in transformed) {
+            await step.run({ name: "refuse-publish" }, () =>
+              persistWriteJobStatus(input.jobId, "failed"),
+            )
+            return {
+              committed: false as const,
+              reason: "refused" as const,
+              refused: transformed.refused,
+            }
+          }
           if (input.extraction)
             await step.run({ name: "record-knowledge-paths" }, () =>
               persistWriteJobKnowledgePaths(
@@ -247,7 +292,11 @@ export const workspaceExtractIngest = defineWorkflow(
           const committed = await step.run({ name: "commit" }, async () => {
             const pack = await commitGitTree(staged, {
               subject,
-              createdAt: run.createdAt,
+              // A replay of a publish is a new workflow run: the run's
+              // author time keeps the SHA.
+              createdAt: input.ingest
+                ? new Date(input.ingest.authorTime)
+                : run.createdAt,
             })
             await persistWriteJobPreparedCommit(input.jobId, pack.sha)
             return pack
@@ -266,6 +315,17 @@ export const workspaceExtractIngest = defineWorkflow(
             await step.run({ name: "resume-push" }, () =>
               persistWriteJobStatus(input.jobId, "running"),
             )
+          }
+          if (!pushed.pushed && input.ingest) {
+            // The default branch moved: replay the delta on the new tip.
+            // The handoff below would push a merge that no validator saw.
+            await step.run({ name: "discard-unpublished-candidate" }, () =>
+              discardWriteJobPreparedCommit(input.jobId, committed.sha),
+            )
+            revision = await step.run({ name: "refresh-raced-revision" }, () =>
+              refreshWorkspaceWriteRevision(input, revision, env),
+            )
+            continue
           }
           if (!pushed.pushed) {
             const handoff = await step.run(

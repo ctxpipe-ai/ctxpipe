@@ -70,9 +70,12 @@ import { workspaceExtractIngest } from "./workspace-extract-ingest.js"
  * A shadow run (`shadow` in the input) publishes nothing: the refs stay for
  * the comparison (T20). Another run gives each assembled tip to
  * `workspace-write-extract-ingest`, which replays the delta from the pinned
- * revision on the current default tip as one commit. A `partial` Workspace
- * publishes its accepted ops but no delete: a failed root gets no
- * retraction. A Workspace with no assembled tip publishes nothing. Then
+ * revision on the current default tip as one commit. A path that a person
+ * also changed after the pin goes through the semantic merge and the patch
+ * validator; a rejected merge publishes nothing and makes the Workspace
+ * `partial`. A `partial` Workspace publishes its accepted ops, but the
+ * deletes of a failed root stay out: a failed root gets no retraction. A
+ * refused assemble publishes the run base. Then
  * `delete-refs` deletes the run's refs; the tip check deletes the refs that
  * a crash leaves (the run is then finished and not a shadow run).
  */
@@ -262,6 +265,7 @@ export function defineRepositoryIngestionV2Workflow(
             ops: 0,
             rejects: 0,
             partial: 0,
+            partialRoots: [],
           }),
         )
         for (const skill of plannedIngestSkills(bundle.skills, "first"))
@@ -419,7 +423,10 @@ export function defineRepositoryIngestionV2Workflow(
           )
           workspaces.push({
             workspaceId: destination.workspaceId,
-            assembled: assembled.tip,
+            // A refused assemble drops the shards' ops. The run base (the
+            // repository step's ops) is still accepted, so it publishes.
+            assembled:
+              assembled.tip ?? runBase[destination.workspaceId]?.tip ?? null,
             ops: assembled.ops + (firstPart?.ops ?? 0),
             rejects:
               parts.reduce((sum, p) => sum + p.rejects, 0) +
@@ -503,7 +510,20 @@ export function defineRepositoryIngestionV2Workflow(
                     ingest: {
                       runId: run.id,
                       tip: assembled,
-                      retract: entry.partial === 0,
+                      // Only a failed root keeps its files (no retraction).
+                      withheldRoots: [
+                        ...new Set(
+                          shardOutputs.flatMap((output) =>
+                            output.workspaces
+                              .filter((w) => w.workspaceId === workspaceId)
+                              .flatMap((w) => w.partialRoots),
+                          ),
+                        ),
+                      ].sort(),
+                      bundle: scope.bundle,
+                      source: input.source,
+                      sourceSha: input.sha,
+                      authorTime: input.authorTime,
                     },
                   },
                   { name: `publish:${workspaceId}` },
@@ -511,6 +531,15 @@ export function defineRepositoryIngestionV2Workflow(
                 entry.published = published.committed
                   ? published.commitSha
                   : null
+                if (!published.committed && published.reason === "refused") {
+                  entry.refused = published.refused
+                  entry.partial += 1
+                  getLogger().warn("ingestion-v2.partial", {
+                    step: `publish:${workspaceId}`,
+                    workspaceId,
+                    reason: published.refused,
+                  })
+                }
               } else {
                 entry.refused = "The Workspace binding changed before publish"
                 entry.partial += 1
