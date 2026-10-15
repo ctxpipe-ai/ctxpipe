@@ -10,6 +10,7 @@ import { readWorkspaceCheckoutFile } from "../../domain/workspaces/checkout-read
 import { explorerBlobFromGitFile } from "../../domain/workspaces/git-explorer.js"
 import { parseSimpleFrontMatter } from "../../domain/workspaces/layout.js"
 import { publishedProjection } from "../../domain/workspaces/revision.js"
+import { workspaceRootPath } from "../../domain/workspaces/root-path.js"
 import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
 import {
   getWorkspaceSearchProjection,
@@ -91,6 +92,7 @@ async function readWorkspaceDescription(
       workspaceId,
       repositoryId: repository.id,
       sha: published.sha,
+      rootPath: workspaceRootPath(published),
       path: "AGENTS.md",
     })
     const blob = explorerBlobFromGitFile(file)
