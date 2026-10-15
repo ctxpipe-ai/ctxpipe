@@ -79,6 +79,20 @@ export const evalCases: EvalCase[] = [
     facts: [is, queue],
   },
   {
+    id: "workspace-description",
+    name: "Describe one Workspace from its AGENTS.md",
+    prompt:
+      "What does the Payments Workspace of Harbor Labs contain, in one sentence, and how many knowledge units of each kind does it hold?",
+    workingRepository: sshRemote,
+    calls: [
+      {
+        tool: "list_workspaces",
+        args: { org: { equals: "$harbor" }, workspace: { equals: "payments" } },
+      },
+    ],
+    resultsMention: ["synthetic evaluation data"],
+  },
+  {
     id: "design-idempotency-retention",
     name: "Search knowledge before a design choice",
     prompt:
@@ -311,6 +325,24 @@ export const evalCases: EvalCase[] = [
       {
         tool: "search_code",
         args: { mode: { equals: "regex" } },
+      },
+    ],
+    resultsMention: [is],
+  },
+  {
+    id: "code-search-path-glob",
+    name: "Narrow a code search to a path glob",
+    prompt:
+      "In the other Harbor Labs repositories, search only the TypeScript files under the source folder for isPlainObject. Which repository has it?",
+    workingRepository: sshRemote,
+    calls: [
+      {
+        tool: "search_code",
+        args: {
+          org: { equals: "$harbor" },
+          pathGlob: { present: true },
+          excludeRepositories: { includesRepository: "example/checkout-app" },
+        },
       },
     ],
     resultsMention: [is],
