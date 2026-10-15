@@ -428,7 +428,6 @@ export const AddToWorkspaces: Story = {
             connectionId: atlassianConnectionId,
             scope: { spaces: [{ key: "ENG", pages: "all" }] },
           },
-          delivery: "pull_request",
         },
       },
     ])
