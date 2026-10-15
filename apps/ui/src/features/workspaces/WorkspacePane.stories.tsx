@@ -82,6 +82,32 @@ function workspaceFilesText(canvas: ReturnType<typeof within>) {
   return `${host.textContent ?? ""}${host.shadowRoot?.textContent ?? ""}`
 }
 
+/**
+ * The tree cuts a long name in the middle, so its text is not the whole name.
+ * Each row is a button whose aria-label is the whole name.
+ */
+function workspaceFileNames(canvas: ReturnType<typeof within>) {
+  const rows =
+    workspaceFilesHost(canvas).shadowRoot?.querySelectorAll(
+      "button[aria-label]",
+    ) ?? []
+  return [...rows].map((row) => row.getAttribute("aria-label"))
+}
+
+async function expectWorkspaceFileNamed(
+  canvas: ReturnType<typeof within>,
+  name: string,
+  timeout?: number,
+) {
+  await canvas.findByLabelText("Workspace files")
+  await waitFor(
+    () => {
+      expect(workspaceFileNames(canvas)).toContain(name)
+    },
+    timeout ? { timeout } : undefined,
+  )
+}
+
 async function expectWorkspaceFiles(
   canvas: ReturnType<typeof within>,
   pattern: RegExp,
@@ -1031,9 +1057,7 @@ export const ConversationCleanNoPublish: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await waitFor(() => {
-      expect(canvas.getByText("AGENTS.md")).toBeVisible()
-    })
+    await expectWorkspaceFileNamed(canvas, "AGENTS.md")
     expect(
       canvas.queryByRole("button", { name: /^Sync/, hidden: true }),
     ).not.toBeInTheDocument()
@@ -1043,7 +1067,10 @@ export const ConversationCleanNoPublish: Story = {
   },
 }
 
-/** Maximized, so the pane header shows the conversation's Create PR. */
+/**
+ * Maximized, so the pane header shows the conversation's Create PR. The
+ * commits are on GitHub, so nothing is left to sync and Create PR is the CTA.
+ */
 export const ConversationCommittedCreatePr: Story = {
   args: {
     conversationId: "conv_1",
@@ -1071,8 +1098,8 @@ export const ConversationCommittedCreatePr: Story = {
             branch: "ctxpipe/chat/conv_1/1",
             dirty: false,
             differsFromDefault: true,
-            unpushed: true,
-            published: false,
+            unpushed: false,
+            published: true,
             ahead: 1,
             behind: 0,
             items: [],
@@ -1123,9 +1150,7 @@ export const ConversationReadOnly: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await waitFor(() => {
-      expect(canvas.getByText("AGENTS.md")).toBeVisible()
-    })
+    await expectWorkspaceFileNamed(canvas, "AGENTS.md")
     expect(
       canvas.queryByRole("button", { name: /^Sync/, hidden: true }),
     ).not.toBeInTheDocument()
@@ -1216,7 +1241,7 @@ export const CachedSandboxWhile409: Story = {
               paths: ["e2e-live-note.md"],
               branch: "ctxpipe/chat/conv_1/1",
             },
-            2,
+            1,
           ),
           workspaceGitTreeHandler({
             sha: "workspace-only",
@@ -1228,20 +1253,13 @@ export const CachedSandboxWhile409: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await waitFor(() => {
-      expect(canvas.getByText("cached-note.md")).toBeVisible()
-    })
+    await expectWorkspaceFileNamed(canvas, "cached-note.md")
     expect(canvas.queryByText("Updating…")).not.toBeInTheDocument()
-    expect(canvas.queryByText("repositories")).not.toBeInTheDocument()
-    await waitFor(
-      () => {
-        expect(canvas.getByText("e2e-live-note.md")).toBeVisible()
-      },
-      { timeout: 8000 },
-    )
-    expect(canvas.queryByText("cached-note.md")).not.toBeInTheDocument()
+    expect(workspaceFileNames(canvas)).not.toContain("repositories")
+    await expectWorkspaceFileNamed(canvas, "e2e-live-note.md", 8000)
+    expect(workspaceFileNames(canvas)).not.toContain("cached-note.md")
     expect(canvas.queryByText("Updating…")).not.toBeInTheDocument()
-    expect(canvas.queryByText("repositories")).not.toBeInTheDocument()
+    expect(workspaceFileNames(canvas)).not.toContain("repositories")
   },
 }
 
