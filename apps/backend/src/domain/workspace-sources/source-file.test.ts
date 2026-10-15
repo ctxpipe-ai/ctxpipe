@@ -269,6 +269,19 @@ describe("new source paths", () => {
     expect(checkSourcePath(githubSourcePath("acme", ".github")).ok).toBe(true)
   })
 
+  it("gives two repository names two paths, also when one starts with a dot", () => {
+    const names = [".foo", "dot-foo", "dot0-foo", ".dot-foo", "foo", "dotfoo"]
+    const paths = names.map((name) => githubSourcePath("acme", name))
+    expect(new Set(paths).size).toBe(names.length)
+    expect(paths.every((path) => checkSourcePath(path).ok)).toBe(true)
+    expect(githubSourcePath("acme", ".github")).toBe(
+      "sources/github/acme/dot-github.md",
+    )
+    expect(githubSourcePath("acme", "dotfiles")).toBe(
+      "sources/github/acme/dotfiles.md",
+    )
+  })
+
   it("names another source from its label, with a free suffix", () => {
     expect(sourcePathFor("linear", "Eng & Ops")).toBe(
       "sources/linear/eng-ops.md",

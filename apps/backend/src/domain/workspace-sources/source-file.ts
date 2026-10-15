@@ -110,12 +110,17 @@ function toSegment(text: string): string {
 
 /**
  * The path of a new GitHub source file: `sources/github/<owner>/<name>.md`,
- * in lowercase. A name that starts with `.` (for example `.github`) gets the
- * prefix `dot-`, because a segment must start with a letter or digit.
+ * in lowercase. A segment must start with a letter or digit, so a name that
+ * starts with `.` (for example `.github`) gets `dot-` in place of the `.`. A
+ * name that starts with `dot`, zero or more `0`, and `-` gets one more `0`
+ * (`dot-foo` becomes `dot0-foo`). Thus two names never get the same path.
  */
 export function githubSourcePath(owner: string, name: string): string {
-  const repo = name.startsWith(".") ? `dot-${name.slice(1)}` : name
-  return `${SOURCE_FILES_FOLDER}/github/${owner.toLowerCase()}/${repo.toLowerCase()}.md`
+  const lower = name.toLowerCase()
+  const repo = lower.startsWith(".")
+    ? `dot-${lower.slice(1)}`
+    : lower.replace(/^dot(0*)-/, (_, zeros: string) => `dot${zeros}0-`)
+  return `${SOURCE_FILES_FOLDER}/github/${owner.toLowerCase()}/${repo}.md`
 }
 
 /**
