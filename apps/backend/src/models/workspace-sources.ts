@@ -5,12 +5,17 @@ import { organizations } from "../db/schema/auth.js"
 import { repositories } from "../db/schema/repositories.js"
 import { workspaceSources } from "../db/schema/workspace_sources.js"
 import { workspaces } from "../db/schema/workspaces.js"
-import type { PlannedSourceRow } from "../domain/workspace-sources/projection-plan.js"
+import {
+  type PlannedSourceRow,
+  unmatchedSourceDetail,
+} from "../domain/workspace-sources/projection-plan.js"
+import { sourceProviderSchema } from "../domain/workspace-sources/sources-file.js"
 import { normalizeWorkspaceRepositoryUrl } from "../domain/workspaces/slug.js"
 import { generateObjectId } from "../lib/id.js"
 import { log } from "../observability/logger.js"
 import { openWorkflowNamespaceId } from "../openworkflow/namespace.js"
 import {
+  holdsTarget,
   listLinkedRepositoryPins,
   planSourceStates,
   sameSourceState,
@@ -45,6 +50,11 @@ function sameRow(row: WorkspaceSourceRow, planned: PlannedSourceRow): boolean {
  * Make the rows of one Workspace match the planned projection of `revision`.
  * Running it again with the same plan changes nothing. Returns the rows that
  * it removed and the rows whose content changed, with their old values.
+ *
+ * When the plan cannot tell if a missing source left the file (see
+ * `unmatchedSourceDetail`), the row of a missing source with a last good
+ * target stays as `invalid`, so its files stay. An `invalid` row keeps the
+ * last good target of its source in its state.
  */
 export async function replaceWorkspaceSourceRows(input: {
   orgId: string
@@ -69,14 +79,29 @@ export async function replaceWorkspaceSourceRows(input: {
         .select({ url: workspaces.workspaceRepositoryUrl })
         .from(workspaces)
         .where(eq(workspaces.id, input.workspaceId))
+      const plannedKeys = new Set(input.rows.map((row) => row.sourceKey))
+      const unmatchedDetail = unmatchedSourceDetail(input.rows)
+      const held = (row: WorkspaceSourceRow) =>
+        unmatchedDetail !== null && holdsTarget(row)
+      const missing = existing.filter((row) => !plannedKeys.has(row.sourceKey))
+      const removed = missing.filter((row) => !held(row))
+      const plan: PlannedSourceRow[] = [
+        ...input.rows,
+        ...missing.filter(held).map((row) => ({
+          sourceKey: row.sourceKey,
+          provider: sourceProviderSchema.safeParse(row.provider).data ?? null,
+          connectionId: row.connectionId,
+          scope: row.scope,
+          status: "invalid" as const,
+          statusDetail: unmatchedDetail,
+        })),
+      ]
       const states = planSourceStates({
         existing,
-        planned: input.rows,
+        planned: plan,
         workspaceUrl: workspace?.url ?? null,
       })
       const byKey = new Map(existing.map((row) => [row.sourceKey, row]))
-      const plannedKeys = new Set(input.rows.map((row) => row.sourceKey))
-      const removed = existing.filter((row) => !plannedKeys.has(row.sourceKey))
       if (removed.length)
         await tx.delete(workspaceSources).where(
           inArray(
@@ -90,7 +115,7 @@ export async function replaceWorkspaceSourceRows(input: {
       }> = []
       const added: PlannedSourceRow[] = []
       const now = new Date()
-      for (const planned of input.rows) {
+      for (const planned of plan) {
         const current = byKey.get(planned.sourceKey)
         const state = states.get(planned.sourceKey) ?? {}
         if (!current) {

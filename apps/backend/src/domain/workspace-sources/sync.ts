@@ -1,5 +1,9 @@
 import type { Env } from "../../config/env.js"
 import {
+  lastGoodTarget,
+  type SourceTarget,
+} from "../../models/workspace-source-state.js"
+import {
   listConnectionSourceRows,
   listWorkspaceSourceRows,
   setWorkspaceSourceStatus,
@@ -31,6 +35,12 @@ export type WorkspaceSliceWrite = {
    * writer drops the write when the sources file changed after it.
    */
   sourcesRevision: string
+  /**
+   * A cleanup: the targets of the removed sources. The writer drops the
+   * write only when the sources file has one of them again, because no later
+   * projection plans a dropped cleanup again.
+   */
+  removed?: SourceTarget[]
 }
 
 export type SliceWriter = (write: WorkspaceSliceWrite) => Promise<void>
@@ -169,14 +179,22 @@ export async function syncConnectionSources(input: {
     ...(result.keepPaths ?? []),
     ...unreachable.map((lost) => lost.path),
   ]
+  const syncing = new Set(rows.map((row) => row.id))
   const written: string[] = []
   for (const [workspaceId, entry] of byWorkspace) {
     const all = filesOf(entry.scopeKeys)
     if (!all) continue
     const ownedPrefixes = [...entry.prefixes].sort()
-    const keepPrefixes = kept
-      .filter((path) => underAny(path, ownedPrefixes))
-      .sort()
+    const keepPrefixes = [
+      ...new Set([
+        ...kept.filter((path) => underAny(path, ownedPrefixes)),
+        ...(
+          await heldPrefixes(input.orgId, workspaceId, adapter, syncing)
+        ).filter((prefix) =>
+          ownedPrefixes.some((owned) => overlaps(prefix, owned)),
+        ),
+      ]),
+    ].sort()
     const files = all.filter((file) => underAny(file.path, ownedPrefixes))
     const deletePaths = result.deletePaths?.filter(
       (path) => underAny(path, ownedPrefixes) && !underAny(path, keepPrefixes),
@@ -200,6 +218,27 @@ export async function syncConnectionSources(input: {
     written.push(workspaceId)
   }
   return { fetchedScopes: scopes.length, workspaces: written }
+}
+
+/**
+ * The managed paths of the last good targets of the sources of one
+ * Workspace that are not `ok` (held, invalid, or out of reach) and not in
+ * this sync. A sync must not delete their files: only a cleanup of a removed
+ * source does.
+ */
+async function heldPrefixes(
+  orgId: string,
+  workspaceId: string,
+  adapter: SourceAdapter,
+  syncing: ReadonlySet<string>,
+): Promise<string[]> {
+  const prefixes = (await listWorkspaceSourceRows({ orgId, workspaceId }))
+    .filter((row) => row.status !== "ok" && !syncing.has(row.id))
+    .map(lastGoodTarget)
+    .filter((target) => target?.provider === adapter.provider)
+    .flatMap((target) => (target ? adapter.managedPaths(target.scope) : []))
+  assertManagedPaths(adapter, prefixes)
+  return prefixes
 }
 
 /**
@@ -240,8 +279,8 @@ async function readExistingManaged(
 
 /**
  * Delete the managed files of removed or narrowed sources in one commit for
- * each provider. Paths that another `ok` source of the Workspace still owns
- * stay.
+ * each provider. Paths that the last good target of a remaining source of the
+ * Workspace owns stay, also when that source is not `ok`.
  */
 export async function cleanupRemovedSources(input: {
   orgId: string
@@ -256,16 +295,25 @@ export async function cleanupRemovedSources(input: {
   adapters: Partial<Record<SourceProvider, SourceAdapter>>
   write: SliceWriter
 }): Promise<WorkspaceSliceWrite[]> {
+  // A remaining source keeps the files of its last good target, also when
+  // its connection is gone or its entry is invalid for now.
   const remaining = (
     await listWorkspaceSourceRows({
       orgId: input.orgId,
       workspaceId: input.workspaceId,
     })
-  ).filter((row) => row.status === "ok")
+  )
+    .map(lastGoodTarget)
+    .filter((target) => target !== null)
   const writes: WorkspaceSliceWrite[] = []
   const byProvider = new Map<
     SourceProvider,
-    { connectionId: string; prefixes: Set<string>; keep: Set<string> }
+    {
+      connectionId: string
+      prefixes: Set<string>
+      keep: Set<string>
+      removed: SourceTarget[]
+    }
   >()
   for (const source of input.removed) {
     const adapter = source.provider
@@ -285,7 +333,13 @@ export async function cleanupRemovedSources(input: {
       connectionId: source.connectionId,
       prefixes: new Set<string>(),
       keep: new Set<string>(),
+      removed: [],
     }
+    entry.removed.push({
+      provider: adapter.provider,
+      connectionId: source.connectionId,
+      scope: source.scope,
+    })
     for (const prefix of stale) {
       entry.prefixes.add(prefix)
       for (const keep of kept) if (overlaps(prefix, keep)) entry.keep.add(keep)
@@ -302,6 +356,7 @@ export async function cleanupRemovedSources(input: {
       ownedPrefixes: [...entry.prefixes].sort(),
       keepPrefixes: [...entry.keep].sort(),
       sourcesRevision: input.revision,
+      removed: entry.removed,
     }
     await input.write(write)
     writes.push(write)

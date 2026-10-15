@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto"
 import { assertNotInOrgDbContext } from "../../db/client.js"
 import {
+  lastGoodTarget,
+  type SourceTarget,
+} from "../../models/workspace-source-state.js"
+import {
   listConnectionSourceRows,
   listConnectionsWithOkSources,
   sameSource,
@@ -11,10 +15,7 @@ import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
 import { workspaceSourcesSync } from "../../openworkflow/workflows/workspace-sources-sync.js"
 import { SOURCE_ADAPTERS } from "./adapter.js"
 import { handOverLegacyBindings } from "./legacy-handover.js"
-import {
-  FILE_ERROR_SOURCE_KEY,
-  type PlannedSourceRow,
-} from "./projection-plan.js"
+import type { PlannedSourceRow } from "./projection-plan.js"
 import { type SourceProvider, sourceProviderSchema } from "./sources-file.js"
 
 /**
@@ -162,30 +163,23 @@ export async function enqueueSourceProjectionFollowUps(input: {
   }
 }): Promise<void> {
   assertNotInOrgDbContext()
-  // Clean up only what left the file: a removed source, or the old target
-  // of a changed entry. A status change (a removed connection), an entry
-  // that became invalid, and a file that cannot be read keep the committed
-  // files, as the remove-connector dialog says.
-  const fileError = input.projected.added.some(
-    (row) => row.sourceKey === FILE_ERROR_SOURCE_KEY,
+  // Clean up only what left the file: the last good target of a removed
+  // source, or of a changed source that now has a valid entry with another
+  // target. A status change (a removed connection), an entry that became
+  // invalid, and a file that cannot be read keep the committed files, as the
+  // remove-connector dialog says.
+  const removed = [
+    ...input.projected.removed.map(lastGoodTarget),
+    ...input.projected.changed.map(({ before, after }) => {
+      const target = lastGoodTarget(before)
+      return after.status !== "invalid" && target && !sameSource(target, after)
+        ? target
+        : null
+    }),
+  ].filter(
+    (target): target is SourceTarget =>
+      target !== null && hasAdapter(target.provider),
   )
-  const removed = fileError
-    ? []
-    : [
-        ...input.projected.removed,
-        ...input.projected.changed
-          .filter(
-            ({ before, after }) =>
-              after.status !== "invalid" && !sameSource(before, after),
-          )
-          .map((change) => change.before),
-      ]
-        .filter((row) => row.status !== "invalid" && hasAdapter(row.provider))
-        .map(({ provider, connectionId, scope }) => ({
-          provider,
-          connectionId,
-          scope,
-        }))
   if (removed.length)
     await runWorkflowWithWorkerWake(workspaceSourcesSync.spec, {
       kind: "cleanup",
