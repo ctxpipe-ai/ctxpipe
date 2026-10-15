@@ -1,20 +1,21 @@
-import { ChatBedrockConverse } from "@langchain/aws"
-import type { BaseMessage } from "@langchain/core/messages"
 import {
-  AIMessage,
-  type AIMessageChunk,
-  HumanMessage,
-  SystemMessage,
-} from "@langchain/core/messages"
+  type BedrockRuntimeClient,
+  ConverseCommand,
+  type ConverseCommandInput,
+  ConverseStreamCommand,
+} from "@aws-sdk/client-bedrock-runtime"
 
 import type { AppEnv } from "../../app/env.js"
 import {
   modelParamsFromSpec,
   modelSpecBase,
 } from "../../retrieval/services/parseModelSpec.js"
+import {
+  bedrockConverseInput,
+  createBedrockClient,
+  withBedrockClient,
+} from "../../retrieval/services/providers/bedrockConverse.js"
 import { invokeBedrockEmbedding } from "../../retrieval/services/providers/bedrockEmbeddings.js"
-import { lowerBedrockConverseParams } from "../../retrieval/services/providers/bedrockModelProvider.js"
-import { resolveBedrockRegion } from "../../retrieval/services/providers/bedrockRegion.js"
 
 type OpenAiChatBody = {
   model?: string
@@ -48,62 +49,14 @@ function resolveTierSpecForModel(
   )
 }
 
-function openAiMessagesToLangChain(messages: unknown[]): BaseMessage[] {
-  return messages.map((raw) => {
-    const message = raw as { role?: string; content?: unknown }
-    const content =
-      typeof message.content === "string"
-        ? message.content
-        : JSON.stringify(message.content ?? "")
-    switch (message.role) {
-      case "system":
-        return new SystemMessage(content)
-      case "assistant":
-        return new AIMessage(content)
-      default:
-        return new HumanMessage(content)
-    }
-  })
-}
-
-function createBedrockChatModel(
-  env: AppEnv["Variables"]["env"],
-  modelId: string,
-  tierSpec: string | undefined,
-  temperature?: number,
-): ChatBedrockConverse {
-  const region = resolveBedrockRegion({
-    MODEL_BEDROCK_AWS_REGION: env.MODEL_BEDROCK_AWS_REGION,
-    AWS_REGION: process.env.AWS_REGION,
-    AWS_DEFAULT_REGION: process.env.AWS_DEFAULT_REGION,
-  })
-  const converseParams = lowerBedrockConverseParams(
-    tierSpec ? modelParamsFromSpec(tierSpec) : undefined,
-  )
-
-  return new ChatBedrockConverse({
-    model: modelId,
-    region,
-    streaming: true,
-    ...(temperature !== undefined ? { temperature } : {}),
-    ...(converseParams?.maxTokens !== undefined
-      ? { maxTokens: converseParams.maxTokens }
-      : {}),
-    ...(converseParams?.topP !== undefined
-      ? { topP: converseParams.topP }
-      : {}),
-    ...(converseParams?.additionalModelRequestFields
-      ? {
-          additionalModelRequestFields:
-            converseParams.additionalModelRequestFields,
-        }
-      : {}),
-  })
+function openAiFinishReason(stopReason: string | undefined): "length" | "stop" {
+  return stopReason === "max_tokens" ? "length" : "stop"
 }
 
 function toOpenAiChatCompletion(
   model: string,
   content: string,
+  stopReason?: string,
 ): Record<string, unknown> {
   return {
     id: `chatcmpl-${crypto.randomUUID()}`,
@@ -114,49 +67,47 @@ function toOpenAiChatCompletion(
       {
         index: 0,
         message: { role: "assistant", content },
-        finish_reason: "stop",
+        finish_reason: openAiFinishReason(stopReason),
       },
     ],
   }
 }
 
-function chunkContent(chunk: AIMessageChunk): string {
-  if (typeof chunk.content === "string") return chunk.content
-  if (Array.isArray(chunk.content)) {
-    return chunk.content
-      .map((part) => {
-        if (typeof part === "string") return part
-        if (part && typeof part === "object" && "text" in part) {
-          return String((part as { text?: unknown }).text ?? "")
-        }
-        return ""
-      })
-      .join("")
-  }
-  return String(chunk.content ?? "")
-}
-
 async function streamOpenAiChatCompletion(
-  model: ChatBedrockConverse,
-  messages: BaseMessage[],
+  client: BedrockRuntimeClient,
+  input: ConverseCommandInput,
   modelName: string,
+  signal?: AbortSignal,
 ): Promise<Response> {
-  const stream = await model.stream(messages)
+  const { stream } = await client
+    .send(new ConverseStreamCommand(input), { abortSignal: signal })
+    .catch((err) => {
+      client.destroy()
+      throw err
+    })
   const encoder = new TextEncoder()
   const completionId = `chatcmpl-${crypto.randomUUID()}`
 
   const body = new ReadableStream({
     async start(controller) {
       try {
-        for await (const chunk of stream) {
-          const content = chunkContent(chunk as AIMessageChunk)
-          if (!content) continue
+        for await (const event of stream ?? []) {
+          const content = event.contentBlockDelta?.delta?.text
+          if (!content && !event.messageStop) continue
           const payload = {
             id: completionId,
             object: "chat.completion.chunk",
             created: Math.floor(Date.now() / 1000),
             model: modelName,
-            choices: [{ index: 0, delta: { content }, finish_reason: null }],
+            choices: [
+              {
+                index: 0,
+                delta: content ? { content } : {},
+                finish_reason: event.messageStop
+                  ? openAiFinishReason(event.messageStop.stopReason)
+                  : null,
+              },
+            ],
           }
           controller.enqueue(
             encoder.encode(`data: ${JSON.stringify(payload)}\n\n`),
@@ -166,6 +117,8 @@ async function streamOpenAiChatCompletion(
         controller.close()
       } catch (err) {
         controller.error(err)
+      } finally {
+        client.destroy()
       }
     },
   })
@@ -178,6 +131,7 @@ async function streamOpenAiChatCompletion(
 export async function handleBedrockChatCompletion(
   env: AppEnv["Variables"]["env"],
   body: OpenAiChatBody,
+  signal?: AbortSignal,
 ): Promise<Response> {
   const modelName =
     typeof body.model === "string" ? modelSpecBase(body.model) : ""
@@ -186,27 +140,44 @@ export async function handleBedrockChatCompletion(
   }
 
   const tierSpec = resolveTierSpecForModel(env, modelName)
-  const chat = createBedrockChatModel(
-    env,
+  const input = bedrockConverseInput(
     modelName,
-    tierSpec,
-    typeof body.temperature === "number" ? body.temperature : undefined,
+    (Array.isArray(body.messages) ? body.messages : []).map((raw) => {
+      const message = raw as { role?: string; content?: unknown }
+      return {
+        role: message.role,
+        content:
+          typeof message.content === "string"
+            ? message.content
+            : JSON.stringify(message.content ?? ""),
+      }
+    }),
+    body.temperature,
+    tierSpec ? modelParamsFromSpec(tierSpec) : undefined,
   )
-  const messages = openAiMessagesToLangChain(
-    Array.isArray(body.messages) ? body.messages : [],
-  )
-
-  if (body.stream === true) {
-    return streamOpenAiChatCompletion(chat, messages, modelName)
+  const clientEnv = {
+    MODEL_BEDROCK_AWS_REGION: env.MODEL_BEDROCK_AWS_REGION,
+    AWS_REGION: process.env.AWS_REGION,
+    AWS_DEFAULT_REGION: process.env.AWS_DEFAULT_REGION,
   }
+  if (body.stream === true) {
+    return streamOpenAiChatCompletion(
+      createBedrockClient(clientEnv),
+      input,
+      modelName,
+      signal,
+    )
+  }
+  const result = await withBedrockClient(clientEnv, (client) =>
+    client.send(new ConverseCommand(input), { abortSignal: signal }),
+  )
+  const content = (result.output?.message?.content ?? [])
+    .map((part) => part.text ?? "")
+    .join("")
 
-  const result = await chat.invoke(messages)
-  const content =
-    typeof result.content === "string"
-      ? result.content
-      : JSON.stringify(result.content ?? "")
-
-  return Response.json(toOpenAiChatCompletion(modelName, content))
+  return Response.json(
+    toOpenAiChatCompletion(modelName, content, result.stopReason),
+  )
 }
 
 export async function handleBedrockEmbedding(
