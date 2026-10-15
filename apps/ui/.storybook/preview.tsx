@@ -7,6 +7,7 @@ import {
   organizationListWithOrgHandler,
   sessionSignedInHandler,
 } from "../src/mocks/handlers"
+import { storyRouteLoader } from "./decorators/with-story-route"
 import "../src/styles.css"
 
 initialize({ onUnhandledRequest: "bypass" })
@@ -44,7 +45,7 @@ function StorybookQueryBoundary({ children }: { children: React.ReactNode }) {
 }
 
 const preview: Preview = {
-  loaders: [mswLoader],
+  loaders: [mswLoader, storyRouteLoader],
   decorators: [
     (Story, { id }): ReactElement => (
       <div className="min-h-screen bg-background font-sans text-foreground antialiased">

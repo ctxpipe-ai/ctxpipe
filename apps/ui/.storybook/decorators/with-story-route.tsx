@@ -7,7 +7,7 @@ import {
   Outlet,
   RouterProvider,
 } from "@tanstack/react-router"
-import { type ComponentType, type ReactElement, useMemo, useRef } from "react"
+import type { ComponentType, ReactElement } from "react"
 
 function storyRouteStub() {
   return null
@@ -35,38 +35,46 @@ export type StoryRouteParams =
       pane?: string
     }
 
+type LoadedStoryRoute = {
+  router: ReturnType<typeof createStoryRouter>
+  /** The decorator keeps the latest story component here; the route renders it. */
+  story: { current: ComponentType }
+}
+
+/**
+ * Builds the story router and loads its first route before the story renders.
+ * Without this, the router renders its first route after an async load, and a
+ * play that starts at once finds an empty canvas. The router is built once per
+ * story run: recreating it on a decorator render (Storybook actions, arg
+ * updates) resets `?pane=` and is why file tabs appeared but never selected.
+ */
+export const storyRouteLoader = async (context: {
+  parameters: Record<string, unknown>
+}): Promise<{ storyRoute?: LoadedStoryRoute }> => {
+  const spec = context.parameters.storyRoute as StoryRouteParams | undefined
+  if (!spec) return {}
+  const story = { current: storyRouteStub as ComponentType }
+  const router = createStoryRouter(spec, () => {
+    const Latest = story.current
+    return <Latest />
+  })
+  await router.load()
+  return { storyRoute: { router, story } }
+}
+
 /**
  * Puts the story component on a real route (sign-in, onboarding, org home index)
  * so pages that use `Navigate` / layout match production paths — without testing `/` redirects.
- *
- * The memory router is created once per story mount. Recreating it on every
- * decorator render (Storybook actions, arg updates) resets `?pane=` and is why
- * file tabs appeared but never selected. `storybook-addon-tanstack-router`'s
+ * `storyRouteLoader` builds the router. `storybook-addon-tanstack-router`'s
  * `withTanStackRouter` has the same recreate-on-render behaviour — we keep our
  * own provider and do not nest that decorator.
  */
 export const withStoryRoute: Decorator = (Story, context) => {
-  const spec = context.parameters.storyRoute as StoryRouteParams | undefined
-  if (!spec) return <Story />
-  return <StoryRouteProvider key={context.id} spec={spec} Story={Story} />
-}
-
-function StoryRouteProvider(props: {
-  spec: StoryRouteParams
-  Story: ComponentType
-}) {
-  const storyRef = useRef(props.Story)
-  storyRef.current = props.Story
-  const specKey = JSON.stringify(props.spec)
-  const router = useMemo(
-    () =>
-      createStoryRouter(JSON.parse(specKey) as StoryRouteParams, () => {
-        const Latest = storyRef.current
-        return <Latest />
-      }),
-    [specKey],
-  )
-  return <RouterProvider router={router} />
+  const loaded = (context.loaded as { storyRoute?: LoadedStoryRoute })
+    .storyRoute
+  if (!loaded) return <Story />
+  loaded.story.current = Story
+  return <RouterProvider key={context.id} router={loaded.router} />
 }
 
 function createStoryRouter(
