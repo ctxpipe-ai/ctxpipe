@@ -2,6 +2,7 @@ import type { OpenAPIHono } from "@hono/zod-openapi"
 import type { AppEnv } from "../app/env.js"
 import { applyAttribution } from "../observability/attribution.js"
 import { registerAtlassianWebhookRoute } from "./webhooks/atlassian/atlassian.js"
+import { registerBuildkiteWebhookRoute } from "./webhooks/buildkite/buildkite.js"
 import { registerGithubWebhookRoute } from "./webhooks/github/github.js"
 import { registerLinearWebhookRoute } from "./webhooks/linear/linear.js"
 import { registerNotionWebhookRoute } from "./webhooks/notion/notion.js"
@@ -19,4 +20,5 @@ export function registerWebhookRoutes(app: OpenAPIHono<AppEnv>) {
   registerLinearWebhookRoute(app)
   registerNotionWebhookRoute(app)
   registerPagerdutyWebhookRoute(app)
+  registerBuildkiteWebhookRoute(app)
 }

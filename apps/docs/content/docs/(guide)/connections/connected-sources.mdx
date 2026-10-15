@@ -17,6 +17,7 @@ foundation: it hosts workspace repositories and the code repositories you link.
 | **Linear** | Select scope, review draft `linear/config.yaml` in a pull request, then merge it. Issues in scope are mirrored into the Workspace. |
 | **Notion** | Select pages and databases, review draft `notion/config.yaml` in a pull request, then merge it. Selected content is mirrored into the Workspace. |
 | **PagerDuty** | Select services, review draft `pagerduty/config.yaml` in a pull request, then merge it. Incidents from those services are mirrored as Markdown. |
+| **Buildkite** | Paste an API access token, then select pipelines for each Workspace. The latest 25 finished builds of each pipeline are synced as Markdown. |
 | **Repo-native docs** | README files, `docs/**`, ADRs, `AGENTS.md`, skills, and similar files in linked repositories are indexed with the code. |
 
 ## What belongs in Git
@@ -53,8 +54,9 @@ webhooks before the corresponding connector is available — see
 [Self-host Confluence & Atlassian](/docs/self-hosting/confluence-atlassian),
 [Self-host Slack](/docs/self-hosting/slack),
 [Self-host Linear](/docs/self-hosting/linear),
-[Self-host Notion](/docs/self-hosting/notion), and
-[Self-host PagerDuty](/docs/self-hosting/pagerduty).
+[Self-host Notion](/docs/self-hosting/notion),
+[Self-host PagerDuty](/docs/self-hosting/pagerduty), and
+[Self-host Buildkite](/docs/self-hosting/buildkite).
 
 <Cards>
   <Card title="Connection overview" href="/docs/connections" description="How connectors write into Workspaces." />
@@ -64,5 +66,6 @@ webhooks before the corresponding connector is available — see
   <Card title="Linear connector" href="/docs/connections/source-connectors/linear" description="Mirror reviewable Linear issues into a Workspace." />
   <Card title="Notion connector" href="/docs/connections/source-connectors/notion" description="Mirror reviewable Notion pages and databases into a Workspace." />
   <Card title="PagerDuty connector" href="/docs/connections/source-connectors/pagerduty" description="Mirror reviewable PagerDuty incidents into a Workspace." />
+  <Card title="Buildkite connector" href="/docs/connections/source-connectors/buildkite" description="Sync the latest Buildkite builds of selected pipelines into a Workspace." />
   <Card title="ctx| MCP" href="/docs/mcp/mcp-docs" description="How agents connect to ctx| after sources are ingested." />
 </Cards>

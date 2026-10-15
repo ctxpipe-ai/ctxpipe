@@ -12,6 +12,7 @@ import { workspaceChatToolBridgeRoutes } from "../../domain/workspaces/workspace
 import { atlassianOauthCallbackRoutes } from "./atlassian-oauth-callback.js"
 import { orgCapabilitiesRoutes } from "./capabilities.js"
 import { atlassianConnectorRoutes } from "./connectors-atlassian.js"
+import { buildkiteConnectorRoutes } from "./connectors-buildkite.js"
 import {
   linearConnectorRoutes,
   linearOauthCallbackRoutes,
@@ -77,6 +78,10 @@ const pagerdutyConnectorScoped = new OpenAPIHono<AppEnv>()
   .use("*", requireOrgAdminOrOwner)
   .route("/", pagerdutyConnectorRoutes)
 
+const buildkiteConnectorScoped = new OpenAPIHono<AppEnv>()
+  .use("*", requireOrgAdminOrOwner)
+  .route("/", buildkiteConnectorRoutes)
+
 // Only the sync path: this app mounts on "/connectors" beside other routes.
 const connectionSyncScoped = new OpenAPIHono<AppEnv>()
   .use("/:connectionId/sync", requireOrgAdminOrOwner)
@@ -103,6 +108,7 @@ function createOrgScopedV1<BasePath extends string>(
     .route("/connectors/notion", notionOauthAppReadRoutes)
     .route("/connectors/notion", notionConnectorScoped)
     .route("/connectors/pagerduty", pagerdutyConnectorScoped)
+    .route("/connectors/buildkite", buildkiteConnectorScoped)
     .route("/connectors/atlassian/pending-claim", pendingAtlassianClaimRoutes)
     .route("/connectors/slack", slackConnectorScoped)
     .route("/org/atlassian-oauth", orgAtlassianOauthReadRoutes)

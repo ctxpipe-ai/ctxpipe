@@ -60,5 +60,6 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-050](ADR-050-workspace-sources-config-file.md) | Workspace sources in a config file; connections hold auth only | Accepted |
 | [ADR-051](ADR-051-mcp-read-surface.md) | MCP read surface: small read tools, slugs, scopes, and an org set per grant | Accepted (clarified: capped hubs and parallel chat claims) |
 | [ADR-052](ADR-052-ingestion-sandbox-skills-patches.md) | Ingestion as sandbox skills that write patches | Accepted |
+| [ADR-053](ADR-053-buildkite-connector-sources-only.md) | Buildkite connector, Workspace sources only | Proposed |
 
 Numbers 035 and 036 are unused. The next new ADR is 053.
