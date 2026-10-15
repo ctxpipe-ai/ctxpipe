@@ -96,7 +96,6 @@ sources:
       revision: sha,
       fileError: null,
       canEdit: false,
-      directCommitAllowed: false,
       pendingChanges: [],
     })
     expect(
@@ -143,6 +142,25 @@ sources:
       },
     )
     expect(change.status).toBe(409)
+
+    // Config never changes without a PR: a direct commit is not a valid delivery.
+    const commit = await app.request(
+      `/${seed.orgId}/api/v1/workspaces/${slug}/sources`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          source: { provider: "slack", connectionId: slack, scope: {} },
+          delivery: "commit",
+        }),
+      },
+    )
+    expect(commit.status).toBe(400)
+    const commitRemove = await app.request(
+      `/${seed.orgId}/api/v1/workspaces/${slug}/sources/support-channels?delivery=commit`,
+      { method: "DELETE" },
+    )
+    expect(commitRemove.status).toBe(400)
 
     const badKey = await app.request(
       `/${seed.orgId}/api/v1/workspaces/${slug}/sources/Bad%20Key`,

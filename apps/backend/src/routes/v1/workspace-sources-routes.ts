@@ -20,15 +20,11 @@ import {
   updateWorkspaceSourceRoute,
 } from "./workspace-sources-contract.js"
 
-async function applyChange(
-  workspaceSlug: string,
-  change: SourceChange,
-  delivery: "pull_request" | "commit",
-) {
+async function applyChange(workspaceSlug: string, change: SourceChange) {
   const workspace = await getWorkspaceBySlug(workspaceSlug)
   if (!workspace) return { status: 404 as const, error: "Not found" }
   try {
-    const result = await changeWorkspaceSource({ workspace, change, delivery })
+    const result = await changeWorkspaceSource({ workspace, change })
     return { status: 200 as const, result }
   } catch (error) {
     if (error instanceof SourceChangeError)
@@ -51,11 +47,11 @@ export const workspaceSourcesRoutes = new OpenAPIHono<AppEnv>()
     if (!c.get("user") || !c.get("session"))
       return c.json({ error: "Unauthorized" }, 401)
     const body = c.req.valid("json")
-    const out = await applyChange(
-      c.req.valid("param").workspaceSlug,
-      { action: "add", sourceKey: body.sourceKey, ...body.source },
-      body.delivery,
-    )
+    const out = await applyChange(c.req.valid("param").workspaceSlug, {
+      action: "add",
+      sourceKey: body.sourceKey,
+      ...body.source,
+    })
     if (out.status === 200) return c.json(out.result, 200)
     return c.json({ error: out.error }, out.status)
   })
@@ -64,11 +60,11 @@ export const workspaceSourcesRoutes = new OpenAPIHono<AppEnv>()
       return c.json({ error: "Unauthorized" }, 401)
     const { workspaceSlug, sourceKey } = c.req.valid("param")
     const body = c.req.valid("json")
-    const out = await applyChange(
-      workspaceSlug,
-      { action: "edit", sourceKey, ...body.source },
-      body.delivery,
-    )
+    const out = await applyChange(workspaceSlug, {
+      action: "edit",
+      sourceKey,
+      ...body.source,
+    })
     if (out.status === 200) return c.json(out.result, 200)
     return c.json({ error: out.error }, out.status)
   })
@@ -76,11 +72,10 @@ export const workspaceSourcesRoutes = new OpenAPIHono<AppEnv>()
     if (!c.get("user") || !c.get("session"))
       return c.json({ error: "Unauthorized" }, 401)
     const { workspaceSlug, sourceKey } = c.req.valid("param")
-    const out = await applyChange(
-      workspaceSlug,
-      { action: "remove", sourceKey },
-      c.req.valid("query").delivery,
-    )
+    const out = await applyChange(workspaceSlug, {
+      action: "remove",
+      sourceKey,
+    })
     if (out.status === 200) return c.json(out.result, 200)
     return c.json({ error: out.error }, out.status)
   })

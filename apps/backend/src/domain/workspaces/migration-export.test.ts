@@ -327,6 +327,35 @@ Ledger lives here.
     expect(planned.wouldChange).toBe(false)
   })
 
+  it("does not route an import_key match into a host-only path", async () => {
+    const existing = importedObjectMarkdown({
+      title: "Billing",
+      body: "Ledger lives here.",
+      importKey: "svc:repo_app:./",
+      kind: "Service",
+    })
+    const planned = await planKnowledgeProjection({
+      workspaceId: "ws_app",
+      firstWorkspaceId: "ws_app",
+      workspaceByRepositoryId: new Map([["repo_app", "ws_app"]]),
+      objects: [
+        {
+          id: "obj_1",
+          kind: "Service",
+          deduplicationKey: "svc:repo_app:./",
+          payload: { name: "Billing", summary: "Ledger lives here." },
+        },
+      ],
+      claims: [],
+      existingKnowledge: [{ path: ".ctxpipe/billing.md", content: existing }],
+      linkedUrls: [],
+    })
+    expect(planned.files.map((file) => file.path)).not.toContain(
+      ".ctxpipe/billing.md",
+    )
+    expect(planned.files[0]?.path).toMatch(/^knowledge\//)
+  })
+
   it("appends into an unkeyed occupant instead of replacing it", async () => {
     const planned = await planKnowledgeProjection({
       workspaceId: "ws_app",
