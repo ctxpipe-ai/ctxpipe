@@ -113,13 +113,16 @@ async function readUnit(
       first && bodyStart !== undefined
         ? Math.max(0, first.startLine - bodyStart)
         : 0
-    const claims = row.claims
+    const claims: NonNullable<FrontMatter["claims"]> = row.claims
       .slice(0, MAX_FRONT_MATTER_CLAIMS)
-      .map((claim) =>
-        Object.fromEntries(
-          Object.entries(claim).filter(([, value]) => value !== null),
-        ),
-      ) as FrontMatter["claims"]
+      .map((claim) => ({
+        to: claim.to,
+        ...(claim.predicate !== null ? { predicate: claim.predicate } : {}),
+        ...(claim.confidence !== null ? { confidence: claim.confidence } : {}),
+        ...(claim.validFrom !== null ? { validFrom: claim.validFrom } : {}),
+        ...(claim.validTo !== null ? { validTo: claim.validTo } : {}),
+        ...(claim.source !== null ? { source: claim.source } : {}),
+      }))
     return {
       text: row.body,
       lineOffset,
