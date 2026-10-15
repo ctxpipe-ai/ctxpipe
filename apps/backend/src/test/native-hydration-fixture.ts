@@ -1,6 +1,14 @@
 import { execFileSync } from "node:child_process"
 import { generateKeyPairSync } from "node:crypto"
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { eq, sql } from "drizzle-orm"
@@ -127,6 +135,7 @@ async function createNativeHydrationFixture(
     execFileSync("git", args, { cwd: directory, encoding: "utf8" }).trim()
   const savedEnv = {
     GIT_TRACE2_EVENT: process.env.GIT_TRACE2_EVENT,
+    PATH: process.env.PATH,
     GIT_CONFIG_GLOBAL: process.env.GIT_CONFIG_GLOBAL,
     GITHUB_APP_ID: process.env.GITHUB_APP_ID,
     GITHUB_PRIVATE_KEY: process.env.GITHUB_PRIVATE_KEY,
@@ -651,6 +660,8 @@ async function createNativeHydrationFixture(
   runner.implementWorkflow(repositoryIndex.spec, repositoryIndex.fn)
   const worker = runner.newWorker({ concurrency: 2 })
   const gitTrace = join(tmpdir(), `ctxpipe-hydration-trace-${id}.jsonl`)
+  // Outside the fixture worktree, so that a later commit cannot add it.
+  const gitShim = mkdtempSync(join(tmpdir(), "ctxpipe-hydration-git-shim-"))
 
   let cleanupPromise: Promise<void> | undefined
   const cleanup = () =>
@@ -696,6 +707,7 @@ async function createNativeHydrationFixture(
           else process.env[key] = value
         }
         rmSync(gitTrace, { force: true })
+        rmSync(gitShim, { recursive: true, force: true })
         rmSync(directory, { recursive: true, force: true })
       }
     })())
@@ -823,8 +835,30 @@ async function createNativeHydrationFixture(
       workspaceId,
       revision,
     })
-    if (options.traceGitCommands) process.env.GIT_TRACE2_EVENT = gitTrace
-    else delete process.env.GIT_TRACE2_EVENT
+    // A trace2 event without a parent session is any Git process that Git
+    // itself did not start. A runner's Git wrapper or a detached helper adds
+    // such events. The shim records only the commands that this process
+    // starts, which are the commands the backend owns.
+    const gitSpawns = join(gitShim, "spawns.log")
+    if (options.traceGitCommands) {
+      const shim = join(gitShim, "bin")
+      mkdirSync(shim)
+      const realGit = execFileSync("sh", ["-c", "command -v git"], {
+        encoding: "utf8",
+      }).trim()
+      writeFileSync(
+        join(shim, "git"),
+        [
+          "#!/bin/sh",
+          `if [ "$PPID" = "${process.pid}" ]; then printf '%s\\n' "$*" >> '${gitSpawns}'; fi`,
+          `exec '${realGit}' "$@"`,
+          "",
+        ].join("\n"),
+      )
+      chmodSync(join(shim, "git"), 0o755)
+      process.env.PATH = `${shim}:${process.env.PATH}`
+      process.env.GIT_TRACE2_EVENT = gitTrace
+    } else delete process.env.GIT_TRACE2_EVENT
     return {
       resolveRevision,
       revision,
@@ -849,6 +883,11 @@ async function createNativeHydrationFixture(
       workspaceUrl,
       handle,
       gitTrace,
+      /** The Git commands that this process started, one argument line each. */
+      gitCommands: () =>
+        existsSync(gitSpawns)
+          ? readFileSync(gitSpawns, "utf8").trim().split("\n")
+          : [],
       count,
       cleanup,
       onWriteProbe: (callback: () => Promise<void>) => {
