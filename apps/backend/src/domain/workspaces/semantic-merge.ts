@@ -24,7 +24,10 @@ const resolutionSchema = z
  * native Git stages. Nothing it returns is executed, and no credential is
  * involved, so it needs no sandbox.
  */
-export async function resolveSemanticConflicts(conflicts: GitMergeConflict[]) {
+export async function resolveSemanticConflicts(
+  conflicts: GitMergeConflict[],
+  options: { incomingIsHostWrite?: boolean } = {},
+) {
   // Only the host writes these paths (CTX-722), so no model output can.
   if (conflicts.some((conflict) => isHostOnlyPath(conflict.path)))
     throw new Error("Semantic merge refuses a conflict on a host-only path")
@@ -61,19 +64,27 @@ export async function resolveSemanticConflicts(conflicts: GitMergeConflict[]) {
     throw new Error(
       "Semantic merge did not resolve exactly the conflicting files",
     )
-  // The model must not give a file to ingestion (CTX-722): an ownership field
-  // in its output must come from one of the three versions of the file.
+  // The model must not give a file to ingestion (CTX-722). The output may keep
+  // the ownership fields of `current`, the default branch as it is now. A
+  // person can have removed the fields of `base` there, so `base` never counts.
+  // Fields that only `incoming` has count only when a host write added them
+  // (an ingestion shard join), never when an agent controls that side.
   for (const file of resolution.files) {
     const conflict = conflicts.find(({ path }) => path === file.path)
+    if (file.content === null || !conflict) continue
+    const incomingAdded =
+      options.incomingIsHostWrite === true &&
+      conflict.incoming !== null &&
+      addedOwnershipField(conflict.base, conflict.incoming) !== null
     if (
-      file.content !== null &&
-      conflict &&
-      [conflict.base, conflict.current, conflict.incoming].every((before) =>
-        addedOwnershipField(before, file.content ?? ""),
+      addedOwnershipField(conflict.current, file.content) !== null &&
+      !(
+        incomingAdded &&
+        addedOwnershipField(conflict.incoming, file.content) === null
       )
     )
       throw new Error(
-        "Semantic merge added ownership fields that no version of the file has",
+        "Semantic merge added ownership fields that the default branch does not have",
       )
   }
   return resolution.files

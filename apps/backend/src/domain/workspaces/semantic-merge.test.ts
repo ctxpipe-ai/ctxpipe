@@ -106,3 +106,52 @@ it("accepts a resolution that keeps the ownership fields of one side", async () 
     ]),
   ).resolves.toEqual(answer)
 })
+
+it("refuses to give a file back to ingestion after a person took it over", async () => {
+  // A pull request removed the ownership fields (current); a host write that
+  // still has them (incoming) conflicts with it, and the model keeps the base.
+  answer = [{ path: "knowledge/services/checkout.md", content: GENERATED }]
+  const conflict = {
+    path: "knowledge/services/checkout.md",
+    base: GENERATED,
+    current: `${HUMAN}\nPerson.\n`,
+    incoming: `${GENERATED}\nHost.\n`,
+  }
+  await expect(resolveSemanticConflicts([conflict])).rejects.toThrow(
+    /ownership/,
+  )
+  await expect(
+    resolveSemanticConflicts([conflict], { incomingIsHostWrite: true }),
+  ).rejects.toThrow(/ownership/)
+})
+
+it("refuses ownership fields that only the incoming side has when it is not a host write", async () => {
+  answer = [{ path: "knowledge/services/checkout.md", content: GENERATED }]
+  await expect(
+    resolveSemanticConflicts([
+      {
+        path: "knowledge/services/checkout.md",
+        base: HUMAN,
+        current: `${HUMAN}\nCurrent.\n`,
+        incoming: GENERATED,
+      },
+    ]),
+  ).rejects.toThrow(/ownership/)
+})
+
+it("accepts ownership fields that a host write adds in a shard join", async () => {
+  answer = [{ path: "knowledge/services/checkout.md", content: GENERATED }]
+  await expect(
+    resolveSemanticConflicts(
+      [
+        {
+          path: "knowledge/services/checkout.md",
+          base: HUMAN,
+          current: `${HUMAN}\nCurrent.\n`,
+          incoming: GENERATED,
+        },
+      ],
+      { incomingIsHostWrite: true },
+    ),
+  ).resolves.toEqual(answer)
+})
