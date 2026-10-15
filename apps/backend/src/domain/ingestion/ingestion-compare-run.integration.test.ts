@@ -81,7 +81,7 @@ async function withOrg<T>(fn: (orgId: string) => Promise<T>): Promise<T> {
 async function seedRun(input: {
   workflowName: string
   idempotencyKey?: string
-  runInput: unknown
+  runInput: Parameters<BackendPostgres["createWorkflowRun"]>[0]["input"]
   status: string
   output?: unknown
   startedAt: Date
