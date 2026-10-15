@@ -5,6 +5,7 @@ import { openWorkflowNamespaceId } from "../openworkflow/namespace.js"
 
 /** A finished ingestion v2 shadow run and the old run that started it. */
 export type ShadowRunPair = {
+  revisions?: Record<string, { oldPublished?: string; shadowBase?: string }>
   shadowRunId: string
   status: string
   input: unknown
@@ -70,15 +71,68 @@ export async function finishedShadowRunPairs(input: {
       limit ${input.limit ?? 100}
     `),
   )
-  return result.rows.map((row) => ({
-    shadowRunId: row.id,
-    status: row.status,
-    input: row.input,
-    output: row.output,
-    shadowStartedAt: date(row.started_at),
-    shadowFinishedAt: date(row.finished_at),
-    oldRunId: row.old_id,
-    oldStartedAt: date(row.old_started_at),
-    oldFinishedAt: date(row.old_finished_at),
-  }))
+  return Promise.all(
+    result.rows.map(async (row) => ({
+      revisions: await storedRevisions(input.orgId, row.id, row.old_id),
+      shadowRunId: row.id,
+      status: row.status,
+      input: row.input,
+      output: row.output,
+      shadowStartedAt: date(row.started_at),
+      shadowFinishedAt: date(row.finished_at),
+      oldRunId: row.old_id,
+      oldStartedAt: date(row.old_started_at),
+      oldFinishedAt: date(row.old_finished_at),
+    })),
+  )
+}
+
+/** Resolve immutable revisions from the paired run tree and the shadow resolve step. */
+async function storedRevisions(
+  orgId: string,
+  shadowRunId: string,
+  oldRunId: string | null,
+) {
+  const namespaceId = openWorkflowNamespaceId()
+  return withOrgDbContext(orgId, async (db) => {
+    const result = await db.execute<{
+      workspace_id: string
+      old_published: string | null
+      shadow_base: string | null
+    }>(sql`
+      with published as (
+        select job.workspace_id, min(job.commit_sha) as old_published
+        from openworkflow.step_attempts step
+        join openworkflow.workflow_runs child on child.namespace_id = ${namespaceId}
+          and child.id = step.child_workflow_run_id
+          and coalesce(step.child_workflow_run_namespace_id, ${namespaceId}) = ${namespaceId}
+        join workspace_write_jobs job on job.id = 'wjob_' || child.id || '_extract'
+        where step.namespace_id = ${namespaceId} and step.workflow_run_id = ${oldRunId}
+          and child.workflow_name = 'repository-ingestion' and child.input->>'orgId' = ${orgId}
+          and job.org_id = ${orgId} and job.status = 'completed'
+        group by job.workspace_id having count(distinct job.commit_sha) = 1
+      ), bases as (
+        select destination->>'workspaceId' as workspace_id,
+          min(destination->>'pinnedRevision') as shadow_base
+        from openworkflow.step_attempts step,
+          jsonb_array_elements(step.output->'destinations') destination
+        where step.namespace_id = ${namespaceId} and step.workflow_run_id = ${shadowRunId}
+          and step.step_name = 'resolve' and step.status = 'completed'
+        group by destination->>'workspaceId'
+        having count(distinct destination->>'pinnedRevision') = 1
+      )
+      select coalesce(published.workspace_id, bases.workspace_id) as workspace_id,
+        old_published, shadow_base
+      from published full join bases using (workspace_id)
+    `)
+    return Object.fromEntries(
+      result.rows.map((row) => [
+        row.workspace_id,
+        {
+          ...(row.old_published ? { oldPublished: row.old_published } : {}),
+          ...(row.shadow_base ? { shadowBase: row.shadow_base } : {}),
+        },
+      ]),
+    )
+  })
 }

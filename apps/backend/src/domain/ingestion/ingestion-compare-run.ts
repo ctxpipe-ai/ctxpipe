@@ -123,8 +123,8 @@ const duration = (start: Date | null, end: Date | null) =>
 export type ComparisonRevisions = Record<
   string,
   {
-    oldPublished: string
-    shadowBase: string
+    oldPublished?: string
+    shadowBase?: string
   }
 >
 
@@ -147,13 +147,23 @@ export async function compareShadowRun(input: {
   const olds: ExtractedProjection[] = []
   const shadows: ExtractedProjection[] = []
   const compared: RunComparison["workspaces"] = []
+  const revisionGaps: NonNullable<RunComparison["revisionGaps"]> = []
   for (const workspace of workspaces) {
+    const stored = input.pair.revisions?.[workspace.workspaceId]
+    const manual = input.revisions?.[workspace.workspaceId]
+    const revisions = {
+      oldPublished: stored?.oldPublished ?? manual?.oldPublished,
+      shadowBase: stored?.shadowBase ?? manual?.shadowBase,
+    }
+    for (const field of ["oldPublished", "shadowBase"] as const)
+      if (!stored?.[field])
+        revisionGaps.push({
+          workspaceId: workspace.workspaceId,
+          field,
+          resolvedByOverride: Boolean(manual?.[field]),
+        })
+    if (!revisions.oldPublished || !revisions.shadowBase) continue
     const remote = await input.remoteFor(workspace.workspaceId)
-    const revisions = input.revisions?.[workspace.workspaceId]
-    if (!revisions)
-      throw new Error(
-        `Missing comparison revisions for ${workspace.workspaceId}`,
-      )
     for (const revision of [revisions.oldPublished, revisions.shadowBase])
       if (!/^[0-9a-f]{40}$/.test(revision))
         throw new Error("Comparison revisions must be commit SHAs")
@@ -205,7 +215,10 @@ export async function compareShadowRun(input: {
     oldRunId: input.pair.oldRunId,
     sourceUrl,
     sha: parsed.data.sha,
-    status,
+    status: revisionGaps.some((gap) => !gap.resolvedByOverride)
+      ? "incomplete"
+      : status,
+    revisionGaps,
     durationMs: {
       old: duration(input.pair.oldStartedAt, input.pair.oldFinishedAt),
       shadow: duration(input.pair.shadowStartedAt, input.pair.shadowFinishedAt),

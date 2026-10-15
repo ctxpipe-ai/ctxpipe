@@ -4,12 +4,22 @@ import { dirname, join } from "node:path"
 import { eq, sql } from "drizzle-orm"
 import { BackendPostgres } from "openworkflow/postgres"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
-import { closeDb, getSystemDb, initDb } from "../../db/client.js"
+import {
+  closeDb,
+  getSystemDb,
+  initDb,
+  withOrgDbContext,
+} from "../../db/client.js"
 import { organizations } from "../../db/schema/auth.js"
+import { workspaces, workspaceWriteJobs } from "../../db/schema/workspaces.js"
 import { generateObjectId } from "../../lib/id.js"
 import { finishedShadowRunPairs } from "../../models/ingestion-shadow-runs.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { ingestRefName } from "./ingest-refs.js"
+import {
+  buildComparisonReport,
+  renderComparisonMarkdown,
+} from "./ingestion-compare.js"
 import { compareShadowRun } from "./ingestion-compare-run.js"
 import {
   INGESTION_V2_WORKFLOW_NAME,
@@ -59,6 +69,9 @@ async function withOrg<T>(fn: (orgId: string) => Promise<T>): Promise<T> {
   } finally {
     await getSystemDb().execute(
       sql`delete from openworkflow.workflow_runs where input->>'orgId' = ${orgId}`,
+    )
+    await withOrgDbContext(orgId, (db) =>
+      db.delete(workspaces).where(eq(workspaces.orgId, orgId)),
     )
     await getSystemDb().delete(organizations).where(eq(organizations.id, orgId))
   }
@@ -138,7 +151,11 @@ async function commitFiles(
  * A Workspace repository: the default branch holds the old pipeline's
  * output and a human file; the assembled ref adds the v2 files on top.
  */
-async function workspaceRepository(runId: string, workspaceId: string) {
+async function workspaceRepository(
+  runId: string,
+  workspaceId: string,
+  separateBase = false,
+) {
   const bare = join(root, `${workspaceId}.git`)
   const work = join(root, `${workspaceId}-work`)
   await runGit(root, ["init", "--quiet", "--bare", "-b", "main", bare])
@@ -146,7 +163,7 @@ async function workspaceRepository(runId: string, workspaceId: string) {
   const base = await commitFiles(
     work,
     {
-      "AGENTS.md": "# Context\n",
+      "AGENTS.md": `# Context ${workspaceId}\n`,
       "knowledge/services/checkout.md": oldFile(
         "Service",
         "Checkout API",
@@ -166,6 +183,13 @@ async function workspaceRepository(runId: string, workspaceId: string) {
     },
     "Old pipeline output",
   )
+  const shadowBase = separateBase
+    ? await commitFiles(
+        work,
+        { "knowledge/services/unrelated.md": v2File("Service", "Unrelated") },
+        "Before shadow",
+      )
+    : base
   const assembled = await commitFiles(
     work,
     {
@@ -186,7 +210,7 @@ async function workspaceRepository(runId: string, workspaceId: string) {
     bare,
     `${assembled}:${ingestRefName({ runId, workspaceId })}`,
   ])
-  return { url: `file://${bare}`, base, assembled }
+  return { url: `file://${bare}`, base, shadowBase, assembled }
 }
 
 describe("finishedShadowRunPairs", () => {
@@ -346,6 +370,180 @@ describe("compareShadowRun", () => {
     })
   })
 
+  it("resolves published commits and shadow bases per run and Workspace from stored data", async () => {
+    await withOrg(async (orgId) => {
+      for (let runIndex = 0; runIndex < 2; runIndex++) {
+        const seed = {
+          status: "completed",
+          startedAt: new Date(),
+          finishedAt: new Date(),
+          runInput: { orgId },
+        }
+        const oldRunId = await seedRun({
+          ...seed,
+          workflowName: "repository-ingestion-orchestrator",
+        })
+        const destinations = []
+        const outputs = []
+        const repos = new Map<
+          string,
+          Awaited<ReturnType<typeof workspaceRepository>>
+        >()
+        for (let workspaceIndex = 0; workspaceIndex < 2; workspaceIndex++) {
+          const workspaceId = generateObjectId("ws")
+          const repo = await workspaceRepository(oldRunId, workspaceId, true)
+          repos.set(workspaceId, repo)
+          // HEAD advances after both runs. It must not supply either revision.
+          const work = join(root, `${workspaceId}-work`)
+          const later = await commitFiles(
+            work,
+            { "knowledge/services/later.md": v2File("Service", "Later") },
+            "Later output",
+          )
+          await runGit(work, [
+            "push",
+            "--quiet",
+            repo.url,
+            `${later}:refs/heads/main`,
+          ])
+          const childId = await seedRun({
+            ...seed,
+            workflowName: "repository-ingestion",
+          })
+          await seedStep(
+            oldRunId,
+            `repository-ingestion-child-${workspaceIndex}`,
+            null,
+            childId,
+          )
+          await withOrgDbContext(orgId, async (db) => {
+            await db.insert(workspaces).values({
+              id: workspaceId,
+              orgId,
+              slug: workspaceId,
+              displayName: "Fixture",
+              workspaceRepositoryUrl: repo.url,
+            })
+            await db.insert(workspaceWriteJobs).values({
+              id: `wjob_${childId}_extract`,
+              orgId,
+              workspaceId,
+              kind: "extract_ingest",
+              generation: 1,
+              status: "completed",
+              commitSha: repo.base,
+            })
+          })
+          destinations.push({ workspaceId, pinnedRevision: repo.shadowBase })
+          outputs.push({
+            workspaceId,
+            assembled: repo.assembled,
+            ops: 3,
+            rejects: 0,
+            partial: 0,
+          })
+        }
+        const shadowRunId = await seedRun({
+          ...seed,
+          workflowName: INGESTION_V2_WORKFLOW_NAME,
+          idempotencyKey: `ingestion-v2-shadow:${oldRunId}`,
+          runInput: v2Input(orgId),
+          output: { status: "done", workspaces: outputs },
+        })
+        await seedStep(shadowRunId, "resolve", { destinations })
+        const [pair] = await finishedShadowRunPairs({
+          orgId,
+          runIds: [shadowRunId],
+        })
+        if (!pair) throw new Error("Missing fixture run")
+        const result = await compareShadowRun({
+          pair,
+          remoteFor: async (id) => {
+            const repo = repos.get(id)
+            if (!repo) throw new Error("Missing fixture repository")
+            return { url: repo.url }
+          },
+        })
+        expect(result.workspaces).toHaveLength(2)
+        for (const workspace of result.workspaces) {
+          expect(workspace.oldCommit).toBe(
+            repos.get(workspace.workspaceId)?.base,
+          )
+          expect(workspace.units).toMatchObject({
+            old: 3,
+            shadow: 3,
+            matched: 2,
+          })
+        }
+      }
+    })
+  }, 30_000)
+
+  it("reports missing stored revisions per run and accepts overrides only for gaps", async () => {
+    await withOrg(async (orgId) => {
+      const workspaceId = generateObjectId("ws")
+      const repo = await workspaceRepository("gap", workspaceId)
+      const shadowRunId = await seedRun({
+        workflowName: INGESTION_V2_WORKFLOW_NAME,
+        runInput: v2Input(orgId),
+        status: "completed",
+        startedAt: new Date(),
+        finishedAt: new Date(),
+        output: {
+          status: "done",
+          workspaces: [{ workspaceId, assembled: repo.assembled }],
+        },
+      })
+      await seedStep(shadowRunId, "resolve", {
+        destinations: [{ workspaceId, pinnedRevision: repo.base }],
+      })
+      const [pair] = await finishedShadowRunPairs({
+        orgId,
+        runIds: [shadowRunId],
+      })
+      if (!pair) throw new Error("Missing fixture run")
+      const missing = await compareShadowRun({
+        pair,
+        remoteFor: async () => {
+          throw new Error("Must not read HEAD")
+        },
+      })
+      expect(missing).toMatchObject({
+        shadowRunId,
+        status: "incomplete",
+        workspaces: [],
+        revisionGaps: [
+          { workspaceId, field: "oldPublished", resolvedByOverride: false },
+        ],
+      })
+      const report = buildComparisonReport([missing])
+      expect(report.exit.ready).toBe(false)
+      expect(renderComparisonMarkdown(report)).toContain(
+        `Missing stored oldPublished for Workspace ${workspaceId}: comparison unavailable.`,
+      )
+      const overridden = await compareShadowRun({
+        pair,
+        remoteFor: async () => ({ url: repo.url }),
+        revisions: {
+          [workspaceId]: {
+            oldPublished: repo.base,
+            shadowBase: repo.assembled,
+          },
+        },
+      })
+      expect(overridden).toMatchObject({
+        status: "done",
+        revisionGaps: [
+          { workspaceId, field: "oldPublished", resolvedByOverride: true },
+        ],
+      })
+      expect(overridden.workspaces[0]?.units).toMatchObject({
+        old: 3,
+        shadow: 3,
+      })
+    })
+  })
+
   it("refuses a run whose input is not an ingestion v2 input", async () => {
     await expect(
       compareShadowRun({
@@ -365,3 +563,19 @@ describe("compareShadowRun", () => {
     ).rejects.toThrow("no valid ingestion v2 input")
   })
 })
+
+async function seedStep(
+  runId: string,
+  name: string,
+  output: unknown,
+  childId: string | null = null,
+) {
+  await getSystemDb().execute(sql`
+    insert into openworkflow.step_attempts
+      (namespace_id, id, workflow_run_id, step_name, kind, status, config, output,
+       child_workflow_run_namespace_id, child_workflow_run_id, created_at, updated_at)
+    values (${openWorkflowNamespaceId()}, ${generateObjectId("step")}, ${runId}, ${name},
+      ${childId ? "workflow" : "function"}, 'completed', '{}'::jsonb, ${JSON.stringify(output)}::jsonb,
+      ${childId ? openWorkflowNamespaceId() : null}, ${childId}, now(), now())
+  `)
+}

@@ -133,7 +133,22 @@ it("counts changed foreign files from the run base and pins the old published co
     oldCommit: old,
     units: { old: 1, shadow: 1, matched: 1, recall: 1 },
   })
-  await expect(
-    compareShadowRun({ pair, remoteFor: async () => ({ url: work }) }),
-  ).rejects.toThrow("Missing comparison revisions")
+  expect(
+    await compareShadowRun({ pair, remoteFor: async () => ({ url: work }) }),
+  ).toMatchObject({
+    status: "incomplete",
+    workspaces: [],
+    revisionGaps: [
+      {
+        workspaceId: "ws_fixture",
+        field: "oldPublished",
+        resolvedByOverride: false,
+      },
+      {
+        workspaceId: "ws_fixture",
+        field: "shadowBase",
+        resolvedByOverride: false,
+      },
+    ],
+  })
 })

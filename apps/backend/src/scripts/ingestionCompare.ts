@@ -8,13 +8,14 @@
  *
  * Usage (apps/backend):
  *   bun run src/scripts/ingestionCompare.ts --org-id <org>
- *     [--run-id <id> ...] [--since <ISO time>] --revisions revisions.json
+ *     [--run-id <id> ...] [--since <ISO time>] [--revisions revisions.json]
  *     [--labels labels.json] [--costs costs.json] [--injection-fixtures]
  *     [--out report.json]
  *
  * `revisions.json`: an object from shadow run id to Workspace id to
  * `{ "oldPublished": <old run published SHA>, "shadowBase": <v2 pinned SHA> }`.
- * Read these commits from the old publish result and the v2 resolve step.
+ * Stored write jobs and resolve steps supply these commits by default.
+ * Manual values fill missing stored values only.
  * `labels.json`: an array of `IngestionLabelSet`. `costs.json`: an object
  * from shadow run id to `{ "old": <USD>, "shadow": <USD> }` (read the model
  * cost from Langfuse). `--injection-fixtures` scans for the T19 payloads.
@@ -74,7 +75,6 @@ async function main(argv: string[]): Promise<void> {
   const revisions = readJson<Record<string, ComparisonRevisions>>(
     flags(argv, "--revisions")[0],
   )
-  if (!revisions) throw new Error("--revisions is required")
   const labels = readJson<IngestionLabelSet[]>(flags(argv, "--labels")[0])
   const costs =
     readJson<Record<string, { old: number | null; shadow: number | null }>>(
@@ -112,7 +112,7 @@ async function main(argv: string[]): Promise<void> {
         await compareShadowRun({
           pair,
           remoteFor,
-          revisions: revisions[pair.shadowRunId],
+          revisions: revisions?.[pair.shadowRunId],
           ...(labels ? { labels } : {}),
           injectionPayloads: payloads,
           ...(costs[pair.shadowRunId]

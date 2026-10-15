@@ -95,6 +95,11 @@ export type RunComparison = {
   status: string
   durationMs: { old: number | null; shadow: number | null }
   costUsd: { old: number | null; shadow: number | null }
+  revisionGaps?: Array<{
+    workspaceId: string
+    field: "oldPublished" | "shadowBase"
+    resolvedByOverride: boolean
+  }>
   workspaces: WorkspaceComparison[]
   /** Present when a label set names this source. */
   labels: { units: LabelCoverage; claims: LabelCoverage } | null
@@ -637,7 +642,10 @@ export function buildComparisonReport(
         : null,
     },
     exit: {
-      ready: criteria.every((c) => c.status === "pass"),
+      ready:
+        !runs.some((run) =>
+          run.revisionGaps?.some((gap) => !gap.resolvedByOverride),
+        ) && criteria.every((c) => c.status === "pass"),
       criteria,
     },
   }
@@ -686,6 +694,10 @@ export function renderComparisonMarkdown(
       "",
       `Shadow run ${run.shadowRunId} (${run.status}), old run ${run.oldRunId ?? "unknown"}. Time: old ${amount(run.durationMs.old, "ms")}, shadow ${amount(run.durationMs.shadow, "ms")}.`,
     )
+    for (const gap of run.revisionGaps ?? [])
+      lines.push(
+        `Missing stored ${gap.field} for Workspace ${gap.workspaceId}: ${gap.resolvedByOverride ? "manual override used" : "comparison unavailable"}.`,
+      )
     for (const w of run.workspaces) {
       lines.push(
         "",
