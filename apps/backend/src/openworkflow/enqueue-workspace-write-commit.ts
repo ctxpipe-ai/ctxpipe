@@ -199,7 +199,12 @@ export async function enqueueWriteJob(
   }
   // Admission selects an explicit native workflow; it does not execute a job lifecycle.
   const snapshotWriteWorkflows: Partial<
-    Record<EnqueueWriteJobInput["kind"], typeof workspaceClaimsUpgrade>
+    Record<
+      EnqueueWriteJobInput["kind"],
+      | typeof workspaceClaimsUpgrade
+      | typeof workspaceMigrationExport
+      | typeof workspaceOwnershipMigration
+    >
   > = {
     migration_export: workspaceMigrationExport,
     claims_upgrade: workspaceClaimsUpgrade,
