@@ -142,7 +142,7 @@ export function useAddToWorkspaces(input: {
         })
       const pullRequests = results.flatMap((result, index) => {
         const change = list[index]
-        return result.outcome === "pull_request" && change
+        return change
           ? [
               {
                 url: result.pullRequestUrl,
@@ -154,13 +154,9 @@ export function useAddToWorkspaces(input: {
           : []
       })
       toast.success(
-        pullRequests.length
-          ? manage
-            ? "Pull request opened. The change applies after the merge."
-            : "Pull request opened. The source starts to sync after the merge."
-          : manage
-            ? "Sources changed"
-            : "Source added",
+        manage
+          ? "Pull request opened. The change applies after the merge."
+          : "Pull request opened. The source starts to sync after the merge.",
       )
       setValue(emptyChooseWorkspaces())
       setPrefilled(false)

@@ -8,7 +8,6 @@ import { Modal } from "@/components/ui/Modal"
 import { TextField } from "@/components/ui/TextField"
 import {
   renameWorkspaceSource,
-  type SourceDelivery,
   sourceChangeMessage,
   workspaceSourceKeys,
 } from "./queries"
@@ -35,8 +34,8 @@ export function RenameSourceDialog(props: {
   const valid = SEGMENT.test(name) && newPath !== path
 
   const mutation = useMutation({
-    mutationFn: (delivery: SourceDelivery) =>
-      renameWorkspaceSource(orgSlug, workspaceSlug, path, newPath, delivery),
+    mutationFn: () =>
+      renameWorkspaceSource(orgSlug, workspaceSlug, path, newPath),
     onSuccess: () => {
       void queryClient.invalidateQueries({
         queryKey: workspaceSourceKeys.list(orgSlug, workspaceSlug),
@@ -87,7 +86,7 @@ export function RenameSourceDialog(props: {
             variant="primary"
             isDisabled={!valid}
             isPending={mutation.isPending}
-            onPress={() => mutation.mutate("pull_request")}
+            onPress={() => mutation.mutate()}
           >
             Open a pull request
           </Button>

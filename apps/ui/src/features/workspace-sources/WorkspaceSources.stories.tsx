@@ -542,7 +542,6 @@ export const EditSendsChange: Story = {
           connectionId: "con_li1",
           scope: { teams: ["ENG", "OPS"] },
         },
-        delivery: "pull_request",
       },
     })
     await within(document.body).findByText(/Pull request opened/)
@@ -578,7 +577,6 @@ export const UnlinkSendsChange: Story = {
       path: "/acme/api/v1/workspaces/docs/sources",
       query: {
         path: "sources/github/acme/api.md",
-        delivery: "pull_request",
       },
     })
     await within(document.body).findByText(/Pull request opened/)
@@ -859,7 +857,6 @@ export const AddSeveralSendsOneBatch: Story = {
       method: "POST",
       path: "/acme/api/v1/workspaces/docs/sources/batch",
       body: {
-        delivery: "pull_request",
         sources: [
           { source: { scope: { repository: "acme/api" } } },
           { source: { scope: { repository: "acme/web" } } },
@@ -1373,7 +1370,6 @@ export const RenameSendsChange: Story = {
       body: {
         path: "sources/linear/eng-issues.md",
         newPath: "sources/linear/platform-issues.md",
-        delivery: "pull_request",
       },
     })
   },

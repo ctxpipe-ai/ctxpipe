@@ -13,7 +13,6 @@ import { Select, SelectItem } from "@/components/ui/Select"
 import { TextField } from "@/components/ui/TextField"
 import {
   createWorkspaceSource,
-  type SourceDelivery,
   sourceChangeMessage,
   updateWorkspaceSource,
   type WorkspaceSource,
@@ -69,15 +68,13 @@ export function SourceEditorDialog(props: {
     mutationFn: (input: {
       connectionId: string
       scope: Record<string, unknown>
-      delivery: SourceDelivery
     }) => {
-      const { delivery, ...rest } = input
       // An edit that never saw the description keeps the body, unless the
       // user typed one.
       const unchanged = description === (editing?.description ?? "")
       const source = {
         provider,
-        ...rest,
+        ...input,
         ...(editing && unchanged && editing.description == null
           ? {}
           : { description }),
@@ -88,13 +85,11 @@ export function SourceEditorDialog(props: {
             workspaceSlug,
             editing.path,
             source,
-            delivery,
           )
         : createWorkspaceSource(
             orgSlug,
             workspaceSlug,
             source,
-            delivery,
             name ? `sources/${provider}/${name}.md` : undefined,
           )
     },
@@ -191,11 +186,7 @@ export function SourceEditorDialog(props: {
             isPending={saveMutation.isPending}
             onPress={() => {
               if (connectionId && scope)
-                saveMutation.mutate({
-                  connectionId,
-                  scope,
-                  delivery: "pull_request",
-                })
+                saveMutation.mutate({ connectionId, scope })
             }}
           >
             Open a pull request

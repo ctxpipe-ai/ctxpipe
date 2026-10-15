@@ -34,7 +34,6 @@ import {
   createWorkspaceSource,
   createWorkspaceSourcesBatch,
   deleteWorkspaceSource,
-  type SourceDelivery,
   sourceChangeMessage,
   type WorkspaceSource,
   workspaceSourceKeys,
@@ -214,19 +213,13 @@ export function GithubSourceRepositories(props: {
           await unlinkWorkspaceRepository(orgSlug, workspaceSlug, linked.id)
         return null
       }
-      const delivery: SourceDelivery = "pull_request"
       // One file holds one repository, so an unlink deletes the file. A
       // legacy row has no file that a delete can name.
       if (!source.removable)
         throw new Error(
           "This repository is in .ctxpipe/sources.yaml. Edit that file.",
         )
-      return deleteWorkspaceSource(
-        orgSlug,
-        workspaceSlug,
-        source.path,
-        delivery,
-      )
+      return deleteWorkspaceSource(orgSlug, workspaceSlug, source.path)
     },
     onSuccess: (result) => {
       void queryClient.invalidateQueries({
@@ -436,10 +429,7 @@ function AddGithubRepositoriesModal(props: {
   }
 
   const addMutation = useMutation({
-    mutationFn: async (input: {
-      repos: GithubRepoItem[]
-      delivery: SourceDelivery
-    }) => {
+    mutationFn: async (repos: GithubRepoItem[]) => {
       // One source file for each repository. The server names each file
       // sources/github/<owner>/<name>.md. Several repositories share one
       // request, so they share one pull request (the route takes 20).
@@ -448,26 +438,20 @@ function AddGithubRepositoriesModal(props: {
         connectionId: repo.githubConnectionId ?? "",
         scope: { repository: repo.full_name },
       })
-      const [only] = input.repos
-      if (input.repos.length === 1 && only)
+      const [only] = repos
+      if (repos.length === 1 && only)
         return [
-          await createWorkspaceSource(
-            orgSlug,
-            workspaceSlug,
-            toInput(only),
-            input.delivery,
-          ),
+          await createWorkspaceSource(orgSlug, workspaceSlug, toInput(only)),
         ]
       const results = []
-      for (let i = 0; i < input.repos.length; i += 20)
+      for (let i = 0; i < repos.length; i += 20)
         results.push(
           await createWorkspaceSourcesBatch(
             orgSlug,
             workspaceSlug,
-            input.repos.slice(i, i + 20).map((repo) => ({
+            repos.slice(i, i + 20).map((repo) => ({
               source: toInput(repo),
             })),
-            input.delivery,
           ),
         )
       return results
@@ -486,23 +470,20 @@ function AddGithubRepositoriesModal(props: {
           results.length > 1
             ? `${results.length} pull requests opened. Each change applies after its merge.`
             : sourceChangeMessage(),
-          first.outcome === "pull_request"
-            ? {
-                action: {
-                  label: "View pull request",
-                  onClick: () =>
-                    window.open(first.pullRequestUrl, "_blank", "noopener"),
-                },
-              }
-            : undefined,
+          {
+            action: {
+              label: "View pull request",
+              onClick: () =>
+                window.open(first.pullRequestUrl, "_blank", "noopener"),
+            },
+          },
         )
       close()
     },
     onError: (error: Error) => toast.error(error.message),
   })
 
-  const add = (delivery: SourceDelivery) =>
-    addMutation.mutate({ repos: selected, delivery })
+  const add = () => addMutation.mutate(selected)
 
   return (
     <Modal
@@ -585,7 +566,7 @@ function AddGithubRepositoriesModal(props: {
             variant="primary"
             isDisabled={selected.length === 0}
             isPending={addMutation.isPending}
-            onPress={() => add("pull_request")}
+            onPress={() => add()}
           >
             Open a pull request
           </Button>

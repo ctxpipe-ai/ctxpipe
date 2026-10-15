@@ -30,9 +30,6 @@ export type WorkspaceSourceInput = {
   description?: string
 }
 
-/** How a change reaches a source file: always a pull request. */
-export type SourceDelivery = "pull_request"
-
 /** The toast after a change, true to what happens next. */
 export function sourceChangeMessage(): string {
   return "Pull request opened. The change applies after the merge."
@@ -138,7 +135,6 @@ export async function createWorkspaceSource(
   orgSlug: string,
   workspaceSlug: string,
   source: WorkspaceSourceInput,
-  delivery: SourceDelivery = "pull_request",
   /** The file path. Without it, the server names the file. */
   path?: string,
 ): Promise<WorkspaceSourceChangeResult> {
@@ -147,7 +143,7 @@ export async function createWorkspaceSource(
     ":workspaceSlug"
   ].sources.$post({
     param: { orgSlug, workspaceSlug },
-    json: { path, source, delivery },
+    json: { path, source },
   })
   return readApiJson<WorkspaceSourceChangeResult>(res, {
     message: "Failed to add the source",
@@ -159,14 +155,13 @@ export async function createWorkspaceSourcesBatch(
   orgSlug: string,
   workspaceSlug: string,
   sources: { path?: string; source: WorkspaceSourceInput }[],
-  delivery: SourceDelivery = "pull_request",
 ): Promise<WorkspaceSourceBatchResult> {
   const client = await getApiClient()
   const res = await client[":orgSlug"].api.v1.workspaces[
     ":workspaceSlug"
   ].sources.batch.$post({
     param: { orgSlug, workspaceSlug },
-    json: { sources, delivery },
+    json: { sources },
   })
   return readApiJson<WorkspaceSourceBatchResult>(res, {
     message: "Failed to add the sources",
@@ -178,14 +173,13 @@ export async function updateWorkspaceSource(
   workspaceSlug: string,
   path: string,
   source: WorkspaceSourceInput,
-  delivery: SourceDelivery = "pull_request",
 ): Promise<WorkspaceSourceChangeResult> {
   const client = await getApiClient()
   const res = await client[":orgSlug"].api.v1.workspaces[
     ":workspaceSlug"
   ].sources.$put({
     param: { orgSlug, workspaceSlug },
-    json: { path, source, delivery },
+    json: { path, source },
   })
   return readApiJson<WorkspaceSourceChangeResult>(res, {
     message: "Failed to change the source",
@@ -197,14 +191,13 @@ export async function renameWorkspaceSource(
   workspaceSlug: string,
   path: string,
   newPath: string,
-  delivery: SourceDelivery = "pull_request",
 ): Promise<WorkspaceSourceChangeResult> {
   const client = await getApiClient()
   const res = await client[":orgSlug"].api.v1.workspaces[
     ":workspaceSlug"
   ].sources.rename.$post({
     param: { orgSlug, workspaceSlug },
-    json: { path, newPath, delivery },
+    json: { path, newPath },
   })
   return readApiJson<WorkspaceSourceChangeResult>(res, {
     message: "Failed to rename the source",
@@ -215,14 +208,13 @@ export async function deleteWorkspaceSource(
   orgSlug: string,
   workspaceSlug: string,
   path: string,
-  delivery: SourceDelivery = "pull_request",
 ): Promise<WorkspaceSourceChangeResult> {
   const client = await getApiClient()
   const res = await client[":orgSlug"].api.v1.workspaces[
     ":workspaceSlug"
   ].sources.$delete({
     param: { orgSlug, workspaceSlug },
-    query: { path, delivery },
+    query: { path },
   })
   return readApiJson<WorkspaceSourceChangeResult>(res, {
     message: "Failed to remove the source",

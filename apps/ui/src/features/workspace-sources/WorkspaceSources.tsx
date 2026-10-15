@@ -37,7 +37,6 @@ import {
 import {
   deleteWorkspaceSource,
   type PendingSourceChange,
-  type SourceDelivery,
   sourceChangeMessage,
   type WorkspaceSource,
   workspaceSourceKeys,
@@ -381,8 +380,8 @@ export function WorkspaceSources(props: {
   const [githubAddOpen, setGithubAddOpen] = useState(false)
 
   const removeMutation = useMutation({
-    mutationFn: (input: { path: string; delivery: SourceDelivery }) =>
-      deleteWorkspaceSource(orgSlug, workspaceSlug, input.path, input.delivery),
+    mutationFn: (path: string) =>
+      deleteWorkspaceSource(orgSlug, workspaceSlug, path),
     onSuccess: () => {
       void queryClient.invalidateQueries({
         queryKey: workspaceSourceKeys.list(orgSlug, workspaceSlug),
@@ -717,10 +716,7 @@ export function WorkspaceSources(props: {
                   autoFocus
                   onPress={() => {
                     if (removing)
-                      removeMutation.mutate({
-                        path: removing.path,
-                        delivery: "pull_request",
-                      })
+                      removeMutation.mutate(removing.path)
                     close()
                   }}
                 >

@@ -41,7 +41,6 @@ export function workspaceSourceList(
     revision: "a1b2c3d",
     fileError: null,
     canEdit: true,
-    directCommitAllowed: false,
     items: [],
     pendingChanges: [],
     linkErrors: [],
@@ -90,7 +89,6 @@ export function workspaceSourceChangeHandlers(
     const json = body as {
       path?: string
       newPath?: string
-      delivery?: string
       source?: { provider?: string }
       sources?: { path?: string; source: { provider?: string } }[]
     } | null
