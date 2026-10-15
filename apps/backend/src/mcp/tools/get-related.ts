@@ -79,6 +79,14 @@ export const getRelatedInputShape = {
     .describe(
       "Walk only edges with these predicates. Not case-sensitive. Default: the edges of the intent and the link edges, then all edges only with fewer than limit results or no answer kind (all edges for general). Only provenance or these predicates walk FROM_SOURCE.",
     ),
+  excludePredicates: z
+    .array(name)
+    .min(1)
+    .max(50)
+    .optional()
+    .describe(
+      "Never walk edges with these predicates. Not case-sensitive. Applies to every walk.",
+    ),
   predicateWeights: z
     .record(name, z.number().min(0))
     .refine((weights) => Object.keys(weights).length <= 50, {
@@ -93,6 +101,11 @@ export const getRelatedInputShape = {
     .describe(
       "Only results of these kinds. The walk still passes through other kinds.",
     ),
+  excludeKinds: z
+    .array(name)
+    .max(50)
+    .optional()
+    .describe("No results of these kinds. The walk still passes through them."),
   direction: z
     .enum(["out", "in", "both"])
     .default("both")
@@ -107,11 +120,11 @@ export const getRelatedInputShape = {
   maxFanOut: z
     .number()
     .int()
-    .min(1)
-    .max(1_000)
+    .min(5)
+    .max(200)
     .default(50)
     .describe(
-      "Edges that one unit expands: the strongest edge of each predicate first, then the next of each. Default 50.",
+      "Edges that one unit expands, 5 to 200: the strongest edge of each predicate first, then the next of each. Default 50.",
     ),
   minConfidence: z
     .number()
@@ -153,9 +166,10 @@ export const getRelatedInputShape = {
   hubPenalty: z
     .number()
     .min(0)
+    .max(1)
     .optional()
     .describe(
-      "Exponent of the hub penalty degree^-x. The intent sets the default.",
+      "Exponent of the hub penalty degree^-x, 0 to 1. The intent sets the default.",
     ),
   diversity: z
     .number()
@@ -388,6 +402,9 @@ export async function rankWorkspaceRelated(
       maxDepth: input.maxDepth,
       direction: input.direction,
       predicates,
+      excludePredicates: input.excludePredicates?.map((predicate) =>
+        predicate.toUpperCase(),
+      ),
       minConfidence: input.minConfidence,
       maxFanOut: input.maxFanOut,
       validAt: input.validBetween
@@ -452,6 +469,7 @@ export async function rankWorkspaceRelated(
         diversity,
         maxPerKind: input.maxPerKind,
         kinds: input.kinds,
+        excludeKinds: input.excludeKinds,
         includeSeeds: input.includeSeeds,
         limit: RANKED_LIMIT,
         now: input.validAt ? new Date(input.validAt) : now,
@@ -595,7 +613,7 @@ export const getRelatedTool = defineMcpReadTool({
   name: "get_related",
   title: "Get related knowledge",
   description:
-    "Find knowledge related to seed refs AND relevant to your query, ranked by graph proximity, edge confidence, recency and query match. Each result can explain why (the path of predicates from a seed). Set intent for the question: why, ownership, change, dependencies, structure, provenance. Each intent first walks its own edges and the link edges (ownership: OWNS; why: decisions, incidents, rules and dependencies; change: changes; dependencies: dependency edges; provenance: FROM_SOURCE, the sources a unit came from); with fewer than limit results or no answer kind, a second walk follows all edges. The units of those kinds (ownership: teams and people; why: decisions and incidents; change: pull requests and commits; dependencies: libraries, databases, services and APIs) come first, together with strong query matches: intent-walk answers, then all-edges answers, then other results. With no intent, the call is general: all those kinds come first. Set intent, or give the question as query: with neither, one page must serve every kind of question. general walks all edges. No walk of all edges follows FROM_SOURCE. Give predicates to walk only those edges. Filter by predicates, kinds, direction, depth and time. Use it after search_knowledge to find owners, dependencies, decisions, incidents and changes. For plain neighbors, set maxDepth 1 and no query. The default maxDepth is 2.",
+    "Use it after search_knowledge to find owners, dependencies, decisions, incidents and changes. Finds knowledge related to seed refs AND relevant to your query, ranked by graph proximity, edge confidence, recency and query match. Set intent (why, ownership, change, dependencies, structure, provenance) or give the question as query. Each intent walks its own edges first and puts its answer kinds first; with few results, a second walk follows all edges. No walk of all edges follows FROM_SOURCE; the provenance intent walks it, to find the sources a unit came from. Each result can explain why: the path of predicates from a seed. Filter by predicates, kinds, direction, depth and time. For plain neighbors, set maxDepth 1 and no query. Send independent calls in parallel.",
   org: "required",
   inputShape: getRelatedInputShape,
   outputSchema: z.object({

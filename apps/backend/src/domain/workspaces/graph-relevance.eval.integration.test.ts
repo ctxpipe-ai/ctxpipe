@@ -62,7 +62,8 @@ const INTENTS: readonly EvalIntent[] = [
 /**
  * The walk of each intent (`INTENT_PRESETS[intent].walk`), which `get_related`
  * uses when the caller gives no `predicates`. The ablation rows use it with a
- * fan-out of 1,000, so that no fan-out cap decides the result.
+ * fan-out of 200 (the most that get_related allows), so that no fan-out cap
+ * decides the result.
  */
 const scopedPredicates = (intent: EvalIntent) => [
   ...(INTENT_PRESETS[intent].walk ?? []),
@@ -175,7 +176,7 @@ function evalSuite(vocabulary: EvalVocabulary) {
         maxDepth: 2,
         direction: "both",
         minConfidence: 0.2,
-        maxFanOut: scoped ? 1_000 : 50,
+        maxFanOut: scoped ? 200 : 50,
         predicates: scoped ? scopedPredicates(question.intent) : undefined,
         validAt: fixture.now.toISOString(),
         caps,
@@ -383,7 +384,7 @@ describe("graph relevance eval (synthetic engineering Workspace, canonical vocab
         seeds: [question.seed],
         intent: question.intent,
         predicates: scopedPredicates(question.intent),
-        maxFanOut: 1_000,
+        maxFanOut: 200,
       })
       const tool = await rankWorkspaceRelated(
         org(),

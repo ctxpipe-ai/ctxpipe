@@ -36,6 +36,7 @@ const expandParamsSchema = z
      * walk that names FROM_SOURCE follows it.
      */
     predicates: z.array(z.string().min(1)).min(1).optional(),
+    excludePredicates: z.array(z.string().min(1)).optional(),
     minConfidence: z.number().min(0).max(1).default(0),
     maxFanOut: z.number().int().min(1).max(1_000).default(50),
     validAt: z.iso
@@ -240,6 +241,7 @@ export async function expandWorkspaceGraph(
               frontier,
               direction: params.direction,
               predicates: params.predicates,
+              excludePredicates: params.excludePredicates,
               minConfidence: params.minConfidence,
               maxFanOut: params.maxFanOut,
               window,
@@ -299,6 +301,7 @@ export async function expandHop(
     frontier: string[]
     direction: "out" | "in" | "both"
     predicates: string[] | undefined
+    excludePredicates?: string[]
     minConfidence: number
     maxFanOut: number
     remainingEdges: number
@@ -324,6 +327,7 @@ export async function expandHop(
   const match = `MATCH (f:WorkspaceKnowledgeUnit {projectionKey: $projectionKey, id: fromId})${pattern}(n:WorkspaceKnowledgeUnit {projectionKey: $projectionKey})
       WHERE r.confidence >= $minConfidence
         ${input.predicates ? "AND r.predicate IN $predicates" : "AND r.predicate <> $skippedPredicate"}
+        ${input.excludePredicates?.length ? "AND NOT r.predicate IN $excludePredicates" : ""}
         AND (r.validFrom IS NULL OR r.validFrom <= $windowTo)
         AND (r.validTo IS NULL OR r.validTo > $windowFrom)`
   const result = await client.executeQuery(
@@ -364,6 +368,7 @@ export async function expandHop(
       frontier: input.frontier,
       predicates: input.predicates ?? [],
       skippedPredicate: FROM_SOURCE_PREDICATE,
+      excludePredicates: input.excludePredicates ?? [],
       minConfidence: input.minConfidence,
       maxFanOut: input.maxFanOut,
       perNodeLimit: input.maxFanOut + 1,

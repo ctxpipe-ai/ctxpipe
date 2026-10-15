@@ -27,10 +27,10 @@ The ctxpipe MCP server gives you facts with stable refs. You do the reasoning. T
 | -- | -- |
 | `list_workspaces` | Find the organizations and Workspaces you can read, and the state of one Workspace. |
 | `search_knowledge` | Search knowledge units (ADRs, standards, service pages, mirrored issues, docs) in natural language or with keywords. Filter with `kinds`, `pathPrefix`, `sources`, `updatedAfter`, `validAt`. Omit `workspaces` to search all Workspaces of the organization. |
-| `get_related` | Find units near seed refs in the graph and relevant to a `query`. Set `intent`: `general` (the default), `why`, `ownership`, `change`, `dependencies`, `structure`, or `provenance` (the sources that a unit came from). Each intent has its own default walk of the graph, so pick the intent that matches your question. Use it after `search_knowledge` for owners, dependencies, decisions, changes, and sources. |
-| `search_code` | Search linked repositories. `mode` is `literal`, `regex` (RE2), or `structural` (ast-grep, needs `language`). |
+| `get_related` | Find units near seed refs in the graph and relevant to a `query`. Set `intent`: `general` (the default), `why`, `ownership`, `change`, `dependencies`, `structure`, or `provenance` (the sources that a unit came from). Use `excludePredicates` and `excludeKinds` to remove edges and result kinds. Each intent has its own default walk of the graph, so pick the intent that matches your question. Use it after `search_knowledge` for owners, dependencies, decisions, changes, and sources. |
+| `search_code` | Search linked repositories. `mode` is `literal`, `regex` (RE2), or `structural` (ast-grep, needs `language`). Narrow it with `pathGlob` (a gitignore-style glob, such as `*.ts`) and `caseSensitive`. |
 | `find_symbol` | Find the `definition`, `references`, `callers`, or `callees` of a symbol. |
-| `list_files` | List one folder of the Workspace repository or of a linked repository. |
+| `list_files` | List one folder of the Workspace repository or of a linked repository. Set `depth` (1 to 5) for more levels, or `glob` to list only matching files. |
 | `read_file` | Read a unit or a repository file by ref, with a line range. |
 
 ## Work loop
