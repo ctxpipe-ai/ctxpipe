@@ -1,5 +1,5 @@
 import { explorerBlobPath } from "./git-explorer.js"
-import { isHostOnlyPath } from "./host-only.js"
+import { hostOnlyRefusal } from "./host-only.js"
 
 export type WorkspaceFileJobRequest =
   | { op: "save"; path: string; content: string }
@@ -107,16 +107,11 @@ export async function planWorkspaceFileJob(input: {
   const planned = await planFileJobPaths(input)
   if (!planned.ok) return planned
   const { mergeFiles, mergeDeletePaths } = planned.plan
-  const hostOnly = [
+  const refusal = hostOnlyRefusal([
     ...mergeFiles.map((file) => file.path),
     ...mergeDeletePaths,
-  ].find(isHostOnlyPath)
-  if (hostOnly) {
-    return {
-      ok: false,
-      error: `${hostOnly} is host-only. Change it through a pull request.`,
-    }
-  }
+  ])
+  if (refusal) return { ok: false, error: refusal }
   return planned
 }
 

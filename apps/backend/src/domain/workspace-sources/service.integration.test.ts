@@ -113,7 +113,6 @@ it(
               connectionId: linear,
               scope: { teams: ["ENG"] },
             },
-            delivery: "pull_request",
           })
         })
 
@@ -303,7 +302,6 @@ it(
               connectionId: linear,
               scope: { teams: ["CTX"] },
             },
-            delivery: "pull_request",
           })
         })
 
@@ -329,7 +327,6 @@ async function addLinearSource(f: NativeHydrationFixture, linear: string) {
         connectionId: linear,
         scope: { teams: ["CTX"] },
       },
-      delivery: "pull_request",
     })
   })
 }
@@ -528,7 +525,6 @@ for (const change of ["edit", "remove"] as const)
                       scope: { teams: ["OPS"] },
                     }
                   : { action: "remove", sourceKey: "eng" },
-              delivery: "pull_request",
             })
           })
 

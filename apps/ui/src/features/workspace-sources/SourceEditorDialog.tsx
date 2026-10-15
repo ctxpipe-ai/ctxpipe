@@ -12,7 +12,6 @@ import { Modal } from "@/components/ui/Modal"
 import { Select, SelectItem } from "@/components/ui/Select"
 import {
   createWorkspaceSource,
-  type SourceDelivery,
   sourceChangeMessage,
   updateWorkspaceSource,
   type WorkspaceSource,
@@ -29,26 +28,17 @@ export type SourceConnectionOption = { id: string; displayName: string | null }
 
 /**
  * Add or edit one source of a Workspace. The body is the provider scope
- * editor slot. The change goes to `.ctxpipe/sources.yaml` by a pull request,
- * or by a direct commit when the Workspace allows one.
+ * editor slot. The change goes to `.ctxpipe/sources.yaml` by a pull request.
  */
 export function SourceEditorDialog(props: {
   orgSlug: string
   workspaceSlug: string
   /** The connections of this provider in the org. */
   connections: SourceConnectionOption[]
-  directCommitAllowed: boolean
   target: SourceEditorTarget
   onClose: () => void
 }) {
-  const {
-    orgSlug,
-    workspaceSlug,
-    connections,
-    directCommitAllowed,
-    target,
-    onClose,
-  } = props
+  const { orgSlug, workspaceSlug, connections, target, onClose } = props
   const { provider } = target
   const editing = target.kind === "edit" ? target.source : null
   const queryClient = useQueryClient()
@@ -69,25 +59,22 @@ export function SourceEditorDialog(props: {
     mutationFn: (input: {
       connectionId: string
       scope: Record<string, unknown>
-      delivery: SourceDelivery
     }) => {
-      const { delivery, ...rest } = input
-      const source = { provider, ...rest }
+      const source = { provider, ...input }
       return editing
         ? updateWorkspaceSource(
             orgSlug,
             workspaceSlug,
             editing.sourceKey,
             source,
-            delivery,
           )
-        : createWorkspaceSource(orgSlug, workspaceSlug, source, delivery)
+        : createWorkspaceSource(orgSlug, workspaceSlug, source)
     },
-    onSuccess: (result) => {
+    onSuccess: () => {
       void queryClient.invalidateQueries({
         queryKey: workspaceSourceKeys.list(orgSlug, workspaceSlug),
       })
-      toast.success(sourceChangeMessage(result))
+      toast.success(sourceChangeMessage())
       onClose()
     },
     onError: (error: Error) => toast.error(error.message),
@@ -148,22 +135,6 @@ export function SourceEditorDialog(props: {
           <Button variant="quiet" onPress={onClose}>
             Cancel
           </Button>
-          {directCommitAllowed ? (
-            <Button
-              variant="secondary"
-              isDisabled={!valid || saveMutation.isPending}
-              onPress={() => {
-                if (connectionId && scope)
-                  saveMutation.mutate({
-                    connectionId,
-                    scope,
-                    delivery: "commit",
-                  })
-              }}
-            >
-              Commit directly
-            </Button>
-          ) : null}
           <Button
             variant="primary"
             isDisabled={!valid}
@@ -173,7 +144,6 @@ export function SourceEditorDialog(props: {
                 saveMutation.mutate({
                   connectionId,
                   scope,
-                  delivery: "pull_request",
                 })
             }}
           >

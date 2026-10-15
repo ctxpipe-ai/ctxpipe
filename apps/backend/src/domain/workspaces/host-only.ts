@@ -25,6 +25,18 @@ export function isHostOnlyPath(path: string): boolean {
 }
 
 /**
+ * The refusal message for the first host-only path in `paths`, or null. A
+ * file job commits to the default branch without a pull request, so it must
+ * not touch these paths.
+ */
+export function hostOnlyRefusal(paths: readonly string[]): string | null {
+  const hostOnly = paths.find(isHostOnlyPath)
+  return hostOnly
+    ? `${hostOnly} is host-only. Change it through a pull request.`
+    : null
+}
+
+/**
  * The host fields that give a file to ingestion (ADR-052 section 3): a file
  * with `generated_by: ctxpipe-extract` and a source in `sources` is the
  * source's file, which ingestion can rewrite or delete. The other host fields
