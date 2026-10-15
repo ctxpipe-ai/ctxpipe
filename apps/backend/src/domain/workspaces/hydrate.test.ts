@@ -652,6 +652,44 @@ describe("hydrateKnowledgeTree pull request changes", () => {
     ])
   })
 
+  it("gives a `./sources/` path both its FROM_SOURCE edge and its CHANGED match", () => {
+    const mirror = pullRequest(["apps/api/main.ts"])
+    const { units } = hydrateKnowledgeTree({
+      workspaceId: "ws_1",
+      files: [
+        {
+          path: "sources/github/acme/shop.md",
+          content:
+            "---\nprovider: github\nconnection: con_github1\nrepository: acme/shop\n---\n",
+        },
+        unitFile("knowledge/services/api.md", "Service", {
+          root: "apps/api",
+          sources: [" ./sources/github/acme/shop.md "],
+        }),
+        mirror,
+      ],
+    })
+    const pathOf = new Map(units.map((unit) => [unit.servingId, unit.path]))
+    expect(
+      hydrateUnitsToProjectionClaims(units)
+        .filter((claim) => claim.predicate !== "LINKS_TO")
+        .map((claim) => [
+          pathOf.get(claim.subjectId),
+          claim.predicate,
+          pathOf.get(claim.objectId),
+        ]),
+    ).toEqual(
+      expect.arrayContaining([
+        [mirror.path, "CHANGED", "knowledge/services/api.md"],
+        [
+          "knowledge/services/api.md",
+          "FROM_SOURCE",
+          "sources/github/acme/shop.md",
+        ],
+      ]),
+    )
+  })
+
   it("writes no CHANGED claim for a pull request that is not merged", () => {
     expect(
       changedEdges(["apps/api/src/checkout.ts"], {

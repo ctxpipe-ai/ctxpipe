@@ -7,8 +7,7 @@ import {
   nativeGit,
   withGitDirectory,
 } from "../../services/git/pack.js"
-import { SOURCES_FOLDER_PREFIX } from "../workspace-sources/source-tree.js"
-import { resolveHydrateLink } from "./hydrate.js"
+import { resolveHydrateLink, sourcePathOf } from "./hydrate.js"
 import {
   editableMetadataNode,
   materializeMetadataAlias,
@@ -226,9 +225,8 @@ function rewriteDocument(
   // `sources` holds source paths from the Workspace root (ADR-050), not
   // links from the file, so a renamed source file keeps its units.
   const movedSource = (entry: unknown): string | null => {
-    if (typeof entry !== "string") return null
-    const resolved = resolveHydrateLink("", entry.trim())
-    if (!resolved.startsWith(SOURCES_FOLDER_PREFIX)) return null
+    const resolved = sourcePathOf(entry)
+    if (!resolved) return null
     const moved = renames.find((pair) => pair.from === resolved)?.to
     return moved && current.has(moved) ? moved : null
   }

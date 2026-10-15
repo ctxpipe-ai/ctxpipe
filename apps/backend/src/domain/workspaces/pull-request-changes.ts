@@ -1,6 +1,6 @@
 import { posix, win32 } from "node:path"
 import { log } from "../../observability/logger.js"
-import type { HydrateClaim } from "./hydrate.js"
+import { type HydrateClaim, sourcePathOf } from "./hydrate.js"
 import { WORKSPACE_LINK_SCHEME } from "./mirror-units.js"
 import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
 
@@ -54,8 +54,9 @@ export function pullRequestChangedClaims(
       continue
     }
     for (const source of stringList(unit.attributes.sources)) {
+      const path = sourcePathOf(source)
       const key =
-        sourceRepositories.get(source) ??
+        (path && sourceRepositories.get(path)) ??
         normalizeWorkspaceRepositoryUrl(source)
       const list = targets.get(key) ?? []
       list.push({ path: unit.path, root })

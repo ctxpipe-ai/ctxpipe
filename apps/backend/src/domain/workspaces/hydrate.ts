@@ -193,7 +193,7 @@ export function hydrateKnowledgeTree(input: {
   )
   for (const unit of units) {
     unit.claims.push(
-      ...fromSourceClaims(attributes.get(unit.path)?.sources, sourcePaths),
+      ...fromSourceClaims(attributes.get(unit.path) ?? {}, sourcePaths),
     )
   }
 
@@ -217,20 +217,33 @@ export function hydrateKnowledgeTree(input: {
 }
 
 /**
+ * The source file path that one `sources` entry names (ADR-050), from the
+ * Workspace root. A URL, another path or a value that is not text gives null.
+ */
+export function sourcePathOf(entry: unknown): string | null {
+  if (typeof entry !== "string") return null
+  const path = resolveHydrateLink("", entry.trim())
+  return path.startsWith(SOURCES_FOLDER_PREFIX) ? path : null
+}
+
+/** The source file paths in the `sources` front matter of a unit. */
+export function sourcePathsOf(attributes: Record<string, unknown>): string[] {
+  const raw = attributes.sources
+  if (!Array.isArray(raw)) return []
+  return raw.flatMap((entry) => sourcePathOf(entry) ?? [])
+}
+
+/**
  * One `FROM_SOURCE` claim for each path in the `sources` front matter that
  * names a source file (ADR-050). A URL or another path makes no claim.
  */
 function fromSourceClaims(
-  raw: unknown,
+  attributes: Record<string, unknown>,
   sourcePaths: ReadonlySet<string>,
 ): HydrateClaim[] {
-  if (!Array.isArray(raw)) return []
-  const targets = new Set<string>()
-  for (const entry of raw) {
-    if (typeof entry !== "string") continue
-    const path = resolveHydrateLink("", entry.trim())
-    if (sourcePaths.has(path)) targets.add(path)
-  }
+  const targets = new Set(
+    sourcePathsOf(attributes).filter((path) => sourcePaths.has(path)),
+  )
   return [...targets].map((path) => ({
     to: `${WORKSPACE_LINK_SCHEME}${path}`,
     predicate: "FROM_SOURCE",
