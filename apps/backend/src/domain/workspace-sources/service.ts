@@ -6,6 +6,7 @@ import {
   listWorkspaceSourceRows,
   type WorkspaceSourceRow,
 } from "../../models/workspace-sources.js"
+import { listRefusedLinkEdits } from "../../models/workspace-write-jobs.js"
 import {
   listOrgWorkspaces,
   type WorkspaceRecord,
@@ -37,6 +38,7 @@ import {
   SOURCE_SCOPES,
   SOURCES_FILE_PATH,
   type SourceProvider,
+  sourceKeySchema,
   sourceProviderSchema,
   summarizeSourceScope,
 } from "./sources-file.js"
@@ -162,6 +164,9 @@ export async function listWorkspaceSources(
         scopeSummary: scopeSummary(row),
         status: row.status,
         statusDetail: row.statusDetail,
+        // A row of an entry without a valid id, or of a repository file,
+        // has no id in the file that a remove can name.
+        removable: sourceKeySchema.safeParse(row.sourceKey).success,
         revision: row.revision,
         updatedAt: row.updatedAt.toISOString(),
       })),
@@ -169,6 +174,10 @@ export async function listWorkspaceSources(
     pendingChanges: (await pendingChanges(workspace)).filter((change) =>
       stillApplies(change, sourceKeys),
     ),
+    linkErrors: (await listRefusedLinkEdits(workspace.id)).map((edit) => ({
+      ...edit,
+      failedAt: edit.failedAt.toISOString(),
+    })),
   }
 }
 

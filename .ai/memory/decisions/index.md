@@ -57,8 +57,8 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-047](ADR-047-native-durable-write-workflows.md) | Durable write workflows | Accepted (revised 2026-10-06; amended by ADR-052) |
 | [ADR-048](ADR-048-native-postgres-sandbox-ownership.md) | Conversation sandboxes: stock providers, Postgres ownership, git as durable state | Accepted (amended by ADR-051 and ADR-052: ingest sandboxes) |
 | [ADR-049](ADR-049-self-host-chat-sandbox-stock-docker.md) | Self-host chat sandboxes: stock Docker on DinD and an EC2 host; Agent Vault adds their credentials | Accepted |
-| [ADR-050](ADR-050-workspace-sources-config-file.md) | Workspace sources in a config file; connections hold auth only | Accepted |
-| [ADR-051](ADR-051-mcp-read-surface.md) | MCP read surface: small read tools, slugs, scopes, and an org set per grant | Accepted (clarified: capped hubs and parallel chat claims) |
-| [ADR-052](ADR-052-ingestion-sandbox-skills-patches.md) | Ingestion as sandbox skills that write patches | Accepted |
+| [ADR-050](ADR-050-workspace-sources-config-file.md) | Workspace sources as node files (`sources/*.md`); connections hold auth only | Accepted (revised 2026-10-16: one Markdown file per source, `Source` nodes, `FROM_SOURCE` provenance) |
+| [ADR-051](ADR-051-mcp-read-surface.md) | MCP read surface: small read tools, slugs, scopes, and an org set per grant | Accepted (clarified: capped hubs and parallel chat claims; amended by ADR-050: `provenance` intent) |
+| [ADR-052](ADR-052-ingestion-sandbox-skills-patches.md) | Ingestion as sandbox skills that write patches | Accepted (amended by ADR-050: `sources` holds source paths) |
 
 Numbers 035 and 036 are unused. The next new ADR is 053.

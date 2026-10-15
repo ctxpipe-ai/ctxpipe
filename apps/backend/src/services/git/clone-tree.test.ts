@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process"
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { createServer } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -50,6 +50,87 @@ describe("clone-tree", { timeout: 30_000 }, () => {
     expect(await listMarkdownFilesAtGitSha({ url: dir, sha })).toEqual([
       { path: "knowledge.md", content: "# SHA-256 knowledge\n" },
     ])
+  })
+
+  it("does not read a folder blob that is larger than the limit or not text", async () => {
+    dir = await mkdtemp(join(tmpdir(), "ctxpipe-folder-limit-"))
+    const git = async (...args: string[]) =>
+      (await execFileAsync("git", ["-C", dir as string, ...args])).stdout.trim()
+    await git("init", "-b", "main")
+    await mkdir(join(dir, "sources", "linear"), { recursive: true })
+    await writeFile(join(dir, "sources", "linear", "ok.md"), "---\n---\n")
+    await writeFile(
+      join(dir, "sources", "linear", "big.md"),
+      "x".repeat(64 * 1024 + 1),
+    )
+    await writeFile(
+      join(dir, "sources", "linear", "logo.png"),
+      Buffer.from([0x89, 0x50, 0x00, 0x01]),
+    )
+    await git("add", ".")
+    await git(
+      "-c",
+      "user.name=Contract",
+      "-c",
+      "user.email=contract@example.test",
+      "commit",
+      "-m",
+      "Folder fixture",
+    )
+    const sha = await git("rev-parse", "HEAD")
+    const files = await listMarkdownFilesAtGitSha({
+      url: dir,
+      sha,
+      extraFolders: ["sources/"],
+      extraFolderMaxBytes: 64 * 1024,
+    })
+    expect([...files].sort((a, b) => a.path.localeCompare(b.path))).toEqual([
+      { path: "sources/linear/big.md", content: "", omitted: "too_large" },
+      { path: "sources/linear/logo.png", content: "", omitted: "binary" },
+      { path: "sources/linear/ok.md", content: "---\n---\n" },
+    ])
+  })
+
+  it("resolves a linked ref that is a branch, a light tag, or an annotated tag", async () => {
+    dir = await mkdtemp(join(tmpdir(), "ctxpipe-tag-tip-"))
+    const git = async (...args: string[]) =>
+      (
+        await execFileAsync("git", [
+          "-C",
+          dir as string,
+          "-c",
+          "user.name=Contract",
+          "-c",
+          "user.email=contract@example.test",
+          ...args,
+        ])
+      ).stdout.trim()
+    await git("init", "-b", "main")
+    await writeFile(join(dir, "a.md"), "# A\n")
+    await git("add", ".")
+    await git("commit", "-m", "First")
+    const first = await git("rev-parse", "HEAD")
+    await git("tag", "v1")
+    await git("tag", "-a", "v1-annotated", "-m", "Release")
+    await writeFile(join(dir, "a.md"), "# A2\n")
+    await git("commit", "-am", "Second")
+    const second = await git("rev-parse", "HEAD")
+
+    expect(await resolveGitRemoteTip({ url: dir, branch: "main" })).toEqual({
+      sha: second,
+      branch: "main",
+    })
+    expect(await resolveGitRemoteTip({ url: dir, branch: "v1" })).toEqual({
+      sha: first,
+      branch: "v1",
+    })
+    // An annotated tag resolves to its commit, not to the tag object.
+    expect(
+      await resolveGitRemoteTip({ url: dir, branch: "v1-annotated" }),
+    ).toEqual({ sha: first, branch: "v1-annotated" })
+    expect(await resolveGitRemoteTip({ url: dir, branch: "missing" })).toBe(
+      null,
+    )
   })
 
   it("reports the introducing and the last commit time of each Markdown path", async () => {

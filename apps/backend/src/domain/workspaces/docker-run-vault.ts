@@ -2,8 +2,8 @@ import { and, eq } from "drizzle-orm"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { repositories } from "../../db/schema/repositories.js"
-import { workspaceLinkedRepositories } from "../../db/schema/workspaces.js"
 import { getWorkspaceGithubReadToken } from "../../models/github-installation.js"
+import { listServedRepositoryPins } from "../../models/workspace-source-state.js"
 import {
   type AgentVaultAccess,
   AgentVaultUnavailableError,
@@ -46,7 +46,7 @@ export function workspaceChatGithubRepository(url: string): string | undefined {
 
 /**
  * The GitHub repositories a Docker run may read: the Workspace repository and
- * the linked repositories on the same GitHub connection.
+ * the served linked repositories on the same GitHub connection.
  */
 export async function workspaceGithubReadScope(
   orgId: string,
@@ -54,25 +54,27 @@ export async function workspaceGithubReadScope(
 ): Promise<string[]> {
   const connectionId = revision.remote.connectionId
   if (!connectionId) return []
-  const linked = await withOrgDbContext(orgId, (db) =>
-    db
-      .select({ url: workspaceLinkedRepositories.gitUrl })
-      .from(workspaceLinkedRepositories)
-      .innerJoin(
-        repositories,
-        and(
-          eq(repositories.gitUrl, workspaceLinkedRepositories.gitUrl),
-          eq(repositories.orgId, workspaceLinkedRepositories.orgId),
-          eq(repositories.githubConnectionId, connectionId),
+  const linked = await withOrgDbContext(orgId, async (db) => {
+    const [pins, bound] = await Promise.all([
+      listServedRepositoryPins(db, {
+        orgId,
+        workspaceId: revision.workspaceId,
+      }),
+      db
+        .select({ gitUrl: repositories.gitUrl })
+        .from(repositories)
+        .where(
+          and(
+            eq(repositories.orgId, orgId),
+            eq(repositories.githubConnectionId, connectionId),
+          ),
         ),
-      )
-      .where(
-        and(
-          eq(workspaceLinkedRepositories.orgId, orgId),
-          eq(workspaceLinkedRepositories.workspaceId, revision.workspaceId),
-        ),
-      ),
-  )
+    ])
+    const readable = new Set(bound.map((row) => row.gitUrl))
+    return pins
+      .filter((pin) => readable.has(pin.gitUrl))
+      .map((pin) => ({ url: pin.gitUrl }))
+  })
   return [
     ...new Set(
       [revision.remote.url, ...linked.map((entry) => entry.url)]

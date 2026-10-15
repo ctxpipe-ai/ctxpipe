@@ -39,6 +39,7 @@ const workspaceSourcesMirrorSchema = z
       "pagerduty",
     ]),
     connectionId: z.string().min(1),
+    /** The sources fence id (`sourcesFenceAt`); the name is from the YAML-only fence. */
     sourcesBlobSha: gitObjectIdSchema.nullable(),
   })
   .strict()

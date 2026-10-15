@@ -41,14 +41,24 @@ export async function getWriteJobCommitSha(
   })
 }
 
+/** Set the status of a job. `failureReason` records why a job failed. */
 export async function persistWriteJobStatus(
   jobId: string,
   status: string,
+  failureReason?: string,
 ): Promise<void> {
   await orgSql(async () => {
     const [row] = await getOrgDb()
       .update(workspaceWriteJobs)
-      .set({ status, updatedAt: new Date() })
+      .set({
+        status,
+        updatedAt: new Date(),
+        ...(failureReason
+          ? {
+              payload: sql`jsonb_set(coalesce(${workspaceWriteJobs.payload}, '{}'::jsonb), '{failureReason}', to_jsonb(${failureReason}::text))`,
+            }
+          : {}),
+      })
       .where(
         and(
           eq(workspaceWriteJobs.id, jobId),
@@ -851,5 +861,56 @@ export async function adoptInitializedBootstrapRevision(input: {
         updatedAt: new Date(),
       })
       .where(eq(workspaceWriteJobs.id, input.jobId))
+  })
+}
+
+/**
+ * The link edits of a Workspace that cannot go into `.ctxpipe/sources.yaml`,
+ * newest first. Only the last edit of each repository counts, so a later
+ * edit of the same repository that completes removes the entry.
+ */
+export async function listRefusedLinkEdits(workspaceId: string): Promise<
+  Array<{
+    action: "link" | "unlink"
+    gitUrl: string
+    reason: string
+    failedAt: Date
+  }>
+> {
+  return orgSql(async () => {
+    const rows = await getOrgDb()
+      .selectDistinctOn([sql`${workspaceWriteJobs.payload}->>'linkGitUrl'`], {
+        status: workspaceWriteJobs.status,
+        payload: workspaceWriteJobs.payload,
+        updatedAt: workspaceWriteJobs.updatedAt,
+      })
+      .from(workspaceWriteJobs)
+      .where(
+        and(
+          eq(workspaceWriteJobs.workspaceId, workspaceId),
+          eq(workspaceWriteJobs.kind, "link_unlink"),
+          sql`${workspaceWriteJobs.payload}->>'linkGitUrl' is not null`,
+        ),
+      )
+      .orderBy(
+        sql`${workspaceWriteJobs.payload}->>'linkGitUrl'`,
+        sql`${workspaceWriteJobs.createdAt} desc`,
+      )
+    return rows
+      .flatMap((row) =>
+        row.status === WRITE_JOB_STATUSES.failed &&
+        row.payload?.linkGitUrl &&
+        row.payload.failureReason
+          ? [
+              {
+                action: row.payload.linkAction ?? ("link" as const),
+                gitUrl: row.payload.linkGitUrl,
+                reason: row.payload.failureReason,
+                failedAt: row.updatedAt,
+              },
+            ]
+          : [],
+      )
+      .sort((a, b) => b.failedAt.getTime() - a.failedAt.getTime())
   })
 }

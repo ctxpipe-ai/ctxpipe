@@ -50,11 +50,29 @@ import {
   sourceRowsClassName,
 } from "./source-table"
 
-function scopeRepositories(source: WorkspaceSource): string[] {
+/** One item of a GitHub scope: `owner/name`, or a map with a branch or tag. */
+type ScopeItem = string | { name: string; ref?: string }
+
+function itemName(item: ScopeItem): string {
+  return typeof item === "string" ? item : item.name
+}
+
+/** The items of a GitHub source, as the file has them (refs stay). */
+function scopeItems(source: WorkspaceSource): ScopeItem[] {
   const value = source.scope.repositories
   return Array.isArray(value)
-    ? value.filter((name): name is string => typeof name === "string")
+    ? value.filter(
+        (item): item is ScopeItem =>
+          typeof item === "string" ||
+          (typeof item === "object" &&
+            item !== null &&
+            typeof (item as { name?: unknown }).name === "string"),
+      )
     : []
+}
+
+function scopeRepositories(source: WorkspaceSource): string[] {
+  return scopeItems(source).map(itemName)
 }
 
 function sameName(a: string, b: string): boolean {
@@ -160,9 +178,8 @@ export function repositoryRows(
 
 /**
  * The GitHub section body of the Workspace sources: one list of the linked
- * repositories. Repositories from GitHub sources change through
- * `.ctxpipe/sources.yaml`. Repositories that only an old
- * `repositories/*.md` file links still show, and unlink as before.
+ * repositories. The GitHub sources of `.ctxpipe/sources.yaml` are the only
+ * links; each change goes through that file.
  */
 export function GithubSourceRepositories(props: {
   orgSlug: string
@@ -193,16 +210,18 @@ export function GithubSourceRepositories(props: {
   const unlinkMutation = useMutation({
     mutationFn: async (row: RepositoryRow) => {
       const { source, linked } = row
-      // A repositories/*.md file can link the repository too. Its unlink
-      // deletes that file, and does nothing when no file links it.
-      if (linked)
-        await unlinkWorkspaceRepository(orgSlug, workspaceSlug, linked.id)
-      if (!source) return null
+      // Without a source row (the file changed since the last projection),
+      // the unlink command removes the repository from the file.
+      if (!source) {
+        if (linked)
+          await unlinkWorkspaceRepository(orgSlug, workspaceSlug, linked.id)
+        return null
+      }
       const delivery: SourceDelivery = directCommitAllowed
         ? "commit"
         : "pull_request"
-      const repositories = scopeRepositories(source).filter(
-        (name) => !sameName(name, row.title),
+      const repositories = scopeItems(source).filter(
+        (item) => !sameName(itemName(item), row.title),
       )
       if (repositories.length === 0)
         return deleteWorkspaceSource(
@@ -470,7 +489,7 @@ function AddGithubRepositoriesModal(props: {
                   provider: "github",
                   connectionId,
                   scope: {
-                    repositories: [...scopeRepositories(existing), ...names],
+                    repositories: [...scopeItems(existing), ...names],
                   },
                 },
                 input.delivery,

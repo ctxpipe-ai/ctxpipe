@@ -62,16 +62,32 @@ export class GitRemoteAccessError extends Error {
   }
 }
 
-/** Resolve a branch once; subsequent reads fetch the returned immutable SHA. */
+/**
+ * Resolve a branch or a tag once; subsequent reads fetch the returned
+ * immutable SHA. A branch wins over a tag of the same name, and an annotated
+ * tag resolves to its commit.
+ */
 export async function resolveGitRemoteTip(input: {
   url: string
   branch?: string | null
   token?: string
 }): Promise<{ sha: string; branch: string } | null> {
   const requested = input.branch?.trim()
-  const ref = requested ? `refs/heads/${requested}` : "HEAD"
+  const refs = requested
+    ? [
+        `refs/heads/${requested}`,
+        `refs/tags/${requested}^{}`,
+        `refs/tags/${requested}`,
+      ]
+    : ["HEAD"]
   const { stdout } = await gitExec(
-    ["ls-remote", "--symref", "--", input.url, ref],
+    [
+      "ls-remote",
+      "--symref",
+      "--",
+      input.url,
+      ...(requested ? refs : ["HEAD"]),
+    ],
     { timeout: 60_000, env: gitRemoteEnvironment(input) },
   ).catch((error: unknown) => {
     const stderr = String((error as { stderr?: unknown }).stderr ?? "")
@@ -87,12 +103,13 @@ export async function resolveGitRemoteTip(input: {
     throw error
   })
   const lines = stdout.toString("utf8").trim().split("\n")
-  const sha = lines
-    .map((line) => line.split("\t"))
-    .find(
-      ([value, name]) =>
-        name === ref && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(value ?? ""),
-    )?.[0]
+  const found = new Map(
+    lines
+      .map((line) => line.split("\t"))
+      .filter(([value]) => /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(value ?? ""))
+      .map(([value, name]) => [name, value] as const),
+  )
+  const sha = refs.map((ref) => found.get(ref)).find(Boolean)
   const branch =
     requested ??
     lines
@@ -185,9 +202,11 @@ async function withFetchedGitSha<T>(
 
 async function listTreeEntries(
   dir: string,
-): Promise<Array<{ kind: string; sha: string; path: string }>> {
+): Promise<
+  Array<{ kind: string; sha: string; path: string; size: number | null }>
+> {
   const { stdout } = await gitExec(
-    ["-C", dir, "ls-tree", "-rz", "--full-tree", "FETCH_HEAD"],
+    ["-C", dir, "ls-tree", "-rlz", "--full-tree", "FETCH_HEAD"],
     { timeout: 15_000, maxBuffer: 10 * 1024 * 1024 },
   )
   return stdout
@@ -195,10 +214,21 @@ async function listTreeEntries(
     .split("\0")
     .filter(Boolean)
     .map((record) => {
-      const entry = /^\d+ (\w+) ([0-9a-f]+)\t([\s\S]+)$/.exec(record)
-      if (!entry?.[1] || !entry[2] || !entry[3] || !isSafeGitPath(entry[3]))
+      const entry = /^\d+ (\w+) ([0-9a-f]+) +(\d+|-)\t([\s\S]+)$/.exec(record)
+      if (
+        !entry?.[1] ||
+        !entry[2] ||
+        !entry[3] ||
+        !entry[4] ||
+        !isSafeGitPath(entry[4])
+      )
         throw new Error("Invalid path in immutable Git tree")
-      return { kind: entry[1], sha: entry[2], path: entry[3] }
+      return {
+        kind: entry[1],
+        sha: entry[2],
+        path: entry[4],
+        size: entry[3] === "-" ? null : Number(entry[3]),
+      }
     })
 }
 
@@ -223,22 +253,45 @@ export async function listMarkdownFilesAtGitSha(input: {
   includeIntroducingCommits?: boolean
   /** Exact non-Markdown paths to read in the same fetch. */
   extraPaths?: readonly string[]
+  /** Folders (`sources/`) whose every blob to read, also a non-Markdown one. */
+  extraFolders?: readonly string[]
+  /**
+   * The largest blob in `extraFolders` to read. A larger blob, or one that is
+   * not text, comes back with empty content and the reason in `omitted`.
+   */
+  extraFolderMaxBytes?: number
 }): Promise<
   Array<{
     path: string
     content: string
+    omitted?: "too_large" | "binary"
     introducingCommitTimestamp?: string
     /** Time of the newest commit that changed the path. */
     lastCommitTimestamp?: string
   }>
 > {
   return withFetchedGitSha(input, async (dir) => {
-    const entries = (await listTreeEntries(dir)).filter(
+    const inFolder = (path: string) =>
+      input.extraFolders?.some((folder) => path.startsWith(folder)) ?? false
+    const listed = (await listTreeEntries(dir)).filter(
       (entry) =>
         entry.kind === "blob" &&
-        (entry.path.endsWith(".md") || input.extraPaths?.includes(entry.path)),
+        (entry.path.endsWith(".md") ||
+          input.extraPaths?.includes(entry.path) ||
+          inFolder(entry.path)),
     )
-    if (entries.length === 0) return []
+    // Check the size before the read, so a large blob is never in memory.
+    const tooLarge = (entry: (typeof listed)[number]) =>
+      input.extraFolderMaxBytes !== undefined &&
+      inFolder(entry.path) &&
+      (entry.size ?? 0) > input.extraFolderMaxBytes
+    const omitted = listed.filter(tooLarge).map((entry) => ({
+      path: entry.path,
+      content: "",
+      omitted: "too_large" as const,
+    }))
+    const entries = listed.filter((entry) => !tooLarge(entry))
+    if (entries.length === 0) return omitted
     // The caller keeps all blob contents in memory. This limit bounds that
     // memory.
     const { stdout } = await gitExec(
@@ -291,7 +344,7 @@ export async function listMarkdownFilesAtGitSha(input: {
       }
     }
     let offset = 0
-    return entries.map((entry) => {
+    const read = entries.map((entry) => {
       const newline = stdout.indexOf(10, offset)
       if (newline < 0) throw new Error("Incomplete Git batch response")
       const [sha, kind, sizeText] = stdout
@@ -311,9 +364,16 @@ export async function listMarkdownFilesAtGitSha(input: {
       )
         throw new Error("Invalid blob in immutable Git batch")
       offset = end + 1
+      const bytes = stdout.subarray(start, end)
+      if (
+        input.extraFolderMaxBytes !== undefined &&
+        inFolder(entry.path) &&
+        bytes.includes(0)
+      )
+        return { path: entry.path, content: "", omitted: "binary" as const }
       return {
         path: entry.path,
-        content: stdout.subarray(start, end).toString("utf8"),
+        content: bytes.toString("utf8"),
         ...(introduced.has(entry.path)
           ? { introducingCommitTimestamp: introduced.get(entry.path) }
           : {}),
@@ -322,6 +382,7 @@ export async function listMarkdownFilesAtGitSha(input: {
           : {}),
       }
     })
+    return [...read, ...omitted]
   })
 }
 

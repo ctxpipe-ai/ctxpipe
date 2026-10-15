@@ -56,4 +56,49 @@ describe("readSliceTarget", () => {
       ).fresh,
     ).toBe(false)
   })
+
+  it("is fresh only while the head has the sources/ tree of the rows' revision", async () => {
+    dir = await mkdtemp(join(tmpdir(), "ctxpipe-slice-target-"))
+    await git("git", ["init", "-b", "main", dir])
+    await git("git", ["-C", dir, "config", "user.email", "dev@example.com"])
+    await git("git", ["-C", dir, "config", "user.name", "Dev"])
+    const rows = await commit({
+      "sources/linear/eng.md":
+        "---\nprovider: linear\nconnection: con_1\nteams: [ENG]\n---\n",
+      "linear/teams/ENG/a.md": "# A\n",
+    })
+    const unrelated = await commit({ "notes.md": "hello\n" })
+    const fresh = await readSliceTarget({
+      url: dir,
+      headSha: unrelated,
+      rowsRevision: rows,
+    })
+    expect(fresh.fresh).toBe(true)
+    expect(fresh.sourcesBlobSha).toMatch(/^[0-9a-f]{40}$/)
+
+    const added = await commit({
+      "sources/linear/ops.md":
+        "---\nprovider: linear\nconnection: con_1\nteams: [OPS]\n---\n",
+    })
+    expect(
+      (await readSliceTarget({ url: dir, headSha: added, rowsRevision: rows }))
+        .fresh,
+    ).toBe(false)
+
+    // The YAML file and the folder together make one fence.
+    const both = await commit({
+      ".ctxpipe/sources.yaml": "version: 1\nsources: []\n",
+    })
+    const target = await readSliceTarget({
+      url: dir,
+      headSha: both,
+      rowsRevision: added,
+    })
+    expect(target.fresh).toBe(false)
+    expect(target.sourcesBlobSha).toMatch(/^[0-9a-f]{40}$/)
+    expect(
+      (await readSliceTarget({ url: dir, headSha: both, rowsRevision: both }))
+        .fresh,
+    ).toBe(true)
+  })
 })

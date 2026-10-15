@@ -131,33 +131,31 @@ export async function syncConnectionSources(input: {
       ? await readExistingManaged(byWorkspace, input.readExisting)
       : undefined,
   }
-  // With `fetchEach`, a Workspace gets only the files of its own scopes, and
-  // a failed scope (null) skips the write of each Workspace that has it.
-  let result: SourceFetchResult | undefined
-  let filesOf: (scopeKeys: Set<string>) => GitFileChange[] | null
-  if (adapter.fetchEach) {
-    const each = await adapter.fetchEach(fetchInput)
-    const byKey = new Map(
-      [...scopesByKey.keys()].map((key, index) => [key, each[index]]),
-    )
-    filesOf = (scopeKeys) => {
-      const lists = [...scopeKeys].map((key) => byKey.get(key))
-      if (lists.some((list) => !list)) return null
-      return [
-        ...new Map(
-          lists.flatMap((list) => list ?? []).map((file) => [file.path, file]),
-        ).values(),
-      ]
-    }
-  } else {
-    const fetched = await adapter.fetch(fetchInput)
-    const fetchedResult: SourceFetchResult = Array.isArray(fetched)
-      ? { files: fetched }
-      : fetched
-    result = fetchedResult
-    filesOf = () => fetchedResult.files
+  const fetched = await adapter.fetch(fetchInput)
+  const result: SourceFetchResult = Array.isArray(fetched)
+    ? { files: fetched }
+    : fetched
+  // With `filesByScope`, a Workspace gets only the files of its own scopes,
+  // and a failed scope (null) skips the write of each Workspace that has it.
+  const byKey = new Map(
+    "filesByScope" in result
+      ? [...scopesByKey.keys()].map((key, index) => [
+          key,
+          result.filesByScope[index],
+        ])
+      : [],
+  )
+  const filesOf = (scopeKeys: Set<string>): GitFileChange[] | null => {
+    if ("files" in result) return result.files
+    const lists = [...scopeKeys].map((key) => byKey.get(key))
+    if (lists.some((list) => !list)) return null
+    return [
+      ...new Map(
+        lists.flatMap((list) => list ?? []).map((file) => [file.path, file]),
+      ).values(),
+    ]
   }
-  const unreachable = result?.unreachable ?? []
+  const unreachable = result.unreachable ?? []
   for (const lost of unreachable)
     for (const row of rows)
       if (adapter.managedPaths(row.scope).includes(lost.path))
@@ -168,7 +166,7 @@ export async function syncConnectionSources(input: {
           statusDetail: lost.detail,
         })
   const kept = [
-    ...(result?.keepPaths ?? []),
+    ...(result.keepPaths ?? []),
     ...unreachable.map((lost) => lost.path),
   ]
   const written: string[] = []
@@ -180,7 +178,7 @@ export async function syncConnectionSources(input: {
       .filter((path) => underAny(path, ownedPrefixes))
       .sort()
     const files = all.filter((file) => underAny(file.path, ownedPrefixes))
-    const deletePaths = result?.deletePaths?.filter(
+    const deletePaths = result.deletePaths?.filter(
       (path) => underAny(path, ownedPrefixes) && !underAny(path, keepPrefixes),
     )
     const allKept = ownedPrefixes.every((prefix) =>

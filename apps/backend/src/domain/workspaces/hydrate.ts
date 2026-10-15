@@ -2,12 +2,14 @@ import { createHash } from "node:crypto"
 import { base32nopad } from "@scure/base"
 import { connectorMirrorRoot } from "../codeIngestion/connectorMirrorPaths.js"
 import { githubSourceRepositories } from "../workspace-sources/github-sources.js"
-import { SOURCES_FILE_PATH } from "../workspace-sources/sources-file.js"
+import type {
+  PreviousSourceRow,
+  SourceFileBlob,
+} from "../workspace-sources/projection-plan.js"
 import { effectiveValidFrom } from "./hydrate-phases.js"
 import { markdownLines } from "./knowledge-chunks.js"
 import {
   isLinkedRepositoryDeclaration,
-  parseLinkedRepositoryMarkdown,
   parseSimpleFrontMatter,
 } from "./layout.js"
 import {
@@ -73,18 +75,19 @@ export type HydrateSkip = {
 
 const MD_LINK = /\[([^\]]*)\]\(([^)]+)\)/g
 
-/** One linked repository that a Workspace revision declares. */
+/** One linked repository that the GitHub sources of a revision declare. */
 export type HydrateLinkedRepository = {
   path: string
   git: string
+  /** The branch or tag of the entry; null is the default branch. */
   branch: string | null
-  /** The GitHub connection of a source entry. A repository file has none. */
-  connectionId?: string
+  /** The GitHub connection of the source entry. */
+  connectionId: string
 }
 
 export function hydrateKnowledgeTree(input: {
   workspaceId: string
-  /** The Workspace repository. A linked-repository file that names it is skipped. */
+  /** The Workspace repository. A GitHub source that names it links nothing. */
   workspaceUrl?: string
   files: ReadonlyArray<{
     path: string
@@ -92,12 +95,20 @@ export function hydrateKnowledgeTree(input: {
     lastCommitTimestamp?: string
   }>
   /**
-   * The text of `.ctxpipe/sources.yaml`, or null. Its GitHub sources link
-   * their repositories after the `repositories/*.md` files (ADR-050).
+   * The text of `.ctxpipe/sources.yaml`, or null. Its GitHub sources and the
+   * GitHub source files in `sourceFiles` are the only links of
+   * the Workspace (ADR-050).
    */
   sourcesFile?: string | null
+  /** Every blob under `sources/` (`splitSourcesTree`). Its GitHub sources link. */
+  sourceFiles?: ReadonlyArray<SourceFileBlob>
   /** The org's GitHub connection ids. A source with another id links nothing. */
   githubConnectionIds?: ReadonlySet<string>
+  /**
+   * The source rows of the previous projected revision. They decide which
+   * source links a repository that two sources name, as in the projection.
+   */
+  previousSourceRows?: ReadonlyArray<PreviousSourceRow>
   /**
    * Hosts of the org's Confluence connections. A Confluence URL on another
    * host makes no edge.
@@ -120,25 +131,9 @@ export function hydrateKnowledgeTree(input: {
 
   for (const file of input.files) {
     const path = file.path.replace(/^\/+/, "")
-    if (isLinkedRepositoryDeclaration(path)) {
-      const parsed = parseLinkedRepositoryMarkdown(file.content)
-      if (parsed.malformed) {
-        skipped.push({ path, reason: "malformed" })
-        continue
-      }
-      const git = normalizeWorkspaceRepositoryUrl(parsed.git)
-      if (!git) {
-        skipped.push({ path, reason: "malformed" })
-        continue
-      }
-      if (seenLinked.has(git)) {
-        skipped.push({ path, reason: "duplicate_repository" })
-        continue
-      }
-      seenLinked.add(git)
-      linked.push({ path, git, branch: parsed.branch })
-      continue
-    }
+    // A `repositories/*.md` file links nothing since ADR-050 (the upgrade
+    // moves it into the sources file), and it is not a knowledge unit.
+    if (isLinkedRepositoryDeclaration(path)) continue
     if (!path.endsWith(".md")) continue
     if (path === "AGENTS.md" || path.startsWith(".agents/")) continue
 
@@ -191,18 +186,22 @@ export function hydrateKnowledgeTree(input: {
   )
   for (const unit of units) unit.claims.push(...(changes.get(unit.path) ?? []))
 
-  // A repository that a file or the Workspace already names is not a skip:
-  // during the migration, both places can name it.
+  // A repository that an earlier entry or the Workspace names is not a skip.
   for (const source of githubSourceRepositories(
     input.sourcesFile ?? null,
     input.githubConnectionIds ?? new Set(),
+    input.sourceFiles,
+    {
+      previousRows: input.previousSourceRows,
+      workspaceUrl: input.workspaceUrl,
+    },
   )) {
     if (seenLinked.has(source.gitUrl)) continue
     seenLinked.add(source.gitUrl)
     linked.push({
-      path: SOURCES_FILE_PATH,
+      path: source.path,
       git: source.gitUrl,
-      branch: null,
+      branch: source.ref,
       connectionId: source.connectionId,
     })
   }

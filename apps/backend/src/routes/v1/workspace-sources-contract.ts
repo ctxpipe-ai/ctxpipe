@@ -34,6 +34,8 @@ export const WorkspaceSourceSchema = z
     scopeSummary: z.string(),
     status: StatusSchema,
     statusDetail: z.string().nullable(),
+    /** False when the row has no id in the file, so a remove cannot name it. */
+    removable: z.boolean(),
     /** The Workspace commit SHA that the row came from. */
     revision: z.string(),
     updatedAt: z.string().datetime(),
@@ -50,6 +52,16 @@ export const PendingSourceChangeSchema = z
   })
   .openapi("PendingWorkspaceSourceChange")
 
+export const LinkErrorSchema = z
+  .object({
+    action: z.enum(["link", "unlink"]),
+    gitUrl: z.string(),
+    /** Why the edit cannot go into the file. */
+    reason: z.string(),
+    failedAt: z.string().datetime(),
+  })
+  .openapi("WorkspaceSourceLinkError")
+
 export const WorkspaceSourceListResponseSchema = z
   .object({
     /** The path of the config file in the Workspace repository. */
@@ -65,6 +77,8 @@ export const WorkspaceSourceListResponseSchema = z
     directCommitAllowed: z.boolean(),
     /** Open PRs that change the file ("awaiting merge"). Join on `sourceKey`. */
     pendingChanges: z.array(PendingSourceChangeSchema),
+    /** Repository link edits that cannot go into the file, newest first. */
+    linkErrors: z.array(LinkErrorSchema),
   })
   .openapi("WorkspaceSourceListResponse")
 

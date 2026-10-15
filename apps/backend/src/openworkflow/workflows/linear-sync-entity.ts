@@ -8,11 +8,7 @@ import {
   refreshLinearConnectionTokensWithLock,
 } from "../../models/linear-connector.js"
 import { getLinearOauthAppCreds } from "../../models/linear-oauth-app.js"
-import {
-  createLogger,
-  getLogger,
-  withLogger,
-} from "../../observability/logger.js"
+import { createLogger, withLogger } from "../../observability/logger.js"
 import {
   linearTokenExpiresAt,
   refreshLinearOAuthToken,
@@ -20,7 +16,6 @@ import {
 import { parseLinearConfigYamlContent } from "../../services/linear/config-yaml.js"
 import { captureLinearIncrementalContent } from "../../services/linear/sync.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
-import { enqueueLegacySyncRepositoryIngestion } from "../legacy-sync-repository-ingestion.js"
 import { workspaceConnectorMirror } from "./workspace-connector-mirror.js"
 
 const LinearSyncEntityInputSchema = z.object({
@@ -198,27 +193,6 @@ export const linearSyncEntity = defineWorkflow(
           written: captured.files.length,
           deleted: captured.deletePaths.length,
           failures: captured.failures,
-        }
-
-        if (result.written > 0 || result.deleted > 0) {
-          await step.run({ name: "ingest-linear-entity" }, () =>
-            enqueueLegacySyncRepositoryIngestion(
-              {
-                connectionId: input.connectionId,
-                repositoryId: context.target.repositoryId,
-                orgId: input.orgId,
-                targetBranch: context.target.branch,
-                indexingReason: "Applying Linear updates",
-              },
-              {
-                error: (error) =>
-                  getLogger().error(error, {
-                    step: "linear-sync-entity.ingestion",
-                    connectionId: input.connectionId,
-                  }),
-              },
-            ),
-          )
         }
 
         return result

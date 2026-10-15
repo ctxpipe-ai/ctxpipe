@@ -9,8 +9,12 @@ import { eq } from "drizzle-orm"
 import { closeDb, getSystemDb, initDb, withOrgDbContext } from "../db/client.js"
 import { organizations } from "../db/schema/auth.js"
 import { type ConnectionType, connections } from "../db/schema/connections.js"
+import { repositories as repositoriesTable } from "../db/schema/repositories.js"
 import { workspaces } from "../db/schema/workspaces.js"
-import { SOURCES_FILE_PATH } from "../domain/workspace-sources/sources-file.js"
+import {
+  SOURCES_TREE_READ,
+  splitSourcesTree,
+} from "../domain/workspace-sources/source-tree.js"
 import { listMarkdownFilesAtGitSha } from "../services/git/clone-tree.js"
 
 const execFileAsync = promisify(execFile)
@@ -76,6 +80,14 @@ export async function seedSourcesOrg(name: string) {
         "dev@example.com",
       ])
       await execFileAsync("git", ["-C", dir, "config", "user.name", "Dev"])
+      const sourcesTree = async (sha: string) =>
+        splitSourcesTree(
+          await listMarkdownFilesAtGitSha({
+            url: dir,
+            sha,
+            ...SOURCES_TREE_READ,
+          }),
+        )
       return {
         dir,
         async commit(files: Record<string, string | null>) {
@@ -106,22 +118,19 @@ export async function seedSourcesOrg(name: string) {
         },
         /** Read the sources file at `sha` the way hydrate reads it. */
         async sourcesText(sha: string): Promise<string | null> {
-          const files = await listMarkdownFilesAtGitSha({
-            url: dir,
-            sha,
-            extraPaths: [SOURCES_FILE_PATH],
-          })
-          return (
-            files.find((file) => file.path === SOURCES_FILE_PATH)?.content ??
-            null
-          )
+          return (await sourcesTree(sha)).sourcesFile
         },
+        /** Read `.ctxpipe/sources.yaml` and `sources/` the way hydrate reads them. */
+        sourcesTree,
       }
     },
     async cleanup() {
       await withOrgDbContext(orgId, async (db) => {
         await db.delete(workspaces).where(eq(workspaces.orgId, orgId))
         await db.delete(connections).where(eq(connections.orgId, orgId))
+        await db
+          .delete(repositoriesTable)
+          .where(eq(repositoriesTable.orgId, orgId))
       })
       await getSystemDb()
         .delete(organizations)

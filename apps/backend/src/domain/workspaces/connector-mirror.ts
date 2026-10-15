@@ -9,14 +9,17 @@ import {
   readGitFiles,
   withGitDirectory,
 } from "../../services/git/pack.js"
-import { SOURCES_FILE_PATH } from "../workspace-sources/sources-file.js"
+import { githubSourceRepositories } from "../workspace-sources/github-sources.js"
+import {
+  isSourcesTreePath,
+  sourcesFenceAt,
+  splitSourcesTree,
+} from "../workspace-sources/source-tree.js"
 import type {
   ConfiguredConnectorMirrorSource,
   ConnectorMirrorSource,
   WorkspaceSourcesMirrorSource,
 } from "./connector-mirror-input.js"
-import { isLinkedRepositoryDeclaration } from "./layout.js"
-import { declaresLinkedRepository } from "./link-declarations.js"
 import type { WorkspaceRevision } from "./revision.js"
 
 export type {
@@ -38,7 +41,7 @@ export async function assertConnectorMirrorBinding(
     | WorkspaceSourcesMirrorSource,
   revision: WorkspaceRevision,
 ): Promise<void> {
-  // A Workspace source sync has no binding: the sources file blob fences it.
+  // A Workspace source sync has no binding: the sources fence id fences it.
   if ("sourcesBlobSha" in source) return
   // GitHub has no binding; assertConnectorMirrorScope checks the link.
   if (source.provider === "github") return
@@ -75,7 +78,12 @@ export async function assertConnectorMirrorScope(
   pack: GitPack,
 ): Promise<void> {
   if ("sourcesBlobSha" in source) {
-    if ((await blobShaAt(pack, SOURCES_FILE_PATH)) !== source.sourcesBlobSha)
+    const fence = await withGitDirectory(
+      pack.sha,
+      (directory) => sourcesFenceAt(directory, pack.sha),
+      pack,
+    )
+    if (fence !== source.sourcesBlobSha)
       throw new Error(
         "Workspace sources changed; discard this capture and sync the current sources",
       )
@@ -83,8 +91,15 @@ export async function assertConnectorMirrorScope(
   }
   if (source.provider === "github") {
     // Unlinking is the GitHub scope change: a mirror never lands after it.
-    const files = await readGitFiles(pack, isLinkedRepositoryDeclaration)
-    if (!declaresLinkedRepository(files, source.gitUrl))
+    const { sourcesFile, sourceFiles } = splitSourcesTree(
+      await readGitFiles(pack, isSourcesTreePath),
+    )
+    const target = normalizeWorkspaceRepositoryUrl(source.gitUrl)
+    if (
+      !githubSourceRepositories(sourcesFile, null, sourceFiles).some(
+        (linked) => linked.gitUrl === target,
+      )
+    )
       throw new Error(
         "GitHub repository is no longer linked to this Workspace; discard this capture",
       )
