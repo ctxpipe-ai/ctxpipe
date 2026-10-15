@@ -21,8 +21,7 @@ import {
   codesearchStructuralSearchJson,
   type StructuralSearchBody,
 } from "../../tools/structuralSearch.js"
-import { pageWithinBudget } from "./budget.js"
-import { listOrgRepositoryUrls } from "./call-workspace.js"
+import { type CallWorkspace, listOrgRepositoryUrls } from "./call-workspace.js"
 import { RepositoryHandles } from "./repository-handles.js"
 import { McpToolError } from "./tool-errors.js"
 import type { CallOrg } from "./tool-org.js"
@@ -52,7 +51,7 @@ export type CodeRepository = {
   repositoryId: string
   zoektRepoId: number
   branch: string
-  sha: string | null
+  sha: string
 }
 
 export type SkippedRepository = {
@@ -83,7 +82,8 @@ export type CodeResults<T> = {
 
 type Budget = {
   limit: number
-  maxTokens: number
+  /** Results to skip: the offset of a cursor. */
+  offset?: number
   /** Time for all codesearch requests of the call. Default 20 s. */
   deadlineMs?: number
 }
@@ -99,7 +99,8 @@ function transportFor(budget: Budget): Required<CodesearchHttpOptions> {
  * Org + optional Workspace + repository handles → the repositories to search
  * (ADR-051 §4, §7). Repositories resolve at org level, so a repository that
  * several Workspaces link occurs once. Exclusion runs before any request. A
- * linked repository with no published checkout is `not_indexed`.
+ * linked repository with no published checkout, or with a checkout that has
+ * no commit SHA, is `not_indexed`.
  */
 export async function resolveCodeScope(
   org: CallOrg,
@@ -166,7 +167,7 @@ export async function resolveCodeScope(
     } catch {
       continue // Ingested, but no Workspace of the org links it.
     }
-    if (indexed.has(handle)) continue
+    if (indexed.has(handle) || !row.sha) continue
     indexed.set(handle, {
       handle,
       repositoryId: row.id,
@@ -297,7 +298,7 @@ export async function findSymbolAcrossRepositories(
   return fanOut(scope, budget, "graph", async (repository, transport) => {
     const answer = await codesearchGraphQuery(
       { id: repository.repositoryId, orgId: org.id },
-      { ...body, limit: budget.limit + 1 },
+      { ...body, limit: repositoryLimit(budget, 200) },
       undefined,
       transport,
     )
@@ -320,7 +321,7 @@ export async function structuralSearchAcrossRepositories(
   return fanOut(scope, budget, "structural", async (repository, transport) => {
     const answer = await codesearchStructuralSearchJson(
       { id: repository.repositoryId, orgId: org.id },
-      { ...body, limit: budget.limit + 1 },
+      { ...body, limit: repositoryLimit(budget, 1_000) },
       undefined,
       transport,
     )
@@ -461,17 +462,25 @@ async function fanOut(
   }
 }
 
+/**
+ * Results each repository gives for one page: the offset, the page, and one
+ * more to show that the page is not the last. Codesearch caps the answer, so
+ * a cursor cannot go past `ceiling` results of one repository.
+ */
+function repositoryLimit(budget: Budget, ceiling: number): number {
+  return Math.min(ceiling, (budget.offset ?? 0) + budget.limit + 1)
+}
+
 function capped<T>(
   items: T[],
   scope: CodeScope,
   skipped: SkippedRepository[],
   budget: Budget,
 ): CodeResults<T> {
-  const { page, nextOffset } = pageWithinBudget(items, {
-    limit: budget.limit,
-    maxTokens: budget.maxTokens,
-    measure: (item) => JSON.stringify(item),
-  })
+  const start = budget.offset ?? 0
+  const page = items.slice(start, start + budget.limit)
+  const nextOffset =
+    start + page.length < items.length ? start + page.length : null
   return {
     results: page,
     excluded: scope.excluded,
@@ -479,4 +488,36 @@ function capped<T>(
     truncated: nextOffset !== null,
     nextOffset,
   }
+}
+
+/**
+ * One linked repository, ready to read from its published checkout. Exclusion
+ * is checked before any codesearch request. With a Workspace, the repository
+ * must be one that this Workspace links; without one, any repository that a
+ * Workspace of the org links.
+ */
+export async function requireLinkedRepository(
+  org: CallOrg,
+  workspace: CallWorkspace | undefined,
+  repository: string,
+  excludeRepositories: readonly string[],
+): Promise<CodeRepository> {
+  const scope = await resolveCodeScope(org, {
+    workspaceId: workspace?.id,
+    repositories: [repository],
+    excludeRepositories,
+  })
+  const [excluded] = scope.excluded
+  if (excluded) {
+    throw new McpToolError(
+      "excluded_repository",
+      `The call excludes "${excluded}". Read that repository from the local checkout.`,
+    )
+  }
+  const [linked] = scope.repositories
+  if (linked) return linked
+  throw new McpToolError(
+    "workspace_not_ready",
+    `Repository "${scope.skipped[0]?.repository ?? repository}" has no index yet. Try again in a few minutes.`,
+  )
 }

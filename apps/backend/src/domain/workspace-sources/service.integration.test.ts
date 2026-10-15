@@ -1,14 +1,18 @@
 import { HttpResponse, http } from "msw"
 import { beforeAll, expect, it } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
+import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { connections } from "../../db/schema/connections.js"
 import { replaceWorkspaceSourceRows } from "../../models/workspace-sources.js"
 import { getWorkspaceById } from "../../models/workspaces.js"
+import { createLogger, withLogger } from "../../observability/logger.js"
 import {
   type NativeHydrationFixture,
   withNativeHydrationFixture,
 } from "../../test/native-hydration-fixture.js"
+import { runSourceMigration } from "./migration.js"
+import { FILE_ERROR_SOURCE_KEY } from "./projection-plan.js"
 import {
   changeWorkspaceSource,
   listConnectionUsage,
@@ -307,6 +311,307 @@ it(
         expect(pullRequests[0]?.head).toMatch(
           /^ctxpipe\/sources\/add\/linear\/linear-2-/,
         )
+      },
+    )
+  },
+)
+
+/** Add a Linear source in the fixture Workspace and return the result. */
+async function addLinearSource(f: NativeHydrationFixture, linear: string) {
+  return withOrgIdContext(f.org, async () => {
+    const workspace = await getWorkspaceById(f.workspaceId)
+    if (!workspace) throw new Error("Missing fixture Workspace")
+    return changeWorkspaceSource({
+      workspace,
+      change: {
+        action: "add",
+        provider: "linear",
+        connectionId: linear,
+        scope: { teams: ["CTX"] },
+      },
+      delivery: "pull_request",
+    })
+  })
+}
+
+it(
+  "skips the ids of open and of stale source pull requests for a new source",
+  { timeout: 60_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        onGithubPullRequest: () => {},
+      },
+      async (f) => {
+        f.server.use(
+          gitDatabase("a".repeat(40)),
+          http.get(
+            "https://api.github.com/repos/fixture/hydration-contract/pulls",
+            () =>
+              HttpResponse.json([
+                // Open: a source "linear" exists, so this removal applies.
+                pull(71, "ctxpipe/sources/remove/linear/linear-17918"),
+                // Stale: no source "linear-2" exists, so it no longer applies.
+                pull(72, "ctxpipe/sources/remove/linear/linear-2-17919"),
+              ]),
+          ),
+        )
+        const linear = await addLinearConnection(f)
+        await replaceWorkspaceSourceRows({
+          orgId: f.org.id,
+          workspaceId: f.workspaceId,
+          revision: f.sha,
+          rows: [
+            {
+              sourceKey: "linear",
+              provider: "linear",
+              connectionId: linear,
+              scope: { teams: ["ENG"] },
+              status: "ok",
+              statusDetail: null,
+            },
+          ],
+        })
+
+        const result = await addLinearSource(f, linear)
+
+        expect(result).toMatchObject({ sourceKey: "linear-3" })
+      },
+    )
+  },
+)
+
+it(
+  "still adds a source when GitHub cannot list the pull requests",
+  { timeout: 60_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        onGithubPullRequest: () => {},
+      },
+      async (f) => {
+        f.server.use(
+          gitDatabase("a".repeat(40)),
+          http.get(
+            "https://api.github.com/repos/fixture/hydration-contract/pulls",
+            () => HttpResponse.json({ message: "Not Found" }, { status: 404 }),
+          ),
+        )
+        const linear = await addLinearConnection(f)
+
+        // The failed listing logs a warning, so the call needs a logger.
+        const result = await withLogger(createLogger({}), () =>
+          addLinearSource(f, linear),
+        )
+
+        expect(result).toMatchObject({
+          outcome: "pull_request",
+          sourceKey: "linear",
+        })
+      },
+    )
+  },
+)
+
+it(
+  "shows every source pull request while the sources file cannot be read",
+  { timeout: 60_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      { github: true, githubWriteView: "writable", writeStatus: "writable" },
+      async (f) => {
+        f.server.use(
+          http.get(
+            "https://api.github.com/repos/fixture/hydration-contract/pulls",
+            () =>
+              HttpResponse.json([
+                // Each would be hidden if the file were readable.
+                pull(81, "ctxpipe/sources/remove/linear/gone-1791887671414"),
+                pull(82, "ctxpipe/sources/add/linear/eng-1791887671415"),
+              ]),
+          ),
+        )
+        const linear = await addLinearConnection(f)
+        await replaceWorkspaceSourceRows({
+          orgId: f.org.id,
+          workspaceId: f.workspaceId,
+          revision: f.sha,
+          rows: [
+            {
+              sourceKey: "eng",
+              provider: "linear",
+              connectionId: linear,
+              scope: { teams: ["ENG"] },
+              status: "ok",
+              statusDetail: null,
+            },
+            {
+              sourceKey: FILE_ERROR_SOURCE_KEY,
+              provider: null,
+              connectionId: null,
+              scope: {},
+              status: "invalid",
+              statusDetail: "The file is not valid YAML",
+            },
+          ],
+        })
+
+        const sources = await withOrgIdContext(f.org, async () => {
+          const workspace = await getWorkspaceById(f.workspaceId)
+          if (!workspace) throw new Error("Missing fixture Workspace")
+          return listWorkspaceSources(workspace)
+        })
+
+        expect(
+          sources.pendingChanges.map((c) => [c.action, c.sourceKey]),
+        ).toEqual([
+          ["remove", "gone"],
+          ["add", "eng"],
+        ])
+      },
+    )
+  },
+)
+
+const sourcesFile = `version: 1
+sources:
+  - id: eng
+    provider: linear
+    connection: con_linear_existing
+    teams: [ENG]
+`
+
+for (const change of ["edit", "remove"] as const)
+  it(
+    `opens a ${change} pull request from a ctxpipe/sources branch into the default branch`,
+    { timeout: 60_000 },
+    async () => {
+      const pullRequests: unknown[] = []
+      await withNativeHydrationFixture(
+        {
+          github: true,
+          githubWriteView: "writable",
+          writeStatus: "writable",
+          githubContentFiles: { ".ctxpipe/sources.yaml": sourcesFile },
+          onGithubPullRequest: (body) => {
+            pullRequests.push(body)
+          },
+        },
+        async (f) => {
+          const linear = await addLinearConnection(f)
+          f.server.use(
+            http.get(
+              "https://api.github.com/repos/fixture/hydration-contract/pulls",
+              () => HttpResponse.json([]),
+            ),
+            gitDatabase("a".repeat(40)),
+          )
+
+          const result = await withOrgIdContext(f.org, async () => {
+            const workspace = await getWorkspaceById(f.workspaceId)
+            if (!workspace) throw new Error("Missing fixture Workspace")
+            return changeWorkspaceSource({
+              workspace,
+              change:
+                change === "edit"
+                  ? {
+                      action: "edit",
+                      sourceKey: "eng",
+                      provider: "linear",
+                      connectionId: linear,
+                      scope: { teams: ["OPS"] },
+                    }
+                  : { action: "remove", sourceKey: "eng" },
+              delivery: "pull_request",
+            })
+          })
+
+          expect(result).toMatchObject({ outcome: "pull_request" })
+          expect(pullRequests).toEqual([
+            expect.objectContaining({
+              head: expect.stringMatching(
+                new RegExp(`^ctxpipe/sources/${change}/linear/eng-`),
+              ),
+              base: "main",
+            }),
+          ])
+        },
+      )
+    },
+  )
+
+it(
+  "opens the source migration pull request from a new branch into the default branch",
+  { timeout: 60_000 },
+  async () => {
+    const pullRequests: unknown[] = []
+    await withNativeHydrationFixture(
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        onGithubPullRequest: (body) => {
+          pullRequests.push(body)
+        },
+      },
+      async (f) => {
+        const linear = await addLinearConnection(f)
+        f.server.use(
+          http.get(
+            "https://api.github.com/repos/fixture/hydration-contract/pulls",
+            () => HttpResponse.json([]),
+          ),
+          http.all(
+            "https://api.github.com/repos/fixture/hydration-contract/git/*",
+            ({ request, params }) => {
+              const path = String(params[0])
+              if (request.method === "GET" && path.startsWith("trees/"))
+                return HttpResponse.json({ tree: [], truncated: false })
+              if (request.method === "GET")
+                return HttpResponse.json({
+                  object: { sha: "a".repeat(40) },
+                  tree: { sha: "b".repeat(40) },
+                })
+              return HttpResponse.json({ sha: "e".repeat(40) })
+            },
+          ),
+        )
+
+        const report = await withOrgIdContext(f.org, () =>
+          runSourceMigration({
+            orgId: f.org.id,
+            env: parseEnv(process.env),
+            apply: true,
+            hooks: {
+              linear: {
+                provider: "linear",
+                listLegacyBindings: async () => [
+                  {
+                    provider: "linear",
+                    connectionId: linear,
+                    syncRepositoryUrl:
+                      "https://github.com/fixture/hydration-contract.git",
+                    scope: { teams: ["ENG"] },
+                  },
+                ],
+              },
+            },
+          }),
+        )
+
+        expect(report.failures).toEqual([])
+        expect(pullRequests).toEqual([
+          expect.objectContaining({
+            head: expect.stringMatching(/^ctxpipe\/sources\/migrate-/),
+            base: "main",
+          }),
+        ])
       },
     )
   },

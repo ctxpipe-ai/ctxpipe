@@ -1,5 +1,5 @@
+import { chat } from "@tanstack/ai"
 import type { PermissionHandler } from "@tanstack/ai-opencode"
-import { firstConnectorTarget } from "./dest-workspace-first.js"
 import { WRITE_STATUS_REASONS } from "./write-status.js"
 
 export const CHAT_PERMISSION_MODE = "acceptEdits" as const
@@ -41,25 +41,6 @@ export function decideChatPermission(input: {
   if (input.acceptEditsWouldAllow) return "allow"
   if (input.judge === "allow") return "allow"
   return "deny"
-}
-
-export function advisorWorkspaceId<T extends { createdAt: Date; id: string }>(
-  persistedFirstWorkspaceId: string | null,
-  workspaces: readonly T[],
-): string | null {
-  if (
-    persistedFirstWorkspaceId &&
-    workspaces.some((row) => row.id === persistedFirstWorkspaceId)
-  ) {
-    return persistedFirstWorkspaceId
-  }
-  return firstConnectorTarget(workspaces)?.id ?? null
-}
-
-export function isMcpOriginConversation(
-  origin: string | null | undefined,
-): boolean {
-  return origin === "mcp"
 }
 
 export function workspaceAllowsConversationEdits(
@@ -296,28 +277,22 @@ export async function judgeChatToolWithFastModel(
     const { getModel } = await import(
       "../../retrieval/services/modelProvider.js"
     )
-    const model = getModel("fast")
-    const result = await model.invoke(
-      [
-        "Decide whether this Workspace chat sandbox tool is safe.",
-        "Reply with allow or deny only.",
-        `Tool: ${toolName}`,
-        `Excerpt: ${argsExcerpt}`,
-      ].join("\n"),
-    )
-    const content = result.content
-    const text =
-      typeof content === "string"
-        ? content
-        : Array.isArray(content)
-          ? content
-              .map((part) =>
-                typeof part === "object" && part && "text" in part
-                  ? String(part.text)
-                  : "",
-              )
-              .join("")
-          : String(content ?? "")
+    const model = getModel("fast", { name: "workspace.chat-tool-judge" })
+    const text = await chat({
+      adapter: model,
+      messages: [
+        {
+          role: "user",
+          content: [
+            "Decide whether this Workspace chat sandbox tool is safe.",
+            "Reply with allow or deny only.",
+            `Tool: ${toolName}`,
+            `Excerpt: ${argsExcerpt}`,
+          ].join("\n"),
+        },
+      ],
+      stream: false,
+    })
     return parseChatJudgeReply(text)
   } catch {
     return "timeout"

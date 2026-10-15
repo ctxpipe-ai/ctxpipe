@@ -1,0 +1,94 @@
+---
+title: Use ctxpipe from your agent
+description: The seven read-only ctx| MCP tools, how an agent calls them, and how organizations and Workspaces work.
+---
+
+The ctx| MCP gives a coding agent seven read-only tools. The agent does the
+reasoning and drives the search. ctx| returns facts with stable refs. It runs no
+model for each call.
+
+To connect a client, see [Remote MCP](/docs/mcp/mcp-docs).
+
+## The tools
+
+| Tool | What it does |
+| --- | --- |
+| `list_workspaces` | Lists the organizations and Workspaces that the connection can read. Give one Workspace to get its repositories, sources, and readiness. |
+| `search_knowledge` | Searches the knowledge of one organization. Use natural language or keywords. You can filter by `kinds`, `pathPrefix`, `sources`, `updatedAfter`, and `validAt`. |
+| `search_code` | Searches the linked repositories in one call. The `mode` is `literal`, `regex`, or `structural`. |
+| `find_symbol` | Finds a definition, references, callers, or callees. |
+| `read_file` | Reads a knowledge file or a repository file by ref. You can ask for a line range. |
+| `list_files` | Lists the folders and files of a Workspace repository or a linked repository. |
+| `get_related` | Finds knowledge near one or more seeds in the graph that is also relevant to a query. The result is ranked and explained. |
+
+Every tool has the read-only hint. The tools never change your data.
+
+## Organizations and Workspaces
+
+- Each call names one organization with the `org` argument. The slug is the one
+  in your ctx| URL. Only `list_workspaces` can omit it. Then the tool lists each
+  organization of the connection.
+- Tools that read a Workspace take the `workspace` slug. `search_knowledge` takes
+  a `workspaces` list. It searches every Workspace of the organization when you
+  give none.
+- When the server starts a session, it sends instructions to the agent. The
+  instructions list your organizations and their Workspace slugs. The agent
+  can usually call a tool at once.
+- An organization that is not in the connection, an organization that you are not
+  a member of, and an unknown organization give the same `org_not_found`
+  error. For an OAuth connection, the error points to
+  [Connected apps](/docs/mcp/connected-apps).
+
+## Refs
+
+A ref is a short, stable name for a result. Use a ref from one tool in another.
+
+- A knowledge file ref is its path in the Workspace repository, for example
+  `knowledge/services/payments-api.md`.
+- A repository file ref is `<handle>:<path>`, for example
+  `example/payments-api:src/limits.ts`. The handle is `owner/name`.
+
+Each result also shows the branch and commit that ctx| served. ctx| serves the
+default branch of each repository.
+
+## The repository you work in
+
+ctx| serves the default branch. Your agent works on a local branch with newer
+files. The agent must read the working repository from disk, not from ctx|. `search_code` and `find_symbol` need an `excludeRepositories` list. Put
+your working repository in it. Send `[]` to exclude nothing. `read_file` refuses
+an excluded repository.
+
+## Good habits for an agent
+
+- Search the knowledge before a design choice. Ask for standards, decisions, and
+  owners.
+- Send independent calls in parallel.
+- Use `search_code`, then `read_file` on the refs that it returns.
+- Use `get_related` with a ref that you already found, and a `query`, to see why
+  a decision was made or who owns a service.
+- Cite the refs in your answer, and say what still needs a check in code.
+
+## Limits and errors
+
+- Each response has a size budget. When a result does not fit, the tool returns
+  a page and a `cursor`. Send the cursor to get the next page. A cursor stops
+  working after the Workspace changes, and the tool returns `stale_cursor`.
+  Search again then.
+- An error has `isError: true` and `{ code, message, retryable }`.
+- Without the scope for a tool, the call gets `403 insufficient_scope`. The
+  scopes are `ctxpipe:read` and `ctxpipe:write`. Today every tool needs
+  `ctxpipe:read`. Existing grants and API keys count as read.
+
+## Example
+
+```text
+Use ctxpipe before you plan this change. Call list_workspaces, then
+search_knowledge for the standards on authentication, and search_code for
+the session handling code. Exclude the repository that we work in.
+```
+
+## Related
+
+- [Remote MCP](/docs/mcp/mcp-docs) - install and authorize a client
+- [Connected apps](/docs/mcp/connected-apps) - change organizations or revoke a client
+- [Workspaces](/docs/workspaces) - where the knowledge lives

@@ -3,7 +3,14 @@ import { delay, HttpResponse, http } from "msw"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 import { confluenceTreeHandlers } from "@/mocks/confluence-handlers"
 import { workspaceListHandler } from "@/mocks/workspace-handlers"
-import { workspaceSourceChangeHandlers } from "@/mocks/workspace-sources-handlers"
+import {
+  connectionUsageHandler,
+  connectionUsageItem,
+  workspaceSourceChangeHandlers,
+  workspaceSourceFixture,
+  workspaceSourceList,
+  workspaceSourcesHandler,
+} from "@/mocks/workspace-sources-handlers"
 import { entryPageInnerDecorators } from "../../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../../.storybook/decorators/with-story-route"
 import { docsWorkspace } from "../../../workspaces/workspace-fixtures"
@@ -379,6 +386,7 @@ export const AddToWorkspaces: Story = {
           orgAtlassianOauthGet(true, false),
           workspaceListHandler([docsWorkspace]),
           ...confluenceTreeHandlers,
+          connectionUsageHandler([]),
           ...workspaceSourceChangeHandlers(addCalls),
         ],
       },
@@ -426,23 +434,64 @@ export const AddToWorkspaces: Story = {
   },
 }
 
-export const SkipWorkspaces: Story = {
-  name: "07 / Skip Workspaces, setup complete",
+/** The Docs Workspace already syncs the ENG space through this connection. */
+export const ManageKeepsTheCurrentScope: Story = {
+  name: "06b / Manage keeps the current scope",
   render: () => wizard(),
-  parameters: AddToWorkspaces.parameters,
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          status(sInstalled),
+          orgAtlassianOauthGet(true, false),
+          workspaceListHandler([docsWorkspace]),
+          ...confluenceTreeHandlers,
+          connectionUsageHandler([
+            connectionUsageItem({
+              workspaceSlug: docsWorkspace.slug,
+              workspaceName: docsWorkspace.displayName,
+              sources: [
+                {
+                  sourceKey: "confluence",
+                  provider: "confluence",
+                  status: "ok",
+                  scopeSummary: "1 Confluence space",
+                },
+              ],
+            }),
+          ]),
+          workspaceSourcesHandler(
+            workspaceSourceList({
+              items: [
+                workspaceSourceFixture({
+                  sourceKey: "confluence",
+                  provider: "confluence",
+                  connectionId: atlassianConnectionId,
+                  scope: { spaces: [{ key: "ENG", pages: "all" }] },
+                }),
+              ],
+            }),
+          ),
+        ],
+      },
+    },
+  },
   play: async ({ canvasElement }) => {
     const body = within(canvasElement.ownerDocument.body)
-    await userEvent.click(
-      await body.findByRole("button", { name: "Skip for now" }),
-    )
     await expect(
-      await body.findByRole("heading", { name: "Confluence is connected" }),
-    ).toBeVisible()
+      await body.findByRole("checkbox", { name: docsWorkspace.displayName }),
+    ).toBeChecked()
+    await expect(
+      await body.findByRole("checkbox", { name: /Engineering/ }),
+    ).toBeChecked()
+    await expect(
+      body.getByRole("button", { name: "Save changes" }),
+    ).toBeDisabled()
   },
 }
 
 export const ReplacedSetup: Story = {
-  name: "08 / Replaced setup with a config pull request",
+  name: "07 / Replaced setup with a config pull request",
   render: () => wizard(),
   parameters: {
     msw: {
@@ -456,6 +505,7 @@ export const ReplacedSetup: Story = {
           orgAtlassianOauthGet(true, false),
           workspaceListHandler([docsWorkspace]),
           ...confluenceTreeHandlers,
+          connectionUsageHandler([]),
         ],
       },
     },
@@ -475,7 +525,7 @@ export const ReplacedSetup: Story = {
 }
 
 export const MissingConnectionId: Story = {
-  name: "09 / Missing connection id",
+  name: "08 / Missing connection id",
   render: () => wizard({ atlassianConnectionId: undefined }),
   parameters: {
     msw: {

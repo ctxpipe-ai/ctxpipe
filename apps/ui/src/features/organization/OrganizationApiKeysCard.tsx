@@ -38,7 +38,11 @@ import { GridList, GridListItem } from "@/components/ui/GridList"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { Modal } from "@/components/ui/Modal"
 import { Select, SelectItem } from "@/components/ui/Select"
-import { Skeleton, useSkeletonHold } from "@/components/ui/Skeleton"
+import {
+  Skeleton,
+  SkeletonText,
+  useSkeletonHold,
+} from "@/components/ui/Skeleton"
 import { TextField } from "@/components/ui/TextField"
 import { betterAuthShellClassNames } from "@/features/auth/betterAuthShellClassNames"
 import {
@@ -240,11 +244,28 @@ function ApiKeysCard(props: ApiKeysCardProps) {
         </CardHeader>
         <CardContent className="space-y-4">
           {keysLoading ? (
-            <div aria-hidden className="flex flex-col gap-3">
+            // The box of the key list: the same border, row padding and row height.
+            <div
+              aria-hidden
+              className={cn(
+                apiKeysCardClassNames?.cell,
+                "border border-zinc-700/60 bg-transparent",
+              )}
+            >
               {[1, 2, 3].map((row) => (
-                <div key={row} className="flex flex-col gap-2 py-2">
-                  <Skeleton className="h-4 w-40 max-w-full" />
-                  <Skeleton className="h-3 w-28" />
+                <div
+                  key={row}
+                  className="flex gap-3 border-transparent border-t px-3 py-2 text-sm first:border-t-0"
+                >
+                  <Skeleton className="size-4 shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <SkeletonText
+                      className="text-sm"
+                      boneClassName="w-40 max-w-full"
+                    />
+                    <SkeletonText className="text-xs" boneClassName="w-28" />
+                  </div>
+                  <Skeleton className="h-9 w-24 shrink-0 rounded-md" />
                 </div>
               ))}
             </div>

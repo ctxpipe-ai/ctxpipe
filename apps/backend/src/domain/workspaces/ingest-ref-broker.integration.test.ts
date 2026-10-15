@@ -205,6 +205,7 @@ describe("ingest ref broker jobs", () => {
         },
         skill: "apis",
         sourcePathExists: async () => true,
+        readSourceFile: async () => null,
       },
     }
   }

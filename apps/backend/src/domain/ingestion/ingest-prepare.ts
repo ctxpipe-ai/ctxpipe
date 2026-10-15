@@ -59,7 +59,11 @@ async function run(handle: Sandbox, command: string): Promise<string> {
 /**
  * Stop every process of the agent user, again and again until none is left,
  * so a process that forks while it is stopped is also stopped. The real uid
- * in /proc/<pid>/status counts; a process cannot hide it.
+ * in /proc/<pid>/status counts; a process cannot hide it. Each round freezes
+ * all found processes first, so none can fork or write while the round kills
+ * them. A process can exit before its signal arrives; the script uses
+ * `|| true` there, because under `set -e` that failed `kill` stops the whole
+ * script with no message.
  */
 const STOP_AGENT_PROCESSES = `uid=$(id -u ${INGEST_AGENT_USER})
 found() {
@@ -73,18 +77,35 @@ i=0
 while [ "$i" -lt 100 ]; do
   left=$(found)
   [ -z "$left" ] && break
-  for p in $left; do kill -KILL "$p" 2>/dev/null; done
+  for p in $left; do kill -STOP "$p" 2>/dev/null || true; done
+  for p in $left; do kill -KILL "$p" 2>/dev/null || true; done
   sleep 0.1
   i=$((i + 1))
 done
 if [ -n "$(found)" ]; then echo "Agent processes are left: $(found)" >&2; exit 1; fi`
 
 /**
+ * Stop every process of the agent user before a locked step does any work,
+ * also one that left its process group (`setsid`, a double fork). Then no
+ * process of an earlier step can use the credentials that this step gives
+ * the sandbox. A sandbox with no agent user yet has no agent process.
+ */
+export async function stopIngestAgentProcesses(root: RootExec): Promise<void> {
+  await runAsRoot(
+    root,
+    [
+      `id -u ${INGEST_AGENT_USER} >/dev/null 2>&1 || exit 0`,
+      STOP_AGENT_PROCESSES,
+    ].join("\n"),
+  )
+}
+
+/**
  * Root writes the file itself from base64 in the script, so no path the agent
  * can change is read. Large content goes in 48 KiB parts, below the 128 KiB
  * limit for one command argument.
  */
-async function writeAsRoot(
+export async function writeAsRoot(
   root: RootExec,
   path: string,
   content: string,
@@ -207,9 +228,12 @@ export async function sealIngestCheckout(
   return target
 }
 
-/** A run-scoped ingest ref (ADR-052 section 6). */
+/**
+ * A run-scoped ingest ref (ADR-052 section 6), at most
+ * `<runId>/<workspaceId>/shards/<shard>` (see `ingest-refs.ts`).
+ */
 const INGEST_REF =
-  /^refs\/ctxpipe\/ingest\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+){0,2}$/
+  /^refs\/ctxpipe\/ingest\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+){0,3}$/
 
 /**
  * Start a step, as root: stop every agent process, fetch the shard ref, put
@@ -248,7 +272,7 @@ export async function startIngestStep(
         : []),
       `git -C ${context} checkout -q --detach ${input.baseCommit}`,
       `test "$(git -C ${context} rev-parse HEAD)" = ${input.baseCommit}`,
-      `rm -rf ${INGEST_OUT_ROOT} ${INGEST_HOME} ${INGEST_STEP_OUTPUT}`,
+      `rm -rf ${INGEST_OUT_ROOT} ${INGEST_HOME} ${INGEST_STEP_OUTPUT} || { echo "Cannot empty ${INGEST_OUT_ROOT} and ${INGEST_HOME}" >&2; exit 1; }`,
       `mkdir -p ${INGEST_OUT_ROOT}/files ${INGEST_HOME}`,
       `chown -R ${agent}:${agent} ${INGEST_OUT_ROOT} ${INGEST_HOME}`,
       `chmod 755 ${INGEST_OUT_ROOT} ${INGEST_HOME}`,

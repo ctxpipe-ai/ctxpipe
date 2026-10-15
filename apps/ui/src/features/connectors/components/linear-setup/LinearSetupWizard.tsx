@@ -7,9 +7,9 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
 import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
-import { ChooseWorkspacesStep } from "@/features/workspace-sources/ChooseWorkspacesStep"
+import { AddToWorkspacesStep } from "@/features/workspace-sources/AddToWorkspacesStep"
 import { PullRequestsToMerge } from "@/features/workspace-sources/PullRequestsToMerge"
-import { useAddToWorkspaces } from "@/features/workspace-sources/useAddToWorkspaces"
+import type { OpenedPullRequest } from "@/features/workspace-sources/useAddToWorkspaces"
 import {
   getLinearSetupCurrentIndex,
   getLinearSetupSteps,
@@ -55,21 +55,11 @@ export function LinearSetupWizard({
     queryFn: () => fetchLinearOauthApp(orgSlug, connectionId),
     enabled: isOpen,
   })
-  // The pull requests that the add opened. As in the other setups, the
-  // dialog stays open on the merge step; a direct commit closes it.
-  const [pullRequestUrls, setPullRequestUrls] = useState<string[]>([])
-  if (!isOpen && pullRequestUrls.length) setPullRequestUrls([])
-  const adding = useAddToWorkspaces({
-    orgSlug,
-    connectionId: connectionId ?? "",
-    provider: "linear",
-    onAdded: (urls) =>
-      urls.length ? setPullRequestUrls(urls) : onOpenChange(false),
-  })
-  const close = () => {
-    adding.reset()
-    onOpenChange(false)
-  }
+  // The pull requests that the save opened. As in the other setups, the
+  // dialog then shows the merge step.
+  const [pullRequests, setPullRequests] = useState<OpenedPullRequest[]>([])
+  if (!isOpen && pullRequests.length) setPullRequests([])
+  const close = () => onOpenChange(false)
 
   useEffect(() => {
     if (!isOpen) return
@@ -139,8 +129,8 @@ export function LinearSetupWizard({
   return (
     <Modal
       isOpen={isOpen}
-      onOpenChange={(open) => (open ? onOpenChange(true) : close())}
-      isDismissable={!adding.isPending}
+      onOpenChange={onOpenChange}
+      isDismissable
       className="max-w-[min(92vw,720px)]"
     >
       <div className="p-6">
@@ -169,7 +159,7 @@ export function LinearSetupWizard({
             <ConnectorSetupStepper
               steps={setupSteps}
               currentIndex={
-                pullRequestUrls.length
+                pullRequests.length
                   ? setupSteps.length
                   : getLinearSetupCurrentIndex(status, oauthMeta)
               }
@@ -202,36 +192,26 @@ export function LinearSetupWizard({
           />
         ) : body === "connect" ? (
           <LinearConnectStep orgSlug={orgSlug} connectionId={connectionId} />
-        ) : body === "workspaces" && pullRequestUrls.length ? (
+        ) : body === "workspaces" && pullRequests.length ? (
           <div className="space-y-4">
-            <PullRequestsToMerge urls={pullRequestUrls} />
+            <PullRequestsToMerge
+              orgSlug={orgSlug}
+              pullRequests={pullRequests}
+            />
             <Button variant="secondary" className="rounded-md" onPress={close}>
               Close
             </Button>
           </div>
         ) : body === "workspaces" && connectionId ? (
-          <div className="flex flex-col gap-5">
-            <ChooseWorkspacesStep
-              orgSlug={orgSlug}
-              provider="linear"
-              connectionId={connectionId}
-              value={adding.value}
-              onChange={adding.setValue}
-            />
-            <div className="flex justify-end gap-2 border-t border-border pt-4">
-              <Button variant="quiet" onPress={close}>
-                Skip for now
-              </Button>
-              <Button
-                variant="primary"
-                isDisabled={!adding.canAdd}
-                isPending={adding.isPending}
-                onPress={adding.add}
-              >
-                Add to Workspaces
-              </Button>
-            </div>
-          </div>
+          <AddToWorkspacesStep
+            orgSlug={orgSlug}
+            provider="linear"
+            connectionId={connectionId}
+            label="Linear"
+            description="the teams and projects for each"
+            items="the teams"
+            onDone={setPullRequests}
+          />
         ) : (
           <p className="text-sm text-destructive">
             The Linear connection identifier is missing. Close this dialog and

@@ -3,6 +3,7 @@ import { delay, HttpResponse, http } from "msw"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 import { plainStatusHandler, plainStoryStatus } from "@/mocks/plain-handlers"
 import { workspaceListHandler } from "@/mocks/workspace-handlers"
+import { connectionUsageHandler } from "@/mocks/workspace-sources-handlers"
 import { orgPageDecorators } from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
 import { ConnectorsPageContent } from "./$orgSlug.connectors"
@@ -366,7 +367,22 @@ export const Full: Story = {
     linearStatusHandler(linearStatusComplete),
     slackStatusHandler(slackStatusComplete),
     pagerdutyStatusHandler(pagerdutyStatusComplete),
+    // An expanded card reads "Used in" and the Workspace list.
+    connectionUsageHandler([]),
+    workspaceListHandler([]),
   ]),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByRole("button", { name: "Expand Notion" })
+    const expanders = canvas.getAllByRole("button", { name: /^Expand / })
+    for (const expander of expanders) await userEvent.click(expander)
+    // A connection has no scope of its own: each Workspace has one, and
+    // "Used in" lists it (ADR-050). The card shows the account only.
+    await waitFor(() =>
+      expect(canvas.getAllByText("Account")).toHaveLength(expanders.length),
+    )
+    await expect(canvas.queryAllByText("Scope")).toHaveLength(0)
+  },
 }
 
 export const InProgress: Story = {

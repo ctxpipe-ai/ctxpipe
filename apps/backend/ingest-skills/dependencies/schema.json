@@ -1,0 +1,257 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "dependencies scan result",
+  "description": "A root step (--path) prints one root; the repository-wide step prints `roots`, with no HTTP candidate.",
+  "anyOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["root", "candidates", "skipped", "truncated"],
+      "properties": {
+        "root": {
+          "type": "string"
+        },
+        "candidates": {
+          "type": "array",
+          "maxItems": 300,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "type",
+              "direction",
+              "clients",
+              "target",
+              "file",
+              "line",
+              "count",
+              "hints"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^c[0-9a-f]{10}$"
+              },
+              "type": {
+                "enum": ["http", "queue", "stream", "config"]
+              },
+              "direction": {
+                "enum": ["call", "produce", "consume", "read"]
+              },
+              "clients": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "target": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["kind", "text"],
+                "properties": {
+                  "kind": {
+                    "enum": ["literal", "template", "env"]
+                  },
+                  "text": {
+                    "type": "string",
+                    "maxLength": 200
+                  }
+                }
+              },
+              "file": {
+                "type": "string"
+              },
+              "line": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "count": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "hints": {
+                "type": "array",
+                "maxItems": 3,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["path", "kind", "title"],
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "kind": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "skipped": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "reason"],
+            "properties": {
+              "path": {
+                "type": ["string", "null"]
+              },
+              "reason": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "True when the script stopped at its file or candidate cap."
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["roots", "skipped"],
+      "properties": {
+        "roots": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["root", "candidates", "skipped", "truncated"],
+            "properties": {
+              "root": {
+                "type": "string"
+              },
+              "candidates": {
+                "type": "array",
+                "maxItems": 300,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "id",
+                    "type",
+                    "direction",
+                    "clients",
+                    "target",
+                    "file",
+                    "line",
+                    "count",
+                    "hints"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "pattern": "^c[0-9a-f]{10}$"
+                    },
+                    "type": {
+                      "enum": ["http", "queue", "stream", "config"]
+                    },
+                    "direction": {
+                      "enum": ["call", "produce", "consume", "read"]
+                    },
+                    "clients": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": ["kind", "text"],
+                      "properties": {
+                        "kind": {
+                          "enum": ["literal", "template", "env"]
+                        },
+                        "text": {
+                          "type": "string",
+                          "maxLength": 200
+                        }
+                      }
+                    },
+                    "file": {
+                      "type": "string"
+                    },
+                    "line": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "count": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "hints": {
+                      "type": "array",
+                      "maxItems": 3,
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["path", "kind", "title"],
+                        "properties": {
+                          "path": {
+                            "type": "string"
+                          },
+                          "kind": {
+                            "type": "string"
+                          },
+                          "title": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "skipped": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["path", "reason"],
+                  "properties": {
+                    "path": {
+                      "type": ["string", "null"]
+                    },
+                    "reason": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "truncated": {
+                "type": "boolean",
+                "description": "True when the script stopped at its file or candidate cap."
+              }
+            }
+          }
+        },
+        "skipped": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "reason"],
+            "properties": {
+              "path": {
+                "type": ["string", "null"]
+              },
+              "reason": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

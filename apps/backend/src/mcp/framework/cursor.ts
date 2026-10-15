@@ -20,20 +20,26 @@ function scopeKey(binding: CursorBinding): string {
     JSON.stringify([binding.orgId, binding.workspaceId, binding.scope]),
   )
 }
-type CursorPayload = { v: 1; s: string; q: string; o: number }
+type CursorPayload = { v: 1; s: string; q: string; o: number; t?: number }
 
 function digest(value: string): string {
   return createHash("sha256").update(value).digest("base64url").slice(0, 16)
 }
 
+/**
+ * `anchor` is a time in epoch milliseconds that a tool needs again on the next
+ * page. `get_related` ranks as of this time, so a page after a cache miss gives
+ * the same order.
+ */
 export function encodeCursor(
-  input: CursorBinding & { offset: number },
+  input: CursorBinding & { offset: number; anchor?: number },
 ): string {
   const payload: CursorPayload = {
     v: 1,
     s: digest(input.sha),
     q: scopeKey(input),
     o: input.offset,
+    ...(input.anchor === undefined ? {} : { t: input.anchor }),
   }
   return Buffer.from(JSON.stringify(payload)).toString("base64url")
 }
@@ -47,6 +53,14 @@ function invalidCursor(): McpToolError {
 
 /** Offset of a cursor from `encodeCursor` with the same binding. */
 export function decodeCursor(cursor: string, expected: CursorBinding): number {
+  return decodeCursorWithAnchor(cursor, expected).offset
+}
+
+/** Offset and anchor of a cursor from `encodeCursor` with the same binding. */
+export function decodeCursorWithAnchor(
+  cursor: string,
+  expected: CursorBinding,
+): { offset: number; anchor: number | undefined } {
   let payload: Partial<CursorPayload>
   try {
     if (!/^[A-Za-z0-9_-]+$/.test(cursor)) throw invalidCursor()
@@ -62,7 +76,10 @@ export function decodeCursor(cursor: string, expected: CursorBinding): number {
     typeof payload.q !== "string" ||
     typeof payload.o !== "number" ||
     !Number.isInteger(payload.o) ||
-    payload.o < 0
+    payload.o < 0 ||
+    (payload.t !== undefined &&
+      (typeof payload.t !== "number" ||
+        Number.isNaN(new Date(payload.t).getTime())))
   ) {
     throw invalidCursor()
   }
@@ -73,5 +90,5 @@ export function decodeCursor(cursor: string, expected: CursorBinding): number {
       "The Workspace has a new revision since this cursor. Send the call again without the cursor.",
     )
   }
-  return payload.o
+  return { offset: payload.o, anchor: payload.t }
 }

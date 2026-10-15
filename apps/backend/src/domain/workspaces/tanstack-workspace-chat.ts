@@ -111,7 +111,6 @@ import {
 } from "./vercel-sandbox-provider.js"
 import { sandboxAgentImage } from "./workspace-base-providers.js"
 import {
-  aguiTextDelta,
   conversationRenameChunk,
   type WorkspaceChatWireFormat,
   workspaceChatHttpResponse,
@@ -197,7 +196,6 @@ export type TanstackWorkspaceChatInput = {
   onFinish?: () => Promise<void> | void
   onError?: () => Promise<void> | void
   onUserPersist?: () => Promise<void> | void
-  onDelta?: (delta: string) => Promise<void> | void
   resolveRuntime?: () => Promise<Partial<TanstackWorkspaceChatInput>>
   wireFormat?: WorkspaceChatWireFormat
 }
@@ -326,27 +324,6 @@ function abortControllerFrom(signal?: AbortSignal): AbortController {
     )
   }
   return abortController
-}
-
-export async function collectTanstackWorkspaceChatText(
-  input: TanstackWorkspaceChatInput,
-): Promise<
-  { ok: true; text: string } | { ok: false; status: number; error: string }
-> {
-  try {
-    let text = ""
-    for await (const chunk of streamTanstackWorkspaceChat(input)) {
-      const delta = aguiTextDelta(chunk)
-      if (delta) {
-        text += delta
-        await input.onDelta?.(delta)
-      }
-    }
-    return { ok: true, text }
-  } catch (error) {
-    await input.onError?.()
-    throw error
-  }
 }
 
 /** Snapshot refs of this many newest turns stay in the sandbox. */

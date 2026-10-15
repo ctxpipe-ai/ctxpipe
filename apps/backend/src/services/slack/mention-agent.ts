@@ -1,9 +1,8 @@
-import { HumanMessage } from "@langchain/core/messages"
-import { tool } from "langchain"
-import { z } from "zod/v3"
+import { chat } from "@tanstack/ai"
+import { z } from "zod"
 import type { Env } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
-import { createAgent } from "../../graphs/createAgent.js"
+import { abortAfter } from "../../lib/abortAfter.js"
 import { getOrganizationSlugByOrgId } from "../../models/organizations.js"
 import { getWorkspaceById } from "../../models/workspaces.js"
 import { getLogger } from "../../observability/logger.js"
@@ -21,10 +20,10 @@ export {
 } from "./client.js"
 
 const SLACK_MENTION_SYSTEM_PROMPT = `You are ctx|'s Slack mention agent for one thread.
-You have one tool: capture_thread, which snapshots this Slack thread into the organization's context git repository.
+Decide whether the user wants ctx| to capture this Slack thread into the organization's context git repository.
 
-Call capture_thread when the user wants to persist, save, capture, snapshot, or keep this thread, including terse confirmations like "yes", "do it", or "please".
-If the message is a question, joke, greeting, or any request you cannot fulfill with capture_thread, do not call the tool. Do not invent answers about the repository or product.`
+Set capture to true when the user wants to persist, save, capture, snapshot, or keep this thread, including terse confirmations like "yes", "do it", or "please".
+Set capture to false if the message is a question, joke, greeting, or any request that capture cannot fulfill. Do not invent answers about the repository or product.`
 
 export type SlackMentionErrorCode =
   | SlackCaptureResult["errorCode"]
@@ -165,46 +164,34 @@ export async function selectSlackMentionIntent(input: {
       errorCode: "model_not_configured",
       error: "MODEL_PROVIDER is not configured",
     }
-  let captureRequested = false
-  const captureThreadTool = tool(
-    async () => {
-      captureRequested = true
-      return "Thread capture requested. The durable workflow will publish it."
-    },
-    {
-      name: "capture_thread",
-      description:
-        "Request a snapshot of this Slack thread into the organization's context git repository.",
-      schema: z.object({}),
-    },
-  )
   try {
-    const agent = createAgent({
-      model: getModel("fast", { streaming: false, temperature: 0 }),
-      tools: [captureThreadTool],
-      systemPrompt: SLACK_MENTION_SYSTEM_PROMPT,
+    const { capture } = await chat({
+      adapter: getModel("fast", {
+        name: "slack.mention-intent",
+        outputName: "mention_intent",
+        temperature: 0,
+      }),
+      systemPrompts: [SLACK_MENTION_SYSTEM_PROMPT],
+      messages: [
+        {
+          role: "user",
+          content: `The user mentioned the bot in a Slack thread with this extra text:\n${remainder}`,
+        },
+      ],
+      outputSchema: z.object({ capture: z.boolean() }),
+      abortController: abortAfter(30_000),
+      stream: false,
     })
-    await agent.invoke(
-      {
-        messages: [
-          new HumanMessage(
-            `The user mentioned the bot in a Slack thread with this extra text:\n${remainder}`,
-          ),
-        ],
-      },
-      { recursionLimit: 8 },
-    )
+    return capture ? { kind: "capture" } : { kind: "capability" }
   } catch (error) {
     getLogger().error(
       error instanceof Error ? error : new Error(String(error)),
       { step: "slack_mention_agent.invoke", connectionId: input.connectionId },
     )
-    if (!captureRequested)
-      return {
-        kind: "failed",
-        errorCode: "capture_failed",
-        error: error instanceof Error ? error.message : String(error),
-      }
+    return {
+      kind: "failed",
+      errorCode: "capture_failed",
+      error: error instanceof Error ? error.message : String(error),
+    }
   }
-  return captureRequested ? { kind: "capture" } : { kind: "capability" }
 }

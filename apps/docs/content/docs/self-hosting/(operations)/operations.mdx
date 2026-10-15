@@ -202,10 +202,10 @@ clones the repository again while a new base builds.
 - Run `npx ctxpipe doctor mcp --url "$AUTH_BASE_URL/mcp?orgSlug=<slug>"`.
 - A `ready-for-oauth` result means routing, the Bearer challenge, and OAuth
   discovery are coherent. It does not prove authenticated `tools/list` or
-  `ctx_advisor`.
+  a tool call.
 - Confirm `AUTH_BASE_URL` matches the public origin clients use, including TLS.
-- Confirm the MCP URL includes `orgSlug`.
-- For authenticated OAuth, `tools/list`, and `ctx_advisor`, use a version-pinned
+- Confirm the MCP URL path is `/mcp`. The server ignores `?orgSlug=`.
+- For authenticated OAuth, `tools/list`, and a `list_workspaces` call, use a version-pinned
   MCPJam client against a test organization. See
   [MCP](/docs/self-hosting/mcp).
 

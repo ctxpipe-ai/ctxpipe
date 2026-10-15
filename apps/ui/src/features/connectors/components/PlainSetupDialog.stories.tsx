@@ -94,6 +94,10 @@ export const ConnectWithKey: Story = {
     // The key reads content and manages only its own webhook target.
     await expect(body.getByText("thread:read")).toBeVisible()
     await expect(body.getByText("webhookTarget:create")).toBeVisible()
+    // Product links are teal, not the default blue.
+    const keyLink = body.getByRole("link", { name: /API key/ })
+    await expect(keyLink.className).toContain("text-teal-400")
+    await expect(keyLink.className).not.toMatch(/blue/)
     await expect(body.queryByText("thread:edit")).toBeNull()
     await userEvent.type(key, "plainApiKey_fixture")
     await userEvent.click(connect)

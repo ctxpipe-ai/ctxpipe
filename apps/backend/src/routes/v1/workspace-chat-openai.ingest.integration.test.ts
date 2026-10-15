@@ -38,6 +38,7 @@ import {
 } from "../../domain/workspaces/workspace-chat-run-capability.js"
 import { generateObjectId } from "../../lib/id.js"
 import { backendOtelMiddleware } from "../../observability/http.js"
+import { LangfuseContextSpanProcessor } from "../../observability/langfuseContextProcessor.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import {
   contextStorage,
@@ -48,7 +49,10 @@ import { workspaceChatOpenaiRoutes } from "./workspace-chat-openai.js"
 const AUTH_SECRET = "abcdefghijklmnopqrstuvwxyz123456"
 const exporter = new InMemorySpanExporter()
 const tracer = new NodeTracerProvider({
-  spanProcessors: [new SimpleSpanProcessor(exporter)],
+  spanProcessors: [
+    new LangfuseContextSpanProcessor(),
+    new SimpleSpanProcessor(exporter),
+  ],
 })
 const MODEL_PROVIDER_URL = "http://model-provider.test/v1"
 
@@ -59,7 +63,7 @@ function databaseUrl(): string {
 }
 
 // biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
-useMswServer(
+const server = useMswServer(
   http.post(`${MODEL_PROVIDER_URL}/chat/completions`, () =>
     HttpResponse.json({
       id: "chatcmpl_ingest",
@@ -240,6 +244,43 @@ describe("workspace-ingest-model capability", () => {
     await tracer.shutdown()
   })
 
+  it.each([
+    429,
+    502,
+    "unreachable",
+  ] as const)("ends the ingestion generation on upstream %s", async (status) => {
+    const runId = await startRun(orgId)
+    const lockOwner = await holdShard(runId, 0)
+    const capability = await mintWorkspaceIngestRunCapability({
+      authSecret: AUTH_SECRET,
+      orgId,
+      orgSlug,
+      runId,
+      shard: 0,
+      step: "skill:root:docs",
+      lockOwner,
+    })
+    server.use(
+      http.post(`${MODEL_PROVIDER_URL}/chat/completions`, () =>
+        status === "unreachable"
+          ? HttpResponse.error()
+          : HttpResponse.json({ error: "fixture failure" }, { status }),
+      ),
+    )
+    exporter.reset()
+    expect(await complete(capability)).toBe(
+      status === "unreachable" ? 502 : status,
+    )
+    const calls = exporter
+      .getFinishedSpans()
+      .filter((span) => span.name === "ingestion.model_call")
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.attributes["http.response.status_code"]).toBe(
+      status === "unreachable" ? 502 : status,
+    )
+    expect(calls[0]?.status.code).toBe(2)
+  })
+
   it("calls the model proxy while the step holds the shard lock of an unfinished run", async () => {
     const runId = await startRun(orgId)
     const lockOwner = await holdShard(runId, 0)
@@ -279,6 +320,17 @@ describe("workspace-ingest-model capability", () => {
       "ctxpipe.ingest.step": "skill:root:docs",
     })
     expect(span?.attributes["ctxpipe.conversation.id"]).toBeUndefined()
+    // The model call is a generation in the Langfuse session of the run.
+    const call = exporter
+      .getFinishedSpans()
+      .find((item) => item.name === "ingestion.model_call")
+    expect(call?.attributes).toMatchObject({
+      "gen_ai.operation.name": "chat",
+      "ctxpipe.ingest.run.id": runId,
+      "ctxpipe.ingest.shard": "0",
+      "ctxpipe.ingest.step": "skill:root:docs",
+      "session.id": `ingest:${runId}`,
+    })
   })
 
   it("does not accept a chat capability as ingest, nor an ingest capability as chat", async () => {

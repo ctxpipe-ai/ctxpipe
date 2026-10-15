@@ -6,13 +6,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useCallback, useEffect, useState } from "react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
-import { InlineAlert } from "@/components/ui/InlineAlert"
-import { InlineLoader } from "@/components/ui/InlineLoader"
 import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
-import { ChooseWorkspacesStep } from "@/features/workspace-sources/ChooseWorkspacesStep"
+import { AddToWorkspacesStep } from "@/features/workspace-sources/AddToWorkspacesStep"
 import { PullRequestsToMerge } from "@/features/workspace-sources/PullRequestsToMerge"
-import { useAddToWorkspaces } from "@/features/workspace-sources/useAddToWorkspaces"
+import type { OpenedPullRequest } from "@/features/workspace-sources/useAddToWorkspaces"
 import { orgConnectionsKeys } from "../queries/org-connections"
 import {
   fetchSlackConnectorStatus,
@@ -79,16 +77,8 @@ export function SlackSetupDialog({
 
   // The pull requests that the add opened. A source, and so a capture,
   // starts only after its pull request merges.
-  const [pullRequestUrls, setPullRequestUrls] = useState<string[]>([])
-  if (!isOpen && pullRequestUrls.length) setPullRequestUrls([])
-  const adding = useAddToWorkspaces({
-    orgSlug,
-    connectionId: connectionId ?? "",
-    provider: "slack",
-    manage: true,
-    onAdded: (urls) =>
-      urls.length ? setPullRequestUrls(urls) : onOpenChange(false),
-  })
+  const [pullRequests, setPullRequests] = useState<OpenedPullRequest[]>([])
+  if (!isOpen && pullRequests.length) setPullRequests([])
 
   useEffect(() => {
     if (
@@ -166,16 +156,11 @@ export function SlackSetupDialog({
     isError: statusQuery.isError,
   })
 
-  const setOpen = (open: boolean) => {
-    if (!open) adding.reset()
-    onOpenChange(open)
-  }
-
   return (
     <Modal
       isOpen={isOpen}
-      onOpenChange={setOpen}
-      isDismissable={!adding.isPending}
+      onOpenChange={onOpenChange}
+      isDismissable
       className="max-w-[min(92vw,720px)]"
     >
       <div className="p-6">
@@ -206,7 +191,7 @@ export function SlackSetupDialog({
           <Button
             variant="secondary"
             className="rounded-md"
-            onPress={() => setOpen(false)}
+            onPress={() => onOpenChange(false)}
           >
             Close
           </Button>
@@ -217,9 +202,7 @@ export function SlackSetupDialog({
             <ConnectorSetupStepper
               steps={SLACK_SETUP_STEPS}
               currentIndex={
-                pullRequestUrls.length
-                  ? SLACK_SETUP_STEPS.length
-                  : setupStepIndex
+                pullRequests.length ? SLACK_SETUP_STEPS.length : setupStepIndex
               }
             />
           </div>
@@ -291,16 +274,17 @@ export function SlackSetupDialog({
               })
             }}
           />
-        ) : setupView === "workspaces" && pullRequestUrls.length ? (
+        ) : setupView === "workspaces" && pullRequests.length ? (
           <div className="space-y-4">
             <PullRequestsToMerge
-              urls={pullRequestUrls}
+              orgSlug={orgSlug}
+              pullRequests={pullRequests}
               detail="The Slack source change applies after the merge. Until then, a mention in a new channel replies that no Workspace has the channel."
             />
             <Button
               variant="secondary"
               className="rounded-md"
-              onPress={() => setOpen(false)}
+              onPress={() => onOpenChange(false)}
             >
               Close
             </Button>
@@ -333,35 +317,15 @@ export function SlackSetupDialog({
                 </li>
               </ol>
             </section>
-            {adding.loadFailed ? (
-              <InlineAlert variant="error">
-                Could not load the Workspaces that use Slack. Close this dialog
-                and try again.
-              </InlineAlert>
-            ) : adding.ready ? (
-              <ChooseWorkspacesStep
-                orgSlug={orgSlug}
-                provider="slack"
-                connectionId={connectionId}
-                value={adding.value}
-                onChange={adding.setValue}
-              />
-            ) : (
-              <InlineLoader label="Loading the Workspaces that use Slack" />
-            )}
-            <div className="flex justify-end gap-2 border-t border-border pt-4">
-              <Button variant="quiet" onPress={() => setOpen(false)}>
-                Skip for now
-              </Button>
-              <Button
-                variant="primary"
-                isDisabled={!adding.canAdd}
-                isPending={adding.isPending}
-                onPress={adding.add}
-              >
-                {adding.isManaging ? "Save changes" : "Add to Workspaces"}
-              </Button>
-            </div>
+            <AddToWorkspacesStep
+              orgSlug={orgSlug}
+              provider="slack"
+              connectionId={connectionId}
+              label="Slack"
+              description="the channels for each"
+              items="the channels"
+              onDone={setPullRequests}
+            />
           </div>
         ) : (
           <p className="text-sm text-destructive">

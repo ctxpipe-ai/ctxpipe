@@ -76,7 +76,6 @@ export function PlainConnectionCard({
         onConfirm: () => removeMutation.mutate(),
       }}
       workspace={connectorDash(status?.workspaceName)}
-      scope="Set in each Workspace"
       actionLabel={isError ? "Retry" : (actionLabel ?? undefined)}
       onAction={
         isError

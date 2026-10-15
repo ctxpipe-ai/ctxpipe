@@ -10,6 +10,7 @@
     "noImplicitReturns": true,
     "noUnusedLocals": true,
     "resolveJsonModule": true,
+    "allowJs": true,
     "baseUrl": ".",
     "noEmit": true,
     "noErrorTruncation": true,
@@ -18,6 +19,7 @@
   },
   "include": [
     "src/**/*",
+    "evals/mcp/**/*.ts",
     "test/setup.ts",
     "drizzle.config.ts",
     "openworkflow.config.ts"

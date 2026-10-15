@@ -238,10 +238,10 @@ export const ConnectedWithoutSyncRepository: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
-    await expect(
-      await canvas.findByText("Set in each Workspace"),
-    ).toBeInTheDocument()
-    // Auth is done, so the card has no setup action; "Used in" adds sources.
+    await expect(await canvas.findByText("Account")).toBeInTheDocument()
+    // Each Workspace has its own scope, so the card shows none (ADR-050).
+    await expect(canvas.queryAllByText("Scope")).toHaveLength(0)
+    // Auth is done, so the card has no setup action; Manage adds sources.
     await expect(
       canvas.queryByRole("button", {
         name: /Set up|Connect PagerDuty|Manage scope|Choose services/,

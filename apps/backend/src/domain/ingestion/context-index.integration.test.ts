@@ -160,9 +160,13 @@ describe("buildContextIndex (Postgres, git)", () => {
   })
 
   it("lists only the units of the pinned revision", async () => {
+    // `repoDir` holds the pinned revision, but no projection is at it.
+    const unprojected = await repo.commit({
+      "knowledge/guides/later.md": "# Later\n",
+    })
     const { index } = await build({
       workspaceId,
-      sha: "0".repeat(40),
+      sha: unprojected,
       sourceUrl,
       repoDir: repo.dir,
     })

@@ -186,7 +186,7 @@ export const openaiRoutes = new OpenAPIHono<AppEnv>()
     if (env.MODEL_PROVIDER === "bedrock") {
       return handleNativeBedrockResponse(
         c,
-        handleBedrockChatCompletion(env, body),
+        handleBedrockChatCompletion(env, body, c.req.raw.signal),
       )
     }
     return forwardToUpstream(c, "/v1/chat/completions", body)

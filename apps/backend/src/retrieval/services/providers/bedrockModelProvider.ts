@@ -1,68 +1,22 @@
 import {
-  ChatBedrockConverse,
-  type ChatBedrockConverseInput,
-} from "@langchain/aws"
-
-import type { ModelParams } from "../modelParams.js"
+  ConverseCommand,
+  type ToolInputSchema,
+} from "@aws-sdk/client-bedrock-runtime"
+import { bedrockConverseInput, withBedrockClient } from "./bedrockConverse.js"
 import { invokeBedrockEmbedding } from "./bedrockEmbeddings.js"
-import { resolveBedrockRegion } from "./bedrockRegion.js"
+
+export { lowerBedrockConverseParams } from "./bedrockConverse.js"
+
+import {
+  HostTextAdapter,
+  messageText,
+  STRUCTURED_OUTPUT_TOOL,
+} from "./hostTextAdapter.js"
 import type {
   OpenAiCompatibleFetch,
   ProviderCallOpts,
   ProviderCallResult,
 } from "./providerTypes.js"
-
-function isNonEmptyRecord(value: Record<string, unknown>): boolean {
-  return Object.keys(value).length > 0
-}
-
-/** Bedrock Converse chat via `ChatBedrockConverse` inference fields. */
-export function lowerBedrockConverseParams(params: ModelParams | undefined):
-  | {
-      maxTokens?: number
-      topP?: number
-      additionalModelRequestFields?: Record<string, unknown>
-    }
-  | undefined {
-  if (!params) return undefined
-
-  const additionalModelRequestFields: Record<string, unknown> = {}
-  let maxTokens: number | undefined
-  let topP: number | undefined
-
-  if (params.reasoning?.effort !== undefined) {
-    additionalModelRequestFields.reasoning_effort = params.reasoning.effort
-  }
-
-  if (params.text?.verbosity !== undefined) {
-    additionalModelRequestFields.verbosity = params.text.verbosity
-  }
-
-  if (params.sampling?.maxTokens !== undefined) {
-    maxTokens = params.sampling.maxTokens
-  }
-  if (params.sampling?.topP !== undefined) {
-    topP = params.sampling.topP
-  }
-
-  if (params.bedrock && isNonEmptyRecord(params.bedrock)) {
-    Object.assign(additionalModelRequestFields, params.bedrock)
-  }
-
-  const out: {
-    maxTokens?: number
-    topP?: number
-    additionalModelRequestFields?: Record<string, unknown>
-  } = {}
-
-  if (maxTokens !== undefined) out.maxTokens = maxTokens
-  if (topP !== undefined) out.topP = topP
-  if (isNonEmptyRecord(additionalModelRequestFields)) {
-    out.additionalModelRequestFields = additionalModelRequestFields
-  }
-
-  return Object.keys(out).length > 0 ? out : undefined
-}
 
 function bedrockFetchNotSupported(): OpenAiCompatibleFetch {
   return async () => {
@@ -75,28 +29,68 @@ function bedrockFetchNotSupported(): OpenAiCompatibleFetch {
 export function bedrockModelProvider(
   opts: ProviderCallOpts,
 ): ProviderCallResult {
-  const region = resolveBedrockRegion(opts.env)
   const primary = opts.models[0] ?? ""
-  const converseParams = lowerBedrockConverseParams(opts.modelParams)
 
   return {
-    chat: new ChatBedrockConverse({
-      model: primary,
-      region,
-      temperature: opts.temperature,
-      streaming: opts.streaming ?? true,
-      ...(converseParams?.maxTokens !== undefined
-        ? { maxTokens: converseParams.maxTokens }
-        : {}),
-      ...(converseParams?.topP !== undefined
-        ? { topP: converseParams.topP }
-        : {}),
-      ...(converseParams?.additionalModelRequestFields
-        ? {
-            additionalModelRequestFields:
-              converseParams.additionalModelRequestFields as ChatBedrockConverseInput["additionalModelRequestFields"],
-          }
-        : {}),
+    chat: new HostTextAdapter(opts, "bedrock", async (options, schema) => {
+      const response = await withBedrockClient(opts.env, (client) =>
+        client.send(
+          new ConverseCommand({
+            ...bedrockConverseInput(
+              primary,
+              [
+                ...(options.systemPrompts ?? []).map((prompt) => ({
+                  role: "system",
+                  content: typeof prompt === "string" ? prompt : prompt.content,
+                })),
+                ...options.messages.map((message) => ({
+                  role: message.role,
+                  content: messageText(message.content),
+                })),
+              ],
+              opts.temperature,
+              opts.modelParams,
+            ),
+            ...(schema
+              ? {
+                  toolConfig: {
+                    tools: [
+                      {
+                        toolSpec: {
+                          name: opts.outputName ?? STRUCTURED_OUTPUT_TOOL,
+                          inputSchema: { json: schema } as ToolInputSchema,
+                        },
+                      },
+                    ],
+                    toolChoice: {
+                      tool: { name: opts.outputName ?? STRUCTURED_OUTPUT_TOOL },
+                    },
+                  },
+                }
+              : {}),
+          }),
+          { abortSignal: options.request?.signal ?? undefined },
+        ),
+      )
+      const parts = response.output?.message?.content ?? []
+      const toolInput = parts.find(
+        (part) =>
+          part.toolUse?.name === (opts.outputName ?? STRUCTURED_OUTPUT_TOOL),
+      )?.toolUse?.input
+      if (schema && toolInput === undefined)
+        throw new Error("The model did not call the structured output tool")
+      return {
+        text: schema
+          ? JSON.stringify(toolInput)
+          : parts.map((part) => part.text ?? "").join(""),
+        usage: response.usage
+          ? {
+              promptTokens: response.usage.inputTokens ?? 0,
+              completionTokens: response.usage.outputTokens ?? 0,
+              totalTokens: response.usage.totalTokens ?? 0,
+            }
+          : undefined,
+      }
     }),
     fetch: bedrockFetchNotSupported(),
     embed: async (text: string) => {

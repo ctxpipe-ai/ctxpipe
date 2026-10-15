@@ -9,7 +9,7 @@ description: Frequently asked questions about ctx|, MCP, and self-hosting.
 
 An organization-scoped context platform for engineering agents: it ingests the
 sources you select, builds searchable and graph context, and exposes it through
-**MCP** using `ctx_advisor`.
+**MCP** read tools.
 
 ### Is ctx| only for GitHub?
 
@@ -36,11 +36,12 @@ inside tools for agents to spoof.
 ctx| uses **Streamable HTTP** (MCP 2025-03-26). Legacy SSE-only clients may not
 work without updates.
 
-### What does `ctx_advisor` actually do?
+### What do the MCP tools do?
 
-It opens an org-scoped conversation with source `"mcp"` and runs the **chat
-LangGraph** pipeline, which can query the graph and apply your instruction
-hierarchy. See [ctx| MCP](/docs/mcp/mcp-docs).
+They give your coding agent seven read-only tools: `list_workspaces`,
+`search_knowledge`, `search_code`, `find_symbol`, `read_file`, `list_files`, and
+`get_related`. The agent does the reasoning. ctx| returns facts with refs and
+runs no model for each call. See [Use ctxpipe from your agent](/docs/mcp/use-from-your-agent).
 
 ## Self-hosting
 

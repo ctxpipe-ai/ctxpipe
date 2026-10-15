@@ -1,6 +1,5 @@
-import { ChatOpenAI } from "@langchain/openai"
-
 import type { ModelParams } from "../modelParams.js"
+import { openAiHostAdapter } from "./openAiHostAdapter.js"
 import type {
   OpenAiCompatibleFetch,
   ProviderCallOpts,
@@ -13,7 +12,7 @@ function isNonEmptyRecord(value: Record<string, unknown>): boolean {
   return Object.keys(value).length > 0
 }
 
-/** OpenAI / Azure chat completions via LangChain `modelKwargs`. */
+/** Map canonical parameters to OpenAI and Azure request fields. */
 export function lowerOpenAiChatCompletionsParams(
   params: ModelParams | undefined,
 ): Record<string, unknown> | undefined {
@@ -67,19 +66,11 @@ export function openAILikeModelProvider(
   opts: ProviderCallOpts,
 ): ProviderCallResult {
   const baseURL = opts.env.MODEL_PROVIDER_URL?.trim() || DEFAULT_OPENROUTER_BASE
-  const primary = opts.models[0] ?? ""
   const modelKwargs = lowerOpenAiChatCompletionsParams(opts.modelParams)
   const fetchFn = bearerFetch(opts.apiKey)
 
   return {
-    chat: new ChatOpenAI({
-      model: primary,
-      apiKey: opts.apiKey,
-      temperature: opts.temperature,
-      streaming: opts.streaming ?? true,
-      ...(modelKwargs ? { modelKwargs } : {}),
-      configuration: { baseURL, fetch: fetchFn },
-    }),
+    chat: openAiHostAdapter(opts, "openai-like", baseURL, fetchFn, modelKwargs),
     fetch: fetchFn,
   }
 }

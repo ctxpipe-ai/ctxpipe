@@ -17,6 +17,7 @@ import {
 } from "@tanstack/ai-sandbox"
 import { Hono } from "hono"
 import type { RunVault } from "./agent-vault.js"
+import { parseSandboxCallbackHost } from "./sandbox-callback-host.js"
 import { bearerUrlRule } from "./sandbox-credential-rules.js"
 import { remoteDockerHost } from "./sandbox-provider.js"
 import { WORKSPACE_CHAT_FIREWALL_PLACEHOLDER } from "./workspace-chat-opencode-contract.js"
@@ -48,35 +49,7 @@ export async function sandboxCallbackHost(
     return address
   }
 
-  const unwrapped =
-    raw.startsWith("[") && raw.endsWith("]") ? raw.slice(1, -1) : raw
-  const ipVersion = isIP(unwrapped)
-  if (
-    /[/\\?#]/.test(raw) ||
-    (raw.includes(":") && ipVersion !== 6) ||
-    (raw !== unwrapped && ipVersion !== 6)
-  ) {
-    throw new Error("SANDBOX_CALLBACK_HOST must be a hostname or IP address")
-  }
-  const candidate = ipVersion === 6 ? `[${unwrapped}]` : raw
-  let parsed: URL
-  try {
-    parsed = new URL(`http://${candidate}`)
-  } catch {
-    throw new Error("SANDBOX_CALLBACK_HOST must be a hostname or IP address")
-  }
-  if (
-    !parsed.hostname ||
-    parsed.username ||
-    parsed.password ||
-    parsed.port ||
-    parsed.pathname !== "/" ||
-    parsed.search ||
-    parsed.hash
-  ) {
-    throw new Error("SANDBOX_CALLBACK_HOST must be a hostname or IP address")
-  }
-  return parsed.host
+  return parseSandboxCallbackHost(raw)
 }
 
 /** Name resolution and kernel routing, the environment the default host comes from. */

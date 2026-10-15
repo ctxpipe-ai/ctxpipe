@@ -192,8 +192,10 @@ async function withBox(
       bundle,
       opencodeConfig: ingestOpenCodeConfig({
         modelBase: "stub",
+        models: [],
         skills: bundle.skills,
         proxyAddsCredentials: true,
+        toolBridgeUrl: "http://127.0.0.1:9/tool-bridge",
       }),
     })
     const agent = (command: string, env: Record<string, string> = AGENT_ENV) =>
@@ -459,7 +461,9 @@ describe("ingest agent isolation", () => {
         `cd ${hostile} && opencode debug config && opencode debug skill`,
       )
       expect(resolved.exitCode, resolved.stderr).toBe(0)
-      expect(resolved.stdout.toLowerCase()).not.toContain("hostile")
+      // Markers of the checkout only: a bundle skill may use the word "hostile".
+      expect(resolved.stdout).not.toContain("HOSTILE")
+      expect(resolved.stdout).not.toMatch(/hostile-[abc]|hostile\.example/)
 
       // Control: without the flags the same clone changes the prompt, so the
       // fixture is hostile.
@@ -731,6 +735,7 @@ describe("stage helpers in the sandbox", () => {
         skill: "apis",
         bundle: (await readIngestSkillBundle()).name,
         sourcePathExists: async () => true,
+        readSourceFile: async () => null,
       })
       expect(result.rejections).toEqual([
         expect.objectContaining({
@@ -743,6 +748,119 @@ describe("stage helpers in the sandbox", () => {
         { op: "delete", path: "knowledge/services/old.md" },
         { op: "create", path: "knowledge/services/payments.md" },
       ])
+    })
+  }, 300_000)
+})
+
+describe("script-only skills in the sandbox", () => {
+  it("discover-roots, libraries, and ownership write staged trees that the host validator accepts", async () => {
+    await withBox({}, async (box) => {
+      const pkg = (name: string, dependencies: Record<string, string> = {}) =>
+        JSON.stringify({ name, version: "1.0.0", dependencies })
+      await sealed(box, "source", "shop", {
+        "package.json": JSON.stringify({ name: "shop", private: true }),
+        "pnpm-workspace.yaml": "packages:\n  - apps/*\n",
+        "apps/api/package.json": pkg("api", { hono: "^4.0.0", zod: "^3.0.0" }),
+        "apps/web/package.json": pkg("web", { next: "15.0.0" }),
+        ".github/CODEOWNERS":
+          "* @example-org/platform\n/apps/api/ @example-org/payments\n",
+      })
+      const source = `${INGEST_SOURCE_ROOT}/shop`
+      await sealed(box, "context", WORKSPACE_ID, {
+        "README.md": "# Context\n",
+        "knowledge/services/api.md": `---\nkind: Service\nname: API\nsources:\n  - ${SOURCE_URL}\nclaims:\n  - to: ../../README.md\n    predicate: PART_OF\n    evidence:\n      path: apps/api/package.json\n      kind: script\n---\n# API\n`,
+      })
+      const baseCommit = await headOf(box, CONTEXT_DIR)
+      const run = async (command: string) => {
+        const r = await box.agent(command)
+        expect(r.exitCode, `${command}\n${r.stderr}`).toBe(0)
+        return r.stdout
+      }
+      // discover-roots needs no step; the host plans the roots from it.
+      const roots = JSON.parse(
+        await run(
+          `node ${INGEST_SKILLS_ROOT}/discover-roots/scripts/discover-roots.mjs ${source}`,
+        ),
+      )
+      expect(roots.roots.map((r: { path: string }) => r.path)).toEqual([
+        "apps/api",
+        "apps/web",
+      ])
+      expect(roots.ambiguous).toEqual([])
+      expect(roots.skipped).toEqual([])
+      // The host's root-to-file map: the files that the root steps wrote.
+      const map = {
+        roots: roots.roots.map((r: { path: string }) => ({
+          ...r,
+          files: r.path === "apps/api" ? ["knowledge/services/api.md"] : [],
+        })),
+      }
+
+      for (const skill of ["libraries", "ownership"]) {
+        await startIngestStep(box.root, {
+          workspaceId: WORKSPACE_ID,
+          baseCommit,
+          index: JSON.stringify({ entries: [] }),
+        })
+        // Prepare empties HOME before each step.
+        await box.agentWrite(`${INGEST_HOME}/roots.json`, JSON.stringify(map))
+        const out = JSON.parse(
+          await run(
+            `node ${INGEST_SKILLS_ROOT}/${skill}/scripts/${skill}.mjs --source ${source} --source-url ${SOURCE_URL} --roots ${INGEST_HOME}/roots.json`,
+          ),
+        )
+        const output = await collectIngestStep(box.handle, box.root)
+        const dir = mkdtempSync(join(host, `${skill}-`))
+        writeFileSync(join(dir, "step.tar"), output)
+        execFileSync("mkdir", ["-p", join(dir, "step")])
+        execFileSync("tar", [
+          "-xf",
+          join(dir, "step.tar"),
+          "-C",
+          join(dir, "step"),
+        ])
+        await box.sh(
+          `git -C ${CONTEXT_DIR} bundle create /tmp/context.bundle HEAD >/dev/null 2>&1`,
+        )
+        writeFileSync(
+          join(dir, "context.bundle"),
+          await box.handle.fs.readBytes("/tmp/context.bundle"),
+        )
+        const repo = join(dir, "context")
+        execFileSync("git", ["init", "-q", "--bare", repo])
+        execFileSync("git", [
+          "-C",
+          repo,
+          "fetch",
+          "-q",
+          join(dir, "context.bundle"),
+          "HEAD:refs/heads/base",
+        ])
+        const result = await validatePatchStep({
+          repoDir: repo,
+          baseCommit,
+          stagedDir: join(dir, "step"),
+          source: { url: SOURCE_URL, sha: "a".repeat(40) },
+          skill,
+          bundle: (await readIngestSkillBundle()).name,
+          sourcePathExists: async () => true,
+          readSourceFile: async () => null,
+          linkableRepositories: [SOURCE_URL],
+        })
+        expect(result.rejections).toEqual([])
+        expect(result.accepted).toEqual(out.ops)
+        expect(result.accepted.length).toBeGreaterThan(0)
+        // Each skill adds a claim to the mapped root file or to a team file.
+        expect(
+          result.accepted.some(
+            (op) =>
+              op.path ===
+              (skill === "libraries"
+                ? "knowledge/services/api.md"
+                : "knowledge/teams/example-org-payments.md"),
+          ),
+        ).toBe(true)
+      }
     })
   }, 300_000)
 })

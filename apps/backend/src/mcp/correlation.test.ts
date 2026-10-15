@@ -1,3 +1,8 @@
+import {
+  type McpServer,
+  ResourceTemplate,
+} from "@modelcontextprotocol/sdk/server/mcp.js"
+import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js"
 import { SpanStatusCode } from "@opentelemetry/api"
 import type { ReadableSpan } from "@opentelemetry/sdk-trace-base"
 import { initLogger } from "evlog"
@@ -9,7 +14,14 @@ import { z } from "zod"
 import { recordSpans } from "../../test/spans.js"
 import type { AppEnv } from "../app/env.js"
 import { backendOtelMiddleware } from "../observability/http.js"
-import { readMcpCorrelation, runMcpToolCall } from "./correlation.js"
+import {
+  mcpOrgSlugHash,
+  readMcpCorrelation,
+  runMcpResourceRead,
+  runMcpToolCall,
+  setMcpOrgSlugHash,
+} from "./correlation.js"
+import { registerWorkspaceFileResource } from "./resources/workspace-file.js"
 import { handleMcpTransportRequest } from "./transport.js"
 
 const spans = recordSpans()
@@ -40,6 +52,7 @@ function buildApp(
   tool: (args: Record<string, unknown>) => Promise<unknown> = async () => ({
     content: [{ type: "text" as const, text: "ok" }],
   }),
+  registerResources: (server: McpServer) => void = () => {},
 ) {
   const app = new Hono<AppEnv>()
   app.use(contextStorage())
@@ -93,6 +106,7 @@ function buildApp(
               },
           ),
       )
+      registerResources(server)
     }),
   )
   return app
@@ -344,6 +358,23 @@ describe("MCP call correlation", () => {
     }
   })
 
+  it("puts the hash of the org slug on the span, never the slug", async () => {
+    const { span } = await callTool(
+      buildApp({ userId: "user_1" }, async () => {
+        setMcpOrgSlugHash("acme")
+        return { content: [{ type: "text" as const, text: "ok" }] }
+      }),
+    )
+
+    const hash = span.attributes["ctxpipe.mcp.org.slug_hash"]
+    expect(hash).toBe(mcpOrgSlugHash("acme"))
+    expect(hash).toMatch(/^[0-9a-f]{32}$/)
+    expect(hash).not.toBe(mcpOrgSlugHash("other"))
+    expect(
+      JSON.stringify(span.attributes["ctxpipe.mcp.org.slug_hash"]),
+    ).not.toContain("acme")
+  })
+
   it("puts no query text, paths or repository URLs on any span", async () => {
     await callTool(buildApp(), {
       args: { query: secretQuery, path: secretPath, repository: secretRepoUrl },
@@ -376,6 +407,102 @@ describe("MCP call correlation", () => {
     expect(span.status.code).toBe(SpanStatusCode.ERROR)
   })
 })
+
+describe("MCP resource read correlation", () => {
+  async function readResource(app: Hono<AppEnv>, uri: string) {
+    const response = await app.request("http://backend.test/mcp", {
+      method: "POST",
+      headers: {
+        accept: "application/json, text/event-stream",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "resources/read",
+        params: {
+          uri,
+          _meta: { "ai.ctxpipe/conversationId": "conv-res" },
+        },
+      }),
+    })
+    expect(response.status).toBe(200)
+    return rpcError(await response.text())
+  }
+
+  it("reads the workspace-file resource in an mcp.resource span and returns the call id on a user error", async () => {
+    const app = buildApp({ userId: "user_1" }, undefined, (server) =>
+      registerWorkspaceFileResource(server),
+    )
+    // A URI with a bad percent escape fails before any database read.
+    const error = await readResource(
+      app,
+      "ctxpipe://acme/payments/knowledge/%E0%A4%A.md",
+    )
+    expect(error.data?.code).toBe("invalid_ref")
+
+    const span = spans.spanNamed("mcp.resource workspace-file")
+    if (!span) throw new Error("no resource span")
+    expect(span.attributes).toMatchObject({
+      "ctxpipe.mcp.resource": "workspace-file",
+      "ctxpipe.mcp.conversation.id": "conv-res",
+    })
+    expect(span.attributes["ctxpipe.mcp.call.id"]).toMatch(/^call_[a-z0-9]+$/)
+    expect(span.attributes["ctxpipe.mcp.tool"]).toBeUndefined()
+    // The client gets the same id as the span, as for a failed tool call.
+    expect(error.data?.["ai.ctxpipe/callId"]).toBe(
+      span.attributes["ctxpipe.mcp.call.id"],
+    )
+    // The message keeps the text of the error, with no second SDK prefix.
+    expect(error.message).toBe(
+      "MCP error -32602: The ref in the URI is not valid.",
+    )
+    // A user error is not a server fault: the span stays out of ERROR.
+    expect(span.status.code).not.toBe(SpanStatusCode.ERROR)
+  })
+
+  it("marks the span as an error only for an internal error, and still returns the call id", async () => {
+    const app = buildApp({ userId: "user_1" }, undefined, (server) =>
+      server.registerResource(
+        "broken",
+        new ResourceTemplate("broken://{name}", { list: undefined }),
+        {},
+        (_uri, _variables, extra) =>
+          runMcpResourceRead({ resourceName: "broken", extra }, async () => {
+            throw new McpError(ErrorCode.InternalError, "It broke.", {
+              code: "internal",
+              retryable: true,
+            })
+          }),
+      ),
+    )
+    const error = await readResource(app, "broken://one")
+
+    const span = spans.spanNamed("mcp.resource broken")
+    if (!span) throw new Error("no resource span")
+    expect(span.status.code).toBe(SpanStatusCode.ERROR)
+    expect(error.data?.["ai.ctxpipe/callId"]).toBe(
+      span.attributes["ctxpipe.mcp.call.id"],
+    )
+    expect(error.data?.retryable).toBe(true)
+  })
+})
+
+function rpcError(body: string): {
+  code?: number
+  message?: string
+  data?: Record<string, unknown>
+} {
+  for (const line of body.split("\n")) {
+    const data = line.startsWith("data:") ? line.slice(5).trim() : line.trim()
+    if (!data.startsWith("{")) continue
+    const payload = JSON.parse(data) as { error?: unknown }
+    if (payload.error && typeof payload.error === "object") {
+      return payload.error as ReturnType<typeof rpcError>
+    }
+  }
+  throw new Error(`MCP response did not include an error: ${body}`)
+}
 
 function toolResult(body: string): {
   isError?: boolean

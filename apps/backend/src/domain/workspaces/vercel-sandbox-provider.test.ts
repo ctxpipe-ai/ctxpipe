@@ -2,6 +2,7 @@ import { type NetworkPolicy, Sandbox } from "@vercel/sandbox"
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
+import { openIngestEgressScope } from "./ingest-egress-proxy.js"
 import { ingestNetworkPolicy } from "./ingest-sandbox-egress.js"
 import {
   agentSnapshotTags,
@@ -147,7 +148,8 @@ function pinned(host: string, authorization: string) {
 
 type Rule = {
   match?: { path?: { exact?: string; regex?: string; startsWith?: string } }
-  transform: unknown
+  transform?: unknown
+  forwardURL?: string
 }
 
 function allowOf(policy: NetworkPolicy | undefined) {
@@ -287,37 +289,65 @@ describe("conversationFirewall", () => {
     policies.length = 0
     failure = "none"
     const firewall = conversationFirewall("app.example.test")
-    firewall.attach(await Sandbox.get({ ...credentials, name }), gitToken)
+    await firewall.attach(await Sandbox.get({ ...credentials, name }), gitToken)
     return firewall
   }
 
-  it("keeps an ingest sandbox closed at step start and at step end", async () => {
+  it("keeps an ingest sandbox closed at step start and at step end, with the scope bound to the sandbox", async () => {
     server.use(...vercelApi)
     policies.length = 0
     failure = "none"
+    const secret = "egress-test-secret-0123456789abcdef"
     const firewall = conversationFirewall("app.example.test", (input) =>
       ingestNetworkPolicy({
         git: [{ token: input.gitToken, repositories: ["acme/source"] }],
         backendHost: "app.example.test",
+        secret,
+        ...(input.sandboxName ? { sandboxName: input.sandboxName } : {}),
         ...(input.turn ? { step: input.turn } : {}),
       }),
     )
-    expect(allowOf(firewall.policy("git-1"))["*"]).toBeUndefined()
-    firewall.attach(
+    // A new sandbox has no name yet, so it starts with no egress.
+    expect(firewall.policy("git-1")).toBe("deny-all")
+    const scopeOf = (policy: NetworkPolicy | undefined) => {
+      const allow = allowOf(policy)
+      expect(allow["*"]).toBeUndefined()
+      expect(Object.keys(allow).sort()).toEqual([
+        "app.example.test",
+        "github.com",
+      ])
+      const forwardUrl = allow["github.com"]?.[0]?.forwardURL ?? ""
+      return openIngestEgressScope(
+        new URL(forwardUrl).pathname.replace("/api/v1/sandbox-egress/", ""),
+        secret,
+      )
+    }
+    // Attach (after create or resume) applies the scope at once: the
+    // sandbox can fetch before its first step.
+    await firewall.attach(
       await Sandbox.get({ ...credentials, name: "sbx-ingest" }),
       "git-1",
     )
+    expect(policies).toHaveLength(1)
+    expect(scopeOf(policies.at(-1))).toMatchObject({
+      sandbox: "sbx-ingest",
+      git: [{ token: "git-1", repositories: ["acme/source"] }],
+    })
+    expect(scopeOf(policies.at(-1))?.step).toBeUndefined()
     await firewall.openTurn("sbx-ingest", turn)
-    expect(backendRules(policies.at(-1))).toHaveLength(3)
-    expect(allowOf(policies.at(-1))["*"]).toBeUndefined()
+    expect(scopeOf(policies.at(-1))).toMatchObject({
+      sandbox: "sbx-ingest",
+      step: turn,
+    })
     await firewall.closeTurn("sbx-ingest")
-    expect(backendRules(policies.at(-1))).toBeUndefined()
-    expect(allowOf(policies.at(-1))["*"]).toBeUndefined()
-    expect(Object.keys(allowOf(policies.at(-1)))).toEqual(["github.com"])
+    expect(scopeOf(policies.at(-1))?.step).toBeUndefined()
+    expect(scopeOf(policies.at(-1))?.sandbox).toBe("sbx-ingest")
   })
 
   it("sets the turn's credentials at turn start and removes them at turn end", async () => {
     const firewall = await attached("sbx-1", "git-1")
+    // The chat policy does not change with the name: create already set it.
+    expect(policies).toEqual([])
     await firewall.openTurn("sbx-1", turn)
     expect(backendRules(policies.at(-1))).toHaveLength(3)
     expect(JSON.stringify(policies.at(-1))).toContain("Bearer git-1")
@@ -414,6 +444,69 @@ describe("conversationFirewall", () => {
     expect(backendRules(policies.at(-1))).toHaveLength(3)
     expect(JSON.stringify(policies.at(-1))).toContain("Bearer git-minted-1")
     await firewall.closeTurn(handle.id)
+  })
+
+  it("stops the new sandbox and revokes its token when the policy attach fails, then rethrows", async () => {
+    server.use(...vercelApi)
+    const stopped: string[] = []
+    server.use(
+      http.post("https://vercel.com/api/v2/sandboxes", () =>
+        HttpResponse.json({
+          sandbox: sandboxJson("sbx-attach-fail"),
+          session: sessionJson,
+          routes: [],
+        }),
+      ),
+      http.post(
+        "https://vercel.com/api/v2/sandboxes/sessions/:id/stop",
+        ({ params }) => {
+          stopped.push(String(params.id))
+          return HttpResponse.json({
+            session: { ...sessionJson, status: "stopped" },
+          })
+        },
+      ),
+    )
+    failure = "fail"
+    const revoked: string[] = []
+    const puts: string[] = []
+    const provider = vercelConversationProvider({
+      credentials,
+      agentPassword: "password",
+      access: {
+        // An ingest policy applies at attach, which the failing API refuses.
+        firewall: conversationFirewall("app.example.test", (input) =>
+          ingestNetworkPolicy({
+            git: [{ token: input.gitToken, repositories: ["acme/source"] }],
+            backendHost: "app.example.test",
+            secret: "egress-test-secret-0123456789abcdef",
+            ...(input.sandboxName ? { sandboxName: input.sandboxName } : {}),
+          }),
+        ),
+        mintGitToken: async () => "git-orphan",
+        revokeGitToken: async (token) => {
+          revoked.push(token)
+        },
+        tokens: {
+          get: async () => null,
+          put: async (id) => {
+            puts.push(id)
+          },
+          take: async () => null,
+        },
+      },
+      tags: {},
+      base: async () => ({ failed: async () => undefined }),
+      agentSnapshot: async () => "snap_agent",
+    })
+    await expect(
+      provider.create({
+        workspace: { source: { type: "none" } },
+      } as Parameters<typeof provider.create>[0]),
+    ).rejects.toThrow()
+    expect(stopped).toEqual(["ses_1"])
+    expect(revoked).toEqual(["git-orphan"])
+    expect(puts).toEqual([])
   })
 
   it("refuses a turn on a sandbox that this process did not create or resume", async () => {

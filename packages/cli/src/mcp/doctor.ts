@@ -167,7 +167,7 @@ function nextStepsFor(
   }
   return [
     "Complete OAuth in an MCP client to prove authenticated access.",
-    "Use MCPJam for an OAuth trace, tools/list, and a test ctx_advisor call.",
+    "Use MCPJam for an OAuth trace, tools/list, and a test list_workspaces call.",
   ]
 }
 

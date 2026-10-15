@@ -6,12 +6,12 @@ import { PLAIN_REQUIRED_PERMISSIONS } from "backend/domain/workspace-sources/pro
 import { useState } from "react"
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
-import { Link } from "@/components/ui/Link"
 import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
 import { TextField } from "@/components/ui/TextField"
 import { AddToWorkspacesStep } from "@/features/workspace-sources/AddToWorkspacesStep"
 import { PullRequestsToMerge } from "@/features/workspace-sources/PullRequestsToMerge"
+import type { OpenedPullRequest } from "@/features/workspace-sources/useAddToWorkspaces"
 import { retryQuery } from "@/lib/api-result"
 import { getPlainSetupStep, PLAIN_SETUP_STEPS } from "../plain-setup-model"
 import { orgConnectionsKeys } from "../queries/org-connections"
@@ -23,8 +23,20 @@ import {
 import { ConnectorSetupStepper } from "./ConnectorSetupStepper"
 import { PlainMark } from "./PlainMark"
 
-const externalLink =
-  "font-medium text-teal-400 underline decoration-teal-400/50 underline-offset-4 hover:text-teal-300 hover:decoration-teal-300"
+/** A link out of the product: teal, as the other setup dialogs show it. */
+function ExternalLink(props: { href: string; children: string }) {
+  return (
+    <a
+      href={props.href}
+      target="_blank"
+      rel="noreferrer"
+      className="inline-flex items-center gap-1 font-medium text-teal-400 hover:text-teal-300"
+    >
+      {props.children}
+      <IconExternalLink className="size-3.5" aria-hidden />
+    </a>
+  )
+}
 
 type PlainSetupDialogProps = {
   orgSlug: string
@@ -50,8 +62,8 @@ export function PlainSetupDialog({
 }: PlainSetupDialogProps) {
   const queryClient = useQueryClient()
   const [reconnecting, setReconnecting] = useState(reconnect)
-  const [workspacesDone, setWorkspacesDone] = useState(false)
-  const [pullRequestUrls, setPullRequestUrls] = useState<string[]>([])
+  const [pullRequests, setPullRequests] = useState<OpenedPullRequest[]>([])
+  const workspacesDone = pullRequests.length > 0
 
   const statusQuery = useQuery({
     queryKey: plainConnectorKeys.status(orgSlug, connectionId ?? ""),
@@ -126,28 +138,13 @@ export function PlainSetupDialog({
           label="Plain"
           description="the Help Centers and labels for each"
           items="the Help Centers and labels"
-          onDone={(urls) => {
-            setPullRequestUrls(urls ?? [])
-            setWorkspacesDone(true)
-          }}
+          onDone={setPullRequests}
         />
       )
     }
     return (
       <div className="space-y-4">
-        {pullRequestUrls.length ? (
-          <PullRequestsToMerge urls={pullRequestUrls} />
-        ) : (
-          <div>
-            <h3 className="text-base font-medium text-foreground">
-              Plain is connected
-            </h3>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Add Plain to a Workspace from the connector card, or change the
-              Help Centers and labels of a Workspace in its settings.
-            </p>
-          </div>
-        )}
+        <PullRequestsToMerge orgSlug={orgSlug} pullRequests={pullRequests} />
         <Button
           variant="secondary"
           className="rounded-md"
@@ -233,15 +230,9 @@ function ConnectStep(props: {
             Settings → Machine Users
           </strong>
           , add a machine user for ctx|, and create an{" "}
-          <Link
-            href="https://www.plain.com/docs/graphql/authentication"
-            className={externalLink}
-            target="_blank"
-            rel="noreferrer"
-          >
+          <ExternalLink href="https://www.plain.com/docs/graphql/authentication">
             API key
-            <IconExternalLink className="ml-1 inline size-3.5" aria-hidden />
-          </Link>{" "}
+          </ExternalLink>{" "}
           with only these permissions. ctx| reads with the key, creates one
           webhook target for live updates, and keeps the key encrypted.
         </p>

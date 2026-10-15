@@ -51,7 +51,7 @@ const pendingMergeSeen = new WeakMap<
 >()
 
 /**
- * Refresh a list for 3 minutes after an open source pull request leaves it.
+ * Refresh a list for 2 minutes after an open source pull request leaves it.
  * A merge closes the pull request about 15 s before the Workspace records
  * its source, so a read in between shows neither. While a pull request is
  * open, each window focus also reads again: the user usually merges it on
@@ -69,7 +69,7 @@ function refreshAfterMerge<T>(pullRequestUrls: (data: T) => string[]) {
       const open = new Set(openUrls(query))
       const seen = pendingMergeSeen.get(query) ?? { open, until: 0 }
       if ([...seen.open].some((url) => !open.has(url)))
-        seen.until = Date.now() + 180_000
+        seen.until = Date.now() + 120_000
       seen.open = open
       pendingMergeSeen.set(query, seen)
       return Date.now() < seen.until ? pollWhileOk(5_000)(query) : false
