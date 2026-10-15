@@ -8,7 +8,7 @@ const server = useMswServer()
 afterEach(() => vi.unstubAllEnvs())
 
 describe("bedrockModelProvider", () => {
-  it("retries a transient service error and does not retry a client error", async () => {
+  it("retries a transient service error and throttling, and does not retry a client error", async () => {
     vi.stubEnv("AWS_ACCESS_KEY_ID", "test")
     vi.stubEnv("AWS_SECRET_ACCESS_KEY", "test")
     vi.stubEnv("AWS_EC2_METADATA_DISABLED", "true")
@@ -40,6 +40,26 @@ describe("bedrockModelProvider", () => {
 
     await expect(invoke()).resolves.toBeUndefined()
     expect(calls.transient).toBe(2)
+
+    let throttled = 0
+    server.use(
+      http.post("https://bedrock-runtime.us-east-1.amazonaws.com/*", () => {
+        throttled += 1
+        return throttled === 1
+          ? HttpResponse.json(
+              { message: "Too many requests" },
+              {
+                status: 429,
+                headers: { "x-amzn-errortype": "ThrottlingException" },
+              },
+            )
+          : HttpResponse.json({
+              output: { message: { content: [{ text: "ok" }] } },
+            })
+      }),
+    )
+    await expect(invoke()).resolves.toBeUndefined()
+    expect(throttled).toBe(2)
 
     server.use(
       http.post("https://bedrock-runtime.us-east-1.amazonaws.com/*", () => {
