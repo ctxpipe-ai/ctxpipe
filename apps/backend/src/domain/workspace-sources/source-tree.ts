@@ -8,6 +8,20 @@ import { SOURCES_FILE_PATH } from "./sources-file.js"
 export const SOURCES_FOLDER_PREFIX = `${SOURCE_FILES_FOLDER}/`
 
 /**
+ * The paths that hold the sources of a Workspace, relative to the repository
+ * top: `.ctxpipe/sources.yaml` (until CTX-721 T11) and the `sources/` folder.
+ * Each read of the sources uses this list or {@link isSourcesTreePath}, so
+ * that a move of the sources below the Workspace root folder (CTX-709)
+ * changes only this module.
+ */
+const SOURCES_TREE_PATHS = [SOURCES_FILE_PATH, SOURCE_FILES_FOLDER] as const
+
+/** True when `path` holds a source: `.ctxpipe/sources.yaml` or a blob under `sources/`. */
+export function isSourcesTreePath(path: string): boolean {
+  return path === SOURCES_FILE_PATH || path.startsWith(SOURCES_FOLDER_PREFIX)
+}
+
+/**
  * The read options of `listMarkdownFilesAtGitSha` that also give the
  * sources of a Workspace: `.ctxpipe/sources.yaml` (until CTX-721 T11) and
  * every blob under `sources/`, also one that is not Markdown, so that a bad
@@ -50,13 +64,7 @@ export async function sourcesFenceAt(
   sha: string,
 ): Promise<string | null> {
   const listing = (
-    await nativeGit(directory, [
-      "ls-tree",
-      sha,
-      "--",
-      SOURCES_FILE_PATH,
-      SOURCE_FILES_FOLDER,
-    ])
+    await nativeGit(directory, ["ls-tree", sha, "--", ...SOURCES_TREE_PATHS])
   ).toString()
   const ids = new Map(
     listing

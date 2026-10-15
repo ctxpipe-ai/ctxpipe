@@ -110,7 +110,7 @@ describe("hydrateKnowledgeTree", () => {
     expect(result.linked).toEqual([])
   })
 
-  it("links only the repositories of GitHub sources, with their ref, once each", () => {
+  it("links only the repositories of ok GitHub sources, with their ref", () => {
     const result = hydrateKnowledgeTree({
       workspaceId: "ws_1",
       workspaceUrl: "https://github.com/acme/knowledge",
@@ -128,7 +128,7 @@ describe("hydrateKnowledgeTree", () => {
         "    provider: github",
         "    connection: con_github1",
         "    repositories: [{name: acme/billing, ref: release}, acme/web, acme/knowledge]",
-        "  - id: again",
+        "  - id: same-repository",
         "    provider: github",
         "    connection: con_github1",
         "    repositories: [acme/web]",
@@ -157,26 +157,69 @@ describe("hydrateKnowledgeTree", () => {
   })
 
   it("links the repository of each GitHub source file, with the file as its path", () => {
+    const files = [
+      {
+        path: "sources/github/acme/web.md",
+        content:
+          "---\nprovider: github\nconnection: con_github1\nrepository: acme/web\nref: main\n---\nThe web app.\n",
+      },
+      {
+        path: "sources/github/acme/secret.md",
+        content:
+          "---\nprovider: github\nconnection: con_elsewhere\nrepository: acme/secret\n---\n",
+      },
+    ]
     const result = hydrateKnowledgeTree({
       workspaceId: "ws_1",
       workspaceUrl: "https://github.com/acme/knowledge",
-      files: [
-        {
-          path: "sources/github/acme/web.md",
-          content:
-            "---\nprovider: github\nconnection: con_github1\nrepository: acme/web\nref: main\n---\nThe web app.\n",
-        },
-        {
-          path: "sources/github/acme/secret.md",
-          content:
-            "---\nprovider: github\nconnection: con_elsewhere\nrepository: acme/secret\n---\n",
-        },
-      ],
+      files,
+      sourceFiles: files.map((file) => ({
+        path: file.path,
+        text: file.content,
+      })),
       githubConnectionIds: new Set(["con_github1"]),
     })
     expect(result.linked).toEqual([
       {
         path: "sources/github/acme/web.md",
+        git: "https://github.com/acme/web",
+        branch: "main",
+        connectionId: "con_github1",
+      },
+    ])
+  })
+
+  it("links a repository from the source that held it at the previous revision", () => {
+    const githubFile = (path: string, ref: string) => ({
+      path,
+      text: `---\nprovider: github\nconnection: con_github1\nrepository: acme/web\nref: ${ref}\n---\n`,
+    })
+    const sourceFiles = [
+      githubFile("sources/github/acme/a.md", "next"),
+      githubFile("sources/github/acme/b.md", "main"),
+    ]
+    const result = hydrateKnowledgeTree({
+      workspaceId: "ws_1",
+      workspaceUrl: "https://github.com/acme/knowledge",
+      files: sourceFiles.map((file) => ({
+        path: file.path,
+        content: file.text,
+      })),
+      sourceFiles,
+      githubConnectionIds: new Set(["con_github1"]),
+      previousSourceRows: [
+        {
+          sourceKey: "sources/github/acme/b.md",
+          provider: "github",
+          connectionId: "con_github1",
+          scope: { repository: "acme/web", ref: "main" },
+          status: "ok",
+        },
+      ],
+    })
+    expect(result.linked).toEqual([
+      {
+        path: "sources/github/acme/b.md",
         git: "https://github.com/acme/web",
         branch: "main",
         connectionId: "con_github1",

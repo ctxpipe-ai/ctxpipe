@@ -31,6 +31,7 @@ import {
   workspaceRevisionSchema,
 } from "../../domain/workspaces/revision.js"
 import { listOrgConnections } from "../../models/org-connections.js"
+import { listWorkspaceSourceRows } from "../../models/workspace-sources.js"
 import { getMigrationExportSha } from "../../models/workspace-write-jobs.js"
 import { reserveHydrateWrites } from "../../models/workspace-write-planning.js"
 import {
@@ -372,12 +373,34 @@ export const workspaceHydrate = defineWorkflow(
                     .flatMap((connection) => connection.displayName ?? []),
                 )
               : []
+            // The projection decides the winner of a repository that two
+            // sources name from these rows; the linked set uses the same rule.
+            const previousSourceRows = pending.postgres
+              ? await step.run(
+                  { name: "list-previous-source-rows" },
+                  async () =>
+                    (
+                      await listWorkspaceSourceRows({
+                        orgId: input.orgId,
+                        workspaceId: workspace.id,
+                      })
+                    ).map((row) => ({
+                      sourceKey: row.sourceKey,
+                      provider: row.provider,
+                      connectionId: row.connectionId,
+                      scope: row.scope,
+                      status: row.status,
+                    })),
+                )
+              : []
             const parsed = pending.postgres
               ? hydrateKnowledgeTree({
                   workspaceId: workspace.id,
                   workspaceUrl: revision.remote.url,
                   files,
                   sourcesFile,
+                  sourceFiles,
+                  previousSourceRows,
                   githubConnectionIds: new Set(githubConnectionIds),
                   confluenceSiteHosts: new Set(confluenceSiteHosts),
                 })

@@ -11,11 +11,10 @@ import {
 } from "../../services/git/pack.js"
 import { githubSourceRepositories } from "../workspace-sources/github-sources.js"
 import {
-  SOURCES_FOLDER_PREFIX,
+  isSourcesTreePath,
   sourcesFenceAt,
   splitSourcesTree,
 } from "../workspace-sources/source-tree.js"
-import { SOURCES_FILE_PATH } from "../workspace-sources/sources-file.js"
 import type {
   ConfiguredConnectorMirrorSource,
   ConnectorMirrorSource,
@@ -93,12 +92,7 @@ export async function assertConnectorMirrorScope(
   if (source.provider === "github") {
     // Unlinking is the GitHub scope change: a mirror never lands after it.
     const { sourcesFile, sourceFiles } = splitSourcesTree(
-      await readGitFiles(
-        pack,
-        (path) =>
-          path === SOURCES_FILE_PATH ||
-          path.startsWith(`${SOURCES_FOLDER_PREFIX}github/`),
-      ),
+      await readGitFiles(pack, isSourcesTreePath),
     )
     const target = normalizeWorkspaceRepositoryUrl(source.gitUrl)
     if (

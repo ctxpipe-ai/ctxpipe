@@ -2,7 +2,10 @@ import { createHash } from "node:crypto"
 import { base32nopad } from "@scure/base"
 import { connectorMirrorRoot } from "../codeIngestion/connectorMirrorPaths.js"
 import { githubSourceRepositories } from "../workspace-sources/github-sources.js"
-import { SOURCES_FOLDER_PREFIX } from "../workspace-sources/source-tree.js"
+import type {
+  PreviousSourceRow,
+  SourceFileBlob,
+} from "../workspace-sources/projection-plan.js"
 import { effectiveValidFrom } from "./hydrate-phases.js"
 import { markdownLines } from "./knowledge-chunks.js"
 import {
@@ -93,12 +96,19 @@ export function hydrateKnowledgeTree(input: {
   }>
   /**
    * The text of `.ctxpipe/sources.yaml`, or null. Its GitHub sources and the
-   * GitHub source files under `sources/` in `files` are the only links of
+   * GitHub source files in `sourceFiles` are the only links of
    * the Workspace (ADR-050).
    */
   sourcesFile?: string | null
+  /** Every blob under `sources/` (`splitSourcesTree`). Its GitHub sources link. */
+  sourceFiles?: ReadonlyArray<SourceFileBlob>
   /** The org's GitHub connection ids. A source with another id links nothing. */
   githubConnectionIds?: ReadonlySet<string>
+  /**
+   * The source rows of the previous projected revision. They decide which
+   * source links a repository that two sources name, as in the projection.
+   */
+  previousSourceRows?: ReadonlyArray<PreviousSourceRow>
   /**
    * Hosts of the org's Confluence connections. A Confluence URL on another
    * host makes no edge.
@@ -180,9 +190,11 @@ export function hydrateKnowledgeTree(input: {
   for (const source of githubSourceRepositories(
     input.sourcesFile ?? null,
     input.githubConnectionIds ?? new Set(),
-    input.files
-      .filter((file) => file.path.startsWith(SOURCES_FOLDER_PREFIX))
-      .map((file) => ({ path: file.path, text: file.content })),
+    input.sourceFiles,
+    {
+      previousRows: input.previousSourceRows,
+      workspaceUrl: input.workspaceUrl,
+    },
   )) {
     if (seenLinked.has(source.gitUrl)) continue
     seenLinked.add(source.gitUrl)
