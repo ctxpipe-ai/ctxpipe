@@ -285,12 +285,13 @@ describe("get_related through the MCP client on live Postgres and FalkorDB", () 
       limit: 6,
     })
     expect(result.isError).not.toBe(true)
-    // Services lead by edge confidence; diversity brings a Team in at once.
+    // The Services answer the dependencies intent, so they come first, by
+    // edge confidence. The Teams follow.
     expect(refs(result)).toEqual([
       "knowledge/services/payments-api.md",
       "knowledge/services/gateway.md",
-      "knowledge/teams/payments.md",
       "knowledge/services/search-api.md",
+      "knowledge/teams/payments.md",
       "knowledge/teams/edge.md",
       "knowledge/teams/discovery.md",
     ])
@@ -432,10 +433,12 @@ describe("get_related through the MCP client on live Postgres and FalkorDB", () 
       limit: 5,
     })
     expect(result.isError).not.toBe(true)
+    // The incident and the decision answer the why intent, so they come
+    // before the database and the issue.
     expect(refs(result)).toEqual([
-      "knowledge/databases/payments-db.md",
       "pagerduty/incidents/q7.md",
       "knowledge/decisions/adr-012.md",
+      "knowledge/databases/payments-db.md",
       "linear/issues/PAY-311.md",
       "knowledge/runbooks/db-connection-saturation.md",
     ])
@@ -493,9 +496,9 @@ describe("get_related through the MCP client on live Postgres and FalkorDB", () 
       limit: 5,
     })
     expect(refs(window)).toEqual([
-      "knowledge/databases/payments-db.md",
       "pagerduty/incidents/q3.md",
       "knowledge/decisions/adr-012.md",
+      "knowledge/databases/payments-db.md",
       "knowledge/runbooks/db-connection-saturation.md",
     ])
     const now = await related({
@@ -552,8 +555,8 @@ describe("get_related through the MCP client on live Postgres and FalkorDB", () 
     const second = await related({ ...args, cursor })
     expect(second.isError).not.toBe(true)
     expect(refs(second)).toEqual([
-      "knowledge/teams/payments.md",
       "knowledge/services/search-api.md",
+      "knowledge/teams/payments.md",
     ])
     const third = await related({
       ...args,
