@@ -23,9 +23,6 @@ describe("parseSourceState", () => {
       githubPins({
         id: "wsrc_1",
         provider: "github",
-        connectionId: null,
-        scope: {},
-        status: "ok",
         state: { provider: "github", repositories: [pin] },
       }),
     ).toEqual([pin])
@@ -99,9 +96,6 @@ describe("lastGoodTarget", () => {
       githubPins({
         id: "wsrc_1",
         provider: "github",
-        connectionId: null,
-        scope: {},
-        status: "ok",
         state: {
           provider: "github",
           repositories: [pin],
