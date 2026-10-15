@@ -292,12 +292,16 @@ export const AdminFlowSkipGithubLandsOnHome: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    const getStarted = await canvas.findByRole("button", {
-      name: "Get started",
-    })
-    // The button shows after the typed hero.
-    await waitFor(() => expect(getStarted).toBeVisible(), { timeout: 4000 })
-    await userEvent.click(getStarted)
+    // The button shows after the typed hero. Query it again on each try: the
+    // slide can remount, which leaves an earlier element detached.
+    await waitFor(
+      () =>
+        expect(
+          canvas.getByRole("button", { name: "Get started" }),
+        ).toBeVisible(),
+      { timeout: 4000 },
+    )
+    await userEvent.click(canvas.getByRole("button", { name: "Get started" }))
     await canvas.findByRole("heading", { name: "How ctx| works" })
     expect(
       canvas.getAllByRole("button", { name: /^Go to slide/ }),
