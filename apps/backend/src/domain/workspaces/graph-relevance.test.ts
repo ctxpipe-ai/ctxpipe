@@ -1032,7 +1032,13 @@ describe("rankRelated answer kinds of the intent", () => {
       ...input,
       nodes: [...input.nodes, node("runbook", "Runbook", { degree: 1 })],
       signals: [...input.signals, signal("s", "runbook", 0.9)],
-      queryHits: [{ id: "runbook", score: 1 }],
+      // Hybrid search also returns weaker semantic hits for other units.
+      queryHits: [
+        { id: "runbook", score: 2 / 61 },
+        { id: "decision", score: 1 / 62 },
+        { id: "owner", score: 1 / 63 },
+        { id: "library", score: 1 / 64 },
+      ],
       options: { now: NOW, limit: 5 },
     })
     expect(result[0]?.id).toBe("runbook")

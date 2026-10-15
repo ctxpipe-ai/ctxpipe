@@ -724,19 +724,12 @@ export function rankRelated(input: {
           ? nodePpr
           : nodePpr ** (1 - effectiveQueryWeight) *
             (QUERY_MATCH_BASE + queryMatch) ** effectiveQueryWeight
-      // General has a soft kind preference; query relevance can exceed it.
-      const preference =
-        (options.intent ?? "general") === "general" &&
-        diversity > 0 &&
-        isAnswerKind("general", node.kind)
-          ? 2
-          : 1
       return {
         node,
         index,
         ppr: nodePpr,
         queryMatch,
-        score: score * preference,
+        score,
       }
     })
     .filter(
@@ -755,27 +748,20 @@ export function rankRelated(input: {
     limit,
     neighbors,
   }
-  // General uses one MMR selection. Named intents keep their answers first.
-  const answers = selectDiverse(
-    intent === "general"
-      ? candidates
-      : candidates.filter((candidate) =>
-          isAnswerKind(intent, candidate.node.kind),
-        ),
-    selection,
-  )
-  const selected =
-    intent === "general"
-      ? answers
-      : [
-          ...answers,
-          ...selectDiverse(
-            candidates.filter(
-              (candidate) => !isAnswerKind(intent, candidate.node.kind),
-            ),
-            { ...selection, limit: limit - answers.length },
-          ),
-        ]
+  // The answers first, each group with its own MMR. The groups share no
+  // kind, so `maxPerKind` counts each kind in one group only. The best hit
+  // of the query also counts as an answer: a query names a unit that the
+  // kinds of the intent do not list, such as a runbook.
+  const isAnswer = (candidate: (typeof candidates)[number]) =>
+    isAnswerKind(intent, candidate.node.kind) || candidate.queryMatch >= 1
+  const answers = selectDiverse(candidates.filter(isAnswer), selection)
+  const selected = [
+    ...answers,
+    ...selectDiverse(
+      candidates.filter((candidate) => !isAnswer(candidate)),
+      { ...selection, limit: limit - answers.length },
+    ),
+  ]
   return selected.map((candidate) => ({
     id: candidate.node.id,
     kind: candidate.node.kind,
