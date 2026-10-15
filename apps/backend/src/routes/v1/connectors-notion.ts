@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto"
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import { and, eq } from "drizzle-orm"
 import type { AppEnv } from "../../app/env.js"
+import { directWriteRoute } from "../../auth/write-grant.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { members } from "../../db/schema/auth.js"
 import { decryptConnectionSecret } from "../../lib/connection-secrets.js"
@@ -395,53 +396,58 @@ const getConfigRoute = createRoute({
   },
 })
 
-const patchConfigRoute = createRoute({
-  method: "patch",
-  path: "/config",
-  request: {
-    query: ConnectionIdQuerySchema,
-    body: {
-      content: {
-        "application/json": { schema: NotionPatchConfigRequestSchema },
-      },
-    },
-  },
-  responses: {
-    200: {
-      content: {
-        "application/json": {
-          schema: z.object({
-            accepted: z.literal(true),
-            savedCount: z.number(),
-            configPrEnqueued: z.boolean(),
-            workflowName: z.string().optional(),
-          }),
+const patchConfigRoute = createRoute(
+  directWriteRoute(
+    {
+      method: "patch",
+      path: "/config",
+      request: {
+        query: ConnectionIdQuerySchema,
+        body: {
+          content: {
+            "application/json": { schema: NotionPatchConfigRequestSchema },
+          },
         },
       },
-      description: "Config patched; opens/updates Notion config PR",
+      responses: {
+        200: {
+          content: {
+            "application/json": {
+              schema: z.object({
+                accepted: z.literal(true),
+                savedCount: z.number(),
+                configPrEnqueued: z.boolean(),
+                workflowName: z.string().optional(),
+              }),
+            },
+          },
+          description: "Config patched; opens/updates Notion config PR",
+        },
+        400: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Invalid request or ambiguous connection",
+        },
+        401: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Unauthorized",
+        },
+        404: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Unknown connectionId",
+        },
+        409: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Notion connection is not installed",
+        },
+        503: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Failed to enqueue configuration pull request",
+        },
+      },
     },
-    400: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Invalid request or ambiguous connection",
-    },
-    401: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unauthorized",
-    },
-    404: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unknown connectionId",
-    },
-    409: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Notion connection is not installed",
-    },
-    503: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Failed to enqueue configuration pull request",
-    },
-  },
-})
+    { orgAdmin: true },
+  ),
+)
 
 const deleteNotionConnectorRoute = createRoute({
   method: "delete",
@@ -464,37 +470,42 @@ const deleteNotionConnectorRoute = createRoute({
   },
 })
 
-const retryNotionSyncRoute = createRoute({
-  method: "post",
-  path: "/retry",
-  request: { query: ConnectionIdQuerySchema },
-  responses: {
-    202: {
-      content: {
-        "application/json": {
-          schema: z.object({ accepted: z.literal(true) }),
+const retryNotionSyncRoute = createRoute(
+  directWriteRoute(
+    {
+      method: "post",
+      path: "/retry",
+      request: { query: ConnectionIdQuerySchema },
+      responses: {
+        202: {
+          content: {
+            "application/json": {
+              schema: z.object({ accepted: z.literal(true) }),
+            },
+          },
+          description: "Retry a failed Notion content sync",
+        },
+        400: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Ambiguous or non-failed Notion connection",
+        },
+        401: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Unauthorized",
+        },
+        404: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Unknown or incomplete Notion connection",
+        },
+        409: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Notion content sync retry already claimed",
         },
       },
-      description: "Retry a failed Notion content sync",
     },
-    400: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Ambiguous or non-failed Notion connection",
-    },
-    401: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unauthorized",
-    },
-    404: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unknown or incomplete Notion connection",
-    },
-    409: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Notion content sync retry already claimed",
-    },
-  },
-})
+    { orgAdmin: true },
+  ),
+)
 
 const retryNotionConfigRoute = createRoute({
   method: "post",
