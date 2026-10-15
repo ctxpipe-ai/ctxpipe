@@ -12,7 +12,6 @@ import {
   type WorkspaceRecord,
 } from "../../models/workspaces.js"
 import { getLogger } from "../../observability/logger.js"
-import { enqueueWorkspaceWriteCommit } from "../../openworkflow/enqueue-workspace-write-commit.js"
 import type {
   ConnectionUsageResponse,
   WorkspaceSourceChangeResult,
@@ -24,7 +23,6 @@ import {
   listOpenPullRequestsByBranchPrefix,
 } from "../../services/github/installation-write-client.js"
 import { workspaceAllowsConversationEdits } from "../workspaces/chat-sandbox-policy.js"
-import { WORKSPACE_WRITE_STATUSES } from "../workspaces/write-status.js"
 import { SOURCE_ADAPTERS } from "./adapter.js"
 import {
   applySourceFileChange,
@@ -59,7 +57,7 @@ function scopeSummary(row: WorkspaceSourceRow): string {
 /**
  * Every org member who can open the Workspace can change it (no Workspace
  * roles yet). A PR needs a connected repository that ctx| can push a branch
- * to; a direct commit also needs an unprotected default branch.
+ * to.
  */
 function editPolicy(workspace: WorkspaceRecord) {
   const connected = workspaceGithubRepository(workspace) !== null
@@ -70,8 +68,6 @@ function editPolicy(workspace: WorkspaceRecord) {
         workspace.writeStatus,
         workspace.readOnlyReason,
       ),
-    directCommitAllowed:
-      connected && workspace.writeStatus === WORKSPACE_WRITE_STATUSES.writable,
   }
 }
 
@@ -200,14 +196,14 @@ async function assertConnection(
 }
 
 /**
- * Change `.ctxpipe/sources.yaml` on the Workspace default branch: by a PR
- * (awaiting merge) or by a queued direct commit. The projection follows the
- * file when the change lands; nothing here writes `workspace_sources`.
+ * Change `.ctxpipe/sources.yaml` on the Workspace default branch by a PR
+ * (awaiting merge). Config never changes without a PR, so there is no direct
+ * commit. The projection follows the file when the change lands; nothing here
+ * writes `workspace_sources`.
  */
 export async function changeWorkspaceSource(input: {
   workspace: WorkspaceRecord
   change: SourceChange
-  delivery: "pull_request" | "commit"
 }): Promise<WorkspaceSourceChangeResult> {
   const { workspace, change } = input
   assertSourceChangeShape(change)
@@ -220,11 +216,6 @@ export async function changeWorkspaceSource(input: {
   const policy = editPolicy(workspace)
   if (!policy.canEdit)
     throw new SourceChangeError(409, "This Workspace is read-only")
-  if (input.delivery === "commit" && !policy.directCommitAllowed)
-    throw new SourceChangeError(
-      409,
-      "This Workspace does not accept a direct commit. Use a pull request.",
-    )
   if (change.action !== "remove")
     await assertConnection(
       workspace.orgId,
@@ -242,25 +233,6 @@ export async function changeWorkspaceSource(input: {
       ? new Set((await pendingChanges(workspace)).map((pull) => pull.sourceKey))
       : undefined
   const next = applySourceFileChange(current ?? null, change, reservedKeys)
-
-  if (input.delivery === "commit") {
-    const admitted = await enqueueWorkspaceWriteCommit(
-      {
-        orgId: workspace.orgId,
-        workspaceId: workspace.id,
-        kind: "ui_file_edit",
-        mergeFiles: [{ path: SOURCES_FILE_PATH, content: next.text }],
-        mergeDeletePaths: [],
-      },
-      getLogger(),
-    )
-    if (!admitted.started)
-      throw new SourceChangeError(
-        409,
-        "The commit could not be queued. Refresh the Workspace and try again.",
-      )
-    return { outcome: "commit_queued", sourceKey: next.sourceKey }
-  }
 
   const verb = { add: "Add", edit: "Change", remove: "Remove" }[change.action]
   const label = next.provider ? SOURCE_SCOPES[next.provider].label : "unknown"

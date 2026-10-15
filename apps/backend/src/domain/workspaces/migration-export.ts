@@ -11,6 +11,7 @@ import {
   shouldExportClaim,
   unkeyedCollisionExcerpt,
 } from "./dest-workspace-first.js"
+import { isHostOnlyPath } from "./host-only.js"
 import {
   editableMetadataNode,
   materializeMetadataAlias,
@@ -590,7 +591,9 @@ export async function planKnowledgeProjection(input: {
   for (const file of input.existingKnowledge) {
     taken.add(file.path)
     const key = importKeyFromExisting(file.content)
-    if (key && !existingByImportKey.has(key)) existingByImportKey.set(key, file)
+    // An import key cannot route a write into a host-only path (CTX-722).
+    if (key && !isHostOnlyPath(file.path) && !existingByImportKey.has(key))
+      existingByImportKey.set(key, file)
   }
 
   const stampImportKey = input.stampImportKey !== false

@@ -215,7 +215,8 @@ export const workspaceValidFromPersist = defineWorkflow(
           if (!pushed.pushed) {
             const handoff = await step.run(
               { name: "capture-semantic-handoff" },
-              () => captureSemanticHandoff(input, revision, committed, env),
+              () =>
+                captureSemanticHandoff(input, revision, committed, env, "host"),
             )
             const result = await step.runWorkflow(
               workspaceSemanticMerge.spec,

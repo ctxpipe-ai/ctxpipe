@@ -2,6 +2,7 @@ import { isUtf8 } from "node:buffer"
 import { posix } from "node:path"
 import { fromMarkdown } from "mdast-util-from-markdown"
 import { isAlias, isMap, isSeq } from "yaml"
+import { parseNameStatus } from "../../services/git/name-status.js"
 import {
   type GitPack,
   nativeGit,
@@ -22,17 +23,9 @@ import {
 type Rename = { from: string; to: string }
 
 function renamePairs(output: Buffer): Rename[] {
-  const fields = output.toString().split("\0")
-  const pairs: Rename[] = []
-  for (let i = 0; i < fields.length - 1; ) {
-    const status = fields[i++] ?? ""
-    const from = fields[i++] ?? ""
-    if (/^[RC]/.test(status)) {
-      const to = fields[i++] ?? ""
-      if (status.startsWith("R")) pairs.push({ from, to })
-    }
-  }
-  return pairs
+  return parseNameStatus(output)
+    .filter((change) => change.status.startsWith("R"))
+    .map(({ from, to }) => ({ from, to }))
 }
 
 /** Compare immutable trees with Git's similarity scoring, including hidden competing sources. */
