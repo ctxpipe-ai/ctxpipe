@@ -15,7 +15,7 @@ function pathnameOf(request: Request) {
 
 export function workspaceSourceFixture(
   overrides: Partial<WorkspaceSource> & {
-    sourceKey: string
+    path: string
     provider: SourceProvider | null
   },
 ): WorkspaceSource {
@@ -26,6 +26,7 @@ export function workspaceSourceFixture(
     scopeSummary: "Summary",
     status: "ok",
     statusDetail: null,
+    description: null,
     removable: true,
     revision: "a1b2c3d",
     updatedAt: "2026-10-01T10:00:00.000Z",
@@ -37,7 +38,7 @@ export function workspaceSourceList(
   overrides: Partial<WorkspaceSourceListResponse> = {},
 ): WorkspaceSourceListResponse {
   return {
-    path: ".ctxpipe/sources.yaml",
+    path: "sources",
     revision: "a1b2c3d",
     fileError: null,
     canEdit: true,
@@ -65,31 +66,55 @@ export function workspaceSourcesHandler(
 }
 
 /**
- * Records each add, edit, and remove request. It answers a direct commit
- * with `commit_queued` and any other change with a pull request.
+ * Records each add, edit, rename, and remove request. It answers a direct
+ * commit with `commit_queued` and any other change with a pull request. The
+ * result names the new path for a rename and the path of the request
+ * otherwise (`sources/<provider>/new.md` for an add without a path).
  */
 export function workspaceSourceChangeHandlers(
-  calls: { method: string; path: string; body: unknown }[] = [],
+  calls: {
+    method: string
+    path: string
+    query?: Record<string, string>
+    body: unknown
+  }[] = [],
 ) {
   const answer = async ({ request }: { request: Request }) => {
-    const path = pathnameOf(request)
+    const url = new URL(request.url)
     const body = request.method === "DELETE" ? null : await request.json()
-    calls.push({ method: request.method, path, body })
-    const sourceKey = path.split("/").at(-1) ?? "new-source"
+    calls.push({
+      method: request.method,
+      path: url.pathname,
+      query: Object.fromEntries(url.searchParams),
+      body,
+    })
+    const json = body as {
+      path?: string
+      newPath?: string
+      delivery?: string
+      source?: { provider?: string }
+    } | null
+    const path =
+      json?.newPath ??
+      json?.path ??
+      url.searchParams.get("path") ??
+      `sources/${json?.source?.provider ?? "github"}/new.md`
     const delivery =
       request.method === "DELETE"
-        ? new URL(request.url).searchParams.get("delivery")
-        : (body as { delivery?: string } | null)?.delivery
+        ? url.searchParams.get("delivery")
+        : json?.delivery
     if (delivery === "commit")
-      return HttpResponse.json({ outcome: "commit_queued", sourceKey })
+      return HttpResponse.json({ outcome: "commit_queued", path })
     return HttpResponse.json({
       outcome: "pull_request",
-      sourceKey,
+      path,
       pullRequestUrl: "https://github.com/acme/docs/pull/7",
     })
   }
   const matches = ({ request }: { request: Request }) =>
-    /\/api\/v1\/workspaces\/[^/]+\/sources(\/[^/]+)?$/.test(pathnameOf(request))
+    /\/api\/v1\/workspaces\/[^/]+\/sources(\/rename)?$/.test(
+      new URL(request.url).pathname,
+    )
   return [
     http.post(matches, answer),
     http.put(matches, answer),

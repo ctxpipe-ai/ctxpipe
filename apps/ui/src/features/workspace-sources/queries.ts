@@ -13,19 +13,27 @@ export type {
   WorkspaceSourceChangeResult,
   WorkspaceSourceListResponse,
 }
-export type WorkspaceSource = WorkspaceSourceListResponse["items"][number]
+/**
+ * One source file. `description` is the file body (what the source is for).
+ * The list response of the backend does not carry it yet, so it is optional.
+ */
+export type WorkspaceSource = WorkspaceSourceListResponse["items"][number] & {
+  description?: string | null
+}
 export type PendingSourceChange =
   WorkspaceSourceListResponse["pendingChanges"][number]
 export type ConnectionUsageItem = ConnectionUsageResponse["items"][number]
 
-/** The body of an add or an edit: one entry of `.ctxpipe/sources.yaml`. */
+/** The body of an add or an edit: the front matter and the description of one source file. */
 export type WorkspaceSourceInput = {
   provider: SourceProvider
   connectionId: string
   scope: Record<string, unknown>
+  /** The file body. Absent keeps it on an edit; "" clears it. */
+  description?: string
 }
 
-/** How a change reaches the sources file: a PR (the default) or a direct commit. */
+/** How a change reaches a source file: a PR (the default) or a direct commit. */
 export type SourceDelivery = "pull_request" | "commit"
 
 /** The toast after a change, true to what happens next. */
@@ -138,13 +146,15 @@ export async function createWorkspaceSource(
   workspaceSlug: string,
   source: WorkspaceSourceInput,
   delivery: SourceDelivery = "pull_request",
+  /** The file path. Without it, the server names the file. */
+  path?: string,
 ): Promise<WorkspaceSourceChangeResult> {
   const client = await getApiClient()
   const res = await client[":orgSlug"].api.v1.workspaces[
     ":workspaceSlug"
   ].sources.$post({
     param: { orgSlug, workspaceSlug },
-    json: { source, delivery },
+    json: { path, source, delivery },
   })
   return readApiJson<WorkspaceSourceChangeResult>(res, {
     message: "Failed to add the source",
@@ -154,34 +164,53 @@ export async function createWorkspaceSource(
 export async function updateWorkspaceSource(
   orgSlug: string,
   workspaceSlug: string,
-  sourceKey: string,
+  path: string,
   source: WorkspaceSourceInput,
   delivery: SourceDelivery = "pull_request",
 ): Promise<WorkspaceSourceChangeResult> {
   const client = await getApiClient()
   const res = await client[":orgSlug"].api.v1.workspaces[
     ":workspaceSlug"
-  ].sources[":sourceKey"].$put({
-    param: { orgSlug, workspaceSlug, sourceKey },
-    json: { source, delivery },
+  ].sources.$put({
+    param: { orgSlug, workspaceSlug },
+    json: { path, source, delivery },
   })
   return readApiJson<WorkspaceSourceChangeResult>(res, {
     message: "Failed to change the source",
   })
 }
 
-export async function deleteWorkspaceSource(
+export async function renameWorkspaceSource(
   orgSlug: string,
   workspaceSlug: string,
-  sourceKey: string,
+  path: string,
+  newPath: string,
   delivery: SourceDelivery = "pull_request",
 ): Promise<WorkspaceSourceChangeResult> {
   const client = await getApiClient()
   const res = await client[":orgSlug"].api.v1.workspaces[
     ":workspaceSlug"
-  ].sources[":sourceKey"].$delete({
-    param: { orgSlug, workspaceSlug, sourceKey },
-    query: { delivery },
+  ].sources.rename.$post({
+    param: { orgSlug, workspaceSlug },
+    json: { path, newPath, delivery },
+  })
+  return readApiJson<WorkspaceSourceChangeResult>(res, {
+    message: "Failed to rename the source",
+  })
+}
+
+export async function deleteWorkspaceSource(
+  orgSlug: string,
+  workspaceSlug: string,
+  path: string,
+  delivery: SourceDelivery = "pull_request",
+): Promise<WorkspaceSourceChangeResult> {
+  const client = await getApiClient()
+  const res = await client[":orgSlug"].api.v1.workspaces[
+    ":workspaceSlug"
+  ].sources.$delete({
+    param: { orgSlug, workspaceSlug },
+    query: { path, delivery },
   })
   return readApiJson<WorkspaceSourceChangeResult>(res, {
     message: "Failed to remove the source",

@@ -1,5 +1,6 @@
 import {
   IconAlertTriangle,
+  IconCursorText,
   IconPencil,
   IconPlus,
   IconTrash,
@@ -42,6 +43,7 @@ import {
   workspaceSourceKeys,
   workspaceSourcesOptions,
 } from "./queries"
+import { RenameSourceDialog } from "./RenameSourceDialog"
 import {
   SourceEditorDialog,
   type SourceEditorTarget,
@@ -127,7 +129,11 @@ function AwaitingMergeLink(props: { change: PendingSourceChange }) {
       variant="secondary"
       className="mt-0.5 inline-block text-xs"
     >
-      {change.action === "remove" ? "Removal awaiting merge" : "Awaiting merge"}
+      {change.action === "remove"
+        ? "Removal awaiting merge"
+        : change.action === "rename"
+          ? "Rename awaiting merge"
+          : "Awaiting merge"}
     </TextLink>
   )
 }
@@ -136,9 +142,10 @@ function SourceRow(props: {
   source: WorkspaceSource
   pending: PendingSourceChange | undefined
   onEdit: (() => void) | null
+  onRename: (() => void) | null
   onRemove: (() => void) | null
 }) {
-  const { source, pending, onEdit, onRemove } = props
+  const { source, pending, onEdit, onRename, onRemove } = props
   const tag = STATUS_TAG[source.status]
   return (
     <li className="flex items-start gap-2 py-1">
@@ -148,8 +155,18 @@ function SourceRow(props: {
         </p>
         <p className="truncate text-xs text-muted-foreground">
           {source.connectionName ?? "No connection"} ·{" "}
-          <code className="font-mono">{source.sourceKey}</code>
+          <code className="font-mono">{source.path}</code>
         </p>
+        {source.description ? (
+          <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
+            {source.description}
+          </p>
+        ) : null}
+        {source.removable ? null : (
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            This row is not a source file. Edit the file that defines it.
+          </p>
+        )}
         {source.statusDetail ? (
           <p
             className={cn(
@@ -173,17 +190,30 @@ function SourceRow(props: {
           <Button
             variant="quiet"
             size="icon-sm"
-            aria-label={`Edit ${source.sourceKey}`}
+            aria-label={`Edit ${source.path}`}
             onPress={onEdit}
           >
             <IconPencil className="size-4 text-muted-foreground" aria-hidden />
+          </Button>
+        ) : null}
+        {onRename ? (
+          <Button
+            variant="quiet"
+            size="icon-sm"
+            aria-label={`Rename ${source.path}`}
+            onPress={onRename}
+          >
+            <IconCursorText
+              className="size-4 text-muted-foreground"
+              aria-hidden
+            />
           </Button>
         ) : null}
         {onRemove ? (
           <Button
             variant="quiet"
             size="icon-sm"
-            aria-label={`Remove ${source.sourceKey}`}
+            aria-label={`Remove ${source.path}`}
             onPress={onRemove}
           >
             <IconTrash className="size-4 text-muted-foreground" aria-hidden />
@@ -200,7 +230,7 @@ function PendingAddRow(props: { change: PendingSourceChange }) {
       <div className="min-w-0 flex-1 py-0.5">
         <p className="truncate text-sm text-foreground">New source</p>
         <p className="truncate text-xs text-muted-foreground">
-          <code className="font-mono">{props.change.sourceKey}</code>
+          <code className="font-mono">{props.change.path}</code>
         </p>
         <AwaitingMergeLink change={props.change} />
       </div>
@@ -216,24 +246,23 @@ function PendingAddRow(props: { change: PendingSourceChange }) {
 function GithubSourceNotes(props: {
   sources: WorkspaceSource[]
   pendingAdds: PendingSourceChange[]
-  pendingOf: (sourceKey: string) => PendingSourceChange | undefined
+  pendingOf: (path: string) => PendingSourceChange | undefined
 }) {
   const { sources, pendingAdds, pendingOf } = props
   const notes = sources.filter(
     (source) =>
-      pendingOf(source.sourceKey) ||
-      (source.status !== "ok" && source.statusDetail),
+      pendingOf(source.path) || (source.status !== "ok" && source.statusDetail),
   )
   if (notes.length === 0 && pendingAdds.length === 0) return null
   return (
     <ul className="mt-1 flex flex-col gap-1">
       {notes.map((source) => {
-        const pending = pendingOf(source.sourceKey)
+        const pending = pendingOf(source.path)
         return (
-          <li key={source.sourceKey} className="py-1">
+          <li key={source.path} className="py-1">
             <p className="truncate text-xs text-muted-foreground">
               {source.connectionName ?? "No connection"} ·{" "}
-              <code className="font-mono">{source.sourceKey}</code>
+              <code className="font-mono">{source.path}</code>
             </p>
             {source.status !== "ok" && source.statusDetail ? (
               <p className="mt-0.5 text-xs text-amber-200/80">
@@ -245,7 +274,7 @@ function GithubSourceNotes(props: {
         )
       })}
       {pendingAdds.map((change) => (
-        <PendingAddRow key={change.sourceKey} change={change} />
+        <PendingAddRow key={change.path} change={change} />
       ))}
     </ul>
   )
@@ -323,7 +352,7 @@ function SourcesSkeleton() {
 
 /**
  * The "Sources" section of the Workspace settings pane: the entries of
- * `.ctxpipe/sources.yaml`, grouped by provider. Each provider group has the
+ * `sources/` (one file for each source), grouped by provider. Each provider group has the
  * anchor `source-<provider>`.
  */
 export function WorkspaceSources(props: {
@@ -344,17 +373,13 @@ export function WorkspaceSources(props: {
   const loading = useSkeletonHold(sourcesQuery.isPending)
   const connectionsQuery = useQuery(orgConnectionsOptions(orgSlug))
   const [editor, setEditor] = useState<SourceEditorTarget | null>(null)
+  const [renaming, setRenaming] = useState<WorkspaceSource | null>(null)
   const [removing, setRemoving] = useState<WorkspaceSource | null>(null)
   const [githubAddOpen, setGithubAddOpen] = useState(false)
 
   const removeMutation = useMutation({
-    mutationFn: (input: { sourceKey: string; delivery: SourceDelivery }) =>
-      deleteWorkspaceSource(
-        orgSlug,
-        workspaceSlug,
-        input.sourceKey,
-        input.delivery,
-      ),
+    mutationFn: (input: { path: string; delivery: SourceDelivery }) =>
+      deleteWorkspaceSource(orgSlug, workspaceSlug, input.path, input.delivery),
     onSuccess: (result) => {
       void queryClient.invalidateQueries({
         queryKey: workspaceSourceKeys.list(orgSlug, workspaceSlug),
@@ -377,8 +402,8 @@ export function WorkspaceSources(props: {
   const directCommitAllowed = data?.directCommitAllowed ?? false
   const items = data?.items ?? []
   const pendingChanges = data?.pendingChanges ?? []
-  const pendingOf = (sourceKey: string) =>
-    pendingChanges.find((change) => change.sourceKey === sourceKey)
+  const pendingOf = (path: string) =>
+    pendingChanges.find((change) => change.path === path)
   const unknownProvider = items.filter((item) => item.provider == null)
   const groups = SOURCE_PROVIDERS.filter(
     (provider) =>
@@ -409,10 +434,8 @@ export function WorkspaceSources(props: {
       ) : null}
       {data && isEmpty ? null : (
         <p className="mt-0.5 text-xs text-muted-foreground">
-          Saved in{" "}
-          <code className="font-mono">
-            {data?.path ?? ".ctxpipe/sources.yaml"}
-          </code>
+          Saved as one file for each source in{" "}
+          <code className="font-mono">{data?.path ?? "sources"}/</code>
         </p>
       )}
 
@@ -458,7 +481,7 @@ export function WorkspaceSources(props: {
             <div className="mt-4">
               <InlineAlert
                 variant="error"
-                title="The sources file is not valid"
+                title="The legacy sources file is not valid"
               >
                 {data.fileError}
               </InlineAlert>
@@ -490,20 +513,21 @@ export function WorkspaceSources(props: {
             {unknownProvider.length > 0 ? (
               <ConnectorGroup
                 Icon={IconAlertTriangle}
-                title="Entries not valid"
+                title="Files not valid"
                 meta={
                   unknownProvider.length === 1
-                    ? "1 entry"
-                    : `${unknownProvider.length} entries`
+                    ? "1 file"
+                    : `${unknownProvider.length} files`
                 }
               >
                 <ul className="flex flex-col">
                   {unknownProvider.map((source) => (
                     <SourceRow
-                      key={source.sourceKey}
+                      key={source.path}
                       source={source}
-                      pending={pendingOf(source.sourceKey)}
+                      pending={pendingOf(source.path)}
                       onEdit={null}
+                      onRename={null}
                       onRemove={
                         canEdit && source.removable
                           ? () => setRemoving(source)
@@ -522,7 +546,7 @@ export function WorkspaceSources(props: {
                 (change) =>
                   change.provider === provider &&
                   change.action === "add" &&
-                  !sources.some((item) => item.sourceKey === change.sourceKey),
+                  !sources.some((item) => item.path === change.path),
               )
               // The GitHub group counts repositories, not source entries.
               const repositories =
@@ -604,13 +628,18 @@ export function WorkspaceSources(props: {
                     <ul className="flex flex-col">
                       {sources.map((source) => (
                         <SourceRow
-                          key={source.sourceKey}
+                          key={source.path}
                           source={source}
-                          pending={pendingOf(source.sourceKey)}
+                          pending={pendingOf(source.path)}
                           onEdit={
-                            canEdit
+                            canEdit && source.removable
                               ? () =>
                                   setEditor({ kind: "edit", provider, source })
+                              : null
+                          }
+                          onRename={
+                            canEdit && source.removable
+                              ? () => setRenaming(source)
                               : null
                           }
                           onRemove={
@@ -621,7 +650,7 @@ export function WorkspaceSources(props: {
                         />
                       ))}
                       {pendingAdds.map((change) => (
-                        <PendingAddRow key={change.sourceKey} change={change} />
+                        <PendingAddRow key={change.path} change={change} />
                       ))}
                     </ul>
                   )}
@@ -651,6 +680,15 @@ export function WorkspaceSources(props: {
           onClose={() => setEditor(null)}
         />
       ) : null}
+      {renaming ? (
+        <RenameSourceDialog
+          orgSlug={orgSlug}
+          workspaceSlug={workspaceSlug}
+          path={renaming.path}
+          directCommitAllowed={directCommitAllowed}
+          onClose={() => setRenaming(null)}
+        />
+      ) : null}
       <Modal
         isOpen={removing != null}
         onOpenChange={(open) => {
@@ -665,11 +703,11 @@ export function WorkspaceSources(props: {
                 slot="title"
                 className="my-0 text-lg font-medium leading-6 text-foreground"
               >
-                Remove {removing?.sourceKey ?? "source"}?
+                Remove {removing?.path ?? "source"}?
               </Heading>
               <p className="mt-3 text-sm text-muted-foreground">
-                The change removes the source from the sources file. After it
-                lands, the sync deletes its files. Git history keeps them.
+                The change deletes the source file. After it lands, the sync
+                deletes the files that the source wrote. Git history keeps them.
               </p>
               <div className="mt-6 flex justify-end gap-2">
                 <Button variant="quiet" onPress={close}>
@@ -681,7 +719,7 @@ export function WorkspaceSources(props: {
                     onPress={() => {
                       if (removing)
                         removeMutation.mutate({
-                          sourceKey: removing.sourceKey,
+                          path: removing.path,
                           delivery: "commit",
                         })
                       close()
@@ -696,7 +734,7 @@ export function WorkspaceSources(props: {
                   onPress={() => {
                     if (removing)
                       removeMutation.mutate({
-                        sourceKey: removing.sourceKey,
+                        path: removing.path,
                         delivery: "pull_request",
                       })
                     close()

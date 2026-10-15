@@ -452,7 +452,7 @@ export const ManageKeepsTheCurrentScope: Story = {
               workspaceName: docsWorkspace.displayName,
               sources: [
                 {
-                  sourceKey: "confluence",
+                  path: "confluence",
                   provider: "confluence",
                   status: "ok",
                   scopeSummary: "1 Confluence space",
@@ -464,7 +464,7 @@ export const ManageKeepsTheCurrentScope: Story = {
             workspaceSourceList({
               items: [
                 workspaceSourceFixture({
-                  sourceKey: "confluence",
+                  path: "confluence",
                   provider: "confluence",
                   connectionId: atlassianConnectionId,
                   scope: { spaces: [{ key: "ENG", pages: "all" }] },

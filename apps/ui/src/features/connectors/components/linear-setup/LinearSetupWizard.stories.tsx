@@ -248,7 +248,7 @@ export const MergeStepShowsTheMerge: Story = {
           http.post(`/${orgSlug}/api/v1/workspaces/docs/sources`, () =>
             HttpResponse.json({
               outcome: "pull_request",
-              sourceKey: "linear",
+              path: "linear",
               pullRequestUrl,
             }),
           ),
@@ -258,7 +258,7 @@ export const MergeStepShowsTheMerge: Story = {
                 ? workspaceSourceList({
                     items: [
                       workspaceSourceFixture({
-                        sourceKey: "linear",
+                        path: "linear",
                         provider: "linear",
                         connectionId,
                         scope: { teams: ["ENG"] },
@@ -268,7 +268,7 @@ export const MergeStepShowsTheMerge: Story = {
                 : workspaceSourceList({
                     pendingChanges: [
                       {
-                        sourceKey: "linear",
+                        path: "linear",
                         provider: "linear",
                         action: "add",
                         pullRequestUrl,
@@ -339,7 +339,7 @@ export const ManageKeepsTheCurrentScope: Story = {
               workspaceName: docsWorkspace.displayName,
               sources: [
                 {
-                  sourceKey: "linear-3",
+                  path: "linear-3",
                   provider: "linear",
                   status: "ok",
                   scopeSummary: "1 Linear team",
@@ -351,7 +351,7 @@ export const ManageKeepsTheCurrentScope: Story = {
             workspaceSourceList({
               items: [
                 workspaceSourceFixture({
-                  sourceKey: "linear-3",
+                  path: "linear-3",
                   provider: "linear",
                   connectionId,
                   scope: { teams: ["ENG"] },
@@ -436,7 +436,7 @@ export const ManageAgainShowsTheNewScope: Story = {
               workspaceName: docsWorkspace.displayName,
               sources: [
                 {
-                  sourceKey: "linear-3",
+                  path: "linear-3",
                   provider: "linear",
                   status: "ok",
                   scopeSummary: "1 Linear team",
@@ -449,7 +449,7 @@ export const ManageAgainShowsTheNewScope: Story = {
               workspaceSourceList({
                 items: [
                   workspaceSourceFixture({
-                    sourceKey: "linear-3",
+                    path: "linear-3",
                     provider: "linear",
                     connectionId,
                     scope: { teams: currentTeams },

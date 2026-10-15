@@ -237,7 +237,7 @@ const manageHandlers = (calls: typeof addCalls) => [
       workspaceName: docsWorkspace.displayName,
       sources: [
         {
-          sourceKey: "slack",
+          path: "slack",
           provider: "slack",
           status: "ok",
           scopeSummary: "1 Slack channel",
@@ -249,7 +249,7 @@ const manageHandlers = (calls: typeof addCalls) => [
     workspaceSourceList({
       items: [
         workspaceSourceFixture({
-          sourceKey: "slack",
+          path: "slack",
           provider: "slack",
           connectionId,
           scope: { channels: ["C0ENG0001"] },
@@ -374,7 +374,7 @@ export const ManageAgainShowsTheNewScope: Story = {
               workspaceName: docsWorkspace.displayName,
               sources: [
                 {
-                  sourceKey: "slack",
+                  path: "slack",
                   provider: "slack",
                   status: "ok",
                   scopeSummary: "1 Slack channel",
@@ -387,7 +387,7 @@ export const ManageAgainShowsTheNewScope: Story = {
               workspaceSourceList({
                 items: [
                   workspaceSourceFixture({
-                    sourceKey: "slack",
+                    path: "slack",
                     provider: "slack",
                     connectionId,
                     scope: { channels: docsChannels },

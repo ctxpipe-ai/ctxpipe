@@ -35,7 +35,7 @@ type LinearSetupWizardProps = {
 
 /**
  * Connect Linear, then choose the Workspaces that sync from it. Each chosen
- * Workspace gets a Linear entry in its `.ctxpipe/sources.yaml` (ADR-050).
+ * Workspace gets a Linear source file under `sources/linear/` (ADR-050).
  */
 export function LinearSetupWizard({
   orgSlug,
