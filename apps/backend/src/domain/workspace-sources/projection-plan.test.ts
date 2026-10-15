@@ -216,6 +216,21 @@ describe("planSourceRows from source files", () => {
     expect(rows[0]?.provider).toBe("linear")
   })
 
+  it("gives an invalid row for a blob that the tree read omitted", async () => {
+    const rows = await planSourceRows({
+      text: null,
+      files: [
+        { path: "sources/linear/big.md", text: "", omitted: "too_large" },
+        { path: "sources/linear/logo.md", text: "", omitted: "binary" },
+      ],
+      connections: fileConnections,
+    })
+    expect(statuses(rows)).toEqual([
+      ["sources/linear/big.md", "invalid", "The file is larger than 64 KiB"],
+      ["sources/linear/logo.md", "invalid", "The file is not text"],
+    ])
+  })
+
   it("checks the connection of a file as it checks a YAML entry", async () => {
     const rows = await planSourceRows({
       text: null,

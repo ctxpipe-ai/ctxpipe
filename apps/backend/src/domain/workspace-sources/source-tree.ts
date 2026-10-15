@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto"
 import { nativeGit } from "../../services/git/pack.js"
 import type { SourceFileBlob } from "./projection-plan.js"
-import { SOURCE_FILES_FOLDER } from "./source-file.js"
+import { SOURCE_FILE_MAX_BYTES, SOURCE_FILES_FOLDER } from "./source-file.js"
 import { SOURCES_FILE_PATH } from "./sources-file.js"
 
 /** The folder of the source files, as a path prefix. */
@@ -30,24 +30,38 @@ export function isSourcesTreePath(path: string): boolean {
 export const SOURCES_TREE_READ = {
   extraPaths: [SOURCES_FILE_PATH],
   extraFolders: [SOURCES_FOLDER_PREFIX],
+  extraFolderMaxBytes: SOURCE_FILE_MAX_BYTES,
 } as const
 
 /**
  * Split one tree read (with {@link SOURCES_TREE_READ}) into the Markdown
  * files, the text of `.ctxpipe/sources.yaml`, and the blobs under
- * `sources/`. The Markdown files keep the source files.
+ * `sources/`. The Markdown files keep the source files, but not a blob that
+ * the read omitted (too large or not text); that blob gets an invalid row.
  */
-export function splitSourcesTree<T extends { path: string; content: string }>(
+export function splitSourcesTree<
+  T extends {
+    path: string
+    content: string
+    omitted?: SourceFileBlob["omitted"]
+  },
+>(
   treeFiles: readonly T[],
 ): { files: T[]; sourcesFile: string | null; sourceFiles: SourceFileBlob[] } {
   return {
-    files: treeFiles.filter((file) => file.path.endsWith(".md")),
+    files: treeFiles.filter(
+      (file) => file.path.endsWith(".md") && !file.omitted,
+    ),
     sourcesFile:
       treeFiles.find((file) => file.path === SOURCES_FILE_PATH)?.content ??
       null,
     sourceFiles: treeFiles
       .filter((file) => file.path.startsWith(SOURCES_FOLDER_PREFIX))
-      .map((file) => ({ path: file.path, text: file.content })),
+      .map((file) => ({
+        path: file.path,
+        text: file.content,
+        ...(file.omitted ? { omitted: file.omitted } : {}),
+      })),
   }
 }
 

@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process"
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { createServer } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -49,6 +49,45 @@ describe("clone-tree", { timeout: 30_000 }, () => {
     expect(sha).toHaveLength(64)
     expect(await listMarkdownFilesAtGitSha({ url: dir, sha })).toEqual([
       { path: "knowledge.md", content: "# SHA-256 knowledge\n" },
+    ])
+  })
+
+  it("does not read a folder blob that is larger than the limit or not text", async () => {
+    dir = await mkdtemp(join(tmpdir(), "ctxpipe-folder-limit-"))
+    const git = async (...args: string[]) =>
+      (await execFileAsync("git", ["-C", dir as string, ...args])).stdout.trim()
+    await git("init", "-b", "main")
+    await mkdir(join(dir, "sources", "linear"), { recursive: true })
+    await writeFile(join(dir, "sources", "linear", "ok.md"), "---\n---\n")
+    await writeFile(
+      join(dir, "sources", "linear", "big.md"),
+      "x".repeat(64 * 1024 + 1),
+    )
+    await writeFile(
+      join(dir, "sources", "linear", "logo.png"),
+      Buffer.from([0x89, 0x50, 0x00, 0x01]),
+    )
+    await git("add", ".")
+    await git(
+      "-c",
+      "user.name=Contract",
+      "-c",
+      "user.email=contract@example.test",
+      "commit",
+      "-m",
+      "Folder fixture",
+    )
+    const sha = await git("rev-parse", "HEAD")
+    const files = await listMarkdownFilesAtGitSha({
+      url: dir,
+      sha,
+      extraFolders: ["sources/"],
+      extraFolderMaxBytes: 64 * 1024,
+    })
+    expect([...files].sort((a, b) => a.path.localeCompare(b.path))).toEqual([
+      { path: "sources/linear/big.md", content: "", omitted: "too_large" },
+      { path: "sources/linear/logo.png", content: "", omitted: "binary" },
+      { path: "sources/linear/ok.md", content: "---\n---\n" },
     ])
   })
 
