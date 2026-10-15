@@ -407,28 +407,30 @@ const HUMAN_UNIT = "---\nkind: Service\nname: Checkout\n---\n\n# Checkout\n"
 const GENERATED_UNIT =
   "---\nkind: Service\nname: Billing\ngenerated_by: ctxpipe-extract\nsources:\n  - https://github.com/fixture/billing\n---\n\n# Billing\n"
 
-// CTX-722: a chat agent cannot change the Workspace sources config, and it
-// cannot give a person's file to ingestion.
+// CTX-722: a chat agent can change the Workspace sources config, because a
+// publish only reaches the session branch, and the change reaches the default
+// branch only through a pull request that a person merges. The agent cannot
+// give a person's file to ingestion.
 it.each([
   {
     name: "edits the sources config",
     edit: "printf 'sources:\\n  - other\\n' > .ctxpipe/sources.yaml",
-    reason: "host_only_path",
+    reason: null,
   },
   {
     name: "deletes the sources config",
     edit: "git rm -q .ctxpipe/sources.yaml",
-    reason: "host_only_path",
+    reason: null,
   },
   {
     name: "renames the sources config",
     edit: "git mv .ctxpipe/sources.yaml sources.yaml",
-    reason: "host_only_path",
+    reason: null,
   },
   {
     name: "adds a file under .ctxpipe",
     edit: "printf '# Skill\\n' > .ctxpipe/skill.md",
-    reason: "host_only_path",
+    reason: null,
   },
   {
     name: "adds generated_by to a human file",
@@ -457,9 +459,10 @@ it.each([
     reason: "host_only_field",
   },
   {
-    name: "adds and then removes a .ctxpipe file in two commits",
-    edit: "printf 'x\\n' > .ctxpipe/x.yaml && git add -A && git commit -qm add && git rm -q .ctxpipe/x.yaml && git commit -qm remove",
-    reason: "host_only_path",
+    name: "edits the sources config when the session branch is the default",
+    edit: "printf 'sources:\\n  - other\\n' > .ctxpipe/sources.yaml",
+    sessionIsDefault: true,
+    reason: "default_branch",
   },
   {
     name: "adds and then removes generated_by in two commits",
@@ -469,12 +472,13 @@ it.each([
 ] as Array<{
   name: string
   first?: string
+  sessionIsDefault?: boolean
   edit: string
   reason: string | null
 }>)(
   "conversation publish when the agent $name",
   { timeout: 30_000 },
-  async ({ first, edit, reason }) => {
+  async ({ first, edit, sessionIsDefault, reason }) => {
     await withNativeHydrationFixture(
       {
         github: true,
@@ -536,6 +540,22 @@ it.each([
             "--count",
           )
           expect((await raw.process.exec(edit)).exitCode).toBe(0)
+          if (sessionIsDefault) {
+            f.git(
+              "--git-dir",
+              f.remote,
+              "update-ref",
+              `refs/heads/${branch}`,
+              f.sha,
+            )
+            f.git(
+              "--git-dir",
+              f.remote,
+              "symbolic-ref",
+              "HEAD",
+              `refs/heads/${branch}`,
+            )
+          }
 
           const result = await push()
 
