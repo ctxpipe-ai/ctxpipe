@@ -156,6 +156,34 @@ describe("hydrateKnowledgeTree", () => {
     expect(result.skipped).toEqual([])
   })
 
+  it("links the repository of each GitHub source file, with the file as its path", () => {
+    const result = hydrateKnowledgeTree({
+      workspaceId: "ws_1",
+      workspaceUrl: "https://github.com/acme/knowledge",
+      files: [
+        {
+          path: "sources/github/acme/web.md",
+          content:
+            "---\nprovider: github\nconnection: con_github1\nrepository: acme/web\nref: main\n---\nThe web app.\n",
+        },
+        {
+          path: "sources/github/acme/secret.md",
+          content:
+            "---\nprovider: github\nconnection: con_elsewhere\nrepository: acme/secret\n---\n",
+        },
+      ],
+      githubConnectionIds: new Set(["con_github1"]),
+    })
+    expect(result.linked).toEqual([
+      {
+        path: "sources/github/acme/web.md",
+        git: "https://github.com/acme/web",
+        branch: "main",
+        connectionId: "con_github1",
+      },
+    ])
+  })
+
   it("keeps the ontology kind from front matter for the workspace graph", () => {
     const { units } = hydrateKnowledgeTree({
       workspaceId: "ws_1",

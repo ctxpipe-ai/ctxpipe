@@ -66,6 +66,9 @@ export const githubSourceScope: SourceScopeDefinition = {
   label: "GitHub",
   schema: githubScopeSchema,
   summarize: (scope) => {
+    // A source file row (ADR-050 revision 2026-10-16) has the file scope.
+    if (githubFileScopeSchema.safeParse(scope).success)
+      return githubFileSourceScope.summarize(scope)
     const count = githubScopeSchema.parse(scope).repositories.length
     return `${count} linked ${count === 1 ? "repository" : "repositories"}`
   },

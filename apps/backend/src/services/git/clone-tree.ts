@@ -240,6 +240,8 @@ export async function listMarkdownFilesAtGitSha(input: {
   includeIntroducingCommits?: boolean
   /** Exact non-Markdown paths to read in the same fetch. */
   extraPaths?: readonly string[]
+  /** Folders (`sources/`) whose every blob to read, also a non-Markdown one. */
+  extraFolders?: readonly string[]
 }): Promise<
   Array<{
     path: string
@@ -253,7 +255,9 @@ export async function listMarkdownFilesAtGitSha(input: {
     const entries = (await listTreeEntries(dir)).filter(
       (entry) =>
         entry.kind === "blob" &&
-        (entry.path.endsWith(".md") || input.extraPaths?.includes(entry.path)),
+        (entry.path.endsWith(".md") ||
+          input.extraPaths?.includes(entry.path) ||
+          input.extraFolders?.some((folder) => entry.path.startsWith(folder))),
     )
     if (entries.length === 0) return []
     // The caller keeps all blob contents in memory. This limit bounds that

@@ -22,6 +22,11 @@ export const workspaceSources = pgTable.withRLS(
     workspaceId: text("workspace_id")
       .notNull()
       .references(() => workspaces.id, { onDelete: "cascade" }),
+    /**
+     * The path of the source file, relative to the Workspace root folder
+     * (`sources/github/acme/web.md`, ADR-050 revision 2026-10-16). Until the
+     * conversion is done, a `.ctxpipe/sources.yaml` entry uses its id.
+     */
     sourceKey: text("source_key").notNull(),
     /** Null when the entry has no valid connection id (status `invalid`). */
     connectionId: text("connection_id"),

@@ -30,11 +30,13 @@ describe("githubSourceRepositories", () => {
         gitUrl: "https://github.com/acme/web",
         ref: null,
         connectionId: "con_github1",
+        path: ".ctxpipe/sources.yaml",
       },
       {
         gitUrl: "https://github.com/acme/api",
         ref: "v2",
         connectionId: "con_github1",
+        path: ".ctxpipe/sources.yaml",
       },
     ])
     // Without a connection set, each valid GitHub entry links.
@@ -53,5 +55,46 @@ describe("githubSourceRepositories", () => {
       githubSourceRepositories("version: 2\nsources: []", connections),
     ).toEqual([])
     expect(githubSourceRepositories("sources: [", connections)).toEqual([])
+  })
+
+  it("lists the repository of each valid GitHub source file after the YAML entries, with the path that declares it", () => {
+    const files = [
+      {
+        path: "sources/github/acme/web.md",
+        text: "---\nprovider: github\nconnection: con_github1\nrepository: acme/web\nref: main\n---\n",
+      },
+      {
+        path: "sources/github/acme/broken.md",
+        text: "---\nprovider: github\nconnection: con_github1\n---\n",
+      },
+      {
+        path: "sources/github/acme/secret.md",
+        text: "---\nprovider: github\nconnection: con_elsewhere\nrepository: acme/secret\n---\n",
+      },
+      {
+        path: "sources/linear/eng.md",
+        text: "---\nprovider: linear\nconnection: con_github1\nteams: [ENG]\n---\n",
+      },
+    ]
+    expect(
+      githubSourceRepositories(
+        "version: 1\nsources:\n  - {id: code, provider: github, connection: con_github1, repositories: [acme/api]}\n",
+        connections,
+        files,
+      ),
+    ).toEqual([
+      {
+        gitUrl: "https://github.com/acme/api",
+        ref: null,
+        connectionId: "con_github1",
+        path: ".ctxpipe/sources.yaml",
+      },
+      {
+        gitUrl: "https://github.com/acme/web",
+        ref: "main",
+        connectionId: "con_github1",
+        path: "sources/github/acme/web.md",
+      },
+    ])
   })
 })

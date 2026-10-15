@@ -2,7 +2,7 @@ import { createHash } from "node:crypto"
 import { base32nopad } from "@scure/base"
 import { connectorMirrorRoot } from "../codeIngestion/connectorMirrorPaths.js"
 import { githubSourceRepositories } from "../workspace-sources/github-sources.js"
-import { SOURCES_FILE_PATH } from "../workspace-sources/sources-file.js"
+import { SOURCES_FOLDER_PREFIX } from "../workspace-sources/source-tree.js"
 import { effectiveValidFrom } from "./hydrate-phases.js"
 import { markdownLines } from "./knowledge-chunks.js"
 import {
@@ -92,8 +92,9 @@ export function hydrateKnowledgeTree(input: {
     lastCommitTimestamp?: string
   }>
   /**
-   * The text of `.ctxpipe/sources.yaml`, or null. Its GitHub sources are the
-   * only links of the Workspace (ADR-050).
+   * The text of `.ctxpipe/sources.yaml`, or null. Its GitHub sources and the
+   * GitHub source files under `sources/` in `files` are the only links of
+   * the Workspace (ADR-050).
    */
   sourcesFile?: string | null
   /** The org's GitHub connection ids. A source with another id links nothing. */
@@ -179,11 +180,14 @@ export function hydrateKnowledgeTree(input: {
   for (const source of githubSourceRepositories(
     input.sourcesFile ?? null,
     input.githubConnectionIds ?? new Set(),
+    input.files
+      .filter((file) => file.path.startsWith(SOURCES_FOLDER_PREFIX))
+      .map((file) => ({ path: file.path, text: file.content })),
   )) {
     if (seenLinked.has(source.gitUrl)) continue
     seenLinked.add(source.gitUrl)
     linked.push({
-      path: SOURCES_FILE_PATH,
+      path: source.path,
       git: source.gitUrl,
       branch: source.ref,
       connectionId: source.connectionId,

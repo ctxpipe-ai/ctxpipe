@@ -15,8 +15,9 @@ import type { WorkspaceSliceWrite } from "./sync.js"
 
 /**
  * The production slice writer: read the Workspace head, drop the write when
- * the sources file changed after the rows' revision, and queue one connector
- * mirror commit fenced by the blob of `.ctxpipe/sources.yaml`.
+ * the sources changed after the rows' revision, and queue one connector
+ * mirror commit fenced by the sources fence id (`sourcesFenceAt`: the
+ * `sources/` tree and `.ctxpipe/sources.yaml`).
  */
 export async function writeWorkspaceSlice(
   write: WorkspaceSliceWrite,

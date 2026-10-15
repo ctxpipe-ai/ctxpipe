@@ -105,3 +105,14 @@ describe("the GitHub migration of linked repositories", () => {
     })
   })
 })
+
+describe("githubSourceScope summary", () => {
+  it("summarizes the scope of a source file, which names one repository", () => {
+    expect(githubSourceScope.summarize({ repository: "acme/web" })).toBe(
+      "acme/web",
+    )
+    expect(
+      githubSourceScope.summarize({ repository: "acme/web", ref: "release" }),
+    ).toBe("acme/web (release)")
+  })
+})

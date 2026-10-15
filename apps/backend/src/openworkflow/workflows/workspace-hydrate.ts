@@ -3,7 +3,11 @@ import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { projectWorkspaceSources } from "../../domain/workspace-sources/project.js"
-import { SOURCES_FILE_PATH } from "../../domain/workspace-sources/sources-file.js"
+import type { SourceFileBlob } from "../../domain/workspace-sources/projection-plan.js"
+import {
+  SOURCES_TREE_READ,
+  splitSourcesTree,
+} from "../../domain/workspace-sources/source-tree.js"
 import { nativeFolderSetChanged } from "../../domain/workspaces/folder-list.js"
 import { projectWorkspaceGraph } from "../../domain/workspaces/graph-projection.js"
 import {
@@ -198,6 +202,7 @@ export const workspaceHydrate = defineWorkflow(
               | Promise<{
                   files: Awaited<ReturnType<typeof listMarkdownFilesAtGitSha>>
                   sourcesFile: string | null
+                  sourceFiles: SourceFileBlob[]
                 }>
               | undefined
             const readTree = () => {
@@ -205,7 +210,7 @@ export const workspaceHydrate = defineWorkflow(
                 const treeFiles = planning.needed
                   ? await listMarkdownFilesAtGitSha({
                       includeIntroducingCommits: true,
-                      extraPaths: [SOURCES_FILE_PATH],
+                      ...SOURCES_TREE_READ,
                       url: revision.remote.url,
                       sha: revision.sha,
                       token:
@@ -217,14 +222,7 @@ export const workspaceHydrate = defineWorkflow(
                         })),
                     })
                   : []
-                return {
-                  files: treeFiles.filter(
-                    (file) => file.path !== SOURCES_FILE_PATH,
-                  ),
-                  sourcesFile:
-                    treeFiles.find((file) => file.path === SOURCES_FILE_PATH)
-                      ?.content ?? null,
-                }
+                return splitSourcesTree(treeFiles)
               })()
               return tree
             }
@@ -362,9 +360,9 @@ export const workspaceHydrate = defineWorkflow(
                     .map((connection) => connection.id),
                 )
               : []
-            const { files, sourcesFile } = pending.postgres
+            const { files, sourcesFile, sourceFiles } = pending.postgres
               ? await readTree()
-              : { files: [], sourcesFile: null }
+              : { files: [], sourcesFile: null, sourceFiles: [] }
             // A Confluence URL joins a mirrored page only on the org's site.
             const confluenceSiteHosts = pending.postgres
               ? await step.run({ name: "list-confluence-sites" }, async () =>
@@ -460,6 +458,7 @@ export const workspaceHydrate = defineWorkflow(
                     workspaceId: workspace.id,
                     revision: revision.sha,
                     text: sourcesFile,
+                    files: sourceFiles,
                     leftoverFiles: revision.remote.connectionId
                       ? upgradeLinkedRepositories({
                           sourcesFile,
