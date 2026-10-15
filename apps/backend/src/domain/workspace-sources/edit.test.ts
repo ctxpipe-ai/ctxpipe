@@ -163,31 +163,123 @@ describe("applySourceFileChange", () => {
     expect(result.provider).toBe("linear")
   })
 
-  it("renames a file byte for byte and changes the sources list of each unit that names it", () => {
-    const unit = `---\ntitle: Issue\nsources:\n  - sources/linear/eng.md\n  - sources/linear/other.md\n---\nBody stays.\n`
-    const unrelated = `---\nsources:\n  - sources/linear/other.md\n---\nx\n`
+  it("renames a file as one move and changes no other file", () => {
     const result = applySourceFileChange({
       files: [{ path: "sources/linear/eng.md", content: linear }],
-      unitFiles: [
-        { path: "linear/ENG-1.md", content: unit },
-        { path: "notes.md", content: unrelated },
-        { path: "plain.md", content: "no front matter\n" },
-      ],
       change: {
         action: "rename",
         path: "sources/linear/eng.md",
         newPath: "sources/linear/engineering.md",
       },
     })
-    expect(result.deletes).toEqual(["sources/linear/eng.md"])
-    expect(result.path).toBe("sources/linear/engineering.md")
-    expect(result.writes).toEqual([
-      { path: "sources/linear/engineering.md", content: linear },
-      {
-        path: "linear/ENG-1.md",
-        content: `---\ntitle: Issue\nsources:\n  - sources/linear/engineering.md\n  - sources/linear/other.md\n---\nBody stays.\n`,
+    expect(result).toEqual({
+      writes: [{ path: "sources/linear/engineering.md", content: linear }],
+      deletes: ["sources/linear/eng.md"],
+      path: "sources/linear/engineering.md",
+      provider: "linear",
+    })
+  })
+
+  it("refuses a rename to a path that an open pull request changes", () => {
+    expect(
+      status(() =>
+        applySourceFileChange({
+          files: [{ path: "sources/linear/eng.md", content: linear }],
+          change: {
+            action: "rename",
+            path: "sources/linear/eng.md",
+            newPath: "sources/linear/ops.md",
+          },
+          reservedPaths: new Set(["sources/linear/ops.md"]),
+        }),
+      ),
+    ).toBe(409)
+  })
+
+  it("refuses a repository that a projected source links, from any form", () => {
+    const github = {
+      action: "add" as const,
+      provider: "github" as const,
+      connectionId: "con_gh",
+      scope: { repository: "Acme/Web" },
+    }
+    // A legacy YAML entry, by its id.
+    expect(
+      status(() =>
+        applySourceFileChange({
+          files: [],
+          sources: [
+            {
+              path: "linked-repositories",
+              provider: "github",
+              scope: { repositories: ["acme/web"] },
+            },
+          ],
+          change: github,
+        }),
+      ),
+    ).toBe(409)
+    // A source file that only the projection knows.
+    expect(
+      status(() =>
+        applySourceFileChange({
+          files: [],
+          sources: [
+            {
+              path: "sources/github/acme/site.md",
+              provider: "github",
+              scope: { repository: "acme/web" },
+            },
+          ],
+          change: { ...github, path: "sources/github/acme/web.md" },
+        }),
+      ),
+    ).toBe(409)
+    // A projected path is taken.
+    expect(
+      status(() =>
+        applySourceFileChange({
+          files: [],
+          sources: [
+            {
+              path: "sources/github/acme/web.md",
+              provider: "github",
+              scope: { repository: "acme/other" },
+            },
+          ],
+          change: github,
+        }),
+      ),
+    ).toBe(409)
+  })
+
+  it("keeps the YAML comments and the key order of an edited file", () => {
+    const commented = `---
+# Owned by the platform team
+provider: linear
+connection: con_linear1 # the main workspace
+teams: [ENG]
+---
+Body.
+`
+    const result = applySourceFileChange({
+      files: [{ path: "sources/linear/eng.md", content: commented }],
+      change: {
+        action: "edit",
+        path: "sources/linear/eng.md",
+        provider: "linear",
+        connectionId: "con_linear1",
+        scope: { teams: ["ENG", "OPS"] },
       },
-    ])
+    })
+    const content = result.writes[0]?.content ?? ""
+    expect(content).toContain("# Owned by the platform team")
+    expect(content).toContain("connection: con_linear1 # the main workspace")
+    expect(content.endsWith("---\nBody.\n")).toBe(true)
+    expect(parseSourceFile("sources/linear/eng.md", content)).toMatchObject({
+      ok: true,
+      source: { scope: { teams: ["ENG", "OPS"] } },
+    })
   })
 
   it("refuses a rename to another provider folder, to a taken path, and from an unknown path", () => {

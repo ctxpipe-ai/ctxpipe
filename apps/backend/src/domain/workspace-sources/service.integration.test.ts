@@ -13,6 +13,7 @@ import {
   type NativeHydrationFixture,
   withNativeHydrationFixture,
 } from "../../test/native-hydration-fixture.js"
+import type { SourceChange } from "./edit.js"
 import { runSourceMigration } from "./migration.js"
 import { FILE_ERROR_SOURCE_KEY } from "./projection-plan.js"
 import {
@@ -165,7 +166,7 @@ it(
             "https://github.com/fixture/hydration-contract/pull/41",
         })
         const head = expect.stringMatching(
-          /^ctxpipe\/sources\/add\/linear\/eng-/,
+          /^ctxpipe\/sources\/add\/linear\/eng\/[a-z0-9]+-[a-f0-9]{8}$/,
         )
         expect(pullRequests).toEqual([
           expect.objectContaining({ head, base: "main" }),
@@ -175,7 +176,7 @@ it(
           path: "refs",
           body: {
             ref: expect.stringMatching(
-              /^refs\/heads\/ctxpipe\/sources\/add\/linear\/eng-/,
+              /^refs\/heads\/ctxpipe\/sources\/add\/linear\/eng\/[a-z0-9]+-[a-f0-9]{8}$/,
             ),
             sha: parent,
           },
@@ -183,7 +184,7 @@ it(
         expect(gitWrites.filter((write) => write.method === "PATCH")).toEqual([
           expect.objectContaining({
             path: expect.stringMatching(
-              /^refs\/heads\/ctxpipe\/sources\/add\/linear\/eng-/,
+              /^refs\/heads\/ctxpipe\/sources\/add\/linear\/eng\/[a-z0-9]+-[a-f0-9]{8}$/,
             ),
           }),
         ])
@@ -204,8 +205,8 @@ it(
             "https://api.github.com/repos/fixture/hydration-contract/pulls",
             () =>
               HttpResponse.json([
-                pull(51, "ctxpipe/sources/add/notion/docs-1791887671414"),
-                pull(52, "ctxpipe/sources/add/linear/eng-1791887671415"),
+                pull(51, "ctxpipe/sources/add/notion/docs/k671414-0a1b2c3d"),
+                pull(52, "ctxpipe/sources/add/linear/eng/k671415-0a1b2c3d"),
                 pull(53, "feature/unrelated"),
               ]),
           ),
@@ -253,10 +254,10 @@ it(
             "https://api.github.com/repos/fixture/hydration-contract/pulls",
             () =>
               HttpResponse.json([
-                pull(61, "ctxpipe/sources/remove/linear/eng-1791887671414"),
-                pull(62, "ctxpipe/sources/remove/linear/gone-1791887671415"),
-                pull(63, "ctxpipe/sources/add/linear/eng-1791887671416"),
-                pull(64, "ctxpipe/sources/add/linear/ops-1791887671417"),
+                pull(61, "ctxpipe/sources/remove/linear/eng/k671414-0a1b2c3d"),
+                pull(62, "ctxpipe/sources/remove/linear/gone/k671415-0a1b2c3d"),
+                pull(63, "ctxpipe/sources/add/linear/eng/k671416-0a1b2c3d"),
+                pull(64, "ctxpipe/sources/add/linear/ops/k671417-0a1b2c3d"),
               ]),
           ),
         )
@@ -328,7 +329,10 @@ it(
             "https://api.github.com/repos/fixture/hydration-contract/pulls",
             () =>
               HttpResponse.json([
-                pull(34, "ctxpipe/sources/remove/linear/linear-17918"),
+                pull(
+                  34,
+                  "ctxpipe/sources/remove/linear/linear/k17918-0a1b2c3d",
+                ),
               ]),
           ),
         )
@@ -351,7 +355,7 @@ it(
 
         expect(result).toMatchObject({ path: "sources/linear/linear-2.md" })
         expect(pullRequests[0]?.head).toMatch(
-          /^ctxpipe\/sources\/add\/linear\/linear-2-/,
+          /^ctxpipe\/sources\/add\/linear\/linear-2\//,
         )
       },
     )
@@ -398,9 +402,15 @@ it(
             () =>
               HttpResponse.json([
                 // Open: a source "linear" exists, so this removal applies.
-                pull(71, "ctxpipe/sources/remove/linear/linear-17918"),
+                pull(
+                  71,
+                  "ctxpipe/sources/remove/linear/linear/k17918-0a1b2c3d",
+                ),
                 // Stale: no source "linear-2" exists, so it no longer applies.
-                pull(72, "ctxpipe/sources/remove/linear/linear-2-17919"),
+                pull(
+                  72,
+                  "ctxpipe/sources/remove/linear/linear-2/k17919-0a1b2c3d",
+                ),
               ]),
           ),
         )
@@ -478,8 +488,8 @@ it(
             () =>
               HttpResponse.json([
                 // Each would be hidden if the file were readable.
-                pull(81, "ctxpipe/sources/remove/linear/gone-1791887671414"),
-                pull(82, "ctxpipe/sources/add/linear/eng-1791887671415"),
+                pull(81, "ctxpipe/sources/remove/linear/gone/k671414-0a1b2c3d"),
+                pull(82, "ctxpipe/sources/add/linear/eng/k671415-0a1b2c3d"),
               ]),
           ),
         )
@@ -574,7 +584,9 @@ for (const change of ["edit", "remove"] as const)
           expect(pullRequests).toEqual([
             expect.objectContaining({
               head: expect.stringMatching(
-                new RegExp(`^ctxpipe/sources/${change}/linear/eng-`),
+                new RegExp(
+                  `^ctxpipe/sources/${change}/linear/eng/[a-z0-9]+-[a-f0-9]{8}$`,
+                ),
               ),
               base: "main",
             }),
@@ -715,7 +727,7 @@ it(
 )
 
 it(
-  "renames a source file in a pull request and changes the sources list of the units that name it",
+  "renames a source file in a pull request as one move",
   { timeout: 60_000 },
   async () => {
     const gitWrites: Array<{ method: string; path: string; body: unknown }> = []
@@ -741,7 +753,6 @@ it(
             "sources/linear/eng.md": source,
             "linear/ENG-1.md":
               "---\nsources:\n  - sources/linear/eng.md\n---\nIssue.\n",
-            "notes.md": "---\nsources:\n  - sources/linear/other.md\n---\nx\n",
           }),
           gitDatabase("a".repeat(40), gitWrites),
         )
@@ -764,100 +775,121 @@ it(
           outcome: "pull_request",
           path: "sources/linear/engineering.md",
         })
+        // The branch names both paths.
         expect(pullRequests).toEqual([
           expect.objectContaining({
             head: expect.stringMatching(
-              /^ctxpipe\/sources\/rename\/linear\/eng-/,
+              /^ctxpipe\/sources\/rename\/linear\/eng\/_to_\/linear\/engineering\/[a-z0-9]+-[a-f0-9]{8}$/,
             ),
           }),
         ])
-        const trees = gitWrites.filter(
-          (write) => write.method === "POST" && write.path === "trees",
-        )
-        const entries = trees.flatMap(
-          (write) => (write.body as { tree: unknown[] }).tree,
-        )
-        expect(entries).toEqual(
-          expect.arrayContaining([
-            expect.objectContaining({
+        const entries = gitWrites
+          .filter((write) => write.method === "POST" && write.path === "trees")
+          .flatMap((write) => (write.body as { tree: unknown[] }).tree)
+        // The unit keeps the old path: the hydrate of the merged revision
+        // changes its `sources` list.
+        expect(entries).toEqual([
+          expect.objectContaining({
+            path: "sources/linear/engineering.md",
+            content: source,
+          }),
+          expect.objectContaining({ path: "sources/linear/eng.md", sha: null }),
+        ])
+      },
+    )
+  },
+)
+
+for (const action of ["add", "edit", "rename", "remove"] as const)
+  it(
+    `queues a direct commit of a source ${action} with only its own files`,
+    { timeout: 60_000 },
+    async () => {
+      await withNativeHydrationFixture(
+        { github: true, githubWriteView: "writable", writeStatus: "writable" },
+        async (f) => {
+          const linear = await addLinearConnection(f)
+          f.server.use(
+            http.get(
+              "https://api.github.com/repos/fixture/hydration-contract/pulls",
+              () => HttpResponse.json([]),
+            ),
+            ...repositoryFiles({
+              "sources/linear/eng.md": linearFile(linear, "Body.\n"),
+              "ENG-1.md": "---\nsources:\n  - sources/linear/eng.md\n---\n",
+            }),
+            gitDatabase("a".repeat(40)),
+          )
+          const change = {
+            add: {
+              action: "add" as const,
+              path: "sources/linear/ops.md",
+              provider: "linear" as const,
+              connectionId: linear,
+              scope: { teams: ["OPS"] },
+            },
+            edit: {
+              action: "edit" as const,
               path: "sources/linear/eng.md",
-              sha: null,
+              provider: "linear" as const,
+              connectionId: linear,
+              scope: { teams: ["ENG", "OPS"] },
+            },
+            rename: {
+              action: "rename" as const,
+              path: "sources/linear/eng.md",
+              newPath: "sources/linear/engineering.md",
+            },
+            remove: {
+              action: "remove" as const,
+              path: "sources/linear/eng.md",
+            },
+          }[action]
+
+          const result = await withLogger(createLogger({}), () =>
+            withOrgIdContext(f.org, async () => {
+              const workspace = await getWorkspaceById(f.workspaceId)
+              if (!workspace) throw new Error("Missing fixture Workspace")
+              return changeWorkspaceSource({
+                workspace,
+                change,
+                delivery: "commit",
+              })
             }),
-            expect.objectContaining({
-              path: "sources/linear/engineering.md",
-              content: source,
-            }),
-            expect.objectContaining({
-              path: "linear/ENG-1.md",
-              content:
-                "---\nsources:\n  - sources/linear/engineering.md\n---\nIssue.\n",
-            }),
-          ]),
-        )
-        // The unit that names another source stays as it is.
-        expect(entries).toHaveLength(3)
-      },
-    )
-  },
-)
+          )
+
+          const expected = {
+            add: { files: ["sources/linear/ops.md"], deletes: [] },
+            edit: { files: ["sources/linear/eng.md"], deletes: [] },
+            rename: {
+              files: ["sources/linear/engineering.md"],
+              deletes: ["sources/linear/eng.md"],
+            },
+            remove: { files: [], deletes: ["sources/linear/eng.md"] },
+          }[action]
+          expect(result).toMatchObject({ outcome: "commit_queued" })
+          const jobs = await withOrgDbContext(f.org.id, (db) =>
+            db
+              .select()
+              .from(workspaceWriteJobs)
+              .where(eq(workspaceWriteJobs.workspaceId, f.workspaceId)),
+          )
+          const job = jobs.find((item) => item.kind === "ui_file_edit")
+          expect(job?.payload?.mergeDeletePaths ?? []).toEqual(expected.deletes)
+          expect(
+            (job?.payload?.mergeFiles ?? []).map((file) => file.path),
+          ).toEqual(expected.files)
+          if (action === "edit")
+            expect(job?.payload?.mergeFiles?.[0]?.content).toMatch(
+              /---\nBody\.\n$/,
+            )
+        },
+      )
+    },
+  )
 
 it(
-  "queues a direct commit of the rename with the file move and the unit change",
-  { timeout: 60_000 },
-  async () => {
-    await withNativeHydrationFixture(
-      { github: true, githubWriteView: "writable", writeStatus: "writable" },
-      async (f) => {
-        const linear = await addLinearConnection(f)
-        f.server.use(
-          ...repositoryFiles({
-            "sources/linear/eng.md": linearFile(linear),
-            "ENG-1.md": "---\nsources:\n  - sources/linear/eng.md\n---\n",
-          }),
-          gitDatabase("a".repeat(40)),
-        )
-
-        const result = await withLogger(createLogger({}), () =>
-          withOrgIdContext(f.org, async () => {
-            const workspace = await getWorkspaceById(f.workspaceId)
-            if (!workspace) throw new Error("Missing fixture Workspace")
-            return changeWorkspaceSource({
-              workspace,
-              change: {
-                action: "rename",
-                path: "sources/linear/eng.md",
-                newPath: "sources/linear/engineering.md",
-              },
-              delivery: "commit",
-            })
-          }),
-        )
-
-        expect(result).toEqual({
-          outcome: "commit_queued",
-          path: "sources/linear/engineering.md",
-        })
-        const jobs = await withOrgDbContext(f.org.id, (db) =>
-          db
-            .select()
-            .from(workspaceWriteJobs)
-            .where(eq(workspaceWriteJobs.workspaceId, f.workspaceId)),
-        )
-        const job = jobs.find((item) => item.kind === "ui_file_edit")
-        expect(job?.payload?.mergeDeletePaths).toEqual([
-          "sources/linear/eng.md",
-        ])
-        expect(job?.payload?.mergeFiles?.map((file) => file.path)).toEqual([
-          "sources/linear/engineering.md",
-          "ENG-1.md",
-        ])
-      },
-    )
-  },
-)
-
-it(
-  "refuses a rename to a taken path and an add of a repository that a source file links",
+  "refuses a rename to a taken path and a path that an open pull request names",
   { timeout: 60_000 },
   async () => {
     await withNativeHydrationFixture(
@@ -867,7 +899,14 @@ it(
         f.server.use(
           http.get(
             "https://api.github.com/repos/fixture/hydration-contract/pulls",
-            () => HttpResponse.json([]),
+            () =>
+              HttpResponse.json([
+                // An open rename: neither its old nor its new path is free.
+                pull(
+                  91,
+                  "ctxpipe/sources/rename/linear/eng/_to_/linear/team/k91-0a1b2c3d",
+                ),
+              ]),
           ),
           ...repositoryFiles({
             "sources/linear/eng.md": linearFile(linear),
@@ -875,23 +914,110 @@ it(
           }),
           gitDatabase("a".repeat(40)),
         )
-        const change = (path: string, newPath: string) =>
+        const run = (change: SourceChange) =>
           withOrgIdContext(f.org, async () => {
             const workspace = await getWorkspaceById(f.workspaceId)
             if (!workspace) throw new Error("Missing fixture Workspace")
             return changeWorkspaceSource({
               workspace,
-              change: { action: "rename", path, newPath },
+              change,
               delivery: "pull_request",
             })
           })
+        const rename = (path: string, newPath: string) =>
+          run({ action: "rename", path, newPath })
 
         await expect(
-          change("sources/linear/eng.md", "sources/linear/ops.md"),
+          rename("sources/linear/eng.md", "sources/linear/ops.md"),
         ).rejects.toMatchObject({ status: 409 })
         await expect(
-          change("sources/linear/nope.md", "sources/linear/x.md"),
+          rename("sources/linear/ops.md", "sources/linear/team.md"),
+        ).rejects.toMatchObject({ status: 409 })
+        await expect(
+          rename("sources/linear/nope.md", "sources/linear/x.md"),
         ).rejects.toMatchObject({ status: 404 })
+        await expect(
+          run({
+            action: "add",
+            path: "sources/linear/team.md",
+            provider: "linear",
+            connectionId: linear,
+            scope: { teams: ["CTX"] },
+          }),
+        ).rejects.toMatchObject({ status: 409 })
+      },
+    )
+  },
+)
+
+it(
+  "refuses an add of a repository that the projection links, and reads no file list",
+  { timeout: 60_000 },
+  async () => {
+    const reads: string[] = []
+    await withNativeHydrationFixture(
+      { github: true, githubWriteView: "writable", writeStatus: "writable" },
+      async (f) => {
+        f.server.use(
+          http.get(
+            "https://api.github.com/repos/fixture/hydration-contract/pulls",
+            () => HttpResponse.json([]),
+          ),
+          http.get(
+            "https://api.github.com/repos/fixture/hydration-contract/git/trees/:sha",
+            ({ request }) => {
+              reads.push(request.url)
+              return HttpResponse.json({ message: "Not used" }, { status: 500 })
+            },
+          ),
+          http.get(
+            "https://api.github.com/repos/fixture/hydration-contract/contents/*",
+            ({ params }) => {
+              reads.push(String(params[0]))
+              return HttpResponse.json(
+                { message: "Not found" },
+                { status: 404 },
+              )
+            },
+          ),
+          gitDatabase("a".repeat(40)),
+        )
+        // A legacy YAML entry links the repository; the default branch has
+        // no source file for it.
+        await replaceWorkspaceSourceRows({
+          orgId: f.org.id,
+          workspaceId: f.workspaceId,
+          revision: f.sha,
+          rows: [
+            {
+              sourceKey: "linked-repositories",
+              provider: "github",
+              connectionId: f.connectionId,
+              scope: { repositories: ["acme/web"] },
+              status: "ok",
+              statusDetail: null,
+            },
+          ],
+        })
+
+        await expect(
+          withOrgIdContext(f.org, async () => {
+            const workspace = await getWorkspaceById(f.workspaceId)
+            if (!workspace) throw new Error("Missing fixture Workspace")
+            return changeWorkspaceSource({
+              workspace,
+              change: {
+                action: "add",
+                provider: "github",
+                connectionId: f.connectionId,
+                scope: { repository: "Acme/Web" },
+              },
+              delivery: "pull_request",
+            })
+          }),
+        ).rejects.toMatchObject({ status: 409 })
+        // Only the path of the new file is read.
+        expect(reads).toEqual(["sources/github/acme/web.md"])
       },
     )
   },

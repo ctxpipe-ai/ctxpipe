@@ -135,7 +135,7 @@ export const RenameWorkspaceSourceRequestSchema = z
   })
   .openapi("RenameWorkspaceSourceRequest", {
     description:
-      "Move a source file. Each unit that names the old path in its sources list gets the new path in the same commit.",
+      "Move a source file in one commit. The hydrate of the new revision gives the new path to each unit that names the old path in its sources list.",
   })
 
 export const DeleteWorkspaceSourceQuerySchema = z
