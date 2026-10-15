@@ -39,7 +39,8 @@ The design is the Linear document [CTX-584 concept](https://linear.app/ctxpipe/d
 - A source can make any valid change to a file that only it owns. Any other file gets only an additive update: new claims, and new lines in a `## Related` section.
 - A human takes over a file when they remove `generated_by`. Text between `<!-- ctxpipe:human -->` and `<!-- /ctxpipe:human -->` never changes.
 - When a root is gone, the host deletes its owned files, or removes the source from a shared file.
-- Files that the old pipeline wrote move to these fields in a one-time migration at the switch.
+- Files that the old pipeline wrote move to these fields in a one-time migration at the switch (CTX-640). The `ownership_migration` write job changes each `knowledge/**.md` file with `generated_by: ctxpipe` and an absolute `source` URL that is not the Workspace repository: it sets `generated_by: ctxpipe-extract`, adds that repository to `sources`, and removes `import_key`. The body does not change. The predicate does not need `import_key`, because the import-key cleanup removes it after the migration export. Hydrate queues the job only while ingestion v2 publishes.
+- `ingestionPublishPipeline()` (`src/domain/ingestion/ingestion-v2-config.ts`) is the committed config that picks the publishing pipeline: `legacy` or `v2`. While it is `v2`, the old pipeline does not publish. To roll back within one release, set it to `legacy`: the old pipeline publishes again and sets `generated_by: ctxpipe` on each file it changes. When it goes back to `v2`, the migration moves those files again.
 
 ### 4. Instruction areas replace instruction units
 
