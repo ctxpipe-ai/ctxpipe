@@ -142,6 +142,23 @@ describe("changeLinkedRepository", () => {
     expect(result.files[0]?.content).not.toContain("acme/web")
   })
 
+  it("refuses an unlink when the file of the repository cannot be read", () => {
+    const result = changeLinkedRepository({
+      action: "unlink",
+      gitUrl: "https://github.com/acme/web",
+      connectionId: "con_gh",
+      files: [
+        {
+          path: "sources/github/acme/web.md",
+          content: "---\nprovider: github\nconnection: [\n---\n",
+        },
+      ],
+    })
+    expect(result.files).toEqual([])
+    expect(result.deletePaths).toEqual([])
+    expect(result.refused).toMatch(/sources\/github\/acme\/web\.md/)
+  })
+
   it("refuses a repository outside GitHub and changes nothing", () => {
     expect(
       changeLinkedRepository({
