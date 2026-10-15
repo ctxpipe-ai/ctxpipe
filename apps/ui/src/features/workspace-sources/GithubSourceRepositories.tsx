@@ -357,7 +357,12 @@ export function GithubSourceRepositories(props: {
                       ) : null}
                     </div>
                     {row.source ? null : (
-                      <p className={sourceRowNoteClassName}>
+                      <p
+                        className={cn(
+                          sourceRowNoteClassName,
+                          "text-muted-foreground",
+                        )}
+                      >
                         Not in sources.yaml any more. It goes at the next sync.
                       </p>
                     )}
