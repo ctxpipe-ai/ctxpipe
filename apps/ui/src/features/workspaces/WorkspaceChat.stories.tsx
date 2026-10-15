@@ -188,13 +188,17 @@ export const RenameConversation: Story = {
     })
     await userEvent.clear(input)
     await userEvent.type(input, "Discarded{Escape}")
-    expect(canvas.queryByRole("textbox")).not.toBeInTheDocument()
+    expect(
+      canvas.queryByRole("textbox", { name: "Conversation name" }),
+    ).not.toBeInTheDocument()
     // An empty name does nothing.
     await open("Repo layout")
     input = await canvas.findByRole("textbox", { name: "Conversation name" })
     await userEvent.clear(input)
     await userEvent.keyboard("{Enter}")
-    expect(canvas.queryByRole("textbox")).not.toBeInTheDocument()
+    expect(
+      canvas.queryByRole("textbox", { name: "Conversation name" }),
+    ).not.toBeInTheDocument()
     expect(
       canvas.getByRole("button", { name: "Rename conversation: Repo layout" }),
     ).toBeInTheDocument()
