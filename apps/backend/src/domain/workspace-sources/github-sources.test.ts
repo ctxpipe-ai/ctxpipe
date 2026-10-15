@@ -57,7 +57,7 @@ describe("githubSourceRepositories", () => {
     expect(githubSourceRepositories("sources: [", connections)).toEqual([])
   })
 
-  it("lists the repository of each valid GitHub source file after the YAML entries, with the path that declares it", () => {
+  it("lists the repository of each valid GitHub source file before the YAML entries, with the path that declares it", () => {
     const files = [
       {
         path: "sources/github/acme/web.md",
@@ -84,16 +84,74 @@ describe("githubSourceRepositories", () => {
       ),
     ).toEqual([
       {
+        gitUrl: "https://github.com/acme/web",
+        ref: "main",
+        connectionId: "con_github1",
+        path: "sources/github/acme/web.md",
+      },
+      {
         gitUrl: "https://github.com/acme/api",
         ref: null,
         connectionId: "con_github1",
         path: ".ctxpipe/sources.yaml",
       },
+    ])
+  })
+
+  it("links the new repository of a later YAML entry that also names a linked one", () => {
+    const text = [
+      "version: 1",
+      "sources:",
+      "  - {id: web, provider: github, connection: con_github1, repositories: [acme/web]}",
+      "  - {id: apps, provider: github, connection: con_github1, repositories: [{name: acme/web, ref: next}, acme/api]}",
+    ].join("\n")
+    expect(githubSourceRepositories(text, connections)).toEqual([
+      {
+        gitUrl: "https://github.com/acme/web",
+        ref: null,
+        connectionId: "con_github1",
+        path: ".ctxpipe/sources.yaml",
+      },
+      {
+        gitUrl: "https://github.com/acme/api",
+        ref: null,
+        connectionId: "con_github1",
+        path: ".ctxpipe/sources.yaml",
+      },
+    ])
+  })
+
+  it("links a repository from the source file that holds it, not from a YAML entry", () => {
+    const text =
+      "version: 1\nsources:\n  - {id: apps, provider: github, connection: con_github1, repositories: [{name: acme/web, ref: next}, acme/api]}\n"
+    const file = {
+      path: "sources/github/acme/web.md",
+      text: "---\nprovider: github\nconnection: con_github1\nrepository: acme/web\nref: main\n---\n",
+    }
+    expect(
+      githubSourceRepositories(text, connections, [file], {
+        previousRows: [
+          {
+            sourceKey: file.path,
+            provider: "github",
+            connectionId: "con_github1",
+            scope: { repository: "acme/web", ref: "main" },
+            status: "ok",
+          },
+        ],
+      }),
+    ).toEqual([
       {
         gitUrl: "https://github.com/acme/web",
         ref: "main",
         connectionId: "con_github1",
         path: "sources/github/acme/web.md",
+      },
+      {
+        gitUrl: "https://github.com/acme/api",
+        ref: null,
+        connectionId: "con_github1",
+        path: ".ctxpipe/sources.yaml",
       },
     ])
   })

@@ -288,6 +288,30 @@ describe("planSourceStates for source files", () => {
     })
   })
 
+  it("gives the pin of a repository to the source file, not to a YAML entry that also names it", () => {
+    const states = planSourceStates({
+      existing: [],
+      planned: [
+        {
+          sourceKey: "apps",
+          provider: "github",
+          status: "ok",
+          scope: { repositories: ["acme/web", "acme/api"] },
+        },
+        file("sources/github/acme/web.md", "acme/web"),
+      ],
+      workspaceUrl: null,
+    })
+    const urls = (key: string) =>
+      (
+        states.get(key) as { repositories: Array<{ gitUrl: string }> }
+      ).repositories.map((pin) => pin.gitUrl)
+    expect(urls("sources/github/acme/web.md")).toEqual([
+      "https://github.com/acme/web",
+    ])
+    expect(urls("apps")).toEqual(["https://github.com/acme/api"])
+  })
+
   it("gives a new id and no SHAs when the ref changes", () => {
     const states = planSourceStates({
       existing: [

@@ -526,6 +526,38 @@ describe("planSourceRows from source files", () => {
     expect(statuses(rows)).toEqual([["code", "ok", null]])
   })
 
+  it("keeps a later YAML entry ok and skips only its repository that an earlier entry links", async () => {
+    const rows = await planSourceRows({
+      text: "version: 1\nsources:\n  - {id: web, provider: github, connection: con_github1, repositories: [acme/web]}\n  - {id: apps, provider: github, connection: con_github1, repositories: [acme/web, acme/api]}\n",
+      connections: fileConnections,
+    })
+    expect(statuses(rows)).toEqual([
+      ["web", "ok", null],
+      ["apps", "ok", expect.stringContaining("web already links")],
+    ])
+  })
+
+  it("keeps a YAML entry ok and skips its repository that a source file holds", async () => {
+    const rows = await planSourceRows({
+      text: "version: 1\nsources:\n  - {id: apps, provider: github, connection: con_github1, repositories: [acme/web, acme/api]}\n",
+      files: [githubFile("sources/github/acme/web.md", "acme/web")],
+      connections: fileConnections,
+      previousRows: [
+        previousRow("sources/github/acme/web.md", "ok", {
+          repository: "acme/web",
+        }),
+      ],
+    })
+    expect(statuses(rows)).toEqual([
+      [
+        "apps",
+        "ok",
+        expect.stringContaining("sources/github/acme/web.md already links"),
+      ],
+      ["sources/github/acme/web.md", "ok", null],
+    ])
+  })
+
   it("reads the YAML entries and the files together, and applies the rules to both", async () => {
     const rows = await planSourceRows({
       text: "version: 1\nsources:\n  - {id: code, provider: github, connection: con_github1, repositories: [acme/web, acme/api]}\n",

@@ -110,7 +110,7 @@ describe("hydrateKnowledgeTree", () => {
     expect(result.linked).toEqual([])
   })
 
-  it("links only the repositories of ok GitHub sources, with their ref", () => {
+  it("links only the repositories of GitHub sources, with their ref, once each", () => {
     const result = hydrateKnowledgeTree({
       workspaceId: "ws_1",
       workspaceUrl: "https://github.com/acme/knowledge",
@@ -128,7 +128,7 @@ describe("hydrateKnowledgeTree", () => {
         "    provider: github",
         "    connection: con_github1",
         "    repositories: [{name: acme/billing, ref: release}, acme/web, acme/knowledge]",
-        "  - id: same-repository",
+        "  - id: again",
         "    provider: github",
         "    connection: con_github1",
         "    repositories: [acme/web]",

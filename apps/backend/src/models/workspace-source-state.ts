@@ -4,6 +4,7 @@ import type { AnyPgColumn } from "drizzle-orm/pg-core"
 import { z } from "zod"
 import type { Db } from "../db/client.js"
 import { workspaceSources } from "../db/schema/workspace_sources.js"
+import { linkingOrder } from "../domain/workspace-sources/github-sources.js"
 import { githubSourceScopeRepositories } from "../domain/workspace-sources/providers/github.js"
 import { normalizeWorkspaceRepositoryUrl } from "../domain/workspaces/slug.js"
 import { generateObjectId } from "../lib/id.js"
@@ -165,7 +166,7 @@ export function planSourceStates(input: {
   const states = new Map<string, SourceState | Record<string, never>>()
   const linking = (status: string) =>
     (LINKING_SOURCE_STATUSES as readonly string[]).includes(status)
-  for (const planned of input.planned) {
+  for (const planned of linkingOrder(input.planned)) {
     if (planned.provider !== "github") {
       states.set(planned.sourceKey, {})
       continue

@@ -196,7 +196,16 @@ function resolve(input: SourceRowsInput): {
       source.entry ? [[source.entry.key, source.entry] as const] : [],
     ),
   )
-  applyCrossSourceRules(rows, entries, input)
+  applyCrossSourceRules(
+    rows,
+    entries,
+    new Set(
+      parsed.flatMap((source) =>
+        source.entry && source.origin === "yaml" ? [source.entry.key] : [],
+      ),
+    ),
+    input,
+  )
   rows.push(
     ...(input.leftoverFiles ?? []).map((file) => ({
       sourceKey: file.path,
@@ -412,6 +421,7 @@ function holdsOverlap(a: Holds, b: Holds): boolean {
 function applyCrossSourceRules(
   rows: PlannedSourceRow[],
   entries: ReadonlyMap<string, SourceEntry>,
+  yamlKeys: ReadonlySet<string>,
   input: Pick<
     SourceRowsInput,
     "previousRows" | "managedPaths" | "workspaceUrl"
@@ -466,28 +476,63 @@ function applyCrossSourceRules(
     (a, b) =>
       b.strength - a.strength || compareKeys(a.row.sourceKey, b.row.sourceKey),
   )
+  // A YAML entry may name many repositories. In a conflict on one of them it
+  // stays ok and skips only that repository (ADR-050 decision 6). Of two YAML
+  // entries, the earlier entry in the file links it, as before the source
+  // files. A source file names one repository, so it becomes invalid.
+  const yamlIndex = new Map(
+    rows.flatMap((row, index) =>
+      yamlKeys.has(row.sourceKey) ? [[row.sourceKey, index] as const] : [],
+    ),
+  )
   const repositories = new Map<string, string>()
+  const skips = new Map<string, Array<{ repository: string; by: string }>>()
+  const skip = (sourceKey: string, repository: string, by: string) =>
+    skips.set(sourceKey, [...(skips.get(sourceKey) ?? []), { repository, by }])
   const managed: Array<{ path: string; sourceKey: string }> = []
   for (const { row, holds } of candidates) {
-    const repositoryConflict = holds.repositories
-      .map((repository) => repositories.get(repository))
-      .find((key) => key !== undefined)
+    const index = yamlIndex.get(row.sourceKey)
     const pathConflict = managed.find((other) =>
       holds.paths.some((path) => pathsOverlap(path, other.path)),
     )
-    if (repositoryConflict !== undefined) {
-      row.status = "invalid"
-      row.statusDetail = `${repositoryConflict} already links this repository`
-      continue
+    if (index === undefined) {
+      const repositoryConflict = holds.repositories
+        .map((repository) => repositories.get(repository))
+        .find((key) => key !== undefined)
+      if (repositoryConflict !== undefined) {
+        row.status = "invalid"
+        row.statusDetail = `${repositoryConflict} already links this repository`
+        continue
+      }
     }
     if (pathConflict) {
       row.status = "invalid"
       row.statusDetail = `${pathConflict.sourceKey} already syncs ${pathConflict.path}, which overlaps this source`
       continue
     }
-    for (const repository of holds.repositories)
-      repositories.set(repository, row.sourceKey)
+    for (const repository of holds.repositories) {
+      const holder = repositories.get(repository)
+      if (holder === undefined || index === undefined) {
+        repositories.set(repository, row.sourceKey)
+        continue
+      }
+      const holderIndex = yamlIndex.get(holder)
+      if (holderIndex !== undefined && index < holderIndex) {
+        repositories.set(repository, row.sourceKey)
+        skip(holder, repository, row.sourceKey)
+      } else skip(row.sourceKey, repository, holder)
+    }
     for (const path of holds.paths)
       managed.push({ path, sourceKey: row.sourceKey })
+  }
+  for (const row of rows) {
+    const skipped = skips.get(row.sourceKey)
+    if (skipped)
+      row.statusDetail = skipped
+        .map(
+          ({ repository, by }) =>
+            `Skips ${repository}: ${by} already links this repository`,
+        )
+        .join("; ")
   }
 }

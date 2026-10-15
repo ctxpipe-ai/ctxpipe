@@ -47,16 +47,40 @@ export function githubSourceRepositories(
     previousRows: options.previousRows,
     workspaceUrl: options.workspaceUrl,
   })
-  return rows.flatMap((row) =>
-    row.provider === "github" && row.status === "ok" && row.connectionId
-      ? githubSourceScopeRepositories(row.scope).map(({ name, ref }) => ({
-          gitUrl: normalizeWorkspaceRepositoryUrl(`https://github.com/${name}`),
+  const linked = new Set<string>()
+  return linkingOrder(rows).flatMap((row) => {
+    const connectionId = row.connectionId
+    if (row.provider !== "github" || row.status !== "ok" || !connectionId)
+      return []
+    return githubSourceScopeRepositories(row.scope).flatMap(({ name, ref }) => {
+      const gitUrl = normalizeWorkspaceRepositoryUrl(
+        `https://github.com/${name}`,
+      )
+      if (linked.has(gitUrl)) return []
+      linked.add(gitUrl)
+      return [
+        {
+          gitUrl,
           ref,
-          connectionId: row.connectionId as string,
+          connectionId,
           path: row.sourceKey.startsWith(SOURCES_FOLDER_PREFIX)
             ? row.sourceKey
             : SOURCES_FILE_PATH,
-        }))
-      : [],
-  )
+        },
+      ]
+    })
+  })
+}
+
+/**
+ * The rows in the order that links their repositories: the source files
+ * first, then the YAML entries in file order. A source file that can link
+ * holds its repository alone (the projection makes a second one invalid),
+ * and a YAML entry skips a repository that a file or an earlier entry links.
+ */
+export function linkingOrder<T extends { sourceKey: string }>(
+  rows: readonly T[],
+): T[] {
+  const isFile = (row: T) => row.sourceKey.startsWith(SOURCES_FOLDER_PREFIX)
+  return [...rows.filter(isFile), ...rows.filter((row) => !isFile(row))]
 }
