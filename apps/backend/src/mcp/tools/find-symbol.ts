@@ -5,6 +5,11 @@ import {
 } from "../framework/call-workspace.js"
 import { decodeCursor } from "../framework/cursor.js"
 import {
+  inLanguage,
+  LANGUAGE_KEYS,
+  languageKey,
+} from "../framework/languages.js"
+import {
   findSymbolAcrossRepositories,
   resolveCodeScope,
 } from "../framework/org-code.js"
@@ -15,6 +20,7 @@ import {
   skippedSchema,
   workspaceArgument,
 } from "../framework/schemas.js"
+import { McpToolError } from "../framework/tool-errors.js"
 import { defineMcpReadTool } from "../framework/tool-registry.js"
 import { codeFileRef, mapCodeItems, pageCodeResults } from "./code-results.js"
 
@@ -56,6 +62,14 @@ export const findSymbolTool = defineMcpReadTool({
       .describe(
         "File of the symbol, to tell same names apart: a ref from search_code (owner/name:src/x.ts), or a path in the repository.",
       ),
+    language: z
+      .string()
+      .min(1)
+      .max(64)
+      .optional()
+      .describe(
+        "Only symbols in this language, such as typescript, python, go, java, or rust. The file extension decides, else the SCIP indexer.",
+      ),
     limit: z
       .number()
       .int()
@@ -95,6 +109,14 @@ export const findSymbolTool = defineMcpReadTool({
     hint: z.string().optional(),
   }),
   async run(input, { org }) {
+    const language =
+      input.language === undefined ? undefined : languageKey(input.language)
+    if (language === null) {
+      throw new McpToolError(
+        "invalid_argument",
+        `Unknown language "${input.language?.slice(0, 64)}". Use one of: ${LANGUAGE_KEYS.join(", ")}.`,
+      )
+    }
     const workspace = input.workspace
       ? await resolveCallWorkspace(org, input.workspace)
       : undefined
@@ -138,6 +160,24 @@ export const findSymbolTool = defineMcpReadTool({
         filePath,
       },
       { limit: input.limit, offset },
+      language
+        ? (row) => {
+            const text = (key: string) =>
+              typeof row[key] === "string" ? (row[key] as string) : undefined
+            return inLanguage(language, {
+              path:
+                text("file_path") ??
+                (input.relation === "callees"
+                  ? text("called_file_path")
+                  : text("caller_file_path")),
+              symbol:
+                text("symbol") ??
+                (input.relation === "callers"
+                  ? text("caller_symbol")
+                  : text("called_symbol")),
+            })
+          }
+        : undefined,
     )
     const mapped = mapCodeItems(answer.results, (item) => {
       const source = scope.repositories.find(

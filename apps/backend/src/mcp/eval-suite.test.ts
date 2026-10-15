@@ -44,6 +44,26 @@ const evalsDirectory = fileURLToPath(
 const orgs = { harbor: "mcp-eval-t1-harbor", meadow: "mcp-eval-t1-meadow" }
 const read: CaseContext = { orgs }
 
+/** The seven read tools as `tools/list` gives them. */
+async function listRegisteredTools() {
+  const server = new McpServer({ name: "eval-schema", version: "0.0.0" })
+  registerMcpReadTools(server, [
+    listWorkspaces,
+    searchKnowledgeTool,
+    searchCodeTool,
+    findSymbolTool,
+    readFileTool,
+    listFilesTool,
+    getRelatedTool,
+  ])
+  const [clientSide, serverSide] = InMemoryTransport.createLinkedPair()
+  const client = new Client({ name: "eval-schema-client", version: "0.0.0" })
+  await Promise.all([server.connect(serverSide), client.connect(clientSide)])
+  const { tools } = await client.listTools()
+  await client.close()
+  return tools
+}
+
 function fixtureFiles(directory: string): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) =>
     entry.isDirectory()
@@ -137,22 +157,15 @@ describe("eval case data", () => {
     }
   })
 
+  it("keeps each tool description under 1,000 characters", async () => {
+    const tools = await listRegisteredTools()
+    expect(tools).toHaveLength(7)
+    for (const tool of tools)
+      expect(tool.description?.length ?? 0, tool.name).toBeLessThan(1_000)
+  })
+
   it("uses tool names and arguments that the registered tools accept", async () => {
-    const server = new McpServer({ name: "eval-schema", version: "0.0.0" })
-    registerMcpReadTools(server, [
-      listWorkspaces,
-      searchKnowledgeTool,
-      searchCodeTool,
-      findSymbolTool,
-      readFileTool,
-      listFilesTool,
-      getRelatedTool,
-    ])
-    const [clientSide, serverSide] = InMemoryTransport.createLinkedPair()
-    const client = new Client({ name: "eval-schema-client", version: "0.0.0" })
-    await Promise.all([server.connect(serverSide), client.connect(clientSide)])
-    const { tools } = await client.listTools()
-    await client.close()
+    const tools = await listRegisteredTools()
     const schemas = new Map(tools.map((tool) => [tool.name, tool.inputSchema]))
 
     const rules: CallRule[] = evalCases.flatMap((item) => [
