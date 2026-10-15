@@ -91,6 +91,7 @@ export function bedrockModelProvider(
       // Node transport on every runtime, so each call sends one plain HTTP request.
       const client = new BedrockRuntimeClient({
         region,
+        maxAttempts: 3,
         requestHandler: new NodeHttpHandler(),
       })
       const response = await client
