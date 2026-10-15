@@ -709,12 +709,36 @@ export function rankRelated(input: {
     )
     .sort((a, b) => b.score - a.score || compare(a.node.id, b.node.id))
 
-  const selected = selectDiverse(candidates, {
-    diversity,
-    maxPerKind: options.maxPerKind,
-    limit: options.limit ?? 100,
-    neighbors,
-  })
+  // For provenance, the sources of a seed (and the units of a Source seed)
+  // come first. The other units of those sources come last, below the other
+  // answers, so that they do not fill the results.
+  const tierOf = (index: number) => {
+    if (options.intent !== "provenance" || seedSet.has(index)) return 0
+    const path = paths[index] ?? []
+    const fromSource = path.every(
+      (step) => step.edge.predicate === FROM_SOURCE_PREDICATE,
+    )
+    if (fromSource && path.length === 1) return 0
+    return fromSource && path.length > 1 ? 2 : 1
+  }
+  const limit = options.limit ?? 100
+  const perKind = new Map<string, number>()
+  const selected: typeof candidates = []
+  for (const tier of [0, 1, 2]) {
+    if (selected.length >= limit) break
+    selected.push(
+      ...selectDiverse(
+        candidates.filter((candidate) => tierOf(candidate.index) === tier),
+        {
+          diversity,
+          maxPerKind: options.maxPerKind,
+          perKind,
+          limit: limit - selected.length,
+          neighbors,
+        },
+      ),
+    )
+  }
   return selected.map((candidate) => ({
     id: candidate.node.id,
     kind: candidate.node.kind,
@@ -738,12 +762,13 @@ function selectDiverse<
   options: {
     diversity: number
     maxPerKind: number | undefined
+    /** The count of selected units of each kind; the call adds to it. */
+    perKind: Map<string, number>
     limit: number
     neighbors: ReadonlyArray<ReadonlySet<number>>
   },
 ): T[] {
-  const { diversity, maxPerKind, limit } = options
-  const perKind = new Map<string, number>()
+  const { diversity, maxPerKind, limit, perKind } = options
   const kindFull = (candidate: T) =>
     maxPerKind !== undefined &&
     (perKind.get(kindKey(candidate.node.kind)) ?? 0) >= maxPerKind
