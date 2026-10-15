@@ -5,11 +5,11 @@ import { createServer } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
-import { eq } from "drizzle-orm"
+import { eq, sql } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
 import { BackendPostgres } from "openworkflow/postgres"
 import { describe, expect, it } from "vitest"
-import { withOrgDbContext } from "../../db/client.js"
+import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { workspaces, workspaceWriteJobs } from "../../db/schema/workspaces.js"
 import { WRITE_STATUS_REASONS } from "../../domain/workspaces/write-status.js"
 import { GIT_REMOTE_ACCESS_MESSAGES } from "../../services/git/clone-tree.js"
@@ -324,15 +324,14 @@ it(
   },
 )
 
-it.each([
-  ["writable", "writable"],
-  ["read-only", "missing"],
-] as const)(
-  "cron queues one hydrate for a %s Workspace tip across runs during an in-flight hydrate",
+it(
+  "cron queues one hydrate for a read-only Workspace tip across runs during an in-flight hydrate",
   { timeout: 90_000 },
-  async (_label, githubWriteView) => {
+  async () => {
+    // Read-only skips the export wait, so the earlier fallback queued a
+    // hydrate on each run while the Workspace was building.
     await withNativeHydrationFixture(
-      { github: true, githubWriteView },
+      { github: true, githubWriteView: "missing" },
       async (f) => {
         await f.publish()
         const sha = pushSourcesFile(f)
@@ -344,6 +343,48 @@ it.each([
         ])
         expect(await runTipCheck(f)).toMatchObject({ updated: 0 })
         expect(await tipHydrateRuns(f, sha)).toHaveLength(1)
+      },
+    )
+  },
+)
+
+it(
+  "cron queues a failed hydrate of the tip again in the next hour, not before",
+  { timeout: 90_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      { github: true, githubWriteView: "writable" },
+      async (f) => {
+        await f.publish()
+        const sha = pushSourcesFile(f)
+        // The key holds the UTC hour. Start well before the hour ends.
+        const leftInHour = 3_600_000 - (Date.now() % 3_600_000)
+        if (leftInHour < 30_000)
+          await new Promise((resolve) => setTimeout(resolve, leftInHour + 1000))
+        await runTipCheck(f)
+        const [first] = await tipHydrateRuns(f, sha)
+        if (!first?.idempotencyKey) throw new Error("Expected a keyed hydrate")
+        await getSystemDb().execute(
+          sql`update openworkflow.workflow_runs set status = 'failed', finished_at = now() where id = ${first.id}`,
+        )
+
+        await runTipCheck(f)
+        expect(await tipHydrateRuns(f, sha)).toHaveLength(1)
+
+        // Move the failed run to the hour before, as if it started then.
+        const hour = first.idempotencyKey.slice(-13)
+        const earlier = new Date(
+          new Date(`${hour}:00:00Z`).getTime() - 3_600_000,
+        )
+          .toISOString()
+          .slice(0, 13)
+        await getSystemDb().execute(
+          sql`update openworkflow.workflow_runs set idempotency_key = ${`${first.idempotencyKey.slice(0, -13)}${earlier}`} where id = ${first.id}`,
+        )
+        await runTipCheck(f)
+        expect(
+          (await tipHydrateRuns(f, sha)).map((run) => run.status).sort(),
+        ).toEqual(["failed", "pending"])
       },
     )
   },

@@ -5,18 +5,28 @@ import {
   type WorkspaceRevision,
 } from "./revision.js"
 
-/**
- * The SHA that serves reads for this tip, or null when no published
- * projection has the same binding. A tip that differs from this SHA needs a
- * hydrate, also when `desired_sha` already holds the tip.
- */
-export function servedShaForTip(
+/** The revision that `desired_sha` holds, or null when there is none. */
+export function desiredProjectionRevision(
   projection: ProjectionState,
-  tip: WorkspaceRevision,
+): WorkspaceRevision | null {
+  if (projection.kind === "active") return projection.revision
+  if (projection.kind === "building" || projection.kind === "failed")
+    return projection.desired
+  return null
+}
+
+/**
+ * The SHA that serves reads for this revision, or null when no published
+ * projection has the same binding. A desired revision that differs from this
+ * SHA needs a hydrate.
+ */
+export function servedSha(
+  projection: ProjectionState,
+  revision: WorkspaceRevision,
 ): string | null {
   const published = publishedProjection(projection)
   if (published?.kind === "legacy") return published.sha
-  return published && sameWorkspaceBinding(published.revision, tip)
+  return published && sameWorkspaceBinding(published.revision, revision)
     ? published.revision.sha
     : null
 }
@@ -34,13 +44,7 @@ export function shouldEnqueueCronHydrate(input: {
   writeStatus?: string | null
 }): boolean {
   const projection = input.projection
-  const desired =
-    projection.kind === "active"
-      ? projection.revision
-      : projection.kind === "building" || projection.kind === "failed"
-        ? projection.desired
-        : null
-  if (!desired) return false
+  if (!desiredProjectionRevision(projection)) return false
   const skipExportWait =
     input.writeStatus === "read_only" || input.writeStatus === "unknown"
   if (!skipExportWait && !input.migrationExportSha) return false
