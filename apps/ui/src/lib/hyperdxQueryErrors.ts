@@ -24,6 +24,17 @@ function isCancellation(error: unknown): boolean {
   return name === "AbortError" || name === "CancelledError"
 }
 
+/**
+ * A state the product expects: a 409 while a sandbox starts or a turn runs,
+ * and a 404 on the turn changes of a new conversation that has no turns yet.
+ */
+function isExpectedState(error: unknown, keyName: string | undefined): boolean {
+  if (!error || typeof error !== "object") return false
+  const status = httpStatus(error)
+  if (status === "409") return true
+  return status === "404" && keyName === "conversation-turn-changes"
+}
+
 function recordUiException(
   source: "query" | "mutation",
   error: unknown,
@@ -40,6 +51,11 @@ function recordUiException(
     if (typeof requestId === "string" && requestId) {
       attributes["request.id"] = requestId
     }
+  }
+  // An expected state is an action, not an Error span.
+  if (isExpectedState(error, keyName)) {
+    HyperDX.addAction("ui_expected_state", attributes)
+    return
   }
   // Before init the SDK drops this. Recording without identity is acceptable.
   HyperDX.recordException(error, attributes)

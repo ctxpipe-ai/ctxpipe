@@ -19,9 +19,11 @@ import {
 // the real singleton. The browser SDK has no in-memory transport.
 
 let recordException: MockInstance<(typeof HyperDX)["recordException"]>
+let addAction: MockInstance<(typeof HyperDX)["addAction"]>
 
 beforeEach(() => {
   recordException = vi.spyOn(HyperDX, "recordException")
+  addAction = vi.spyOn(HyperDX, "addAction")
 })
 
 afterEach(() => {
@@ -163,6 +165,78 @@ describe("createHyperDxQueryClient", () => {
       "ctxpipe.ui.source": "query",
       "ctxpipe.ui.key": "public-invitation-details",
     })
+  })
+})
+
+describe("expected states", () => {
+  it("records a 409 not-ready answer as an action, not an Error span", async () => {
+    const client = createHyperDxQueryClient()
+    const error = Object.assign(
+      new Error("Conversation sandbox is not ready"),
+      {
+        status: 409,
+      },
+    )
+    await expect(
+      client.fetchQuery({
+        queryKey: ["conversation-git-status", "acme", "conv_1"],
+        retry: false,
+        queryFn: () => {
+          throw error
+        },
+      }),
+    ).rejects.toThrow(error)
+
+    expect(recordException).not.toHaveBeenCalled()
+    expect(addAction).toHaveBeenCalledWith("ui_expected_state", {
+      "ctxpipe.ui.source": "query",
+      "ctxpipe.ui.key": "conversation-git-status",
+      "ctxpipe.ui.http_status": "409",
+    })
+  })
+
+  it("records a 404 on the turn changes of a new conversation as an action", async () => {
+    const client = createHyperDxQueryClient()
+    const error = Object.assign(new Error("Not found"), { status: 404 })
+    await expect(
+      client.fetchQuery({
+        queryKey: ["conversation-turn-changes", "acme", "conv_new"],
+        retry: false,
+        queryFn: () => {
+          throw error
+        },
+      }),
+    ).rejects.toThrow(error)
+
+    expect(recordException).not.toHaveBeenCalled()
+    expect(addAction).toHaveBeenCalledTimes(1)
+  })
+
+  it("still records a 404 on another query and a 500 on turn changes", async () => {
+    const client = createHyperDxQueryClient()
+    const notFound = Object.assign(new Error("Not found"), { status: 404 })
+    const failed = Object.assign(new Error("boom"), { status: 500 })
+    await expect(
+      client.fetchQuery({
+        queryKey: ["conversation-git-blob"],
+        retry: false,
+        queryFn: () => {
+          throw notFound
+        },
+      }),
+    ).rejects.toThrow(notFound)
+    await expect(
+      client.fetchQuery({
+        queryKey: ["conversation-turn-changes"],
+        retry: false,
+        queryFn: () => {
+          throw failed
+        },
+      }),
+    ).rejects.toThrow(failed)
+
+    expect(recordException).toHaveBeenCalledTimes(2)
+    expect(addAction).not.toHaveBeenCalled()
   })
 })
 
