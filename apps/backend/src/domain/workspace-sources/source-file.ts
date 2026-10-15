@@ -38,9 +38,11 @@ const COMMON_KEYS: ReadonlySet<string> = new Set(["provider", "connection"])
 /** Keys that a source file must not have: the path is the id, the folder is the kind. */
 const REFUSED_KEYS = ["id", "kind"] as const
 
-const SEGMENT = /^[a-z0-9][a-z0-9._-]{0,99}$/
+// A segment is also a part of a pull request branch name, so it follows the
+// git ref name rules too: no "..", no "." at the end, no ".lock" at the end.
+const SEGMENT = /^(?!.*\.\.)(?!.*\.lock$)[a-z0-9][a-z0-9._-]{0,99}(?<!\.)$/
 const SEGMENT_RULE =
-  "Each path segment uses lowercase letters, digits, '.', '_', and '-', starts with a letter or digit, and has at most 100 characters"
+  "Each path segment uses lowercase letters, digits, '.', '_', and '-', starts with a letter or digit, does not have '..', does not end with '.' or '.lock', and has at most 100 characters"
 
 export type SourceFile = {
   /** The path of the file, relative to the Workspace root folder. */
@@ -98,6 +100,7 @@ function toSegment(text: string): string {
     .normalize("NFKD")
     .toLowerCase()
     .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/\.{2,}/g, ".")
     .replace(/^[^a-z0-9]+/, "")
     .slice(0, 100)
     .replace(/[-.]+$/, "")
