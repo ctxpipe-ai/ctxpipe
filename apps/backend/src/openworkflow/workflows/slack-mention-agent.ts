@@ -132,11 +132,12 @@ export const slackMentionAgent = defineWorkflow(
                 write: async (slice) => {
                   await writeWorkspaceSlice(slice, env)
                 },
-                readExisting: (workspaceId) =>
+                readExisting: (workspaceId, owners) =>
                   readWorkspaceBlobs({
                     orgId: input.orgId,
                     workspaceId,
                     env,
+                    owners,
                   }),
               }),
           )

@@ -1,3 +1,4 @@
+import { githubPins } from "../../models/workspace-source-state.js"
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
 import {
   type PreviousSourceRow,
@@ -5,6 +6,7 @@ import {
   type SourceFileBlob,
 } from "./projection-plan.js"
 import { githubSourceScopeRepositories } from "./providers/github.js"
+import { checkSourcePath } from "./source-file.js"
 import { SOURCES_FOLDER_PREFIX } from "./source-tree.js"
 import { SOURCES_FILE_PATH } from "./sources-file.js"
 
@@ -83,4 +85,29 @@ export function linkingOrder<T extends { sourceKey: string }>(
 ): T[] {
   const isFile = (row: T) => row.sourceKey.startsWith(SOURCES_FOLDER_PREFIX)
   return [...rows.filter(isFile), ...rows.filter((row) => !isFile(row))]
+}
+
+/**
+ * The source file path of the GitHub source row that pins `gitUrl`, or null
+ * when no row with a source path does (for example a row of the YAML dual
+ * read). The pull request mirror stamps it into each file.
+ */
+export function githubSourcePathOf(
+  rows: ReadonlyArray<{
+    id: string
+    provider: string | null
+    state: unknown
+    sourceKey: string
+  }>,
+  gitUrl: string,
+): string | null {
+  const target = normalizeWorkspaceRepositoryUrl(gitUrl)
+  const row = rows.find(
+    (candidate) =>
+      checkSourcePath(candidate.sourceKey).ok &&
+      githubPins(candidate).some(
+        (pin) => normalizeWorkspaceRepositoryUrl(pin.gitUrl) === target,
+      ),
+  )
+  return row?.sourceKey ?? null
 }

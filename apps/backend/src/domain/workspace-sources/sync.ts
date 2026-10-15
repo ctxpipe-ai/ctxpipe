@@ -6,7 +6,9 @@ import {
 } from "../../models/workspace-sources.js"
 import type { GitFileChange } from "../../services/git/file-change.js"
 import type { SourceAdapter, SourceFetchResult } from "./adapter.js"
+import { checkSourcePath } from "./source-file.js"
 import type { SourceProvider } from "./sources-file.js"
+import { stampSources } from "./stamp-sources.js"
 
 /**
  * One commit for one Workspace in one sync cycle. Files under
@@ -37,6 +39,38 @@ export type SliceWriter = (write: WorkspaceSliceWrite) => Promise<void>
 
 function underAny(path: string, prefixes: readonly string[]): boolean {
   return prefixes.some((prefix) => path.startsWith(prefix))
+}
+
+/**
+ * One blob of a Workspace head, as the adapter wrote it. `sha` is the blob
+ * id of the text without the `sources` list (ADR-050). `restamped` is the
+ * text with the right list, when the file has a wrong or missing list.
+ */
+export type ExistingBlob = {
+  path: string
+  sha: string
+  restamped?: string
+}
+
+/**
+ * The managed paths of one source row and its source path, which the sync
+ * stamps into each Markdown file there. Null for a row whose key is not a
+ * source path (the YAML dual read): its files get no stamp.
+ */
+export type StampOwner = {
+  prefixes: readonly string[]
+  sourcePath: string | null
+}
+
+/** The source path that the sync stamps into the file at `path`, or null. */
+export function stampOwnerOf(
+  owners: readonly StampOwner[],
+  path: string,
+): string | null {
+  return (
+    owners.find((owner) => owner.sourcePath && underAny(path, owner.prefixes))
+      ?.sourcePath ?? null
+  )
 }
 
 function overlaps(a: string, b: string): boolean {
@@ -78,7 +112,8 @@ export async function syncConnectionSources(input: {
   /** The blobs of one Workspace now, so that the adapter can skip unchanged files. */
   readExisting?: (
     workspaceId: string,
-  ) => Promise<ReadonlyArray<{ path: string; sha: string }>>
+    owners: readonly StampOwner[],
+  ) => Promise<ReadonlyArray<ExistingBlob>>
 }): Promise<{ fetchedScopes: number; workspaces: string[] }> {
   const { adapter } = input
   const rows = (
@@ -101,7 +136,12 @@ export async function syncConnectionSources(input: {
   // Check every managed path before the provider fetch.
   const byWorkspace = new Map<
     string,
-    { prefixes: Set<string>; scopeKeys: Set<string>; revision: string }
+    {
+      prefixes: Set<string>
+      scopeKeys: Set<string>
+      revision: string
+      owners: StampOwner[]
+    }
   >()
   for (const row of rows) {
     const prefixes = adapter.managedPaths(row.scope)
@@ -110,7 +150,12 @@ export async function syncConnectionSources(input: {
       prefixes: new Set<string>(),
       scopeKeys: new Set<string>(),
       revision: row.revision,
+      owners: [],
     }
+    entry.owners.push({
+      prefixes,
+      sourcePath: checkSourcePath(row.sourceKey).ok ? row.sourceKey : null,
+    })
     for (const prefix of prefixes) entry.prefixes.add(prefix)
     entry.scopeKeys.add(JSON.stringify(row.scope))
     byWorkspace.set(row.workspaceId, entry)
@@ -120,6 +165,9 @@ export async function syncConnectionSources(input: {
     rows.map((row) => [JSON.stringify(row.scope), row.scope]),
   )
   const scopes = [...scopesByKey.values()]
+  const existing = input.readExisting
+    ? await readExistingManaged(byWorkspace, input.readExisting)
+    : undefined
   const fetchInput = {
     orgId: input.orgId,
     connectionId: input.connectionId,
@@ -127,9 +175,7 @@ export async function syncConnectionSources(input: {
     env: input.env,
     event: input.event,
     countFailures: !input.manual,
-    existing: input.readExisting
-      ? await readExistingManaged(byWorkspace, input.readExisting)
-      : undefined,
+    existing: existing?.files,
   }
   const fetched = await adapter.fetch(fetchInput)
   const result: SourceFetchResult = Array.isArray(fetched)
@@ -177,10 +223,24 @@ export async function syncConnectionSources(input: {
     const keepPrefixes = kept
       .filter((path) => underAny(path, ownedPrefixes))
       .sort()
-    const files = all.filter((file) => underAny(file.path, ownedPrefixes))
+    const fetchedFiles = all
+      .filter((file) => underAny(file.path, ownedPrefixes))
+      .map((file) => stampFile(file, stampOwnerOf(entry.owners, file.path)))
     const deletePaths = result.deletePaths?.filter(
       (path) => underAny(path, ownedPrefixes) && !underAny(path, keepPrefixes),
     )
+    // A file that the adapter did not write again and that stays gets only
+    // its new stamp, from Git: a capture-only provider (Slack) or a source
+    // rename does not fetch it again.
+    const fetched = new Set(fetchedFiles.map((file) => file.path))
+    const stays = (path: string) =>
+      deletePaths ? !deletePaths.includes(path) : underAny(path, keepPrefixes)
+    const files = [
+      ...fetchedFiles,
+      ...(existing?.restamps.get(workspaceId) ?? []).filter(
+        (file) => !fetched.has(file.path) && stays(file.path),
+      ),
+    ]
     const allKept = ownedPrefixes.every((prefix) =>
       keepPrefixes.includes(prefix),
     )
@@ -203,22 +263,42 @@ export async function syncConnectionSources(input: {
 }
 
 /**
+ * Add the `sources` front matter (ADR-050) to a Markdown file of a mirror.
+ * A file with no front matter, or with no source path, stays as it is.
+ */
+function stampFile(file: GitFileChange, sourcePath: string | null) {
+  if (!sourcePath || !file.path.endsWith(".md") || file.encoding === "base64")
+    return file
+  return { ...file, content: stampSources(file.content, [sourcePath]) }
+}
+
+/**
  * The managed files of the Workspaces. A path has its sha only when each
- * Workspace that owns the path has the same blob there.
+ * Workspace that owns the path has the same blob there. Also the files of
+ * each Workspace that need a new `sources` stamp.
  */
 async function readExistingManaged(
-  byWorkspace: ReadonlyMap<string, { prefixes: Set<string> }>,
+  byWorkspace: ReadonlyMap<
+    string,
+    { prefixes: Set<string>; owners: readonly StampOwner[] }
+  >,
   read: (
     workspaceId: string,
-  ) => Promise<ReadonlyArray<{ path: string; sha: string }>>,
-): Promise<Array<{ path: string; sha: string | null }>> {
+    owners: readonly StampOwner[],
+  ) => Promise<ReadonlyArray<ExistingBlob>>,
+): Promise<{
+  files: Array<{ path: string; sha: string | null }>
+  restamps: Map<string, GitFileChange[]>
+}> {
+  const restamps = new Map<string, GitFileChange[]>()
   const shas = new Map<string, string | null>()
   const seen = new Map<string, number>()
   const trees: string[][] = []
   for (const [workspaceId, entry] of byWorkspace) {
     const prefixes = [...entry.prefixes]
     trees.push(prefixes)
-    for (const blob of await read(workspaceId)) {
+    const restamped: GitFileChange[] = []
+    for (const blob of await read(workspaceId, entry.owners)) {
       if (!underAny(blob.path, prefixes)) continue
       seen.set(blob.path, (seen.get(blob.path) ?? 0) + 1)
       const before = shas.get(blob.path)
@@ -226,9 +306,12 @@ async function readExistingManaged(
         blob.path,
         before === undefined || before === blob.sha ? blob.sha : null,
       )
+      if (blob.restamped !== undefined)
+        restamped.push({ path: blob.path, content: blob.restamped })
     }
+    restamps.set(workspaceId, restamped)
   }
-  return [...shas].map(([path, sha]) => ({
+  const files = [...shas].map(([path, sha]) => ({
     path,
     sha:
       seen.get(path) ===
@@ -236,6 +319,7 @@ async function readExistingManaged(
         ? sha
         : null,
   }))
+  return { files, restamps }
 }
 
 /**

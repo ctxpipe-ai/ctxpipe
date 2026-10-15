@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest"
-import { githubSourceRepositories } from "./github-sources.js"
+import {
+  githubSourcePathOf,
+  githubSourceRepositories,
+} from "./github-sources.js"
 
 const connections = new Set(["con_github1"])
 
@@ -154,5 +157,58 @@ describe("githubSourceRepositories", () => {
         path: ".ctxpipe/sources.yaml",
       },
     ])
+  })
+})
+
+describe("githubSourcePathOf", () => {
+  const pin = (gitUrl: string) => ({
+    provider: "github",
+    repositories: [
+      {
+        id: "wlr_1",
+        gitUrl,
+        ref: null,
+        desiredSha: null,
+        indexedSha: null,
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+    ],
+  })
+
+  it("finds the source file that pins the repository, whatever its path", () => {
+    const rows = [
+      {
+        id: "a",
+        provider: "github",
+        sourceKey: "sources/github/acme/web.md",
+        state: pin("https://github.com/acme/web"),
+      },
+      {
+        id: "b",
+        provider: "github",
+        sourceKey: "sources/github/team/api-renamed.md",
+        state: pin("https://github.com/acme/api"),
+      },
+    ]
+    expect(githubSourcePathOf(rows, "https://github.com/Acme/API.git")).toBe(
+      "sources/github/team/api-renamed.md",
+    )
+    expect(githubSourcePathOf(rows, "https://github.com/acme/none")).toBeNull()
+  })
+
+  it("ignores a row whose key is not a source path", () => {
+    expect(
+      githubSourcePathOf(
+        [
+          {
+            id: "a",
+            provider: "github",
+            sourceKey: "legacy-key",
+            state: pin("https://github.com/acme/web"),
+          },
+        ],
+        "https://github.com/acme/web",
+      ),
+    ).toBeNull()
   })
 })

@@ -4,14 +4,14 @@ import { getSystemDb } from "../../db/client.js"
 import { log } from "../../observability/logger.js"
 import { enqueueWorkspaceWriteCommit } from "../../openworkflow/enqueue-workspace-write-commit.js"
 import {
-  listTreeBlobs,
   readGitPackFromRemote,
   withGitDirectory,
 } from "../../services/git/pack.js"
 import { resolveWorkspaceReadRevision } from "../workspaces/resolve-revision.js"
+import { listExistingBlobs } from "./existing-blobs.js"
 import { diffSlice } from "./slice-diff.js"
 import { readSliceTarget } from "./slice-target.js"
-import type { WorkspaceSliceWrite } from "./sync.js"
+import type { ExistingBlob, StampOwner, WorkspaceSliceWrite } from "./sync.js"
 
 /**
  * The production slice writer: read the Workspace head, drop the write when
@@ -84,7 +84,9 @@ export async function readWorkspaceBlobs(input: {
   orgId: string
   workspaceId: string
   env: Env
-}): Promise<Array<{ path: string; sha: string }>> {
+  /** The managed paths to read, with the source path stamped there. */
+  owners: readonly StampOwner[]
+}): Promise<ExistingBlob[]> {
   const org = await getSystemDb().query.organizations.findFirst({
     where: { id: { eq: input.orgId } },
   })
@@ -105,7 +107,7 @@ export async function readWorkspaceBlobs(input: {
     })
     return withGitDirectory(
       pack.sha,
-      (directory) => listTreeBlobs(directory, pack.sha),
+      (directory) => listExistingBlobs(directory, pack.sha, input.owners),
       pack,
     )
   })

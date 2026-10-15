@@ -165,8 +165,13 @@ export async function readGitPackFromRemote(input: {
 export async function listTreeBlobs(
   directory: string,
   treeish: string,
+  /** Only the blobs under these paths, when set. */
+  paths?: readonly string[],
 ): Promise<Array<{ path: string; sha: string }>> {
-  return (await nativeGit(directory, ["ls-tree", "-r", "-z", treeish]))
+  const pathspec = paths ? ["--", ...paths] : []
+  return (
+    await nativeGit(directory, ["ls-tree", "-r", "-z", treeish, ...pathspec])
+  )
     .toString()
     .split("\0")
     .flatMap((entry) => {
