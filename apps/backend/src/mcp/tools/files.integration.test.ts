@@ -167,18 +167,24 @@ function codesearch() {
         REPOSITORY_FILES[repositoryOf(String(params.repoId))] ?? {},
       )
       const prefix = body.path ? `${body.path}/` : ""
+      // "*" lists one level; "{*,*/*}" lists two, and so on.
+      const depth = body.pattern === "*" ? 1 : body.pattern.split(",").length
       const children = new Map<string, "file" | "dir">()
       for (const file of files) {
         if (!file.startsWith(prefix)) continue
-        const [name, ...rest] = file.slice(prefix.length).split("/")
-        if (name) children.set(name, rest.length > 0 ? "dir" : "file")
+        const parts = file.slice(prefix.length).split("/")
+        for (let level = 1; level <= Math.min(depth, parts.length); level++)
+          children.set(
+            parts.slice(0, level).join("/"),
+            level < parts.length ? "dir" : "file",
+          )
       }
       if (children.size === 0) {
         return HttpResponse.json({ error: "Path not found" }, { status: 404 })
       }
-      const entries = [...children].map(([name, type]) => ({
-        name,
-        path: `${prefix}${name}`,
+      const entries = [...children].map(([relative, type]) => ({
+        name: relative.split("/").at(-1),
+        path: `${prefix}${relative}`,
         type,
       }))
       return HttpResponse.json({
@@ -746,45 +752,79 @@ describe("read_file and list_files (Postgres + msw codesearch + MCP SDK Client)"
   })
 
   describe("list_files", () => {
-    it("lists one folder level of the Workspace repository with refs for files", async () => {
+    it("lists two folder levels of the Workspace repository with sizes and unit counts", async () => {
+      const size = (path: string) => Buffer.byteLength(UNITS[path] ?? "")
       const root = await call("list_files", {})
       expect(root.structuredContent).toEqual({
         repository: null,
         path: "",
         served: { branch: "main", sha: sha1 },
         entries: [
-          { path: "knowledge", type: "dir" },
-          { path: "slack", type: "dir" },
-        ],
-      })
-      const knowledge = await call("list_files", { path: "knowledge/" })
-      expect(knowledge.structuredContent).toMatchObject({
-        path: "knowledge",
-        entries: [
-          { path: "knowledge/runbooks", type: "dir" },
-          { path: "knowledge/services", type: "dir" },
-          { path: "knowledge/big.md", type: "file", ref: "knowledge/big.md" },
+          { path: "knowledge", type: "dir", units: 6 },
+          {
+            path: "knowledge/big.md",
+            type: "file",
+            ref: "knowledge/big.md",
+            size: size("knowledge/big.md"),
+          },
           {
             path: "knowledge/front-matter.md",
             type: "file",
             ref: "knowledge/front-matter.md",
+            size: Buffer.byteLength(FRONT_MATTER_UNIT.body),
           },
           {
             path: "knowledge/long-line.md",
             type: "file",
             ref: "knowledge/long-line.md",
+            size: size("knowledge/long-line.md"),
           },
           {
             path: "knowledge/quotes.md",
             type: "file",
             ref: "knowledge/quotes.md",
+            size: size("knowledge/quotes.md"),
+          },
+          { path: "knowledge/runbooks", type: "dir", units: 1 },
+          { path: "knowledge/services", type: "dir", units: 1 },
+          { path: "slack", type: "dir", units: 1 },
+          { path: "slack/threads", type: "dir", units: 1 },
+        ],
+      })
+      const knowledge = await call("list_files", {
+        path: "knowledge/",
+        depth: 1,
+      })
+      expect(knowledge.structuredContent).toMatchObject({
+        path: "knowledge",
+        entries: [
+          { path: "knowledge/big.md", type: "file" },
+          { path: "knowledge/front-matter.md", type: "file" },
+          { path: "knowledge/long-line.md", type: "file" },
+          { path: "knowledge/quotes.md", type: "file" },
+          { path: "knowledge/runbooks", type: "dir", units: 1 },
+          { path: "knowledge/services", type: "dir", units: 1 },
+        ],
+      })
+      const runbooks = await call("list_files", {
+        path: "knowledge",
+        depth: 5,
+        glob: "**/d*.md",
+      })
+      expect(runbooks.structuredContent).toMatchObject({
+        entries: [
+          {
+            path: "knowledge/runbooks/deploy.md",
+            type: "file",
+            size: size("knowledge/runbooks/deploy.md"),
           },
         ],
       })
+      expect((await call("list_files", { depth: 6 })).isError).toBe(true)
       expect(captured).toEqual([])
     })
 
-    it("lists a folder of a linked repository with handle:path refs", async () => {
+    it("lists two folder levels of a linked repository with handle:path refs", async () => {
       const result = await call("list_files", {
         repository: `https://github.com/${handle("payments-api")}.git`,
       })
@@ -793,14 +833,34 @@ describe("read_file and list_files (Postgres + msw codesearch + MCP SDK Client)"
         path: "",
         served: { branch: "main", sha: sha2 },
         entries: [
-          { path: "src", type: "dir" },
           {
             path: "README.md",
             type: "file",
             ref: `${handle("payments-api")}:README.md`,
           },
+          { path: "src", type: "dir" },
+          {
+            path: "src/index.ts",
+            type: "file",
+            ref: `${handle("payments-api")}:src/index.ts`,
+          },
+          {
+            path: "src/limits.ts",
+            type: "file",
+            ref: `${handle("payments-api")}:src/limits.ts`,
+          },
         ],
       })
+      expect(captured.at(-1)?.body).toMatchObject({ pattern: "{*,*/*}" })
+      const globbed = await call("list_files", {
+        repository: handle("payments-api"),
+        glob: "src/l*.ts",
+      })
+      expect(
+        (
+          globbed.structuredContent as { entries: Array<{ path: string }> }
+        ).entries.map((entry) => entry.path),
+      ).toEqual(["src/limits.ts"])
       const src = await call("list_files", {
         repository: handle("payments-api"),
         path: "src",
@@ -873,7 +933,10 @@ describe("read_file and list_files (Postgres + msw codesearch + MCP SDK Client)"
         repository: handle("huge-api"),
         truncated: true,
       })
-      expect(captured[0]?.body).toMatchObject({ pattern: "*", limit: 5_000 })
+      expect(captured[0]?.body).toMatchObject({
+        pattern: "{*,*/*}",
+        limit: 5_000,
+      })
     })
 
     it("refuses a .git folder of a repository", async () => {
