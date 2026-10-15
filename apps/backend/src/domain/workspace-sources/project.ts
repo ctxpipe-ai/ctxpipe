@@ -24,6 +24,8 @@ export async function projectWorkspaceSources(input: {
   workspaceId: string
   revision: string
   text: string | null
+  /** The `repositories/*.md` files that cannot move, with the reason. */
+  leftoverFiles?: ReadonlyArray<{ path: string; reason: string }>
   env: Env
   adapters?: Partial<Record<SourceProvider, SourceAdapter>>
 }) {
@@ -47,7 +49,12 @@ export async function projectWorkspaceSources(input: {
       env: input.env,
     })
   }
-  const rows = await planSourceRows({ text, connections, checkAccess })
+  const rows = await planSourceRows({
+    text,
+    connections,
+    checkAccess,
+    leftoverFiles: input.leftoverFiles,
+  })
   return replaceWorkspaceSourceRows({
     orgId: input.orgId,
     workspaceId: input.workspaceId,

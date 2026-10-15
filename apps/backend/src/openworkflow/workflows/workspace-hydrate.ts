@@ -13,6 +13,7 @@ import {
 } from "../../domain/workspaces/hydrate.js"
 import { importKeyCleanupRemainder } from "../../domain/workspaces/hydrate-write-jobs.js"
 import { planHydrateWrites } from "../../domain/workspaces/hydrate-write-planner.js"
+import { upgradeLinkedRepositories } from "../../domain/workspaces/migration-export.js"
 import { nativeRenameRewriteFiles } from "../../domain/workspaces/native-rename-rewrite.js"
 import {
   resolveRepositoryReadCredential,
@@ -459,6 +460,16 @@ export const workspaceHydrate = defineWorkflow(
                     workspaceId: workspace.id,
                     revision: revision.sha,
                     text: sourcesFile,
+                    leftoverFiles: revision.remote.connectionId
+                      ? upgradeLinkedRepositories({
+                          sourcesFile,
+                          connectionId: revision.remote.connectionId,
+                          files,
+                        }).skipped.map(({ item, reason }) => ({
+                          path: item,
+                          reason,
+                        }))
+                      : [],
                     env,
                   }),
               )
