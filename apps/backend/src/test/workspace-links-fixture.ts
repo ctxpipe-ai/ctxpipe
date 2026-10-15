@@ -7,6 +7,7 @@ import { generateObjectId } from "../lib/id.js"
 import {
   type GithubRepositoryPin,
   githubPins,
+  planSourceStates,
   type SourceState,
 } from "../models/workspace-source-state.js"
 import { orgSql } from "../models/workspace-sql.js"
@@ -78,6 +79,40 @@ export async function insertLinkedRepositoryRows(
         state,
       })
   }
+}
+
+/**
+ * Insert `workspace_sources` rows with the state that the sources projection
+ * gives them, so a GitHub row links the repositories of its scope. Tests use
+ * it where they have no `.ctxpipe/sources.yaml` to project.
+ */
+export async function insertProjectedSourceRows(
+  db: Db | Tx,
+  rows: Array<typeof workspaceSources.$inferInsert>,
+): Promise<void> {
+  const states = new Map<string, SourceState | Record<string, never>>()
+  for (const workspaceId of new Set(rows.map((row) => row.workspaceId))) {
+    const planned = rows
+      .filter((row) => row.workspaceId === workspaceId)
+      .map((row) => ({
+        sourceKey: row.sourceKey,
+        provider: row.provider ?? null,
+        status: row.status,
+        scope: row.scope ?? {},
+      }))
+    for (const [sourceKey, state] of planSourceStates({
+      existing: [],
+      planned,
+      workspaceUrl: null,
+    }))
+      states.set(`${workspaceId} ${sourceKey}`, state)
+  }
+  await db.insert(workspaceSources).values(
+    rows.map((row) => ({
+      ...row,
+      state: states.get(`${row.workspaceId} ${row.sourceKey}`) ?? {},
+    })),
+  )
 }
 
 /** Link repositories in the current org context. */

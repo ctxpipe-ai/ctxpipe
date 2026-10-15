@@ -20,10 +20,12 @@ import {
 import { organizations } from "../../db/schema/auth.js"
 import { repositories } from "../../db/schema/repositories.js"
 import { repositoryCheckouts } from "../../db/schema/repository_checkouts.js"
-import { workspaceSources } from "../../db/schema/workspace_sources.js"
 import { workspaces } from "../../db/schema/workspaces.js"
 import { generateObjectId } from "../../lib/id.js"
-import { insertLinkedRepositoryRows } from "../../test/workspace-links-fixture.js"
+import {
+  insertLinkedRepositoryRows,
+  insertProjectedSourceRows,
+} from "../../test/workspace-links-fixture.js"
 import {
   findSymbolAcrossRepositories,
   resolveCodeScope,
@@ -206,7 +208,7 @@ describe("org-level code search (Postgres + msw codesearch)", () => {
         })),
       )
       // The sources projection links alpha again (another URL form) and gamma to ledger.
-      await db.insert(workspaceSources).values([
+      await insertProjectedSourceRows(db, [
         {
           id: generateObjectId("wsrc"),
           orgId: org.id,

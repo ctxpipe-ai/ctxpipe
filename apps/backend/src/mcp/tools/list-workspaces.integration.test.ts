@@ -10,12 +10,14 @@ import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../../test/db.js"
 import type { AppEnv } from "../../app/env.js"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
-import { workspaceSources } from "../../db/schema/workspace_sources.js"
 import { workspaces } from "../../db/schema/workspaces.js"
 import { generateObjectId } from "../../lib/id.js"
 import { registerMcpRoutes } from "../../routes/mcp.js"
 import { withTestRequestLogger } from "../../test/hono-test-logger.js"
-import { insertLinkedRepositoryRows } from "../../test/workspace-links-fixture.js"
+import {
+  insertLinkedRepositoryRows,
+  insertProjectedSourceRows,
+} from "../../test/workspace-links-fixture.js"
 import { estimateTokens } from "../framework/budget.js"
 import { loadServerInstructions } from "../framework/instructions.js"
 import { registerMcpReadTools } from "../framework/tool-registry.js"
@@ -187,7 +189,7 @@ describe("list_workspaces through MCP", () => {
           gitUrl: "https://gitlab.example.com/example/api",
         },
       ])
-      await db.insert(workspaceSources).values([
+      await insertProjectedSourceRows(db, [
         {
           id: generateObjectId("wsrc"),
           orgId: seed.orgId,
@@ -236,6 +238,8 @@ describe("list_workspaces through MCP", () => {
         ],
         sources: [
           { key: "code", provider: "github", status: "ok" },
+          // The links of the Workspace are a GitHub source too (ADR-050).
+          { key: "linked-repositories", provider: "github", status: "ok" },
           { key: "tickets", provider: "linear", status: "out_of_access" },
         ],
         skipped: [],

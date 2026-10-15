@@ -21,12 +21,14 @@ import {
   organizations,
 } from "../db/schema/auth.js"
 import { oauthGrantOrganizations } from "../db/schema/oauth_grant_organizations.js"
-import { workspaceSources } from "../db/schema/workspace_sources.js"
 import { workspaces } from "../db/schema/workspaces.js"
 import { generateObjectId } from "../lib/id.js"
 import { registerMcpRoutes } from "../routes/mcp.js"
 import { withTestRequestLogger } from "../test/hono-test-logger.js"
-import { insertLinkedRepositoryRows } from "../test/workspace-links-fixture.js"
+import {
+  insertLinkedRepositoryRows,
+  insertProjectedSourceRows,
+} from "../test/workspace-links-fixture.js"
 import { mcpOrgSlugHash } from "./correlation.js"
 import { fitPage } from "./framework/budget.js"
 import {
@@ -310,8 +312,8 @@ describe("MCP tool framework (Postgres + MCP SDK Client)", () => {
         })),
       )
       // ADR-050: GitHub sources in .ctxpipe/sources.yaml link repositories
-      // too. Only an `ok` source counts.
-      await db.insert(workspaceSources).values([
+      // too. A source without a usable connection links nothing.
+      await insertProjectedSourceRows(db, [
         {
           id: generateObjectId("wsrc"),
           orgId: seed.orgId,
@@ -331,7 +333,7 @@ describe("MCP tool framework (Postgres + MCP SDK Client)", () => {
           sourceKey: "github-broken",
           provider: "github",
           scope: { repositories: ["example/broken"] },
-          status: "out_of_access",
+          status: "connection_missing",
           revision: sha1,
         },
       ])

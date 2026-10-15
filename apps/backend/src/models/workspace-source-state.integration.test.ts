@@ -122,11 +122,7 @@ describe("workspace source state (Postgres)", () => {
 
     // The linked-repositories API keeps the stable id.
     expect(
-      (
-        await inOrg(() =>
-          listLinkedRepositories(workspaceId),
-        )
-      )
+      (await inOrg(() => listLinkedRepositories(workspaceId)))
         .map((row) => row.id)
         .sort(),
     ).toEqual(next.map((pin) => pin.id).sort())
@@ -231,9 +227,7 @@ describe("workspace source state (Postgres)", () => {
       revision: "a".repeat(40),
       rows: plan,
     })
-    const [linked] = await inOrg(() =>
-      listLinkedRepositories(workspaceId),
-    )
+    const [linked] = await inOrg(() => listLinkedRepositories(workspaceId))
     if (!linked) throw new Error("web is not linked")
 
     await withOrgDbContext(seed.orgId, (db) =>
@@ -242,14 +236,8 @@ describe("workspace source state (Postgres)", () => {
         .set({ state: { provider: "github", repositories: "acme/web" } })
         .where(eq(workspaceSources.workspaceId, workspaceId)),
     )
-    expect(
-      await inOrg(() =>
-        listLinkedRepositories(workspaceId),
-      ),
-    ).toEqual([])
-    expect(
-      await inOrg(() => getLinkedReadBinding(linked.id)),
-    ).toBeNull()
+    expect(await inOrg(() => listLinkedRepositories(workspaceId))).toEqual([])
+    expect(await inOrg(() => getLinkedReadBinding(linked.id))).toBeNull()
 
     await replaceWorkspaceSourceRows({
       orgId: seed.orgId,
@@ -258,11 +246,9 @@ describe("workspace source state (Postgres)", () => {
       rows: plan,
     })
     expect(
-      (
-        await inOrg(() =>
-          listLinkedRepositories(workspaceId),
-        )
-      ).map((row) => row.gitUrl),
+      (await inOrg(() => listLinkedRepositories(workspaceId))).map(
+        (row) => row.gitUrl,
+      ),
     ).toEqual(["https://github.com/acme/web"])
   })
 })
