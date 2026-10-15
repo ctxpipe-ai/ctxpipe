@@ -21,6 +21,7 @@ import type {
 import {
   createPullRequestWithFiles,
   getFileContent,
+  listFilesInTree,
   listOpenPullRequestsByBranchPrefix,
 } from "../../services/github/installation-write-client.js"
 import { workspaceAllowsConversationEdits } from "../workspaces/chat-sandbox-policy.js"
@@ -28,26 +29,32 @@ import { WORKSPACE_WRITE_STATUSES } from "../workspaces/write-status.js"
 import { SOURCE_ADAPTERS } from "./adapter.js"
 import {
   applySourceFileChange,
-  assertSourceChangeShape,
   type SourceChange,
   SourceChangeError,
 } from "./edit.js"
 import { FILE_ERROR_SOURCE_KEY } from "./projection-plan.js"
 import { workspaceGithubRepository } from "./repository.js"
+import { checkSourcePath, SOURCE_FILES_FOLDER } from "./source-file.js"
 import {
   SOURCE_SCOPES,
-  SOURCES_FILE_PATH,
   type SourceProvider,
-  sourceKeySchema,
   sourceProviderSchema,
   summarizeSourceScope,
 } from "./sources-file.js"
 import { overlaySourceStatus } from "./status-overlay.js"
 
-/** Source PR branches: `ctxpipe/sources/<action>/<provider>/<key>-<ms>`. */
+/**
+ * Source PR branches: `ctxpipe/sources/<action>/<provider>/<name>-<ms>`.
+ * `<name>` is the source path without `sources/<provider>/` and `.md`, with
+ * `+` for each `/` (a path segment never has `+`). A rename names the old path.
+ */
 const SOURCE_BRANCH_PREFIX = "ctxpipe/sources/"
 const SOURCE_BRANCH =
-  /^ctxpipe\/sources\/(add|edit|remove)\/([a-z]+)\/(.+)-\d+$/
+  /^ctxpipe\/sources\/(add|edit|rename|remove)\/([a-z]+)\/(.+)-\d+$/
+
+function branchNameOf(path: string): string {
+  return path.split("/").slice(2).join("+").replace(/\.md$/, "")
+}
 
 function scopeSummary(row: WorkspaceSourceRow): string {
   const provider = sourceProviderSchema.safeParse(row.provider)
@@ -91,9 +98,9 @@ async function pendingChanges(
       if (!match || !provider.success) return []
       return [
         {
-          sourceKey: match[3] ?? "",
+          path: `${SOURCE_FILES_FOLDER}/${provider.data}/${(match[3] ?? "").replaceAll("+", "/")}.md`,
           provider: provider.data,
-          action: match[1] as "add" | "edit" | "remove",
+          action: match[1] as "add" | "edit" | "rename" | "remove",
           pullRequestUrl: pull.pullUrl,
           createdAt: pull.createdAt,
         },
@@ -112,18 +119,18 @@ async function pendingChanges(
 
 /**
  * Whether a source pull request still applies to the default branch: a
- * remove or an edit needs its source id there, and an add needs the id to be
- * free. A change that happened another way leaves its pull request open.
+ * remove, an edit, or a rename needs its source path there, and an add needs
+ * the path to be free. A change that happened another way leaves its pull request open.
  * While the file cannot be read, every pull request shows.
  */
 function stillApplies(
-  change: { action: SourceChange["action"]; sourceKey: string },
-  sourceKeys: ReadonlySet<string>,
+  change: { action: SourceChange["action"]; path: string },
+  sourcePaths: ReadonlySet<string>,
 ): boolean {
-  if (sourceKeys.has(FILE_ERROR_SOURCE_KEY)) return true
+  if (sourcePaths.has(FILE_ERROR_SOURCE_KEY)) return true
   return change.action === "add"
-    ? !sourceKeys.has(change.sourceKey)
-    : sourceKeys.has(change.sourceKey)
+    ? !sourcePaths.has(change.path)
+    : sourcePaths.has(change.path)
 }
 
 export async function listWorkspaceSources(
@@ -146,15 +153,15 @@ export async function listWorkspaceSources(
     adapters: SOURCE_ADAPTERS,
   })
   const fileRow = rows.find((row) => row.sourceKey === FILE_ERROR_SOURCE_KEY)
-  const sourceKeys = new Set(projected.map((row) => row.sourceKey))
+  const sourcePaths = new Set(projected.map((row) => row.sourceKey))
   return {
-    path: SOURCES_FILE_PATH,
+    path: SOURCE_FILES_FOLDER,
     revision: rows[0]?.revision ?? null,
     fileError: fileRow?.statusDetail ?? null,
     items: rows
       .filter((row) => row.sourceKey !== FILE_ERROR_SOURCE_KEY)
       .map((row) => ({
-        sourceKey: row.sourceKey,
+        path: row.sourceKey,
         provider: sourceProviderSchema.safeParse(row.provider).data ?? null,
         connectionId: row.connectionId,
         connectionName: row.connectionId
@@ -164,15 +171,15 @@ export async function listWorkspaceSources(
         scopeSummary: scopeSummary(row),
         status: row.status,
         statusDetail: row.statusDetail,
-        // A row of an entry without a valid id, or of a repository file,
-        // has no id in the file that a remove can name.
-        removable: sourceKeySchema.safeParse(row.sourceKey).success,
+        // A row of a legacy entry or of a repository file has no source
+        // file that a remove can name.
+        removable: checkSourcePath(row.sourceKey).ok,
         revision: row.revision,
         updatedAt: row.updatedAt.toISOString(),
       })),
     ...editPolicy(workspace),
     pendingChanges: (await pendingChanges(workspace)).filter((change) =>
-      stillApplies(change, sourceKeys),
+      stillApplies(change, sourcePaths),
     ),
     linkErrors: (await listRefusedLinkEdits(workspace.id)).map((edit) => ({
       ...edit,
@@ -199,10 +206,35 @@ async function assertConnection(
     )
 }
 
+/** Read each file of `paths` from the default branch, a few at a time. */
+async function readFiles(
+  repository: NonNullable<ReturnType<typeof workspaceGithubRepository>>,
+  paths: readonly string[],
+) {
+  const files: Array<{ path: string; content: string }> = []
+  for (let start = 0; start < paths.length; start += 8) {
+    const batch = await Promise.all(
+      paths.slice(start, start + 8).map(async (path) => ({
+        path,
+        content: await getFileContent({ ...repository, path }),
+      })),
+    )
+    for (const file of batch)
+      if (file.content !== undefined)
+        files.push({ path: file.path, content: file.content })
+  }
+  return files
+}
+
+/** The most Markdown files that a rename reads to change their `sources` lists. */
+const RENAME_MAX_UNIT_FILES = 2000
+
 /**
- * Change `.ctxpipe/sources.yaml` on the Workspace default branch: by a PR
- * (awaiting merge) or by a queued direct commit. The projection follows the
- * file when the change lands; nothing here writes `workspace_sources`.
+ * Change one file under `sources/` on the Workspace default branch: by a PR
+ * (awaiting merge) or by a queued direct commit. A rename also changes the
+ * `sources` list of each unit that names the old path, in the same commit.
+ * The projection follows the files when the change lands; nothing here
+ * writes `workspace_sources`.
  */
 export async function changeWorkspaceSource(input: {
   workspace: WorkspaceRecord
@@ -210,7 +242,6 @@ export async function changeWorkspaceSource(input: {
   delivery: "pull_request" | "commit"
 }): Promise<WorkspaceSourceChangeResult> {
   const { workspace, change } = input
-  assertSourceChangeShape(change)
   const repository = workspaceGithubRepository(workspace)
   if (!repository)
     throw new SourceChangeError(
@@ -225,23 +256,46 @@ export async function changeWorkspaceSource(input: {
       409,
       "This Workspace does not accept a direct commit. Use a pull request.",
     )
-  if (change.action !== "remove")
+  if (change.action === "add" || change.action === "edit")
     await assertConnection(
       workspace.orgId,
       change.provider,
       change.connectionId,
     )
-  const current = await getFileContent({
-    ...repository,
-    path: SOURCES_FILE_PATH,
-  })
-  // A new id must also be free of every open source pull request: an open
+  const tree = await listFilesInTree(repository)
+  const files = await readFiles(
+    repository,
+    tree
+      .map((file) => file.path)
+      .filter((path) => path.startsWith(`${SOURCE_FILES_FOLDER}/`)),
+  )
+  let unitFiles: typeof files = []
+  if (change.action === "rename") {
+    const unitPaths = tree
+      .map((file) => file.path)
+      .filter(
+        (path) =>
+          path.endsWith(".md") && !path.startsWith(`${SOURCE_FILES_FOLDER}/`),
+      )
+    if (unitPaths.length > RENAME_MAX_UNIT_FILES)
+      throw new SourceChangeError(
+        409,
+        "This Workspace has too many files to rename a source here. Rename it in git.",
+      )
+    unitFiles = await readFiles(repository, unitPaths)
+  }
+  // A new path must also be free of every open source pull request: an open
   // "remove linear" would otherwise remove a new "linear" when it merges.
-  const reservedKeys =
+  const reservedPaths =
     change.action === "add"
-      ? new Set((await pendingChanges(workspace)).map((pull) => pull.sourceKey))
+      ? new Set((await pendingChanges(workspace)).map((pull) => pull.path))
       : undefined
-  const next = applySourceFileChange(current ?? null, change, reservedKeys)
+  const next = applySourceFileChange({
+    files,
+    unitFiles,
+    change,
+    reservedPaths,
+  })
 
   if (input.delivery === "commit") {
     const admitted = await enqueueWorkspaceWriteCommit(
@@ -249,8 +303,8 @@ export async function changeWorkspaceSource(input: {
         orgId: workspace.orgId,
         workspaceId: workspace.id,
         kind: "ui_file_edit",
-        mergeFiles: [{ path: SOURCES_FILE_PATH, content: next.text }],
-        mergeDeletePaths: [],
+        mergeFiles: next.writes,
+        mergeDeletePaths: next.deletes,
       },
       getLogger(),
     )
@@ -259,26 +313,34 @@ export async function changeWorkspaceSource(input: {
         409,
         "The commit could not be queued. Refresh the Workspace and try again.",
       )
-    return { outcome: "commit_queued", sourceKey: next.sourceKey }
+    return { outcome: "commit_queued", path: next.path }
   }
 
-  const verb = { add: "Add", edit: "Change", remove: "Remove" }[change.action]
-  const label = next.provider ? SOURCE_SCOPES[next.provider].label : "unknown"
+  const verb = {
+    add: "Add",
+    edit: "Change",
+    rename: "Rename",
+    remove: "Remove",
+  }[change.action]
+  const label = SOURCE_SCOPES[next.provider].label
+  // The branch names the path that a pull request changes: for a rename, the old one.
+  const branchPath = change.action === "rename" ? change.path : next.path
   // `branch` is the default branch. For createPullRequestWithFiles, `branch`
   // is the head of the pull request, so do not pass it.
   const { branch: baseBranch, ...target } = repository
   const pull = await createPullRequestWithFiles({
     ...target,
     baseBranch,
-    featureBranchPrefix: `${SOURCE_BRANCH_PREFIX}${change.action}/${next.provider ?? "unknown"}/${next.sourceKey}`,
-    title: `${verb} the ${label} source "${next.sourceKey}"`,
-    body: `ctx| changes \`${SOURCES_FILE_PATH}\`. When you merge this pull request, the Workspace syncs the new sources.`,
-    commitMessage: `${verb} the ${next.sourceKey} source`,
-    files: [{ path: SOURCES_FILE_PATH, content: next.text }],
+    featureBranchPrefix: `${SOURCE_BRANCH_PREFIX}${change.action}/${next.provider}/${branchNameOf(branchPath)}`,
+    title: `${verb} the ${label} source "${next.path}"`,
+    body: `ctx| changes \`${next.path}\`. When you merge this pull request, the Workspace syncs the new sources.`,
+    commitMessage: `${verb} the ${next.path} source`,
+    files: next.writes,
+    deletePaths: next.deletes,
   })
   return {
     outcome: "pull_request",
-    sourceKey: next.sourceKey,
+    path: next.path,
     pullRequestUrl: pull.pullUrl,
   }
 }
@@ -308,7 +370,7 @@ export async function listConnectionUsage(
       pendingChanges: [],
     }
     item.sources.push({
-      sourceKey: source.sourceKey,
+      path: source.sourceKey,
       provider: provider.data,
       status: source.status,
       scopeSummary: scopeSummary(source),
@@ -359,13 +421,13 @@ export async function listConnectionUsage(
       providers.has(change.provider),
     )
     if (!changes.length) continue
-    const sourceKeys = new Set(
+    const sourcePaths = new Set(
       (await listWorkspaceSourceRows({ orgId, workspaceId: workspace.id })).map(
         (row) => row.sourceKey,
       ),
     )
     const applying = changes.filter((change) =>
-      stillApplies(change, sourceKeys),
+      stillApplies(change, sourcePaths),
     )
     if (!applying.length) continue
     const item = byWorkspace.get(workspace.id) ?? {

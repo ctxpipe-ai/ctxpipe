@@ -9,8 +9,9 @@ import {
 } from "./workspace-route-shared.js"
 
 /**
- * The API contract for Workspace sources (`.ctxpipe/sources.yaml`) and for
- * "Used in" on a connection. The UI gets these types through the `hc` client.
+ * The API contract for Workspace sources (one Markdown file under `sources/`
+ * for each source, ADR-050) and for "Used in" on a connection. A source is
+ * named by its path, relative to the Workspace root folder. The UI gets these types through the `hc` client.
  */
 
 const ProviderSchema = z.enum(SOURCE_PROVIDERS).openapi("SourceProvider")
@@ -19,13 +20,13 @@ const ScopeSchema = z
   .record(z.string(), z.unknown())
   .openapi("WorkspaceSourceScope", {
     description:
-      "Provider scope: the entry in .ctxpipe/sources.yaml without id, provider, and connection",
+      "Provider scope: the front matter of the source file without provider and connection",
   })
 
 export const WorkspaceSourceSchema = z
   .object({
-    /** The file `id`: stable and unique in the file. */
-    sourceKey: z.string(),
+    /** The path of the source file, for example sources/github/acme/web.md. */
+    path: z.string(),
     provider: ProviderSchema.nullable(),
     connectionId: z.string().nullable(),
     /** The connection's display name, or null when the connection is missing. */
@@ -34,7 +35,7 @@ export const WorkspaceSourceSchema = z
     scopeSummary: z.string(),
     status: StatusSchema,
     statusDetail: z.string().nullable(),
-    /** False when the row has no id in the file, so a remove cannot name it. */
+    /** False when the row has no source file, so a remove cannot name it. */
     removable: z.boolean(),
     /** The Workspace commit SHA that the row came from. */
     revision: z.string(),
@@ -44,9 +45,10 @@ export const WorkspaceSourceSchema = z
 
 export const PendingSourceChangeSchema = z
   .object({
-    sourceKey: z.string(),
+    /** The path that the pull request changes (the old path for a rename). */
+    path: z.string(),
     provider: ProviderSchema,
-    action: z.enum(["add", "edit", "remove"]),
+    action: z.enum(["add", "edit", "rename", "remove"]),
     pullRequestUrl: z.string().url(),
     createdAt: z.string().datetime(),
   })
@@ -56,7 +58,7 @@ export const LinkErrorSchema = z
   .object({
     action: z.enum(["link", "unlink"]),
     gitUrl: z.string(),
-    /** Why the edit cannot go into the file. */
+    /** Why the edit cannot be made. */
     reason: z.string(),
     failedAt: z.string().datetime(),
   })
@@ -64,20 +66,20 @@ export const LinkErrorSchema = z
 
 export const WorkspaceSourceListResponseSchema = z
   .object({
-    /** The path of the config file in the Workspace repository. */
+    /** The folder of the source files in the Workspace repository. */
     path: z.string(),
     /** The Workspace revision of the projection, or null before the first one. */
     revision: z.string().nullable(),
-    /** A file-level error (bad YAML, wrong version). Entries are then empty. */
+    /** A file-level error of the legacy .ctxpipe/sources.yaml file, or null. */
     fileError: z.string().nullable(),
     items: z.array(WorkspaceSourceSchema),
     /** The user can change this Workspace's sources (by PR at least). */
     canEdit: z.boolean(),
-    /** The Workspace accepts a direct commit of the file (delivery `commit`). */
+    /** The Workspace accepts a direct commit of the change (delivery `commit`). */
     directCommitAllowed: z.boolean(),
-    /** Open PRs that change the file ("awaiting merge"). Join on `sourceKey`. */
+    /** Open PRs that change a source file ("awaiting merge"). Join on `path`. */
     pendingChanges: z.array(PendingSourceChangeSchema),
-    /** Repository link edits that cannot go into the file, newest first. */
+    /** Repository link edits that cannot be made, newest first. */
     linkErrors: z.array(LinkErrorSchema),
   })
   .openapi("WorkspaceSourceListResponse")
@@ -87,6 +89,11 @@ export const WorkspaceSourceInputSchema = z
     provider: ProviderSchema,
     connectionId: z.string().min(1),
     scope: ScopeSchema,
+    /**
+     * The body of the source file: what the source is for. An edit without it
+     * keeps the body. Send an empty string to clear it.
+     */
+    description: z.string().max(4000).optional(),
   })
   .openapi("WorkspaceSourceInput")
 
@@ -100,8 +107,11 @@ const DeliverySchema = z
 
 export const CreateWorkspaceSourceRequestSchema = z
   .object({
-    /** Optional. The server makes a key from the provider when absent. */
-    sourceKey: z.string().optional(),
+    /**
+     * Optional. The server names the file when absent:
+     * sources/github/<owner>/<name>.md for GitHub, else sources/<provider>/<provider>.md.
+     */
+    path: z.string().optional(),
     source: WorkspaceSourceInputSchema,
     delivery: DeliverySchema,
   })
@@ -109,36 +119,44 @@ export const CreateWorkspaceSourceRequestSchema = z
 
 export const UpdateWorkspaceSourceRequestSchema = z
   .object({
+    /** The path of the source file to change. */
+    path: z.string().min(1),
     source: WorkspaceSourceInputSchema,
     delivery: DeliverySchema,
   })
   .openapi("UpdateWorkspaceSourceRequest")
 
+export const RenameWorkspaceSourceRequestSchema = z
+  .object({
+    path: z.string().min(1),
+    /** The new path. The provider folder stays the same. */
+    newPath: z.string().min(1),
+    delivery: DeliverySchema,
+  })
+  .openapi("RenameWorkspaceSourceRequest", {
+    description:
+      "Move a source file. Each unit that names the old path in its sources list gets the new path in the same commit.",
+  })
+
 export const DeleteWorkspaceSourceQuerySchema = z
-  .object({ delivery: DeliverySchema })
+  .object({ path: z.string().min(1), delivery: DeliverySchema })
   .openapi("DeleteWorkspaceSourceQuery")
 
 export const WorkspaceSourceChangeResultSchema = z
   .discriminatedUnion("outcome", [
     z.object({
       outcome: z.literal("pull_request"),
-      sourceKey: z.string(),
+      /** The path of the changed file (the new path for a rename). */
+      path: z.string(),
       pullRequestUrl: z.string().url(),
     }),
     z.object({
       // The durable Workspace write queue commits to the default branch.
       outcome: z.literal("commit_queued"),
-      sourceKey: z.string(),
+      path: z.string(),
     }),
   ])
   .openapi("WorkspaceSourceChangeResult")
-
-export const WorkspaceSourceParamsSchema = z
-  .object({
-    workspaceSlug: z.string().min(1),
-    sourceKey: z.string().min(1),
-  })
-  .openapi("WorkspaceSourceParams")
 
 const errors = {
   400: {
@@ -156,7 +174,7 @@ const errors = {
   409: {
     content: { "application/json": { schema: ErrorResponseSchema } },
     description:
-      "Conflict: the key exists (add), the Workspace is read-only, or the file is not valid",
+      "Conflict: the path exists (add or rename), the Workspace is read-only, or the file is not valid",
   },
 } as const
 
@@ -178,7 +196,8 @@ export const listWorkspaceSourcesRoute = createRoute({
       content: {
         "application/json": { schema: WorkspaceSourceListResponseSchema },
       },
-      description: "The sources of this Workspace, from .ctxpipe/sources.yaml",
+      description:
+        "The sources of this Workspace, from the files under sources/",
     },
     401: errors[401],
     404: errors[404],
@@ -201,9 +220,9 @@ export const createWorkspaceSourceRoute = createRoute({
 
 export const updateWorkspaceSourceRoute = createRoute({
   method: "put",
-  path: "/{workspaceSlug}/sources/{sourceKey}",
+  path: "/{workspaceSlug}/sources",
   request: {
-    params: WorkspaceSourceParamsSchema,
+    params: WorkspaceSlugParamsSchema,
     body: {
       content: {
         "application/json": { schema: UpdateWorkspaceSourceRequestSchema },
@@ -213,11 +232,25 @@ export const updateWorkspaceSourceRoute = createRoute({
   responses: { ...changeOk, ...errors },
 })
 
+export const renameWorkspaceSourceRoute = createRoute({
+  method: "post",
+  path: "/{workspaceSlug}/sources/rename",
+  request: {
+    params: WorkspaceSlugParamsSchema,
+    body: {
+      content: {
+        "application/json": { schema: RenameWorkspaceSourceRequestSchema },
+      },
+    },
+  },
+  responses: { ...changeOk, ...errors },
+})
+
 export const deleteWorkspaceSourceRoute = createRoute({
   method: "delete",
-  path: "/{workspaceSlug}/sources/{sourceKey}",
+  path: "/{workspaceSlug}/sources",
   request: {
-    params: WorkspaceSourceParamsSchema,
+    params: WorkspaceSlugParamsSchema,
     query: DeleteWorkspaceSourceQuerySchema,
   },
   responses: { ...changeOk, ...errors },
@@ -232,7 +265,7 @@ export const ConnectionUsageItemSchema = z
     stat: z.string(),
     sources: z.array(
       z.object({
-        sourceKey: z.string(),
+        path: z.string(),
         provider: ProviderSchema,
         status: StatusSchema,
         scopeSummary: z.string(),

@@ -16,6 +16,7 @@ import {
   deleteWorkspaceSourceRoute,
   listConnectionWorkspacesRoute,
   listWorkspaceSourcesRoute,
+  renameWorkspaceSourceRoute,
   syncConnectionSourcesRoute,
   updateWorkspaceSourceRoute,
 } from "./workspace-sources-contract.js"
@@ -53,7 +54,7 @@ export const workspaceSourcesRoutes = new OpenAPIHono<AppEnv>()
     const body = c.req.valid("json")
     const out = await applyChange(
       c.req.valid("param").workspaceSlug,
-      { action: "add", sourceKey: body.sourceKey, ...body.source },
+      { action: "add", path: body.path, ...body.source },
       body.delivery,
     )
     if (out.status === 200) return c.json(out.result, 200)
@@ -62,11 +63,22 @@ export const workspaceSourcesRoutes = new OpenAPIHono<AppEnv>()
   .openapi(updateWorkspaceSourceRoute, async (c) => {
     if (!c.get("user") || !c.get("session"))
       return c.json({ error: "Unauthorized" }, 401)
-    const { workspaceSlug, sourceKey } = c.req.valid("param")
     const body = c.req.valid("json")
     const out = await applyChange(
-      workspaceSlug,
-      { action: "edit", sourceKey, ...body.source },
+      c.req.valid("param").workspaceSlug,
+      { action: "edit", path: body.path, ...body.source },
+      body.delivery,
+    )
+    if (out.status === 200) return c.json(out.result, 200)
+    return c.json({ error: out.error }, out.status)
+  })
+  .openapi(renameWorkspaceSourceRoute, async (c) => {
+    if (!c.get("user") || !c.get("session"))
+      return c.json({ error: "Unauthorized" }, 401)
+    const body = c.req.valid("json")
+    const out = await applyChange(
+      c.req.valid("param").workspaceSlug,
+      { action: "rename", path: body.path, newPath: body.newPath },
       body.delivery,
     )
     if (out.status === 200) return c.json(out.result, 200)
@@ -75,11 +87,11 @@ export const workspaceSourcesRoutes = new OpenAPIHono<AppEnv>()
   .openapi(deleteWorkspaceSourceRoute, async (c) => {
     if (!c.get("user") || !c.get("session"))
       return c.json({ error: "Unauthorized" }, 401)
-    const { workspaceSlug, sourceKey } = c.req.valid("param")
+    const { path, delivery } = c.req.valid("query")
     const out = await applyChange(
-      workspaceSlug,
-      { action: "remove", sourceKey },
-      c.req.valid("query").delivery,
+      c.req.valid("param").workspaceSlug,
+      { action: "remove", path },
+      delivery,
     )
     if (out.status === 200) return c.json(out.result, 200)
     return c.json({ error: out.error }, out.status)

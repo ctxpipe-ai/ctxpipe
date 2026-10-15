@@ -1,5 +1,6 @@
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
+import { SOURCES_FOLDER_PREFIX } from "../../domain/workspace-sources/source-tree.js"
 import { SOURCES_FILE_PATH } from "../../domain/workspace-sources/sources-file.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import { isLinkedRepositoryDeclaration } from "../../domain/workspaces/layout.js"
@@ -96,7 +97,7 @@ export const workspaceLinkUnlink = defineWorkflow(
         )
         // A lost push race reads the new tip and makes the same edit again.
         // A link edit never goes through the semantic merge: a model merge
-        // can break `.ctxpipe/sources.yaml`, and with it every link.
+        // can break a file under `sources/`, and with it a link.
         for (let attempt = 0; attempt < 8; attempt++) {
           let acquired: NonNullable<
             Awaited<ReturnType<typeof acquireWorkspaceWriteRevision>>
@@ -124,12 +125,10 @@ export const workspaceLinkUnlink = defineWorkflow(
                 acquired.pack,
                 (path) =>
                   path === SOURCES_FILE_PATH ||
+                  path.startsWith(SOURCES_FOLDER_PREFIX) ||
                   isLinkedRepositoryDeclaration(path),
               )
               return changeLinkedRepository({
-                sourcesFile:
-                  files.find((file) => file.path === SOURCES_FILE_PATH)
-                    ?.content ?? null,
                 files,
                 action: input.linkAction,
                 gitUrl: input.linkGitUrl,
