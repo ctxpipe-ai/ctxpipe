@@ -85,7 +85,7 @@ export function workspaceSourceChangeHandlers(
     calls.push({
       method: request.method,
       path: url.pathname,
-      query: Object.fromEntries(url.searchParams),
+      ...(url.search ? { query: Object.fromEntries(url.searchParams) } : {}),
       body,
     })
     const json = body as {
