@@ -466,7 +466,7 @@ it.each([
   },
   {
     name: "adds and then removes generated_by in two commits",
-    edit: `printf '%s' ${shellSingleQuote(HUMAN_UNIT.replace("name: Checkout\n", "name: Checkout\ngenerated_by: ctxpipe-extract\n"))} > knowledge/services/checkout.md && git -c user.name=Test -c user.email=test@example.test commit -qam add && printf '%s' ${shellSingleQuote(HUMAN_UNIT)} > knowledge/services/checkout.md && git -c user.name=Test -c user.email=test@example.test commit -qam remove`,
+    edit: `printf '%s' ${shellSingleQuote(HUMAN_UNIT.replace("name: Checkout\n", "name: Checkout\ngenerated_by: ctxpipe-extract\n"))} > knowledge/services/checkout.md && git -c user.name=Fixture -c user.email=fixture@example.test commit -qam add && printf '%s' ${shellSingleQuote(HUMAN_UNIT)} > knowledge/services/checkout.md && git -c user.name=Fixture -c user.email=fixture@example.test commit -qam remove`,
     reason: "host_only_field",
   },
 ] as Array<{

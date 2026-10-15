@@ -219,7 +219,7 @@ it.each([
   await expect(
     resolveSemanticConflicts(
       [{ path: "a.md", base: "one", current: "two", incoming: "three" }],
-      { origin: "host" },
+      { origin: "agent" },
     ),
   ).resolves.toEqual([{ path: "a.md", content: "merged" }])
   await expect(

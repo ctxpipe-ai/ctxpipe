@@ -116,6 +116,13 @@ const DIRECT_WRITE_ROUTES: ReadonlyArray<{
     expectedStatus: 404,
     orgAdmin: true,
   },
+  {
+    method: "PATCH",
+    path: "/connectors/slack/config?connectionId=con_missing",
+    body: { repositoryId: "repo_missing" },
+    expectedStatus: 404,
+    orgAdmin: true as const,
+  },
   ...(["linear", "notion", "pagerduty"] as const).flatMap((connector) => [
     {
       method: "PATCH",
@@ -411,6 +418,7 @@ describe("Direct-write REST routes need a session or the ctxpipe:write scope (Po
         `PATCH ${base}/connectors/${connector}/config`,
         `POST ${base}/connectors/${connector}/retry`,
       ]),
+      `PATCH ${base}/connectors/slack/config`,
     ]
     expect(stated.sort()).toEqual(
       [

@@ -778,6 +778,10 @@ it(
     withNativeIndexFixture(async (f) => {
       const { git, runner, org, workspaceId } = f
       git("branch", "-m", "trunk", "renamed")
+      const hydrates = sql`
+      from openworkflow.workflow_runs
+      where workflow_name = 'workspace-hydrate' and input->>'workspaceId' = ${workspaceId}
+    `
       for (const updated of [1, 0]) {
         const handle = await runner.runWorkflow(workspaceTipCheck.spec, {
           orgId: org.id,
@@ -786,16 +790,16 @@ it(
           updated,
           linkedUpdated: 0,
         })
+        const queued = await getSystemDb().execute<{
+          input: { revision: WorkspaceRevision }
+        }>(sql`select input ${hydrates}`)
+        expect(
+          queued.rows.map((row) => row.input.revision.defaultBranch),
+        ).toEqual(["renamed"])
+        // The queued hydrate is lost. An unfinished one would block a
+        // second hydrate of the same SHA.
+        await getSystemDb().execute(sql`delete ${hydrates}`)
       }
-      const queued = await getSystemDb().execute<{
-        input: { revision: WorkspaceRevision }
-      }>(sql`
-      select input from openworkflow.workflow_runs
-      where workflow_name = 'workspace-hydrate' and input->>'workspaceId' = ${workspaceId}
-    `)
-      expect(
-        queued.rows.map((row) => row.input.revision.defaultBranch),
-      ).toEqual(["renamed", "renamed"])
     }, true),
 )
 

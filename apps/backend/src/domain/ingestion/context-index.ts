@@ -231,8 +231,9 @@ async function changedFiles(
   const prefixLength = rootPath ? rootPath.length + 1 : 0
   const deleted: string[] = []
   const written: string[] = []
-  for (const { status, to: fullPath } of parseNameStatus(out)) {
-    const path = fullPath.slice(prefixLength)
+  for (const change of parseNameStatus(out)) {
+    const { status } = change
+    const path = change.to.slice(prefixLength)
     if (status.startsWith("D")) deleted.push(path)
     else written.push(path)
   }
