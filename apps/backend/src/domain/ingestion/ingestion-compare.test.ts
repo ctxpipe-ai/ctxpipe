@@ -8,6 +8,7 @@ import {
   p95,
   projectExtractedTree,
   type RunComparison,
+  renderComparisonMarkdown,
   unitKey,
 } from "./ingestion-compare.js"
 
@@ -391,5 +392,45 @@ describe("buildComparisonReport", () => {
     expect(p95([])).toBeNull()
     expect(p95([5, 1, 3])).toBe(5)
     expect(p95(Array.from({ length: 100 }, (_, i) => i + 1))).toBe(95)
+  })
+})
+
+describe("renderComparisonMarkdown", () => {
+  it("shows the decision, each criterion, and the differences of each Workspace", () => {
+    const w = compareWorkspace({
+      workspaceId: "ws_a",
+      oldCommit: "a".repeat(40),
+      shadowTip: "b".repeat(40),
+      old: oldTree(),
+      shadow: { units: [] },
+      run: { ops: 9, rejects: 1, partial: 0 },
+    })
+    const markdown = renderComparisonMarkdown(
+      buildComparisonReport(
+        [
+          {
+            shadowRunId: "run_v2",
+            oldRunId: null,
+            sourceUrl: SOURCE,
+            sha: "c".repeat(40),
+            status: "done",
+            durationMs: { old: 1000, shadow: 2000 },
+            costUsd: { old: null, shadow: null },
+            labels: null,
+            workspaces: [w],
+          },
+        ],
+        new Date(0),
+      ),
+    )
+    expect(markdown).toContain("Ready to publish: **no**")
+    expect(markdown).toContain("| unit_recall | fail | 0.0% (at least 90.0%) |")
+    expect(markdown).toContain("| reject_rate | fail | 10.0% (below 5.0%) |")
+    expect(markdown).toContain("| cost | unknown | n/a (old n/a) |")
+    expect(markdown).toContain("| p95_time | fail | 2000 ms (old 1000 ms) |")
+    expect(markdown).toContain("- Api Charges (`knowledge/apis/charges.md`)")
+    expect(markdown).toContain(
+      "- service/checkout-api DEPENDS_ON library/http-client",
+    )
   })
 })

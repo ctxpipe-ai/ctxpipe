@@ -628,3 +628,90 @@ export function buildComparisonReport(
     },
   }
 }
+
+const percent = (value: number | null) =>
+  value === null ? "n/a" : `${(value * 100).toFixed(1)}%`
+const amount = (value: number | null, unit: string) =>
+  value === null ? "n/a" : `${Number(value.toFixed(3))} ${unit}`
+
+/** The report as Markdown, for the Linear document of the T20 issue. */
+export function renderComparisonMarkdown(
+  report: IngestionComparisonReport,
+): string {
+  const t = report.totals
+  const value = (c: ExitCriterion) =>
+    c.id === "cost"
+      ? `${amount(c.actual, "USD")} (old ${amount(c.threshold, "USD")})`
+      : c.id === "p95_time"
+        ? `${amount(c.actual, "ms")} (old ${amount(c.threshold, "ms")})`
+        : c.id === "injections"
+          ? `${c.actual ?? "n/a"} (max ${c.threshold})`
+          : `${percent(c.actual)} (${c.id === "reject_rate" ? "below" : "at least"} ${percent(c.threshold)})`
+  const lines = [
+    `# Ingestion shadow comparison`,
+    "",
+    `Generated ${report.generatedAt}. Runs: ${report.runs.length}. Ready to publish: **${report.exit.ready ? "yes" : "no"}**.`,
+    "",
+    "| Criterion | Status | Value |",
+    "| -- | -- | -- |",
+    ...report.exit.criteria.map(
+      (c) => `| ${c.id} | ${c.status} | ${value(c)} |`,
+    ),
+    "",
+    `Units: ${t.units.matched} of ${t.units.old} old units found, ${t.units.shadow} shadow units. Claims: ${t.claims.matched} of ${t.claims.old} old claims found, ${t.claims.shadow} shadow claims. Ops ${t.ops}, rejects ${t.rejects}.`,
+  ]
+  if (t.labels)
+    lines.push(
+      "",
+      `Labeled set: units old ${t.labels.units.old} and shadow ${t.labels.units.shadow} of ${t.labels.units.expected}; claims old ${t.labels.claims.old} and shadow ${t.labels.claims.shadow} of ${t.labels.claims.expected}.`,
+    )
+  for (const run of report.runs) {
+    lines.push(
+      "",
+      `## ${run.sourceUrl} at ${run.sha.slice(0, 12)}`,
+      "",
+      `Shadow run ${run.shadowRunId} (${run.status}), old run ${run.oldRunId ?? "unknown"}. Time: old ${amount(run.durationMs.old, "ms")}, shadow ${amount(run.durationMs.shadow, "ms")}.`,
+    )
+    for (const w of run.workspaces) {
+      lines.push(
+        "",
+        `### Workspace ${w.workspaceId}`,
+        "",
+        `Unit recall ${percent(w.units.recall)} (${w.units.matched}/${w.units.old}), claim recall ${percent(w.claims.recall)} (${w.claims.matched}/${w.claims.old}), reject rate ${percent(w.quality.rejectRate)}, partial ${w.quality.partial}${w.quality.refused ? `, refused: ${w.quality.refused}` : ""}.`,
+      )
+      const list = (title: string, items: string[]) => {
+        if (items.length)
+          lines.push("", `${title}:`, ...items.map((i) => `- ${i}`))
+      }
+      list(
+        "Missing units",
+        w.units.missing.map((u) => `${u.kind} ${u.name} (\`${u.path}\`)`),
+      )
+      list(
+        "Extra units",
+        w.units.extra.map((u) => `${u.kind} ${u.name} (\`${u.path}\`)`),
+      )
+      list(
+        "Kind changes",
+        w.units.kindChanges.map(
+          (k) => `${k.name}: ${k.oldKind} to ${k.shadowKind}`,
+        ),
+      )
+      list(
+        "Missing claims",
+        w.claims.missing.map((c) => `${c.subject} ${c.predicate} ${c.object}`),
+      )
+      list(
+        "Extra claims",
+        w.claims.extra.map((c) => `${c.subject} ${c.predicate} ${c.object}`),
+      )
+      list(
+        "Injections through",
+        w.quality.injectionsThrough.map(
+          (i) => `${i.payloadId} in \`${i.path}\``,
+        ),
+      )
+    }
+  }
+  return `${lines.join("\n")}\n`
+}
