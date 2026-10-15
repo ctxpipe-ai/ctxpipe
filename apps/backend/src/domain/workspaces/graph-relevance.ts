@@ -215,8 +215,9 @@ function weightAll(predicates: readonly string[], weight: number) {
  * The turns of PR #350 become predicate weights. Each intent except `general`
  * first walks only its own edges and the link edges: on an unscoped walk, a
  * unit with many edges of one predicate (pull requests, notes) hides its
- * owner and its decisions. When that walk finds too few results,
- * `get_related` adds the results of a walk over all edges after them.
+ * owner and its decisions. When that walk finds fewer results than the
+ * limit, or no unit of an answer kind of the intent, `get_related` adds the
+ * results of a walk over all edges after them.
  */
 export const INTENT_PRESETS: Readonly<Record<RelevanceIntent, IntentPreset>> = {
   // The question is not known, so the results spread over kinds: else the
