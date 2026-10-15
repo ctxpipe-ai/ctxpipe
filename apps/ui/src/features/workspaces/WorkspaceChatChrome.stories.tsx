@@ -412,9 +412,15 @@ export const CtaButtonStyle: Story = {
     expect(sync.querySelector("svg.tabler-icon-external-link")).toBeNull()
     const rest = face.backgroundColor
     await userEvent.hover(sync)
-    await waitFor(() =>
-      expect(getComputedStyle(sync).backgroundColor).not.toBe(rest),
-    )
+    try {
+      await waitFor(() =>
+        expect(getComputedStyle(sync).backgroundColor).not.toBe(rest),
+      )
+    } catch (error) {
+      throw new Error(
+        `DIAG hovered=${sync.getAttribute("data-hovered")} rac=${sync.getAttribute("data-rac")} hoverMedia=${matchMedia("(hover: hover)").matches} pointer=${matchMedia("(pointer: fine)").matches} cls=${sync.className} colormix=${CSS.supports("color", "color-mix(in lab, red, red)")} bg=${getComputedStyle(sync).backgroundColor} rest=${rest} cause=${String(error)}`,
+      )
+    }
   },
 }
 
