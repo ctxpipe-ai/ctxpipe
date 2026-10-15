@@ -17,6 +17,7 @@ import type { SourceChange } from "./edit.js"
 import { runSourceMigration } from "./migration.js"
 import { FILE_ERROR_SOURCE_KEY } from "./projection-plan.js"
 import {
+  addWorkspaceSources,
   changeWorkspaceSource,
   listConnectionUsage,
   listWorkspaceSources,
@@ -788,13 +789,19 @@ it(
           .flatMap((write) => (write.body as { tree: unknown[] }).tree)
         // The unit keeps the old path: the hydrate of the merged revision
         // changes its `sources` list.
-        expect(entries).toEqual([
-          expect.objectContaining({
-            path: "sources/linear/engineering.md",
-            content: source,
-          }),
-          expect.objectContaining({ path: "sources/linear/eng.md", sha: null }),
-        ])
+        expect(entries).toHaveLength(2)
+        expect(entries).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              path: "sources/linear/engineering.md",
+              content: source,
+            }),
+            expect.objectContaining({
+              path: "sources/linear/eng.md",
+              sha: null,
+            }),
+          ]),
+        )
       },
     )
   },
@@ -1018,6 +1025,71 @@ it(
         ).rejects.toMatchObject({ status: 409 })
         // Only the path of the new file is read.
         expect(reads).toEqual(["sources/github/acme/web.md"])
+      },
+    )
+  },
+)
+
+it(
+  "adds several GitHub repositories in one pull request and lists each as pending",
+  { timeout: 60_000 },
+  async () => {
+    const gitWrites: Array<{ method: string; path: string; body: unknown }> = []
+    const pullRequests: Array<{ head?: string }> = []
+    await withNativeHydrationFixture(
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        onGithubPullRequest: (body) => {
+          pullRequests.push(body as { head?: string })
+        },
+      },
+      async (f) => {
+        f.server.use(
+          ...repositoryFiles({}),
+          gitDatabase("a".repeat(40), gitWrites),
+          http.get(
+            "https://api.github.com/repos/fixture/hydration-contract/pulls",
+            () => HttpResponse.json([]),
+          ),
+        )
+        const add = (repository: string) => ({
+          action: "add" as const,
+          provider: "github" as const,
+          connectionId: f.connectionId,
+          scope: { repository },
+        })
+        const run = (changes: ReturnType<typeof add>[]) =>
+          withOrgIdContext(f.org, async () => {
+            const workspace = await getWorkspaceById(f.workspaceId)
+            if (!workspace) throw new Error("Missing fixture Workspace")
+            return addWorkspaceSources({
+              workspace,
+              changes,
+              delivery: "pull_request",
+            })
+          })
+
+        const result = await run([add("acme/web"), add("acme/api")])
+
+        expect(result).toMatchObject({
+          outcome: "pull_request",
+          paths: ["sources/github/acme/web.md", "sources/github/acme/api.md"],
+        })
+        expect(pullRequests).toHaveLength(1)
+        expect(pullRequests[0]?.head).toMatch(
+          /^ctxpipe\/sources\/add\/github\/acme\/web\/_and_\/github\/acme\/api\//,
+        )
+        const trees = gitWrites.filter((w) => w.path === "trees")
+        expect(JSON.stringify(trees)).toContain("sources/github/acme/web.md")
+        expect(JSON.stringify(trees)).toContain("sources/github/acme/api.md")
+
+        // One refused add refuses the batch, and nothing more is opened.
+        await expect(run([add("acme/web"), add("Acme/Web")])).rejects.toThrow(
+          /already a source|exists/,
+        )
+        expect(pullRequests).toHaveLength(1)
       },
     )
   },

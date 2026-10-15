@@ -62,8 +62,9 @@ describe("Workspace sources HTTP routes (Postgres + git)", () => {
       status: "installed",
       botTokenEnc: encodeSlackBotTokenForDb("xoxb-test", parseEnv(process.env)),
     })
-    const workspaceId = await seed.addWorkspace("support")
     const repo = await seed.gitRepository()
+    // The list reads the source file bodies from this remote.
+    const workspaceId = await seed.addWorkspace("support", repo.dir)
     const sha = await repo.commit({
       ".ctxpipe/sources.yaml": `version: 1
 sources:

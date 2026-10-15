@@ -27,7 +27,7 @@ it("lists the body of each source file from git at the served revision", async (
   })
   const row = (path: string) => ({
     sourceKey: path,
-    provider: "linear",
+    provider: "linear" as const,
     connectionId: linear,
     scope: { teams: ["ENG"] },
     status: "ok" as const,
