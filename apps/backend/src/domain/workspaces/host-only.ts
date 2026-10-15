@@ -1,5 +1,6 @@
 import { isDeepStrictEqual } from "node:util"
 import { parseYamlObject, splitFrontMatter } from "../ingestion/front-matter.js"
+import type { HOST_FIELDS } from "../ingestion/patch-validator.js"
 
 /**
  * The Workspace paths that only the host writes (CTX-722). A source grants
@@ -22,11 +23,15 @@ export function isHostOnlyPath(path: string): boolean {
 }
 
 /**
- * The front matter fields that give a file to ingestion (ADR-052 section 3):
- * a file with `generated_by: ctxpipe-extract` and a source in `sources` is
- * the source's file, which ingestion can rewrite or delete.
+ * The host fields that give a file to ingestion (ADR-052 section 3): a file
+ * with `generated_by: ctxpipe-extract` and a source in `sources` is the
+ * source's file, which ingestion can rewrite or delete. The other host fields
+ * do not change who owns a file.
  */
-type OwnershipField = "generated_by" | "sources"
+type OwnershipField = Extract<
+  (typeof HOST_FIELDS)[number],
+  "generated_by" | "sources"
+>
 
 /**
  * The ownership field that an agent write adds or changes, or null. Only the

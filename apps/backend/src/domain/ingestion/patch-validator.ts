@@ -110,7 +110,8 @@ const PACKAGE_KINDS: ReadonlySet<string> = new Set([
   "App",
   "Library",
 ])
-const HOST_FIELDS = [
+/** The front matter fields that only the host sets. */
+export const HOST_FIELDS = [
   "generated_by",
   "sources",
   "root",
