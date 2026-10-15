@@ -118,7 +118,7 @@ export function conversationBranchPushTool(input: {
           pushed: false,
           reason: outcome.reason,
           uncommitted,
-          next: "Only ctx| writes .ctxpipe/ and the generated_by and sources front matter fields. Undo those changes in new commits (or rewrite the branch), then push again. Ask the user to edit sources on the Sources page.",
+          next: "Only ctx| writes .ctxpipe/ and the generated_by and sources front matter fields. A new commit that undoes the change is not sufficient, because each commit is checked. Remove the change from every unpushed commit (for example, `git reset --soft` to the last pushed commit, undo the change, and commit again), then push again. To change sources, tell the user to open Sources in the Workspace settings.",
         }
       return { pushed: false, reason: outcome.reason, uncommitted }
     },

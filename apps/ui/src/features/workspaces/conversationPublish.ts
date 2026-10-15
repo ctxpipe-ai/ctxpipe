@@ -154,9 +154,9 @@ const publishErrorMessages: Record<PublishErrorCode, string> = {
   no_changes: "There are no changes to publish.",
   no_write_access: "The ctx| GitHub App can't push to this repository.",
   host_only_path:
-    "Only ctx| changes the .ctxpipe folder. Ask the agent to undo those changes, or edit sources on the Sources page.",
+    "Only ctx| can change the .ctxpipe folder. Ask the agent to remove those changes from the branch, then publish again. To change sources, open Sources in the Workspace settings.",
   host_only_field:
-    "Only ctx| sets generated_by and sources in front matter. Ask the agent to undo those changes.",
+    "Only ctx| can set generated_by and sources in front matter. Ask the agent to remove those changes from the branch, then publish again.",
   no_pr_access:
     "The ctx| GitHub App can't open pull requests. Give it the Pull requests: Read and write permission.",
   stale_url: workspaceMoved,
